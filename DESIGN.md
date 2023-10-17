@@ -83,10 +83,10 @@ function factorial(n: i32): i32 {
 }
 ```
 
-## Interface
+## Struct
 
 ```typescript
-interface User {
+struct User {
   active: boolean;
   username: String;
   email: String;
@@ -101,15 +101,13 @@ const user = User({
 user.email = String.from("gg");
 ```
 
-### Interface method
+### Struct method
 
 ```typescript
-interface Rectangle {
+struct Rectangle {
   width: i32;
   height: i32;
-}
 
-implement Rectangle {
   function area(&self): i32 {
     return self.width * self.height;
   }
@@ -125,10 +123,14 @@ function main() {
 }
 ```
 
-### Trait
+## Union
+
+Same as `struct` but with `union` keyword.  
+
+### Interface
 
 ```typescript
-trait Summary {
+interface Summary {
   summarize: (&self) => String;
 }
 implement Summary {
@@ -138,7 +140,7 @@ implement Summary {
   }
 }
 
-interface NewsArticle {
+struct NewsArticle {
   headline: String;
   location: String;
   author: String;
@@ -228,7 +230,7 @@ function valueInCents(coin: Coin): u8 {
 ### Array
 
 ```typescript
-const v: Array<i32> = new Array();
+const v: Array<i32> = Array.new();
 const v2 = Array.from([1, 2, 3]);
 const value = v2.at(0);
 ```
@@ -236,14 +238,14 @@ const value = v2.at(0);
 ### String
 
 ```typescript
-const s = new String();
+const s = String.new();
 const s2 = String.from("Hello World!");
 ```
 
 ### Map
 
 ```typescript
-const m: Map<String, i32> = new Map();
+const m: Map<String, i32> = Map.new();
 const m2 = Map.from([
   [String.from("one"), 1],
   [String.from("two"), 2],
@@ -306,26 +308,72 @@ function main() {
 import { expect, expectWithoutThrow } from "std/testing";
 ```
 
-## Pointers
+## Reference
+
+> Use references wherever you can, and pointers wherever you must.
 
 ```typescript
 const x: i32 = 1234;
-const xPtr = &x;
-console.log("xPtr points to the value ", xPtr.*);
+const xRef: &const i32 = &x;
 
-expectWithoutThrow(xPtr.* == x);
-expectWithoutThrow(typeof(xPtr) == "const i32*");
+console.log("xRef points to the value ", xRef);
+```
 
-let y: i32 = 4321;
-const yPtr = &y;
-console.log("yPtr points to the value ", yPtr.*);
+## Raw Pointers (Dangerous)
 
-expectWithoutThrow(yPtr.* == y);
-expectWithoutThrow(typeof(yPtr) == "i32*");
+> Use references wherever you can, and pointers wherever you must.
+
+```typescript
+enum Pointer<T> {
+  PointTo(T),
+  Null,
+}
+
+const x: i32 = 1234;
+const xPtr: Pointer<i32> = PointTo(x);
+match (xPtr) {
+  when(Null): {
+    console.log("xPtr is null");
+  }
+  when(PointTo(x)): {
+    console.log("xPtr points to the value ", x);
+  }
+}
 ```
 
 ## Smart Pointers
 
 ```typescript
+const x = Box.new<i32>(1234);
+console.log("x points to the value ", x.*);
+```
 
+## C Language FFI
+
+```c
+// cfuncs.c
+#include "cfuncs.h"
+
+int numAddTen(int v) {
+  return v + 10;
+}
+```
+
+```c
+// cfuncs.h
+#ifndef C_FUNCS_H
+#define C_FUNCS_H
+
+extern int numAddTen(int v);
+
+#endif
+```
+
+```typescript
+import { cImport } from "std/c";
+const cFunctions = cImport("cfuncs.h", "cfuncs.c");
+
+function main() {
+  console.log(cFunctions.numAddTen(10));
+}
 ```
