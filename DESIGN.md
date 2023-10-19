@@ -9,12 +9,23 @@
   - [Types](#types)
     - [Primitive Types](#primitive-types)
   - [Control Flow](#control-flow)
-  - [Struct](#struct)
-    - [Struct method](#struct-method)
-  - [Enum](#enum)
+  - [Type](#type)
+    - [Type alias](#type-alias)
+    - [Method](#method)
+    - [Interface (Typeclass)](#interface-typeclass)
     - [Pattern Matching](#pattern-matching)
   - [Collections](#collections)
-    - [Vector](#vector)
+    - [Array](#array)
+    - [String](#string)
+    - [Map](#map)
+  - [Slice](#slice)
+  - [Error handling](#error-handling)
+  - [Recoverable Errors with Result](#recoverable-errors-with-result)
+  - [Test](#test)
+  - [Reference](#reference)
+  - [Raw Pointers (Dangerous)](#raw-pointers-dangerous)
+  - [Smart Pointers](#smart-pointers)
+  - [C Language FFI](#c-language-ffi)
 
 <!-- /code_chunk_output -->
 
@@ -23,9 +34,7 @@
 ```typescript
 import { console } from "std/io";
 
-function main() {
-  console.log("Hello World!");
-}
+console.log("Hello World!");
 ```
 
 ## Types
@@ -83,72 +92,108 @@ function factorial(n: i32): i32 {
 }
 ```
 
-## Struct
+## Type
 
 ```typescript
-struct User {
-  active: boolean;
-  username: String;
-  email: String;
-  age: i32;
-}
+type TypeConstructor<TypeVariable> =
+  | VariableConstructor(TypeVariable)
+```
 
+```typescript
+type User =
+  | User {
+    active: boolean;
+    username: String;
+    email: String;
+    age: i32;
+  }
 const user = User({
   active: true,
   username: String.from("johndoe"),
   email: String.from("test@gmail.com"),
 });
 user.email = String.from("gg");
+
+// NOTE:
+// User({...}) is different from User({...}, )
+
+type Option<T> =
+  | Some(T),
+  | None;
+
+export {
+  Option(..)
+};
+
+const none: Option<i32> = None;
+const some: Option<i32> = Some(42);
+
+enum IpAddr {
+  V4(u8, u8, u8, u8),
+  V6(String)
+}
+
+const home = V4(127, 0, 0, 1);
+const loopback = V6(String.from("::1"))
 ```
 
-### Struct method
+### Type alias
 
 ```typescript
-struct Rectangle {
+alias string = char[];
+```
+
+### Method
+
+```typescript
+type Rectangle = Rectangle {
   width: i32;
   height: i32;
+}
 
-  function area(&self): i32 {
+implement Rectangle {
+  function area(self: &Rectangle): i32 {
     return self.width * self.height;
   }
 
-  static function new(width: i32, height: i32): Rectangle {
-    return Rectangle({ width, height });
+  function new(): Rectangle {
+    return Rectangle({
+      width: 0,
+      height: 0,
+    });
   }
 }
 
+export Rectangle(Rectangle, area, new)
+
 function main() {
   const rect1 = Rectangle({ width: 30, height: 50 });
-  console.log("The area of the rectangle is ", rect1.area());
+  console.log("The area of the rectangle is ", area(rect1));
 }
 ```
 
-## Union
-
-Same as `struct` but with `union` keyword.  
-
-### Interface
+### Interface (Typeclass)
 
 ```typescript
-interface Summary {
-  summarize: (&self) => String;
+interface Summary<T> {
+  summarize: (self: &T) => String;
 }
 implement Summary {
   // Default value
-  function summarize(&self): String {
+  function summarize(self: &Summary): String {
     return String.from("(Read more...)");
   }
 }
 
-struct NewsArticle {
+type NewsArticle = NewsArticle {
   headline: String;
   location: String;
   author: String;
   content: String;
 }
 
-implement Summary for NewsArticle {
-  function summarize(&self): String {
+implement Summary<NewsArticle> for NewsArticle {
+  function summarize(self: &NewsArticle): String {
     return `${self.headline}, by ${self.author} (${self.location})`;
   }
 }
@@ -162,34 +207,6 @@ function notify(item: &(Summary & Display)) {
   console.log("Breaking news! ", item.summarize());
   console.log("Breaking news! ", item.display());
 }
-```
-
-## Enum
-
-```typescript
-enum Option<T> {
-  Some(T),
-  None,
-}
-type Some<T> = Option<T>.Some;
-type None = Option<T>.None;
-
-export {
-  Option,
-  Some,
-  None
-};
-
-const none: Option<i32> = None;
-const some: Option<i32> = Some(42);
-
-enum IpAddr {
-  V4(u8, u8, u8, u8),
-  V6(String)
-}
-
-const home = IpAddrKind.V4(127, 0, 0, 1);
-const loopback = IpAddr.V6(String.from("::1"))
 ```
 
 ### Pattern Matching
@@ -207,15 +224,15 @@ enum Coin {
 // - https://github.com/tc39/proposal-pattern-matching
 function valueInCents(coin: Coin): u8 {
   match (coin) {
-    when (Coin.Penny): {
+    case (Coin.Penny): {
       console.log("Lucky penny!");
       return 1;
     }
-    when (Coin.Nickel):
+    case (Coin.Nickel):
       return 5;
-    when (Coin.Dime):
+    case (Coin.Dime):
       return 10;
-    when (Coin.Quarter):
+    case (Coin.Quarter):
       return 25;
     default:
       throw Error({
@@ -289,10 +306,10 @@ function main() {
   const greetingFileResult = open("greeting.txt");
 
   match (greetingFileResult) {
-    when (Ok(file)): {
+    case (Ok(file)): {
       console.log("The file was opened successfully");
     }
-    when (Err(error)): {
+    case (Err(error)): {
       console.log("The file could not be opened");
       throw Error({
         message: error.message
@@ -324,19 +341,20 @@ console.log("xRef points to the value ", xRef);
 > Use references wherever you can, and pointers wherever you must.
 
 ```typescript
-enum Pointer<T> {
-  PointTo(T),
-  Null,
-}
+type Ptr<T> =
+  | Ptr(T)
+  | NullPtr
 
 const x: i32 = 1234;
-const xPtr: Pointer<i32> = PointTo(x);
+const xPtr: Ptr<i32> = Ptr(x);
 match (xPtr) {
-  when(Null): {
+  case NullPtr: {
     console.log("xPtr is null");
   }
-  when(PointTo(x)): {
-    console.log("xPtr points to the value ", x);
+  case Ptr(x): {
+    console.log("xPtr points to the value ", x); // 1234
+    x = x + 1;
+    console.log("xPtr points to the value ", x); // 1235
   }
 }
 ```

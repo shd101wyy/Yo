@@ -34,4 +34,11 @@ enum Maybe<T> {
   Nothing,
   Just(T),
 } deriving (Drop, Show, Copy, Clone);
+
+type Maybe<T> =
+  | Nothing
+  | Just(T)
+deriving (Drop, Show, Copy, Clone);
+
+alias string = char[];
 ```

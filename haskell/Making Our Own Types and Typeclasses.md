@@ -3,20 +3,20 @@ http://learnyouahaskell.com/making-our-own-types-and-typeclasses
 ## Algebraic data types intro
 
 ```typescript
-enum boolean { // Type constructor
-  true,  // Value constructor
-  false, // Value constructor
+type boolean =  // Type constructor
+  | false // Value constructor
+  | true  // Value constructor
+
+export {
+  boolean(..)
 }
-export boolean(true, false);
-// Or
-export boolean(..); // Exports all value constructors as well
 ```
 
 ```typescript
-enum Shape {
-  Circle(f32, f32, f32),
-  Rectangle(f32, f32, f32, f32)
-} deriving (Show)
+type Shape =
+  | Circle(f32, f32, f32),
+  | Rectangle(f32, f32, f32, f32)
+deriving (Show)
 
 function surface(shape: Shape): f32 {
   match(shape) {
@@ -25,19 +25,19 @@ function surface(shape: Shape): f32 {
   }
 }
 
-assert(surface(Circle(10, 20, 10)) === 314.15927);
-assert(surface(Rectangle(0, 0, 100, 100)) === 10000);
+assert(surface(Shape.Circle(10, 20, 10)) === 314.15927);
+assert(surface(Shape.Rectangle(0, 0, 100, 100)) === 10000);
 ```
 
 ```typescript
-enum Point {
-  Point(f32, f32),
-} deriving (Show)
+type Point =
+  | Point(f32, f32)
+deriving (Show)
 
-enum Shape {
-  Circle(Point, f32),
-  Rectangle(Point, Point),
-} deriving (Show)
+type Shape =
+  | Circle(Point, f32),
+  | Rectangle(Point, Point),
+deriving (Show)
 
 function surface(shape: Shape): f32 {
   match(shape) {
@@ -46,23 +46,25 @@ function surface(shape: Shape): f32 {
   }
 }
 
-export Point(Point);
-export Shape(Circle, Rectangle);
+export {
+  Point(..),
+  Shape(..)
+}
 ```
 
 ## Record syntax
 
 ```typescript
-enum Person {
-  Person {
-    firstName: String,
-    lastName: String,
-    age: i32,
-    height: f32,
-    phoneNumber: String,
-    flavor: String,
+type Person =
+  | Person {
+      firstName: String,
+      lastName: String,
+      age: i32,
+      height: f32,
+      phoneNumber: String,
+      flavor: String,
   }
-} deriving (Show)
+  deriving (Show)
 
 const guy = Person({
   firstName: String.from("John"),
@@ -79,10 +81,10 @@ assert(guy.firstName === String.from("John"));
 ## Type parameters
 
 ```typescript
-enum Maybe<a> {
-  Nothing,
-  Just(a),
-} deriving (Show)
+type Maybe<a> =
+  | Nothing,
+  | Just(a)
+deriving (Show)
 
 assert(typeof(Just(1)) === "Maybe<i32>");
 assert(typeof(Just("Haha")) === "Maybe<String>");
@@ -91,11 +93,11 @@ assert(typeof(Just("Haha")) === "Maybe<String>");
 ## Type synonyms
 
 ```typescript
-type string = char[];
+alias string = char[];
 
-type PhoneNumber = String;
-type Name = String;
-type PhoneBook = [(Name, PhoneNumber)][];
+alias PhoneNumber = String;
+alias Name = String;
+alias PhoneBook = [(Name, PhoneNumber)][];
 
 function inPhoneBook(name: Name, phoneNumber: PhoneNumber, phoneBook: PhoneBook): boolean {
   for (let i = 0; i < phoneBook.length; i++) {
@@ -107,10 +109,10 @@ function inPhoneBook(name: Name, phoneNumber: PhoneNumber, phoneBook: PhoneBook)
   return false;
 }
 
-enum Either<a, b> {
-  Left(a),
-  Right(b),
-} deriving (Eq, Ord, Read, Show)
+type Either<a, b> =
+  | Left(a)
+  | Right(b),
+deriving (Eq, Ord, Read, Show)
 
 assert(typeof(Left(1)) === "Either<i32, ?>");
 assert(typeof(Right(1)) === "Either<?, i32>");
@@ -120,10 +122,10 @@ assert(typeof(Left("Haha")) === "Either<string, ?>");
 ## Recursive data structures
 
 ```typescript
-enum List<a> {
-  Empty,
-  Cons(a, List<a>),
-} deriving (Show, Read, Eq, Ord)
+type List<a> =
+  | Empty,
+  | Cons(a, List<a>)
+deriving (Show, Read, Eq, Ord)
 ```
 
 ## Typeclass 102
@@ -131,16 +133,15 @@ enum List<a> {
 ```typescript
 interface Eq<a> {
   (==): (&x: a, &y: a) => boolean;
-  (/=): (&x: a, &y: a) => boolean;
+  (!=): (&x: a, &y: a) => boolean;
 }
 
-enum TrafficLight {
-  Red,
-  Yellow,
-  Green,
-}
+type TrafficLight =
+  | Red,
+  | Yellow,
+  | Green
 
-implement Eq for TrafficLight {
+implement Eq<TrafficLight> {
   function (==)(x: TrafficLight, y: TrafficLight): boolean {
     match((x, y)) {
       case (Red, Red): true;
@@ -155,8 +156,8 @@ implement Eq for TrafficLight {
   }
 }
 
-implement Show for TrafficLight {
-  function show(self: *TrafficLight): String {
+implement Show<TrafficLight> {
+  function show(self: &TrafficLight): String {
     match(self) {
       case Red: String.from("Red light");
       case Yellow: String.from("Yellow light");
@@ -178,24 +179,42 @@ implement Eq<m> for Maybe<m> {
     }
   }
 }
+
+interface Num<a: Eq> {
+  // ...
+}
+
+implement<m: Eq> Eq<Maybe<m>> {
+  function (==)(x: Maybe<m>, y: Maybe<m>): boolean {
+    match((x, y)) {
+      case (Nothing, Nothing): true;
+      case (Just(x), Just(y)): x == y;
+      default: false;
+    }
+  },
+
+  function (!=)(x: Maybe<m>, y: Maybe<m>): boolean {
+    !(x == y);
+  }
+}
 ```
 
 ## A yes-no typeclass
 
 ```typescript
 interface YesNo<a> {
-  yesno: (self: *a) => boolean;
+  yesno: (self: &a) => boolean;
 }
 
 implement YesNo<Int> for Int {
-  function yesno(self: *Int): boolean {
-    *self != 0;
+  function yesno(self: &Int): boolean {
+    self != 0;
   }
 }
 
 implement YesNo<Maybe<T>> for Maybe<T> {
-  function yesno(self: *Maybe<T>): boolean {
-    match(*self) {
+  function yesno(self: &Maybe<T>): boolean {
+    match self {
       case Nothing: false;
       default: true;
     }
@@ -212,12 +231,12 @@ assert(Just(1).yesno() === true);
 
 ```typescript
 interface Functor<f> {
-  fmap: <a, b>(self: *f<a>, func: (a)=> b) => f<b>;
+  fmap: <a, b>(self: &f<a>, func: (a)=> b) => f<b>;
 }
 
 implement Function<Maybe<T>> for Maybe<T> {
-  function fmap(self: *Maybe<T>, func: (T)=> T): Maybe<T> {
-    match(*self) {
+  function fmap(self: &Maybe<T>, func: (T)=> T): Maybe<T> {
+    match(self) {
       case Nothing: Nothing;
       case Just(x): Just(func(x));
     }
