@@ -6,6 +6,8 @@ import { Token, TokenType } from "./token";
  */
 export function tokenize(input: string): Token[] {
   const tokens: Token[] = [];
+  let line = 0;
+  let totalCharacters = 0;
 
   for (let i = 0; i < input.length; i++) {
     const char = input[i];
@@ -13,8 +15,11 @@ export function tokenize(input: string): Token[] {
     switch (char) {
       case " ":
       case "\t":
-      case "\n":
         // ignore whitespace
+        break;
+      case "\n":
+        line++; // reset the line number
+        totalCharacters = i + 1; // reset the character number
         break;
 
       // operators
@@ -22,6 +27,7 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.Add,
           value: char,
+          position: { line, character: i - totalCharacters },
         });
         break;
 
@@ -29,6 +35,7 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.Minus,
           value: char,
+          position: { line, character: i - totalCharacters },
         });
         break;
 
@@ -36,6 +43,7 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.Multiply,
           value: char,
+          position: { line, character: i - totalCharacters },
         });
         break;
 
@@ -43,6 +51,7 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.Divide,
           value: char,
+          position: { line, character: i - totalCharacters },
         });
         break;
 
@@ -51,6 +60,7 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.LParen,
           value: char,
+          position: { line, character: i - totalCharacters },
         });
         break;
 
@@ -58,6 +68,7 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.RParen,
           value: char,
+          position: { line, character: i - totalCharacters },
         });
         break;
 
@@ -65,6 +76,7 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.LBracket,
           value: char,
+          position: { line, character: i - totalCharacters },
         });
         break;
 
@@ -72,6 +84,7 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.RBracket,
           value: char,
+          position: { line, character: i - totalCharacters },
         });
         break;
 
@@ -79,6 +92,7 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.LCurlyBracket,
           value: char,
+          position: { line, character: i - totalCharacters },
         });
         break;
 
@@ -86,6 +100,7 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.RCurlyBracket,
           value: char,
+          position: { line, character: i - totalCharacters },
         });
         break;
 
@@ -95,12 +110,14 @@ export function tokenize(input: string): Token[] {
           tokens.push({
             type: TokenType.Equal,
             value: "==",
+            position: { line, character: i - totalCharacters },
           });
           i++;
         } else {
           tokens.push({
             type: TokenType.Assign,
             value: char,
+            position: { line, character: i - totalCharacters },
           });
         }
         break;
@@ -110,12 +127,14 @@ export function tokenize(input: string): Token[] {
           tokens.push({
             type: TokenType.NotEqual,
             value: "!=",
+            position: { line, character: i - totalCharacters },
           });
           i++;
         } else {
           tokens.push({
             type: TokenType.Negate,
             value: char,
+            position: { line, character: i - totalCharacters },
           });
         }
         break;
@@ -125,12 +144,14 @@ export function tokenize(input: string): Token[] {
           tokens.push({
             type: TokenType.LessThanOrEqual,
             value: "<=",
+            position: { line, character: i - totalCharacters },
           });
           i++;
         } else {
           tokens.push({
             type: TokenType.LessThan,
             value: char,
+            position: { line, character: i - totalCharacters },
           });
         }
         break;
@@ -140,12 +161,14 @@ export function tokenize(input: string): Token[] {
           tokens.push({
             type: TokenType.GreaterThanOrEqual,
             value: ">=",
+            position: { line, character: i - totalCharacters },
           });
           i++;
         } else {
           tokens.push({
             type: TokenType.GreaterThan,
             value: char,
+            position: { line, character: i - totalCharacters },
           });
         }
         break;
@@ -173,6 +196,7 @@ export function tokenize(input: string): Token[] {
           tokens.push({
             type: TokenType.Char,
             value,
+            position: { line, character: i - totalCharacters },
           });
         } else {
           throw new Error(`Invalid char ${value}`);
@@ -200,6 +224,7 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.String,
           value: stringValue,
+          position: { line, character: i - totalCharacters },
         });
 
         break;
@@ -209,18 +234,21 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.Colon,
           value: char,
+          position: { line, character: i - totalCharacters },
         });
         break;
       case ",":
         tokens.push({
           type: TokenType.Comma,
           value: char,
+          position: { line, character: i - totalCharacters },
         });
         break;
       case ";":
         tokens.push({
           type: TokenType.Semicolon,
           value: char,
+          position: { line, character: i - totalCharacters },
         });
         break;
 
@@ -245,11 +273,13 @@ export function tokenize(input: string): Token[] {
             tokens.push({
               type: TokenType.Float,
               value,
+              position: { line, character: i - totalCharacters },
             });
           } else {
             tokens.push({
               type: TokenType.Integer,
               value,
+              position: { line, character: i - totalCharacters },
             });
           }
         } else if (/[_a-zA-Z]/.test(char)) {
@@ -268,12 +298,14 @@ export function tokenize(input: string): Token[] {
               tokens.push({
                 type: TokenType.Boolean,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "false":
               tokens.push({
                 type: TokenType.Boolean,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
 
@@ -282,114 +314,133 @@ export function tokenize(input: string): Token[] {
               tokens.push({
                 type: TokenType.Function,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "if":
               tokens.push({
                 type: TokenType.If,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "for":
               tokens.push({
                 type: TokenType.For,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "while":
               tokens.push({
                 type: TokenType.While,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "switch":
               tokens.push({
                 type: TokenType.Switch,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "case":
               tokens.push({
                 type: TokenType.Case,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "match":
               tokens.push({
                 type: TokenType.Match,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "return":
               tokens.push({
                 type: TokenType.Return,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "break":
               tokens.push({
                 type: TokenType.Break,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "continue":
               tokens.push({
                 type: TokenType.Continue,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "let":
               tokens.push({
                 type: TokenType.Let,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "const":
               tokens.push({
                 type: TokenType.Const,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "type":
               tokens.push({
                 type: TokenType.Type,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "alias":
               tokens.push({
                 type: TokenType.Alias,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "interface":
               tokens.push({
                 type: TokenType.Interface,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "implement":
               tokens.push({
                 type: TokenType.Implement,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "import":
               tokens.push({
                 type: TokenType.Import,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             case "export":
               tokens.push({
                 type: TokenType.Export,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
             default:
               tokens.push({
                 type: TokenType.Identifier,
                 value,
+                position: { line, character: i - totalCharacters },
               });
               break;
           }

@@ -1,10 +1,8 @@
 import {tokenize, parse} from "./out/esm/index.mjs";
 
 const code = `
-function add(x:i32, y:i32):void {
-  x + y
-}
-add(1, 2)
+3 + 4 * 6;
+5 - 4;
 `;
 
 const tokens = tokenize(code);

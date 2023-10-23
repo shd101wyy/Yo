@@ -66,4 +66,14 @@ export enum TokenType {
 export interface Token {
   type: TokenType;
   value: string;
+  position: {
+    /**
+     * A zero-based line value.
+     */
+    line: number;
+    /**
+     * A zero-based character value
+     */
+    character: number;
+  };
 }
