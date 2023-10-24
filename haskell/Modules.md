@@ -3,10 +3,10 @@
 ## Loading modules
 
 ```typescript
-import "std/collection/list";
-import { nub, sort } from "std/collection/list";
-import "std/collection/list" hiding {nub, sort}
-import * as List from "std/collection/list";
+import "data/list";
+import { nub, sort } from "data/list";
+import "data/list" hiding {nub, sort}
+import * as List from "data/list";
 ```
 
 ## Making our own modules

@@ -1,3 +1,4 @@
+/* eslint-disable no-constant-condition */
 /**
  * Construct an AST parser from a grammar.
  */
@@ -96,6 +97,7 @@ function parseIdentifierExpr(tokens: Token[], index: number): ParserReturn {
     const functionArguments: Expr = [];
     if (tokens[index + 2].type !== TokenType.RParen) {
       index = index + 2;
+      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { expr, index: endIndex } = parseExpression(tokens, index);
         if (expr) {
@@ -182,6 +184,7 @@ function parseBinOpRHS(
     const binaryOperator = token;
     index = index + 1; // eat binop
 
+    // eslint-disable-next-line prefer-const
     let { expr: RHS, index: endIndex } = parsePrimary(tokens, index);
     if (!RHS) {
       return { expr: RHS, index: endIndex };
@@ -210,6 +213,7 @@ function parseBinOpRHS(
     // Merge LHS/RHS
     LHS = {
       type: AstType.BinaryOperator,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       operator: binaryOperator.value as any,
       left: LHS,
       right: RHS,

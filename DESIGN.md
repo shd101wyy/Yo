@@ -29,6 +29,10 @@
 
 <!-- /code_chunk_output -->
 
+## Philosophy
+
+Pass by reference by default, unless it's the primitive types or has `Copy` interface implemented.
+
 ## Hello World
 
 ```typescript
@@ -61,6 +65,7 @@ console.log("Hello World!");
 
 ```typescript
 function main() {
+  // If no return type, it is () unit
   const number = 3;
 
   if (number < 5) {
@@ -92,34 +97,38 @@ function factorial(n: i32): i32 {
 }
 ```
 
-## Type
+## Type synonyms
 
 ```typescript
-type TypeConstructor<TypeVariable> =
-  | VariableConstructor(TypeVariable)
-```
+// Record
+type User = {
+  active: boolean;
+  username: String;
+  email: String;
+  age: i32;
+};
 
-```typescript
-type User =
-  | User {
-    active: boolean;
-    username: String;
-    email: String;
-    age: i32;
-  }
-const user = User({
+type string = char[];
+
+const user: User = {
   active: true,
   username: String.from("johndoe"),
   email: String.from("test@gmail.com"),
-});
+};
 user.email = String.from("gg");
 
 // NOTE:
 // User({...}) is different from User({...}, )
+```
 
-type Option<T> =
-  | Some(T),
-  | None;
+## Enum
+
+```typescript
+// Typed
+enum Option<T> {
+  Some(T),
+  None
+}
 
 export {
   Option(..)
@@ -133,30 +142,27 @@ enum IpAddr {
   V6(String)
 }
 
-const home = V4(127, 0, 0, 1);
-const loopback = V6(String.from("::1"))
-```
-
-### Type alias
-
-```typescript
-alias string = char[];
+const home = IpAddr.V4(127, 0, 0, 1);
+const loopback = IpAddr.V6(String.from("::1"))
 ```
 
 ### Method
 
 ```typescript
-type Rectangle = Rectangle {
+type Rectangle = {
   width: i32;
   height: i32;
 }
 
 implement Rectangle {
-  function area(self: &Rectangle): i32 {
-    return self.width * self.height;
+  // `&self` is sugar for `self: &Self`, where `Self` is the type of the
+  // caller object. In this case `Self` = `Rectangle`
+  function area(): i32 {
+    return this.width * this.height;
   }
 
-  function new(): Rectangle {
+  // If the first parameter is not `&self`, it is a static method
+  static function new(): Rectangle {
     return Rectangle({
       width: 0,
       height: 0,
@@ -164,28 +170,30 @@ implement Rectangle {
   }
 }
 
-export Rectangle(Rectangle, area, new)
+export {
+  Rectangle
+}
 
 function main() {
-  const rect1 = Rectangle({ width: 30, height: 50 });
-  console.log("The area of the rectangle is ", area(rect1));
+  const rect1: Rectangle = { width: 30, height: 50 };
+  console.log("The area of the rectangle is ", rect1.area());
 }
 ```
 
 ### Interface (Typeclass)
 
 ```typescript
-interface Summary<T> {
-  summarize: (self: &T) => String;
+interface<T:Eq> Summary<T> {
+  summarize: () => String;
 }
 implement Summary {
   // Default value
-  function summarize(self: &Summary): String {
+  function summarize(): String {
     return String.from("(Read more...)");
   }
 }
 
-type NewsArticle = NewsArticle {
+type NewsArticle = {
   headline: String;
   location: String;
   author: String;
@@ -193,17 +201,17 @@ type NewsArticle = NewsArticle {
 }
 
 implement Summary<NewsArticle> for NewsArticle {
-  function summarize(self: &NewsArticle): String {
-    return `${self.headline}, by ${self.author} (${self.location})`;
+  function summarize(): String {
+    return `${this.headline}, by ${this.author} (${this.location})`;
   }
 }
 
 // Pass in function
-function notify(item: &Summary) {
+function notify(item: Summary) {
   console.log("Breaking news! ", item.summarize());
 }
 
-function notify(item: &(Summary & Display)) {
+function notify(item: Summary & Display) {
   console.log("Breaking news! ", item.summarize());
   console.log("Breaking news! ", item.display());
 }
@@ -223,20 +231,20 @@ enum Coin {
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
 function valueInCents(coin: Coin): u8 {
-  match (coin) {
-    case (Coin.Penny): {
+  switch (coin) {
+    case Coin.Penny: {
       console.log("Lucky penny!");
       return 1;
     }
-    case (Coin.Nickel):
+    case Coin.Nickel:
       return 5;
-    case (Coin.Dime):
+    case Coin.Dime:
       return 10;
-    case (Coin.Quarter):
+    case Coin.Quarter:
       return 25;
     default:
       throw Error({
-        message: "Not a coin" // Although this is not gonna happen
+        message: "Not a coin", // Although this is not gonna happen
       });
   }
 }
@@ -297,19 +305,19 @@ function main() {
 
 ```typescript
 enum Result<T, E> {
-  Ok(T),
-  Err(E),
+  Ok(T)
+  Err(E)
 }
 
 import { open } from "std/fs"
 function main() {
   const greetingFileResult = open("greeting.txt");
 
-  match (greetingFileResult) {
-    case (Ok(file)): {
+  switch (greetingFileResult) {
+    case Ok(file): {
       console.log("The file was opened successfully");
     }
-    case (Err(error)): {
+    case Err(error): {
       console.log("The file could not be opened");
       throw Error({
         message: error.message
@@ -341,20 +349,21 @@ console.log("xRef points to the value ", xRef);
 > Use references wherever you can, and pointers wherever you must.
 
 ```typescript
-type Ptr<T> =
-  | Ptr(T)
-  | NullPtr
+enum Ptr<T>{
+  Ptr(T),
+  NullPtr
+}
 
 const x: i32 = 1234;
-const xPtr: Ptr<i32> = Ptr(x);
-match (xPtr) {
+const xPtr: Ptr<*i32> = Ptr(&x);
+switch (xPtr) {
   case NullPtr: {
     console.log("xPtr is null");
   }
   case Ptr(x): {
-    console.log("xPtr points to the value ", x); // 1234
-    x = x + 1;
-    console.log("xPtr points to the value ", x); // 1235
+    console.log("xPtr points to the value ", *x); // 1234
+    *x = *x + 1;
+    console.log("xPtr points to the value ", *x); // 1235
   }
 }
 ```
@@ -393,5 +402,16 @@ const cFunctions = cImport("cfuncs.h", "cfuncs.c");
 
 function main() {
   console.log(cFunctions.numAddTen(10));
+}
+```
+
+## Do Notation
+
+This is like the `async` and `await` in JavaScript.
+
+```typescript
+function main(): Effect<()> do {
+  fileContent <- fs.readFile("hello.txt");
+  console.log(fileContent);
 }
 ```

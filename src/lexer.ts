@@ -33,7 +33,7 @@ export function tokenize(input: string): Token[] {
 
       case "-":
         tokens.push({
-          type: TokenType.Minus,
+          type: TokenType.Subtract,
           value: char,
           position: { line, character: i - totalCharacters },
         });
@@ -50,6 +50,14 @@ export function tokenize(input: string): Token[] {
       case "/":
         tokens.push({
           type: TokenType.Divide,
+          value: char,
+          position: { line, character: i - totalCharacters },
+        });
+        break;
+
+      case "%":
+        tokens.push({
+          type: TokenType.Modulo,
           value: char,
           position: { line, character: i - totalCharacters },
         });
@@ -174,7 +182,7 @@ export function tokenize(input: string): Token[] {
         break;
 
       // string
-      case "'":
+      case "'": {
         let value = "";
 
         for (let j = i + 1; j < input.length; j++) {
@@ -203,8 +211,9 @@ export function tokenize(input: string): Token[] {
         }
 
         break;
+      }
 
-      case '"':
+      case '"': {
         let stringValue = "";
 
         for (let j = i + 1; j < input.length; j++) {
@@ -228,6 +237,7 @@ export function tokenize(input: string): Token[] {
         });
 
         break;
+      }
 
       // other
       case ":":
@@ -380,6 +390,13 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            case "fallthrough":
+              tokens.push({
+                type: TokenType.Fallthrough,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
             case "let":
               tokens.push({
                 type: TokenType.Let,
@@ -401,9 +418,9 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
-            case "alias":
+            case "enum":
               tokens.push({
-                type: TokenType.Alias,
+                type: TokenType.Enum,
                 value,
                 position: { line, character: i - totalCharacters },
               });
@@ -432,6 +449,27 @@ export function tokenize(input: string): Token[] {
             case "export":
               tokens.push({
                 type: TokenType.Export,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "extern":
+              tokens.push({
+                type: TokenType.Extern,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "null":
+              tokens.push({
+                type: TokenType.Null,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "undefined":
+              tokens.push({
+                type: TokenType.Undefined,
                 value,
                 position: { line, character: i - totalCharacters },
               });

@@ -3,23 +3,24 @@ http://learnyouahaskell.com/making-our-own-types-and-typeclasses
 ## Algebraic data types intro
 
 ```typescript
-type boolean =  // Type constructor
-  | false // Value constructor
-  | true  // Value constructor
-
-export {
-  boolean(..)
+// Type constructor
+enum MyBoolean {
+  False, // Value constructor
+  True // Value constructor
 }
+
+export { MyBoolean(..) };
 ```
 
 ```typescript
-type Shape =
-  | Circle(f32, f32, f32),
-  | Rectangle(f32, f32, f32, f32)
+enum Shape {
+  Circle(f32, f32, f32),
+  Rectangle(f32, f32, f32, f32)
+}
 deriving (Show)
 
 function surface(shape: Shape): f32 {
-  match(shape) {
+  switch (shape) {
     case Circle(_, _, r): 3.14 * r ^ 2;
     case Rectangle(x1, y1, x2, y2): (Math.abs(x2 - x1) * Math.abs(y2 - y1));
   }
@@ -30,17 +31,19 @@ assert(surface(Shape.Rectangle(0, 0, 100, 100)) === 10000);
 ```
 
 ```typescript
-type Point =
-  | Point(f32, f32)
+enum Point {
+  Point(f32, f32)
+}
 deriving (Show)
 
-type Shape =
-  | Circle(Point, f32),
-  | Rectangle(Point, Point),
+enum Shape {
+  Circle(Point, f32),
+  Rectangle(Point, Point)
+}
 deriving (Show)
 
 function surface(shape: Shape): f32 {
-  match(shape) {
+  switch(shape) {
     case Circle(_, r): 3.14 * r ^ 2;
     case Rectangle(Point(x1, y1), Point(x2, y2)): (Math.abs(x2 - x1) * Math.abs(y2 - y1));
   }
@@ -55,25 +58,25 @@ export {
 ## Record syntax
 
 ```typescript
-type Person =
-  | Person {
-      firstName: String,
-      lastName: String,
-      age: i32,
-      height: f32,
-      phoneNumber: String,
-      flavor: String,
-  }
-  deriving (Show)
+// Without value constructors
+type Person = {
+  firstName: String;
+  lastName: String;
+  age: i32;
+  height: f32;
+  phoneNumber: String;
+  flavor: String;
+};
+deriving(Show);
 
-const guy = Person({
+const guy: Person = {
   firstName: String.from("John"),
   lastName: String.from("Doe"),
   age: 30,
   height: 1.8,
   phoneNumber: String.from("1234567890"),
   flavor: String.from("Vanilla"),
-});
+};
 
 assert(guy.firstName === String.from("John"));
 ```
@@ -81,9 +84,10 @@ assert(guy.firstName === String.from("John"));
 ## Type parameters
 
 ```typescript
-type Maybe<a> =
-  | Nothing,
-  | Just(a)
+enum Maybe<a> {
+  Nothing,
+  Just(a)
+}
 deriving (Show)
 
 assert(typeof(Just(1)) === "Maybe<i32>");
@@ -93,14 +97,13 @@ assert(typeof(Just("Haha")) === "Maybe<String>");
 ## Type synonyms
 
 ```typescript
-alias string = char[];
-
-alias PhoneNumber = String;
-alias Name = String;
-alias PhoneBook = [(Name, PhoneNumber)][];
+type string = char[];
+type PhoneNumber = String;
+type Name = String;
+type PhoneBook = (Name, PhoneNumber)[];
 
 function inPhoneBook(name: Name, phoneNumber: PhoneNumber, phoneBook: PhoneBook): boolean {
-  for (let i = 0; i < phoneBook.length; i++) {
+  for (let i = 0; i < phoneBook.length(); i++) {
     const (n, p) = phoneBook[i];
     if (n === name && p === phoneNumber) {
       return true;
@@ -109,9 +112,10 @@ function inPhoneBook(name: Name, phoneNumber: PhoneNumber, phoneBook: PhoneBook)
   return false;
 }
 
-type Either<a, b> =
-  | Left(a)
-  | Right(b),
+enum Either<a, b> {
+  Left(a),
+  Right(b)
+}
 deriving (Eq, Ord, Read, Show)
 
 assert(typeof(Left(1)) === "Either<i32, ?>");
@@ -122,9 +126,10 @@ assert(typeof(Left("Haha")) === "Either<string, ?>");
 ## Recursive data structures
 
 ```typescript
-type List<a> =
-  | Empty,
-  | Cons(a, List<a>)
+enum List<a> {
+  Empty,
+  Cons(a, List<a>)
+}
 deriving (Show, Read, Eq, Ord)
 ```
 
@@ -136,14 +141,15 @@ interface Eq<a> {
   (!=): (&x: a, &y: a) => boolean;
 }
 
-type TrafficLight =
-  | Red,
-  | Yellow,
-  | Green
+enum TrafficLight {
+  Red,
+  Yellow,
+  Green
+}
 
-implement Eq<TrafficLight> {
-  function (==)(x: TrafficLight, y: TrafficLight): boolean {
-    match((x, y)) {
+implement Eq<TrafficLight> for TrafficLight {
+  function (==)(x: &TrafficLight, y: &TrafficLight): boolean {
+    switch((x, y)) {
       case (Red, Red): true;
       case (Green, Green): true;
       case (Yellow, Yellow): true;
@@ -151,14 +157,14 @@ implement Eq<TrafficLight> {
     }
   }
 
-  function (/=)(x: TrafficLight, y: TrafficLight): boolean {
+  function (!=)(x: &TrafficLight, y: &TrafficLight): boolean {
     !(x == y);
   }
 }
 
-implement Show<TrafficLight> {
-  function show(self: &TrafficLight): String {
-    match(self) {
+implement Show<TrafficLight> for TrafficLight {
+  function show(&self): String {
+    switch(self) {
       case Red: String.from("Red light");
       case Yellow: String.from("Yellow light");
       case Green: String.from("Green light");
@@ -172,7 +178,7 @@ assert(show(Red) === String.from("Red light"));
 
 implement Eq<m> for Maybe<m> {
   function (==)(x: Maybe<m>, y: Maybe<m>): boolean {
-    match((x, y)) {
+    switch((x, y)) {
       case (Nothing, Nothing): true;
       case (Just(x), Just(y)): x == y;
       default: false;
@@ -186,7 +192,7 @@ interface Num<a: Eq> {
 
 implement<m: Eq> Eq<Maybe<m>> {
   function (==)(x: Maybe<m>, y: Maybe<m>): boolean {
-    match((x, y)) {
+    switch((x, y)) {
       case (Nothing, Nothing): true;
       case (Just(x), Just(y)): x == y;
       default: false;
@@ -202,19 +208,19 @@ implement<m: Eq> Eq<Maybe<m>> {
 ## A yes-no typeclass
 
 ```typescript
-interface YesNo<a> {
-  yesno: (self: &a) => boolean;
+interface YesNo {
+  yesno: (&self) => boolean;
 }
 
-implement YesNo<Int> for Int {
-  function yesno(self: &Int): boolean {
+implement YesNo for Int {
+  function yesno(&self): boolean {
     self != 0;
   }
 }
 
-implement YesNo<Maybe<T>> for Maybe<T> {
-  function yesno(self: &Maybe<T>): boolean {
-    match self {
+implement YesNo for Maybe<T> {
+  function yesno(&self): boolean {
+    switch self {
       case Nothing: false;
       default: true;
     }
@@ -231,12 +237,12 @@ assert(Just(1).yesno() === true);
 
 ```typescript
 interface Functor<f> {
-  fmap: <a, b>(self: &f<a>, func: (a)=> b) => f<b>;
+  fmap: <a, b>(&self, func: (a)=> b) => f<b>;
 }
 
 implement Function<Maybe<T>> for Maybe<T> {
-  function fmap(self: &Maybe<T>, func: (T)=> T): Maybe<T> {
-    match(self) {
+  function fmap(&self, func: (T)=> T): Maybe<T> {
+    switch(self) {
       case Nothing: Nothing;
       case Just(x): Just(func(x));
     }

@@ -3,9 +3,10 @@ export enum TokenType {
 
   // operators
   Add = "+",
-  Minus = "-",
+  Subtract = "-",
   Multiply = "*",
   Divide = "/",
+  Modulo = "%",
 
   // parens
   LParen = "(",
@@ -48,14 +49,18 @@ export enum TokenType {
   Return = "return",
   Break = "break",
   Continue = "continue",
+  Fallthrough = "fallthrough",
   Let = "let",
   Const = "const",
   Type = "type",
-  Alias = "alias",
+  Enum = "enum",
   Interface = "interface",
   Implement = "implement",
   Import = "import",
   Export = "export",
+  Extern = "extern",
+  Null = "null",
+  Undefined = "undefined",
 
   // other
   Semicolon = ";",

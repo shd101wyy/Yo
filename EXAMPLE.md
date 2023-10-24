@@ -1,33 +1,33 @@
 ```typescript
 interface Eq<T> {
-  (==): (x: *T, y: *T) => boolean;
-  (/=): (x: *T, y: *T) => boolean;
+  (==): (x: &T, y: &T) => boolean;
+  (/=): (x: &T, y: &T) => boolean;
 }
 
 interface Ord<T> extends Eq<T> {
-  compare: (x: *T, y: *T) => Ordering;
-  (<): (x: *T, y: *T) => boolean;
-  (<=): (x: *T, y: *T) => boolean;
-  (>): (x: *T, y: *T) => boolean;
-  (>=): (x: *T, y: *T) => boolean;
-  max: (x: *T, y: *T) => T;
-  min: (x: *T, y: *T) => T;
+  compare: (x: &T, y: &T) => Ordering;
+  (<): (x: &T, y: &T) => boolean;
+  (<=): (x: &T, y: &T) => boolean;
+  (>): (x: &T, y: &T) => boolean;
+  (>=): (x: &T, y: &T) => boolean;
+  max: (x: &T, y: &T) => T;
+  min: (x: &T, y: &T) => T;
 }
 
 interface Drop<T> {
-  drop: (self: *T) => void;
+  drop: (&self) => void;
 }
 
 interface Show<T> {
-  show: (self: *T) => String;
+  show: (&self) => String;
 }
 
 interface Copy<T> {
-  copy: (self: *T) => T;
+  copy: (&self) => T;
 }
 
 interface Clone<T> {
-  clone: (self: *T) => T;
+  clone: (&self) => T;
 }
 
 enum Maybe<T> {
@@ -35,10 +35,5 @@ enum Maybe<T> {
   Just(T),
 } deriving (Drop, Show, Copy, Clone);
 
-type Maybe<T> =
-  | Nothing
-  | Just(T)
-deriving (Drop, Show, Copy, Clone);
-
-alias string = char[];
+type string = char[];
 ```

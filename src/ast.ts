@@ -40,6 +40,8 @@ export type Expr =
   | ValueExpr
   | CallFunctionExpr;
 
+export type TopLevelExpr = Expr | FunctionExpr;
+
 export type ValueExpr =
   | {
       type: AstType.Integer;
@@ -71,9 +73,10 @@ export type BinaryOperatorExpr = {
   type: AstType.BinaryOperator;
   operator:
     | TokenType.Add
-    | TokenType.Minus
+    | TokenType.Subtract
     | TokenType.Multiply
     | TokenType.Divide
+    | TokenType.Modulo
     | TokenType.Equal
     | TokenType.NotEqual
     | TokenType.LessThan
@@ -140,9 +143,10 @@ const BinopPrecedence: { [key: string]: number } = {
   [TokenType.GreaterThan]: 20,
   [TokenType.GreaterThanOrEqual]: 20,
   [TokenType.Add]: 30,
-  [TokenType.Minus]: 30,
+  [TokenType.Subtract]: 30,
   [TokenType.Multiply]: 40,
   [TokenType.Divide]: 40,
+  [TokenType.Modulo]: 40,
 };
 
 export function getTokenPrecedence(token: Token | undefined): number {
