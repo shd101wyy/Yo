@@ -1,8 +1,10 @@
 # Language Design
 
-**Mo** is functional, general-purpose, compiled programming language that compiles to LLVM IR.
+**Mo** is functional, general-purpose, compiled programming language that compiles to LLVM IR and WASM.
 
-The **Mo** language has a minimal syntax design that looks like TypeScript, combined with algebraic effects and an efficient type system.
+The **Mo** language is heavily inspired by [TypeScript](https://www.typescriptlang.org/), [Rust](https://www.rust-lang.org/), [Koka](https://koka-lang.github.io/), and [Haskell](https://www.haskell.org/).
+
+The **Mo** language has a minimal syntax design that looks like TypeScript. **Mo** is strong typed, combined with algebraic effects and an efficient type system. **Mo** has no garbage collector.
 
 Please note that **Mo** language is **immutable** by default, and it is not a goal to be a "pure" functional language. Our goal is to be a practical language that is easy to use and easy to learn.
 
@@ -40,6 +42,7 @@ Please note that **Mo** language is **immutable** by default, and it is not a go
   - [Recoverable Errors with Result](#recoverable-errors-with-result)
   - [With syntax](#with-syntax)
   - [Effect handler](#effect-handler)
+  - [Modules](#modules)
   - [References](#references)
 
 <!-- /code_chunk_output -->
@@ -572,6 +575,32 @@ function tryUseMyAff(): [Console] Unit {
         }, ms);
       };
     }
+  }
+}
+```
+
+## Modules
+
+Same as the ECMAScript modules, we use the `import` and `export` keywords to import and export modules.
+
+```typescript
+import { copy } from "https://github.com/mo-lang/mo/std/fs.m";
+
+function test() {
+  console.log("Hello, world!");
+}
+
+export { test, copy };
+```
+
+`mo.json` and `mo.lock`
+
+```json
+{
+  "name": "my-project",
+  "version": "0.1.0",
+  "dependencies": {
+    "std": ""
   }
 }
 ```
