@@ -17,12 +17,6 @@ A multi-paradigm, general-purpose, compiled programming language that compiles t
     - [Variable Declaration](#variable-declaration)
     - [Reference Types, stored on heap](#reference-types-stored-on-heap)
   - [Mutability](#mutability)
-  - [Ownership](#ownership)
-    - [Ownership Operators](#ownership-operators)
-      - [`read`/`write`](#readwrite)
-      - [`move`](#move)
-    - [Rust Examples of Ownership Operators](#rust-examples-of-ownership-operators)
-  - [Lifetimes](#lifetimes)
   - [Control Flow](#control-flow)
   - [Type synonyms](#type-synonyms)
   - [Enum](#enum)
@@ -116,130 +110,10 @@ const myMap: Map<string, int> = Map.from([
 
 ```typescript
 const foo: string = "Hello, world"; // Immutable
-let bar = foo; // move the value from immutable to mutable
+let bar = foo; //
 
 // console.log(foo); // error, as move occurred
 console.log(bar); // "Hello, world"
-```
-
-## Ownership
-
-```typescript
-function main() {
-  const foo = "Hello, world"; // "foo" is the owner of the value
-} // "foo" is dropped here
-```
-
-Ownership can be borrowed to other scopes following either of the following rules:
-
-- one ore more `read` references to a resource.
-- exactly one `write` reference to a resource.
-
-And we don't allow changes to the resource while it is borrowed.
-
-### Ownership Operators
-
-#### `read`/`write`
-
-```typescript
-function readFoo(foo: read String) {
-  console.log(foo);
-}
-function writeFoo(foo: write String) {
-  foo.push(", world");
-}
-
-function main() {
-  let foo = String.from("Hello"); // "foo" is the owner of the value
-
-  readFoo(foo); // "foo" is borrowed as read. 1/infinite read borrow
-  // "foo" has 0/infinite read borrow
-
-  writeFoo(foo); // "foo" is borrowed as write. 1/1 write borrow
-  // "foo" has 0/1 write borrow
-
-} // "foo" is dropped here
-```
-
-#### `move`
-
-```typescript
-function moveFoo(foo: String) {
-  console.log(foo);
-}
-
-function main() {
-  let foo = String.from("Hello"); // "foo" is the owner of the value
-
-  moveFoo(foo); // "foo" is moved here
-  // "foo" is dropped here
-
-  // console.log(foo); // error, as move occurred
-}
-```
-
-### Rust Examples of Ownership Operators
-
-- `read`
-  - mo
-    ```typescript
-    function read_foo(foo: read String) {
-      console.log(foo);
-    }
-    ```
-  - rust
-    ```rust
-    fn read_foo(foo: &String) {
-      println!("{}", foo);
-    }
-    ```
-- `write`
-  - mo
-    ```typescript
-    function write_foo(foo: write String) {
-      foo.push(", world");
-    }
-    ```
-  - rust
-    ```rust
-    fn write_foo(foo: &mut String) {
-      foo.push_str(", world");
-    }
-    ```
-- `move`
-  - mo
-    ```typescript
-    function move_foo(foo: String) {
-      console.log(foo);
-    }
-    ```
-  - rust
-    ```rust
-    fn move_foo(foo: String) {
-      println!("{}", foo);
-    }
-    ```
-
-## Lifetimes
-
-```typescript
-function longest[A](x: read[A] string, y: read[A] string): read[A] string {
-  if (x.length > y.length) {
-    x
-  } else {
-    y
-  }
-}
-
-function main() {
-  let string1 = String.from("abcd");
-  {
-    let string2 = "xyz";
-    let result = longest(string1.asStr(), string2);
-    console.log("The longest string is ", result);
-  }
-}
-
 ```
 
 ## Control Flow
@@ -289,6 +163,15 @@ type User = {
   age: i32;
 };
 
+// is equivalent to
+
+type User = Record(
+  active: boolean,
+  username: String,
+  email: String,
+  age: i32
+)
+
 type string = char[];
 
 const user: User = {
@@ -300,6 +183,15 @@ user.email = String.from("gg");
 
 // NOTE:
 // User({...}) is different from User({...}, )
+```
+
+Extending the records
+
+```typescript
+type Lang<l> = { language :: string, ...l };
+type Language = Lang<{ year: i32 }>;
+// Language is equal to
+type Language = { language :: string, year :: i32 };
 ```
 
 ## Enum
@@ -505,172 +397,95 @@ function main() {
 }
 ```
 
-## Test
+## With syntax
 
 ```typescript
-import { expect, expectWithoutThrow } from "std/testing";
-```
-
-## Reference
-
-> Use references wherever you can, and pointers wherever you must.
-
-```typescript
-const x: i32 = 1234;
-const xRef: &const i32 = &x;
-
-console.log("xRef points to the value ", xRef);
-```
-
-## Raw Pointers (Dangerous)
-
-> Use references wherever you can, and pointers wherever you must.
-
-```typescript
-enum Ptr<T>{
-  Ptr(T),
-  NullPtr
-}
-
-const x: i32 = 1234;
-const xPtr: Ptr<*i32> = Ptr(&x);
-switch (xPtr) {
-  case NullPtr: {
-    console.log("xPtr is null");
+function test() {
+  with finally {
+    console.log("finally");
   }
-  case Ptr(x): {
-    console.log("xPtr points to the value ", *x); // 1234
-    *x = *x + 1;
-    console.log("xPtr points to the value ", *x); // 1235
-  }
+  console.log("start");
+}
+
+// Translates to
+
+function test() {
+  finally(()=> {
+    console.log("finally");
+  }, ()=> {
+    console.log("start");
+  });
 }
 ```
 
-## Smart Pointers
+Moreover, a `with` statement can also bind a variable parameter as:
 
 ```typescript
-const x = Box.new<i32>(1234);
-console.log("x points to the value ", x);
-```
+function test() {
+  with
+    x <- 1
+    y <- 2
+  x + y
+}
 
-## C Language FFI
-
-```c
-// cfuncs.c
-#include "cfuncs.h"
-
-int numAddTen(int v) {
-  return v + 10;
+// Translate to
+function test() {
+  f(1, 2, (x, y)=> {
+    x + y
+  })
 }
 ```
 
-```c
-// cfuncs.h
-#ifndef C_FUNCS_H
-#define C_FUNCS_H
-
-extern int numAddTen(int v);
-
-#endif
-```
+## Effect handler
 
 ```typescript
-import { cImport } from "std/c";
-const cFunctions = cImport("cfuncs.h", "cfuncs.c");
-
-function main() {
-  console.log(cFunctions.numAddTen(10));
-}
-```
-
-## Do Notation
-
-This is like the `async` and `await` in JavaScript.
-
-```typescript
-function main(): IO<()> do {
-  fileContent <- fs.readFile("hello.txt");
-  console.log(fileContent);
+effect MyConsole {
+  log: (message: string) => [MyConsole] Unit;
 }
 
-// equals to
-function main(): IO<()> {
-  fs.readFile("hello.text") >>= (fileContent) => console.log(fileContent);
-}
-```
-
-```typescript
-function main(): IO<()> do {
-  result <- all([
-    fs.readFile("hello.txt"),
-    fs.readFile("world.txt"),
-  ]);
-  console.log(result);
-}
-```
-
-## Error handling
-
-> http://www.randomhacks.net/2007/03/10/haskell-8-ways-to-report-errors/  
-> https://wiki.haskell.org/Handling_errors_in_Haskell
-
-### Use `error`
-
-```typescript
-
-// error :: string -> a
-function myDiv(x: i32, y: i32): i32 {
-  if (y == 0) {
-    error("Division by zero");
-  } else {
-    x / y;
-  }
+function useMyConsole(x: string): [MyConsole] Unit {
+  log(x);
 }
 
-function example(x: i32, y: i32): IO<()> {
-  putStrLn(show(myDiv(x, y))) `catch` (error) => {
-    console.log("Caught error: ", error);
-  }
-}
-```
-
-### Use Exceptions
-
-```typescript
-enum MyError {
-  DivisionByZero,
-}
-implement Exception for MyError {} // Use the default methods
-
-function myDiv(x: i32, y: i32): i32 {
-  if (y == 0) {
-    throw(MyError.DivisionByZero);
-  } else {
-    x / y;
-  }
-}
-
-function myDivIO(x: i32, y: i32): IO<i32> do {
-  if (y == 0) {
-    throwIO(MyError.DivisionByZero);
-  } else {
-    return x / y;
-  }
-}
-
-function main(): IO<()> do {
-  result <- try(myDivIO(10, 0));
-
-  // or
-
-  result <- try(evaluate(myDiv(10, 0)));
-
-  switch (result) {
-    case Ok(value): {
-      console.log("The result is ", value);
+function tryUseMyConsole(): [Console] Unit {
+  try {
+    do useMyConsole("Hello, world!");
+  } catch {
+    case MyConsole: {
+      log: (message) => {
+        console.log(message);
+        resume(unit)
+      }
     }
-    case Err(error): {
-      console.log("Caught error: ", error);
+  }
+}
+```
+
+Async/Await
+
+```typescript
+effect MyAff {
+  delay: (ms: i32) => [MyAff] Unit;
+}
+
+function useMyAff(x: string): [MyAff, Console] Unit {
+  do delay(1000);
+  console.log(x);
+}
+
+function tryUseMyAff(): [Console] Unit {
+  try {
+    const task1 = useMyAff("This is task 1");
+    const task2 = useMyAff("This is task 2");
+    const result = do parallel([task1, task2])
+    unit
+  } catch {
+    case MyAff: {
+      delay: (ms) => {
+        setTimeout(() => {
+          resume(unit);
+        }, ms);
+      };
     }
   }
 }
@@ -681,3 +496,7 @@ function main(): IO<()> do {
 - [Ocaml Locality](https://blog.janestreet.com/oxidizing-ocaml-locality/)
 - [Data race freedom](https://github.com/ocaml-flambda/ocaml-jst/blob/main/jane/doc/proposals/data-race-freedom.md)
 - [ICFP'21 Tutorials - Programming with Effect Handlers and FBIP in Koka](https://www.youtube.com/watch?v=6OFhD_mHtKA&ab_channel=ACMSIGPLAN)
+
+```
+
+```

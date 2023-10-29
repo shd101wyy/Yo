@@ -6,7 +6,7 @@ fun foo() {
 }
 
 effect myConsole {
-  ctl myPrint(): int
+  ctl myPrint(): (int)
 }
 
 fun useConsole() {
@@ -38,4 +38,9 @@ fun tryConsole() {
 
 fun main() {
   foo()
+}
+
+fun test() {
+  with x <- 1
+  x
 }
