@@ -144,6 +144,7 @@ function parseIdentifierExpr(tokens: Token[], index: number): ParserReturn {
  *   ::= identifierexpr
  *   ::= numberexpr
  *   ::= parenexpr
+ *   ::= ifexpr
  * @param tokens
  * @param index
  */
@@ -159,6 +160,8 @@ function parsePrimary(tokens: Token[], index: number): ParserReturn {
       return parseBooleanExpr(tokens, index);
     case TokenType.LParen:
       return parseParenExpr(tokens, index);
+    case TokenType.If:
+      return parseIfExpr(tokens, index);
     case TokenType.Semicolon:
       return { expr: null, index: index + 1 };
     default:
@@ -332,6 +335,7 @@ function parseFunction(tokens: Token[], index: number): ParserReturn {
       throw new Error("Expected '}' for function body");
     }
     if (token.type === TokenType.RCurlyBracket) {
+      index = index + 1;
       break;
     }
     const { expr, index: nextIndex } = parseExpression(tokens, index);
@@ -346,7 +350,7 @@ function parseFunction(tokens: Token[], index: number): ParserReturn {
     prototype,
     body,
   };
-  return { expr: functionExpr, index: index + 1 };
+  return { expr: functionExpr, index };
 }
 
 function parseExtern(tokens: Token[], index: number): ParserReturn {
@@ -382,6 +386,77 @@ function parseTypeValue(
       value: token.value,
     },
     index: index + 1,
+  };
+}
+
+function parseIfExpr(tokens: Token[], index: number): ParserReturn {
+  if (tokens[index].type !== TokenType.If) {
+    throw new Error("Expected if");
+  }
+  index = index + 1;
+
+  // parse condition
+  const { expr: condition, index: nextIndex } = parseExpression(tokens, index);
+  if (!condition) {
+    return { expr: null, index: nextIndex };
+  }
+  index = nextIndex;
+
+  // parse then
+  if (tokens[index].type !== TokenType.LCurlyBracket) {
+    throw new Error("Expected '{' for 'if' body");
+  }
+  index = index + 1;
+  const then: Expr[] = [];
+  while (true) {
+    const token = tokens[index];
+    if (!token) {
+      throw new Error("Expected '}' for 'if' body");
+    }
+    if (token.type === TokenType.RCurlyBracket) {
+      index = index + 1;
+      break;
+    }
+    const { expr, index: nextIndex } = parseExpression(tokens, index);
+    if (expr) {
+      then.push(expr);
+    }
+    index = nextIndex;
+  }
+
+  // parse else
+  const elseExpr: Expr[] = [];
+  if (tokens[index].type === TokenType.Else) {
+    index = index + 1;
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw new Error("Expected '{' for 'else' body");
+    }
+    index = index + 1;
+    while (true) {
+      const token = tokens[index];
+      if (!token) {
+        throw new Error("Expected '}' for 'else' body");
+      }
+      if (token.type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+      const { expr, index: nextIndex } = parseExpression(tokens, index);
+      if (expr) {
+        elseExpr.push(expr);
+      }
+      index = nextIndex;
+    }
+  }
+
+  return {
+    expr: {
+      type: AstType.If,
+      condition,
+      then,
+      else: elseExpr,
+    },
+    index: index,
   };
 }
 

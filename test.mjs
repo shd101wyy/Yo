@@ -33,10 +33,25 @@ function main(): i32 {
 `
 
 code = `
-extern sin(x: f32): f32;
+function max(x: i32, y: i32): i32 {
+  if (x > y) {
+    x
+  } else {
+    y
+  }
+}
+`
+
+code = `
+function maxFloat(x: i32, y: i32): i32 {
+  if (x > y) {
+    x + 1 - 1
+  } else {
+    y + 1 - 1
+  }
+}
 
 function main(): i32 {
-  sin(1.0);
   0
 }
 `

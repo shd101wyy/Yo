@@ -32,6 +32,9 @@ export enum AstType {
 
   // extern
   Extern = "extern",
+
+  // control flow
+  If = "if",
 }
 
 export type Expr =
@@ -43,7 +46,8 @@ export type Expr =
   | BinaryOperatorExpr
   | VariableExpr
   | ValueExpr
-  | CallFunctionExpr;
+  | CallFunctionExpr
+  | IfExpr;
 
 export type TopLevelExpr = Expr | FunctionExpr;
 
@@ -145,6 +149,13 @@ export type CallFunctionExpr = {
   type: AstType.CallFunction;
   functionName: string;
   functionArguments: Expr[];
+};
+
+export type IfExpr = {
+  type: AstType.If;
+  condition: Expr;
+  then: Expr[];
+  else: Expr[];
 };
 
 /**

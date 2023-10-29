@@ -41,6 +41,7 @@ export enum TokenType {
   // keywords
   Function = "function",
   If = "if",
+  Else = "else",
   For = "for",
   While = "while",
   Switch = "switch",

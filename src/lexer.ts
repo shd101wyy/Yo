@@ -335,6 +335,13 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            case "else":
+              tokens.push({
+                type: TokenType.Else,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
             case "for":
               tokens.push({
                 type: TokenType.For,

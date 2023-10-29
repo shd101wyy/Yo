@@ -59,6 +59,18 @@ export class CodeGenerator {
     }
   }
 
+  private getBinOpType(left: llvm.Value, right: llvm.Value): "long" | "double" {
+    // TODO: check more types
+    if (
+      left.getType() instanceof llvm.APFloat ||
+      right.getType() instanceof llvm.APFloat
+    ) {
+      return "double";
+    } else {
+      return "long";
+    }
+  }
+
   private codegenPrototype(prototype: FunctionPrototype): llvm.Function | null {
     const functionName = prototype.functionName;
     const returnType = this.getTypeValue(prototype.returnType);
@@ -115,29 +127,74 @@ export class CodeGenerator {
         case AstType.BinaryOperator: {
           const lhs = this.codegenExpr(expr.left, namedValues);
           const rhs = this.codegenExpr(expr.right, namedValues);
+          const binopType = this.getBinOpType(lhs, rhs);
           switch (expr.operator) {
             case "+":
-              return this.builder.CreateAdd(lhs, rhs);
+              if (binopType === "double") {
+                return this.builder.CreateFAdd(lhs, rhs);
+              } else {
+                return this.builder.CreateAdd(lhs, rhs);
+              }
             case "-":
-              return this.builder.CreateSub(lhs, rhs);
+              if (binopType === "double") {
+                return this.builder.CreateFSub(lhs, rhs);
+              } else {
+                return this.builder.CreateSub(lhs, rhs);
+              }
             case "*":
-              return this.builder.CreateMul(lhs, rhs);
+              if (binopType === "double") {
+                return this.builder.CreateFMul(lhs, rhs);
+              } else {
+                return this.builder.CreateMul(lhs, rhs);
+              }
             case "/":
-              return this.builder.CreateSDiv(lhs, rhs);
+              if (binopType === "double") {
+                return this.builder.CreateFDiv(lhs, rhs);
+              } else {
+                return this.builder.CreateSDiv(lhs, rhs);
+              }
             case "%":
-              return this.builder.CreateSRem(lhs, rhs);
+              if (binopType === "double") {
+                return this.builder.CreateFRem(lhs, rhs);
+              } else {
+                return this.builder.CreateSRem(lhs, rhs);
+              }
             case "==":
-              return this.builder.CreateICmpEQ(lhs, rhs);
+              if (binopType === "double") {
+                return this.builder.CreateFCmpOEQ(lhs, rhs);
+              } else {
+                return this.builder.CreateICmpEQ(lhs, rhs);
+              }
             case "!=":
-              return this.builder.CreateICmpNE(lhs, rhs);
+              if (binopType === "double") {
+                return this.builder.CreateFCmpONE(lhs, rhs);
+              } else {
+                return this.builder.CreateICmpNE(lhs, rhs);
+              }
             case "<":
-              return this.builder.CreateICmpSLT(lhs, rhs);
+              if (binopType === "double") {
+                return this.builder.CreateFCmpOLT(lhs, rhs);
+              } else {
+                return this.builder.CreateICmpSLT(lhs, rhs);
+              }
             case "<=":
-              return this.builder.CreateICmpSLE(lhs, rhs);
+              if (binopType === "double") {
+                return this.builder.CreateFCmpOLE(lhs, rhs);
+              } else {
+                return this.builder.CreateICmpSLE(lhs, rhs);
+              }
             case ">":
-              return this.builder.CreateICmpSGT(lhs, rhs);
+              if (binopType === "double") {
+                return this.builder.CreateFCmpOGT(lhs, rhs);
+              } else {
+                return this.builder.CreateICmpSGT(lhs, rhs);
+              }
             case ">=":
-              return this.builder.CreateICmpSGE(lhs, rhs);
+              if (binopType === "double") {
+                return this.builder.CreateFCmpOGE(lhs, rhs);
+              } else {
+                return this.builder.CreateICmpSGE(lhs, rhs);
+              }
             default:
               throw new Error(`Unknown binary operator: ${expr.operator}`);
           }
@@ -168,7 +225,9 @@ export class CodeGenerator {
           };
           for (let i = 0; i < theFunction.arg_size(); i++) {
             const arg = theFunction.getArg(i);
-            newNamedValues[arg.getName()] = arg;
+            const parameterName =
+              expr.prototype.functionParameters[i].parameterName;
+            newNamedValues[parameterName] = arg;
           }
 
           const returnVal = this.codegenExpr(expr.body, newNamedValues);
@@ -218,10 +277,84 @@ export class CodeGenerator {
           const args = expr.functionArguments.map((arg) => {
             return this.codegenExpr(arg, namedValues);
           });
-          console.log("Enter here", args.length);
           const call = this.builder.CreateCall(func, args);
-          console.log("Enter here 2");
           return call;
+        }
+        case AstType.If: {
+          const conditionValue = this.codegenExpr(expr.condition, namedValues);
+
+          // Convert condition to a bool by comparing equal to 0.0
+          /*
+          conditionValue = this.builder.CreateFCmpONE(
+            conditionValue,
+            llvm.ConstantFP.get(this.context, new llvm.APFloat(0.0)),
+            "ifcond"
+          );
+          */
+
+          const theFunction = this.builder.GetInsertBlock()?.getParent();
+          if (!theFunction) {
+            throw new Error(`Function not found`);
+          }
+
+          // Create blocks for the `then` and `else` cases. Insert the `then` block at the end of the function
+          const thenBB = llvm.BasicBlock.Create(
+            this.context,
+            "then",
+            theFunction
+          );
+          const elseBB = llvm.BasicBlock.Create(this.context, "else");
+          const mergeBB = llvm.BasicBlock.Create(this.context, "ifcont");
+
+          this.builder.CreateCondBr(conditionValue, thenBB, elseBB);
+
+          // Emit then value
+          this.builder.SetInsertPoint(thenBB);
+          const thenValue = this.codegenExpr(expr.then, namedValues);
+          if (!thenValue) {
+            throw new Error(`Then value not found`);
+          }
+
+          this.builder.CreateBr(mergeBB);
+          {
+            // Codegen of 'Then' can change the current block, update ThenBB for the PHI.
+            const thenBB = this.builder.GetInsertBlock();
+            if (!thenBB) {
+              throw new Error(`Then block not found`);
+            }
+
+            // Emit else block
+            theFunction.insertAfter(thenBB, elseBB);
+            this.builder.SetInsertPoint(elseBB);
+
+            const elseValue = this.codegenExpr(expr.else, namedValues);
+            if (!elseValue) {
+              throw new Error(`Else value not found`);
+            }
+
+            this.builder.CreateBr(mergeBB);
+            // Codegen of 'Else' can change the current block, update ElseBB for the PHI.
+            {
+              const elseBB = this.builder.GetInsertBlock();
+              if (!elseBB) {
+                throw new Error(`Else block not found`);
+              }
+
+              // Emit merge block
+              theFunction.insertAfter(elseBB, mergeBB);
+              this.builder.SetInsertPoint(mergeBB);
+
+              const phiNode = this.builder.CreatePHI(
+                // llvm.Type.getVoidTy(this.context),
+                llvm.Type.getInt32Ty(this.context), // TODO: This should be the type of the return value. This means both thenValue and elseValue should have the same type.
+                2,
+                "iftmp"
+              );
+              phiNode.addIncoming(thenValue, thenBB);
+              phiNode.addIncoming(elseValue, elseBB);
+              return phiNode;
+            }
+          }
         }
         default:
           throw new Error(`Unknown expression type: ${JSON.stringify(expr)}`);
