@@ -26,13 +26,18 @@ export enum AstType {
   FunctionParameter = "function-parameter",
 
   // function
+  FunctionPrototype = "function-prototype",
   Function = "function",
   CallFunction = "call-function",
+
+  // extern
+  Extern = "extern",
 }
 
 export type Expr =
   | Expr[]
   | FunctionExpr
+  | ExternExpr
   | AssignmentExpr
   | UnaryOperatorExpr
   | BinaryOperatorExpr
@@ -117,13 +122,23 @@ export type FunctionParameterExpr = {
   type: AstType.FunctionParameter;
 };
 
-export type FunctionExpr = {
-  type: AstType.Function;
+export type FunctionPrototype = {
+  type: AstType.FunctionPrototype;
   functionName: string;
   typeParameters: TypeParameterExpr[];
   functionParameters: FunctionParameterExpr[];
   returnType: TypeValueExpr;
+};
+
+export type FunctionExpr = {
+  type: AstType.Function;
+  prototype: FunctionPrototype;
   body: Expr[];
+};
+
+export type ExternExpr = {
+  type: AstType.Extern;
+  prototype: FunctionPrototype;
 };
 
 export type CallFunctionExpr = {

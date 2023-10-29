@@ -271,7 +271,6 @@ export function tokenize(input: string): Token[] {
           while (/[0-9]/.test(input[++i])) {
             value += input[i];
           }
-          i--;
 
           if (input[i] === ".") {
             value += input[i];
@@ -285,12 +284,14 @@ export function tokenize(input: string): Token[] {
               value,
               position: { line, character: i - totalCharacters },
             });
+            i--;
           } else {
             tokens.push({
               type: TokenType.Integer,
               value,
               position: { line, character: i - totalCharacters },
             });
+            i--;
           }
         } else if (/[_a-zA-Z]/.test(char)) {
           // TODO: add support for unicode

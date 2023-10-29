@@ -16,6 +16,30 @@ function main(): i32 {
   4
 }
 `
+code = `
+function foo(x: i32, y: i32): i32 {
+  x * x + 2 * x * y + y * y
+}
+
+function bar(x: i32): i32 {
+  foo(x, 4) + 1
+}
+
+extern sin(x: f32): f32;
+
+function main(): i32 {
+  bar(2)
+}
+`
+
+code = `
+extern sin(x: f32): f32;
+
+function main(): i32 {
+  sin(1.0);
+  0
+}
+`
 
 const codeGenerator = new CodeGenerator(code);
 const ir = codeGenerator.getLlvmIr();

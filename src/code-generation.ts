@@ -1,5 +1,5 @@
 import llvm, { LLVMContext } from "llvm-bindings";
-import { AstType, Expr, TypeValueExpr } from "./ast";
+import { AstType, Expr, FunctionPrototype, TypeValueExpr } from "./ast";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
 import { Token } from "./token";
@@ -30,16 +30,62 @@ export class CodeGenerator {
 
   private getTypeValue(typeExpr: TypeValueExpr): llvm.Type {
     switch (typeExpr.value) {
+      case "i1": {
+        return this.builder.getInt1Ty();
+      }
+      case "i8": {
+        return this.builder.getInt8Ty();
+      }
+      case "i16": {
+        return this.builder.getInt16Ty();
+      }
       case "i32": {
         return this.builder.getInt32Ty();
+      }
+      case "i64": {
+        return this.builder.getInt64Ty();
+      }
+      case "i128": {
+        return this.builder.getInt128Ty();
+      }
+      case "f32": {
+        return this.builder.getFloatTy();
+      }
+      case "f64": {
+        return this.builder.getDoubleTy();
       }
       default:
         throw new Error(`Unknown type: ${JSON.stringify(typeExpr)}`);
     }
   }
 
+  private codegenPrototype(prototype: FunctionPrototype): llvm.Function | null {
+    const functionName = prototype.functionName;
+    const returnType = this.getTypeValue(prototype.returnType);
+    const paramTypes = prototype.functionParameters.map((param) => {
+      return this.getTypeValue(param.parameterType);
+    });
+    const functionType = llvm.FunctionType.get(
+      returnType,
+      paramTypes,
+      false // isVarArg
+    );
+    const func = llvm.Function.Create(
+      functionType,
+      llvm.Function.LinkageTypes.ExternalLinkage,
+      functionName,
+      this.module
+    );
+    for (let i = 0; i < func.arg_size(); i++) {
+      const arg = func.getArg(i);
+      const paramName = prototype.functionParameters[i].parameterName;
+      arg.setName(paramName);
+    }
+    return func;
+  }
+
   private codegenExpr(
-    expr: Expr,
+    expr: Expr | FunctionPrototype,
     namedValues: { [key: string]: llvm.Value }
   ): llvm.Value {
     if (expr instanceof Array) {
@@ -58,6 +104,12 @@ export class CodeGenerator {
             llvm.IntegerType.get(this.context, 32),
             parseInt(expr.value),
             true // isSigned
+          );
+        }
+        case AstType.Float: {
+          return llvm.ConstantFP.get(
+            llvm.Type.getFloatTy(this.context),
+            parseFloat(expr.value)
           );
         }
         case AstType.BinaryOperator: {
@@ -91,45 +143,54 @@ export class CodeGenerator {
           }
         }
         case AstType.Function: {
-          const functionName = expr.functionName;
-          const returnType = this.getTypeValue(expr.returnType);
-          const paramTypes = expr.functionParameters.map((param) => {
-            return this.getTypeValue(param.parameterType);
-          });
-          const functionType = llvm.FunctionType.get(
-            returnType,
-            paramTypes,
-            false // isVarArg
+          let theFunction = this.module.getFunction(
+            expr.prototype.functionName
           );
-          const func = llvm.Function.Create(
-            functionType,
-            llvm.Function.LinkageTypes.ExternalLinkage,
-            functionName,
-            this.module
+          if (!theFunction) {
+            theFunction = this.codegenPrototype(expr.prototype);
+          }
+          if (!theFunction) {
+            throw new Error(
+              `Function ${expr.prototype.functionName} not found`
+            );
+          }
+
+          const entryBB = llvm.BasicBlock.Create(
+            this.context,
+            "entry",
+            theFunction
           );
+          this.builder.SetInsertPoint(entryBB);
+
           // Record the function parameters in the namedValues map
           const newNamedValues: { [key: string]: llvm.Value } = {
             ...namedValues,
           };
-          for (let i = 0; i < func.arg_size(); i++) {
-            const arg = func.getArg(i);
-            const paramName = expr.functionParameters[i].parameterName;
-            arg.setName(paramName);
-            newNamedValues[paramName] = arg;
+          for (let i = 0; i < theFunction.arg_size(); i++) {
+            const arg = theFunction.getArg(i);
+            newNamedValues[arg.getName()] = arg;
           }
-
-          const entryBB = llvm.BasicBlock.Create(this.context, "entry", func);
-          this.builder.SetInsertPoint(entryBB);
 
           const returnVal = this.codegenExpr(expr.body, newNamedValues);
           this.builder.CreateRet(returnVal);
 
           // verify the function
-          if (llvm.verifyFunction(func)) {
-            throw new Error(`Function ${functionName} verification failed`);
+          if (llvm.verifyFunction(theFunction)) {
+            throw new Error(
+              `Function ${expr.prototype.functionName} verification failed`
+            );
           }
 
-          return func;
+          return theFunction;
+        }
+        case AstType.Extern: {
+          const theFunction = this.codegenPrototype(expr.prototype);
+          if (!theFunction) {
+            throw new Error(
+              `Function ${expr.prototype.functionName} not found`
+            );
+          }
+          return theFunction;
         }
         case AstType.Variable: {
           const value = namedValues[expr.name];

@@ -1,6 +1,6 @@
 # Language Design
 
-**Mo** is functional, general-purpose, compiled programming language that compiles to LLVM IR and WASM.
+**Mo** (墨) is functional, general-purpose, compiled programming language that compiles to LLVM IR and WASM.
 
 The **Mo** language is heavily inspired by [TypeScript](https://www.typescriptlang.org/), [Rust](https://www.rust-lang.org/), [Koka](https://koka-lang.github.io/), and [Haskell](https://www.haskell.org/).
 

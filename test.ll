@@ -1,13 +1,10 @@
 ; ModuleID = 'main'
 source_filename = "main"
 
-define i32 @test() {
-entry:
-  ret i32 12
-}
+declare float @sin(float)
 
 define i32 @main() {
 entry:
-  %0 = call i32 @test()
-  ret i32 4
+  %0 = call float @sin(float 1.000000e+00)
+  ret i32 0
 }

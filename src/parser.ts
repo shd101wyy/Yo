@@ -8,6 +8,7 @@ import {
   Expr,
   FunctionExpr,
   FunctionParameterExpr,
+  FunctionPrototype,
   TypeValueExpr,
   getTokenPrecedence,
 } from "./ast";
@@ -158,6 +159,8 @@ function parsePrimary(tokens: Token[], index: number): ParserReturn {
       return parseBooleanExpr(tokens, index);
     case TokenType.LParen:
       return parseParenExpr(tokens, index);
+    case TokenType.Semicolon:
+      return { expr: null, index: index + 1 };
     default:
       throw new Error(`Unknown token: ${JSON.stringify(token)}`);
   }
@@ -221,18 +224,18 @@ function parseBinOpRHS(
   }
 }
 
-function parseFunction(tokens: Token[], index: number): ParserReturn {
-  if (tokens[index].type !== TokenType.Function) {
-    throw new Error("Expected function");
+function parsePrototype(
+  tokens: Token[],
+  index: number
+): {
+  prototype: FunctionPrototype | null;
+  index: number;
+} {
+  if (tokens[index].type !== TokenType.Identifier) {
+    throw new Error("Expected function name in prototype");
   }
-
-  index = index + 1;
   let token = tokens[index];
 
-  // Check if it's identifier
-  if (token.type !== TokenType.Identifier) {
-    throw new Error("Expected function name");
-  }
   const functionName = token.value;
 
   index = index + 1;
@@ -292,6 +295,31 @@ function parseFunction(tokens: Token[], index: number): ParserReturn {
   );
   index = nextIndex;
 
+  return {
+    prototype: {
+      type: AstType.FunctionPrototype,
+      functionName,
+      typeParameters: [],
+      functionParameters,
+      returnType,
+    },
+    index,
+  };
+}
+
+function parseFunction(tokens: Token[], index: number): ParserReturn {
+  if (tokens[index].type !== TokenType.Function) {
+    throw new Error("Expected function");
+  }
+
+  index = index + 1;
+  const { prototype, index: nextIndex } = parsePrototype(tokens, index);
+  if (!prototype) {
+    return { expr: null, index: nextIndex };
+  } else {
+    index = nextIndex;
+  }
+
   // Check function body
   if (tokens[index].type !== TokenType.LCurlyBracket) {
     throw new Error("Expected '{' for function body");
@@ -315,13 +343,31 @@ function parseFunction(tokens: Token[], index: number): ParserReturn {
 
   const functionExpr: FunctionExpr = {
     type: AstType.Function,
-    functionName,
-    typeParameters: [],
-    functionParameters,
-    returnType,
+    prototype,
     body,
   };
   return { expr: functionExpr, index: index + 1 };
+}
+
+function parseExtern(tokens: Token[], index: number): ParserReturn {
+  if (tokens[index].type !== TokenType.Extern) {
+    throw new Error("Expected extern");
+  }
+
+  index = index + 1;
+  const { prototype, index: nextIndex } = parsePrototype(tokens, index);
+  if (!prototype) {
+    return { expr: null, index: nextIndex };
+  } else {
+    index = nextIndex;
+  }
+  return {
+    expr: {
+      type: AstType.Extern,
+      prototype,
+    },
+    index,
+  };
 }
 
 function parseTypeValue(
@@ -370,6 +416,14 @@ export function parse(tokens: Token[]): Expr {
       }
       case TokenType.Function: {
         const { expr, index: nextIndex } = parseFunction(tokens, index);
+        if (expr) {
+          exprs.push(expr);
+        }
+        index = nextIndex;
+        break;
+      }
+      case TokenType.Extern: {
+        const { expr, index: nextIndex } = parseExtern(tokens, index);
         if (expr) {
           exprs.push(expr);
         }

@@ -59,6 +59,10 @@ export enum TokenType {
   Implement = "implement",
   Import = "import",
   Export = "export",
+  /**
+   * A list of available C functions can be found at:
+   * https://libc.llvm.org/index.html
+   */
   Extern = "extern",
   Inline = "inline",
 
