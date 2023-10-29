@@ -1,8 +1,10 @@
 # Language Design
 
-A multi-paradigm, general-purpose, compiled programming language that compiles to LLVM IR.
+**Mo** is functional, general-purpose, compiled programming language that compiles to LLVM IR.
 
-**Mo** language is has TypeScript-like syntax, combined with algebraic effects.
+The **Mo** language has a minimal syntax design that looks like TypeScript, combined with algebraic effects and an efficient type system.
+
+Please note that **Mo** language is **immutable** by default, and it is not a goal to be a "pure" functional language. Our goal is to be a practical language that is easy to use and easy to learn.
 
 <!-- @import "[TOC]" {cmd="toc" depthFrom=1 depthTo=6 orderedList=false} -->
 
@@ -16,8 +18,14 @@ A multi-paradigm, general-purpose, compiled programming language that compiles t
     - [Primitive Types (aka, Value Types), stored on stack](#primitive-types-aka-value-types-stored-on-stack)
     - [Variable Declaration](#variable-declaration)
     - [Reference Types, stored on heap](#reference-types-stored-on-heap)
+  - [Function Declaration](#function-declaration)
   - [Mutability](#mutability)
+    - [Reference Cells and Isolated state](#reference-cells-and-isolated-state)
   - [Control Flow](#control-flow)
+    - [Brace elision](#brace-elision)
+      - [repeat](#repeat)
+      - [while](#while)
+      - [for](#for)
   - [Type synonyms](#type-synonyms)
   - [Enum](#enum)
     - [Method](#method)
@@ -30,15 +38,8 @@ A multi-paradigm, general-purpose, compiled programming language that compiles t
   - [Slice](#slice)
   - [Error handling](#error-handling)
   - [Recoverable Errors with Result](#recoverable-errors-with-result)
-  - [Test](#test)
-  - [Reference](#reference)
-  - [Raw Pointers (Dangerous)](#raw-pointers-dangerous)
-  - [Smart Pointers](#smart-pointers)
-  - [C Language FFI](#c-language-ffi)
-  - [Do Notation](#do-notation)
-  - [Error handling](#error-handling-1)
-    - [Use `error`](#use-error)
-    - [Use Exceptions](#use-exceptions)
+  - [With syntax](#with-syntax)
+  - [Effect handler](#effect-handler)
   - [References](#references)
 
 <!-- /code_chunk_output -->
@@ -86,8 +87,8 @@ moc hello.mo -o hello
 ### Variable Declaration
 
 ```typescript
-let x = 5; // x: i32, mutable
 const y = 5; // y: i32, immutable
+let x = 5; // x: i32, mutable
 ```
 
 ### Reference Types, stored on heap
@@ -106,14 +107,51 @@ const myMap: Map<string, int> = Map.from([
 ]); // Stored on heap
 ```
 
+## Function Declaration
+
+```typescript
+function add(x: i32, y: i32): i32 {
+  return x + y;
+}
+
+// Arrow function
+const add = (x: i32, y: i32): i32 => {
+  return x + y;
+};
+
+// Generic function
+function identity<T>(arg: T): T {
+  return arg;
+}
+
+// Effectful function
+function main(): [Console] Unit {
+  console.log("Hello, world");
+}
+```
+
 ## Mutability
 
 ```typescript
 const foo: string = "Hello, world"; // Immutable
-let bar = foo; //
+let bar = foo; // `let` is actually some kind of syntax sugar of the `localState` effect. We will explain this later.
 
-// console.log(foo); // error, as move occurred
 console.log(bar); // "Hello, world"
+```
+
+### Reference Cells and Isolated state
+
+```typescript
+function fib(n: i32): i32 {
+  const x = ref(0);
+  const y = ref(1);
+  repeat(n) {
+    const y0 = y.deref();
+    y.set(x.deref() + y0);
+    x.set(y0);
+  }
+  x.deref()
+}
 ```
 
 ## Control Flow
@@ -131,24 +169,69 @@ function main() {
 }
 ```
 
-```typescript
-function factorial(n: i32): i32 {
-  let result = 1;
-  for (let i = 1; i <= n; i++) {
-    result *= i;
-  }
-  return result;
-}
-```
+### Brace elision
+
+#### repeat
 
 ```typescript
 function factorial(n: i32): i32 {
   let result = 1;
-  while (n > 1) {
-    result *= n;
-    n -= 1;
+  repeat (n) (i)=> {
+    result *= i;
   }
   return result;
+}
+
+// is equalvalent to
+function factorial(n: i32): i32 {
+  let result = 1;
+  repeat(n, (i)=> {
+    result *= i;
+  })
+  return result;
+}
+
+```
+
+#### while
+
+```typescript
+function factorial(n: i32): i32 {
+  let m = n;
+  let result = 1;
+  while {m > 1} {
+    result *= m;
+    m = m - 1;
+  }
+  result
+}
+// is equalvalent to
+function factorial(n: i32): i32 {
+  let m = n;
+  let result = 1;
+  while(()=> {m > 1}, ()=> {
+    result *= m;
+    m = m - 1;
+  })
+  result
+}
+```
+
+#### for
+
+```typescript
+function print10() {
+  for(1, 10) (i)=> {
+    console.log(i);
+  }
+}
+
+// is equalvalent to
+
+function print10() {
+  for(1, 10, (i)=> {
+    console.log(i);
+  })
 }
 ```
 
@@ -364,10 +447,10 @@ const emptyArray: i32[0] = [];
 ## Error handling
 
 ```typescript
-function main() {
-  throw Error({
+function main(): [Exception] {
+  throw {
     message: "Something went wrong",
-  });
+  };
 }
 ```
 
@@ -450,6 +533,8 @@ function useMyConsole(x: string): [MyConsole] Unit {
 function tryUseMyConsole(): [Console] Unit {
   try {
     do useMyConsole("Hello, world!");
+    // or use `<-` syntax
+    // _ <- useMyConsole("Hello, world!");
   } catch {
     case MyConsole: {
       log: (message) => {
@@ -496,7 +581,3 @@ function tryUseMyAff(): [Console] Unit {
 - [Ocaml Locality](https://blog.janestreet.com/oxidizing-ocaml-locality/)
 - [Data race freedom](https://github.com/ocaml-flambda/ocaml-jst/blob/main/jane/doc/proposals/data-race-freedom.md)
 - [ICFP'21 Tutorials - Programming with Effect Handlers and FBIP in Koka](https://www.youtube.com/watch?v=6OFhD_mHtKA&ab_channel=ACMSIGPLAN)
-
-```
-
-```

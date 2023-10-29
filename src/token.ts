@@ -45,7 +45,7 @@ export enum TokenType {
   While = "while",
   Switch = "switch",
   Case = "case",
-  Match = "match",
+  Resume = "resume",
   Return = "return",
   Break = "break",
   Continue = "continue",
@@ -55,17 +55,22 @@ export enum TokenType {
   Type = "type",
   Enum = "enum",
   Interface = "interface",
+  Effect = "effect",
   Implement = "implement",
   Import = "import",
   Export = "export",
   Extern = "extern",
+  Inline = "inline",
+
+  // reserved
   Null = "null",
   Undefined = "undefined",
   Struct = "struct",
   Union = "union",
-  Inline = "inline",
+  Override = "override",
+  Match = "match",
 
-  // other
+  // punctuation
   Semicolon = ";",
   Colon = ":",
   Comma = ",",
