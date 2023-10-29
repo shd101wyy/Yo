@@ -1,16 +1,31 @@
 # Language Design
 
+A multi-paradigm, general-purpose, compiled programming language that compiles to LLVM IR.
+
+**Mo** language is has TypeScript-like syntax, combined with algebraic effects.
+
 <!-- @import "[TOC]" {cmd="toc" depthFrom=1 depthTo=6 orderedList=false} -->
 
 <!-- code_chunk_output -->
 
 - [Language Design](#language-design)
+  - [Philosophy](#philosophy)
   - [Hello World](#hello-world)
+  - [CLI Usage](#cli-usage)
   - [Types](#types)
-    - [Primitive Types](#primitive-types)
+    - [Primitive Types (aka, Value Types), stored on stack](#primitive-types-aka-value-types-stored-on-stack)
+    - [Variable Declaration](#variable-declaration)
+    - [Reference Types, stored on heap](#reference-types-stored-on-heap)
+  - [Mutability](#mutability)
+  - [Ownership](#ownership)
+    - [Ownership Operators](#ownership-operators)
+      - [`read`/`write`](#readwrite)
+      - [`move`](#move)
+    - [Rust Examples of Ownership Operators](#rust-examples-of-ownership-operators)
+  - [Lifetimes](#lifetimes)
   - [Control Flow](#control-flow)
-  - [Type](#type)
-    - [Type alias](#type-alias)
+  - [Type synonyms](#type-synonyms)
+  - [Enum](#enum)
     - [Method](#method)
     - [Interface (Typeclass)](#interface-typeclass)
     - [Pattern Matching](#pattern-matching)
@@ -26,6 +41,11 @@
   - [Raw Pointers (Dangerous)](#raw-pointers-dangerous)
   - [Smart Pointers](#smart-pointers)
   - [C Language FFI](#c-language-ffi)
+  - [Do Notation](#do-notation)
+  - [Error handling](#error-handling-1)
+    - [Use `error`](#use-error)
+    - [Use Exceptions](#use-exceptions)
+  - [References](#references)
 
 <!-- /code_chunk_output -->
 
@@ -38,12 +58,20 @@ Pass by reference by default, unless it's the primitive types or has `Copy` inte
 ```typescript
 import { console } from "std/io";
 
-console.log("Hello World!");
+function main() {
+  console.log("Hello World!");
+}
+```
+
+## CLI Usage
+
+```bash
+moc hello.mo -o hello
 ```
 
 ## Types
 
-### Primitive Types
+### Primitive Types (aka, Value Types), stored on stack
 
 - `boolean`
 - `i8` (8-bit signed integer)
@@ -60,6 +88,159 @@ console.log("Hello World!");
 - `f32` (32-bit floating point)
 - `f64` (64-bit floating point)
 - `char` (ASCII character)
+
+### Variable Declaration
+
+```typescript
+let x = 5; // x: i32, mutable
+const y = 5; // y: i32, immutable
+```
+
+### Reference Types, stored on heap
+
+```typescript
+const myString: string = "Hello, world"; // Stored on stack
+const myString: String = String.from("Hello, world"); // Stored on heap
+
+const myArray: int[] = [1, 2, 3]; // Stored on stack
+const myArray: Array<int> = Array.from([1, 2, 3]); // Stored on heap
+
+const mySet: Set<int> = Set.from([1, 2, 3]); // Stored on heap
+const myMap: Map<string, int> = Map.from([
+  ["one", 1],
+  ["two", 2],
+]); // Stored on heap
+```
+
+## Mutability
+
+```typescript
+const foo: string = "Hello, world"; // Immutable
+let bar = foo; // move the value from immutable to mutable
+
+// console.log(foo); // error, as move occurred
+console.log(bar); // "Hello, world"
+```
+
+## Ownership
+
+```typescript
+function main() {
+  const foo = "Hello, world"; // "foo" is the owner of the value
+} // "foo" is dropped here
+```
+
+Ownership can be borrowed to other scopes following either of the following rules:
+
+- one ore more `read` references to a resource.
+- exactly one `write` reference to a resource.
+
+And we don't allow changes to the resource while it is borrowed.
+
+### Ownership Operators
+
+#### `read`/`write`
+
+```typescript
+function readFoo(foo: read String) {
+  console.log(foo);
+}
+function writeFoo(foo: write String) {
+  foo.push(", world");
+}
+
+function main() {
+  let foo = String.from("Hello"); // "foo" is the owner of the value
+
+  readFoo(foo); // "foo" is borrowed as read. 1/infinite read borrow
+  // "foo" has 0/infinite read borrow
+
+  writeFoo(foo); // "foo" is borrowed as write. 1/1 write borrow
+  // "foo" has 0/1 write borrow
+
+} // "foo" is dropped here
+```
+
+#### `move`
+
+```typescript
+function moveFoo(foo: String) {
+  console.log(foo);
+}
+
+function main() {
+  let foo = String.from("Hello"); // "foo" is the owner of the value
+
+  moveFoo(foo); // "foo" is moved here
+  // "foo" is dropped here
+
+  // console.log(foo); // error, as move occurred
+}
+```
+
+### Rust Examples of Ownership Operators
+
+- `read`
+  - mo
+    ```typescript
+    function read_foo(foo: read String) {
+      console.log(foo);
+    }
+    ```
+  - rust
+    ```rust
+    fn read_foo(foo: &String) {
+      println!("{}", foo);
+    }
+    ```
+- `write`
+  - mo
+    ```typescript
+    function write_foo(foo: write String) {
+      foo.push(", world");
+    }
+    ```
+  - rust
+    ```rust
+    fn write_foo(foo: &mut String) {
+      foo.push_str(", world");
+    }
+    ```
+- `move`
+  - mo
+    ```typescript
+    function move_foo(foo: String) {
+      console.log(foo);
+    }
+    ```
+  - rust
+    ```rust
+    fn move_foo(foo: String) {
+      println!("{}", foo);
+    }
+    ```
+
+## Lifetimes
+
+```typescript
+function longest[A](x: read[A] string, y: read[A] string): read[A] string {
+  if (x.length > y.length) {
+    x
+  } else {
+    y
+  }
+}
+
+function main() {
+  let string1 = String.from("abcd");
+  {
+    let string2 = "xyz";
+    let result = longest(string1.asStr(), string2);
+    console.log("The longest string is ", result);
+  }
+}
+
+```
 
 ## Control Flow
 
@@ -283,12 +464,9 @@ m.set(String.from("one"), 1);
 ## Slice
 
 ```typescript
-const s = String.from("Hello World!");
-const hello = &s[0..5];
-const world = &s[6..11];
-
-const xs: [i32; 5] = [1, 2, 3, 4, 5];
-const emptyArray: [i32; 0] = [];
+const x: string = "Hello, world";
+const xs: i32[5] = [1, 2, 3, 4, 5];
+const emptyArray: i32[0] = [];
 ```
 
 ## Error handling
@@ -372,7 +550,7 @@ switch (xPtr) {
 
 ```typescript
 const x = Box.new<i32>(1234);
-console.log("x points to the value ", x.*);
+console.log("x points to the value ", x);
 ```
 
 ## C Language FFI
@@ -410,8 +588,96 @@ function main() {
 This is like the `async` and `await` in JavaScript.
 
 ```typescript
-function main(): Effect<()> do {
+function main(): IO<()> do {
   fileContent <- fs.readFile("hello.txt");
   console.log(fileContent);
 }
+
+// equals to
+function main(): IO<()> {
+  fs.readFile("hello.text") >>= (fileContent) => console.log(fileContent);
+}
 ```
+
+```typescript
+function main(): IO<()> do {
+  result <- all([
+    fs.readFile("hello.txt"),
+    fs.readFile("world.txt"),
+  ]);
+  console.log(result);
+}
+```
+
+## Error handling
+
+> http://www.randomhacks.net/2007/03/10/haskell-8-ways-to-report-errors/  
+> https://wiki.haskell.org/Handling_errors_in_Haskell
+
+### Use `error`
+
+```typescript
+
+// error :: string -> a
+function myDiv(x: i32, y: i32): i32 {
+  if (y == 0) {
+    error("Division by zero");
+  } else {
+    x / y;
+  }
+}
+
+function example(x: i32, y: i32): IO<()> {
+  putStrLn(show(myDiv(x, y))) `catch` (error) => {
+    console.log("Caught error: ", error);
+  }
+}
+```
+
+### Use Exceptions
+
+```typescript
+enum MyError {
+  DivisionByZero,
+}
+implement Exception for MyError {} // Use the default methods
+
+function myDiv(x: i32, y: i32): i32 {
+  if (y == 0) {
+    throw(MyError.DivisionByZero);
+  } else {
+    x / y;
+  }
+}
+
+function myDivIO(x: i32, y: i32): IO<i32> do {
+  if (y == 0) {
+    throwIO(MyError.DivisionByZero);
+  } else {
+    return x / y;
+  }
+}
+
+function main(): IO<()> do {
+  result <- try(myDivIO(10, 0));
+
+  // or
+
+  result <- try(evaluate(myDiv(10, 0)));
+
+  switch (result) {
+    case Ok(value): {
+      console.log("The result is ", value);
+    }
+    case Err(error): {
+      console.log("Caught error: ", error);
+    }
+  }
+}
+```
+
+## References
+
+- [Ocaml Locality](https://blog.janestreet.com/oxidizing-ocaml-locality/)
+- [Data race freedom](https://github.com/ocaml-flambda/ocaml-jst/blob/main/jane/doc/proposals/data-race-freedom.md)
+- [ICFP'21 Tutorials - Programming with Effect Handlers and FBIP in Koka](https://www.youtube.com/watch?v=6OFhD_mHtKA&ab_channel=ACMSIGPLAN)

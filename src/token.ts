@@ -61,6 +61,9 @@ export enum TokenType {
   Extern = "extern",
   Null = "null",
   Undefined = "undefined",
+  Struct = "struct",
+  Union = "union",
+  Inline = "inline",
 
   // other
   Semicolon = ";",

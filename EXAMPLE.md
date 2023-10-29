@@ -37,3 +37,21 @@ enum Maybe<T> {
 
 type string = char[];
 ```
+
+```typescript
+type Person = {
+  name: string;
+};
+
+function printPerson(x: unique<Person>) {
+  print(x.name);
+}
+
+let x: unique<Person> = { name: "John" };
+let y = x;
+print(x.name); // Error! x loses ownership
+
+let x: unique<Person> = { name: "John" };
+printPerson(x);
+print(x.name); // Error! x loses ownership
+```
