@@ -44,14 +44,16 @@ function max(x: i32, y: i32): i32 {
 
 code = `
 function add(x: i32, y: i32): i32 {
-  x + y
+  const a = 13;
+  const b = 2 + 1;
+  x + y + a + b
 }
 `
 
-new CodeGenerator(code);
+const codeGenerator = new CodeGenerator(code);
 
-//// const ir = codeGenerator.getLlvmIr();
-//// console.log(ir);
+const ir = codeGenerator.getLlvmIr();
+console.log(ir);
 
 // write ir to "test.ll" file
-//// writeFileSync("test.ll", ir);
+writeFileSync("test.ll", ir);

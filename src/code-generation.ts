@@ -29,7 +29,7 @@ export class CodeGenerator {
     this.codegenExpr(this.ast, {});
   }
 
-  private getTypeValue(typeExpr: Type): llvm.Type {
+  private getLlvmType(typeExpr: Type): llvm.Type {
     switch (typeExpr.type) {
       case "i1": {
         return this.builder.getInt1Ty();
@@ -55,6 +55,19 @@ export class CodeGenerator {
       case "f64": {
         return this.builder.getDoubleTy();
       }
+      case "boolean": {
+        return this.builder.getInt1Ty();
+      }
+      case "char": {
+        return this.builder.getInt8Ty();
+      }
+      case "Record": {
+        const properties = typeExpr.properties ?? [];
+        const propertyTypes = properties.map((property) => {
+          return this.getLlvmType(property.type);
+        });
+        return llvm.StructType.get(this.context, propertyTypes);
+      }
       default:
         throw new Error(`Unknown type: ${JSON.stringify(typeExpr)}`);
     }
@@ -74,9 +87,9 @@ export class CodeGenerator {
 
   private codegenPrototype(prototype: FunctionPrototype): llvm.Function | null {
     const functionName = prototype.functionName;
-    const returnType = this.getTypeValue(prototype.returnType);
+    const returnType = this.getLlvmType(prototype.returnType);
     const paramTypes = prototype.functionParameters.map((param) => {
-      return this.getTypeValue(param.parameterType);
+      return this.getLlvmType(param.parameterType);
     });
     const functionType = llvm.FunctionType.get(
       returnType,
@@ -208,6 +221,40 @@ export class CodeGenerator {
                 llvm.Type.getFloatTy(this.context),
                 parseFloat(expr.value)
               );
+            case "Record": {
+              // Allocate memory for the record
+              const recordType = this.getLlvmType(typeValue);
+              const recordPtr = this.builder.CreateAlloca(recordType);
+              // Set the record fields
+              const properties = expr.properties ?? [];
+              for (let i = 0; i < properties.length; i++) {
+                const property = properties[i];
+                const propertyValue = this.codegenExpr(
+                  property.value,
+                  namedValues
+                );
+
+                // Get the pointer to the property
+                const propertyPtr = this.builder.CreateGEP(
+                  recordType,
+                  recordPtr,
+                  [
+                    llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 32),
+                      0
+                    ),
+                    llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 32),
+                      i
+                    ),
+                  ],
+                  property.name
+                );
+                // Store the value in the property
+                this.builder.CreateStore(propertyValue, propertyPtr);
+              }
+              return recordPtr;
+            }
             default:
               throw new Error(
                 `Unknown value type: ${JSON.stringify(typeValue)}`
@@ -272,18 +319,6 @@ export class CodeGenerator {
                 return this.builder.CreateFCmpOLE(lhs, rhs);
               } else {
                 return this.builder.CreateICmpSLE(lhs, rhs);
-              }
-            case ">":
-              if (binopType === "double") {
-                return this.builder.CreateFCmpOGT(lhs, rhs);
-              } else {
-                return this.builder.CreateICmpSGT(lhs, rhs);
-              }
-            case ">=":
-              if (binopType === "double") {
-                return this.builder.CreateFCmpOGE(lhs, rhs);
-              } else {
-                return this.builder.CreateICmpSGE(lhs, rhs);
               }
             default:
               throw new Error(`Unknown binary operator: ${expr.operator}`);
@@ -445,6 +480,11 @@ export class CodeGenerator {
               return phiNode;
             }
           }
+        }
+        case AstType.ConstantAssigment: {
+          const value = this.codegenExpr(expr.right, namedValues);
+          namedValues[expr.variableName] = value;
+          return value;
         }
         default:
           throw new Error(`Unknown expression type: ${JSON.stringify(expr)}`);

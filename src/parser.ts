@@ -10,6 +10,7 @@ import {
   FunctionParameterExpr,
   FunctionPrototype,
   getTokenPrecedence,
+  synthesizeExprType,
   synthesizeRecordType,
 } from "./ast";
 import { Token, TokenType } from "./token";
@@ -273,6 +274,8 @@ function parsePrimary(tokens: Token[], index: number): ParserReturn {
       return parseCurlyBracketExpr(tokens, index);
     case TokenType.If:
       return parseIfExpr(tokens, index);
+    case TokenType.Const:
+      return parseConstAssignment(tokens, index);
     case TokenType.Semicolon:
       return { expr: null, index: index + 1 };
     default:
@@ -581,6 +584,42 @@ function parseIfExpr(tokens: Token[], index: number): ParserReturn {
   };
 }
 
+function parseConstAssignment(tokens: Token[], index: number): ParserReturn {
+  if (tokens[index].type !== TokenType.Const) {
+    throw new Error("Expected const");
+  }
+  index = index + 1;
+
+  if (tokens[index].type !== TokenType.Identifier) {
+    throw new Error("Expected identifier for const assignment");
+  }
+  const variableName = tokens[index].value;
+  index = index + 1;
+
+  if (tokens[index].type !== TokenType.Assign) {
+    throw new Error("Expected '=' for const assignment");
+  }
+  index = index + 1;
+
+  const { expr: value, index: nextNextIndex } = parseExpression(tokens, index);
+  if (!value) {
+    return { expr: null, index: nextNextIndex };
+  }
+  index = nextNextIndex;
+
+  const variableType = synthesizeExprType(value);
+
+  return {
+    expr: {
+      type: AstType.ConstantAssigment,
+      variableName,
+      variableType,
+      right: value,
+    },
+    index,
+  };
+}
+
 /**
  * expression
  *  ::= primary binoprhs
@@ -604,6 +643,7 @@ export function parse(tokens: Token[]): Expr {
     if (!token) {
       break;
     }
+    // Top level expression
     switch (token.type) {
       case TokenType.Semicolon: {
         // ignore top-level semicolons.

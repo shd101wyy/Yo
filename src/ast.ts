@@ -93,8 +93,8 @@ export type TypeValueExpr = {
 */
 
 export type AssignmentExpr = {
-  type: AstType.ConstantAssigment | AstType.LetAssignment; // | AstType.Assignment;
-  variableName: AstType.Variable;
+  type: AstType.ConstantAssigment; // | AstType.LetAssignment; // | AstType.Assignment;
+  variableName: string;
   variableType: Type;
   right: Expr;
 };

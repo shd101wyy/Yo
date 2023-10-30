@@ -29,7 +29,7 @@ Please note that **Mo** language is **immutable** by default, and it is not a go
       - [while](#while)
       - [for](#for)
   - [Type synonyms](#type-synonyms)
-  - [Enum](#enum)
+  - [Enum (Tagged Union)](#enum-tagged-union)
     - [Method](#method)
     - [Interface (Typeclass)](#interface-typeclass)
     - [Pattern Matching](#pattern-matching)
@@ -292,7 +292,7 @@ Please use `enum` instead for union types.
 > // is equal to
 >
 > type Option<T> =
->   | {_t: "Some", _v: T}
+>   | {_t: "Some", 0: T}
 >   | {_t: "None"}
 > ```
 
@@ -305,8 +305,17 @@ enum Option<T> {
   None
 }
 
+// This will translate to
+type Option<T> =
+  | {_t: "Some", 0: T}
+  | {_t: "None"}
+const Option = {
+  Some: (v) => ({_t: "Some", 0: v}),
+  None: () => ({_t: "None"})
+}
+
 export {
-  Option(..)
+  Option
 };
 
 const none: Option<i32> = None;
