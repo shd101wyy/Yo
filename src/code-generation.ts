@@ -1,8 +1,9 @@
 import llvm, { LLVMContext } from "llvm-bindings";
-import { AstType, Expr, FunctionPrototype, TypeValueExpr } from "./ast";
+import { AstType, Expr, FunctionPrototype } from "./ast";
 import { tokenize } from "./lexer";
 import { parse } from "./parser";
 import { Token } from "./token";
+import { Type } from "./type-checker";
 
 export class CodeGenerator {
   private inputString: string;
@@ -28,8 +29,8 @@ export class CodeGenerator {
     this.codegenExpr(this.ast, {});
   }
 
-  private getTypeValue(typeExpr: TypeValueExpr): llvm.Type {
-    switch (typeExpr.value) {
+  private getTypeValue(typeExpr: Type): llvm.Type {
+    switch (typeExpr.type) {
       case "i1": {
         return this.builder.getInt1Ty();
       }
@@ -111,18 +112,107 @@ export class CodeGenerator {
       return llvmValue;
     } else {
       switch (expr.type) {
-        case AstType.Integer: {
-          return llvm.ConstantInt.get(
-            llvm.IntegerType.get(this.context, 32),
-            parseInt(expr.value),
-            true // isSigned
-          );
-        }
-        case AstType.Float: {
-          return llvm.ConstantFP.get(
-            llvm.Type.getFloatTy(this.context),
-            parseFloat(expr.value)
-          );
+        case AstType.Value: {
+          const typeValue = expr.typeValue;
+          switch (typeValue.type) {
+            case "boolean":
+              return llvm.ConstantInt.get(
+                llvm.IntegerType.get(this.context, 1),
+                expr.value === "true" ? 1 : 0,
+                false // isSigned
+              );
+            case "char":
+              return llvm.ConstantInt.get(
+                llvm.IntegerType.get(this.context, 8),
+                expr.value.charCodeAt(0),
+                false // isSigned
+              );
+            case "string":
+              return llvm.ConstantDataArray.getString(this.context, expr.value);
+            case "u1":
+              return llvm.ConstantInt.get(
+                llvm.IntegerType.get(this.context, 1),
+                parseInt(expr.value),
+                false // isSigned
+              );
+            case "i1":
+              return llvm.ConstantInt.get(
+                llvm.IntegerType.get(this.context, 1),
+                parseInt(expr.value),
+                true // isSigned
+              );
+            case "u8":
+              return llvm.ConstantInt.get(
+                llvm.IntegerType.get(this.context, 8),
+                parseInt(expr.value),
+                false // isSigned
+              );
+            case "i8":
+              return llvm.ConstantInt.get(
+                llvm.IntegerType.get(this.context, 8),
+                parseInt(expr.value),
+                true // isSigned
+              );
+            case "u16":
+              return llvm.ConstantInt.get(
+                llvm.IntegerType.get(this.context, 16),
+                parseInt(expr.value),
+                false // isSigned
+              );
+            case "i16":
+              return llvm.ConstantInt.get(
+                llvm.IntegerType.get(this.context, 16),
+                parseInt(expr.value),
+                true // isSigned
+              );
+            case "u32":
+              return llvm.ConstantInt.get(
+                llvm.IntegerType.get(this.context, 32),
+                parseInt(expr.value),
+                false // isSigned
+              );
+            case "i32":
+              return llvm.ConstantInt.get(
+                llvm.IntegerType.get(this.context, 32),
+                parseInt(expr.value),
+                true // isSigned
+              );
+            case "u64":
+              return llvm.ConstantInt.get(
+                llvm.IntegerType.get(this.context, 64),
+                parseInt(expr.value),
+                false // isSigned
+              );
+            case "i64":
+              return llvm.ConstantInt.get(
+                llvm.IntegerType.get(this.context, 64),
+                parseInt(expr.value),
+                true // isSigned
+              );
+            case "u128":
+              return llvm.ConstantInt.get(
+                llvm.IntegerType.get(this.context, 128),
+                parseInt(expr.value),
+                false // isSigned
+              );
+            case "i128":
+              return llvm.ConstantInt.get(
+                llvm.IntegerType.get(this.context, 128),
+                parseInt(expr.value),
+                true // isSigned
+              );
+            case "f16":
+            case "f32":
+            case "f64":
+              return llvm.ConstantFP.get(
+                llvm.Type.getFloatTy(this.context),
+                parseFloat(expr.value)
+              );
+            default:
+              throw new Error(
+                `Unknown value type: ${JSON.stringify(typeValue)}`
+              );
+          }
         }
         case AstType.BinaryOperator: {
           const lhs = this.codegenExpr(expr.left, namedValues);

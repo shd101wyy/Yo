@@ -9,10 +9,11 @@ import {
   FunctionExpr,
   FunctionParameterExpr,
   FunctionPrototype,
-  TypeValueExpr,
   getTokenPrecedence,
+  synthesizeRecordType,
 } from "./ast";
 import { Token, TokenType } from "./token";
+import { Type, TypeValues, synthesizeType } from "./type-checker";
 
 type ParserReturn = { expr: Expr | null; index: number };
 
@@ -21,7 +22,8 @@ function parseNumberExpr(tokens: Token[], index: number): ParserReturn {
   if (token.type === TokenType.Integer) {
     return {
       expr: {
-        type: AstType.Integer,
+        type: AstType.Value,
+        typeValue: TypeValues.i32,
         value: token.value,
       },
       index: index + 1,
@@ -29,7 +31,8 @@ function parseNumberExpr(tokens: Token[], index: number): ParserReturn {
   } else if (token.type === TokenType.Float) {
     return {
       expr: {
-        type: AstType.Float,
+        type: AstType.Value,
+        typeValue: TypeValues.f32,
         value: token.value,
       },
       index: index + 1,
@@ -39,18 +42,120 @@ function parseNumberExpr(tokens: Token[], index: number): ParserReturn {
   }
 }
 
+function parseCharactorExpr(tokens: Token[], index: number): ParserReturn {
+  const token = tokens[index];
+  if (token.type === TokenType.Char) {
+    return {
+      expr: {
+        type: AstType.Value,
+        typeValue: TypeValues.char,
+        value: token.value,
+      },
+      index: index + 1,
+    };
+  } else {
+    throw new Error("Expected charactor");
+  }
+}
+
+function parseStringExpr(tokens: Token[], index: number): ParserReturn {
+  const token = tokens[index];
+  if (token.type === TokenType.String) {
+    return {
+      expr: {
+        type: AstType.Value,
+        typeValue: TypeValues.string,
+        value: token.value,
+      },
+      index: index + 1,
+    };
+  } else {
+    throw new Error("Expected string");
+  }
+}
+
 function parseBooleanExpr(tokens: Token[], index: number): ParserReturn {
   const token = tokens[index];
   if (token.type === TokenType.Boolean) {
     return {
       expr: {
-        type: AstType.Boolean,
-        value: token.value === "true" ? true : false,
+        type: AstType.Value,
+        typeValue: TypeValues.boolean,
+        value: token.value,
       },
       index: index + 1,
     };
   } else {
     throw new Error("Expected boolean");
+  }
+}
+
+// TODO: Implement curly bracket expression
+// it could be either the RecordExpr or BlockExpr
+function parseCurlyBracketExpr(tokens: Token[], index: number): ParserReturn {
+  return parseRecordExpr(tokens, index);
+}
+
+function parseRecordExpr(tokens: Token[], index: number): ParserReturn {
+  if (tokens[index].type !== TokenType.LCurlyBracket || !tokens[index + 1]) {
+    throw new Error("Expected '{' for record");
+  }
+  index = index + 1;
+  if (tokens[index].type === TokenType.RCurlyBracket) {
+    return {
+      expr: {
+        type: AstType.Value,
+        value: "",
+        typeValue: { type: "Record", properties: [] },
+        properties: [],
+      },
+      index: index + 1,
+    };
+  } else if (
+    tokens[index].type === TokenType.Identifier &&
+    tokens[index + 1].type === TokenType.Colon
+  ) {
+    const properties: { name: string; value: Expr }[] = [];
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const token = tokens[index];
+      if (!token) {
+        throw new Error("Expected '}' for record");
+      }
+      if (token.type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+      if (token.type !== TokenType.Identifier) {
+        throw new Error("Expected identifier for record property name");
+      }
+      const propertyName = token.value;
+      if (tokens[index + 1].type !== TokenType.Colon) {
+        throw new Error("Expected ':' for record property");
+      }
+      index = index + 2;
+      const { expr, index: nextIndex } = parseExpression(tokens, index);
+      if (!expr) {
+        return { expr, index: nextIndex };
+      }
+      properties.push({ name: propertyName, value: expr });
+      index = nextIndex;
+
+      if (tokens[index].type === TokenType.Comma) {
+        index = index + 1;
+      }
+    }
+    return {
+      expr: {
+        type: AstType.Value,
+        value: "",
+        typeValue: synthesizeRecordType(properties),
+        properties,
+      },
+      index,
+    };
+  } else {
+    throw new Error("Expected invalid record");
   }
 }
 
@@ -156,10 +261,16 @@ function parsePrimary(tokens: Token[], index: number): ParserReturn {
     case TokenType.Integer:
     case TokenType.Float:
       return parseNumberExpr(tokens, index);
+    case TokenType.Char:
+      return parseCharactorExpr(tokens, index);
+    case TokenType.String:
+      return parseStringExpr(tokens, index);
     case TokenType.Boolean:
       return parseBooleanExpr(tokens, index);
     case TokenType.LParen:
       return parseParenExpr(tokens, index);
+    case TokenType.LCurlyBracket:
+      return parseCurlyBracketExpr(tokens, index);
     case TokenType.If:
       return parseIfExpr(tokens, index);
     case TokenType.Semicolon:
@@ -217,12 +328,24 @@ function parseBinOpRHS(
     }
 
     // Merge LHS/RHS
+    const needsSwap = [
+      TokenType.GreaterThan,
+      TokenType.GreaterThanOrEqual,
+    ].includes(binaryOperator.value as TokenType);
+    let operator = binaryOperator.value as TokenType;
+    if (needsSwap) {
+      if (operator === TokenType.GreaterThan) {
+        operator = TokenType.LessThan;
+      } else if (operator === TokenType.GreaterThanOrEqual) {
+        operator = TokenType.LessThanOrEqual;
+      }
+    }
     LHS = {
       type: AstType.BinaryOperator,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      operator: binaryOperator.value as any,
-      left: LHS,
-      right: RHS,
+      operator: operator as any,
+      left: needsSwap ? RHS : LHS,
+      right: needsSwap ? LHS : RHS,
     };
   }
 }
@@ -377,14 +500,12 @@ function parseExtern(tokens: Token[], index: number): ParserReturn {
 function parseTypeValue(
   tokens: Token[],
   index: number
-): { index: number; typeValue: TypeValueExpr } {
+): { index: number; typeValue: Type } {
   // TODO: Handle complex type value
   const token = tokens[index];
+  const typeValue = token.value;
   return {
-    typeValue: {
-      type: AstType.TypeValue,
-      value: token.value,
-    },
+    typeValue: synthesizeType(typeValue),
     index: index + 1,
   };
 }

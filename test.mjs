@@ -43,22 +43,15 @@ function max(x: i32, y: i32): i32 {
 `
 
 code = `
-function maxFloat(x: i32, y: i32): i32 {
-  if (x > y) {
-    x + 1 - 1
-  } else {
-    y + 1 - 1
-  }
-}
-
-function main(): i32 {
-  0
+function add(x: i32, y: i32): i32 {
+  x + y
 }
 `
 
-const codeGenerator = new CodeGenerator(code);
-const ir = codeGenerator.getLlvmIr();
-console.log(ir);
+new CodeGenerator(code);
+
+//// const ir = codeGenerator.getLlvmIr();
+//// console.log(ir);
 
 // write ir to "test.ll" file
-writeFileSync("test.ll", ir);
+//// writeFileSync("test.ll", ir);

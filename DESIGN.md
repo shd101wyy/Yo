@@ -4,7 +4,7 @@
 
 The **Mo** language is heavily inspired by [TypeScript](https://www.typescriptlang.org/), [Rust](https://www.rust-lang.org/), [Koka](https://koka-lang.github.io/), and [Haskell](https://www.haskell.org/).
 
-The **Mo** language has a minimal syntax design that looks like TypeScript. **Mo** is strong typed, combined with algebraic effects and an efficient type system. **Mo** has no garbage collector.
+The **Mo** language has a minimal syntax design that looks like TypeScript. **Mo** is strong typed with a robust bidrectional type checker, combined with algebraic effects and an efficient type system. **Mo** has no garbage collector ([Perceus: Garbage Free Reference Counting with Reuse](https://www.microsoft.com/en-us/research/uploads/prod/2020/11/perceus-tr-v1.pdf)).
 
 Please note that **Mo** language is **immutable** by default, and it is not a goal to be a "pure" functional language. Our goal is to be a practical language that is easy to use and easy to learn.
 
@@ -72,6 +72,8 @@ moc hello.mo -o hello
 ### Primitive Types (aka, Value Types), stored on stack
 
 - `boolean`
+- `u1` (1-bit unsigned integer)
+- `i1` (1-bit signed integer)
 - `i8` (8-bit signed integer)
 - `u8` (8-bit unsigned integer)
 - `i16` (16-bit signed integer)
@@ -248,15 +250,12 @@ type User = {
   email: String;
   age: i32;
 };
-
-// is equivalent to
-
-type User = Record(
-  active: boolean,
-  username: String,
-  email: String,
-  age: i32
-)
+// which is equal to
+/*
+// Below is too complicated. Let's make it simple
+type UserRows = (active: boolean, username: String, email: String, age: i32); // row types
+type User = Record(UserRows) // `Record` is the type constructor
+*/
 
 type string = char[];
 
@@ -265,22 +264,39 @@ const user: User = {
   username: String.from("johndoe"),
   email: String.from("test@gmail.com"),
 };
-user.email = String.from("gg");
-
-// NOTE:
-// User({...}) is different from User({...}, )
 ```
 
 Extending the records
 
 ```typescript
-type Lang<l> = { language :: string, ...l };
+/*
+type Lang<l> = { language: string | l}; // Intersection types
+type Language = Lang<(year: i32)>;
+// Language is equal to
+type Language = { language: string; year: i32 };
+*/
+type Lang<l> = { language: string } & l; // Intersection types
 type Language = Lang<{ year: i32 }>;
 // Language is equal to
-type Language = { language :: string, year :: i32 };
+type Language = { language: string; year: i32 };
 ```
 
-## Enum
+Please note `|` is the union type, which is not allowed in `type` declaration.  
+Please use `enum` instead for union types.
+
+> This is wrong. Should use `enum` instead for union types.
+>
+> ```typescript
+> type Option<T> = Some(T) | None;
+>
+> // is equal to
+>
+> type Option<T> =
+>   | {_t: "Some", _v: T}
+>   | {_t: "None"}
+> ```
+
+## Enum (Tagged Union)
 
 ```typescript
 // Typed
@@ -610,3 +626,6 @@ export { test, copy };
 - [Ocaml Locality](https://blog.janestreet.com/oxidizing-ocaml-locality/)
 - [Data race freedom](https://github.com/ocaml-flambda/ocaml-jst/blob/main/jane/doc/proposals/data-race-freedom.md)
 - [ICFP'21 Tutorials - Programming with Effect Handlers and FBIP in Koka](https://www.youtube.com/watch?v=6OFhD_mHtKA&ab_channel=ACMSIGPLAN)
+- [Simply Easy! An Implementation of a Dependently Typed Lambda Calculus](http://strictlypositive.org/Easy.pdf)
+- [Reconstructing TypeScript](https://jaked.org/blog/2021-09-07-Reconstructing-TypeScript-part-0)
+- [PureScript Types](https://github.com/purescript/documentation/blob/master/language/Types.md)
