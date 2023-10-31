@@ -726,49 +726,20 @@ ${" ".repeat(character)}^`;
         "Expected '{' for 'if' body"
       );
     }
-    index = index + 1;
-    const then: Expr[] = [];
-    while (true) {
-      const token = tokens[index];
-      if (!token) {
-        throw this.formatErrorMessage(token, "Expected '}' for 'if' body");
-      }
-      if (token.type === TokenType.RCurlyBracket) {
-        index = index + 1;
-        break;
-      }
-      const { expr, index: nextIndex } = this.parseExpression(
-        tokens,
-        index,
-        namedTypes
-      );
-      if (expr) {
-        then.push(expr);
-      }
-      index = nextIndex;
-    }
+    const { exprs: then, index: nextNextIndex } = this.parseBlockExpressions(
+      tokens,
+      index,
+      namedTypes
+    );
+    index = nextNextIndex;
 
     // parse else
     const elseExpr: Expr[] = [];
     if (tokens[index].type === TokenType.Else) {
       index = index + 1;
-      if (tokens[index].type !== TokenType.LCurlyBracket) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Expected '{' for 'else' body"
-        );
-      }
-      index = index + 1;
-      while (true) {
-        const token = tokens[index];
-        if (!token) {
-          throw this.formatErrorMessage(token, "Expected '}' for 'else' body");
-        }
-        if (token.type === TokenType.RCurlyBracket) {
-          index = index + 1;
-          break;
-        }
-        const { expr, index: nextIndex } = this.parseExpression(
+
+      if (tokens[index].type === TokenType.If) {
+        const { expr, index: nextNextNextIndex } = this.parseIfExpr(
           tokens,
           index,
           namedTypes
@@ -776,7 +747,23 @@ ${" ".repeat(character)}^`;
         if (expr) {
           elseExpr.push(expr);
         }
-        index = nextIndex;
+        index = nextNextNextIndex;
+      } else {
+        if (tokens[index].type !== TokenType.LCurlyBracket) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected '{' for 'else' body"
+          );
+        }
+        const { exprs, index: nextNextNextIndex } = this.parseBlockExpressions(
+          tokens,
+          index,
+          namedTypes
+        );
+        if (exprs) {
+          elseExpr.push(...exprs);
+        }
+        index = nextNextNextIndex;
       }
     }
 

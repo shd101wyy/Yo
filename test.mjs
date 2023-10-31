@@ -44,13 +44,8 @@ function max(x: i32, y: i32): i32 {
 
 code = `
 
-function add(x: i32, y: i32): i32 {
-  x + y
-}
-
-function main(): i32 {
-  const x = add(3, 4);
-  x
+function test(): Unit {
+  unit
 }
 `
 
