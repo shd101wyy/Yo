@@ -1,7 +1,7 @@
 import llvm, { LLVMContext } from "llvm-bindings";
 import { AstType, Expr, FunctionPrototype } from "./ast";
 import { tokenize } from "./lexer";
-import { parse } from "./parser";
+import Parser from "./parser";
 import { Token } from "./token";
 import { Type } from "./type-checker";
 
@@ -19,14 +19,14 @@ export class CodeGenerator {
     this.tokens = tokenize(this.inputString);
     console.log(`tokens: `, this.tokens);
 
-    this.ast = parse(this.tokens);
+    const parser = new Parser(inputString);
+    this.ast = parser.parse(this.tokens);
+
     console.log("\nast: ", JSON.stringify(this.ast, null, 2));
 
     this.context = new llvm.LLVMContext();
     this.module = new llvm.Module("main", this.context);
     this.builder = new llvm.IRBuilder(this.context);
-
-    this.codegenExpr(this.ast, {});
   }
 
   private getLlvmType(typeExpr: Type): llvm.Type {
@@ -493,6 +493,8 @@ export class CodeGenerator {
   }
 
   getLlvmIr(): string {
+    this.codegenExpr(this.ast, {});
+
     if (llvm.verifyModule(this.module)) {
       throw new Error("Verifying module failed");
     } else {

@@ -1,5 +1,5 @@
 import { Token, TokenType } from "./token";
-import { Type, TypeValues } from "./type-checker";
+import { Type, TypeValues, isSubtype } from "./type-checker";
 
 export enum AstType {
   // values
@@ -216,4 +216,59 @@ export function synthesizeRecordType(
       };
     }),
   };
+}
+
+export function checkType(expr: Expr, type: Type): boolean {
+  if (expr instanceof Array) {
+    throw new Error("Cannot check type of array");
+  }
+  const exprType = synthesizeExprType(expr);
+  if (exprType.type === type.type) {
+    if (exprType.type === "Record") {
+      return checkRecordExactMatchType(expr, type);
+    } else {
+      return isSubtype(exprType, type);
+    }
+  } else {
+    return false;
+  }
+}
+
+function checkRecordExactMatchType(expr: Expr, type: Type): boolean {
+  if (expr instanceof Array) {
+    throw new Error("Cannot check type of array");
+  }
+  if (expr.type !== AstType.Value) {
+    throw new Error("Cannot check type of non-value");
+  }
+  if (type.type !== "Record") {
+    throw new Error("Cannot check type of non-record");
+  }
+  if (expr.typeValue.type !== "Record" || !expr.properties) {
+    throw new Error("Cannot check type of non-record");
+  }
+  const exprProperties = expr.properties.sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+  const typeProperties = type.properties.sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+  if (exprProperties.length !== typeProperties.length) {
+    return false;
+  }
+
+  let result = true;
+  for (let i = 0; i < exprProperties.length; i++) {
+    const exprProperty = exprProperties[i];
+    const typeProperty = typeProperties[i];
+    if (exprProperty.name !== typeProperty.name) {
+      result = false;
+      break;
+    }
+    if (!checkType(exprProperty.value, typeProperty.type)) {
+      result = false;
+      break;
+    }
+  }
+  return result;
 }

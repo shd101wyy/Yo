@@ -1,5 +1,7 @@
 // Types
 
+import { Token } from "./token";
+
 type TUnit = {
   type: "Unit";
 };
@@ -127,49 +129,97 @@ export const TypeValues = {
   f64: { type: "f64" } as TF64,
 };
 
-export function synthesizeType(typeValue: string): Type {
-  switch (typeValue) {
-    case "Unit":
-      return TypeValues.unit;
-    case "boolean":
-      return TypeValues.boolean;
-    case "string":
-      return TypeValues.string;
-    case "char":
-      return TypeValues.char;
-    case "u1":
-      return TypeValues.u1;
-    case "u8":
-      return TypeValues.u8;
-    case "u16":
-      return TypeValues.u16;
-    case "u32":
-      return TypeValues.u32;
-    case "u64":
-      return TypeValues.u64;
-    case "u128":
-      return TypeValues.u128;
-    case "i1":
-      return TypeValues.i1;
-    case "i8":
-      return TypeValues.i8;
-    case "i16":
-      return TypeValues.i16;
-    case "i32":
-      return TypeValues.i32;
-    case "i64":
-      return TypeValues.i64;
-    case "i128":
-      return TypeValues.i128;
-    case "f16":
-      return TypeValues.f16;
-    case "f32":
-      return TypeValues.f32;
-    case "f64":
-      return TypeValues.f64;
-    default:
-      throw new Error(`Unknown type ${typeValue}`);
+export function synthesizeTypeFromTokens(
+  tokens: Token[],
+  index: number
+): { typeValue: Type; index: number } {
+  let typeValue: Type;
+  switch (tokens[index].value) {
+    case "Unit": {
+      typeValue = TypeValues.unit;
+      break;
+    }
+    case "boolean": {
+      typeValue = TypeValues.boolean;
+      break;
+    }
+    case "string": {
+      typeValue = TypeValues.string;
+      break;
+    }
+    case "char": {
+      typeValue = TypeValues.char;
+      break;
+    }
+    case "u1": {
+      typeValue = TypeValues.u1;
+      break;
+    }
+    case "u8": {
+      typeValue = TypeValues.u8;
+      break;
+    }
+    case "u16": {
+      typeValue = TypeValues.u16;
+      break;
+    }
+    case "u32": {
+      typeValue = TypeValues.u32;
+      break;
+    }
+    case "u64": {
+      typeValue = TypeValues.u64;
+      break;
+    }
+    case "u128": {
+      typeValue = TypeValues.u128;
+      break;
+    }
+    case "i1": {
+      typeValue = TypeValues.i1;
+      break;
+    }
+    case "i8": {
+      typeValue = TypeValues.i8;
+      break;
+    }
+    case "i16": {
+      typeValue = TypeValues.i16;
+      break;
+    }
+    case "i32": {
+      typeValue = TypeValues.i32;
+      break;
+    }
+    case "i64": {
+      typeValue = TypeValues.i64;
+      break;
+    }
+    case "i128": {
+      typeValue = TypeValues.i128;
+      break;
+    }
+    case "f16": {
+      typeValue = TypeValues.f16;
+      break;
+    }
+    case "f32": {
+      typeValue = TypeValues.f32;
+      break;
+    }
+    case "f64": {
+      typeValue = TypeValues.f64;
+      break;
+    }
+    default: {
+      throw new Error(`Unknown type ${tokens[index].value}`);
+    }
   }
+
+  return {
+    typeValue: typeValue,
+    index: index + 1,
+  };
 }
 
 /**
