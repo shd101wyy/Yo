@@ -50,7 +50,7 @@ function add(x: i32, y: i32): i32 {
 
 function main(): i32 {
   const x = add(3, 4);
-  0
+  x
 }
 `
 

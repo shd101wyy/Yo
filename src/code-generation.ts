@@ -87,9 +87,17 @@ export class CodeGenerator {
 
   private codegenPrototype(prototype: FunctionPrototype): llvm.Function | null {
     const functionName = prototype.functionName;
-    const returnType = this.getLlvmType(prototype.returnType);
-    const paramTypes = prototype.functionParameters.map((param) => {
-      return this.getLlvmType(param.parameterType);
+    if (prototype.typeValue.type !== "function") {
+      throw new Error(
+        `Function prototype type is not a function: ${JSON.stringify(
+          prototype.typeValue
+        )}`
+      );
+    }
+
+    const returnType = this.getLlvmType(prototype.typeValue.returnType);
+    const paramTypes = prototype.typeValue.parameters.map((param) => {
+      return this.getLlvmType(param);
     });
     const functionType = llvm.FunctionType.get(
       returnType,
@@ -104,8 +112,15 @@ export class CodeGenerator {
     );
     for (let i = 0; i < func.arg_size(); i++) {
       const arg = func.getArg(i);
-      const paramName = prototype.functionParameters[i].parameterName;
-      arg.setName(paramName);
+      const parameterNameExpr = prototype.functionParameters[i];
+      if (Array.isArray(parameterNameExpr)) {
+        throw new Error(`Parameter name is not a string`);
+      }
+      if (parameterNameExpr.type !== AstType.Variable) {
+        throw new Error(`Parameter name is not a variable`);
+      }
+      const parameterName = parameterNameExpr.name;
+      arg.setName(parameterName);
     }
     return func;
   }
@@ -350,8 +365,14 @@ export class CodeGenerator {
           };
           for (let i = 0; i < theFunction.arg_size(); i++) {
             const arg = theFunction.getArg(i);
-            const parameterName =
-              expr.prototype.functionParameters[i].parameterName;
+            const parameterNameExpr = expr.prototype.functionParameters[i];
+            if (Array.isArray(parameterNameExpr)) {
+              throw new Error(`Parameter name is not a string`);
+            }
+            if (parameterNameExpr.type !== AstType.Variable) {
+              throw new Error(`Parameter name is not a variable`);
+            }
+            const parameterName = parameterNameExpr.name;
             newNamedValues[parameterName] = arg;
           }
 

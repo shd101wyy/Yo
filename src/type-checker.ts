@@ -83,6 +83,12 @@ type TRecord = {
   properties: { name: string; type: Type }[];
 };
 
+type TFunction = {
+  type: "function";
+  parameters: Type[];
+  returnType: Type;
+};
+
 export type Type =
   | TUnit
   | TBoolean
@@ -103,7 +109,8 @@ export type Type =
   | TF16
   | TF32
   | TF64
-  | TRecord;
+  | TRecord
+  | TFunction;
 
 // Type constructors
 

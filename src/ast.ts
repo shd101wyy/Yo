@@ -1,6 +1,8 @@
 import { Token, TokenType } from "./token";
 import { Type, TypeValues, isSubtype } from "./type-checker";
 
+export type NamedTypes = { [key: string]: Type };
+
 export enum AstType {
   // values
   Value = "value",
@@ -114,9 +116,8 @@ export type FunctionParameterExpr = {
 export type FunctionPrototype = {
   type: AstType.FunctionPrototype;
   functionName: string;
-  typeParameters: TypeParameterExpr[];
-  functionParameters: FunctionParameterExpr[];
-  returnType: Type;
+  functionParameters: Expr[]; // IdentifierExpr[] | TODO: For future pattern matching
+  typeValue: Type;
 };
 
 export type FunctionExpr = {
@@ -171,15 +172,15 @@ export function getTokenPrecedence(token: Token | undefined): number {
   }
 }
 
-export function synthesizeExprType(expr: Expr): Type {
+export function synthesizeExprType(expr: Expr, namedTypes: NamedTypes): Type {
   if (expr instanceof Array) {
     throw new Error("Cannot synthesize type of array");
   }
   if (expr.type === AstType.Value) {
     return expr.typeValue;
   } else if (expr.type === AstType.BinaryOperator) {
-    const leftType = synthesizeExprType(expr.left);
-    const rightType = synthesizeExprType(expr.right);
+    const leftType = synthesizeExprType(expr.left, namedTypes);
+    const rightType = synthesizeExprType(expr.right, namedTypes);
     if (
       [
         OperatorType.LessThan,
@@ -196,6 +197,18 @@ export function synthesizeExprType(expr: Expr): Type {
         `Cannot synthesize type of binary operator ${JSON.stringify(expr)}`
       );
     }
+  } else if (expr.type === AstType.CallFunction) {
+    const functionName = expr.functionName;
+    if (!(functionName in namedTypes)) {
+      throw new Error(`Cannot find function ${functionName}`);
+    } else {
+      const namedType = namedTypes[functionName];
+      if (namedType.type !== "function") {
+        throw new Error(`Cannot call non-function ${functionName}`);
+      } else {
+        return namedType.returnType;
+      }
+    }
   } else {
     throw new Error(`Cannot synthesize type of ${JSON.stringify(expr.type)}`);
   }
@@ -205,27 +218,32 @@ export function synthesizeRecordType(
   properties: {
     name: string;
     value: Expr;
-  }[]
+  }[],
+  namedTypes
 ): Type {
   return {
     type: "Record",
     properties: properties.map(({ name, value }) => {
       return {
         name,
-        type: synthesizeExprType(value),
+        type: synthesizeExprType(value, namedTypes),
       };
     }),
   };
 }
 
-export function checkType(expr: Expr, type: Type): boolean {
+export function checkType(
+  expr: Expr,
+  type: Type,
+  namedTypes: NamedTypes
+): boolean {
   if (expr instanceof Array) {
     throw new Error("Cannot check type of array");
   }
-  const exprType = synthesizeExprType(expr);
+  const exprType = synthesizeExprType(expr, namedTypes);
   if (exprType.type === type.type) {
     if (exprType.type === "Record") {
-      return checkRecordExactMatchType(expr, type);
+      return checkRecordExactMatchType(expr, type, namedTypes);
     } else {
       return isSubtype(exprType, type);
     }
@@ -234,7 +252,11 @@ export function checkType(expr: Expr, type: Type): boolean {
   }
 }
 
-function checkRecordExactMatchType(expr: Expr, type: Type): boolean {
+function checkRecordExactMatchType(
+  expr: Expr,
+  type: Type,
+  namedTypes: NamedTypes
+): boolean {
   if (expr instanceof Array) {
     throw new Error("Cannot check type of array");
   }
@@ -265,7 +287,7 @@ function checkRecordExactMatchType(expr: Expr, type: Type): boolean {
       result = false;
       break;
     }
-    if (!checkType(exprProperty.value, typeProperty.type)) {
+    if (!checkType(exprProperty.value, typeProperty.type, namedTypes)) {
       result = false;
       break;
     }

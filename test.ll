@@ -1,7 +1,11 @@
 ; ModuleID = 'main'
 source_filename = "main"
 
-declare i32 @add(i32, i32)
+define i32 @add(i32 %x, i32 %y) {
+entry:
+  %0 = add i32 %x, %y
+  ret i32 %0
+}
 
 define i32 @main() {
 entry:
