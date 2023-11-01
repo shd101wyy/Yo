@@ -281,8 +281,8 @@ type Language = Lang<{ year: i32 }>;
 type Language = { language: string; year: i32 };
 ```
 
-Please note `|` is the union type, which is not allowed in `type` declaration.  
-Please use `enum` instead for union types.
+Please note `|` is the union type, which only allows the record types, not primitive types.  
+Please use `enum` instead for union types to create tagged records.
 
 > This is wrong. Should use `enum` instead for union types.
 >

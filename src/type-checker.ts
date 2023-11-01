@@ -95,6 +95,11 @@ export type TFunction = {
   returnType: Type;
 };
 
+export type TUnion = {
+  type: "Union";
+  types: Type[];
+};
+
 export type Type =
   | TUnit
   | TBoolean
@@ -116,7 +121,8 @@ export type Type =
   | TF32
   | TF64
   | TRecord
-  | TFunction;
+  | TFunction
+  | TUnion;
 
 // Type constructors
 
@@ -142,15 +148,49 @@ export const TypeValues = {
   f64: { type: "f64" } as TF64,
 };
 
+export function isSignedIntegerType(type: Type): boolean {
+  return (
+    type.type === "i1" ||
+    type.type === "i8" ||
+    type.type === "i16" ||
+    type.type === "i32" ||
+    type.type === "i64" ||
+    type.type === "i128"
+  );
+}
+
+export function isUnsignedIntegerType(type: Type): boolean {
+  return (
+    type.type === "u1" ||
+    type.type === "u8" ||
+    type.type === "u16" ||
+    type.type === "u32" ||
+    type.type === "u64" ||
+    type.type === "u128"
+  );
+}
+
+export function isFloatType(type: Type): boolean {
+  return type.type === "f16" || type.type === "f32" || type.type === "f64";
+}
+
+export type VariableTypes = { [key: string]: Type };
+
 export function synthesizeTypeFromTokens(
   tokens: Token[],
   index: number,
-  inputString: string
+  inputString: string,
+  variableTypes: VariableTypes
 ): { typeValue: Type; index: number } {
+  let returnValue: {
+    typeValue: Type;
+    index: number;
+  } | null = null;
+
   // Check if it's unit
   if (tokens[index].value === "(" && tokens[index + 1].value === ")") {
     index = index + 1;
-    return {
+    returnValue = {
       typeValue: TypeValues.unit,
       index: index + 1,
     };
@@ -158,17 +198,23 @@ export function synthesizeTypeFromTokens(
   // Check if it's anonymouse function
   else if (tokens[index].value === "(") {
     try {
-      return synthesizeFunctionTypeFromTokens(tokens, index, inputString);
+      returnValue = synthesizeFunctionTypeFromTokens(
+        tokens,
+        index,
+        inputString,
+        variableTypes
+      );
     } catch {
       // This means it's not a function type
       const { typeValue, index: newIndex } = synthesizeTypeFromTokens(
         tokens,
         index + 1,
-        inputString
+        inputString,
+        variableTypes
       );
       // Check if ')' is there
       if (tokens[newIndex].value === ")") {
-        return {
+        returnValue = {
           typeValue: typeValue,
           index: newIndex + 1,
         };
@@ -180,6 +226,13 @@ export function synthesizeTypeFromTokens(
         });
       }
     }
+  }
+  // Check if it's defined in variableTypes
+  else if (tokens[index].value in variableTypes) {
+    returnValue = {
+      typeValue: variableTypes[tokens[index].value],
+      index: index + 1,
+    };
   }
   // Check the record type
   else if (tokens[index].type === TokenType.LCurlyBracket) {
@@ -209,7 +262,8 @@ export function synthesizeTypeFromTokens(
           const { typeValue: type, index: newIndex } = synthesizeTypeFromTokens(
             tokens,
             index,
-            inputString
+            inputString,
+            variableTypes
           );
           typeValue.properties.push({ name, type });
           index = newIndex;
@@ -232,7 +286,7 @@ export function synthesizeTypeFromTokens(
         });
       }
     }
-    return {
+    returnValue = {
       typeValue: typeValue,
       index: index,
     };
@@ -319,17 +373,60 @@ export function synthesizeTypeFromTokens(
         });
       }
     }
-    return {
+    returnValue = {
       typeValue: typeValue,
       index: index + 1,
     };
+  }
+
+  // Check if it's union type
+  if (tokens[returnValue.index]?.type === TokenType.BitwiseOr) {
+    const index = returnValue.index + 1;
+
+    const newReturnValue = synthesizeTypeFromTokens(
+      tokens,
+      index,
+      inputString,
+      variableTypes
+    );
+    if (newReturnValue.typeValue.type === "Union") {
+      return {
+        typeValue: {
+          type: "Union",
+          types: [returnValue.typeValue, ...newReturnValue.typeValue.types],
+        },
+        index: newReturnValue.index,
+      };
+    } else {
+      // Check types
+      if (returnValue.typeValue.type !== newReturnValue.typeValue.type) {
+        throw formatErrorMessage({
+          token: tokens[index],
+          errorMessage: `Cannot union types: 
+${returnValue.typeValue.type}: ${typeToString(returnValue.typeValue)}
+${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
+          inputString,
+        });
+      }
+
+      return {
+        typeValue: {
+          type: "Union",
+          types: [returnValue.typeValue, newReturnValue.typeValue],
+        },
+        index: newReturnValue.index,
+      };
+    }
+  } else {
+    return returnValue;
   }
 }
 
 export function synthesizeFunctionTypeFromTokens(
   tokens: Token[],
   index: number,
-  inputString: string
+  inputString: string,
+  variableTypes: VariableTypes
 ): { typeValue: Type; index: number } {
   if (tokens[index].type !== TokenType.LParen) {
     throw formatErrorMessage({
@@ -362,7 +459,8 @@ export function synthesizeFunctionTypeFromTokens(
         const { typeValue: type, index: newIndex } = synthesizeTypeFromTokens(
           tokens,
           index,
-          inputString
+          inputString,
+          variableTypes
         );
         parameterTypes.push({ name, type });
         index = newIndex;
@@ -390,7 +488,8 @@ export function synthesizeFunctionTypeFromTokens(
     const { typeValue: returnType, index: newIndex } = synthesizeTypeFromTokens(
       tokens,
       index,
-      inputString
+      inputString,
+      variableTypes
     );
     index = newIndex;
     return {
@@ -411,6 +510,7 @@ export function synthesizeFunctionTypeFromTokens(
 }
 
 /**
+ * Check if `a` is subtype of `b`.
  * For example,
  * {
  *   upperLeft: { label: string, x: number, y: number },
@@ -428,20 +528,45 @@ export function synthesizeFunctionTypeFromTokens(
 export function isSubtype(a: Type, b: Type): boolean {
   if (a.type === "Record" && b.type === "Record") {
     return b.properties.every(({ name: bName, type: bType }) => {
-      if (bName in a.properties) {
-        const aType = a.properties[bName];
+      const aProperty = a.properties.find(({ name: aName }) => aName === bName);
+      if (aProperty) {
+        const aType = aProperty.type;
         return isSubtype(aType, bType);
       } else {
         return false;
       }
     });
   } else {
-    return a.type === b.type;
+    if (
+      (isSignedIntegerType(a) && isSignedIntegerType(b)) ||
+      (isUnsignedIntegerType(a) && isUnsignedIntegerType(b)) ||
+      (isFloatType(a) && isFloatType(b))
+    ) {
+      const aSize = parseInt(a.type.slice(1));
+      const bSize = parseInt(b.type.slice(1));
+      return aSize <= bSize;
+    } else if (a.type === "Function" && b.type === "Function") {
+      return (
+        a.parameterTypes.length === b.parameterTypes.length &&
+        a.parameterTypes.every((aParameter, i) =>
+          isSubtype(aParameter.type, b.parameterTypes[i].type)
+        ) &&
+        isSubtype(a.returnType, b.returnType)
+      );
+    } else if (b.type === "Union") {
+      if (a.type === "Union") {
+        return a.types.every((type) => isSubtype(type, b));
+      } else {
+        return b.types.some((type) => isSubtype(a, type));
+      }
+    } else {
+      return false;
+    }
   }
 }
 
-export function typeToString(tpye: Type): string {
-  switch (tpye.type) {
+export function typeToString(type: Type): string {
+  switch (type.type) {
     case "()": {
       return "()";
     }
@@ -500,18 +625,80 @@ export function typeToString(tpye: Type): string {
       return "f64";
     }
     case "Record": {
-      return `{ ${tpye.properties
+      return `{ ${type.properties
         .map(({ name, type }) => `${name}: ${typeToString(type)}`)
         .join(", ")} }`;
     }
     case "Function": {
-      return `(${tpye.parameterTypes
+      return `(${type.parameterTypes
         .map(
           (parameter) =>
             (parameter.name ? `${parameter.name}: ` : "") +
             typeToString(parameter.type)
         )
-        .join(", ")}) => ${typeToString(tpye.returnType)}`;
+        .join(", ")}) => ${typeToString(type.returnType)}`;
+    }
+    case "Union": {
+      return `(${type.types.map(typeToString).join(" | ")})`;
+    }
+    default: {
+      throw new Error(`Unknown type ${JSON.stringify(type)}`);
     }
   }
+}
+
+export function checkType(expectedType: Type, givenType: Type): boolean {
+  if (expectedType.type === givenType.type) {
+    if (expectedType.type === "Record") {
+      return checkRecordExactMatchType(expectedType, givenType);
+    } else {
+      return isSubtype(givenType, expectedType);
+    }
+  } else if (expectedType.type === "Union") {
+    if (givenType.type === "Union") {
+      return givenType.types.every((type) =>
+        expectedType.types.some((expectedType) => checkType(expectedType, type))
+      );
+    } else {
+      return expectedType.types.some((type) => checkType(type, givenType));
+    }
+  } else {
+    return false;
+  }
+}
+
+function checkRecordExactMatchType(
+  expectedType: Type,
+  givenType: Type
+): boolean {
+  if (givenType.type !== "Record") {
+    throw new Error("Cannot check type of non-record");
+  }
+  if (expectedType.type !== "Record") {
+    throw new Error("Cannot check type of non-record");
+  }
+  const expectedTypeProperties = expectedType.properties.sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+  const givenTypeProperties = givenType.properties.sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+  if (expectedTypeProperties.length !== givenTypeProperties.length) {
+    return false;
+  }
+
+  let result = true;
+  for (let i = 0; i < expectedTypeProperties.length; i++) {
+    const type1Property = expectedTypeProperties[i];
+    const type2Property = givenTypeProperties[i];
+    if (type1Property.name !== type2Property.name) {
+      result = false;
+      break;
+    }
+    if (!checkType(type1Property.type, type2Property.type)) {
+      result = false;
+      break;
+    }
+  }
+  return result;
 }

@@ -3,11 +3,10 @@ import {
   TFunction,
   Type,
   TypeValues,
-  isSubtype,
+  VariableTypes,
+  checkType,
   typeToString,
 } from "./type-checker";
-
-export type NamedTypes = { [key: string]: Type };
 
 export enum AstType {
   // values
@@ -25,6 +24,7 @@ export enum AstType {
   ConstantAssigment = "const=",
   LetAssignment = "let=",
   Assignment = "=",
+  TypeAlias = "type=",
 
   // parameters
   TypeParameter = "type-parameter",
@@ -59,6 +59,7 @@ export type Expr =
   | FunctionExpr
   | ExternExpr
   | AssignmentExpr
+  | TypeAliasExpr
   | UnaryOperatorExpr
   | BinaryOperatorExpr
   | VariableExpr
@@ -105,6 +106,12 @@ export type AssignmentExpr = {
   variableName: string;
   variableType: Type;
   right: Expr;
+};
+
+export type TypeAliasExpr = {
+  type: AstType.TypeAlias;
+  typeName: string;
+  typeType: Type;
 };
 
 export type TypeParameterExpr = {
@@ -172,15 +179,18 @@ export function getTokenPrecedence(token: Token | undefined): number {
   }
 }
 
-export function synthesizeExprType(expr: Expr, namedTypes: NamedTypes): Type {
+export function synthesizeExprType(
+  expr: Expr,
+  variableTypes: VariableTypes
+): Type {
   if (expr instanceof Array) {
     throw new Error("Cannot synthesize type of array");
   }
   if (expr.type === AstType.Value) {
     return expr.typeValue;
   } else if (expr.type === AstType.BinaryOperator) {
-    const leftType = synthesizeExprType(expr.left, namedTypes);
-    const rightType = synthesizeExprType(expr.right, namedTypes);
+    const leftType = synthesizeExprType(expr.left, variableTypes);
+    const rightType = synthesizeExprType(expr.right, variableTypes);
     if (
       [
         OperatorType.LessThan,
@@ -199,10 +209,10 @@ export function synthesizeExprType(expr: Expr, namedTypes: NamedTypes): Type {
     }
   } else if (expr.type === AstType.CallFunction) {
     const functionName = expr.functionName;
-    if (!(functionName in namedTypes)) {
+    if (!(functionName in variableTypes)) {
       throw new Error(`Cannot find function ${functionName}`);
     } else {
-      const namedType = namedTypes[functionName];
+      const namedType = variableTypes[functionName];
       if (namedType.type !== "Function") {
         throw new Error(`Cannot call non-function ${functionName}`);
       } else {
@@ -215,15 +225,16 @@ export function synthesizeExprType(expr: Expr, namedTypes: NamedTypes): Type {
     if (!lastThenExpr || !lastElseExpr) {
       throw new Error(`Missing then or else expression`);
     }
-    const thenType = synthesizeExprType(lastThenExpr, namedTypes);
+    const thenType = synthesizeExprType(lastThenExpr, variableTypes);
+    const elseType = synthesizeExprType(lastElseExpr, variableTypes);
     // else and then should have the same type
-    if (checkType(lastElseExpr, thenType, namedTypes)) {
+    if (checkType(elseType, thenType)) {
       return thenType;
     } else {
       throw new Error(
-        `Type mismatch between \`then\` and \`else\`.
+        `Mismatched types between \`then\` and \`else\`.
 then: ${typeToString(thenType)}
-else: ${typeToString(synthesizeExprType(lastElseExpr, namedTypes))}  
+else: ${typeToString(synthesizeExprType(lastElseExpr, variableTypes))}  
 `
       );
     }
@@ -241,78 +252,15 @@ export function synthesizeRecordType(
     name: string;
     value: Expr;
   }[],
-  namedTypes
+  variableTypes
 ): Type {
   return {
     type: "Record",
     properties: properties.map(({ name, value }) => {
       return {
         name,
-        type: synthesizeExprType(value, namedTypes),
+        type: synthesizeExprType(value, variableTypes),
       };
     }),
   };
-}
-
-export function checkType(
-  expr: Expr,
-  type: Type,
-  namedTypes: NamedTypes
-): boolean {
-  if (expr instanceof Array) {
-    throw new Error("Cannot check type of array");
-  }
-  const exprType = synthesizeExprType(expr, namedTypes);
-  if (exprType.type === type.type) {
-    if (exprType.type === "Record") {
-      return checkRecordExactMatchType(expr, type, namedTypes);
-    } else {
-      return isSubtype(exprType, type);
-    }
-  } else {
-    return false;
-  }
-}
-
-function checkRecordExactMatchType(
-  expr: Expr,
-  type: Type,
-  namedTypes: NamedTypes
-): boolean {
-  if (expr instanceof Array) {
-    throw new Error("Cannot check type of array");
-  }
-  if (expr.type !== AstType.Value) {
-    throw new Error("Cannot check type of non-value");
-  }
-  if (type.type !== "Record") {
-    throw new Error("Cannot check type of non-record");
-  }
-  if (expr.typeValue.type !== "Record" || !expr.properties) {
-    throw new Error("Cannot check type of non-record");
-  }
-  const exprProperties = expr.properties.sort((a, b) =>
-    a.name.localeCompare(b.name)
-  );
-  const typeProperties = type.properties.sort((a, b) =>
-    a.name.localeCompare(b.name)
-  );
-  if (exprProperties.length !== typeProperties.length) {
-    return false;
-  }
-
-  let result = true;
-  for (let i = 0; i < exprProperties.length; i++) {
-    const exprProperty = exprProperties[i];
-    const typeProperty = typeProperties[i];
-    if (exprProperty.name !== typeProperty.name) {
-      result = false;
-      break;
-    }
-    if (!checkType(exprProperty.value, typeProperty.type, namedTypes)) {
-      result = false;
-      break;
-    }
-  }
-  return result;
 }

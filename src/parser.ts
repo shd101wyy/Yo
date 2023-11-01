@@ -8,8 +8,6 @@ import {
   Expr,
   FunctionExpr,
   FunctionPrototype,
-  NamedTypes,
-  checkType,
   getTokenPrecedence,
   synthesizeExprType,
   synthesizeRecordType,
@@ -20,6 +18,8 @@ import {
   ParameterType,
   Type,
   TypeValues,
+  VariableTypes,
+  checkType,
   synthesizeTypeFromTokens,
   typeToString,
 } from "./type-checker";
@@ -27,16 +27,14 @@ import {
 type ParserReturn = {
   expr: Expr | null;
   index: number;
-  namedTypes: NamedTypes;
+  variableTypes: VariableTypes;
 };
 
 export default class Parser {
-  public ast: Expr[];
   private inputString: string;
 
   constructor(inputString: string) {
     this.inputString = inputString;
-    this.ast = [];
   }
 
   private formatErrorMessage(token: Token, errorMessage: string) {
@@ -50,7 +48,7 @@ export default class Parser {
   private parseNumberExpr(
     tokens: Token[],
     index: number,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
     const token = tokens[index];
     if (token.type === TokenType.Integer) {
@@ -61,7 +59,7 @@ export default class Parser {
           value: token.value,
         },
         index: index + 1,
-        namedTypes,
+        variableTypes,
       };
     } else if (token.type === TokenType.Float) {
       return {
@@ -71,7 +69,7 @@ export default class Parser {
           value: token.value,
         },
         index: index + 1,
-        namedTypes,
+        variableTypes,
       };
     } else {
       throw this.formatErrorMessage(token, "Expected number");
@@ -81,7 +79,7 @@ export default class Parser {
   private parseCharactorExpr(
     tokens: Token[],
     index: number,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
     const token = tokens[index];
     if (token.type === TokenType.Char) {
@@ -92,7 +90,7 @@ export default class Parser {
           value: token.value,
         },
         index: index + 1,
-        namedTypes,
+        variableTypes,
       };
     } else {
       throw this.formatErrorMessage(token, "Expected charactor");
@@ -102,7 +100,7 @@ export default class Parser {
   private parseStringExpr(
     tokens: Token[],
     index: number,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
     const token = tokens[index];
     if (token.type === TokenType.String) {
@@ -113,7 +111,7 @@ export default class Parser {
           value: token.value,
         },
         index: index + 1,
-        namedTypes,
+        variableTypes,
       };
     } else {
       throw this.formatErrorMessage(token, "Expected string");
@@ -123,7 +121,7 @@ export default class Parser {
   private parseBooleanExpr(
     tokens: Token[],
     index: number,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
     const token = tokens[index];
     if (token.type === TokenType.Boolean) {
@@ -134,7 +132,7 @@ export default class Parser {
           value: token.value,
         },
         index: index + 1,
-        namedTypes,
+        variableTypes,
       };
     } else {
       throw this.formatErrorMessage(token, "Expected boolean");
@@ -146,15 +144,15 @@ export default class Parser {
   private parseCurlyBracketExpr(
     tokens: Token[],
     index: number,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
-    return this.parseRecordExpr(tokens, index, namedTypes);
+    return this.parseRecordExpr(tokens, index, variableTypes);
   }
 
   private parseRecordExpr(
     tokens: Token[],
     index: number,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
     if (tokens[index].type !== TokenType.LCurlyBracket || !tokens[index + 1]) {
       throw this.formatErrorMessage(tokens[index], "Expected '{' for record");
@@ -169,7 +167,7 @@ export default class Parser {
           properties: [],
         },
         index: index + 1,
-        namedTypes,
+        variableTypes,
       };
     } else if (
       tokens[index].type === TokenType.Identifier &&
@@ -203,10 +201,10 @@ export default class Parser {
         const { expr, index: nextIndex } = this.parseExpression(
           tokens,
           index,
-          namedTypes
+          variableTypes
         );
         if (!expr) {
-          return { expr, index: nextIndex, namedTypes };
+          return { expr, index: nextIndex, variableTypes };
         }
         properties.push({ name: propertyName, value: expr });
         index = nextIndex;
@@ -219,11 +217,11 @@ export default class Parser {
         expr: {
           type: AstType.Value,
           value: "",
-          typeValue: synthesizeRecordType(properties, namedTypes),
+          typeValue: synthesizeRecordType(properties, variableTypes),
           properties,
         },
         index,
-        namedTypes,
+        variableTypes,
       };
     } else {
       throw this.formatErrorMessage(tokens[index], "Expected invalid record");
@@ -233,37 +231,37 @@ export default class Parser {
   private parseAnonymouseFunction(
     tokens: Token[],
     index: number,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
     if (tokens[index].type !== TokenType.LParen) {
-      return { expr: null, index, namedTypes };
+      return { expr: null, index, variableTypes };
     }
 
     // parse prototype
     const {
       prototype,
       index: nextIndex,
-      namedTypes: newNamedTypes,
+      variableTypes: newVariableTypes,
     } = this.parsePrototype({
       tokens,
       index,
-      namedTypes,
+      variableTypes,
       requireFunctionName: false,
     });
     if (!prototype) {
-      return { expr: null, index, namedTypes };
+      return { expr: null, index, variableTypes };
     }
 
     // check if current token is `=>`
     if (tokens[nextIndex].type !== TokenType.LambdaArrow) {
-      return { expr: null, index, namedTypes };
+      return { expr: null, index, variableTypes };
     }
 
     // parse body
     const { exprs: body, index: nextNextIndex } = this.parseBlockExpressions(
       tokens,
       nextIndex + 1,
-      newNamedTypes
+      newVariableTypes
     );
 
     const functionExpr: FunctionExpr = {
@@ -271,7 +269,7 @@ export default class Parser {
       prototype,
       body,
     };
-    return { expr: functionExpr, index: nextNextIndex, namedTypes };
+    return { expr: functionExpr, index: nextNextIndex, variableTypes };
   }
 
   /**
@@ -283,7 +281,7 @@ export default class Parser {
   private parseParenExpr(
     tokens: Token[],
     index: number,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
     if (tokens[index].type !== TokenType.LParen) {
       throw this.formatErrorMessage(tokens[index], "Expected left paren");
@@ -297,7 +295,7 @@ export default class Parser {
           value: "()",
         },
         index: index + 2,
-        namedTypes,
+        variableTypes,
       };
     }
 
@@ -306,10 +304,10 @@ export default class Parser {
       const { expr, index: endIndex } = this.parseAnonymouseFunction(
         tokens,
         index,
-        namedTypes
+        variableTypes
       );
       if (expr) {
-        return { expr, index: endIndex, namedTypes };
+        return { expr, index: endIndex, variableTypes };
       } else {
         throw new Error("Failed to parse as anonymouse function");
       }
@@ -321,16 +319,16 @@ export default class Parser {
     const { expr, index: endIndex } = this.parseExpression(
       tokens,
       index + 1,
-      namedTypes
+      variableTypes
     );
     if (!expr) {
-      return { expr, index: endIndex, namedTypes };
+      return { expr, index: endIndex, variableTypes };
     }
 
     if (tokens[endIndex].type !== TokenType.RParen) {
       throw this.formatErrorMessage(tokens[endIndex], "Expected right paren");
     }
-    return { expr, index: endIndex + 1, namedTypes };
+    return { expr, index: endIndex + 1, variableTypes };
   }
 
   /**
@@ -343,12 +341,12 @@ export default class Parser {
   private parseIdentifierExpr(
     tokens: Token[],
     index: number,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
     const identifier = tokens[index].value;
     if (tokens[index + 1].type !== TokenType.LParen) {
       // Check if variable is defined
-      if (!(identifier in namedTypes)) {
+      if (!(identifier in variableTypes)) {
         throw this.formatErrorMessage(
           tokens[index],
           `Unbounded variable \`${identifier}\``
@@ -361,7 +359,7 @@ export default class Parser {
           name: identifier,
         },
         index: index + 1,
-        namedTypes,
+        variableTypes,
       };
     } else {
       // call
@@ -374,7 +372,7 @@ export default class Parser {
           const { expr, index: endIndex } = this.parseExpression(
             tokens,
             index,
-            namedTypes
+            variableTypes
           );
           if (expr) {
             functionArguments.push(expr);
@@ -401,7 +399,7 @@ export default class Parser {
             functionArguments,
           },
           index: index + 1,
-          namedTypes,
+          variableTypes,
         };
       } else {
         return {
@@ -411,7 +409,7 @@ export default class Parser {
             functionArguments,
           },
           index: index + 3,
-          namedTypes,
+          variableTypes,
         };
       }
     }
@@ -429,31 +427,31 @@ export default class Parser {
   private parsePrimary(
     tokens: Token[],
     index: number,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
     const token = tokens[index];
     switch (token.type) {
       case TokenType.Identifier:
-        return this.parseIdentifierExpr(tokens, index, namedTypes);
+        return this.parseIdentifierExpr(tokens, index, variableTypes);
       case TokenType.Integer:
       case TokenType.Float:
-        return this.parseNumberExpr(tokens, index, namedTypes);
+        return this.parseNumberExpr(tokens, index, variableTypes);
       case TokenType.Char:
-        return this.parseCharactorExpr(tokens, index, namedTypes);
+        return this.parseCharactorExpr(tokens, index, variableTypes);
       case TokenType.String:
-        return this.parseStringExpr(tokens, index, namedTypes);
+        return this.parseStringExpr(tokens, index, variableTypes);
       case TokenType.Boolean:
-        return this.parseBooleanExpr(tokens, index, namedTypes);
+        return this.parseBooleanExpr(tokens, index, variableTypes);
       case TokenType.LParen:
-        return this.parseParenExpr(tokens, index, namedTypes);
+        return this.parseParenExpr(tokens, index, variableTypes);
       case TokenType.LCurlyBracket:
-        return this.parseCurlyBracketExpr(tokens, index, namedTypes);
+        return this.parseCurlyBracketExpr(tokens, index, variableTypes);
       case TokenType.If:
-        return this.parseIfExpr(tokens, index, namedTypes);
+        return this.parseIfExpr(tokens, index, variableTypes);
       case TokenType.Const:
-        return this.parseConstAssignment(tokens, index, namedTypes);
+        return this.parseConstAssignment(tokens, index, variableTypes);
       case TokenType.Semicolon:
-        return { expr: null, index: index + 1, namedTypes };
+        return { expr: null, index: index + 1, variableTypes };
       default:
         throw this.formatErrorMessage(
           token,
@@ -467,7 +465,7 @@ export default class Parser {
     exprPrecedence: number,
     LHS: Expr,
     index: number,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
     // if it's binop, find its precedence
     while (true) {
@@ -477,7 +475,7 @@ export default class Parser {
       // If this is a binop that binds at least as tightly as the current binop,
       // consume it, otherwise we are done.
       if (tokenPrecedence < exprPrecedence) {
-        return { expr: LHS, index, namedTypes };
+        return { expr: LHS, index, variableTypes };
       }
 
       // Okay, we know this is a binop
@@ -488,10 +486,10 @@ export default class Parser {
       let { expr: RHS, index: endIndex } = this.parsePrimary(
         tokens,
         index,
-        namedTypes
+        variableTypes
       );
       if (!RHS) {
-        return { expr: RHS, index: endIndex, namedTypes };
+        return { expr: RHS, index: endIndex, variableTypes };
       }
 
       // If BinOp binds less tightly with RHS than the operator after RHS, let
@@ -504,10 +502,10 @@ export default class Parser {
           tokenPrecedence + 1,
           RHS,
           endIndex,
-          namedTypes
+          variableTypes
         );
         if (!expr) {
-          return { expr, index: nextIndex, namedTypes };
+          return { expr, index: nextIndex, variableTypes };
         }
         RHS = expr;
         index = nextIndex;
@@ -541,20 +539,20 @@ export default class Parser {
   private parsePrototype({
     tokens,
     index,
-    namedTypes,
+    variableTypes,
     requireFunctionName,
   }: {
     tokens: Token[];
     index: number;
-    namedTypes: NamedTypes;
+    variableTypes: VariableTypes;
     requireFunctionName: boolean;
   }): {
     prototype: FunctionPrototype | null;
     index: number;
-    namedTypes: NamedTypes;
+    variableTypes: VariableTypes;
   } {
-    // NOTE: We will mutate namedTypes
-    namedTypes = { ...namedTypes };
+    // NOTE: We will mutate variableTypes
+    variableTypes = { ...variableTypes };
 
     let functionName: string | undefined = undefined;
     if (requireFunctionName) {
@@ -614,14 +612,19 @@ export default class Parser {
       }
       index = index + 2;
       const { typeValue: parameterType, index: nextIndex } =
-        synthesizeTypeFromTokens(tokens, index, this.inputString);
+        synthesizeTypeFromTokens(
+          tokens,
+          index,
+          this.inputString,
+          variableTypes
+        );
       functionParameterTypes.push({
         type: parameterType,
         name: parameterName,
       });
 
       if (parameterName) {
-        namedTypes[parameterName] = parameterType;
+        variableTypes[parameterName] = parameterType;
       }
 
       index = nextIndex;
@@ -636,7 +639,7 @@ export default class Parser {
     }
     index = index + 2;
     const { typeValue: returnType, index: nextIndex } =
-      synthesizeTypeFromTokens(tokens, index, this.inputString);
+      synthesizeTypeFromTokens(tokens, index, this.inputString, variableTypes);
     index = nextIndex;
 
     return {
@@ -651,17 +654,17 @@ export default class Parser {
         },
       },
       index,
-      namedTypes,
+      variableTypes,
     };
   }
 
   private parseBlockExpressions(
     tokens: Token[],
     index: number,
-    namedTypes: NamedTypes
-  ): { exprs: Expr[]; index: number } {
+    variableTypes: VariableTypes
+  ): { exprs: Expr[]; index: number; variableTypes: VariableTypes } {
     const exprs: Expr[] = [];
-    let newNamedTypes = { ...namedTypes };
+    let newVariableTypes = { ...variableTypes };
     if (tokens[index].type !== TokenType.LCurlyBracket) {
       throw this.formatErrorMessage(
         tokens[index],
@@ -682,9 +685,9 @@ export default class Parser {
       const {
         expr,
         index: nextIndex,
-        namedTypes: newNamedTypes2,
-      } = this.parseExpression(tokens, index, newNamedTypes);
-      newNamedTypes = newNamedTypes2;
+        variableTypes: newNamedTypes2,
+      } = this.parseExpression(tokens, index, newVariableTypes);
+      newVariableTypes = newNamedTypes2;
       if (expr) {
         exprs.push(expr);
       }
@@ -703,13 +706,14 @@ export default class Parser {
     return {
       index,
       exprs,
+      variableTypes: newVariableTypes,
     };
   }
 
   private parseFunction(
     tokens: Token[],
     index: number,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
     if (tokens[index].type !== TokenType.Function) {
       throw this.formatErrorMessage(tokens[index], "Expected function");
@@ -719,18 +723,18 @@ export default class Parser {
     const {
       prototype,
       index: nextIndex,
-      namedTypes: newNamedTypes,
+      variableTypes: newVariableTypes,
     } = this.parsePrototype({
       tokens,
       index,
-      namedTypes,
+      variableTypes,
       requireFunctionName: true,
     });
     if (!prototype) {
-      return { expr: null, index: nextIndex, namedTypes };
+      return { expr: null, index: nextIndex, variableTypes };
     } else {
       index = nextIndex;
-      namedTypes[prototype.functionName!] = prototype.typeValue;
+      variableTypes[prototype.functionName!] = prototype.typeValue;
     }
 
     // Check function body
@@ -741,24 +745,39 @@ export default class Parser {
       );
     }
 
-    const { exprs, index: endIndex } = this.parseBlockExpressions(
-      tokens,
-      index,
-      newNamedTypes
+    const {
+      exprs,
+      index: endIndex,
+      variableTypes: functionBodyVariableTypes,
+    } = this.parseBlockExpressions(tokens, index, newVariableTypes);
+
+    // Check function body return type matches
+    // prototype.returnType
+    const functionReturnType = synthesizeExprType(
+      exprs[exprs.length - 1],
+      functionBodyVariableTypes
     );
+    if (!checkType(functionReturnType, prototype.typeValue.returnType)) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Mismatched return type: ${typeToString(
+          prototype.typeValue.returnType
+        )} and ${typeToString(functionReturnType)}`
+      );
+    }
 
     const functionExpr: FunctionExpr = {
       type: AstType.Function,
       prototype,
       body: exprs,
     };
-    return { expr: functionExpr, index: endIndex, namedTypes };
+    return { expr: functionExpr, index: endIndex, variableTypes };
   }
 
   private parseExtern(
     tokens: Token[],
     index: number,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
     if (tokens[index].type !== TokenType.Extern) {
       throw this.formatErrorMessage(tokens[index], "Expected extern");
@@ -768,14 +787,14 @@ export default class Parser {
     const { prototype, index: nextIndex } = this.parsePrototype({
       tokens,
       index,
-      namedTypes,
+      variableTypes,
       requireFunctionName: true,
     });
     if (!prototype) {
-      return { expr: null, index: nextIndex, namedTypes };
+      return { expr: null, index: nextIndex, variableTypes };
     } else {
       index = nextIndex;
-      namedTypes[prototype.functionName!] = prototype.typeValue;
+      variableTypes[prototype.functionName!] = prototype.typeValue;
     }
 
     return {
@@ -784,14 +803,14 @@ export default class Parser {
         prototype,
       },
       index,
-      namedTypes,
+      variableTypes,
     };
   }
 
   private parseIfExpr(
     tokens: Token[],
     index: number,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
     if (tokens[index].type !== TokenType.If) {
       throw this.formatErrorMessage(tokens[index], "Expected if");
@@ -802,10 +821,17 @@ export default class Parser {
     const { expr: condition, index: nextIndex } = this.parseExpression(
       tokens,
       index,
-      namedTypes
+      variableTypes
     );
     if (!condition) {
-      return { expr: null, index: nextIndex, namedTypes };
+      return { expr: null, index: nextIndex, variableTypes };
+    }
+    const conditionType = synthesizeExprType(condition, variableTypes);
+    if (!checkType(TypeValues.boolean, conditionType)) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Expected boolean for condition, but got ${typeToString(conditionType)}`
+      );
     }
     index = nextIndex;
 
@@ -819,7 +845,7 @@ export default class Parser {
     const { exprs: then, index: nextNextIndex } = this.parseBlockExpressions(
       tokens,
       index,
-      namedTypes
+      variableTypes
     );
     index = nextNextIndex;
 
@@ -832,7 +858,7 @@ export default class Parser {
         const { expr, index: nextNextNextIndex } = this.parseIfExpr(
           tokens,
           index,
-          namedTypes
+          variableTypes
         );
         if (expr) {
           elseExpr.push(expr);
@@ -848,7 +874,7 @@ export default class Parser {
         const { exprs, index: nextNextNextIndex } = this.parseBlockExpressions(
           tokens,
           index,
-          namedTypes
+          variableTypes
         );
         if (exprs) {
           elseExpr.push(...exprs);
@@ -865,14 +891,14 @@ export default class Parser {
         else: elseExpr,
       },
       index: index,
-      namedTypes,
+      variableTypes,
     };
   }
 
   private parseConstAssignment(
     tokens: Token[],
     index: number,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
     if (tokens[index].type !== TokenType.Const) {
       throw this.formatErrorMessage(tokens[index], "Expected const");
@@ -895,7 +921,8 @@ export default class Parser {
       const { typeValue, index: nextIndex } = synthesizeTypeFromTokens(
         tokens,
         index,
-        this.inputString
+        this.inputString,
+        variableTypes
       );
       userDefinedVariableType = typeValue;
       index = nextIndex;
@@ -913,45 +940,94 @@ export default class Parser {
     const { expr: value, index: nextNextIndex } = this.parseExpression(
       tokens,
       index,
-      namedTypes
+      variableTypes
     );
     if (!value) {
-      return { expr: null, index: nextNextIndex, namedTypes };
+      return { expr: null, index: nextNextIndex, variableTypes };
     }
     index = nextNextIndex;
 
     let variableType: Type;
     try {
-      variableType = synthesizeExprType(value, namedTypes);
+      variableType = synthesizeExprType(value, variableTypes);
     } catch (error) {
       throw this.formatErrorMessage(tokens[valueIndex], error);
     }
 
     // Check if type matches
     if (userDefinedVariableType !== null) {
-      const typeMatches = checkType(value, userDefinedVariableType, namedTypes);
+      const typeMatches = checkType(userDefinedVariableType, variableType);
       if (!typeMatches) {
         throw this.formatErrorMessage(
           tokens[userDefinedVariableTypeTokenIndex],
-          `Type mismatch: ${typeToString(
-            userDefinedVariableType
-          )} and ${typeToString(variableType)}`
+          `Mismatched types:
+Expected: ${typeToString(userDefinedVariableType)}
+Got:      ${typeToString(variableType)}`
         );
       }
     }
 
-    // Add variable to namedTypes
-    namedTypes[variableName] = variableType;
+    // Add variable to variableTypes
+    variableTypes[variableName] = variableType;
 
     return {
       expr: {
         type: AstType.ConstantAssigment,
         variableName,
-        variableType,
+        variableType: userDefinedVariableType ?? variableType,
         right: value,
       },
       index,
-      namedTypes,
+      variableTypes,
+    };
+  }
+
+  private parseTypeAlias(
+    tokens: Token[],
+    index: number,
+    variableTypes: VariableTypes
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.Type) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "type" for type alias'
+      );
+    }
+
+    index = index + 1;
+    if (tokens[index].type !== TokenType.Identifier) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected identifier for type alias"
+      );
+    }
+    const typeName = tokens[index].value;
+    index = index + 1;
+
+    if (tokens[index].type !== TokenType.Assign) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '=' for type alias"
+      );
+    }
+    index = index + 1;
+
+    const { index: nextIndex, typeValue } = synthesizeTypeFromTokens(
+      tokens,
+      index,
+      this.inputString,
+      variableTypes
+    );
+    variableTypes[typeName] = typeValue;
+
+    return {
+      expr: {
+        type: AstType.TypeAlias,
+        typeName,
+        typeType: typeValue,
+      },
+      index: nextIndex,
+      variableTypes,
     };
   }
 
@@ -964,21 +1040,21 @@ export default class Parser {
   private parseExpression(
     tokens: Token[],
     index = 0,
-    namedTypes: NamedTypes
+    variableTypes: VariableTypes
   ): ParserReturn {
     const { expr, index: endIndex } = this.parsePrimary(
       tokens,
       index,
-      namedTypes
+      variableTypes
     );
     if (!expr) {
-      return { expr, index: endIndex, namedTypes };
+      return { expr, index: endIndex, variableTypes };
     } else {
-      return this.parseBinOpRHS(tokens, 0, expr, endIndex, namedTypes);
+      return this.parseBinOpRHS(tokens, 0, expr, endIndex, variableTypes);
     }
   }
 
-  public parse(tokens: Token[], namedTypes: NamedTypes = {}): Expr {
+  public parse(tokens: Token[], variableTypes: VariableTypes = {}): Expr {
     let index = 0;
     const exprs: Expr[] = [];
     while (true) {
@@ -997,26 +1073,39 @@ export default class Parser {
           const {
             expr,
             index: nextIndex,
-            namedTypes: newNamedTypes,
-          } = this.parseFunction(tokens, index, namedTypes);
+            variableTypes: newVariableTypes,
+          } = this.parseFunction(tokens, index, variableTypes);
           if (expr) {
             exprs.push(expr);
           }
           index = nextIndex;
-          namedTypes = newNamedTypes;
+          variableTypes = newVariableTypes;
           break;
         }
         case TokenType.Extern: {
           const {
             expr,
             index: nextIndex,
-            namedTypes: newNamedTypes,
-          } = this.parseExtern(tokens, index, namedTypes);
+            variableTypes: newVariableTypes,
+          } = this.parseExtern(tokens, index, variableTypes);
           if (expr) {
             exprs.push(expr);
           }
           index = nextIndex;
-          namedTypes = newNamedTypes;
+          variableTypes = newVariableTypes;
+          break;
+        }
+        case TokenType.Type: {
+          const {
+            expr,
+            index: nextIndex,
+            variableTypes: newVariableTypes,
+          } = this.parseTypeAlias(tokens, index, variableTypes);
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          variableTypes = newVariableTypes;
           break;
         }
         default: {

@@ -72,6 +72,10 @@ export enum TokenType {
   Implement = "implement",
   Import = "import",
   Export = "export",
+  Unique = "unique",
+  Shared = "shared",
+  Weak = "weak",
+
   /**
    * A list of available C functions can be found at:
    * https://libc.llvm.org/index.html
