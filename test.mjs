@@ -33,6 +33,7 @@ function main(): i32 {
 `
 
 code = `
+// This is comment
 function max(x: i32, y: i32): i32 {
   if (x > y) {
     x
@@ -43,9 +44,11 @@ function max(x: i32, y: i32): i32 {
 `
 
 code = `
-
-function test(): Unit {
-  unit
+function test(): i32 {
+  const add: (a: i32, b: i32)=> i32 = (a: i32, b: i32): i32 => {
+    a + b
+  };
+  add(1, 2)
 }
 `
 

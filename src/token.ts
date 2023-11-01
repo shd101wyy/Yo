@@ -7,6 +7,18 @@ export enum TokenType {
   Multiply = "*",
   Divide = "/",
   Modulo = "%",
+  Exponent = "**",
+  BitwiseAnd = "&",
+  BitwiseOr = "|",
+  BitwiseXor = "^",
+  BitwiseNot = "~",
+  BitwiseShiftLeft = "<<",
+  BitwiseShiftRight = ">>",
+  LogicalAnd = "&&",
+  LogicalOr = "||",
+  LogicalNot = "!",
+  LambdaArrow = "=>",
+  DoArrow = "<-",
 
   // parens
   LParen = "(",
@@ -26,7 +38,6 @@ export enum TokenType {
 
   // assignment
   Assign = "=",
-  Negate = "!",
 
   // string
   Char = "char",
@@ -53,6 +64,7 @@ export enum TokenType {
   Fallthrough = "fallthrough",
   Let = "let",
   Const = "const",
+  Do = "do",
   Type = "type",
   Enum = "enum",
   Interface = "interface",

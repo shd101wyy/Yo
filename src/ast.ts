@@ -1,5 +1,11 @@
 import { Token, TokenType } from "./token";
-import { Type, TypeValues, isSubtype } from "./type-checker";
+import {
+  TFunction,
+  Type,
+  TypeValues,
+  isSubtype,
+  typeToString,
+} from "./type-checker";
 
 export type NamedTypes = { [key: string]: Type };
 
@@ -83,7 +89,7 @@ export type BinaryOperatorExpr = {
 
 export type UnaryOperatorExpr = {
   type: AstType.UnaryOperator;
-  operator: TokenType.Negate;
+  operator: TokenType.LogicalNot;
   expr: Expr;
 };
 
@@ -107,17 +113,11 @@ export type TypeParameterExpr = {
   type: AstType.TypeParameter;
 };
 
-export type FunctionParameterExpr = {
-  parameterName: string;
-  parameterType: Type;
-  type: AstType.FunctionParameter;
-};
-
 export type FunctionPrototype = {
   type: AstType.FunctionPrototype;
-  functionName: string;
+  functionName?: string; // If not set, it's an anonymous function
   functionParameters: Expr[]; // IdentifierExpr[] | TODO: For future pattern matching
-  typeValue: Type;
+  typeValue: TFunction;
 };
 
 export type FunctionExpr = {
@@ -203,14 +203,36 @@ export function synthesizeExprType(expr: Expr, namedTypes: NamedTypes): Type {
       throw new Error(`Cannot find function ${functionName}`);
     } else {
       const namedType = namedTypes[functionName];
-      if (namedType.type !== "function") {
+      if (namedType.type !== "Function") {
         throw new Error(`Cannot call non-function ${functionName}`);
       } else {
         return namedType.returnType;
       }
     }
+  } else if (expr.type === AstType.If) {
+    const lastThenExpr = expr.then[expr.then.length - 1];
+    const lastElseExpr = expr.else[expr.else.length - 1];
+    if (!lastThenExpr || !lastElseExpr) {
+      throw new Error(`Missing then or else expression`);
+    }
+    const thenType = synthesizeExprType(lastThenExpr, namedTypes);
+    // else and then should have the same type
+    if (checkType(lastElseExpr, thenType, namedTypes)) {
+      return thenType;
+    } else {
+      throw new Error(
+        `Type mismatch between \`then\` and \`else\`.
+then: ${typeToString(thenType)}
+else: ${typeToString(synthesizeExprType(lastElseExpr, namedTypes))}  
+`
+      );
+    }
+  } else if (expr.type === AstType.Function) {
+    return expr.prototype.typeValue;
   } else {
-    throw new Error(`Cannot synthesize type of ${JSON.stringify(expr.type)}`);
+    throw new Error(
+      `Cannot synthesize AST type of ${JSON.stringify(expr.type)}`
+    );
   }
 }
 

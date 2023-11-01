@@ -14,6 +14,8 @@ export class CodeGenerator {
   private module: llvm.Module;
   private builder: llvm.IRBuilder;
 
+  private unit: llvm.Value;
+
   constructor(inputString: string) {
     this.inputString = inputString;
     this.tokens = tokenize(this.inputString);
@@ -27,6 +29,12 @@ export class CodeGenerator {
     this.context = new llvm.LLVMContext();
     this.module = new llvm.Module("main", this.context);
     this.builder = new llvm.IRBuilder(this.context);
+
+    // Create unique unit "()" value in the context.
+    this.unit = llvm.ConstantStruct.get(
+      llvm.StructType.get(this.context, []),
+      []
+    );
   }
 
   private getLlvmType(typeExpr: Type): llvm.Type {
@@ -68,6 +76,9 @@ export class CodeGenerator {
         });
         return llvm.StructType.get(this.context, propertyTypes);
       }
+      case "()": {
+        return this.unit.getType();
+      }
       default:
         throw new Error(`Unknown type: ${JSON.stringify(typeExpr)}`);
     }
@@ -87,7 +98,7 @@ export class CodeGenerator {
 
   private codegenPrototype(prototype: FunctionPrototype): llvm.Function | null {
     const functionName = prototype.functionName;
-    if (prototype.typeValue.type !== "function") {
+    if (prototype.typeValue.type !== "Function") {
       throw new Error(
         `Function prototype type is not a function: ${JSON.stringify(
           prototype.typeValue
@@ -96,8 +107,8 @@ export class CodeGenerator {
     }
 
     const returnType = this.getLlvmType(prototype.typeValue.returnType);
-    const paramTypes = prototype.typeValue.parameters.map((param) => {
-      return this.getLlvmType(param);
+    const paramTypes = prototype.typeValue.parameterTypes.map((param) => {
+      return this.getLlvmType(param.type);
     });
     const functionType = llvm.FunctionType.get(
       returnType,
@@ -270,6 +281,8 @@ export class CodeGenerator {
               }
               return recordPtr;
             }
+            case "()":
+              return this.unit;
             default:
               throw new Error(
                 `Unknown value type: ${JSON.stringify(typeValue)}`
@@ -340,9 +353,12 @@ export class CodeGenerator {
           }
         }
         case AstType.Function: {
-          let theFunction = this.module.getFunction(
-            expr.prototype.functionName
-          );
+          const functionName = expr.prototype.functionName;
+          if (!functionName) {
+            throw new Error(`Function name not found`);
+          }
+
+          let theFunction = this.module.getFunction(functionName);
           if (!theFunction) {
             theFunction = this.codegenPrototype(expr.prototype);
           }

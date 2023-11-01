@@ -14,8 +14,15 @@ import {
   synthesizeExprType,
   synthesizeRecordType,
 } from "./ast";
+import { formatErrorMessage } from "./error";
 import { Token, TokenType } from "./token";
-import { Type, TypeValues, synthesizeTypeFromTokens } from "./type-checker";
+import {
+  ParameterType,
+  Type,
+  TypeValues,
+  synthesizeTypeFromTokens,
+  typeToString,
+} from "./type-checker";
 
 type ParserReturn = {
   expr: Expr | null;
@@ -33,17 +40,11 @@ export default class Parser {
   }
 
   private formatErrorMessage(token: Token, errorMessage: string) {
-    const { position } = token;
-    const { character, line } = position;
-
-    const lines = this.inputString.split("\n");
-    const lineString = lines[line];
-    const errorMessages = `${errorMessage}
-Line ${line + 1}, column ${character + 1}:
-
-${lineString}
-${" ".repeat(character)}^`;
-    return new Error(errorMessages);
+    return formatErrorMessage({
+      token,
+      errorMessage,
+      inputString: this.inputString,
+    });
   }
 
   private parseNumberExpr(
@@ -229,6 +230,50 @@ ${" ".repeat(character)}^`;
     }
   }
 
+  private parseAnonymouseFunction(
+    tokens: Token[],
+    index: number,
+    namedTypes: NamedTypes
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.LParen) {
+      return { expr: null, index, namedTypes };
+    }
+
+    // parse prototype
+    const {
+      prototype,
+      index: nextIndex,
+      namedTypes: newNamedTypes,
+    } = this.parsePrototype({
+      tokens,
+      index,
+      namedTypes,
+      requireFunctionName: false,
+    });
+    if (!prototype) {
+      return { expr: null, index, namedTypes };
+    }
+
+    // check if current token is `=>`
+    if (tokens[nextIndex].type !== TokenType.LambdaArrow) {
+      return { expr: null, index, namedTypes };
+    }
+
+    // parse body
+    const { exprs: body, index: nextNextIndex } = this.parseBlockExpressions(
+      tokens,
+      nextIndex + 1,
+      newNamedTypes
+    );
+
+    const functionExpr: FunctionExpr = {
+      type: AstType.Function,
+      prototype,
+      body,
+    };
+    return { expr: functionExpr, index: nextNextIndex, namedTypes };
+  }
+
   /**
    * parenexpr ::= "(" expr ")"
    * @param tokens
@@ -243,6 +288,36 @@ ${" ".repeat(character)}^`;
     if (tokens[index].type !== TokenType.LParen) {
       throw this.formatErrorMessage(tokens[index], "Expected left paren");
     }
+    if (tokens[index + 1]?.type === TokenType.RParen) {
+      // unit type
+      return {
+        expr: {
+          type: AstType.Value,
+          typeValue: TypeValues.unit,
+          value: "()",
+        },
+        index: index + 2,
+        namedTypes,
+      };
+    }
+
+    // Try parse as anonymouse function
+    try {
+      const { expr, index: endIndex } = this.parseAnonymouseFunction(
+        tokens,
+        index,
+        namedTypes
+      );
+      if (expr) {
+        return { expr, index: endIndex, namedTypes };
+      } else {
+        throw new Error("Failed to parse as anonymouse function");
+      }
+    } catch (error) {
+      // Ignore the error
+      // This means we failed to parse it as anonymouse function
+    }
+
     const { expr, index: endIndex } = this.parseExpression(
       tokens,
       index + 1,
@@ -313,7 +388,7 @@ ${" ".repeat(character)}^`;
           if (tokens[index].type !== TokenType.Comma) {
             throw this.formatErrorMessage(
               tokens[index],
-              `Expected comma, but got ${JSON.stringify(tokens[index])}`
+              `Expected comma, but got ${tokens[index].value}`
             );
           }
           index = index + 1;
@@ -463,27 +538,38 @@ ${" ".repeat(character)}^`;
     }
   }
 
-  private parsePrototype(
-    tokens: Token[],
-    index: number,
-    namedTypes
-  ): {
+  private parsePrototype({
+    tokens,
+    index,
+    namedTypes,
+    requireFunctionName,
+  }: {
+    tokens: Token[];
+    index: number;
+    namedTypes: NamedTypes;
+    requireFunctionName: boolean;
+  }): {
     prototype: FunctionPrototype | null;
     index: number;
     namedTypes: NamedTypes;
   } {
-    if (tokens[index].type !== TokenType.Identifier) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "Expected function name in prototype"
-      );
+    // NOTE: We will mutate namedTypes
+    namedTypes = { ...namedTypes };
+
+    let functionName: string | undefined = undefined;
+    if (requireFunctionName) {
+      if (tokens[index].type !== TokenType.Identifier) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected function name in prototype"
+        );
+      } else {
+        functionName = tokens[index].value;
+        index = index + 1;
+      }
     }
-    let token = tokens[index];
 
-    const functionName = token.value;
-
-    index = index + 1;
-    token = tokens[index]; // TODO: Check type parameters
+    const token = tokens[index]; // TODO: Check type parameters
     if (token.type !== TokenType.LParen) {
       throw this.formatErrorMessage(
         token,
@@ -494,7 +580,7 @@ ${" ".repeat(character)}^`;
     // Read the list of parameter names.
     index = index + 1;
     const functionParameters: Expr[] = [];
-    const functionParameterTypes: Type[] = [];
+    const functionParameterTypes: ParameterType[] = [];
     while (true) {
       const token = tokens[index];
 
@@ -509,12 +595,14 @@ ${" ".repeat(character)}^`;
         break;
       }
 
+      // TODO: There might be the case that only the type is specified
       if (token.type !== TokenType.Identifier) {
         throw this.formatErrorMessage(token, "Expected parameter name");
       }
+      const parameterName = token.value;
       functionParameters.push({
         type: AstType.Variable,
-        name: token.value,
+        name: parameterName,
       });
 
       // check type
@@ -526,8 +614,15 @@ ${" ".repeat(character)}^`;
       }
       index = index + 2;
       const { typeValue: parameterType, index: nextIndex } =
-        synthesizeTypeFromTokens(tokens, index);
-      functionParameterTypes.push(parameterType);
+        synthesizeTypeFromTokens(tokens, index, this.inputString);
+      functionParameterTypes.push({
+        type: parameterType,
+        name: parameterName,
+      });
+
+      if (parameterName) {
+        namedTypes[parameterName] = parameterType;
+      }
 
       index = nextIndex;
     }
@@ -541,7 +636,7 @@ ${" ".repeat(character)}^`;
     }
     index = index + 2;
     const { typeValue: returnType, index: nextIndex } =
-      synthesizeTypeFromTokens(tokens, index);
+      synthesizeTypeFromTokens(tokens, index, this.inputString);
     index = nextIndex;
 
     return {
@@ -550,8 +645,8 @@ ${" ".repeat(character)}^`;
         functionName,
         functionParameters,
         typeValue: {
-          type: "function",
-          parameters: functionParameterTypes,
+          type: "Function",
+          parameterTypes: functionParameterTypes,
           returnType,
         },
       },
@@ -596,6 +691,15 @@ ${" ".repeat(character)}^`;
       index = nextIndex;
     }
 
+    const lastExpr: Expr | null = exprs[exprs.length - 1] ?? null;
+    if (!lastExpr || tokens[index - 2].type === TokenType.Semicolon) {
+      exprs.push({
+        type: AstType.Value,
+        typeValue: TypeValues.unit,
+        value: "()",
+      });
+    }
+
     return {
       index,
       exprs,
@@ -612,16 +716,21 @@ ${" ".repeat(character)}^`;
     }
 
     index = index + 1;
-    const { prototype, index: nextIndex } = this.parsePrototype(
+    const {
+      prototype,
+      index: nextIndex,
+      namedTypes: newNamedTypes,
+    } = this.parsePrototype({
       tokens,
       index,
-      namedTypes
-    );
+      namedTypes,
+      requireFunctionName: true,
+    });
     if (!prototype) {
       return { expr: null, index: nextIndex, namedTypes };
     } else {
       index = nextIndex;
-      namedTypes[prototype.functionName] = prototype.typeValue;
+      namedTypes[prototype.functionName!] = prototype.typeValue;
     }
 
     // Check function body
@@ -631,26 +740,6 @@ ${" ".repeat(character)}^`;
         "Expected '{' for function body"
       );
     }
-
-    const newNamedTypes = { ...namedTypes };
-    // Add parameters to newNamedTypes
-    prototype.functionParameters.forEach((parameter, index) => {
-      if (parameter instanceof Array || parameter.type !== AstType.Variable) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Expected variable for function parameter"
-        );
-      }
-
-      if (prototype.typeValue.type !== "function") {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Expected function type for prototype"
-        );
-      }
-
-      newNamedTypes[parameter.name] = prototype.typeValue.parameters[index];
-    });
 
     const { exprs, index: endIndex } = this.parseBlockExpressions(
       tokens,
@@ -676,16 +765,17 @@ ${" ".repeat(character)}^`;
     }
 
     index = index + 1;
-    const { prototype, index: nextIndex } = this.parsePrototype(
+    const { prototype, index: nextIndex } = this.parsePrototype({
       tokens,
       index,
-      namedTypes
-    );
+      namedTypes,
+      requireFunctionName: true,
+    });
     if (!prototype) {
       return { expr: null, index: nextIndex, namedTypes };
     } else {
       index = nextIndex;
-      namedTypes[prototype.functionName] = prototype.typeValue;
+      namedTypes[prototype.functionName!] = prototype.typeValue;
     }
 
     return {
@@ -804,7 +894,8 @@ ${" ".repeat(character)}^`;
       index = index + 1;
       const { typeValue, index: nextIndex } = synthesizeTypeFromTokens(
         tokens,
-        index
+        index,
+        this.inputString
       );
       userDefinedVariableType = typeValue;
       index = nextIndex;
@@ -842,9 +933,9 @@ ${" ".repeat(character)}^`;
       if (!typeMatches) {
         throw this.formatErrorMessage(
           tokens[userDefinedVariableTypeTokenIndex],
-          `Type mismatch: ${JSON.stringify(
+          `Type mismatch: ${typeToString(
             userDefinedVariableType
-          )} and ${JSON.stringify(variableType)}`
+          )} and ${typeToString(variableType)}`
         );
       }
     }

@@ -22,6 +22,43 @@ export function tokenize(input: string): Token[] {
         totalCharacters = i + 1; // reset the character number
         break;
 
+      // comments
+      case "/":
+        if (input[i + 1] === "/") {
+          // single line comment
+          while (input[++i] !== "\n") {
+            // ignore the rest of the line
+          }
+          line++;
+          totalCharacters = i + 1;
+        } else if (input[i + 1] === "*") {
+          // multi line comment
+          i = i + 2;
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            // ignore the rest of the comment
+            if (input[i] === "\n") {
+              line++;
+              totalCharacters = i + 1;
+            }
+            if (
+              (input[i] === "*" && input[i + 1] === "/") ||
+              i >= input.length - 1
+            ) {
+              break;
+            }
+            i++;
+          }
+          i += 1;
+        } else {
+          tokens.push({
+            type: TokenType.Divide,
+            value: char,
+            position: { line, character: i - totalCharacters },
+          });
+        }
+        break;
+
       // operators
       case "+":
         tokens.push({
@@ -40,21 +77,21 @@ export function tokenize(input: string): Token[] {
         break;
 
       case "*":
-        tokens.push({
-          type: TokenType.Multiply,
-          value: char,
-          position: { line, character: i - totalCharacters },
-        });
+        if (input[i + 1] === "*") {
+          tokens.push({
+            type: TokenType.Exponent,
+            value: "**",
+            position: { line, character: i - totalCharacters },
+          });
+          i++;
+        } else {
+          tokens.push({
+            type: TokenType.Multiply,
+            value: char,
+            position: { line, character: i - totalCharacters },
+          });
+        }
         break;
-
-      case "/":
-        tokens.push({
-          type: TokenType.Divide,
-          value: char,
-          position: { line, character: i - totalCharacters },
-        });
-        break;
-
       case "%":
         tokens.push({
           type: TokenType.Modulo,
@@ -62,6 +99,122 @@ export function tokenize(input: string): Token[] {
           position: { line, character: i - totalCharacters },
         });
         break;
+      case "&":
+        if (input[i + 1] === "&") {
+          tokens.push({
+            type: TokenType.LogicalAnd,
+            value: "&&",
+            position: { line, character: i - totalCharacters },
+          });
+          i++;
+        } else {
+          tokens.push({
+            type: TokenType.BitwiseAnd,
+            value: char,
+            position: { line, character: i - totalCharacters },
+          });
+        }
+        break;
+      case "|":
+        if (input[i + 1] === "|") {
+          tokens.push({
+            type: TokenType.LogicalOr,
+            value: "||",
+            position: { line, character: i - totalCharacters },
+          });
+          i++;
+        } else {
+          tokens.push({
+            type: TokenType.BitwiseOr,
+            value: char,
+            position: { line, character: i - totalCharacters },
+          });
+        }
+        break;
+      case "^":
+        tokens.push({
+          type: TokenType.BitwiseXor,
+          value: char,
+          position: { line, character: i - totalCharacters },
+        });
+        break;
+      case "~":
+        tokens.push({
+          type: TokenType.BitwiseNot,
+          value: char,
+          position: { line, character: i - totalCharacters },
+        });
+        break;
+      case "<":
+        if (input[i + 1] === "<") {
+          tokens.push({
+            type: TokenType.BitwiseShiftLeft,
+            value: "<<",
+            position: { line, character: i - totalCharacters },
+          });
+          i++;
+        } else if (input[i + 1] === "=") {
+          tokens.push({
+            type: TokenType.LessThanOrEqual,
+            value: "<=",
+            position: { line, character: i - totalCharacters },
+          });
+          i++;
+        } else {
+          tokens.push({
+            type: TokenType.LessThan,
+            value: char,
+            position: { line, character: i - totalCharacters },
+          });
+        }
+        break;
+      case ">":
+        if (input[i + 1] === ">") {
+          tokens.push({
+            type: TokenType.BitwiseShiftRight,
+            value: ">>",
+            position: { line, character: i - totalCharacters },
+          });
+          i++;
+        } else if (input[i + 1] === "=") {
+          tokens.push({
+            type: TokenType.GreaterThanOrEqual,
+            value: ">=",
+            position: { line, character: i - totalCharacters },
+          });
+          i++;
+        } else {
+          tokens.push({
+            type: TokenType.GreaterThan,
+            value: char,
+            position: { line, character: i - totalCharacters },
+          });
+        }
+        break;
+      case "=": {
+        if (input[i + 1] === ">") {
+          tokens.push({
+            type: TokenType.LambdaArrow,
+            value: "=>",
+            position: { line, character: i - totalCharacters },
+          });
+          i++;
+        } else if (input[i + 1] === "=") {
+          tokens.push({
+            type: TokenType.Equal,
+            value: "==",
+            position: { line, character: i - totalCharacters },
+          });
+          i++;
+        } else {
+          tokens.push({
+            type: TokenType.Assign,
+            value: char,
+            position: { line, character: i - totalCharacters },
+          });
+        }
+        break;
+      }
 
       // parens
       case "(":
@@ -112,24 +265,6 @@ export function tokenize(input: string): Token[] {
         });
         break;
 
-      // comparison & assignment
-      case "=":
-        if (input[i + 1] === "=") {
-          tokens.push({
-            type: TokenType.Equal,
-            value: "==",
-            position: { line, character: i - totalCharacters },
-          });
-          i++;
-        } else {
-          tokens.push({
-            type: TokenType.Assign,
-            value: char,
-            position: { line, character: i - totalCharacters },
-          });
-        }
-        break;
-
       case "!":
         if (input[i + 1] === "=") {
           tokens.push({
@@ -140,41 +275,7 @@ export function tokenize(input: string): Token[] {
           i++;
         } else {
           tokens.push({
-            type: TokenType.Negate,
-            value: char,
-            position: { line, character: i - totalCharacters },
-          });
-        }
-        break;
-
-      case "<":
-        if (input[i + 1] === "=") {
-          tokens.push({
-            type: TokenType.LessThanOrEqual,
-            value: "<=",
-            position: { line, character: i - totalCharacters },
-          });
-          i++;
-        } else {
-          tokens.push({
-            type: TokenType.LessThan,
-            value: char,
-            position: { line, character: i - totalCharacters },
-          });
-        }
-        break;
-
-      case ">":
-        if (input[i + 1] === "=") {
-          tokens.push({
-            type: TokenType.GreaterThanOrEqual,
-            value: ">=",
-            position: { line, character: i - totalCharacters },
-          });
-          i++;
-        } else {
-          tokens.push({
-            type: TokenType.GreaterThan,
+            type: TokenType.LogicalNot,
             value: char,
             position: { line, character: i - totalCharacters },
           });
