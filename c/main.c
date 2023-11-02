@@ -2,18 +2,20 @@
 
 extern int add(int a, int b);
 
-struct MyStruct
+// String type
+struct String
 {
-    char name[30];
+    char *data;
+    int length;
+    int size;
 };
 
 int main()
 {
-    struct MyStruct me;
-    char myName[30] = "John Doe";
+    struct String me;
 
     printf("%d\n", sizeof(me));
-    printf("%d\n", sizeof(myName));
+    printf("%d\n", sizeof(char*));
 
     return 0;
 }

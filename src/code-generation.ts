@@ -13,22 +13,36 @@ export class CodeGenerator {
   private context: LLVMContext;
   private module: llvm.Module;
   private builder: llvm.IRBuilder;
+  private dataLayout: llvm.DataLayout;
 
   private unit: llvm.Value;
 
-  constructor(inputString: string) {
+  constructor(inputString: string, targetTriple?: string) {
     this.inputString = inputString;
     this.tokens = tokenize(this.inputString);
-    console.log(`tokens: `, this.tokens);
+    console.log(`= tokens: `, this.tokens);
 
     const parser = new Parser(inputString);
     this.ast = parser.parse(this.tokens);
 
-    console.log("\nast: ", JSON.stringify(this.ast, null, 2));
+    console.log("\n= ast: ", JSON.stringify(this.ast, null, 2));
 
     this.context = new llvm.LLVMContext();
     this.module = new llvm.Module("main", this.context);
     this.builder = new llvm.IRBuilder(this.context);
+
+    // Set the target triple
+    targetTriple = targetTriple ?? llvm.config.LLVM_DEFAULT_TARGET_TRIPLE;
+    this.module.setTargetTriple(targetTriple);
+    this.dataLayout = this.module.getDataLayout();
+    /*
+    const target = llvm.TargetRegistry.lookupTarget(targetTriple);
+    if (!target) {
+      throw new Error(`Target not found`);
+    }
+    const targetMachine = target.createTargetMachine(targetTriple, "generic");
+    this.dataLayout = targetMachine.createDataLayout();
+    */
 
     // Create unique unit "()" value in the context.
     this.unit = llvm.ConstantStruct.get(
@@ -69,12 +83,38 @@ export class CodeGenerator {
       case "char": {
         return this.builder.getInt8Ty();
       }
+      case "string": {
+        /**
+         * Allocate memory for string struct
+         * struct String {
+         *   char* data;
+         *   int length;
+         *   int size;
+         * }
+         */
+        const propertyTypes = [
+          llvm.PointerType.get(llvm.IntegerType.get(this.context, 8), 0), // char*
+          llvm.IntegerType.get(this.context, 32), // int
+          llvm.IntegerType.get(this.context, 32), // int
+        ];
+        const stringType = llvm.StructType.get(
+          this.context,
+          propertyTypes
+          // false // isPacked
+        );
+        // Return pointer to string struct
+        return llvm.PointerType.get(stringType, 0);
+      }
       case "Record": {
         const properties = typeExpr.properties ?? [];
         const propertyTypes = properties.map((property) => {
-          return this.getLlvmType(property.type);
+          const type = this.getLlvmType(property.type);
+          return type;
         });
-        return llvm.StructType.get(this.context, propertyTypes);
+        const recordType = llvm.StructType.get(this.context, propertyTypes);
+
+        // Return pointer to record struct
+        return llvm.PointerType.get(recordType, 0);
       }
       case "()": {
         return this.unit.getType();
@@ -136,6 +176,47 @@ export class CodeGenerator {
     return func;
   }
 
+  private allocateMemoryOnHeap(ptrType: llvm.Type, bytes: number): llvm.Value {
+    const structType = ptrType.getPointerElementType() as llvm.StructType;
+    if (!structType.isStructTy()) {
+      throw new Error(`Only support allocating memory on heap for struct type`);
+    }
+    console.log("allocateMemoryOnHeap: ", bytes);
+
+    // Allocate memory on heap
+    const malloc = this.module.getFunction("malloc");
+    if (!malloc) {
+      throw new Error(`malloc function not found`);
+    }
+    const structSize = llvm.ConstantInt.get(
+      llvm.IntegerType.get(this.context, 32),
+      bytes
+    );
+    const structPtr = this.builder.CreateCall(malloc, [structSize], "malloc");
+    const structPtrCast = this.builder.CreateBitCast(
+      structPtr,
+      ptrType,
+      "malloc"
+    );
+
+    return structPtrCast;
+  }
+
+  private externMalloc() {
+    // extern malloc(size: i32): void*
+    const mallocType = llvm.FunctionType.get(
+      llvm.PointerType.get(llvm.Type.getInt8Ty(this.context), 0),
+      [llvm.Type.getInt32Ty(this.context)],
+      false // isVarArg
+    );
+    llvm.Function.Create(
+      mallocType,
+      llvm.Function.LinkageTypes.ExternalLinkage,
+      "malloc",
+      this.module
+    );
+  }
+
   private codegenExpr(
     expr: Expr | FunctionPrototype,
     namedValues: { [key: string]: llvm.Value }
@@ -166,8 +247,6 @@ export class CodeGenerator {
                 expr.value.charCodeAt(0),
                 false // isSigned
               );
-            case "string":
-              return llvm.ConstantDataArray.getString(this.context, expr.value);
             case "u1":
               return llvm.ConstantInt.get(
                 llvm.IntegerType.get(this.context, 1),
@@ -247,10 +326,99 @@ export class CodeGenerator {
                 llvm.Type.getFloatTy(this.context),
                 parseFloat(expr.value)
               );
+            case "string": {
+              const stringPtrType = this.getLlvmType(typeValue);
+              const stringType = stringPtrType.getPointerElementType();
+              const stringLiteral = this.builder.CreateGlobalStringPtr(
+                expr.value
+              );
+              const stringByteSize = new Blob([expr.value]).size;
+
+              // Allocate memory on heap
+              const stringPtr = this.allocateMemoryOnHeap(
+                stringPtrType,
+                this.dataLayout.getTypeAllocSize(stringType)
+              );
+
+              // Allocate memory on stack
+              // const stringPtr = this.builder.CreateAlloca(stringType);
+
+              const stringDataPtr = this.builder.CreateGEP(
+                stringType,
+                stringPtr,
+                [
+                  llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 32),
+                    0
+                  ),
+                  llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 32),
+                    0
+                  ),
+                ],
+                "data"
+              );
+              const stringLengthPtr = this.builder.CreateGEP(
+                stringType,
+                stringPtr,
+                [
+                  llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 32),
+                    0
+                  ),
+                  llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 32),
+                    1
+                  ),
+                ],
+                "length"
+              );
+              const stringSizePtr = this.builder.CreateGEP(
+                stringType,
+                stringPtr,
+                [
+                  llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 32),
+                    0
+                  ),
+                  llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 32),
+                    2
+                  ),
+                ],
+                "size"
+              );
+              this.builder.CreateStore(stringLiteral, stringDataPtr);
+              this.builder.CreateStore(
+                llvm.ConstantInt.get(
+                  llvm.IntegerType.get(this.context, 32),
+                  expr.value.length
+                ),
+                stringLengthPtr
+              );
+              this.builder.CreateStore(
+                llvm.ConstantInt.get(
+                  llvm.IntegerType.get(this.context, 32),
+                  stringByteSize
+                ),
+                stringSizePtr
+              );
+              return stringPtr;
+            }
             case "Record": {
               // Allocate memory for the record
-              const recordType = this.getLlvmType(typeValue);
-              const recordPtr = this.builder.CreateAlloca(recordType);
+              const recordPtrType = this.getLlvmType(typeValue);
+              const recordType = recordPtrType.getPointerElementType();
+
+              // Allocate on heap
+              const recordPtr = this.allocateMemoryOnHeap(
+                recordPtrType,
+                this.dataLayout.getTypeAllocSize(recordType)
+              );
+
+              // Allocate on stack
+              // const recordPtr = this.builder.CreateAlloca(recordType);
+
               // Set the record fields
               const properties = expr.properties ?? [];
               for (let i = 0; i < properties.length; i++) {
@@ -530,6 +698,7 @@ export class CodeGenerator {
   }
 
   getLlvmIr(): string {
+    this.externMalloc();
     this.codegenExpr(this.ast, {});
 
     if (llvm.verifyModule(this.module)) {

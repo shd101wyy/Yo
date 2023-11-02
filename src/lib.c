@@ -1,13 +1,21 @@
+#include <stdio.h>
+
+// Unit type
+struct Unit
+{
+} unit;
 
 // String type
 struct String
 {
     char *data;
     int length;
+    int size;
 };
 
 // Print a string to the console
-void println(struct String *string)
+int println(struct String *x)
 {
-    printf("%s\n", string->data);
+    printf("%s\n", x->data);
+    return 0;
 }

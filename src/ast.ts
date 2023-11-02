@@ -240,6 +240,13 @@ else: ${typeToString(synthesizeExprType(lastElseExpr, variableTypes))}
     }
   } else if (expr.type === AstType.Function) {
     return expr.prototype.typeValue;
+  } else if (expr.type === AstType.Variable) {
+    const variableName = expr.name;
+    if (!(variableName in variableTypes)) {
+      throw new Error(`Unbound variable ${variableName}`);
+    } else {
+      return variableTypes[variableName];
+    }
   } else {
     throw new Error(
       `Cannot synthesize AST type of ${JSON.stringify(expr.type)}`
