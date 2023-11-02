@@ -100,6 +100,15 @@ export type TUnion = {
   types: Type[];
 };
 
+export type TIntersection = {
+  type: "Intersection";
+  types: Type[];
+};
+
+export type TUnknown = {
+  type: "unknown";
+};
+
 export type Type =
   | TUnit
   | TBoolean
@@ -122,7 +131,9 @@ export type Type =
   | TF64
   | TRecord
   | TFunction
-  | TUnion;
+  | TUnion
+  | TIntersection
+  | TUnknown;
 
 // Type constructors
 
@@ -379,8 +390,9 @@ export function synthesizeTypeFromTokens(
     };
   }
 
-  // Check if it's union type
-  if (tokens[returnValue.index]?.type === TokenType.BitwiseOr) {
+  // Check if it's union type or intersection type
+  const nextTokenType = tokens[returnValue.index]?.type;
+  if (nextTokenType === TokenType.BitwiseOr) {
     const index = returnValue.index + 1;
 
     const newReturnValue = synthesizeTypeFromTokens(
@@ -412,6 +424,43 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
       return {
         typeValue: {
           type: "Union",
+          types: [returnValue.typeValue, newReturnValue.typeValue],
+        },
+        index: newReturnValue.index,
+      };
+    }
+  } else if (nextTokenType === TokenType.BitwiseAnd) {
+    const index = returnValue.index + 1;
+
+    const newReturnValue = synthesizeTypeFromTokens(
+      tokens,
+      index,
+      inputString,
+      variableTypes
+    );
+    if (newReturnValue.typeValue.type === "Intersection") {
+      return {
+        typeValue: {
+          type: "Intersection",
+          types: [returnValue.typeValue, ...newReturnValue.typeValue.types],
+        },
+        index: newReturnValue.index,
+      };
+    } else {
+      // Check types
+      if (returnValue.typeValue.type !== newReturnValue.typeValue.type) {
+        throw formatErrorMessage({
+          token: tokens[index],
+          errorMessage: `Cannot intersect types:
+${returnValue.typeValue.type}: ${typeToString(returnValue.typeValue)}
+${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
+          inputString,
+        });
+      }
+
+      return {
+        typeValue: {
+          type: "Intersection",
           types: [returnValue.typeValue, newReturnValue.typeValue],
         },
         index: newReturnValue.index,
@@ -559,6 +608,8 @@ export function isSubtype(a: Type, b: Type): boolean {
       } else {
         return b.types.some((type) => isSubtype(a, type));
       }
+    } else if (b.type === "Intersection" || a.type === "Intersection") {
+      throw new Error("Intersection type is not supported yet");
     } else {
       return false;
     }
@@ -641,6 +692,12 @@ export function typeToString(type: Type): string {
     case "Union": {
       return `(${type.types.map(typeToString).join(" | ")})`;
     }
+    case "Intersection": {
+      return `(${type.types.map(typeToString).join(" & ")})`;
+    }
+    case "unknown": {
+      return "unknown";
+    }
     default: {
       throw new Error(`Unknown type ${JSON.stringify(type)}`);
     }
@@ -662,6 +719,11 @@ export function checkType(expectedType: Type, givenType: Type): boolean {
     } else {
       return expectedType.types.some((type) => checkType(type, givenType));
     }
+  } else if (
+    expectedType.type === "Intersection" ||
+    givenType.type === "Intersection"
+  ) {
+    throw new Error("Intersection type is not supported yet");
   } else {
     return false;
   }

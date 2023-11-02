@@ -630,6 +630,16 @@ export { test, copy };
 }
 ```
 
+## Special attributes
+
+```typescript
+const x: [inline] i32 = 1;           // Inline.
+const x: [stack] int[] = [1, 2, 3];  // Save on stack.
+const x: [unique] int[] = [1, 2, 3]; // Unique pointer.
+const x: [weak] int[] = [1, 2, 3];   // Weak pointer.
+const x: [atomic] i32 = 1;           // Atomic.
+```
+
 ## References
 
 - [Ocaml Locality](https://blog.janestreet.com/oxidizing-ocaml-locality/)

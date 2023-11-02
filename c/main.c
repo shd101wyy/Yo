@@ -2,8 +2,18 @@
 
 extern int add(int a, int b);
 
+struct MyStruct
+{
+    char name[30];
+};
+
 int main()
 {
-    printf("Add 3 + 4 = %d", add(3, 4));
+    struct MyStruct me;
+    char myName[30] = "John Doe";
+
+    printf("%d\n", sizeof(me));
+    printf("%d\n", sizeof(myName));
+
     return 0;
 }

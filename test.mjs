@@ -44,14 +44,8 @@ function max(x: i32, y: i32): i32 {
 `
 
 code = `
-type Point = {
-  a: i32,
-  b: i32
-} | {x: i32, y: i32}
-
-function main(): i32 {
-  const x: Point = {a: 1, b: 2};
-  0
+function main() {
+  12
 }
 `
 

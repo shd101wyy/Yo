@@ -631,16 +631,23 @@ export default class Parser {
     }
 
     // Check if it's return type
+    let returnType: Type;
     if (tokens[index + 1].type !== TokenType.Colon) {
-      throw this.formatErrorMessage(
-        tokens[index + 1],
-        "Expected ':' for return type"
+      returnType = {
+        type: "unknown",
+      };
+      index = index + 1;
+    } else {
+      index = index + 2;
+      const { typeValue, index: nextIndex } = synthesizeTypeFromTokens(
+        tokens,
+        index,
+        this.inputString,
+        variableTypes
       );
+      index = nextIndex;
+      returnType = typeValue;
     }
-    index = index + 2;
-    const { typeValue: returnType, index: nextIndex } =
-      synthesizeTypeFromTokens(tokens, index, this.inputString, variableTypes);
-    index = nextIndex;
 
     return {
       prototype: {
@@ -757,6 +764,9 @@ export default class Parser {
       exprs[exprs.length - 1],
       functionBodyVariableTypes
     );
+    if (prototype.typeValue.returnType.type === "unknown") {
+      prototype.typeValue.returnType = functionReturnType;
+    }
     if (!checkType(functionReturnType, prototype.typeValue.returnType)) {
       throw this.formatErrorMessage(
         tokens[index],
