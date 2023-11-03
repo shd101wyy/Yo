@@ -1,5 +1,6 @@
 // Types
 
+import Environment from "./env";
 import { formatErrorMessage } from "./error";
 import { Token, TokenType } from "./token";
 
@@ -191,7 +192,7 @@ export function synthesizeTypeFromTokens(
   tokens: Token[],
   index: number,
   inputString: string,
-  variableTypes: VariableTypes
+  env: Environment
 ): { typeValue: Type; index: number } {
   let returnValue: {
     typeValue: Type;
@@ -213,7 +214,7 @@ export function synthesizeTypeFromTokens(
         tokens,
         index,
         inputString,
-        variableTypes
+        env
       );
     } catch {
       // This means it's not a function type
@@ -221,7 +222,7 @@ export function synthesizeTypeFromTokens(
         tokens,
         index + 1,
         inputString,
-        variableTypes
+        env
       );
       // Check if ')' is there
       if (tokens[newIndex].value === ")") {
@@ -239,9 +240,10 @@ export function synthesizeTypeFromTokens(
     }
   }
   // Check if it's defined in variableTypes
-  else if (tokens[index].value in variableTypes) {
+  else if (env.getValueTypesByVariableName(tokens[index].value).length > 0) {
+    const valueTypes = env.getValueTypesByVariableName(tokens[index].value);
     returnValue = {
-      typeValue: variableTypes[tokens[index].value],
+      typeValue: valueTypes[valueTypes.length - 1].type,
       index: index + 1,
     };
   }
@@ -274,7 +276,7 @@ export function synthesizeTypeFromTokens(
             tokens,
             index,
             inputString,
-            variableTypes
+            env
           );
           typeValue.properties.push({ name, type });
           index = newIndex;
@@ -399,7 +401,7 @@ export function synthesizeTypeFromTokens(
       tokens,
       index,
       inputString,
-      variableTypes
+      env
     );
     if (newReturnValue.typeValue.type === "Union") {
       return {
@@ -436,7 +438,7 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
       tokens,
       index,
       inputString,
-      variableTypes
+      env
     );
     if (newReturnValue.typeValue.type === "Intersection") {
       return {
@@ -475,7 +477,7 @@ export function synthesizeFunctionTypeFromTokens(
   tokens: Token[],
   index: number,
   inputString: string,
-  variableTypes: VariableTypes
+  env: Environment
 ): { typeValue: Type; index: number } {
   if (tokens[index].type !== TokenType.LParen) {
     throw formatErrorMessage({
@@ -509,7 +511,7 @@ export function synthesizeFunctionTypeFromTokens(
           tokens,
           index,
           inputString,
-          variableTypes
+          env
         );
         parameterTypes.push({ name, type });
         index = newIndex;
@@ -538,7 +540,7 @@ export function synthesizeFunctionTypeFromTokens(
       tokens,
       index,
       inputString,
-      variableTypes
+      env
     );
     index = newIndex;
     return {
@@ -611,7 +613,7 @@ export function isSubtype(a: Type, b: Type): boolean {
     } else if (b.type === "Intersection" || a.type === "Intersection") {
       throw new Error("Intersection type is not supported yet");
     } else {
-      return false;
+      return a.type === b.type;
     }
   }
 }
@@ -687,7 +689,7 @@ export function typeToString(type: Type): string {
             (parameter.name ? `${parameter.name}: ` : "") +
             typeToString(parameter.type)
         )
-        .join(", ")}) => ${typeToString(type.returnType)}`;
+        .join(", ")})=> ${typeToString(type.returnType)}`;
     }
     case "Union": {
       return `(${type.types.map(typeToString).join(" | ")})`;

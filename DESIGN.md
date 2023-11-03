@@ -51,6 +51,8 @@ Please note that **Mo** language is **immutable** by default, and it is not a go
 
 Pass by reference by default, unless it's the primitive types or has `Copy` interface implemented.
 
+Immutable data structure is **shared** by default. Mutable data structure has to be **unique**.
+
 ## Hello World
 
 ```typescript
@@ -244,6 +246,7 @@ function print10() {
 
 ```typescript
 // Record
+@derive([Show])
 type User = {
   active: boolean;
   username: String;
@@ -367,6 +370,7 @@ function main() {
 ### Interface (Typeclass)
 
 ```typescript
+
 interface<T:Eq> Summary<T> {
   summarize: () => String;
 }

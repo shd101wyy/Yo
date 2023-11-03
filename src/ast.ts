@@ -1,9 +1,9 @@
+import Environment from "./env";
 import { Token, TokenType } from "./token";
 import {
   TFunction,
   Type,
   TypeValues,
-  VariableTypes,
   checkType,
   typeToString,
 } from "./type-checker";
@@ -81,6 +81,7 @@ export type ValueExpr = {
 export type VariableExpr = {
   type: AstType.Variable;
   name: string;
+  typeValue: Type;
 };
 
 export type AccessorsExpr = {
@@ -119,17 +120,12 @@ export type AssignmentExpr = {
 export type TypeAliasExpr = {
   type: AstType.TypeAlias;
   typeName: string;
-  typeType: Type;
-};
-
-export type TypeParameterExpr = {
-  typeName: string;
-  typeType: Type;
-  type: AstType.TypeParameter;
+  typeValue: Type;
 };
 
 export type FunctionPrototype = {
   type: AstType.FunctionPrototype;
+  functionId: string; // This is used for function overloading
   functionName?: string; // If not set, it's an anonymous function
   functionParameters: Expr[]; // IdentifierExpr[] | TODO: For future pattern matching
   typeValue: TFunction;
@@ -148,8 +144,10 @@ export type ExternExpr = {
 
 export type CallFunctionExpr = {
   type: AstType.CallFunction;
+  functionId: string; // This is used for finding the function by id. Check `FunctionPrototype` above.
   functionName: string;
   functionArguments: Expr[];
+  returnType: Type;
 };
 
 export type IfExpr = {
@@ -157,6 +155,7 @@ export type IfExpr = {
   condition: Expr;
   then: Expr[];
   else: Expr[];
+  returnType: Type;
 };
 
 /**
@@ -187,18 +186,15 @@ export function getTokenPrecedence(token: Token | undefined): number {
   }
 }
 
-export function synthesizeExprType(
-  expr: Expr,
-  variableTypes: VariableTypes
-): Type {
+export function synthesizeExprType(expr: Expr, env: Environment): Type {
   if (expr instanceof Array) {
     throw new Error("Cannot synthesize type of array");
   }
   if (expr.type === AstType.Value) {
     return expr.typeValue;
   } else if (expr.type === AstType.BinaryOperator) {
-    const leftType = synthesizeExprType(expr.left, variableTypes);
-    const rightType = synthesizeExprType(expr.right, variableTypes);
+    const leftType = synthesizeExprType(expr.left, env);
+    const rightType = synthesizeExprType(expr.right, env);
     if (
       [
         OperatorType.LessThan,
@@ -215,46 +211,12 @@ export function synthesizeExprType(
         `Cannot synthesize type of binary operator ${JSON.stringify(expr)}`
       );
     }
-  } else if (expr.type === AstType.CallFunction) {
-    const functionName = expr.functionName;
-    if (!(functionName in variableTypes)) {
-      throw new Error(`Cannot find function ${functionName}`);
-    } else {
-      const namedType = variableTypes[functionName];
-      if (namedType.type !== "Function") {
-        throw new Error(`Cannot call non-function ${functionName}`);
-      } else {
-        return namedType.returnType;
-      }
-    }
-  } else if (expr.type === AstType.If) {
-    const lastThenExpr = expr.then[expr.then.length - 1];
-    const lastElseExpr = expr.else[expr.else.length - 1];
-    if (!lastThenExpr || !lastElseExpr) {
-      throw new Error(`Missing then or else expression`);
-    }
-    const thenType = synthesizeExprType(lastThenExpr, variableTypes);
-    const elseType = synthesizeExprType(lastElseExpr, variableTypes);
-    // else and then should have the same type
-    if (checkType(elseType, thenType)) {
-      return thenType;
-    } else {
-      throw new Error(
-        `Mismatched types between \`then\` and \`else\`.
-then: ${typeToString(thenType)}
-else: ${typeToString(synthesizeExprType(lastElseExpr, variableTypes))}  
-`
-      );
-    }
+  } else if (expr.type === AstType.CallFunction || expr.type === AstType.If) {
+    return expr.returnType;
   } else if (expr.type === AstType.Function) {
     return expr.prototype.typeValue;
   } else if (expr.type === AstType.Variable) {
-    const variableName = expr.name;
-    if (!(variableName in variableTypes)) {
-      throw new Error(`Unbound variable ${variableName}`);
-    } else {
-      return variableTypes[variableName];
-    }
+    return expr.typeValue;
   } else {
     throw new Error(
       `Cannot synthesize AST type of ${JSON.stringify(expr.type)}`
@@ -278,4 +240,54 @@ export function synthesizeRecordType(
       };
     }),
   };
+}
+
+export function getFunctionFromEnv(
+  functionName: string,
+  functionArguments: Expr[],
+  env: Environment
+) {
+  const functionsInEnv = env.getValueTypesByVariableName(functionName);
+  console.log("getFunctionFromEnv: ", JSON.stringify(env), functionName);
+  if (functionsInEnv.length === 0) {
+    throw new Error(`Cannot find function ${functionName}`);
+  } else {
+    // Find the function that matches the signature
+    const matchedFunctions = functionsInEnv.filter((functionInEnv) => {
+      if (functionInEnv.type.type !== "Function") {
+        return false;
+      }
+      if (
+        functionInEnv.type.parameterTypes.length !== functionArguments.length
+      ) {
+        return false;
+      }
+      for (let i = 0; i < functionInEnv.type.parameterTypes.length; i++) {
+        const parameterType = functionInEnv.type.parameterTypes[i].type;
+        const argumentType = synthesizeExprType(functionArguments[i], env);
+        if (!checkType(parameterType, argumentType)) {
+          return false;
+        }
+      }
+      return true;
+    });
+    if (matchedFunctions.length > 1) {
+      throw new Error(
+        `Ambiguous function call ${functionName} with arguments ${JSON.stringify(
+          functionArguments
+        )}
+Found possible functions:
+- ${matchedFunctions
+          .map((func) => `${func.variableName}: ${typeToString(func.type)}`)
+          .join("\n- ")}
+        `
+      );
+    }
+    const matchedFunction = matchedFunctions[0];
+    if (!matchedFunction || matchedFunction.type.type !== "Function") {
+      throw new Error(`Function "${functionName}" not found`);
+    } else {
+      return matchedFunction;
+    }
+  }
 }

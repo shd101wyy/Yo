@@ -3,7 +3,7 @@ import { AstType, Expr, FunctionPrototype } from "./ast";
 import { tokenize } from "./lexer";
 import Parser from "./parser";
 import { Token } from "./token";
-import { Type } from "./type-checker";
+import { Type, typeToString } from "./type-checker";
 
 export class CodeGenerator {
   private inputString: string;
@@ -126,18 +126,26 @@ export class CodeGenerator {
 
   private getBinOpType(left: llvm.Value, right: llvm.Value): "long" | "double" {
     // TODO: check more types
-    if (
-      left.getType() instanceof llvm.APFloat ||
-      right.getType() instanceof llvm.APFloat
-    ) {
-      return "double";
-    } else {
+    const leftType = left.getType();
+    const rightType = right.getType();
+    try {
+      if (
+        leftType.isFloatTy() ||
+        leftType.isDoubleTy() ||
+        rightType.isFloatTy() ||
+        rightType.isDoubleTy()
+      ) {
+        return "double";
+      } else {
+        return "long";
+      }
+    } catch (error) {
       return "long";
     }
   }
 
   private codegenPrototype(prototype: FunctionPrototype): llvm.Function | null {
-    const functionName = prototype.functionName;
+    const functionId = prototype.functionId;
     if (prototype.typeValue.type !== "Function") {
       throw new Error(
         `Function prototype type is not a function: ${JSON.stringify(
@@ -158,7 +166,7 @@ export class CodeGenerator {
     const func = llvm.Function.Create(
       functionType,
       llvm.Function.LinkageTypes.ExternalLinkage,
-      functionName,
+      functionId,
       this.module
     );
     for (let i = 0; i < func.arg_size(); i++) {
@@ -215,6 +223,56 @@ export class CodeGenerator {
       "malloc",
       this.module
     );
+  }
+
+  private codegenForAccessor(
+    exprValue: llvm.Value,
+    typeValue: Type,
+    accessors: string[]
+  ): llvm.Value {
+    if (accessors.length === 0) {
+      return exprValue;
+    }
+
+    switch (typeValue.type) {
+      case "Record": {
+        const accessor = accessors[0];
+        const propertyTypes = typeValue.properties ?? [];
+        const propertyTypeIndex = propertyTypes.findIndex(
+          (property) => property.name === accessor
+        );
+        if (propertyTypeIndex === -1) {
+          throw new Error(
+            `Property ${accessor} not found in ${JSON.stringify(typeValue)}`
+          );
+        }
+        const propertyType = propertyTypes[propertyTypeIndex].type;
+        const exprType = this.getLlvmType(typeValue);
+        const exprPtrType = exprType.getPointerElementType();
+        const propertyPtr = this.builder.CreateGEP(
+          exprPtrType,
+          exprValue,
+          [
+            llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
+            llvm.ConstantInt.get(
+              llvm.IntegerType.get(this.context, 32),
+              propertyTypeIndex
+            ),
+          ],
+          accessor
+        );
+        const value: llvm.Value = this.builder.CreateLoad(
+          this.getLlvmType(propertyType),
+          propertyPtr,
+          accessor
+        );
+        return this.codegenForAccessor(value, propertyType, accessors.slice(1));
+      }
+      default:
+        throw new Error(
+          `Accessors not implemented for ${typeToString(typeValue)}`
+        );
+    }
   }
 
   private codegenExpr(
@@ -320,12 +378,18 @@ export class CodeGenerator {
                 true // isSigned
               );
             case "f16":
-            case "f32":
-            case "f64":
+            case "f32": {
               return llvm.ConstantFP.get(
                 llvm.Type.getFloatTy(this.context),
                 parseFloat(expr.value)
               );
+            }
+            case "f64": {
+              return llvm.ConstantFP.get(
+                llvm.Type.getDoubleTy(this.context),
+                parseFloat(expr.value)
+              );
+            }
             case "string": {
               const stringPtrType = this.getLlvmType(typeValue);
               const stringType = stringPtrType.getPointerElementType();
@@ -461,6 +525,7 @@ export class CodeGenerator {
           const lhs = this.codegenExpr(expr.left, namedValues);
           const rhs = this.codegenExpr(expr.right, namedValues);
           const binopType = this.getBinOpType(lhs, rhs);
+          console.log("binopType: ", binopType, expr.left, expr.right);
           switch (expr.operator) {
             case "+":
               if (binopType === "double") {
@@ -526,7 +591,7 @@ export class CodeGenerator {
             throw new Error(`Function name not found`);
           }
 
-          let theFunction = this.module.getFunction(functionName);
+          let theFunction = this.module.getFunction(expr.prototype.functionId);
           if (!theFunction) {
             theFunction = this.codegenPrototype(expr.prototype);
           }
@@ -590,7 +655,7 @@ export class CodeGenerator {
         }
         case AstType.CallFunction: {
           const functionName = expr.functionName;
-          const func = this.module.getFunction(functionName);
+          const func = this.module.getFunction(expr.functionId);
           if (!func) {
             throw new Error(`Function ${functionName} not found`);
           }
@@ -690,6 +755,41 @@ export class CodeGenerator {
           const value = this.codegenExpr(expr.right, namedValues);
           namedValues[expr.variableName] = value;
           return value;
+        }
+        case AstType.Accessors: {
+          const value = this.codegenExpr(expr.expr, namedValues);
+          if (Array.isArray(expr.expr)) {
+            throw new Error(`Cannot access array of expressions`);
+          } else {
+            switch (expr.expr.type) {
+              /*
+              case AstType.Variable: {
+                const value = namedValues[expr.expr.name];
+                if (!value) {
+                  throw new Error(`Variable ${expr.expr.name} not found`);
+                } else {
+                  return this.codegenForAccessor(
+                    value,
+                    expr.expr.,
+                    expr.accessors
+                  );
+                }
+              }
+              */
+              case AstType.Value: {
+                return this.codegenForAccessor(
+                  value,
+                  expr.expr.typeValue,
+                  expr.accessors
+                );
+              }
+              default: {
+                throw new Error(
+                  `Accessors not implemented for ${expr.expr.type}`
+                );
+              }
+            }
+          }
         }
         default:
           throw new Error(`Unknown expression type: ${JSON.stringify(expr)}`);
