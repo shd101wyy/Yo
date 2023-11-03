@@ -15,6 +15,7 @@ export enum AstType {
 
   // variable
   Variable = "variable",
+  Accessors = "accessors",
 
   // operators
   BinaryOperator = "binop",
@@ -63,6 +64,7 @@ export type Expr =
   | UnaryOperatorExpr
   | BinaryOperatorExpr
   | VariableExpr
+  | AccessorsExpr
   | ValueExpr
   | CallFunctionExpr
   | IfExpr;
@@ -79,6 +81,12 @@ export type ValueExpr = {
 export type VariableExpr = {
   type: AstType.Variable;
   name: string;
+};
+
+export type AccessorsExpr = {
+  type: AstType.Accessors;
+  accessors: string[];
+  expr: Expr;
 };
 
 export type BinaryOperatorExpr = {

@@ -228,6 +228,69 @@ export default class Parser {
     }
   }
 
+  private parseAccessors(
+    expr: Expr,
+    tokens: Token[],
+    index: number,
+    variableTypes: VariableTypes
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.Dot) {
+      throw this.formatErrorMessage(tokens[index], "Expected '.'");
+    }
+    const accessors: string[] = [];
+    // parse accessors
+    index = index + 1;
+    while (true) {
+      const token = tokens[index];
+      if (!token) {
+        throw this.formatErrorMessage(token, "Expected identifier");
+      }
+      if (token.type !== TokenType.Identifier) {
+        throw this.formatErrorMessage(token, "Expected identifier");
+      }
+      accessors.push(token.value);
+      index = index + 1;
+
+      if (tokens[index].type === TokenType.Dot) {
+        index = index + 1;
+      } else {
+        break;
+      }
+    }
+
+    // Check if the accessors are valid
+    const valueType = synthesizeExprType(expr, variableTypes);
+    let currentType = valueType;
+    for (const accessor of accessors) {
+      if (currentType.type !== "Record") {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Invalid access to \`.${accessors.join(".")}\``
+        );
+      }
+      const property = currentType.properties.find(
+        (property) => property.name === accessor
+      );
+      if (!property) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Invalid access to \`.${accessors.join(".")}\``
+        );
+      }
+      currentType = property.type;
+    }
+
+    return {
+      expr: {
+        type: AstType.Accessors,
+        accessors,
+        expr,
+      },
+      index,
+      variableTypes,
+    };
+  }
+
   private parseAnonymouseFunction(
     tokens: Token[],
     index: number,
@@ -344,6 +407,7 @@ export default class Parser {
     variableTypes: VariableTypes
   ): ParserReturn {
     const identifier = tokens[index].value;
+
     if (tokens[index + 1].type !== TokenType.LParen) {
       // Check if variable is defined
       if (!(identifier in variableTypes)) {
@@ -362,6 +426,7 @@ export default class Parser {
         variableTypes,
       };
     } else {
+      // FIXME: Accessors check here is needed
       // call
       const functionName: string = identifier;
       const functionArguments: Expr = [];
@@ -430,34 +495,69 @@ export default class Parser {
     variableTypes: VariableTypes
   ): ParserReturn {
     const token = tokens[index];
+    let returnValue: ParserReturn | null = null;
     switch (token.type) {
-      case TokenType.Identifier:
-        return this.parseIdentifierExpr(tokens, index, variableTypes);
+      case TokenType.Identifier: {
+        returnValue = this.parseIdentifierExpr(tokens, index, variableTypes);
+        break;
+      }
       case TokenType.Integer:
-      case TokenType.Float:
-        return this.parseNumberExpr(tokens, index, variableTypes);
-      case TokenType.Char:
-        return this.parseCharactorExpr(tokens, index, variableTypes);
-      case TokenType.String:
-        return this.parseStringExpr(tokens, index, variableTypes);
-      case TokenType.Boolean:
-        return this.parseBooleanExpr(tokens, index, variableTypes);
-      case TokenType.LParen:
-        return this.parseParenExpr(tokens, index, variableTypes);
-      case TokenType.LCurlyBracket:
-        return this.parseCurlyBracketExpr(tokens, index, variableTypes);
-      case TokenType.If:
-        return this.parseIfExpr(tokens, index, variableTypes);
-      case TokenType.Const:
+      case TokenType.Float: {
+        returnValue = this.parseNumberExpr(tokens, index, variableTypes);
+        break;
+      }
+      case TokenType.Char: {
+        returnValue = this.parseCharactorExpr(tokens, index, variableTypes);
+        break;
+      }
+      case TokenType.String: {
+        returnValue = this.parseStringExpr(tokens, index, variableTypes);
+        break;
+      }
+      case TokenType.Boolean: {
+        returnValue = this.parseBooleanExpr(tokens, index, variableTypes);
+        break;
+      }
+      case TokenType.LParen: {
+        returnValue = this.parseParenExpr(tokens, index, variableTypes);
+        break;
+      }
+      case TokenType.LCurlyBracket: {
+        returnValue = this.parseCurlyBracketExpr(tokens, index, variableTypes);
+        break;
+      }
+      case TokenType.If: {
+        returnValue = this.parseIfExpr(tokens, index, variableTypes);
+        break;
+      }
+      case TokenType.Const: {
         return this.parseConstAssignment(tokens, index, variableTypes);
-      case TokenType.Semicolon:
+      }
+      case TokenType.Semicolon: {
         return { expr: null, index: index + 1, variableTypes };
-      default:
+      }
+      default: {
         throw this.formatErrorMessage(
           token,
           `Unknown token: ${JSON.stringify(token)}`
         );
+      }
     }
+
+    {
+      const index = returnValue.index;
+      if (tokens[index].type === TokenType.Dot && returnValue.expr) {
+        // parseAccessors
+        return this.parseAccessors(
+          returnValue.expr,
+          tokens,
+          index,
+          returnValue.variableTypes
+        );
+      }
+    }
+
+    return returnValue;
   }
 
   private parseBinOpRHS(

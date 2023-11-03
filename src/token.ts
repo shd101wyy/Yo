@@ -92,6 +92,7 @@ export enum TokenType {
   Match = "match",
 
   // punctuation
+  Dot = ".",
   Semicolon = ";",
   Colon = ":",
   Comma = ",",

@@ -362,6 +362,13 @@ export function tokenize(input: string): Token[] {
           position: { line, character: i - totalCharacters },
         });
         break;
+      case ".":
+        tokens.push({
+          type: TokenType.Dot,
+          value: char,
+          position: { line, character: i - totalCharacters },
+        });
+        break;
 
       // primary & keywords
       default:
