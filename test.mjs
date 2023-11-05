@@ -45,17 +45,15 @@ function max(x: i32, y: i32): i32 {
 `
 
 code = `
-extern println(x: string): i32;
-
-function add(x: f32, y: f32): f32 {
-  x + y
+extern printlnd(x: i32): i32;
+type Point = {
+  x: i32,
+  y: i32
 }
-function add(x: i32, y: i32): i32 {
-  x + y
-}
-function main() {
-  add(1.1, 2.2);
-  add(1, 3)
+function main(): i32 {
+  const xArr: Point[] = [{x: 1234, y: 2}, {x: 5, y: 3}];
+  printlnd(xArr[0].x + xArr[1].y)
+  0
 }
 `
 
@@ -71,4 +69,4 @@ writeFileSync("test.ll", ir);
 // Run "./test"
 // Run "echo $?" to see the return value
 spawnSync("clang", ["./src/lib.c", "test.ll", "-o", "test"], {stdio: "inherit"});
-spawnSync("./test", [], {stdio: "inherit"});
+//// spawnSync("./test", [], {stdio: "inherit"});

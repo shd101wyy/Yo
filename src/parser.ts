@@ -8,6 +8,7 @@ import {
   Expr,
   FunctionExpr,
   FunctionPrototype,
+  PrimitiveValueExpr,
   VariableExpr,
   getFunctionFromEnv,
   getTokenPrecedence,
@@ -20,6 +21,7 @@ import { Token, TokenType } from "./token";
 import {
   ParameterType,
   TFunction,
+  TSlice,
   Type,
   TypeValues,
   checkType,
@@ -58,6 +60,7 @@ export default class Parser {
       return {
         expr: {
           type: AstType.Value,
+          tag: "primitive",
           typeValue: TypeValues.i32,
           value: token.value,
         },
@@ -68,6 +71,7 @@ export default class Parser {
       return {
         expr: {
           type: AstType.Value,
+          tag: "primitive",
           typeValue: TypeValues.f32,
           value: token.value,
         },
@@ -89,6 +93,7 @@ export default class Parser {
       return {
         expr: {
           type: AstType.Value,
+          tag: "primitive",
           typeValue: TypeValues.char,
           value: token.value,
         },
@@ -107,11 +112,33 @@ export default class Parser {
   ): ParserReturn {
     const token = tokens[index];
     if (token.type === TokenType.String) {
+      const end: PrimitiveValueExpr = {
+        type: AstType.Value,
+        tag: "primitive",
+        typeValue: TypeValues.char,
+        value: "\0",
+      };
       return {
         expr: {
           type: AstType.Value,
-          typeValue: TypeValues.string,
-          value: token.value,
+          tag: "slice",
+          typeValue: {
+            type: "slice",
+            elementType: TypeValues.char,
+            size: token.value.length + 1,
+          },
+          values: token.value
+            .split("")
+            .map((char) => {
+              const charValue: PrimitiveValueExpr = {
+                type: AstType.Value,
+                tag: "primitive",
+                typeValue: TypeValues.char,
+                value: char,
+              };
+              return charValue;
+            })
+            .concat(end),
         },
         index: index + 1,
         env,
@@ -131,6 +158,7 @@ export default class Parser {
       return {
         expr: {
           type: AstType.Value,
+          tag: "primitive",
           typeValue: TypeValues.boolean,
           value: token.value,
         },
@@ -140,6 +168,70 @@ export default class Parser {
     } else {
       throw this.formatErrorMessage(token, "Expected boolean");
     }
+  }
+
+  private parseSliceExpr(
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    const token = tokens[index];
+    if (token.type !== TokenType.LBracket) {
+      throw this.formatErrorMessage(token, "Expected '[' for slice");
+    }
+    index = index + 1;
+    const values: Expr[] = [];
+    while (true) {
+      const token = tokens[index];
+      if (!token) {
+        throw this.formatErrorMessage(token, "Expected ']' for slice");
+      }
+      if (token.type === TokenType.RBracket) {
+        index = index + 1;
+        break;
+      } else {
+        const { expr, index: nextIndex } = this.parseExpression(
+          tokens,
+          index,
+          env
+        );
+        if (!expr) {
+          return { expr, index: nextIndex, env };
+        }
+        values.push(expr);
+        index = nextIndex;
+        if (tokens[index].type === TokenType.Comma) {
+          index = index + 1;
+        }
+      }
+    }
+
+    const elementTypes = values.map((value) => synthesizeExprType(value, env));
+    // Check if all the element types are the same
+    const firstElementType = elementTypes[0];
+    if (!elementTypes.every((type) => checkType(firstElementType, type))) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Mismatched element types in slice: ${elementTypes
+          .map((type) => typeToString(type))
+          .join(", ")}`
+      );
+    }
+
+    return {
+      expr: {
+        type: AstType.Value,
+        typeValue: {
+          type: "slice",
+          elementType: firstElementType,
+          size: values.length,
+        },
+        values: values,
+        tag: "slice",
+      },
+      index,
+      env,
+    };
   }
 
   // TODO: Implement curly bracket expression
@@ -165,7 +257,7 @@ export default class Parser {
       return {
         expr: {
           type: AstType.Value,
-          value: "",
+          tag: "record",
           typeValue: { type: "Record", properties: [] },
           properties: [],
         },
@@ -219,7 +311,7 @@ export default class Parser {
       return {
         expr: {
           type: AstType.Value,
-          value: "",
+          tag: "record",
           typeValue: synthesizeRecordType(properties, env),
           properties,
         },
@@ -231,7 +323,7 @@ export default class Parser {
     }
   }
 
-  private parseAccessors(
+  private parsePropertyAccessExpr(
     expr: Expr,
     tokens: Token[],
     index: number,
@@ -240,8 +332,8 @@ export default class Parser {
     if (tokens[index].type !== TokenType.Dot) {
       throw this.formatErrorMessage(tokens[index], "Expected '.'");
     }
-    const accessors: string[] = [];
-    // parse accessors
+    const properties: string[] = [];
+    // parse properties
     index = index + 1;
     while (true) {
       const token = tokens[index];
@@ -251,7 +343,7 @@ export default class Parser {
       if (token.type !== TokenType.Identifier) {
         throw this.formatErrorMessage(token, "Expected identifier");
       }
-      accessors.push(token.value);
+      properties.push(token.value);
       index = index + 1;
 
       if (tokens[index].type === TokenType.Dot) {
@@ -261,14 +353,14 @@ export default class Parser {
       }
     }
 
-    // Check if the accessors are valid
+    // Check if the properties are valid
     const valueType = synthesizeExprType(expr, env);
     let currentType = valueType;
-    for (const accessor of accessors) {
+    for (const accessor of properties) {
       if (currentType.type !== "Record") {
         throw this.formatErrorMessage(
           tokens[index],
-          `Invalid access to \`.${accessors.join(".")}\``
+          `Invalid access to \`.${properties.join(".")}\``
         );
       }
       const property = currentType.properties.find(
@@ -277,7 +369,7 @@ export default class Parser {
       if (!property) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Invalid access to \`.${accessors.join(".")}\``
+          `Invalid access to \`.${properties.join(".")}\``
         );
       }
       currentType = property.type;
@@ -285,9 +377,78 @@ export default class Parser {
 
     return {
       expr: {
-        type: AstType.Accessors,
-        accessors,
+        type: AstType.PropertyAccess,
+        properties: properties,
         expr,
+        typeValue: currentType,
+      },
+      index,
+      env,
+    };
+  }
+
+  private parseIndexAccessExpr(
+    expr: Expr,
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.LBracket) {
+      throw this.formatErrorMessage(tokens[index], "Expected '['");
+    }
+    const indexes: Expr[] = [];
+    let valueType = synthesizeExprType(expr, env);
+    index = index + 1;
+    while (true) {
+      const token = tokens[index];
+      if (!token) {
+        throw this.formatErrorMessage(token, "Expected ']'");
+      }
+      const { expr, index: nextIndex } = this.parseExpression(
+        tokens,
+        index,
+        env
+      );
+      if (!expr) {
+        throw this.formatErrorMessage(token, "Expected expression");
+      }
+      indexes.push(expr);
+      index = nextIndex;
+
+      const indexType = synthesizeExprType(expr, env);
+      if (!checkType(TypeValues.i32, indexType)) {
+        throw this.formatErrorMessage(
+          token,
+          `Expected i32 for index, but got ${typeToString(indexType)}`
+        );
+      }
+
+      if (valueType.type !== "slice") {
+        throw this.formatErrorMessage(
+          token,
+          `Expected slice for index access, but got ${typeToString(valueType)}`
+        );
+      }
+      valueType = valueType.elementType;
+
+      if (tokens[index].type === TokenType.RBracket) {
+        index = index + 1;
+        if (tokens[index].type === TokenType.LBracket) {
+          index = index + 1;
+        } else {
+          break;
+        }
+      } else {
+        throw this.formatErrorMessage(token, "Expected ']'");
+      }
+    }
+
+    return {
+      expr: {
+        type: AstType.IndexAccess,
+        expr,
+        indexes,
+        typeValue: valueType,
       },
       index,
       env,
@@ -334,6 +495,7 @@ export default class Parser {
     const functionExpr: FunctionExpr = {
       type: AstType.Function,
       prototype,
+      typeValue: prototype.typeValue,
       body,
     };
     env.popFrame();
@@ -359,6 +521,7 @@ export default class Parser {
       return {
         expr: {
           type: AstType.Value,
+          tag: "primitive",
           typeValue: TypeValues.unit,
           value: "()",
         },
@@ -480,7 +643,7 @@ export default class Parser {
           functionId: functionBeingCalled.id,
           functionName,
           functionArguments,
-          returnType: functionType.returnType,
+          typeValue: functionType.returnType,
         },
         index: endIndex,
         env,
@@ -526,6 +689,10 @@ export default class Parser {
         returnValue = this.parseBooleanExpr(tokens, index, env);
         break;
       }
+      case TokenType.LBracket: {
+        returnValue = this.parseSliceExpr(tokens, index, env);
+        break;
+      }
       case TokenType.LParen: {
         returnValue = this.parseParenExpr(tokens, index, env);
         break;
@@ -553,19 +720,35 @@ export default class Parser {
     }
 
     {
-      const index = returnValue.index;
-      if (tokens[index].type === TokenType.Dot && returnValue.expr) {
-        // parseAccessors
-        return this.parseAccessors(
-          returnValue.expr,
-          tokens,
-          index,
-          returnValue.env
-        );
+      while (true) {
+        if (
+          tokens[returnValue.index].type === TokenType.Dot &&
+          returnValue.expr
+        ) {
+          // parsePropertyAccessExpr
+          returnValue = this.parsePropertyAccessExpr(
+            returnValue.expr,
+            tokens,
+            returnValue.index,
+            returnValue.env
+          );
+        } else if (
+          tokens[returnValue.index].type === TokenType.LBracket &&
+          returnValue.expr
+        ) {
+          // parseIndexAccessExpr
+          returnValue = this.parseIndexAccessExpr(
+            returnValue.expr,
+            tokens,
+            returnValue.index,
+            returnValue.env
+          );
+        } else {
+          break;
+        }
       }
+      return returnValue;
     }
-
-    return returnValue;
   }
 
   private parseBinOpRHS(
@@ -640,6 +823,7 @@ export default class Parser {
         operator: operator as any,
         left: needsSwap ? RHS : LHS,
         right: needsSwap ? LHS : RHS,
+        typeValue: synthesizeExprType(LHS, env), // FIXME:
       };
     }
   }
@@ -813,6 +997,7 @@ export default class Parser {
     if (!lastExpr || tokens[index - 2].type === TokenType.Semicolon) {
       exprs.push({
         type: AstType.Value,
+        tag: "primitive",
         typeValue: TypeValues.unit,
         value: "()",
       });
@@ -883,18 +1068,20 @@ export default class Parser {
     if (prototype.typeValue.returnType.type === "unknown") {
       prototype.typeValue.returnType = functionReturnType;
     }
+
     if (!checkType(functionReturnType, prototype.typeValue.returnType)) {
       throw this.formatErrorMessage(
         tokens[index],
-        `Mismatched return type: ${typeToString(
-          prototype.typeValue.returnType
-        )} and ${typeToString(functionReturnType)}`
+        `Mismatched return type: 
+Prototype: ${typeToString(prototype.typeValue.returnType)}
+Returned:  ${typeToString(functionReturnType)}`
       );
     }
 
     const functionExpr: FunctionExpr = {
       type: AstType.Function,
       prototype,
+      typeValue: prototype.typeValue,
       body: exprs,
     };
     env.popFrame();
@@ -934,6 +1121,7 @@ export default class Parser {
       expr: {
         type: AstType.Extern,
         prototype,
+        typeValue: prototype.typeValue,
       },
       index,
       env,
@@ -998,7 +1186,7 @@ export default class Parser {
           throw "WTF";
         }
         elseExpr.push(expr);
-        elseReturnType = expr.returnType;
+        elseReturnType = expr.typeValue;
         index = nextNextNextIndex;
       } else {
         if (tokens[index].type !== TokenType.LCurlyBracket) {
@@ -1035,7 +1223,7 @@ else: ${typeToString(elseReturnType)}
         condition,
         then,
         else: elseExpr,
-        returnType: thenReturnType,
+        typeValue: thenReturnType,
       },
       index: index,
       env,
@@ -1112,6 +1300,24 @@ Expected: ${typeToString(userDefinedVariableType)}
 Got:      ${typeToString(variableType)}`
         );
       }
+
+      if (userDefinedVariableType.type === "slice") {
+        let userType = userDefinedVariableType;
+        let valueType = variableType as TSlice;
+        // Assign size to the slice if it's undefined
+        while (true) {
+          if (userType.size === undefined) {
+            userType.size = valueType.size;
+
+            if (userType.elementType.type === "slice") {
+              userType = userType.elementType;
+              valueType = valueType.elementType as TSlice;
+            } else {
+              break;
+            }
+          }
+        }
+      }
     }
 
     // Add variable to env
@@ -1126,6 +1332,7 @@ Got:      ${typeToString(variableType)}`
         variableName,
         variableType: userDefinedVariableType ?? variableType,
         right: value,
+        typeValue: TypeValues.unit,
       },
       index,
       env,
@@ -1168,7 +1375,10 @@ Got:      ${typeToString(variableType)}`
       this.inputString,
       env
     );
-    env[typeName] = typeValue;
+    env.addValueType({
+      type: typeValue,
+      variableName: typeName,
+    });
 
     return {
       expr: {

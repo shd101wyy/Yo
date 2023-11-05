@@ -16,10 +16,6 @@ export type TChar = {
   type: "char";
 };
 
-export type TString = {
-  type: "string";
-};
-
 export type TU1 = {
   type: "u1";
 };
@@ -110,10 +106,15 @@ export type TUnknown = {
   type: "unknown";
 };
 
+export type TSlice = {
+  type: "slice";
+  elementType: Type;
+  size?: number;
+};
+
 export type Type =
   | TUnit
   | TBoolean
-  | TString
   | TChar
   | TU1
   | TU8
@@ -134,14 +135,14 @@ export type Type =
   | TFunction
   | TUnion
   | TIntersection
-  | TUnknown;
+  | TUnknown
+  | TSlice;
 
 // Type constructors
 
 export const TypeValues = {
   unit: { type: "()" } as TUnit,
   boolean: { type: "boolean" } as TBoolean,
-  string: { type: "string" } as TString,
   char: { type: "char" } as TChar,
   u1: { type: "u1" } as TU1,
   u8: { type: "u8" } as TU8,
@@ -310,10 +311,6 @@ export function synthesizeTypeFromTokens(
         typeValue = TypeValues.boolean;
         break;
       }
-      case "string": {
-        typeValue = TypeValues.string;
-        break;
-      }
       case "char": {
         typeValue = TypeValues.char;
         break;
@@ -392,9 +389,68 @@ export function synthesizeTypeFromTokens(
     };
   }
 
-  // Check if it's union type or intersection type
   const nextTokenType = tokens[returnValue.index]?.type;
-  if (nextTokenType === TokenType.BitwiseOr) {
+  let newTypeValue: Type = returnValue.typeValue;
+  // Check if it's slice
+  if (nextTokenType === TokenType.LBracket) {
+    let index = returnValue.index + 1;
+    // TODO: We only support number as size for now
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const token = tokens[index];
+      if (!token) {
+        throw formatErrorMessage({
+          token: tokens[index - 1],
+          errorMessage: "Expected ']'",
+          inputString,
+        });
+      }
+      if (token.type === TokenType.Integer) {
+        const size = parseInt(token.value);
+        if (tokens[index + 1].type !== TokenType.RBracket) {
+          throw formatErrorMessage({
+            token: tokens[index + 1],
+            errorMessage: "Expected ']'",
+            inputString,
+          });
+        } else {
+          newTypeValue = {
+            type: "slice",
+            elementType: newTypeValue,
+            size,
+          };
+          index = index + 2;
+        }
+      } else if (token.type === TokenType.RBracket) {
+        newTypeValue = {
+          type: "slice",
+          elementType: newTypeValue,
+          size: undefined,
+        };
+        index = index + 1;
+      } else {
+        throw formatErrorMessage({
+          token,
+          errorMessage: "Expected integer or ']'",
+          inputString,
+        });
+      }
+
+      if (tokens[index].type === TokenType.LBracket) {
+        index = index + 1;
+        continue;
+      } else {
+        break;
+      }
+    }
+    returnValue = {
+      typeValue: newTypeValue,
+      index,
+    };
+    return returnValue;
+  }
+  // Check if it's union type or intersection type
+  else if (nextTokenType === TokenType.BitwiseOr) {
     const index = returnValue.index + 1;
 
     const newReturnValue = synthesizeTypeFromTokens(
@@ -612,6 +668,12 @@ export function isSubtype(a: Type, b: Type): boolean {
       }
     } else if (b.type === "Intersection" || a.type === "Intersection") {
       throw new Error("Intersection type is not supported yet");
+    } else if (a.type === "slice" && b.type === "slice") {
+      if (a.size !== undefined && b.size !== undefined) {
+        return a.size >= b.size && isSubtype(a.elementType, b.elementType);
+      } else {
+        return isSubtype(a.elementType, b.elementType);
+      }
     } else {
       return a.type === b.type;
     }
@@ -625,9 +687,6 @@ export function typeToString(type: Type): string {
     }
     case "boolean": {
       return "boolean";
-    }
-    case "string": {
-      return "string";
     }
     case "char": {
       return "char";
@@ -699,6 +758,9 @@ export function typeToString(type: Type): string {
     }
     case "unknown": {
       return "unknown";
+    }
+    case "slice": {
+      return `${typeToString(type.elementType)}[${type.size ?? ""}]`;
     }
     default: {
       throw new Error(`Unknown type ${JSON.stringify(type)}`);

@@ -2,6 +2,7 @@ import Environment from "./env";
 import { Token, TokenType } from "./token";
 import {
   TFunction,
+  TUnit,
   Type,
   TypeValues,
   checkType,
@@ -15,7 +16,8 @@ export enum AstType {
 
   // variable
   Variable = "variable",
-  Accessors = "accessors",
+  PropertyAccess = "property-access",
+  IndexAccess = "index-access",
 
   // operators
   BinaryOperator = "binop",
@@ -55,6 +57,9 @@ export enum OperatorType {
   Modulo = "%",
 }
 
+/**
+ * All Expr should have `typeValue` attribute.
+ */
 export type Expr =
   | Expr[]
   | FunctionExpr
@@ -64,19 +69,36 @@ export type Expr =
   | UnaryOperatorExpr
   | BinaryOperatorExpr
   | VariableExpr
-  | AccessorsExpr
+  | PropertyAccessExpr
+  | IndexAccessExpr
   | ValueExpr
   | CallFunctionExpr
   | IfExpr;
 
 export type TopLevelExpr = Expr | FunctionExpr;
 
-export type ValueExpr = {
+export type RecordValueExpr = {
   type: AstType.Value;
+  tag: "record";
+  typeValue: Type;
+  properties: { name: string; value: Expr }[];
+};
+
+export type SliceValueExpr = {
+  type: AstType.Value;
+  tag: "slice";
+  typeValue: Type;
+  values: Expr[];
+};
+
+export type PrimitiveValueExpr = {
+  type: AstType.Value;
+  tag: "primitive";
   typeValue: Type;
   value: string;
-  properties?: { name: string; value: Expr }[];
 };
+
+export type ValueExpr = PrimitiveValueExpr | RecordValueExpr | SliceValueExpr;
 
 export type VariableExpr = {
   type: AstType.Variable;
@@ -84,10 +106,18 @@ export type VariableExpr = {
   typeValue: Type;
 };
 
-export type AccessorsExpr = {
-  type: AstType.Accessors;
-  accessors: string[];
+export type PropertyAccessExpr = {
+  type: AstType.PropertyAccess;
+  properties: string[];
   expr: Expr;
+  typeValue: Type;
+};
+
+export type IndexAccessExpr = {
+  type: AstType.IndexAccess;
+  indexes: Expr[];
+  expr: Expr;
+  typeValue: Type;
 };
 
 export type BinaryOperatorExpr = {
@@ -95,12 +125,14 @@ export type BinaryOperatorExpr = {
   operator: OperatorType;
   left: Expr;
   right: Expr;
+  typeValue: Type;
 };
 
 export type UnaryOperatorExpr = {
   type: AstType.UnaryOperator;
   operator: TokenType.LogicalNot;
   expr: Expr;
+  typeValue: Type;
 };
 
 /*
@@ -115,6 +147,7 @@ export type AssignmentExpr = {
   variableName: string;
   variableType: Type;
   right: Expr;
+  typeValue: TUnit;
 };
 
 export type TypeAliasExpr = {
@@ -134,12 +167,14 @@ export type FunctionPrototype = {
 export type FunctionExpr = {
   type: AstType.Function;
   prototype: FunctionPrototype;
+  typeValue: TFunction;
   body: Expr[];
 };
 
 export type ExternExpr = {
   type: AstType.Extern;
   prototype: FunctionPrototype;
+  typeValue: TFunction;
 };
 
 export type CallFunctionExpr = {
@@ -147,7 +182,7 @@ export type CallFunctionExpr = {
   functionId: string; // This is used for finding the function by id. Check `FunctionPrototype` above.
   functionName: string;
   functionArguments: Expr[];
-  returnType: Type;
+  typeValue: Type;
 };
 
 export type IfExpr = {
@@ -155,7 +190,7 @@ export type IfExpr = {
   condition: Expr;
   then: Expr[];
   else: Expr[];
-  returnType: Type;
+  typeValue: Type;
 };
 
 /**
@@ -212,11 +247,59 @@ export function synthesizeExprType(expr: Expr, env: Environment): Type {
       );
     }
   } else if (expr.type === AstType.CallFunction || expr.type === AstType.If) {
-    return expr.returnType;
+    return expr.typeValue;
   } else if (expr.type === AstType.Function) {
     return expr.prototype.typeValue;
   } else if (expr.type === AstType.Variable) {
     return expr.typeValue;
+  } else if (expr.type === AstType.IndexAccess) {
+    const exprType = synthesizeExprType(expr.expr, env);
+    if (exprType.type === "slice") {
+      const indexes = expr.indexes;
+      let currentType: Type = exprType;
+      for (let i = 0; i < indexes.length; i++) {
+        const index = indexes[i];
+        if (currentType.type !== "slice") {
+          throw new Error(
+            `Cannot find index ${index} in ${typeToString(exprType)}`
+          );
+        }
+        currentType = currentType.elementType;
+      }
+      return currentType;
+    } else {
+      throw new Error(
+        `Cannot synthesize type of index access ${JSON.stringify(expr.type)}`
+      );
+    }
+  } else if (expr.type === AstType.PropertyAccess) {
+    const exprType = synthesizeExprType(expr.expr, env);
+    if (exprType.type === "Record") {
+      const properties = expr.properties;
+      let currentType: Type = exprType;
+      for (let i = 0; i < properties.length; i++) {
+        const property = properties[i];
+        if (currentType.type !== "Record") {
+          throw new Error(
+            `Cannot find property ${property} in ${typeToString(exprType)}`
+          );
+        }
+        const propertyType = currentType.properties.find(
+          (prop) => prop.name === property
+        );
+        if (!propertyType) {
+          throw new Error(
+            `Cannot find property ${property} in ${typeToString(exprType)}`
+          );
+        }
+        currentType = propertyType.type;
+      }
+      return currentType;
+    } else {
+      throw new Error(
+        `Cannot synthesize type of property access ${JSON.stringify(expr)}`
+      );
+    }
   } else {
     throw new Error(
       `Cannot synthesize AST type of ${JSON.stringify(expr.type)}`

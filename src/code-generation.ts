@@ -83,15 +83,17 @@ export class CodeGenerator {
       case "char": {
         return this.builder.getInt8Ty();
       }
-      case "string": {
-        /**
-         * Allocate memory for string struct
-         * struct String {
-         *   char* data;
-         *   int length;
-         *   int size;
-         * }
-         */
+
+      // case "string": {
+      /**
+       * Allocate memory for string struct
+       * struct String {
+       *   char* data;
+       *   int length;
+       *   int size;
+       * }
+       */
+      /*
         const propertyTypes = [
           llvm.PointerType.get(llvm.IntegerType.get(this.context, 8), 0), // char*
           llvm.IntegerType.get(this.context, 32), // int
@@ -104,6 +106,19 @@ export class CodeGenerator {
         );
         // Return pointer to string struct
         return llvm.PointerType.get(stringType, 0);
+      }
+      */
+      case "slice": {
+        const size = typeExpr.size;
+        if (size === undefined) {
+          throw new Error(`Slice size not found`);
+        }
+        const elementType = this.getLlvmType(typeExpr.elementType);
+
+        // Create array of `elementType` with array size of `size`
+        const arrayType = llvm.ArrayType.get(elementType, size);
+
+        return llvm.PointerType.get(arrayType, 0);
       }
       case "Record": {
         const properties = typeExpr.properties ?? [];
@@ -225,7 +240,7 @@ export class CodeGenerator {
     );
   }
 
-  private codegenForAccessor(
+  private codegenForPropertyAccess(
     exprValue: llvm.Value,
     typeValue: Type,
     accessors: string[]
@@ -266,7 +281,11 @@ export class CodeGenerator {
           propertyPtr,
           accessor
         );
-        return this.codegenForAccessor(value, propertyType, accessors.slice(1));
+        return this.codegenForPropertyAccess(
+          value,
+          propertyType,
+          accessors.slice(1)
+        );
       }
       default:
         throw new Error(
@@ -284,192 +303,133 @@ export class CodeGenerator {
       let llvmValue: llvm.Value = llvm.UndefValue.get(
         llvm.PointerType.getVoidTy(this.context)
       );
-      for (let i = 0; i < expr.length; i++) {
-        llvmValue = this.codegenExpr(expr[i], namedValues);
+      const exprs = expr;
+      for (let i = 0; i < exprs.length; i++) {
+        const expr = exprs[i];
+        if (expr instanceof Array) {
+          llvmValue = this.codegenExpr(expr, namedValues);
+        } else {
+          if (expr.type === AstType.TypeAlias) {
+            continue;
+          }
+
+          llvmValue = this.codegenExpr(expr, namedValues);
+        }
       }
       return llvmValue;
     } else {
       switch (expr.type) {
         case AstType.Value: {
           const typeValue = expr.typeValue;
-          switch (typeValue.type) {
-            case "boolean":
-              return llvm.ConstantInt.get(
-                llvm.IntegerType.get(this.context, 1),
-                expr.value === "true" ? 1 : 0,
-                false // isSigned
-              );
-            case "char":
-              return llvm.ConstantInt.get(
-                llvm.IntegerType.get(this.context, 8),
-                expr.value.charCodeAt(0),
-                false // isSigned
-              );
-            case "u1":
-              return llvm.ConstantInt.get(
-                llvm.IntegerType.get(this.context, 1),
-                parseInt(expr.value),
-                false // isSigned
-              );
-            case "i1":
-              return llvm.ConstantInt.get(
-                llvm.IntegerType.get(this.context, 1),
-                parseInt(expr.value),
-                true // isSigned
-              );
-            case "u8":
-              return llvm.ConstantInt.get(
-                llvm.IntegerType.get(this.context, 8),
-                parseInt(expr.value),
-                false // isSigned
-              );
-            case "i8":
-              return llvm.ConstantInt.get(
-                llvm.IntegerType.get(this.context, 8),
-                parseInt(expr.value),
-                true // isSigned
-              );
-            case "u16":
-              return llvm.ConstantInt.get(
-                llvm.IntegerType.get(this.context, 16),
-                parseInt(expr.value),
-                false // isSigned
-              );
-            case "i16":
-              return llvm.ConstantInt.get(
-                llvm.IntegerType.get(this.context, 16),
-                parseInt(expr.value),
-                true // isSigned
-              );
-            case "u32":
-              return llvm.ConstantInt.get(
-                llvm.IntegerType.get(this.context, 32),
-                parseInt(expr.value),
-                false // isSigned
-              );
-            case "i32":
-              return llvm.ConstantInt.get(
-                llvm.IntegerType.get(this.context, 32),
-                parseInt(expr.value),
-                true // isSigned
-              );
-            case "u64":
-              return llvm.ConstantInt.get(
-                llvm.IntegerType.get(this.context, 64),
-                parseInt(expr.value),
-                false // isSigned
-              );
-            case "i64":
-              return llvm.ConstantInt.get(
-                llvm.IntegerType.get(this.context, 64),
-                parseInt(expr.value),
-                true // isSigned
-              );
-            case "u128":
-              return llvm.ConstantInt.get(
-                llvm.IntegerType.get(this.context, 128),
-                parseInt(expr.value),
-                false // isSigned
-              );
-            case "i128":
-              return llvm.ConstantInt.get(
-                llvm.IntegerType.get(this.context, 128),
-                parseInt(expr.value),
-                true // isSigned
-              );
-            case "f16":
-            case "f32": {
-              return llvm.ConstantFP.get(
-                llvm.Type.getFloatTy(this.context),
-                parseFloat(expr.value)
-              );
+          switch (expr.tag) {
+            case "primitive": {
+              switch (typeValue.type) {
+                case "boolean":
+                  return llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 1),
+                    expr.value === "true" ? 1 : 0,
+                    false // isSigned
+                  );
+                case "char":
+                  return llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 8),
+                    expr.value.charCodeAt(0),
+                    false // isSigned
+                  );
+                case "u1":
+                  return llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 1),
+                    parseInt(expr.value),
+                    false // isSigned
+                  );
+                case "i1":
+                  return llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 1),
+                    parseInt(expr.value),
+                    true // isSigned
+                  );
+                case "u8":
+                  return llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 8),
+                    parseInt(expr.value),
+                    false // isSigned
+                  );
+                case "i8":
+                  return llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 8),
+                    parseInt(expr.value),
+                    true // isSigned
+                  );
+                case "u16":
+                  return llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 16),
+                    parseInt(expr.value),
+                    false // isSigned
+                  );
+                case "i16":
+                  return llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 16),
+                    parseInt(expr.value),
+                    true // isSigned
+                  );
+                case "u32":
+                  return llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 32),
+                    parseInt(expr.value),
+                    false // isSigned
+                  );
+                case "i32":
+                  return llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 32),
+                    parseInt(expr.value),
+                    true // isSigned
+                  );
+                case "u64":
+                  return llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 64),
+                    parseInt(expr.value),
+                    false // isSigned
+                  );
+                case "i64":
+                  return llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 64),
+                    parseInt(expr.value),
+                    true // isSigned
+                  );
+                case "u128":
+                  return llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 128),
+                    parseInt(expr.value),
+                    false // isSigned
+                  );
+                case "i128":
+                  return llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 128),
+                    parseInt(expr.value),
+                    true // isSigned
+                  );
+                case "f16":
+                case "f32": {
+                  return llvm.ConstantFP.get(
+                    llvm.Type.getFloatTy(this.context),
+                    parseFloat(expr.value)
+                  );
+                }
+                case "f64": {
+                  return llvm.ConstantFP.get(
+                    llvm.Type.getDoubleTy(this.context),
+                    parseFloat(expr.value)
+                  );
+                }
+                case "()":
+                  return this.unit;
+                default:
+                  throw new Error(
+                    `Unknown value type: ${JSON.stringify(typeValue)}`
+                  );
+              }
             }
-            case "f64": {
-              return llvm.ConstantFP.get(
-                llvm.Type.getDoubleTy(this.context),
-                parseFloat(expr.value)
-              );
-            }
-            case "string": {
-              const stringPtrType = this.getLlvmType(typeValue);
-              const stringType = stringPtrType.getPointerElementType();
-              const stringLiteral = this.builder.CreateGlobalStringPtr(
-                expr.value
-              );
-              const stringByteSize = new Blob([expr.value]).size;
-
-              // Allocate memory on heap
-              const stringPtr = this.allocateMemoryOnHeap(
-                stringPtrType,
-                this.dataLayout.getTypeAllocSize(stringType)
-              );
-
-              // Allocate memory on stack
-              // const stringPtr = this.builder.CreateAlloca(stringType);
-
-              const stringDataPtr = this.builder.CreateGEP(
-                stringType,
-                stringPtr,
-                [
-                  llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 32),
-                    0
-                  ),
-                  llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 32),
-                    0
-                  ),
-                ],
-                "data"
-              );
-              const stringLengthPtr = this.builder.CreateGEP(
-                stringType,
-                stringPtr,
-                [
-                  llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 32),
-                    0
-                  ),
-                  llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 32),
-                    1
-                  ),
-                ],
-                "length"
-              );
-              const stringSizePtr = this.builder.CreateGEP(
-                stringType,
-                stringPtr,
-                [
-                  llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 32),
-                    0
-                  ),
-                  llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 32),
-                    2
-                  ),
-                ],
-                "size"
-              );
-              this.builder.CreateStore(stringLiteral, stringDataPtr);
-              this.builder.CreateStore(
-                llvm.ConstantInt.get(
-                  llvm.IntegerType.get(this.context, 32),
-                  expr.value.length
-                ),
-                stringLengthPtr
-              );
-              this.builder.CreateStore(
-                llvm.ConstantInt.get(
-                  llvm.IntegerType.get(this.context, 32),
-                  stringByteSize
-                ),
-                stringSizePtr
-              );
-              return stringPtr;
-            }
-            case "Record": {
+            case "record": {
               // Allocate memory for the record
               const recordPtrType = this.getLlvmType(typeValue);
               const recordType = recordPtrType.getPointerElementType();
@@ -513,19 +473,57 @@ export class CodeGenerator {
               }
               return recordPtr;
             }
-            case "()":
-              return this.unit;
-            default:
-              throw new Error(
-                `Unknown value type: ${JSON.stringify(typeValue)}`
+            case "slice": {
+              // Allocate memory for the slice
+              const slicePtrType = this.getLlvmType(typeValue);
+              const sliceType = slicePtrType.getPointerElementType();
+
+              // Allocate on heap
+              /*
+              const slicePtr = this.allocateMemoryOnHeap(
+                slicePtrType,
+                this.dataLayout.getTypeAllocSize(sliceType)
               );
+              */
+
+              // Allocate on stack
+              const slicePtr = this.builder.CreateAlloca(sliceType);
+
+              // Set the slice values
+              const sliceValues = expr.values ?? [];
+              for (let i = 0; i < sliceValues.length; i++) {
+                const sliceValue = sliceValues[i];
+                const value = this.codegenExpr(sliceValue, namedValues);
+
+                // Set value at index
+                const indexPtr = this.builder.CreateGEP(
+                  sliceType,
+                  slicePtr,
+                  [
+                    llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 32),
+                      0
+                    ),
+                    llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 32),
+                      i
+                    ),
+                  ],
+                  "index"
+                );
+                this.builder.CreateStore(value, indexPtr);
+              }
+              return slicePtr;
+            }
+            default: {
+              throw new Error(`Unknown value tag: ${expr}`);
+            }
           }
         }
         case AstType.BinaryOperator: {
           const lhs = this.codegenExpr(expr.left, namedValues);
           const rhs = this.codegenExpr(expr.right, namedValues);
           const binopType = this.getBinOpType(lhs, rhs);
-          console.log("binopType: ", binopType, expr.left, expr.right);
           switch (expr.operator) {
             case "+":
               if (binopType === "double") {
@@ -756,40 +754,71 @@ export class CodeGenerator {
           namedValues[expr.variableName] = value;
           return value;
         }
-        case AstType.Accessors: {
+        case AstType.PropertyAccess: {
           const value = this.codegenExpr(expr.expr, namedValues);
           if (Array.isArray(expr.expr)) {
             throw new Error(`Cannot access array of expressions`);
           } else {
-            switch (expr.expr.type) {
-              /*
-              case AstType.Variable: {
-                const value = namedValues[expr.expr.name];
-                if (!value) {
-                  throw new Error(`Variable ${expr.expr.name} not found`);
-                } else {
-                  return this.codegenForAccessor(
-                    value,
-                    expr.expr.,
-                    expr.accessors
-                  );
-                }
-              }
-              */
-              case AstType.Value: {
-                return this.codegenForAccessor(
-                  value,
-                  expr.expr.typeValue,
-                  expr.accessors
-                );
-              }
-              default: {
-                throw new Error(
-                  `Accessors not implemented for ${expr.expr.type}`
-                );
-              }
-            }
+            return this.codegenForPropertyAccess(
+              value,
+              expr.expr.typeValue,
+              expr.properties
+            );
           }
+        }
+        case AstType.IndexAccess: {
+          if (Array.isArray(expr.expr)) {
+            throw new Error(`Cannot access array of expressions`);
+          }
+          if (expr.expr.typeValue.type !== "slice") {
+            throw new Error(`Index access not implemented for ${expr.expr}`);
+          }
+
+          const indexes = expr.indexes;
+          if (indexes.length === 0) {
+            throw new Error(`Index not found`);
+          }
+          const indexValues = indexes.map((index) => {
+            return this.codegenExpr(index, namedValues);
+          });
+
+          let sliceType: Type = expr.expr.typeValue;
+          let sliceValue = this.codegenExpr(expr.expr, namedValues);
+
+          // Get the pointer to the index
+          for (let i = 0; i < indexValues.length; i++) {
+            if (sliceType.type !== "slice") {
+              throw new Error(`Index access not implemented for ${expr.expr}`);
+            }
+
+            const slidePtrLlvmType = this.getLlvmType(sliceType);
+            const sliceLlvmType = slidePtrLlvmType.getPointerElementType();
+
+            sliceValue = this.builder.CreateGEP(
+              sliceLlvmType,
+              sliceValue,
+              [
+                llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
+                indexValues[i],
+              ],
+              "index"
+            );
+
+            const targetType = sliceType.elementType;
+            sliceValue = this.builder.CreateLoad(
+              this.getLlvmType(targetType),
+              sliceValue,
+              "valueAtIndex"
+            );
+            sliceType = targetType;
+          }
+
+          if (sliceValue === undefined) {
+            throw new Error(`Slice value not found`);
+          }
+
+          // Load the value from the index
+          return sliceValue;
         }
         default:
           throw new Error(`Unknown expression type: ${JSON.stringify(expr)}`);

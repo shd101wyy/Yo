@@ -19,3 +19,9 @@ int println(struct String *x)
     printf("%s\n", x->data);
     return 0;
 }
+
+int printlnd(int x)
+{
+    printf("%d\n", x);
+    return 0;
+}
