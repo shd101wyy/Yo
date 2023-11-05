@@ -42,6 +42,7 @@ export enum TokenType {
   // string
   Char = "char",
   String = "string",
+  Symbol = "symbol",
 
   // primary
   Identifier = "identifier",

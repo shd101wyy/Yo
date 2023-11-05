@@ -317,102 +317,103 @@ export class CodeGenerator {
           const typeValue = expr.typeValue;
           switch (expr.tag) {
             case "primitive": {
+              const typeValue = expr.typeValue;
               switch (typeValue.type) {
                 case "boolean":
                   return llvm.ConstantInt.get(
                     llvm.IntegerType.get(this.context, 1),
-                    expr.value === "true" ? 1 : 0,
+                    typeValue.value === "true" ? 1 : 0,
                     false // isSigned
                   );
                 case "char":
                   return llvm.ConstantInt.get(
                     llvm.IntegerType.get(this.context, 8),
-                    expr.value.charCodeAt(0),
+                    typeValue.value.charCodeAt(0),
                     false // isSigned
                   );
                 case "u1":
                   return llvm.ConstantInt.get(
                     llvm.IntegerType.get(this.context, 1),
-                    parseInt(expr.value),
+                    parseInt(typeValue.value),
                     false // isSigned
                   );
                 case "i1":
                   return llvm.ConstantInt.get(
                     llvm.IntegerType.get(this.context, 1),
-                    parseInt(expr.value),
+                    parseInt(typeValue.value),
                     true // isSigned
                   );
                 case "u8":
                   return llvm.ConstantInt.get(
                     llvm.IntegerType.get(this.context, 8),
-                    parseInt(expr.value),
+                    parseInt(typeValue.value),
                     false // isSigned
                   );
                 case "i8":
                   return llvm.ConstantInt.get(
                     llvm.IntegerType.get(this.context, 8),
-                    parseInt(expr.value),
+                    parseInt(typeValue.value),
                     true // isSigned
                   );
                 case "u16":
                   return llvm.ConstantInt.get(
                     llvm.IntegerType.get(this.context, 16),
-                    parseInt(expr.value),
+                    parseInt(typeValue.value),
                     false // isSigned
                   );
                 case "i16":
                   return llvm.ConstantInt.get(
                     llvm.IntegerType.get(this.context, 16),
-                    parseInt(expr.value),
+                    parseInt(typeValue.value),
                     true // isSigned
                   );
                 case "u32":
                   return llvm.ConstantInt.get(
                     llvm.IntegerType.get(this.context, 32),
-                    parseInt(expr.value),
+                    parseInt(typeValue.value),
                     false // isSigned
                   );
                 case "i32":
                   return llvm.ConstantInt.get(
                     llvm.IntegerType.get(this.context, 32),
-                    parseInt(expr.value),
+                    parseInt(typeValue.value),
                     true // isSigned
                   );
                 case "u64":
                   return llvm.ConstantInt.get(
                     llvm.IntegerType.get(this.context, 64),
-                    parseInt(expr.value),
+                    parseInt(typeValue.value),
                     false // isSigned
                   );
                 case "i64":
                   return llvm.ConstantInt.get(
                     llvm.IntegerType.get(this.context, 64),
-                    parseInt(expr.value),
+                    parseInt(typeValue.value),
                     true // isSigned
                   );
                 case "u128":
                   return llvm.ConstantInt.get(
                     llvm.IntegerType.get(this.context, 128),
-                    parseInt(expr.value),
+                    parseInt(typeValue.value),
                     false // isSigned
                   );
                 case "i128":
                   return llvm.ConstantInt.get(
                     llvm.IntegerType.get(this.context, 128),
-                    parseInt(expr.value),
+                    parseInt(typeValue.value),
                     true // isSigned
                   );
                 case "f16":
                 case "f32": {
                   return llvm.ConstantFP.get(
                     llvm.Type.getFloatTy(this.context),
-                    parseFloat(expr.value)
+                    parseFloat(typeValue.value)
                   );
                 }
                 case "f64": {
                   return llvm.ConstantFP.get(
                     llvm.Type.getDoubleTy(this.context),
-                    parseFloat(expr.value)
+                    parseFloat(typeValue.value)
                   );
                 }
                 case "()":

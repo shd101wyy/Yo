@@ -1,6 +1,6 @@
 // Types
 
-import { Expr, synthesizeExprType } from "./ast";
+import { AstType, Expr, synthesizeExprType } from "./ast";
 import Environment from "./env";
 import { formatErrorMessage } from "./error";
 import { Token, TokenType } from "./token";
@@ -77,6 +77,34 @@ export type TF64 = {
   type: "f64";
 };
 
+// @"symbol"
+export type TSymbol = {
+  type: "symbol";
+  value: string;
+};
+
+export type TPrimitive = (
+  | TUnit
+  | TBoolean
+  | TChar
+  | TU1
+  | TI1
+  | TU8
+  | TI8
+  | TU16
+  | TI16
+  | TU32
+  | TI32
+  | TU64
+  | TI64
+  | TU128
+  | TI128
+  | TF16
+  | TF32
+  | TF64
+  | TSymbol
+) & { tag: "primitive"; value: string };
+
 export type TRecord = {
   type: "Record";
   properties: { name: string; type: Type }[];
@@ -133,12 +161,14 @@ export type Type =
   | TF16
   | TF32
   | TF64
+  | TSymbol
   | TRecord
   | TFunction
   | TUnion
   | TIntersection
   | TUnknown
-  | TSlice;
+  | TSlice
+  | TPrimitive;
 
 // Type constructors
 
@@ -404,11 +434,23 @@ export function synthesizeTypeFromTokens({
         break;
       }
       default: {
-        throw formatErrorMessage({
-          token: tokens[index],
-          errorMessage: `Unknown type ${tokens[index].value}`,
-          inputString,
-        });
+        // Check if it's a real value
+        const { expr, index: newIndex } = parseExpression(tokens, index, env);
+        if (
+          !expr ||
+          Array.isArray(expr) ||
+          expr.type !== AstType.Value ||
+          expr.tag !== "primitive"
+        ) {
+          throw formatErrorMessage({
+            token: tokens[index],
+            errorMessage: `Unknown type ${tokens[index].value}`,
+            inputString,
+          });
+        }
+
+        typeValue = expr.typeValue;
+        index = newIndex - 1;
       }
     }
     returnValue = {
@@ -776,6 +818,15 @@ export function isSubtype(a: Type, b: Type): boolean {
       }
     });
   } else {
+    // TPrimitive
+    if ("value" in b) {
+      if (!("value" in a)) {
+        return false;
+      } else {
+        return a.type === b.type && a.value === b.value;
+      }
+    }
+
     if (
       (isSignedIntegerType(a) && isSignedIntegerType(b)) ||
       (isUnsignedIntegerType(a) && isUnsignedIntegerType(b)) ||
@@ -813,6 +864,13 @@ export function isSubtype(a: Type, b: Type): boolean {
 }
 
 export function typeToString(type: Type): string {
+  if ("tag" in type) {
+    if (type.type === "symbol") {
+      return `@${JSON.stringify(type.value)}`;
+    }
+    return type.value;
+  }
+
   switch (type.type) {
     case "()": {
       return "()";
@@ -901,6 +959,8 @@ export function typeToString(type: Type): string {
 }
 
 export function checkType(expectedType: Type, givenType: Type): boolean {
+  console.log("checkType: ", expectedType, givenType);
+
   if (expectedType.type === givenType.type) {
     if (expectedType.type === "Record") {
       return checkRecordExactMatchType(expectedType, givenType);

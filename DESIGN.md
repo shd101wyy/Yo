@@ -309,35 +309,31 @@ Please use `enum` instead for union types to create tagged records.
 ## Enum (Tagged Union)
 
 ```typescript
-// Typed
-enum Option<T> {
-  Some(T),
-  None
-}
+type Option<T> =
+  | Some { v: T }
+  | None
 
 // This will translate to
 type Option<T> =
-  | {_t: "Some", 0: T}
+  | {_t: "Some", v: T}
   | {_t: "None"}
-const Option = {
-  Some: (v) => ({_t: "Some", 0: v}),
-  None: () => ({_t: "None"})
+function Some(v: T): Option<T> {
+  return {_t: "Some", v: v};
 }
-
-export {
-  Option
-};
+function None(): Option<T> {
+  return {_t: "None"};
+}
 
 const none: Option<i32> = None;
 const some: Option<i32> = Some(42);
 
 enum IpAddr {
-  V4(u8, u8, u8, u8),
-  V6(String)
+  V4 {v0: u8, v1: u8, v2: u8, v3: u8},
+  V6 {v: String}
 }
 
-const home = IpAddr.V4(127, 0, 0, 1);
-const loopback = IpAddr.V6(String.from("::1"))
+const home = V4(127, 0, 0, 1);
+const loopback = V6(String.from("::1"))
 ```
 
 ### Method

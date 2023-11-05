@@ -57,8 +57,11 @@ export default class Parser {
         expr: {
           type: AstType.Value,
           tag: "primitive",
-          typeValue: TypeValues.i32,
-          value: token.value,
+          typeValue: {
+            type: "i32",
+            value: token.value,
+            tag: "primitive",
+          },
         },
         index: index + 1,
         env,
@@ -68,8 +71,7 @@ export default class Parser {
         expr: {
           type: AstType.Value,
           tag: "primitive",
-          typeValue: TypeValues.f32,
-          value: token.value,
+          typeValue: { type: "f32", value: token.value, tag: "primitive" },
         },
         index: index + 1,
         env,
@@ -90,8 +92,7 @@ export default class Parser {
         expr: {
           type: AstType.Value,
           tag: "primitive",
-          typeValue: TypeValues.char,
-          value: token.value,
+          typeValue: { type: "char", value: token.value, tag: "primitive" },
         },
         index: index + 1,
         env,
@@ -111,8 +112,7 @@ export default class Parser {
       const end: PrimitiveValueExpr = {
         type: AstType.Value,
         tag: "primitive",
-        typeValue: TypeValues.char,
-        value: "\0",
+        typeValue: { type: "char", value: "\0", tag: "primitive" },
       };
       return {
         expr: {
@@ -129,8 +129,7 @@ export default class Parser {
               const charValue: PrimitiveValueExpr = {
                 type: AstType.Value,
                 tag: "primitive",
-                typeValue: TypeValues.char,
-                value: char,
+                typeValue: { type: "char", value: char, tag: "primitive" },
               };
               return charValue;
             })
@@ -141,6 +140,23 @@ export default class Parser {
       };
     } else {
       throw this.formatErrorMessage(token, "Expected string");
+    }
+  }
+
+  private parseSymbolExpr(tokens, index, env): ParserReturn {
+    const token = tokens[index];
+    if (token.type === TokenType.Symbol) {
+      return {
+        expr: {
+          type: AstType.Value,
+          tag: "primitive",
+          typeValue: { type: "symbol", value: token.value, tag: "primitive" },
+        },
+        index: index + 1,
+        env,
+      };
+    } else {
+      throw this.formatErrorMessage(token, "Expected symbol");
     }
   }
 
@@ -155,8 +171,7 @@ export default class Parser {
         expr: {
           type: AstType.Value,
           tag: "primitive",
-          typeValue: TypeValues.boolean,
-          value: token.value,
+          typeValue: { type: "boolean", value: token.value, tag: "primitive" },
         },
         index: index + 1,
         env,
@@ -519,8 +534,7 @@ export default class Parser {
         expr: {
           type: AstType.Value,
           tag: "primitive",
-          typeValue: TypeValues.unit,
-          value: "()",
+          typeValue: { type: "()", value: "()", tag: "primitive" },
         },
         index: index + 2,
         env,
@@ -724,6 +738,10 @@ export default class Parser {
       }
       case TokenType.String: {
         returnValue = this.parseStringExpr(tokens, index, env);
+        break;
+      }
+      case TokenType.Symbol: {
+        returnValue = this.parseSymbolExpr(tokens, index, env);
         break;
       }
       case TokenType.Boolean: {
@@ -963,8 +981,7 @@ export default class Parser {
       exprs.push({
         type: AstType.Value,
         tag: "primitive",
-        typeValue: TypeValues.unit,
-        value: "()",
+        typeValue: { type: "()", value: "()", tag: "primitive" },
       });
     }
 
@@ -1269,6 +1286,14 @@ Expected: ${typeToString(userDefinedVariableType)}
 Got:      ${typeToString(variableType)}`
         );
       }
+
+      // QUESTION: I am not sure if this is correct or not
+      // narrow Union type if necessary
+      /*
+      if (userDefinedVariableType.type === "Union") {
+        userDefinedVariableType = variableType;
+      }
+      */
 
       if (userDefinedVariableType.type === "slice") {
         let userType = userDefinedVariableType;

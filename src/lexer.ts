@@ -282,7 +282,7 @@ export function tokenize(input: string): Token[] {
         }
         break;
 
-      // string
+      // char
       case "'": {
         let value = "";
 
@@ -313,7 +313,7 @@ export function tokenize(input: string): Token[] {
 
         break;
       }
-
+      // string
       case '"': {
         let stringValue = "";
 
@@ -337,6 +337,30 @@ export function tokenize(input: string): Token[] {
           position: { line, character: i - totalCharacters },
         });
 
+        break;
+      }
+      // symbol @"Red"
+      case "@": {
+        if (input[i + 1] === '"') {
+          let value = "";
+
+          for (let j = i + 2; j < input.length; j++) {
+            if (input[j] === '"') {
+              i = j;
+              break;
+            }
+
+            value += input[j];
+          }
+
+          tokens.push({
+            type: TokenType.Symbol,
+            value,
+            position: { line, character: i - totalCharacters },
+          });
+        } else {
+          throw new Error(`Unexpected character ${char}`);
+        }
         break;
       }
 
@@ -423,6 +447,14 @@ export function tokenize(input: string): Token[] {
             case "false":
               tokens.push({
                 type: TokenType.Boolean,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            // string
+            case "char":
+              tokens.push({
+                type: TokenType.Char,
                 value,
                 position: { line, character: i - totalCharacters },
               });

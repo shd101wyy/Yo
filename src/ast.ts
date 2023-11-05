@@ -2,6 +2,7 @@ import Environment from "./env";
 import { Token, TokenType } from "./token";
 import {
   TFunction,
+  TPrimitive,
   TUnit,
   Type,
   TypeValues,
@@ -36,6 +37,9 @@ export enum AstType {
   FunctionPrototype = "function-prototype",
   Function = "function",
   CallFunction = "call-function",
+
+  // enum
+  Enum = "enum",
 
   // extern
   Extern = "extern",
@@ -93,8 +97,7 @@ export type SliceValueExpr = {
 export type PrimitiveValueExpr = {
   type: AstType.Value;
   tag: "primitive";
-  typeValue: Type;
-  value: string;
+  typeValue: TPrimitive;
 };
 
 export type ValueExpr = PrimitiveValueExpr | RecordValueExpr | SliceValueExpr;
