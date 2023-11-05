@@ -1,5 +1,6 @@
 // Types
 
+import { Expr, synthesizeExprType } from "./ast";
 import Environment from "./env";
 import { formatErrorMessage } from "./error";
 import { Token, TokenType } from "./token";
@@ -81,14 +82,15 @@ export type TRecord = {
   properties: { name: string; type: Type }[];
 };
 
-export type ParameterType = {
-  name?: string;
+export type TParameterType = {
+  name: string;
   type: Type;
+  defaultValue: Expr | null;
 };
 
 export type TFunction = {
   type: "Function";
-  parameterTypes: ParameterType[];
+  parameterTypes: TParameterType[];
   returnType: Type;
 };
 
@@ -159,7 +161,20 @@ export const TypeValues = {
   f16: { type: "f16" } as TF16,
   f32: { type: "f32" } as TF32,
   f64: { type: "f64" } as TF64,
+  unknown: { type: "unknown" } as TUnknown,
 };
+
+export type ParserReturn = {
+  expr: Expr | null;
+  index: number;
+  env: Environment;
+};
+
+type ParseExpression = (
+  tokens: Token[],
+  index: number,
+  env: Environment
+) => ParserReturn;
 
 export function isSignedIntegerType(type: Type): boolean {
   return (
@@ -189,12 +204,19 @@ export function isFloatType(type: Type): boolean {
 
 export type VariableTypes = { [key: string]: Type };
 
-export function synthesizeTypeFromTokens(
-  tokens: Token[],
-  index: number,
-  inputString: string,
-  env: Environment
-): { typeValue: Type; index: number } {
+export function synthesizeTypeFromTokens({
+  tokens,
+  index,
+  inputString,
+  env,
+  parseExpression,
+}: {
+  tokens: Token[];
+  index: number;
+  inputString: string;
+  env: Environment;
+  parseExpression: ParseExpression;
+}): { typeValue: Type; index: number } {
   let returnValue: {
     typeValue: Type;
     index: number;
@@ -211,20 +233,23 @@ export function synthesizeTypeFromTokens(
   // Check if it's anonymouse function
   else if (tokens[index].value === "(") {
     try {
-      returnValue = synthesizeFunctionTypeFromTokens(
+      returnValue = synthesizeFunctionTypeFromTokens({
         tokens,
         index,
         inputString,
-        env
-      );
+        env,
+        parseExpression,
+        withFunctionBody: false,
+      });
     } catch {
       // This means it's not a function type
-      const { typeValue, index: newIndex } = synthesizeTypeFromTokens(
+      const { typeValue, index: newIndex } = synthesizeTypeFromTokens({
         tokens,
-        index + 1,
+        index: index + 1,
         inputString,
-        env
-      );
+        env,
+        parseExpression,
+      });
       // Check if ')' is there
       if (tokens[newIndex].value === ")") {
         returnValue = {
@@ -274,10 +299,13 @@ export function synthesizeTypeFromTokens(
         if (tokens[index + 1].type === TokenType.Colon) {
           index = index + 2;
           const { typeValue: type, index: newIndex } = synthesizeTypeFromTokens(
-            tokens,
-            index,
-            inputString,
-            env
+            {
+              tokens,
+              index,
+              inputString,
+              env,
+              parseExpression,
+            }
           );
           typeValue.properties.push({ name, type });
           index = newIndex;
@@ -453,12 +481,13 @@ export function synthesizeTypeFromTokens(
   else if (nextTokenType === TokenType.BitwiseOr) {
     const index = returnValue.index + 1;
 
-    const newReturnValue = synthesizeTypeFromTokens(
+    const newReturnValue = synthesizeTypeFromTokens({
       tokens,
       index,
       inputString,
-      env
-    );
+      env,
+      parseExpression,
+    });
     if (newReturnValue.typeValue.type === "Union") {
       return {
         typeValue: {
@@ -490,12 +519,13 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
   } else if (nextTokenType === TokenType.BitwiseAnd) {
     const index = returnValue.index + 1;
 
-    const newReturnValue = synthesizeTypeFromTokens(
+    const newReturnValue = synthesizeTypeFromTokens({
       tokens,
       index,
       inputString,
-      env
-    );
+      env,
+      parseExpression,
+    });
     if (newReturnValue.typeValue.type === "Intersection") {
       return {
         typeValue: {
@@ -529,22 +559,37 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
   }
 }
 
-export function synthesizeFunctionTypeFromTokens(
-  tokens: Token[],
-  index: number,
-  inputString: string,
-  env: Environment
-): { typeValue: Type; index: number } {
+export function synthesizeFunctionTypeFromTokens({
+  tokens,
+  index,
+  inputString,
+  env,
+  parseExpression,
+  withFunctionBody,
+}: {
+  tokens: Token[];
+  index: number;
+  inputString: string;
+  env: Environment;
+  parseExpression: ParseExpression;
+  withFunctionBody: boolean;
+}): { typeValue: TFunction; index: number } {
   if (tokens[index].type !== TokenType.LParen) {
     throw formatErrorMessage({
       token: tokens[index],
-      errorMessage: "Expected '('",
+      errorMessage: "Expected '(' in function declaration",
       inputString,
     });
   }
 
-  const parameterTypes: ParameterType[] = [];
+  if (!withFunctionBody) {
+    env.pushFrame();
+  }
+
+  // Read the list of parameter names.
   index = index + 1;
+  const parameterTypes: TParameterType[] = [];
+  const parameterDefaultValues: (Expr | null)[] = [];
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const token = tokens[index];
@@ -555,64 +600,151 @@ export function synthesizeFunctionTypeFromTokens(
         inputString,
       });
     }
+    if (token.type === TokenType.Comma) {
+      index = index + 1;
+      continue;
+    }
     if (token.type === TokenType.RParen) {
       index = index + 1;
       break;
     }
-    if (token.type === TokenType.Identifier) {
-      const name = token.value;
-      if (tokens[index + 1].type === TokenType.Colon) {
-        index = index + 2;
-        const { typeValue: type, index: newIndex } = synthesizeTypeFromTokens(
-          tokens,
-          index,
-          inputString,
-          env
-        );
-        parameterTypes.push({ name, type });
-        index = newIndex;
 
-        if (tokens[index].type === TokenType.Comma) {
-          index = index + 1;
-        }
-      } else {
-        throw formatErrorMessage({
-          token,
-          errorMessage: "Expected ':'",
-          inputString,
-        });
-      }
-    } else {
+    // TODO: There might be the case that only the type is specified or pattern matching
+    if (token.type !== TokenType.Identifier) {
       throw formatErrorMessage({
         token,
-        errorMessage: "Expected identifier",
+        errorMessage: "Expected identifier as parameter name",
         inputString,
       });
     }
-  }
-  if (tokens[index].type === TokenType.LambdaArrow) {
-    index = index + 1;
-    const { typeValue: returnType, index: newIndex } = synthesizeTypeFromTokens(
-      tokens,
-      index,
-      inputString,
-      env
-    );
-    index = newIndex;
-    return {
-      typeValue: {
-        type: "Function",
-        parameterTypes,
-        returnType,
-      },
-      index: index,
-    };
-  } else {
-    throw formatErrorMessage({
-      token: tokens[index],
-      errorMessage: "Expected '->'",
-      inputString,
+    const parameterName = token.value;
+
+    // check type
+    let userDefinedParamterType: Type = TypeValues.unknown;
+    if (tokens[index + 1].type !== TokenType.Colon) {
+      index = index + 1;
+    } else {
+      index = index + 2;
+      const { typeValue: newParameterType, index: nextIndex } =
+        synthesizeTypeFromTokens({
+          tokens,
+          index,
+          inputString,
+          env,
+          parseExpression,
+        });
+      userDefinedParamterType = newParameterType;
+      index = nextIndex;
+    }
+
+    // check parameter default values
+    let defaultParameterValue: Expr | null = null;
+    if (tokens[index].type === TokenType.Assign) {
+      const { expr, index: nextNextIndex } = parseExpression(
+        tokens,
+        index + 1,
+        env
+      );
+
+      parameterDefaultValues.push(expr);
+      defaultParameterValue = expr;
+      index = nextNextIndex;
+
+      if (defaultParameterValue) {
+        // Check if the type of the default value is the same as the parameter type
+        const defaultValueType = synthesizeExprType(defaultParameterValue, env);
+        if (userDefinedParamterType.type === "unknown") {
+          userDefinedParamterType = defaultValueType;
+        } else {
+          if (!checkType(userDefinedParamterType, defaultValueType)) {
+            throw formatErrorMessage({
+              token: tokens[index],
+              errorMessage: `Mismatched paramter types for ${parameterName} 
+Expected: ${typeToString(userDefinedParamterType)}
+Got:      ${typeToString(defaultValueType)})}`,
+              inputString,
+            });
+          }
+        }
+      }
+    } else {
+      parameterDefaultValues.push(null);
+    }
+
+    // save to env
+    env.addValueType({
+      variableName: parameterName,
+      type: userDefinedParamterType,
     });
+
+    parameterTypes.push({
+      name: parameterName,
+      type: userDefinedParamterType,
+      defaultValue: defaultParameterValue,
+    });
+  }
+
+  if (!withFunctionBody) {
+    env.popFrame();
+
+    if (tokens[index].type === TokenType.LambdaArrow) {
+      index = index + 1;
+      const { typeValue: returnType, index: newIndex } =
+        synthesizeTypeFromTokens({
+          tokens,
+          index,
+          inputString,
+          env,
+          parseExpression,
+        });
+      index = newIndex;
+      return {
+        typeValue: {
+          type: "Function",
+          parameterTypes,
+          returnType,
+        },
+        index: index,
+      };
+    } else {
+      throw formatErrorMessage({
+        token: tokens[index],
+        errorMessage: "Expected '=>' for function return type",
+        inputString,
+      });
+    }
+  } else {
+    if (tokens[index].type === TokenType.Colon) {
+      index = index + 1;
+      const { typeValue: returnType, index: newIndex } =
+        synthesizeTypeFromTokens({
+          tokens,
+          index,
+          inputString,
+          env,
+          parseExpression,
+        });
+      index = newIndex;
+      return {
+        typeValue: {
+          type: "Function",
+          parameterTypes,
+          returnType,
+        },
+        index: index,
+      };
+    } else {
+      return {
+        typeValue: {
+          type: "Function",
+          parameterTypes,
+          returnType: {
+            type: "unknown",
+          },
+        },
+        index: index,
+      };
+    }
   }
 }
 
@@ -670,7 +802,7 @@ export function isSubtype(a: Type, b: Type): boolean {
       throw new Error("Intersection type is not supported yet");
     } else if (a.type === "slice" && b.type === "slice") {
       if (a.size !== undefined && b.size !== undefined) {
-        return a.size >= b.size && isSubtype(a.elementType, b.elementType);
+        return a.size <= b.size && isSubtype(a.elementType, b.elementType);
       } else {
         return isSubtype(a.elementType, b.elementType);
       }

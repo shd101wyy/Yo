@@ -2,7 +2,7 @@
 
 **Mo** (墨) is functional, general-purpose, compiled programming language that compiles to LLVM IR and WASM.
 
-The **Mo** language is heavily inspired by [TypeScript](https://www.typescriptlang.org/), [Rust](https://www.rust-lang.org/), [Koka](https://koka-lang.github.io/), and [Haskell](https://www.haskell.org/).
+The **Mo** language is heavily inspired by [TypeScript](https://www.typescriptlang.org/), [Rust](https://www.rust-lang.org/), [Koka](https://koka-lang.github.io/), [Python](https://python.org/), and [Haskell](https://www.haskell.org/).
 
 The **Mo** language has a minimal syntax design that looks like TypeScript. **Mo** is strong typed with a robust bidrectional type checker, combined with algebraic effects and an efficient type system. **Mo** has no garbage collector ([Perceus: Garbage Free Reference Counting with Reuse](https://www.microsoft.com/en-us/research/uploads/prod/2020/11/perceus-tr-v1.pdf)).
 
@@ -43,6 +43,7 @@ Please note that **Mo** language is **immutable** by default, and it is not a go
   - [With syntax](#with-syntax)
   - [Effect handler](#effect-handler)
   - [Modules](#modules)
+  - [Special attributes](#special-attributes)
   - [References](#references)
 
 <!-- /code_chunk_output -->
@@ -118,17 +119,23 @@ const myMap: Map<string, int> = Map.from([
 
 ```typescript
 function add(x: i32, y: i32): i32 {
-  return x + y;
+  x + y
 }
+
+// Default parameter values
+function add(x: i32 = 1, y: i32 = 2): i32 {
+  x + y
+}
+
 
 // Arrow function
 const add = (x: i32, y: i32): i32 => {
-  return x + y;
+  x + y
 };
 
 // Generic function
 function identity<T>(arg: T): T {
-  return arg;
+  arg
 }
 
 // Effectful function

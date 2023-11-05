@@ -46,27 +46,21 @@ function max(x: i32, y: i32): i32 {
 
 code = `
 extern printlnd(x: i32): i32;
-type Point = {
-  x: i32,
-  y: i32
-}
-function main(): i32 {
-  const xArr: Point[] = [{x: 1234, y: 2}, {x: 5, y: 3}];
-  printlnd(xArr[0].x + xArr[1].y)
-  0
+function add(x = 1, y = 2) {
+  x + y
 }
 `
 
 const codeGenerator = new CodeGenerator(code);
 
-const ir = codeGenerator.getLlvmIr();
-console.log(ir);
+//// const ir = codeGenerator.getLlvmIr();
+//// console.log(ir);
 
 // write ir to "test.ll" file
-writeFileSync("test.ll", ir);
+//// writeFileSync("test.ll", ir);
 
 // Run "clang ./src/lib.c test.ll -o test"
 // Run "./test"
 // Run "echo $?" to see the return value
-spawnSync("clang", ["./src/lib.c", "test.ll", "-o", "test"], {stdio: "inherit"});
+//// spawnSync("clang", ["./src/lib.c", "test.ll", "-o", "test"], {stdio: "inherit"});
 //// spawnSync("./test", [], {stdio: "inherit"});

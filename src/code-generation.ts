@@ -186,14 +186,8 @@ export class CodeGenerator {
     );
     for (let i = 0; i < func.arg_size(); i++) {
       const arg = func.getArg(i);
-      const parameterNameExpr = prototype.functionParameters[i];
-      if (Array.isArray(parameterNameExpr)) {
-        throw new Error(`Parameter name is not a string`);
-      }
-      if (parameterNameExpr.type !== AstType.Variable) {
-        throw new Error(`Parameter name is not a variable`);
-      }
-      const parameterName = parameterNameExpr.name;
+      const parameterType = prototype.typeValue.parameterTypes[i];
+      const parameterName = parameterType.name;
       arg.setName(parameterName);
     }
     return func;
@@ -612,14 +606,8 @@ export class CodeGenerator {
           };
           for (let i = 0; i < theFunction.arg_size(); i++) {
             const arg = theFunction.getArg(i);
-            const parameterNameExpr = expr.prototype.functionParameters[i];
-            if (Array.isArray(parameterNameExpr)) {
-              throw new Error(`Parameter name is not a string`);
-            }
-            if (parameterNameExpr.type !== AstType.Variable) {
-              throw new Error(`Parameter name is not a variable`);
-            }
-            const parameterName = parameterNameExpr.name;
+            const parameterType = expr.prototype.typeValue.parameterTypes[i];
+            const parameterName = parameterType.name;
             newNamedValues[parameterName] = arg;
           }
 

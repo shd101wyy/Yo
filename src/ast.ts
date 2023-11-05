@@ -160,7 +160,6 @@ export type FunctionPrototype = {
   type: AstType.FunctionPrototype;
   functionId: string; // This is used for function overloading
   functionName?: string; // If not set, it's an anonymous function
-  functionParameters: Expr[]; // IdentifierExpr[] | TODO: For future pattern matching
   typeValue: TFunction;
 };
 
@@ -331,7 +330,6 @@ export function getFunctionFromEnv(
   env: Environment
 ) {
   const functionsInEnv = env.getValueTypesByVariableName(functionName);
-  console.log("getFunctionFromEnv: ", JSON.stringify(env), functionName);
   if (functionsInEnv.length === 0) {
     throw new Error(`Cannot find function ${functionName}`);
   } else {
