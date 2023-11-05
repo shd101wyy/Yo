@@ -80,7 +80,6 @@ export type TF64 = {
 // @"symbol"
 export type TSymbol = {
   type: "symbol";
-  value: string;
 };
 
 export type TPrimitive = (
@@ -431,6 +430,10 @@ export function synthesizeTypeFromTokens({
       }
       case "f64": {
         typeValue = TypeValues.f64;
+        break;
+      }
+      case "symbol": {
+        typeValue = { type: "symbol" };
         break;
       }
       default: {
@@ -925,6 +928,9 @@ export function typeToString(type: Type): string {
     }
     case "f64": {
       return "f64";
+    }
+    case "symbol": {
+      return "symbol";
     }
     case "Record": {
       return `{ ${type.properties

@@ -25,3 +25,9 @@ int printlnd(int x)
     printf("%d\n", x);
     return 0;
 }
+
+int printlnsymbol(char* x) 
+{
+    printf("%s\n", x);
+    return 0;
+}

@@ -1,5 +1,5 @@
 import llvm, { LLVMContext } from "llvm-bindings";
-import { AstType, Expr, FunctionPrototype } from "./ast";
+import { AstType, Expr, FunctionPrototype, OperatorType } from "./ast";
 import { tokenize } from "./lexer";
 import Parser from "./parser";
 import { Token } from "./token";
@@ -82,6 +82,10 @@ export class CodeGenerator {
       }
       case "char": {
         return this.builder.getInt8Ty();
+      }
+      case "symbol": {
+        // global string
+        return llvm.PointerType.get(llvm.IntegerType.get(this.context, 8), 0);
       }
 
       // case "string": {
@@ -416,6 +420,21 @@ export class CodeGenerator {
                     parseFloat(typeValue.value)
                   );
                 }
+                case "symbol": {
+                  /*
+                  // Generate global string
+                  const stringConstant = llvm.ConstantDataArray.getString(
+                    this.context,
+                    typeValue.value
+                  );
+                  */
+                  // Create pointer to it
+                  const stringPtr = this.builder.CreateGlobalStringPtr(
+                    typeValue.value,
+                    "string"
+                  );
+                  return stringPtr;
+                }
                 case "()":
                   return this.unit;
                 default:
@@ -518,8 +537,22 @@ export class CodeGenerator {
         case AstType.BinaryOperator: {
           const lhs = this.codegenExpr(expr.left, namedValues);
           const rhs = this.codegenExpr(expr.right, namedValues);
+
+          // TODO: Better logic
+          if (
+            !Array.isArray(expr.left) &&
+            !Array.isArray(expr.right) &&
+            expr.left.typeValue.type === "symbol" &&
+            expr.right.typeValue.type === "symbol"
+          ) {
+            if (expr.operator === OperatorType.Equal) {
+              return this.builder.CreateICmpEQ(lhs, rhs); // 1 means equal
+            }
+          }
+
           const binopType = this.getBinOpType(lhs, rhs);
           switch (expr.operator) {
+            // TODO: Support operator overloading
             case "+":
               if (binopType === "double") {
                 return this.builder.CreateFAdd(lhs, rhs);
