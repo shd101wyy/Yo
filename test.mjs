@@ -49,6 +49,9 @@ extern printlnd(x: i32): i32;
 function add(x = 1, y = 2) {
   x + y
 }
+function main() {
+  add(y = 4, x = 2)
+}
 `
 
 const codeGenerator = new CodeGenerator(code);

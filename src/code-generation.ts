@@ -646,15 +646,7 @@ export class CodeGenerator {
             throw new Error(`Function ${functionName} not found`);
           }
 
-          // Check if argument mismatch
-          // TODO: Verify argument types
-          if (func.arg_size() !== expr.functionArguments.length) {
-            throw new Error(
-              `Function ${functionName} argument mismatch: expected ${func.arg_size()}, got ${
-                expr.functionArguments.length
-              }`
-            );
-          }
+          // NOTE: Function argument types check is done in the parser.ts stage.
           const args = expr.functionArguments.map((arg) => {
             return this.codegenExpr(arg, namedValues);
           });

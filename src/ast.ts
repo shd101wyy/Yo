@@ -5,7 +5,6 @@ import {
   TUnit,
   Type,
   TypeValues,
-  checkType,
   typeToString,
 } from "./type-checker";
 
@@ -324,6 +323,53 @@ export function synthesizeRecordType(
   };
 }
 
+/**
+ * Get the real functionArgumentsInOrder by matching the functionArguments with the functionType
+ * If not match, then return null
+ * @param functionArguments
+ * @param functionType
+ * @returns
+ */
+export function getFunctionArgumentsInOrder(
+  functionArguments: Expr[],
+  functionType: TFunction
+): Expr[] | null {
+  const functionArgumentsInOrder: (Expr | null)[] =
+    functionType.parameterTypes.map((pt) => pt.defaultValue);
+  const functionParameterTypes = functionType.parameterTypes;
+
+  for (let i = 0; i < functionArguments.length; i++) {
+    const argument = functionArguments[i];
+    if (Array.isArray(argument)) {
+      return null;
+    }
+
+    // Keyword argument
+    if (argument.type === AstType.ConstantAssigment) {
+      const keyword = argument.variableName;
+      const value = argument.right;
+      const argumentPositionIndex = functionParameterTypes.findIndex(
+        (pt) => pt.name === keyword
+      );
+      if (argumentPositionIndex < 0) {
+        return null;
+      } else {
+        functionArgumentsInOrder[argumentPositionIndex] = value;
+      }
+    } else {
+      // Positional argument
+      functionArgumentsInOrder[i] = argument;
+    }
+  }
+
+  // If functionArgumentsInOrder has any null, then it's not a match
+  if (functionArgumentsInOrder.some((arg) => arg === null)) {
+    return null;
+  } else {
+    return functionArgumentsInOrder as Expr[];
+  }
+}
+
 export function getFunctionFromEnv(
   functionName: string,
   functionArguments: Expr[],
@@ -338,19 +384,12 @@ export function getFunctionFromEnv(
       if (functionInEnv.type.type !== "Function") {
         return false;
       }
-      if (
-        functionInEnv.type.parameterTypes.length !== functionArguments.length
-      ) {
-        return false;
-      }
-      for (let i = 0; i < functionInEnv.type.parameterTypes.length; i++) {
-        const parameterType = functionInEnv.type.parameterTypes[i].type;
-        const argumentType = synthesizeExprType(functionArguments[i], env);
-        if (!checkType(parameterType, argumentType)) {
-          return false;
-        }
-      }
-      return true;
+
+      const functionArgumentsInOrder = getFunctionArgumentsInOrder(
+        functionArguments,
+        functionInEnv.type
+      );
+      return !!functionArgumentsInOrder;
     });
     if (matchedFunctions.length > 1) {
       throw new Error(

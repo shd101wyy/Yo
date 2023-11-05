@@ -10,6 +10,7 @@ import {
   FunctionExpr,
   FunctionPrototype,
   PrimitiveValueExpr,
+  getFunctionArgumentsInOrder,
   getFunctionFromEnv,
   getTokenPrecedence,
   synthesizeExprType,
@@ -659,21 +660,30 @@ export default class Parser {
         nextIndex = index + 1;
       }
 
-      console.log("functionName: ", functionName);
-      console.log("functionArguments: ", functionArguments);
-
       const functionBeingCalled = getFunctionFromEnv(
         functionName,
         functionArguments,
         env
       );
       const functionType = functionBeingCalled.type as TFunction;
+      const functionArgumentsInOrder = getFunctionArgumentsInOrder(
+        functionArguments,
+        functionType
+      );
+
+      if (!functionArgumentsInOrder) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Mismatched function arguments`
+        );
+      }
+
       return {
         expr: {
           type: AstType.CallFunction,
           functionId: functionBeingCalled.id,
           functionName,
-          functionArguments,
+          functionArguments: functionArgumentsInOrder,
           typeValue: functionType.returnType,
         },
         index: nextIndex,
