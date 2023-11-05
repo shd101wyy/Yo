@@ -291,48 +291,36 @@ type Language = Lang<{ year: i32 }>;
 type Language = { language: string; year: i32 };
 ```
 
-Please note `|` is the union type, which only allows the record types, not primitive types.  
-Please use `enum` instead for union types to create tagged records.
-
-> This is wrong. Should use `enum` instead for union types.
->
-> ```typescript
-> type Option<T> = Some(T) | None;
->
-> // is equal to
->
-> type Option<T> =
->   | {_t: "Some", 0: T}
->   | {_t: "None"}
-> ```
-
 ## Enum (Tagged Union)
 
 ```typescript
-type Option<T> =
-  | Some { v: T }
-  | None
+enum Option<T> {
+  Some(v: T),
+  None
+}
 
 // This will translate to
 type Option<T> =
-  | {_t: "Some", v: T}
-  | {_t: "None"}
+  | {_t: @"Some", v: T}
+  | {_t: @"None"}
 function Some(v: T): Option<T> {
-  return {_t: "Some", v: v};
+  return {_t: @"Some", v: v};
 }
 function None(): Option<T> {
-  return {_t: "None"};
+  return {_t: @"None"};
 }
 
 const none: Option<i32> = None;
 const some: Option<i32> = Some(42);
 
 enum IpAddr {
-  V4 {v0: u8, v1: u8, v2: u8, v3: u8},
-  V6 {v: String}
+  V4(v0: u8 = 255, v1: u8 = 255, v2: u8 = 255, v3: u8 = 255),
+  V6(v: String)
 }
 
+
 const home = V4(127, 0, 0, 1);
+const anotherHome = V4(v3 = 200);
 const loopback = V6(String.from("::1"))
 ```
 
@@ -423,15 +411,15 @@ enum Coin {
 // - https://github.com/tc39/proposal-pattern-matching
 function valueInCents(coin: Coin): u8 {
   switch (coin) {
-    case Coin.Penny: {
+    case Penny: {
       console.log("Lucky penny!");
       return 1;
     }
-    case Coin.Nickel:
+    case Nickel:
       return 5;
-    case Coin.Dime:
+    case Dime:
       return 10;
-    case Coin.Quarter:
+    case Quarter:
       return 25;
     default:
       throw Error({

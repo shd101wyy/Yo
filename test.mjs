@@ -42,18 +42,20 @@ function max(x: i32, y: i32): i32 {
     y
   }
 }
-`
 
-code = `
-extern printlnd(x: boolean): i32;
-type Color = @"Red" | @"Green" | @"Blue";
 function main() {
-  const x: Color = @"Red";
-  const y: Color = @"Green";
-  printlnd(x == x);
-  0
+  max(3, 4)
 }
 `
+
+/*
+code = `
+enum Person {
+  Child(age:i32 = 10),
+  Adult(age:i32, height:i32)
+}
+`
+*/
 
 const codeGenerator = new CodeGenerator(code);
 

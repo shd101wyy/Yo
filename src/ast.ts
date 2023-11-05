@@ -46,6 +46,9 @@ export enum AstType {
 
   // control flow
   If = "if",
+
+  // ignore
+  Ignore = "ignore",
 }
 
 export enum OperatorType {
@@ -76,9 +79,15 @@ export type Expr =
   | IndexAccessExpr
   | ValueExpr
   | CallFunctionExpr
-  | IfExpr;
+  | IfExpr
+  | IgnoreExpr;
 
 export type TopLevelExpr = Expr | FunctionExpr;
+
+export type IgnoreExpr = {
+  type: AstType.Ignore;
+  typeValue: TUnit;
+};
 
 export type RecordValueExpr = {
   type: AstType.Value;

@@ -194,7 +194,7 @@ export const TypeValues = {
 };
 
 export type ParserReturn = {
-  expr: Expr | null;
+  expr: Expr;
   index: number;
   env: Environment;
 };
@@ -250,6 +250,16 @@ export function synthesizeTypeFromTokens({
     typeValue: Type;
     index: number;
   } | null = null;
+
+  if (tokens[index].type === TokenType.BitwiseOr) {
+    return synthesizeTypeFromTokens({
+      tokens,
+      index: index + 1,
+      inputString,
+      env,
+      parseExpression,
+    });
+  }
 
   // Check if it's unit
   if (tokens[index].value === "(" && tokens[index + 1].value === ")") {
@@ -604,7 +614,10 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
   }
 }
 
-export function synthesizeFunctionTypeFromTokens({
+/**
+ * Synthesize parameter types (aka row types)
+ */
+export function synthesizeFunctionParameterTypesFromTokens({
   tokens,
   index,
   inputString,
@@ -618,11 +631,11 @@ export function synthesizeFunctionTypeFromTokens({
   env: Environment;
   parseExpression: ParseExpression;
   withFunctionBody: boolean;
-}): { typeValue: TFunction; index: number } {
+}): { parameterTypes: TParameterType[]; index: number } {
   if (tokens[index].type !== TokenType.LParen) {
     throw formatErrorMessage({
       token: tokens[index],
-      errorMessage: "Expected '(' in function declaration",
+      errorMessage: "Expected '(' in row types declaration",
       inputString,
     });
   }
@@ -705,8 +718,8 @@ export function synthesizeFunctionTypeFromTokens({
             throw formatErrorMessage({
               token: tokens[index],
               errorMessage: `Mismatched paramter types for ${parameterName} 
-Expected: ${typeToString(userDefinedParamterType)}
-Got:      ${typeToString(defaultValueType)})}`,
+  Expected: ${typeToString(userDefinedParamterType)}
+  Got:      ${typeToString(defaultValueType)})}`,
               inputString,
             });
           }
@@ -731,7 +744,46 @@ Got:      ${typeToString(defaultValueType)})}`,
 
   if (!withFunctionBody) {
     env.popFrame();
+  }
 
+  return { parameterTypes, index };
+}
+
+export function synthesizeFunctionTypeFromTokens({
+  tokens,
+  index,
+  inputString,
+  env,
+  parseExpression,
+  withFunctionBody,
+}: {
+  tokens: Token[];
+  index: number;
+  inputString: string;
+  env: Environment;
+  parseExpression: ParseExpression;
+  withFunctionBody: boolean;
+}): { typeValue: TFunction; index: number } {
+  if (tokens[index].type !== TokenType.LParen) {
+    throw formatErrorMessage({
+      token: tokens[index],
+      errorMessage: "Expected '(' in function declaration",
+      inputString,
+    });
+  }
+
+  const { parameterTypes, index: nextIndex } =
+    synthesizeFunctionParameterTypesFromTokens({
+      tokens,
+      index,
+      inputString,
+      env,
+      parseExpression,
+      withFunctionBody,
+    });
+  index = nextIndex;
+
+  if (!withFunctionBody) {
     if (tokens[index].type === TokenType.LambdaArrow) {
       index = index + 1;
       const { typeValue: returnType, index: newIndex } =
@@ -965,8 +1017,6 @@ export function typeToString(type: Type): string {
 }
 
 export function checkType(expectedType: Type, givenType: Type): boolean {
-  console.log("checkType: ", expectedType, givenType);
-
   if (expectedType.type === givenType.type) {
     if (expectedType.type === "Record") {
       return checkRecordExactMatchType(expectedType, givenType);

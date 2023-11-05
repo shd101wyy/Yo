@@ -472,46 +472,54 @@ export default class Parser {
     env: Environment
   ): ParserReturn {
     if (tokens[index].type !== TokenType.LParen) {
-      return { expr: null, index, env };
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected left paren for anonymous function"
+      );
     }
 
     // parse prototype
     env.pushFrame();
-    const {
-      prototype,
-      index: nextIndex,
-      env: newVariableTypes,
-    } = this.parsePrototype({
-      tokens,
-      index,
-      env,
-      requireFunctionName: false,
-      withFunctionBody: true,
-    });
-    if (!prototype) {
-      return { expr: null, index, env };
+    try {
+      const {
+        prototype,
+        index: nextIndex,
+        env: newVariableTypes,
+      } = this.parsePrototype({
+        tokens,
+        index,
+        env,
+        requireFunctionName: false,
+        withFunctionBody: true,
+      });
+      if (!prototype) {
+        throw new Error("Failed to parse prototype");
+      }
+
+      // check if current token is `=>`
+      if (tokens[nextIndex].type !== TokenType.LambdaArrow) {
+        throw new Error("Expected `=>` for anonymous function");
+      }
+
+      // parse body
+      const { exprs: body, index: nextNextIndex } = this.parseBlockExpressions(
+        tokens,
+        nextIndex + 1,
+        newVariableTypes
+      );
+
+      const functionExpr: FunctionExpr = {
+        type: AstType.Function,
+        prototype,
+        typeValue: prototype.typeValue,
+        body,
+      };
+      env.popFrame();
+      return { expr: functionExpr, index: nextNextIndex, env };
+    } catch (error) {
+      env.popFrame();
+      throw error;
     }
-
-    // check if current token is `=>`
-    if (tokens[nextIndex].type !== TokenType.LambdaArrow) {
-      return { expr: null, index, env };
-    }
-
-    // parse body
-    const { exprs: body, index: nextNextIndex } = this.parseBlockExpressions(
-      tokens,
-      nextIndex + 1,
-      newVariableTypes
-    );
-
-    const functionExpr: FunctionExpr = {
-      type: AstType.Function,
-      prototype,
-      typeValue: prototype.typeValue,
-      body,
-    };
-    env.popFrame();
-    return { expr: functionExpr, index: nextNextIndex, env };
   }
 
   /**
@@ -768,7 +776,11 @@ export default class Parser {
         return this.parseConstAssignment(tokens, index, env);
       }
       case TokenType.Semicolon: {
-        return { expr: null, index: index + 1, env };
+        return {
+          expr: { type: AstType.Ignore, typeValue: TypeValues.unit },
+          index: index + 1,
+          env,
+        };
       }
       default: {
         throw this.formatErrorMessage(
@@ -1020,7 +1032,11 @@ export default class Parser {
     });
     if (!prototype) {
       env.popFrame();
-      return { expr: null, index: nextIndex, env };
+      return {
+        expr: { type: AstType.Ignore, typeValue: TypeValues.unit },
+        index: nextIndex,
+        env,
+      };
     } else {
       index = nextIndex;
       env.addValueType(
@@ -1092,7 +1108,11 @@ Returned:  ${typeToString(functionReturnType)}`
     });
     env.popFrame();
     if (!prototype) {
-      return { expr: null, index: nextIndex, env };
+      return {
+        expr: { type: AstType.Ignore, typeValue: TypeValues.unit },
+        index: nextIndex,
+        env,
+      };
     } else {
       index = nextIndex;
       env.addValueType({
@@ -1141,6 +1161,8 @@ Returned:  ${typeToString(functionReturnType)}`
     }
     index = nextIndex;
 
+    console.log("- here2: ", JSON.stringify(env));
+
     // parse then
     if (tokens[index].type !== TokenType.LCurlyBracket) {
       throw this.formatErrorMessage(
@@ -1154,6 +1176,13 @@ Returned:  ${typeToString(functionReturnType)}`
       returnType: thenReturnType,
     } = this.parseBlockExpressions(tokens, index, env);
     index = nextNextIndex;
+
+    console.log("- here3:", JSON.stringify(env));
+    console.log(
+      "then returnValue: ",
+      JSON.stringify(then),
+      typeToString(thenReturnType)
+    );
 
     // parse else
     const elseExpr: Expr[] = [];
@@ -1264,7 +1293,11 @@ else: ${typeToString(elseReturnType)}
       env
     );
     if (!value) {
-      return { expr: null, index: nextNextIndex, env };
+      return {
+        expr: { type: AstType.Ignore, typeValue: TypeValues.unit },
+        index: nextNextIndex,
+        env,
+      };
     }
     index = nextNextIndex;
 
@@ -1480,6 +1513,8 @@ Got:      ${typeToString(variableType)}`
         }
       }
     }
-    return exprs;
+    return exprs.filter(
+      (expr) => !Array.isArray(expr) && expr.type !== AstType.Ignore
+    );
   }
 }
