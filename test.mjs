@@ -77,6 +77,32 @@ function main() {
 }
 `
 
+
+code = `
+function main() {
+  const x = 1;
+  const f = (y: i32)=> {
+    x + y
+  };
+  f(2)
+}
+`
+
+code = `
+function test() {
+  const x = 12;
+  ()=> {
+    x
+  }
+}
+function main() {
+  const f = test()
+  f()
+}
+`
+
+
+
 const codeGenerator = new CodeGenerator(code);
 
 const ir = codeGenerator.getLlvmIr();

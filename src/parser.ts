@@ -543,6 +543,8 @@ Returned:  ${typeToString(returnType)}`
         );
       }
 
+      prototype.typeValue.freeVariables = env.freeVariables;
+
       const functionExpr: FunctionExpr = {
         type: AstType.Function,
         prototype,
@@ -772,6 +774,7 @@ Returned:  ${typeToString(returnType)}`
           functionId: functionType.id,
           functionName,
           functionArguments: functionArgumentsInOrder,
+          functionFreeVariables: functionType.freeVariables,
           typeValue: functionType.returnType,
         },
         index: nextIndex,
@@ -859,7 +862,7 @@ Returned:  ${typeToString(returnType)}`
     {
       while (true) {
         if (
-          tokens[returnValue.index].type === TokenType.Dot &&
+          tokens[returnValue.index]?.type === TokenType.Dot &&
           returnValue.expr
         ) {
           // parsePropertyAccessExpr
@@ -870,7 +873,7 @@ Returned:  ${typeToString(returnType)}`
             returnValue.env
           );
         } else if (
-          tokens[returnValue.index].type === TokenType.LBracket &&
+          tokens[returnValue.index]?.type === TokenType.LBracket &&
           returnValue.expr
         ) {
           // parseIndexAccessExpr
@@ -1559,6 +1562,19 @@ Got:      ${typeToString(variableType)}`
         case TokenType.Semicolon: {
           // ignore top-level semicolons.
           index = index + 1;
+          break;
+        }
+        case TokenType.Const: {
+          const {
+            expr,
+            index: nextIndex,
+            env: nextEnv,
+          } = this.parseConstAssignment(tokens, index, env);
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = nextEnv;
           break;
         }
         case TokenType.Function: {

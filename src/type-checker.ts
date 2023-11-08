@@ -3,6 +3,7 @@
 import { AstType, Expr, synthesizeExprType } from "./ast";
 import {
   Environment,
+  ValueType,
   addEnvValueType,
   getEnvValueTypesByVariableName,
   getEnvVariableId,
@@ -127,6 +128,7 @@ export type TFunction = {
   id: string;
   parameterTypes: TParameterType[];
   returnType: Type;
+  freeVariables: ValueType[];
 };
 
 export type TUnion = {
@@ -851,6 +853,7 @@ export function synthesizeFunctionTypeFromTokens({
           id: getEnvVariableId(functionName ?? "lambda"),
           parameterTypes,
           returnType,
+          freeVariables: [],
         },
         index,
         env,
@@ -884,6 +887,7 @@ export function synthesizeFunctionTypeFromTokens({
           id: getEnvVariableId(functionName ?? "lambda"),
           parameterTypes,
           returnType,
+          freeVariables: [],
         },
         index,
         env,
@@ -897,6 +901,7 @@ export function synthesizeFunctionTypeFromTokens({
           returnType: {
             type: "unknown",
           },
+          freeVariables: [],
         },
         index,
         env,

@@ -199,6 +199,7 @@ export type CallFunctionExpr = {
   functionId: string; // This is used for finding the function by id. Check `FunctionPrototype` above.
   functionName: string;
   functionArguments: Expr[];
+  functionFreeVariables: ValueType[];
   typeValue: Type;
 };
 

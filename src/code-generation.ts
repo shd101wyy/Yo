@@ -135,6 +135,18 @@ export class CodeGenerator {
         // Return pointer to record struct
         return llvm.PointerType.get(recordType, 0);
       }
+      case "Function": {
+        const freeVariables = typeExpr.freeVariables;
+        // Create a record type for the function
+        const recordType = llvm.StructType.get(
+          this.context,
+          freeVariables.map((variable) => {
+            return this.getLlvmType(variable.type);
+          })
+        );
+        // Return pointer to record struct
+        return llvm.PointerType.get(recordType, 0);
+      }
       case "()": {
         return this.unit.getType();
       }
@@ -177,6 +189,17 @@ export class CodeGenerator {
     const paramTypes = prototype.typeValue.parameterTypes.map((param) => {
       return this.getLlvmType(param.type);
     });
+
+    console.log("- prototype.typeValue: ", JSON.stringify(prototype.typeValue));
+    if (prototype.typeValue.freeVariables.length > 0) {
+      // Add free variables as parameters
+      for (let i = 0; i < prototype.typeValue.freeVariables.length; i++) {
+        const freeVariable = prototype.typeValue.freeVariables[i];
+        const freeVariableType = this.getLlvmType(freeVariable.type);
+        paramTypes.push(freeVariableType);
+      }
+    }
+
     const functionType = llvm.FunctionType.get(
       returnType,
       paramTypes,
@@ -191,9 +214,20 @@ export class CodeGenerator {
     );
     for (let i = 0; i < func.arg_size(); i++) {
       const arg = func.getArg(i);
-      const parameterType = prototype.typeValue.parameterTypes[i];
-      const parameterName = parameterType.name;
-      arg.setName(parameterName);
+      if (i >= prototype.typeValue.parameterTypes.length) {
+        // Free variables
+        const freeVariable =
+          prototype.typeValue.freeVariables[
+            i - prototype.typeValue.parameterTypes.length
+          ];
+        const freeVariableName = freeVariable.variableName;
+        arg.setName(freeVariableName);
+      } else {
+        // Function parameters
+        const parameterType = prototype.typeValue.parameterTypes[i];
+        const parameterName = parameterType.name;
+        arg.setName(parameterName);
+      }
     }
     return func;
   }
@@ -622,7 +656,7 @@ export class CodeGenerator {
           */
 
           console.log(
-            "- codegen for function: ",
+            "= codegen for function: ",
             expr.prototype.functionName,
             expr.prototype.typeValue.id
           );
@@ -638,6 +672,10 @@ export class CodeGenerator {
               `Function ${expr.prototype.functionName} with id "${expr.prototype.typeValue.id}" not found`
             );
           }
+          console.log(
+            "- done codegen prototype: ",
+            expr.prototype.typeValue.id
+          );
 
           const currentBasicBlock = this.builder.GetInsertBlock();
           const entryBB = llvm.BasicBlock.Create(
@@ -651,11 +689,22 @@ export class CodeGenerator {
           const newNamedValues: { [key: string]: llvm.Value } = {
             ...namedValues,
           };
+          console.log("- function arg_size(): ", theFunction.arg_size());
           for (let i = 0; i < theFunction.arg_size(); i++) {
             const arg = theFunction.getArg(i);
-            const parameterType = expr.prototype.typeValue.parameterTypes[i];
-            const parameterName = parameterType.name;
-            newNamedValues[parameterName] = arg;
+            if (i >= expr.prototype.typeValue.parameterTypes.length) {
+              // Free variables
+              const freeVariable =
+                expr.prototype.typeValue.freeVariables[
+                  i - expr.prototype.typeValue.parameterTypes.length
+                ];
+              const freeVariableName = freeVariable.variableName;
+              newNamedValues[freeVariableName] = arg;
+            } else {
+              const parameterType = expr.prototype.typeValue.parameterTypes[i];
+              const parameterName = parameterType.name;
+              newNamedValues[parameterName] = arg;
+            }
           }
 
           const returnVal = this.codegenExpr(expr.body, newNamedValues);
@@ -677,6 +726,48 @@ export class CodeGenerator {
             );
           }
 
+          // Return the free variables record
+          const freeVariables = expr.prototype.typeValue.freeVariables;
+          if (freeVariables.length > 0) {
+            const recordType = llvm.StructType.get(
+              this.context,
+              freeVariables.map((variable) => {
+                return this.getLlvmType(variable.type);
+              })
+            );
+            const freeVariablesRecord = this.builder.CreateAlloca(recordType);
+            for (let i = 0; i < freeVariables.length; i++) {
+              const freeVariable = freeVariables[i];
+              const freeVariableName = freeVariable.variableName;
+              const freeVariableValue = namedValues[freeVariableName];
+              if (!freeVariableValue) {
+                throw new Error(
+                  `Free variable ${freeVariableName} not found in namedValues`
+                );
+              }
+
+              // Get the pointer to the free variable
+              const freeVariablePtr = this.builder.CreateGEP(
+                recordType,
+                freeVariablesRecord,
+                [
+                  llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 32),
+                    0
+                  ),
+                  llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 32),
+                    i
+                  ),
+                ],
+                freeVariableName
+              );
+              // Store the value in the free variable
+              this.builder.CreateStore(freeVariableValue, freeVariablePtr);
+            }
+            return freeVariablesRecord;
+          }
+
           return theFunction;
         }
         case AstType.Extern: {
@@ -689,6 +780,7 @@ export class CodeGenerator {
           return theFunction;
         }
         case AstType.Variable: {
+          console.log("- Variable: ", JSON.stringify(expr));
           const value = namedValues[expr.name];
           if (!value) {
             throw new Error(`Variable ${expr.name} not found`);
@@ -708,6 +800,48 @@ export class CodeGenerator {
           const args = expr.functionArguments.map((arg) => {
             return this.codegenExpr(arg, namedValues);
           });
+
+          if (expr.functionFreeVariables.length > 0) {
+            const functionClosure = namedValues[functionName];
+            const freeVariables = expr.functionFreeVariables;
+            const recordType = llvm.StructType.get(
+              this.context,
+              freeVariables.map((variable) => {
+                return this.getLlvmType(variable.type);
+              })
+            );
+
+            // Get each free variable from the closure
+            for (let i = 0; i < freeVariables.length; i++) {
+              const freeVariable = freeVariables[i];
+              const freeVariableName = freeVariable.variableName;
+
+              // Get the pointer to the free variable
+              const freeVariablePtr = this.builder.CreateGEP(
+                recordType,
+                functionClosure,
+                [
+                  llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 32),
+                    0
+                  ),
+                  llvm.ConstantInt.get(
+                    llvm.IntegerType.get(this.context, 32),
+                    i
+                  ),
+                ],
+                freeVariableName
+              );
+              // Load the value from the free variable
+              const freeVariableValue = this.builder.CreateLoad(
+                this.getLlvmType(freeVariable.type),
+                freeVariablePtr,
+                freeVariableName
+              );
+              args.push(freeVariableValue);
+            }
+          }
+
           const call = this.builder.CreateCall(func, args);
           return call;
         }
