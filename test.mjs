@@ -89,15 +89,27 @@ function main() {
 `
 
 code = `
-function test() {
-  const x = 12;
+extern printlnd(d:i32):i32
+function test(x: i32) {
   ()=> {
-    x
+    printlnd(x);
+    x + 1
   }
 }
 function main() {
-  const f = test()
-  f()
+  const f = test(3);
+  printlnd(f());
+  0
+}
+`
+
+code = `
+function test(f: (x: i32)=>i32) {
+  f(3)
+}
+
+function main() {
+  test((x: i32)=> {x + 1})
 }
 `
 

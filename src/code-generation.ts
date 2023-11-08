@@ -137,15 +137,19 @@ export class CodeGenerator {
       }
       case "Function": {
         const freeVariables = typeExpr.freeVariables;
-        // Create a record type for the function
-        const recordType = llvm.StructType.get(
-          this.context,
-          freeVariables.map((variable) => {
-            return this.getLlvmType(variable.type);
-          })
-        );
-        // Return pointer to record struct
-        return llvm.PointerType.get(recordType, 0);
+        if (freeVariables.length > 0) {
+          // Create a record type for the function
+          const recordType = llvm.StructType.get(
+            this.context,
+            freeVariables.map((variable) => {
+              return this.getLlvmType(variable.type);
+            })
+          );
+          // Return pointer to record struct
+          return llvm.PointerType.get(recordType, 0);
+        } else {
+          return this.unit.getType();
+        }
       }
       case "()": {
         return this.unit.getType();
@@ -647,14 +651,6 @@ export class CodeGenerator {
           }
         }
         case AstType.Function: {
-          /*
-          // NOTE: It could be anonymous function here.  
-          const functionName = expr.prototype.functionName;
-          if (!functionName) {
-            throw new Error(`Function name not found`);
-          }
-          */
-
           console.log(
             "= codegen for function: ",
             expr.prototype.functionName,
@@ -689,6 +685,7 @@ export class CodeGenerator {
           const newNamedValues: { [key: string]: llvm.Value } = {
             ...namedValues,
           };
+          // newNamedValues[expr.prototype.typeValue.id] = theFunction;
           console.log("- function arg_size(): ", theFunction.arg_size());
           for (let i = 0; i < theFunction.arg_size(); i++) {
             const arg = theFunction.getArg(i);
@@ -735,7 +732,13 @@ export class CodeGenerator {
                 return this.getLlvmType(variable.type);
               })
             );
-            const freeVariablesRecord = this.builder.CreateAlloca(recordType);
+            const recordPtrType = llvm.PointerType.get(recordType, 0);
+            const freeVariablesRecord = this.allocateMemoryOnHeap(
+              recordPtrType,
+              this.dataLayout.getTypeAllocSize(recordType)
+            );
+            // NOTE: allocate on stack here will cause problem.
+            // const freeVariablesRecord = this.builder.CreateAlloca(recordType);
             for (let i = 0; i < freeVariables.length; i++) {
               const freeVariable = freeVariables[i];
               const freeVariableName = freeVariable.variableName;
@@ -768,7 +771,8 @@ export class CodeGenerator {
             return freeVariablesRecord;
           }
 
-          return theFunction;
+          return this.unit;
+          // return theFunction;
         }
         case AstType.Extern: {
           const theFunction = this.codegenPrototype(expr.prototype);
@@ -777,7 +781,8 @@ export class CodeGenerator {
               `Function ${expr.prototype.functionName} not found`
             );
           }
-          return theFunction;
+          return this.unit;
+          // return theFunction;
         }
         case AstType.Variable: {
           console.log("- Variable: ", JSON.stringify(expr));
