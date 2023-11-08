@@ -164,7 +164,7 @@ export class CodeGenerator {
   }
 
   private codegenPrototype(prototype: FunctionPrototype): llvm.Function | null {
-    const functionId = prototype.functionId;
+    const functionId = prototype.typeValue.id;
     if (prototype.typeValue.type !== "Function") {
       throw new Error(
         `Function prototype type is not a function: ${JSON.stringify(
@@ -182,6 +182,7 @@ export class CodeGenerator {
       paramTypes,
       false // isVarArg
     );
+    console.log("- codegenPrototype: ", functionId);
     const func = llvm.Function.Create(
       functionType,
       llvm.Function.LinkageTypes.ExternalLinkage,
@@ -612,21 +613,33 @@ export class CodeGenerator {
           }
         }
         case AstType.Function: {
+          /*
+          // NOTE: It could be anonymous function here.  
           const functionName = expr.prototype.functionName;
           if (!functionName) {
             throw new Error(`Function name not found`);
           }
+          */
 
-          let theFunction = this.module.getFunction(expr.prototype.functionId);
+          console.log(
+            "- codegen for function: ",
+            expr.prototype.functionName,
+            expr.prototype.typeValue.id
+          );
+
+          let theFunction = this.module.getFunction(
+            expr.prototype.typeValue.id
+          );
           if (!theFunction) {
             theFunction = this.codegenPrototype(expr.prototype);
           }
           if (!theFunction) {
             throw new Error(
-              `Function ${expr.prototype.functionName} not found`
+              `Function ${expr.prototype.functionName} with id "${expr.prototype.typeValue.id}" not found`
             );
           }
 
+          const currentBasicBlock = this.builder.GetInsertBlock();
           const entryBB = llvm.BasicBlock.Create(
             this.context,
             "entry",
@@ -646,12 +659,21 @@ export class CodeGenerator {
           }
 
           const returnVal = this.codegenExpr(expr.body, newNamedValues);
+          // Move back to the entry block
           this.builder.CreateRet(returnVal);
+
+          if (currentBasicBlock) {
+            this.builder.SetInsertPoint(currentBasicBlock);
+          }
 
           // verify the function
           if (llvm.verifyFunction(theFunction)) {
             throw new Error(
               `Function ${expr.prototype.functionName} verification failed`
+            );
+          } else {
+            console.log(
+              `- Function verified for "${expr.prototype.functionName}" with id "${expr.prototype.typeValue.id}"`
             );
           }
 
@@ -677,7 +699,9 @@ export class CodeGenerator {
           const functionName = expr.functionName;
           const func = this.module.getFunction(expr.functionId);
           if (!func) {
-            throw new Error(`Function ${functionName} not found`);
+            throw new Error(
+              `Function ${functionName} with id "${expr.functionId}" not found`
+            );
           }
 
           // NOTE: Function argument types check is done in the parser.ts stage.

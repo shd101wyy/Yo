@@ -7,75 +7,122 @@ export type ValueType = {
   type: Type;
   /* referenceCount of the value inside current frame */
   // referenceCount: number;
+
+  /**
+   * frameLevel is the level of the frame where the value is defined.
+   * It's zero-based.
+   */
+  frameLevel: number;
 };
 
-class Frame {
-  private valueTypes: ValueType[] = [];
+type Frame = ValueType[];
 
-  constructor() {
-    this.valueTypes = [];
-  }
-
-  public addValueType(valueType: ValueType) {
-    this.valueTypes.push(valueType);
-  }
-
-  public getValueTypesByVariableName(variableName: string): ValueType[] {
-    return this.valueTypes.filter(
-      (valueType) => valueType.variableName === variableName
-    );
-  }
+function addFrameValueType(frame: Frame, valueType: ValueType): Frame {
+  return [...frame, valueType];
 }
 
-export default class Environment {
-  private frames: Frame[] = [];
+function getFrameValueTypesByVariableName(
+  frame: Frame,
+  variableName: string
+): ValueType[] {
+  return frame.filter((valueType) => valueType.variableName === variableName);
+}
 
-  private variableNameCounter: { [key: string]: number } = {};
+export type Environment = {
+  functionDeclarationFrameLevel: number;
+  freeVariables: ValueType[];
+  frames: Frame[];
+};
 
-  constructor() {
-    this.frames = [new Frame()];
-  }
+export function copyEnvironment(
+  env: Environment,
+  functionDeclarationFrameLevel: number,
+  freeVariables: ValueType[]
+): Environment {
+  return {
+    functionDeclarationFrameLevel:
+      functionDeclarationFrameLevel ?? env.functionDeclarationFrameLevel,
+    frames: [...env.frames],
+    freeVariables: [...freeVariables],
+  };
+}
 
-  public pushFrame() {
-    this.frames.push(new Frame());
-  }
+export function pushEnvFrame(env: Environment, frame: Frame = []): Environment {
+  return {
+    functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
+    freeVariables: env.freeVariables,
+    frames: [...env.frames, frame],
+  };
+}
 
-  public popFrame() {
-    return this.frames.pop();
-  }
+export function popEnvFrame(env: Environment): Environment {
+  return {
+    functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
+    freeVariables: env.freeVariables,
+    frames: env.frames.slice(0, -1),
+  };
+}
 
-  public getId(variableName: string): string {
-    if (variableName in this.variableNameCounter) {
-      this.variableNameCounter[variableName] =
-        this.variableNameCounter[variableName] + 1;
+function GetVariableId() {
+  const variableNameCounter: { [key: string]: number } = {};
+  return (variableName: string) => {
+    if (variableName in variableNameCounter) {
+      variableNameCounter[variableName] = variableNameCounter[variableName] + 1;
     } else {
-      this.variableNameCounter[variableName] = 0;
+      variableNameCounter[variableName] = 0;
     }
-    const counter = this.variableNameCounter[variableName];
+    const counter = variableNameCounter[variableName];
     if (counter === 0) {
       return variableName;
     } else {
       return variableName + "_" + counter;
     }
-  }
+  };
+}
+export const getEnvVariableId = GetVariableId();
 
-  public addValueType(
-    valueType: Omit<ValueType, "id"> & { id?: string },
-    deltaFrame = 0
-  ) {
-    this.frames[this.frames.length - 1 + deltaFrame].addValueType({
-      id: valueType.id ?? this.getId(valueType.variableName),
-      ...valueType,
-    });
-  }
+export function addEnvValueType(
+  env: Environment,
+  valueType: Omit<ValueType, "id" | "frameLevel"> & { id?: string },
+  deltaFrame = 0
+): Environment {
+  const frameLevel = env.frames.length - 1 + deltaFrame;
+  const frame = env.frames[frameLevel];
+  const id = valueType.id ?? getEnvVariableId(valueType.variableName);
+  const newFrame = addFrameValueType(frame, { ...valueType, id, frameLevel });
+  const newFrames = env.frames.slice();
+  newFrames[frameLevel] = newFrame;
+  return {
+    functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
+    freeVariables: env.freeVariables,
+    frames: newFrames,
+  };
+}
 
-  public getValueTypesByVariableName(variableName: string): ValueType[] {
-    const valueTypes: ValueType[] = [];
-    for (let i = 0; i < this.frames.length; i++) {
-      const frame = this.frames[i];
-      const valueTypesInFrame = frame.getValueTypesByVariableName(variableName);
-      valueTypes.push(...valueTypesInFrame);
-    }
-    return valueTypes;
+export function addEnvFreeVariable(env: Environment, valueType: ValueType) {
+  return {
+    functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
+    freeVariables: Array.from(new Set([...env.freeVariables, valueType])),
+    frames: env.frames,
+  };
+}
+
+export function getEnvValueTypesByVariableName(
+  env: Environment,
+  variableName: string
+): ValueType[] {
+  const valueTypes: ValueType[] = [];
+  for (let i = 0; i < env.frames.length; i++) {
+    const frame = env.frames[i];
+    const valueTypesInFrame = getFrameValueTypesByVariableName(
+      frame,
+      variableName
+    );
+    valueTypes.push(...valueTypesInFrame);
   }
+  return valueTypes;
+}
+
+export function getEnvCurrentFrameLevel(env: Environment): number {
+  return env.frames.length - 1;
 }

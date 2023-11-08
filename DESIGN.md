@@ -2,7 +2,24 @@
 
 **Mo** (墨) is functional, general-purpose, compiled programming language that compiles to LLVM IR and WASM.
 
-The **Mo** language is heavily inspired by [TypeScript](https://www.typescriptlang.org/), [Rust](https://www.rust-lang.org/), [Koka](https://koka-lang.github.io/), [Python](https://python.org/), and [Haskell](https://www.haskell.org/).
+**Mo** aims to be a simple to learn programming language. If you are familiar with JavaScript, you should be able to pick up **Mo** in a few hours.
+
+The **Mo** language is heavily inspired by:
+
+- [TypeScript](https://www.typescriptlang.org/)
+  - Syntax and semantics
+- [Rust](https://www.rust-lang.org/)
+  - Traits
+  - Borrow checker
+- [Koka](https://koka-lang.github.io/)
+  - Brace elision
+  - Dot notation
+  - Perceus and reuse
+  - Algebraic effects
+- [Python](https://python.org/)
+  - Keyword arguments
+- [Haskell](https://www.haskell.org/)
+  - Type and typeclass
 
 The **Mo** language has a minimal syntax design that looks like TypeScript. **Mo** is strong typed with a robust bidrectional type checker, combined with algebraic effects and an efficient type system. **Mo** has no garbage collector ([Perceus: Garbage Free Reference Counting with Reuse](https://www.microsoft.com/en-us/research/uploads/prod/2020/11/perceus-tr-v1.pdf)).
 
@@ -57,7 +74,7 @@ Immutable data structure is **shared** by default. Mutable data structure has to
 ## Hello World
 
 ```typescript
-import { console } from "std/io";
+import * as console from "std/console";
 
 function main() {
   console.log("Hello World!");
@@ -68,6 +85,7 @@ function main() {
 
 ```bash
 moc hello.mo -o hello
+moc hello.mo -arch wasm -o hello.wasm
 ```
 
 ## Types
@@ -91,6 +109,7 @@ moc hello.mo -o hello
 - `f32` (32-bit floating point)
 - `f64` (64-bit floating point)
 - `char` (ASCII character)
+- `symbol` (unique global string)
 
 ### Variable Declaration
 
@@ -102,10 +121,13 @@ let x = 5; // x: i32, mutable
 ### Reference Types, stored on heap
 
 ```typescript
-const myString: string = "Hello, world"; // Stored on stack
+const mySymbol = @"Hi"; // Stored on stack
+
+const myString: char[] = "Hello, world"; // Stored on stack
 const myString: String = String.from("Hello, world"); // Stored on heap
 
-const myArray: int[] = [1, 2, 3]; // Stored on stack
+const myArray: int[] = [1, 2, 3]; // Stored on stack, with size 3.
+const myArray: int[100] = [1, 2, 3]; // Stored on stack, with size 100.
 const myArray: Array<int> = Array.from([1, 2, 3]); // Stored on heap
 
 const mySet: Set<int> = Set.from([1, 2, 3]); // Stored on heap
@@ -147,7 +169,7 @@ function main(): [Console] Unit {
 ## Mutability
 
 ```typescript
-const foo: string = "Hello, world"; // Immutable
+const foo: char[] = "Hello, world"; // Immutable
 let bar = foo; // `let` is actually some kind of syntax sugar of the `localState` effect. We will explain this later.
 
 console.log(bar); // "Hello, world"
@@ -273,7 +295,11 @@ const user: User = {
   active: true,
   username: String.from("johndoe"),
   email: String.from("test@gmail.com"),
+  age: 13
 };
+
+// Update a record
+const user2 = user(active=false);
 ```
 
 Extending the records
@@ -377,6 +403,11 @@ type NewsArticle = {
   location: String;
   author: String;
   content: String;
+}
+
+// Or this?
+instanceof NewsArticle implements Summary {
+  // ...
 }
 
 implement Summary<NewsArticle> for NewsArticle {

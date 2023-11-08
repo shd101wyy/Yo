@@ -48,14 +48,34 @@ function main() {
 }
 `
 
-/*
+
 code = `
-enum Person {
-  Child(age:i32 = 10),
-  Adult(age:i32, height:i32)
+function test() {
+  12
+}
+function main() {
+  test()
 }
 `
-*/
+
+code = `
+function main() {
+  const test = ()=> {
+    12
+  };
+  test()
+}
+`
+
+code = `
+function main() {
+  const ptr = {v: 1}
+  const test = (x: i32, env={ptr:ptr})=> {
+    env.ptr.v + x
+  };
+  test(2)
+}
+`
 
 const codeGenerator = new CodeGenerator(code);
 

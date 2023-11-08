@@ -1,7 +1,14 @@
 // Types
 
 import { AstType, Expr, synthesizeExprType } from "./ast";
-import Environment from "./env";
+import {
+  Environment,
+  addEnvValueType,
+  getEnvValueTypesByVariableName,
+  getEnvVariableId,
+  popEnvFrame,
+  pushEnvFrame,
+} from "./env";
 import { formatErrorMessage } from "./error";
 import { Token, TokenType } from "./token";
 
@@ -117,6 +124,7 @@ export type TParameterType = {
 
 export type TFunction = {
   type: "Function";
+  id: string;
   parameterTypes: TParameterType[];
   returnType: Type;
 };
@@ -245,10 +253,11 @@ export function synthesizeTypeFromTokens({
   inputString: string;
   env: Environment;
   parseExpression: ParseExpression;
-}): { typeValue: Type; index: number } {
+}): { typeValue: Type; index: number; env: Environment } {
   let returnValue: {
     typeValue: Type;
     index: number;
+    env: Environment;
   } | null = null;
 
   if (tokens[index].type === TokenType.BitwiseOr) {
@@ -267,6 +276,7 @@ export function synthesizeTypeFromTokens({
     returnValue = {
       typeValue: TypeValues.unit,
       index: index + 1,
+      env,
     };
   }
   // Check if it's anonymouse function
@@ -282,22 +292,29 @@ export function synthesizeTypeFromTokens({
       });
     } catch {
       // This means it's not a function type
-      const { typeValue, index: newIndex } = synthesizeTypeFromTokens({
+      const {
+        typeValue,
+        index: nextIndex,
+        env: nextEnv,
+      } = synthesizeTypeFromTokens({
         tokens,
         index: index + 1,
         inputString,
         env,
         parseExpression,
       });
+      env = nextEnv;
+
       // Check if ')' is there
-      if (tokens[newIndex].value === ")") {
+      if (tokens[nextIndex].value === ")") {
         returnValue = {
           typeValue: typeValue,
-          index: newIndex + 1,
+          index: nextIndex + 1,
+          env,
         };
       } else {
         throw formatErrorMessage({
-          token: tokens[newIndex],
+          token: tokens[nextIndex],
           errorMessage: "Expected ')'",
           inputString,
         });
@@ -305,11 +322,14 @@ export function synthesizeTypeFromTokens({
     }
   }
   // Check if it's defined in variableTypes
-  else if (env.getValueTypesByVariableName(tokens[index].value).length > 0) {
-    const valueTypes = env.getValueTypesByVariableName(tokens[index].value);
+  else if (
+    getEnvValueTypesByVariableName(env, tokens[index].value).length > 0
+  ) {
+    const valueTypes = getEnvValueTypesByVariableName(env, tokens[index].value);
     returnValue = {
       typeValue: valueTypes[valueTypes.length - 1].type,
       index: index + 1,
+      env,
     };
   }
   // Check the record type
@@ -337,17 +357,20 @@ export function synthesizeTypeFromTokens({
         const name = token.value;
         if (tokens[index + 1].type === TokenType.Colon) {
           index = index + 2;
-          const { typeValue: type, index: newIndex } = synthesizeTypeFromTokens(
-            {
-              tokens,
-              index,
-              inputString,
-              env,
-              parseExpression,
-            }
-          );
+          const {
+            typeValue: type,
+            index: nextIndex,
+            env: nextEnv,
+          } = synthesizeTypeFromTokens({
+            tokens,
+            index,
+            inputString,
+            env,
+            parseExpression,
+          });
           typeValue.properties.push({ name, type });
-          index = newIndex;
+          index = nextIndex;
+          env = nextEnv;
 
           if (tokens[index].type === TokenType.Comma) {
             index = index + 1;
@@ -370,6 +393,7 @@ export function synthesizeTypeFromTokens({
     returnValue = {
       typeValue: typeValue,
       index: index,
+      env,
     };
   } else {
     let typeValue: Type;
@@ -448,7 +472,12 @@ export function synthesizeTypeFromTokens({
       }
       default: {
         // Check if it's a real value
-        const { expr, index: newIndex } = parseExpression(tokens, index, env);
+        const {
+          expr,
+          index: nextIndex,
+          env: nextEnv,
+        } = parseExpression(tokens, index, env);
+        env = nextEnv;
         if (
           !expr ||
           Array.isArray(expr) ||
@@ -463,12 +492,13 @@ export function synthesizeTypeFromTokens({
         }
 
         typeValue = expr.typeValue;
-        index = newIndex - 1;
+        index = nextIndex - 1;
       }
     }
     returnValue = {
       typeValue: typeValue,
       index: index + 1,
+      env,
     };
   }
 
@@ -529,6 +559,7 @@ export function synthesizeTypeFromTokens({
     returnValue = {
       typeValue: newTypeValue,
       index,
+      env,
     };
     return returnValue;
   }
@@ -550,6 +581,7 @@ export function synthesizeTypeFromTokens({
           types: [returnValue.typeValue, ...newReturnValue.typeValue.types],
         },
         index: newReturnValue.index,
+        env: newReturnValue.env,
       };
     } else {
       // Check types
@@ -569,6 +601,7 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
           types: [returnValue.typeValue, newReturnValue.typeValue],
         },
         index: newReturnValue.index,
+        env: newReturnValue.env,
       };
     }
   } else if (nextTokenType === TokenType.BitwiseAnd) {
@@ -588,6 +621,7 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
           types: [returnValue.typeValue, ...newReturnValue.typeValue.types],
         },
         index: newReturnValue.index,
+        env: newReturnValue.env,
       };
     } else {
       // Check types
@@ -607,6 +641,7 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
           types: [returnValue.typeValue, newReturnValue.typeValue],
         },
         index: newReturnValue.index,
+        env: newReturnValue.env,
       };
     }
   } else {
@@ -631,7 +666,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
   env: Environment;
   parseExpression: ParseExpression;
   withFunctionBody: boolean;
-}): { parameterTypes: TParameterType[]; index: number } {
+}): { parameterTypes: TParameterType[]; index: number; env: Environment } {
   if (tokens[index].type !== TokenType.LParen) {
     throw formatErrorMessage({
       token: tokens[index],
@@ -641,7 +676,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
   }
 
   if (!withFunctionBody) {
-    env.pushFrame();
+    env = pushEnvFrame(env);
   }
 
   // Read the list of parameter names.
@@ -683,26 +718,31 @@ export function synthesizeFunctionParameterTypesFromTokens({
       index = index + 1;
     } else {
       index = index + 2;
-      const { typeValue: newParameterType, index: nextIndex } =
-        synthesizeTypeFromTokens({
-          tokens,
-          index,
-          inputString,
-          env,
-          parseExpression,
-        });
+      const {
+        typeValue: newParameterType,
+        index: nextIndex,
+        env: nextEnv,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index,
+        inputString,
+        env,
+        parseExpression,
+      });
       userDefinedParamterType = newParameterType;
+      env = nextEnv;
       index = nextIndex;
     }
 
     // check parameter default values
     let defaultParameterValue: Expr | null = null;
     if (tokens[index].type === TokenType.Assign) {
-      const { expr, index: nextNextIndex } = parseExpression(
-        tokens,
-        index + 1,
-        env
-      );
+      const {
+        expr,
+        index: nextNextIndex,
+        env: nextEnv,
+      } = parseExpression(tokens, index + 1, env);
+      env = nextEnv;
 
       parameterDefaultValues.push(expr);
       defaultParameterValue = expr;
@@ -730,7 +770,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
     }
 
     // save to env
-    env.addValueType({
+    env = addEnvValueType(env, {
       variableName: parameterName,
       type: userDefinedParamterType,
     });
@@ -743,10 +783,10 @@ export function synthesizeFunctionParameterTypesFromTokens({
   }
 
   if (!withFunctionBody) {
-    env.popFrame();
+    env = popEnvFrame(env);
   }
 
-  return { parameterTypes, index };
+  return { parameterTypes, index, env };
 }
 
 export function synthesizeFunctionTypeFromTokens({
@@ -756,6 +796,7 @@ export function synthesizeFunctionTypeFromTokens({
   env,
   parseExpression,
   withFunctionBody,
+  functionName,
 }: {
   tokens: Token[];
   index: number;
@@ -763,7 +804,8 @@ export function synthesizeFunctionTypeFromTokens({
   env: Environment;
   parseExpression: ParseExpression;
   withFunctionBody: boolean;
-}): { typeValue: TFunction; index: number } {
+  functionName?: string;
+}): { typeValue: TFunction; index: number; env: Environment } {
   if (tokens[index].type !== TokenType.LParen) {
     throw formatErrorMessage({
       token: tokens[index],
@@ -772,36 +814,46 @@ export function synthesizeFunctionTypeFromTokens({
     });
   }
 
-  const { parameterTypes, index: nextIndex } =
-    synthesizeFunctionParameterTypesFromTokens({
-      tokens,
-      index,
-      inputString,
-      env,
-      parseExpression,
-      withFunctionBody,
-    });
+  const {
+    parameterTypes,
+    index: nextIndex,
+    env: nextEnv,
+  } = synthesizeFunctionParameterTypesFromTokens({
+    tokens,
+    index,
+    inputString,
+    env,
+    parseExpression,
+    withFunctionBody,
+  });
   index = nextIndex;
+  env = nextEnv;
 
   if (!withFunctionBody) {
     if (tokens[index].type === TokenType.LambdaArrow) {
       index = index + 1;
-      const { typeValue: returnType, index: newIndex } =
-        synthesizeTypeFromTokens({
-          tokens,
-          index,
-          inputString,
-          env,
-          parseExpression,
-        });
-      index = newIndex;
+      const {
+        typeValue: returnType,
+        index: nextIndex,
+        env: nextEnv,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index,
+        inputString,
+        env,
+        parseExpression,
+      });
+      index = nextIndex;
+      env = nextEnv;
       return {
         typeValue: {
           type: "Function",
+          id: getEnvVariableId(functionName ?? "lambda"),
           parameterTypes,
           returnType,
         },
-        index: index,
+        index,
+        env,
       };
     } else {
       throw formatErrorMessage({
@@ -813,33 +865,41 @@ export function synthesizeFunctionTypeFromTokens({
   } else {
     if (tokens[index].type === TokenType.Colon) {
       index = index + 1;
-      const { typeValue: returnType, index: newIndex } =
-        synthesizeTypeFromTokens({
-          tokens,
-          index,
-          inputString,
-          env,
-          parseExpression,
-        });
-      index = newIndex;
+      const {
+        typeValue: returnType,
+        index: nextIndex,
+        env: nextEnv,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index,
+        inputString,
+        env,
+        parseExpression,
+      });
+      index = nextIndex;
+      env = nextEnv;
       return {
         typeValue: {
           type: "Function",
+          id: getEnvVariableId(functionName ?? "lambda"),
           parameterTypes,
           returnType,
         },
-        index: index,
+        index,
+        env,
       };
     } else {
       return {
         typeValue: {
           type: "Function",
+          id: getEnvVariableId(functionName ?? "lambda"),
           parameterTypes,
           returnType: {
             type: "unknown",
           },
         },
-        index: index,
+        index,
+        env,
       };
     }
   }

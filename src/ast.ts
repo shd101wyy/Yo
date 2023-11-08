@@ -1,4 +1,4 @@
-import Environment from "./env";
+import { Environment, ValueType, getEnvValueTypesByVariableName } from "./env";
 import { Token, TokenType } from "./token";
 import {
   TFunction,
@@ -115,6 +115,8 @@ export type VariableExpr = {
   type: AstType.Variable;
   name: string;
   typeValue: Type;
+  frameLevel: number;
+  isFreeVariable: boolean;
 };
 
 export type PropertyAccessExpr = {
@@ -157,6 +159,7 @@ export type AssignmentExpr = {
   type: AstType.ConstantAssigment; // | AstType.LetAssignment; // | AstType.Assignment;
   variableName: string;
   variableType: Type;
+  frameLevel: number;
   right: Expr;
   typeValue: TUnit;
 };
@@ -169,7 +172,6 @@ export type TypeAliasExpr = {
 
 export type FunctionPrototype = {
   type: AstType.FunctionPrototype;
-  functionId: string; // This is used for function overloading
   functionName?: string; // If not set, it's an anonymous function
   typeValue: TFunction;
 };
@@ -177,6 +179,11 @@ export type FunctionPrototype = {
 export type FunctionExpr = {
   type: AstType.Function;
   prototype: FunctionPrototype;
+  /**
+   * frameLevel at which the function is defined.
+   */
+  frameLevel: number;
+  freeVariables: ValueType[];
   typeValue: TFunction;
   body: Expr[];
 };
@@ -387,7 +394,7 @@ export function getFunctionFromEnv(
   functionArguments: Expr[],
   env: Environment
 ) {
-  const functionsInEnv = env.getValueTypesByVariableName(functionName);
+  const functionsInEnv = getEnvValueTypesByVariableName(env, functionName);
   if (functionsInEnv.length === 0) {
     throw new Error(`Cannot find function ${functionName}`);
   } else {
