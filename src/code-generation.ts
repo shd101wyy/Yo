@@ -1,9 +1,16 @@
 import llvm, { LLVMContext } from "llvm-bindings";
 import { AstType, Expr, FunctionPrototype, OperatorType } from "./ast";
+import { ValueType } from "./env";
 import { tokenize } from "./lexer";
 import Parser from "./parser";
 import { Token } from "./token";
-import { Type, typeToString } from "./type-checker";
+import { TFunction, Type, typeToString } from "./type-checker";
+
+type NamedValue = {
+  value: llvm.Value;
+  type: Type;
+};
+type NamedValues = { [key: string]: NamedValue };
 
 export class CodeGenerator {
   private inputString: string;
@@ -136,20 +143,10 @@ export class CodeGenerator {
         return llvm.PointerType.get(recordType, 0);
       }
       case "Function": {
-        const freeVariables = typeExpr.freeVariables;
-        if (freeVariables.length > 0) {
-          // Create a record type for the function
-          const recordType = llvm.StructType.get(
-            this.context,
-            freeVariables.map((variable) => {
-              return this.getLlvmType(variable.type);
-            })
-          );
-          // Return pointer to record struct
-          return llvm.PointerType.get(recordType, 0);
-        } else {
-          return this.unit.getType();
-        }
+        // Create a closure type for the function
+        const closureType = this.getClosureType(typeExpr);
+        // Return pointer to record struct
+        return llvm.PointerType.get(closureType, 0);
       }
       case "()": {
         return this.unit.getType();
@@ -179,29 +176,21 @@ export class CodeGenerator {
     }
   }
 
-  private codegenPrototype(prototype: FunctionPrototype): llvm.Function | null {
-    const functionId = prototype.typeValue.id;
-    if (prototype.typeValue.type !== "Function") {
-      throw new Error(
-        `Function prototype type is not a function: ${JSON.stringify(
-          prototype.typeValue
-        )}`
-      );
-    }
-
-    const returnType = this.getLlvmType(prototype.typeValue.returnType);
-    const paramTypes = prototype.typeValue.parameterTypes.map((param) => {
+  private getLlvmFunctionType(type: TFunction): llvm.FunctionType {
+    const returnType = this.getLlvmType(type.returnType);
+    const paramTypes = type.parameterTypes.map((param) => {
       return this.getLlvmType(param.type);
     });
 
-    console.log("- prototype.typeValue: ", JSON.stringify(prototype.typeValue));
-    if (prototype.typeValue.freeVariables.length > 0) {
-      // Add free variables as parameters
-      for (let i = 0; i < prototype.typeValue.freeVariables.length; i++) {
-        const freeVariable = prototype.typeValue.freeVariables[i];
-        const freeVariableType = this.getLlvmType(freeVariable.type);
-        paramTypes.push(freeVariableType);
-      }
+    if (type.freeVariables) {
+      // Add free variables as the last parameter
+      // and cast it as void*
+      paramTypes.push(
+        llvm.PointerType.get(
+          llvm.Type.getInt8Ty(this.context),
+          0
+        ) /*this.getFreeVariablesRecordType(type.freeVariables)*/
+      );
     }
 
     const functionType = llvm.FunctionType.get(
@@ -209,7 +198,53 @@ export class CodeGenerator {
       paramTypes,
       false // isVarArg
     );
-    console.log("- codegenPrototype: ", functionId);
+    return functionType;
+  }
+
+  private getFreeVariablesRecordType(
+    freeVariables: ValueType[] | undefined
+  ): llvm.StructType {
+    freeVariables = freeVariables ?? [];
+    const propertyTypes = freeVariables.map((freeVariable) => {
+      const type = this.getLlvmType(freeVariable.type);
+      return type;
+    });
+    const recordType = llvm.StructType.get(this.context, propertyTypes);
+    return recordType;
+  }
+
+  /**
+   * The closure is a record of
+   * {
+   *    function pointer: void*
+   *    free variables: void*
+   * }
+   * @param type
+   * @returns
+   */
+  private getClosureType(type: TFunction): llvm.StructType {
+    const functionPointer = llvm.PointerType.get(
+      this.getLlvmFunctionType(type),
+      0
+    );
+
+    // We set it as void*
+    const freeVariablesPointer = llvm.PointerType.get(
+      llvm.Type.getInt8Ty(this.context),
+      0
+    );
+
+    return llvm.StructType.get(this.context, [
+      // function pointer
+      functionPointer,
+      // free variables pointer
+      freeVariablesPointer,
+    ]);
+  }
+
+  private codegenPrototype(prototype: FunctionPrototype): llvm.Function | null {
+    const functionId = prototype.typeValue.id;
+    const functionType = this.getLlvmFunctionType(prototype.typeValue);
     const func = llvm.Function.Create(
       functionType,
       llvm.Function.LinkageTypes.ExternalLinkage,
@@ -218,14 +253,12 @@ export class CodeGenerator {
     );
     for (let i = 0; i < func.arg_size(); i++) {
       const arg = func.getArg(i);
-      if (i >= prototype.typeValue.parameterTypes.length) {
+      if (
+        i >= prototype.typeValue.parameterTypes.length &&
+        prototype.typeValue.freeVariables
+      ) {
         // Free variables
-        const freeVariable =
-          prototype.typeValue.freeVariables[
-            i - prototype.typeValue.parameterTypes.length
-          ];
-        const freeVariableName = freeVariable.variableName;
-        arg.setName(freeVariableName);
+        arg.setName("FREE_VARIABLES");
       } else {
         // Function parameters
         const parameterType = prototype.typeValue.parameterTypes[i];
@@ -241,7 +274,7 @@ export class CodeGenerator {
     if (!structType.isStructTy()) {
       throw new Error(`Only support allocating memory on heap for struct type`);
     }
-    console.log("allocateMemoryOnHeap: ", bytes);
+    console.log("= allocateMemoryOnHeap: ", bytes);
 
     // Allocate memory on heap
     const malloc = this.module.getFunction("malloc");
@@ -333,7 +366,7 @@ export class CodeGenerator {
 
   private codegenExpr(
     expr: Expr | FunctionPrototype,
-    namedValues: { [key: string]: llvm.Value }
+    namedValues: NamedValues
   ): llvm.Value {
     if (expr instanceof Array) {
       // Create undefined value
@@ -651,12 +684,6 @@ export class CodeGenerator {
           }
         }
         case AstType.Function: {
-          console.log(
-            "= codegen for function: ",
-            expr.prototype.functionName,
-            expr.prototype.typeValue.id
-          );
-
           let theFunction = this.module.getFunction(
             expr.prototype.typeValue.id
           );
@@ -668,10 +695,6 @@ export class CodeGenerator {
               `Function ${expr.prototype.functionName} with id "${expr.prototype.typeValue.id}" not found`
             );
           }
-          console.log(
-            "- done codegen prototype: ",
-            expr.prototype.typeValue.id
-          );
 
           const currentBasicBlock = this.builder.GetInsertBlock();
           const entryBB = llvm.BasicBlock.Create(
@@ -682,25 +705,66 @@ export class CodeGenerator {
           this.builder.SetInsertPoint(entryBB);
 
           // Record the function parameters in the namedValues map
-          const newNamedValues: { [key: string]: llvm.Value } = {
+          const newNamedValues: NamedValues = {
             ...namedValues,
           };
-          // newNamedValues[expr.prototype.typeValue.id] = theFunction;
-          console.log("- function arg_size(): ", theFunction.arg_size());
           for (let i = 0; i < theFunction.arg_size(); i++) {
             const arg = theFunction.getArg(i);
-            if (i >= expr.prototype.typeValue.parameterTypes.length) {
+            if (
+              i >= expr.prototype.typeValue.parameterTypes.length &&
+              expr.prototype.typeValue.freeVariables
+            ) {
               // Free variables
-              const freeVariable =
-                expr.prototype.typeValue.freeVariables[
-                  i - expr.prototype.typeValue.parameterTypes.length
-                ];
-              const freeVariableName = freeVariable.variableName;
-              newNamedValues[freeVariableName] = arg;
+              // Load free variables
+              const freeVariablesType = this.getFreeVariablesRecordType(
+                expr.prototype.typeValue.freeVariables
+              );
+              // Cast void* to real struct
+              const freeVariablesPtr = this.builder.CreateBitCast(
+                arg,
+                llvm.PointerType.get(freeVariablesType, 0),
+                "fn_FREE_VARIABLES"
+              );
+
+              const freeVariables = expr.prototype.typeValue.freeVariables;
+              for (let i = 0; i < freeVariables.length; i++) {
+                const freeVariable = freeVariables[i];
+                const freeVariableName = freeVariable.variableName;
+
+                // Get the pointer to the free variable
+                const freeVariablePtr = this.builder.CreateGEP(
+                  freeVariablesType,
+                  freeVariablesPtr,
+                  [
+                    llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 32),
+                      0
+                    ),
+                    llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 32),
+                      i
+                    ),
+                  ],
+                  freeVariableName
+                );
+                // Load the value from the free variable
+                const freeVariableValue = this.builder.CreateLoad(
+                  this.getLlvmType(freeVariable.type),
+                  freeVariablePtr,
+                  freeVariableName
+                );
+                newNamedValues[freeVariableName] = {
+                  type: freeVariable.type,
+                  value: freeVariableValue,
+                };
+              }
             } else {
               const parameterType = expr.prototype.typeValue.parameterTypes[i];
               const parameterName = parameterType.name;
-              newNamedValues[parameterName] = arg;
+              newNamedValues[parameterName] = {
+                type: parameterType.type,
+                value: arg,
+              };
             }
           }
 
@@ -723,56 +787,90 @@ export class CodeGenerator {
             );
           }
 
-          // Return the free variables record
+          // Return the function pointer + free variables record
           const freeVariables = expr.prototype.typeValue.freeVariables;
-          if (freeVariables.length > 0) {
-            const recordType = llvm.StructType.get(
-              this.context,
-              freeVariables.map((variable) => {
-                return this.getLlvmType(variable.type);
-              })
-            );
-            const recordPtrType = llvm.PointerType.get(recordType, 0);
-            const freeVariablesRecord = this.allocateMemoryOnHeap(
-              recordPtrType,
-              this.dataLayout.getTypeAllocSize(recordType)
-            );
-            // NOTE: allocate on stack here will cause problem.
-            // const freeVariablesRecord = this.builder.CreateAlloca(recordType);
-            for (let i = 0; i < freeVariables.length; i++) {
-              const freeVariable = freeVariables[i];
-              const freeVariableName = freeVariable.variableName;
-              const freeVariableValue = namedValues[freeVariableName];
-              if (!freeVariableValue) {
-                throw new Error(
-                  `Free variable ${freeVariableName} not found in namedValues`
-                );
-              }
-
-              // Get the pointer to the free variable
-              const freeVariablePtr = this.builder.CreateGEP(
-                recordType,
-                freeVariablesRecord,
-                [
-                  llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 32),
-                    0
-                  ),
-                  llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 32),
-                    i
-                  ),
-                ],
-                freeVariableName
-              );
-              // Store the value in the free variable
-              this.builder.CreateStore(freeVariableValue, freeVariablePtr);
-            }
-            return freeVariablesRecord;
+          if (!freeVariables) {
+            // This is not a closure
+            return this.unit;
           }
 
-          return this.unit;
-          // return theFunction;
+          const closureType = this.getClosureType(expr.prototype.typeValue);
+          const closurePtrType = llvm.PointerType.get(closureType, 0);
+          const closurePtr = this.allocateMemoryOnHeap(
+            closurePtrType,
+            this.dataLayout.getTypeAllocSize(closureType)
+          );
+          // NOTE: allocate on stack here will cause problem.
+          // const freeVariablesRecord = this.builder.CreateAlloca(recordType);
+
+          // Save the function pointer
+          const functionPtr = this.builder.CreateGEP(
+            closureType,
+            closurePtr,
+            [
+              llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
+              llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
+            ],
+            "functionPtr"
+          );
+          this.builder.CreateStore(theFunction, functionPtr);
+
+          // Save the free variables
+          const freeVariablesType =
+            this.getFreeVariablesRecordType(freeVariables);
+          const freeVariablesPtrType = llvm.PointerType.get(
+            freeVariablesType,
+            0
+          );
+          const freeVariablesPtr = this.allocateMemoryOnHeap(
+            freeVariablesPtrType,
+            this.dataLayout.getTypeAllocSize(freeVariablesType)
+          );
+          for (let i = 0; i < freeVariables.length; i++) {
+            const freeVariable = freeVariables[i];
+            const freeVariableName = freeVariable.variableName;
+            const freeVariableValue = namedValues[freeVariableName];
+            if (!freeVariableValue) {
+              throw new Error(
+                `Free variable ${freeVariableName} not found in namedValues`
+              );
+            }
+
+            // Get the pointer to the free variable
+            const freeVariablePtr = this.builder.CreateGEP(
+              freeVariablesType,
+              freeVariablesPtr,
+              [
+                llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
+                llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), i),
+              ],
+              freeVariableName
+            );
+            // Store the value in the free variable
+            this.builder.CreateStore(freeVariableValue.value, freeVariablePtr);
+          }
+          const freeVariablesRecordPtr = this.builder.CreateGEP(
+            closureType,
+            closurePtr,
+            [
+              llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
+              llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 1),
+            ],
+            "fn_freeVariablesPtr"
+          );
+
+          // cast freeVariablesPtr to void*
+          const freeVariablesPtrCast = this.builder.CreateBitCast(
+            freeVariablesPtr,
+            llvm.PointerType.get(llvm.Type.getInt8Ty(this.context), 0),
+            "fn_casted_freeVariablesPtr"
+          );
+          this.builder.CreateStore(
+            freeVariablesPtrCast,
+            freeVariablesRecordPtr
+          );
+
+          return closurePtr;
         }
         case AstType.Extern: {
           const theFunction = this.codegenPrototype(expr.prototype);
@@ -785,70 +883,86 @@ export class CodeGenerator {
           // return theFunction;
         }
         case AstType.Variable: {
-          console.log("- Variable: ", JSON.stringify(expr));
-          const value = namedValues[expr.name];
-          if (!value) {
+          const namedValue = namedValues[expr.name];
+          if (!namedValue) {
             throw new Error(`Variable ${expr.name} not found`);
           }
-          return value;
+          return namedValue.value;
         }
         case AstType.CallFunction: {
           const functionName = expr.functionName;
-          const func = this.module.getFunction(expr.functionId);
-          if (!func) {
-            throw new Error(
-              `Function ${functionName} with id "${expr.functionId}" not found`
-            );
-          }
+          const functionId = expr.functionType.id;
 
           // NOTE: Function argument types check is done in the parser.ts stage.
           const args = expr.functionArguments.map((arg) => {
             return this.codegenExpr(arg, namedValues);
           });
 
-          if (expr.functionFreeVariables.length > 0) {
-            const functionClosure = namedValues[functionName];
-            const freeVariables = expr.functionFreeVariables;
-            const recordType = llvm.StructType.get(
-              this.context,
-              freeVariables.map((variable) => {
-                return this.getLlvmType(variable.type);
-              })
+          const namedValue = namedValues[functionName];
+          const functionType = namedValue?.type;
+          if (
+            namedValue &&
+            functionType &&
+            functionType.type === "Function" &&
+            functionType.freeVariables
+          ) {
+            const closurePtr = namedValue.value;
+            const closureType = this.getClosureType(functionType);
+
+            // Get the pointer to the free variables
+            const freeVariablesRecordPtr = this.builder.CreateGEP(
+              closureType,
+              closurePtr,
+              [
+                llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
+                llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 1),
+              ],
+              "callfn_freeVariablesPtr"
             );
 
-            // Get each free variable from the closure
-            for (let i = 0; i < freeVariables.length; i++) {
-              const freeVariable = freeVariables[i];
-              const freeVariableName = freeVariable.variableName;
+            // Load as void*
+            const freeVariablesVoidPtr = this.builder.CreateLoad(
+              llvm.PointerType.get(llvm.Type.getInt8Ty(this.context), 0),
+              freeVariablesRecordPtr,
+              "callfn_freeVariablesPtr"
+            );
 
-              // Get the pointer to the free variable
-              const freeVariablePtr = this.builder.CreateGEP(
-                recordType,
-                functionClosure,
-                [
-                  llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 32),
-                    0
-                  ),
-                  llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 32),
-                    i
-                  ),
-                ],
-                freeVariableName
-              );
-              // Load the value from the free variable
-              const freeVariableValue = this.builder.CreateLoad(
-                this.getLlvmType(freeVariable.type),
-                freeVariablePtr,
-                freeVariableName
-              );
-              args.push(freeVariableValue);
-            }
+            args.push(freeVariablesVoidPtr);
           }
 
-          const call = this.builder.CreateCall(func, args);
-          return call;
+          let func: llvm.Function | llvm.FunctionCallee | null = null;
+          // This is closure
+          if (namedValues[functionName]) {
+            // Get the function from the closure
+            const closurePtr = namedValues[functionName].value;
+            const functionType = this.getLlvmFunctionType(expr.functionType);
+            const closureType = this.getClosureType(expr.functionType);
+            const functionPtr = this.builder.CreateGEP(
+              closureType,
+              closurePtr,
+              [
+                llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
+                llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
+              ],
+              "functionPtr"
+            );
+            const functionValue = this.builder.CreateLoad(
+              llvm.PointerType.get(functionType, 0),
+              functionPtr,
+              "functionPtr"
+            );
+
+            return this.builder.CreateCall(functionType, functionValue, args);
+          } else {
+            func = this.module.getFunction(functionId);
+            if (!func) {
+              throw new Error(
+                `Function ${functionName} with id "${functionId}" not found`
+              );
+            }
+
+            return this.builder.CreateCall(func, args);
+          }
         }
         case AstType.If: {
           const conditionValue = this.codegenExpr(expr.condition, namedValues);
@@ -927,8 +1041,14 @@ export class CodeGenerator {
           }
         }
         case AstType.ConstantAssigment: {
+          if (Array.isArray(expr.right)) {
+            throw new Error(`Cannot assign array of expressions`);
+          }
           const value = this.codegenExpr(expr.right, namedValues);
-          namedValues[expr.variableName] = value;
+          namedValues[expr.variableName] = {
+            value,
+            type: expr.right.typeValue,
+          };
           return value;
         }
         case AstType.PropertyAccess: {

@@ -116,7 +116,7 @@ export type VariableExpr = {
   name: string;
   typeValue: Type;
   frameLevel: number;
-  isFreeVariable: boolean;
+  // isFreeVariable: boolean;
 };
 
 export type PropertyAccessExpr = {
@@ -196,10 +196,9 @@ export type ExternExpr = {
 
 export type CallFunctionExpr = {
   type: AstType.CallFunction;
-  functionId: string; // This is used for finding the function by id. Check `FunctionPrototype` above.
   functionName: string;
   functionArguments: Expr[];
-  functionFreeVariables: ValueType[];
+  functionType: TFunction;
   typeValue: Type;
 };
 

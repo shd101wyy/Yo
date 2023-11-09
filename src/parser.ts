@@ -670,7 +670,7 @@ Returned:  ${typeToString(returnType)}`
           name: identifier,
           typeValue,
           frameLevel: valueType.frameLevel,
-          isFreeVariable,
+          // isFreeVariable,
         },
         index: index + 1,
         env,
@@ -771,10 +771,9 @@ Returned:  ${typeToString(returnType)}`
       return {
         expr: {
           type: AstType.CallFunction,
-          functionId: functionType.id,
           functionName,
           functionArguments: functionArgumentsInOrder,
-          functionFreeVariables: functionType.freeVariables,
+          functionType: functionType,
           typeValue: functionType.returnType,
         },
         index: nextIndex,

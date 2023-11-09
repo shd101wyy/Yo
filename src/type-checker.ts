@@ -128,7 +128,13 @@ export type TFunction = {
   id: string;
   parameterTypes: TParameterType[];
   returnType: Type;
-  freeVariables: ValueType[];
+
+  /**
+   * Right now only ()=>{} is closure
+   * function name(a: number) {} is not closure
+   * if `freeVariables` is set to `undefined`, then it means it's not a closure
+   */
+  freeVariables?: ValueType[];
 };
 
 export type TUnion = {
@@ -734,6 +740,15 @@ export function synthesizeFunctionParameterTypesFromTokens({
       userDefinedParamterType = newParameterType;
       env = nextEnv;
       index = nextIndex;
+
+      if (
+        userDefinedParamterType.type === "Function" &&
+        userDefinedParamterType.freeVariables === undefined
+      ) {
+        // NOTE: This means we are passing a function as parameter
+        // We set .freeVariables to empty not undefined to show that it's a closure
+        userDefinedParamterType.freeVariables = [];
+      }
     }
 
     // check parameter default values
@@ -853,7 +868,7 @@ export function synthesizeFunctionTypeFromTokens({
           id: getEnvVariableId(functionName ?? "lambda"),
           parameterTypes,
           returnType,
-          freeVariables: [],
+          freeVariables: undefined,
         },
         index,
         env,
@@ -887,7 +902,7 @@ export function synthesizeFunctionTypeFromTokens({
           id: getEnvVariableId(functionName ?? "lambda"),
           parameterTypes,
           returnType,
-          freeVariables: [],
+          freeVariables: undefined,
         },
         index,
         env,
@@ -901,7 +916,7 @@ export function synthesizeFunctionTypeFromTokens({
           returnType: {
             type: "unknown",
           },
-          freeVariables: [],
+          freeVariables: undefined,
         },
         index,
         env,

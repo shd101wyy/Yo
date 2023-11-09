@@ -77,16 +77,16 @@ function main() {
 }
 `
 
-
 code = `
 function main() {
   const x = 1;
   const f = (y: i32)=> {
     x + y
   };
-  f(2)
+  f(5)
 }
 `
+
 
 code = `
 extern printlnd(d:i32):i32
@@ -102,17 +102,31 @@ function main() {
   0
 }
 `
-
 code = `
 function test(f: (x: i32)=>i32) {
   f(3)
 }
 
 function main() {
-  test((x: i32)=> {x + 1})
+  const a = 12;
+  test((x: i32)=> {x + a})
 }
 `
 
+code = `
+extern printlnd(d:i32):i32
+function factorial(x:i32, acc:i32=1): i32 {
+  if (x == 0) {
+    acc
+  } else {
+    factorial(x-1, acc*x)
+  }
+}
+
+function main() {
+  printlnd(factorial(5))
+}
+`
 
 
 const codeGenerator = new CodeGenerator(code);
