@@ -11,7 +11,6 @@ import {
   FunctionPrototype,
   PrimitiveValueExpr,
   getFunctionArgumentsInOrder,
-  getFunctionFromEnv,
   getTokenPrecedence,
   synthesizeExprType,
   synthesizeRecordType,
@@ -30,7 +29,6 @@ import { formatErrorMessage } from "./error";
 import { Token, TokenType } from "./token";
 import {
   ParserReturn,
-  TFunction,
   TSlice,
   Type,
   TypeValues,
@@ -631,10 +629,119 @@ Returned:  ${typeToString(returnType)}`
     return { expr, index: nextIndex + 1, env: nextEnv };
   }
 
+  private parseCallExpr(
+    callee: Expr,
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    if (Array.isArray(callee) || callee.typeValue.type !== "Function") {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected function for call expression"
+      );
+    }
+    if (tokens[index]?.type !== TokenType.LParen) {
+      throw this.formatErrorMessage(tokens[index], "Expected left paren");
+    }
+    const functionArguments: Expr = [];
+    let nextIndex = index + 2;
+    if (tokens[index + 1]?.type !== TokenType.RParen) {
+      index = index + 1;
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        // Check if it's keyword argument
+        if (
+          tokens[index].type === TokenType.Identifier &&
+          tokens[index + 1].type === TokenType.Assign
+        ) {
+          const variableName = tokens[index].value;
+          const {
+            expr: defaultParameterValueExpr,
+            index: nextIndex,
+            env: nextEnv,
+          } = this.parseExpression(tokens, index + 2, env);
+          env = nextEnv;
+
+          if (!defaultParameterValueExpr) {
+            throw this.formatErrorMessage(
+              tokens[index],
+              "Expected expression for default parameter value"
+            );
+          }
+
+          const parameterAssignmentExpr: AssignmentExpr = {
+            type: AstType.ConstantAssigment,
+            variableName: variableName,
+            right: defaultParameterValueExpr,
+            typeValue: TypeValues.unit,
+            variableType: synthesizeExprType(defaultParameterValueExpr, env),
+            frameLevel: getEnvCurrentFrameLevel(env),
+          };
+          functionArguments.push(parameterAssignmentExpr);
+          index = nextIndex;
+        } else {
+          const {
+            expr,
+            index: nextIndex,
+            env: nextEnv,
+          } = this.parseExpression(tokens, index, env);
+          env = nextEnv;
+
+          if (!expr) {
+            throw this.formatErrorMessage(
+              tokens[index],
+              "Expected expression for function argument"
+            );
+          }
+          functionArguments.push(expr);
+          index = nextIndex;
+        }
+
+        if (tokens[index].type === TokenType.RParen) {
+          break;
+        }
+
+        if (tokens[index].type !== TokenType.Comma) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Expected comma, but got ${tokens[index].value}`
+          );
+        }
+        index = index + 1;
+      }
+
+      nextIndex = index + 1;
+    }
+
+    const functionArgumentsInOrder = getFunctionArgumentsInOrder(
+      functionArguments,
+      callee.typeValue
+    );
+
+    if (!functionArgumentsInOrder) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Mismatched function arguments`
+      );
+    }
+
+    return {
+      expr: {
+        type: AstType.CallFunction,
+        callee,
+        functionArguments: functionArgumentsInOrder,
+        typeValue: callee.typeValue.returnType,
+      },
+      index: nextIndex,
+      env,
+    };
+  }
+
   /**
    * identifierexpr
    *   ::= identifier
-   *   ::= identifier "(" expression* ")"
    * @param tokens
    * @param index
    */
@@ -645,141 +752,35 @@ Returned:  ${typeToString(returnType)}`
   ): ParserReturn {
     const identifier = tokens[index].value;
 
-    if (tokens[index + 1].type !== TokenType.LParen) {
-      // Check if variable is defined
-      const valueTypes = getEnvValueTypesByVariableName(env, identifier);
-      if (valueTypes.length === 0) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Unbounded variable \`${identifier}\``
-        );
-      }
-      const valueType = valueTypes[valueTypes.length - 1];
-      const typeValue = valueType.type;
-      const isFreeVariable =
-        valueType.frameLevel <= env.functionDeclarationFrameLevel;
-
-      // Add free variables to env
-      if (isFreeVariable) {
-        env = addEnvFreeVariable(env, valueType);
-      }
-
-      return {
-        expr: {
-          type: AstType.Variable,
-          name: identifier,
-          typeValue,
-          frameLevel: valueType.frameLevel,
-          // isFreeVariable,
-        },
-        index: index + 1,
-        env,
-      };
-    } else {
-      // FIXME: Accessors check here is needed
-      // call
-      const functionName: string = identifier;
-      const functionArguments: Expr = [];
-      let nextIndex = index + 3;
-      if (tokens[index + 2].type !== TokenType.RParen) {
-        index = index + 2;
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          // Check if it's keyword argument
-          if (
-            tokens[index].type === TokenType.Identifier &&
-            tokens[index + 1].type === TokenType.Assign
-          ) {
-            const variableName = tokens[index].value;
-            const {
-              expr: defaultParameterValueExpr,
-              index: nextIndex,
-              env: nextEnv,
-            } = this.parseExpression(tokens, index + 2, env);
-            env = nextEnv;
-
-            if (!defaultParameterValueExpr) {
-              throw this.formatErrorMessage(
-                tokens[index],
-                "Expected expression for default parameter value"
-              );
-            }
-
-            const parameterAssignmentExpr: AssignmentExpr = {
-              type: AstType.ConstantAssigment,
-              variableName: variableName,
-              right: defaultParameterValueExpr,
-              typeValue: TypeValues.unit,
-              variableType: synthesizeExprType(defaultParameterValueExpr, env),
-              frameLevel: getEnvCurrentFrameLevel(env),
-            };
-            functionArguments.push(parameterAssignmentExpr);
-            index = nextIndex;
-          } else {
-            const {
-              expr,
-              index: nextIndex,
-              env: nextEnv,
-            } = this.parseExpression(tokens, index, env);
-            env = nextEnv;
-
-            if (!expr) {
-              throw this.formatErrorMessage(
-                tokens[index],
-                "Expected expression for function argument"
-              );
-            }
-            functionArguments.push(expr);
-            index = nextIndex;
-          }
-
-          if (tokens[index].type === TokenType.RParen) {
-            break;
-          }
-
-          if (tokens[index].type !== TokenType.Comma) {
-            throw this.formatErrorMessage(
-              tokens[index],
-              `Expected comma, but got ${tokens[index].value}`
-            );
-          }
-          index = index + 1;
-        }
-
-        nextIndex = index + 1;
-      }
-
-      const functionBeingCalled = getFunctionFromEnv(
-        functionName,
-        functionArguments,
-        env
+    // Check if variable is defined
+    const valueTypes = getEnvValueTypesByVariableName(env, identifier);
+    if (valueTypes.length === 0) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Unbounded variable \`${identifier}\``
       );
-      console.log("functionBeingCalled: ", functionBeingCalled);
-      const functionType = functionBeingCalled.type as TFunction;
-      const functionArgumentsInOrder = getFunctionArgumentsInOrder(
-        functionArguments,
-        functionType
-      );
-
-      if (!functionArgumentsInOrder) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Mismatched function arguments`
-        );
-      }
-
-      return {
-        expr: {
-          type: AstType.CallFunction,
-          functionName,
-          functionArguments: functionArgumentsInOrder,
-          functionType: functionType,
-          typeValue: functionType.returnType,
-        },
-        index: nextIndex,
-        env,
-      };
     }
+    const valueType = valueTypes[valueTypes.length - 1];
+    const typeValue = valueType.type;
+    const isFreeVariable =
+      valueType.frameLevel <= env.functionDeclarationFrameLevel;
+
+    // Add free variables to env
+    if (isFreeVariable) {
+      env = addEnvFreeVariable(env, valueType);
+    }
+
+    return {
+      expr: {
+        type: AstType.Variable,
+        name: identifier,
+        typeValue,
+        frameLevel: valueType.frameLevel,
+        // isFreeVariable,
+      },
+      index: index + 1,
+      env,
+    };
   }
 
   /**
@@ -886,6 +887,27 @@ Returned:  ${typeToString(returnType)}`
           break;
         }
       }
+
+      // Check if it's a function
+      if (
+        !Array.isArray(returnValue.expr) &&
+        returnValue.expr.typeValue.type === "Function" &&
+        tokens[returnValue.index]?.type === TokenType.LParen
+      ) {
+        // parseCallExpr
+        const {
+          expr,
+          index: nextIndex,
+          env: nextEnv,
+        } = this.parseCallExpr(
+          returnValue.expr,
+          tokens,
+          returnValue.index,
+          returnValue.env
+        );
+        returnValue = { expr, index: nextIndex, env: nextEnv };
+      }
+
       return returnValue;
     }
   }

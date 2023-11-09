@@ -314,9 +314,9 @@ export class CodeGenerator {
     exprValue: llvm.Value,
     typeValue: Type,
     accessors: string[]
-  ): llvm.Value {
+  ): NamedValue {
     if (accessors.length === 0) {
-      return exprValue;
+      return { value: exprValue, type: typeValue };
     }
 
     switch (typeValue.type) {
@@ -367,26 +367,27 @@ export class CodeGenerator {
   private codegenExpr(
     expr: Expr | FunctionPrototype,
     namedValues: NamedValues
-  ): llvm.Value {
+  ): NamedValue {
     if (expr instanceof Array) {
       // Create undefined value
-      let llvmValue: llvm.Value = llvm.UndefValue.get(
-        llvm.PointerType.getVoidTy(this.context)
-      );
+      let namedValue: NamedValue = {
+        value: this.unit, //llvm.UndefValue.get(llvm.PointerType.getVoidTy(this.context)),
+        type: { type: "()" },
+      };
       const exprs = expr;
       for (let i = 0; i < exprs.length; i++) {
         const expr = exprs[i];
         if (expr instanceof Array) {
-          llvmValue = this.codegenExpr(expr, namedValues);
+          namedValue = this.codegenExpr(expr, namedValues);
         } else {
           if (expr.type === AstType.TypeAlias) {
             continue;
           }
 
-          llvmValue = this.codegenExpr(expr, namedValues);
+          namedValue = this.codegenExpr(expr, namedValues);
         }
       }
-      return llvmValue;
+      return namedValue;
     } else {
       switch (expr.type) {
         case AstType.Value: {
@@ -396,101 +397,149 @@ export class CodeGenerator {
               const typeValue = expr.typeValue;
               switch (typeValue.type) {
                 case "boolean":
-                  return llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 1),
-                    typeValue.value === "true" ? 1 : 0,
-                    false // isSigned
-                  );
+                  return {
+                    value: llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 1),
+                      typeValue.value === "true" ? 1 : 0,
+                      false // isSigned
+                    ),
+                    type: typeValue,
+                  };
                 case "char":
-                  return llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 8),
-                    typeValue.value.charCodeAt(0),
-                    false // isSigned
-                  );
+                  return {
+                    value: llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 8),
+                      typeValue.value.charCodeAt(0),
+                      false // isSigned
+                    ),
+                    type: typeValue,
+                  };
                 case "u1":
-                  return llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 1),
-                    parseInt(typeValue.value),
-                    false // isSigned
-                  );
+                  return {
+                    value: llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 1),
+                      parseInt(typeValue.value),
+                      false // isSigned
+                    ),
+                    type: typeValue,
+                  };
                 case "i1":
-                  return llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 1),
-                    parseInt(typeValue.value),
-                    true // isSigned
-                  );
+                  return {
+                    value: llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 1),
+                      parseInt(typeValue.value),
+                      true // isSigned
+                    ),
+                    type: typeValue,
+                  };
                 case "u8":
-                  return llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 8),
-                    parseInt(typeValue.value),
-                    false // isSigned
-                  );
+                  return {
+                    value: llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 8),
+                      parseInt(typeValue.value),
+                      false // isSigned
+                    ),
+                    type: typeValue,
+                  };
                 case "i8":
-                  return llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 8),
-                    parseInt(typeValue.value),
-                    true // isSigned
-                  );
+                  return {
+                    value: llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 8),
+                      parseInt(typeValue.value),
+                      true // isSigned
+                    ),
+                    type: typeValue,
+                  };
                 case "u16":
-                  return llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 16),
-                    parseInt(typeValue.value),
-                    false // isSigned
-                  );
+                  return {
+                    value: llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 16),
+                      parseInt(typeValue.value),
+                      false // isSigned
+                    ),
+                    type: typeValue,
+                  };
                 case "i16":
-                  return llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 16),
-                    parseInt(typeValue.value),
-                    true // isSigned
-                  );
+                  return {
+                    value: llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 16),
+                      parseInt(typeValue.value),
+                      true // isSigned
+                    ),
+                    type: typeValue,
+                  };
                 case "u32":
-                  return llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 32),
-                    parseInt(typeValue.value),
-                    false // isSigned
-                  );
+                  return {
+                    value: llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 32),
+                      parseInt(typeValue.value),
+                      false // isSigned
+                    ),
+                    type: typeValue,
+                  };
                 case "i32":
-                  return llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 32),
-                    parseInt(typeValue.value),
-                    true // isSigned
-                  );
+                  return {
+                    value: llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 32),
+                      parseInt(typeValue.value),
+                      true // isSigned
+                    ),
+                    type: typeValue,
+                  };
                 case "u64":
-                  return llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 64),
-                    parseInt(typeValue.value),
-                    false // isSigned
-                  );
+                  return {
+                    value: llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 64),
+                      parseInt(typeValue.value),
+                      false // isSigned
+                    ),
+                    type: typeValue,
+                  };
                 case "i64":
-                  return llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 64),
-                    parseInt(typeValue.value),
-                    true // isSigned
-                  );
+                  return {
+                    value: llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 64),
+                      parseInt(typeValue.value),
+                      true // isSigned
+                    ),
+                    type: typeValue,
+                  };
                 case "u128":
-                  return llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 128),
-                    parseInt(typeValue.value),
-                    false // isSigned
-                  );
+                  return {
+                    value: llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 128),
+                      parseInt(typeValue.value),
+                      false // isSigned
+                    ),
+                    type: typeValue,
+                  };
                 case "i128":
-                  return llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 128),
-                    parseInt(typeValue.value),
-                    true // isSigned
-                  );
+                  return {
+                    value: llvm.ConstantInt.get(
+                      llvm.IntegerType.get(this.context, 128),
+                      parseInt(typeValue.value),
+                      true // isSigned
+                    ),
+                    type: typeValue,
+                  };
                 case "f16":
                 case "f32": {
-                  return llvm.ConstantFP.get(
-                    llvm.Type.getFloatTy(this.context),
-                    parseFloat(typeValue.value)
-                  );
+                  return {
+                    value: llvm.ConstantFP.get(
+                      llvm.Type.getFloatTy(this.context),
+                      parseFloat(typeValue.value)
+                    ),
+                    type: typeValue,
+                  };
                 }
                 case "f64": {
-                  return llvm.ConstantFP.get(
-                    llvm.Type.getDoubleTy(this.context),
-                    parseFloat(typeValue.value)
-                  );
+                  return {
+                    value: llvm.ConstantFP.get(
+                      llvm.Type.getDoubleTy(this.context),
+                      parseFloat(typeValue.value)
+                    ),
+                    type: typeValue,
+                  };
                 }
                 case "symbol": {
                   /*
@@ -505,10 +554,16 @@ export class CodeGenerator {
                     typeValue.value,
                     "string"
                   );
-                  return stringPtr;
+                  return {
+                    value: stringPtr,
+                    type: typeValue,
+                  };
                 }
                 case "()":
-                  return this.unit;
+                  return {
+                    value: this.unit,
+                    type: typeValue,
+                  };
                 default:
                   throw new Error(
                     `Unknown value type: ${JSON.stringify(typeValue)}`
@@ -555,9 +610,12 @@ export class CodeGenerator {
                   property.name
                 );
                 // Store the value in the property
-                this.builder.CreateStore(propertyValue, propertyPtr);
+                this.builder.CreateStore(propertyValue.value, propertyPtr);
               }
-              return recordPtr;
+              return {
+                value: recordPtr,
+                type: typeValue,
+              };
             }
             case "slice": {
               // Allocate memory for the slice
@@ -597,9 +655,9 @@ export class CodeGenerator {
                   ],
                   "index"
                 );
-                this.builder.CreateStore(value, indexPtr);
+                this.builder.CreateStore(value.value, indexPtr);
               }
-              return slicePtr;
+              return { value: slicePtr, type: typeValue };
             }
             default: {
               throw new Error(`Unknown value tag: ${expr}`);
@@ -607,6 +665,7 @@ export class CodeGenerator {
           }
         }
         case AstType.BinaryOperator: {
+          const typeValue = expr.typeValue;
           const lhs = this.codegenExpr(expr.left, namedValues);
           const rhs = this.codegenExpr(expr.right, namedValues);
 
@@ -618,66 +677,123 @@ export class CodeGenerator {
             expr.right.typeValue.type === "symbol"
           ) {
             if (expr.operator === OperatorType.Equal) {
-              return this.builder.CreateICmpEQ(lhs, rhs); // 1 means equal
+              return {
+                value: this.builder.CreateICmpEQ(lhs.value, rhs.value),
+                type: { type: "boolean" },
+              }; // 1 means equal
             }
           }
 
-          const binopType = this.getBinOpType(lhs, rhs);
+          const binopType = this.getBinOpType(lhs.value, rhs.value);
           switch (expr.operator) {
             // TODO: Support operator overloading
             case "+":
               if (binopType === "double") {
-                return this.builder.CreateFAdd(lhs, rhs);
+                return {
+                  value: this.builder.CreateFAdd(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               } else {
-                return this.builder.CreateAdd(lhs, rhs);
+                return {
+                  value: this.builder.CreateAdd(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               }
             case "-":
               if (binopType === "double") {
-                return this.builder.CreateFSub(lhs, rhs);
+                return {
+                  value: this.builder.CreateFSub(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               } else {
-                return this.builder.CreateSub(lhs, rhs);
+                return {
+                  value: this.builder.CreateSub(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               }
             case "*":
               if (binopType === "double") {
-                return this.builder.CreateFMul(lhs, rhs);
+                return {
+                  value: this.builder.CreateFMul(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               } else {
-                return this.builder.CreateMul(lhs, rhs);
+                return {
+                  value: this.builder.CreateMul(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               }
             case "/":
               if (binopType === "double") {
-                return this.builder.CreateFDiv(lhs, rhs);
+                return {
+                  value: this.builder.CreateFDiv(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               } else {
-                return this.builder.CreateSDiv(lhs, rhs);
+                return {
+                  value: this.builder.CreateSDiv(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               }
             case "%":
               if (binopType === "double") {
-                return this.builder.CreateFRem(lhs, rhs);
+                return {
+                  value: this.builder.CreateFRem(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               } else {
-                return this.builder.CreateSRem(lhs, rhs);
+                return {
+                  value: this.builder.CreateSRem(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               }
             case "==":
               if (binopType === "double") {
-                return this.builder.CreateFCmpOEQ(lhs, rhs);
+                return {
+                  value: this.builder.CreateFCmpOEQ(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               } else {
-                return this.builder.CreateICmpEQ(lhs, rhs);
+                return {
+                  value: this.builder.CreateICmpEQ(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               }
             case "!=":
               if (binopType === "double") {
-                return this.builder.CreateFCmpONE(lhs, rhs);
+                return {
+                  value: this.builder.CreateFCmpONE(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               } else {
-                return this.builder.CreateICmpNE(lhs, rhs);
+                return {
+                  value: this.builder.CreateICmpNE(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               }
             case "<":
               if (binopType === "double") {
-                return this.builder.CreateFCmpOLT(lhs, rhs);
+                return {
+                  value: this.builder.CreateFCmpOLT(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               } else {
-                return this.builder.CreateICmpSLT(lhs, rhs);
+                return {
+                  value: this.builder.CreateICmpSLT(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               }
             case "<=":
               if (binopType === "double") {
-                return this.builder.CreateFCmpOLE(lhs, rhs);
+                return {
+                  value: this.builder.CreateFCmpOLE(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               } else {
-                return this.builder.CreateICmpSLE(lhs, rhs);
+                return {
+                  value: this.builder.CreateICmpSLE(lhs.value, rhs.value),
+                  type: typeValue,
+                };
               }
             default:
               throw new Error(`Unknown binary operator: ${expr.operator}`);
@@ -768,9 +884,20 @@ export class CodeGenerator {
             }
           }
 
+          // Save the function itself to the namedValues map
+          if (expr.prototype.functionName) {
+            const closure: NamedValue = {
+              value: this.unit,
+              type: expr.typeValue,
+            };
+            namedValues[expr.prototype.functionName] = closure;
+            newNamedValues[expr.prototype.functionName] = closure;
+          }
+
+          // Codegen the body
           const returnVal = this.codegenExpr(expr.body, newNamedValues);
           // Move back to the entry block
-          this.builder.CreateRet(returnVal);
+          this.builder.CreateRet(returnVal.value);
 
           if (currentBasicBlock) {
             this.builder.SetInsertPoint(currentBasicBlock);
@@ -790,8 +917,13 @@ export class CodeGenerator {
           // Return the function pointer + free variables record
           const freeVariables = expr.prototype.typeValue.freeVariables;
           if (!freeVariables) {
-            // This is not a closure
-            return this.unit;
+            // NOTE: This is not a closure
+            // in theory, this return is not used anywhere
+            const closure: NamedValue = {
+              value: this.unit,
+              type: expr.typeValue,
+            };
+            return closure;
           }
 
           const closureType = this.getClosureType(expr.prototype.typeValue);
@@ -870,36 +1002,46 @@ export class CodeGenerator {
             freeVariablesRecordPtr
           );
 
-          return closurePtr;
+          return { value: closurePtr, type: expr.typeValue };
         }
         case AstType.Extern: {
           const theFunction = this.codegenPrototype(expr.prototype);
-          if (!theFunction) {
+          if (!theFunction || !expr.prototype.functionName) {
             throw new Error(
               `Function ${expr.prototype.functionName} not found`
             );
           }
-          return this.unit;
+          const closure: NamedValue = {
+            value: this.unit,
+            type: expr.typeValue,
+          };
+          namedValues[expr.prototype.functionName] = closure;
+          return closure;
           // return theFunction;
         }
         case AstType.Variable: {
+          // TODO: Check if it's a function
           const namedValue = namedValues[expr.name];
           if (!namedValue) {
             throw new Error(`Variable ${expr.name} not found`);
           }
-          return namedValue.value;
+          return namedValue;
         }
         case AstType.CallFunction: {
-          const functionName = expr.functionName;
-          const functionId = expr.functionType.id;
+          const callee = expr.callee;
 
           // NOTE: Function argument types check is done in the parser.ts stage.
-          const args = expr.functionArguments.map((arg) => {
-            return this.codegenExpr(arg, namedValues);
+          const args: llvm.Value[] = expr.functionArguments.map((arg) => {
+            return this.codegenExpr(arg, namedValues).value;
           });
 
-          const namedValue = namedValues[functionName];
+          const namedValue = this.codegenExpr(callee, namedValues);
           const functionType = namedValue?.type;
+          if (functionType.type !== "Function") {
+            throw new Error(
+              `Function ${JSON.stringify(callee)} not found in namedValues`
+            );
+          }
           if (
             namedValue &&
             functionType &&
@@ -932,11 +1074,11 @@ export class CodeGenerator {
 
           let func: llvm.Function | llvm.FunctionCallee | null = null;
           // This is closure
-          if (namedValues[functionName]) {
+          if (functionType.freeVariables) {
             // Get the function from the closure
-            const closurePtr = namedValues[functionName].value;
-            const functionType = this.getLlvmFunctionType(expr.functionType);
-            const closureType = this.getClosureType(expr.functionType);
+            const closurePtr = namedValue.value;
+            const llvmFunctionType = this.getLlvmFunctionType(functionType);
+            const closureType = this.getClosureType(functionType);
             const functionPtr = this.builder.CreateGEP(
               closureType,
               closurePtr,
@@ -947,21 +1089,30 @@ export class CodeGenerator {
               "functionPtr"
             );
             const functionValue = this.builder.CreateLoad(
-              llvm.PointerType.get(functionType, 0),
+              llvm.PointerType.get(llvmFunctionType, 0),
               functionPtr,
               "functionPtr"
             );
 
-            return this.builder.CreateCall(functionType, functionValue, args);
+            return {
+              value: this.builder.CreateCall(
+                llvmFunctionType,
+                functionValue,
+                args
+              ),
+              type: expr.typeValue,
+            };
           } else {
-            func = this.module.getFunction(functionId);
+            func = this.module.getFunction(functionType.id);
             if (!func) {
               throw new Error(
-                `Function ${functionName} with id "${functionId}" not found`
+                `Function with id "${functionType.id}" not found`
               );
             }
-
-            return this.builder.CreateCall(func, args);
+            return {
+              value: this.builder.CreateCall(func, args),
+              type: expr.typeValue,
+            };
           }
         }
         case AstType.If: {
@@ -990,7 +1141,7 @@ export class CodeGenerator {
           const elseBB = llvm.BasicBlock.Create(this.context, "else");
           const mergeBB = llvm.BasicBlock.Create(this.context, "ifcont");
 
-          this.builder.CreateCondBr(conditionValue, thenBB, elseBB);
+          this.builder.CreateCondBr(conditionValue.value, thenBB, elseBB);
 
           // Emit then value
           this.builder.SetInsertPoint(thenBB);
@@ -1034,9 +1185,9 @@ export class CodeGenerator {
                 2,
                 "iftmp"
               );
-              phiNode.addIncoming(thenValue, thenBB);
-              phiNode.addIncoming(elseValue, elseBB);
-              return phiNode;
+              phiNode.addIncoming(thenValue.value, thenBB);
+              phiNode.addIncoming(elseValue.value, elseBB);
+              return { value: phiNode, type: expr.typeValue };
             }
           }
         }
@@ -1045,10 +1196,7 @@ export class CodeGenerator {
             throw new Error(`Cannot assign array of expressions`);
           }
           const value = this.codegenExpr(expr.right, namedValues);
-          namedValues[expr.variableName] = {
-            value,
-            type: expr.right.typeValue,
-          };
+          namedValues[expr.variableName] = value;
           return value;
         }
         case AstType.PropertyAccess: {
@@ -1057,7 +1205,7 @@ export class CodeGenerator {
             throw new Error(`Cannot access array of expressions`);
           } else {
             return this.codegenForPropertyAccess(
-              value,
+              value.value,
               expr.expr.typeValue,
               expr.properties
             );
@@ -1076,11 +1224,11 @@ export class CodeGenerator {
             throw new Error(`Index not found`);
           }
           const indexValues = indexes.map((index) => {
-            return this.codegenExpr(index, namedValues);
+            return this.codegenExpr(index, namedValues).value;
           });
 
           let sliceType: Type = expr.expr.typeValue;
-          let sliceValue = this.codegenExpr(expr.expr, namedValues);
+          let { value: sliceValue } = this.codegenExpr(expr.expr, namedValues);
 
           // Get the pointer to the index
           for (let i = 0; i < indexValues.length; i++) {
@@ -1115,7 +1263,10 @@ export class CodeGenerator {
           }
 
           // Load the value from the index
-          return sliceValue;
+          return {
+            value: sliceValue,
+            type: expr.typeValue,
+          };
         }
         default:
           throw new Error(`Unknown expression type: ${JSON.stringify(expr)}`);

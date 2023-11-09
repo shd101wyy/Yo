@@ -124,7 +124,24 @@ function factorial(x:i32, acc:i32=1): i32 {
 }
 
 function main() {
-  printlnd(factorial(15))
+  printlnd(factorial(10))
+}
+`
+
+code = `
+function main() {
+  const x = {
+    add: (a: i32, b: i32) => {
+      a + b
+    }
+  };
+  x.add(3, 4)
+}
+`
+
+code = `
+function main() {
+  ((x: i32)=> { x })(16)
 }
 `
 

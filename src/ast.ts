@@ -68,19 +68,21 @@ export enum OperatorType {
  */
 export type Expr =
   | Expr[]
-  | FunctionExpr
-  | ExternExpr
-  | AssignmentExpr
-  | TypeAliasExpr
-  | UnaryOperatorExpr
-  | BinaryOperatorExpr
-  | VariableExpr
-  | PropertyAccessExpr
-  | IndexAccessExpr
-  | ValueExpr
-  | CallFunctionExpr
-  | IfExpr
-  | IgnoreExpr;
+  | (
+      | FunctionExpr
+      | ExternExpr
+      | AssignmentExpr
+      | TypeAliasExpr
+      | UnaryOperatorExpr
+      | BinaryOperatorExpr
+      | VariableExpr
+      | PropertyAccessExpr
+      | IndexAccessExpr
+      | ValueExpr
+      | CallFunctionExpr
+      | IfExpr
+      | IgnoreExpr
+    );
 
 export type TopLevelExpr = Expr | FunctionExpr;
 
@@ -196,9 +198,8 @@ export type ExternExpr = {
 
 export type CallFunctionExpr = {
   type: AstType.CallFunction;
-  functionName: string;
+  callee: Expr;
   functionArguments: Expr[];
-  functionType: TFunction;
   typeValue: Type;
 };
 
