@@ -124,7 +124,7 @@ function factorial(x:i32, acc:i32=1): i32 {
 }
 
 function main() {
-  printlnd(factorial(5))
+  printlnd(factorial(15))
 }
 `
 

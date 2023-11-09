@@ -1111,6 +1111,7 @@ Returned:  ${typeToString(returnType)}`
       requireFunctionName: true,
       withFunctionBody: true,
     });
+    env = nextEnv;
     if (!prototype) {
       env = popEnvFrame(env);
       return {
@@ -1142,7 +1143,9 @@ Returned:  ${typeToString(returnType)}`
         exprs,
         index: nextIndex,
         returnType: functionReturnType,
-      } = this.parseBlockExpressions(tokens, index, nextEnv);
+        env: nextEnv,
+      } = this.parseBlockExpressions(tokens, index, env);
+      env = nextEnv;
 
       // Check function body return type matches
       // prototype.returnType
