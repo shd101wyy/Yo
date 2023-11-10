@@ -157,6 +157,13 @@ export type TSlice = {
   size?: number;
 };
 
+/*
+export type TTuple = {
+  type: "tuple";
+  elements: Type[];
+};
+*/
+
 export type Type =
   | TUnit
   | TBoolean
@@ -183,6 +190,7 @@ export type Type =
   | TIntersection
   | TUnknown
   | TSlice
+  //  | TTuple
   | TPrimitive;
 
 // Type constructors
@@ -243,6 +251,18 @@ export function isUnsignedIntegerType(type: Type): boolean {
   );
 }
 
+export function convertPrimitiveToType(primitive: Type): Type {
+  if ("tag" in primitive && primitive.tag === "primitive") {
+    const t = primitive.type;
+    const type: Type = {
+      type: t,
+    } as Type;
+    return type;
+  } else {
+    return primitive;
+  }
+}
+
 export function isFloatType(type: Type): boolean {
   return type.type === "f16" || type.type === "f32" || type.type === "f64";
 }
@@ -287,6 +307,54 @@ export function synthesizeTypeFromTokens({
       env,
     };
   }
+  // Check if it's tuple
+  /*
+  if (tokens[index].value === TokenType.LBracket) {
+    const typeValue: TTuple = {
+      type: "tuple",
+      elements: [],
+    };
+    index = index + 1;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const token = tokens[index];
+      if (!token) {
+        throw formatErrorMessage({
+          token: tokens[index - 1],
+          errorMessage: "Expected ']'",
+          inputString,
+        });
+      }
+      if (token.type === TokenType.RBracket) {
+        index = index + 1;
+        break;
+      }
+      const {
+        typeValue: elementType,
+        index: nextIndex,
+        env: nextEnv,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index,
+        inputString,
+        env,
+        parseExpression,
+      });
+      typeValue.elements.push(elementType);
+      index = nextIndex;
+      env = nextEnv;
+
+      if (tokens[index].type === TokenType.Comma) {
+        index = index + 1;
+      }
+    }
+    returnValue = {
+      typeValue: typeValue,
+      index: index,
+      env,
+    };
+  }
+  */
   // Check if it's anonymouse function
   else if (tokens[index].value === "(") {
     try {
@@ -1090,6 +1158,10 @@ export function typeToString(type: Type): string {
     case "slice": {
       return `${typeToString(type.elementType)}[${type.size ?? ""}]`;
     }
+    /*
+    case "tuple": {
+      return `[${type.elements.map(typeToString).join(", ")}]`;
+    }*/
     default: {
       throw new Error(`Unknown type ${JSON.stringify(type)}`);
     }

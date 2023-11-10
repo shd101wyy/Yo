@@ -145,17 +145,24 @@ function main() {
 }
 `
 
+code = `
+function main() {
+  const x = [1, 2];
+  x[0]
+}
+`
+
 
 const codeGenerator = new CodeGenerator(code);
 
-const ir = codeGenerator.getLlvmIr();
-console.log(ir);
+//// const ir = codeGenerator.getLlvmIr();
+//// console.log(ir);
 
 // write ir to "test.ll" file
-writeFileSync("test.ll", ir);
+//// writeFileSync("test.ll", ir);
 
 // Run "clang ./src/lib.c test.ll -o test"
 // Run "./test"
 // Run "echo $?" to see the return value
-spawnSync("clang", ["./src/lib.c", "test.ll", "-o", "test"], {stdio: "inherit"});
+//// spawnSync("clang", ["./src/lib.c", "test.ll", "-o", "test"], {stdio: "inherit"});
 //// spawnSync("./test", [], {stdio: "inherit"});

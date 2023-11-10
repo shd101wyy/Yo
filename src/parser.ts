@@ -33,6 +33,7 @@ import {
   Type,
   TypeValues,
   checkType,
+  convertPrimitiveToType,
   synthesizeFunctionTypeFromTokens,
   synthesizeTypeFromTokens,
   typeToString,
@@ -188,7 +189,7 @@ export default class Parser {
     }
   }
 
-  private parseSliceExpr(
+  private parseSliceOrTupleExpr(
     tokens: Token[],
     index: number,
     env: Environment
@@ -227,24 +228,35 @@ export default class Parser {
 
     const elementTypes = values.map((value) => synthesizeExprType(value, env));
     // Check if all the element types are the same
-    const firstElementType = elementTypes[0];
-    if (!elementTypes.every((type) => checkType(firstElementType, type))) {
+    const firstElementType = convertPrimitiveToType(elementTypes[0]);
+    const isSlice = elementTypes.every((type) =>
+      checkType(firstElementType, convertPrimitiveToType(type))
+    );
+
+    let typeValue: Type;
+    if (isSlice) {
+      typeValue = {
+        type: "slice",
+        elementType: firstElementType,
+        size: values.length,
+      };
+    } else {
+      /*
+      typeValue = {
+        type: "tuple",
+        elements: elementTypes,
+      };
+      */
       throw this.formatErrorMessage(
         tokens[index],
-        `Mismatched element types in slice: ${elementTypes
-          .map((type) => typeToString(type))
-          .join(", ")}`
+        "Expected slice, but got tuple"
       );
     }
 
     return {
       expr: {
         type: AstType.Value,
-        typeValue: {
-          type: "slice",
-          elementType: firstElementType,
-          size: values.length,
-        },
+        typeValue,
         values: values,
         tag: "slice",
       },
@@ -451,6 +463,29 @@ export default class Parser {
         );
       }
       valueType = valueType.elementType;
+      /*
+      if (valueType.type === "slice") {
+        valueType = valueType.elementType;
+      } else {
+        // tuple
+        if ("tag" in indexType && indexType.tag === "primitive") {
+          const indexValue = parseInt(indexType.value, 10);
+          if (indexValue >= valueType.elements.length) {
+            throw this.formatErrorMessage(
+              token,
+              `Index out of range: ${indexValue}`
+            );
+          }
+          valueType = valueType.elements[indexValue];
+        } else {
+          // union of all types
+          throw this.formatErrorMessage(
+            token,
+            `Not implemented: tuple index access with non-constant index`
+          );
+        }
+      }
+      */
 
       if (tokens[index].type === TokenType.RBracket) {
         index = index + 1;
@@ -826,7 +861,7 @@ Returned:  ${typeToString(returnType)}`
         break;
       }
       case TokenType.LBracket: {
-        returnValue = this.parseSliceExpr(tokens, index, env);
+        returnValue = this.parseSliceOrTupleExpr(tokens, index, env);
         break;
       }
       case TokenType.LParen: {

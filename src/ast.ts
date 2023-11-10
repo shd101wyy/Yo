@@ -271,53 +271,9 @@ export function synthesizeExprType(expr: Expr, env: Environment): Type {
   } else if (expr.type === AstType.Variable) {
     return expr.typeValue;
   } else if (expr.type === AstType.IndexAccess) {
-    const exprType = synthesizeExprType(expr.expr, env);
-    if (exprType.type === "slice") {
-      const indexes = expr.indexes;
-      let currentType: Type = exprType;
-      for (let i = 0; i < indexes.length; i++) {
-        const index = indexes[i];
-        if (currentType.type !== "slice") {
-          throw new Error(
-            `Cannot find index ${index} in ${typeToString(exprType)}`
-          );
-        }
-        currentType = currentType.elementType;
-      }
-      return currentType;
-    } else {
-      throw new Error(
-        `Cannot synthesize type of index access ${JSON.stringify(expr.type)}`
-      );
-    }
+    return expr.typeValue;
   } else if (expr.type === AstType.PropertyAccess) {
-    const exprType = synthesizeExprType(expr.expr, env);
-    if (exprType.type === "Record") {
-      const properties = expr.properties;
-      let currentType: Type = exprType;
-      for (let i = 0; i < properties.length; i++) {
-        const property = properties[i];
-        if (currentType.type !== "Record") {
-          throw new Error(
-            `Cannot find property ${property} in ${typeToString(exprType)}`
-          );
-        }
-        const propertyType = currentType.properties.find(
-          (prop) => prop.name === property
-        );
-        if (!propertyType) {
-          throw new Error(
-            `Cannot find property ${property} in ${typeToString(exprType)}`
-          );
-        }
-        currentType = propertyType.type;
-      }
-      return currentType;
-    } else {
-      throw new Error(
-        `Cannot synthesize type of property access ${JSON.stringify(expr)}`
-      );
-    }
+    return expr.typeValue;
   } else {
     throw new Error(
       `Cannot synthesize AST type of ${JSON.stringify(expr.type)}`
