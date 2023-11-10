@@ -146,9 +146,24 @@ function main() {
 `
 
 code = `
+interface Test {
+  add: (b: i32) => i32
+}
+
+type i32 implements Test {
+  add: (b: i32)=> {
+    this + b
+  }
+}
+
 function main() {
-  const x = [1, 2];
-  x[0]
+  (1).add(2)
+}
+`
+
+code = `
+interface Test {
+  add: (b: i32) => i32
 }
 `
 

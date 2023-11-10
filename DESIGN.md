@@ -67,7 +67,7 @@ Please note that **Mo** language is **immutable** by default, and it is not a go
 
 ## Philosophy
 
-Pass by reference by default, unless it's the primitive types or has `Copy` interface implemented.
+Pass by reference by default, unless it's the primitive types.
 
 Immutable data structure is **shared** by default. Mutable data structure has to be **unique**.
 
@@ -110,6 +110,7 @@ moc hello.mo -arch wasm -o hello.wasm
 - `f64` (64-bit floating point)
 - `char` (ASCII character)
 - `symbol` (unique global string)
+- `()` (unit)
 
 ### Variable Declaration
 
@@ -161,7 +162,7 @@ function identity<T>(arg: T): T {
 }
 
 // Effectful function
-function main(): [Console] Unit {
+function main(): [Console] () {
   console.log("Hello, world");
 }
 ```
@@ -182,11 +183,11 @@ function fib(n: i32): i32 {
   const x = ref(0);
   const y = ref(1);
   repeat(n) {
-    const y0 = y.deref();
-    y.set(x.deref() + y0);
+    const y0 = y.current;
+    y.set(x.current + y0);
     x.set(y0);
   }
-  x.deref()
+  x.current
 }
 ```
 
@@ -282,12 +283,6 @@ type User = {
   email: String;
   age: i32;
 };
-// which is equal to
-/*
-// Below is too complicated. Let's make it simple
-type UserRows = (active: boolean, username: String, email: String, age: i32); // row types
-type User = Record(UserRows) // `Record` is the type constructor
-*/
 
 type string = char[];
 
@@ -358,14 +353,11 @@ type Rectangle = {
   height: i32;
 }
 
-implement Rectangle {
-  // `&self` is sugar for `self: &Self`, where `Self` is the type of the
-  // caller object. In this case `Self` = `Rectangle`
+type Rectangle implements {
   function area(): i32 {
     return this.width * this.height;
   }
 
-  // If the first parameter is not `&self`, it is a static method
   static function new(): Rectangle {
     return Rectangle({
       width: 0,
@@ -391,7 +383,8 @@ function main() {
 interface<T:Eq> Summary<T> {
   summarize: () => String;
 }
-implement Summary {
+
+interface Summary implements {
   // Default value
   function summarize(): String {
     return String.from("(Read more...)");
@@ -406,11 +399,7 @@ type NewsArticle = {
 }
 
 // Or this?
-instanceof NewsArticle implements Summary {
-  // ...
-}
-
-implement Summary<NewsArticle> for NewsArticle {
+type NewsArticle implements Summary<NewsArticle> {
   function summarize(): String {
     return `${this.headline}, by ${this.author} (${this.location})`;
   }
@@ -456,6 +445,17 @@ function valueInCents(coin: Coin): u8 {
       throw Error({
         message: "Not a coin", // Although this is not gonna happen
       });
+  }
+}
+
+function ListLength<T>(list: List<T>): i32 {
+  switch (list) {
+    case Nil: {
+      return 0;
+    }
+    case Cons(_, tail): {
+      return 1 + ListLength(tail);
+    }
   }
 }
 ```
@@ -577,14 +577,14 @@ function test() {
 
 ```typescript
 effect MyConsole {
-  log: (message: string) => [MyConsole] Unit;
+  log: (message: string) => [MyConsole] ();
 }
 
-function useMyConsole(x: string): [MyConsole] Unit {
+function useMyConsole(x: string): [MyConsole] () {
   log(x);
 }
 
-function tryUseMyConsole(): [Console] Unit {
+function tryUseMyConsole(): [Console] () {
   try {
     do useMyConsole("Hello, world!");
     // or use `<-` syntax
@@ -593,7 +593,7 @@ function tryUseMyConsole(): [Console] Unit {
     case MyConsole: {
       log: (message) => {
         console.log(message);
-        resume(unit)
+        resume(())
       }
     }
   }
@@ -604,25 +604,25 @@ Async/Await
 
 ```typescript
 effect MyAff {
-  delay: (ms: i32) => [MyAff] Unit;
+  delay: (ms: i32) => [MyAff] ();
 }
 
-function useMyAff(x: string): [MyAff, Console] Unit {
+function useMyAff(x: string): [MyAff, Console] () {
   do delay(1000);
   console.log(x);
 }
 
-function tryUseMyAff(): [Console] Unit {
+function tryUseMyAff(): [Console] () {
   try {
     const task1 = useMyAff("This is task 1");
     const task2 = useMyAff("This is task 2");
     const result = do parallel([task1, task2])
-    unit
+    ()
   } catch {
     case MyAff: {
       delay: (ms) => {
         setTimeout(() => {
-          resume(unit);
+          resume(());
         }, ms);
       };
     }
