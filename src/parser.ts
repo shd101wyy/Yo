@@ -723,7 +723,7 @@ Returned:  ${typeToString(returnType)}`
     if (tokens[index]?.type !== TokenType.LParen) {
       throw this.formatErrorMessage(tokens[index], "Expected left paren");
     }
-    const functionArguments: Expr = [];
+    const functionArguments: Expr[] = [];
     if (caller) {
       functionArguments.push(caller);
     }
@@ -1412,19 +1412,26 @@ Returned:  ${typeToString(functionReturnType)}`
     index = nextIndex;
     env = nextEnv;
 
+    let thenExpr: Expr[] = [];
+    let thenReturnType: Type;
     // parse then
     if (tokens[index].type !== TokenType.LCurlyBracket) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "Expected '{' for 'if' body"
-      );
+      const returnValue = this.parseExpression(tokens, index, env);
+      index = returnValue.index;
+      thenExpr = [returnValue.expr];
+      if (Array.isArray(returnValue.expr)) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected block expression for then"
+        );
+      }
+      thenReturnType = returnValue.expr.typeValue;
+    } else {
+      const returnValue = this.parseBlockExpressions(tokens, index, env);
+      index = returnValue.index;
+      thenExpr = returnValue.exprs;
+      thenReturnType = returnValue.returnType;
     }
-    const {
-      exprs: then,
-      index: nextNextIndex,
-      returnType: thenReturnType,
-    } = this.parseBlockExpressions(tokens, index, env);
-    index = nextNextIndex;
 
     // parse else
     const elseExpr: Expr[] = [];
@@ -1446,25 +1453,41 @@ Returned:  ${typeToString(functionReturnType)}`
         index = nextNextNextIndex;
       } else {
         if (tokens[index].type !== TokenType.LCurlyBracket) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Expected '{' for 'else' body"
+          const { expr, index: nextNextNextIndex } = this.parseExpression(
+            tokens,
+            index,
+            env
           );
+          if (Array.isArray(expr)) {
+            throw this.formatErrorMessage(
+              tokens[index],
+              "Expected block expression for else"
+            );
+          }
+          elseExpr.push(expr);
+          elseReturnType = expr.typeValue;
+          index = nextNextNextIndex;
+        } else {
+          const {
+            exprs,
+            index: nextNextNextIndex,
+            returnType,
+          } = this.parseBlockExpressions(tokens, index, env);
+          if (exprs) {
+            elseExpr.push(...exprs);
+          }
+          elseReturnType = returnType;
+          index = nextNextNextIndex;
         }
-        const {
-          exprs,
-          index: nextNextNextIndex,
-          returnType,
-        } = this.parseBlockExpressions(tokens, index, env);
-        if (exprs) {
-          elseExpr.push(...exprs);
-        }
-        elseReturnType = returnType;
-        index = nextNextNextIndex;
       }
     }
 
-    if (!checkType(thenReturnType, elseReturnType)) {
+    if (
+      !checkType(
+        convertPrimitiveToType(thenReturnType),
+        convertPrimitiveToType(elseReturnType)
+      )
+    ) {
       throw new Error(
         `Mismatched types between \`then\` and \`else\`.
 then: ${typeToString(thenReturnType)}
@@ -1477,7 +1500,7 @@ else: ${typeToString(elseReturnType)}
       expr: {
         type: AstType.If,
         condition,
-        then,
+        then: thenExpr,
         else: elseExpr,
         typeValue: thenReturnType,
       },

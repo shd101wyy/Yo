@@ -147,15 +147,9 @@ function main() {
 
 code = `
 extern printlnd(x:i32):i32;
-function add(self: i32, y: i32, z = 7) {
-  self + y + z
-}
-function add(self: i32, y: i32) {
-  self + y
-}
 function main() {
-  printlnd((3 + 4).add(4));
-  printlnd(add(3, 4));
+  const x = if false 12 else 22;
+  printlnd(x)
 }
 `
 

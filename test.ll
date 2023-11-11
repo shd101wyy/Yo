@@ -6,18 +6,18 @@ declare i8* @malloc(i32)
 
 declare i32 @printlnd(i32)
 
-define i32 @add(i32 %self, i32 %y, i32 %z) {
+define i32 @main() {
 entry:
-  %0 = add i32 %self, %y
-  %1 = add i32 %0, %z
-  ret i32 %1
-}
+  br i1 false, label %then, label %else
 
-define {} @main() {
-entry:
-  %0 = call i32 @add(i32 7, i32 4, i32 7)
-  %1 = call i32 @printlnd(i32 %0)
-  %2 = call i32 @add(i32 3, i32 4, i32 7)
-  %3 = call i32 @printlnd(i32 %2)
-  ret {} zeroinitializer
+then:                                             ; preds = %entry
+  br label %ifcont
+
+else:                                             ; preds = %entry
+  br label %ifcont
+
+ifcont:                                           ; preds = %else, %then
+  %iftmp = phi i32 [ 12, %then ], [ 22, %else ]
+  %0 = call i32 @printlnd(i32 %iftmp)
+  ret i32 %0
 }

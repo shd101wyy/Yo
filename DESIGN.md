@@ -20,10 +20,20 @@ The **Mo** language is heavily inspired by:
   - Keyword arguments
 - [Haskell](https://www.haskell.org/)
   - Type and typeclass
+- [Zig](https://ziglang.org/)
+  - Compile time execution
 
 The **Mo** language has a minimal syntax design that looks like TypeScript. **Mo** is strong typed with a robust bidrectional type checker, combined with algebraic effects and an efficient type system. **Mo** has no garbage collector ([Perceus: Garbage Free Reference Counting with Reuse](https://www.microsoft.com/en-us/research/uploads/prod/2020/11/perceus-tr-v1.pdf)).
 
 Please note that **Mo** language is **immutable** by default, and it is not a goal to be a "pure" functional language. Our goal is to be a practical language that is easy to use and easy to learn.
+
+```mermaid
+graph LR
+
+Mo --> Function
+Mo --> Type
+Mo --> Effect
+```
 
 <!-- @import "[TOC]" {cmd="toc" depthFrom=1 depthTo=6 orderedList=false} -->
 
@@ -38,7 +48,8 @@ Please note that **Mo** language is **immutable** by default, and it is not a go
     - [Variable Declaration](#variable-declaration)
     - [Reference Types, stored on heap](#reference-types-stored-on-heap)
   - [Function Declaration](#function-declaration)
-  - [Uniform Function Call Syntax](#uniform-function-call-syntax)
+    - [Uniform Function Call Syntax](#uniform-function-call-syntax)
+    - [Function Overloading](#function-overloading)
   - [Mutability](#mutability)
     - [Reference Cells and Isolated state](#reference-cells-and-isolated-state)
   - [Control Flow](#control-flow)
