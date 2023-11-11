@@ -146,14 +146,16 @@ function main() {
 `
 
 code = `
-function add(x: i32, y: i32) {
-  x + y
+extern printlnd(x:i32):i32;
+function add(self: i32, y: i32, z = 7) {
+  self + y + z
 }
-function addOne(x: i32) {
-  x + 1
+function add(self: i32, y: i32) {
+  self + y
 }
 function main() {
-  add(3, 4).addOne()
+  printlnd((3 + 4).add(4));
+  printlnd(add(3, 4));
 }
 `
 

@@ -411,3 +411,48 @@ Found possible functions:
     }
   }
 }
+
+/**
+ * NOTE: We allow the function overloading by checking the first argument type.
+ * @param prototype
+ * @param env
+ */
+export function getMatchedOverloadingFunction(
+  prototype: FunctionPrototype,
+  env: Environment
+): ValueType[] {
+  if (!prototype.functionName) {
+    // Anonymous function
+    return [];
+  }
+
+  const functionsInEnv = getEnvValueTypesByVariableName(
+    env,
+    prototype.functionName
+  );
+
+  if (
+    prototype.typeValue.parameterTypes.length === 0 &&
+    functionsInEnv.length !== 0
+  ) {
+    // Function without parameter is not allowed to be overloaded
+    return functionsInEnv;
+  }
+
+  // Find the functions that takes `expr` as the first argument
+  const matchedFunctions = functionsInEnv.filter((functionInEnv) => {
+    if (functionInEnv.type.type !== "Function") {
+      return false;
+    }
+    const firstArgumentType = functionInEnv.type.parameterTypes[0];
+    if (!firstArgumentType) {
+      return false;
+    }
+    return checkType(
+      firstArgumentType.type,
+      prototype.typeValue.parameterTypes[0].type
+    );
+  });
+
+  return matchedFunctions;
+}

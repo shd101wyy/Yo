@@ -167,7 +167,7 @@ function main(): [Console] () {
 }
 ```
 
-## Uniform Function Call Syntax
+### Uniform Function Call Syntax
 
 ```typescript
 function addOne(x: i32): i32 {
@@ -177,6 +177,33 @@ function addOne(x: i32): i32 {
 (12).addOne(); // 13
 // is equalvalent to
 addOne(12); // 13
+```
+
+### Function Overloading
+
+**Mo** allows function overloading by checking the first argument type.
+
+For example, below is allowed:
+
+```typescript
+function show(x: i32) {
+  console.log(x);
+}
+function show(x: string) {
+  console.log(x);
+}
+```
+
+But the following is not allowed:
+
+```typescript
+function show(x: i32) {
+  console.log(x);
+}
+
+function show(x: i32, y: i32) {
+  console.log(x + y);
+}
 ```
 
 ## Mutability

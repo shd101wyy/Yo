@@ -12,6 +12,7 @@ import {
   PrimitiveValueExpr,
   getFunctionArgumentsInOrder,
   getFunctionsOfCallerFromEnv,
+  getMatchedOverloadingFunction,
   getTokenPrecedence,
   synthesizeExprType,
   synthesizeRecordType,
@@ -1257,6 +1258,24 @@ Got:      (${functionArguments
       };
     } else {
       index = nextIndex;
+
+      // Check allow function overloading
+      const matchedOverloadingFunctions = getMatchedOverloadingFunction(
+        prototype,
+        env
+      );
+      if (matchedOverloadingFunctions.length > 0) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Function overloading is not allowed.
+Found possible functions:
+- ${matchedOverloadingFunctions
+            .map((func) => `${func.variableName}: ${typeToString(func.type)}`)
+            .join("\n- ")}
+`
+        );
+      }
+
       env = addEnvValueType(
         env,
         {
