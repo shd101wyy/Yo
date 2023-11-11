@@ -34,9 +34,11 @@ import {
   TTypeParameter,
   Type,
   TypeValues,
+  applyTypeArgumentsToType,
   checkType,
   convertPrimitiveToType,
   synthesizeFunctionTypeFromTokens,
+  synthesizeTypeArgumentsFromTokens,
   synthesizeTypeFromTokens,
   synthesizeTypeParametersFromTokens,
   typeToString,
@@ -709,11 +711,66 @@ Returned:  ${typeToString(returnType)}`
     env: Environment,
     caller?: Expr
   ): ParserReturn {
-    if (callee.typeValue.type !== "Function") {
+    let calleeTypeValue = callee.typeValue;
+    if (calleeTypeValue.type !== "Function") {
       throw this.formatErrorMessage(
         tokens[index],
         "Expected function for call expression"
       );
+    }
+
+    // type arguments
+    let typeArguments: Type[] = [];
+    if (tokens[index]?.type === TokenType.LessThan) {
+      const {
+        typeArguments: nextTypeArguments,
+        index: nextIndex,
+        env: nextEnv,
+      } = synthesizeTypeArgumentsFromTokens({
+        tokens,
+        index: index,
+        inputString: this.inputString,
+        env,
+        parseExpression: this.parseExpression.bind(this),
+      });
+      typeArguments = nextTypeArguments;
+      index = nextIndex;
+      env = nextEnv;
+
+      // Check if typeArguments matches
+      // and apply typeArguments to callee.typeValue
+      const typeParameters = calleeTypeValue.typeParameters;
+      if (typeParameters.length !== typeArguments.length) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Mismatched type arguments.
+Expected: <${typeParameters
+            .map(
+              (typeParameter) =>
+                `${typeParameter.name}: ${typeToString(
+                  typeParameter.typeValue
+                )}`
+            )
+            .join(", ")}>
+Got:      <${typeArguments.map(typeToString).join(", ")}>`
+        );
+      } else {
+        const typeValue_ = applyTypeArgumentsToType(
+          calleeTypeValue,
+          typeParameters,
+          typeArguments
+        );
+        if (typeValue_.type !== "Function") {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected function for call expression"
+          );
+        } else {
+          typeValue_.typeParameters = [];
+          callee.typeValue = typeValue_;
+          calleeTypeValue = typeValue_;
+        }
+      }
     }
 
     if (tokens[index]?.type !== TokenType.LParen) {
@@ -796,14 +853,14 @@ Returned:  ${typeToString(returnType)}`
 
     const functionArgumentsInOrder = getFunctionArgumentsInOrder(
       functionArguments,
-      callee.typeValue
+      calleeTypeValue
     );
 
     if (!functionArgumentsInOrder) {
       throw this.formatErrorMessage(
         tokens[index],
         `Mismatched function arguments.
-Expected: (${callee.typeValue.parameterTypes
+Expected: (${calleeTypeValue.parameterTypes
           .map(
             (parameter) =>
               (parameter.name ? `${parameter.name}: ` : "") +
@@ -823,7 +880,7 @@ Got:      (${functionArguments
         type: AstType.CallFunction,
         callee,
         functionArguments: functionArgumentsInOrder,
-        typeValue: callee.typeValue.returnType,
+        typeValue: calleeTypeValue.returnType,
       },
       index: nextIndex,
       env,

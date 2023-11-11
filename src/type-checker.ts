@@ -733,42 +733,19 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
 
   // Type arguments
   if (tokens[returnValue.index].type === TokenType.LessThan) {
-    const typeArguments: Type[] = [];
-    let index = returnValue.index + 1;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const token = tokens[index];
-      if (!token) {
-        throw formatErrorMessage({
-          token: tokens[index - 1],
-          errorMessage: "Expected '>'",
-          inputString,
-        });
-      }
-      if (token.type === TokenType.Comma) {
-        index = index + 1;
-        continue;
-      }
-      if (token.type === TokenType.GreaterThan) {
-        index = index + 1;
-        break;
-      }
-
-      const {
-        typeValue: typeArgument,
-        index: nextIndex,
-        env: nextEnv,
-      } = synthesizeTypeFromTokens({
-        tokens,
-        index,
-        inputString,
-        env,
-        parseExpression,
-      });
-      typeArguments.push(typeArgument);
-      index = nextIndex;
-      env = nextEnv;
-    }
+    const {
+      env: nextEnv,
+      index: nextIndex,
+      typeArguments,
+    } = synthesizeTypeArgumentsFromTokens({
+      env: returnValue.env,
+      index: returnValue.index,
+      inputString,
+      parseExpression,
+      tokens,
+    });
+    env = nextEnv;
+    index = nextIndex;
 
     const typeValue = returnValue.typeValue;
     if ("typeParameters" in typeValue) {
@@ -1036,6 +1013,66 @@ export function synthesizeFunctionParameterTypesFromTokens({
   }
 
   return { parameterTypes, index, env };
+}
+
+export function synthesizeTypeArgumentsFromTokens({
+  tokens,
+  index,
+  inputString,
+  env,
+  parseExpression,
+}: {
+  tokens: Token[];
+  index: number;
+  inputString: string;
+  env: Environment;
+  parseExpression: ParseExpression;
+}): { typeArguments: Type[]; env: Environment; index: number } {
+  if (tokens[index].type !== TokenType.LessThan) {
+    throw formatErrorMessage({
+      token: tokens[index],
+      errorMessage: "Expected '<' in type arguments",
+      inputString,
+    });
+  }
+
+  const typeArguments: Type[] = [];
+  index = index + 1;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const token = tokens[index];
+    if (!token) {
+      throw formatErrorMessage({
+        token: tokens[index - 1],
+        errorMessage: "Expected '>'",
+        inputString,
+      });
+    }
+    if (token.type === TokenType.Comma) {
+      index = index + 1;
+      continue;
+    }
+    if (token.type === TokenType.GreaterThan) {
+      index = index + 1;
+      break;
+    }
+
+    const {
+      typeValue: typeArgument,
+      index: nextIndex,
+      env: nextEnv,
+    } = synthesizeTypeFromTokens({
+      tokens,
+      index,
+      inputString,
+      env,
+      parseExpression,
+    });
+    typeArguments.push(typeArgument);
+    index = nextIndex;
+    env = nextEnv;
+  }
+  return { typeArguments, index, env };
 }
 
 /**
