@@ -11,6 +11,7 @@ import {
   FunctionPrototype,
   PrimitiveValueExpr,
   getFunctionArgumentsInOrder,
+  getFunctionsOfCallerFromEnv,
   getTokenPrecedence,
   synthesizeExprType,
   synthesizeRecordType,
@@ -361,62 +362,103 @@ export default class Parser {
     index: number,
     env: Environment
   ): ParserReturn {
+    if (Array.isArray(expr)) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected property access expression"
+      );
+    }
     if (tokens[index].type !== TokenType.Dot) {
       throw this.formatErrorMessage(tokens[index], "Expected '.'");
     }
-    const properties: string[] = [];
+
     // parse properties
     index = index + 1;
-    while (true) {
-      const token = tokens[index];
-      if (!token) {
-        throw this.formatErrorMessage(token, "Expected identifier");
-      }
-      if (token.type !== TokenType.Identifier) {
-        throw this.formatErrorMessage(token, "Expected identifier");
-      }
-      properties.push(token.value);
-      index = index + 1;
-
-      if (tokens[index].type === TokenType.Dot) {
-        index = index + 1;
-      } else {
-        break;
-      }
+    const token = tokens[index];
+    if (!token) {
+      throw this.formatErrorMessage(token, "Expected property name");
     }
 
-    // Check if the properties are valid
-    const valueType = synthesizeExprType(expr, env);
-    let currentType = valueType;
-    for (const accessor of properties) {
-      if (currentType.type !== "Record") {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Invalid access to \`.${properties.join(".")}\``
-        );
-      }
-      const property = currentType.properties.find(
-        (property) => property.name === accessor
+    // Check if it's a valid property in the record
+    const callerType = expr.typeValue;
+    if (callerType.type === "Record") {
+      const property = callerType.properties.find(
+        (property) => property.name === token.value
       );
-      if (!property) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Invalid access to \`.${properties.join(".")}\``
-        );
+      if (property) {
+        return {
+          expr: {
+            type: AstType.PropertyAccess,
+            expr: expr,
+            propertyName: property.name,
+            typeValue: property.type,
+          },
+          env,
+          index: index + 1,
+        };
       }
-      currentType = property.type;
     }
 
-    return {
-      expr: {
-        type: AstType.PropertyAccess,
-        properties: properties,
-        expr,
-        typeValue: currentType,
-      },
-      index,
-      env,
-    };
+    // Check if it's a valid function that takes
+    // the `expr` as the first argument
+    if (tokens[index + 1]?.type === TokenType.LParen) {
+      const functionName = token.value;
+      // Find the functions that takes `expr` as the first argument
+      const matchedFunctions = getFunctionsOfCallerFromEnv(
+        callerType,
+        functionName,
+        env
+      );
+
+      // Try all functions to see if there is a match
+      const parserReturns: ParserReturn[] = [];
+      for (const functionType of matchedFunctions) {
+        try {
+          parserReturns.push(
+            this.parseCallExpr(
+              {
+                type: AstType.Variable,
+                name: functionName,
+                frameLevel: functionType.frameLevel,
+                typeValue: functionType.type,
+              },
+              tokens,
+              index + 1,
+              env,
+              expr
+            )
+          );
+        } catch (error) {
+          // Ignore the error
+        }
+      }
+      if (parserReturns.length === 0) {
+        throw this.formatErrorMessage(
+          token,
+          `Cannot find function ${functionName} that takes ${typeToString(
+            callerType
+          )} as the first argument`
+        );
+      } else if (parserReturns.length > 1) {
+        throw this.formatErrorMessage(
+          token,
+          `Ambiguous function ${functionName} that takes ${typeToString(
+            callerType
+          )} as the first argument
+Found possible functions:
+- ${matchedFunctions
+            .map((func) => `${func.variableName}: ${typeToString(func.type)}`)
+            .join("\n- ")}`
+        );
+      } else {
+        return parserReturns[0];
+      }
+    } else {
+      throw this.formatErrorMessage(
+        token,
+        `Expected property name, but got ${token.value}`
+      );
+    }
   }
 
   private parseIndexAccessExpr(
@@ -668,7 +710,8 @@ Returned:  ${typeToString(returnType)}`
     callee: Expr,
     tokens: Token[],
     index: number,
-    env: Environment
+    env: Environment,
+    caller?: Expr
   ): ParserReturn {
     if (Array.isArray(callee) || callee.typeValue.type !== "Function") {
       throw this.formatErrorMessage(
@@ -680,6 +723,10 @@ Returned:  ${typeToString(returnType)}`
       throw this.formatErrorMessage(tokens[index], "Expected left paren");
     }
     const functionArguments: Expr = [];
+    if (caller) {
+      functionArguments.push(caller);
+    }
+
     let nextIndex = index + 2;
     if (tokens[index + 1]?.type !== TokenType.RParen) {
       index = index + 1;

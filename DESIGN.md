@@ -13,7 +13,7 @@ The **Mo** language is heavily inspired by:
   - Borrow checker
 - [Koka](https://koka-lang.github.io/)
   - Brace elision
-  - Dot notation
+  - Dot notation (Uniform Function Call Syntax)
   - Perceus and reuse
   - Algebraic effects
 - [Python](https://python.org/)
@@ -38,6 +38,7 @@ Please note that **Mo** language is **immutable** by default, and it is not a go
     - [Variable Declaration](#variable-declaration)
     - [Reference Types, stored on heap](#reference-types-stored-on-heap)
   - [Function Declaration](#function-declaration)
+  - [Uniform Function Call Syntax](#uniform-function-call-syntax)
   - [Mutability](#mutability)
     - [Reference Cells and Isolated state](#reference-cells-and-isolated-state)
   - [Control Flow](#control-flow)
@@ -58,7 +59,6 @@ Please note that **Mo** language is **immutable** by default, and it is not a go
   - [Error handling](#error-handling)
   - [Recoverable Errors with Result](#recoverable-errors-with-result)
   - [With syntax](#with-syntax)
-  - [Effect handler](#effect-handler)
   - [Modules](#modules)
   - [Special attributes](#special-attributes)
   - [References](#references)
@@ -165,6 +165,18 @@ function identity<T>(arg: T): T {
 function main(): [Console] () {
   console.log("Hello, world");
 }
+```
+
+## Uniform Function Call Syntax
+
+```typescript
+function addOne(x: i32): i32 {
+  x + 1;
+}
+
+(12).addOne(); // 13
+// is equalvalent to
+addOne(12); // 13
 ```
 
 ## Mutability
@@ -573,6 +585,15 @@ function test() {
 }
 ```
 
+`with` can also be used to destruct a record:
+
+````typescript
+function test() {
+  with { x: 1, y: 2 }
+  x + y
+}
+```
+
 ## Effect handler
 
 ```typescript
@@ -598,7 +619,7 @@ function tryUseMyConsole(): [Console] () {
     }
   }
 }
-```
+````
 
 Async/Await
 

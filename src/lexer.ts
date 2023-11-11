@@ -404,7 +404,7 @@ export function tokenize(input: string): Token[] {
             value += input[i];
           }
 
-          if (input[i] === ".") {
+          if (input[i] === "." && (input[i + 1] ?? "").match(/[0-9]/)) {
             value += input[i];
 
             while (/[0-9]/.test(input[++i])) {

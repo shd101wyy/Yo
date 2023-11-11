@@ -313,22 +313,17 @@ export class CodeGenerator {
   private codegenForPropertyAccess(
     exprValue: llvm.Value,
     typeValue: Type,
-    accessors: string[]
+    propertyName: string
   ): NamedValue {
-    if (accessors.length === 0) {
-      return { value: exprValue, type: typeValue };
-    }
-
     switch (typeValue.type) {
       case "Record": {
-        const accessor = accessors[0];
         const propertyTypes = typeValue.properties ?? [];
         const propertyTypeIndex = propertyTypes.findIndex(
-          (property) => property.name === accessor
+          (property) => property.name === propertyName
         );
         if (propertyTypeIndex === -1) {
           throw new Error(
-            `Property ${accessor} not found in ${JSON.stringify(typeValue)}`
+            `Property ${propertyName} not found in ${JSON.stringify(typeValue)}`
           );
         }
         const propertyType = propertyTypes[propertyTypeIndex].type;
@@ -344,18 +339,17 @@ export class CodeGenerator {
               propertyTypeIndex
             ),
           ],
-          accessor
+          propertyName
         );
         const value: llvm.Value = this.builder.CreateLoad(
           this.getLlvmType(propertyType),
           propertyPtr,
-          accessor
+          propertyName
         );
-        return this.codegenForPropertyAccess(
+        return {
           value,
-          propertyType,
-          accessors.slice(1)
-        );
+          type: propertyType,
+        };
       }
       default:
         throw new Error(
@@ -1207,7 +1201,7 @@ export class CodeGenerator {
             return this.codegenForPropertyAccess(
               value.value,
               expr.expr.typeValue,
-              expr.properties
+              expr.propertyName
             );
           }
         }

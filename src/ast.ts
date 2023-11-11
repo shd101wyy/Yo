@@ -6,6 +6,7 @@ import {
   TUnit,
   Type,
   TypeValues,
+  checkType,
   typeToString,
 } from "./type-checker";
 
@@ -68,7 +69,7 @@ export enum OperatorType {
  */
 export type Expr =
   | Expr[]
-  | (
+  | ((
       | FunctionExpr
       | ExternExpr
       | AssignmentExpr
@@ -82,7 +83,7 @@ export type Expr =
       | CallFunctionExpr
       | IfExpr
       | IgnoreExpr
-    );
+    ) & { typeValue: Type });
 
 export type TopLevelExpr = Expr | FunctionExpr;
 
@@ -123,7 +124,7 @@ export type VariableExpr = {
 
 export type PropertyAccessExpr = {
   type: AstType.PropertyAccess;
-  properties: string[];
+  propertyName: string;
   expr: Expr;
   typeValue: Type;
 };
@@ -333,6 +334,9 @@ export function getFunctionArgumentsInOrder(
         functionArgumentsInOrder[argumentPositionIndex] = value;
       }
     } else {
+      if (i >= functionArgumentsInOrder.length) {
+        return null;
+      }
       // Positional argument
       functionArgumentsInOrder[i] = argument;
     }
@@ -344,6 +348,26 @@ export function getFunctionArgumentsInOrder(
   } else {
     return functionArgumentsInOrder as Expr[];
   }
+}
+
+export function getFunctionsOfCallerFromEnv(
+  callerType: Type,
+  functionName: string,
+  env: Environment
+) {
+  const functionTypes = getEnvValueTypesByVariableName(env, functionName);
+  // Find the functions that takes `expr` as the first argument
+  const matchedFunctions = functionTypes.filter((functionType) => {
+    if (functionType.type.type !== "Function") {
+      return false;
+    }
+    const firstArgumentType = functionType.type.parameterTypes[0];
+    if (!firstArgumentType) {
+      return false;
+    }
+    return checkType(firstArgumentType.type, callerType);
+  });
+  return matchedFunctions;
 }
 
 export function getFunctionFromEnv(
