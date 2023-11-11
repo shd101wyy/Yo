@@ -5,7 +5,6 @@ import {
   TPrimitive,
   TUnit,
   Type,
-  TypeValues,
   checkType,
   typeToString,
 } from "./type-checker";
@@ -67,23 +66,21 @@ export enum OperatorType {
 /**
  * All Expr should have `typeValue` attribute.
  */
-export type Expr =
-  | Expr[]
-  | ((
-      | FunctionExpr
-      | ExternExpr
-      | AssignmentExpr
-      | TypeAliasExpr
-      | UnaryOperatorExpr
-      | BinaryOperatorExpr
-      | VariableExpr
-      | PropertyAccessExpr
-      | IndexAccessExpr
-      | ValueExpr
-      | CallFunctionExpr
-      | IfExpr
-      | IgnoreExpr
-    ) & { typeValue: Type });
+export type Expr = (
+  | FunctionExpr
+  | ExternExpr
+  | AssignmentExpr
+  | TypeAliasExpr
+  | UnaryOperatorExpr
+  | BinaryOperatorExpr
+  | VariableExpr
+  | PropertyAccessExpr
+  | IndexAccessExpr
+  | ValueExpr
+  | CallFunctionExpr
+  | IfExpr
+  | IgnoreExpr
+) & { typeValue: Type };
 
 export type TopLevelExpr = Expr | FunctionExpr;
 
@@ -240,61 +237,19 @@ export function getTokenPrecedence(token: Token | undefined): number {
   }
 }
 
-export function synthesizeExprType(expr: Expr, env: Environment): Type {
-  if (expr instanceof Array) {
-    throw new Error("Cannot synthesize type of array");
-  }
-  if (expr.type === AstType.Value) {
-    return expr.typeValue;
-  } else if (expr.type === AstType.BinaryOperator) {
-    const leftType = synthesizeExprType(expr.left, env);
-    const rightType = synthesizeExprType(expr.right, env);
-    if (
-      [
-        OperatorType.LessThan,
-        OperatorType.LessThanOrEqual,
-        OperatorType.Equal,
-        OperatorType.NotEqual,
-      ].includes(expr.operator)
-    ) {
-      return TypeValues.boolean;
-    } else if (leftType.type === rightType.type) {
-      return leftType;
-    } else {
-      throw new Error(
-        `Cannot synthesize type of binary operator ${JSON.stringify(expr)}`
-      );
-    }
-  } else if (expr.type === AstType.CallFunction || expr.type === AstType.If) {
-    return expr.typeValue;
-  } else if (expr.type === AstType.Function) {
-    return expr.prototype.typeValue;
-  } else if (expr.type === AstType.Variable) {
-    return expr.typeValue;
-  } else if (expr.type === AstType.IndexAccess) {
-    return expr.typeValue;
-  } else if (expr.type === AstType.PropertyAccess) {
-    return expr.typeValue;
-  } else {
-    throw new Error(
-      `Cannot synthesize AST type of ${JSON.stringify(expr.type)}`
-    );
-  }
-}
-
 export function synthesizeRecordType(
   properties: {
     name: string;
     value: Expr;
-  }[],
-  variableTypes
+  }[]
 ): Type {
   return {
     type: "Record",
+    typeParameters: [],
     properties: properties.map(({ name, value }) => {
       return {
         name,
-        type: synthesizeExprType(value, variableTypes),
+        type: value.typeValue,
       };
     }),
   };
@@ -346,6 +301,19 @@ export function getFunctionArgumentsInOrder(
   if (functionArgumentsInOrder.some((arg) => arg === null)) {
     return null;
   } else {
+    // Check if the functionArgumentsInOrder has the same types as the functionParameterTypes
+    for (let i = 0; i < functionArgumentsInOrder.length; i++) {
+      const argument = functionArgumentsInOrder[i];
+      const parameterType = functionParameterTypes[i];
+      if (
+        !argument ||
+        Array.isArray(argument) ||
+        !checkType(parameterType.type, argument.typeValue)
+      ) {
+        return null;
+      }
+    }
+
     return functionArgumentsInOrder as Expr[];
   }
 }

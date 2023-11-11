@@ -15,7 +15,7 @@ type NamedValues = { [key: string]: NamedValue };
 export class CodeGenerator {
   private inputString: string;
   private tokens: Token[];
-  private ast: Expr;
+  private ast: Expr[];
 
   private context: LLVMContext;
   private module: llvm.Module;
@@ -358,6 +358,28 @@ export class CodeGenerator {
     }
   }
 
+  private codegenExprs(expr: Expr[], namedValues: NamedValues): NamedValue {
+    // Create undefined value
+    let namedValue: NamedValue = {
+      value: this.unit, //llvm.UndefValue.get(llvm.PointerType.getVoidTy(this.context)),
+      type: { type: "()" },
+    };
+    const exprs = expr;
+    for (let i = 0; i < exprs.length; i++) {
+      const expr = exprs[i];
+      if (expr instanceof Array) {
+        namedValue = this.codegenExpr(expr, namedValues);
+      } else {
+        if (expr.type === AstType.TypeAlias) {
+          continue;
+        }
+
+        namedValue = this.codegenExpr(expr, namedValues);
+      }
+    }
+    return namedValue;
+  }
+
   private codegenExpr(
     expr: Expr | FunctionPrototype,
     namedValues: NamedValues
@@ -372,7 +394,7 @@ export class CodeGenerator {
       for (let i = 0; i < exprs.length; i++) {
         const expr = exprs[i];
         if (expr instanceof Array) {
-          namedValue = this.codegenExpr(expr, namedValues);
+          namedValue = this.codegenExprs(expr, namedValues);
         } else {
           if (expr.type === AstType.TypeAlias) {
             continue;
@@ -665,8 +687,6 @@ export class CodeGenerator {
 
           // TODO: Better logic
           if (
-            !Array.isArray(expr.left) &&
-            !Array.isArray(expr.right) &&
             expr.left.typeValue.type === "symbol" &&
             expr.right.typeValue.type === "symbol"
           ) {
@@ -889,7 +909,7 @@ export class CodeGenerator {
           }
 
           // Codegen the body
-          const returnVal = this.codegenExpr(expr.body, newNamedValues);
+          const returnVal = this.codegenExprs(expr.body, newNamedValues);
           // Move back to the entry block
           this.builder.CreateRet(returnVal.value);
 
@@ -1139,7 +1159,7 @@ export class CodeGenerator {
 
           // Emit then value
           this.builder.SetInsertPoint(thenBB);
-          const thenValue = this.codegenExpr(expr.then, namedValues);
+          const thenValue = this.codegenExprs(expr.then, namedValues);
           if (!thenValue) {
             throw new Error(`Then value not found`);
           }
@@ -1156,7 +1176,7 @@ export class CodeGenerator {
             theFunction.insertAfter(thenBB, elseBB);
             this.builder.SetInsertPoint(elseBB);
 
-            const elseValue = this.codegenExpr(expr.else, namedValues);
+            const elseValue = this.codegenExprs(expr.else, namedValues);
             if (!elseValue) {
               throw new Error(`Else value not found`);
             }
@@ -1186,29 +1206,19 @@ export class CodeGenerator {
           }
         }
         case AstType.ConstantAssigment: {
-          if (Array.isArray(expr.right)) {
-            throw new Error(`Cannot assign array of expressions`);
-          }
           const value = this.codegenExpr(expr.right, namedValues);
           namedValues[expr.variableName] = value;
           return value;
         }
         case AstType.PropertyAccess: {
           const value = this.codegenExpr(expr.expr, namedValues);
-          if (Array.isArray(expr.expr)) {
-            throw new Error(`Cannot access array of expressions`);
-          } else {
-            return this.codegenForPropertyAccess(
-              value.value,
-              expr.expr.typeValue,
-              expr.propertyName
-            );
-          }
+          return this.codegenForPropertyAccess(
+            value.value,
+            expr.expr.typeValue,
+            expr.propertyName
+          );
         }
         case AstType.IndexAccess: {
-          if (Array.isArray(expr.expr)) {
-            throw new Error(`Cannot access array of expressions`);
-          }
           if (expr.expr.typeValue.type !== "slice") {
             throw new Error(`Index access not implemented for ${expr.expr}`);
           }
@@ -1270,7 +1280,7 @@ export class CodeGenerator {
 
   getLlvmIr(): string {
     this.externMalloc();
-    this.codegenExpr(this.ast, {});
+    this.codegenExprs(this.ast, {});
 
     if (llvm.verifyModule(this.module)) {
       throw new Error("Verifying module failed");

@@ -14,7 +14,6 @@ import {
   getFunctionsOfCallerFromEnv,
   getMatchedOverloadingFunction,
   getTokenPrecedence,
-  synthesizeExprType,
   synthesizeRecordType,
 } from "./ast";
 import {
@@ -230,7 +229,7 @@ export default class Parser {
       }
     }
 
-    const elementTypes = values.map((value) => synthesizeExprType(value, env));
+    const elementTypes = values.map((value) => value.typeValue);
     // Check if all the element types are the same
     const firstElementType = convertPrimitiveToType(elementTypes[0]);
     const isSlice = elementTypes.every((type) =>
@@ -348,7 +347,7 @@ export default class Parser {
         expr: {
           type: AstType.Value,
           tag: "record",
-          typeValue: synthesizeRecordType(properties, env),
+          typeValue: synthesizeRecordType(properties),
           properties,
         },
         index,
@@ -365,12 +364,6 @@ export default class Parser {
     index: number,
     env: Environment
   ): ParserReturn {
-    if (Array.isArray(expr)) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "Expected property access expression"
-      );
-    }
     if (tokens[index].type !== TokenType.Dot) {
       throw this.formatErrorMessage(tokens[index], "Expected '.'");
     }
@@ -474,7 +467,7 @@ Found possible functions:
       throw this.formatErrorMessage(tokens[index], "Expected '['");
     }
     const indexes: Expr[] = [];
-    let valueType = synthesizeExprType(expr, env);
+    let valueType = expr.typeValue;
     index = index + 1;
     while (true) {
       const token = tokens[index];
@@ -493,7 +486,7 @@ Found possible functions:
       index = nextIndex;
       env = nextEnv;
 
-      const indexType = synthesizeExprType(expr, env);
+      const indexType = expr.typeValue;
       if (!checkType(TypeValues.i32, indexType)) {
         throw this.formatErrorMessage(
           token,
@@ -716,12 +709,13 @@ Returned:  ${typeToString(returnType)}`
     env: Environment,
     caller?: Expr
   ): ParserReturn {
-    if (Array.isArray(callee) || callee.typeValue.type !== "Function") {
+    if (callee.typeValue.type !== "Function") {
       throw this.formatErrorMessage(
         tokens[index],
         "Expected function for call expression"
       );
     }
+
     if (tokens[index]?.type !== TokenType.LParen) {
       throw this.formatErrorMessage(tokens[index], "Expected left paren");
     }
@@ -761,7 +755,7 @@ Returned:  ${typeToString(returnType)}`
             variableName: variableName,
             right: defaultParameterValueExpr,
             typeValue: TypeValues.unit,
-            variableType: synthesizeExprType(defaultParameterValueExpr, env),
+            variableType: defaultParameterValueExpr.typeValue,
             frameLevel: getEnvCurrentFrameLevel(env),
           };
           functionArguments.push(parameterAssignmentExpr);
@@ -818,11 +812,7 @@ Expected: (${callee.typeValue.parameterTypes
           .join(", ")})
 Got:      (${functionArguments
           .map((arg) => {
-            if (Array.isArray(arg)) {
-              return "";
-            } else {
-              return typeToString(arg.typeValue);
-            }
+            return typeToString(arg.typeValue);
           })
           .join(", ")})`
       );
@@ -974,7 +964,7 @@ Got:      (${functionArguments
     env: Environment
   ): ParserReturn {
     const token = tokens[index];
-    if (!token || Array.isArray(primaryExpr)) {
+    if (!token) {
       return {
         expr: primaryExpr,
         index,
@@ -1010,7 +1000,7 @@ Got:      (${functionArguments
       );
     } else if (
       primaryExpr.typeValue.type === "Function" &&
-      token.type === TokenType.LParen
+      (token.type === TokenType.LParen || token.type === TokenType.LessThan)
     ) {
       // parseCallExpr
       const returnValue = this.parseCallExpr(primaryExpr, tokens, index, env);
@@ -1104,7 +1094,7 @@ Got:      (${functionArguments
         operator: operator as any,
         left: needsSwap ? RHS : LHS,
         right: needsSwap ? LHS : RHS,
-        typeValue: synthesizeExprType(LHS, env), // FIXME:
+        typeValue: LHS.typeValue, // FIXME:
       };
     }
   }
@@ -1201,9 +1191,7 @@ Got:      (${functionArguments
       index = nextIndex;
     }
 
-    exprs = exprs.filter(
-      (expr) => !Array.isArray(expr) && expr.type !== AstType.Ignore
-    );
+    exprs = exprs.filter((expr) => expr.type !== AstType.Ignore);
     const lastExpr: Expr | null = exprs[exprs.length - 1] ?? null;
     if (!lastExpr || tokens[index - 2].type === TokenType.Semicolon) {
       exprs.push({
@@ -1214,7 +1202,7 @@ Got:      (${functionArguments
     }
 
     // NOTE: Needs to put this before `env.popFrame` to get `returnType`.
-    const returnType = synthesizeExprType(exprs[exprs.length - 1], nextEnv);
+    const returnType = exprs[exprs.length - 1].typeValue;
     env = popEnvFrame(nextEnv);
     const returnValue = {
       index,
@@ -1404,7 +1392,7 @@ Returned:  ${typeToString(functionReturnType)}`
     if (!condition) {
       throw this.formatErrorMessage(tokens[index], "Expected condition for if");
     }
-    const conditionType = synthesizeExprType(condition, env);
+    const conditionType = condition.typeValue;
     if (!checkType(TypeValues.boolean, conditionType)) {
       throw this.formatErrorMessage(
         tokens[index],
@@ -1421,12 +1409,6 @@ Returned:  ${typeToString(functionReturnType)}`
       const returnValue = this.parseExpression(tokens, index, env);
       index = returnValue.index;
       thenExpr = [returnValue.expr];
-      if (Array.isArray(returnValue.expr)) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Expected block expression for then"
-        );
-      }
       thenReturnType = returnValue.expr.typeValue;
     } else {
       const returnValue = this.parseBlockExpressions(tokens, index, env);
@@ -1447,7 +1429,7 @@ Returned:  ${typeToString(functionReturnType)}`
           index,
           env
         );
-        if (!expr || Array.isArray(expr) || expr.type !== AstType.If) {
+        if (!expr || expr.type !== AstType.If) {
           throw "WTF";
         }
         elseExpr.push(expr);
@@ -1460,12 +1442,6 @@ Returned:  ${typeToString(functionReturnType)}`
             index,
             env
           );
-          if (Array.isArray(expr)) {
-            throw this.formatErrorMessage(
-              tokens[index],
-              "Expected block expression for else"
-            );
-          }
           elseExpr.push(expr);
           elseReturnType = expr.typeValue;
           index = nextNextNextIndex;
@@ -1548,8 +1524,6 @@ else: ${typeToString(elseReturnType)}
       userDefinedVariableType = typeValue;
       index = nextIndex;
       env = nextEnv;
-
-      console.log("userDefinedVariableType: ", userDefinedVariableType);
     }
 
     if (tokens[index].type !== TokenType.Assign) {
@@ -1560,7 +1534,6 @@ else: ${typeToString(elseReturnType)}
     }
     index = index + 1;
 
-    const valueIndex = index;
     const {
       expr: value,
       index: nextNextIndex,
@@ -1576,13 +1549,7 @@ else: ${typeToString(elseReturnType)}
     index = nextNextIndex;
     env = nextEnv;
 
-    let variableType: Type;
-    try {
-      variableType = synthesizeExprType(value, env);
-    } catch (error) {
-      throw this.formatErrorMessage(tokens[valueIndex], error);
-    }
-
+    const variableType: Type = value.typeValue;
     // Check if type matches
     if (userDefinedVariableType !== null) {
       const typeMatches = checkType(userDefinedVariableType, variableType);
@@ -1765,7 +1732,7 @@ Got:      ${typeToString(variableType)}`
       frames: [[]],
       freeVariables: [],
     }
-  ): Expr {
+  ): Expr[] {
     let index = 0;
     const exprs: Expr[] = [];
     while (true) {
@@ -1851,8 +1818,6 @@ Got:      ${typeToString(variableType)}`
         }
       }
     }
-    return exprs.filter(
-      (expr) => !Array.isArray(expr) && expr.type !== AstType.Ignore
-    );
+    return exprs.filter((expr) => expr.type !== AstType.Ignore);
   }
 }

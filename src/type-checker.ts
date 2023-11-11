@@ -1,6 +1,6 @@
 // Types
 
-import { AstType, Expr, synthesizeExprType } from "./ast";
+import { AstType, Expr } from "./ast";
 import {
   Environment,
   ValueType,
@@ -127,6 +127,7 @@ export type TParameterType = {
 export type TFunction = {
   type: "Function";
   id: string;
+  typeParameters: TTypeParameter[];
   parameterTypes: TParameterType[];
   returnType: Type;
 
@@ -998,7 +999,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
 
       if (defaultParameterValue) {
         // Check if the type of the default value is the same as the parameter type
-        const defaultValueType = synthesizeExprType(defaultParameterValue, env);
+        const defaultValueType = defaultParameterValue.typeValue;
         if (userDefinedParamterType.type === "unknown") {
           userDefinedParamterType = defaultValueType;
         } else {
@@ -1037,6 +1038,11 @@ export function synthesizeFunctionParameterTypesFromTokens({
   return { parameterTypes, index, env };
 }
 
+/**
+ * - <...>(...):xx {...}
+ * - <...>(...) => {...}
+ * @returns
+ */
 export function synthesizeFunctionTypeFromTokens({
   tokens,
   index,
@@ -1054,6 +1060,25 @@ export function synthesizeFunctionTypeFromTokens({
   withFunctionBody: boolean;
   functionName?: string;
 }): { typeValue: TFunction; index: number; env: Environment } {
+  // Type parameters
+  let typeParameters: TTypeParameter[] = [];
+  if (tokens[index].type === TokenType.LessThan) {
+    const {
+      typeParameters: nextTypeParameters,
+      index: nextIndex,
+      env: nextEnv,
+    } = synthesizeTypeParametersFromTokens({
+      tokens,
+      index,
+      env,
+      inputString,
+      parseExpression,
+    });
+    typeParameters = nextTypeParameters;
+    index = nextIndex;
+    env = nextEnv;
+  }
+
   if (tokens[index].type !== TokenType.LParen) {
     throw formatErrorMessage({
       token: tokens[index],
@@ -1098,6 +1123,7 @@ export function synthesizeFunctionTypeFromTokens({
           type: "Function",
           id: getEnvVariableId(functionName ?? "lambda"),
           parameterTypes,
+          typeParameters,
           returnType,
           freeVariables: undefined,
         },
@@ -1132,6 +1158,7 @@ export function synthesizeFunctionTypeFromTokens({
           type: "Function",
           id: getEnvVariableId(functionName ?? "lambda"),
           parameterTypes,
+          typeParameters,
           returnType,
           freeVariables: undefined,
         },
@@ -1144,6 +1171,7 @@ export function synthesizeFunctionTypeFromTokens({
           type: "Function",
           id: getEnvVariableId(functionName ?? "lambda"),
           parameterTypes,
+          typeParameters,
           returnType: {
             type: "unknown",
           },
@@ -1425,6 +1453,9 @@ export function typeToString(type: Type): string {
     case "tuple": {
       return `[${type.elements.map(typeToString).join(", ")}]`;
     }*/
+    case "TypeParameter": {
+      return `<${type.name}:${typeToString(type.typeValue)}>`;
+    }
     default: {
       throw new Error(`Unknown type ${JSON.stringify(type)}`);
     }

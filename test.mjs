@@ -155,13 +155,11 @@ function main() {
 `
 
 code = `
-type Data<T> = {v: T};
-function test() {
-  const x: Data<i32> = {v: 1};
-  x.v + 2
+function add<T>(x: T) {
+  x
 }
-function main() {
-  test()
+function test() {
+  add<i32>(3)
 }
 `
 
