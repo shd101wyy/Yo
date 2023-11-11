@@ -146,12 +146,14 @@ function main() {
 `
 
 code = `
-function add(x: i32, y: i32, z: i32 = 5) {
-  x + y + z
+function add(x: i32, y: i32) {
+  x + y
 }
-
+function addOne(x: i32) {
+  x + 1
+}
 function main() {
-  1.add(3)
+  add(3, 4).addOne()
 }
 `
 

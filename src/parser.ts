@@ -805,7 +805,23 @@ Returned:  ${typeToString(returnType)}`
     if (!functionArgumentsInOrder) {
       throw this.formatErrorMessage(
         tokens[index],
-        `Mismatched function arguments`
+        `Mismatched function arguments.
+Expected: (${callee.typeValue.parameterTypes
+          .map(
+            (parameter) =>
+              (parameter.name ? `${parameter.name}: ` : "") +
+              typeToString(parameter.type)
+          )
+          .join(", ")})
+Got:      (${functionArguments
+          .map((arg) => {
+            if (Array.isArray(arg)) {
+              return "";
+            } else {
+              return typeToString(arg.typeValue);
+            }
+          })
+          .join(", ")})`
       );
     }
 
@@ -940,57 +956,73 @@ Returned:  ${typeToString(returnType)}`
         );
       }
     }
+    return this.parsePrimaryEnd(
+      returnValue.expr,
+      tokens,
+      returnValue.index,
+      returnValue.env
+    );
+  }
 
-    {
-      while (true) {
-        if (
-          tokens[returnValue.index]?.type === TokenType.Dot &&
-          returnValue.expr
-        ) {
-          // parsePropertyAccessExpr
-          returnValue = this.parsePropertyAccessExpr(
-            returnValue.expr,
-            tokens,
-            returnValue.index,
-            returnValue.env
-          );
-        } else if (
-          tokens[returnValue.index]?.type === TokenType.LBracket &&
-          returnValue.expr
-        ) {
-          // parseIndexAccessExpr
-          returnValue = this.parseIndexAccessExpr(
-            returnValue.expr,
-            tokens,
-            returnValue.index,
-            returnValue.env
-          );
-        } else {
-          break;
-        }
-      }
-
-      // Check if it's a function
-      if (
-        !Array.isArray(returnValue.expr) &&
-        returnValue.expr.typeValue.type === "Function" &&
-        tokens[returnValue.index]?.type === TokenType.LParen
-      ) {
-        // parseCallExpr
-        const {
-          expr,
-          index: nextIndex,
-          env: nextEnv,
-        } = this.parseCallExpr(
-          returnValue.expr,
-          tokens,
-          returnValue.index,
-          returnValue.env
-        );
-        returnValue = { expr, index: nextIndex, env: nextEnv };
-      }
-
-      return returnValue;
+  private parsePrimaryEnd(
+    primaryExpr: Expr,
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    const token = tokens[index];
+    if (!token || Array.isArray(primaryExpr)) {
+      return {
+        expr: primaryExpr,
+        index,
+        env,
+      };
+    } else if (token.type === TokenType.Dot) {
+      // parsePropertyAccessExpr
+      const returnValue = this.parsePropertyAccessExpr(
+        primaryExpr,
+        tokens,
+        index,
+        env
+      );
+      return this.parsePrimaryEnd(
+        returnValue.expr,
+        tokens,
+        returnValue.index,
+        returnValue.env
+      );
+    } else if (token.type === TokenType.LBracket) {
+      // parseIndexAccessExpr
+      const returnValue = this.parseIndexAccessExpr(
+        primaryExpr,
+        tokens,
+        index,
+        env
+      );
+      return this.parsePrimaryEnd(
+        returnValue.expr,
+        tokens,
+        returnValue.index,
+        returnValue.env
+      );
+    } else if (
+      primaryExpr.typeValue.type === "Function" &&
+      token.type === TokenType.LParen
+    ) {
+      // parseCallExpr
+      const returnValue = this.parseCallExpr(primaryExpr, tokens, index, env);
+      return this.parsePrimaryEnd(
+        returnValue.expr,
+        tokens,
+        returnValue.index,
+        returnValue.env
+      );
+    } else {
+      return {
+        expr: primaryExpr,
+        index,
+        env,
+      };
     }
   }
 
