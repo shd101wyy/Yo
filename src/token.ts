@@ -19,6 +19,7 @@ export enum TokenType {
   LogicalNot = "!",
   LambdaArrow = "=>",
   DoArrow = "<-",
+  Comptime = "#",
 
   // parens
   LParen = "(",

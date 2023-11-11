@@ -20,9 +20,9 @@ All `type parameter`s are `comptime` operations.
 
 ```typescript
 type MyGeneric<T> =
-  #if (T == i32) (1 | 2| 3)
+  #if (T == i32) (1 | 2 | 3)
   #else #if (T <= type {x: 132, y: 132}) {x: i32, y: i32}
-  #else error
+  #else #compileError("Invalid type parameter")
 ```
 
 ```typescript
@@ -36,4 +36,18 @@ function returnValueBasedOnType<T: type>() {
 
 returnValueBasedOnType<i32>() // 2
 returnValueBasedOnType<f32>() // 3.2
+
+function testType<T: type>() {
+  #if (T == i32) {
+    1
+  } #else {
+    #compileError("Invalid type parameter")
+  }
+}
+
+function dimension(x: i32, y: i32) {
+  x * y
+}
+
+const arr: i32[#dimension(2, 3)] = [1, 2, 3, 4, 5, 6]
 ```

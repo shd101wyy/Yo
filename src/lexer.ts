@@ -145,6 +145,13 @@ export function tokenize(input: string): Token[] {
           position: { line, character: i - totalCharacters },
         });
         break;
+      case "#":
+        tokens.push({
+          type: TokenType.Comptime,
+          value: char,
+          position: { line, character: i - totalCharacters },
+        });
+        break;
       case "<":
         if (input[i + 1] === "<") {
           tokens.push({

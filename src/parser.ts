@@ -32,12 +32,14 @@ import { Token, TokenType } from "./token";
 import {
   ParserReturn,
   TSlice,
+  TTypeParameter,
   Type,
   TypeValues,
   checkType,
   convertPrimitiveToType,
   synthesizeFunctionTypeFromTokens,
   synthesizeTypeFromTokens,
+  synthesizeTypeParametersFromTokens,
   typeToString,
 } from "./type-checker";
 
@@ -291,7 +293,7 @@ export default class Parser {
         expr: {
           type: AstType.Value,
           tag: "record",
-          typeValue: { type: "Record", properties: [] },
+          typeValue: { type: "Record", typeParameters: [], properties: [] },
           properties: [],
         },
         index: index + 1,
@@ -1546,6 +1548,8 @@ else: ${typeToString(elseReturnType)}
       userDefinedVariableType = typeValue;
       index = nextIndex;
       env = nextEnv;
+
+      console.log("userDefinedVariableType: ", userDefinedVariableType);
     }
 
     if (tokens[index].type !== TokenType.Assign) {
@@ -1663,6 +1667,29 @@ Got:      ${typeToString(variableType)}`
     const typeName = tokens[index].value;
     index = index + 1;
 
+    // NOTE: This is necessary for type parameters and recursive type alias
+    env = pushEnvFrame(env);
+
+    // Type parameters
+    let typeParameters: TTypeParameter[] = [];
+    if (tokens[index].type === TokenType.LessThan) {
+      const {
+        index: nextIndex,
+        typeParameters: tp,
+        env: nextEnv,
+      } = synthesizeTypeParametersFromTokens({
+        tokens,
+        index,
+        env,
+        inputString: this.inputString,
+        parseExpression: this.parseExpression.bind(this),
+      });
+      index = nextIndex;
+      typeParameters = tp;
+      env = nextEnv;
+    }
+
+    // Type value
     if (tokens[index].type !== TokenType.Assign) {
       throw this.formatErrorMessage(
         tokens[index],
@@ -1683,11 +1710,20 @@ Got:      ${typeToString(variableType)}`
       parseExpression: this.parseExpression.bind(this),
     });
     env = nextEnv;
-    env = addEnvValueType(env, {
-      type: typeValue,
-      variableName: typeName,
-    });
+    env = addEnvValueType(
+      env,
+      {
+        type: typeValue,
+        variableName: typeName,
+      },
+      -1
+    );
 
+    if ("typeParameters" in typeValue) {
+      typeValue.typeParameters = typeParameters;
+    }
+
+    env = popEnvFrame(env);
     return {
       expr: {
         type: AstType.TypeAlias,

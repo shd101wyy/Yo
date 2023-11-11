@@ -114,6 +114,7 @@ export type TPrimitive = (
 
 export type TRecord = {
   type: "Record";
+  typeParameters: TTypeParameter[];
   properties: { name: string; type: Type }[];
 };
 
@@ -164,6 +165,12 @@ export type TTuple = {
 };
 */
 
+export type TTypeParameter = {
+  type: "TypeParameter";
+  name: string;
+  typeValue: Type;
+};
+
 export type Type =
   | TUnit
   | TBoolean
@@ -191,6 +198,7 @@ export type Type =
   | TUnknown
   | TSlice
   //  | TTuple
+  | TTypeParameter
   | TPrimitive;
 
 // Type constructors
@@ -412,6 +420,7 @@ export function synthesizeTypeFromTokens({
   else if (tokens[index].type === TokenType.LCurlyBracket) {
     const typeValue: TRecord = {
       type: "Record",
+      typeParameters: [],
       properties: [],
     };
     index = index + 1;
@@ -637,7 +646,6 @@ export function synthesizeTypeFromTokens({
       index,
       env,
     };
-    return returnValue;
   }
   // Check if it's union type or intersection type
   else if (nextTokenType === TokenType.BitwiseOr) {
@@ -651,7 +659,7 @@ export function synthesizeTypeFromTokens({
       parseExpression,
     });
     if (newReturnValue.typeValue.type === "Union") {
-      return {
+      returnValue = {
         typeValue: {
           type: "Union",
           types: [returnValue.typeValue, ...newReturnValue.typeValue.types],
@@ -671,7 +679,7 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
         });
       }
 
-      return {
+      returnValue = {
         typeValue: {
           type: "Union",
           types: [returnValue.typeValue, newReturnValue.typeValue],
@@ -691,7 +699,7 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
       parseExpression,
     });
     if (newReturnValue.typeValue.type === "Intersection") {
-      return {
+      returnValue = {
         typeValue: {
           type: "Intersection",
           types: [returnValue.typeValue, ...newReturnValue.typeValue.types],
@@ -711,7 +719,7 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
         });
       }
 
-      return {
+      returnValue = {
         typeValue: {
           type: "Intersection",
           types: [returnValue.typeValue, newReturnValue.typeValue],
@@ -720,8 +728,163 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
         env: newReturnValue.env,
       };
     }
-  } else {
-    return returnValue;
+  }
+
+  // Type arguments
+  if (tokens[returnValue.index].type === TokenType.LessThan) {
+    const typeArguments: Type[] = [];
+    let index = returnValue.index + 1;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const token = tokens[index];
+      if (!token) {
+        throw formatErrorMessage({
+          token: tokens[index - 1],
+          errorMessage: "Expected '>'",
+          inputString,
+        });
+      }
+      if (token.type === TokenType.Comma) {
+        index = index + 1;
+        continue;
+      }
+      if (token.type === TokenType.GreaterThan) {
+        index = index + 1;
+        break;
+      }
+
+      const {
+        typeValue: typeArgument,
+        index: nextIndex,
+        env: nextEnv,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index,
+        inputString,
+        env,
+        parseExpression,
+      });
+      typeArguments.push(typeArgument);
+      index = nextIndex;
+      env = nextEnv;
+    }
+
+    const typeValue = returnValue.typeValue;
+    if ("typeParameters" in typeValue) {
+      const typeParameters = typeValue.typeParameters;
+      if (typeParameters.length !== typeArguments.length) {
+        throw formatErrorMessage({
+          token: tokens[returnValue.index],
+          errorMessage: `Mismatched type arguments.
+Expected: <${typeParameters
+            .map(
+              (typeParameter) =>
+                `${typeParameter.name}: ${typeToString(
+                  typeParameter.typeValue
+                )}`
+            )
+            .join(", ")}>
+Got:      <${typeArguments.map(typeToString).join(", ")}>`,
+          inputString,
+        });
+      } else {
+        returnValue.index = index;
+        returnValue.env = env;
+        const typeValue_ = applyTypeArgumentsToType(
+          typeValue,
+          typeParameters,
+          typeArguments
+        );
+        if ("typeParameters" in typeValue_) {
+          typeValue_.typeParameters = []; // NOTE: We clean up typeParameters after applying typeArguments
+        }
+        returnValue.typeValue = typeValue_;
+      }
+    } else {
+      throw formatErrorMessage({
+        token: tokens[returnValue.index],
+        errorMessage: `Cannot apply type arguments to ${typeToString(
+          typeValue
+        )}`,
+        inputString,
+      });
+    }
+  }
+
+  return returnValue;
+}
+
+export function applyTypeArgumentsToType(
+  typeValue: Type,
+  typeParameters: TTypeParameter[],
+  typeArguments: Type[]
+): Type {
+  switch (typeValue.type) {
+    case "Record": {
+      return {
+        ...typeValue,
+        properties: typeValue.properties.map(({ name, type }) => ({
+          name,
+          type: applyTypeArgumentsToType(type, typeParameters, typeArguments),
+        })),
+      };
+    }
+    case "Function": {
+      return {
+        ...typeValue,
+        parameterTypes: typeValue.parameterTypes.map(
+          ({ name, type, defaultValue }) => ({
+            name,
+            type: applyTypeArgumentsToType(type, typeParameters, typeArguments),
+            defaultValue,
+          })
+        ),
+        returnType: applyTypeArgumentsToType(
+          typeValue.returnType,
+          typeParameters,
+          typeArguments
+        ),
+      };
+    }
+    case "Union": {
+      return {
+        ...typeValue,
+        types: typeValue.types.map((type) =>
+          applyTypeArgumentsToType(type, typeParameters, typeArguments)
+        ),
+      };
+    }
+    case "Intersection": {
+      return {
+        ...typeValue,
+        types: typeValue.types.map((type) =>
+          applyTypeArgumentsToType(type, typeParameters, typeArguments)
+        ),
+      };
+    }
+    case "slice": {
+      return {
+        ...typeValue,
+        elementType: applyTypeArgumentsToType(
+          typeValue.elementType,
+          typeParameters,
+          typeArguments
+        ),
+      };
+    }
+    case "TypeParameter": {
+      const typeParameterIndex = typeParameters.findIndex(
+        (typeParameter) => typeParameter.name === typeValue.name
+      );
+      if (typeParameterIndex >= 0) {
+        return typeArguments[typeParameterIndex];
+      } else {
+        return typeValue;
+      }
+    }
+    default: {
+      return typeValue;
+    }
   }
 }
 
@@ -991,6 +1154,106 @@ export function synthesizeFunctionTypeFromTokens({
       };
     }
   }
+}
+
+/**
+ * Check type parameters declaration <...>
+ * For example: <T> in `fn<T>(a: T) {}`
+ */
+export function synthesizeTypeParametersFromTokens({
+  tokens,
+  index,
+  env,
+  inputString,
+  parseExpression,
+}: {
+  tokens: Token[];
+  index: number;
+  env: Environment;
+  inputString: string;
+  parseExpression: ParseExpression;
+}): {
+  typeParameters: TTypeParameter[];
+  index: number;
+  env: Environment;
+} {
+  if (tokens[index].type !== TokenType.LessThan) {
+    throw formatErrorMessage({
+      token: tokens[index],
+      errorMessage: "Expected '<' in type parameters declaration",
+      inputString,
+    });
+  }
+
+  index = index + 1;
+  const typeParameters: TTypeParameter[] = [];
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const token = tokens[index];
+    if (!token) {
+      throw formatErrorMessage({
+        token: tokens[index - 1],
+        errorMessage: "Expected '>'",
+        inputString,
+      });
+    }
+    if (token.type === TokenType.Comma) {
+      index = index + 1;
+      continue;
+    }
+    if (token.type === TokenType.GreaterThan) {
+      index = index + 1;
+      break;
+    }
+
+    if (token.type !== TokenType.Identifier) {
+      throw formatErrorMessage({
+        token,
+        errorMessage: "Expected identifier as type parameter name",
+        inputString,
+      });
+    }
+    const typeParameterName = token.value;
+    let typeParameterType: Type = TypeValues.unknown;
+    if (tokens[index + 1].type === TokenType.Colon) {
+      index = index + 2;
+      const {
+        typeValue: newTypeParameterType,
+        index: nextIndex,
+        env: nextEnv,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index,
+        inputString,
+        env,
+        parseExpression: parseExpression,
+      });
+      typeParameterType = newTypeParameterType;
+      env = nextEnv;
+      index = nextIndex;
+    } else {
+      index = index + 1;
+    }
+
+    const typeParameter: TTypeParameter = {
+      type: "TypeParameter",
+      name: typeParameterName,
+      typeValue: typeParameterType,
+    };
+    typeParameters.push(typeParameter);
+
+    // Save to env
+    env = addEnvValueType(env, {
+      variableName: typeParameterName,
+      type: typeParameter,
+    });
+  }
+
+  return {
+    env,
+    index,
+    typeParameters,
+  };
 }
 
 /**

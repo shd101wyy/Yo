@@ -147,22 +147,34 @@ function main() {
 
 code = `
 extern printlnd(x:i32):i32;
+type Data<T> = {v: T};
 function main() {
-  const x = if false 12 else 22;
-  printlnd(x)
+  const x: Data<i32> = {v: 1}
+  printlnd(x.v)
+}
+`
+
+code = `
+type Data<T> = {v: T};
+function test() {
+  const x: Data<i32> = {v: 1};
+  x.v + 2
+}
+function main() {
+  test()
 }
 `
 
 const codeGenerator = new CodeGenerator(code);
 
-const ir = codeGenerator.getLlvmIr();
-console.log(ir);
+//// const ir = codeGenerator.getLlvmIr();
+//// console.log(ir);
 
 // write ir to "test.ll" file
-writeFileSync("test.ll", ir);
+//// writeFileSync("test.ll", ir);
 
 // Run "clang ./src/lib.c test.ll -o test"
 // Run "./test"
 // Run "echo $?" to see the return value
-spawnSync("clang", ["./src/lib.c", "test.ll", "-o", "test"], {stdio: "inherit"});
+//// spawnSync("clang", ["./src/lib.c", "test.ll", "-o", "test"], {stdio: "inherit"});
 //// spawnSync("./test", [], {stdio: "inherit"});
