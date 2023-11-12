@@ -587,6 +587,7 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            /*
             case "implement":
               tokens.push({
                 type: TokenType.Implement,
@@ -594,6 +595,7 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            */
             case "import":
               tokens.push({
                 type: TokenType.Import,

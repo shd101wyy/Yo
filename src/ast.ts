@@ -2,6 +2,7 @@ import { Environment, ValueType, getEnvValueTypesByVariableName } from "./env";
 import { Token, TokenType } from "./token";
 import {
   TFunction,
+  TInterface,
   TPrimitive,
   TUnit,
   Type,
@@ -28,6 +29,7 @@ export enum AstType {
   LetAssignment = "let=",
   Assignment = "=",
   TypeAlias = "type=",
+  Interface = "interface",
 
   // parameters
   TypeParameter = "type-parameter",
@@ -71,6 +73,7 @@ export type Expr = (
   | ExternExpr
   | AssignmentExpr
   | TypeAliasExpr
+  | InterfaceExpr
   | UnaryOperatorExpr
   | BinaryOperatorExpr
   | VariableExpr
@@ -170,6 +173,12 @@ export type TypeAliasExpr = {
   typeValue: Type;
 };
 
+export type InterfaceExpr = {
+  type: AstType.Interface;
+  interfaceName: string;
+  typeValue: TInterface;
+};
+
 export type FunctionPrototype = {
   type: AstType.FunctionPrototype;
   functionName?: string; // If not set, it's an anonymous function
@@ -245,7 +254,6 @@ export function synthesizeRecordType(
 ): Type {
   return {
     type: "Record",
-    typeParameters: [],
     properties: properties.map(({ name, value }) => {
       return {
         name,
@@ -264,7 +272,8 @@ export function synthesizeRecordType(
  */
 export function getFunctionArgumentsInOrder(
   functionArguments: Expr[],
-  functionType: TFunction
+  functionType: TFunction,
+  env: Environment
 ): Expr[] | null {
   const functionArgumentsInOrder: (Expr | null)[] =
     functionType.parameterTypes.map((pt) => pt.defaultValue);
@@ -308,7 +317,7 @@ export function getFunctionArgumentsInOrder(
       if (
         !argument ||
         Array.isArray(argument) ||
-        !checkType(parameterType.type, argument.typeValue)
+        !checkType(parameterType.type, argument.typeValue, env)
       ) {
         return null;
       }
@@ -333,7 +342,7 @@ export function getFunctionsOfCallerFromEnv(
     if (!firstArgumentType) {
       return false;
     }
-    return checkType(firstArgumentType.type, callerType);
+    return checkType(firstArgumentType.type, callerType, env);
   });
   return matchedFunctions;
 }
@@ -355,7 +364,8 @@ export function getFunctionFromEnv(
 
       const functionArgumentsInOrder = getFunctionArgumentsInOrder(
         functionArguments,
-        functionInEnv.type
+        functionInEnv.type,
+        env
       );
       return !!functionArgumentsInOrder;
     });
@@ -418,7 +428,8 @@ export function getMatchedOverloadingFunction(
     }
     return checkType(
       firstArgumentType.type,
-      prototype.typeValue.parameterTypes[0].type
+      prototype.typeValue.parameterTypes[0].type,
+      env
     );
   });
 

@@ -71,7 +71,7 @@ export enum TokenType {
   Enum = "enum",
   Interface = "interface",
   Effect = "effect",
-  Implement = "implement",
+  // Implement = "implement",
   Import = "import",
   Export = "export",
   Unique = "unique",

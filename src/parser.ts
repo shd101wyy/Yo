@@ -30,6 +30,8 @@ import { formatErrorMessage } from "./error";
 import { Token, TokenType } from "./token";
 import {
   ParserReturn,
+  TInterface,
+  TInterfaceFunction,
   TSlice,
   TTypeConstructor,
   TTypeParameter,
@@ -855,7 +857,8 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`
 
     const functionArgumentsInOrder = getFunctionArgumentsInOrder(
       functionArguments,
-      calleeTypeValue
+      calleeTypeValue,
+      env
     );
 
     if (!functionArgumentsInOrder) {
@@ -1776,6 +1779,161 @@ Got:      ${typeToString(variableType)}`
     };
   }
 
+  private parseInterface(
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.Interface) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "interface" for interface'
+      );
+    }
+
+    index = index + 1;
+    if (tokens[index].type !== TokenType.Identifier) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected identifier for interface"
+      );
+    }
+    const interfaceName = tokens[index].value;
+    index = index + 1;
+
+    // NOTE: This is necessary for type parameters and recursive type alias
+    env = pushEnvFrame(env);
+    env = addEnvValueType(env, {
+      variableName: interfaceName,
+      type: {
+        type: "unknown",
+        typeName: interfaceName,
+      },
+      kind: "type",
+    });
+
+    // Type parameters
+    let typeParameters: TTypeParameter[] = [];
+    if (tokens[index].type === TokenType.LessThan) {
+      const {
+        index: nextIndex,
+        typeParameters: tp,
+        env: nextEnv,
+      } = synthesizeTypeParametersFromTokens({
+        tokens,
+        index,
+        env,
+        inputString: this.inputString,
+        parseExpression: this.parseExpression.bind(this),
+      });
+      index = nextIndex;
+      typeParameters = tp;
+      env = nextEnv;
+    }
+
+    // Parse interface body
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for interface body"
+      );
+    }
+    index = index + 1;
+
+    const functions: TInterfaceFunction[] = [];
+    while (true) {
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+      if (tokens[index].type === TokenType.Semicolon) {
+        index = index + 1;
+        continue;
+      }
+
+      if (
+        tokens[index].type === TokenType.Identifier &&
+        tokens[index + 1]?.type === TokenType.Colon
+      ) {
+        const functionName = tokens[index].value;
+        index = index + 2;
+        const {
+          env: nextEnv,
+          index: nextIndex,
+          typeValue: nextFunctionType,
+        } = synthesizeFunctionTypeFromTokens({
+          tokens,
+          index,
+          inputString: this.inputString,
+          env,
+          parseExpression: this.parseExpression.bind(this),
+          withFunctionBody: false,
+          functionName,
+        });
+        index = nextIndex;
+        env = nextEnv;
+
+        functions.push({
+          name: functionName,
+          func: nextFunctionType,
+        });
+      } else {
+        // Parse function prototype
+        const {
+          prototype,
+          index: nextIndex,
+          env: nextEnv,
+        } = this.parsePrototype({
+          tokens,
+          index,
+          env,
+          requireFunctionName: true,
+          withFunctionBody: true, // NOTE: We need to set it to `true` even though `extern` function has no function body
+        });
+        index = nextIndex;
+        env = nextEnv;
+        if (!prototype) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected function prototype"
+          );
+        }
+
+        // Add function prototype to interface
+        functions.push({
+          name: prototype.functionName!,
+          func: prototype.typeValue,
+        });
+      }
+    }
+
+    const interfaceType: TInterface = {
+      type: "Interface",
+      typeParameters,
+      functions,
+    };
+
+    env = addEnvValueType(
+      env,
+      {
+        variableName: interfaceName,
+        type: interfaceType,
+        kind: "type",
+      },
+      -1
+    );
+    env = popEnvFrame(env);
+    return {
+      expr: {
+        type: AstType.Interface,
+        interfaceName,
+        typeValue: interfaceType,
+      },
+      index,
+      env,
+    };
+  }
+
   /**
    * expression
    *  ::= primary binoprhs
@@ -1866,6 +2024,19 @@ Got:      ${typeToString(variableType)}`
             index: nextIndex,
             env: nextEnv,
           } = this.parseTypeAlias(tokens, index, env);
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = nextEnv;
+          break;
+        }
+        case TokenType.Interface: {
+          const {
+            expr,
+            index: nextIndex,
+            env: nextEnv,
+          } = this.parseInterface(tokens, index, env);
           if (expr) {
             exprs.push(expr);
           }

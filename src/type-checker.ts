@@ -123,6 +123,13 @@ export type TParameterType = {
   defaultValue: Expr | null;
 };
 
+export type TTypeParameter = {
+  type: "TypeParameter";
+  name: string;
+  typeValue: Type;
+  defaultTypeValue: Type | null;
+};
+
 export type TFunction = {
   type: "Function";
   id: string;
@@ -167,17 +174,31 @@ export type TTuple = {
 };
 */
 
-export type TTypeParameter = {
-  type: "TypeParameter";
-  name: string;
-  typeValue: Type;
-};
-
 export type TTypeConstructor = {
   type: "TypeConstructor";
   typeParameters: TTypeParameter[];
   typeValue: Type;
 };
+
+export type TInterfaceFunction = {
+  name: string;
+  func: TFunction;
+};
+
+export type TInterface = {
+  type: "Interface";
+  typeParameters: TTypeParameter[];
+  functions: TInterfaceFunction[];
+};
+
+/*
+export type TDataConstructor = {
+  type: "DataConstructor";
+  name: string;
+  parameterTypes: TParameterType[];
+  typeValue: Type;
+};
+*/
 
 export type Type =
   | TUnit
@@ -206,8 +227,9 @@ export type Type =
   | TUnknown
   | TSlice
   //  | TTuple
-  | TTypeParameter
   | TTypeConstructor
+  | TTypeParameter
+  | TInterface
   | TPrimitive;
 
 // Type constructors
@@ -801,12 +823,12 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`,
 export function applyTypeArgumentsToType(
   type: Type,
   typeArguments: Type[],
-  typeVariableToTypeMap: { [key: string]: Type } = {}
+  typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
 ): Type {
   if (type.type !== "TypeConstructor") {
     switch (type.type) {
       case "TypeParameter": {
-        const typeArgument = typeVariableToTypeMap[type.name];
+        const typeArgument = typeParameterToTypeArgumentMap[type.name];
         if (typeArgument) {
           return typeArgument;
         } else {
@@ -823,7 +845,7 @@ export function applyTypeArgumentsToType(
             type: applyTypeArgumentsToType(
               type,
               typeArguments,
-              typeVariableToTypeMap
+              typeParameterToTypeArgumentMap
             ),
           })),
         };
@@ -837,7 +859,7 @@ export function applyTypeArgumentsToType(
               type: applyTypeArgumentsToType(
                 type,
                 typeArguments,
-                typeVariableToTypeMap
+                typeParameterToTypeArgumentMap
               ),
               defaultValue,
             })
@@ -845,7 +867,7 @@ export function applyTypeArgumentsToType(
           returnType: applyTypeArgumentsToType(
             type.returnType,
             typeArguments,
-            typeVariableToTypeMap
+            typeParameterToTypeArgumentMap
           ),
         };
       }
@@ -853,7 +875,11 @@ export function applyTypeArgumentsToType(
         return {
           ...type,
           types: type.types.map((type) =>
-            applyTypeArgumentsToType(type, typeArguments, typeVariableToTypeMap)
+            applyTypeArgumentsToType(
+              type,
+              typeArguments,
+              typeParameterToTypeArgumentMap
+            )
           ),
         };
       }
@@ -861,7 +887,11 @@ export function applyTypeArgumentsToType(
         return {
           ...type,
           types: type.types.map((type) =>
-            applyTypeArgumentsToType(type, typeArguments, typeVariableToTypeMap)
+            applyTypeArgumentsToType(
+              type,
+              typeArguments,
+              typeParameterToTypeArgumentMap
+            )
           ),
         };
       }
@@ -871,7 +901,7 @@ export function applyTypeArgumentsToType(
           elementType: applyTypeArgumentsToType(
             type.elementType,
             typeArguments,
-            typeVariableToTypeMap
+            typeParameterToTypeArgumentMap
           ),
         };
       }
@@ -883,7 +913,7 @@ export function applyTypeArgumentsToType(
                 applyTypeArgumentsToType(
                   typeArgument,
                   typeArguments,
-                  typeVariableToTypeMap
+                  typeParameterToTypeArgumentMap
                 )
               )
             : undefined,
@@ -907,17 +937,17 @@ Expected: <${type.typeParameters
 Got:      <${typeArguments.map(typeToString).join(", ")}>`
     );
   }
-  // set typeVariableToTypeMap
+  // set typeParameterToTypeArgumentMap
   for (let i = 0; i < type.typeParameters.length; i++) {
     const typeParameter = type.typeParameters[i];
     const typeArgument = typeArguments[i];
-    typeVariableToTypeMap[typeParameter.name] = typeArgument;
+    typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
   }
 
   return applyTypeArgumentsToType(
     typeValue,
     typeArguments,
-    typeVariableToTypeMap
+    typeParameterToTypeArgumentMap
   );
 }
 
@@ -1015,7 +1045,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
       }
     }
 
-    // check parameter default values
+    // check parameter default value
     let defaultParameterValue: Expr | null = null;
     if (tokens[index].type === TokenType.Assign) {
       const {
@@ -1356,10 +1386,30 @@ export function synthesizeTypeParametersFromTokens({
       index = index + 1;
     }
 
+    // check type parameter default value
+    let defaultTypeValue: Type | null = null;
+    if (tokens[index].type === TokenType.Assign) {
+      const {
+        typeValue: nextDefaultTypeValue,
+        index: nextIndex,
+        env: nextEnv,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index: index + 1,
+        inputString,
+        env,
+        parseExpression,
+      });
+      index = nextIndex;
+      env = nextEnv;
+      defaultTypeValue = nextDefaultTypeValue;
+    }
+
     const typeParameter: TTypeParameter = {
       type: "TypeParameter",
       name: typeParameterName,
       typeValue: typeParameterType,
+      defaultTypeValue: defaultTypeValue,
     };
     typeParameters.push(typeParameter);
 

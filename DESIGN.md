@@ -426,19 +426,14 @@ function main() {
 }
 ```
 
-### Interface (Typeclass)
+### Interface (Implicit)
+
+The interface in Mo works similarly like Go.
 
 ```typescript
 
 interface<T:Eq> Summary<T> {
-  summarize: () => String;
-}
-
-interface Summary implements {
-  // Default value
-  function summarize(): String {
-    return String.from("(Read more...)");
-  }
+  summarize: (self: T) => String;
 }
 
 type NewsArticle = {
@@ -448,11 +443,9 @@ type NewsArticle = {
   content: String;
 }
 
-// Or this?
-type NewsArticle implements Summary<NewsArticle> {
-  function summarize(): String {
-    return `${this.headline}, by ${this.author} (${this.location})`;
-  }
+// Implicitly implement the interface
+function summarize(self: NewsArticle): String {
+  return `${self.headline}, by ${self.author} (${self.location})`;
 }
 
 // Pass in function

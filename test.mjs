@@ -181,14 +181,9 @@ type MyIntInt = MyInt<i32>;
 `
 
 code = `
-type List<T> = {  tag: @"Cons", 
-                  v: T, 
-                  next: List<T> } | { tag: @"Nil"};
-type IntList = List<i32>
-const Nil: IntList = { tag: @"Nil" }
-const L: IntList = { tag: @"Cons", v: 1, next: Nil }
-const L2: IntList = { tag: @"Cons", v: 2, next: L }
-const z = L2.next.v
+interface Id<T> {
+  id(x: T): T;
+}
 `
 
 
