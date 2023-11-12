@@ -114,7 +114,6 @@ export type TPrimitive = (
 
 export type TRecord = {
   type: "Record";
-  typeParameters: TTypeParameter[];
   properties: { name: string; type: Type }[];
 };
 
@@ -127,7 +126,7 @@ export type TParameterType = {
 export type TFunction = {
   type: "Function";
   id: string;
-  typeParameters: TTypeParameter[];
+  typeParameters: Type[]; // FIXME: Remove this
   parameterTypes: TParameterType[];
   returnType: Type;
 
@@ -151,6 +150,8 @@ export type TIntersection = {
 
 export type TUnknown = {
   type: "unknown";
+  typeArguments?: Type[];
+  typeName?: string; // FIXME: This might be a expression in the future
 };
 
 export type TSlice = {
@@ -169,6 +170,12 @@ export type TTuple = {
 export type TTypeParameter = {
   type: "TypeParameter";
   name: string;
+  typeValue: Type;
+};
+
+export type TTypeConstructor = {
+  type: "TypeConstructor";
+  typeParameters: TTypeParameter[];
   typeValue: Type;
 };
 
@@ -200,6 +207,7 @@ export type Type =
   | TSlice
   //  | TTuple
   | TTypeParameter
+  | TTypeConstructor
   | TPrimitive;
 
 // Type constructors
@@ -408,9 +416,13 @@ export function synthesizeTypeFromTokens({
   }
   // Check if it's defined in variableTypes
   else if (
-    getEnvValueTypesByVariableName(env, tokens[index].value).length > 0
+    getEnvValueTypesByVariableName(env, tokens[index].value, "type").length > 0
   ) {
-    const valueTypes = getEnvValueTypesByVariableName(env, tokens[index].value);
+    const valueTypes = getEnvValueTypesByVariableName(
+      env,
+      tokens[index].value,
+      "type"
+    );
     returnValue = {
       typeValue: valueTypes[valueTypes.length - 1].type,
       index: index + 1,
@@ -421,7 +433,6 @@ export function synthesizeTypeFromTokens({
   else if (tokens[index].type === TokenType.LCurlyBracket) {
     const typeValue: TRecord = {
       type: "Record",
-      typeParameters: [],
       properties: [],
     };
     index = index + 1;
@@ -564,12 +575,7 @@ export function synthesizeTypeFromTokens({
           env: nextEnv,
         } = parseExpression(tokens, index, env);
         env = nextEnv;
-        if (
-          !expr ||
-          Array.isArray(expr) ||
-          expr.type !== AstType.Value ||
-          expr.tag !== "primitive"
-        ) {
+        if (!expr || expr.type !== AstType.Value || expr.tag !== "primitive") {
           throw formatErrorMessage({
             token: tokens[index],
             errorMessage: `Unknown type ${tokens[index].value}`,
@@ -730,13 +736,13 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
       };
     }
   }
-
   // Type arguments
-  if (tokens[returnValue.index].type === TokenType.LessThan) {
+  let typeArguments: Type[] = [];
+  if (tokens[returnValue.index]?.type === TokenType.LessThan) {
     const {
       env: nextEnv,
       index: nextIndex,
-      typeArguments,
+      typeArguments: nextTypeArguments,
     } = synthesizeTypeArgumentsFromTokens({
       env: returnValue.env,
       index: returnValue.index,
@@ -746,124 +752,173 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
     });
     env = nextEnv;
     index = nextIndex;
+    typeArguments = nextTypeArguments;
+  } else {
+    env = returnValue.env;
+    index = returnValue.index;
+  }
 
-    const typeValue = returnValue.typeValue;
-    if ("typeParameters" in typeValue) {
-      const typeParameters = typeValue.typeParameters;
-      if (typeParameters.length !== typeArguments.length) {
-        throw formatErrorMessage({
-          token: tokens[returnValue.index],
-          errorMessage: `Mismatched type arguments.
-Expected: <${typeParameters
-            .map(
-              (typeParameter) =>
-                `${typeParameter.name}: ${typeToString(
-                  typeParameter.typeValue
-                )}`
-            )
-            .join(", ")}>
-Got:      <${typeArguments.map(typeToString).join(", ")}>`,
-          inputString,
-        });
-      } else {
-        returnValue.index = index;
-        returnValue.env = env;
-        const typeValue_ = applyTypeArgumentsToType(
-          typeValue,
-          typeParameters,
-          typeArguments
-        );
-        if ("typeParameters" in typeValue_) {
-          typeValue_.typeParameters = []; // NOTE: We clean up typeParameters after applying typeArguments
-        }
-        returnValue.typeValue = typeValue_;
-      }
-    } else {
+  const typeValue = returnValue.typeValue;
+  if (typeValue.type === "TypeConstructor") {
+    const typeParameters = typeValue.typeParameters;
+    if (typeParameters.length !== typeArguments.length) {
       throw formatErrorMessage({
         token: tokens[returnValue.index],
-        errorMessage: `Cannot apply type arguments to ${typeToString(
-          typeValue
-        )}`,
+        errorMessage: `Mismatched type arguments.
+Expected: <${typeParameters
+          .map(
+            (typeParameter) =>
+              `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
+          )
+          .join(", ")}>
+Got:      <${typeArguments.map(typeToString).join(", ")}>`,
         inputString,
       });
+    } else {
+      returnValue.index = index;
+      returnValue.env = env;
+      const typeValue_ = applyTypeArgumentsToType(typeValue, typeArguments);
+      returnValue.typeValue = typeValue_;
     }
+  } else if (typeValue.type === "unknown") {
+    returnValue.index = index;
+    returnValue.env = env;
+    returnValue.typeValue = {
+      ...typeValue,
+      typeArguments,
+    };
+  } else if (typeArguments.length !== 0) {
+    throw formatErrorMessage({
+      token: tokens[returnValue.index],
+      errorMessage: `Cannot apply type arguments to ${typeToString(typeValue)}`,
+      inputString,
+    });
   }
 
   return returnValue;
 }
 
 export function applyTypeArgumentsToType(
-  typeValue: Type,
-  typeParameters: TTypeParameter[],
-  typeArguments: Type[]
+  type: Type,
+  typeArguments: Type[],
+  typeVariableToTypeMap: { [key: string]: Type } = {}
 ): Type {
-  switch (typeValue.type) {
-    case "Record": {
-      return {
-        ...typeValue,
-        properties: typeValue.properties.map(({ name, type }) => ({
-          name,
-          type: applyTypeArgumentsToType(type, typeParameters, typeArguments),
-        })),
-      };
-    }
-    case "Function": {
-      return {
-        ...typeValue,
-        parameterTypes: typeValue.parameterTypes.map(
-          ({ name, type, defaultValue }) => ({
-            name,
-            type: applyTypeArgumentsToType(type, typeParameters, typeArguments),
-            defaultValue,
-          })
-        ),
-        returnType: applyTypeArgumentsToType(
-          typeValue.returnType,
-          typeParameters,
-          typeArguments
-        ),
-      };
-    }
-    case "Union": {
-      return {
-        ...typeValue,
-        types: typeValue.types.map((type) =>
-          applyTypeArgumentsToType(type, typeParameters, typeArguments)
-        ),
-      };
-    }
-    case "Intersection": {
-      return {
-        ...typeValue,
-        types: typeValue.types.map((type) =>
-          applyTypeArgumentsToType(type, typeParameters, typeArguments)
-        ),
-      };
-    }
-    case "slice": {
-      return {
-        ...typeValue,
-        elementType: applyTypeArgumentsToType(
-          typeValue.elementType,
-          typeParameters,
-          typeArguments
-        ),
-      };
-    }
-    case "TypeParameter": {
-      const typeParameterIndex = typeParameters.findIndex(
-        (typeParameter) => typeParameter.name === typeValue.name
-      );
-      if (typeParameterIndex >= 0) {
-        return typeArguments[typeParameterIndex];
-      } else {
-        return typeValue;
+  if (type.type !== "TypeConstructor") {
+    switch (type.type) {
+      case "TypeParameter": {
+        const typeArgument = typeVariableToTypeMap[type.name];
+        if (typeArgument) {
+          return typeArgument;
+        } else {
+          throw new Error(
+            `Cannot find type argument for type parameter ${type.name}`
+          );
+        }
       }
-    }
-    default: {
-      return typeValue;
+      case "Record": {
+        return {
+          ...type,
+          properties: type.properties.map(({ name, type }) => ({
+            name,
+            type: applyTypeArgumentsToType(
+              type,
+              typeArguments,
+              typeVariableToTypeMap
+            ),
+          })),
+        };
+      }
+      case "Function": {
+        return {
+          ...type,
+          parameterTypes: type.parameterTypes.map(
+            ({ name, type, defaultValue }) => ({
+              name,
+              type: applyTypeArgumentsToType(
+                type,
+                typeArguments,
+                typeVariableToTypeMap
+              ),
+              defaultValue,
+            })
+          ),
+          returnType: applyTypeArgumentsToType(
+            type.returnType,
+            typeArguments,
+            typeVariableToTypeMap
+          ),
+        };
+      }
+      case "Union": {
+        return {
+          ...type,
+          types: type.types.map((type) =>
+            applyTypeArgumentsToType(type, typeArguments, typeVariableToTypeMap)
+          ),
+        };
+      }
+      case "Intersection": {
+        return {
+          ...type,
+          types: type.types.map((type) =>
+            applyTypeArgumentsToType(type, typeArguments, typeVariableToTypeMap)
+          ),
+        };
+      }
+      case "slice": {
+        return {
+          ...type,
+          elementType: applyTypeArgumentsToType(
+            type.elementType,
+            typeArguments,
+            typeVariableToTypeMap
+          ),
+        };
+      }
+      case "unknown": {
+        return {
+          ...type,
+          typeArguments: type.typeArguments
+            ? type.typeArguments.map((typeArgument) =>
+                applyTypeArgumentsToType(
+                  typeArgument,
+                  typeArguments,
+                  typeVariableToTypeMap
+                )
+              )
+            : undefined,
+        };
+      }
+      default:
+        return type;
     }
   }
+
+  const typeValue = type.typeValue;
+  if (type.typeParameters.length !== typeArguments.length) {
+    throw new Error(
+      `Mismatched type arguments.
+Expected: <${type.typeParameters
+        .map(
+          (typeParameter) =>
+            `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
+        )
+        .join(", ")}>
+Got:      <${typeArguments.map(typeToString).join(", ")}>`
+    );
+  }
+  // set typeVariableToTypeMap
+  for (let i = 0; i < type.typeParameters.length; i++) {
+    const typeParameter = type.typeParameters[i];
+    const typeArgument = typeArguments[i];
+    typeVariableToTypeMap[typeParameter.name] = typeArgument;
+  }
+
+  return applyTypeArgumentsToType(
+    typeValue,
+    typeArguments,
+    typeVariableToTypeMap
+  );
 }
 
 /**
@@ -980,7 +1035,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
         if (userDefinedParamterType.type === "unknown") {
           userDefinedParamterType = defaultValueType;
         } else {
-          if (!checkType(userDefinedParamterType, defaultValueType)) {
+          if (!checkType(userDefinedParamterType, defaultValueType, env)) {
             throw formatErrorMessage({
               token: tokens[index],
               errorMessage: `Mismatched paramter types for ${parameterName} 
@@ -999,6 +1054,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
     env = addEnvValueType(env, {
       variableName: parameterName,
       type: userDefinedParamterType,
+      kind: "value",
     });
 
     parameterTypes.push({
@@ -1311,6 +1367,7 @@ export function synthesizeTypeParametersFromTokens({
     env = addEnvValueType(env, {
       variableName: typeParameterName,
       type: typeParameter,
+      kind: "type",
     });
   }
 
@@ -1337,7 +1394,7 @@ export function synthesizeTypeParametersFromTokens({
  * @param b
  * @returns
  */
-export function isSubtype(a: Type, b: Type): boolean {
+function isSubtype(a: Type, b: Type): boolean {
   if (a.type === "Record" && b.type === "Record") {
     return b.properties.every(({ name: bName, type: bType }) => {
       const aProperty = a.properties.find(({ name: aName }) => aName === bName);
@@ -1399,7 +1456,7 @@ export function typeToString(type: Type): string {
     if (type.type === "symbol") {
       return `@${JSON.stringify(type.value)}`;
     }
-    return type.value;
+    return type.value; // + "::" + type.type;
   }
 
   switch (type.type) {
@@ -1481,7 +1538,11 @@ export function typeToString(type: Type): string {
       return `(${type.types.map(typeToString).join(" & ")})`;
     }
     case "unknown": {
-      return "unknown";
+      return `unknown${type.typeName ? ` ${type.typeName}` : ""}${
+        type.typeArguments
+          ? `<${type.typeArguments.map(typeToString).join(", ")}>`
+          : ""
+      }`;
     }
     case "slice": {
       return `${typeToString(type.elementType)}[${type.size ?? ""}]`;
@@ -1491,7 +1552,12 @@ export function typeToString(type: Type): string {
       return `[${type.elements.map(typeToString).join(", ")}]`;
     }*/
     case "TypeParameter": {
-      return `<${type.name}:${typeToString(type.typeValue)}>`;
+      return `${type.name}:${typeToString(type.typeValue)}`;
+    }
+    case "TypeConstructor": {
+      return `<${type.typeParameters
+        .map((typeParameter) => typeToString(typeParameter))
+        .join(", ")}>${typeToString(type.typeValue)}`;
     }
     default: {
       throw new Error(`Unknown type ${JSON.stringify(type)}`);
@@ -1499,24 +1565,56 @@ export function typeToString(type: Type): string {
   }
 }
 
-export function checkType(expectedType: Type, givenType: Type): boolean {
-  if (expectedType.type === givenType.type) {
-    if (expectedType.type === "Record") {
-      return checkRecordExactMatchType(expectedType, givenType);
+export function checkType(
+  expectedType: Type,
+  givenType: Type,
+  env: Environment
+): boolean {
+  if (expectedType.type === "unknown" && expectedType.typeName) {
+    // Get real type from env
+    const valueTypes = getEnvValueTypesByVariableName(
+      env,
+      expectedType.typeName,
+      "type"
+    );
+    if (valueTypes.length === 0) {
+      throw new Error(
+        `Cannot find type ${expectedType.typeName} in the environment`
+      );
+    }
+    const realType = valueTypes[valueTypes.length - 1].type;
+    // apply type arguments
+    const typeArguments = expectedType.typeArguments;
+    if (typeArguments) {
+      expectedType = applyTypeArgumentsToType(realType, typeArguments);
+    } else {
+      expectedType = realType;
+    }
+  }
+
+  const expectedTypeType = expectedType.type;
+  const givenTypeType = givenType.type;
+  if (expectedTypeType === givenTypeType) {
+    if (expectedTypeType === "Record") {
+      return checkRecordExactMatchType(expectedType, givenType, env);
     } else {
       return isSubtype(givenType, expectedType);
     }
-  } else if (expectedType.type === "Union") {
-    if (givenType.type === "Union") {
-      return givenType.types.every((type) =>
-        expectedType.types.some((expectedType) => checkType(expectedType, type))
+  } else if (expectedTypeType === "Union") {
+    const expectedTypeTypes = expectedType.types;
+    if (givenTypeType === "Union") {
+      const givenTypeTypes = givenType.types;
+      return givenTypeTypes.every((type) =>
+        expectedTypeTypes.some((expectedType) =>
+          checkType(expectedType, type, env)
+        )
       );
     } else {
-      return expectedType.types.some((type) => checkType(type, givenType));
+      return expectedTypeTypes.some((type) => checkType(type, givenType, env));
     }
   } else if (
-    expectedType.type === "Intersection" ||
-    givenType.type === "Intersection"
+    expectedTypeType === "Intersection" ||
+    givenTypeType === "Intersection"
   ) {
     throw new Error("Intersection type is not supported yet");
   } else {
@@ -1526,7 +1624,8 @@ export function checkType(expectedType: Type, givenType: Type): boolean {
 
 function checkRecordExactMatchType(
   expectedType: Type,
-  givenType: Type
+  givenType: Type,
+  env: Environment
 ): boolean {
   if (givenType.type !== "Record") {
     throw new Error("Cannot check type of non-record");
@@ -1552,7 +1651,7 @@ function checkRecordExactMatchType(
       result = false;
       break;
     }
-    if (!checkType(type1Property.type, type2Property.type)) {
+    if (!checkType(type1Property.type, type2Property.type, env)) {
       result = false;
       break;
     }

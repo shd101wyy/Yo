@@ -155,25 +155,53 @@ function main() {
 `
 
 code = `
-function add<T>(x: T) {
+function id<T>(x: T) {
   x
 }
 function test() {
-  add<i32>(3) + 4
+  id<i32>(3) + 4
 }
+`
+
+code = `
+type Id<T> = {v: T}
+type IntId = Id<i32>
+`
+
+code = `
+type List<T> = {  tag: @"Cons", 
+                  v: T, 
+                  next: List<T> } | { tag: @"Nil"};
+const end: List<i32> = { tag: @"Nil" }
+`
+
+code = `
+type MyInt<T> = {v: T};
+type MyIntInt = MyInt<i32>;
+`
+
+code = `
+type List<T> = {  tag: @"Cons", 
+                  v: T, 
+                  next: List<T> } | { tag: @"Nil"};
+type IntList = List<i32>
+const Nil: IntList = { tag: @"Nil" }
+const L: IntList = { tag: @"Cons", v: 1, next: Nil }
+const L2: IntList = { tag: @"Cons", v: 2, next: L }
+const z = L2.next.v
 `
 
 
 const codeGenerator = new CodeGenerator(code);
 
-const ir = codeGenerator.getLlvmIr();
-console.log(ir);
+//// const ir = codeGenerator.getLlvmIr();
+//// console.log(ir);
 
 // write ir to "test.ll" file
-writeFileSync("test.ll", ir);
+//// writeFileSync("test.ll", ir);
 
 // Run "clang ./src/lib.c test.ll -o test"
 // Run "./test"
 // Run "echo $?" to see the return value
-spawnSync("clang", ["./src/lib.c", "test.ll", "-o", "test"], {stdio: "inherit"});
+//// spawnSync("clang", ["./src/lib.c", "test.ll", "-o", "test"], {stdio: "inherit"});
 //// spawnSync("./test", [], {stdio: "inherit"});

@@ -5,6 +5,7 @@ export type ValueType = {
   variableName: string;
   // accessors: string[];
   type: Type;
+  kind: "type" | "value";
   /* referenceCount of the value inside current frame */
   // referenceCount: number;
 
@@ -23,9 +24,13 @@ function addFrameValueType(frame: Frame, valueType: ValueType): Frame {
 
 function getFrameValueTypesByVariableName(
   frame: Frame,
-  variableName: string
+  variableName: string,
+  kind: "value" | "type" = "value"
 ): ValueType[] {
-  return frame.filter((valueType) => valueType.variableName === variableName);
+  return frame.filter(
+    (valueType) =>
+      valueType.variableName === variableName && valueType.kind === kind
+  );
 }
 
 export type Environment = {
@@ -109,14 +114,16 @@ export function addEnvFreeVariable(env: Environment, valueType: ValueType) {
 
 export function getEnvValueTypesByVariableName(
   env: Environment,
-  variableName: string
+  variableName: string,
+  kind: "value" | "type" = "value"
 ): ValueType[] {
   const valueTypes: ValueType[] = [];
   for (let i = 0; i < env.frames.length; i++) {
     const frame = env.frames[i];
     const valueTypesInFrame = getFrameValueTypesByVariableName(
       frame,
-      variableName
+      variableName,
+      kind
     );
     valueTypes.push(...valueTypesInFrame);
   }

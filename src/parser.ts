@@ -31,10 +31,10 @@ import { Token, TokenType } from "./token";
 import {
   ParserReturn,
   TSlice,
+  TTypeConstructor,
   TTypeParameter,
   Type,
   TypeValues,
-  applyTypeArgumentsToType,
   checkType,
   convertPrimitiveToType,
   synthesizeFunctionTypeFromTokens,
@@ -235,7 +235,7 @@ export default class Parser {
     // Check if all the element types are the same
     const firstElementType = convertPrimitiveToType(elementTypes[0]);
     const isSlice = elementTypes.every((type) =>
-      checkType(firstElementType, convertPrimitiveToType(type))
+      checkType(firstElementType, convertPrimitiveToType(type), env)
     );
 
     let typeValue: Type;
@@ -294,7 +294,7 @@ export default class Parser {
         expr: {
           type: AstType.Value,
           tag: "record",
-          typeValue: { type: "Record", typeParameters: [], properties: [] },
+          typeValue: { type: "Record", properties: [] },
           properties: [],
         },
         index: index + 1,
@@ -489,7 +489,7 @@ Found possible functions:
       env = nextEnv;
 
       const indexType = expr.typeValue;
-      if (!checkType(TypeValues.i32, indexType)) {
+      if (!checkType(TypeValues.i32, indexType, env)) {
         throw this.formatErrorMessage(
           token,
           `Expected i32 for index, but got ${typeToString(indexType)}`
@@ -605,8 +605,8 @@ Found possible functions:
       }
 
       if (
-        !checkType(returnType, prototype.typeValue.returnType) &&
-        !checkType(prototype.typeValue.returnType, returnType)
+        !checkType(returnType, prototype.typeValue.returnType, env) &&
+        !checkType(prototype.typeValue.returnType, returnType, env)
       ) {
         throw this.formatErrorMessage(
           tokens[index],
@@ -711,7 +711,7 @@ Returned:  ${typeToString(returnType)}`
     env: Environment,
     caller?: Expr
   ): ParserReturn {
-    let calleeTypeValue = callee.typeValue;
+    const calleeTypeValue = callee.typeValue;
     if (calleeTypeValue.type !== "Function") {
       throw this.formatErrorMessage(
         tokens[index],
@@ -720,10 +720,10 @@ Returned:  ${typeToString(returnType)}`
     }
 
     // type arguments
-    let typeArguments: Type[] = [];
+    // let typeArguments: Type[] = [];
     if (tokens[index]?.type === TokenType.LessThan) {
       const {
-        typeArguments: nextTypeArguments,
+        // typeArguments: nextTypeArguments,
         index: nextIndex,
         env: nextEnv,
       } = synthesizeTypeArgumentsFromTokens({
@@ -733,10 +733,11 @@ Returned:  ${typeToString(returnType)}`
         env,
         parseExpression: this.parseExpression.bind(this),
       });
-      typeArguments = nextTypeArguments;
+      // typeArguments = nextTypeArguments;
       index = nextIndex;
       env = nextEnv;
 
+      /* FIXME:
       // Check if typeArguments matches
       // and apply typeArguments to callee.typeValue
       const typeParameters = calleeTypeValue.typeParameters;
@@ -771,6 +772,7 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`
           calleeTypeValue = typeValue_;
         }
       }
+      */
     }
 
     if (tokens[index]?.type !== TokenType.LParen) {
@@ -1329,6 +1331,7 @@ Found possible functions:
           id: prototype.typeValue.id,
           variableName: prototype.functionName!,
           type: prototype.typeValue,
+          kind: "value",
         },
         -1
       );
@@ -1355,7 +1358,7 @@ Found possible functions:
         prototype.typeValue.returnType = functionReturnType;
       }
 
-      if (!checkType(functionReturnType, prototype.typeValue.returnType)) {
+      if (!checkType(functionReturnType, prototype.typeValue.returnType, env)) {
         throw this.formatErrorMessage(
           tokens[index],
           `Mismatched return type: 
@@ -1416,6 +1419,7 @@ Returned:  ${typeToString(functionReturnType)}`
         id: prototype.typeValue.id,
         variableName: prototype.functionName!,
         type: prototype.typeValue,
+        kind: "value",
       });
     }
 
@@ -1450,7 +1454,7 @@ Returned:  ${typeToString(functionReturnType)}`
       throw this.formatErrorMessage(tokens[index], "Expected condition for if");
     }
     const conditionType = condition.typeValue;
-    if (!checkType(TypeValues.boolean, conditionType)) {
+    if (!checkType(TypeValues.boolean, conditionType, env)) {
       throw this.formatErrorMessage(
         tokens[index],
         `Expected boolean for condition, but got ${typeToString(conditionType)}`
@@ -1520,7 +1524,8 @@ Returned:  ${typeToString(functionReturnType)}`
     if (
       !checkType(
         convertPrimitiveToType(thenReturnType),
-        convertPrimitiveToType(elseReturnType)
+        convertPrimitiveToType(elseReturnType),
+        env
       )
     ) {
       throw new Error(
@@ -1609,7 +1614,7 @@ else: ${typeToString(elseReturnType)}
     const variableType: Type = value.typeValue;
     // Check if type matches
     if (userDefinedVariableType !== null) {
-      const typeMatches = checkType(userDefinedVariableType, variableType);
+      const typeMatches = checkType(userDefinedVariableType, variableType, env);
       if (!typeMatches) {
         throw this.formatErrorMessage(
           tokens[userDefinedVariableTypeTokenIndex],
@@ -1649,10 +1654,10 @@ Got:      ${typeToString(variableType)}`
     }
 
     // Add variable to env
-    console.log("addEnvValueType: ", variableName, variableType);
     env = addEnvValueType(env, {
       variableName,
       type: variableType,
+      kind: "value",
     });
 
     return {
@@ -1693,6 +1698,14 @@ Got:      ${typeToString(variableType)}`
 
     // NOTE: This is necessary for type parameters and recursive type alias
     env = pushEnvFrame(env);
+    env = addEnvValueType(env, {
+      variableName: typeName,
+      type: {
+        type: "unknown",
+        typeName,
+      },
+      kind: "type",
+    });
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
@@ -1733,26 +1746,30 @@ Got:      ${typeToString(variableType)}`
       env,
       parseExpression: this.parseExpression.bind(this),
     });
+
+    const typeConstructor: TTypeConstructor = {
+      type: "TypeConstructor",
+      typeParameters,
+      typeValue,
+    };
+
     env = nextEnv;
     env = addEnvValueType(
       env,
       {
-        type: typeValue,
         variableName: typeName,
+        type: typeConstructor,
+        kind: "type",
       },
       -1
     );
-
-    if ("typeParameters" in typeValue) {
-      typeValue.typeParameters = typeParameters;
-    }
 
     env = popEnvFrame(env);
     return {
       expr: {
         type: AstType.TypeAlias,
         typeName,
-        typeValue: typeValue,
+        typeValue: typeConstructor,
       },
       index: nextIndex,
       env,
