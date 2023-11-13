@@ -10,14 +10,12 @@ import {
   FunctionExpr,
   FunctionPrototype,
   PrimitiveValueExpr,
-  getFunctionArgumentsInOrder,
-  getFunctionsOfCallerFromEnv,
-  getMatchedOverloadingFunction,
   getTokenPrecedence,
   synthesizeRecordType,
 } from "./ast";
 import {
   Environment,
+  ValueType,
   addEnvFreeVariable,
   addEnvValueType,
   copyEnvironment,
@@ -37,8 +35,11 @@ import {
   TTypeParameter,
   Type,
   TypeValues,
+  applyTypeArgumentsToType,
   checkType,
   convertPrimitiveToType,
+  getFunctionArgumentsInOrder,
+  getFunctionsOfCallerFromEnv,
   synthesizeFunctionTypeFromTokens,
   synthesizeTypeArgumentsFromTokens,
   synthesizeTypeFromTokens,
@@ -412,6 +413,7 @@ export default class Parser {
 
       // Try all functions to see if there is a match
       const parserReturns: ParserReturn[] = [];
+      const parsedFunctions: ValueType[] = [];
       for (const functionType of matchedFunctions) {
         try {
           parserReturns.push(
@@ -428,16 +430,19 @@ export default class Parser {
               expr
             )
           );
+          parsedFunctions.push(functionType);
         } catch (error) {
           // Ignore the error
+          console.error(error);
         }
       }
       if (parserReturns.length === 0) {
         throw this.formatErrorMessage(
           token,
-          `Cannot find function ${functionName} that takes ${typeToString(
-            callerType
-          )} as the first argument`
+          `Cannot find function '${functionName}' that takes the following type as the first argument:
+
+${typeToString(callerType)}
+`
         );
       } else if (parserReturns.length > 1) {
         throw this.formatErrorMessage(
@@ -446,7 +451,7 @@ export default class Parser {
             callerType
           )} as the first argument
 Found possible functions:
-- ${matchedFunctions
+- ${parsedFunctions
             .map((func) => `${func.variableName}: ${typeToString(func.type)}`)
             .join("\n- ")}`
         );
@@ -713,7 +718,7 @@ Returned:  ${typeToString(returnType)}`
     env: Environment,
     caller?: Expr
   ): ParserReturn {
-    const calleeTypeValue = callee.typeValue;
+    let calleeTypeValue = callee.typeValue;
     if (calleeTypeValue.type !== "Function") {
       throw this.formatErrorMessage(
         tokens[index],
@@ -722,10 +727,10 @@ Returned:  ${typeToString(returnType)}`
     }
 
     // type arguments
-    // let typeArguments: Type[] = [];
+    let typeArguments: Type[] = [];
     if (tokens[index]?.type === TokenType.LessThan) {
       const {
-        // typeArguments: nextTypeArguments,
+        typeArguments: nextTypeArguments,
         index: nextIndex,
         env: nextEnv,
       } = synthesizeTypeArgumentsFromTokens({
@@ -735,46 +740,37 @@ Returned:  ${typeToString(returnType)}`
         env,
         parseExpression: this.parseExpression.bind(this),
       });
-      // typeArguments = nextTypeArguments;
+      typeArguments = nextTypeArguments;
       index = nextIndex;
       env = nextEnv;
-
-      /* FIXME:
-      // Check if typeArguments matches
-      // and apply typeArguments to callee.typeValue
-      const typeParameters = calleeTypeValue.typeParameters;
-      if (typeParameters.length !== typeArguments.length) {
+    }
+    // Check if typeArguments matches
+    // and apply typeArguments to callee.typeValue
+    const typeParameters = calleeTypeValue.typeParameters;
+    if (typeParameters.length !== typeArguments.length) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Mismatched type arguments.
+Expected: <${typeParameters
+          .map((typeParameter) => `${typeToString(typeParameter)}`)
+          .join(", ")}>
+Got:      <${typeArguments.map(typeToString).join(", ")}>`
+      );
+    } else {
+      const typeValue_ = applyTypeArgumentsToType(
+        calleeTypeValue,
+        typeArguments
+      );
+      if (typeValue_.type !== "Function") {
         throw this.formatErrorMessage(
           tokens[index],
-          `Mismatched type arguments.
-Expected: <${typeParameters
-            .map(
-              (typeParameter) =>
-                `${typeParameter.name}: ${typeToString(
-                  typeParameter.typeValue
-                )}`
-            )
-            .join(", ")}>
-Got:      <${typeArguments.map(typeToString).join(", ")}>`
+          "Expected function for call expression"
         );
       } else {
-        const typeValue_ = applyTypeArgumentsToType(
-          calleeTypeValue,
-          typeParameters,
-          typeArguments
-        );
-        if (typeValue_.type !== "Function") {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Expected function for call expression"
-          );
-        } else {
-          typeValue_.typeParameters = [];
-          callee.typeValue = typeValue_;
-          calleeTypeValue = typeValue_;
-        }
+        typeValue_.typeParameters = [];
+        callee.typeValue = typeValue_;
+        calleeTypeValue = typeValue_;
       }
-      */
     }
 
     if (tokens[index]?.type !== TokenType.LParen) {
@@ -895,6 +891,7 @@ Got:      (${functionArguments
   /**
    * identifierexpr
    *   ::= identifier
+   *   ::= identifier "(" expression* ")" # Call
    * @param tokens
    * @param index
    */
@@ -913,6 +910,59 @@ Got:      (${functionArguments
         `Unbounded variable \`${identifier}\``
       );
     }
+    // Check if it's a function
+    if (
+      tokens[index + 1]?.type === TokenType.LParen ||
+      tokens[index + 1]?.type === TokenType.LessThan
+    ) {
+      const matchedFunctions = valueTypes.filter(
+        (valueType) => valueType.type.type === "Function"
+      );
+
+      // Try all matchedFunctions to see if there is a match
+      const parserReturns: ParserReturn[] = [];
+      const parsedFunctions: ValueType[] = [];
+      for (const functionType of matchedFunctions) {
+        try {
+          parserReturns.push(
+            this.parseCallExpr(
+              {
+                type: AstType.Variable,
+                name: identifier,
+                frameLevel: functionType.frameLevel,
+                typeValue: functionType.type,
+              },
+              tokens,
+              index + 1,
+              env
+            )
+          );
+          parsedFunctions.push(functionType);
+        } catch (error) {
+          // Ignore the error
+        }
+      }
+
+      if (parserReturns.length === 0) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Cannot find function '${identifier}'`
+        );
+      } else if (parserReturns.length > 1) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Ambiguous function ${identifier}
+Found possible functions:
+- ${parsedFunctions
+            .map((func) => `${func.variableName}: ${typeToString(func.type)}`)
+            .join("\n- ")}`
+        );
+      } else {
+        // FIXME: Might need to check `isFreeVariable` here as well
+        return parserReturns[0];
+      }
+    }
+
     const valueType = valueTypes[valueTypes.length - 1];
     const typeValue = valueType.type;
     const isFreeVariable =
@@ -1311,6 +1361,7 @@ Got:      (${functionArguments
     } else {
       index = nextIndex;
 
+      /*
       // Check allow function overloading
       const matchedOverloadingFunctions = getMatchedOverloadingFunction(
         prototype,
@@ -1327,6 +1378,7 @@ Found possible functions:
 `
         );
       }
+      */
 
       env = addEnvValueType(
         env,
@@ -1913,6 +1965,7 @@ Got:      ${typeToString(variableType)}`
       functions,
     };
 
+    // Add to environment
     env = addEnvValueType(
       env,
       {
@@ -1922,6 +1975,7 @@ Got:      ${typeToString(variableType)}`
       },
       -1
     );
+
     env = popEnvFrame(env);
     return {
       expr: {

@@ -181,10 +181,13 @@ type MyIntInt = MyInt<i32>;
 `
 
 code = `
-interface Id<T> {
-  id(x: T): T;
+function add(x: i32, y: i32) { x + y }
+function add(x: i32, y: i32, z: i32) { x + y + z }
+function main() {
+  add(3, 4)
 }
 `
+
 
 
 const codeGenerator = new CodeGenerator(code);
