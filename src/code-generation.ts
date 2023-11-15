@@ -1,5 +1,11 @@
 import llvm, { LLVMContext } from "llvm-bindings";
-import { AstType, Expr, FunctionPrototype, OperatorType } from "./ast";
+import {
+  AstType,
+  Expr,
+  FunctionPrototype,
+  OperatorType,
+  exprToString,
+} from "./ast";
 import { ValueType } from "./env";
 import { tokenize } from "./lexer";
 import Parser from "./parser";
@@ -32,7 +38,9 @@ export class CodeGenerator {
     const parser = new Parser(inputString);
     this.ast = parser.parse(this.tokens);
 
-    console.log("\n= ast: ", JSON.stringify(this.ast, null, 2));
+    console.log("\n= ast: ");
+    this.ast.map((expr) => console.log(exprToString(expr)));
+    console.log("\n= ast end\n");
 
     this.context = new llvm.LLVMContext();
     this.module = new llvm.Module("main", this.context);

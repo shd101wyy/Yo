@@ -1,6 +1,13 @@
 import { ValueType } from "./env";
 import { Token, TokenType } from "./token";
-import { TFunction, TInterface, TPrimitive, TUnit, Type } from "./type-checker";
+import {
+  TFunction,
+  TInterface,
+  TPrimitive,
+  TUnit,
+  Type,
+  typeToString,
+} from "./type-checker";
 
 export enum AstType {
   // values
@@ -253,4 +260,68 @@ export function synthesizeRecordType(
       };
     }),
   };
+}
+
+export function exprToString(expr: Expr) {
+  switch (expr.type) {
+    case AstType.Value:
+      switch (expr.tag) {
+        case "primitive":
+          return expr.typeValue.value;
+        case "record":
+          return `{${expr.properties
+            .map(({ name, value }) => `${name}: ${exprToString(value)}`)
+            .join(", ")}}`;
+        case "slice":
+          return `[${expr.values
+            .map((expr) => exprToString(expr))
+            .join(", ")}]`;
+        default:
+          throw new Error(`Unknown value tag ${expr}`);
+      }
+    case AstType.Variable:
+      return expr.name;
+    case AstType.PropertyAccess:
+      return `${exprToString(expr.expr)}.${expr.propertyName}`;
+    case AstType.IndexAccess:
+      return `${exprToString(expr.expr)}[${expr.indexes
+        .map((expr) => exprToString(expr))
+        .join(", ")}]`;
+    case AstType.BinaryOperator:
+      return `${exprToString(expr.left)} ${expr.operator} ${exprToString(
+        expr.right
+      )}`;
+    case AstType.UnaryOperator:
+      return `${expr.operator}${exprToString(expr.expr)}`;
+    case AstType.ConstantAssigment:
+      return `${expr.variableName} = ${exprToString(expr.right)}`;
+    case AstType.TypeAlias:
+      return `type ${expr.typeName} = ${typeToString(expr.typeValue)}`;
+    case AstType.Interface:
+      return `interface ${expr.interfaceName} = ${expr.typeValue}`;
+    case AstType.Function:
+      return `function ${
+        expr.prototype.functionName
+      }(${expr.prototype.typeValue.parameterTypes
+        .map((p) => `${p.name}: ${typeToString(p.type)}`)
+        .join(", ")}):${typeToString(
+        expr.prototype.typeValue.returnType
+      )} {\n${expr.body
+        .map((expr) => "  " + exprToString(expr))
+        .join(";\n")}\n}`;
+    case AstType.CallFunction:
+      return `${exprToString(expr.callee)}(${expr.functionArguments
+        .map((expr) => exprToString(expr))
+        .join(", ")})`;
+    case AstType.If:
+      return `if (${exprToString(expr.condition)}) {\n${expr.then
+        .map((expr) => "  " + exprToString(expr))
+        .join(";\n")} } else {\n${expr.else
+        .map((expr) => "  " + exprToString(expr))
+        .join(";\n")} }`;
+    case AstType.Ignore:
+      return ``;
+    default:
+      throw new Error(`Unknown expr type ${expr}`);
+  }
 }

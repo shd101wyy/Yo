@@ -133,7 +133,7 @@ export type TTypeParameter = {
 export type TFunction = {
   type: "Function";
   id: string;
-  typeParameters: Type[]; // FIXME: Remove this
+  typeParameters: TTypeParameter[]; // FIXME: Remove this
   parameterTypes: TParameterType[];
   returnType: Type;
 
@@ -826,7 +826,15 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`,
     } else {
       returnValue.index = index;
       returnValue.env = env;
+      console.log(
+        "@ before applyTypeArgumentsToType: ",
+        typeToString(returnValue.typeValue)
+      );
       const typeValue_ = applyTypeArgumentsToType(typeValue, typeArguments);
+      console.log(
+        "@ after applyTypeArgumentsToType: ",
+        typeToString(typeValue_)
+      );
       returnValue.typeValue = typeValue_;
     }
   } else if (typeArguments.length !== 0) {
@@ -845,6 +853,13 @@ export function applyTypeArgumentsToType(
   typeArguments: Type[],
   typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
 ): Type {
+  console.log("- applyTypeArgumentsToType");
+  console.log("  - type: ", typeToString(type), type.type);
+  console.log("  - typeArguments: ", typeArguments.map(typeToString));
+  console.log(
+    "  - typeParameterToTypeArgumentMap: ",
+    typeParameterToTypeArgumentMap
+  );
   if (type.type === "TypeConstructor") {
     const typeValue = type.typeValue;
     if (type.typeParameters.length !== typeArguments.length) {
@@ -885,11 +900,17 @@ export function applyTypeArgumentsToType(
       );
     }
     // set typeParameterToTypeArgumentMap
+    const newTypeParameters: TTypeParameter[] = [];
     for (let i = 0; i < type.typeParameters.length; i++) {
       const typeParameter = type.typeParameters[i];
       const typeArgument = typeArguments[i];
       typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
+      console.log("- here: ", typeToString(typeArgument), typeArgument);
+      if (typeArgument.type === "TypeParameter") {
+        newTypeParameters.push(typeArgument);
+      }
     }
+    console.log("- newTypeParamters: ", newTypeParameters);
 
     // apply to each of the functions
     const functions: TInterfaceFunction[] = type.functions.map(
@@ -905,8 +926,53 @@ export function applyTypeArgumentsToType(
 
     return {
       type: "Interface",
-      typeParameters: type.typeParameters,
+      typeParameters: newTypeParameters, // FIXME: <- this might be wrong
       functions: functions,
+    };
+  } else if (type.type === "Function") {
+    const typeParameters = type.typeParameters;
+    if (typeParameters.length !== typeArguments.length) {
+      throw new Error(
+        `Mismatched type arguments.
+  Expected: <${typeParameters
+    .map(
+      (typeParameter) =>
+        `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
+    )
+    .join(", ")}>
+  Got:      <${typeArguments.map(typeToString).join(", ")}>`
+      );
+    }
+    // set typeParameterToTypeArgumentMap
+    const newTypeParamters: TTypeParameter[] = [];
+    for (let i = 0; i < type.typeParameters.length; i++) {
+      const typeParameter = type.typeParameters[i];
+      const typeArgument = typeArguments[i];
+      typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
+      if (typeArgument.type === "TypeParameter") {
+        newTypeParamters.push(typeArgument);
+      }
+    }
+
+    return {
+      ...type,
+      typeParameters: newTypeParamters, // FIXME: <- This might be wrong
+      parameterTypes: type.parameterTypes.map(
+        ({ name, type, defaultValue }) => ({
+          name,
+          type: applyTypeArgumentsToType(
+            type,
+            typeArguments,
+            typeParameterToTypeArgumentMap
+          ),
+          defaultValue,
+        })
+      ),
+      returnType: applyTypeArgumentsToType(
+        type.returnType,
+        typeArguments,
+        typeParameterToTypeArgumentMap
+      ),
     };
   } else {
     switch (type.type) {
@@ -933,27 +999,6 @@ export function applyTypeArgumentsToType(
               typeParameterToTypeArgumentMap
             ),
           })),
-        };
-      }
-      case "Function": {
-        return {
-          ...type,
-          parameterTypes: type.parameterTypes.map(
-            ({ name, type, defaultValue }) => ({
-              name,
-              type: applyTypeArgumentsToType(
-                type,
-                typeArguments,
-                typeParameterToTypeArgumentMap
-              ),
-              defaultValue,
-            })
-          ),
-          returnType: applyTypeArgumentsToType(
-            type.returnType,
-            typeArguments,
-            typeParameterToTypeArgumentMap
-          ),
         };
       }
       case "Union": {
@@ -1632,7 +1677,7 @@ export function typeToString(type: Type): string {
         .join(", ")} }`;
     }
     case "Function": {
-      return `(${type.parameterTypes
+      return `<${type.typeParameters.map(typeToString)}>(${type.parameterTypes
         .map(
           (parameter) =>
             (parameter.name ? `${parameter.name}: ` : "") +
@@ -1721,23 +1766,9 @@ export function checkType(
       return checkType(expectedType.typeValue, givenType, env);
     }
   } else if (expectedType.type === "Interface") {
-    // Check if the givenType implements the functions defined in the interface
-    const interfaceFunctions = expectedType.functions;
-    const allImplemented = interfaceFunctions.every(({ name, func }) => {
-      const matchedFunctions = getFunctionsOfCallerFromEnv(
-        givenType,
-        name,
-        env
-      );
-      if (matchedFunctions.length === 0) {
-        return false;
-      }
-      // Find the function in matchedFunctions that matches the func
-      return !!matchedFunctions.some((matchedFunction) =>
-        checkType(func, matchedFunction.type, env)
-      );
-    });
-    return allImplemented;
+    return checkTypeImplementsInterface(givenType, expectedType, env);
+  } else if (givenType.type === "Interface") {
+    return checkTypeImplementsInterface(expectedType, givenType, env);
   }
 
   const expectedTypeType = expectedType.type;
@@ -1780,6 +1811,25 @@ export function checkType(
   } else {
     return false;
   }
+}
+
+function checkTypeImplementsInterface(
+  type: Type,
+  interfaceType: TInterface,
+  env: Environment
+) {
+  const interfaceFunctions = interfaceType.functions;
+  const allImplemented = interfaceFunctions.every(({ name, func }) => {
+    const matchedFunctions = getFunctionsOfCallerFromEnv(type, name, env);
+    if (matchedFunctions.length === 0) {
+      return false;
+    }
+    // Find the function in matchedFunctions that matches the func
+    return !!matchedFunctions.some((matchedFunction) =>
+      checkType(func, matchedFunction.type, env)
+    );
+  });
+  return allImplemented;
 }
 
 function checkRecordExactMatchType(
@@ -1831,6 +1881,12 @@ export function getFunctionArgumentsInOrder(
   functionType: TFunction,
   env: Environment
 ): Expr[] | null {
+  console.log("- getFunctionArgumentsInOrder: ");
+  console.log("  - functionType: ", typeToString(functionType));
+  console.log(
+    "  - functionArguments: ",
+    functionArguments.map((expr) => typeToString(expr.typeValue))
+  );
   const functionArgumentsInOrder: (Expr | null)[] =
     functionType.parameterTypes.map((pt) => pt.defaultValue);
   const functionParameterTypes = functionType.parameterTypes;
@@ -1867,12 +1923,18 @@ export function getFunctionArgumentsInOrder(
     return null;
   } else {
     // Check if the functionArgumentsInOrder has the same types as the functionParameterTypes
+    console.log("  - check functionArgumentsInOrder types");
     for (let i = 0; i < functionArgumentsInOrder.length; i++) {
       const argument = functionArgumentsInOrder[i];
       const parameterType = functionParameterTypes[i];
+      console.log("    - argument: ", typeToString(argument!.typeValue!));
+      console.log("    - parameterType: ", typeToString(parameterType.type));
+      console.log(
+        "    - checkType: ",
+        checkType(parameterType.type, argument!.typeValue, env)
+      );
       if (
         !argument ||
-        Array.isArray(argument) ||
         !checkType(parameterType.type, argument.typeValue, env)
       ) {
         return null;
@@ -1903,8 +1965,8 @@ export function getFunctionsOfCallerFromEnv(
 
   // Check if there any function that matches the functionName
   if (callerType.type === "Interface") {
-    const matchedFunctionsInInterface: ValueType[] = callerType.functions.map(
-      ({ func, name }) => {
+    const matchedFunctionsInInterface: ValueType[] = callerType.functions
+      .map(({ func, name }) => {
         const valueType: ValueType = {
           type: func,
           variableName: name,
@@ -1912,9 +1974,13 @@ export function getFunctionsOfCallerFromEnv(
           frameLevel: 0,
           kind: "value",
         };
-        return valueType;
-      }
-    );
+        if (functionName === name) {
+          return valueType;
+        } else {
+          return null;
+        }
+      })
+      .filter((func) => func !== null) as ValueType[];
     matchedFunctions = matchedFunctions.concat(matchedFunctionsInInterface);
   }
 

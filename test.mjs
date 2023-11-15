@@ -188,18 +188,40 @@ function main() {
 }
 `
 
+code = `
+interface Id<T> {
+  id(xa: T): T;  
+}
+interface Id2<T> extends Id<T> {
+  id2(xb: T): T;
+}
+function test<T>(x: Id2<T>) {
+  x.id2()
+}
+`
 
+code = `
+function add(x: i32) {
+  x
+}
+function add(x: i32, y: i32) {
+  x + y
+}
+function main() {
+  add(3)
+}
+`
 
 const codeGenerator = new CodeGenerator(code);
 
-//// const ir = codeGenerator.getLlvmIr();
-//// console.log(ir);
+const ir = codeGenerator.getLlvmIr();
+console.log(ir);
 
 // write ir to "test.ll" file
-//// writeFileSync("test.ll", ir);
+writeFileSync("test.ll", ir);
 
 // Run "clang ./src/lib.c test.ll -o test"
 // Run "./test"
 // Run "echo $?" to see the return value
-//// spawnSync("clang", ["./src/lib.c", "test.ll", "-o", "test"], {stdio: "inherit"});
+spawnSync("clang", ["./src/lib.c", "test.ll", "-o", "test"], {stdio: "inherit"});
 //// spawnSync("./test", [], {stdio: "inherit"});

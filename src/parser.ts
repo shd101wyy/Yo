@@ -414,6 +414,8 @@ export default class Parser {
       // Try all functions to see if there is a match
       const parserReturns: ParserReturn[] = [];
       const parsedFunctions: ValueType[] = [];
+      console.log("matchedFunctions: ", matchedFunctions);
+      console.log("functionName: ", functionName);
       for (const functionType of matchedFunctions) {
         try {
           parserReturns.push(
@@ -767,7 +769,6 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`
           "Expected function for call expression"
         );
       } else {
-        typeValue_.typeParameters = [];
         callee.typeValue = typeValue_;
         calleeTypeValue = typeValue_;
       }
@@ -946,7 +947,13 @@ Got:      (${functionArguments
       if (parserReturns.length === 0) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Cannot find function '${identifier}'`
+          `Cannot find function '${identifier}'
+Below are the possible functions:
+
+${matchedFunctions
+  .map((func) => `  ${func.variableName}: ${typeToString(func.type)}`)
+  .join("\n")}
+          `
         );
       } else if (parserReturns.length > 1) {
         throw this.formatErrorMessage(
@@ -1831,6 +1838,16 @@ Got:      ${typeToString(variableType)}`
     };
   }
 
+  /**
+   *
+   * interface ::= "interface" identifier typeParameters? "{" functionPrototype* "}"
+   *           ::= "interface" identifier typeParameters? "extends" interfaceType "{" functionPrototype* "}"
+   *
+   * @param tokens
+   * @param index
+   * @param env
+   * @returns
+   */
   private parseInterface(
     tokens: Token[],
     index: number,
@@ -1883,6 +1900,49 @@ Got:      ${typeToString(variableType)}`
       env = nextEnv;
     }
 
+    // extends other interface
+    const interfaceTypes: TInterface[] = [];
+    if (tokens[index].type === TokenType.Extends) {
+      index = index + 1;
+
+      while (true) {
+        const {
+          env: nextEnv,
+          index: nextIndex,
+          typeValue: interfaceType,
+        } = synthesizeTypeFromTokens({
+          tokens,
+          index,
+          inputString: this.inputString,
+          env,
+          parseExpression: this.parseExpression.bind(this),
+        });
+        if (interfaceType.type !== "Interface") {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected interface type, but got " + typeToString(interfaceType)
+          );
+        }
+        interfaceTypes.push(interfaceType);
+        index = nextIndex;
+        env = nextEnv;
+
+        if (tokens[index]?.type === TokenType.Comma) {
+          index = index + 1;
+          continue;
+        } else {
+          break;
+        }
+      }
+    }
+    const functions: TInterfaceFunction[] = [];
+    /// Add functions from extended interfaces
+    for (const interfaceType of interfaceTypes) {
+      for (const func of interfaceType.functions) {
+        functions.push(func);
+      }
+    }
+
     // Parse interface body
     if (tokens[index].type !== TokenType.LCurlyBracket) {
       throw this.formatErrorMessage(
@@ -1891,8 +1951,6 @@ Got:      ${typeToString(variableType)}`
       );
     }
     index = index + 1;
-
-    const functions: TInterfaceFunction[] = [];
     while (true) {
       if (tokens[index].type === TokenType.RCurlyBracket) {
         index = index + 1;
@@ -1925,6 +1983,15 @@ Got:      ${typeToString(variableType)}`
         index = nextIndex;
         env = nextEnv;
 
+        if (nextFunctionType.typeParameters.length) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Type parameters are not allowed in interface function as it uses the type parameters defined in the interface itself"
+          );
+        } else {
+          nextFunctionType.typeParameters = typeParameters;
+        }
+
         functions.push({
           name: functionName,
           func: nextFunctionType,
@@ -1949,6 +2016,15 @@ Got:      ${typeToString(variableType)}`
             tokens[index],
             "Expected function prototype"
           );
+        }
+
+        if (prototype.typeValue.typeParameters.length) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Type parameters are not allowed in interface function as it uses the type parameters defined in the interface itself"
+          );
+        } else {
+          prototype.typeValue.typeParameters = typeParameters;
         }
 
         // Add function prototype to interface
