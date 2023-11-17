@@ -1,4 +1,4 @@
-import { ValueType } from "./env";
+import { Environment, ValueType } from "./env";
 import { Token, TokenType } from "./token";
 import {
   TFunction,
@@ -50,6 +50,9 @@ export enum AstType {
 
   // ignore
   Ignore = "ignore",
+
+  // block expression
+  Block = "block",
 }
 
 export enum OperatorType {
@@ -65,9 +68,9 @@ export enum OperatorType {
 }
 
 /**
- * All Expr should have `typeValue` attribute.
+ * All Expr should have `typeValue` and `env` attribute.
  */
-export type Expr = (
+export type Expr =
   | FunctionExpr
   | ExternExpr
   | AssignmentExpr
@@ -82,33 +85,42 @@ export type Expr = (
   | CallFunctionExpr
   | IfExpr
   | IgnoreExpr
-) & { typeValue: Type };
-
-export type TopLevelExpr = Expr | FunctionExpr;
+  | BlockExpr;
 
 export type IgnoreExpr = {
   type: AstType.Ignore;
   typeValue: TUnit;
+  env: Environment;
+};
+
+export type BlockExpr = {
+  type: AstType.Block;
+  exprs: Expr[];
+  typeValue: Type;
+  env: Environment;
 };
 
 export type RecordValueExpr = {
   type: AstType.Value;
   tag: "record";
-  typeValue: Type;
   properties: { name: string; value: Expr }[];
+  typeValue: Type;
+  env: Environment;
 };
 
 export type SliceValueExpr = {
   type: AstType.Value;
   tag: "slice";
-  typeValue: Type;
   values: Expr[];
+  typeValue: Type;
+  env: Environment;
 };
 
 export type PrimitiveValueExpr = {
   type: AstType.Value;
   tag: "primitive";
   typeValue: TPrimitive;
+  env: Environment;
 };
 
 export type ValueExpr = PrimitiveValueExpr | RecordValueExpr | SliceValueExpr;
@@ -116,8 +128,9 @@ export type ValueExpr = PrimitiveValueExpr | RecordValueExpr | SliceValueExpr;
 export type VariableExpr = {
   type: AstType.Variable;
   name: string;
-  typeValue: Type;
   frameLevel: number;
+  typeValue: Type;
+  env: Environment;
   // isFreeVariable: boolean;
 };
 
@@ -126,6 +139,7 @@ export type PropertyAccessExpr = {
   propertyName: string;
   expr: Expr;
   typeValue: Type;
+  env: Environment;
 };
 
 export type IndexAccessExpr = {
@@ -133,6 +147,7 @@ export type IndexAccessExpr = {
   indexes: Expr[];
   expr: Expr;
   typeValue: Type;
+  env: Environment;
 };
 
 export type BinaryOperatorExpr = {
@@ -141,6 +156,7 @@ export type BinaryOperatorExpr = {
   left: Expr;
   right: Expr;
   typeValue: Type;
+  env: Environment;
 };
 
 export type UnaryOperatorExpr = {
@@ -148,6 +164,7 @@ export type UnaryOperatorExpr = {
   operator: TokenType.LogicalNot;
   expr: Expr;
   typeValue: Type;
+  env: Environment;
 };
 
 /*
@@ -164,18 +181,21 @@ export type AssignmentExpr = {
   frameLevel: number;
   right: Expr;
   typeValue: TUnit;
+  env: Environment;
 };
 
 export type TypeAliasExpr = {
   type: AstType.TypeAlias;
   typeName: string;
   typeValue: Type;
+  env: Environment;
 };
 
 export type InterfaceExpr = {
   type: AstType.Interface;
   interfaceName: string;
   typeValue: TInterface;
+  env: Environment;
 };
 
 export type FunctionPrototype = {
@@ -192,21 +212,25 @@ export type FunctionExpr = {
    */
   frameLevel: number;
   freeVariables: ValueType[];
-  typeValue: TFunction;
   body: Expr[];
+  typeValue: TFunction;
+  env: Environment;
 };
 
 export type ExternExpr = {
   type: AstType.Extern;
   prototype: FunctionPrototype;
   typeValue: TFunction;
+  env: Environment;
 };
 
 export type CallFunctionExpr = {
   type: AstType.CallFunction;
   callee: Expr;
+  typeArguments: Type[];
   functionArguments: Expr[];
   typeValue: Type;
+  env: Environment;
 };
 
 export type IfExpr = {
@@ -215,6 +239,7 @@ export type IfExpr = {
   then: Expr[];
   else: Expr[];
   typeValue: Type;
+  env: Environment;
 };
 
 /**
@@ -280,6 +305,9 @@ export function exprToString(expr: Expr) {
           throw new Error(`Unknown value tag ${expr}`);
       }
     case AstType.Variable:
+      if ("id" in expr.typeValue) {
+        return `@${expr.typeValue.id}`;
+      }
       return expr.name;
     case AstType.PropertyAccess:
       return `${exprToString(expr.expr)}.${expr.propertyName}`;
@@ -294,14 +322,16 @@ export function exprToString(expr: Expr) {
     case AstType.UnaryOperator:
       return `${expr.operator}${exprToString(expr.expr)}`;
     case AstType.ConstantAssigment:
-      return `${expr.variableName} = ${exprToString(expr.right)}`;
+      return `const ${expr.variableName} = ${exprToString(expr.right)}`;
     case AstType.TypeAlias:
       return `type ${expr.typeName} = ${typeToString(expr.typeValue)}`;
     case AstType.Interface:
       return `interface ${expr.interfaceName} = ${expr.typeValue}`;
     case AstType.Function:
-      return `function ${
-        expr.prototype.functionName
+      return `function @${expr.prototype.typeValue.id}${
+        expr.prototype.typeValue.typeParameters.length > 0
+          ? `<${expr.prototype.typeValue.typeParameters.map(typeToString)}>`
+          : ""
       }(${expr.prototype.typeValue.parameterTypes
         .map((p) => `${p.name}: ${typeToString(p.type)}`)
         .join(", ")}):${typeToString(
@@ -310,7 +340,9 @@ export function exprToString(expr: Expr) {
         .map((expr) => "  " + exprToString(expr))
         .join(";\n")}\n}`;
     case AstType.CallFunction:
-      return `${exprToString(expr.callee)}(${expr.functionArguments
+      return `${exprToString(expr.callee)}${
+        expr.typeArguments ? `<${expr.typeArguments.map(typeToString)}>` : ""
+      }(${expr.functionArguments
         .map((expr) => exprToString(expr))
         .join(", ")})`;
     case AstType.If:

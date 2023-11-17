@@ -6,6 +6,7 @@
 import {
   AssignmentExpr,
   AstType,
+  BlockExpr,
   Expr,
   FunctionExpr,
   FunctionPrototype,
@@ -78,9 +79,9 @@ export default class Parser {
             value: token.value,
             tag: "primitive",
           },
+          env,
         },
         index: index + 1,
-        env,
       };
     } else if (token.type === TokenType.Float) {
       return {
@@ -88,9 +89,9 @@ export default class Parser {
           type: AstType.Value,
           tag: "primitive",
           typeValue: { type: "f32", value: token.value, tag: "primitive" },
+          env,
         },
         index: index + 1,
-        env,
       };
     } else {
       throw this.formatErrorMessage(token, "Expected number");
@@ -109,9 +110,9 @@ export default class Parser {
           type: AstType.Value,
           tag: "primitive",
           typeValue: { type: "char", value: token.value, tag: "primitive" },
+          env,
         },
         index: index + 1,
-        env,
       };
     } else {
       throw this.formatErrorMessage(token, "Expected charactor");
@@ -129,6 +130,7 @@ export default class Parser {
         type: AstType.Value,
         tag: "primitive",
         typeValue: { type: "char", value: "\0", tag: "primitive" },
+        env,
       };
       return {
         expr: {
@@ -139,6 +141,7 @@ export default class Parser {
             elementType: TypeValues.char,
             size: token.value.length + 1,
           },
+          env,
           values: token.value
             .split("")
             .map((char) => {
@@ -146,13 +149,13 @@ export default class Parser {
                 type: AstType.Value,
                 tag: "primitive",
                 typeValue: { type: "char", value: char, tag: "primitive" },
+                env,
               };
               return charValue;
             })
             .concat(end),
         },
         index: index + 1,
-        env,
       };
     } else {
       throw this.formatErrorMessage(token, "Expected string");
@@ -165,11 +168,11 @@ export default class Parser {
       return {
         expr: {
           type: AstType.Value,
+          env,
           tag: "primitive",
           typeValue: { type: "symbol", value: token.value, tag: "primitive" },
         },
         index: index + 1,
-        env,
       };
     } else {
       throw this.formatErrorMessage(token, "Expected symbol");
@@ -186,11 +189,11 @@ export default class Parser {
       return {
         expr: {
           type: AstType.Value,
+          env,
           tag: "primitive",
           typeValue: { type: "boolean", value: token.value, tag: "primitive" },
         },
         index: index + 1,
-        env,
       };
     } else {
       throw this.formatErrorMessage(token, "Expected boolean");
@@ -217,17 +220,17 @@ export default class Parser {
         index = index + 1;
         break;
       } else {
-        const {
-          expr,
-          index: nextIndex,
-          env: nextEnv,
-        } = this.parseExpression(tokens, index, env);
+        const { expr, index: nextIndex } = this.parseExpression(
+          tokens,
+          index,
+          env
+        );
         if (!expr) {
-          return { expr, index: nextIndex, env: nextEnv };
+          return { expr, index: nextIndex };
         }
         values.push(expr);
         index = nextIndex;
-        env = nextEnv;
+        env = expr.env;
         if (tokens[index].type === TokenType.Comma) {
           index = index + 1;
         }
@@ -264,12 +267,12 @@ export default class Parser {
     return {
       expr: {
         type: AstType.Value,
+        env,
         typeValue,
         values: values,
         tag: "slice",
       },
       index,
-      env,
     };
   }
 
@@ -298,10 +301,10 @@ export default class Parser {
           type: AstType.Value,
           tag: "record",
           typeValue: { type: "Record", properties: [] },
+          env,
           properties: [],
         },
         index: index + 1,
-        env,
       };
     } else if (
       tokens[index].type === TokenType.Identifier &&
@@ -332,17 +335,17 @@ export default class Parser {
           );
         }
         index = index + 2;
-        const {
-          expr,
-          index: nextIndex,
-          env: nextEnv,
-        } = this.parseExpression(tokens, index, env);
+        const { expr, index: nextIndex } = this.parseExpression(
+          tokens,
+          index,
+          env
+        );
         if (!expr) {
-          return { expr, index: nextIndex, env: nextEnv };
+          return { expr, index: nextIndex };
         }
         properties.push({ name: propertyName, value: expr });
         index = nextIndex;
-        env = nextEnv;
+        env = expr.env;
 
         if (tokens[index].type === TokenType.Comma) {
           index = index + 1;
@@ -353,10 +356,10 @@ export default class Parser {
           type: AstType.Value,
           tag: "record",
           typeValue: synthesizeRecordType(properties),
+          env,
           properties,
         },
         index,
-        env,
       };
     } else {
       throw this.formatErrorMessage(tokens[index], "Expected invalid record");
@@ -393,8 +396,8 @@ export default class Parser {
             expr: expr,
             propertyName: property.name,
             typeValue: property.type,
+            env,
           },
-          env,
           index: index + 1,
         };
       }
@@ -414,8 +417,6 @@ export default class Parser {
       // Try all functions to see if there is a match
       const parserReturns: ParserReturn[] = [];
       const parsedFunctions: ValueType[] = [];
-      console.log("matchedFunctions: ", matchedFunctions);
-      console.log("functionName: ", functionName);
       for (const functionType of matchedFunctions) {
         try {
           parserReturns.push(
@@ -425,6 +426,7 @@ export default class Parser {
                 name: functionName,
                 frameLevel: functionType.frameLevel,
                 typeValue: functionType.type,
+                env,
               },
               tokens,
               index + 1,
@@ -485,17 +487,17 @@ Found possible functions:
       if (!token) {
         throw this.formatErrorMessage(token, "Expected ']'");
       }
-      const {
-        expr,
-        index: nextIndex,
-        env: nextEnv,
-      } = this.parseExpression(tokens, index, env);
+      const { expr, index: nextIndex } = this.parseExpression(
+        tokens,
+        index,
+        env
+      );
       if (!expr) {
         throw this.formatErrorMessage(token, "Expected expression");
       }
       indexes.push(expr);
       index = nextIndex;
-      env = nextEnv;
+      env = expr.env;
 
       const indexType = expr.typeValue;
       if (!checkType(TypeValues.i32, indexType, env)) {
@@ -554,9 +556,9 @@ Found possible functions:
         expr,
         indexes,
         typeValue: valueType,
+        env,
       },
       index,
-      env,
     };
   }
 
@@ -599,12 +601,12 @@ Found possible functions:
       }
 
       // parse body
-      const {
-        exprs: body,
-        returnType,
-        index: nextNextIndex,
-        env: nextNextEnv,
-      } = this.parseBlockExpressions(tokens, nextIndex + 1, nextEnv);
+      const { expr, index: nextNextIndex } = this.parseBlockExpressions(
+        tokens,
+        nextIndex + 1,
+        nextEnv
+      );
+      const { exprs: body, typeValue: returnType, env: nextNextEnv } = expr;
       env = nextNextEnv;
 
       // Check function body return type matches
@@ -630,20 +632,20 @@ Returned:  ${typeToString(returnType)}`
       const functionExpr: FunctionExpr = {
         type: AstType.Function,
         prototype,
-        typeValue: prototype.typeValue,
         body,
         frameLevel: currentFrameLevel,
         freeVariables: env.freeVariables, // FIXME: Implement freeVariables
+        typeValue: prototype.typeValue,
+        env: copyEnvironment(
+          popEnvFrame(env),
+          oldEnv.functionDeclarationFrameLevel,
+          oldEnv.freeVariables
+        ),
       };
       env = popEnvFrame(env);
       return {
         expr: functionExpr,
         index: nextNextIndex,
-        env: copyEnvironment(
-          env,
-          oldEnv.functionDeclarationFrameLevel,
-          oldEnv.freeVariables
-        ),
       };
     } catch (error) {
       env = popEnvFrame(env);
@@ -675,21 +677,21 @@ Returned:  ${typeToString(returnType)}`
           type: AstType.Value,
           tag: "primitive",
           typeValue: { type: "()", value: "()", tag: "primitive" },
+          env,
         },
         index: index + 2,
-        env,
       };
     }
 
     // Try parse as anonymouse function
     try {
-      const {
-        expr,
-        index: nextIndex,
-        env: newEnv,
-      } = this.parseAnonymouseFunction(tokens, index, env);
+      const { expr, index: nextIndex } = this.parseAnonymouseFunction(
+        tokens,
+        index,
+        env
+      );
       if (expr) {
-        return { expr, index: nextIndex, env: newEnv };
+        return { expr, index: nextIndex };
       } else {
         throw new Error("Failed to parse as anonymouse function");
       }
@@ -698,19 +700,19 @@ Returned:  ${typeToString(returnType)}`
       // This means we failed to parse it as anonymouse function
     }
 
-    const {
-      expr,
-      index: nextIndex,
-      env: nextEnv,
-    } = this.parseExpression(tokens, index + 1, env);
+    const { expr, index: nextIndex } = this.parseExpression(
+      tokens,
+      index + 1,
+      env
+    );
     if (!expr) {
-      return { expr, index: nextIndex, env: nextEnv };
+      return { expr, index: nextIndex };
     }
 
     if (tokens[nextIndex].type !== TokenType.RParen) {
       throw this.formatErrorMessage(tokens[nextIndex], "Expected right paren");
     }
-    return { expr, index: nextIndex + 1, env: nextEnv };
+    return { expr, index: nextIndex + 1 };
   }
 
   private parseCallExpr(
@@ -794,12 +796,9 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`
           tokens[index + 1].type === TokenType.Assign
         ) {
           const variableName = tokens[index].value;
-          const {
-            expr: defaultParameterValueExpr,
-            index: nextIndex,
-            env: nextEnv,
-          } = this.parseExpression(tokens, index + 2, env);
-          env = nextEnv;
+          const { expr: defaultParameterValueExpr, index: nextIndex } =
+            this.parseExpression(tokens, index + 2, env);
+          env = defaultParameterValueExpr.env;
 
           if (!defaultParameterValueExpr) {
             throw this.formatErrorMessage(
@@ -815,16 +814,17 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`
             typeValue: TypeValues.unit,
             variableType: defaultParameterValueExpr.typeValue,
             frameLevel: getEnvCurrentFrameLevel(env),
+            env,
           };
           functionArguments.push(parameterAssignmentExpr);
           index = nextIndex;
         } else {
-          const {
-            expr,
-            index: nextIndex,
-            env: nextEnv,
-          } = this.parseExpression(tokens, index, env);
-          env = nextEnv;
+          const { expr, index: nextIndex } = this.parseExpression(
+            tokens,
+            index,
+            env
+          );
+          env = expr.env;
 
           if (!expr) {
             throw this.formatErrorMessage(
@@ -881,11 +881,12 @@ Got:      (${functionArguments
       expr: {
         type: AstType.CallFunction,
         callee,
+        typeArguments,
         functionArguments: functionArgumentsInOrder,
         typeValue: calleeTypeValue.returnType,
+        env,
       },
       index: nextIndex,
-      env,
     };
   }
 
@@ -932,6 +933,7 @@ Got:      (${functionArguments
                 name: identifier,
                 frameLevel: functionType.frameLevel,
                 typeValue: functionType.type,
+                env,
               },
               tokens,
               index + 1,
@@ -986,10 +988,10 @@ Found possible functions:
         name: identifier,
         typeValue,
         frameLevel: valueType.frameLevel,
+        env,
         // isFreeVariable,
       },
       index: index + 1,
-      env,
     };
   }
 
@@ -1056,9 +1058,8 @@ Found possible functions:
       }
       case TokenType.Semicolon: {
         return {
-          expr: { type: AstType.Ignore, typeValue: TypeValues.unit },
+          expr: { type: AstType.Ignore, typeValue: TypeValues.unit, env },
           index: index + 1,
-          env,
         };
       }
       default: {
@@ -1072,7 +1073,7 @@ Found possible functions:
       returnValue.expr,
       tokens,
       returnValue.index,
-      returnValue.env
+      returnValue.expr.env
     );
   }
 
@@ -1087,7 +1088,6 @@ Found possible functions:
       return {
         expr: primaryExpr,
         index,
-        env,
       };
     } else if (token.type === TokenType.Dot) {
       // parsePropertyAccessExpr
@@ -1101,7 +1101,7 @@ Found possible functions:
         returnValue.expr,
         tokens,
         returnValue.index,
-        returnValue.env
+        returnValue.expr.env
       );
     } else if (token.type === TokenType.LBracket) {
       // parseIndexAccessExpr
@@ -1115,7 +1115,7 @@ Found possible functions:
         returnValue.expr,
         tokens,
         returnValue.index,
-        returnValue.env
+        returnValue.expr.env
       );
     } else if (
       primaryExpr.typeValue.type === "Function" &&
@@ -1127,13 +1127,12 @@ Found possible functions:
         returnValue.expr,
         tokens,
         returnValue.index,
-        returnValue.env
+        returnValue.expr.env
       );
     } else {
       return {
         expr: primaryExpr,
         index,
-        env,
       };
     }
   }
@@ -1153,7 +1152,7 @@ Found possible functions:
       // If this is a binop that binds at least as tightly as the current binop,
       // consume it, otherwise we are done.
       if (tokenPrecedence < exprPrecedence) {
-        return { expr: LHS, index, env };
+        return { expr: LHS, index };
       }
 
       // Okay, we know this is a binop
@@ -1166,11 +1165,10 @@ Found possible functions:
         // eslint-disable-next-line prefer-const
         index: nextIndex,
         // eslint-disable-next-line prefer-const
-        env: nextEnv,
       } = this.parsePrimary(tokens, index, env);
-      env = nextEnv;
+      env = RHS.env;
       if (!RHS) {
-        return { expr: RHS, index: nextIndex, env };
+        return { expr: RHS, index: nextIndex };
       }
 
       // If BinOp binds less tightly with RHS than the operator after RHS, let
@@ -1186,7 +1184,7 @@ Found possible functions:
           env
         );
         if (!expr) {
-          return { expr, index: nextNextIndex, env };
+          return { expr, index: nextNextIndex };
         }
         RHS = expr;
         index = nextNextIndex;
@@ -1213,7 +1211,10 @@ Found possible functions:
         operator: operator as any,
         left: needsSwap ? RHS : LHS,
         right: needsSwap ? LHS : RHS,
-        typeValue: LHS.typeValue, // FIXME:
+        typeValue: { type: LHS.typeValue.type }, // FIXME:
+        // const x = 1
+        // x + 2  // give type 1
+        env,
       };
     }
   }
@@ -1277,7 +1278,7 @@ Found possible functions:
     tokens: Token[],
     index: number,
     env: Environment
-  ): { exprs: Expr[]; index: number; env: Environment; returnType: Type } {
+  ): { index: number; expr: BlockExpr } {
     let exprs: Expr[] = [];
     if (tokens[index].type !== TokenType.LCurlyBracket) {
       throw this.formatErrorMessage(
@@ -1298,12 +1299,12 @@ Found possible functions:
         index = index + 1;
         break;
       }
-      const {
-        expr,
-        index: nextIndex,
-        env: nextNextEnv,
-      } = this.parseExpression(tokens, index, nextEnv);
-      nextEnv = nextNextEnv;
+      const { expr, index: nextIndex } = this.parseExpression(
+        tokens,
+        index,
+        nextEnv
+      );
+      nextEnv = expr.env;
       if (expr) {
         exprs.push(expr);
       }
@@ -1317,19 +1318,22 @@ Found possible functions:
         type: AstType.Value,
         tag: "primitive",
         typeValue: { type: "()", value: "()", tag: "primitive" },
+        env: nextEnv,
       });
     }
 
     // NOTE: Needs to put this before `env.popFrame` to get `returnType`.
     const returnType = exprs[exprs.length - 1].typeValue;
     env = popEnvFrame(nextEnv);
-    const returnValue = {
+    return {
       index,
-      exprs,
-      env,
-      returnType,
+      expr: {
+        type: AstType.Block,
+        exprs,
+        env,
+        typeValue: returnType,
+      },
     };
-    return returnValue;
   }
 
   private parseFunction(
@@ -1361,9 +1365,8 @@ Found possible functions:
     if (!prototype) {
       env = popEnvFrame(env);
       return {
-        expr: { type: AstType.Ignore, typeValue: TypeValues.unit },
+        expr: { type: AstType.Ignore, typeValue: TypeValues.unit, env },
         index: nextIndex,
-        env,
       };
     } else {
       index = nextIndex;
@@ -1406,13 +1409,14 @@ Found possible functions:
         "Expected '{' for function body"
       );
     } else {
-      const {
-        exprs,
-        index: nextIndex,
-        returnType: functionReturnType,
-        env: nextEnv,
-      } = this.parseBlockExpressions(tokens, index, env);
-      env = nextEnv;
+      const { index: nextIndex, expr } = this.parseBlockExpressions(
+        tokens,
+        index,
+        env
+      );
+      const functionReturnType = expr.typeValue;
+      const exprs = expr.exprs;
+      env = expr.env;
 
       // Check function body return type matches
       // prototype.returnType
@@ -1433,6 +1437,11 @@ Returned:  ${typeToString(functionReturnType)}`
         type: AstType.Function,
         prototype,
         typeValue: prototype.typeValue,
+        env: copyEnvironment(
+          popEnvFrame(env),
+          oldEnv.functionDeclarationFrameLevel,
+          oldEnv.freeVariables
+        ),
         body: exprs,
         frameLevel: currentFrameLevel,
         freeVariables: env.freeVariables, // FIXME: Implement freeVariables
@@ -1441,11 +1450,6 @@ Returned:  ${typeToString(functionReturnType)}`
       return {
         expr: functionExpr,
         index: nextIndex,
-        env: copyEnvironment(
-          env,
-          oldEnv.functionDeclarationFrameLevel,
-          oldEnv.freeVariables
-        ),
       };
     }
   }
@@ -1471,9 +1475,8 @@ Returned:  ${typeToString(functionReturnType)}`
     env = popEnvFrame(env);
     if (!prototype) {
       return {
-        expr: { type: AstType.Ignore, typeValue: TypeValues.unit },
+        expr: { type: AstType.Ignore, typeValue: TypeValues.unit, env },
         index: nextIndex,
-        env,
       };
     } else {
       index = nextIndex;
@@ -1490,9 +1493,9 @@ Returned:  ${typeToString(functionReturnType)}`
         type: AstType.Extern,
         prototype,
         typeValue: prototype.typeValue,
+        env,
       },
       index,
-      env,
     };
   }
 
@@ -1507,11 +1510,11 @@ Returned:  ${typeToString(functionReturnType)}`
     index = index + 1;
 
     // parse condition
-    const {
-      expr: condition,
-      index: nextIndex,
-      env: nextEnv,
-    } = this.parseExpression(tokens, index, env);
+    const { expr: condition, index: nextIndex } = this.parseExpression(
+      tokens,
+      index,
+      env
+    );
     if (!condition) {
       throw this.formatErrorMessage(tokens[index], "Expected condition for if");
     }
@@ -1523,7 +1526,7 @@ Returned:  ${typeToString(functionReturnType)}`
       );
     }
     index = nextIndex;
-    env = nextEnv;
+    env = condition.env;
 
     let thenExpr: Expr[] = [];
     let thenReturnType: Type;
@@ -1534,10 +1537,14 @@ Returned:  ${typeToString(functionReturnType)}`
       thenExpr = [returnValue.expr];
       thenReturnType = returnValue.expr.typeValue;
     } else {
-      const returnValue = this.parseBlockExpressions(tokens, index, env);
-      index = returnValue.index;
-      thenExpr = returnValue.exprs;
-      thenReturnType = returnValue.returnType;
+      const { index: nextIndex, expr } = this.parseBlockExpressions(
+        tokens,
+        index,
+        env
+      );
+      index = nextIndex;
+      thenExpr = expr.exprs;
+      thenReturnType = expr.typeValue;
     }
 
     // parse else
@@ -1569,15 +1576,15 @@ Returned:  ${typeToString(functionReturnType)}`
           elseReturnType = expr.typeValue;
           index = nextNextNextIndex;
         } else {
-          const {
-            exprs,
-            index: nextNextNextIndex,
-            returnType,
-          } = this.parseBlockExpressions(tokens, index, env);
-          if (exprs) {
-            elseExpr.push(...exprs);
+          const { expr, index: nextNextNextIndex } = this.parseBlockExpressions(
+            tokens,
+            index,
+            env
+          );
+          if (expr.exprs.length) {
+            elseExpr.push(...expr.exprs);
           }
-          elseReturnType = returnType;
+          elseReturnType = expr.typeValue;
           index = nextNextNextIndex;
         }
       }
@@ -1605,9 +1612,9 @@ else: ${typeToString(elseReturnType)}
         then: thenExpr,
         else: elseExpr,
         typeValue: thenReturnType,
+        env,
       },
       index: index,
-      env,
     };
   }
 
@@ -1658,20 +1665,19 @@ else: ${typeToString(elseReturnType)}
     }
     index = index + 1;
 
-    const {
-      expr: value,
-      index: nextNextIndex,
-      env: nextEnv,
-    } = this.parseExpression(tokens, index, env);
+    const { expr: value, index: nextNextIndex } = this.parseExpression(
+      tokens,
+      index,
+      env
+    );
     if (!value) {
       return {
-        expr: { type: AstType.Ignore, typeValue: TypeValues.unit },
+        expr: { type: AstType.Ignore, typeValue: TypeValues.unit, env },
         index: nextNextIndex,
-        env,
       };
     }
     index = nextNextIndex;
-    env = nextEnv;
+    env = value.env;
 
     const variableType: Type = value.typeValue;
     // Check if type matches
@@ -1730,9 +1736,9 @@ Got:      ${typeToString(variableType)}`
         right: value,
         typeValue: TypeValues.unit,
         frameLevel: getEnvCurrentFrameLevel(env),
+        env,
       },
       index,
-      env,
     };
   }
 
@@ -1832,9 +1838,9 @@ Got:      ${typeToString(variableType)}`
         type: AstType.TypeAlias,
         typeName,
         typeValue: typeConstructor,
+        env,
       },
       index: nextIndex,
-      env,
     };
   }
 
@@ -2058,9 +2064,9 @@ Got:      ${typeToString(variableType)}`
         type: AstType.Interface,
         interfaceName,
         typeValue: interfaceType,
+        env,
       },
       index,
-      env,
     };
   }
 
@@ -2075,15 +2081,11 @@ Got:      ${typeToString(variableType)}`
     index = 0,
     env: Environment
   ): ParserReturn {
-    const {
-      expr,
-      index: nextIndex,
-      env: nextEnv,
-    } = this.parsePrimary(tokens, index, env);
+    const { expr, index: nextIndex } = this.parsePrimary(tokens, index, env);
     if (!expr) {
-      return { expr, index: nextIndex, env: nextEnv };
+      return { expr, index: nextIndex };
     } else {
-      return this.parseBinOpRHS(tokens, 0, expr, nextIndex, nextEnv);
+      return this.parseBinOpRHS(tokens, 0, expr, nextIndex, env);
     }
   }
 
@@ -2110,68 +2112,68 @@ Got:      ${typeToString(variableType)}`
           break;
         }
         case TokenType.Const: {
-          const {
-            expr,
-            index: nextIndex,
-            env: nextEnv,
-          } = this.parseConstAssignment(tokens, index, env);
+          const { expr, index: nextIndex } = this.parseConstAssignment(
+            tokens,
+            index,
+            env
+          );
           if (expr) {
             exprs.push(expr);
           }
           index = nextIndex;
-          env = nextEnv;
+          env = expr.env;
           break;
         }
         case TokenType.Function: {
-          const {
-            expr,
-            index: nextIndex,
-            env: nextEnv,
-          } = this.parseFunction(tokens, index, env);
+          const { expr, index: nextIndex } = this.parseFunction(
+            tokens,
+            index,
+            env
+          );
           if (expr) {
             exprs.push(expr);
           }
           index = nextIndex;
-          env = nextEnv;
+          env = expr.env;
           break;
         }
         case TokenType.Extern: {
-          const {
-            expr,
-            index: nextIndex,
-            env: nextEnv,
-          } = this.parseExtern(tokens, index, env);
+          const { expr, index: nextIndex } = this.parseExtern(
+            tokens,
+            index,
+            env
+          );
           if (expr) {
             exprs.push(expr);
           }
           index = nextIndex;
-          env = nextEnv;
+          env = expr.env;
           break;
         }
         case TokenType.Type: {
-          const {
-            expr,
-            index: nextIndex,
-            env: nextEnv,
-          } = this.parseTypeAlias(tokens, index, env);
+          const { expr, index: nextIndex } = this.parseTypeAlias(
+            tokens,
+            index,
+            env
+          );
           if (expr) {
             exprs.push(expr);
           }
           index = nextIndex;
-          env = nextEnv;
+          env = expr.env;
           break;
         }
         case TokenType.Interface: {
-          const {
-            expr,
-            index: nextIndex,
-            env: nextEnv,
-          } = this.parseInterface(tokens, index, env);
+          const { expr, index: nextIndex } = this.parseInterface(
+            tokens,
+            index,
+            env
+          );
           if (expr) {
             exprs.push(expr);
           }
           index = nextIndex;
-          env = nextEnv;
+          env = expr.env;
           break;
         }
         default: {

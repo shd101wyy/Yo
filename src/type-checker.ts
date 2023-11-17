@@ -259,7 +259,6 @@ export const TypeValues = {
 export type ParserReturn = {
   expr: Expr;
   index: number;
-  env: Environment;
 };
 
 type ParseExpression = (
@@ -591,12 +590,8 @@ export function synthesizeTypeFromTokens({
       }
       default: {
         // Check if it's a real value
-        const {
-          expr,
-          index: nextIndex,
-          env: nextEnv,
-        } = parseExpression(tokens, index, env);
-        env = nextEnv;
+        const { expr, index: nextIndex } = parseExpression(tokens, index, env);
+        env = expr.env;
         if (!expr || expr.type !== AstType.Value || expr.tag !== "primitive") {
           throw formatErrorMessage({
             token: tokens[index],
@@ -1152,12 +1147,12 @@ export function synthesizeFunctionParameterTypesFromTokens({
     // check parameter default value
     let defaultParameterValue: Expr | null = null;
     if (tokens[index].type === TokenType.Assign) {
-      const {
-        expr,
-        index: nextNextIndex,
-        env: nextEnv,
-      } = parseExpression(tokens, index + 1, env);
-      env = nextEnv;
+      const { expr, index: nextNextIndex } = parseExpression(
+        tokens,
+        index + 1,
+        env
+      );
+      env = expr.env;
 
       parameterDefaultValues.push(expr);
       defaultParameterValue = expr;

@@ -57,3 +57,27 @@ instance ShowSummary for Color {
   }
 }
 ```
+
+```typescript
+interface Show<T> {
+  show(x: T): string;
+}
+
+instance Show<i32> {
+  show(x: i32): string {
+    return x.toString();
+  }
+}
+
+function test(x: T) {
+  with Show<T>
+  x.show();
+}
+
+// or
+
+function test(x: T) {
+  Show<T>.show(x);
+}
+
+```

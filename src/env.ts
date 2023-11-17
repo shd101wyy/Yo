@@ -1,25 +1,61 @@
+import llvm from "llvm-bindings";
+import { FunctionExpr } from "./ast";
 import { Type } from "./type-checker";
+
+export type FunctionValue = {
+  functions: {
+    typeArguments: Type[];
+    value: llvm.Function;
+  }[];
+  expr: FunctionExpr;
+};
+
+export type ValueTypeLlvmValue =
+  | {
+      tag: "function";
+      value: FunctionValue;
+    }
+  | {
+      tag: "variable";
+      value: llvm.Value;
+    };
 
 export type ValueType = {
   id: string;
   variableName: string;
-  // accessors: string[];
   type: Type;
   kind: "type" | "value";
   /* referenceCount of the value inside current frame */
   // referenceCount: number;
-
   /**
    * frameLevel is the level of the frame where the value is defined.
    * It's zero-based.
    */
   frameLevel: number;
+  llvmValue?: ValueTypeLlvmValue;
 };
 
 type Frame = ValueType[];
 
 function addFrameValueType(frame: Frame, valueType: ValueType): Frame {
   return [...frame, valueType];
+}
+
+function setFrameLlvmValue(
+  frame: Frame,
+  id: string,
+  llvmValue: ValueTypeLlvmValue
+) {
+  return frame.map((valueType) => {
+    if (valueType.id === id) {
+      return {
+        ...valueType,
+        llvmValue,
+      };
+    } else {
+      return valueType;
+    }
+  });
 }
 
 function getFrameValueTypesByVariableName(
@@ -109,6 +145,21 @@ export function addEnvFreeVariable(env: Environment, valueType: ValueType) {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
     freeVariables: Array.from(new Set([...env.freeVariables, valueType])),
     frames: env.frames,
+  };
+}
+
+export function setEnvLlvmValue(
+  env: Environment,
+  id: string,
+  llvmValue: ValueTypeLlvmValue
+): Environment {
+  const newFrames = env.frames.map((frame) =>
+    setFrameLlvmValue(frame, id, llvmValue)
+  );
+  return {
+    functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
+    freeVariables: env.freeVariables,
+    frames: newFrames,
   };
 }
 
