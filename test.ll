@@ -4,13 +4,14 @@ target triple = "x86_64-unknown-linux-gnu"
 
 declare i8* @malloc(i32)
 
-define i32 @add(i32 %x) {
+define i32 @add(i32 %x, i32 %y) {
 entry:
-  ret i32 %x
+  %0 = add i32 %x, %y
+  ret i32 %0
 }
 
 define i32 @main() {
 entry:
-  %0 = call i32 @add(i32 3)
+  %0 = call i32 @add(i32 3, i32 4)
   ret i32 %0
 }

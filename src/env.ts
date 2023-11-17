@@ -1,24 +1,4 @@
-import llvm from "llvm-bindings";
-import { FunctionExpr } from "./ast";
 import { Type } from "./type-checker";
-
-export type FunctionValue = {
-  functions: {
-    typeArguments: Type[];
-    value: llvm.Function;
-  }[];
-  expr: FunctionExpr;
-};
-
-export type ValueTypeLlvmValue =
-  | {
-      tag: "function";
-      value: FunctionValue;
-    }
-  | {
-      tag: "variable";
-      value: llvm.Value;
-    };
 
 export type ValueType = {
   id: string;
@@ -32,7 +12,6 @@ export type ValueType = {
    * It's zero-based.
    */
   frameLevel: number;
-  llvmValue?: ValueTypeLlvmValue;
 };
 
 type Frame = ValueType[];
@@ -41,6 +20,7 @@ function addFrameValueType(frame: Frame, valueType: ValueType): Frame {
   return [...frame, valueType];
 }
 
+/*
 function setFrameLlvmValue(
   frame: Frame,
   id: string,
@@ -57,6 +37,7 @@ function setFrameLlvmValue(
     }
   });
 }
+*/
 
 function getFrameValueTypesByVariableName(
   frame: Frame,
@@ -148,6 +129,7 @@ export function addEnvFreeVariable(env: Environment, valueType: ValueType) {
   };
 }
 
+/*
 export function setEnvLlvmValue(
   env: Environment,
   id: string,
@@ -162,6 +144,7 @@ export function setEnvLlvmValue(
     frames: newFrames,
   };
 }
+*/
 
 export function getEnvValueTypesByVariableName(
   env: Environment,

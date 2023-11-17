@@ -221,13 +221,6 @@ function main() {
 }
 `
 
-code = `
-function main():i32 {
-  const x = 1;
-  x + 2
-}
-`
-
 const codeGenerator = new CodeGenerator(code);
 
 const ir = codeGenerator.getLlvmIr();

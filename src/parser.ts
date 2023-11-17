@@ -1211,7 +1211,8 @@ Found possible functions:
         operator: operator as any,
         left: needsSwap ? RHS : LHS,
         right: needsSwap ? LHS : RHS,
-        typeValue: { type: LHS.typeValue.type }, // FIXME:
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        typeValue: { type: LHS.typeValue.type as any }, // FIXME:
         // const x = 1
         // x + 2  // give type 1
         env,
