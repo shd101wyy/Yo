@@ -59,8 +59,7 @@ Mo --> Effect
       - [for](#for)
   - [Type synonyms](#type-synonyms)
   - [Enum (Tagged Union)](#enum-tagged-union)
-    - [Method](#method)
-    - [Interface (Typeclass)](#interface-typeclass)
+    - [Interface](#interface)
     - [Pattern Matching](#pattern-matching)
   - [Collections](#collections)
     - [Array](#array)
@@ -69,7 +68,13 @@ Mo --> Effect
   - [Slice](#slice)
   - [Error handling](#error-handling)
   - [Recoverable Errors with Result](#recoverable-errors-with-result)
-  - [With syntax](#with-syntax)
+  - [`with` syntax](#with-syntax)
+    - [with `function`](#with-function)
+    - [with `variable`](#with-variable)
+    - [with `record`](#with-record)
+    - [with `effect`](#with-effect)
+    - [with `instance`](#with-instance)
+  - [Effect handler](#effect-handler)
   - [Modules](#modules)
   - [Special attributes](#special-attributes)
   - [References](#references)
@@ -395,45 +400,17 @@ const anotherHome = V4(v3 = 200);
 const loopback = V6(String.from("::1"))
 ```
 
-### Method
+### Interface
 
 ```typescript
-type Rectangle = {
-  width: i32;
-  height: i32;
+interface Summary<T>
+with Eq<T> { // Type constraint
+  summarize(self: T): String;
 }
 
-type Rectangle implements {
-  function area(): i32 {
-    return this.width * this.height;
-  }
-
-  static function new(): Rectangle {
-    return Rectangle({
-      width: 0,
-      height: 0,
-    });
-  }
-}
-
-export {
-  Rectangle
-}
-
-function main() {
-  const rect1: Rectangle = { width: 30, height: 50 };
-  console.log("The area of the rectangle is ", rect1.area());
-}
-```
-
-### Interface (Implicit)
-
-The interface in Mo works similarly like Go.
-
-```typescript
-
-interface<T:Eq> Summary<T> {
-  summarize: (self: T) => String;
+interface Display<T>
+extends Summary<T> { // Extends another interface
+  display(self: T): String;
 }
 
 type NewsArticle = {
@@ -441,19 +418,23 @@ type NewsArticle = {
   location: String;
   author: String;
   content: String;
-}
+};
 
-// Implicitly implement the interface
-function summarize(self: NewsArticle): String {
-  return `${self.headline}, by ${self.author} (${self.location})`;
+// Implement the interface
+instance Summary<NewsArticle> {
+  summarize(self: NewsArticle): String {
+    `${self.headline}, by ${self.author} (${self.location})`;
+  }
 }
 
 // Pass in function
-function notify(item: Summary) {
+function notify(item: NewsArticle) {
+  with Summary<NewsArticle>; // Type constraint
   console.log("Breaking news! ", item.summarize());
 }
 
-function notify(item: Summary & Display) {
+function notify<T>(item: T) {
+  with Summary<T>, Display<T>; // Type constraint
   console.log("Breaking news! ", item.summarize());
   console.log("Breaking news! ", item.display());
 }
@@ -577,7 +558,9 @@ function main() {
 }
 ```
 
-## With syntax
+## `with` syntax
+
+### with `function`
 
 ```typescript
 function test() {
@@ -598,6 +581,8 @@ function test() {
 }
 ```
 
+### with `variable`
+
 Moreover, a `with` statement can also bind a variable parameter as:
 
 ```typescript
@@ -616,12 +601,50 @@ function test() {
 }
 ```
 
+### with `record`
+
 `with` can also be used to destruct a record:
 
-````typescript
+```typescript
 function test() {
   with { x: 1, y: 2 }
   x + y
+}
+```
+
+### with `effect`
+
+```typescript
+function catchException() {
+  with Exception {
+    throw(error) {
+      console.log("Exception caught", error);
+    }
+  }
+  divide(1, 0);
+}
+```
+
+### with `instance`
+
+```typescript
+interface Show<T> {
+  show(x: T): string;
+}
+
+instance Show<i32> {
+  show(x: i32): string {
+    return x.toString();
+  }
+}
+
+function testShow<T>(x: T) {
+  with Show<T>
+  x.show();
+}
+
+function main() {
+  testShow<i32>(12);
 }
 ```
 
@@ -629,7 +652,7 @@ function test() {
 
 ```typescript
 effect MyConsole {
-  log: (message: string) => [MyConsole] ();
+  log(message: string): [MyConsole] ();
 }
 
 function useMyConsole(x: string): [MyConsole] () {
@@ -637,26 +660,21 @@ function useMyConsole(x: string): [MyConsole] () {
 }
 
 function tryUseMyConsole(): [Console] () {
-  try {
-    do useMyConsole("Hello, world!");
-    // or use `<-` syntax
-    // _ <- useMyConsole("Hello, world!");
-  } catch {
-    case MyConsole: {
-      log: (message) => {
-        console.log(message);
-        resume(())
-      }
+  with MyConsole {
+    log(message) {
+      console.log(message);
+      resume(());
     }
   }
+  do useMyConsole("Hello, world!");
 }
-````
+```
 
 Async/Await
 
 ```typescript
 effect MyAff {
-  delay: (ms: i32) => [MyAff] ();
+  delay(ms: i32): [MyAff] ();
 }
 
 function useMyAff(x: string): [MyAff, Console] () {
@@ -664,21 +682,19 @@ function useMyAff(x: string): [MyAff, Console] () {
   console.log(x);
 }
 
+// or
 function tryUseMyAff(): [Console] () {
-  try {
-    const task1 = useMyAff("This is task 1");
-    const task2 = useMyAff("This is task 2");
-    const result = do parallel([task1, task2])
-    ()
-  } catch {
-    case MyAff: {
-      delay: (ms) => {
-        setTimeout(() => {
-          resume(());
-        }, ms);
-      };
+  with MyAff {
+    delay(ms) {
+      setTimeout(() => {
+        resume(());
+      }, ms);
     }
   }
+  const task1 = useMyAff("This is task 1");
+  const task2 = useMyAff("This is task 2");
+  const result = do parallel([task1, task2])
+  ()
 }
 ```
 

@@ -59,11 +59,11 @@ instance ShowSummary for Color {
 ```
 
 ```typescript
-interface Show<T> {
+export interface Show<T> {
   show(x: T): string;
 }
 
-instance Show<i32> {
+export instance Show<i32> {
   show(x: i32): string {
     return x.toString();
   }
@@ -79,5 +79,4 @@ function test(x: T) {
 function test(x: T) {
   Show<T>.show(x);
 }
-
 ```
