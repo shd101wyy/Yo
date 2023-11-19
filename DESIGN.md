@@ -27,14 +27,6 @@ The **Mo** language has a minimal syntax design that looks like TypeScript. **Mo
 
 Please note that **Mo** language is **immutable** by default, and it is not a goal to be a "pure" functional language. Our goal is to be a practical language that is easy to use and easy to learn.
 
-```mermaid
-graph LR
-
-Mo --> Function
-Mo --> Type
-Mo --> Effect
-```
-
 <!-- @import "[TOC]" {cmd="toc" depthFrom=1 depthTo=6 orderedList=false} -->
 
 <!-- code_chunk_output -->
@@ -70,6 +62,7 @@ Mo --> Effect
   - [Recoverable Errors with Result](#recoverable-errors-with-result)
   - [`with` syntax](#with-syntax)
     - [with `function`](#with-function)
+    - [with `enum`](#with-enum)
     - [with `variable`](#with-variable)
     - [with `record`](#with-record)
     - [with `effect`](#with-effect)
@@ -138,7 +131,7 @@ let x = 5; // x: i32, mutable
 ### Reference Types, stored on heap
 
 ```typescript
-const mySymbol = @"Hi"; // Stored on stack
+const mySymbol = @"Hi"; // Symbol. Stored on stack
 
 const myString: char[] = "Hello, world"; // Stored on stack
 const myString: String = String.from("Hello, world"); // Stored on heap
@@ -375,17 +368,21 @@ enum Option<T> {
   None
 }
 
-// This will translate to
+// This will translate to code similar as below,
+// but like the `struct` in C:
 type Option<T> =
   | {_t: @"Some", v: T}
   | {_t: @"None"}
-function Some(v: T): Option<T> {
-  return {_t: @"Some", v: v};
-}
-function None(): Option<T> {
-  return {_t: @"None"};
+interface Option<T> {
+  Some(v: T): Option<T> {
+    return {_t: @"Some", v: v};
+  },
+  None(): Option<T> {
+    return {_t: @"None"};
+  }
 }
 
+with Option<i32>; // Unwrap the enum
 const none: Option<i32> = None;
 const some: Option<i32> = Some(42);
 
@@ -472,14 +469,26 @@ function valueInCents(coin: Coin): u8 {
   }
 }
 
+enum List<T> {
+  Nil,
+  Cons(head: T, tail: List<T>),
+}
+
 function ListLength<T>(list: List<T>): i32 {
-  switch (list) {
-    case Nil: {
-      return 0;
-    }
-    case Cons(_, tail): {
-      return 1 + ListLength(tail);
-    }
+  with List<T>; // Unwrap the enum
+  switch list {
+    case Nil: 0
+    case Cons(_, tail): 1 + ListLength(tail)
+  }
+}
+
+// or
+
+function ListLength<T>(list: List<T>): i32 {
+  with List<T>; // Unwrap the enum
+  switch list {
+    case Nil: 0
+    case Cons {tail}: 1 + ListLength(tail)
   }
 }
 ```
@@ -581,6 +590,37 @@ function test() {
 }
 ```
 
+### with `enum`
+
+```typescript
+enum Coin {
+  Penny,
+  Nickel,
+  Dime,
+  Quarter,
+}
+// without `with`
+function test() {
+  switch coin {
+    case Coin.Penny: 1
+    case Coin.Nickel: 5
+    case Coin.Dime: 10
+    case Coin.Quarter: 25
+  }
+}
+
+// with `with`
+function test() {
+  with Coin;
+  switch coin {
+    case Penny: 1
+    case Nickel: 5
+    case Dime: 10
+    case Quarter: 25
+  }
+}
+```
+
 ### with `variable`
 
 Moreover, a `with` statement can also bind a variable parameter as:
@@ -639,7 +679,7 @@ instance Show<i32> {
 }
 
 function testShow<T>(x: T) {
-  with Show<T>
+  with Show<T>;
   x.show();
 }
 
