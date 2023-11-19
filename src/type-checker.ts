@@ -1,6 +1,6 @@
 // Types
 
-import { AstType, Expr, FunctionPrototype } from "./ast";
+import { AstType, Expr, FunctionExpr, FunctionPrototype } from "./ast";
 import {
   Environment,
   ValueType,
@@ -1047,6 +1047,290 @@ export function applyTypeArgumentsToType(
       default:
         return type;
     }
+  }
+}
+
+export function applyTypeArgumentsToFunctionExpr(
+  expr: FunctionExpr,
+  typeArguments: Type[]
+): FunctionExpr {
+  const typeParameters = expr.typeValue.typeParameters;
+  if (typeParameters.length !== typeArguments.length) {
+    throw new Error(
+      `Mismatched type arguments.
+Expected: <${typeParameters
+        .map(
+          (typeParameter) =>
+            `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
+        )
+        .join(", ")}>
+Got:      <${typeArguments.map(typeToString).join(", ")}>`
+    );
+  }
+  // set typeParameterToTypeArgumentMap
+  const typeParameterToTypeArgumentMap: { [key: string]: Type } = {};
+  for (let i = 0; i < expr.typeValue.typeParameters.length; i++) {
+    const typeParameter = expr.typeValue.typeParameters[i];
+    const typeArgument = typeArguments[i];
+    typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
+  }
+
+  const newTypeValue = applyTypeArgumentsToType(
+    expr.typeValue,
+    typeArguments,
+    typeParameterToTypeArgumentMap
+  );
+  if (newTypeValue.type !== "Function") {
+    throw new Error(
+      `Expected function type, but got ${typeToString(newTypeValue)}`
+    );
+  }
+
+  return {
+    ...expr,
+    typeValue: newTypeValue,
+    prototype: {
+      ...expr.prototype,
+      typeValue: newTypeValue,
+    },
+    body: expr.body.map((expr) =>
+      applyTypeArgumentsToExpr(
+        expr,
+        typeArguments,
+        typeParameterToTypeArgumentMap
+      )
+    ),
+  };
+}
+
+export function applyTypeArgumentsToExpr(
+  expr: Expr,
+  typeArguments: Type[],
+  typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
+): Expr {
+  switch (expr.type) {
+    case AstType.Value: {
+      switch (expr.tag) {
+        case "record": {
+          return {
+            ...expr,
+            typeValue: applyTypeArgumentsToType(
+              expr.typeValue,
+              typeArguments,
+              typeParameterToTypeArgumentMap
+            ),
+            properties: expr.properties.map(({ name, value: expr }) => ({
+              name,
+              value: applyTypeArgumentsToExpr(
+                expr,
+                typeArguments,
+                typeParameterToTypeArgumentMap
+              ),
+            })),
+          };
+        }
+        case "slice": {
+          return {
+            ...expr,
+            typeValue: applyTypeArgumentsToType(
+              expr.typeValue,
+              typeArguments,
+              typeParameterToTypeArgumentMap
+            ),
+            values: expr.values.map((expr) =>
+              applyTypeArgumentsToExpr(
+                expr,
+                typeArguments,
+                typeParameterToTypeArgumentMap
+              )
+            ),
+          };
+        }
+        default:
+          return expr;
+      }
+    }
+    case AstType.Function: {
+      return applyTypeArgumentsToFunctionExpr(expr, typeArguments);
+    }
+    case AstType.ConstantAssigment: {
+      return {
+        ...expr,
+        variableType: applyTypeArgumentsToType(
+          expr.variableType,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+        right: applyTypeArgumentsToExpr(
+          expr.right,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+      };
+    }
+    case AstType.UnaryOperator: {
+      return {
+        ...expr,
+        typeValue: applyTypeArgumentsToType(
+          expr.typeValue,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+        expr: applyTypeArgumentsToExpr(
+          expr.expr,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+      };
+    }
+    case AstType.BinaryOperator: {
+      return {
+        ...expr,
+        typeValue: applyTypeArgumentsToType(
+          expr.typeValue,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+        left: applyTypeArgumentsToExpr(
+          expr.left,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+        right: applyTypeArgumentsToExpr(
+          expr.right,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+      };
+    }
+    case AstType.Variable: {
+      return {
+        ...expr,
+        typeValue: applyTypeArgumentsToType(
+          expr.typeValue,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+      };
+    }
+    case AstType.PropertyAccess: {
+      return {
+        ...expr,
+        typeValue: applyTypeArgumentsToType(
+          expr.typeValue,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+        expr: applyTypeArgumentsToExpr(
+          expr.expr,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+      };
+    }
+    case AstType.IndexAccess: {
+      return {
+        ...expr,
+        typeValue: applyTypeArgumentsToType(
+          expr.typeValue,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+        expr: applyTypeArgumentsToExpr(
+          expr.expr,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+        indexes: expr.indexes.map((expr) =>
+          applyTypeArgumentsToExpr(
+            expr,
+            typeArguments,
+            typeParameterToTypeArgumentMap
+          )
+        ),
+      };
+    }
+    case AstType.CallFunction: {
+      return {
+        ...expr,
+        callee: applyTypeArgumentsToExpr(
+          expr.callee,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+        typeArguments: expr.typeArguments.map((typeArgument) =>
+          applyTypeArgumentsToType(
+            typeArgument,
+            typeArguments,
+            typeParameterToTypeArgumentMap
+          )
+        ),
+        functionArguments: expr.functionArguments.map((expr) =>
+          applyTypeArgumentsToExpr(
+            expr,
+            typeArguments,
+            typeParameterToTypeArgumentMap
+          )
+        ),
+        typeValue: applyTypeArgumentsToType(
+          expr.typeValue,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+      };
+    }
+    case AstType.If: {
+      return {
+        ...expr,
+        condition: applyTypeArgumentsToExpr(
+          expr.condition,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+        then: expr.then.map((expr) =>
+          applyTypeArgumentsToExpr(
+            expr,
+            typeArguments,
+            typeParameterToTypeArgumentMap
+          )
+        ),
+        else: expr.else.map((expr) =>
+          applyTypeArgumentsToExpr(
+            expr,
+            typeArguments,
+            typeParameterToTypeArgumentMap
+          )
+        ),
+        typeValue: applyTypeArgumentsToType(
+          expr.typeValue,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+      };
+    }
+    case AstType.Ignore: {
+      return expr;
+    }
+    case AstType.Block: {
+      return {
+        ...expr,
+        exprs: expr.exprs.map((expr) =>
+          applyTypeArgumentsToExpr(
+            expr,
+            typeArguments,
+            typeParameterToTypeArgumentMap
+          )
+        ),
+        typeValue: applyTypeArgumentsToType(
+          expr.typeValue,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        ),
+      };
+    }
+
+    default:
+      throw new Error(`Unknown expr type ${expr.type}`);
   }
 }
 

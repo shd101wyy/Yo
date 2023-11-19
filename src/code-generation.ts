@@ -2,6 +2,7 @@ import llvm, { LLVMContext } from "llvm-bindings";
 import {
   AstType,
   Expr,
+  FunctionExpr,
   FunctionPrototype,
   OperatorType,
   exprToString,
@@ -14,10 +15,17 @@ import {
   addLlvmEnvironmentNamedValue,
   copyLlvmEnvironment,
   getLlvmEnvironmentNamedValuesByName,
+  getLlvmFunctionById,
+  getLlvmFunctionByIdAndTypeArguments,
 } from "./llvm-env";
 import Parser from "./parser";
 import { Token } from "./token";
-import { TFunction, Type, typeToString } from "./type-checker";
+import {
+  TFunction,
+  Type,
+  applyTypeArgumentsToFunctionExpr,
+  typeToString,
+} from "./type-checker";
 
 export class CodeGenerator {
   private inputString: string;
@@ -239,8 +247,30 @@ export class CodeGenerator {
     functionId: string,
     typeArguments: Type[],
     env: LlvmEnvironment
-  ): llvm.Function | null {
-    return this.module.getFunction(functionId);
+  ): (LlvmValue & { env: LlvmEnvironment }) | null {
+    const matchedFunction = getLlvmFunctionByIdAndTypeArguments(
+      env,
+      functionId,
+      typeArguments
+    );
+    if (matchedFunction) {
+      return { ...matchedFunction.value, env };
+    }
+
+    // Not found, check if the function is defined:
+    const definedFunction = getLlvmFunctionById(env, functionId);
+    if (!definedFunction || !definedFunction.value.functionExpr) {
+      return null;
+    } else {
+      // Generate the llvm function
+      const functionExpr = definedFunction.value.functionExpr;
+      const newFunctionExpr = applyTypeArgumentsToFunctionExpr(
+        functionExpr,
+        typeArguments
+      );
+      const retVal = this.codegenFunction(newFunctionExpr, env, typeArguments);
+      return retVal;
+    }
   }
 
   /**
@@ -297,6 +327,229 @@ export class CodeGenerator {
       }
     }
     return func;
+  }
+
+  private codegenFunction(
+    expr: FunctionExpr,
+    env: LlvmEnvironment,
+    typeArguments?: Type[]
+  ): LlvmValue & { env: LlvmEnvironment } {
+    const theFunction = this.codegenPrototype(expr.prototype);
+    if (!theFunction) {
+      throw new Error(
+        `Function ${expr.prototype.functionName} with id "${expr.prototype.typeValue.id}" not found`
+      );
+    }
+
+    const currentBasicBlock = this.builder.GetInsertBlock();
+    const entryBB = llvm.BasicBlock.Create(this.context, "entry", theFunction);
+    this.builder.SetInsertPoint(entryBB);
+
+    // Record the function parameters in the namedValues map
+    let newEnv: LlvmEnvironment = copyLlvmEnvironment(env);
+    for (let i = 0; i < theFunction.arg_size(); i++) {
+      const arg = theFunction.getArg(i);
+      if (
+        i >= expr.prototype.typeValue.parameterTypes.length &&
+        expr.prototype.typeValue.freeVariables
+      ) {
+        // Free variables
+        // Load free variables
+        const freeVariablesType = this.getFreeVariablesRecordType(
+          expr.prototype.typeValue.freeVariables
+        );
+        // Cast void* to real struct
+        const freeVariablesPtr = this.builder.CreateBitCast(
+          arg,
+          llvm.PointerType.get(freeVariablesType, 0),
+          "fn_FREE_VARIABLES"
+        );
+
+        const freeVariables = expr.prototype.typeValue.freeVariables;
+        for (let i = 0; i < freeVariables.length; i++) {
+          const freeVariable = freeVariables[i];
+          const freeVariableName = freeVariable.variableName;
+
+          // Get the pointer to the free variable
+          const freeVariablePtr = this.builder.CreateGEP(
+            freeVariablesType,
+            freeVariablesPtr,
+            [
+              llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
+              llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), i),
+            ],
+            freeVariableName
+          );
+          // Load the value from the free variable
+          const freeVariableValue = this.builder.CreateLoad(
+            this.getLlvmType(freeVariable.type),
+            freeVariablePtr,
+            freeVariableName
+          );
+          newEnv = addLlvmEnvironmentNamedValue(newEnv, {
+            id: freeVariable.id,
+            name: freeVariable.variableName,
+            value: {
+              type: freeVariable.type,
+              value: freeVariableValue,
+            },
+          });
+        }
+      } else {
+        const parameterType = expr.prototype.typeValue.parameterTypes[i];
+        const parameterName = parameterType.name;
+        newEnv = addLlvmEnvironmentNamedValue(newEnv, {
+          // id: parameterType.id, // FIXME:
+          name: parameterName,
+          value: { type: parameterType.type, value: arg },
+        });
+      }
+    }
+
+    // Save the function itself to the namedValues map
+    if (expr.prototype.functionName) {
+      const closure: LlvmValue = {
+        type: expr.typeValue,
+        value: this.unit,
+        functionExpr: expr,
+        function: {
+          typeArguments: typeArguments ?? [],
+          value: theFunction,
+        },
+      };
+      env = addLlvmEnvironmentNamedValue(env, {
+        id: expr.prototype.typeValue.id,
+        name: expr.prototype.functionName,
+        value: closure,
+      });
+      newEnv = addLlvmEnvironmentNamedValue(newEnv, {
+        id: expr.prototype.typeValue.id,
+        name: expr.prototype.functionName,
+        value: closure,
+      });
+    }
+
+    // Codegen the body
+    const returnVal = this.codegenExprs(expr.body, newEnv);
+    // Move back to the entry block
+    this.builder.CreateRet(returnVal.value);
+
+    if (currentBasicBlock) {
+      this.builder.SetInsertPoint(currentBasicBlock);
+    }
+
+    // verify the function
+    if (llvm.verifyFunction(theFunction)) {
+      throw new Error(
+        `Function ${expr.prototype.functionName} verification failed`
+      );
+    } else {
+      console.log(
+        `- Function verified for "${expr.prototype.functionName}" with id "${expr.prototype.typeValue.id}"`
+      );
+    }
+
+    // Return the function pointer + free variables record
+    const freeVariables = expr.prototype.typeValue.freeVariables;
+    if (!freeVariables) {
+      // NOTE: This is not a closure
+      // in theory, this return is not used anywhere
+      const closure: LlvmValue = {
+        type: expr.typeValue,
+        value: this.unit,
+        functionExpr: expr,
+        function: {
+          typeArguments: typeArguments ?? [],
+          value: theFunction,
+        },
+      };
+      return { ...closure, env };
+    }
+
+    const closureType = this.getClosureType(expr.prototype.typeValue);
+    const closurePtrType = llvm.PointerType.get(closureType, 0);
+    const closurePtr = this.allocateMemoryOnHeap(
+      closurePtrType,
+      this.dataLayout.getTypeAllocSize(closureType)
+    );
+    // NOTE: allocate on stack here will cause problem.
+    // const freeVariablesRecord = this.builder.CreateAlloca(recordType);
+
+    // Save the function pointer
+    const functionPtr = this.builder.CreateGEP(
+      closureType,
+      closurePtr,
+      [
+        llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
+        llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
+      ],
+      "functionPtr"
+    );
+    this.builder.CreateStore(theFunction, functionPtr);
+
+    // Save the free variables
+    const freeVariablesType = this.getFreeVariablesRecordType(freeVariables);
+    const freeVariablesPtrType = llvm.PointerType.get(freeVariablesType, 0);
+    const freeVariablesPtr = this.allocateMemoryOnHeap(
+      freeVariablesPtrType,
+      this.dataLayout.getTypeAllocSize(freeVariablesType)
+    );
+    for (let i = 0; i < freeVariables.length; i++) {
+      const freeVariable = freeVariables[i];
+      const freeVariableName = freeVariable.variableName;
+      const freeVariableValues = getLlvmEnvironmentNamedValuesByName(
+        env,
+        freeVariableName
+      );
+      if (freeVariableValues.length === 0) {
+        throw new Error(
+          `Free variable ${freeVariableName} not found in namedValues`
+        );
+      }
+      const freeVariableValue =
+        freeVariableValues[freeVariableValues.length - 1];
+
+      // Get the pointer to the free variable
+      const freeVariablePtr = this.builder.CreateGEP(
+        freeVariablesType,
+        freeVariablesPtr,
+        [
+          llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
+          llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), i),
+        ],
+        freeVariableName
+      );
+      // Store the value in the free variable
+      this.builder.CreateStore(freeVariableValue.value.value, freeVariablePtr);
+    }
+    const freeVariablesRecordPtr = this.builder.CreateGEP(
+      closureType,
+      closurePtr,
+      [
+        llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
+        llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 1),
+      ],
+      "fn_freeVariablesPtr"
+    );
+
+    // cast freeVariablesPtr to void*
+    const freeVariablesPtrCast = this.builder.CreateBitCast(
+      freeVariablesPtr,
+      llvm.PointerType.get(llvm.Type.getInt8Ty(this.context), 0),
+      "fn_casted_freeVariablesPtr"
+    );
+    this.builder.CreateStore(freeVariablesPtrCast, freeVariablesRecordPtr);
+
+    return {
+      type: expr.typeValue,
+      value: closurePtr,
+      functionExpr: expr,
+      function: {
+        typeArguments: typeArguments ?? [],
+        value: theFunction,
+      },
+      env,
+    };
   }
 
   private allocateMemoryOnHeap(ptrType: llvm.Type, bytes: number): llvm.Value {
@@ -874,230 +1127,17 @@ export class CodeGenerator {
             value: {
               value: this.unit,
               type: expr.typeValue,
+              functionExpr: expr,
             },
-            functionExpr: expr,
           });
           return {
             value: this.unit,
             type: { type: "()" },
             env,
           };
-        }
-
-        let theFunction = this.module.getFunction(expr.prototype.typeValue.id);
-        if (!theFunction) {
-          theFunction = this.codegenPrototype(expr.prototype);
-        }
-        if (!theFunction) {
-          throw new Error(
-            `Function ${expr.prototype.functionName} with id "${expr.prototype.typeValue.id}" not found`
-          );
-        }
-
-        const currentBasicBlock = this.builder.GetInsertBlock();
-        const entryBB = llvm.BasicBlock.Create(
-          this.context,
-          "entry",
-          theFunction
-        );
-        this.builder.SetInsertPoint(entryBB);
-
-        // Record the function parameters in the namedValues map
-        let newEnv: LlvmEnvironment = copyLlvmEnvironment(env);
-        for (let i = 0; i < theFunction.arg_size(); i++) {
-          const arg = theFunction.getArg(i);
-          if (
-            i >= expr.prototype.typeValue.parameterTypes.length &&
-            expr.prototype.typeValue.freeVariables
-          ) {
-            // Free variables
-            // Load free variables
-            const freeVariablesType = this.getFreeVariablesRecordType(
-              expr.prototype.typeValue.freeVariables
-            );
-            // Cast void* to real struct
-            const freeVariablesPtr = this.builder.CreateBitCast(
-              arg,
-              llvm.PointerType.get(freeVariablesType, 0),
-              "fn_FREE_VARIABLES"
-            );
-
-            const freeVariables = expr.prototype.typeValue.freeVariables;
-            for (let i = 0; i < freeVariables.length; i++) {
-              const freeVariable = freeVariables[i];
-              const freeVariableName = freeVariable.variableName;
-
-              // Get the pointer to the free variable
-              const freeVariablePtr = this.builder.CreateGEP(
-                freeVariablesType,
-                freeVariablesPtr,
-                [
-                  llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 32),
-                    0
-                  ),
-                  llvm.ConstantInt.get(
-                    llvm.IntegerType.get(this.context, 32),
-                    i
-                  ),
-                ],
-                freeVariableName
-              );
-              // Load the value from the free variable
-              const freeVariableValue = this.builder.CreateLoad(
-                this.getLlvmType(freeVariable.type),
-                freeVariablePtr,
-                freeVariableName
-              );
-              newEnv = addLlvmEnvironmentNamedValue(newEnv, {
-                id: freeVariable.id,
-                name: freeVariable.variableName,
-                value: {
-                  type: freeVariable.type,
-                  value: freeVariableValue,
-                },
-              });
-            }
-          } else {
-            const parameterType = expr.prototype.typeValue.parameterTypes[i];
-            const parameterName = parameterType.name;
-            newEnv = addLlvmEnvironmentNamedValue(newEnv, {
-              // id: parameterType.id, // FIXME:
-              name: parameterName,
-              value: { type: parameterType.type, value: arg },
-            });
-          }
-        }
-
-        // Save the function itself to the namedValues map
-        if (expr.prototype.functionName) {
-          const closure: LlvmValue = {
-            value: this.unit,
-            type: expr.typeValue,
-          };
-          env = addLlvmEnvironmentNamedValue(env, {
-            id: expr.prototype.typeValue.id,
-            name: expr.prototype.functionName,
-            value: closure,
-          });
-          newEnv = addLlvmEnvironmentNamedValue(newEnv, {
-            id: expr.prototype.typeValue.id,
-            name: expr.prototype.functionName,
-            value: closure,
-          });
-        }
-
-        // Codegen the body
-        const returnVal = this.codegenExprs(expr.body, newEnv);
-        // Move back to the entry block
-        this.builder.CreateRet(returnVal.value);
-
-        if (currentBasicBlock) {
-          this.builder.SetInsertPoint(currentBasicBlock);
-        }
-
-        // verify the function
-        if (llvm.verifyFunction(theFunction)) {
-          throw new Error(
-            `Function ${expr.prototype.functionName} verification failed`
-          );
         } else {
-          console.log(
-            `- Function verified for "${expr.prototype.functionName}" with id "${expr.prototype.typeValue.id}"`
-          );
+          return this.codegenFunction(expr, env);
         }
-
-        // Return the function pointer + free variables record
-        const freeVariables = expr.prototype.typeValue.freeVariables;
-        if (!freeVariables) {
-          // NOTE: This is not a closure
-          // in theory, this return is not used anywhere
-          const closure: LlvmValue = {
-            value: this.unit,
-            type: expr.typeValue,
-          };
-          return { ...closure, env };
-        }
-
-        const closureType = this.getClosureType(expr.prototype.typeValue);
-        const closurePtrType = llvm.PointerType.get(closureType, 0);
-        const closurePtr = this.allocateMemoryOnHeap(
-          closurePtrType,
-          this.dataLayout.getTypeAllocSize(closureType)
-        );
-        // NOTE: allocate on stack here will cause problem.
-        // const freeVariablesRecord = this.builder.CreateAlloca(recordType);
-
-        // Save the function pointer
-        const functionPtr = this.builder.CreateGEP(
-          closureType,
-          closurePtr,
-          [
-            llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
-            llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
-          ],
-          "functionPtr"
-        );
-        this.builder.CreateStore(theFunction, functionPtr);
-
-        // Save the free variables
-        const freeVariablesType =
-          this.getFreeVariablesRecordType(freeVariables);
-        const freeVariablesPtrType = llvm.PointerType.get(freeVariablesType, 0);
-        const freeVariablesPtr = this.allocateMemoryOnHeap(
-          freeVariablesPtrType,
-          this.dataLayout.getTypeAllocSize(freeVariablesType)
-        );
-        for (let i = 0; i < freeVariables.length; i++) {
-          const freeVariable = freeVariables[i];
-          const freeVariableName = freeVariable.variableName;
-          const freeVariableValues = getLlvmEnvironmentNamedValuesByName(
-            env,
-            freeVariableName
-          );
-          if (freeVariableValues.length === 0) {
-            throw new Error(
-              `Free variable ${freeVariableName} not found in namedValues`
-            );
-          }
-          const freeVariableValue =
-            freeVariableValues[freeVariableValues.length - 1];
-
-          // Get the pointer to the free variable
-          const freeVariablePtr = this.builder.CreateGEP(
-            freeVariablesType,
-            freeVariablesPtr,
-            [
-              llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
-              llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), i),
-            ],
-            freeVariableName
-          );
-          // Store the value in the free variable
-          this.builder.CreateStore(
-            freeVariableValue.value.value,
-            freeVariablePtr
-          );
-        }
-        const freeVariablesRecordPtr = this.builder.CreateGEP(
-          closureType,
-          closurePtr,
-          [
-            llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
-            llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 1),
-          ],
-          "fn_freeVariablesPtr"
-        );
-
-        // cast freeVariablesPtr to void*
-        const freeVariablesPtrCast = this.builder.CreateBitCast(
-          freeVariablesPtr,
-          llvm.PointerType.get(llvm.Type.getInt8Ty(this.context), 0),
-          "fn_casted_freeVariablesPtr"
-        );
-        this.builder.CreateStore(freeVariablesPtrCast, freeVariablesRecordPtr);
-
-        return { value: closurePtr, type: expr.typeValue, env };
       }
       case AstType.Extern: {
         const theFunction = this.codegenPrototype(expr.prototype);
@@ -1171,7 +1211,6 @@ export class CodeGenerator {
           args.push(freeVariablesVoidPtr);
         }
 
-        let func: llvm.Function | llvm.FunctionCallee | null = null;
         // This is closure
         if (functionType.freeVariables) {
           // Get the function from the closure
@@ -1203,14 +1242,18 @@ export class CodeGenerator {
             env,
           };
         } else {
-          func = this.getLlvmFunction(functionType.id, expr.typeArguments, env); // this.module.getFunction(functionType.id);
-          if (!func) {
+          const retVal = this.getLlvmFunction(
+            functionType.id,
+            expr.typeArguments,
+            env
+          ); // this.module.getFunction(functionType.id);
+          if (!retVal || !retVal.function) {
             throw new Error(`Function with id "${functionType.id}" not found`);
           }
           return {
-            value: this.builder.CreateCall(func, args),
+            value: this.builder.CreateCall(retVal.function.value, args),
             type: expr.typeValue,
-            env,
+            env: retVal.env,
           };
         }
       }

@@ -217,7 +217,20 @@ function id<T>(x: T) {
   x
 }
 function main() {
+  id<f32>(12.3);
   id<i32>(12)
+}
+`
+
+code = `
+function copy<T>(x: T) {
+  const y: T = x;
+  y
+}
+function main() {
+  const x = copy<f32>(3.4);
+  copy<i32>(3);
+  copy<i32>(66)
 }
 `
 
