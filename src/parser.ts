@@ -1094,7 +1094,8 @@ Got:      (${functionArguments
     if (
       tokens[index + 1]?.type === TokenType.LParen ||
       tokens[index + 1]?.type === TokenType.LCurlyBracket ||
-      tokens[index + 1]?.type === TokenType.LessThan
+      tokens[index + 1]?.type === TokenType.LessThan ||
+      isWithStatement
     ) {
       const matchedFunctions = valueTypes.filter(
         (valueType) => valueType.type.type === "Function"

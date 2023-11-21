@@ -242,7 +242,33 @@ function main() {
 }
 `
 
+code = `
+extern printlnd(x:i32):i32;
+function finally(final: ()=>(), body: ()=> ()) {
+  body();
+  final();
+}
+function main() {
+  with finally {
+    printlnd(2);
+  }
+  printlnd(1);
+}
+`
 
+code = `
+extern printlnd(x:i32):i32;
+function twice(fn: ()=> ()) {
+  fn()
+  fn()
+}
+function main() {
+  with twice;
+  with twice; {
+    printlnd(12);
+  }
+}
+`
 
 const codeGenerator = new CodeGenerator(code);
 
