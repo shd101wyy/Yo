@@ -70,6 +70,7 @@ Please note that **Mo** language is **immutable** by default, and it is not a go
   - [Effect handler](#effect-handler)
   - [Modules](#modules)
   - [Special attributes](#special-attributes)
+  - [Compile time execution](#compile-time-execution)
   - [References](#references)
 
 <!-- /code_chunk_output -->
@@ -772,6 +773,41 @@ const x: [stack] int[] = [1, 2, 3];  // Save on stack.
 const x: [unique] int[] = [1, 2, 3]; // Unique pointer.
 const x: [weak] int[] = [1, 2, 3];   // Weak pointer.
 const x: [atomic] i32 = 1;           // Atomic.
+```
+
+## Compile time execution
+
+`#` prefix is used to indicate compile time execution.
+
+```typescript
+function add<T>(x: T): T {
+  #if T == i32 {
+    x + 1
+  } #else if T == f32 {
+    x + 1.0
+  } #else {
+    x
+  }
+}
+
+function mul(x: i32, y: i32): i32 { x * y }
+
+const x: i32[#mul(2, 3)] = 6;
+```
+
+### Dependent types
+
+```typescript
+function dependOnBoolean(#b: boolean): #if b { i32 } #else { f32 } {
+  #if b {
+    1
+  } #else {
+    1.0
+  }
+}
+
+dependOnBoolean(true); // 1
+dependOnBoolean(false); // 1.0
 ```
 
 ## References

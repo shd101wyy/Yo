@@ -287,7 +287,7 @@ export function synthesizeRecordType(
   };
 }
 
-export function exprToString(expr: Expr) {
+export function exprToString(expr: Expr | FunctionPrototype) {
   switch (expr.type) {
     case AstType.Value:
       switch (expr.tag) {
@@ -353,7 +353,31 @@ export function exprToString(expr: Expr) {
         .join(";\n")} }`;
     case AstType.Ignore:
       return ``;
+    case AstType.Block: {
+      return `{\n${expr.exprs
+        .map((expr) => "    " + exprToString(expr))
+        .join(";\n")}
+  }`;
+    }
+    case AstType.FunctionPrototype: {
+      return `@${expr.typeValue.id}${
+        expr.typeValue.typeParameters.length > 0
+          ? `<${expr.typeValue.typeParameters.map(typeToString)}>`
+          : ""
+      }(${expr.typeValue.parameterTypes
+        .map((p) => `${p.name}: ${typeToString(p.type)}`)
+        .join(", ")}):${typeToString(expr.typeValue.returnType)}`;
+    }
+    case AstType.Extern: {
+      return `extern @${expr.prototype.typeValue.id}${
+        expr.prototype.typeValue.typeParameters.length > 0
+          ? `<${expr.prototype.typeValue.typeParameters.map(typeToString)}>`
+          : ""
+      }(${expr.prototype.typeValue.parameterTypes
+        .map((p) => `${p.name}: ${typeToString(p.type)}`)
+        .join(", ")}):${typeToString(expr.prototype.typeValue.returnType)}`;
+    }
     default:
-      throw new Error(`Unknown expr type ${expr}`);
+      throw new Error(`Unknown expr type ${expr.type}`);
   }
 }

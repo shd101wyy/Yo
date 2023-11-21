@@ -78,6 +78,7 @@ export enum TokenType {
   Unique = "unique",
   Shared = "shared",
   Weak = "weak",
+  With = "with",
 
   /**
    * A list of available C functions can be found at:

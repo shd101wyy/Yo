@@ -1147,6 +1147,10 @@ export class CodeGenerator {
         const closure: LlvmValue = {
           value: this.unit,
           type: expr.typeValue,
+          function: {
+            typeArguments: [],
+            value: theFunction,
+          },
         };
         env = addLlvmEnvironmentNamedValue(env, {
           id: expr.prototype.typeValue.id,
@@ -1407,8 +1411,13 @@ export class CodeGenerator {
           env,
         };
       }
+      case AstType.Block: {
+        const returnValue = this.codegenExprs(expr.exprs, env);
+        return { ...returnValue, env };
+      }
       default:
-        throw new Error(`Unknown expression type: ${JSON.stringify(expr)}`);
+        throw new Error(`Unknown expression type:\n
+  ${exprToString(expr)}`);
     }
   }
 

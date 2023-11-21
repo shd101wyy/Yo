@@ -337,7 +337,11 @@ export function synthesizeTypeFromTokens({
   }
 
   // Check if it's unit
-  if (tokens[index].value === "(" && tokens[index + 1].value === ")") {
+  if (
+    tokens[index].value === "(" &&
+    tokens[index + 1].value === ")" &&
+    tokens[index + 2].type !== TokenType.LambdaArrow
+  ) {
     index = index + 1;
     returnValue = {
       typeValue: TypeValues.unit,

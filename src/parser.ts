@@ -11,6 +11,7 @@ import {
   FunctionExpr,
   FunctionPrototype,
   PrimitiveValueExpr,
+  exprToString,
   getTokenPrecedence,
   synthesizeRecordType,
 } from "./ast";
@@ -283,7 +284,11 @@ export default class Parser {
     index: number,
     env: Environment
   ): ParserReturn {
-    return this.parseRecordExpr(tokens, index, env);
+    try {
+      return this.parseRecordExpr(tokens, index, env);
+    } catch {
+      return this.parseBlockExpressions(tokens, index, env);
+    }
   }
 
   private parseRecordExpr(
@@ -1062,6 +1067,9 @@ Found possible functions:
           index: index + 1,
         };
       }
+      case TokenType.With: {
+        return this.parseWithExpr(tokens, index, env);
+      }
       default: {
         throw this.formatErrorMessage(
           token,
@@ -1278,16 +1286,22 @@ Found possible functions:
   private parseBlockExpressions(
     tokens: Token[],
     index: number,
-    env: Environment
+    env: Environment,
+    requireLCurlyBracket = true
   ): { index: number; expr: BlockExpr } {
     let exprs: Expr[] = [];
-    if (tokens[index].type !== TokenType.LCurlyBracket) {
+    if (
+      requireLCurlyBracket &&
+      tokens[index].type !== TokenType.LCurlyBracket
+    ) {
       throw this.formatErrorMessage(
         tokens[index],
         "Expected '{' for block expressions"
       );
     }
-    index = index + 1;
+    if (requireLCurlyBracket) {
+      index = index + 1;
+    }
     env = pushEnvFrame(env);
     let nextEnv = env;
 
@@ -1326,8 +1340,9 @@ Found possible functions:
     // NOTE: Needs to put this before `env.popFrame` to get `returnType`.
     const returnType = exprs[exprs.length - 1].typeValue;
     env = popEnvFrame(nextEnv);
+
     return {
-      index,
+      index: requireLCurlyBracket ? index : index - 1,
       expr: {
         type: AstType.Block,
         exprs,
@@ -1741,6 +1756,87 @@ Got:      ${typeToString(variableType)}`
       },
       index,
     };
+  }
+
+  private parseWithExpr(
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.With) {
+      throw this.formatErrorMessage(tokens[index], 'Expected "with"');
+    }
+    index = index + 1;
+
+    // Parse expr after `with`
+    const { expr: withExpr, index: nextIndex } = this.parseExpression(
+      tokens,
+      index,
+      env
+    );
+    console.log("done: ", exprToString(withExpr), nextIndex);
+    if (!withExpr) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected expression for "with"'
+      );
+    }
+    index = nextIndex;
+    env = withExpr.env;
+
+    // Check the type of `withExpr`
+    const typeValue = withExpr.typeValue;
+    switch (typeValue.type) {
+      case "Record": {
+        // Convert to ConstAssignment
+        const constAssignmentExprs: Expr[] = [];
+        // Add record fields to env
+        for (const field of typeValue.properties) {
+          env = addEnvValueType(env, {
+            variableName: field.name,
+            type: field.type,
+            kind: "value",
+          });
+          constAssignmentExprs.push({
+            type: AstType.ConstantAssigment,
+            variableName: field.name,
+            variableType: field.type,
+            right: {
+              type: AstType.PropertyAccess,
+              expr: withExpr,
+              propertyName: field.name,
+              typeValue: field.type,
+              env,
+            },
+            typeValue: TypeValues.unit,
+            frameLevel: getEnvCurrentFrameLevel(env),
+            env,
+          });
+        }
+
+        // Parse the rest of the tokens
+        const { expr: blockExpr, index: nextIndex } =
+          this.parseBlockExpressions(tokens, index, env, false);
+
+        return {
+          expr: {
+            type: AstType.Block,
+            exprs: [...constAssignmentExprs, ...blockExpr.exprs],
+            env: blockExpr.env,
+            typeValue: blockExpr.typeValue,
+          },
+          index: nextIndex,
+        };
+      }
+      default: {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Type ${typeToString(
+            typeValue
+          )} is not supported for "with" expression`
+        );
+      }
+    }
   }
 
   private parseTypeAlias(
