@@ -247,7 +247,8 @@ function test(fn: ()=> i32 ) {
   fn()
 }
 function main() {
-  test(()=> { 16 })
+  with test;
+  15
 }
 `
 

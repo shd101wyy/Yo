@@ -11,7 +11,6 @@ import {
   FunctionExpr,
   FunctionPrototype,
   PrimitiveValueExpr,
-  exprToString,
   getTokenPrecedence,
   synthesizeRecordType,
 } from "./ast";
@@ -442,7 +441,6 @@ export default class Parser {
           parsedFunctions.push(functionType);
         } catch (error) {
           // Ignore the error
-          console.error(error);
         }
       }
       if (parserReturns.length === 0) {
@@ -781,80 +779,152 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`
       }
     }
 
-    if (tokens[index]?.type !== TokenType.LParen) {
-      throw this.formatErrorMessage(tokens[index], "Expected left paren");
-    }
     const functionArguments: Expr[] = [];
     if (caller) {
       functionArguments.push(caller);
     }
 
-    let nextIndex = index + 2;
-    if (tokens[index + 1]?.type !== TokenType.RParen) {
-      index = index + 1;
-
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        // Check if it's keyword argument
-        if (
-          tokens[index].type === TokenType.Identifier &&
-          tokens[index + 1].type === TokenType.Assign
-        ) {
-          const variableName = tokens[index].value;
-          const { expr: defaultParameterValueExpr, index: nextIndex } =
-            this.parseExpression(tokens, index + 2, env);
-          env = defaultParameterValueExpr.env;
-
-          if (!defaultParameterValueExpr) {
-            throw this.formatErrorMessage(
-              tokens[index],
-              "Expected expression for default parameter value"
-            );
+    let parsedNormalArguments = false;
+    while (true) {
+      // Try parse as anonymous function
+      try {
+        const { expr, index: nextIndex } = this.parseAnonymouseFunction(
+          tokens,
+          index,
+          env
+        );
+        if (expr) {
+          functionArguments.push(expr);
+          index = nextIndex;
+          continue;
+        } else {
+          throw new Error("Failed to parse as anonymouse function");
+        }
+      } catch (error) {
+        // Ignore the error
+        // This means we failed to parse it as anonymouse function
+        // Try parse as block expression
+        try {
+          if (tokens[index].type !== TokenType.LCurlyBracket) {
+            throw new Error("Expected left curly bracket");
           }
 
-          const parameterAssignmentExpr: AssignmentExpr = {
-            type: AstType.ConstantAssigment,
-            variableName: variableName,
-            right: defaultParameterValueExpr,
-            typeValue: TypeValues.unit,
-            variableType: defaultParameterValueExpr.typeValue,
-            frameLevel: getEnvCurrentFrameLevel(env),
-            env,
-          };
-          functionArguments.push(parameterAssignmentExpr);
-          index = nextIndex;
-        } else {
-          const { expr, index: nextIndex } = this.parseExpression(
-            tokens,
+          // Insert "(", ")", "=>" tokens to make it a valid function
+          const newTokens: Token[] = [
+            ...tokens.slice(0, index),
+            {
+              type: TokenType.LParen,
+              value: "(",
+              position: tokens[index].position,
+            },
+            {
+              type: TokenType.RParen,
+              value: ")",
+              position: tokens[index].position,
+            },
+            {
+              type: TokenType.LambdaArrow,
+              value: "=>",
+              position: tokens[index].position,
+            },
+            ...tokens.slice(index),
+          ];
+
+          const { expr, index: nextIndex } = this.parseAnonymouseFunction(
+            newTokens,
             index,
             env
           );
-          env = expr.env;
-
-          if (!expr) {
-            throw this.formatErrorMessage(
-              tokens[index],
-              "Expected expression for function argument"
-            );
+          if (expr) {
+            // FIXME: Convert block expression to anonymous function with 0 parameters
+            functionArguments.push(expr);
+            index = nextIndex - 3; // Remove "(", ")", "=>"
+            continue;
+          } else {
+            throw new Error("Failed to parse as block expression");
           }
-          functionArguments.push(expr);
-          index = nextIndex;
-        }
+        } catch (error) {
+          if (parsedNormalArguments) {
+            break;
+          }
+          // Ignore the error
+          // This means we failed to parse it as block expression
+          // NOTE: This is not right for trailing lambda
+          if (tokens[index]?.type !== TokenType.LParen) {
+            // throw this.formatErrorMessage(tokens[index], "Expected left paren");
+            break;
+          }
+          index = index + 1;
 
-        if (tokens[index].type === TokenType.RParen) {
-          break;
-        }
+          if (tokens[index]?.type === TokenType.RParen) {
+            index = index + 1;
+            parsedNormalArguments = true;
+            continue;
+          }
 
-        if (tokens[index].type !== TokenType.Comma) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Expected comma, but got ${tokens[index].value}`
-          );
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            // Check if it's keyword argument
+            if (
+              tokens[index].type === TokenType.Identifier &&
+              tokens[index + 1].type === TokenType.Assign
+            ) {
+              const variableName = tokens[index].value;
+              const { expr: defaultParameterValueExpr, index: nextIndex } =
+                this.parseExpression(tokens, index + 2, env);
+              env = defaultParameterValueExpr.env;
+
+              if (!defaultParameterValueExpr) {
+                throw this.formatErrorMessage(
+                  tokens[index],
+                  "Expected expression for default parameter value"
+                );
+              }
+
+              const parameterAssignmentExpr: AssignmentExpr = {
+                type: AstType.ConstantAssigment,
+                variableName: variableName,
+                right: defaultParameterValueExpr,
+                typeValue: TypeValues.unit,
+                variableType: defaultParameterValueExpr.typeValue,
+                frameLevel: getEnvCurrentFrameLevel(env),
+                env,
+              };
+              functionArguments.push(parameterAssignmentExpr);
+              index = nextIndex;
+            } else {
+              const { expr, index: nextIndex } = this.parseExpression(
+                tokens,
+                index,
+                env
+              );
+              env = expr.env;
+
+              if (!expr) {
+                throw this.formatErrorMessage(
+                  tokens[index],
+                  "Expected expression for function argument"
+                );
+              }
+              functionArguments.push(expr);
+              index = nextIndex;
+            }
+
+            if (tokens[index].type === TokenType.RParen) {
+              break;
+            }
+
+            if (tokens[index].type !== TokenType.Comma) {
+              throw this.formatErrorMessage(
+                tokens[index],
+                `Expected comma, but got ${tokens[index].value}`
+              );
+            }
+            index = index + 1;
+          }
+          parsedNormalArguments = true;
         }
-        index = index + 1;
       }
-
-      nextIndex = index + 1;
     }
 
     const functionArgumentsInOrder = getFunctionArgumentsInOrder(
@@ -891,7 +961,7 @@ Got:      (${functionArguments
         typeValue: calleeTypeValue.returnType,
         env,
       },
-      index: nextIndex,
+      index,
     };
   }
 
@@ -918,8 +988,13 @@ Got:      (${functionArguments
       );
     }
     // Check if it's a function
+    // - test(1) Normal function call
+    // - test { 12 } Trailing lambda
+    // - test { 12 } { 13 } Trailing lambdas
+    // - test (x)=> { x + 1 } Trailing lambda
     if (
       tokens[index + 1]?.type === TokenType.LParen ||
+      tokens[index + 1]?.type === TokenType.LCurlyBracket ||
       tokens[index + 1]?.type === TokenType.LessThan
     ) {
       const matchedFunctions = valueTypes.filter(
@@ -1774,7 +1849,6 @@ Got:      ${typeToString(variableType)}`
       index,
       env
     );
-    console.log("done: ", exprToString(withExpr), nextIndex);
     if (!withExpr) {
       throw this.formatErrorMessage(
         tokens[index],
