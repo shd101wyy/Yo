@@ -242,15 +242,7 @@ function main() {
 }
 `
 
-code = `
-function test(fn: ()=> i32 ) {
-  fn()
-}
-function main() {
-  with test;
-  15
-}
-`
+
 
 const codeGenerator = new CodeGenerator(code);
 
