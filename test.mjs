@@ -270,6 +270,81 @@ function main() {
 }
 `
 
+code = `
+interface Eq<T> {
+  eq(x: T, y: T): boolean;
+}
+
+function eq(x: i32, y: i32) {
+  x == y
+}
+
+function test<T>(x: T, y: T) {
+   with Eq<T>;
+   eq(x, y)
+}
+`
+
+code = `
+interface Eq<X> {
+  eq(x: X, y: X): boolean;
+}
+
+function eq(x: i32, y: i32) {
+  x == y
+}
+
+function test<T>(x: T, y: T) {
+   Eq<T>.eq<T>(x, y)
+}
+`
+
+
+code = `
+interface Eq<X> {
+  eq(x: X, y: X): boolean;
+}
+function test<T>(x: T, y: T) {
+  with Eq<T>;
+  eq(x, y)
+}
+function main() {
+  test<i32>(3, 4)
+}
+`
+code = `
+interface Eq<X> {
+  eq(x: X, y: X): boolean;
+}
+
+function main() {
+  with Eq<i32>;
+  eq(3, 4)
+}
+`
+
+code = `
+interface Id<X> {
+  id(x: X): X;
+}
+
+function id(x: i32) {
+  x
+}
+
+function id(x: f32) {
+  x
+}
+
+function test<T>(x: T) {
+  with Id<T>;
+  id(x)
+}
+function main() {
+  test<i32>(15)
+}
+`
+
 const codeGenerator = new CodeGenerator(code);
 
 const ir = codeGenerator.getLlvmIr();

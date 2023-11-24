@@ -11,7 +11,6 @@ import {
   FunctionExpr,
   FunctionPrototype,
   PrimitiveValueExpr,
-  exprToString,
   getTokenPrecedence,
   synthesizeRecordType,
 } from "./ast";
@@ -412,6 +411,30 @@ export default class Parser {
           },
           index: index + 1,
         };
+      }
+    } else if (callerType.type === "Interface") {
+      const func = callerType.functions.find(
+        (property) => property.name === token.value
+      );
+      if (func) {
+        // Return the function
+        return {
+          expr: {
+            type: AstType.PropertyAccess,
+            expr: expr,
+            propertyName: func.name,
+            typeValue: func.func,
+            env,
+          },
+          index: index + 1,
+        };
+      } else {
+        throw this.formatErrorMessage(
+          token,
+          `Cannot find function '${token.value}' in interface:\n${typeToString(
+            callerType
+          )}`
+        );
       }
     }
 
@@ -988,7 +1011,6 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`
       index = nextNextIndex - diffSize - 1;
       env = lambdaExpr.env;
       functionArguments.push(lambdaExpr);
-      console.log("@functionArguments: ", functionArguments.map(exprToString));
     }
 
     return {
@@ -1079,7 +1101,7 @@ Got:      (${functionArguments
     const identifier = tokens[index].value;
 
     // Check if variable is defined
-    const valueTypes = getEnvValueTypesByVariableName(env, identifier);
+    const valueTypes = getEnvValueTypesByVariableName(env, identifier, "value");
     if (valueTypes.length === 0) {
       throw this.formatErrorMessage(
         tokens[index],
@@ -1097,59 +1119,132 @@ Got:      (${functionArguments
       tokens[index + 1]?.type === TokenType.LessThan ||
       isWithStatement
     ) {
+      console.log("- isWithStatement: ", isWithStatement);
       const matchedFunctions = valueTypes.filter(
         (valueType) => valueType.type.type === "Function"
       );
+      const matchedInterfaces = valueTypes.filter(
+        (valueType) => valueType.type.type === "Interface"
+      );
 
-      // Try all matchedFunctions to see if there is a match
-      const parserReturns: ParserReturn[] = [];
-      const parsedFunctions: ValueType[] = [];
-      for (const functionType of matchedFunctions) {
-        try {
-          parserReturns.push(
-            this.parseCallExpr(
-              {
-                type: AstType.Variable,
-                name: identifier,
-                frameLevel: functionType.frameLevel,
-                typeValue: functionType.type,
+      if (matchedInterfaces.length > 0) {
+        // FIXME: Support this
+        if (matchedInterfaces.length > 1) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Ambiguous interfaces ${identifier}
+Found possible interfaces:
+- ${matchedInterfaces
+              .map((interfaceType) => typeToString(interfaceType.type))
+              .join("\n- ")}
+            `
+          );
+        } else {
+          const interface2 = matchedInterfaces[0];
+          const interfaceType = interface2.type;
+          if (interfaceType.type !== "Interface") {
+            throw this.formatErrorMessage(
+              tokens[index],
+              `Expected interface, but got ${typeToString(interfaceType)}`
+            );
+          }
+          let typeArguments: Type[] = [];
+          if (tokens[index + 1]?.type === TokenType.LessThan) {
+            console.log("- start parsing typeArguments");
+            const {
+              typeArguments: nextTypeArguments,
+              index: nextIndex,
+              env: nextEnv,
+            } = synthesizeTypeArgumentsFromTokens({
+              tokens,
+              index: index + 1,
+              inputString: this.inputString,
+              env,
+              parseExpression: this.parseExpression.bind(this),
+            });
+            typeArguments = nextTypeArguments;
+            index = nextIndex;
+            env = nextEnv;
+            console.log(
+              "- done parsing typeArguments: ",
+              typeArguments.map(typeToString)
+            );
+          }
+          const newInterfaceType = applyTypeArgumentsToType(
+            interfaceType,
+            typeArguments
+          );
+          if (newInterfaceType.type !== "Interface") {
+            throw this.formatErrorMessage(
+              tokens[index],
+              `Expected interface type, but got ${typeToString(
+                newInterfaceType
+              )}`
+            );
+          } else {
+            console.log("newInterfaceType: ", typeToString(newInterfaceType));
+            return {
+              expr: {
+                type: AstType.Interface,
+                interfaceName: identifier,
+                typeValue: newInterfaceType,
                 env,
               },
-              tokens,
-              index + 1,
-              env,
-              isWithStatement
-            )
-          );
-          parsedFunctions.push(functionType);
-        } catch (error) {
-          // Ignore the error
+              index,
+            };
+          }
         }
-      }
+      } else {
+        // Try all matchedFunctions to see if there is a match
+        const parserReturns: ParserReturn[] = [];
+        const parsedFunctions: ValueType[] = [];
+        for (const functionType of matchedFunctions) {
+          try {
+            parserReturns.push(
+              this.parseCallExpr(
+                {
+                  type: AstType.Variable,
+                  name: identifier,
+                  frameLevel: functionType.frameLevel,
+                  typeValue: functionType.type,
+                  env,
+                },
+                tokens,
+                index + 1,
+                env,
+                isWithStatement
+              )
+            );
+            parsedFunctions.push(functionType);
+          } catch (error) {
+            // Ignore the error
+          }
+        }
 
-      if (parserReturns.length === 0) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Cannot find function '${identifier}'
+        if (parserReturns.length === 0) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Cannot find function '${identifier}'
 Below are the possible functions:
 
 ${matchedFunctions
   .map((func) => `  ${func.variableName}: ${typeToString(func.type)}`)
   .join("\n")}
           `
-        );
-      } else if (parserReturns.length > 1) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Ambiguous function ${identifier}
+          );
+        } else if (parserReturns.length > 1) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Ambiguous function ${identifier}
 Found possible functions:
 - ${parsedFunctions
-            .map((func) => `${func.variableName}: ${typeToString(func.type)}`)
-            .join("\n- ")}`
-        );
-      } else {
-        // FIXME: Might need to check `isFreeVariable` here as well
-        return parserReturns[0];
+              .map((func) => `${func.variableName}: ${typeToString(func.type)}`)
+              .join("\n- ")}`
+          );
+        } else {
+          // FIXME: Might need to check `isFreeVariable` here as well
+          return parserReturns[0];
+        }
       }
     }
 
@@ -1622,7 +1717,6 @@ Found possible functions:
       env = addEnvValueType(
         env,
         {
-          id: prototype.typeValue.id,
           variableName: prototype.functionName!,
           type: prototype.typeValue,
           kind: "value",
@@ -1711,7 +1805,6 @@ Returned:  ${typeToString(functionReturnType)}`
     } else {
       index = nextIndex;
       env = addEnvValueType(env, {
-        id: prototype.typeValue.id,
         variableName: prototype.functionName!,
         type: prototype.typeValue,
         kind: "value",
@@ -2002,7 +2095,6 @@ Got:      ${typeToString(variableType)}`
       env,
       true
     );
-    console.log("- withExpr: ", exprToString(withExpr));
     if (!withExpr) {
       throw this.formatErrorMessage(
         tokens[index],
@@ -2011,8 +2103,6 @@ Got:      ${typeToString(variableType)}`
     }
     index = nextIndex;
     env = withExpr.env;
-
-    console.log("withExpr: ", exprToString(withExpr));
 
     // Check the type of `withExpr`
     if (withExpr.type === AstType.CallFunction) {
@@ -2023,7 +2113,6 @@ Got:      ${typeToString(variableType)}`
     }
 
     const typeValue = withExpr.typeValue;
-    console.log("typeValue: ", typeToString(typeValue));
 
     switch (typeValue.type) {
       case "Record": {
@@ -2067,12 +2156,36 @@ Got:      ${typeToString(variableType)}`
           index: nextIndex,
         };
       }
+      case "Interface": {
+        // Take the interface functions out to env
+        for (const func of typeValue.functions) {
+          env = addEnvValueType(env, {
+            variableName: func.name,
+            type: func.func,
+            kind: "value",
+          });
+        }
+
+        // Parse the rest of the tokens
+        const { expr: blockExpr, index: nextIndex } =
+          this.parseBlockExpressions(tokens, index, env, false, false);
+
+        return {
+          expr: {
+            type: AstType.Block,
+            exprs: blockExpr.exprs,
+            env: blockExpr.env,
+            typeValue: blockExpr.typeValue,
+          },
+          index: nextIndex,
+        };
+      }
       default: {
         throw this.formatErrorMessage(
           tokens[index],
-          `Type ${typeToString(
+          `The "with" statement doesn't support the following type:\n\n${typeToString(
             typeValue
-          )} is not supported for "with" expression`
+          )}\n`
         );
       }
     }
@@ -2331,7 +2444,7 @@ Got:      ${typeToString(variableType)}`
             "Type parameters are not allowed in interface function as it uses the type parameters defined in the interface itself"
           );
         } else {
-          nextFunctionType.typeParameters = typeParameters;
+          // nextFunctionType.typeParameters = typeParameters;
         }
 
         functions.push({
@@ -2366,7 +2479,7 @@ Got:      ${typeToString(variableType)}`
             "Type parameters are not allowed in interface function as it uses the type parameters defined in the interface itself"
           );
         } else {
-          prototype.typeValue.typeParameters = typeParameters;
+          // prototype.typeValue.typeParameters = typeParameters;
         }
 
         // Add function prototype to interface
@@ -2389,7 +2502,7 @@ Got:      ${typeToString(variableType)}`
       {
         variableName: interfaceName,
         type: interfaceType,
-        kind: "type",
+        kind: "value", // NOTE: Interface is a value, not a type
       },
       -1
     );

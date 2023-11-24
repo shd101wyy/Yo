@@ -1,12 +1,17 @@
 // Types
 
-import { AstType, Expr, FunctionExpr, FunctionPrototype } from "./ast";
+import {
+  AstType,
+  Expr,
+  FunctionExpr,
+  FunctionPrototype,
+  exprToString,
+} from "./ast";
 import {
   Environment,
   ValueType,
   addEnvValueType,
   getEnvValueTypesByVariableName,
-  getEnvVariableId,
   popEnvFrame,
   pushEnvFrame,
 } from "./env";
@@ -132,7 +137,7 @@ export type TTypeParameter = {
 
 export type TFunction = {
   type: "Function";
-  id: string;
+  functionName?: string;
   typeParameters: TTypeParameter[]; // FIXME: Remove this
   parameterTypes: TParameterType[];
   returnType: Type;
@@ -448,6 +453,7 @@ export function synthesizeTypeFromTokens({
       tokens[index].value,
       "type"
     );
+
     returnValue = {
       typeValue: valueTypes[valueTypes.length - 1].type,
       index: index + 1,
@@ -785,7 +791,7 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
     if (typeParameters.length !== typeArguments.length) {
       throw formatErrorMessage({
         token: tokens[returnValue.index],
-        errorMessage: `Mismatched type arguments.
+        errorMessage: `(1) Mismatched type arguments.
 Expected: <${typeParameters
           .map(
             (typeParameter) =>
@@ -812,7 +818,7 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`,
     if (typeValue.typeParameters.length !== typeArguments.length) {
       throw formatErrorMessage({
         token: tokens[returnValue.index],
-        errorMessage: `Mismatched type arguments.
+        errorMessage: `(2) Mismatched type arguments.
 Expected: <${typeValue.typeParameters
           .map(
             (typeParameter) =>
@@ -863,7 +869,7 @@ export function applyTypeArgumentsToType(
     const typeValue = type.typeValue;
     if (type.typeParameters.length !== typeArguments.length) {
       throw new Error(
-        `Mismatched type arguments.
+        `(3) Mismatched type arguments.
   Expected: <${type.typeParameters
     .map(
       (typeParameter) =>
@@ -888,7 +894,7 @@ export function applyTypeArgumentsToType(
   } else if (type.type === "Interface") {
     if (type.typeParameters.length !== typeArguments.length) {
       throw new Error(
-        `Mismatched type arguments.
+        `(4) Mismatched type arguments.
   Expected: <${type.typeParameters
     .map(
       (typeParameter) =>
@@ -904,12 +910,10 @@ export function applyTypeArgumentsToType(
       const typeParameter = type.typeParameters[i];
       const typeArgument = typeArguments[i];
       typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
-      console.log("- here: ", typeToString(typeArgument), typeArgument);
       if (typeArgument.type === "TypeParameter") {
         newTypeParameters.push(typeArgument);
       }
     }
-    console.log("- newTypeParamters: ", newTypeParameters);
 
     // apply to each of the functions
     const functions: TInterfaceFunction[] = type.functions.map(
@@ -917,7 +921,7 @@ export function applyTypeArgumentsToType(
         name,
         func: applyTypeArgumentsToType(
           func,
-          typeArguments,
+          [], // FIXME: This could be wrong
           typeParameterToTypeArgumentMap
         ),
       })
@@ -932,7 +936,7 @@ export function applyTypeArgumentsToType(
     const typeParameters = type.typeParameters;
     if (typeParameters.length !== typeArguments.length) {
       throw new Error(
-        `Mismatched type arguments.
+        `(5) Mismatched type arguments.
   Expected: <${typeParameters
     .map(
       (typeParameter) =>
@@ -1061,7 +1065,7 @@ export function applyTypeArgumentsToFunctionExpr(
   const typeParameters = expr.typeValue.typeParameters;
   if (typeParameters.length !== typeArguments.length) {
     throw new Error(
-      `Mismatched type arguments.
+      `(6) Mismatched type arguments.
 Expected: <${typeParameters
         .map(
           (typeParameter) =>
@@ -1100,7 +1104,7 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`
     body: expr.body.map((expr) =>
       applyTypeArgumentsToExpr(
         expr,
-        typeArguments,
+        [], // typeArguments,
         typeParameterToTypeArgumentMap
       )
     ),
@@ -1112,6 +1116,13 @@ export function applyTypeArgumentsToExpr(
   typeArguments: Type[],
   typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
 ): Expr {
+  console.log("- applyTypeArgumentsToExpr");
+  console.log("  - expr: ", exprToString(expr));
+  console.log("  - typeArguments: ", typeArguments.map(typeToString));
+  console.log(
+    "  - typeParameterToTypeArgumentMap: ",
+    typeParameterToTypeArgumentMap
+  );
   switch (expr.type) {
     case AstType.Value: {
       switch (expr.tag) {
@@ -1631,7 +1642,7 @@ export function synthesizeFunctionTypeFromTokens({
       return {
         typeValue: {
           type: "Function",
-          id: getEnvVariableId(functionName ?? "lambda"),
+          functionName,
           parameterTypes,
           typeParameters,
           returnType,
@@ -1666,7 +1677,7 @@ export function synthesizeFunctionTypeFromTokens({
       return {
         typeValue: {
           type: "Function",
-          id: getEnvVariableId(functionName ?? "lambda"),
+          functionName,
           parameterTypes,
           typeParameters,
           returnType,
@@ -1679,7 +1690,7 @@ export function synthesizeFunctionTypeFromTokens({
       return {
         typeValue: {
           type: "Function",
-          id: getEnvVariableId(functionName ?? "lambda"),
+          functionName,
           parameterTypes,
           typeParameters,
           returnType: {
@@ -2235,7 +2246,7 @@ export function getFunctionsOfCallerFromEnv(
 ) {
   const functionTypes = getEnvValueTypesByVariableName(env, functionName);
   // Find the functions that takes `expr` as the first argument
-  let matchedFunctions = functionTypes.filter((functionType) => {
+  const matchedFunctions = functionTypes.filter((functionType) => {
     if (functionType.type.type !== "Function") {
       return false;
     }
@@ -2247,6 +2258,7 @@ export function getFunctionsOfCallerFromEnv(
   });
 
   // Check if there any function that matches the functionName
+  /*
   if (callerType.type === "Interface") {
     const matchedFunctionsInInterface: ValueType[] = callerType.functions
       .map(({ func, name }) => {
@@ -2266,6 +2278,7 @@ export function getFunctionsOfCallerFromEnv(
       .filter((func) => func !== null) as ValueType[];
     matchedFunctions = matchedFunctions.concat(matchedFunctionsInInterface);
   }
+  */
 
   return matchedFunctions;
 }

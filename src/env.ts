@@ -1,7 +1,7 @@
 import { Type } from "./type-checker";
 
 export type ValueType = {
-  id: string;
+  // id: string; // NOTE: The `id` here doesn't really help in generic function
   variableName: string;
   type: Type;
   kind: "type" | "value";
@@ -42,11 +42,12 @@ function setFrameLlvmValue(
 function getFrameValueTypesByVariableName(
   frame: Frame,
   variableName: string,
-  kind: "value" | "type" = "value"
+  kind?: "value" | "type"
 ): ValueType[] {
   return frame.filter(
     (valueType) =>
-      valueType.variableName === variableName && valueType.kind === kind
+      valueType.variableName === variableName &&
+      (kind !== undefined ? valueType.kind === kind : true)
   );
 }
 
@@ -105,13 +106,12 @@ export const getEnvVariableId = GetVariableId();
 
 export function addEnvValueType(
   env: Environment,
-  valueType: Omit<ValueType, "id" | "frameLevel"> & { id?: string },
+  valueType: Omit<ValueType, "frameLevel">,
   deltaFrame = 0
 ): Environment {
   const frameLevel = env.frames.length - 1 + deltaFrame;
   const frame = env.frames[frameLevel];
-  const id = valueType.id ?? getEnvVariableId(valueType.variableName);
-  const newFrame = addFrameValueType(frame, { ...valueType, id, frameLevel });
+  const newFrame = addFrameValueType(frame, { ...valueType, frameLevel });
   const newFrames = env.frames.slice();
   newFrames[frameLevel] = newFrame;
   return {
@@ -149,7 +149,7 @@ export function setEnvLlvmValue(
 export function getEnvValueTypesByVariableName(
   env: Environment,
   variableName: string,
-  kind: "value" | "type" = "value"
+  kind?: "value" | "type"
 ): ValueType[] {
   const valueTypes: ValueType[] = [];
   for (let i = 0; i < env.frames.length; i++) {

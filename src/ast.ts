@@ -305,10 +305,9 @@ export function exprToString(expr: Expr | FunctionPrototype) {
           throw new Error(`Unknown value tag ${expr}`);
       }
     case AstType.Variable:
-      /*
       if ("id" in expr.typeValue) {
         return `@${expr.typeValue.id}`;
-      }*/
+      }
       return expr.name;
     case AstType.PropertyAccess:
       return `${exprToString(expr.expr)}.${expr.propertyName}`;
@@ -327,19 +326,23 @@ export function exprToString(expr: Expr | FunctionPrototype) {
     case AstType.TypeAlias:
       return `type ${expr.typeName} = ${typeToString(expr.typeValue)}`;
     case AstType.Interface:
-      return `interface ${expr.interfaceName} = ${expr.typeValue}`;
+      return `interface ${expr.interfaceName} = ${typeToString(
+        expr.typeValue
+      )}`;
     case AstType.Function:
-      return `function ${
-        expr.prototype.functionName ?? `@${expr.prototype.typeValue.id}`
+      return `${
+        expr.prototype.functionName
+          ? `function ${expr.prototype.functionName}`
+          : ``
       }${
         expr.prototype.typeValue.typeParameters.length > 0
           ? `<${expr.prototype.typeValue.typeParameters.map(typeToString)}>`
           : ""
       }(${expr.prototype.typeValue.parameterTypes
         .map((p) => `${p.name}: ${typeToString(p.type)}`)
-        .join(", ")}):${typeToString(
-        expr.prototype.typeValue.returnType
-      )} {\n${expr.body
+        .join(", ")}):${typeToString(expr.prototype.typeValue.returnType)} ${
+        expr.prototype.functionName ? "" : " => "
+      } {\n${expr.body
         .map((expr) => "  " + exprToString(expr))
         .join(";\n")}\n}`;
     case AstType.CallFunction:
@@ -363,7 +366,7 @@ export function exprToString(expr: Expr | FunctionPrototype) {
   }`;
     }
     case AstType.FunctionPrototype: {
-      return `${expr.functionName ?? `@${expr.typeValue.id}`}${
+      return `${expr.functionName ?? ``}${
         expr.typeValue.typeParameters.length > 0
           ? `<${expr.typeValue.typeParameters.map(typeToString)}>`
           : ""
@@ -372,9 +375,7 @@ export function exprToString(expr: Expr | FunctionPrototype) {
         .join(", ")}):${typeToString(expr.typeValue.returnType)}`;
     }
     case AstType.Extern: {
-      return `extern ${
-        expr.prototype.functionName ?? `@${expr.prototype.typeValue.id}`
-      }${
+      return `extern ${expr.prototype.functionName ?? ``}${
         expr.prototype.typeValue.typeParameters.length > 0
           ? `<${expr.prototype.typeValue.typeParameters.map(typeToString)}>`
           : ""

@@ -1,6 +1,6 @@
 # Language Design
 
-**Mo** (墨) is functional, general-purpose, compiled programming language that compiles to LLVM IR and WASM.
+**Mo** (墨) is minimal, functional, general-purpose, compiled programming language that compiles to LLVM IR and WASM.
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with JavaScript, you should be able to pick up **Mo** in a few hours.
 
@@ -71,6 +71,7 @@ Please note that **Mo** language is **immutable** by default, and it is not a go
   - [Modules](#modules)
   - [Special attributes](#special-attributes)
   - [Compile time execution](#compile-time-execution)
+    - [Dependent types](#dependent-types)
   - [References](#references)
 
 <!-- /code_chunk_output -->
@@ -421,18 +422,19 @@ type NewsArticle = {
 // Implement the interface
 instance Summary<NewsArticle> {
   summarize(self: NewsArticle): String {
-    `${self.headline}, by ${self.author} (${self.location})`;
+    "${self.headline}, by ${self.author} (${self.location})";
   }
 }
 
 // Pass in function
 function notify(item: NewsArticle) {
-  with Summary<NewsArticle>; // Type constraint
+  with Summary<NewsArticle>{ summarize }; // Type constraint
+                                          // require `summarize` function exists
   console.log("Breaking news! ", item.summarize());
 }
 
 function notify<T>(item: T) {
-  with Summary<T>, Display<T>; // Type constraint
+  with Display<T>; // Type constraint
   console.log("Breaking news! ", item.summarize());
   console.log("Breaking news! ", item.display());
 }
@@ -674,8 +676,8 @@ interface Show<T> {
 }
 
 instance Show<i32> {
-  show(x: i32): string {
-    return x.toString();
+  show(i32): string {
+    x.toString()
   }
 }
 

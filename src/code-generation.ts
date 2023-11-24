@@ -15,8 +15,8 @@ import {
   addLlvmEnvironmentNamedValue,
   copyLlvmEnvironment,
   getLlvmEnvironmentNamedValuesByName,
-  getLlvmFunctionById,
-  getLlvmFunctionByIdAndTypeArguments,
+  getLlvmFunctionByNameAndTypeArgumentsAndArguments,
+  getLlvmFunctionTemplateByName,
 } from "./llvm-env";
 import Parser from "./parser";
 import { Token } from "./token";
@@ -231,34 +231,41 @@ export class CodeGenerator {
   }
 
   /**
-   * Find the llvm function with `functionId` and `typeArguments` from the `env`.
+   * Find the llvm function with `functionName` `typeArguments`, and `functionArguments` from the `env`.
    * If not found:
-   *  - check if there is `functionExpr` with `functionId` in the env,
+   *  - check if there is `functionExpr` with `functionName` in the env,
    *     - If yes, then generate the llvm function and return it.
    *     - If not, return null
    * Found:
    * - return the llvm function
-   * @param functionId
+   * @param functionName
    * @param typeArguments
    * @param env
    * @returns
    */
-  private getLlvmFunction(
-    functionId: string,
+  private getLlvmFunctionByName(
+    functionName: string,
     typeArguments: Type[],
+    functionArguments: Expr[],
     env: LlvmEnvironment
   ): (LlvmValue & { env: LlvmEnvironment }) | null {
-    const matchedFunction = getLlvmFunctionByIdAndTypeArguments(
+    const matchedFunction = getLlvmFunctionByNameAndTypeArgumentsAndArguments(
       env,
-      functionId,
-      typeArguments
+      functionName,
+      typeArguments,
+      functionArguments
     );
     if (matchedFunction) {
       return { ...matchedFunction.value, env };
     }
 
     // Not found, check if the function is defined:
-    const definedFunction = getLlvmFunctionById(env, functionId);
+    const definedFunction = getLlvmFunctionTemplateByName(
+      env,
+      functionName,
+      typeArguments,
+      functionArguments
+    );
     if (!definedFunction || !definedFunction.value.functionExpr) {
       return null;
     } else {
@@ -268,6 +275,7 @@ export class CodeGenerator {
         functionExpr,
         typeArguments
       );
+      console.log("- newFunctionExpr: ", exprToString(newFunctionExpr));
       const retVal = this.codegenFunction(newFunctionExpr, env, typeArguments);
       return retVal;
     }
@@ -303,12 +311,12 @@ export class CodeGenerator {
   }
 
   private codegenPrototype(prototype: FunctionPrototype): llvm.Function | null {
-    const functionId = prototype.typeValue.id;
+    const functionName = prototype.typeValue.functionName;
     const functionType = this.getLlvmFunctionType(prototype.typeValue);
     const func = llvm.Function.Create(
       functionType,
       llvm.Function.LinkageTypes.ExternalLinkage,
-      functionId,
+      functionName,
       this.module
     );
     for (let i = 0; i < func.arg_size(); i++) {
@@ -336,9 +344,7 @@ export class CodeGenerator {
   ): LlvmValue & { env: LlvmEnvironment } {
     const theFunction = this.codegenPrototype(expr.prototype);
     if (!theFunction) {
-      throw new Error(
-        `Function ${expr.prototype.functionName} with id "${expr.prototype.typeValue.id}" not found`
-      );
+      throw new Error(`Function ${expr.prototype.functionName} not found`);
     }
 
     const currentBasicBlock = this.builder.GetInsertBlock();
@@ -387,7 +393,6 @@ export class CodeGenerator {
             freeVariableName
           );
           newEnv = addLlvmEnvironmentNamedValue(newEnv, {
-            id: freeVariable.id,
             name: freeVariable.variableName,
             value: {
               type: freeVariable.type,
@@ -418,12 +423,10 @@ export class CodeGenerator {
         },
       };
       env = addLlvmEnvironmentNamedValue(env, {
-        id: expr.prototype.typeValue.id,
         name: expr.prototype.functionName,
         value: closure,
       });
       newEnv = addLlvmEnvironmentNamedValue(newEnv, {
-        id: expr.prototype.typeValue.id,
         name: expr.prototype.functionName,
         value: closure,
       });
@@ -444,9 +447,7 @@ export class CodeGenerator {
         `Function ${expr.prototype.functionName} verification failed`
       );
     } else {
-      console.log(
-        `- Function verified for "${expr.prototype.functionName}" with id "${expr.prototype.typeValue.id}"`
-      );
+      console.log(`- Function verified for "${expr.prototype.functionName}"`);
     }
 
     // Return the function pointer + free variables record
@@ -597,6 +598,7 @@ export class CodeGenerator {
     exprValue: llvm.Value,
     typeValue: Type,
     propertyName: string
+    // env: LlvmEnvironment
   ): LlvmValue {
     switch (typeValue.type) {
       case "Record": {
@@ -635,6 +637,32 @@ export class CodeGenerator {
           value,
         };
       }
+      /*
+      case "Interface": {
+        // Check functions defined in the interface are implemented
+        const interfaceFunctions = typeValue.functions ?? [];
+        const functionIndex = interfaceFunctions.findIndex(
+          (fn) => fn.name === propertyName
+        );
+        if (functionIndex === -1) {
+          throw new Error(
+            `Function ${propertyName} not found in ${typeToString(typeValue)}`
+          );
+        }
+        const functionType = interfaceFunctions[functionIndex].func;
+        const functionId = functionType.id;
+        const functionTypeArguments = [];
+        const functionValue = this.getLlvmFunctionById(
+          functionId,
+          functionTypeArguments,
+          env
+        );
+        if (!functionValue) {
+          throw new Error(`Function "${functionId}" not found in env.`);
+        }
+        return functionValue;
+      }
+      */
       default:
         throw new Error(
           `Accessors not implemented for ${typeToString(typeValue)}`
@@ -1122,7 +1150,6 @@ export class CodeGenerator {
         ) {
           // Don't generate llvm function.
           env = addLlvmEnvironmentNamedValue(env, {
-            id: expr.prototype.typeValue.id,
             name: expr.prototype.functionName,
             value: {
               value: this.unit,
@@ -1153,7 +1180,6 @@ export class CodeGenerator {
           },
         };
         env = addLlvmEnvironmentNamedValue(env, {
-          id: expr.prototype.typeValue.id,
           name: expr.prototype.functionName,
           value: closure,
         });
@@ -1161,30 +1187,83 @@ export class CodeGenerator {
         // return theFunction;
       }
       case AstType.Variable: {
-        // TODO: Check if it's a function
-        const namedValues = getLlvmEnvironmentNamedValuesByName(env, expr.name);
-
-        if (!namedValues.length) {
-          throw new Error(`Variable ${expr.name} not found`);
+        if (expr.typeValue.type === "Function") {
+          console.log(
+            "- AstType.Variable: ",
+            exprToString(expr),
+            typeToString(expr.typeValue)
+          );
         }
-        const namedValue = namedValues[namedValues.length - 1];
-        return { ...namedValue.value, env };
+        // TODO: Check if it's a function
+        /* if (expr.typeValue.type === "Function") {
+          const namedValue =
+            getLlvmFunctionByNameAndTypeArgumentsAndFunctionType(
+              env,
+              expr.name,
+              [],
+              expr.typeValue
+            );
+          if (!namedValue) {
+            throw new Error(`Function "${expr.name}" not found in env.`);
+          } else {
+            return { ...namedValue.value, env };
+          }
+        } else */ {
+          const namedValues = getLlvmEnvironmentNamedValuesByName(
+            env,
+            expr.name
+          );
+
+          if (!namedValues.length) {
+            throw new Error(`Variable "${expr.name}" not found`);
+          }
+          const namedValue = namedValues[namedValues.length - 1];
+          return { ...namedValue.value, env };
+        }
       }
       case AstType.CallFunction: {
         const callee = expr.callee;
+        const calleeTypeValue = callee.typeValue;
+        console.log(
+          "callee: ",
+          exprToString(callee),
+          typeToString(callee.typeValue)
+        );
+        console.log("expr: ", exprToString(expr));
 
         // NOTE: Function argument types check is done in the parser.ts stage.
         const args: llvm.Value[] = expr.functionArguments.map((arg) => {
           return this.codegenExpr(arg, env).value;
         });
 
-        const namedValue = this.codegenExpr(callee, env);
+        if (calleeTypeValue.type !== "Function") {
+          throw new Error(`Callee is not a function:\n${exprToString(callee)}`);
+        }
+
+        let namedValue:
+          | (LlvmValue & { env: LlvmEnvironment })
+          | null
+          | undefined;
+        if (callee.type === AstType.Variable) {
+          const function_ = this.getLlvmFunctionByName(
+            callee.name,
+            expr.typeArguments,
+            expr.functionArguments,
+            env
+          );
+          namedValue = function_;
+        } else {
+          namedValue = this.codegenExpr(callee, env);
+        }
+
         const functionType = namedValue?.type;
-        if (functionType.type !== "Function") {
+        if (!namedValue || functionType?.type !== "Function") {
           throw new Error(
-            `Function ${JSON.stringify(callee)} not found in namedValues`
+            `Function not found:
+${exprToString(callee)}: ${typeToString(callee.typeValue)}`
           );
         }
+
         if (
           namedValue &&
           functionType &&
@@ -1246,13 +1325,9 @@ export class CodeGenerator {
             env,
           };
         } else {
-          const retVal = this.getLlvmFunction(
-            functionType.id,
-            expr.typeArguments,
-            env
-          ); // this.module.getFunction(functionType.id);
+          const retVal = namedValue; // this.module.getFunction(functionType.id);
           if (!retVal || !retVal.function) {
-            throw new Error(`Function with id "${functionType.id}" not found`);
+            throw new Error(`Function ${functionType.functionName} not found`);
           }
           return {
             value: this.builder.CreateCall(retVal.function.value, args),
@@ -1352,6 +1427,7 @@ export class CodeGenerator {
             value.value,
             expr.expr.typeValue,
             expr.propertyName
+            // env
           ),
           env,
         };
@@ -1414,6 +1490,9 @@ export class CodeGenerator {
       case AstType.Block: {
         const returnValue = this.codegenExprs(expr.exprs, env);
         return { ...returnValue, env };
+      }
+      case AstType.Interface: {
+        return { value: this.unit, type: expr.typeValue, env };
       }
       default:
         throw new Error(`Unknown expression type:\n
