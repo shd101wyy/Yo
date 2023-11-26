@@ -359,17 +359,42 @@ function main() {
 
 code = `
 trait Id<X> {
-  id(x: X): X
+  id(x: X): X;
+  id2(x: X): X;
+}
+`
+
+code = `
+trait Test {
+  test(): i32 {
+    13
+  }
+}
+
+function main() {
+  Test.test()
+}
+`
+
+code = `
+trait Test {
+  add(x: i32, y: i32): i32 {
+    x + y
+  }
+}
+
+function main() {
+  Test.add(3, 4)
 }
 `
 
 const codeGenerator = new CodeGenerator(code);
 
-//// const ir = codeGenerator.getLlvmIr();
-//// console.log(ir);
+const ir = codeGenerator.getLlvmIr();
+console.log(ir);
 
 // write ir to "test.ll" file
-//// writeFileSync("test.ll", ir);
+writeFileSync("test.ll", ir);
 
 // Run "clang ./src/lib.c test.ll -o test"
 // Run "./test"

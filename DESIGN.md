@@ -25,7 +25,7 @@ The **Mo** language is heavily inspired by:
 
 The **Mo** language has a minimal syntax design that looks like TypeScript. **Mo** is strong typed with a robust bidrectional type checker, combined with algebraic effects and an efficient type system. **Mo** has no garbage collector ([Perceus: Garbage Free Reference Counting with Reuse](https://www.microsoft.com/en-us/research/uploads/prod/2020/11/perceus-tr-v1.pdf)).
 
-Please note that **Mo** language is **immutable** by default, and it is not a goal to be a "pure" functional language. Our goal is to be a practical language that is easy to use and easy to learn.
+Please note that **Mo** language does not mean to be a "pure" functional language. Our goal is to be a practical language that is easy to use and easy to learn.
 
 <!-- @import "[TOC]" {cmd="toc" depthFrom=1 depthTo=6 orderedList=false} -->
 
@@ -248,7 +248,7 @@ function main() {
   // If no return type, it is () unit
   const number = 3;
 
-  if (number < 5) {
+  if number < 5 {
     console.log("condition was true");
   } else {
     console.log("condition was false");
@@ -706,7 +706,7 @@ function tryUseMyConsole(): [Console] () {
   with MyConsole {
     log(message) {
       console.log(message);
-      resume(());
+      resume ();
     }
   }
   do useMyConsole("Hello, world!");
@@ -730,7 +730,7 @@ function tryUseMyAff(): [Console] () {
   with MyAff {
     delay(ms) {
       setTimeout(() => {
-        resume(());
+        resume ();
       }, ms);
     }
   }

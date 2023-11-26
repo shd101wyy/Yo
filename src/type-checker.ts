@@ -191,7 +191,7 @@ export type TTypeConstructor = {
 export type TTraitFunction = {
   name: string;
   func: TFunction;
-  body: Expr[];
+  functionExpr?: FunctionExpr;
 };
 
 export type TTrait = {
@@ -2019,10 +2019,16 @@ export function typeToString(type: Type): string {
       } {
   ${type.functions
     .map(
-      ({ name, func }) =>
-        `${name}${typeToString(func).replace(/\)=>\s/, "): ")}`
+      ({ name, func, functionExpr }) =>
+        `${name}${typeToString(func).replace(/\)=>\s/, "): ")}${
+          functionExpr
+            ? ` {\n${functionExpr.body
+                .map((expr) => "    " + exprToString(expr))
+                .join(";\n")}\n  }`
+            : ""
+        }`
     )
-    .join("\n  ")}
+    .join(";\n  ")};
 }`;
     }
     default: {

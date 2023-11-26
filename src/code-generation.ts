@@ -344,7 +344,9 @@ export class CodeGenerator {
   ): LlvmValue & { env: LlvmEnvironment } {
     const theFunction = this.codegenPrototype(expr.prototype);
     if (!theFunction) {
-      throw new Error(`Function ${expr.prototype.functionName} not found`);
+      throw new Error(
+        `(1) Function "${expr.prototype.functionName}" not found`
+      );
     }
 
     const currentBasicBlock = this.builder.GetInsertBlock();
@@ -444,7 +446,7 @@ export class CodeGenerator {
     // verify the function
     if (llvm.verifyFunction(theFunction)) {
       throw new Error(
-        `Function ${expr.prototype.functionName} verification failed`
+        `Function "${expr.prototype.functionName}" verification failed`
       );
     } else {
       console.log(`- Function verified for "${expr.prototype.functionName}"`);
@@ -595,11 +597,13 @@ export class CodeGenerator {
   }
 
   private codegenForPropertyAccess(
-    exprValue: llvm.Value,
-    typeValue: Type,
+    expr: Expr,
+    env: LlvmEnvironment,
     propertyName: string
     // env: LlvmEnvironment
   ): LlvmValue {
+    const typeValue = expr.typeValue;
+    const exprValue = this.codegenExpr(expr, env);
     switch (typeValue.type) {
       case "Record": {
         const propertyTypes = typeValue.properties ?? [];
@@ -616,7 +620,7 @@ export class CodeGenerator {
         const exprPtrType = exprType.getPointerElementType();
         const propertyPtr = this.builder.CreateGEP(
           exprPtrType,
-          exprValue,
+          exprValue.value,
           [
             llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
             llvm.ConstantInt.get(
@@ -637,35 +641,45 @@ export class CodeGenerator {
           value,
         };
       }
-      /*
-      case "Interface": {
-        // Check functions defined in the interface are implemented
-        const interfaceFunctions = typeValue.functions ?? [];
-        const functionIndex = interfaceFunctions.findIndex(
-          (fn) => fn.name === propertyName
+      case "Trait": {
+        // Get the function from the trait
+        if (!exprValue.trait) {
+          throw new Error(`Not a trait:
+
+${exprToString(expr)}
+`);
+        }
+        const trait = exprValue.trait;
+        const functions = trait.functions;
+        const functionIndex = functions.findIndex(
+          (func) => func.name === propertyName
         );
-        if (functionIndex === -1) {
+        console.log(functions, functionIndex, propertyName);
+        if (functionIndex < 0) {
           throw new Error(
-            `Function ${propertyName} not found in ${typeToString(typeValue)}`
+            `Function "${propertyName}" not found in trait:
+
+${exprToString(expr)}
+`
           );
         }
-        const functionType = interfaceFunctions[functionIndex].func;
-        const functionId = functionType.id;
-        const functionTypeArguments = [];
-        const functionValue = this.getLlvmFunctionById(
-          functionId,
-          functionTypeArguments,
-          env
-        );
-        if (!functionValue) {
-          throw new Error(`Function "${functionId}" not found in env.`);
-        }
-        return functionValue;
+        const func = functions[functionIndex];
+        return {
+          type: func.type,
+          value: this.unit,
+          functionExpr: func.functionExpr,
+          function: {
+            typeArguments: [],
+            value: func.value,
+          },
+        };
       }
-      */
       default:
         throw new Error(
-          `Accessors not implemented for ${typeToString(typeValue)}`
+          `Accessors not implemented for:
+
+${typeToString(typeValue)}
+`
         );
     }
   }
@@ -1169,7 +1183,9 @@ export class CodeGenerator {
       case AstType.Extern: {
         const theFunction = this.codegenPrototype(expr.prototype);
         if (!theFunction || !expr.prototype.functionName) {
-          throw new Error(`Function ${expr.prototype.functionName} not found`);
+          throw new Error(
+            `"extern" function "${expr.prototype.functionName}" not found`
+          );
         }
         const closure: LlvmValue = {
           value: this.unit,
@@ -1187,13 +1203,6 @@ export class CodeGenerator {
         // return theFunction;
       }
       case AstType.Variable: {
-        if (expr.typeValue.type === "Function") {
-          console.log(
-            "- AstType.Variable: ",
-            exprToString(expr),
-            typeToString(expr.typeValue)
-          );
-        }
         // TODO: Check if it's a function
         /* if (expr.typeValue.type === "Function") {
           const namedValue =
@@ -1327,7 +1336,9 @@ ${exprToString(callee)}: ${typeToString(callee.typeValue)}`
         } else {
           const retVal = namedValue; // this.module.getFunction(functionType.id);
           if (!retVal || !retVal.function) {
-            throw new Error(`Function ${functionType.functionName} not found`);
+            throw new Error(
+              `(2) Function "${functionType.functionName}" not found`
+            );
           }
           return {
             value: this.builder.CreateCall(retVal.function.value, args),
@@ -1421,14 +1432,8 @@ ${exprToString(callee)}: ${typeToString(callee.typeValue)}`
         return { ...value, env };
       }
       case AstType.PropertyAccess: {
-        const value = this.codegenExpr(expr.expr, env);
         return {
-          ...this.codegenForPropertyAccess(
-            value.value,
-            expr.expr.typeValue,
-            expr.propertyName
-            // env
-          ),
+          ...this.codegenForPropertyAccess(expr.expr, env, expr.propertyName),
           env,
         };
       }
@@ -1491,8 +1496,46 @@ ${exprToString(callee)}: ${typeToString(callee.typeValue)}`
         const returnValue = this.codegenExprs(expr.exprs, env);
         return { ...returnValue, env };
       }
-      case AstType.Interface: {
-        return { value: this.unit, type: expr.typeValue, env };
+      case AstType.Trait: {
+        // Check if the trait functions have default implementations
+        // if yes, then we generate the function
+        const functions: {
+          name: string;
+          type: TFunction;
+          value: llvm.Function;
+          functionExpr: FunctionExpr;
+        }[] = [];
+        for (let i = 0; i < expr.typeValue.functions.length; i++) {
+          const { functionExpr } = expr.typeValue.functions[i];
+          if (functionExpr) {
+            const retVal = this.codegenFunction(functionExpr, env);
+            const theFunction = retVal.function?.value;
+            if (!retVal || !theFunction) {
+              throw new Error(`Function not found`);
+            }
+            functions.push({
+              name: functionExpr.prototype.functionName!,
+              type: functionExpr.typeValue,
+              value: theFunction,
+              functionExpr,
+            });
+          }
+        }
+
+        const value: LlvmValue = {
+          type: expr.typeValue,
+          value: this.unit,
+
+          traitExpr: expr,
+          trait: {
+            functions,
+          },
+        };
+        env = addLlvmEnvironmentNamedValue(env, {
+          name: expr.traitName,
+          value,
+        });
+        return { ...value, env };
       }
       default:
         throw new Error(`Unknown expression type:\n

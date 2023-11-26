@@ -1,13 +1,26 @@
-import { Expr, FunctionExpr } from "./ast";
-import { Type, checkType } from "./type-checker";
+import { Expr, FunctionExpr, TraitExpr } from "./ast";
+import { TFunction, Type, checkType } from "./type-checker";
 
 export type LlvmValue = {
   type: Type;
   value: llvm.Value;
+
+  // for function
   functionExpr?: FunctionExpr;
   function?: {
     typeArguments: Type[];
     value: llvm.Function;
+  };
+
+  // for trait
+  traitExpr?: TraitExpr;
+  trait?: {
+    functions: {
+      name: string;
+      type: TFunction;
+      functionExpr: FunctionExpr;
+      value: llvm.Function;
+    }[];
   };
 };
 
