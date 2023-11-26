@@ -51,7 +51,7 @@ Please note that **Mo** language is **immutable** by default, and it is not a go
       - [for](#for)
   - [Type synonyms](#type-synonyms)
   - [Enum (Tagged Union)](#enum-tagged-union)
-    - [Interface](#interface)
+    - [Traits](#traits)
     - [Pattern Matching](#pattern-matching)
   - [Collections](#collections)
     - [Array](#array)
@@ -375,7 +375,7 @@ enum Option<T> {
 type Option<T> =
   | {_t: @"Some", v: T}
   | {_t: @"None"}
-interface Option<T> {
+trait Option<T> {
   Some(v: T): Option<T> {
     return {_t: @"Some", v: v};
   },
@@ -399,16 +399,16 @@ const anotherHome = V4(v3 = 200);
 const loopback = V6(String.from("::1"))
 ```
 
-### Interface
+### Traits
 
 ```typescript
-interface Summary<T>
+trait Summary<T>
 with Eq<T> { // Type constraint
   summarize(self: T): String;
 }
 
-interface Display<T>
-extends Summary<T> { // Extends another interface
+trait Display<T>
+with Summary<T> { // Type constraint
   display(self: T): String;
 }
 
@@ -419,7 +419,7 @@ type NewsArticle = {
   content: String;
 };
 
-// Implement the interface
+// Implement the trait
 instance Summary<NewsArticle> {
   summarize(self: NewsArticle): String {
     "${self.headline}, by ${self.author} (${self.location})";
@@ -671,7 +671,7 @@ function catchException() {
 ### with `instance`
 
 ```typescript
-interface Show<T> {
+trait Show<T> {
   show(x: T): string;
 }
 

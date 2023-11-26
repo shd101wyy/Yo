@@ -185,15 +185,19 @@ export type TTypeConstructor = {
   typeValue: Type;
 };
 
-export type TInterfaceFunction = {
+/**
+ * NOTE: No free variable (closure) is supported for trait function
+ */
+export type TTraitFunction = {
   name: string;
   func: TFunction;
+  body: Expr[];
 };
 
-export type TInterface = {
-  type: "Interface";
+export type TTrait = {
+  type: "Trait";
   typeParameters: TTypeParameter[];
-  functions: TInterfaceFunction[];
+  functions: TTraitFunction[];
 };
 
 /*
@@ -234,7 +238,7 @@ export type Type =
   //  | TTuple
   | TTypeConstructor
   | TTypeParameter
-  | TInterface
+  | TTrait
   | TPrimitive;
 
 // Type constructors
@@ -814,7 +818,7 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`,
       ...typeValue,
       typeArguments,
     };
-  } else if (typeValue.type === "Interface") {
+  } else if (typeValue.type === "Trait") {
     if (typeValue.typeParameters.length !== typeArguments.length) {
       throw formatErrorMessage({
         token: tokens[returnValue.index],
@@ -891,7 +895,7 @@ export function applyTypeArgumentsToType(
       typeArguments,
       typeParameterToTypeArgumentMap
     );
-  } else if (type.type === "Interface") {
+  } else if (type.type === "Trait") {
     if (type.typeParameters.length !== typeArguments.length) {
       throw new Error(
         `(4) Mismatched type arguments.
@@ -916,7 +920,7 @@ export function applyTypeArgumentsToType(
     }
 
     // apply to each of the functions
-    const functions: TInterfaceFunction[] = type.functions.map(
+    const functions: TTraitFunction[] = type.functions.map(
       ({ name, func }) => ({
         name,
         func: applyTypeArgumentsToType(
@@ -925,10 +929,10 @@ export function applyTypeArgumentsToType(
           typeParameterToTypeArgumentMap
         ),
       })
-    ) as TInterfaceFunction[];
+    ) as TTraitFunction[];
 
     return {
-      type: "Interface",
+      type: "Trait",
       typeParameters: newTypeParameters, // FIXME: <- this might be wrong
       functions: functions,
     };
@@ -2007,14 +2011,17 @@ export function typeToString(type: Type): string {
         .map((typeParameter) => typeToString(typeParameter))
         .join(", ")}>${typeToString(type.typeValue)}`;
     }
-    case "Interface": {
-      return `interface${
+    case "Trait": {
+      return `trait${
         type.typeParameters.length
           ? `<${type.typeParameters.map(typeToString).join(",")}>`
           : ""
       } {
   ${type.functions
-    .map(({ name, func }) => `${name}: ${typeToString(func)}`)
+    .map(
+      ({ name, func }) =>
+        `${name}${typeToString(func).replace(/\)=>\s/, "): ")}`
+    )
     .join("\n  ")}
 }`;
     }
@@ -2059,10 +2066,6 @@ export function checkType(
     } else {
       return checkType(expectedType.typeValue, givenType, env);
     }
-  } else if (expectedType.type === "Interface") {
-    return checkTypeImplementsInterface(givenType, expectedType, env);
-  } else if (givenType.type === "Interface") {
-    return checkTypeImplementsInterface(expectedType, givenType, env);
   }
 
   const expectedTypeType = expectedType.type;
@@ -2105,25 +2108,6 @@ export function checkType(
   } else {
     return false;
   }
-}
-
-function checkTypeImplementsInterface(
-  type: Type,
-  interfaceType: TInterface,
-  env: Environment
-) {
-  const interfaceFunctions = interfaceType.functions;
-  const allImplemented = interfaceFunctions.every(({ name, func }) => {
-    const matchedFunctions = getFunctionsOfCallerFromEnv(type, name, env);
-    if (matchedFunctions.length === 0) {
-      return false;
-    }
-    // Find the function in matchedFunctions that matches the func
-    return !!matchedFunctions.some((matchedFunction) =>
-      checkType(func, matchedFunction.type, env)
-    );
-  });
-  return allImplemented;
 }
 
 function checkRecordExactMatchType(

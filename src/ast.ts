@@ -2,8 +2,8 @@ import { Environment, ValueType } from "./env";
 import { Token, TokenType } from "./token";
 import {
   TFunction,
-  TInterface,
   TPrimitive,
+  TTrait,
   TUnit,
   Type,
   typeToString,
@@ -28,7 +28,7 @@ export enum AstType {
   LetAssignment = "let=",
   Assignment = "=",
   TypeAlias = "type=",
-  Interface = "interface",
+  Trait = "trait",
 
   // parameters
   TypeParameter = "type-parameter",
@@ -75,7 +75,7 @@ export type Expr =
   | ExternExpr
   | AssignmentExpr
   | TypeAliasExpr
-  | InterfaceExpr
+  | TraitExpr
   | UnaryOperatorExpr
   | BinaryOperatorExpr
   | VariableExpr
@@ -191,10 +191,10 @@ export type TypeAliasExpr = {
   env: Environment;
 };
 
-export type InterfaceExpr = {
-  type: AstType.Interface;
-  interfaceName: string;
-  typeValue: TInterface;
+export type TraitExpr = {
+  type: AstType.Trait;
+  traitName: string;
+  typeValue: TTrait;
   env: Environment;
 };
 
@@ -325,9 +325,10 @@ export function exprToString(expr: Expr | FunctionPrototype) {
       return `const ${expr.variableName} = ${exprToString(expr.right)}`;
     case AstType.TypeAlias:
       return `type ${expr.typeName} = ${typeToString(expr.typeValue)}`;
-    case AstType.Interface:
-      return `interface ${expr.interfaceName} = ${typeToString(
-        expr.typeValue
+    case AstType.Trait:
+      return `trait ${expr.traitName}${typeToString(expr.typeValue).replace(
+        /^trait/,
+        ""
       )}`;
     case AstType.Function:
       return `${

@@ -30,9 +30,9 @@ import { Token, TokenType } from "./token";
 import {
   ParserReturn,
   TFunction,
-  TInterface,
-  TInterfaceFunction,
   TSlice,
+  TTrait,
+  TTraitFunction,
   TTypeConstructor,
   TTypeParameter,
   Type,
@@ -412,7 +412,7 @@ export default class Parser {
           index: index + 1,
         };
       }
-    } else if (callerType.type === "Interface") {
+    } else if (callerType.type === "Trait") {
       const func = callerType.functions.find(
         (property) => property.name === token.value
       );
@@ -1124,7 +1124,7 @@ Got:      (${functionArguments
         (valueType) => valueType.type.type === "Function"
       );
       const matchedInterfaces = valueTypes.filter(
-        (valueType) => valueType.type.type === "Interface"
+        (valueType) => valueType.type.type === "Trait"
       );
 
       if (matchedInterfaces.length > 0) {
@@ -1135,17 +1135,17 @@ Got:      (${functionArguments
             `Ambiguous interfaces ${identifier}
 Found possible interfaces:
 - ${matchedInterfaces
-              .map((interfaceType) => typeToString(interfaceType.type))
+              .map((traitType) => typeToString(traitType.type))
               .join("\n- ")}
             `
           );
         } else {
           const interface2 = matchedInterfaces[0];
-          const interfaceType = interface2.type;
-          if (interfaceType.type !== "Interface") {
+          const traitType = interface2.type;
+          if (traitType.type !== "Trait") {
             throw this.formatErrorMessage(
               tokens[index],
-              `Expected interface, but got ${typeToString(interfaceType)}`
+              `Expected interface, but got ${typeToString(traitType)}`
             );
           }
           let typeArguments: Type[] = [];
@@ -1171,10 +1171,10 @@ Found possible interfaces:
             );
           }
           const newInterfaceType = applyTypeArgumentsToType(
-            interfaceType,
+            traitType,
             typeArguments
           );
-          if (newInterfaceType.type !== "Interface") {
+          if (newInterfaceType.type !== "Trait") {
             throw this.formatErrorMessage(
               tokens[index],
               `Expected interface type, but got ${typeToString(
@@ -1185,8 +1185,8 @@ Found possible interfaces:
             console.log("newInterfaceType: ", typeToString(newInterfaceType));
             return {
               expr: {
-                type: AstType.Interface,
-                interfaceName: identifier,
+                type: AstType.Trait,
+                traitName: identifier,
                 typeValue: newInterfaceType,
                 env,
               },
@@ -2156,7 +2156,7 @@ Got:      ${typeToString(variableType)}`
           index: nextIndex,
         };
       }
-      case "Interface": {
+      case "Trait": {
         // Take the interface functions out to env
         for (const func of typeValue.functions) {
           env = addEnvValueType(env, {
@@ -2295,23 +2295,23 @@ Got:      ${typeToString(variableType)}`
 
   /**
    *
-   * interface ::= "interface" identifier typeParameters? "{" functionPrototype* "}"
-   *           ::= "interface" identifier typeParameters? "extends" interfaceType "{" functionPrototype* "}"
+   * trait ::= "trait" identifier typeParameters? "{" functionPrototype* "}"
+   *           ::= "trait" identifier typeParameters? "with" traitType "{" functionPrototype* "}"
    *
    * @param tokens
    * @param index
    * @param env
    * @returns
    */
-  private parseInterface(
+  private parseTrait(
     tokens: Token[],
     index: number,
     env: Environment
   ): ParserReturn {
-    if (tokens[index].type !== TokenType.Interface) {
+    if (tokens[index].type !== TokenType.Trait) {
       throw this.formatErrorMessage(
         tokens[index],
-        'Expected "interface" for interface'
+        'Expected "trait" for interface'
       );
     }
 
@@ -2322,16 +2322,16 @@ Got:      ${typeToString(variableType)}`
         "Expected identifier for interface"
       );
     }
-    const interfaceName = tokens[index].value;
+    const traitName = tokens[index].value;
     index = index + 1;
 
     // NOTE: This is necessary for type parameters and recursive type alias
     env = pushEnvFrame(env);
     env = addEnvValueType(env, {
-      variableName: interfaceName,
+      variableName: traitName,
       type: {
         type: "unknown",
-        typeName: interfaceName,
+        typeName: traitName,
       },
       kind: "type",
     });
@@ -2355,8 +2355,12 @@ Got:      ${typeToString(variableType)}`
       env = nextEnv;
     }
 
+    // NOTE: `extends` doesn't work for trait.
+    // Should use `with` instead.
+    const functions: TTraitFunction[] = [];
+    /*
     // extends other interface
-    const interfaceTypes: TInterface[] = [];
+    const interfaceTypes: TTrait[] = [];
     if (tokens[index].type === TokenType.Extends) {
       index = index + 1;
 
@@ -2364,7 +2368,7 @@ Got:      ${typeToString(variableType)}`
         const {
           env: nextEnv,
           index: nextIndex,
-          typeValue: interfaceType,
+          typeValue: traitType,
         } = synthesizeTypeFromTokens({
           tokens,
           index,
@@ -2372,13 +2376,13 @@ Got:      ${typeToString(variableType)}`
           env,
           parseExpression: this.parseExpression.bind(this),
         });
-        if (interfaceType.type !== "Interface") {
+        if (traitType.type !== "Trait") {
           throw this.formatErrorMessage(
             tokens[index],
-            "Expected interface type, but got " + typeToString(interfaceType)
+            "Expected interface type, but got " + typeToString(traitType)
           );
         }
-        interfaceTypes.push(interfaceType);
+        interfaceTypes.push(traitType);
         index = nextIndex;
         env = nextEnv;
 
@@ -2390,13 +2394,13 @@ Got:      ${typeToString(variableType)}`
         }
       }
     }
-    const functions: TInterfaceFunction[] = [];
     /// Add functions from extended interfaces
-    for (const interfaceType of interfaceTypes) {
-      for (const func of interfaceType.functions) {
+    for (const traitType of interfaceTypes) {
+      for (const func of traitType.functions) {
         functions.push(func);
       }
     }
+    */
 
     // Parse interface body
     if (tokens[index].type !== TokenType.LCurlyBracket) {
@@ -2416,82 +2420,77 @@ Got:      ${typeToString(variableType)}`
         continue;
       }
 
+      // NOTE: We don't allow function declaration like `id: (...)=> ...` format in trait
       if (
         tokens[index].type === TokenType.Identifier &&
         tokens[index + 1]?.type === TokenType.Colon
       ) {
-        const functionName = tokens[index].value;
-        index = index + 2;
-        const {
-          env: nextEnv,
-          index: nextIndex,
-          typeValue: nextFunctionType,
-        } = synthesizeFunctionTypeFromTokens({
-          tokens,
-          index,
-          inputString: this.inputString,
-          env,
-          parseExpression: this.parseExpression.bind(this),
-          withFunctionBody: false,
-          functionName,
-        });
-        index = nextIndex;
-        env = nextEnv;
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Please define functions in "trait" like below:
 
-        if (nextFunctionType.typeParameters.length) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Type parameters are not allowed in interface function as it uses the type parameters defined in the interface itself"
-          );
-        } else {
-          // nextFunctionType.typeParameters = typeParameters;
-        }
-
-        functions.push({
-          name: functionName,
-          func: nextFunctionType,
-        });
-      } else {
-        // Parse function prototype
-        const {
-          prototype,
-          index: nextIndex,
-          env: nextEnv,
-        } = this.parsePrototype({
-          tokens,
-          index,
-          env,
-          requireFunctionName: true,
-          withFunctionBody: true, // NOTE: We need to set it to `true` even though `extern` function has no function body
-        });
-        index = nextIndex;
-        env = nextEnv;
-        if (!prototype) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Expected function prototype"
-          );
-        }
-
-        if (prototype.typeValue.typeParameters.length) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Type parameters are not allowed in interface function as it uses the type parameters defined in the interface itself"
-          );
-        } else {
-          // prototype.typeValue.typeParameters = typeParameters;
-        }
-
-        // Add function prototype to interface
-        functions.push({
-          name: prototype.functionName!,
-          func: prototype.typeValue,
-        });
+trait Show<T> {
+  show(x: T): string
+}
+`
+        );
       }
+
+      // Parse function prototype
+      const {
+        prototype,
+        index: nextIndex,
+        env: nextEnv,
+      } = this.parsePrototype({
+        tokens,
+        index,
+        env,
+        requireFunctionName: true,
+        withFunctionBody: true, // NOTE: We need to set it to `true` even though `extern` function has no function body
+      });
+      index = nextIndex;
+      env = nextEnv;
+      if (!prototype) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected function prototype"
+        );
+      }
+      const functionType = prototype.typeValue;
+      if (functionType.typeParameters.length > 0) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Type parameters are not allowed in trait functions as it uses the type parameters defined in the trait itself:
+
+${typeToString(functionType)}
+`
+        );
+      }
+
+      // Check if the function has a body
+      const body: Expr[] = [];
+      if (tokens[index].type === TokenType.LCurlyBracket) {
+        const { expr, index: nextIndex } = this.parseBlockExpressions(
+          tokens,
+          index,
+          env,
+          false
+        );
+        body.push(...expr.exprs);
+        index = nextIndex;
+        env = expr.env;
+      }
+
+      // functionType.typeParameters = typeParameters; // NOTE: This is wrong
+      functions.push({
+        name: functionType.functionName!,
+        func: functionType,
+        body,
+      });
     }
 
-    const interfaceType: TInterface = {
-      type: "Interface",
+    const traitType: TTrait = {
+      type: "Trait",
       typeParameters,
       functions,
     };
@@ -2500,8 +2499,8 @@ Got:      ${typeToString(variableType)}`
     env = addEnvValueType(
       env,
       {
-        variableName: interfaceName,
-        type: interfaceType,
+        variableName: traitName,
+        type: traitType,
         kind: "value", // NOTE: Interface is a value, not a type
       },
       -1
@@ -2510,9 +2509,9 @@ Got:      ${typeToString(variableType)}`
     env = popEnvFrame(env);
     return {
       expr: {
-        type: AstType.Interface,
-        interfaceName,
-        typeValue: interfaceType,
+        type: AstType.Trait,
+        traitName,
+        typeValue: traitType,
         env,
       },
       index,
@@ -2627,8 +2626,8 @@ Got:      ${typeToString(variableType)}`
           env = expr.env;
           break;
         }
-        case TokenType.Interface: {
-          const { expr, index: nextIndex } = this.parseInterface(
+        case TokenType.Trait: {
+          const { expr, index: nextIndex } = this.parseTrait(
             tokens,
             index,
             env

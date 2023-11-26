@@ -580,9 +580,9 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
-            case "interface":
+            case "trait":
               tokens.push({
-                type: TokenType.Interface,
+                type: TokenType.Trait,
                 value,
                 position: { line, character: i - totalCharacters },
               });
