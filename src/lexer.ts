@@ -587,6 +587,13 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            case "instance":
+              tokens.push({
+                type: TokenType.Instance,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
             case "extends":
               tokens.push({
                 type: TokenType.Extends,

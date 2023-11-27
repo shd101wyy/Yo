@@ -13,8 +13,15 @@ export type LlvmValue = {
   };
 
   // for trait
+  /**
+   * If traitExpr is not undefined, then it's a trait definition.
+   */
   traitExpr?: TraitExpr;
+  /**
+   * If trait is not undefined, then it's a trait implementation, aka instance.
+   */
   trait?: {
+    typeArguments: Type[];
     functions: {
       name: string;
       type: TFunction;

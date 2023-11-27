@@ -388,6 +388,60 @@ function main() {
 }
 `
 
+code = ` // TODO: Try this <-
+trait Test {
+  add(x: i32, y: i32): i32 {
+    x + y
+  }
+}
+
+function main() {
+  with Test;
+  add(3, 4)
+}
+`
+
+code = `
+trait Id<X> {
+  id(x: X): X;
+}
+
+instance Id<i32> {
+  id(x: i32): i32 {
+    x
+  }
+}
+`
+
+code = `
+trait Id<X> {
+  id(x: X): X {
+    const y: X = x;
+    y
+  }
+}
+
+function main() {
+  // Id<f32>.id(3.2);
+  Id<i32>.id(3) + Id<i32>.id(4)
+}
+`
+
+code = `
+trait Id<X> {
+  id(x: X): X {
+    const y: X = x;
+    y
+  }
+}
+
+function main() {
+  const x = Id<i32>.id(3);
+  const y = Id<i32>.id(4);
+  x + y
+}
+`
+
 const codeGenerator = new CodeGenerator(code);
 
 const ir = codeGenerator.getLlvmIr();

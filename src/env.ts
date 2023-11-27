@@ -1,10 +1,12 @@
 import { Type } from "./type-checker";
 
+type ValueTypeKind = "type" | "value" | "trait";
+
 export type ValueType = {
   // id: string; // NOTE: The `id` here doesn't really help in generic function
   variableName: string;
   type: Type;
-  kind: "type" | "value";
+  kind: ValueTypeKind;
   /* referenceCount of the value inside current frame */
   // referenceCount: number;
   /**
@@ -42,7 +44,7 @@ function setFrameLlvmValue(
 function getFrameValueTypesByVariableName(
   frame: Frame,
   variableName: string,
-  kind?: "value" | "type"
+  kind?: ValueTypeKind
 ): ValueType[] {
   return frame.filter(
     (valueType) =>
@@ -149,7 +151,7 @@ export function setEnvLlvmValue(
 export function getEnvValueTypesByVariableName(
   env: Environment,
   variableName: string,
-  kind?: "value" | "type"
+  kind?: ValueTypeKind
 ): ValueType[] {
   const valueTypes: ValueType[] = [];
   for (let i = 0; i < env.frames.length; i++) {

@@ -275,7 +275,7 @@ export class CodeGenerator {
         functionExpr,
         typeArguments
       );
-      console.log("- newFunctionExpr: ", exprToString(newFunctionExpr));
+      // console.log("- newFunctionExpr: ", exprToString(newFunctionExpr));
       const retVal = this.codegenFunction(newFunctionExpr, env, typeArguments);
       return retVal;
     }
@@ -654,7 +654,6 @@ ${exprToString(expr)}
         const functionIndex = functions.findIndex(
           (func) => func.name === propertyName
         );
-        console.log(functions, functionIndex, propertyName);
         if (functionIndex < 0) {
           throw new Error(
             `Function "${propertyName}" not found in trait:
@@ -694,14 +693,10 @@ ${typeToString(typeValue)}
     const exprs = expr;
     for (let i = 0; i < exprs.length; i++) {
       const expr = exprs[i];
-      if (expr instanceof Array) {
-        llvmValue = this.codegenExpr(expr, env);
-      } else {
-        if (expr.type === AstType.TypeAlias) {
-          continue;
-        }
-        llvmValue = this.codegenExpr(expr, env);
+      if (expr.type === AstType.TypeAlias) {
+        continue;
       }
+      llvmValue = this.codegenExpr(expr, env);
       env = llvmValue.env;
     }
     return llvmValue;
@@ -1007,7 +1002,8 @@ ${typeToString(typeValue)}
       case AstType.BinaryOperator: {
         const typeValue = expr.typeValue;
         const lhs = this.codegenExpr(expr.left, env);
-        const rhs = this.codegenExpr(expr.right, env);
+        const rhs = this.codegenExpr(expr.right, lhs.env);
+        env = rhs.env;
 
         // TODO: Better logic
         if (
@@ -1233,11 +1229,9 @@ ${typeToString(typeValue)}
       case AstType.CallFunction: {
         const callee = expr.callee;
         const calleeTypeValue = callee.typeValue;
-        console.log(
-          "callee: ",
-          exprToString(callee),
-          typeToString(callee.typeValue)
-        );
+        console.log("callee: ");
+        console.log("  - expr: ", exprToString(callee));
+        console.log("  - type: ", typeToString(callee.typeValue));
         console.log("expr: ", exprToString(expr));
 
         // NOTE: Function argument types check is done in the parser.ts stage.
@@ -1263,6 +1257,7 @@ ${typeToString(typeValue)}
           namedValue = function_;
         } else {
           namedValue = this.codegenExpr(callee, env);
+          env = namedValue.env; // NOTE: This is necessary
         }
 
         const functionType = namedValue?.type;
@@ -1425,7 +1420,7 @@ ${exprToString(callee)}: ${typeToString(callee.typeValue)}`
       }
       case AstType.ConstantAssigment: {
         const value = this.codegenExpr(expr.right, env);
-        env = addLlvmEnvironmentNamedValue(env, {
+        env = addLlvmEnvironmentNamedValue(value.env, {
           name: expr.variableName,
           value,
         });
@@ -1497,45 +1492,84 @@ ${exprToString(callee)}: ${typeToString(callee.typeValue)}`
         return { ...returnValue, env };
       }
       case AstType.Trait: {
-        // Check if the trait functions have default implementations
-        // if yes, then we generate the function
-        const functions: {
-          name: string;
-          type: TFunction;
-          value: llvm.Function;
-          functionExpr: FunctionExpr;
-        }[] = [];
-        for (let i = 0; i < expr.typeValue.functions.length; i++) {
-          const { functionExpr } = expr.typeValue.functions[i];
-          if (functionExpr) {
-            const retVal = this.codegenFunction(functionExpr, env);
-            const theFunction = retVal.function?.value;
-            if (!retVal || !theFunction) {
-              throw new Error(`Function not found`);
+        const traitTypeArguments = expr.typeArguments;
+        if (traitTypeArguments === undefined) {
+          // This is trait definition
+          const value: LlvmValue = {
+            type: expr.typeValue,
+            value: this.unit,
+
+            traitExpr: expr,
+            trait: undefined,
+          };
+          env = addLlvmEnvironmentNamedValue(env, {
+            name: expr.traitName,
+            value,
+          });
+          return { ...value, env };
+        } else {
+          // Check if the trait instance with the same typeArguments already exists
+          const traitInstance = env.find(
+            ({ name, value }) =>
+              name === expr.traitName &&
+              value.type.type === "Trait" &&
+              value.trait?.typeArguments &&
+              value.trait.typeArguments.length === traitTypeArguments.length &&
+              value.trait.typeArguments.every((typeArgument, i) => {
+                return (
+                  JSON.stringify(typeArgument.type) ===
+                  JSON.stringify(traitTypeArguments[i].type)
+                );
+              })
+          );
+          console.log("- traitInstance: ", !!traitInstance);
+          console.log("- env: ", env);
+          if (traitInstance) {
+            return { ...traitInstance.value, env };
+          } else {
+            // Check if the trait functions have default implementations
+            // if yes, then we generate the function
+            const functions: {
+              name: string;
+              type: TFunction;
+              value: llvm.Function;
+              functionExpr: FunctionExpr;
+            }[] = [];
+            for (let i = 0; i < expr.typeValue.functions.length; i++) {
+              const { functionExpr } = expr.typeValue.functions[i];
+              if (functionExpr) {
+                const retVal = this.codegenFunction(functionExpr, env);
+                const theFunction = retVal.function?.value;
+                if (!retVal || !theFunction) {
+                  throw new Error(`Function not found`);
+                }
+                functions.push({
+                  name: functionExpr.prototype.functionName!,
+                  type: functionExpr.typeValue,
+                  value: theFunction,
+                  functionExpr,
+                });
+              }
             }
-            functions.push({
-              name: functionExpr.prototype.functionName!,
-              type: functionExpr.typeValue,
-              value: theFunction,
-              functionExpr,
+
+            const value: LlvmValue = {
+              type: expr.typeValue,
+              value: this.unit,
+
+              traitExpr: expr,
+              trait: {
+                typeArguments: traitTypeArguments,
+                functions,
+              },
+            };
+            env = addLlvmEnvironmentNamedValue(env, {
+              name: expr.traitName,
+              value,
             });
+            console.log("- env2: ", env);
+            return { ...value, env };
           }
         }
-
-        const value: LlvmValue = {
-          type: expr.typeValue,
-          value: this.unit,
-
-          traitExpr: expr,
-          trait: {
-            functions,
-          },
-        };
-        env = addLlvmEnvironmentNamedValue(env, {
-          name: expr.traitName,
-          value,
-        });
-        return { ...value, env };
       }
       default:
         throw new Error(`Unknown expression type:\n

@@ -1101,7 +1101,10 @@ Got:      (${functionArguments
     const identifier = tokens[index].value;
 
     // Check if variable is defined
-    const valueTypes = getEnvValueTypesByVariableName(env, identifier, "value");
+    const valueTypes = [
+      ...getEnvValueTypesByVariableName(env, identifier, "value"),
+      ...getEnvValueTypesByVariableName(env, identifier, "trait"),
+    ];
     if (valueTypes.length === 0) {
       throw this.formatErrorMessage(
         tokens[index],
@@ -1179,12 +1182,12 @@ Found possible traits:
               `Expected trait type, but got ${typeToString(newTraitType)}`
             );
           } else {
-            console.log("newTraitType: ", typeToString(newTraitType));
             return {
               expr: {
                 type: AstType.Trait,
                 traitName: identifier,
                 typeValue: newTraitType,
+                typeArguments: typeArguments,
                 env,
               },
               index,
@@ -2512,7 +2515,7 @@ ${typeToString(functionType)}
       {
         variableName: traitName,
         type: traitType,
-        kind: "value", // NOTE: Trait is a value, not a type
+        kind: "trait",
       },
       -1
     );
@@ -2523,6 +2526,7 @@ ${typeToString(functionType)}
         type: AstType.Trait,
         traitName,
         typeValue: traitType,
+        typeArguments: undefined, // Defining trait doesn't have type arguments
         env,
       },
       index,

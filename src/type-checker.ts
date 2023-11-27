@@ -921,13 +921,20 @@ export function applyTypeArgumentsToType(
 
     // apply to each of the functions
     const functions: TTraitFunction[] = type.functions.map(
-      ({ name, func }) => ({
+      ({ name, func, functionExpr }) => ({
         name,
         func: applyTypeArgumentsToType(
           func,
           [], // FIXME: This could be wrong
           typeParameterToTypeArgumentMap
         ),
+        functionExpr: functionExpr
+          ? applyTypeArgumentsToExpr(
+              functionExpr,
+              [],
+              typeParameterToTypeArgumentMap
+            )
+          : undefined,
       })
     ) as TTraitFunction[];
 
@@ -1064,7 +1071,8 @@ export function applyTypeArgumentsToType(
 
 export function applyTypeArgumentsToFunctionExpr(
   expr: FunctionExpr,
-  typeArguments: Type[]
+  typeArguments: Type[],
+  typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
 ): FunctionExpr {
   const typeParameters = expr.typeValue.typeParameters;
   if (typeParameters.length !== typeArguments.length) {
@@ -1080,7 +1088,7 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`
     );
   }
   // set typeParameterToTypeArgumentMap
-  const typeParameterToTypeArgumentMap: { [key: string]: Type } = {};
+  // const typeParameterToTypeArgumentMap: { [key: string]: Type } = {};
   for (let i = 0; i < expr.typeValue.typeParameters.length; i++) {
     const typeParameter = expr.typeValue.typeParameters[i];
     const typeArgument = typeArguments[i];
@@ -1170,7 +1178,11 @@ export function applyTypeArgumentsToExpr(
       }
     }
     case AstType.Function: {
-      return applyTypeArgumentsToFunctionExpr(expr, typeArguments);
+      return applyTypeArgumentsToFunctionExpr(
+        expr,
+        typeArguments,
+        typeParameterToTypeArgumentMap
+      );
     }
     case AstType.ConstantAssigment: {
       return {

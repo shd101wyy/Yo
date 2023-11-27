@@ -195,6 +195,11 @@ export type TraitExpr = {
   type: AstType.Trait;
   traitName: string;
   typeValue: TTrait;
+  /**
+   * If typeArguments is undefined, then it's a trait definition.
+   * If typeArguments is defined, then it's a trait implementation, aka instance.
+   */
+  typeArguments?: Type[];
   env: Environment;
 };
 
@@ -322,10 +327,20 @@ export function exprToString(expr: Expr | FunctionPrototype) {
     case AstType.UnaryOperator:
       return `${expr.operator}${exprToString(expr.expr)}`;
     case AstType.ConstantAssigment:
-      return `const ${expr.variableName} = ${exprToString(expr.right)}`;
+      return `const ${expr.variableName}: ${typeToString(
+        expr.variableType
+      )} = ${exprToString(expr.right)}`;
     case AstType.TypeAlias:
       return `type ${expr.typeName} = ${typeToString(expr.typeValue)}`;
     case AstType.Trait:
+      if (expr.typeArguments) {
+        return `${expr.traitName}${
+          expr.typeArguments.length > 0
+            ? `<${expr.typeArguments.map(typeToString).join(", ")}>`
+            : ""
+        }`;
+      }
+
       return `trait ${expr.traitName}${typeToString(expr.typeValue).replace(
         /^trait/,
         ""
@@ -344,7 +359,12 @@ export function exprToString(expr: Expr | FunctionPrototype) {
         .join(", ")}):${typeToString(expr.prototype.typeValue.returnType)} ${
         expr.prototype.functionName ? "" : " => "
       } {\n${expr.body
-        .map((expr) => "  " + exprToString(expr))
+        .map((expr) =>
+          exprToString(expr)
+            .split("\n")
+            .map((l) => "  " + l)
+            .join("\n")
+        )
         .join(";\n")}\n}`;
     case AstType.CallFunction:
       return `${exprToString(expr.callee)}${
@@ -362,7 +382,12 @@ export function exprToString(expr: Expr | FunctionPrototype) {
       return ``;
     case AstType.Block: {
       return `{\n${expr.exprs
-        .map((expr) => "    " + exprToString(expr))
+        .map((expr) =>
+          exprToString(expr)
+            .split("\n")
+            .map((l) => "  " + l)
+            .join("\n")
+        )
         .join(";\n")}
   }`;
     }
