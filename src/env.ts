@@ -22,25 +22,6 @@ function addFrameValueType(frame: Frame, valueType: ValueType): Frame {
   return [...frame, valueType];
 }
 
-/*
-function setFrameLlvmValue(
-  frame: Frame,
-  id: string,
-  llvmValue: ValueTypeLlvmValue
-) {
-  return frame.map((valueType) => {
-    if (valueType.id === id) {
-      return {
-        ...valueType,
-        llvmValue,
-      };
-    } else {
-      return valueType;
-    }
-  });
-}
-*/
-
 function getFrameValueTypesByVariableName(
   frame: Frame,
   variableName: string,
@@ -88,24 +69,6 @@ export function popEnvFrame(env: Environment): Environment {
   };
 }
 
-function GetVariableId() {
-  const variableNameCounter: { [key: string]: number } = {};
-  return (variableName: string) => {
-    if (variableName in variableNameCounter) {
-      variableNameCounter[variableName] = variableNameCounter[variableName] + 1;
-    } else {
-      variableNameCounter[variableName] = 0;
-    }
-    const counter = variableNameCounter[variableName];
-    if (counter === 0) {
-      return variableName;
-    } else {
-      return variableName + "_" + counter;
-    }
-  };
-}
-export const getEnvVariableId = GetVariableId();
-
 export function addEnvValueType(
   env: Environment,
   valueType: Omit<ValueType, "frameLevel">,
@@ -130,23 +93,6 @@ export function addEnvFreeVariable(env: Environment, valueType: ValueType) {
     frames: env.frames,
   };
 }
-
-/*
-export function setEnvLlvmValue(
-  env: Environment,
-  id: string,
-  llvmValue: ValueTypeLlvmValue
-): Environment {
-  const newFrames = env.frames.map((frame) =>
-    setFrameLlvmValue(frame, id, llvmValue)
-  );
-  return {
-    functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
-    freeVariables: env.freeVariables,
-    frames: newFrames,
-  };
-}
-*/
 
 export function getEnvValueTypesByVariableName(
   env: Environment,

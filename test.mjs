@@ -414,16 +414,21 @@ instance Id<i32> {
 `
 
 code = `
-trait Id<X> {
-  id(x: X): X {
-    const y: X = x;
-    y
-  }
+function id<X>(x: X): X {
+  x
+}
+
+function test1() {
+  id<i32>(3)
+}
+
+function test2() {
+  id<i32>(4)
 }
 
 function main() {
-  // Id<f32>.id(3.2);
-  Id<i32>.id(3) + Id<i32>.id(4)
+  test1();
+  test2()
 }
 `
 
@@ -435,10 +440,29 @@ trait Id<X> {
   }
 }
 
+function test1() {
+  Id<i32>.id(3)
+}
+function test2() {
+  Id<i32>.id(4)
+}
+
 function main() {
-  const x = Id<i32>.id(3);
-  const y = Id<i32>.id(4);
-  x + y
+  test1();
+  test2()
+}
+`
+code = `
+trait Id<X> {
+  id(x: X): X {
+    const y: X = x;
+    y
+  }
+}
+
+function main() {
+  Id<f32>.id(3.2);
+  Id<i32>.id(3) + Id<i32>.id(4)
 }
 `
 

@@ -24,7 +24,7 @@ export enum AstType {
   UnaryOperator = "unop",
 
   // assignment
-  ConstantAssigment = "const=",
+  ConstantAssignment = "const=",
   LetAssignment = "let=",
   Assignment = "=",
   TypeAlias = "type=",
@@ -175,7 +175,7 @@ export type TypeValueExpr = {
 */
 
 export type AssignmentExpr = {
-  type: AstType.ConstantAssigment; // | AstType.LetAssignment; // | AstType.Assignment;
+  type: AstType.ConstantAssignment; // | AstType.LetAssignment; // | AstType.Assignment;
   variableName: string;
   variableType: Type;
   frameLevel: number;
@@ -201,6 +201,10 @@ export type TraitExpr = {
    */
   typeArguments?: Type[];
   env: Environment;
+  /**
+   * If it's a trait definition or instance definition, then isDefinition is true.
+   */
+  isDefinition: boolean;
 };
 
 export type FunctionPrototype = {
@@ -326,16 +330,16 @@ export function exprToString(expr: Expr | FunctionPrototype) {
       )}`;
     case AstType.UnaryOperator:
       return `${expr.operator}${exprToString(expr.expr)}`;
-    case AstType.ConstantAssigment:
+    case AstType.ConstantAssignment:
       return `const ${expr.variableName}: ${typeToString(
         expr.variableType
       )} = ${exprToString(expr.right)}`;
     case AstType.TypeAlias:
       return `type ${expr.typeName} = ${typeToString(expr.typeValue)}`;
     case AstType.Trait:
-      if (expr.typeArguments) {
+      if (!expr.isDefinition) {
         return `${expr.traitName}${
-          expr.typeArguments.length > 0
+          expr.typeArguments && expr.typeArguments.length > 0
             ? `<${expr.typeArguments.map(typeToString).join(", ")}>`
             : ""
         }`;

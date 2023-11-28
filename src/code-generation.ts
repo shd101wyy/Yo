@@ -12,11 +12,14 @@ import { tokenize } from "./lexer";
 import {
   LlvmEnvironment,
   LlvmValue,
-  addLlvmEnvironmentNamedValue,
+  addLlvmEnvValue,
   copyLlvmEnvironment,
-  getLlvmEnvironmentNamedValuesByName,
+  getLlvmEnvValuesByName,
   getLlvmFunctionByNameAndTypeArgumentsAndArguments,
-  getLlvmFunctionTemplateByName,
+  getLlvmFunctionExprByName,
+  getLlvmTraitInstanceByNameAndTypeArguments,
+  popLlvmEnvFrame,
+  pushLlvmEnvFrame,
 } from "./llvm-env";
 import Parser from "./parser";
 import { Token } from "./token";
@@ -256,26 +259,24 @@ export class CodeGenerator {
       functionArguments
     );
     if (matchedFunction) {
-      return { ...matchedFunction.value, env };
+      return { ...matchedFunction, env };
     }
 
     // Not found, check if the function is defined:
-    const definedFunction = getLlvmFunctionTemplateByName(
+    const definedFunctionExpr = getLlvmFunctionExprByName(
       env,
       functionName,
       typeArguments,
       functionArguments
     );
-    if (!definedFunction || !definedFunction.value.functionExpr) {
+    if (!definedFunctionExpr) {
       return null;
     } else {
       // Generate the llvm function
-      const functionExpr = definedFunction.value.functionExpr;
       const newFunctionExpr = applyTypeArgumentsToFunctionExpr(
-        functionExpr,
+        definedFunctionExpr,
         typeArguments
       );
-      // console.log("- newFunctionExpr: ", exprToString(newFunctionExpr));
       const retVal = this.codegenFunction(newFunctionExpr, env, typeArguments);
       return retVal;
     }
@@ -354,7 +355,7 @@ export class CodeGenerator {
     this.builder.SetInsertPoint(entryBB);
 
     // Record the function parameters in the namedValues map
-    let newEnv: LlvmEnvironment = copyLlvmEnvironment(env);
+    let nextEnv: LlvmEnvironment = pushLlvmEnvFrame(copyLlvmEnvironment(env));
     for (let i = 0; i < theFunction.arg_size(); i++) {
       const arg = theFunction.getArg(i);
       if (
@@ -394,21 +395,19 @@ export class CodeGenerator {
             freeVariablePtr,
             freeVariableName
           );
-          newEnv = addLlvmEnvironmentNamedValue(newEnv, {
-            name: freeVariable.variableName,
-            value: {
-              type: freeVariable.type,
-              value: freeVariableValue,
-            },
+          nextEnv = addLlvmEnvValue(nextEnv, {
+            variableName: freeVariable.variableName,
+            type: freeVariable.type,
+            value: freeVariableValue,
           });
         }
       } else {
         const parameterType = expr.prototype.typeValue.parameterTypes[i];
         const parameterName = parameterType.name;
-        newEnv = addLlvmEnvironmentNamedValue(newEnv, {
-          // id: parameterType.id, // FIXME:
-          name: parameterName,
-          value: { type: parameterType.type, value: arg },
+        nextEnv = addLlvmEnvValue(nextEnv, {
+          variableName: parameterName,
+          type: parameterType.type,
+          value: arg,
         });
       }
     }
@@ -416,6 +415,7 @@ export class CodeGenerator {
     // Save the function itself to the namedValues map
     if (expr.prototype.functionName) {
       const closure: LlvmValue = {
+        variableName: expr.prototype.functionName,
         type: expr.typeValue,
         value: this.unit,
         functionExpr: expr,
@@ -424,18 +424,13 @@ export class CodeGenerator {
           value: theFunction,
         },
       };
-      env = addLlvmEnvironmentNamedValue(env, {
-        name: expr.prototype.functionName,
-        value: closure,
-      });
-      newEnv = addLlvmEnvironmentNamedValue(newEnv, {
-        name: expr.prototype.functionName,
-        value: closure,
-      });
+      nextEnv = addLlvmEnvValue(nextEnv, closure, -(nextEnv.frames.length - 1));
     }
 
     // Codegen the body
-    const returnVal = this.codegenExprs(expr.body, newEnv);
+    const returnVal = this.codegenExprs(expr.body, nextEnv);
+    nextEnv = returnVal.env;
+
     // Move back to the entry block
     this.builder.CreateRet(returnVal.value);
 
@@ -451,6 +446,9 @@ export class CodeGenerator {
     } else {
       console.log(`- Function verified for "${expr.prototype.functionName}"`);
     }
+
+    // Restore env
+    env = popLlvmEnvFrame(nextEnv);
 
     // Return the function pointer + free variables record
     const freeVariables = expr.prototype.typeValue.freeVariables;
@@ -500,10 +498,7 @@ export class CodeGenerator {
     for (let i = 0; i < freeVariables.length; i++) {
       const freeVariable = freeVariables[i];
       const freeVariableName = freeVariable.variableName;
-      const freeVariableValues = getLlvmEnvironmentNamedValuesByName(
-        env,
-        freeVariableName
-      );
+      const freeVariableValues = getLlvmEnvValuesByName(env, freeVariableName);
       if (freeVariableValues.length === 0) {
         throw new Error(
           `Free variable ${freeVariableName} not found in namedValues`
@@ -523,7 +518,7 @@ export class CodeGenerator {
         freeVariableName
       );
       // Store the value in the free variable
-      this.builder.CreateStore(freeVariableValue.value.value, freeVariablePtr);
+      this.builder.CreateStore(freeVariableValue.value, freeVariablePtr);
     }
     const freeVariablesRecordPtr = this.builder.CreateGEP(
       closureType,
@@ -601,9 +596,10 @@ export class CodeGenerator {
     env: LlvmEnvironment,
     propertyName: string
     // env: LlvmEnvironment
-  ): LlvmValue {
+  ): LlvmValue & { env: LlvmEnvironment } {
     const typeValue = expr.typeValue;
     const exprValue = this.codegenExpr(expr, env);
+    env = exprValue.env;
     switch (typeValue.type) {
       case "Record": {
         const propertyTypes = typeValue.properties ?? [];
@@ -639,6 +635,7 @@ export class CodeGenerator {
         return {
           type: propertyType,
           value,
+          env,
         };
       }
       case "Trait": {
@@ -671,6 +668,7 @@ ${exprToString(expr)}
             typeArguments: [],
             value: func.value,
           },
+          env,
         };
       }
       default:
@@ -683,7 +681,10 @@ ${typeToString(typeValue)}
     }
   }
 
-  private codegenExprs(expr: Expr[], env: LlvmEnvironment): LlvmValue {
+  private codegenExprs(
+    expr: Expr[],
+    env: LlvmEnvironment
+  ): LlvmValue & { env: LlvmEnvironment } {
     // Create undefined value
     let llvmValue: LlvmValue & { env: LlvmEnvironment } = {
       value: this.unit, //llvm.UndefValue.get(llvm.PointerType.getVoidTy(this.context)),
@@ -992,7 +993,11 @@ ${typeToString(typeValue)}
 
               this.builder.CreateStore(value.value, indexPtr);
             }
-            return { value: slicePtr, type: typeValue, env };
+            return {
+              value: slicePtr,
+              type: typeValue,
+              env,
+            };
           }
           default: {
             throw new Error(`Unknown value tag: ${expr}`);
@@ -1155,17 +1160,16 @@ ${typeToString(typeValue)}
       case AstType.Function: {
         // Check if the function has type parameters
         if (
-          expr.prototype.typeValue.parameterTypes.length > 0 &&
+          expr.prototype.typeValue.typeParameters.length > 0 &&
           expr.prototype.functionName
         ) {
           // Don't generate llvm function.
-          env = addLlvmEnvironmentNamedValue(env, {
-            name: expr.prototype.functionName,
-            value: {
-              value: this.unit,
-              type: expr.typeValue,
-              functionExpr: expr,
-            },
+          env = addLlvmEnvValue(env, {
+            variableName: expr.prototype.functionName,
+            value: this.unit,
+            type: expr.typeValue,
+            functionExpr: expr,
+            function: undefined,
           });
           return {
             value: this.unit,
@@ -1184,6 +1188,7 @@ ${typeToString(typeValue)}
           );
         }
         const closure: LlvmValue = {
+          variableName: expr.prototype.functionName,
           value: this.unit,
           type: expr.typeValue,
           function: {
@@ -1191,10 +1196,7 @@ ${typeToString(typeValue)}
             value: theFunction,
           },
         };
-        env = addLlvmEnvironmentNamedValue(env, {
-          name: expr.prototype.functionName,
-          value: closure,
-        });
+        env = addLlvmEnvValue(env, closure);
         return { ...closure, env };
         // return theFunction;
       }
@@ -1214,16 +1216,13 @@ ${typeToString(typeValue)}
             return { ...namedValue.value, env };
           }
         } else */ {
-          const namedValues = getLlvmEnvironmentNamedValuesByName(
-            env,
-            expr.name
-          );
+          const namedValues = getLlvmEnvValuesByName(env, expr.name);
 
           if (!namedValues.length) {
             throw new Error(`Variable "${expr.name}" not found`);
           }
           const namedValue = namedValues[namedValues.length - 1];
-          return { ...namedValue.value, env };
+          return { ...namedValue, env };
         }
       }
       case AstType.CallFunction: {
@@ -1242,7 +1241,6 @@ ${typeToString(typeValue)}
         if (calleeTypeValue.type !== "Function") {
           throw new Error(`Callee is not a function:\n${exprToString(callee)}`);
         }
-
         let namedValue:
           | (LlvmValue & { env: LlvmEnvironment })
           | null
@@ -1372,7 +1370,7 @@ ${exprToString(callee)}: ${typeToString(callee.typeValue)}`
 
         // Emit then value
         this.builder.SetInsertPoint(thenBB);
-        const thenValue = this.codegenExprs(expr.then, env);
+        const thenValue = this.codegenExprs(expr.then, env); // FIXME: The env might not be handled correctly here
         if (!thenValue) {
           throw new Error(`Then value not found`);
         }
@@ -1389,7 +1387,7 @@ ${exprToString(callee)}: ${typeToString(callee.typeValue)}`
           theFunction.insertAfter(thenBB, elseBB);
           this.builder.SetInsertPoint(elseBB);
 
-          const elseValue = this.codegenExprs(expr.else, env);
+          const elseValue = this.codegenExprs(expr.else, env); // FIXME: The env might not be handled correctly here
           if (!elseValue) {
             throw new Error(`Else value not found`);
           }
@@ -1418,19 +1416,16 @@ ${exprToString(callee)}: ${typeToString(callee.typeValue)}`
           }
         }
       }
-      case AstType.ConstantAssigment: {
-        const value = this.codegenExpr(expr.right, env);
-        env = addLlvmEnvironmentNamedValue(value.env, {
-          name: expr.variableName,
-          value,
+      case AstType.ConstantAssignment: {
+        const { env: nextEnv, ...value } = this.codegenExpr(expr.right, env);
+        env = addLlvmEnvValue(nextEnv, {
+          ...value,
+          variableName: expr.variableName,
         });
         return { ...value, env };
       }
       case AstType.PropertyAccess: {
-        return {
-          ...this.codegenForPropertyAccess(expr.expr, env, expr.propertyName),
-          env,
-        };
+        return this.codegenForPropertyAccess(expr.expr, env, expr.propertyName);
       }
       case AstType.IndexAccess: {
         if (expr.expr.typeValue.type !== "slice") {
@@ -1488,44 +1483,31 @@ ${exprToString(callee)}: ${typeToString(callee.typeValue)}`
         };
       }
       case AstType.Block: {
-        const returnValue = this.codegenExprs(expr.exprs, env);
-        return { ...returnValue, env };
+        return this.codegenExprs(expr.exprs, env);
       }
       case AstType.Trait: {
         const traitTypeArguments = expr.typeArguments;
         if (traitTypeArguments === undefined) {
           // This is trait definition
           const value: LlvmValue = {
+            variableName: expr.traitName,
             type: expr.typeValue,
             value: this.unit,
 
             traitExpr: expr,
             trait: undefined,
           };
-          env = addLlvmEnvironmentNamedValue(env, {
-            name: expr.traitName,
-            value,
-          });
+          env = addLlvmEnvValue(env, value, -(env.frames.length - 1));
           return { ...value, env };
         } else {
           // Check if the trait instance with the same typeArguments already exists
-          const traitInstance = env.find(
-            ({ name, value }) =>
-              name === expr.traitName &&
-              value.type.type === "Trait" &&
-              value.trait?.typeArguments &&
-              value.trait.typeArguments.length === traitTypeArguments.length &&
-              value.trait.typeArguments.every((typeArgument, i) => {
-                return (
-                  JSON.stringify(typeArgument.type) ===
-                  JSON.stringify(traitTypeArguments[i].type)
-                );
-              })
+          const traitInstance = getLlvmTraitInstanceByNameAndTypeArguments(
+            env,
+            expr.traitName,
+            traitTypeArguments
           );
-          console.log("- traitInstance: ", !!traitInstance);
-          console.log("- env: ", env);
           if (traitInstance) {
-            return { ...traitInstance.value, env };
+            return { ...traitInstance, env };
           } else {
             // Check if the trait functions have default implementations
             // if yes, then we generate the function
@@ -1553,6 +1535,7 @@ ${exprToString(callee)}: ${typeToString(callee.typeValue)}`
             }
 
             const value: LlvmValue = {
+              variableName: expr.traitName,
               type: expr.typeValue,
               value: this.unit,
 
@@ -1562,11 +1545,7 @@ ${exprToString(callee)}: ${typeToString(callee.typeValue)}`
                 functions,
               },
             };
-            env = addLlvmEnvironmentNamedValue(env, {
-              name: expr.traitName,
-              value,
-            });
-            console.log("- env2: ", env);
+            env = addLlvmEnvValue(env, value, -(env.frames.length - 1));
             return { ...value, env };
           }
         }
@@ -1579,7 +1558,9 @@ ${exprToString(callee)}: ${typeToString(callee.typeValue)}`
 
   getLlvmIr(): string {
     this.externMalloc();
-    this.codegenExprs(this.ast, []);
+    this.codegenExprs(this.ast, {
+      frames: [[]],
+    });
 
     if (llvm.verifyModule(this.module)) {
       throw new Error("Verifying module failed");

@@ -929,7 +929,7 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`
               }
 
               const parameterAssignmentExpr: AssignmentExpr = {
-                type: AstType.ConstantAssigment,
+                type: AstType.ConstantAssignment,
                 variableName: variableName,
                 right: defaultParameterValueExpr,
                 typeValue: TypeValues.unit,
@@ -1189,6 +1189,7 @@ Found possible traits:
                 typeValue: newTraitType,
                 typeArguments: typeArguments,
                 env,
+                isDefinition: false,
               },
               index,
             };
@@ -2070,7 +2071,7 @@ Got:      ${typeToString(variableType)}`
 
     return {
       expr: {
-        type: AstType.ConstantAssigment,
+        type: AstType.ConstantAssignment,
         variableName,
         variableType: userDefinedVariableType ?? variableType,
         right: value,
@@ -2130,7 +2131,7 @@ Got:      ${typeToString(variableType)}`
             kind: "value",
           });
           constAssignmentExprs.push({
-            type: AstType.ConstantAssigment,
+            type: AstType.ConstantAssignment,
             variableName: field.name,
             variableType: field.type,
             right: {
@@ -2528,6 +2529,7 @@ ${typeToString(functionType)}
         typeValue: traitType,
         typeArguments: undefined, // Defining trait doesn't have type arguments
         env,
+        isDefinition: true,
       },
       index,
     };

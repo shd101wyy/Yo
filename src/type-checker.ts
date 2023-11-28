@@ -1184,7 +1184,7 @@ export function applyTypeArgumentsToExpr(
         typeParameterToTypeArgumentMap
       );
     }
-    case AstType.ConstantAssigment: {
+    case AstType.ConstantAssignment: {
       return {
         ...expr,
         variableType: applyTypeArgumentsToType(
@@ -2194,7 +2194,7 @@ export function getFunctionArgumentsInOrder(
     }
 
     // Keyword argument
-    if (argument.type === AstType.ConstantAssigment) {
+    if (argument.type === AstType.ConstantAssignment) {
       const keyword = argument.variableName;
       const value = argument.right;
       const argumentPositionIndex = functionParameterTypes.findIndex(

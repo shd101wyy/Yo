@@ -6,15 +6,16 @@ declare i8* @malloc(i32)
 
 define i32 @main() {
 entry:
-  %0 = call i32 @id(i32 3)
-  %1 = call i32 @id.1(i32 4)
-  %2 = add i32 %0, %1
-  ret i32 %2
+  %0 = call float @id(float 0x40099999A0000000)
+  %1 = call i32 @id.1(i32 3)
+  %2 = call i32 @id.1(i32 4)
+  %3 = add i32 %1, %2
+  ret i32 %3
 }
 
-define i32 @id(i32 %x) {
+define float @id(float %x) {
 entry:
-  ret i32 %x
+  ret float %x
 }
 
 define i32 @id.1(i32 %x) {

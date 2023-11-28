@@ -2,6 +2,7 @@ import { Expr, FunctionExpr, TraitExpr } from "./ast";
 import { TFunction, Type, checkType } from "./type-checker";
 
 export type LlvmValue = {
+  variableName?: string;
   type: Type;
   value: llvm.Value;
 
@@ -31,28 +32,67 @@ export type LlvmValue = {
   };
 };
 
-export type LlvmNamedValue = {
-  name: string;
-  value: LlvmValue;
+export type LlvmFrame = LlvmValue[];
+export type LlvmEnvironment = {
+  frames: LlvmFrame[];
 };
-export type LlvmEnvironment = LlvmNamedValue[];
 
-export function copyLlvmEnvironment(env: LlvmEnvironment) {
-  return [...env];
+export function copyLlvmEnvironment(env: LlvmEnvironment): LlvmEnvironment {
+  return {
+    frames: [...env.frames],
+  };
 }
 
-export function addLlvmEnvironmentNamedValue(
+export function pushLlvmEnvFrame(
   env: LlvmEnvironment,
-  namedValue: LlvmNamedValue
+  frame: LlvmFrame = []
 ): LlvmEnvironment {
-  return [...env, namedValue];
+  return {
+    frames: [...env.frames, frame],
+  };
 }
 
-export function getLlvmEnvironmentNamedValuesByName(
+export function popLlvmEnvFrame(env: LlvmEnvironment): LlvmEnvironment {
+  return {
+    frames: env.frames.slice(0, -1),
+  };
+}
+
+export function addLlvmFrameValue(
+  frame: LlvmFrame,
+  value: LlvmValue
+): LlvmFrame {
+  return [...frame, value];
+}
+
+export function addLlvmEnvValue(
+  env: LlvmEnvironment,
+  value: LlvmValue,
+  deltaFrame = 0
+): LlvmEnvironment {
+  const frameLevel = env.frames.length - 1 + deltaFrame;
+  const frame = env.frames[frameLevel];
+  const newFrame = addLlvmFrameValue(frame, value);
+  return {
+    frames: env.frames.map((frame, index) =>
+      index === frameLevel ? newFrame : frame
+    ),
+  };
+}
+
+export function getLlvmEnvValuesByName(
   env: LlvmEnvironment,
   name: string
-): LlvmNamedValue[] {
-  return env.filter((namedValue) => namedValue.name === name);
+): LlvmValue[] {
+  const values: LlvmValue[] = [];
+  for (let i = env.frames.length - 1; i >= 0; i--) {
+    const frame = env.frames[i];
+    const value = frame.find((value) => value.variableName === name);
+    if (value) {
+      values.push(value);
+    }
+  }
+  return values;
 }
 
 export function getLlvmFunctionByNameAndTypeArgumentsAndArguments(
@@ -60,53 +100,87 @@ export function getLlvmFunctionByNameAndTypeArgumentsAndArguments(
   functionName: string,
   typeArguments: Type[],
   functionArguments: Expr[]
-): LlvmNamedValue | undefined {
-  return env.find(
-    (namedValue) =>
-      namedValue.name === functionName &&
-      namedValue.value.type.type === "Function" &&
-      namedValue.value.functionExpr &&
-      namedValue.value.function &&
-      namedValue.value.function.typeArguments.length === typeArguments.length &&
-      namedValue.value.function.typeArguments.length === typeArguments.length &&
-      namedValue.value.function.typeArguments.every(
-        (typeArgument, index) =>
-          JSON.stringify(typeArgument) === JSON.stringify(typeArguments[index])
-      ) &&
-      namedValue.value.type.parameterTypes.length ===
-        functionArguments.length &&
-      namedValue.value.type.parameterTypes.every((parameterType, index) => {
-        return checkType(
-          parameterType.type,
-          functionArguments[index].typeValue,
-          namedValue.value.functionExpr!.env
-        );
-      })
-  );
+): LlvmValue | undefined {
+  for (let i = env.frames.length - 1; i >= 0; i--) {
+    const frame = env.frames[i];
+    const value = frame.find(
+      (value) =>
+        value.variableName === functionName &&
+        value.function &&
+        value.function.typeArguments.length === typeArguments.length &&
+        value.function.typeArguments.every(
+          (typeArgument, index) =>
+            JSON.stringify(typeArgument) ===
+            JSON.stringify(typeArguments[index])
+        ) &&
+        value.type.type === "Function" &&
+        value.type.parameterTypes.length === functionArguments.length &&
+        value.type.parameterTypes.every((parameterType, index) => {
+          return checkType(
+            parameterType.type,
+            functionArguments[index].typeValue,
+            value.functionExpr!.env
+          );
+        })
+    );
+    if (value) {
+      return value;
+    }
+  }
 }
 
-export function getLlvmFunctionTemplateByName(
+export function getLlvmTraitInstanceByNameAndTypeArguments(
+  env: LlvmEnvironment,
+  traitName: string,
+  typeArguments: Type[]
+): LlvmValue | undefined {
+  for (let i = env.frames.length - 1; i >= 0; i--) {
+    const frame = env.frames[i];
+    const value = frame.find(
+      (value) =>
+        value.variableName === traitName &&
+        value.type.type === "Trait" &&
+        value.trait &&
+        value.trait.typeArguments.length === typeArguments.length &&
+        value.trait.typeArguments.every(
+          (typeArgument, index) =>
+            JSON.stringify(typeArgument) ===
+            JSON.stringify(typeArguments[index])
+        )
+    );
+    if (value) {
+      return value;
+    }
+  }
+}
+
+export function getLlvmFunctionExprByName(
   env: LlvmEnvironment,
   functionName: string,
   typeArguments: Type[],
   functionArguments: Expr[]
-) {
-  return env.find(
-    (namedValue) =>
-      namedValue.name === functionName &&
-      namedValue.value.functionExpr &&
-      !namedValue.value.function &&
-      namedValue.value.functionExpr.typeValue.typeParameters.length ===
-        typeArguments.length &&
-      namedValue.value.functionExpr.prototype.typeValue.parameterTypes
-        .length === functionArguments.length &&
-      namedValue.value.functionExpr.prototype.typeValue.parameterTypes.every(
-        (parameterType, index) =>
-          checkType(
-            parameterType.type,
-            functionArguments[index].typeValue,
-            namedValue.value.functionExpr!.env
-          )
-      )
-  );
+): FunctionExpr | undefined {
+  for (let i = env.frames.length - 1; i >= 0; i--) {
+    const frame = env.frames[i];
+    const value = frame.find(
+      (value) =>
+        value.variableName === functionName &&
+        value.functionExpr &&
+        value.functionExpr.typeValue.typeParameters.length ===
+          typeArguments.length &&
+        value.functionExpr.prototype.typeValue.parameterTypes.length ===
+          functionArguments.length &&
+        value.functionExpr.prototype.typeValue.parameterTypes.every(
+          (parameterType, index) =>
+            checkType(
+              parameterType.type,
+              functionArguments[index].typeValue,
+              value.functionExpr!.env
+            )
+        )
+    );
+    if (value) {
+      return value.functionExpr;
+    }
+  }
 }
