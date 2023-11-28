@@ -1487,6 +1487,7 @@ ${exprToString(callee)}: ${typeToString(callee.typeValue)}`
       }
       case AstType.Trait: {
         const traitTypeArguments = expr.typeArguments;
+        console.log("codegen Trait: ", traitTypeArguments);
         if (traitTypeArguments === undefined) {
           // This is trait definition
           const value: LlvmValue = {

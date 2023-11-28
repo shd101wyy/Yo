@@ -466,19 +466,29 @@ function main() {
 }
 `
 
+
 code = `
 trait Id<X> {
-  id(x: X): X;
-}
-
-instance Id<i32> {
-  id(x: i32): i32 {
-    x + 1
-  }
+  id(x: X): X { x };
 }
 
 function main() {
-  Id<i32>.id(3)
+  Id<i32>.id(34)
+}
+`
+
+
+code = `
+trait Id {
+  id(x: i32): i32 { x };
+}
+
+instance Id {
+  id(x: i32): i32 { x + 1 };
+}
+
+function main() {
+  Id.id(35)
 }
 `
 

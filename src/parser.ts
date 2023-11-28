@@ -1111,6 +1111,80 @@ Got:      (${functionArguments
         `Unbounded variable \`${identifier}\``
       );
     }
+    const matchedFunctions = valueTypes.filter(
+      (valueType) => valueType.type.type === "Function"
+    );
+    const matchedTraits = valueTypes.filter(
+      (valueType) =>
+        valueType.type.type === "Trait" && valueType.kind === "trait"
+    );
+
+    // Check if it's a trait
+    if (matchedTraits.length > 0) {
+      // FIXME: Support this
+      if (matchedTraits.length > 1) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Ambiguous traits "${identifier}"
+Found possible traits:
+- ${matchedTraits.map((traitType) => typeToString(traitType.type)).join("\n- ")}
+          `
+        );
+      } else {
+        const trait = matchedTraits[0];
+        const traitType = trait.type;
+        if (traitType.type !== "Trait") {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Expected trait, but got ${typeToString(traitType)}`
+          );
+        }
+        let typeArguments: Type[] = [];
+        if (tokens[index + 1]?.type === TokenType.LessThan) {
+          const {
+            typeArguments: nextTypeArguments,
+            index: nextIndex,
+            env: nextEnv,
+          } = synthesizeTypeArgumentsFromTokens({
+            tokens,
+            index: index + 1,
+            inputString: this.inputString,
+            env,
+            parseExpression: this.parseExpression.bind(this),
+          });
+          typeArguments = nextTypeArguments;
+          index = nextIndex;
+          env = nextEnv;
+          console.log(
+            "- done parsing typeArguments: ",
+            typeArguments.map(typeToString)
+          );
+        } else {
+          index = index + 1;
+        }
+
+        const newTraitType = applyTypeArgumentsToType(traitType, typeArguments);
+        if (newTraitType.type !== "Trait") {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Expected trait type, but got ${typeToString(newTraitType)}`
+          );
+        } else {
+          return {
+            expr: {
+              type: AstType.Trait,
+              traitName: identifier,
+              typeValue: newTraitType,
+              typeArguments: typeArguments,
+              env,
+              isDefinition: false,
+            },
+            index,
+          };
+        }
+      }
+    }
+
     // Check if it's a function
     // - test(1) Normal function call
     // - test { 12 } Trailing lambda
@@ -1123,129 +1197,57 @@ Got:      (${functionArguments
       isWithStatement
     ) {
       console.log("- isWithStatement: ", isWithStatement);
-      const matchedFunctions = valueTypes.filter(
-        (valueType) => valueType.type.type === "Function"
-      );
-      const matchedTraits = valueTypes.filter(
-        (valueType) =>
-          valueType.type.type === "Trait" && valueType.kind === "trait"
-      );
+      console.log("matchedTraits: ", matchedTraits.length);
 
-      console.log(matchedTraits);
-      if (matchedTraits.length > 0) {
-        // FIXME: Support this
-        if (matchedTraits.length > 1) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Ambiguous traits "${identifier}"
-Found possible traits:
-- ${matchedTraits.map((traitType) => typeToString(traitType.type)).join("\n- ")}
-            `
-          );
-        } else {
-          const trait = matchedTraits[0];
-          const traitType = trait.type;
-          if (traitType.type !== "Trait") {
-            throw this.formatErrorMessage(
-              tokens[index],
-              `Expected trait, but got ${typeToString(traitType)}`
-            );
-          }
-          let typeArguments: Type[] = [];
-          if (tokens[index + 1]?.type === TokenType.LessThan) {
-            const {
-              typeArguments: nextTypeArguments,
-              index: nextIndex,
-              env: nextEnv,
-            } = synthesizeTypeArgumentsFromTokens({
-              tokens,
-              index: index + 1,
-              inputString: this.inputString,
-              env,
-              parseExpression: this.parseExpression.bind(this),
-            });
-            typeArguments = nextTypeArguments;
-            index = nextIndex;
-            env = nextEnv;
-            console.log(
-              "- done parsing typeArguments: ",
-              typeArguments.map(typeToString)
-            );
-          }
-          const newTraitType = applyTypeArgumentsToType(
-            traitType,
-            typeArguments
-          );
-          if (newTraitType.type !== "Trait") {
-            throw this.formatErrorMessage(
-              tokens[index],
-              `Expected trait type, but got ${typeToString(newTraitType)}`
-            );
-          } else {
-            return {
-              expr: {
-                type: AstType.Trait,
-                traitName: identifier,
-                typeValue: newTraitType,
-                typeArguments: typeArguments,
+      // Try all matchedFunctions to see if there is a match
+      const parserReturns: ParserReturn[] = [];
+      const parsedFunctions: ValueType[] = [];
+      for (const functionType of matchedFunctions) {
+        try {
+          parserReturns.push(
+            this.parseCallExpr(
+              {
+                type: AstType.Variable,
+                name: identifier,
+                frameLevel: functionType.frameLevel,
+                typeValue: functionType.type,
                 env,
-                isDefinition: false,
               },
-              index,
-            };
-          }
+              tokens,
+              index + 1,
+              env,
+              isWithStatement
+            )
+          );
+          parsedFunctions.push(functionType);
+        } catch (error) {
+          // Ignore the error
         }
-      } else {
-        // Try all matchedFunctions to see if there is a match
-        const parserReturns: ParserReturn[] = [];
-        const parsedFunctions: ValueType[] = [];
-        for (const functionType of matchedFunctions) {
-          try {
-            parserReturns.push(
-              this.parseCallExpr(
-                {
-                  type: AstType.Variable,
-                  name: identifier,
-                  frameLevel: functionType.frameLevel,
-                  typeValue: functionType.type,
-                  env,
-                },
-                tokens,
-                index + 1,
-                env,
-                isWithStatement
-              )
-            );
-            parsedFunctions.push(functionType);
-          } catch (error) {
-            // Ignore the error
-          }
-        }
+      }
 
-        if (parserReturns.length === 0) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Cannot find function '${identifier}'
+      if (parserReturns.length === 0) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Cannot find function '${identifier}'
 Below are the possible functions:
 
 ${matchedFunctions
   .map((func) => `  ${func.variableName}: ${typeToString(func.type)}`)
   .join("\n")}
           `
-          );
-        } else if (parserReturns.length > 1) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Ambiguous function ${identifier}
+        );
+      } else if (parserReturns.length > 1) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Ambiguous function ${identifier}
 Found possible functions:
 - ${parsedFunctions
-              .map((func) => `${func.variableName}: ${typeToString(func.type)}`)
-              .join("\n- ")}`
-          );
-        } else {
-          // FIXME: Might need to check `isFreeVariable` here as well
-          return parserReturns[0];
-        }
+            .map((func) => `${func.variableName}: ${typeToString(func.type)}`)
+            .join("\n- ")}`
+        );
+      } else {
+        // FIXME: Might need to check `isFreeVariable` here as well
+        return parserReturns[0];
       }
     }
 
@@ -2699,7 +2701,8 @@ ${typeToString(functionType)}
       if (matchedFunctions.length === 0) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Function "${traitFunction.name}" is not implemented`
+          `Function "${traitFunction.name}" is not implemented:
+Expected: ${typeToString(traitFunction.func)}`
         );
       } else if (matchedFunctions.length > 1) {
         throw this.formatErrorMessage(

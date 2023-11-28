@@ -12,6 +12,6 @@ entry:
 
 define i32 @main() {
 entry:
-  %0 = call i32 @id(i32 3)
+  %0 = call i32 @id(i32 35)
   ret i32 %0
 }
