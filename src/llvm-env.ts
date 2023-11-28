@@ -108,10 +108,8 @@ export function getLlvmFunctionByNameAndTypeArgumentsAndArguments(
         value.variableName === functionName &&
         value.function &&
         value.function.typeArguments.length === typeArguments.length &&
-        value.function.typeArguments.every(
-          (typeArgument, index) =>
-            JSON.stringify(typeArgument) ===
-            JSON.stringify(typeArguments[index])
+        value.function.typeArguments.every((typeArgument, index) =>
+          checkType(typeArgument, typeArguments[index], value.functionExpr!.env)
         ) &&
         value.type.type === "Function" &&
         value.type.parameterTypes.length === functionArguments.length &&
@@ -142,10 +140,8 @@ export function getLlvmTraitInstanceByNameAndTypeArguments(
         value.type.type === "Trait" &&
         value.trait &&
         value.trait.typeArguments.length === typeArguments.length &&
-        value.trait.typeArguments.every(
-          (typeArgument, index) =>
-            JSON.stringify(typeArgument) ===
-            JSON.stringify(typeArguments[index])
+        value.trait.typeArguments.every((typeArgument, index) =>
+          checkType(typeArgument, typeArguments[index], value.traitExpr!.env)
         )
     );
     if (value) {

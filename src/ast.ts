@@ -345,10 +345,11 @@ export function exprToString(expr: Expr | FunctionPrototype) {
         }`;
       }
 
-      return `trait ${expr.traitName}${typeToString(expr.typeValue).replace(
-        /^trait/,
-        ""
-      )}`;
+      return `${expr.typeArguments ? "instance" : "trait"} ${expr.traitName}${
+        expr.typeArguments && expr.typeArguments.length > 0
+          ? `<${expr.typeArguments.map(typeToString).join(", ")}>`
+          : ""
+      }${typeToString(expr.typeValue).replace(/^(trait|instance)/, "")}`;
     case AstType.Function:
       return `${
         expr.prototype.functionName

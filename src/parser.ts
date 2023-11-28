@@ -1127,16 +1127,17 @@ Got:      (${functionArguments
         (valueType) => valueType.type.type === "Function"
       );
       const matchedTraits = valueTypes.filter(
-        (valueType) => valueType.type.type === "Trait"
+        (valueType) =>
+          valueType.type.type === "Trait" && valueType.kind === "trait"
       );
 
-      console.log(matchedTraits.length);
+      console.log(matchedTraits);
       if (matchedTraits.length > 0) {
         // FIXME: Support this
         if (matchedTraits.length > 1) {
           throw this.formatErrorMessage(
             tokens[index],
-            `Ambiguous traits ${identifier}
+            `Ambiguous traits "${identifier}"
 Found possible traits:
 - ${matchedTraits.map((traitType) => typeToString(traitType.type)).join("\n- ")}
             `
@@ -1152,7 +1153,6 @@ Found possible traits:
           }
           let typeArguments: Type[] = [];
           if (tokens[index + 1]?.type === TokenType.LessThan) {
-            console.log("- start parsing typeArguments");
             const {
               typeArguments: nextTypeArguments,
               index: nextIndex,
@@ -2303,6 +2303,7 @@ Got:      ${typeToString(variableType)}`
    * trait ::= "trait" identifier typeParameters? "{" functionPrototype* "}"
    *           ::= "trait" identifier typeParameters? "with" traitType "{" functionPrototype* "}"
    * FIXME: Support `with` for trait
+   * FIXME: If the trait has no type parameters, then all functions in the trait should have default implementations.
    * @param tokens
    * @param index
    * @param env
@@ -2535,6 +2536,211 @@ ${typeToString(functionType)}
     };
   }
 
+  private parseTraitInstance(
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.Instance) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "instance" for trait instance'
+      );
+    }
+
+    index = index + 1;
+    if (tokens[index].type !== TokenType.Identifier) {
+      // FIXME: Allow module access
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected identifier for trait instance"
+      );
+    }
+    const traitName = tokens[index].value;
+    index = index + 1;
+
+    // Find the trait from env
+    const traits = getEnvValueTypesByVariableName(env, traitName, "trait");
+    if (traits.length === 0) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Cannot find trait "${traitName}"`
+      );
+    } else if (traits.length > 1) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Found multiple traits with the same name "${traitName}":
+- ${traits.map((trait) => typeToString(trait.type)).join("\n- ")}`
+      );
+    }
+    const traitType = traits[0].type as TTrait;
+
+    // Parse type arguments
+    const typeArguments: Type[] = [];
+    if (tokens[index].type === TokenType.LessThan) {
+      const {
+        index: nextIndex,
+        typeArguments: ta,
+        env: nextEnv,
+      } = synthesizeTypeArgumentsFromTokens({
+        tokens,
+        index,
+        env,
+        inputString: this.inputString,
+        parseExpression: this.parseExpression.bind(this),
+      });
+      index = nextIndex;
+      typeArguments.push(...ta);
+      env = nextEnv;
+    }
+
+    // Apply type arguments to trait
+    const traitType_ = applyTypeArgumentsToType(
+      traitType,
+      typeArguments
+    ) as TTrait;
+
+    // Parse trait body
+    const functions: TTraitFunction[] = [];
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for trait instance body"
+      );
+    }
+    index = index + 1;
+    while (true) {
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+      if (tokens[index].type === TokenType.Semicolon) {
+        index = index + 1;
+        continue;
+      }
+
+      // NOTE: We don't allow function declaration like `id: (...)=> ...` format in trait
+      if (
+        tokens[index].type === TokenType.Identifier &&
+        tokens[index + 1]?.type === TokenType.Colon
+      ) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Please define functions in "trait" like below:
+
+trait Show<T> {
+  show(x: T): string
+}
+`
+        );
+      }
+
+      // Parse function prototype
+      const startIndex = index;
+      const {
+        prototype,
+        index: nextIndex,
+        env: nextEnv,
+      } = this.parsePrototype({
+        tokens,
+        index,
+        env,
+        requireFunctionName: true,
+        withFunctionBody: true, // NOTE: We need to set it to `true` even though `extern` function has no function body
+      });
+      index = nextIndex;
+      env = nextEnv;
+      if (!prototype) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected function prototype"
+        );
+      }
+      const functionType = prototype.typeValue;
+      if (functionType.typeParameters.length > 0) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Type parameters are not allowed in trait functions as it uses the type parameters defined in the trait itself:
+
+${typeToString(functionType)}
+`
+        );
+      }
+
+      // Check if the function has a body
+      let functionExpr: FunctionExpr | undefined = undefined;
+      if (tokens[index].type === TokenType.LCurlyBracket) {
+        const { expr: functionExpr_, index: nextNextIndex } =
+          this.parseFunction(tokens, startIndex, env, false, false);
+        if (!functionExpr_ || functionExpr_.type !== AstType.Function) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected function body"
+          );
+        }
+        index = nextNextIndex;
+        env = functionExpr_.env;
+        functionExpr = functionExpr_;
+      }
+
+      // functionType.typeParameters = typeParameters; // NOTE: This is wrong
+      functions.push({
+        name: functionType.functionName!,
+        func: functionType,
+        functionExpr,
+      });
+    }
+
+    // Check if all functions in trait are implemented correctly
+    for (const traitFunction of traitType_.functions) {
+      const matchedFunctions = functions.filter(
+        (func) => func.name === traitFunction.name
+      );
+      if (matchedFunctions.length === 0) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Function "${traitFunction.name}" is not implemented`
+        );
+      } else if (matchedFunctions.length > 1) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Found multiple implementations for function "${traitFunction.name}":
+- ${matchedFunctions.map((func) => typeToString(func.func)).join("\n- ")}`
+        );
+      } else {
+        const matchedFunction = matchedFunctions[0];
+        if (!checkType(traitFunction.func, matchedFunction.func, env)) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Mismatched function type:
+Expected: ${typeToString(traitFunction.func)}
+Got:      ${typeToString(matchedFunction.func)}`
+          );
+        }
+      }
+    }
+    traitType_.functions = functions;
+
+    // Add to environment
+    env = addEnvValueType(env, {
+      variableName: traitName,
+      type: traitType_,
+      kind: "value", // NOTE: We need to set it to "value" instead of "trait" because we need to use it as a value
+    });
+
+    return {
+      expr: {
+        type: AstType.Trait,
+        traitName,
+        typeValue: traitType_,
+        typeArguments,
+        env,
+        isDefinition: true,
+      },
+      index,
+    };
+  }
+
   /**
    * expression
    *  ::= primary binoprhs
@@ -2656,6 +2862,20 @@ ${typeToString(functionType)}
           env = expr.env;
           break;
         }
+        case TokenType.Instance: {
+          const { expr, index: nextIndex } = this.parseTraitInstance(
+            tokens,
+            index,
+            env
+          );
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = expr.env;
+          break;
+        }
+
         default: {
           /*
           const { expr, index: nextIndex } = this.parseExpression(

@@ -466,6 +466,22 @@ function main() {
 }
 `
 
+code = `
+trait Id<X> {
+  id(x: X): X;
+}
+
+instance Id<i32> {
+  id(x: i32): i32 {
+    x + 1
+  }
+}
+
+function main() {
+  Id<i32>.id(3)
+}
+`
+
 const codeGenerator = new CodeGenerator(code);
 
 const ir = codeGenerator.getLlvmIr();
@@ -478,4 +494,4 @@ writeFileSync("test.ll", ir);
 // Run "./test"
 // Run "echo $?" to see the return value
 spawnSync("clang", ["./src/lib.c", "test.ll", "-o", "test"], {stdio: "inherit"});
-//// spawnSync("./test", [], {stdio: "inherit"});
+spawnSync("./test", [], {stdio: "inherit"});
