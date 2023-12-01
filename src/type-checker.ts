@@ -200,6 +200,17 @@ export type TTrait = {
   functions: TTraitFunction[];
 };
 
+export type TEnumVariant = {
+  tag: string;
+  parameterTypes: TParameterType[];
+};
+
+export type TEnum = {
+  type: "Enum";
+  typeParameters: TTypeParameter[];
+  variants: TEnumVariant[];
+};
+
 /*
 export type TDataConstructor = {
   type: "DataConstructor";
@@ -239,6 +250,7 @@ export type Type =
   | TTypeConstructor
   | TTypeParameter
   | TTrait
+  | TEnum
   | TPrimitive;
 
 // Type constructors
@@ -942,6 +954,51 @@ export function applyTypeArgumentsToType(
       type: "Trait",
       typeParameters: newTypeParameters, // FIXME: <- this might be wrong
       functions: functions,
+    };
+  } else if (type.type === "Enum") {
+    if (type.typeParameters.length !== typeArguments.length) {
+      throw new Error(
+        `(4) Mismatched type arguments.
+  Expected: <${type.typeParameters
+    .map(
+      (typeParameter) =>
+        `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
+    )
+    .join(", ")}>
+  Got:      <${typeArguments.map(typeToString).join(", ")}>`
+      );
+    }
+    // set typeParameterToTypeArgumentMap
+    const newTypeParameters: TTypeParameter[] = [];
+    for (let i = 0; i < type.typeParameters.length; i++) {
+      const typeParameter = type.typeParameters[i];
+      const typeArgument = typeArguments[i];
+      typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
+      if (typeArgument.type === "TypeParameter") {
+        newTypeParameters.push(typeArgument);
+      }
+    }
+
+    // apply to each of the variants
+    const variants: TEnumVariant[] = type.variants.map(
+      ({ tag, parameterTypes }) => ({
+        tag,
+        parameterTypes: parameterTypes.map(({ name, type, defaultValue }) => ({
+          name,
+          type: applyTypeArgumentsToType(
+            type,
+            [],
+            typeParameterToTypeArgumentMap
+          ),
+          defaultValue,
+        })),
+      })
+    ) as TEnumVariant[];
+
+    return {
+      type: "Enum",
+      typeParameters: newTypeParameters, // FIXME: <- this might be wrong
+      variants: variants,
     };
   } else if (type.type === "Function") {
     const typeParameters = type.typeParameters;
@@ -2041,6 +2098,29 @@ export function typeToString(type: Type): string {
         }`
     )
     .join(";\n  ")};
+}`;
+    }
+    case "Enum": {
+      return `enum${
+        type.typeParameters.length
+          ? `<${type.typeParameters.map(typeToString).join(",")}>`
+          : ""
+      } {
+${type.variants
+  .map(({ tag, parameterTypes }) => {
+    return `  ${tag}${
+      parameterTypes.length
+        ? `(${parameterTypes
+            .map(
+              (parameter) =>
+                (parameter.name ? `${parameter.name}: ` : "") +
+                typeToString(parameter.type)
+            )
+            .join(", ")})`
+        : ""
+    }`;
+  })
+  .join(",\n")}
 }`;
     }
     default: {

@@ -1,6 +1,7 @@
 import { Environment, ValueType } from "./env";
 import { Token, TokenType } from "./token";
 import {
+  TEnum,
   TFunction,
   TPrimitive,
   TTrait,
@@ -75,6 +76,7 @@ export type Expr =
   | ExternExpr
   | AssignmentExpr
   | TypeAliasExpr
+  | EnumExpr
   | TraitExpr
   | UnaryOperatorExpr
   | BinaryOperatorExpr
@@ -189,6 +191,22 @@ export type TypeAliasExpr = {
   typeName: string;
   typeValue: Type;
   env: Environment;
+};
+
+export type EnumExpr = {
+  type: AstType.Enum;
+  enumName: string;
+  typeValue: TEnum;
+  env: Environment;
+  /**
+   * If typeArguments is undefined, then it's a enum definition.
+   * If typeArguments is defined, then it's a enum instance.
+   */
+  typeArguments?: Type[];
+  /**
+   * If it's a enum definition, then isDefinition is true.
+   */
+  isDefinition: boolean;
 };
 
 export type TraitExpr = {
@@ -350,6 +368,19 @@ export function exprToString(expr: Expr | FunctionPrototype) {
           ? `<${expr.typeArguments.map(typeToString).join(", ")}>`
           : ""
       }${typeToString(expr.typeValue).replace(/^(trait|instance)/, "")}`;
+    case AstType.Enum:
+      if (!expr.isDefinition) {
+        return `${expr.enumName}${
+          expr.typeArguments && expr.typeArguments.length > 0
+            ? `<${expr.typeArguments.map(typeToString).join(", ")}>`
+            : ""
+        }`;
+      }
+
+      return `enum ${expr.enumName}${typeToString(expr.typeValue).replace(
+        /^enum/,
+        ""
+      )}`;
     case AstType.Function:
       return `${
         expr.prototype.functionName

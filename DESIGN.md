@@ -373,14 +373,14 @@ enum Option<T> {
 // This will translate to code similar as below,
 // but like the `struct` in C:
 type Option<T> =
-  | {_t: @"Some", v: T}
-  | {_t: @"None"}
+  | {__typename: @"Some", v: T}
+  | {__typename: @"None"}
 trait Option<T> {
   Some(v: T): Option<T> {
-    return {_t: @"Some", v: v};
+    return {__typename: @"Some", v: v};
   },
   None(): Option<T> {
-    return {_t: @"None"};
+    return {__typename: @"None"};
   }
 }
 

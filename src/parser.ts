@@ -29,7 +29,10 @@ import { formatErrorMessage } from "./error";
 import { Token, TokenType } from "./token";
 import {
   ParserReturn,
+  TEnum,
+  TEnumVariant,
   TFunction,
+  TParameterType,
   TSlice,
   TTrait,
   TTraitFunction,
@@ -42,6 +45,7 @@ import {
   convertPrimitiveToType,
   getFunctionArgumentsInOrder,
   getFunctionsOfCallerFromEnv,
+  synthesizeFunctionParameterTypesFromTokens,
   synthesizeFunctionTypeFromTokens,
   synthesizeTypeArgumentsFromTokens,
   synthesizeTypeFromTokens,
@@ -2744,6 +2748,139 @@ Got:      ${typeToString(matchedFunction.func)}`
     };
   }
 
+  private parseEnum(
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.Enum) {
+      throw this.formatErrorMessage(tokens[index], 'Expected "enum"');
+    }
+    index = index + 1;
+
+    if (tokens[index].type !== TokenType.Identifier) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected identifier for enum"
+      );
+    }
+    const enumName = tokens[index].value;
+    index = index + 1;
+
+    // NOTE: This is necessary for type parameters and recursive type alias
+    env = pushEnvFrame(env);
+    env = addEnvValueType(env, {
+      variableName: enumName,
+      type: {
+        type: "unknown",
+        typeName: enumName,
+      },
+      kind: "type",
+    });
+
+    // Type parameters
+    let typeParameters: TTypeParameter[] = [];
+    if (tokens[index].type === TokenType.LessThan) {
+      const {
+        index: nextIndex,
+        typeParameters: tp,
+        env: nextEnv,
+      } = synthesizeTypeParametersFromTokens({
+        tokens,
+        index,
+        env,
+        inputString: this.inputString,
+        parseExpression: this.parseExpression.bind(this),
+      });
+      index = nextIndex;
+      typeParameters = tp;
+      env = nextEnv;
+    }
+
+    // Parse enum body
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for enum body"
+      );
+    }
+    index = index + 1;
+    const enumVariants: TEnumVariant[] = [];
+    while (true) {
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+      if (tokens[index].type === TokenType.Comma) {
+        index = index + 1;
+        continue;
+      }
+
+      if (tokens[index].type !== TokenType.Identifier) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected identifier for enum value"
+        );
+      }
+      const enumValueName = tokens[index].value;
+      index = index + 1;
+
+      // Parameter types
+      let parameterTypes: TParameterType[] = [];
+      if (tokens[index].type === TokenType.LParen) {
+        const {
+          index: nextIndex,
+          parameterTypes: pt,
+          env: nextEnv,
+        } = synthesizeFunctionParameterTypesFromTokens({
+          tokens,
+          index,
+          env,
+          inputString: this.inputString,
+          parseExpression: this.parseExpression.bind(this),
+          withFunctionBody: false,
+        });
+        index = nextIndex;
+        parameterTypes = pt;
+        env = nextEnv;
+      }
+
+      enumVariants.push({
+        tag: enumValueName,
+        parameterTypes,
+      });
+    }
+
+    const enumType: TEnum = {
+      type: "Enum",
+      typeParameters,
+      variants: enumVariants,
+    };
+
+    // Add to environment
+    env = addEnvValueType(
+      env,
+      {
+        variableName: enumName,
+        type: enumType,
+        kind: "type",
+      },
+      -1
+    );
+    env = popEnvFrame(env);
+
+    return {
+      expr: {
+        type: AstType.Enum,
+        enumName,
+        typeValue: enumType,
+        env,
+        isDefinition: true,
+      },
+      index,
+    };
+  }
+
   /**
    * expression
    *  ::= primary binoprhs
@@ -2878,7 +3015,15 @@ Got:      ${typeToString(matchedFunction.func)}`
           env = expr.env;
           break;
         }
-
+        case TokenType.Enum: {
+          const { expr, index: nextIndex } = this.parseEnum(tokens, index, env);
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = expr.env;
+          break;
+        }
         default: {
           /*
           const { expr, index: nextIndex } = this.parseExpression(
