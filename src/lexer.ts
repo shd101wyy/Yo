@@ -517,6 +517,13 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            case "default":
+              tokens.push({
+                type: TokenType.Default,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
             case "match":
               tokens.push({
                 type: TokenType.Match,

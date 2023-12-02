@@ -2,7 +2,7 @@
 
 **Mo** (墨) is minimal, functional, general-purpose, compiled programming language that compiles to LLVM IR and WASM.
 
-**Mo** aims to be a simple to learn programming language. If you are familiar with JavaScript, you should be able to pick up **Mo** in a few hours.
+**Mo** aims to be a simple to learn programming language. If you are familiar with JavaScript, you should be able to pick up **Mo** in 30 minutes.
 
 The **Mo** language is heavily inspired by:
 
@@ -442,6 +442,8 @@ function notify<T>(item: T) {
 
 ### Pattern Matching
 
+Pattern matching using `is` keyword.
+
 ```typescript
 enum Coin {
   Penny,
@@ -454,21 +456,19 @@ enum Coin {
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
 function valueInCents(coin: Coin): u8 {
-  switch (coin) {
-    case Penny: {
-      console.log("Lucky penny!");
-      return 1;
-    }
-    case Nickel:
-      return 5;
-    case Dime:
-      return 10;
-    case Quarter:
-      return 25;
-    default:
-      throw Error({
-        message: "Not a coin", // Although this is not gonna happen
-      });
+  if coin is Coin.Penny {
+    console.log("Lucky penny!");
+    return 1;
+  } else if coin is Coin.Nickel {
+    return 5;
+  } else if coin is Coin.Dime {
+    return 10;
+  } else if coin is Coin.Quarter {
+    return 25;
+  } else {
+    throw Error({
+      message: "Not a coin", // Although this is not gonna happen
+    });
   }
 }
 
@@ -479,9 +479,10 @@ enum List<T> {
 
 function ListLength<T>(list: List<T>): i32 {
   with List<T>; // Unwrap the enum
-  switch list {
-    case Nil: 0
-    case Cons(_, tail): 1 + ListLength(tail)
+  if list is Nil {
+    0
+  } else if list is Cons(_, tail) {
+    1 + ListLength(tail);
   }
 }
 
@@ -489,9 +490,10 @@ function ListLength<T>(list: List<T>): i32 {
 
 function ListLength<T>(list: List<T>): i32 {
   with List<T>; // Unwrap the enum
-  switch list {
-    case Nil: 0
-    case Cons {tail}: 1 + ListLength(tail)
+  if list is Nil {
+    0
+  } else if list is Cons {tail} {
+    1 + ListLength(tail);
   }
 }
 ```
@@ -538,9 +540,9 @@ const emptyArray: i32[0] = [];
 
 ```typescript
 function main(): [Exception] {
-  throw {
+  throw({
     message: "Something went wrong",
-  };
+  });
 }
 ```
 
@@ -556,16 +558,13 @@ import { open } from "std/fs"
 function main() {
   const greetingFileResult = open("greeting.txt");
 
-  switch (greetingFileResult) {
-    case Ok(file): {
-      console.log("The file was opened successfully");
-    }
-    case Err(error): {
-      console.log("The file could not be opened");
-      throw Error({
-        message: error.message
-      })
-    }
+  if greetingFileResult is Ok(file) {
+    console.log("The file was opened successfully");
+  } else if greetingFileResult is Err(error) {
+    console.log("The file could not be opened");
+    throw Error({
+      message: error.message
+    })
   }
 }
 ```
@@ -604,22 +603,28 @@ enum Coin {
 }
 // without `with`
 function test() {
-  switch coin {
-    case Coin.Penny: 1
-    case Coin.Nickel: 5
-    case Coin.Dime: 10
-    case Coin.Quarter: 25
+  if coin is Coin.Penny {
+    1
+  } else if coin is Coin.Nickel {
+    5
+  } else if coin is Coin.Dime {
+    10
+  } else if coin is Coin.Quarter {
+    25
   }
 }
 
 // with `with`
 function test() {
   with Coin;
-  switch coin {
-    case Penny: 1
-    case Nickel: 5
-    case Dime: 10
-    case Quarter: 25
+  if coin is Penny {
+    1
+  } else if coin is Nickel {
+    5
+  } else if coin is Dime {
+    10
+  } else if coin is Quarter {
+    25
   }
 }
 ```
@@ -820,3 +825,4 @@ dependOnBoolean(false); // 1.0
 - [Simply Easy! An Implementation of a Dependently Typed Lambda Calculus](http://strictlypositive.org/Easy.pdf)
 - [Reconstructing TypeScript](https://jaked.org/blog/2021-09-07-Reconstructing-TypeScript-part-0)
 - [PureScript Types](https://github.com/purescript/documentation/blob/master/language/Types.md)
+- [The Ultimate Conditional Syntax](https://icfp22.sigplan.org/details/mlfamilyworkshop-2022-papers/6/The-Ultimate-Conditional-Syntax)

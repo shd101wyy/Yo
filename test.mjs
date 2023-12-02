@@ -495,13 +495,97 @@ function main() {
 code = `
 enum Color {
   Red,
-  Green,
-  Blue
+  Blue,
+  Green
 }
 
-enum List<T> {
-  Cons(head: T, rest: List<T>),
-  Nil
+function colorToInt(c: Color): i32 {
+  switch c {
+    case Color.Red: 0;
+    case Color.Blue: 1;
+    case Color.Green: 2;
+  }
+}
+
+function main() {
+  colorToInt(Color.Red)
+}
+`
+
+code = `
+function main() {
+  const x = 12;
+  switch x {
+    case 0:
+    case 1: 1;
+    case 2: 2;
+    case 3: {
+      3
+    }
+    default: 4;
+  }
+}
+`
+
+code = `
+enum Color {
+  Red,
+  Blue,
+  Green
+}
+
+function colorToInt(c: Color): i32 {
+  if (c is Color.Red) 0
+  else if (c is Color.Blue) 1
+  else if (c is Color.Green) 2
+  else 3
+}
+
+function main() {
+  colorToInt(Color.Red)
+}
+`
+
+code = `
+enum Option<T> {
+  Some(val: T),
+  None
+}
+
+function main() {
+  const x = Option<i32>.Some(3);
+  if x is Option<i32>.Some(val) // && val >= 0
+  {
+    val
+  } else {
+    0
+  }
+}
+`
+
+code = `
+enum Option<T> {
+  Some(val: T),
+  None
+}
+function main() {
+  Option<i32>.Some(3) is Option<i32>.Some(val) && val >= 0
+}
+`
+
+code = `
+enum Option<T> {
+  Some(val: T),
+  None
+}
+function test(x: Option<i32>) {
+  Option<f32>.Some(4.3)
+}
+function main(): i32 {
+  const x = Option<i32>.Some(3);
+  const y = Option<i32>.None;
+  const z = test(x);
+  0
 }
 `
 

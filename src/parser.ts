@@ -440,6 +440,36 @@ export default class Parser {
           )}`
         );
       }
+    } else if (callerType.type === "Enum") {
+      const variant = callerType.variants.find(
+        (variant) => variant.name === token.value
+      );
+      if (variant) {
+        const typeValue = variant.func ? variant.func : callerType;
+
+        console.log("enter here");
+        if (typeValue.type === "Function") {
+          typeValue.returnType = callerType;
+        }
+
+        return {
+          expr: {
+            type: AstType.PropertyAccess,
+            expr: expr,
+            propertyName: variant.name,
+            typeValue,
+            env,
+          },
+          index: index + 1,
+        };
+      } else {
+        throw this.formatErrorMessage(
+          token,
+          `Cannot find variant '${token.value}' in enum:\n${typeToString(
+            callerType
+          )}`
+        );
+      }
     }
 
     // Check if it's a valid function that takes
@@ -1122,6 +1152,10 @@ Got:      (${functionArguments
       (valueType) =>
         valueType.type.type === "Trait" && valueType.kind === "trait"
     );
+    const matchedEnum = valueTypes.filter(
+      (valueType) => valueType.type.type === "Enum"
+    );
+    console.log("matchedEnum: ", matchedEnum.length);
 
     // Check if it's a trait
     if (matchedTraits.length > 0) {
@@ -1179,6 +1213,61 @@ Found possible traits:
               type: AstType.Trait,
               traitName: identifier,
               typeValue: newTraitType,
+              typeArguments: typeArguments,
+              env,
+              isDefinition: false,
+            },
+            index,
+          };
+        }
+      }
+    }
+
+    // Check if it's an enum
+    if (matchedEnum.length > 0) {
+      if (matchedEnum.length > 1) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Ambiguous enum "${identifier}"
+Found possible enums:
+- ${matchedEnum.map((enumType) => typeToString(enumType.type)).join("\n- ")}
+          `
+        );
+      } else {
+        const enumValue = matchedEnum[0];
+        const enumType = enumValue.type as TEnum;
+        let typeArguments: Type[] = [];
+        if (tokens[index + 1]?.type === TokenType.LessThan) {
+          const {
+            typeArguments: nextTypeArguments,
+            index: nextIndex,
+            env: nextEnv,
+          } = synthesizeTypeArgumentsFromTokens({
+            tokens,
+            index: index + 1,
+            inputString: this.inputString,
+            env,
+            parseExpression: this.parseExpression.bind(this),
+          });
+          typeArguments = nextTypeArguments;
+          index = nextIndex;
+          env = nextEnv;
+        } else {
+          index = index + 1;
+        }
+
+        const newEnumType = applyTypeArgumentsToType(enumType, typeArguments);
+        if (newEnumType.type !== "Enum") {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Expected enum type, but got ${typeToString(newEnumType)}`
+          );
+        } else {
+          return {
+            expr: {
+              type: AstType.Enum,
+              enumName: identifier,
+              typeValue: newEnumType,
               typeArguments: typeArguments,
               env,
               isDefinition: false,
@@ -2822,7 +2911,7 @@ Got:      ${typeToString(matchedFunction.func)}`
           "Expected identifier for enum value"
         );
       }
-      const enumValueName = tokens[index].value;
+      const enumVariantName = tokens[index].value;
       index = index + 1;
 
       // Parameter types
@@ -2846,13 +2935,23 @@ Got:      ${typeToString(matchedFunction.func)}`
       }
 
       enumVariants.push({
-        tag: enumValueName,
-        parameterTypes,
+        name: enumVariantName,
+        func:
+          parameterTypes.length > 0
+            ? {
+                functionName: enumVariantName,
+                type: "Function",
+                parameterTypes,
+                returnType: { type: "unknown", typeName: enumName },
+                typeParameters: [],
+              }
+            : undefined,
       });
     }
 
     const enumType: TEnum = {
       type: "Enum",
+      enumName,
       typeParameters,
       variants: enumVariants,
     };
@@ -2863,7 +2962,7 @@ Got:      ${typeToString(matchedFunction.func)}`
       {
         variableName: enumName,
         type: enumType,
-        kind: "type",
+        kind: "value", // NOTE: We need to set it to "value" here.
       },
       -1
     );

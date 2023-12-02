@@ -48,6 +48,7 @@ export enum AstType {
 
   // control flow
   If = "if",
+  Switch = "switch",
 
   // ignore
   Ignore = "ignore",
@@ -269,6 +270,23 @@ export type IfExpr = {
   env: Environment;
 };
 
+export type SwitchCase = {
+  pattern: Expr;
+  /**
+   * If body is undefined, then it's a fallthrough case.
+   */
+  body?: Expr[];
+  guard?: Expr;
+};
+
+export type SwitchExpr = {
+  type: AstType.Switch;
+  condition: Expr;
+  cases: SwitchCase[];
+  typeValue: Type;
+  env: Environment;
+};
+
 /**
  * 1 is the lowest precedence
  */
@@ -404,7 +422,9 @@ export function exprToString(expr: Expr | FunctionPrototype) {
         .join(";\n")}\n}`;
     case AstType.CallFunction:
       return `${exprToString(expr.callee)}${
-        expr.typeArguments ? `<${expr.typeArguments.map(typeToString)}>` : ""
+        expr.typeArguments.length > 0
+          ? `<${expr.typeArguments.map(typeToString)}>`
+          : ""
       }(${expr.functionArguments
         .map((expr) => exprToString(expr))
         .join(", ")})`;

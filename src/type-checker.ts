@@ -201,14 +201,19 @@ export type TTrait = {
 };
 
 export type TEnumVariant = {
-  tag: string;
-  parameterTypes: TParameterType[];
+  name: string;
+  /**
+   * If func is undefined, then it means there is no parameter for this variant
+   */
+  func?: TFunction;
 };
 
 export type TEnum = {
   type: "Enum";
+  enumName: string;
   typeParameters: TTypeParameter[];
   variants: TEnumVariant[];
+  appliedTypeArguments?: Type[];
 };
 
 /*
@@ -618,16 +623,25 @@ export function synthesizeTypeFromTokens({
         // Check if it's a real value
         const { expr, index: nextIndex } = parseExpression(tokens, index, env);
         env = expr.env;
-        if (!expr || expr.type !== AstType.Value || expr.tag !== "primitive") {
-          throw formatErrorMessage({
-            token: tokens[index],
-            errorMessage: `Unknown type ${tokens[index].value}`,
-            inputString,
-          });
-        }
+        if (expr.typeValue.type === "Enum") {
+          typeValue = expr.typeValue;
+          index = nextIndex - 1;
+        } else {
+          if (
+            !expr ||
+            expr.type !== AstType.Value ||
+            expr.tag !== "primitive"
+          ) {
+            throw formatErrorMessage({
+              token: tokens[index],
+              errorMessage: `Unknown type ${tokens[index].value}`,
+              inputString,
+            });
+          }
 
-        typeValue = expr.typeValue;
-        index = nextIndex - 1;
+          typeValue = expr.typeValue;
+          index = nextIndex - 1;
+        }
       }
     }
     returnValue = {
@@ -956,6 +970,10 @@ export function applyTypeArgumentsToType(
       functions: functions,
     };
   } else if (type.type === "Enum") {
+    if (type.appliedTypeArguments) {
+      return type; // Type arguments are already applied
+    }
+
     if (type.typeParameters.length !== typeArguments.length) {
       throw new Error(
         `(4) Mismatched type arguments.
@@ -980,26 +998,33 @@ export function applyTypeArgumentsToType(
     }
 
     // apply to each of the variants
-    const variants: TEnumVariant[] = type.variants.map(
-      ({ tag, parameterTypes }) => ({
-        tag,
-        parameterTypes: parameterTypes.map(({ name, type, defaultValue }) => ({
-          name,
-          type: applyTypeArgumentsToType(
-            type,
-            [],
+    const variants: TEnumVariant[] = type.variants.map(({ name, func }) => ({
+      name,
+      func: func
+        ? applyTypeArgumentsToType(
+            func,
+            [], // FIXME: This could be wrong
             typeParameterToTypeArgumentMap
-          ),
-          defaultValue,
-        })),
-      })
-    ) as TEnumVariant[];
+          )
+        : undefined,
+    })) as TEnumVariant[];
 
-    return {
+    const enumType: TEnum = {
       type: "Enum",
+      enumName: type.enumName,
       typeParameters: newTypeParameters, // FIXME: <- this might be wrong
       variants: variants,
+      appliedTypeArguments: typeArguments,
     };
+
+    // Update func.returnType of each variants
+    variants.forEach((variant) => {
+      if (variant.func && variant.func.returnType.type === "unknown") {
+        variant.func.returnType.typeArguments = typeArguments;
+      }
+    });
+
+    return enumType;
   } else if (type.type === "Function") {
     const typeParameters = type.typeParameters;
     if (typeParameters.length !== typeArguments.length) {
@@ -2101,22 +2126,32 @@ export function typeToString(type: Type): string {
 }`;
     }
     case "Enum": {
+      if (type.appliedTypeArguments) {
+        return `${type.enumName}${
+          type.appliedTypeArguments.length > 0
+            ? `<${type.appliedTypeArguments.map(typeToString).join(",")}>`
+            : ""
+        }`;
+      }
+
       return `enum${
         type.typeParameters.length
           ? `<${type.typeParameters.map(typeToString).join(",")}>`
           : ""
       } {
 ${type.variants
-  .map(({ tag, parameterTypes }) => {
-    return `  ${tag}${
-      parameterTypes.length
-        ? `(${parameterTypes
-            .map(
-              (parameter) =>
-                (parameter.name ? `${parameter.name}: ` : "") +
-                typeToString(parameter.type)
-            )
-            .join(", ")})`
+  .map(({ name, func }) => {
+    return `  ${name}${
+      func
+        ? func.parameterTypes.length
+          ? `(${func.parameterTypes
+              .map(
+                (parameter) =>
+                  (parameter.name ? `${parameter.name}: ` : "") +
+                  typeToString(parameter.type)
+              )
+              .join(", ")})`
+          : ""
         : ""
     }`;
   })
@@ -2182,6 +2217,16 @@ export function checkType(
           checkType(parameterType.type, givenType.parameterTypes[i].type, env)
         ) &&
         checkType(expectedType.returnType, givenType.returnType, env)
+      );
+    } else if (expectedTypeType === "Enum" && givenTypeType === "Enum") {
+      const expectedTypeAppliedTypeArguments =
+        expectedType.appliedTypeArguments;
+      const givenTypeAppliedTypeArguments = givenType.appliedTypeArguments;
+      if (!expectedTypeAppliedTypeArguments || !givenTypeAppliedTypeArguments) {
+        throw new Error("Enum type must have appliedTypeArguments");
+      }
+      return expectedTypeAppliedTypeArguments.every((type, i) =>
+        checkType(type, givenTypeAppliedTypeArguments[i], env)
       );
     } else {
       return isSubtype(givenType, expectedType);
@@ -2452,4 +2497,14 @@ export function getMatchedOverloadingFunction(
   });
 
   return matchedFunctions;
+}
+
+export function getEnumTagSize(enumType: TEnum): 8 | 16 | 32 {
+  if (enumType.variants.length <= Math.pow(2, 8)) {
+    return 8;
+  } else if (enumType.variants.length <= Math.pow(2, 16)) {
+    return 16;
+  } else {
+    return 32;
+  }
 }

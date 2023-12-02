@@ -59,6 +59,7 @@ export enum TokenType {
   While = "while",
   Switch = "switch",
   Case = "case",
+  Default = "default",
   Resume = "resume",
   Return = "return",
   Break = "break",
