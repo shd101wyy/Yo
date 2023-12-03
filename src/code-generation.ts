@@ -27,6 +27,7 @@ import {
   TFunction,
   Type,
   applyTypeArgumentsToFunctionExpr,
+  getEnumTagSize,
   typeToString,
 } from "./type-checker";
 
@@ -98,6 +99,24 @@ export class CodeGenerator {
       case "i128": {
         return this.builder.getInt128Ty();
       }
+      case "u1": {
+        return this.builder.getInt1Ty();
+      }
+      case "u8": {
+        return this.builder.getInt8Ty();
+      }
+      case "u16": {
+        return this.builder.getInt16Ty();
+      }
+      case "u32": {
+        return this.builder.getInt32Ty();
+      }
+      case "u64": {
+        return this.builder.getInt64Ty();
+      }
+      case "u128": {
+        return this.builder.getInt128Ty();
+      }
       case "f32": {
         return this.builder.getFloatTy();
       }
@@ -162,6 +181,13 @@ export class CodeGenerator {
         // Return pointer to record struct
         return llvm.PointerType.get(recordType, 0);
       }
+      case "Enum": {
+        const enumTagSize = getEnumTagSize(typeExpr);
+        const enumType = llvm.IntegerType.get(this.context, enumTagSize);
+        const recordType = llvm.StructType.get(this.context, [enumType]);
+        // Return pointer to record struct
+        return llvm.PointerType.get(recordType, 0);
+      }
       case "Function": {
         // Create a closure type for the function
         const closureType = this.getClosureType(typeExpr);
@@ -172,7 +198,7 @@ export class CodeGenerator {
         return this.unit.getType();
       }
       default:
-        throw new Error(`Unknown type: ${JSON.stringify(typeExpr)}`);
+        throw new Error(`Unknown type: ${typeToString(typeExpr)}`);
     }
   }
 
@@ -428,8 +454,10 @@ export class CodeGenerator {
     }
 
     // Codegen the body
+    console.log("codegen the body: ", expr.body.length);
     const returnVal = this.codegenExprs(expr.body, nextEnv);
     nextEnv = returnVal.env;
+    console.log("done codegen the body: ", returnVal);
 
     // Move back to the entry block
     this.builder.CreateRet(returnVal.value);
@@ -671,6 +699,47 @@ ${exprToString(expr)}
           env,
         };
       }
+      /*
+      case "Enum": {
+        if (!exprValue.enum) {
+          throw new Error(`Not an enum:
+
+${exprToString(expr)}
+`);
+        }
+        const enum_ = exprValue.enum;
+        const enumType = enum_.enumType;
+        const variantIndex = enumType.variants.findIndex(
+          (variant) => variant.name === propertyName
+        );
+        const variant = enumType.variants[variantIndex];
+        if (!variant) {
+          throw new Error(
+            `Variant "${propertyName}" not found in enum:
+
+${exprToString(expr)}
+`
+          );
+        }
+        // TODO: Check if the enum has only one variant
+        if (variant.parameterTypes.length === 0) {
+          // The variant has no parameters
+          // Return the variantIndex as the value
+          return {
+            type: {
+              type: "u8",
+            },
+            value: llvm.ConstantInt.get(
+              llvm.IntegerType.get(this.context, 8),
+              variantIndex,
+              false
+            ),
+            env,
+          };
+        } else {
+          throw new Error(`Not implemented`);
+        }
+      }*/
       default:
         throw new Error(
           `Accessors not implemented for:
@@ -682,7 +751,7 @@ ${typeToString(typeValue)}
   }
 
   private codegenExprs(
-    expr: Expr[],
+    exprs: Expr[],
     env: LlvmEnvironment
   ): LlvmValue & { env: LlvmEnvironment } {
     // Create undefined value
@@ -691,10 +760,10 @@ ${typeToString(typeValue)}
       type: { type: "()" },
       env,
     };
-    const exprs = expr;
     for (let i = 0; i < exprs.length; i++) {
       const expr = exprs[i];
-      if (expr.type === AstType.TypeAlias) {
+      console.log(`- codegenExpr: ${expr.type}\n`, exprToString(expr), "\n");
+      if (expr.type === AstType.TypeAlias || expr.type === AstType.Enum) {
         continue;
       }
       llvmValue = this.codegenExpr(expr, env);
@@ -1340,6 +1409,97 @@ ${exprToString(callee)}: ${typeToString(callee.typeValue)}`
           };
         }
       }
+
+      case AstType.CallEnum: {
+        const enumType = expr.typeValue;
+        if (!enumType.selectedVariantName) {
+          throw new Error(
+            `Enum variant ${enumType.selectedVariantName} not found in enum:
+
+${typeToString(enumType)}`
+          );
+        }
+        const variantIndex = enumType.variants.findIndex(
+          (variant) => variant.name === enumType.selectedVariantName
+        );
+        const variant = enumType.variants[variantIndex];
+        if (variantIndex < 0 || !variant) {
+          throw new Error(
+            `Enum variant ${enumType.selectedVariantName} not found in enum:
+
+${typeToString(enumType)}`
+          );
+        }
+
+        const enumTagSize = getEnumTagSize(enumType);
+        const enumTagType: Type =
+          enumTagSize === 8
+            ? { type: "u8" }
+            : enumTagSize === 16
+            ? { type: "u16" }
+            : { type: "u32" };
+        const enumTagValue = llvm.ConstantInt.get(
+          llvm.IntegerType.get(this.context, enumTagSize),
+          variantIndex,
+          false
+        );
+
+        if (variant.parameterTypes.length === 0) {
+          // The variant has no parameters
+          // Return the variantIndex as the value
+          return {
+            value: enumTagValue,
+            type: expr.typeValue,
+            env,
+          };
+        } else {
+          // Return a struct of the variantIndex and the variantArguments
+          const variantArguments = expr.variantArguments;
+          const variantArgumentValues = variantArguments.map((arg) => {
+            return this.codegenExpr(arg, env).value;
+          });
+          const variantArgumentTypes = variantArguments.map((arg) => {
+            return arg.typeValue;
+          });
+          const variantArgumentLlvmTypes = variantArgumentTypes.map((arg) => {
+            return this.getLlvmType(arg);
+          });
+
+          // Allocate memory for the struct
+          const structType = llvm.StructType.get(this.context, [
+            this.getLlvmType(enumTagType),
+            ...variantArgumentLlvmTypes,
+          ]);
+          const structPtrType = llvm.PointerType.get(structType, 0);
+          const structPtr = this.allocateMemoryOnHeap(
+            structPtrType,
+            this.dataLayout.getTypeAllocSize(structType)
+          );
+
+          // Set the struct fields
+          const structFields = [enumTagValue, ...variantArgumentValues];
+          for (let i = 0; i < structFields.length; i++) {
+            const structField = structFields[i];
+            const structFieldPtr = this.builder.CreateGEP(
+              structType,
+              structPtr,
+              [
+                llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
+                llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), i),
+              ],
+              "structField"
+            );
+            this.builder.CreateStore(structField, structFieldPtr);
+          }
+
+          return {
+            value: structPtr,
+            type: expr.typeValue,
+            env,
+          };
+        }
+      }
+
       case AstType.If: {
         const conditionValue = this.codegenExpr(expr.condition, env);
 
@@ -1552,8 +1712,9 @@ ${exprToString(callee)}: ${typeToString(callee.typeValue)}`
         }
       }
       default:
-        throw new Error(`Unknown expression type:\n
-  ${exprToString(expr)}`);
+        throw new Error(`Unknown expression type: ${expr.type}\n
+  ${exprToString(expr)}
+`);
     }
   }
 

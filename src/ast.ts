@@ -39,6 +39,7 @@ export enum AstType {
   FunctionPrototype = "function-prototype",
   Function = "function",
   CallFunction = "call-function",
+  CallEnum = "call-enum",
 
   // enum
   Enum = "enum",
@@ -86,6 +87,7 @@ export type Expr =
   | IndexAccessExpr
   | ValueExpr
   | CallFunctionExpr
+  | CallEnumExpr
   | IfExpr
   | IgnoreExpr
   | BlockExpr;
@@ -199,15 +201,6 @@ export type EnumExpr = {
   enumName: string;
   typeValue: TEnum;
   env: Environment;
-  /**
-   * If typeArguments is undefined, then it's a enum definition.
-   * If typeArguments is defined, then it's a enum instance.
-   */
-  typeArguments?: Type[];
-  /**
-   * If it's a enum definition, then isDefinition is true.
-   */
-  isDefinition: boolean;
 };
 
 export type TraitExpr = {
@@ -258,6 +251,13 @@ export type CallFunctionExpr = {
   typeArguments: Type[];
   functionArguments: Expr[];
   typeValue: Type;
+  env: Environment;
+};
+
+export type CallEnumExpr = {
+  type: AstType.CallEnum;
+  variantArguments: Expr[];
+  typeValue: TEnum;
   env: Environment;
 };
 
@@ -387,14 +387,6 @@ export function exprToString(expr: Expr | FunctionPrototype) {
           : ""
       }${typeToString(expr.typeValue).replace(/^(trait|instance)/, "")}`;
     case AstType.Enum:
-      if (!expr.isDefinition) {
-        return `${expr.enumName}${
-          expr.typeArguments && expr.typeArguments.length > 0
-            ? `<${expr.typeArguments.map(typeToString).join(", ")}>`
-            : ""
-        }`;
-      }
-
       return `enum ${expr.enumName}${typeToString(expr.typeValue).replace(
         /^enum/,
         ""
@@ -428,6 +420,14 @@ export function exprToString(expr: Expr | FunctionPrototype) {
       }(${expr.functionArguments
         .map((expr) => exprToString(expr))
         .join(", ")})`;
+    case AstType.CallEnum:
+      return `${typeToString(expr.typeValue)}${
+        expr.variantArguments.length > 0
+          ? `(${expr.variantArguments
+              .map((expr) => exprToString(expr))
+              .join(", ")})`
+          : ""
+      }`;
     case AstType.If:
       return `if (${exprToString(expr.condition)}) {\n${expr.then
         .map((expr) => "  " + exprToString(expr))

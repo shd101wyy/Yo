@@ -399,6 +399,31 @@ const anotherHome = V4(v3 = 200);
 const loopback = V6(String.from("::1"))
 ```
 
+## Subtyping
+
+```typescript
+enum Option<T> {
+  Some(val: T),
+  None
+}
+
+function printValue<T>(x: {val: T}) {
+  console.log(x.val);
+}
+
+function main() {
+  printValue<i32>({val: 12});
+
+  const x = Option<i32>.Some(12);
+  printValue(x); // This is allowed
+
+  const y = Option<i32>.None;
+  printValue(y); // This is not allowed as `None` does not have `val` field
+}
+
+
+```
+
 ### Traits
 
 ```typescript
@@ -540,9 +565,9 @@ const emptyArray: i32[0] = [];
 
 ```typescript
 function main(): [Exception] {
-  throw({
+  throw {
     message: "Something went wrong",
-  });
+  };
 }
 ```
 

@@ -651,10 +651,27 @@ function main(): i32 {
 }
 `
 
+code = `
+enum Option<V> {
+  Some(val: V),
+  None
+}
+function id(x: Option<i32>): Option<i32> {
+  x
+}
+function main() {
+  const x = Option<i32>.Some(3);
+  const y = Option<i32>.None;
+  id(x);
+  id(y);
+  0
+}
+`
+
 const codeGenerator = new CodeGenerator(code);
 
-//// const ir = codeGenerator.getLlvmIr();
-//// console.log(ir);
+const ir = codeGenerator.getLlvmIr();
+console.log(ir);
 
 // write ir to "test.ll" file
 //// writeFileSync("test.ll", ir);

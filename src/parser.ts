@@ -445,21 +445,33 @@ export default class Parser {
         (variant) => variant.name === token.value
       );
       if (variant) {
-        const typeValue = variant.func ? variant.func : callerType;
-        if (typeValue.type === "Function") {
-          typeValue.returnType = callerType;
-        }
-
-        return {
-          expr: {
-            type: AstType.PropertyAccess,
-            expr: expr,
-            propertyName: variant.name,
-            typeValue,
-            env,
-          },
-          index: index + 1,
+        const typeValue: TEnum = {
+          ...callerType,
+          selectedVariantName: variant.name,
         };
+
+        if (variant.parameterTypes.length === 0) {
+          return {
+            expr: {
+              type: AstType.CallEnum,
+              env,
+              typeValue,
+              variantArguments: [],
+            },
+            index: index + 1,
+          };
+        } else {
+          return {
+            expr: {
+              type: AstType.PropertyAccess,
+              expr: expr,
+              propertyName: variant.name,
+              typeValue: typeValue,
+              env,
+            },
+            index: index + 1,
+          };
+        }
       } else {
         throw this.formatErrorMessage(
           token,
@@ -487,7 +499,7 @@ export default class Parser {
       for (const functionType of matchedFunctions) {
         try {
           parserReturns.push(
-            this.parseCallExpr(
+            this.parseCallFunctionExpr(
               {
                 type: AstType.Variable,
                 name: functionName,
@@ -1056,7 +1068,7 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`
     };
   }
 
-  private parseCallExpr(
+  private parseCallFunctionExpr(
     callee: Expr,
     tokens: Token[],
     index: number,
@@ -1117,6 +1129,137 @@ Got:      (${functionArguments
       },
       index,
     };
+  }
+
+  private parseCallEnumExpr(
+    callee: Expr,
+    tokens: Token[],
+    index: number,
+    env: Environment,
+    isWithStatement: boolean
+  ): ParserReturn {
+    if (callee.typeValue.type !== "Enum") {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected enum for call expression"
+      );
+    }
+    const selectedVariantName = callee.typeValue.selectedVariantName;
+    if (selectedVariantName === undefined) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected enum variant for call expression"
+      );
+    }
+
+    const selectedVariant = callee.typeValue.variants.find(
+      (variant) => variant.name === selectedVariantName
+    );
+    if (!selectedVariant) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Cannot find enum variant ${selectedVariantName}`
+      );
+    }
+
+    if (tokens[index].type !== TokenType.LParen) {
+      throw this.formatErrorMessage(tokens[index], "Expected left paren");
+    }
+
+    const variantArguments: Expr[] = [];
+    index = index + 1;
+    while (true) {
+      const token = tokens[index];
+      if (!token) {
+        throw this.formatErrorMessage(token, "Expected ')'");
+      }
+      if (token.type === TokenType.RParen) {
+        index = index + 1;
+        break;
+      } else {
+        const { expr, index: nextIndex } = this.parseExpression(
+          tokens,
+          index,
+          env,
+          isWithStatement
+        );
+        if (!expr) {
+          throw this.formatErrorMessage(token, "Expected expression");
+        }
+        variantArguments.push(expr);
+        index = nextIndex;
+        env = expr.env;
+
+        if (tokens[index].type === TokenType.Comma) {
+          index = index + 1;
+        }
+      }
+    }
+
+    // TODO: Keyword arguments
+    const variantArgumentsInOrder: (Expr | null)[] =
+      selectedVariant.parameterTypes.map((pt) => pt.defaultValue);
+    const variantParameterTypes = selectedVariant.parameterTypes;
+
+    for (let i = 0; i < variantArguments.length; i++) {
+      const argument = variantArguments[i];
+
+      // Keyword argument
+      if (argument.type === AstType.ConstantAssignment) {
+        const variableName = argument.variableName;
+        const parameterIndex = variantParameterTypes.findIndex(
+          (parameter) => parameter.name === variableName
+        );
+        if (parameterIndex === -1) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Cannot find parameter ${variableName}`
+          );
+        }
+        variantArgumentsInOrder[parameterIndex] = argument.right;
+      } else {
+        if (i >= variantArgumentsInOrder.length) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Too many arguments for enum variant ${selectedVariant.name}`
+          );
+        }
+        // Positional argument
+        variantArgumentsInOrder[i] = argument;
+      }
+    }
+
+    // Check if all the arguments are filled
+    if (variantArgumentsInOrder.some((arg) => arg === null)) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Missing arguments for enum variant ${selectedVariant.name}`
+      );
+    } else {
+      // Check if all the arguments have the expected type
+      for (let i = 0; i < variantArgumentsInOrder.length; i++) {
+        const argument = variantArgumentsInOrder[i];
+        const parameterType = variantParameterTypes[i].type;
+        if (!argument || !checkType(parameterType, argument.typeValue, env)) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Mismatched type for enum variant ${selectedVariant.name}
+Expected: ${typeToString(parameterType)}
+Got:      ${argument ? typeToString(argument.typeValue) : "null"}`
+          );
+        }
+      }
+
+      return {
+        expr: {
+          type: AstType.CallEnum,
+          variantArguments: variantArgumentsInOrder as Expr[],
+          typeValue: callee.typeValue,
+          env,
+        },
+        index,
+      };
+    }
   }
 
   /**
@@ -1266,12 +1409,11 @@ Found possible enums:
         } else {
           return {
             expr: {
-              type: AstType.Enum,
-              enumName: identifier,
-              typeValue: newEnumType,
-              typeArguments: typeArguments,
+              type: AstType.Variable,
+              name: identifier,
               env,
-              isDefinition: false,
+              typeValue: newEnumType,
+              frameLevel: enumValue.frameLevel,
             },
             index,
           };
@@ -1299,7 +1441,7 @@ Found possible enums:
       for (const functionType of matchedFunctions) {
         try {
           parserReturns.push(
-            this.parseCallExpr(
+            this.parseCallFunctionExpr(
               {
                 type: AstType.Variable,
                 name: identifier,
@@ -1519,8 +1661,27 @@ Found possible functions:
       primaryExpr.typeValue.type === "Function" &&
       (token.type === TokenType.LParen || token.type === TokenType.LessThan)
     ) {
-      // parseCallExpr
-      const returnValue = this.parseCallExpr(
+      // parseCallFunctionExpr
+      const returnValue = this.parseCallFunctionExpr(
+        primaryExpr,
+        tokens,
+        index,
+        env,
+        isWithStatement
+      );
+      return this.parsePrimaryEnd(
+        returnValue.expr,
+        tokens,
+        returnValue.index,
+        returnValue.expr.env,
+        isWithStatement
+      );
+    } else if (
+      primaryExpr.typeValue.type === "Enum" &&
+      token.type === TokenType.LParen
+    ) {
+      // parseCallEnumExpr
+      const returnValue = this.parseCallEnumExpr(
         primaryExpr,
         tokens,
         index,
@@ -2937,16 +3098,7 @@ Got:      ${typeToString(matchedFunction.func)}`
 
       enumVariants.push({
         name: enumVariantName,
-        func:
-          parameterTypes.length > 0
-            ? {
-                functionName: enumVariantName,
-                type: "Function",
-                parameterTypes,
-                returnType: { type: "unknown", typeName: enumName },
-                typeParameters: [],
-              }
-            : undefined,
+        parameterTypes,
       });
     }
 
@@ -2955,6 +3107,8 @@ Got:      ${typeToString(matchedFunction.func)}`
       enumName,
       typeParameters,
       variants: enumVariants,
+      selectedVariantName:
+        enumVariants.length === 1 ? enumVariants[0].name : undefined,
     };
 
     // Add to environment
@@ -2975,7 +3129,6 @@ Got:      ${typeToString(matchedFunction.func)}`
         enumName,
         typeValue: enumType,
         env,
-        isDefinition: true,
       },
       index,
     };

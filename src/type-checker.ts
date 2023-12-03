@@ -202,10 +202,7 @@ export type TTrait = {
 
 export type TEnumVariant = {
   name: string;
-  /**
-   * If func is undefined, then it means there is no parameter for this variant
-   */
-  func?: TFunction;
+  parameterTypes: TParameterType[];
 };
 
 export type TEnum = {
@@ -214,6 +211,7 @@ export type TEnum = {
   typeParameters: TTypeParameter[];
   variants: TEnumVariant[];
   appliedTypeArguments?: Type[];
+  selectedVariantName?: string;
 };
 
 /*
@@ -998,16 +996,30 @@ export function applyTypeArgumentsToType(
     }
 
     // apply to each of the variants
-    const variants: TEnumVariant[] = type.variants.map(({ name, func }) => ({
-      name,
-      func: func
-        ? applyTypeArgumentsToType(
-            func,
-            [], // FIXME: This could be wrong
-            typeParameterToTypeArgumentMap
-          )
-        : undefined,
-    })) as TEnumVariant[];
+    const variants: TEnumVariant[] = type.variants.map(
+      ({ name, parameterTypes }) => ({
+        name,
+        parameterTypes: parameterTypes.map((parameterType) => {
+          const defaultValue = parameterType.defaultValue;
+          const newParameterType: TParameterType = {
+            name: parameterType.name,
+            type: applyTypeArgumentsToType(
+              parameterType.type,
+              typeArguments,
+              typeParameterToTypeArgumentMap
+            ),
+            defaultValue: defaultValue
+              ? applyTypeArgumentsToExpr(
+                  defaultValue,
+                  typeArguments,
+                  typeParameterToTypeArgumentMap
+                )
+              : null,
+          };
+          return newParameterType;
+        }),
+      })
+    ) as TEnumVariant[];
 
     const enumType: TEnum = {
       type: "Enum",
@@ -2134,7 +2146,7 @@ export function typeToString(type: Type): string {
           type.appliedTypeArguments.length > 0
             ? `<${type.appliedTypeArguments.map(typeToString).join(",")}>`
             : ""
-        }`;
+        }${type.selectedVariantName ? `.${type.selectedVariantName}` : ""}`;
       }
 
       return `enum${
@@ -2143,18 +2155,16 @@ export function typeToString(type: Type): string {
           : ""
       } {
 ${type.variants
-  .map(({ name, func }) => {
+  .map(({ name, parameterTypes }) => {
     return `  ${name}${
-      func
-        ? func.parameterTypes.length
-          ? `(${func.parameterTypes
-              .map(
-                (parameter) =>
-                  (parameter.name ? `${parameter.name}: ` : "") +
-                  typeToString(parameter.type)
-              )
-              .join(", ")})`
-          : ""
+      parameterTypes.length
+        ? `(${parameterTypes
+            .map(
+              (parameter) =>
+                (parameter.name ? `${parameter.name}: ` : "") +
+                typeToString(parameter.type)
+            )
+            .join(", ")})`
         : ""
     }`;
   })
@@ -2320,9 +2330,6 @@ export function getFunctionArgumentsInOrder(
 
   for (let i = 0; i < functionArguments.length; i++) {
     const argument = functionArguments[i];
-    if (Array.isArray(argument)) {
-      return null;
-    }
 
     // Keyword argument
     if (argument.type === AstType.ConstantAssignment) {
