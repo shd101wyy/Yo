@@ -578,13 +578,75 @@ enum Option<T> {
   Some(val: T),
   None
 }
-function test(x: Option<i32>) {
-  Option<f32>.Some(4.3)
+function test<T>(x: T) {
+  Option<T>.Some(x)
 }
 function main(): i32 {
   const x = Option<i32>.Some(3);
   const y = Option<i32>.None;
-  const z = test(x);
+  const z = test<i32>(12);
+  0
+}
+`
+
+code = `
+enum Option<T> {
+  Some(val: T),
+  None
+}
+function test<T>(x: T) {
+  Option<T>.Some(x)
+}
+function main(): i32 {
+  const x = test<i32>(12);
+  0
+}
+`
+
+code = `
+trait Id<X> {
+  id(x: X): X;
+}
+
+instance<T> Id<Option<T>> {
+  id(x: Option<T>): Option<T> {
+    x
+  }
+}
+
+function main() {
+  Id<Option<i32>>.id(Option<i32>.Some(3))
+}
+`
+
+code = `
+trait Show<X> {
+  show(x: X): string;
+}
+
+instance<T> Show<Option<T>> 
+with Show<T> {
+  show(x: Option<T>): string {
+    if (x is Option<T>.Some(val)) {
+      "Some(" + show(val) + ")"
+    } else {
+      "None"
+    }
+  }
+}
+`
+
+code = `
+enum Option<V> {
+  Some(val: V),
+  None
+}
+function test<T>(x: T) {
+  const a = Option<T>.Some(x);
+  Option<T>.Some(x)
+}
+function main(): i32 {
+  const x = test<i32>(12);
   0
 }
 `

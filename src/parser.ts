@@ -446,8 +446,6 @@ export default class Parser {
       );
       if (variant) {
         const typeValue = variant.func ? variant.func : callerType;
-
-        console.log("enter here");
         if (typeValue.type === "Function") {
           typeValue.returnType = callerType;
         }
@@ -843,10 +841,12 @@ Expected: <${typeParameters
 Got:      <${typeArguments.map(typeToString).join(", ")}>`
       );
     } else {
+      console.log("@ Start function");
       const typeValue_ = applyTypeArgumentsToType(
         calleeTypeValue,
         typeArguments
       );
+      console.log("@ End function");
       if (typeValue_.type !== "Function") {
         throw this.formatErrorMessage(
           tokens[index],
@@ -1155,7 +1155,6 @@ Got:      (${functionArguments
     const matchedEnum = valueTypes.filter(
       (valueType) => valueType.type.type === "Enum"
     );
-    console.log("matchedEnum: ", matchedEnum.length);
 
     // Check if it's a trait
     if (matchedTraits.length > 0) {
@@ -1256,7 +1255,9 @@ Found possible enums:
           index = index + 1;
         }
 
+        console.log("@ Start enum");
         const newEnumType = applyTypeArgumentsToType(enumType, typeArguments);
+        console.log("@ End enum");
         if (newEnumType.type !== "Enum") {
           throw this.formatErrorMessage(
             tokens[index],

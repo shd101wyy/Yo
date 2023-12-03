@@ -889,7 +889,8 @@ export function applyTypeArgumentsToType(
   typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
 ): Type {
   console.log("- applyTypeArgumentsToType");
-  console.log("  - type: ", typeToString(type), type.type);
+  console.log("  - type: ", type.type);
+  console.log("    - typeToString(type): ", typeToString(type));
   console.log("  - typeArguments: ", typeArguments.map(typeToString));
   console.log(
     "  - typeParameterToTypeArgumentMap: ",
@@ -970,22 +971,21 @@ export function applyTypeArgumentsToType(
       functions: functions,
     };
   } else if (type.type === "Enum") {
-    if (type.appliedTypeArguments) {
-      return type; // Type arguments are already applied
+    const appliedTypeArguments = type.appliedTypeArguments;
+    if (appliedTypeArguments) {
+      const newAppliedTypeArguments = appliedTypeArguments.map((type) =>
+        applyTypeArgumentsToType(
+          type,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        )
+      );
+      return {
+        ...type,
+        appliedTypeArguments: newAppliedTypeArguments,
+      };
     }
 
-    if (type.typeParameters.length !== typeArguments.length) {
-      throw new Error(
-        `(4) Mismatched type arguments.
-  Expected: <${type.typeParameters
-    .map(
-      (typeParameter) =>
-        `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
-    )
-    .join(", ")}>
-  Got:      <${typeArguments.map(typeToString).join(", ")}>`
-      );
-    }
     // set typeParameterToTypeArgumentMap
     const newTypeParameters: TTypeParameter[] = [];
     for (let i = 0; i < type.typeParameters.length; i++) {
@@ -1018,11 +1018,13 @@ export function applyTypeArgumentsToType(
     };
 
     // Update func.returnType of each variants
+    /*
     variants.forEach((variant) => {
       if (variant.func && variant.func.returnType.type === "unknown") {
         variant.func.returnType.typeArguments = typeArguments;
       }
     });
+    */
 
     return enumType;
   } else if (type.type === "Function") {
@@ -2098,7 +2100,8 @@ export function typeToString(type: Type): string {
       return `[${type.elements.map(typeToString).join(", ")}]`;
     }*/
     case "TypeParameter": {
-      return `${type.name}:${typeToString(type.typeValue)}`;
+      return `${type.name}`;
+      // return `${type.name}:${typeToString(type.typeValue)}`;
     }
     case "TypeConstructor": {
       return `<${type.typeParameters
@@ -2219,11 +2222,14 @@ export function checkType(
         checkType(expectedType.returnType, givenType.returnType, env)
       );
     } else if (expectedTypeType === "Enum" && givenTypeType === "Enum") {
+      if (expectedType.enumName !== givenType.enumName) {
+        return false;
+      }
       const expectedTypeAppliedTypeArguments =
         expectedType.appliedTypeArguments;
       const givenTypeAppliedTypeArguments = givenType.appliedTypeArguments;
       if (!expectedTypeAppliedTypeArguments || !givenTypeAppliedTypeArguments) {
-        throw new Error("Enum type must have appliedTypeArguments");
+        return false;
       }
       return expectedTypeAppliedTypeArguments.every((type, i) =>
         checkType(type, givenTypeAppliedTypeArguments[i], env)
