@@ -859,15 +859,27 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`,
     } else {
       returnValue.index = index;
       returnValue.env = env;
-      console.log(
-        "@ before applyTypeArgumentsToType: ",
-        typeToString(returnValue.typeValue)
-      );
       const typeValue_ = applyTypeArgumentsToType(typeValue, typeArguments);
-      console.log(
-        "@ after applyTypeArgumentsToType: ",
-        typeToString(typeValue_)
-      );
+      returnValue.typeValue = typeValue_;
+    }
+  } else if (typeValue.type === "Enum") {
+    if (typeValue.typeParameters.length !== typeArguments.length) {
+      throw formatErrorMessage({
+        token: tokens[returnValue.index],
+        errorMessage: `(2) Mismatched type arguments.
+Expected: <${typeValue.typeParameters
+          .map(
+            (typeParameter) =>
+              `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
+          )
+          .join(", ")}>
+Got:      <${typeArguments.map(typeToString).join(", ")}>`,
+        inputString,
+      });
+    } else {
+      returnValue.index = index;
+      returnValue.env = env;
+      const typeValue_ = applyTypeArgumentsToType(typeValue, typeArguments);
       returnValue.typeValue = typeValue_;
     }
   } else if (typeArguments.length !== 0) {

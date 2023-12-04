@@ -1318,6 +1318,7 @@ Got:      <${appliedTypeArguments.map(typeToString).join(", ")}>`
     const valueTypes = [
       ...getEnvValueTypesByVariableName(env, identifier, "value"),
       ...getEnvValueTypesByVariableName(env, identifier, "trait"),
+      ...getEnvValueTypesByVariableName(env, identifier, "type"),
     ];
     if (valueTypes.length === 0) {
       throw this.formatErrorMessage(
@@ -1333,8 +1334,12 @@ Got:      <${appliedTypeArguments.map(typeToString).join(", ")}>`
         valueType.type.type === "Trait" && valueType.kind === "trait"
     );
     const matchedEnums = valueTypes.filter(
-      (valueType) => valueType.type.type === "Enum"
+      (valueType) => valueType.type.type === "Enum" && valueType.kind === "type"
     );
+
+    console.log("matchedFunctions: ", matchedFunctions.length, identifier);
+    console.log("matchedTraits: ", matchedTraits.length, identifier);
+    console.log("matchedEnums: ", matchedEnums.length, identifier);
 
     // Check if it's a trait
     if (matchedTraits.length > 0) {
@@ -1519,7 +1524,19 @@ Found possible functions:
       }
     }
 
-    const valueType = valueTypes[valueTypes.length - 1];
+    const valueTypes_ = getEnvValueTypesByVariableName(
+      env,
+      identifier,
+      "value"
+    );
+    if (valueTypes_.length === 0) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Unbounded variable \`${identifier}\``
+      );
+    }
+
+    const valueType = valueTypes_[valueTypes_.length - 1];
     const typeValue = valueType.type;
     const isFreeVariable =
       valueType.frameLevel <= env.functionDeclarationFrameLevel;
@@ -2041,6 +2058,8 @@ Found possible functions:
       if (prototype.typeValue.returnType.type === "unknown") {
         prototype.typeValue.returnType = functionReturnType;
       }
+
+      console.log("functionReturnType: ", typeToString(functionReturnType));
 
       if (!checkType(prototype.typeValue.returnType, functionReturnType, env)) {
         throw this.formatErrorMessage(
@@ -3197,7 +3216,7 @@ Got:      ${typeToString(matchedFunction.func)}`
       {
         variableName: enumName,
         type: enumType,
-        kind: "value", // NOTE: We need to set it to "value" here.
+        kind: "type",
       },
       -1
     );

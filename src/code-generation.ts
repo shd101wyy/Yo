@@ -1444,7 +1444,7 @@ ${typeToString(enumType)}`
           false
         );
 
-        if (variant.parameterTypes.length === 0) {
+        /*if (variant.parameterTypes.length === 0) {
           // The variant has no parameters
           // Return the variantIndex as the value
           return {
@@ -1452,7 +1452,7 @@ ${typeToString(enumType)}`
             type: expr.typeValue,
             env,
           };
-        } else {
+        } else*/ {
           // Return a struct of the variantIndex and the variantArguments
           const variantArguments = expr.variantArguments;
           const variantArgumentValues = variantArguments.map((arg) => {
