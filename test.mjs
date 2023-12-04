@@ -669,24 +669,25 @@ function main() {
 `
 
 code = `
-enum Option<V> {
-  Some(val: V),
-  None
-}
-
-function main() {
-  const x: Option<i32> = Option.Some(3);
-  1
-}
-`
-
-code = `
 function id<T, Y>(x: T): T {
   x
 }
 
 function main() {
   id(12)
+}
+`
+
+code = `
+enum Option<V> {
+  Some(val: V),
+  None
+}
+
+function main() {
+  const x = Option.Some(3);
+  const y = Option<i32>.None;
+  1
 }
 `
 

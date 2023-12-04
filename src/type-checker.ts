@@ -992,6 +992,8 @@ export function applyTypeArgumentsToType(
       typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
       if (typeArgument.type === "TypeParameter") {
         newTypeParameters.push(typeArgument);
+      } else if (typeArgument.type === "unknown") {
+        newTypeParameters.push(typeParameter);
       }
     }
 
@@ -1027,6 +1029,7 @@ export function applyTypeArgumentsToType(
       typeParameters: newTypeParameters, // FIXME: <- this might be wrong
       variants: variants,
       appliedTypeArguments: typeArguments,
+      selectedVariantName: type.selectedVariantName,
     };
 
     // Update func.returnType of each variants

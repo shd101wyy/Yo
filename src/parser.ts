@@ -451,11 +451,26 @@ export default class Parser {
         };
 
         if (variant.parameterTypes.length === 0) {
+          const typeArguments = callerType.appliedTypeArguments;
+          if (!typeArguments) {
+            throw this.formatErrorMessage(
+              token,
+              "Expected typeArguments for enum"
+            );
+          } else {
+            while (typeArguments.length < callerType.typeParameters.length) {
+              typeArguments.push(TypeValues.unknown);
+            }
+          }
+
           return {
             expr: {
               type: AstType.CallEnum,
               env,
-              typeValue,
+              typeValue: {
+                ...typeValue,
+                appliedTypeArguments: typeArguments,
+              },
               variantArguments: [],
             },
             index: index + 1,
@@ -1154,13 +1169,14 @@ Got:      <${functionTypeArgumentsInOrder.map(typeToString).join(", ")}>`
     env: Environment,
     isWithStatement: boolean
   ): ParserReturn {
-    if (callee.typeValue.type !== "Enum") {
+    const calleeTypeValue = callee.typeValue;
+    if (calleeTypeValue.type !== "Enum") {
       throw this.formatErrorMessage(
         tokens[index],
         "Expected enum for call expression"
       );
     }
-    const selectedVariantName = callee.typeValue.selectedVariantName;
+    const selectedVariantName = calleeTypeValue.selectedVariantName;
     if (selectedVariantName === undefined) {
       throw this.formatErrorMessage(
         tokens[index],
@@ -1168,7 +1184,7 @@ Got:      <${functionTypeArgumentsInOrder.map(typeToString).join(", ")}>`
       );
     }
 
-    const selectedVariant = callee.typeValue.variants.find(
+    const selectedVariant = calleeTypeValue.variants.find(
       (variant) => variant.name === selectedVariantName
     );
     if (!selectedVariant) {
@@ -1180,6 +1196,14 @@ Got:      <${functionTypeArgumentsInOrder.map(typeToString).join(", ")}>`
 
     if (tokens[index].type !== TokenType.LParen) {
       throw this.formatErrorMessage(tokens[index], "Expected left paren");
+    }
+
+    const appliedTypeArguments = calleeTypeValue.appliedTypeArguments;
+    if (!appliedTypeArguments) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected appliedTypeArguments for enum"
+      );
     }
 
     const variantArguments: Expr[] = [];
@@ -1212,70 +1236,67 @@ Got:      <${functionTypeArgumentsInOrder.map(typeToString).join(", ")}>`
       }
     }
 
-    // TODO: Keyword arguments
-    const variantArgumentsInOrder: (Expr | null)[] =
-      selectedVariant.parameterTypes.map((pt) => pt.defaultValue);
-    const variantParameterTypes = selectedVariant.parameterTypes;
+    const {
+      functionArguments: variantArgumentsInOrder,
+      functionTypeArguments: variantTypeArgumentsInOrder,
+    } = getFunctionArgumentsInOrder(
+      variantArguments,
+      selectedVariant.parameterTypes,
+      appliedTypeArguments,
+      calleeTypeValue.typeParameters,
+      env
+    );
 
-    for (let i = 0; i < variantArguments.length; i++) {
-      const argument = variantArguments[i];
-
-      // Keyword argument
-      if (argument.type === AstType.ConstantAssignment) {
-        const variableName = argument.variableName;
-        const parameterIndex = variantParameterTypes.findIndex(
-          (parameter) => parameter.name === variableName
-        );
-        if (parameterIndex === -1) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Cannot find parameter ${variableName}`
-          );
-        }
-        variantArgumentsInOrder[parameterIndex] = argument.right;
-      } else {
-        if (i >= variantArgumentsInOrder.length) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Too many arguments for enum variant ${selectedVariant.name}`
-          );
-        }
-        // Positional argument
-        variantArgumentsInOrder[i] = argument;
-      }
-    }
-
-    // Check if all the arguments are filled
-    if (variantArgumentsInOrder.some((arg) => arg === null)) {
+    if (!variantArgumentsInOrder) {
       throw this.formatErrorMessage(
         tokens[index],
-        `Missing arguments for enum variant ${selectedVariant.name}`
+        `Mismatched function arguments.
+Expected: (${selectedVariant.parameterTypes
+          .map(
+            (parameter) =>
+              (parameter.name ? `${parameter.name}: ` : "") +
+              typeToString(parameter.type)
+          )
+          .join(", ")})
+Got:      (${variantArguments
+          .map((arg) => {
+            return typeToString(arg.typeValue);
+          })
+          .join(", ")})`
       );
-    } else {
-      // Check if all the arguments have the expected type
-      for (let i = 0; i < variantArgumentsInOrder.length; i++) {
-        const argument = variantArgumentsInOrder[i];
-        const parameterType = variantParameterTypes[i].type;
-        if (!argument || !checkType(parameterType, argument.typeValue, env)) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Mismatched type for enum variant ${selectedVariant.name}
-Expected: ${typeToString(parameterType)}
-Got:      ${argument ? typeToString(argument.typeValue) : "null"}`
-          );
-        }
-      }
-
-      return {
-        expr: {
-          type: AstType.CallEnum,
-          variantArguments: variantArgumentsInOrder as Expr[],
-          typeValue: callee.typeValue,
-          env,
-        },
-        index,
-      };
     }
+
+    if (!variantTypeArgumentsInOrder) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Mismatched type arguments.
+Expected: <${calleeTypeValue.typeParameters
+          .map((typeParameter) => `${typeToString(typeParameter)}`)
+          .join(", ")}>
+Got:      <${appliedTypeArguments.map(typeToString).join(", ")}>`
+      );
+    }
+    const enumType: TEnum = applyTypeArgumentsToType(
+      { ...calleeTypeValue, appliedTypeArguments: undefined },
+      variantTypeArgumentsInOrder
+    ) as TEnum;
+
+    console.log(
+      "enumType: ",
+      typeToString(enumType),
+      appliedTypeArguments,
+      variantTypeArgumentsInOrder
+    );
+
+    return {
+      expr: {
+        type: AstType.CallEnum,
+        variantArguments: variantArgumentsInOrder as Expr[],
+        typeValue: enumType,
+        env,
+      },
+      index,
+    };
   }
 
   /**
@@ -1311,7 +1332,7 @@ Got:      ${argument ? typeToString(argument.typeValue) : "null"}`
       (valueType) =>
         valueType.type.type === "Trait" && valueType.kind === "trait"
     );
-    const matchedEnum = valueTypes.filter(
+    const matchedEnums = valueTypes.filter(
       (valueType) => valueType.type.type === "Enum"
     );
 
@@ -1382,17 +1403,17 @@ Found possible traits:
     }
 
     // Check if it's an enum
-    if (matchedEnum.length > 0) {
-      if (matchedEnum.length > 1) {
+    if (matchedEnums.length > 0) {
+      if (matchedEnums.length > 1) {
         throw this.formatErrorMessage(
           tokens[index],
           `Ambiguous enum "${identifier}"
 Found possible enums:
-- ${matchedEnum.map((enumType) => typeToString(enumType.type)).join("\n- ")}
+- ${matchedEnums.map((enumType) => typeToString(enumType.type)).join("\n- ")}
           `
         );
       } else {
-        const enumValue = matchedEnum[0];
+        const enumValue = matchedEnums[0];
         const enumType = enumValue.type as TEnum;
         let typeArguments: Type[] = [];
         if (tokens[index + 1]?.type === TokenType.LessThan) {
@@ -1414,26 +1435,21 @@ Found possible enums:
           index = index + 1;
         }
 
-        console.log("@ Start enum");
-        const newEnumType = applyTypeArgumentsToType(enumType, typeArguments);
-        console.log("@ End enum");
-        if (newEnumType.type !== "Enum") {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Expected enum type, but got ${typeToString(newEnumType)}`
-          );
-        } else {
-          return {
-            expr: {
-              type: AstType.Variable,
-              name: identifier,
-              env,
-              typeValue: newEnumType,
-              frameLevel: enumValue.frameLevel,
-            },
-            index,
-          };
-        }
+        const newEnumType: TEnum = {
+          ...enumType,
+          appliedTypeArguments: typeArguments,
+        };
+
+        return {
+          expr: {
+            type: AstType.Variable,
+            name: identifier,
+            env,
+            typeValue: newEnumType,
+            frameLevel: enumValue.frameLevel,
+          },
+          index,
+        };
       }
     }
 
@@ -2296,6 +2312,54 @@ else: ${typeToString(elseReturnType)}
     const variableType: Type = value.typeValue;
     // Check if type matches
     if (userDefinedVariableType !== null) {
+      // Type inference for enum type
+      if (userDefinedVariableType.type === "Enum") {
+        const typeArguments =
+          userDefinedVariableType.appliedTypeArguments ?? [];
+        while (
+          typeArguments.length < userDefinedVariableType.typeParameters.length
+        ) {
+          typeArguments.push(TypeValues.unknown);
+        }
+        userDefinedVariableType.appliedTypeArguments = typeArguments;
+      }
+
+      if (
+        userDefinedVariableType.type === "Enum" &&
+        variableType.type === "Enum" &&
+        userDefinedVariableType.enumName === variableType.enumName &&
+        userDefinedVariableType.appliedTypeArguments &&
+        variableType.appliedTypeArguments &&
+        userDefinedVariableType.appliedTypeArguments.length ===
+          variableType.appliedTypeArguments.length &&
+        (userDefinedVariableType.selectedVariantName === undefined ||
+          userDefinedVariableType.selectedVariantName ===
+            variableType.selectedVariantName)
+      ) {
+        for (
+          let i = 0;
+          i < userDefinedVariableType.appliedTypeArguments.length;
+          i++
+        ) {
+          const userDefinedTypeArgument =
+            userDefinedVariableType.appliedTypeArguments[i];
+          const typeArgument = variableType.appliedTypeArguments[i];
+          if (
+            userDefinedTypeArgument.type === "unknown" &&
+            typeArgument.type !== "unknown"
+          ) {
+            userDefinedVariableType.appliedTypeArguments[i] = typeArgument;
+          } else if (
+            userDefinedTypeArgument.type !== "unknown" &&
+            typeArgument.type === "unknown"
+          ) {
+            variableType.appliedTypeArguments[i] = userDefinedTypeArgument;
+          }
+        }
+        userDefinedVariableType.selectedVariantName =
+          variableType.selectedVariantName;
+      }
+
       const typeMatches = checkType(userDefinedVariableType, variableType, env);
       if (!typeMatches) {
         throw this.formatErrorMessage(
