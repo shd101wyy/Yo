@@ -50,7 +50,9 @@ Please note that **Mo** language does not mean to be a "pure" functional languag
       - [while](#while)
       - [for](#for)
   - [Type synonyms](#type-synonyms)
-  - [Enum (Tagged Union)](#enum-tagged-union)
+  - [Algebraic Data Types](#algebraic-data-types)
+    - [Generalized Algebraic Data Types (GADTs)](#generalized-algebraic-data-types-gadts)
+  - [Subtyping](#subtyping)
     - [Traits](#traits)
     - [Pattern Matching](#pattern-matching)
   - [Collections](#collections)
@@ -205,18 +207,6 @@ function show(x: string) {
 }
 ```
 
-But the following is not allowed:
-
-```typescript
-function show(x: i32) {
-  console.log(x);
-}
-
-function show(x: i32, y: i32) {
-  console.log(x + y);
-}
-```
-
 ## Mutability
 
 ```typescript
@@ -342,9 +332,6 @@ const user: User = {
   email: String.from("test@gmail.com"),
   age: 13
 };
-
-// Update a record
-const user2 = user(active=false);
 ```
 
 Extending the records
@@ -362,7 +349,7 @@ type Language = Lang<{ year: i32 }>;
 type Language = { language: string; year: i32 };
 ```
 
-## Enum (Tagged Union)
+## Algebraic Data Types
 
 ```typescript
 enum Option<T> {
@@ -397,6 +384,30 @@ enum IpAddr {
 const home = V4(127, 0, 0, 1);
 const anotherHome = V4(v3 = 200);
 const loopback = V6(String.from("::1"))
+```
+
+### Generalized Algebraic Data Types (GADTs)
+
+```typescript
+enum Expr<T> {
+  IntExpr(i: i32): Expr<i32>,
+  BoolExpr(b: boolean): Expr<boolean>,
+  EqExpr(left: Expr<i32>, right: Expr<i32>): Expr<boolean>
+}
+
+function eval<T>(expr: Expr<T>): T {
+  with Expr<T>;
+  if expr is IntExpr(i) {
+    i
+  } else if expr is BoolExpr(b) {
+    b
+  } else if expr is EqExpr(left, right) {
+    eval(left) == eval(right)
+  }
+}
+
+const expr1 : Expr<boolean> = Expr<boolean>.EqExpr(IntExpr(1), IntExpr(2));
+eval(expr1); // false
 ```
 
 ## Subtyping
@@ -502,6 +513,7 @@ enum List<T> {
   Cons(head: T, tail: List<T>),
 }
 
+/*
 function ListLength<T>(list: List<T>): i32 {
   with List<T>; // Unwrap the enum
   if list is Nil {
@@ -519,6 +531,18 @@ function ListLength<T>(list: List<T>): i32 {
     0
   } else if list is Cons {tail} {
     1 + ListLength(tail);
+  }
+}
+
+// or
+*/
+
+function ListLength<T>(list: List<T>): i32 {
+  with List<T>; // Unwrap the enum
+  if list is Nil {
+    0
+  } else if list is Cons {
+    1 + ListLength(list.tail);
   }
 }
 ```

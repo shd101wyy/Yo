@@ -668,10 +668,32 @@ function main() {
 }
 `
 
+code = `
+enum Option<V> {
+  Some(val: V),
+  None
+}
+
+function main() {
+  const x: Option<i32> = Option.Some(3);
+  1
+}
+`
+
+code = `
+function id<T, Y>(x: T): T {
+  x
+}
+
+function main() {
+  id(12)
+}
+`
+
 const codeGenerator = new CodeGenerator(code);
 
-const ir = codeGenerator.getLlvmIr();
-console.log(ir);
+//// const ir = codeGenerator.getLlvmIr();
+//// console.log(ir);
 
 // write ir to "test.ll" file
 //// writeFileSync("test.ll", ir);

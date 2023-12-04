@@ -2315,18 +2315,41 @@ function checkRecordExactMatchType(
  */
 export function getFunctionArgumentsInOrder(
   functionArguments: Expr[],
-  functionType: TFunction,
+  functionParameterTypes: TParameterType[],
+  functionTypeArguments: Type[],
+  functionTypeParamters: TTypeParameter[],
   env: Environment
-): Expr[] | null {
+): { functionArguments: Expr[] | null; functionTypeArguments: Type[] | null } {
   console.log("- getFunctionArgumentsInOrder: ");
-  console.log("  - functionType: ", typeToString(functionType));
+  console.log(
+    "  - functionParameterTypes: ",
+    `(${functionParameterTypes
+      .map(({ name, type, defaultValue }) => {
+        return `${name}: ${typeToString(type)}${
+          defaultValue ? ` = ${exprToString(defaultValue)}` : ""
+        }`;
+      })
+      .join(", ")})`
+  );
   console.log(
     "  - functionArguments: ",
     functionArguments.map((expr) => typeToString(expr.typeValue))
   );
-  const functionArgumentsInOrder: (Expr | null)[] =
-    functionType.parameterTypes.map((pt) => pt.defaultValue);
-  const functionParameterTypes = functionType.parameterTypes;
+  console.log(
+    "  - functionTypeArguments: ",
+    functionTypeArguments.map(typeToString)
+  );
+  console.log(
+    "  - functionTypeParamters: ",
+    functionTypeParamters.map(typeToString)
+  );
+
+  const functionArgumentsInOrder: (Expr | null)[] = functionParameterTypes.map(
+    (pt) => pt.defaultValue
+  );
+  const functionTypeArgumentsInOrder: Type[] = functionTypeParamters.map(
+    () => /*pt.defaultTypeValue ??*/ TypeValues.unknown
+  );
 
   for (let i = 0; i < functionArguments.length; i++) {
     const argument = functionArguments[i];
@@ -2339,13 +2362,13 @@ export function getFunctionArgumentsInOrder(
         (pt) => pt.name === keyword
       );
       if (argumentPositionIndex < 0) {
-        return null;
+        return { functionArguments: null, functionTypeArguments: null };
       } else {
         functionArgumentsInOrder[argumentPositionIndex] = value;
       }
     } else {
       if (i >= functionArgumentsInOrder.length) {
-        return null;
+        return { functionArguments: null, functionTypeArguments: null };
       }
       // Positional argument
       functionArgumentsInOrder[i] = argument;
@@ -2353,8 +2376,9 @@ export function getFunctionArgumentsInOrder(
   }
 
   // If functionArgumentsInOrder has any null, then it's not a match
+  const typeParameterToTypeArgumentMap: { [key: string]: Type } = {};
   if (functionArgumentsInOrder.some((arg) => arg === null)) {
-    return null;
+    return { functionArguments: null, functionTypeArguments: null };
   } else {
     // Check if the functionArgumentsInOrder has the same types as the functionParameterTypes
     console.log("  - check functionArgumentsInOrder types");
@@ -2371,11 +2395,57 @@ export function getFunctionArgumentsInOrder(
         !argument ||
         !checkType(parameterType.type, argument.typeValue, env)
       ) {
-        return null;
+        return { functionArguments: null, functionTypeArguments: null };
+      }
+
+      if (parameterType.type.type === "TypeParameter") {
+        if (parameterType.type.name in typeParameterToTypeArgumentMap) {
+          if (
+            !checkType(
+              typeParameterToTypeArgumentMap[parameterType.type.name],
+              argument.typeValue,
+              env
+            )
+          ) {
+            return { functionArguments: null, functionTypeArguments: null };
+          }
+        }
+
+        const argumentType = argument.typeValue;
+        // TODO: Handle primitive type
+        typeParameterToTypeArgumentMap[parameterType.type.name] =
+          convertPrimitiveToType(argumentType);
       }
     }
+    console.log(
+      "  - typeParameterToTypeArgumentMap: ",
+      typeParameterToTypeArgumentMap
+    );
 
-    return functionArgumentsInOrder as Expr[];
+    for (let i = 0; i < functionTypeParamters.length; i++) {
+      const typeParameter = functionTypeParamters[i];
+      const typeArgument = functionTypeArguments[i];
+      if (typeArgument) {
+        functionTypeArgumentsInOrder[i] = typeArgument;
+      } else if (typeParameter.name in typeParameterToTypeArgumentMap) {
+        functionTypeArgumentsInOrder[i] =
+          typeParameterToTypeArgumentMap[typeParameter.name];
+      } /* else {
+        return {
+          functionArguments: functionArgumentsInOrder as Expr[],
+          functionTypeArguments: null,
+        };
+      } */
+    }
+    console.log(
+      "- functionTypeArgumentsInOrder: ",
+      functionTypeArgumentsInOrder.map(typeToString)
+    );
+
+    return {
+      functionArguments: functionArgumentsInOrder as Expr[],
+      functionTypeArguments: functionTypeArgumentsInOrder,
+    };
   }
 }
 
@@ -2421,49 +2491,6 @@ export function getFunctionsOfCallerFromEnv(
   */
 
   return matchedFunctions;
-}
-
-export function getFunctionFromEnv(
-  functionName: string,
-  functionArguments: Expr[],
-  env: Environment
-) {
-  const functionsInEnv = getEnvValueTypesByVariableName(env, functionName);
-  if (functionsInEnv.length === 0) {
-    throw new Error(`Cannot find function '${functionName}'`);
-  } else {
-    // Find the function that matches the signature
-    const matchedFunctions = functionsInEnv.filter((functionInEnv) => {
-      if (functionInEnv.type.type !== "Function") {
-        return false;
-      }
-
-      const functionArgumentsInOrder = getFunctionArgumentsInOrder(
-        functionArguments,
-        functionInEnv.type,
-        env
-      );
-      return !!functionArgumentsInOrder;
-    });
-    if (matchedFunctions.length > 1) {
-      throw new Error(
-        `Ambiguous function call ${functionName} with arguments ${JSON.stringify(
-          functionArguments
-        )}
-Found possible functions:
-- ${matchedFunctions
-          .map((func) => `${func.variableName}: ${typeToString(func.type)}`)
-          .join("\n- ")}
-        `
-      );
-    }
-    const matchedFunction = matchedFunctions[0];
-    if (!matchedFunction || matchedFunction.type.type !== "Function") {
-      throw new Error(`Function "${functionName}" not found`);
-    } else {
-      return matchedFunction;
-    }
-  }
 }
 
 /**

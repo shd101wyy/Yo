@@ -530,7 +530,7 @@ ${typeToString(callerType)}
       } else if (parserReturns.length > 1) {
         throw this.formatErrorMessage(
           token,
-          `Ambiguous function ${functionName} that takes ${typeToString(
+          `Ambiguous function "${functionName}" that takes ${typeToString(
             callerType
           )} as the first argument
 Found possible functions:
@@ -840,35 +840,6 @@ Returned:  ${typeToString(returnType)}`
       index = nextIndex;
       env = nextEnv;
     }
-    // Check if typeArguments matches
-    // and apply typeArguments to callee.typeValue
-    const typeParameters = calleeTypeValue.typeParameters;
-    if (typeParameters.length !== typeArguments.length) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        `Mismatched type arguments.
-Expected: <${typeParameters
-          .map((typeParameter) => `${typeToString(typeParameter)}`)
-          .join(", ")}>
-Got:      <${typeArguments.map(typeToString).join(", ")}>`
-      );
-    } else {
-      console.log("@ Start function");
-      const typeValue_ = applyTypeArgumentsToType(
-        calleeTypeValue,
-        typeArguments
-      );
-      console.log("@ End function");
-      if (typeValue_.type !== "Function") {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Expected function for call expression"
-        );
-      } else {
-        callee.typeValue = typeValue_;
-        calleeTypeValue = typeValue_;
-      }
-    }
 
     const functionArguments: Expr[] = [];
     if (caller) {
@@ -1059,10 +1030,80 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`
       functionArguments.push(lambdaExpr);
     }
 
+    const {
+      functionArguments: functionArgumentsInOrder,
+      functionTypeArguments: functionTypeArgumentsInOrder,
+    } = getFunctionArgumentsInOrder(
+      functionArguments,
+      calleeTypeValue.parameterTypes,
+      typeArguments,
+      calleeTypeValue.typeParameters,
+      env
+    );
+
+    if (!functionArgumentsInOrder) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Mismatched function arguments.
+Expected: (${calleeTypeValue.parameterTypes
+          .map(
+            (parameter) =>
+              (parameter.name ? `${parameter.name}: ` : "") +
+              typeToString(parameter.type)
+          )
+          .join(", ")})
+Got:      (${functionArguments
+          .map((arg) => {
+            return typeToString(arg.typeValue);
+          })
+          .join(", ")})`
+      );
+    }
+    if (!functionTypeArgumentsInOrder) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Mismatched type arguments.
+Expected: <${calleeTypeValue.typeParameters
+          .map((typeParameter) => `${typeToString(typeParameter)}`)
+          .join(", ")}>
+Got:      <${typeArguments.map(typeToString).join(", ")}>`
+      );
+    }
+
+    // Check if typeArguments matches
+    // and apply typeArguments to callee.typeValue
+    const typeParameters = calleeTypeValue.typeParameters;
+    if (typeParameters.length !== functionTypeArgumentsInOrder.length) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Mismatched type arguments.
+Expected: <${typeParameters
+          .map((typeParameter) => `${typeToString(typeParameter)}`)
+          .join(", ")}>
+Got:      <${functionTypeArgumentsInOrder.map(typeToString).join(", ")}>`
+      );
+    } else {
+      console.log("@ Start function");
+      const typeValue_ = applyTypeArgumentsToType(
+        calleeTypeValue,
+        functionTypeArgumentsInOrder
+      );
+      console.log("@ End function");
+      if (typeValue_.type !== "Function") {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected function for call expression"
+        );
+      } else {
+        callee.typeValue = typeValue_;
+        calleeTypeValue = typeValue_;
+      }
+    }
+
     return {
       index,
-      typeArguments,
-      functionArguments,
+      typeArguments: functionTypeArgumentsInOrder,
+      functionArguments: functionArgumentsInOrder,
       calleeTypeValue,
       env,
     };
@@ -1093,37 +1134,12 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`
     index = nextIndex;
     env = nextEnv;
 
-    const functionArgumentsInOrder = getFunctionArgumentsInOrder(
-      functionArguments,
-      calleeTypeValue,
-      env
-    );
-
-    if (!functionArgumentsInOrder) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        `Mismatched function arguments.
-Expected: (${calleeTypeValue.parameterTypes
-          .map(
-            (parameter) =>
-              (parameter.name ? `${parameter.name}: ` : "") +
-              typeToString(parameter.type)
-          )
-          .join(", ")})
-Got:      (${functionArguments
-          .map((arg) => {
-            return typeToString(arg.typeValue);
-          })
-          .join(", ")})`
-      );
-    }
-
     return {
       expr: {
         type: AstType.CallFunction,
         callee,
         typeArguments,
-        functionArguments: functionArgumentsInOrder,
+        functionArguments,
         typeValue: calleeTypeValue.returnType,
         env,
       },
@@ -1475,7 +1491,7 @@ ${matchedFunctions
       } else if (parserReturns.length > 1) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Ambiguous function ${identifier}
+          `Ambiguous function "${identifier}"
 Found possible functions:
 - ${parsedFunctions
             .map((func) => `${func.variableName}: ${typeToString(func.type)}`)
