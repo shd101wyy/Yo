@@ -36,6 +36,7 @@ export enum TokenType {
   LessThanOrEqual = "<=",
   GreaterThan = ">",
   GreaterThanOrEqual = ">=",
+  Is = "is",
 
   // assignment
   Assign = "=",

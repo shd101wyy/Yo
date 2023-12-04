@@ -1299,6 +1299,88 @@ Got:      <${appliedTypeArguments.map(typeToString).join(", ")}>`
     };
   }
 
+  private parseIsOperatorExpr(
+    enumExpr: Expr,
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    if (enumExpr.typeValue.type !== "Enum") {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected enum for "is" comparison'
+      );
+    }
+    if (tokens[index].type !== TokenType.Is) {
+      throw this.formatErrorMessage(tokens[index], "Expected 'is' keyword");
+    }
+    index = index + 1;
+
+    const { expr: targetEnumExpr, index: nextIndex } = this.parseExpression(
+      tokens,
+      index,
+      env,
+      false
+    );
+    if (!targetEnumExpr) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected expression for enum"
+      );
+    }
+    index = nextIndex;
+    if (targetEnumExpr.typeValue.type !== "Enum") {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected enum for "is" comparison'
+      );
+    }
+    const targetEnumType = targetEnumExpr.typeValue;
+    const targetSelectedVariantName = targetEnumType.selectedVariantName;
+    if (!targetSelectedVariantName) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected enum variant for enum"
+      );
+    }
+
+    if (enumExpr.typeValue.enumName !== targetEnumType.enumName) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Expected enum ${typeToString(
+          enumExpr.typeValue
+        )}, but got ${typeToString(targetEnumType)}`
+      );
+    }
+
+    console.log(
+      "targetEnumType.appliedTypeArguments: ",
+      targetEnumType.appliedTypeArguments,
+      typeToString(targetEnumType)
+    );
+    if (
+      !targetEnumType.appliedTypeArguments ||
+      targetEnumType.appliedTypeArguments.length === 0 ||
+      targetEnumType.appliedTypeArguments.every(
+        (type) => type.type === "unknown"
+      )
+    ) {
+      targetEnumType.appliedTypeArguments =
+        enumExpr.typeValue.appliedTypeArguments;
+    }
+
+    return {
+      expr: {
+        type: AstType.IsOperator,
+        left: enumExpr,
+        right: targetEnumType,
+        typeValue: TypeValues.boolean,
+        env,
+      },
+      index,
+    };
+  }
+
   /**
    * identifierexpr
    *   ::= identifier
@@ -1336,10 +1418,6 @@ Got:      <${appliedTypeArguments.map(typeToString).join(", ")}>`
     const matchedEnums = valueTypes.filter(
       (valueType) => valueType.type.type === "Enum" && valueType.kind === "type"
     );
-
-    console.log("matchedFunctions: ", matchedFunctions.length, identifier);
-    console.log("matchedTraits: ", matchedTraits.length, identifier);
-    console.log("matchedEnums: ", matchedEnums.length, identifier);
 
     // Check if it's a trait
     if (matchedTraits.length > 0) {
@@ -1736,6 +1814,24 @@ Found possible functions:
         index,
         env,
         isWithStatement
+      );
+      return this.parsePrimaryEnd(
+        returnValue.expr,
+        tokens,
+        returnValue.index,
+        returnValue.expr.env,
+        isWithStatement
+      );
+    } else if (
+      primaryExpr.typeValue.type === "Enum" &&
+      token.type === TokenType.Is
+    ) {
+      // parseIsOperatorExpr
+      const returnValue = this.parseIsOperatorExpr(
+        primaryExpr,
+        tokens,
+        index,
+        env
       );
       return this.parsePrimaryEnd(
         returnValue.expr,

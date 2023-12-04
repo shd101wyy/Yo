@@ -1,6 +1,7 @@
 import { Environment, ValueType } from "./env";
 import { Token, TokenType } from "./token";
 import {
+  TBoolean,
   TEnum,
   TFunction,
   TPrimitive,
@@ -23,6 +24,7 @@ export enum AstType {
   // operators
   BinaryOperator = "binop",
   UnaryOperator = "unop",
+  IsOperator = "isop",
 
   // assignment
   ConstantAssignment = "const=",
@@ -82,6 +84,7 @@ export type Expr =
   | TraitExpr
   | UnaryOperatorExpr
   | BinaryOperatorExpr
+  | IsOperatorExpr
   | VariableExpr
   | PropertyAccessExpr
   | IndexAccessExpr
@@ -161,6 +164,14 @@ export type BinaryOperatorExpr = {
   left: Expr;
   right: Expr;
   typeValue: Type;
+  env: Environment;
+};
+
+export type IsOperatorExpr = {
+  type: AstType.IsOperator;
+  left: Expr;
+  right: TEnum;
+  typeValue: TBoolean;
   env: Environment;
 };
 
@@ -366,6 +377,8 @@ export function exprToString(expr: Expr | FunctionPrototype) {
       )}`;
     case AstType.UnaryOperator:
       return `${expr.operator}${exprToString(expr.expr)}`;
+    case AstType.IsOperator:
+      return `${exprToString(expr.left)} is ${typeToString(expr.right)}`;
     case AstType.ConstantAssignment:
       return `const ${expr.variableName}: ${typeToString(
         expr.variableType

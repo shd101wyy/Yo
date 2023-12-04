@@ -674,11 +674,28 @@ enum Option<V> {
   None
 }
 function id(x: Option<i32>) {
-  x
+  if x is Option.Some {
+    x.val
+  } else {
+    0
+  }
 }
 function main() {
   const x = Option.Some(3);
   const y = id(x);
+  0
+}
+`
+
+code = `
+enum Option<V> {
+  Some(val: V),
+  None
+}
+function main() {
+  const x = Option.Some(3);
+  const y = x is Option.Some;
+  const z = x is Option.None;
   0
 }
 `

@@ -458,6 +458,13 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            case "is":
+              tokens.push({
+                type: TokenType.Is,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
             // string
             case "char":
               tokens.push({
@@ -466,7 +473,6 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
-
             // keywords
             case "function":
               tokens.push({

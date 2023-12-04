@@ -454,10 +454,8 @@ export class CodeGenerator {
     }
 
     // Codegen the body
-    console.log("codegen the body: ", expr.body.length);
     const returnVal = this.codegenExprs(expr.body, nextEnv);
     nextEnv = returnVal.env;
-    console.log("done codegen the body: ", returnVal);
 
     // Move back to the entry block
     this.builder.CreateRet(returnVal.value);
@@ -1302,14 +1300,30 @@ ${typeToString(typeValue)}
         console.log("  - type: ", typeToString(callee.typeValue));
         console.log("expr: ", exprToString(expr));
 
-        // NOTE: Function argument types check is done in the parser.ts stage.
-        const args: llvm.Value[] = expr.functionArguments.map((arg) => {
-          return this.codegenExpr(arg, env).value;
-        });
-
         if (calleeTypeValue.type !== "Function") {
           throw new Error(`Callee is not a function:\n${exprToString(callee)}`);
         }
+
+        // NOTE: Function argument types check is done in the parser.ts stage.
+        const args: llvm.Value[] = expr.functionArguments.map((arg, i) => {
+          const val = this.codegenExpr(arg, env).value;
+          if (arg.typeValue.type === "Enum") {
+            // Get the enum variant index
+            const enumType = arg.typeValue;
+            const enumLlvmType = this.getLlvmType(enumType);
+
+            // cast val to enumLlvmType
+            const enumLlvmTypePtrCast = this.builder.CreateBitCast(
+              val,
+              enumLlvmType,
+              calleeTypeValue.parameterTypes[i].name
+            );
+
+            return enumLlvmTypePtrCast;
+          }
+          return val;
+        });
+
         let namedValue:
           | (LlvmValue & { env: LlvmEnvironment })
           | null
@@ -1487,7 +1501,7 @@ ${typeToString(enumType)}`
                 llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), 0),
                 llvm.ConstantInt.get(llvm.IntegerType.get(this.context, 32), i),
               ],
-              "structField"
+              "enum_struct_field"
             );
             this.builder.CreateStore(structField, structFieldPtr);
           }
