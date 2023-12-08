@@ -1,6 +1,6 @@
 # Language Design
 
-**Mo** (墨) is minimal, functional, general-purpose, compiled programming language that compiles to LLVM IR and WASM.
+**Mo** (墨) is minimal, general-purpose, compiled programming language that compiles to LLVM IR and WASM.
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with JavaScript, you should be able to pick up **Mo** in 30 minutes.
 
@@ -16,7 +16,7 @@ The **Mo** language is heavily inspired by:
   - Dot notation (Uniform Function Call Syntax)
   - Perceus and reuse
   - Algebraic effects
-- [Austral](https://austral-lang.org/) & [ATS](https://www.ats-lang.org/)
+- [Austral](https://austral-lang.org/)  
   - Linear types
   - Borrowing
 - [Python](https://python.org/)
@@ -30,9 +30,9 @@ The **Mo** language is heavily inspired by:
 - [Zig](https://ziglang.org/)
   - Compile time execution
 
-The **Mo** language has a minimal syntax design that looks like TypeScript. **Mo** is strong typed with a robust bidrectional type checker, combined with algebraic effects and an efficient type system. **Mo** has no garbage collector ([Perceus: Garbage Free Reference Counting with Reuse](https://www.microsoft.com/en-us/research/uploads/prod/2020/11/perceus-tr-v1.pdf)).
+The **Mo** language has a minimal syntax design that looks like TypeScript. **Mo** is strong typed with a robust bidrectional type checker, combined with algebraic effects and an efficient type system. **Mo** has no garbage collector as it utilizes the Linear Types and implemented a strict borrow checker.
 
-Please note that **Mo** language does not mean to be a "pure" functional language. Our goal is to be a practical language that is easy to use and easy to learn.
+Our goal is to be a practical language that is easy to use and easy to learn.
 
 <!-- @import "[TOC]" {cmd="toc" depthFrom=1 depthTo=6 orderedList=false} -->
 
