@@ -16,10 +16,17 @@ The **Mo** language is heavily inspired by:
   - Dot notation (Uniform Function Call Syntax)
   - Perceus and reuse
   - Algebraic effects
+- [Austral](https://austral-lang.org/) & [ATS](https://www.ats-lang.org/)
+  - Linear types
+  - Borrowing
 - [Python](https://python.org/)
   - Keyword arguments
 - [Haskell](https://www.haskell.org/)
   - Type and typeclass
+- [C++](https://isocpp.org/)
+  - Reference
+- [Scheme](https://www.scheme.com/)
+  - `set!`
 - [Zig](https://ziglang.org/)
   - Compile time execution
 
@@ -32,22 +39,26 @@ Please note that **Mo** language does not mean to be a "pure" functional languag
 <!-- code_chunk_output -->
 
 - [Language Design](#language-design)
-  - [Philosophy](#philosophy)
   - [Hello World](#hello-world)
   - [CLI Usage](#cli-usage)
   - [Types](#types)
-    - [Primitive Types (aka, Value Types), stored on stack](#primitive-types-aka-value-types-stored-on-stack)
+    - [Type](#type)
+      - [`Free` Types](#free-types)
+      - [`Linear` Types.](#linear-types)
+    - [Region](#region)
     - [Variable Declaration](#variable-declaration)
-    - [Reference Types, stored on heap](#reference-types-stored-on-heap)
+    - [Type inference](#type-inference)
+    - [Reference and Dereference](#reference-and-dereference)
   - [Function Declaration](#function-declaration)
     - [Uniform Function Call Syntax](#uniform-function-call-syntax)
     - [Function Overloading](#function-overloading)
   - [Mutability](#mutability)
     - [Reference Cells and Isolated state](#reference-cells-and-isolated-state)
   - [Control Flow](#control-flow)
+    - [Loop](#loop)
+      - [while](#while)
     - [Brace elision](#brace-elision)
       - [repeat](#repeat)
-      - [while](#while)
       - [for](#for)
   - [Type synonyms](#type-synonyms)
   - [Algebraic Data Types](#algebraic-data-types)
@@ -73,16 +84,10 @@ Please note that **Mo** language does not mean to be a "pure" functional languag
   - [Modules](#modules)
   - [Special attributes](#special-attributes)
   - [Compile time execution](#compile-time-execution)
-    - [Dependent types](#dependent-types)
+    - [Dependent types & Refinement types](#dependent-types--refinement-types)
   - [References](#references)
 
 <!-- /code_chunk_output -->
-
-## Philosophy
-
-Pass by reference by default, unless it's the primitive types.
-
-Immutable data structure is **shared** by default. Mutable data structure has to be **unique**.
 
 ## Hello World
 
@@ -103,7 +108,17 @@ moc hello.mo -arch wasm -o hello.wasm
 
 ## Types
 
-### Primitive Types (aka, Value Types), stored on stack
+A type can have the following **Kind**:
+
+- Type
+  - Free
+  - Linear
+- Region
+- Effect
+
+### Type
+
+#### `Free` Types
 
 - `boolean`
 - `u1` (1-bit unsigned integer)
@@ -125,6 +140,14 @@ moc hello.mo -arch wasm -o hello.wasm
 - `symbol` (unique global string)
 - `()` (unit)
 
+#### `Linear` Types.
+
+Linear types are types that can only be used once. For example, a `String` is a linear type as it can only be used once.
+
+### Region
+
+A **Region** here is a code block that specifies the lifetime of values.
+
 ### Variable Declaration
 
 ```typescript
@@ -132,23 +155,78 @@ const y = 5; // y: i32, immutable
 let x = 5; // x: i32, mutable
 ```
 
-### Reference Types, stored on heap
+### Type inference
 
 ```typescript
-const mySymbol = @"Hi"; // Symbol. Stored on stack
+const mySymbol = @"Hi"; // Symbol. Free type
 
-const myString: char[] = "Hello, world"; // Stored on stack
-const myString: String = String.from("Hello, world"); // Stored on heap
+const myStrSlice: char[] = "Hello, world"; // Stored on stack. Free type
 
-const myArray: int[] = [1, 2, 3]; // Stored on stack, with size 3.
-const myArray: int[100] = [1, 2, 3]; // Stored on stack, with size 100.
-const myArray: Array<int> = Array.from([1, 2, 3]); // Stored on heap
+const myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
+const myString2 = myString; // myString2: Reference<String, R> for some region R. Free type.
+const myString3 = move MyString; // myString3: String, and myString is consumed. Linear type.
+                                 // Only linear type can be moved.
 
-const mySet: Set<int> = Set.from([1, 2, 3]); // Stored on heap
+const myInt = 1; // Stored on stack. Free type
+const myInt2 = myInt; // myInt2: i32, Free type
+const myInt3: Reference<i32> = myInt; // myInt3: Reference<i32, R> for some region R. Free type
+const myInt4 = myInt3; // myInt4: Reference<i32, R> for some region R. Free type
+const myInt5: i32 = myInt3; // myInt5: i32, Free type. We can automatically dereference the reference for Free type.
+
+const myIntSlice: int[] = [1, 2, 3]; // Stored on stack, with size 3. Free type
+const myIntSlice: int[100] = [1, 2, 3]; // Stored on stack, with size 100. Free type
+const myArray: Array<int> = Array.from([1, 2, 3]); // Stored on heap. Linear type.
+
+const mySet: Set<int> = Set.from([1, 2, 3]); // Stored on heap. Linear type.
 const myMap: Map<string, int> = Map.from([
   ["one", 1],
   ["two", 2],
-]); // Stored on heap
+]); // Stored on heap. Linear type.
+
+enum Person { // Linear type.
+  Person(name: String, age: i32)
+}
+const p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
+const {name, age} = p; // name: Reference<String, R> for some region R. Free type.
+                       // age: Reference<i32, R>. Free type.
+const name = p.name; // name: Reference<String, R> for some region R. Free type.
+const age = p.age;   // age: Reference<i32, R>. Free type.
+const age2 = *(p.age); // age2: i32, Free type.
+```
+
+### Reference and Dereference
+
+A **reference** is a `Free` pointer to a `Linear` or `Free` value. References have a number of restrictions that preserve the linearity guarantees. There are two kinds of references:
+
+- **Read references** allow you to read data from a linear value.
+- **Read-write** or **mutable** references allow you to read from and write to a linear value.
+
+```typescript
+type Reference<T: Type, R: Region>;
+type MutableReference<T: Type, R: Region>;
+```
+
+We can only dereference the free type.
+
+```typescript
+const name = String.from("Alice");
+const p = Person.Person(move name, 30); // p: Person. Linear type.
+
+{
+  const name = p.name; // name: Reference<String, R> for some region R. Free type.
+                       // Field of a linear type automatically becomes a reference.
+  const name2: String = move p.name; // Error: Cannot move a reference.
+  const unwrapName = *name; // Error: Cannot dereference a linear type.
+
+  const age = p.age; // Reference<i32, R> for some region R. Free type.
+}
+{
+  const pRef = p; // pRef: Reference<Person, R> for some region R. Free type.
+  const name = pRef.name; // name: Reference<String, R> for some region R. Free type.
+  const unwrapName = *name; // Error: Cannot dereference a linear type.
+
+  const age = pRef.age; // Reference<i32, R> for some region R. Free type.
+}
 ```
 
 ## Function Declaration
@@ -173,11 +251,20 @@ const add = (x: i32, y: i32): i32 => {
 function identity<T>(arg: T): T {
   arg
 }
+// We use T as the type parameter name for Type. It's an abbreviation of T: Type
+// We use 'R as the type parameter name for Region. It's an abbreviation of R: Region
 
 // Effectful function
 function main(): [Console] () {
   console.log("Hello, world");
 }
+
+// Curried function
+function add(x: i32)(y: i32): i32 {
+  x + y
+}
+const addOne = add(1);
+addOne(2); // 3
 ```
 
 ### Uniform Function Call Syntax
@@ -209,11 +296,32 @@ function show(x: string) {
 
 ## Mutability
 
-```typescript
-const foo: char[] = "Hello, world"; // Immutable
-let bar = foo; // `let` is actually some kind of syntax sugar of the `localState` effect. We will explain this later.
+The builtin `set!` function is used to update a `MutableReference`, with the following signature:
 
-console.log(bar); // "Hello, world"
+```typescript
+function set<T>(ref: MutableReference<T, R>, value: T): T;
+```
+
+Below is an example of updating a field of a linear type:
+
+```typescript
+enum Person { // Linear type.
+  Person(name: String, age: i32)
+}
+let p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
+
+// Update the field
+const oldName = set!(p.name, String.from("Bob"));
+// oldName is the `value` moved out.
+// oldName == String.from("Alice")
+
+const myInt = 1;
+const myInt2: Reference<i32> = myInt;
+const myInt3: i32 = myInt2;
+set!(myInt, 2);
+// myInt == 2
+// myInt2 == 2
+// myInt3 == 1
 ```
 
 ### Reference Cells and Isolated state
@@ -246,6 +354,22 @@ function main() {
 }
 ```
 
+### Loop
+
+#### while
+
+```typescript
+function factorial(n: i32): i32 {
+  let m = n;
+  let result = 1;
+  while m > 1 {
+    set!(result, result * m); // set! is used to update a mutable reference
+    set!(m, m - 1);
+  }
+  result
+}
+```
+
 ### Brace elision
 
 #### repeat
@@ -254,7 +378,7 @@ function main() {
 function factorial(n: i32): i32 {
   let result = 1;
   repeat (n) (i)=> {
-    result *= i;
+    set!(result, result *= i);
   }
   return result;
 }
@@ -263,35 +387,11 @@ function factorial(n: i32): i32 {
 function factorial(n: i32): i32 {
   let result = 1;
   repeat(n, (i)=> {
-    result *= i;
+    set!(result, result *= i)
   })
   return result;
 }
 
-```
-
-#### while
-
-```typescript
-function factorial(n: i32): i32 {
-  let m = n;
-  let result = 1;
-  while {m > 1} {
-    result *= m;
-    m = m - 1;
-  }
-  result
-}
-// is equalvalent to
-function factorial(n: i32): i32 {
-  let m = n;
-  let result = 1;
-  while(()=> {m > 1}, ()=> {
-    result *= m;
-    m = m - 1;
-  })
-  result
-}
 ```
 
 #### for
@@ -747,6 +847,10 @@ function main() {
 
 ## Effect handler
 
+NOTE: Mo only support tail-resumptive effect handler.  
+You can use the `resume` keyword to resume the execution.  
+Or the return value of the effect handler will be used to resume the execution.
+
 ```typescript
 effect MyConsole {
   log(message: string): [MyConsole] ();
@@ -851,19 +955,60 @@ function mul(x: i32, y: i32): i32 { x * y }
 const x: i32[#mul(2, 3)] = 6;
 ```
 
-### Dependent types
+### Dependent types & Refinement types
 
 ```typescript
-function dependOnBoolean(#b: boolean): #if b { i32 } #else { f32 } {
-  #if b {
+function dependOnBoolean(b: boolean): if b == true { i32 } else { f32 } {
+  if b {
     1
-  } #else {
+  } else {
     1.0
   }
 }
 
 dependOnBoolean(true); // 1
 dependOnBoolean(false); // 1.0
+```
+
+```typescript
+function id(x: i32 | f32): if x is i32 then f32 else i32 {
+  if (x is i32) {
+    x as f32
+  } else {
+    x as i32
+  }
+}
+
+function makeArray(size: i32): Array<i32>
+where size < 10 && size > 0 {
+  return new Array<i32>(size)
+}
+
+function main() {
+  const size = readInt()
+  if size < 10 && size > 0 {
+    const arr = makeArray(size) // The function is guaranteed to return an array of size between 1 and 9
+  } else {
+    makeArray(size) // Compiler Error: size is not between 1 and 9
+  }
+}
+```
+
+```typescript
+function divide(x: i32, y: i32): i32
+where y != 0 {
+  x / y
+}
+
+function main() {
+  const x = readInt();
+  const y = readInt();
+  if y != 0 {
+    divide(x, y);
+  } else {
+    divide(x, y); // Compiler Error: y is not equal to 0
+  }
+}
 ```
 
 ## References

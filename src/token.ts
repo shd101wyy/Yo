@@ -79,6 +79,7 @@ export enum TokenType {
   // Implement = "implement",
   Import = "import",
   Export = "export",
+  Move = "move",
   Unique = "unique",
   Shared = "shared",
   Weak = "weak",

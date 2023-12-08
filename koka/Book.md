@@ -22,20 +22,19 @@ type State<h> = [Read<h>, Write<h>, Alloc<h>];
 
 ```typescript
 // Here is an example of an effect definition with one function to yield `i32` values.
-interface Yield {
-  yield: (i: i32) => [Yield] boolean;
+effect Yield {
+  yield(i: i32): [Yield] boolean;
 }
 
-Once the effect is declared, we can use it for example to yield the elements of a list:
+// Once the effect is declared, we can use it for example to yield the elements of a list:
 
 function traverse(xs: List<i32>): [Yield] Unit {
-  switch(xs) {
+  switch xs {
     case Cons(x, xx):
-      if (yield(x)) {
-        traverse(xx);
-      } else unit;
-    case Nil:
-      unit;
+      if yield(x) {
+        traverse(xx)
+      } else ()
+    case Nil: ()
   }
 }
 ```
@@ -44,14 +43,13 @@ The `traverse` function calls `yield` and therefore gets the `Yield` effect in i
 
 ```typescript
 function printElemens: [Console] Unit {
-  try {
-    do traverse([1, 2, 3, 4])
-  } catch {
-    case Yield: (i: i32) => {
-      console.log("Yielded " + i.toString());
-      resume(i < = 2);
+  with Yield {
+    yield(i: i32): [Yield, Console] boolean {
+      do console.log("Yielded " + i.toString());
+      resume i <= 2;
     }
   }
+  do traverse([1, 2, 3, 4])
 }
 ```
 
@@ -102,46 +100,60 @@ type Pure = [Exception, Diverge];
 ### 3.3.1 Structs
 
 ```typescript
-type Person = {
-  age: i32;
-  name: string;
-  realname: string;
+enum Person { // :Linear because String is linear type.
+  Person(
+    age: i32;
+    name: String;
+    realname: String
+  );
 };
 
-const brian: Person = {
+const brian: Person = Person.Person(
   age: 42,
   name: "Brian",
   realname: "Brian McKenna",
-};
+);
 ```
 
+### 3.3.2 Copying
+
 ### 3.3.7 Value Types
+
+```typescript
+enum ARGB: Free {
+  ARGB(
+    alpha: u8;
+    red: u8;
+    green: u8;
+    blue: u8;
+  );
+}
+```
 
 ## 3.4 Effect Handlers
 
 ### 3.4.1 Handling
 
 ```typescript
-interface Raise {
-  raise: (string) => [Raise] a;
+effect Raise {
+  raise<T>(msg: String): [Raise] T;
 }
 
 function safeDivide(x: i32, y: i32): [Raise] i32 {
-  if (y == 0) {
-    raise("Division by zero");
+  if y == 0 {
+    raise("Division by zero")
   } else {
-    x / y;
+    x / y
   }
 }
 
 function raiseConst(): i32 {
-  try {
-    8 + do safeDivide(1, 0);
-  } catch {
-    case Raise: (msg: string) => {
+  with Raise {
+    raise(msg: String) {
       42;
     }
   }
+  8 + do safeDivide(1, 0)
 }
 ```
 
@@ -152,8 +164,8 @@ The call `raiseConst()` evaluates to `42` (not `50`).
 The power of effect handlers is not just that we can `yield` to the innermost handler, but that we can also `resume` back to the call site with a result.
 
 ```typescript
-interface Ask<a> {
-  ask: ()=> [Ask<a>] a;
+effect Ask<T> {
+  ask: ()=> [Ask<T>] T;
 }
 
 function addTwice(): [Ask<i32>] i32 {
@@ -161,31 +173,29 @@ function addTwice(): [Ask<i32>] i32 {
 }
 
 function askConst(): i32 {
-  try {
-    do addTwice(); // return 42
-  } catch {
-    case Ask: () => {
+  with Ask {
+    ask() {
       resume(21);
     }
   }
+
+  do addTwice() // return 42
 }
 
 function askOnce() :i32 {
   let count = 0;
-  try {
-    do addTwice(); // return 0 from the second ask
-  } catch {
-    case Ask: () => {
-      count += 1;
-      if (count == 1) {
+  with Ask {
+    ask() {
+      count = count + 1;
+      if count <= 1 {
         resume(21)
       } else {
-        0
+        0 // This is like return(0)
       }
     }
   }
+  do addTwice() // return 0 from the second ask
 }
-
 ```
 
 ### 3.4.3. Tail-Resumptive Operations
@@ -231,4 +241,3 @@ state(10, sumdown); // returns 55
 ### 3.4.6. Combining Handlers
 
 ### 3.4.11. Initially and Finally
-
