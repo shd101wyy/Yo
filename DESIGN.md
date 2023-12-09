@@ -16,7 +16,7 @@ The **Mo** language is heavily inspired by:
   - Dot notation (Uniform Function Call Syntax)
   - Perceus and reuse
   - Algebraic effects
-- [Austral](https://austral-lang.org/)  
+- [Austral](https://austral-lang.org/)
   - Linear types
   - Borrowing
 - [Python](https://python.org/)
@@ -53,7 +53,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Uniform Function Call Syntax](#uniform-function-call-syntax)
     - [Function Overloading](#function-overloading)
   - [Mutability](#mutability)
-    - [Reference Cells and Isolated state](#reference-cells-and-isolated-state)
+  - [Borrow checker](#borrow-checker)
   - [Control Flow](#control-flow)
     - [Loop](#loop)
       - [while](#while)
@@ -82,7 +82,6 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [with `instance`](#with-instance)
   - [Effect handler](#effect-handler)
   - [Modules](#modules)
-  - [Special attributes](#special-attributes)
   - [Compile time execution](#compile-time-execution)
     - [Dependent types & Refinement types](#dependent-types--refinement-types)
   - [References](#references)
@@ -142,7 +141,8 @@ A type can have the following **Kind**:
 
 #### `Linear` Types.
 
-Linear types are types that can only be used once. For example, a `String` is a linear type as it can only be used once.
+Linear types are types that can only be used once. For example, a `String` is a linear type as it can only be used once.    
+The [Austral language](https://austral-lang.org/) has a very good explanation on the incentive of using [Linear Types](https://austral-lang.org/tutorial/linear-types).
 
 ### Region
 
@@ -163,9 +163,10 @@ const mySymbol = @"Hi"; // Symbol. Free type
 const myStrSlice: char[] = "Hello, world"; // Stored on stack. Free type
 
 const myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
-const myString2 = myString; // myString2: Reference<String, R> for some region R. Free type.
-const myString3 = move MyString; // myString3: String, and myString is consumed. Linear type.
-                                 // Only linear type can be moved.
+const myString2 = myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
+const myString3 = myString; // Error: myString is already consumed.
+const myString4: Reference<String> = myString2; // myString4: Reference<String, R> for some region R. Free type
+const myString5 = myString4; // myString5: Reference<String, R> for some region R. Free type
 
 const myInt = 1; // Stored on stack. Free type
 const myInt2 = myInt; // myInt2: i32, Free type
@@ -203,7 +204,10 @@ A **reference** is a `Free` pointer to a `Linear` or `Free` value. References ha
 
 ```typescript
 type Reference<T: Type, R: Region>;
+// Or written as &<T, R> for short
+
 type MutableReference<T: Type, R: Region>;
+// Or written as &mut<T, R> for short
 ```
 
 We can only dereference the free type.
@@ -215,15 +219,16 @@ const p = Person.Person(move name, 30); // p: Person. Linear type.
 {
   const name = p.name; // name: Reference<String, R> for some region R. Free type.
                        // Field of a linear type automatically becomes a reference.
-  const name2: String = move p.name; // Error: Cannot move a reference.
-  const unwrapName = *name; // Error: Cannot dereference a linear type.
+  const name2: String = p.name; // Error: Cannot dereference a linear type.
+  // const unwrapName = *name; // Error: Cannot dereference a linear type.
 
   const age = p.age; // Reference<i32, R> for some region R. Free type.
 }
 {
   const pRef = p; // pRef: Reference<Person, R> for some region R. Free type.
   const name = pRef.name; // name: Reference<String, R> for some region R. Free type.
-  const unwrapName = *name; // Error: Cannot dereference a linear type.
+  const name2: String = pRef.name; // Error: Cannot dereference a linear type.
+  // const unwrapName = *name; // Error: Cannot dereference a linear type.
 
   const age = pRef.age; // Reference<i32, R> for some region R. Free type.
 }
@@ -255,7 +260,8 @@ function identity<T>(arg: T): T {
 // We use 'R as the type parameter name for Region. It's an abbreviation of R: Region
 
 // Effectful function
-function main(): [Console] () {
+function main(): ()
+with Console {
   console.log("Hello, world");
 }
 
@@ -299,7 +305,10 @@ function show(x: string) {
 The builtin `set!` function is used to update a `MutableReference`, with the following signature:
 
 ```typescript
-function set<T>(ref: MutableReference<T, R>, value: T): T;
+function set!<T>(ref: MutableReference<T, R>, value: T): T;
+set!(x, x + 1)
+// is equalvalent to
+x = x + 1
 ```
 
 Below is an example of updating a field of a linear type:
@@ -315,8 +324,8 @@ const oldName = set!(p.name, String.from("Bob"));
 // oldName is the `value` moved out.
 // oldName == String.from("Alice")
 
-const myInt = 1;
-const myInt2: Reference<i32> = myInt;
+let myInt = 1;
+let myInt2: Reference<i32> = myInt;
 const myInt3: i32 = myInt2;
 set!(myInt, 2);
 // myInt == 2
@@ -324,18 +333,84 @@ set!(myInt, 2);
 // myInt3 == 1
 ```
 
-### Reference Cells and Isolated state
+## Borrow checker
+
+> This is similar to the borrow checker in Rust, but stricter.
+
+First, any borrow must last for a scope no greater than that of the owner. Second, you may have one or the other of these two kinds of borrows, but not both at the same time:
+
+- One or more references (`&<T>`) to a resource.
+- Exactly one mutable reference (`&mut<T>`).
+
+Example:
+
+- Cannot have two mutable references to the same value [E0499](https://doc.rust-lang.org/error_codes/E0499.html).
 
 ```typescript
-function fib(n: i32): i32 {
-  const x = ref(0);
-  const y = ref(1);
-  repeat(n) {
-    const y0 = y.current;
-    y.set(x.current + y0);
-    x.set(y0);
+function main() {
+  let x = 1;
+  let y: MutableReference<i32> = x;
+  let z: MutableReference<i32> = x; // Error: Cannot borrow `x` as mutable more than once at a time.
+}
+```
+
+- Cannot have an immutable reference while we have a mutable one [E0502](https://doc.rust-lang.org/error_codes/E0502.html).  
+  Cannot have a mutable reference while we have an immutable one [E0502](https://doc.rust-lang.org/error_codes/E0502.html).
+
+```typescript
+function main() {
+  let x = 1;
+  let y: MutableReference<i32> = x;
+  let z: Reference<i32> = x; // Error: Cannot borrow `x` as immutable because it is also borrowed as mutable.
+}
+```
+
+```typescript
+function main() {
+  let x = 1;
+  let y: Reference<i32> = x;
+  let z: MutableReference<i32> = x; // Error: Cannot borrow `x` as mutable because it is also borrowed as immutable.
+}
+```
+
+- Cannot use the value while it's borrowed [E0503](https://doc.rust-lang.org/error_codes/E0503.html).
+
+```typescript
+function main() {
+  let x = 1;
+  let y: MutableReference<i32> = x;
+  let _sum = x + 1; // Error: A value was used after it was mutably borrowed.
+}
+```
+
+- Cannot consume (move) the value while it's borrowed [E0505](https://doc.rust-lang.org/error_codes/E0505.html), [E0504](https://doc.rust-lang.org/error_codes/E0503.html).
+
+```typescript
+function main() {
+  const x = String.from("Hello");
+  const y: Reference<String> = x;
+  consume(x); // Error: A value was moved out while it was still borrowed.
+}
+```
+
+```typescript
+function main() {
+  const x = String.from("Hello");
+  const y: Reference<String> = x;
+
+  let z = move ()=> {
+    console.log(x); // Error: Cannot move `x` into closure because it is borrowed.
   }
-  x.current
+}
+```
+
+- Cannot assign to the value while it's borrowed [E0506](https://doc.rust-lang.org/error_codes/E0506.html).
+
+```typescript
+function main() {
+  let x = 1;
+  const y: Reference<i32> = x;
+  x = 2; // Error: An attempt was made to assign to a borrowed value
 }
 ```
 
@@ -563,14 +638,16 @@ instance Summary<NewsArticle> {
 }
 
 // Pass in function
-function notify(item: NewsArticle) {
-  with Summary<NewsArticle>{ summarize }; // Type constraint
+function notify(item: NewsArticle)
+with Summary<NewsArticle>{ summarize }; // Type constraint
                                           // require `summarize` function exists
+{
   console.log("Breaking news! ", item.summarize());
 }
 
-function notify<T>(item: T) {
-  with Display<T>; // Type constraint
+function notify<T>(item: T)
+with Display<T>; // Type constraint
+ {
   console.log("Breaking news! ", item.summarize());
   console.log("Breaking news! ", item.display());
 }
@@ -853,14 +930,14 @@ Or the return value of the effect handler will be used to resume the execution.
 
 ```typescript
 effect MyConsole {
-  log(message: string): [MyConsole] ();
+  log(message: string): () with MyConsole;
 }
 
-function useMyConsole(x: string): [MyConsole] () {
+function useMyConsole(x: string): () with MyConsole {
   log(x);
 }
 
-function tryUseMyConsole(): [Console] () {
+function tryUseMyConsole(): () with Console {
   with MyConsole {
     log(message) {
       console.log(message);
@@ -875,16 +952,16 @@ Async/Await
 
 ```typescript
 effect MyAff {
-  delay(ms: i32): [MyAff] ();
+  delay(ms: i32): () with MyAff;
 }
 
-function useMyAff(x: string): [MyAff, Console] () {
+function useMyAff(x: string): () with MyAff, Console {
   do delay(1000);
   console.log(x);
 }
 
 // or
-function tryUseMyAff(): [Console] () {
+function tryUseMyAff(): () with Console {
   with MyAff {
     delay(ms) {
       setTimeout(() => {
@@ -923,16 +1000,6 @@ export { test, copy };
     "std": ""
   }
 }
-```
-
-## Special attributes
-
-```typescript
-const x: [inline] i32 = 1;           // Inline.
-const x: [stack] int[] = [1, 2, 3];  // Save on stack.
-const x: [unique] int[] = [1, 2, 3]; // Unique pointer.
-const x: [weak] int[] = [1, 2, 3];   // Weak pointer.
-const x: [atomic] i32 = 1;           // Atomic.
 ```
 
 ## Compile time execution
