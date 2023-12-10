@@ -275,6 +275,17 @@ const p = Person.Person(name, 30); // p: Person. Linear type.
 }
 ```
 
+```typescript
+let x = [1, 2, 3, 4, 5]; // x: i32[5]. Free type
+let y = x; // y: i32[5]. Free type. x is copied to y, not moved.
+
+let first = x[0]; // first: &mut<i32, R> for some region R. Free type
+first = 10;
+
+// x: [10, 2, 3, 4, 5]
+// y: [1, 2, 3, 4, 5]
+```
+
 ## Function Declaration
 
 ```typescript
