@@ -137,6 +137,7 @@ A type can have the following **Kind**:
 - `f32` (32-bit floating point)
 - `f64` (64-bit floating point)
 - `char` (ASCII character)
+- `usize` (pointer size. It's `u32` on 32-bit system, `u64` on 64-bit system)
 - `symbol` (unique global string)
 - `()` (unit)
 
