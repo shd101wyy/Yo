@@ -141,7 +141,7 @@ effect Raise {
 
 function safeDivide(x: i32, y: i32): [Raise] i32 {
   if y == 0 {
-    raise("Division by zero")
+    raise("Division by zero")  // No need for 'do' here
   } else {
     x / y
   }
@@ -153,7 +153,7 @@ function raiseConst(): i32 {
       42;
     }
   }
-  8 + do safeDivide(1, 0)
+  8 + do safeDivide(1, 0)  // 'do' used at the call site
 }
 ```
 

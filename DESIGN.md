@@ -308,12 +308,9 @@ const add = (x: i32, y: i32): i32 => {
 function identity<T>(arg: T): T {
   arg
 }
-// We use T as the type parameter name for Type. It's an abbreviation of T: Type
-// We use 'R as the type parameter name for Region. It's an abbreviation of R: Region
 
 // Effectful function
-function main(): ()
-with Console {
+function main(): [Console] () {
   println("Hello, world");
 }
 
@@ -325,14 +322,10 @@ const addOne = add(1);
 addOne(2); // 3
 
 // Value constraint, type constraint, and effect constraint
-function divide(x: i32, y: i32): i32
-where y != 0 // Value constraint
-{
+function divide(x: i32, y: i32 require y != 0): i32 {
   x / y
 }
-function add<T>(x: T, y: T): T
-with Integral<T>
-{
+function add<T: Type(Integral)>(x: T, y: T): T {
   x + y
 }
 ```
@@ -367,13 +360,11 @@ function show(x: string) {
 ### Dependent types & Refinement types
 
 ```typescript
-function dependOnBoolean(b: boolean): i32
-where b == true
+function dependOnBoolean(b: boolean require b == true): i32
 {
   1
 }
-function dependOnBoolean(b: boolean): f32
-where b == false
+function dependOnBoolean(b: boolean require b == false): f32
 {
   1.0
 }
@@ -384,8 +375,7 @@ dependOnBoolean(returnBoolean()); // Error: value constraint not satisfied for b
 ```
 
 ```typescript
-function makeArray(size: i32): Array<i32>
-where size < 10 && size > 0 {
+function makeArray(size: i32 require size < 10 && size > 0): Array<i32> {
   return new Array<i32>(size)
 }
 
@@ -400,8 +390,7 @@ function main() {
 ```
 
 ```typescript
-function divide(x: i32, y: i32): i32
-where y != 0 {
+function divide(x: i32, y: i32 require y != 0): i32 {
   x / y
 }
 
@@ -740,13 +729,11 @@ function main() {
 ### Traits
 
 ```typescript
-trait Summary<T>
-with Eq<T> { // Type constraint
+trait Summary<T: Type(Eq)> { // Type constraint
   summarize(self: T): String;
 }
 
-trait Display<T>
-with Summary<T> { // Type constraint
+trait Display<T: Type(Summary)> { // Type constraint
   display(self: T): String;
 }
 
@@ -765,16 +752,11 @@ instance Summary<NewsArticle> {
 }
 
 // Pass in function
-function notify(item: NewsArticle)
-with Summary<NewsArticle>{ summarize }; // Type constraint
-                                          // require `summarize` function exists
-{
+function notify(item: NewsArticle) {
   println("Breaking news! ", item.summarize());
 }
 
-function notify<T>(item: T)
-with Display<T>; // Type constraint
- {
+function notify<T: Type(Display<T>)>(item: T) {
   println("Breaking news! ", item.summarize());
   println("Breaking news! ", item.display());
 }
@@ -892,10 +874,10 @@ const emptyArray: i32[0] = [];
 ## Error handling
 
 ```typescript
-function main(): [Exception] {
-  throw {
+function main(): [Exception] () {
+  throw({
     message: "Something went wrong",
-  };
+  });
 }
 ```
 
@@ -907,18 +889,17 @@ enum Result<T, E> {
   Err(E)
 }
 
-import { open } from "std/fs"
+import { open, drop } from "fs"
 function main() {
   const greetingFileResult = open("greeting.txt");
 
   if greetingFileResult is Ok(file) {
     println("The file was opened successfully");
   } else if greetingFileResult is Err(error) {
-    println("The file could not be opened");
-    throw Error({
-      message: error.message
-    })
+    println("The file could not be opened: ${error}");
   }
+
+  drop(greetingFileResult);
 }
 ```
 
@@ -1057,14 +1038,14 @@ Or the return value of the effect handler will be used to resume the execution.
 
 ```typescript
 effect MyConsole {
-  log(message: string): () with MyConsole;
+  log(message: string): [MyConsole] ();
 }
 
-function useMyConsole(x: string): () with MyConsole {
-  log(x);
+function useMyConsole(x: string): [MyConsole] () {
+  do log(x);
 }
 
-function tryUseMyConsole(): () with Console {
+function tryUseMyConsole(): [Console] () {
   with MyConsole {
     log(message) {
       println(message);
@@ -1082,13 +1063,13 @@ effect MyAff {
   delay(ms: i32): () with MyAff;
 }
 
-function useMyAff(x: string): () with MyAff, Console {
+function useMyAff(x: string): [MyAff, Console] () {
   do delay(1000);
-  println(x);
+  do println(x);
 }
 
 // or
-function tryUseMyAff(): () with Console {
+function tryUseMyAff(): [Console] () {
   with MyAff {
     delay(ms) {
       setTimeout(() => {
