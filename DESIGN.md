@@ -61,9 +61,10 @@ Our goal is to be a practical language that is easy to use and easy to learn.
       - [repeat](#repeat)
       - [for](#for)
   - [Type synonyms](#type-synonyms)
-  - [Algebraic Data Types](#algebraic-data-types)
+  - [Enum (Algebraic Data Types)](#enum-algebraic-data-types)
     - [Generalized Algebraic Data Types (GADTs)](#generalized-algebraic-data-types-gadts)
-  - [Subtyping](#subtyping)
+    - [Explicit enum variant type](#explicit-enum-variant-type)
+    - [Subtyping](#subtyping)
     - [Traits](#traits)
     - [Pattern Matching](#pattern-matching)
   - [Collections](#collections)
@@ -543,11 +544,11 @@ type Language = Lang<{ year: i32 }>;
 type Language = { language: string; year: i32 };
 ```
 
-## Algebraic Data Types
+## Enum (Algebraic Data Types)
 
 ```typescript
 enum Option<T> {
-  Some(v: T),
+  Some(value: T),
   None
 }
 
@@ -604,11 +605,22 @@ const expr1 : Expr<boolean> = Expr<boolean>.EqExpr(IntExpr(1), IntExpr(2));
 eval(expr1); // false
 ```
 
-## Subtyping
+### Explicit enum variant type
+
+```typescript
+const x: Option = Some(1); // x: Option<i32>.Some
+                           // .Some means the variant type is Some
+
+function unwrap<T>(x: Option<T>.Some): T {
+  x.value
+}
+```
+
+### Subtyping
 
 ```typescript
 enum Option<T> {
-  Some(val: T),
+  Some(value: T),
   None
 }
 
