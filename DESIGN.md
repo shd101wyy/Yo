@@ -708,6 +708,8 @@ const x: Option = Some(1); // x: Option<i32>.Some
 function unwrap<T>(x: Option<T>.Some): T {
   x.value
 }
+unwrap(x); // 1
+unwrap(None); // Won't compile. None is not a Some variant.
 ```
 
 ### Subtyping
