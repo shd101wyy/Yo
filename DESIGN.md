@@ -2,35 +2,15 @@
 
 **Mo** (墨) is minimal, general-purpose, compiled programming language that compiles to LLVM IR and WASM.
 
-**Mo** aims to be a simple to learn programming language. If you are familiar with JavaScript, you should be able to pick up **Mo** in 30 minutes.
+**Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 30 minutes.
 
-The **Mo** language is heavily inspired by:
+**Mo** has a minimal syntax design that looks like TypeScript, and uses uniform call syntax (dot notation), brace elison to make the code more concise.
 
-- [TypeScript](https://www.typescriptlang.org/)
-  - Syntax and semantics
-- [Rust](https://www.rust-lang.org/)
-  - Traits
-  - Borrow checker
-- [Koka](https://koka-lang.github.io/)
-  - Brace elision
-  - Dot notation (Uniform Function Call Syntax)
-  - Perceus and reuse
-  - Algebraic effects
-- [Austral](https://austral-lang.org/)
-  - Linear types
-  - Borrowing
-- [Python](https://python.org/)
-  - Keyword arguments
-- [Haskell](https://www.haskell.org/)
-  - Type and typeclass
-- [C++](https://isocpp.org/)
-  - Reference
-- [Scheme](https://www.scheme.com/)
-  - `set!`
-- [Zig](https://ziglang.org/)
-  - Compile time execution
+**Mo** is strong typed with a robust bidrectional type checker. **Mo** supports traits and instances, combined with algebraic effects and an efficient type system.
 
-The **Mo** language has a minimal syntax design that looks like TypeScript. **Mo** is strong typed with a robust bidrectional type checker, combined with algebraic effects and an efficient type system. **Mo** has no garbage collector as it utilizes the Linear Types and implemented a strict borrow checker.
+**Mo** supports advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types.
+
+**Mo** has no garbage collector as it utilizes the [Linear Types](https://en.wikipedia.org/wiki/Substructural_type_system#:~:text=Linear%20types%20corresponds%20to%20linear,transitioned%20to%20a%20different%20state.) and implemented a strict borrow checker. The **Mo** compiler helps you eliminate potential errors before the code is executed.
 
 Our goal is to be a practical language that is easy to use and easy to learn.
 
@@ -39,6 +19,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 <!-- code_chunk_output -->
 
 - [Language Design](#language-design)
+  - [Inspiration](#inspiration)
   - [Hello World](#hello-world)
   - [CLI Usage](#cli-usage)
   - [Types](#types)
@@ -88,6 +69,34 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [References](#references)
 
 <!-- /code_chunk_output -->
+
+## Inspiration
+
+The **Mo** language is heavily inspired by:
+
+- [TypeScript](https://www.typescriptlang.org/)
+  - Syntax and semantics
+- [Rust](https://www.rust-lang.org/)
+  - Traits
+  - Borrow checker
+- [Koka](https://koka-lang.github.io/)
+  - Brace elision
+  - Dot notation (Uniform Function Call Syntax)
+  - Perceus and reuse
+  - Algebraic effects
+- [Austral](https://austral-lang.org/)
+  - Linear types
+  - Borrowing
+- [Python](https://python.org/)
+  - Keyword arguments
+- [Haskell](https://www.haskell.org/)
+  - Type and typeclass
+- [C++](https://isocpp.org/)
+  - Reference
+- [Scheme](https://www.scheme.com/)
+  - `set!`
+- [Zig](https://ziglang.org/)
+  - Compile time execution
 
 ## Hello World
 
@@ -221,11 +230,11 @@ We can only dereference the free type.
 
 ```typescript
 const name = String.from("Alice");
-const p = Person.Person(move name, 30); // p: Person. Linear type.
+const p = Person.Person(name, 30); // p: Person. Linear type.
 
 {
   const name = p.name; // name: Reference<String, R> for some region R. Free type.
-                       // Field of a linear type automatically becomes a reference.
+  // Field of a linear type automatically becomes a reference.
   const name2: String = p.name; // Error: Cannot dereference a linear type.
   // const unwrapName = *name; // Error: Cannot dereference a linear type.
 
