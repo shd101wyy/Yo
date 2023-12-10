@@ -82,7 +82,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [with `instance`](#with-instance)
   - [Effect handler](#effect-handler)
   - [Modules](#modules)
-  - [Compile time execution](#compile-time-execution)
+  - [Compile time execution `In Design`](#compile-time-execution-in-design)
     - [Dependent types & Refinement types](#dependent-types--refinement-types)
   - [References](#references)
 
@@ -173,6 +173,8 @@ const myInt2 = myInt; // myInt2: i32, Free type
 const myInt3: Reference<i32> = myInt; // myInt3: Reference<i32, R> for some region R. Free type
 const myInt4 = myInt3; // myInt4: Reference<i32, R> for some region R. Free type
 const myInt5: i32 = myInt3; // myInt5: i32, Free type. We can automatically dereference the reference for Free type.
+                                        // We can also cast type using `:`.
+const myInt6 = (myInt: Reference<i32>); // myInt6: Reference<i32, R> for some region R. Free type.
 
 const myIntSlice: int[] = [1, 2, 3]; // Stored on stack, with size 3. Free type
 const myIntSlice: int[100] = [1, 2, 3]; // Stored on stack, with size 100. Free type
@@ -188,11 +190,14 @@ enum Person { // Linear type.
   Person(name: String, age: i32)
 }
 const p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
-const {name, age} = p; // name: Reference<String, R> for some region R. Free type.
+const { name, age } = p; // name: Reference<String, R> for some region R. Free type.
                        // age: Reference<i32, R>. Free type.
 const name = p.name; // name: Reference<String, R> for some region R. Free type.
+const name = (p.name: String); // Error: Cannot cast a linear type to a free type.
+
 const age = p.age;   // age: Reference<i32, R>. Free type.
-const age2 = *(p.age); // age2: i32, Free type.
+const age2: i32 = p.age; // age2: i32, Free type.
+const age3 = (p.age: i32); // age3: i32, Free type.
 ```
 
 ### Reference and Dereference
