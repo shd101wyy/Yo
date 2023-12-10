@@ -33,6 +33,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Function Declaration](#function-declaration)
     - [Uniform Function Call Syntax](#uniform-function-call-syntax)
     - [Function Overloading](#function-overloading)
+    - [Dependent types & Refinement types](#dependent-types--refinement-types)
   - [Mutability](#mutability)
   - [Borrow checker](#borrow-checker)
   - [Control Flow](#control-flow)
@@ -65,7 +66,6 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Effect handler](#effect-handler)
   - [Modules](#modules)
   - [Compile time execution `In Design`](#compile-time-execution-in-design)
-    - [Dependent types & Refinement types](#dependent-types--refinement-types)
   - [References](#references)
 
 <!-- /code_chunk_output -->
@@ -104,7 +104,7 @@ The **Mo** language is heavily inspired by:
 import * as console from "std/console";
 
 function main() {
-  console.log("Hello World!");
+  println("Hello World!");
 }
 ```
 
@@ -278,7 +278,7 @@ function identity<T>(arg: T): T {
 // Effectful function
 function main(): ()
 with Console {
-  console.log("Hello, world");
+  println("Hello, world");
 }
 
 // Curried function
@@ -321,10 +321,62 @@ For example, below is allowed:
 
 ```typescript
 function show(x: i32) {
-  console.log(x);
+  println(x);
 }
 function show(x: string) {
-  console.log(x);
+  println(x);
+}
+```
+
+### Dependent types & Refinement types
+
+```typescript
+function dependOnBoolean(b: boolean): i32
+where b == true
+{
+  1
+}
+function dependOnBoolean(b: boolean): f32
+where b == false
+{
+  1.0
+}
+
+dependOnBoolean(true); // 1
+dependOnBoolean(false); // 1.0
+dependOnBoolean(returnBoolean()); // Error: value constraint not satisfied for both `dependOnBoolean` functions
+```
+
+```typescript
+function makeArray(size: i32): Array<i32>
+where size < 10 && size > 0 {
+  return new Array<i32>(size)
+}
+
+function main() {
+  const size = readInt()
+  if size < 10 && size > 0 {
+    const arr = makeArray(size) // The function is guaranteed to return an array of size between 1 and 9
+  } else {
+    makeArray(size) // Compiler Error: size is not between 1 and 9
+  }
+}
+```
+
+```typescript
+function divide(x: i32, y: i32): i32
+where y != 0 {
+  x / y
+}
+
+function main() {
+  const x = readInt();
+  const y = readInt();
+  if y != 0 {
+    divide(x, y);
+  } else {
+    divide(x, y); // Compiler Error: y is not equal to 0
+  }
 }
 ```
 
@@ -425,7 +477,7 @@ function main() {
   const y: Reference<String> = x;
 
   let z = move ()=> {
-    console.log(x); // Error: Cannot move `x` into closure because it is borrowed.
+    println(x); // Error: Cannot move `x` into closure because it is borrowed.
   }
 }
 ```
@@ -448,9 +500,9 @@ function main() {
   const number = 3;
 
   if number < 5 {
-    console.log("condition was true");
+    println("condition was true");
   } else {
-    console.log("condition was false");
+    println("condition was false");
   }
 }
 ```
@@ -500,7 +552,7 @@ function factorial(n: i32): i32 {
 ```typescript
 function print10() {
   for(1, 10) (i)=> {
-    console.log(i);
+    println(i);
   }
 }
 
@@ -508,7 +560,7 @@ function print10() {
 
 function print10() {
   for(1, 10, (i)=> {
-    console.log(i);
+    println(i);
   })
 }
 ```
@@ -630,18 +682,18 @@ enum Option<T> {
   None
 }
 
-function printValue<T>(x: {val: T}) {
-  console.log(x.val);
+function printValue<T>(x: {value: T}) {
+  println(x.value);
 }
 
 function main() {
-  printValue<i32>({val: 12});
+  printValue<i32>({value: 12});
 
   const x = Option<i32>.Some(12);
   printValue(x); // This is allowed
 
   const y = Option<i32>.None;
-  printValue(y); // This is not allowed as `None` does not have `val` field
+  printValue(y); // This is not allowed as `None` does not have `value` field
 }
 
 
@@ -679,14 +731,14 @@ function notify(item: NewsArticle)
 with Summary<NewsArticle>{ summarize }; // Type constraint
                                           // require `summarize` function exists
 {
-  console.log("Breaking news! ", item.summarize());
+  println("Breaking news! ", item.summarize());
 }
 
 function notify<T>(item: T)
 with Display<T>; // Type constraint
  {
-  console.log("Breaking news! ", item.summarize());
-  console.log("Breaking news! ", item.display());
+  println("Breaking news! ", item.summarize());
+  println("Breaking news! ", item.display());
 }
 ```
 
@@ -707,7 +759,7 @@ enum Coin {
 // - https://github.com/tc39/proposal-pattern-matching
 function valueInCents(coin: Coin): u8 {
   if coin is Coin.Penny {
-    console.log("Lucky penny!");
+    println("Lucky penny!");
     return 1;
   } else if coin is Coin.Nickel {
     return 5;
@@ -822,9 +874,9 @@ function main() {
   const greetingFileResult = open("greeting.txt");
 
   if greetingFileResult is Ok(file) {
-    console.log("The file was opened successfully");
+    println("The file was opened successfully");
   } else if greetingFileResult is Err(error) {
-    console.log("The file could not be opened");
+    println("The file could not be opened");
     throw Error({
       message: error.message
     })
@@ -839,18 +891,18 @@ function main() {
 ```typescript
 function test() {
   with finally {
-    console.log("finally");
+    println("finally");
   }
-  console.log("start");
+  println("start");
 }
 
 // Translates to
 
 function test() {
   finally(()=> {
-    console.log("finally");
+    println("finally");
   }, ()=> {
-    console.log("start");
+    println("start");
   });
 }
 ```
@@ -929,7 +981,7 @@ function test() {
 function catchException() {
   with Exception {
     throw(error) {
-      console.log("Exception caught", error);
+      println("Exception caught", error);
     }
   }
   divide(1, 0);
@@ -977,7 +1029,7 @@ function useMyConsole(x: string): () with MyConsole {
 function tryUseMyConsole(): () with Console {
   with MyConsole {
     log(message) {
-      console.log(message);
+      println(message);
       resume ();
     }
   }
@@ -994,7 +1046,7 @@ effect MyAff {
 
 function useMyAff(x: string): () with MyAff, Console {
   do delay(1000);
-  console.log(x);
+  println(x);
 }
 
 // or
@@ -1015,16 +1067,41 @@ function tryUseMyAff(): () with Console {
 
 ## Modules
 
-Same as the ECMAScript modules, we use the `import` and `export` keywords to import and export modules.
+Same as the ECMAScript modules, we use the `import` and `export` keywords to import and export modules. The syntax is extended a bit.
 
 ```typescript
-import { copy } from "https://github.com/mo-lang/mo/std/fs.m";
+import { copy } from "https://github.com/mo-lang/mo/std/fs.mo";
 
 function test() {
-  console.log("Hello, world!");
+  println("Hello, world!");
 }
 
 export { test, copy };
+
+export enum Option<T> {
+  Some(value: T),
+  None,
+}
+
+export instance Id<i32> {
+  id(x: i32): i32 {
+    x
+  }
+}
+```
+
+```typescript
+// There is no `default` export.
+import "./test.mo"; // Import everything from test.mo
+import * as Test from "./test.mo"; // Import everything from test.mo and put it in the Test namespace
+import { test } from "./test.mo"; // Import test function from test.mo
+import { test as test2 } from "./test.mo"; // Import test function from test.mo and rename it to test2
+
+import { Option } from "./test.mo"; // Import Option enum from test.mo
+import { Option {Some, None} } from "./test.mo"; // Import Some and None variant from Option enum from test.mo
+
+import { Id<i32> } from "./test.mo"; // Import Id<i32> instance from test.mo
+import { Id<i32> { id } } from "./test.mo"; // Import id function from Id<i32> instance from test.mo
 ```
 
 `mo.json` and `mo.lock`
@@ -1060,57 +1137,6 @@ function add<T>(x: T): T {
 function mul(x: i32, y: i32): i32 { x * y }
 
 const x: i32[#mul(2, 3)] = 6;
-```
-
-### Dependent types & Refinement types
-
-```typescript
-function dependOnBoolean(b: boolean): i32
-where b == true
-{
-  1
-}
-function dependOnBoolean(b: boolean): f32
-where b == false
-{
-  1.0
-}
-
-dependOnBoolean(true); // 1
-dependOnBoolean(false); // 1.0
-```
-
-```typescript
-function makeArray(size: i32): Array<i32>
-where size < 10 && size > 0 {
-  return new Array<i32>(size)
-}
-
-function main() {
-  const size = readInt()
-  if size < 10 && size > 0 {
-    const arr = makeArray(size) // The function is guaranteed to return an array of size between 1 and 9
-  } else {
-    makeArray(size) // Compiler Error: size is not between 1 and 9
-  }
-}
-```
-
-```typescript
-function divide(x: i32, y: i32): i32
-where y != 0 {
-  x / y
-}
-
-function main() {
-  const x = readInt();
-  const y = readInt();
-  if y != 0 {
-    divide(x, y);
-  } else {
-    divide(x, y); // Compiler Error: y is not equal to 0
-  }
-}
 ```
 
 ## References
