@@ -321,12 +321,10 @@ function show(x: string) {
 
 ## Mutability
 
-The builtin `set!` function is used to update a `MutableReference`, with the following signature:
+The builtin `=` function is used to update a `MutableReference`, with the following signature:
 
 ```typescript
-function set!<T>(ref: MutableReference<T, R>, value: T): T;
-set!(x, x + 1)
-// is equalvalent to
+function (=)<T>(ref: MutableReference<T, R>, value: T): T;
 x = x + 1
 ```
 
@@ -339,8 +337,6 @@ enum Person { // Linear type.
 let p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
 
 // Update the field
-const oldName = set!(p.name, String.from("Bob"));
-// or
 const oldName = (p.name = String.from("Bob"));
 // oldName is the `value` moved out.
 // oldName == String.from("Alice")
@@ -348,7 +344,7 @@ const oldName = (p.name = String.from("Bob"));
 let myInt = 1;
 let myInt2: Reference<i32> = myInt;
 const myInt3: i32 = myInt2;
-set!(myInt, 2);
+myInt = 2;
 // myInt == 2
 // myInt2 == 2
 // myInt3 == 1
@@ -459,8 +455,8 @@ function factorial(n: i32): i32 {
   let m = n;
   let result = 1;
   while m > 1 {
-    set!(result, result * m); // set! is used to update a mutable reference
-    set!(m, m - 1);
+    result = result * m; // `=` is used to update a mutable reference
+    m = m - 1;
   }
   result
 }
@@ -474,7 +470,7 @@ function factorial(n: i32): i32 {
 function factorial(n: i32): i32 {
   let result = 1;
   repeat (n) (i)=> {
-    set!(result, result *= i);
+    result = result * i;
   }
   return result;
 }
@@ -483,7 +479,7 @@ function factorial(n: i32): i32 {
 function factorial(n: i32): i32 {
   let result = 1;
   repeat(n, (i)=> {
-    set!(result, result *= i)
+    result = result * i
   })
   return result;
 }
