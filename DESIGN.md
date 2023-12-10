@@ -101,8 +101,6 @@ The **Mo** language is heavily inspired by:
 ## Hello World
 
 ```typescript
-import * as console from "std/console";
-
 function main() {
   println("Hello World!");
 }
