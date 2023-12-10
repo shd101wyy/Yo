@@ -157,7 +157,34 @@ The [Austral language](https://austral-lang.org/) has a very good explanation on
 
 ### Region
 
-A **Region** here is a code block that specifies the lifetime of values.
+A **Region** here is a block that specifies the lifetime of values.
+
+Block `{...}` and function call `func(...)` create new regions.
+
+```typescript
+function factorial(x: i32): i32 { // Region 1
+  let result = 1;
+
+  while x > 1 { // Region 2
+    result = result * x;
+    x = x - 1;
+  }
+
+  result
+}
+
+function test(flag: boolean) { // Region 1
+  if flag { // Region 2
+    add()   // Region 3 for calling `add`
+  } else {  // Region 4
+    sub()   // Region 5 for calling `sub`
+
+    {       // Region 6
+      mul() // Region 7 for calling `mul`
+    }
+  }
+}
+```
 
 ### Variable Declaration
 
