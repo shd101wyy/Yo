@@ -141,7 +141,7 @@ A type can have the following **Kind**:
 
 #### `Linear` Types.
 
-Linear types are types that can only be used once. For example, a `String` is a linear type as it can only be used once.    
+Linear types are types that can only be used once. For example, a `String` is a linear type as it can only be used once.  
 The [Austral language](https://austral-lang.org/) has a very good explanation on the incentive of using [Linear Types](https://austral-lang.org/tutorial/linear-types).
 
 ### Region
@@ -271,6 +271,18 @@ function add(x: i32)(y: i32): i32 {
 }
 const addOne = add(1);
 addOne(2); // 3
+
+// Value constraint, type constraint, and effect constraint
+function divide(x: i32, y: i32): i32
+where y != 0 // Value constraint
+{
+  x / y
+}
+function add<T>(x: T, y: T): T
+with Integral<T>
+{
+  x + y
+}
 ```
 
 ### Uniform Function Call Syntax
@@ -321,6 +333,8 @@ let p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
 
 // Update the field
 const oldName = set!(p.name, String.from("Bob"));
+// or
+const oldName = (p.name = String.from("Bob"));
 // oldName is the `value` moved out.
 // oldName == String.from("Alice")
 
@@ -687,7 +701,7 @@ function valueInCents(coin: Coin): u8 {
 
 enum List<T> {
   Nil,
-  Cons(head: T, tail: List<T>),
+  Cons(head: T, tail: Box<List<T>>),
 }
 
 /*
@@ -1002,17 +1016,20 @@ export { test, copy };
 }
 ```
 
-## Compile time execution
+## Compile time execution `In Design`
 
 `#` prefix is used to indicate compile time execution.
 
+The type comparison and value comparison cannot be used at the same time.  
+The type comparison is done at compile time, while the value comparison is done at runtime.
+
 ```typescript
 function add<T>(x: T): T {
-  #if T == i32 {
+  if T == i32 { // Type comparison
     x + 1
-  } #else if T == f32 {
+  } else if T == f32 {
     x + 1.0
-  } #else {
+  } else {
     x
   }
 }
@@ -1025,12 +1042,15 @@ const x: i32[#mul(2, 3)] = 6;
 ### Dependent types & Refinement types
 
 ```typescript
-function dependOnBoolean(b: boolean): if b == true { i32 } else { f32 } {
-  if b {
-    1
-  } else {
-    1.0
-  }
+function dependOnBoolean(b: boolean): i32
+where b == true
+{
+  1
+}
+function dependOnBoolean(b: boolean): f32
+where b == false
+{
+  1.0
 }
 
 dependOnBoolean(true); // 1
@@ -1038,14 +1058,6 @@ dependOnBoolean(false); // 1.0
 ```
 
 ```typescript
-function id(x: i32 | f32): if x is i32 then f32 else i32 {
-  if (x is i32) {
-    x as f32
-  } else {
-    x as i32
-  }
-}
-
 function makeArray(size: i32): Array<i32>
 where size < 10 && size > 0 {
   return new Array<i32>(size)
