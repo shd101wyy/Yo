@@ -27,3 +27,14 @@ fun ask-once() : console int
   add-twice()
   println("after") // not executed
   12               // not executed
+
+effect give_int
+  ctl give_int( i: int ): int
+
+fun do-math(x: int) : give_int int
+  give_int(1) + give_int(2) + x
+
+fun handle-give-int(value: int): int
+  with ctl give_int(_)
+    value
+  do-math(4) + do-math(5)

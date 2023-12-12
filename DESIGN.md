@@ -1,12 +1,12 @@
 # Language Design
 
-**Mo** (墨) is minimal, general-purpose, compiled programming language that compiles to LLVM IR and WASM.
+**Mo** (墨) is minimal, general-purpose, functional (not pure), compiled programming language that compiles to LLVM IR and WASM.
 
-**Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 30 minutes.
+**Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
 **Mo** has a minimal syntax design that looks like TypeScript, and uses uniform call syntax (dot notation), brace elison to make the code more concise.
 
-**Mo** is strong typed with a robust bidrectional type checker. **Mo** supports traits and instances, combined with algebraic effects and an efficient type system.
+**Mo** is strong typed with a robust bidrectional type checker. **Mo** supports typeclass and instances, combined with algebraic effects and an efficient type system.
 
 **Mo** supports advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types.
 
@@ -33,22 +33,23 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Function Declaration](#function-declaration)
     - [Uniform Function Call Syntax](#uniform-function-call-syntax)
     - [Function Overloading](#function-overloading)
-    - [Dependent types & Refinement types](#dependent-types--refinement-types)
+    - [Dependent types `In Design`](#dependent-types-in-design)
+    - [Refinement types `In Design`](#refinement-types-in-design)
   - [Mutability](#mutability)
   - [Borrow checker](#borrow-checker)
   - [Control Flow](#control-flow)
-    - [Loop](#loop)
-      - [while](#while)
     - [Brace elision](#brace-elision)
       - [repeat](#repeat)
+      - [while](#while)
       - [for](#for)
   - [Type synonyms](#type-synonyms)
   - [Enum (Algebraic Data Types)](#enum-algebraic-data-types)
-    - [Generalized Algebraic Data Types (GADTs)](#generalized-algebraic-data-types-gadts)
+    - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
     - [Explicit enum variant type](#explicit-enum-variant-type)
     - [Subtyping](#subtyping)
-    - [Traits](#traits)
-    - [Pattern Matching](#pattern-matching)
+  - [Typeclass](#typeclass)
+    - [Implicit `drop` function on `Linear` types](#implicit-drop-function-on-linear-types)
+  - [Pattern Matching](#pattern-matching)
   - [Collections](#collections)
     - [Array](#array)
     - [String](#string)
@@ -61,9 +62,15 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [with `enum`](#with-enum)
     - [with `variable`](#with-variable)
     - [with `record`](#with-record)
-    - [with `effect`](#with-effect)
+    - [with `effect` handler](#with-effect-handler)
     - [with `instance`](#with-instance)
-  - [Effect handler](#effect-handler)
+  - [Algebraic effects](#algebraic-effects)
+    - [Effect handler](#effect-handler)
+      - [Matching on the Returned Value](#matching-on-the-returned-value)
+      - [Resume Zero Times](#resume-zero-times)
+      - [Resume Multiple Times](#resume-multiple-times)
+      - [Multiple Effects](#multiple-effects)
+    - [The `do` notation](#the-do-notation)
   - [Modules](#modules)
   - [Compile time execution `In Design`](#compile-time-execution-in-design)
   - [References](#references)
@@ -76,21 +83,21 @@ The **Mo** language is heavily inspired by:
 
 - [TypeScript](https://www.typescriptlang.org/)
   - Syntax and semantics
-- [Rust](https://www.rust-lang.org/)
-  - Traits
-  - Borrow checker
+  - Module system
 - [Koka](https://koka-lang.github.io/)
   - Brace elision
   - Dot notation (Uniform Function Call Syntax)
   - Perceus and reuse
   - Algebraic effects
+- [Rust](https://www.rust-lang.org/)
+  - Borrow checker
 - [Austral](https://austral-lang.org/)
   - Linear types
   - Borrowing
-- [Python](https://python.org/)
-  - Keyword arguments
 - [Haskell](https://www.haskell.org/)
   - Type and typeclass
+- [Python](https://python.org/)
+  - Keyword arguments
 - [C++](https://isocpp.org/)
   - Reference
 - [Scheme](https://www.scheme.com/)
@@ -158,6 +165,8 @@ The [Austral language](https://austral-lang.org/) has a very good explanation on
 A **Region** here is a block that specifies the lifetime of values.
 
 Block `{...}` and function call `func(...)` create new regions.
+
+**Mo** is explicit about the regions and lifetime of values.
 
 ```typescript
 function factorial(x: i32): i32 { // Region 1
@@ -310,7 +319,7 @@ function identity<T>(arg: T): T {
 }
 
 // Effectful function
-function main(): [Console] () {
+function main(): () with Console {
   println("Hello, world");
 }
 
@@ -322,11 +331,12 @@ const addOne = add(1);
 addOne(2); // 3
 
 // Value constraint, type constraint, and effect constraint
-function divide(x: i32, y: i32 require y != 0): i32 {
+function divide(x: i32, y: i32 where y != 0): i32 {
   x / y
 }
-function add<T: Type(Integral)>(x: T, y: T): T {
-  x + y
+function add<T: Type>(x: T, y: T): T
+with Console, Integral<T> {
+  println(x + y)
 }
 ```
 
@@ -357,26 +367,53 @@ function show(x: string) {
 }
 ```
 
-### Dependent types & Refinement types
+### Dependent types `In Design`
+
+Dependent types are types which depend on values.
 
 ```typescript
-function dependOnBoolean(b: boolean require b == true): i32
+function dependOnBoolean(b: boolean): i32
+where b == true
 {
   1
 }
-function dependOnBoolean(b: boolean require b == false): f32
+function dependOnBoolean(b: boolean): f32
+where b == false
 {
   1.0
 }
 
 dependOnBoolean(true); // 1
 dependOnBoolean(false); // 1.0
-dependOnBoolean(returnBoolean()); // Error: value constraint not satisfied for both `dependOnBoolean` functions
+dependOnBoolean(returnBoolean()); // Compiler Error: value constraint not satisfied for both `dependOnBoolean` functions
 ```
 
 ```typescript
-function makeArray(size: i32 require size < 10 && size > 0): Array<i32> {
-  return new Array<i32>(size)
+function divide(x: i32, y: i32): i32
+where y != 0
+{
+  x / y
+}
+
+function main() {
+  const x = readInt();
+  const y = readInt();
+  if y != 0 {
+    divide(x, y);
+  } else {
+    divide(x, y); // Compiler Error: y is not equal to 0
+  }
+}
+```
+
+### Refinement types `In Design`
+
+Refinement types consists of all values of a given type which satisfy a given predicate.
+
+```typescript
+function makeArray(size: i32): Array<i32>
+where size < 10 && size > 0 {
+  return Array<i32>.new(size)
 }
 
 function main() {
@@ -390,17 +427,19 @@ function main() {
 ```
 
 ```typescript
-function divide(x: i32, y: i32 require y != 0): i32 {
-  x / y
+function inBetween(x: i32, min: i32, max: i32): boolean
+where min < max && x >= min
+{
+  true
 }
-
 function main() {
   const x = readInt();
-  const y = readInt();
-  if y != 0 {
-    divide(x, y);
+  const min = readInt();
+  const max = readInt();
+  if min < max && x >= min {
+    inBetween(x, min, max);
   } else {
-    divide(x, y); // Compiler Error: y is not equal to 0
+    inBetween(x, min, max); // Compiler Error: Predicate not satisfied.  
   }
 }
 ```
@@ -453,7 +492,7 @@ Example:
 function main() {
   let x = 1;
   let y: MutableReference<i32> = x;
-  let z: MutableReference<i32> = x; // Error: Cannot borrow `x` as mutable more than once at a time.
+  let z: MutableReference<i32> = x; // Compiler Error: Cannot borrow `x` as mutable more than once at a time.
 }
 ```
 
@@ -464,7 +503,7 @@ function main() {
 function main() {
   let x = 1;
   let y: MutableReference<i32> = x;
-  let z: Reference<i32> = x; // Error: Cannot borrow `x` as immutable because it is also borrowed as mutable.
+  let z: Reference<i32> = x; // Compiler Error: Cannot borrow `x` as immutable because it is also borrowed as mutable.
 }
 ```
 
@@ -472,7 +511,7 @@ function main() {
 function main() {
   let x = 1;
   let y: Reference<i32> = x;
-  let z: MutableReference<i32> = x; // Error: Cannot borrow `x` as mutable because it is also borrowed as immutable.
+  let z: MutableReference<i32> = x; // Compiler Error: Cannot borrow `x` as mutable because it is also borrowed as immutable.
 }
 ```
 
@@ -482,7 +521,7 @@ function main() {
 function main() {
   let x = 1;
   let y: MutableReference<i32> = x;
-  let _sum = x + 1; // Error: A value was used after it was mutably borrowed.
+  let _sum = x + 1; // Compiler Error: A value was used after it was mutably borrowed.
 }
 ```
 
@@ -492,7 +531,7 @@ function main() {
 function main() {
   const x = String.from("Hello");
   const y: Reference<String> = x;
-  consume(x); // Error: A value was moved out while it was still borrowed.
+  consume(x); // Compiler Error: A value was moved out while it was still borrowed.
 }
 ```
 
@@ -502,7 +541,7 @@ function main() {
   const y: Reference<String> = x;
 
   let z = move ()=> {
-    println(x); // Error: Cannot move `x` into closure because it is borrowed.
+    println(x); // Compiler Error: Cannot move `x` into closure because it is borrowed.
   }
 }
 ```
@@ -513,7 +552,7 @@ function main() {
 function main() {
   let x = 1;
   const y: Reference<i32> = x;
-  x = 2; // Error: An attempt was made to assign to a borrowed value
+  x = 2; // Compiler Error: An attempt was made to assign to a borrowed value
 }
 ```
 
@@ -529,22 +568,6 @@ function main() {
   } else {
     println("condition was false");
   }
-}
-```
-
-### Loop
-
-#### while
-
-```typescript
-function factorial(n: i32): i32 {
-  let m = n;
-  let result = 1;
-  while m > 1 {
-    result = result * m; // `=` is used to update a mutable reference
-    m = m - 1;
-  }
-  result
 }
 ```
 
@@ -569,7 +592,34 @@ function factorial(n: i32): i32 {
   })
   return result;
 }
+```
 
+#### while
+
+```typescript
+function factorial(n: i32): i32 {
+  let m = n;
+  let result = 1;
+  while {m > 1} {
+    result = result * m; // `=` is used to update a mutable reference
+    m = m - 1;
+  }
+  result
+}
+
+// is equavalent to
+
+function factorial(n: i32): i32 {
+  let m = n;
+  let result = 1;
+  while(()=> {
+    m > 1
+  }, ()=> {
+    result = result * m; // `=` is used to update a mutable reference
+    m = m - 1;
+  })
+  result
+}
 ```
 
 #### for
@@ -635,21 +685,6 @@ enum Option<T> {
   None
 }
 
-// This will translate to code similar as below,
-// but like the `struct` in C:
-type Option<T> =
-  | {__typename: @"Some", v: T}
-  | {__typename: @"None"}
-trait Option<T> {
-  Some(v: T): Option<T> {
-    return {__typename: @"Some", v: v};
-  },
-  None(): Option<T> {
-    return {__typename: @"None"};
-  }
-}
-
-with Option<i32>; // Unwrap the enum
 const none: Option<i32> = None;
 const some: Option<i32> = Some(42);
 
@@ -664,7 +699,7 @@ const anotherHome = V4(v3 = 200);
 const loopback = V6(String.from("::1"))
 ```
 
-### Generalized Algebraic Data Types (GADTs)
+### Generalized Algebraic Data Types (GADTs) `In Design`
 
 ```typescript
 enum Expr<T> {
@@ -674,7 +709,7 @@ enum Expr<T> {
 }
 
 function eval<T>(expr: Expr<T>): T {
-  with Expr<T>;
+  // with Expr<T>;
   if expr is IntExpr(i) {
     i
   } else if expr is BoolExpr(b) {
@@ -684,7 +719,7 @@ function eval<T>(expr: Expr<T>): T {
   }
 }
 
-const expr1 : Expr<boolean> = Expr<boolean>.EqExpr(IntExpr(1), IntExpr(2));
+const expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
 eval(expr1); // false
 ```
 
@@ -716,24 +751,24 @@ function printValue<T>(x: {value: T}) {
 function main() {
   printValue<i32>({value: 12});
 
-  const x = Option<i32>.Some(12);
+  const x = Some(12);
   printValue(x); // This is allowed
 
-  const y = Option<i32>.None;
+  const y = None;
   printValue(y); // This is not allowed as `None` does not have `value` field
 }
 
 
 ```
 
-### Traits
+## Typeclass
 
 ```typescript
-trait Summary<T: Type(Eq)> { // Type constraint
+class Summary<T> with Eq<T> { // Type constraint
   summarize(self: T): String;
 }
 
-trait Display<T: Type(Summary)> { // Type constraint
+class Display<T> with Summary<T> { // Type constraint
   display(self: T): String;
 }
 
@@ -744,7 +779,7 @@ type NewsArticle = {
   content: String;
 };
 
-// Implement the trait
+// Implement the class instance
 instance Summary<NewsArticle> {
   summarize(self: NewsArticle): String {
     "${self.headline}, by ${self.author} (${self.location})";
@@ -756,13 +791,28 @@ function notify(item: NewsArticle) {
   println("Breaking news! ", item.summarize());
 }
 
-function notify<T: Type(Display<T>)>(item: T) {
+function notify<T>(item: T) with Display<T> {
   println("Breaking news! ", item.summarize());
   println("Breaking news! ", item.display());
 }
 ```
 
-### Pattern Matching
+### Implicit `drop` function on `Linear` types
+
+```typescript
+class Drop<T: Linear> {
+  drop(self: T): ();
+}
+
+function main() {
+  const x = String.from("Hello");
+
+  // If `x` is not consumed, it will be dropped at the end of the scope implicitly.
+  // drop(x); // This will be called implicitly.
+}
+```
+
+## Pattern Matching
 
 Pattern matching using `is` keyword.
 
@@ -824,7 +874,7 @@ function ListLength<T>(list: List<T>): i32 {
 */
 
 function ListLength<T>(list: List<T>): i32 {
-  with List<T>; // Unwrap the enum
+  // with List<T>; // Unwrap the enum
   if list is Nil {
     0
   } else if list is Cons {
@@ -874,7 +924,7 @@ const emptyArray: i32[0] = [];
 ## Error handling
 
 ```typescript
-function main(): [Exception] () {
+function main(): () with Exception {
   throw({
     message: "Something went wrong",
   });
@@ -994,11 +1044,11 @@ function test() {
 }
 ```
 
-### with `effect`
+### with `effect` handler
 
 ```typescript
 function catchException() {
-  with Exception {
+  with handler Exception {
     throw(error) {
       println("Exception caught", error);
     }
@@ -1010,7 +1060,7 @@ function catchException() {
 ### with `instance`
 
 ```typescript
-trait Show<T> {
+class Show<T> {
   show(x: T): string;
 }
 
@@ -1030,57 +1080,218 @@ function main() {
 }
 ```
 
-## Effect handler
+## Algebraic effects
 
-NOTE: Mo only support tail-resumptive effect handler.  
-You can use the `resume` keyword to resume the execution.  
-Or the return value of the effect handler will be used to resume the execution.
+Algebraic effect is defined using the `effect` keyword.
 
 ```typescript
-effect MyConsole {
-  log(message: string): [MyConsole] ();
-}
-
-function useMyConsole(x: string): [MyConsole] () {
-  do log(x);
-}
-
-function tryUseMyConsole(): [Console] () {
-  with MyConsole {
-    log(message) {
-      println(message);
-      resume ();
-    }
-  }
-  do useMyConsole("Hello, world!");
+effect Raise {
+  raise(msg: String): ();
 }
 ```
 
-Async/Await
+### Effect handler
+
+The `resume` is only available in the effect handler.
+You can use the `resume` keyword in effect handler to resume the execution.
 
 ```typescript
-effect MyAff {
-  delay(ms: i32): () with MyAff;
+effect Raise<T> {
+  raise(msg: String): T;
 }
 
-function useMyAff(x: string): [MyAff, Console] () {
-  do delay(1000);
-  do println(x);
+function safeDivide(x: i32, y: i32): i32 with Raise {
+  if y == 0 {
+    raise("Cannot divide by 0");
+  } else {
+    x / y
+  }
 }
 
-// or
-function tryUseMyAff(): [Console] () {
-  with MyAff {
-    delay(ms) {
-      setTimeout(() => {
-        resume ();
-      }, ms);
+function handle() {
+  with handler Raise {
+    raise(msg) {
+      resume(42)
     }
   }
-  const task1 = useMyAff("This is task 1");
-  const task2 = useMyAff("This is task 2");
-  const result = do parallel([task1, task2])
-  ()
+  8 + do safeDivide(1, 0) + 10 // 60
+}
+```
+
+#### Matching on the Returned Value
+
+```typescript
+function handle(): boolean {
+  with handler Raise {
+    raise(msg) {
+      resume(42)
+    },
+    return(value) {
+      value == 42
+    }
+  }
+  do safeDivide(1, 0) // true
+}
+```
+
+#### Resume Zero Times
+
+The effect handler may also choose not to resume at all, simply by not calling `resume`:
+
+```typescript
+function handle() {
+  with handler Raise {
+    raise(msg) {
+      42
+    }
+  }
+  8 + do safeDivide(1, 0) + 10 // 42
+}
+```
+
+#### Resume Multiple Times
+
+> Aka, Multishot delimited continuations.
+
+```typescript
+effect Choice {
+  choice(): boolean;
+}
+
+function xor(): boolean with Choice {
+  const p = choice();
+  const q = choice();
+  if p then !q else q
+}
+
+function choiceAll(action: ()=> boolean with Choice): List<boolean> {
+  with handler Choice {
+    return(x): {
+      [x]
+    },
+    choice() {
+      resume(false) ++ resume(true)
+    }
+  }
+  do action()
+}
+
+choiceAll(xor) // [false, true, true, false]
+
+// (a = choice(); b = choice(); if a then !b else b)
+// (a = false; b = choice(); if false then !b else b)
+// (a = false; b = false; if false then !b else b)
+// (a = false; b = false; b)
+// (a = false; false)
+// (false)
+// (a = false; b = choice(); if false then !b else b)
+// (a = false; b = true; if false then !b else b)
+// (a = false; b = true; b)
+// (a = false; true)
+// (true)
+// (a = choice(); b = choice(); if a then !b else b)
+// (a = true; b = choice(); if true then !b else b)
+// (a = true; b = false; if true then !b else b)
+// (a = true; b = false; !b)
+// (a = true; true)
+// (true)
+// (a = choice(); b = choice(); if a then !b else b)
+// (a = true; b = choice(); if true then !b else b)
+// (a = true; b = true; if true then !b else b)
+// (a = true; b = true; !b)
+// (a = true; false)
+// (false)
+// [false, true, true, false]
+```
+
+```typescript
+effect GiveInt {
+  giveInt(i: i32): i32
+}
+
+function useEffect(): i32 with GiveInt {
+  giveInt(2) + giveInt(4)
+}
+
+function handle(): i32 with Console {
+  with handler GiveInt {
+    giveInt(i: i32) {
+      println("give-int ${i}")
+      resume(i) + resume(i)
+    }
+  }
+  do useEffect() // 4
+}
+```
+
+#### Multiple Effects
+
+```typescript
+effect GiveInt {
+  giveInt(i: i32): i32
+}
+effect GiveBool {
+  giveBoolean(b: boolean): i32
+}
+function useEffects(): i32 with GiveInt, GiveBool {
+  giveInt(2) + giveBoolean(true)
+}
+function handleMultipleEffects(): i32 with Console {
+  with handler GiveInt { // Outer handler will `return` after
+    return(i) {
+      println("return give-int ${i}")
+      i + 3
+    }
+    giveInt(i) {
+      resume(i)
+    }
+  }
+  with handler GiveBool { // Inner handler will `return` first
+    return(b) {
+      println("return give-bool ${b}")
+      b + 4
+    }
+    giveBoolean(b) {
+      if b { resume(1) } else { resume(0) }
+    }
+  }
+  do useEffects()
+}
+// return give-bool 3
+// return give-int 7
+// 10
+
+```
+
+### The `do` notation
+
+The `do` notation is used to apply the effect handler to the effectful function. Check [./koka/do.md](./koka/do.md).
+
+For example:
+
+```typescript
+function handle() {
+  with handler Raise {
+    return(x) { x }
+    raise(msg, /* resume */) {
+      resume(42)
+    }
+  }
+
+  8 + do safeDivide(1, 0) + 10 // 60
+
+  // is equavalent to:
+
+  (({raise, return}: Raise as raiseRandler )=> {
+    safeDivide(1, 0, raiseHandler, (x) => {
+      return(8 + x + 10)
+    })
+  })(handler Raise {
+    return(x) { x }
+    raise(msg, /* resume */) {
+      resume(42)
+    }
+  })
 }
 ```
 
@@ -1117,10 +1328,11 @@ import { test } from "./test.mo"; // Import test function from test.mo
 import { test as test2 } from "./test.mo"; // Import test function from test.mo and rename it to test2
 
 import { Option } from "./test.mo"; // Import Option enum from test.mo
-import { Option {Some, None} } from "./test.mo"; // Import Some and None variant from Option enum from test.mo
+import { Option{Some, None} } from "./test.mo"; // Unwrap Some and None variant from Option enum from test.mo
+import { Option{*} } from "./test.mo"; // Unwrap all variants from Option enum from test.mo
 
-import { Id<i32> } from "./test.mo"; // Import Id<i32> instance from test.mo
-import { Id<i32> { id } } from "./test.mo"; // Import id function from Id<i32> instance from test.mo
+// All exported instances are implicitly imported.
+import { id } from "./test.mo"; // Import `id` function from Id<i32> instance from test.mo
 ```
 
 `mo.json` and `mo.lock`
@@ -1167,3 +1379,8 @@ const x: i32[#mul(2, 3)] = 6;
 - [Reconstructing TypeScript](https://jaked.org/blog/2021-09-07-Reconstructing-TypeScript-part-0)
 - [PureScript Types](https://github.com/purescript/documentation/blob/master/language/Types.md)
 - [The Ultimate Conditional Syntax](https://icfp22.sigplan.org/details/mlfamilyworkshop-2022-papers/6/The-Ultimate-Conditional-Syntax)
+- [Algebraic Effects for the Rest of Us](https://overreacted.io/algebraic-effects-for-the-rest-of-us/)
+- [What Color is Your Function](https://journal.stuffwithstuff.com/2015/02/01/what-color-is-your-function/)
+- [Implementing Algebraic Effects in C "Monads for Free in C"](https://www.microsoft.com/en-us/research/wp-content/uploads/2017/06/algeff-in-c-tr.pdf)
+- [Efficient Compilation of Algebraic Effect Handlers - Ningning Xie](https://www.youtube.com/watch?v=tWLPrPfb4_U&ab_channel=ETHWSCR)
+- [Generalized Evidence Pasing for Effect Handlers](https://www.microsoft.com/en-us/research/uploads/prod/2021/03/multip-tr-v4.pdf)

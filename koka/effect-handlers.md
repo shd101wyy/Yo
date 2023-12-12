@@ -1,6 +1,8 @@
 函数式编程中的 algebraic effects 是什么？ - 酱紫君的回答 - 知乎
 https://www.zhihu.com/question/300095154/answer/2625852587
 
+https://zhuanlan.zhihu.com/p/549749059
+
 ```typescript
 effect Ask<T> {
   ask(): [Ask<T>] T;
