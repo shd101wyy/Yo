@@ -1,4 +1,5 @@
 `return` is called in the innermost scope.
+Calling the effect handler requires `do` keyword.  
 
 ## One resume
 

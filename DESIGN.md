@@ -1,6 +1,6 @@
 # Language Design
 
-**Mo** (墨) is minimal, general-purpose, functional (not pure), compiled programming language that compiles to LLVM IR and WASM.
+**Mo** (墨) is minimal, general-purpose, functional (not pure), compiled programming language that targets LLVM IR and WASM.
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
@@ -308,7 +308,7 @@ function add(x: i32 = 1, y: i32 = 2): i32 {
 }
 
 
-// Arrow function
+// Closure
 const add = (x: i32, y: i32): i32 => {
   x + y
 };
@@ -354,7 +354,7 @@ addOne(12); // 13
 
 ### Function Overloading
 
-**Mo** allows function overloading by checking the first argument type.
+Function definitions with the same name must differ on the argument types.
 
 For example, below is allowed:
 
@@ -439,7 +439,7 @@ function main() {
   if min < max && x >= min {
     inBetween(x, min, max);
   } else {
-    inBetween(x, min, max); // Compiler Error: Predicate not satisfied.  
+    inBetween(x, min, max); // Compiler Error: Predicate not satisfied.
   }
 }
 ```
@@ -1102,7 +1102,7 @@ effect Raise<T> {
 
 function safeDivide(x: i32, y: i32): i32 with Raise {
   if y == 0 {
-    raise("Cannot divide by 0");
+    do raise("Cannot divide by 0");
   } else {
     x / y
   }
@@ -1114,7 +1114,7 @@ function handle() {
       resume(42)
     }
   }
-  8 + do safeDivide(1, 0) + 10 // 60
+  8 + safeDivide(1, 0) + 10 // 60
 }
 ```
 
@@ -1130,7 +1130,7 @@ function handle(): boolean {
       value == 42
     }
   }
-  do safeDivide(1, 0) // true
+  safeDivide(1, 0) // true
 }
 ```
 
@@ -1145,7 +1145,7 @@ function handle() {
       42
     }
   }
-  8 + do safeDivide(1, 0) + 10 // 42
+  8 + safeDivide(1, 0) + 10 // 42
 }
 ```
 
@@ -1173,7 +1173,7 @@ function choiceAll(action: ()=> boolean with Choice): List<boolean> {
       resume(false) ++ resume(true)
     }
   }
-  do action()
+  action()
 }
 
 choiceAll(xor) // [false, true, true, false]
@@ -1210,7 +1210,7 @@ effect GiveInt {
 }
 
 function useEffect(): i32 with GiveInt {
-  giveInt(2) + giveInt(4)
+  do giveInt(2) + do giveInt(4)
 }
 
 function handle(): i32 with Console {
@@ -1220,7 +1220,7 @@ function handle(): i32 with Console {
       resume(i) + resume(i)
     }
   }
-  do useEffect() // 4
+  useEffect() // 4
 }
 ```
 
@@ -1255,7 +1255,7 @@ function handleMultipleEffects(): i32 with Console {
       if b { resume(1) } else { resume(0) }
     }
   }
-  do useEffects()
+  useEffects()
 }
 // return give-bool 3
 // return give-int 7
@@ -1265,7 +1265,7 @@ function handleMultipleEffects(): i32 with Console {
 
 ### The `do` notation
 
-The `do` notation is used to apply the effect handler to the effectful function. Check [./koka/do.md](./koka/do.md).
+The `do` notation is used to perform the effect handler in effectful function. Check [./koka/do.md](./koka/do.md).
 
 For example:
 
@@ -1278,7 +1278,7 @@ function handle() {
     }
   }
 
-  8 + do safeDivide(1, 0) + 10 // 60
+  8 + safeDivide(1, 0) + 10 // 60
 
   // is equavalent to:
 
