@@ -60,7 +60,6 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [`with` syntax](#with-syntax)
     - [with `function`](#with-function)
     - [with `enum`](#with-enum)
-    - [with `variable`](#with-variable)
     - [with `record`](#with-record)
     - [with `effect` handler](#with-effect-handler)
     - [with `instance`](#with-instance)
@@ -677,7 +676,35 @@ type Language = Lang<{ year: i32 }>;
 type Language = { language: string; year: i32 };
 ```
 
+Destructure the record:
+
+```typescript
+const user: User = {
+  name: String.from("johndoe"),
+  age: 12
+}
+
+const {name, age} = user;
+// name: Reference<String, R> for some region R. Free type.
+// age: Reference<i32, R> for some region R. Free type.
+
+// Rename the field with `as`
+// Specify the type with `:`
+const {name as username, age: i32} = user;
+println(username); // johndoe
+// username: Reference<String, R> for some region R. Free type.
+// age: i32. Free type.
+```
+
 ## Enum (Algebraic Data Types)
+
+Enum is basically another type of Record with a hidden field `tag` that indicates the variant type.
+
+Therefore, when a value of a variant is decided, we can access the field of the value just like accessing the field of a record.
+
+There is also some optimization on the enum type. For example, if the enum has only one variant, the `tag` field will be omitted.
+
+In addition, if there is only one variant with one field, the field type will be used directly instead of wrapping it in a record. This is like the [newtype](https://wiki.haskell.org/Newtype) in Haskell.
 
 ```typescript
 enum Option<T> {
@@ -687,6 +714,10 @@ enum Option<T> {
 
 const none: Option<i32> = None;
 const some: Option<i32> = Some(42);
+
+// Access the field:
+some.value;
+const {value} = some;
 
 enum IpAddr {
   V4(v0: u8 = 255, v1: u8 = 255, v2: u8 = 255, v3: u8 = 255),
@@ -828,14 +859,14 @@ enum Coin {
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
 function valueInCents(coin: Coin): u8 {
-  if coin is Coin.Penny {
+  if coin is Penny {
     println("Lucky penny!");
     return 1;
-  } else if coin is Coin.Nickel {
+  } else if coin is Nickel {
     return 5;
-  } else if coin is Coin.Dime {
+  } else if coin is Dime {
     return 10;
-  } else if coin is Coin.Quarter {
+  } else if coin is Quarter {
     return 25;
   } else {
     throw Error({
@@ -849,12 +880,11 @@ enum List<T> {
   Cons(head: T, tail: Box<List<T>>),
 }
 
-/*
+
 function ListLength<T>(list: List<T>): i32 {
-  with List<T>; // Unwrap the enum
   if list is Nil {
     0
-  } else if list is Cons(_, tail) {
+  } else if list is Cons(_, tail) { // Access fields in order.
     1 + ListLength(tail);
   }
 }
@@ -862,19 +892,16 @@ function ListLength<T>(list: List<T>): i32 {
 // or
 
 function ListLength<T>(list: List<T>): i32 {
-  with List<T>; // Unwrap the enum
   if list is Nil {
     0
-  } else if list is Cons {tail} {
+  } else if list is Cons {tail} { // Access fields by name.
     1 + ListLength(tail);
   }
 }
 
 // or
-*/
 
 function ListLength<T>(list: List<T>): i32 {
-  // with List<T>; // Unwrap the enum
   if list is Nil {
     0
   } else if list is Cons {
@@ -978,6 +1005,8 @@ function test() {
 
 ### with `enum`
 
+> NOTE: This might be removed.
+
 ```typescript
 enum Coin {
   Penny,
@@ -1013,29 +1042,11 @@ function test() {
 }
 ```
 
-### with `variable`
-
-Moreover, a `with` statement can also bind a variable parameter as:
-
-```typescript
-function test() {
-  with
-    x <- 1
-    y <- 2
-  x + y
-}
-
-// Translate to
-function test() {
-  f(1, 2, (x, y)=> {
-    x + y
-  })
-}
-```
-
 ### with `record`
 
-`with` can also be used to destruct a record:
+> NOTE: This might be removed.
+
+`with` can also be used to destructure a record:
 
 ```typescript
 function test() {
@@ -1059,7 +1070,7 @@ function catchException() {
 
 ### with `instance`
 
-This might be removed.  
+> NOTE: This might be removed.
 
 ```typescript
 class Show<T> {
@@ -1310,11 +1321,14 @@ function test() {
 
 export { test, copy };
 
+// Export the enum.
 export enum Option<T> {
   Some(value: T),
   None,
 }
 
+// Explicitly export the functions defined in the instance.
+// The instance will be exported implicitly.
 export instance Id<i32> {
   id(x: i32): i32 {
     x

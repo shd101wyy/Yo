@@ -1,5 +1,5 @@
 `return` is called in the innermost scope.
-Calling the effect handler requires `do` keyword.  
+Calling the effect handler requires `do` keyword.
 
 ## One resume
 
@@ -249,6 +249,57 @@ function handle(): Option<i32> {
     giveInt(i, resume) {
       resume(i); // resume: (i: i32) => Option<i32>
     }
+  })
+}
+```
+
+## Multiple Effects
+
+```typescript
+effect Effect1 {}
+effect Effect2 {}
+
+function handleEffects(): Some<i32> with Effect1, Effect2 {
+  with handler Effect1 {
+    return(i) { // <A>(i: A) => Some<i32>
+      println("Effect1")
+      i
+    }
+  }
+  with handler Effect2 {
+    return(i) { // <A>(i: i32)=> A.
+                // Type of `i` is from the return value below, which is `12`
+      println("Effect2");
+      Some(i)
+    }
+  }
+  12 // <= this is the return value
+}
+
+/*
+Effect2
+Effect1
+Some(12)
+*/
+
+// is equivalent to
+
+function handleEffects(): Some<i32> with Effect1, Effect2 {
+  useEffect(handler Effect1 {
+    return(i) { // <A>(i: A) => Some<i32>
+      println("Effect1")
+      i
+    }
+  }, ({return as effect1Return})=> {
+    useEffect(handler Effect2 {
+      return(i) { // <A>(i: i32)=> A.
+                  // Type of `i` is from the return value below, which is `12`
+        println("Effect2");
+        Some(i)
+      }
+    }, ({return as effect2Return })=> {
+      effect1Return(effect2Return(12))
+    })
   })
 }
 ```
