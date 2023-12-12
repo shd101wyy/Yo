@@ -764,11 +764,11 @@ function main() {
 ## Typeclass
 
 ```typescript
-class Summary<T> with Eq<T> { // Type constraint
+class Summary<T> extends Eq<T> {
   summarize(self: T): String;
 }
 
-class Display<T> with Summary<T> { // Type constraint
+class Display<T> extends Summary<T> {
   display(self: T): String;
 }
 
@@ -1058,6 +1058,8 @@ function catchException() {
 ```
 
 ### with `instance`
+
+This might be removed.  
 
 ```typescript
 class Show<T> {
