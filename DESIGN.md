@@ -59,10 +59,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Recoverable Errors with Result](#recoverable-errors-with-result)
   - [`with` syntax](#with-syntax)
     - [with `function`](#with-function)
-    - [with `enum`](#with-enum)
-    - [with `record`](#with-record)
     - [with `effect` handler](#with-effect-handler)
-    - [with `instance`](#with-instance)
   - [Algebraic effects](#algebraic-effects)
     - [Effect handler](#effect-handler)
       - [Matching on the Returned Value](#matching-on-the-returned-value)
@@ -845,7 +842,8 @@ function main() {
 
 ## Pattern Matching
 
-Pattern matching using `is` keyword.
+Pattern matching using `is` keyword.  
+The compiler implements an exhaustive check on the pattern matching.  
 
 ```typescript
 enum Coin {
@@ -1003,58 +1001,6 @@ function test() {
 }
 ```
 
-### with `enum`
-
-> NOTE: This might be removed.
-
-```typescript
-enum Coin {
-  Penny,
-  Nickel,
-  Dime,
-  Quarter,
-}
-// without `with`
-function test() {
-  if coin is Coin.Penny {
-    1
-  } else if coin is Coin.Nickel {
-    5
-  } else if coin is Coin.Dime {
-    10
-  } else if coin is Coin.Quarter {
-    25
-  }
-}
-
-// with `with`
-function test() {
-  with Coin;
-  if coin is Penny {
-    1
-  } else if coin is Nickel {
-    5
-  } else if coin is Dime {
-    10
-  } else if coin is Quarter {
-    25
-  }
-}
-```
-
-### with `record`
-
-> NOTE: This might be removed.
-
-`with` can also be used to destructure a record:
-
-```typescript
-function test() {
-  with { x: 1, y: 2 }
-  x + y
-}
-```
-
 ### with `effect` handler
 
 ```typescript
@@ -1065,31 +1011,6 @@ function catchException() {
     }
   }
   divide(1, 0);
-}
-```
-
-### with `instance`
-
-> NOTE: This might be removed.
-
-```typescript
-class Show<T> {
-  show(x: T): string;
-}
-
-instance Show<i32> {
-  show(i32): string {
-    x.toString()
-  }
-}
-
-function testShow<T>(x: T) {
-  with Show<T>;
-  x.show();
-}
-
-function main() {
-  testShow<i32>(12);
 }
 ```
 
