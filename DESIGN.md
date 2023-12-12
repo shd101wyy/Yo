@@ -101,6 +101,15 @@ The **Mo** language is heavily inspired by:
 - [Zig](https://ziglang.org/)
   - Compile time execution
 
+Other languages that are worth mentioning that have influenced **Mo**:
+
+- [Effekt](https://effekt-lang.org/)
+- [PureScript](https://www.purescript.org/)
+- [Ante](https://antelang.org/)
+- [ATS](https://www.ats-lang.org/)
+- [Lean](https://leanprover.github.io/)
+- [Swift](https://swift.org/)
+
 ## Hello World
 
 ```typescript
@@ -843,7 +852,7 @@ function main() {
 ## Pattern Matching
 
 Pattern matching using `is` keyword.  
-The compiler implements an exhaustive check on the pattern matching.  
+The compiler implements an exhaustive check on the pattern matching.
 
 ```typescript
 enum Coin {
@@ -1138,26 +1147,6 @@ choiceAll(xor) // [false, true, true, false]
 // [false, true, true, false]
 ```
 
-```typescript
-effect GiveInt {
-  giveInt(i: i32): i32
-}
-
-function useEffect(): i32 with GiveInt {
-  do giveInt(2) + do giveInt(4)
-}
-
-function handle(): i32 with Console {
-  with handler GiveInt {
-    giveInt(i: i32) {
-      println("give-int ${i}")
-      resume(i) + resume(i)
-    }
-  }
-  useEffect() // 4
-}
-```
-
 #### Multiple Effects
 
 ```typescript
@@ -1199,33 +1188,24 @@ function handleMultipleEffects(): i32 with Console {
 
 ### The `do` notation
 
-The `do` notation is used to perform the effect handler in effectful function. Check [./koka/do.md](./koka/do.md).
+The `do` notation is used to call the effect operation.
 
 For example:
 
 ```typescript
-function handle() {
-  with handler Raise {
-    return(x) { x }
-    raise(msg, /* resume */) {
-      resume(42)
-    }
+effect MyEffect {
+  tryIt(): ();
+}
+
+function test(): () with MyEffect {
+  do tryIt(); // `do` is required here to call the `tryIt` effect operation in `MyEffect` effect.
+}
+
+function main() {
+  with handler MyEffect {
+    tryIt() { () }
   }
-
-  8 + safeDivide(1, 0) + 10 // 60
-
-  // is equavalent to:
-
-  (({raise, return}: Raise as raiseRandler )=> {
-    safeDivide(1, 0, raiseHandler, (x) => {
-      return(8 + x + 10)
-    })
-  })(handler Raise {
-    return(x) { x }
-    raise(msg, /* resume */) {
-      resume(42)
-    }
-  })
+  test() // `do` is not required to call `test` here, because `test` is not an effect operation defined in an effect.
 }
 ```
 
