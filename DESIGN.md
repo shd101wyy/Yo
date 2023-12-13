@@ -6,7 +6,7 @@
 
 **Mo** has a minimal syntax design that looks like TypeScript, and uses uniform call syntax (dot notation), brace elison to make the code more concise.
 
-**Mo** is strong typed with a robust bidrectional type checker. **Mo** supports typeclass and instances, combined with algebraic effects and an efficient type system.
+**Mo** is strong typed with a robust bidrectional type checker. **Mo** supports typeclass and instances, combined with dependency injection (_Poor man's algebraic effects_) and an efficient type system.
 
 **Mo** supports advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types.
 
@@ -59,14 +59,10 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Recoverable Errors with Result](#recoverable-errors-with-result)
   - [`with` syntax](#with-syntax)
     - [with `function`](#with-function)
-    - [with `effect` handler](#with-effect-handler)
-  - [Algebraic effects](#algebraic-effects)
-    - [Effect handler](#effect-handler)
-      - [Matching on the Returned Value](#matching-on-the-returned-value)
-      - [Resume Zero Times](#resume-zero-times)
-      - [Resume Multiple Times](#resume-multiple-times)
-      - [Multiple Effects](#multiple-effects)
-    - [The `do` notation](#the-do-notation)
+    - [with dependency injection handler](#with-dependency-injection-handler)
+  - [Dependency Injection](#dependency-injection)
+    - [Dependency handler](#dependency-handler)
+    - [`do` notation for handling resuming or aborting operations](#do-notation-for-handling-resuming-or-aborting-operations)
   - [Modules](#modules)
   - [Compile time execution `In Design`](#compile-time-execution-in-design)
   - [References](#references)
@@ -323,8 +319,9 @@ function identity<T>(arg: T): T {
   arg
 }
 
-// Effectful function
-function main(): () with Console {
+// Dependency injection (Effectful function)
+// We use `[]` to denote the dependencies of a function.
+function main(): [Console] () {
   println("Hello, world");
 }
 
@@ -335,12 +332,12 @@ function add(x: i32)(y: i32): i32 {
 const addOne = add(1);
 addOne(2); // 3
 
-// Value constraint, type constraint, and effect constraint
+// Value constraint, type constraint
 function divide(x: i32, y: i32 where y != 0): i32 {
   x / y
 }
-function add<T: Type>(x: T, y: T): T
-with Console, Integral<T> {
+function add<T: Type>(x: T, y: T): [Console] T
+given Integral<T> {
   println(x + y)
 }
 ```
@@ -828,7 +825,7 @@ function notify(item: NewsArticle) {
   println("Breaking news! ", item.summarize());
 }
 
-function notify<T>(item: T) with Display<T> {
+function notify<T>(item: T) given Display<T> {
   println("Breaking news! ", item.summarize());
   println("Breaking news! ", item.display());
 }
@@ -958,7 +955,7 @@ const emptyArray: i32[0] = [];
 ## Error handling
 
 ```typescript
-function main(): () with Exception {
+function main(): [Exception] () {
   throw({
     message: "Something went wrong",
   });
@@ -1010,7 +1007,7 @@ function test() {
 }
 ```
 
-### with `effect` handler
+### with dependency injection handler
 
 ```typescript
 function catchException() {
@@ -1023,189 +1020,115 @@ function catchException() {
 }
 ```
 
-## Algebraic effects
+## Dependency Injection
 
-Algebraic effect is defined using the `effect` keyword.
+- `Poor man's` Algebraic effects
+
+Dependency is defined using the `interface` keyword.
 
 ```typescript
-effect Raise {
-  raise(msg: String): ();
+interface Exception<T> {
+  raise(msg: String): T;
 }
 ```
 
-### Effect handler
-
-The `resume` is only available in the effect handler.
-You can use the `resume` keyword in effect handler to resume the execution.
+You can extend an interface using the `extends` keyword.
 
 ```typescript
-effect Raise<T> {
+interface Pure extends Exception, Divergence {}
+```
+
+### Dependency handler
+
+Use the `handler` keyword to define a handler:
+
+```typescript
+interface Exception<T> {
   raise(msg: String): T;
 }
 
-function safeDivide(x: i32, y: i32): i32 with Raise {
+function safeDivide(x: i32, y: i32): [Exception] i32 {
   if y == 0 {
-    do raise("Cannot divide by 0");
+    raise("Cannot divide by 0");
   } else {
     x / y
   }
 }
 
 function handle() {
-  with handler Raise {
+  with handler Exception {
     raise(msg) {
-      resume(42)
+      42
     }
   }
   8 + safeDivide(1, 0) + 10 // 60
 }
 ```
 
-#### Matching on the Returned Value
+### `do` notation for handling resuming or aborting operations
+
+We define a `Control` enum like below:
 
 ```typescript
-function handle(): boolean {
-  with handler Raise {
-    raise(msg) {
-      resume(42)
-    },
-    return(value) {
-      value == 42
-    }
-  }
-  safeDivide(1, 0) // true
+enum Control<R: Type, A: Type> {
+  Resume(value: R),
+  Abort(value: A)
 }
 ```
 
-#### Resume Zero Times
-
-The effect handler may also choose not to resume at all, simply by not calling `resume`:
+The dependency may have the operation that returns a `Control` type:
 
 ```typescript
-function handle() {
-  with handler Raise {
-    raise(msg) {
-      42
-    }
-  }
-  8 + safeDivide(1, 0) + 10 // 42
+interface Input {
+  read(): Control<String>;
 }
 ```
 
-#### Resume Multiple Times
-
-> Aka, Multishot delimited continuations.
+for function that returns `Control`, we can use the `do` keyword to call it:
 
 ```typescript
-effect Choice {
-  choice(): boolean;
+function hello(): [Input] () {
+  const name = do read();
+  println("Hello " + name);
 }
-
-function xor(): boolean with Choice {
-  const p = choice();
-  const q = choice();
-  if p then !q else q
-}
-
-function choiceAll(action: ()=> boolean with Choice): List<boolean> {
-  with handler Choice {
-    return(x): {
-      [x]
-    },
-    choice() {
-      resume(false) ++ resume(true)
-    }
-  }
-  action()
-}
-
-choiceAll(xor) // [false, true, true, false]
-
-// (a = choice(); b = choice(); if a then !b else b)
-// (a = false; b = choice(); if false then !b else b)
-// (a = false; b = false; if false then !b else b)
-// (a = false; b = false; b)
-// (a = false; false)
-// (false)
-// (a = false; b = choice(); if false then !b else b)
-// (a = false; b = true; if false then !b else b)
-// (a = false; b = true; b)
-// (a = false; true)
-// (true)
-// (a = choice(); b = choice(); if a then !b else b)
-// (a = true; b = choice(); if true then !b else b)
-// (a = true; b = false; if true then !b else b)
-// (a = true; b = false; !b)
-// (a = true; true)
-// (true)
-// (a = choice(); b = choice(); if a then !b else b)
-// (a = true; b = choice(); if true then !b else b)
-// (a = true; b = true; if true then !b else b)
-// (a = true; b = true; !b)
-// (a = true; false)
-// (false)
-// [false, true, true, false]
 ```
 
-#### Multiple Effects
+The `do` basically expand the expression to:
 
 ```typescript
-effect GiveInt {
-  giveInt(i: i32): i32
-}
-effect GiveBool {
-  giveBoolean(b: boolean): i32
-}
-function useEffects(): i32 with GiveInt, GiveBool {
-  giveInt(2) + giveBoolean(true)
-}
-function handleMultipleEffects(): i32 with Console {
-  with handler GiveInt { // Outer handler will `return` after
-    return(i) {
-      println("return give-int ${i}")
-      i + 3
-    }
-    giveInt(i) {
-      resume(i)
-    }
+const name = switch read() {
+  case Resume(value): {
+    value
   }
-  with handler GiveBool { // Inner handler will `return` first
-    return(b) {
-      println("return give-bool ${b}")
-      b + 4
-    }
-    giveBoolean(b) {
-      if b { resume(1) } else { resume(0) }
-    }
+  case Abort(value): {
+    return value // Abort the execution
   }
-  useEffects()
 }
-// return give-bool 3
-// return give-int 7
-// 10
-
 ```
 
-### The `do` notation
-
-The `do` notation is used to call the effect operation.
-
-For example:
+So
 
 ```typescript
-effect MyEffect {
-  tryIt(): ();
-}
-
-function test(): () with MyEffect {
-  do tryIt(); // `do` is required here to call the `tryIt` effect operation in `MyEffect` effect.
-}
-
 function main() {
-  with handler MyEffect {
-    tryIt() { () }
+  with handler Input {
+    read() {
+      Resume("Alice")
+    }
   }
-  test() // `do` is not required to call `test` here, because `test` is not an effect operation defined in an effect.
+  hello(); // Hello Alice
+}
+```
+
+while
+
+```typescript
+function main() {
+  with handler Input {
+    read() {
+      Abort("Error")
+    }
+  }
+  hello(); // Error
 }
 ```
 
@@ -1301,3 +1224,7 @@ const x: i32[#mul(2, 3)] = 6;
 - [Implementing Algebraic Effects in C "Monads for Free in C"](https://www.microsoft.com/en-us/research/wp-content/uploads/2017/06/algeff-in-c-tr.pdf)
 - [Efficient Compilation of Algebraic Effect Handlers - Ningning Xie](https://www.youtube.com/watch?v=tWLPrPfb4_U&ab_channel=ETHWSCR)
 - [Generalized Evidence Pasing for Effect Handlers](https://www.microsoft.com/en-us/research/uploads/prod/2021/03/multip-tr-v4.pdf)
+- [Structured Asynchrony with Algebraic Effects](https://www.microsoft.com/en-us/research/wp-content/uploads/2017/05/asynceffects-msr-tr-2017-21.pdf)
+- [Effects as Capabilities: Effect Handlers and Lightweight Effect Polymorphism](https://dl.acm.org/doi/pdf/10.1145/3428194)
+- [A Typed Continuatino-Passing Translatino for Lexical Effect Handlers](https://se.cs.uni-tuebingen.de/publications/schuster22typed.pdf)
+- [Zero-cost Effect Handlers](https://se.cs.uni-tuebingen.de/publications/schuster19zero.pdf)

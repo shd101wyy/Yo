@@ -77,3 +77,31 @@ try {
 ```
 
 ![Screenshot from 2023-12-11 23-40-36](https://i.imgur.com/J9lzthO.png)
+
+## Poor man's algebraic effects
+
+```typescript
+enum Control<T: Type, R: Type> {
+  Resume(value: T),
+  Abort(value: R)
+}
+```
+
+Each effect operation needs to return a `Control` value.
+
+```typescript
+interface GiveInt {
+  giveInt: ()=> i32
+}
+
+function main(): [GiveInt] i32 {
+  with handler GiveInt {
+    giveInt() {
+      // Resume(1)
+      Abort(1)
+    }
+  }
+  do giveInt()
+}
+
+```
