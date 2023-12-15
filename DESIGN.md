@@ -61,6 +61,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [`with` syntax](#with-syntax)
     - [with `function`](#with-function)
     - [with effect handler](#with-effect-handler)
+  - [Stackless Coroutine `In Design`](#stackless-coroutine-in-design)
   - [Algebraic effects](#algebraic-effects)
     - [Effect handler](#effect-handler)
     - [`do` notation](#do-notation)
@@ -99,6 +100,7 @@ The **Mo** language is heavily inspired by:
   - `set!`
 - [Zig](https://ziglang.org/)
   - Compile time execution
+  - `defer`
 
 Other languages that are worth mentioning that have influenced **Mo**:
 
@@ -467,7 +469,7 @@ function main() {
 
 ### `defer`
 
-You can defer the execution of a block of code using the `defer` keyword.
+`defer` will execute an expression at the end of the current scope.
 
 ```typescript
 function test() {
@@ -485,6 +487,20 @@ function test() {
 }
 
 test(); // Hello, World!
+```
+
+```typescript
+function deferExample() {
+  let a = 1;
+
+  {
+    defer a = 2;
+    a = 1;
+  }
+
+  println(a); // 2
+  a
+}
 ```
 
 ## Mutability
@@ -732,14 +748,14 @@ const user: User = {
 }
 
 const {name, age} = user;
-// name: Reference<String, R> for some region R. Free type.
-// age: Reference<i32, R> for some region R. Free type.
+// name: String, linear type
+// age: i32. Free type
 
 // Rename the field with `as`
 // Specify the type with `:`
-const {name as username, age: i32} = user;
+const {name as username: &<String>, age: i32} = user;
 println(username); // johndoe
-// username: Reference<String, R> for some region R. Free type.
+// username: Reference<String, R> for some region R. Free type
 // age: i32. Free type.
 ```
 
@@ -1039,10 +1055,15 @@ function catchException() {
 }
 ```
 
+## Stackless Coroutine `In Design`
+
+TODO
+
 ## Algebraic effects
 
-Note: **Mo** only supports one-shot delimited continuations due to the fact that **Mo** is a relatively low-level language.  
-This means that the continuation can only resume once.
+Note: **Mo** only supports one-shot delimited continuations.  
+This means that the continuation can only resume once.  
+It's implementation is based on the paper [One-shot Algebraic Effects as Coroutines](http://logic.cs.tsukuba.ac.jp/~sat/pdf/tfp2020.pdf)
 
 Effect is defined using the `effect` keyword.
 

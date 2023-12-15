@@ -173,6 +173,7 @@ end
 
 local GiveInt = inst()
 
+--[[
 local handlerFunction = handler {
     val = function(v)
         return v
@@ -198,6 +199,24 @@ end
 print(handlerFunction(function()
     print("Start")
     local r = 1 + useUseInt() + 3
+    print("End")
+    return r
+end))
+]] --
+
+local handlerFunction = handler {
+    val = function(v)
+        return v
+    end,
+    [GiveInt] = function(k, v)
+        return 10 + k(v) + 20
+        -- return v
+    end
+}
+
+print(handlerFunction(function()
+    print("Start")
+    local r = 1 + perform(GiveInt(2)) + 3
     print("End")
     return r
 end))
