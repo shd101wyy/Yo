@@ -90,18 +90,25 @@ enum Control<T: Type, R: Type> {
 Each effect operation needs to return a `Control` value.
 
 ```typescript
+enum Control<T: Type, A: Type> {
+  Resume(value: T),
+  Abort(value: A)
+}
+
 interface GiveInt {
-  giveInt: ()=> i32
+  giveInt: Control<i32>
+}
+
+function useGiveInt<A>(): [GiveInt] Control<i32, A> {
+  Resume(1 + do giveInt() + 2)
 }
 
 function main(): [GiveInt] i32 {
   with handler GiveInt {
     giveInt() {
-      // Resume(1)
-      Abort(1)
+      Abort(42)
     }
   }
-  do giveInt()
+  3 + useGiveInt() + 4
 }
-
 ```

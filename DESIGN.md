@@ -6,7 +6,7 @@
 
 **Mo** has a minimal syntax design that looks like TypeScript, and uses uniform call syntax (dot notation), brace elison to make the code more concise.
 
-**Mo** is strong typed with a robust bidrectional type checker. **Mo** supports typeclass and instances, combined with dependency injection (_Poor man's algebraic effects_) and an efficient type system.
+**Mo** is strong typed with a robust bidrectional type checker. **Mo** supports typeclass and instances, combined with algebraic effects and an efficient type system.
 
 **Mo** supports advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types.
 
@@ -27,6 +27,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
       - [`Free` Types](#free-types)
       - [`Linear` Types.](#linear-types)
     - [Region](#region)
+      - [Named Region](#named-region)
     - [Variable Declaration](#variable-declaration)
     - [Type inference](#type-inference)
     - [Reference and Dereference](#reference-and-dereference)
@@ -35,6 +36,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Function Overloading](#function-overloading)
     - [Dependent types `In Design`](#dependent-types-in-design)
     - [Refinement types `In Design`](#refinement-types-in-design)
+    - [`defer`](#defer)
   - [Mutability](#mutability)
   - [Borrow checker](#borrow-checker)
   - [Control Flow](#control-flow)
@@ -46,7 +48,6 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Enum (Algebraic Data Types)](#enum-algebraic-data-types)
     - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
     - [Explicit enum variant type](#explicit-enum-variant-type)
-    - [Subtyping](#subtyping)
   - [Typeclass](#typeclass)
     - [Implicit `drop` function on `Linear` types](#implicit-drop-function-on-linear-types)
   - [Pattern Matching](#pattern-matching)
@@ -59,10 +60,12 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Recoverable Errors with Result](#recoverable-errors-with-result)
   - [`with` syntax](#with-syntax)
     - [with `function`](#with-function)
-    - [with dependency injection handler](#with-dependency-injection-handler)
-  - [Dependency Injection](#dependency-injection)
-    - [Dependency handler](#dependency-handler)
-    - [`do` notation for handling resuming or aborting operations](#do-notation-for-handling-resuming-or-aborting-operations)
+    - [with effect handler](#with-effect-handler)
+  - [Algebraic effects](#algebraic-effects)
+    - [Effect handler](#effect-handler)
+    - [`do` notation](#do-notation)
+      - [resume](#resume)
+      - [abort](#abort)
   - [Modules](#modules)
   - [Compile time execution `In Design`](#compile-time-execution-in-design)
   - [References](#references)
@@ -194,6 +197,23 @@ function test(flag: boolean) { // Region 1
 }
 ```
 
+#### Named Region
+
+```typescript
+{:R1
+  let x = 1;
+}
+{:R2
+  let x = 2;
+  let y = 2;
+}
+{:R1 // Continue R1
+  console.log(x); // 1
+  console.log(y); // Compiler Error: y is not defined in R1
+                  // R2 is not in scope
+}
+```
+
 ### Variable Declaration
 
 ```typescript
@@ -232,18 +252,10 @@ const myMap: Map<string, int> = Map.from([
   ["two", 2],
 ]); // Stored on heap. Linear type.
 
-enum Person { // Linear type.
+enum Person { // Linear type, as it contains a linear type.
   Person(name: String, age: i32)
 }
-const p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
-const { name, age } = p; // name: Reference<String, R> for some region R. Free type.
-                       // age: Reference<i32, R>. Free type.
-const name = p.name; // name: Reference<String, R> for some region R. Free type.
-const name = (p.name: String); // Error: Cannot cast a linear type to a free type.
-
-const age = p.age;   // age: Reference<i32, R>. Free type.
-const age2: i32 = p.age; // age2: i32, Free type.
-const age3 = (p.age: i32); // age3: i32, Free type.
+const p = Person(String.from("Alice"), 30); // p: Person. Linear type.
 ```
 
 ### Reference and Dereference
@@ -268,10 +280,17 @@ const name = String.from("Alice");
 const p = Person.Person(name, 30); // p: Person. Linear type.
 
 {
-  const name = p.name; // name: Reference<String, R> for some region R. Free type.
-  // Field of a linear type automatically becomes a reference.
-  const name2: String = p.name; // Error: Cannot dereference a linear type.
-  // const unwrapName = *name; // Error: Cannot dereference a linear type.
+  const name = p.name; // name: String, Linear type. The `p` variable is consumed
+                       // when you extract a linear field from it.
+                       // NOTE: If `p` has more than one linear field, then when you destructure, you have to consume all the linear fields, otherwise it will be a compiler error.
+}
+{
+  const {name} = p; // name: String, Linear type. The `p` variable is consumed
+                    // when you destructure it.
+}
+
+{
+  const name: &<String> = p.name; // name: Reference<String, R> for some region R. Free type.
 
   const age = p.age; // Reference<i32, R> for some region R. Free type.
 }
@@ -444,6 +463,28 @@ function main() {
     inBetween(x, min, max); // Compiler Error: Predicate not satisfied.
   }
 }
+```
+
+### `defer`
+
+You can defer the execution of a block of code using the `defer` keyword.
+
+```typescript
+function test() {
+  const x = String.from("World!");
+  defer {
+    println(x);
+    drop(x);
+  }
+
+  const y = String.from("Hello, ");
+  defer {
+    println(y);
+    drop(y);
+  }
+}
+
+test(); // Hello, World!
 ```
 
 ## Mutability
@@ -662,6 +703,9 @@ const user: User = {
   email: String.from("test@gmail.com"),
   age: 13
 };
+
+// Define an extern type
+type Pointer<T: Type>;
 ```
 
 Extending the records
@@ -768,31 +812,6 @@ function unwrap<T>(x: Option<T>.Some): T {
 }
 unwrap(x); // 1
 unwrap(None); // Won't compile. None is not a Some variant.
-```
-
-### Subtyping
-
-```typescript
-enum Option<T> {
-  Some(value: T),
-  None
-}
-
-function printValue<T>(x: {value: T}) {
-  println(x.value);
-}
-
-function main() {
-  printValue<i32>({value: 12});
-
-  const x = Some(12);
-  printValue(x); // This is allowed
-
-  const y = None;
-  printValue(y); // This is not allowed as `None` does not have `value` field
-}
-
-
 ```
 
 ## Typeclass
@@ -1007,7 +1026,7 @@ function test() {
 }
 ```
 
-### with dependency injection handler
+### with effect handler
 
 ```typescript
 function catchException() {
@@ -1020,30 +1039,31 @@ function catchException() {
 }
 ```
 
-## Dependency Injection
+## Algebraic effects
 
-- `Poor man's` Algebraic effects
+Note: **Mo** only supports one-shot delimited continuations due to the fact that **Mo** is a relatively low-level language.  
+This means that the continuation can only resume once.
 
-Dependency is defined using the `interface` keyword.
+Effect is defined using the `effect` keyword.
 
 ```typescript
-interface Exception<T> {
+effect Exception<T> {
   raise(msg: String): T;
 }
 ```
 
-You can extend an interface using the `extends` keyword.
+You can extend an effect using the `extends` keyword.
 
 ```typescript
-interface Pure extends Exception, Divergence {}
+effect Pure extends Exception, Divergence {}
 ```
 
-### Dependency handler
+### Effect handler
 
 Use the `handler` keyword to define a handler:
 
 ```typescript
-interface Exception<T> {
+effect Exception<T> {
   raise(msg: String): T;
 }
 
@@ -1058,74 +1078,59 @@ function safeDivide(x: i32, y: i32): [Exception] i32 {
 function handle() {
   with handler Exception {
     raise(msg) {
-      42
+      resume(42)
     }
   }
   8 + safeDivide(1, 0) + 10 // 60
 }
-```
 
-### `do` notation for handling resuming or aborting operations
-
-We define a `Control` enum like below:
-
-```typescript
-enum Control<R: Type, A: Type> {
-  Resume(value: R),
-  Abort(value: A)
+// or
+function handle() {
+  const exceptionHandler = handler Exception {
+    raise(msg) {
+      resume(42)
+    }
+  }
+  exceptionHandler(()=> {
+    8 + safeDivide(1, 0) + 10 // 60
+  })
 }
 ```
 
-The dependency may have the operation that returns a `Control` type:
+### `do` notation
+
+Use `do` notation to call an effect operation.
 
 ```typescript
-interface Input {
-  read(): Control<String>;
+effect Input {
+  read(): String;
 }
-```
 
-for function that returns `Control`, we can use the `do` keyword to call it:
-
-```typescript
 function hello(): [Input] () {
-  const name = do read();
-  println("Hello " + name);
+  println("Hello " + do read());
 }
 ```
 
-The `do` basically expand the expression to:
-
-```typescript
-const name = switch read() {
-  case Resume(value): {
-    value
-  }
-  case Abort(value): {
-    return value // Abort the execution
-  }
-}
-```
-
-So
+#### resume
 
 ```typescript
 function main() {
   with handler Input {
     read() {
-      Resume("Alice")
+      resume("Alice")
     }
   }
   hello(); // Hello Alice
 }
 ```
 
-while
+#### abort
 
 ```typescript
 function main() {
   with handler Input {
     read() {
-      Abort("Error")
+      "Error"
     }
   }
   hello(); // Error
@@ -1228,3 +1233,9 @@ const x: i32[#mul(2, 3)] = 6;
 - [Effects as Capabilities: Effect Handlers and Lightweight Effect Polymorphism](https://dl.acm.org/doi/pdf/10.1145/3428194)
 - [A Typed Continuatino-Passing Translatino for Lexical Effect Handlers](https://se.cs.uni-tuebingen.de/publications/schuster22typed.pdf)
 - [Zero-cost Effect Handlers](https://se.cs.uni-tuebingen.de/publications/schuster19zero.pdf)
+- [Why Rust Closures are (Somewhat) Hard](https://stevedonovan.github.io/rustifications/2018/08/18/rust-closures-are-hard.html)
+- [Inside Rust's Async Transformation](https://blag.nemo157.com/2018/12/09/inside-rusts-async-transform.html)
+- [Coroutines: Suspending State Machines](https://medium.com/google-developer-experts/coroutines-suspending-state-machines-36b189f8aa60)
+- [What's the difference between an algebraic effect, a callback function, and a coroutine](https://www.reddit.com/r/ProgrammingLanguages/comments/13v35fk/whats_the_difference_between_an_algebraic_effect/)
+- [Revisiting coroutines](https://dl.acm.org/doi/abs/10.1145/1462166.1462167)
+- [One-shot Algebraic Effects as Coroutines](http://logic.cs.tsukuba.ac.jp/~sat/pdf/tfp2020.pdf)
