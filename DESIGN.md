@@ -8,7 +8,7 @@
 
 **Mo** is strong typed with a robust bidrectional type checker. **Mo** supports typeclass and instances, combined with algebraic effects and an efficient type system.
 
-**Mo** supports advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types.
+**Mo** supports advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types. `In Design`
 
 **Mo** has no garbage collector as it utilizes the [Linear Types](https://en.wikipedia.org/wiki/Substructural_type_system#:~:text=Linear%20types%20corresponds%20to%20linear,transitioned%20to%20a%20different%20state.) and implemented a strict borrow checker. The **Mo** compiler helps you eliminate potential errors before the code is executed.
 
@@ -63,7 +63,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [with effect handler](#with-effect-handler)
   - [Pointer](#pointer)
   - [Type casting](#type-casting)
-  - [Stackless Coroutine `In Design`](#stackless-coroutine-in-design)
+  - [Stackless Coroutine `Might be removed`](#stackless-coroutine-might-be-removed)
   - [Algebraic effects](#algebraic-effects)
     - [Effect handler](#effect-handler)
     - [`do` notation](#do-notation)
@@ -1093,7 +1093,7 @@ const x: i32 = 1;
 const y: f32 = (x:f32);
 ```
 
-## Stackless Coroutine `In Design`
+## Stackless Coroutine `Might be removed`
 
 > [Rust Coroutine](https://doc.rust-lang.org/nightly/unstable-book/language-features/coroutines.html)
 
@@ -1150,9 +1150,12 @@ function main() {
 
 ## Algebraic effects
 
-Note: **Mo** only supports one-shot delimited continuations.  
-This means that the continuation can only resume once.  
-It's implementation is based on the paper [One-shot Algebraic Effects as Coroutines](http://logic.cs.tsukuba.ac.jp/~sat/pdf/tfp2020.pdf)
+Note: **Mo** only supports **one-shot delimited continuations**.  
+This means that the continuation can only resume once.
+
+Our implementation doesn't use CPS (Continuation Passing Style) transformation as it's memory consuming and not efficient.
+
+This is the hardest part of the language design. The question remains now is if we should implement the algebraic effects [using coroutine](http://logic.cs.tsukuba.ac.jp/~sat/pdf/tfp2020.pdf) or we directly implement it in the compiler.
 
 Effect is defined using the `effect` keyword.
 
@@ -1209,7 +1212,7 @@ function handle() {
 
 ### `do` notation
 
-Use `do` notation to call an effect operation.
+Use `do` notation to perform an effectful operation.
 
 ```typescript
 effect Input {
