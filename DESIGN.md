@@ -61,6 +61,8 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [`with` syntax](#with-syntax)
     - [with `function`](#with-function)
     - [with effect handler](#with-effect-handler)
+  - [Pointer](#pointer)
+  - [Type casting](#type-casting)
   - [Stackless Coroutine `In Design`](#stackless-coroutine-in-design)
   - [Algebraic effects](#algebraic-effects)
     - [Effect handler](#effect-handler)
@@ -329,12 +331,6 @@ function add(x: i32 = 1, y: i32 = 2): i32 {
   x + y
 }
 
-
-// Closure
-const add = (x: i32, y: i32): i32 => {
-  x + y
-};
-
 // Generic function
 function identity<T>(arg: T): T {
   arg
@@ -346,7 +342,7 @@ function main(): [Console] () {
   println("Hello, world");
 }
 
-// Curried function
+// Curried function `In Design`
 function add(x: i32)(y: i32): i32 {
   x + y
 }
@@ -361,6 +357,12 @@ function add<T: Type>(x: T, y: T): [Console] T
 given Integral<T> {
   println(x + y)
 }
+
+// Closure
+const add = (x: i32, y: i32): i32 => {
+  x + y
+};
+
 ```
 
 ### Uniform Function Call Syntax
@@ -868,6 +870,8 @@ function notify<T>(item: T) given Display<T> {
 
 ### Implicit `drop` function on `Linear` types
 
+NOTE: We might not need this as we have `defer` for explicit `drop`.
+
 ```typescript
 class Drop<T: Linear> {
   drop(self: T): ();
@@ -1055,9 +1059,94 @@ function catchException() {
 }
 ```
 
+## Pointer
+
+```typescript
+type Pointer<T: Type>: Linear;
+
+function main() {
+  // Allocate on heap
+  /// malloc
+  const dynamicFloat = malloc(@sizeOf<f32>() * 1); // dynamicFloat: Pointer<f32>. Linear type.
+
+  /// calloc
+  const dynamicInt = calloc<i32>(1); // dynamicInt: Pointer<i32>. Linear type.
+  const dynamicIntArray = calloc<i32>(10); // dynamicIntArray: Pointer<i32>. Linear type.
+  const dynamicString = calloc<char>(10); // dynamicString: Pointer<char>. Linear type.
+
+  /// dereference
+  const dynamicIntRef = dynamicInt.deref(); // dynamicIntRef: Reference<i32, R> for some region R. Free type.
+  const dynamicIntArrayRef = dynamicIntArray.deref(offset=1);  // dynamicIntArrayRef: Reference<i32, R> for some region R. Free type.
+  const dynamicStringRef = dynamicString.deref(offset=1); // dynamicStringRef: Reference<char, R> for some region R. Free type.
+
+  /// free
+  free(dynamicInt);
+  free(dynamicIntArray);
+  free(dynamicString);
+}
+```
+
+## Type casting
+
+```typescript
+const x: i32 = 1;
+const y: f32 = (x:f32);
+```
+
 ## Stackless Coroutine `In Design`
 
-TODO
+> [Rust Coroutine](https://doc.rust-lang.org/nightly/unstable-book/language-features/coroutines.html)
+
+```typescript
+enum CoroutineState<YieldType: Type, ReturnType: Type>: Linear {
+  Yielded(value: YieldType),
+  Complete(value: ReturnType),
+}
+
+class Coroutine<
+  Coro: Linear, // Coro is the generated state machine.
+  YieldType: Type,
+  ResumeType: Type,
+  ReturnType: Type
+> {
+  resume(coroutine: Coro, arg: ResumeType): CoroutineState<YieldType, ReturnType>;
+}
+
+function main() {
+  const coro = coroutine<i32 | boolean, i32 | (), String>({x, y}: {x: i32, y: i32}) {
+    println("Hello");
+    const a = (yield { x + y }):i32; // a: i32 = 11;
+    println("World");
+    yield true;
+    String.from("Done");
+  }
+  defer drop(coro);
+
+  const result = coro.resume({x: 1, y: 2});
+  // Hello
+  if result is Yielded<i32 | boolean>(value: i32) { // value: i32 = 3
+    println("Yielded: ", value); // Yielded 3
+  } else { //
+    @panic("Unexpected return from resume")
+  }
+
+   const result2 = coro.resume(5, 6);
+  // World
+  if result2 is Yielded<i32 | boolean>(value: boolean) { // value: boolean = true
+    println("Yielded: ", value); // Yielded true
+  } else {
+    @panic("Unexpected return from resume")
+  }
+
+  const result3 = coro.resume(());
+  // Done
+  if result3 is Complete<String>(value: String) { // value: String = "Done"
+    println("Complete: ", value); // Complete Done
+  } else {
+    @panic("Unexpected yield from resume")
+  }
+}
+```
 
 ## Algebraic effects
 
