@@ -27,7 +27,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
       - [`Free` Types](#free-types)
       - [`Linear` Types.](#linear-types)
     - [Region](#region)
-      - [Named Region](#named-region)
+      - [Named Region `Might be removed`](#named-region-might-be-removed)
     - [Variable Declaration](#variable-declaration)
     - [Type inference](#type-inference)
     - [Reference and Dereference](#reference-and-dereference)
@@ -201,7 +201,7 @@ function test(flag: boolean) { // Region 1
 }
 ```
 
-#### Named Region
+#### Named Region `Might be removed`
 
 ```typescript
 {:R1
@@ -1113,13 +1113,13 @@ class Coroutine<
 }
 
 function main() {
-  const coro = coroutine<i32 | boolean, i32 | (), String>({x, y}: {x: i32, y: i32}) {
+  const coro = Coroutine.new<i32 | boolean, i32 | (), String>(({x, y}: {x: i32, y: i32})=> {
     println("Hello");
     const a = (yield { x + y }):i32; // a: i32 = 11;
     println("World");
     yield true;
     String.from("Done");
-  }
+  });
   defer drop(coro);
 
   const result = coro.resume({x: 1, y: 2});
@@ -1349,3 +1349,5 @@ const x: i32[#mul(2, 3)] = 6;
 - [What's the difference between an algebraic effect, a callback function, and a coroutine](https://www.reddit.com/r/ProgrammingLanguages/comments/13v35fk/whats_the_difference_between_an_algebraic_effect/)
 - [Revisiting coroutines](https://dl.acm.org/doi/abs/10.1145/1462166.1462167)
 - [One-shot Algebraic Effects as Coroutines](http://logic.cs.tsukuba.ac.jp/~sat/pdf/tfp2020.pdf)
+- [Implementing Co, a Small Language With Coroutines](https://abhinavsarkar.net/posts/implementing-co-3/)
+- [Retrofitting Effect Handlers onto OCaml](https://arxiv.org/pdf/2104.00250.pdf)
