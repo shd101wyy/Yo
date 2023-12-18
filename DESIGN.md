@@ -262,6 +262,19 @@ enum Person { // Linear type, as it contains a linear type.
 const p = Person(String.from("Alice"), 30); // p: Person. Linear type.
 ```
 
+#### Uninitialized variable
+
+```typescript
+let x?: i32; // x: i32, uninitialized
+
+x = 1; // x: i32, initialized
+
+const y?: i32; // y: i32, uninitialized
+
+y = 1; // y: i32, initialized
+y = 2; // Compiler Error: y is already initialized
+```
+
 ### Reference and Dereference
 
 A **reference** is a `Free` pointer to a `Linear` or `Free` value. References have a number of restrictions that preserve the linearity guarantees. There are two kinds of references:
@@ -338,7 +351,7 @@ function identity<T>(arg: T): T {
 
 // Dependency injection (Effectful function)
 // We use `[]` to denote the dependencies of a function.
-function main(): [Console] () {
+function main(): {Console} () {
   println("Hello, world");
 }
 
@@ -353,7 +366,7 @@ addOne(2); // 3
 function divide(x: i32, y: i32 where y != 0): i32 {
   x / y
 }
-function add<T: Type>(x: T, y: T): [Console] T
+function add<T: Type>(x: T, y: T): {Console} T
 given Integral<T> {
   println(x + y)
 }
@@ -994,7 +1007,7 @@ const emptyArray: i32[0] = [];
 ## Error handling
 
 ```typescript
-function main(): [Exception] () {
+function main(): {Exception} () {
   throw({
     message: "Something went wrong",
   });
@@ -1171,7 +1184,40 @@ You can extend an effect using the `extends` keyword.
 effect Pure extends Exception, Divergence {}
 ```
 
+### Effectful function
+
+Effects are defined order-insensitive.
+
+```typescript
+function safeDivide(x: i32, y: i32): {Exception, Console} i32 {
+  if y == 0 {
+    do println("Cannot divide by 0"); // handled by Console effect
+    do raise("Cannot divide by 0");   // handled by Exception effect
+  } else {
+    x / y
+  }
+}
+```
+
+The following function signatures are equivalent:
+
+```typescript
+function safeDivide(x: i32, y: i32): {Exception, Console} i32 {}
+function safeDivide(x: i32, y: i32): {Console, Exception} i32 {}
+```
+
+Function with no effect is written with `{}`, and `{}` can be suppressed in this case:
+
+```typescript
+function add(x: i32, y: i32): i32 {
+  // Equivalent to function add(x: i32, y: i32): {} i32
+  x + y;
+}
+```
+
 ### Effect handler
+
+Note: **Mo** only supports the **deep handlers**, that is a handler will handle all the effects in the scope, not just once.
 
 Use the `handler` keyword to define a handler:
 
@@ -1180,7 +1226,7 @@ effect Exception<T> {
   raise(msg: String): T;
 }
 
-function safeDivide(x: i32, y: i32): [Exception] i32 {
+function safeDivide(x: i32, y: i32): {Exception} i32 {
   if y == 0 {
     raise("Cannot divide by 0");
   } else {
@@ -1219,7 +1265,7 @@ effect Input {
   read(): String;
 }
 
-function hello(): [Input] () {
+function hello(): {Input} () {
   println("Hello " + do read());
 }
 ```
@@ -1354,3 +1400,4 @@ const x: i32[#mul(2, 3)] = 6;
 - [One-shot Algebraic Effects as Coroutines](http://logic.cs.tsukuba.ac.jp/~sat/pdf/tfp2020.pdf)
 - [Implementing Co, a Small Language With Coroutines](https://abhinavsarkar.net/posts/implementing-co-3/)
 - [Retrofitting Effect Handlers onto OCaml](https://arxiv.org/pdf/2104.00250.pdf)
+- [Do Be Do Be Do](https://arxiv.org/pdf/1611.09259.pdf)

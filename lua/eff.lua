@@ -209,14 +209,19 @@ local handlerFunction = handler {
         return v
     end,
     [GiveInt] = function(k, v)
-        return 10 + k(v) + 20
+	if (v > 1) then
+	  return 10 + k(v)
+	else
+	  return v
+	end
+        -- return 10 + k(v) + 20
         -- return v
     end
 }
 
 print(handlerFunction(function()
     print("Start")
-    local r = 1 + perform(GiveInt(2)) + 3
+    local r = 1 + perform(GiveInt(2)) + perform(GiveInt(1)) + 3
     print("End")
     return r
 end))
