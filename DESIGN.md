@@ -74,6 +74,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
       - [Cast as `K`](#cast-as-k)
       - [handling `abort` with `~`](#handling-abort-with-)
     - [Tail-resumptive operation](#tail-resumptive-operation)
+    - [Rename effectful operation](#rename-effectful-operation)
   - [Modules](#modules)
   - [Compile time execution `In Design`](#compile-time-execution-in-design)
   - [References](#references)
@@ -1358,6 +1359,8 @@ The effect operation is tail-resumptive if it is defined without `control` keywo
 
 Calling such an operation also means you can't cast it as `K<T>`.
 
+Effect with only tail-resumptive operations is called [Linear Effect](<[LinearEffect](https://koka-lang.github.io/koka/doc/book.html#sec-linear)>).
+
 ```typescript
 effect GiveInt {
   giveInt(x: i32): i32
@@ -1371,6 +1374,22 @@ function handleGiveInt() {
   }
   const x = giveInt(1);
   println(x); // 2
+}
+```
+
+### Rename effectful operation
+
+```typescript
+effect Exception<T> {
+  control raise(msg: String): {Exception, Abort} T;
+}
+
+function safeDivide(x: i32, y: i32): { Exception{raise as newRaise} } i32 {
+  if y == 0 {
+    newRaise("Cannot divide by 0");
+  } else {
+    x / y
+  }
 }
 ```
 
