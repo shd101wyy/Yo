@@ -143,8 +143,8 @@ A type can have the following **Kind**:
   - Linear
 - Region
 - Effect
-  - LinearEffect
-  - ControlEffect
+  - Linear
+  - Controlled
 
 ### Type
 
