@@ -1,11 +1,82 @@
 Effectful function that calls the effectful operation will be translated to a state machine.
 
-Inside such function, the `const` and `let` assignment will be disallowed.
+## GiveInt
+
+```typescript
+enum K<ResumeType: Type, AbortType: Type> {
+  Resume(value: ResumeType),
+  Abort(value: AbortType),
+  Running
+}
+
+effect GiveInt {
+  giveInt(x: i32): i32;
+}
+
+function useGiveInt(a: i32, b: i32): {GiveInt} i32 {
+  const k1: K<i32> = giveInt(a);
+  const k2: K<i32> = giveInt(b);
+  const k2Result: i32 = k2;
+  const k1Result: i32 = k1;
+  k1Result + k2Result
+}
+
+function handleGiveInt(): {} i32 {
+  with handler GiveInt {
+    giveInt(x) {
+      if x > 1 {
+        k.abort(x);
+      } else {
+        k.resume(x);
+      }
+    }
+  }
+  let x = giveInt(0);
+  let y = useGiveInt(1, 2);
+  x + y
+}
+```
+
+## State
+
+```typescript
+effect State<T: Type> {
+  get(): T;
+  set(x: T): ();
+}
+
+function sumdown(sum: i32 = 0): {State<i32>, Divergent} i32 {
+  const x = get();
+  if i <= 0 {
+    sum
+  } else {
+    set(i - 1);
+    sumdown(sum + i);
+  }
+}
+
+function state<T: Free>(init: T, action: ()=> {State<T>, Divergent} T): {Divergent} T
+{
+  let st = init;
+  with handler State<T> {
+    get(k) {
+      k.resume(st);
+    }
+    set(x, k) {
+      const o = (st = x);
+      k.resume(());
+    }
+  }
+  action()
+}
+```
+
+## Exception
 
 ```typescript
 function safeDivide(x: i32, y: i32): {Exception} i32 {
   if (y == 0) {
-    _ <- raise("divide by zero");
+    raise("divide by zero");
     y = 1; // This is allowed
     x / y
   } else {
@@ -13,6 +84,8 @@ function safeDivide(x: i32, y: i32): {Exception} i32 {
   }
 }
 ```
+
+## Crawler
 
 ```typescript
 effect FileSystem {
@@ -22,66 +95,55 @@ effect FileSystem {
   write(&<File>, String): ();
 }
 
-function writeNewContentToFile(filePath: String, content: String,
-  file?: File, fileContent?: String // ?: means the parameter is not initialized, and can be initialized once.
-): {Exception, FileSystem} () {
+function writeNewContentToFile(filePath: String, content: String): {Exception, FileSystem} () {
   defer drop(content);
 
-  file <- open(filePath, "w");
-  defer {
-    _ <- close(file);
-  }
+  const file: File = open(filePath, "w");
+  defer close(file);
 
-  fileContent <- read(file);
+  const fileContent = read(file);
   defer drop(fileContent);
 
-  _ <- write(file, content + fileContent);
+  write(file, content + fileContent);
+}
+
+function anotherProblem(): {Exception} {
+  const file: File = open("file.txt", "w");
+
+  raise("something wrong") ~ {
+    close(file);
+  }; // Might abort the program before `consume(file)`
+
+  consume(file);
 }
 ```
 
 ```typescript
-function crawlWebsite(url: String, html?: String): {Exception, Async} String {
+function crawlWebsite(url: String): {Exception, Async} String {
   defer drop(url);
-  html <- fetch(url);
+  const html = fetch(url);
   html
 }
+
+function crawlWebsites(urls: Array<String>): {Exception, Async} Array<String> {
+  defer drop(urls);
+  const results = urls.map((url)=> {
+    crawlWebsite(url)
+  });
+  results
+}
 ```
 
+## Parallel
+
 ```typescript
-effect State<T: Type> {
-  get(): T;
-  set(x: T): ();
+function crawlWebsites(urls: Array<String>): {Exception, Async} Array<String> {
+  defer drop(urls);
+  const continuations: Array<K<String>> = urls.map((url)=> {
+    crawlWebsite(url):K<String>
+  });
+  const results = continuations.map((k)=> {
+    k:String
+  });
 }
-
-function sumdown(sum: i32 = 0, i?: i32): {State<i32>, Divergent} i32 {
-  i <- get();
-  if i <= 0 {
-    sum
-  } else {
-    _ <- set(i - 1);
-    sumdown(sum + i);
-  }
-}
-
-function state<T: Type>(init: T, action: ()=> {State<T>, Divergent} T): {Divergent} T
-given Drop<T> if T is Linear
-{
-  let st = init;
-  with handler State<T> {
-    get(k) {
-      k.resume(st);
-    }
-    set(x, k) {
-      const o = (st = x);
-      if T is Linear {
-        drop(o);
-        k.resume(());
-      } else {
-        k.resume(());
-      }
-    }
-  }
-  action()  
-}
-
 ```

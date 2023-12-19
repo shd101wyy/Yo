@@ -1174,7 +1174,7 @@ Effect is defined using the `effect` keyword.
 
 ```typescript
 effect Exception<T> {
-  raise(msg: String): T;
+  raise(msg: String): {Exception, Abort} T;
 }
 ```
 
@@ -1191,8 +1191,8 @@ Effects are defined order-insensitive.
 ```typescript
 function safeDivide(x: i32, y: i32): {Exception, Console} i32 {
   if y == 0 {
-    do println("Cannot divide by 0"); // handled by Console effect
-    do raise("Cannot divide by 0");   // handled by Exception effect
+    println("Cannot divide by 0"); // handled by Console effect
+    raise("Cannot divide by 0");   // handled by Exception effect
   } else {
     x / y
   }
@@ -1256,17 +1256,18 @@ function handle() {
 }
 ```
 
-### `do` notation
+### Continuation
 
-Use `do` notation to perform an effectful operation.
+Given the following function:
 
 ```typescript
 effect Input {
-  read(): String;
+  read(): {Input, Abort} String;
 }
 
 function hello(): {Input} () {
-  println("Hello " + do read());
+  const name = read();
+  println("Hello, ", name);
 }
 ```
 
@@ -1289,10 +1290,60 @@ function main() {
 function main() {
   with handler Input {
     read() {
-      "Error"
+      abort("Error")
     }
   }
   hello(); // Error
+  println("Hello, world!"); // This line won't be executed.
+}
+```
+
+#### Cast as `K`
+
+`K` is a shortcut for `Continuation`.  
+We can cast `K<T>` to `T` to get the result of the continuation.
+But we can only cast `K<T>` to `T` once.  
+We cannot cast `T` to `K<T>`.
+
+```typescript
+effect GiveInt {
+  giveInt(x: i32): i32
+}
+
+function useGiveInt(a: i32, b: i32): {GiveInt} i32 {
+  const k1: K<i32> = giveInt(a); // non-blocking operation
+  const k2: K<i32> = giveInt(b); // non-blocking operation
+  const k2Result: i32 = k2;      // blocking operation
+  const k1Result: i32 = k1;      // blocking operation
+  k1Result + k2Result
+}
+```
+
+#### handling `abort` with `~`
+
+```typescript
+function example(): { Exception } {
+  const file: File = open("file.txt", "w");
+
+  raise("Some exception");
+
+  consume(file); // This line won't be executed because of the `raise` above.
+  // But the `file` is not consumed yet.
+}
+```
+
+What we can do is to use the `~` operator to handle the `abort`:
+
+```typescript
+function example(): { Exception } {
+  const file: File = open("file.txt", "w");
+
+  raise("Some exception") ~ {
+    println("Exception caught");
+    consume(file);
+  }
+
+  consume(file);
 }
 ```
 
