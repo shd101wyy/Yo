@@ -30,6 +30,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
       - [Named Region `Might be removed`](#named-region-might-be-removed)
     - [Variable Declaration](#variable-declaration)
     - [Type inference](#type-inference)
+      - [Uninitialized variable](#uninitialized-variable)
     - [Reference and Dereference](#reference-and-dereference)
   - [Function Declaration](#function-declaration)
     - [Uniform Function Call Syntax](#uniform-function-call-syntax)
@@ -65,10 +66,14 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Type casting](#type-casting)
   - [Stackless Coroutine `Might be removed`](#stackless-coroutine-might-be-removed)
   - [Algebraic effects](#algebraic-effects)
+    - [Effectful function](#effectful-function)
     - [Effect handler](#effect-handler)
-    - [`do` notation](#do-notation)
+    - [Continuation](#continuation)
       - [resume](#resume)
       - [abort](#abort)
+      - [Cast as `K`](#cast-as-k)
+      - [handling `abort` with `~`](#handling-abort-with-)
+    - [Tail-resumptive operation](#tail-resumptive-operation)
   - [Modules](#modules)
   - [Compile time execution `In Design`](#compile-time-execution-in-design)
   - [References](#references)
@@ -1174,7 +1179,7 @@ Effect is defined using the `effect` keyword.
 
 ```typescript
 effect Exception<T> {
-  raise(msg: String): {Exception, Abort} T;
+  control raise(msg: String): {Exception, Abort} T;
 }
 ```
 
@@ -1223,7 +1228,7 @@ Use the `handler` keyword to define a handler:
 
 ```typescript
 effect Exception<T> {
-  raise(msg: String): T;
+  control raise(msg: String): T;
 }
 
 function safeDivide(x: i32, y: i32): {Exception} i32 {
@@ -1236,7 +1241,7 @@ function safeDivide(x: i32, y: i32): {Exception} i32 {
 
 function handle() {
   with handler Exception {
-    raise(msg) {
+    control raise(msg) {
       resume(42)
     }
   }
@@ -1262,7 +1267,7 @@ Given the following function:
 
 ```typescript
 effect Input {
-  read(): {Input, Abort} String;
+  control read(): {Input, Abort} String;
 }
 
 function hello(): {Input} () {
@@ -1344,6 +1349,28 @@ function example(): { Exception } {
   }
 
   consume(file);
+}
+```
+
+### Tail-resumptive operation
+
+The effect operation is tail-resumptive if it is defined without `control` keyword, then it means its last statement is a `resume` operation.
+
+Calling such an operation also means you can't cast it as `K<T>`.
+
+```typescript
+effect GiveInt {
+  giveInt(x: i32): i32
+}
+
+function handleGiveInt() {
+  with handler GiveInt {
+    giveInt(x) {
+      x + 1
+    }
+  }
+  const x = giveInt(1);
+  println(x); // 2
 }
 ```
 
