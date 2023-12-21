@@ -3,27 +3,15 @@
 using namespace std;
 
 int test(int x) {
-    return x + 2;
+    x = x + 2;
+    return x;
 }
 
 int main() {
     int x = 1;
     int &x1 = x;
-    int x2 = x1;
-
-    cout << test(x1) << "\n";
-
-    cout << "before\n";
-    cout << x << "\n";
-    cout << x1 << "\n";
-    cout << x2 << "\n";
-
-    x2 = 2;
-
-    cout << "after\n";
-    cout << x << "\n";
-    cout << x1 << "\n";
-    cout << x2 << "\n";
-
+    auto z = x1;
+    int y = test(x1);
+    cout << x << endl;
     return 0;
 }

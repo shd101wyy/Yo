@@ -2,28 +2,16 @@
 
 use std::{cell::Ref, ops::Deref, rc::Rc};
 
-fn consume(s: String) {
-    println!("I consumed a String: {}", s);
-}
-
-fn random_bool() -> bool {
-    // Create a random number
-    return true
+enum MySome<T> {
+    Some(T),
+    None,
 }
 
 fn main() {
-    let my_string = String::from("Hello, world!");
-    if random_bool() {
-        let add = |x: i32, y: i32| {
-            let a = my_string;
-            let another_closure = || {
-                let b = my_string;
-                x + y
-            };
-            another_closure()
-        };
-        println!("add(1, 2) = {}", add(1, 2));
-    } else {
-        consume(my_string);
+    let mut x = MySome::Some(12);
+    let y = &mut x;
+    match y {
+        MySome::Some(i) => *i = 13,
+        MySome::None => (),
     }
 }

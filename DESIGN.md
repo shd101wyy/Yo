@@ -19,6 +19,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 <!-- code_chunk_output -->
 
 - [Language Design](#language-design)
+  - [Philosophy](#philosophy)
   - [Inspiration](#inspiration)
   - [Hello World](#hello-world)
   - [CLI Usage](#cli-usage)
@@ -41,7 +42,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Mutability](#mutability)
   - [Borrow checker](#borrow-checker)
   - [Control Flow](#control-flow)
-    - [Brace elision](#brace-elision)
+    - [Brace elision `In Design`](#brace-elision-in-design)
       - [repeat](#repeat)
       - [while](#while)
       - [for](#for)
@@ -71,15 +72,20 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Continuation](#continuation)
       - [resume](#resume)
       - [abort](#abort)
-      - [Cast as `K`](#cast-as-k)
       - [handling `abort` with `~`](#handling-abort-with-)
     - [Tail-resumptive operation](#tail-resumptive-operation)
     - [Rename effectful operation](#rename-effectful-operation)
+    - [Effect polymorphism](#effect-polymorphism)
+    - [Async](#async)
   - [Modules](#modules)
   - [Compile time execution `In Design`](#compile-time-execution-in-design)
   - [References](#references)
 
 <!-- /code_chunk_output -->
+
+## Philosophy
+
+Explicit is better than implicit.
 
 ## Inspiration
 
@@ -243,16 +249,15 @@ const myStrSlice: char[] = "Hello, world"; // Stored on stack. Free type
 const myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
 const myString2 = myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
 const myString3 = myString; // Error: myString is already consumed.
-const myString4: Reference<String> = myString2; // myString4: Reference<String, R> for some region R. Free type
+const myString4: Reference<String> = &myString2; // myString4: Reference<String, R> for some region R. Free type
 const myString5 = myString4; // myString5: Reference<String, R> for some region R. Free type
+const myString6 = *myString4; // Error: Cannot dereference a linear type.
 
 const myInt = 1; // Stored on stack. Free type
 const myInt2 = myInt; // myInt2: i32, Free type
-const myInt3: Reference<i32> = myInt; // myInt3: Reference<i32, R> for some region R. Free type
+const myInt3: Reference<i32> = &myInt; // myInt3: Reference<i32, R> for some region R. Free type
 const myInt4 = myInt3; // myInt4: Reference<i32, R> for some region R. Free type
-const myInt5: i32 = myInt3; // myInt5: i32, Free type. We can automatically dereference the reference for Free type.
-                                        // We can also cast type using `:`.
-const myInt6 = (myInt: Reference<i32>); // myInt6: Reference<i32, R> for some region R. Free type.
+const myInt5: i32 = *myInt3; // myInt5: i32. Use `*` to dereference a reference if free type. Free type
 
 const myIntSlice: int[] = [1, 2, 3]; // Stored on stack, with size 3. Free type
 const myIntSlice: int[100] = [1, 2, 3]; // Stored on stack, with size 100. Free type
@@ -295,7 +300,7 @@ type Reference<T: Type, R: Region>;
 // Or written as &<T, R> for short
 
 type MutableReference<T: Type, R: Region>;
-// Or written as &mut<T, R> for short
+// Or written as &!<T, R> for short
 ```
 
 We can only dereference the free type.
@@ -310,22 +315,22 @@ const p = Person.Person(name, 30); // p: Person. Linear type.
                        // NOTE: If `p` has more than one linear field, then when you destructure, you have to consume all the linear fields, otherwise it will be a compiler error.
 }
 {
-  const {name} = p; // name: String, Linear type. The `p` variable is consumed
-                    // when you destructure it.
+  const { name } = p; // name: String, Linear type. The `p` variable is consumed
+                      // when you destructure it.
 }
 
 {
-  const name: &<String> = p.name; // name: Reference<String, R> for some region R. Free type.
-
-  const age = p.age; // Reference<i32, R> for some region R. Free type.
+  const name: &<String> = &p.name; // name: Reference<String, R> for some region R. Free type.
+  const age = &p.age; // age: Reference<i32, R> for some region R. Free type.
 }
 {
-  const pRef = p; // pRef: Reference<Person, R> for some region R. Free type.
+  const pRef = &p; // pRef: Reference<Person, R> for some region R. Free type.
   const name = pRef.name; // name: Reference<String, R> for some region R. Free type.
-  const name2: String = pRef.name; // Error: Cannot dereference a linear type.
+  const name2 = *(pRef.name); // Error: Cannot dereference a linear type.
   // const unwrapName = *name; // Error: Cannot dereference a linear type.
 
   const age = pRef.age; // Reference<i32, R> for some region R. Free type.
+  const age2 = *(pRef.age); // i32. Free type.
 }
 ```
 
@@ -333,7 +338,8 @@ const p = Person.Person(name, 30); // p: Person. Linear type.
 let x = [1, 2, 3, 4, 5]; // x: i32[5]. Free type
 let y = x; // y: i32[5]. Free type. x is copied to y, not moved.
 
-let first = x[0]; // first: &mut<i32, R> for some region R. Free type
+let ref = &!x; // ref: &!<i32[5], R> for some region R. Free type
+let first = ref[0]; // first: &!<i32, R> for some region R. Free type
 first = 10;
 
 // x: [10, 2, 3, 4, 5]
@@ -396,6 +402,11 @@ function addOne(x: i32): i32 {
 (12).addOne(); // 13
 // is equalvalent to
 addOne(12); // 13
+
+const s = String.from("Hello, world");
+&s.length(); // 12
+// is equalvalent to
+length(&s); // 12
 ```
 
 ### Function Overloading
@@ -531,7 +542,11 @@ function deferExample() {
 The builtin `=` function is used to update a `MutableReference`, with the following signature:
 
 ```typescript
-function (=)<T>(ref: MutableReference<T, R>, value: T): T;
+// `=` is the only function that accepts `implicit` as the first argument.
+function (=)<T: Type, R: Region>(ref: implicit MutableReference<T, R>, value: T): T;
+
+function set!<T: Type, R: Region>(ref: MutableReference<T, R>, value: T): T;
+
 x = x + 1
 ```
 
@@ -549,9 +564,10 @@ const oldName = (p.name = String.from("Bob"));
 // oldName == String.from("Alice")
 
 let myInt = 1;
-let myInt2: Reference<i32> = myInt;
-const myInt3: i32 = myInt2;
+let myInt2 = myInt;
+const myInt3: i32 = *myInt2;
 myInt = 2;
+set!(&!myInt2, 3);
 // myInt == 2
 // myInt2 == 2
 // myInt3 == 1
@@ -564,7 +580,7 @@ myInt = 2;
 First, any borrow must last for a scope no greater than that of the owner. Second, you may have one or the other of these two kinds of borrows, but not both at the same time:
 
 - One or more references (`&<T>`) to a resource.
-- Exactly one mutable reference (`&mut<T>`).
+- Exactly one mutable reference (`&!<T>`).
 
 Example:
 
@@ -573,8 +589,8 @@ Example:
 ```typescript
 function main() {
   let x = 1;
-  let y: MutableReference<i32> = x;
-  let z: MutableReference<i32> = x; // Compiler Error: Cannot borrow `x` as mutable more than once at a time.
+  let y: MutableReference<i32> = &!x;
+  let z: MutableReference<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable more than once at a time.
 }
 ```
 
@@ -584,16 +600,16 @@ function main() {
 ```typescript
 function main() {
   let x = 1;
-  let y: MutableReference<i32> = x;
-  let z: Reference<i32> = x; // Compiler Error: Cannot borrow `x` as immutable because it is also borrowed as mutable.
+  let y: MutableReference<i32> = &!x;
+  let z: Reference<i32> = &x; // Compiler Error: Cannot borrow `x` as immutable because it is also borrowed as mutable.
 }
 ```
 
 ```typescript
 function main() {
   let x = 1;
-  let y: Reference<i32> = x;
-  let z: MutableReference<i32> = x; // Compiler Error: Cannot borrow `x` as mutable because it is also borrowed as immutable.
+  let y: Reference<i32> = &x;
+  let z: MutableReference<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable because it is also borrowed as immutable.
 }
 ```
 
@@ -602,7 +618,7 @@ function main() {
 ```typescript
 function main() {
   let x = 1;
-  let y: MutableReference<i32> = x;
+  let y: MutableReference<i32> = &!x;
   let _sum = x + 1; // Compiler Error: A value was used after it was mutably borrowed.
 }
 ```
@@ -612,7 +628,7 @@ function main() {
 ```typescript
 function main() {
   const x = String.from("Hello");
-  const y: Reference<String> = x;
+  const y: Reference<String> = &x;
   consume(x); // Compiler Error: A value was moved out while it was still borrowed.
 }
 ```
@@ -620,7 +636,7 @@ function main() {
 ```typescript
 function main() {
   const x = String.from("Hello");
-  const y: Reference<String> = x;
+  const y: Reference<String> = &x;
 
   let z = move ()=> {
     println(x); // Compiler Error: Cannot move `x` into closure because it is borrowed.
@@ -633,7 +649,7 @@ function main() {
 ```typescript
 function main() {
   let x = 1;
-  const y: Reference<i32> = x;
+  const y: Reference<i32> = &x;
   x = 2; // Compiler Error: An attempt was made to assign to a borrowed value
 }
 ```
@@ -653,7 +669,7 @@ function main() {
 }
 ```
 
-### Brace elision
+### Brace elision `In Design`
 
 #### repeat
 
@@ -682,7 +698,7 @@ function factorial(n: i32): i32 {
 function factorial(n: i32): i32 {
   let m = n;
   let result = 1;
-  while {m > 1} {
+  while { m > 1 } {
     result = result * m; // `=` is used to update a mutable reference
     m = m - 1;
   }
@@ -727,7 +743,7 @@ function print10() {
 ```typescript
 // Record
 @derive([Show])
-type User = {
+type User: Linear = {
   active: boolean;
   username: String;
   email: String;
@@ -1114,61 +1130,6 @@ const x: i32 = 1;
 const y: f32 = (x:f32);
 ```
 
-## Stackless Coroutine `Might be removed`
-
-> [Rust Coroutine](https://doc.rust-lang.org/nightly/unstable-book/language-features/coroutines.html)
-
-```typescript
-enum CoroutineState<YieldType: Type, ReturnType: Type>: Linear {
-  Yielded(value: YieldType),
-  Complete(value: ReturnType),
-}
-
-class Coroutine<
-  Coro: Linear, // Coro is the generated state machine.
-  YieldType: Type,
-  ResumeType: Type,
-  ReturnType: Type
-> {
-  resume(coroutine: Coro, arg: ResumeType): CoroutineState<YieldType, ReturnType>;
-}
-
-function main() {
-  const coro = Coroutine.new<i32 | boolean, i32 | (), String>(({x, y}: {x: i32, y: i32})=> {
-    println("Hello");
-    const a = (yield { x + y }):i32; // a: i32 = 11;
-    println("World");
-    yield true;
-    String.from("Done");
-  });
-  defer drop(coro);
-
-  const result = coro.resume({x: 1, y: 2});
-  // Hello
-  if result is Yielded<i32 | boolean>(value: i32) { // value: i32 = 3
-    println("Yielded: ", value); // Yielded 3
-  } else { //
-    @panic("Unexpected return from resume")
-  }
-
-   const result2 = coro.resume(5, 6);
-  // World
-  if result2 is Yielded<i32 | boolean>(value: boolean) { // value: boolean = true
-    println("Yielded: ", value); // Yielded true
-  } else {
-    @panic("Unexpected return from resume")
-  }
-
-  const result3 = coro.resume(());
-  // Done
-  if result3 is Complete<String>(value: String) { // value: String = "Done"
-    println("Complete: ", value); // Complete Done
-  } else {
-    @panic("Unexpected yield from resume")
-  }
-}
-```
-
 ## Algebraic effects
 
 Note: **Mo** only supports **one-shot delimited continuations**.  
@@ -1306,27 +1267,6 @@ function main() {
 }
 ```
 
-#### Cast as `K`
-
-`K` is a shortcut for `Continuation`.  
-We can cast `K<T>` to `T` to get the result of the continuation.
-But we can only cast `K<T>` to `T` once.  
-We cannot cast `T` to `K<T>`.
-
-```typescript
-effect GiveInt {
-  giveInt(x: i32): i32
-}
-
-function useGiveInt(a: i32, b: i32): {GiveInt} i32 {
-  const k1: K<i32> = giveInt(a); // non-blocking operation
-  const k2: K<i32> = giveInt(b); // non-blocking operation
-  const k2Result: i32 = k2;      // blocking operation
-  const k1Result: i32 = k1;      // blocking operation
-  k1Result + k2Result
-}
-```
-
 #### handling `abort` with `~`
 
 ```typescript
@@ -1391,6 +1331,27 @@ function safeDivide(x: i32, y: i32): { Exception{raise as newRaise} } i32 {
     newRaise("Cannot divide by 0");
   } else {
     x / y
+  }
+}
+```
+
+### Effect polymorphism
+
+```typescript
+{*} // zero or more effects
+{+} // one or more effects
+{?} // zero or one effect
+```
+
+```typescript
+function map<A: Type, B: Type>(xs: &<List<A>>, func: (x: &<A>) => {*} B): {*} List<B> {
+  if xs is Nil {
+    Nil
+  } else if xs is Cons {
+    const {head, tail} = xs;
+    const newHead = func(head);
+    const newTail = map(tail, func);
+    Cons(newHead, Box.new(newTail))
   }
 }
 ```
