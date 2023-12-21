@@ -3,19 +3,19 @@
 use std::{cell::Ref, ops::Deref, rc::Rc};
 
 #[derive(Debug)]
-enum MySome<T> {
-    Some(T),
-    None,
+struct A {
+    x: i32,
+    y: i32,
 }
 
-fn test(mut x: i32) {
-    x = 10;
-    println!("x = {}", x);
+#[derive(Debug)]
+struct B<'a> {
+    a: &'a mut A,
+    b: i32,
 }
 
 fn main() {
-    let x = 1;
-    let y = &mut x;
-    test(x);
-    println!("x = {}", x);
+    let mut xs: [i32; 3] = [1, 2, 3];
+    let mut firstRef = &mut xs[0];
+    println!("firstRef: {}", firstRef);
 }

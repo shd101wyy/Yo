@@ -65,7 +65,6 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [with effect handler](#with-effect-handler)
   - [Pointer](#pointer)
   - [Type casting](#type-casting)
-  - [Stackless Coroutine `Might be removed`](#stackless-coroutine-might-be-removed)
   - [Algebraic effects](#algebraic-effects)
     - [Effectful function](#effectful-function)
     - [Effect handler](#effect-handler)
@@ -76,7 +75,6 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Tail-resumptive operation](#tail-resumptive-operation)
     - [Rename effectful operation](#rename-effectful-operation)
     - [Effect polymorphism](#effect-polymorphism)
-    - [Async](#async)
   - [Modules](#modules)
   - [Compile time execution `In Design`](#compile-time-execution-in-design)
   - [References](#references)
@@ -308,6 +306,20 @@ type Reference<T: Type, R: Region>;
 
 type MutableReference<T: Type, R: Region>;
 // Or written as &!<T, R> for short
+```
+
+We can use `&` to create a reference to a value, or `&!` to create a mutable reference to a value.
+
+```typescript
+&a.b.c.d
+// will check
+(&a)
+// then
+(&a.b)
+// then
+(&a.b.c)
+// then
+(&a.b.c.d)
 ```
 
 We can only dereference the free type.
@@ -549,12 +561,17 @@ function deferExample() {
 The builtin `=` function is used to update a `MutableReference`, with the following signature:
 
 ```typescript
-// `=` is the only function that accepts `implicit` as the first argument.
-function (=)<T: Type, R: Region>(ref: implicit MutableReference<T, R>, value: T): T;
-
 function set!<T: Type, R: Region>(ref: MutableReference<T, R>, value: T): T;
 
+// `=` is a syntactic sugar for `set!`
+
 x = x + 1
+// is equalvalent to
+set!(&!x, x + 1)
+// so we append `&!` to the variable on the left hand side of `=`
+
+// &!* will cancel out, for example:
+// &!*x is equalvalent to x
 ```
 
 Below is an example of updating a field of a linear type:
@@ -571,13 +588,12 @@ let oldName = (p.name = String.from("Bob"));
 // oldName == String.from("Alice")
 
 let mut myInt = 1;
-let mut myInt2 = myInt;
+let myInt2 = &myInt;
 let myInt3: i32 = *myInt2;
 myInt = 2;
-set!(&!myInt2, 3);
-// myInt == 2
-// myInt2 == 2
-// myInt3 == 1
+//  myInt == 2
+// *myInt2 == 2
+//  myInt3 == 1
 ```
 
 ## Borrow checker
@@ -598,6 +614,26 @@ function main() {
   let mut x = 1;
   let mut y: MutableReference<i32> = &!x;
   let mut z: MutableReference<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable more than once at a time.
+}
+```
+
+```typescript
+type Coord {
+  x: i32,
+  y: i32
+}
+function main() {
+  let mut p = Coord { x: 1, y: 2 };
+  let pRef = &!p;
+  let yRef = &!p.y; // Compiler Error: Cannot borrow `p` as mutable more than once at a time.
+}
+```
+
+```typescript
+function main() {
+  let mut xs: i32[] = [1, 2, 3];
+  let xsRef = &!xs;
+  let firstRef = &!xs[0]; // Compiler Error: Cannot borrow `xs` as mutable more than once at a time.
 }
 ```
 
