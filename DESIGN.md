@@ -192,7 +192,7 @@ Block `{...}` and function call `func(...)` create new regions.
 
 ```typescript
 function factorial(x: i32): i32 { // Region 1
-  let result = 1;
+  let mut result = 1;
 
   while x > 1 { // Region 2
     result = result * x;
@@ -219,11 +219,11 @@ function test(flag: boolean) { // Region 1
 
 ```typescript
 {:R1
-  let x = 1;
+  let mut x = 1;
 }
 {:R2
-  let x = 2;
-  let y = 2;
+  let mut x = 2;
+  let mut y = 2;
 }
 {:R1 // Continue R1
   console.log(x); // 1
@@ -234,37 +234,44 @@ function test(flag: boolean) { // Region 1
 
 ### Variable Declaration
 
+Like `rust`, **Mo** has two kinds of variables:
+
 ```typescript
-const y = 5; // y: i32, immutable
-let x = 5; // x: i32, mutable
+let y = 5; // y: i32, immutable
+let mut x = 5; // x: i32, mutable
+
+function example(mut x: i32, y: i32) {
+  x = 1; // x: i32, mutable
+  y = 2; // Error: y is immutable
+}
 ```
 
 ### Type inference
 
 ```typescript
-const mySymbol = @"Hi"; // Symbol. Free type
+let mySymbol = @"Hi"; // Symbol. Free type
 
-const myStrSlice: char[] = "Hello, world"; // Stored on stack. Free type
+let myStrSlice: char[] = "Hello, world"; // Stored on stack. Free type
 
-const myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
-const myString2 = myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
-const myString3 = myString; // Error: myString is already consumed.
-const myString4: Reference<String> = &myString2; // myString4: Reference<String, R> for some region R. Free type
-const myString5 = myString4; // myString5: Reference<String, R> for some region R. Free type
-const myString6 = *myString4; // Error: Cannot dereference a linear type.
+let myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
+let myString2 = myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
+let myString3 = myString; // Error: myString is already consumed.
+let myString4: Reference<String> = &myString2; // myString4: Reference<String, R> for some region R. Free type
+let myString5 = myString4; // myString5: Reference<String, R> for some region R. Free type
+let myString6 = *myString4; // Error: Cannot dereference a linear type.
 
-const myInt = 1; // Stored on stack. Free type
-const myInt2 = myInt; // myInt2: i32, Free type
-const myInt3: Reference<i32> = &myInt; // myInt3: Reference<i32, R> for some region R. Free type
-const myInt4 = myInt3; // myInt4: Reference<i32, R> for some region R. Free type
-const myInt5: i32 = *myInt3; // myInt5: i32. Use `*` to dereference a reference if free type. Free type
+let myInt = 1; // Stored on stack. Free type
+let myInt2 = myInt; // myInt2: i32, Free type
+let myInt3: Reference<i32> = &myInt; // myInt3: Reference<i32, R> for some region R. Free type
+let myInt4 = myInt3; // myInt4: Reference<i32, R> for some region R. Free type
+let myInt5: i32 = *myInt3; // myInt5: i32. Use `*` to dereference a reference if free type. Free type
 
-const myIntSlice: int[] = [1, 2, 3]; // Stored on stack, with size 3. Free type
-const myIntSlice: int[100] = [1, 2, 3]; // Stored on stack, with size 100. Free type
-const myArray: Array<int> = Array.from([1, 2, 3]); // Stored on heap. Linear type.
+let myIntSlice: int[] = [1, 2, 3]; // Stored on stack, with size 3. Free type
+let myIntSlice: int[100] = [1, 2, 3]; // Stored on stack, with size 100. Free type
+let myArray: Array<int> = Array.from([1, 2, 3]); // Stored on heap. Linear type.
 
-const mySet: Set<int> = Set.from([1, 2, 3]); // Stored on heap. Linear type.
-const myMap: Map<string, int> = Map.from([
+let mySet: Set<int> = Set.from([1, 2, 3]); // Stored on heap. Linear type.
+let myMap: Map<string, int> = Map.from([
   ["one", 1],
   ["two", 2],
 ]); // Stored on heap. Linear type.
@@ -272,17 +279,17 @@ const myMap: Map<string, int> = Map.from([
 enum Person { // Linear type, as it contains a linear type.
   Person(name: String, age: i32)
 }
-const p = Person(String.from("Alice"), 30); // p: Person. Linear type.
+let p = Person(String.from("Alice"), 30); // p: Person. Linear type.
 ```
 
 #### Uninitialized variable
 
 ```typescript
-let x?: i32; // x: i32, uninitialized
+let mut x?: i32; // x: i32, uninitialized
 
 x = 1; // x: i32, initialized
 
-const y?: i32; // y: i32, uninitialized
+let y?: i32; // y: i32, uninitialized
 
 y = 1; // y: i32, initialized
 y = 2; // Compiler Error: y is already initialized
@@ -306,40 +313,40 @@ type MutableReference<T: Type, R: Region>;
 We can only dereference the free type.
 
 ```typescript
-const name = String.from("Alice");
-const p = Person.Person(name, 30); // p: Person. Linear type.
+let name = String.from("Alice");
+let p = Person.Person(name, 30); // p: Person. Linear type.
 
 {
-  const name = p.name; // name: String, Linear type. The `p` variable is consumed
+  let name = p.name; // name: String, Linear type. The `p` variable is consumed
                        // when you extract a linear field from it.
                        // NOTE: If `p` has more than one linear field, then when you destructure, you have to consume all the linear fields, otherwise it will be a compiler error.
 }
 {
-  const { name } = p; // name: String, Linear type. The `p` variable is consumed
+  let { name } = p; // name: String, Linear type. The `p` variable is consumed
                       // when you destructure it.
 }
 
 {
-  const name: &<String> = &p.name; // name: Reference<String, R> for some region R. Free type.
-  const age = &p.age; // age: Reference<i32, R> for some region R. Free type.
+  let name: &<String> = &p.name; // name: Reference<String, R> for some region R. Free type.
+  let age = &p.age; // age: Reference<i32, R> for some region R. Free type.
 }
 {
-  const pRef = &p; // pRef: Reference<Person, R> for some region R. Free type.
-  const name = pRef.name; // name: Reference<String, R> for some region R. Free type.
-  const name2 = *(pRef.name); // Error: Cannot dereference a linear type.
-  // const unwrapName = *name; // Error: Cannot dereference a linear type.
+  let pRef = &p; // pRef: Reference<Person, R> for some region R. Free type.
+  let name = pRef.name; // name: Reference<String, R> for some region R. Free type.
+  let name2 = *(pRef.name); // Error: Cannot dereference a linear type.
+  // let unwrapName = *name; // Error: Cannot dereference a linear type.
 
-  const age = pRef.age; // Reference<i32, R> for some region R. Free type.
-  const age2 = *(pRef.age); // i32. Free type.
+  let age = pRef.age; // Reference<i32, R> for some region R. Free type.
+  let age2 = *(pRef.age); // i32. Free type.
 }
 ```
 
 ```typescript
-let x = [1, 2, 3, 4, 5]; // x: i32[5]. Free type
-let y = x; // y: i32[5]. Free type. x is copied to y, not moved.
+let mut x = [1, 2, 3, 4, 5]; // x: i32[5]. Free type
+let mut y = x; // y: i32[5]. Free type. x is copied to y, not moved.
 
-let ref = &!x; // ref: &!<i32[5], R> for some region R. Free type
-let first = ref[0]; // first: &!<i32, R> for some region R. Free type
+let mut ref = &!x; // ref: &!<i32[5], R> for some region R. Free type
+let mut first = ref[0]; // first: &!<i32, R> for some region R. Free type
 first = 10;
 
 // x: [10, 2, 3, 4, 5]
@@ -373,7 +380,7 @@ function main(): {Console} () {
 function add(x: i32)(y: i32): i32 {
   x + y
 }
-const addOne = add(1);
+let addOne = add(1);
 addOne(2); // 3
 
 // Value constraint, type constraint
@@ -386,7 +393,7 @@ given Integral<T> {
 }
 
 // Closure
-const add = (x: i32, y: i32): i32 => {
+let add = (x: i32, y: i32): i32 => {
   x + y
 };
 
@@ -403,7 +410,7 @@ function addOne(x: i32): i32 {
 // is equalvalent to
 addOne(12); // 13
 
-const s = String.from("Hello, world");
+let s = String.from("Hello, world");
 &s.length(); // 12
 // is equalvalent to
 length(&s); // 12
@@ -453,8 +460,8 @@ where y != 0
 }
 
 function main() {
-  const x = readInt();
-  const y = readInt();
+  let x = readInt();
+  let y = readInt();
   if y != 0 {
     divide(x, y);
   } else {
@@ -474,9 +481,9 @@ where size < 10 && size > 0 {
 }
 
 function main() {
-  const size = readInt()
+  let size = readInt()
   if size < 10 && size > 0 {
-    const arr = makeArray(size) // The function is guaranteed to return an array of size between 1 and 9
+    let arr = makeArray(size) // The function is guaranteed to return an array of size between 1 and 9
   } else {
     makeArray(size) // Compiler Error: size is not between 1 and 9
   }
@@ -490,9 +497,9 @@ where min < max && x >= min
   true
 }
 function main() {
-  const x = readInt();
-  const min = readInt();
-  const max = readInt();
+  let x = readInt();
+  let min = readInt();
+  let max = readInt();
   if min < max && x >= min {
     inBetween(x, min, max);
   } else {
@@ -507,13 +514,13 @@ function main() {
 
 ```typescript
 function test() {
-  const x = String.from("World!");
+  let x = String.from("World!");
   defer {
     println(x);
     drop(x);
   }
 
-  const y = String.from("Hello, ");
+  let y = String.from("Hello, ");
   defer {
     println(y);
     drop(y);
@@ -525,7 +532,7 @@ test(); // Hello, World!
 
 ```typescript
 function deferExample() {
-  let a = 1;
+  let mut a = 1;
 
   {
     defer a = 2;
@@ -556,16 +563,16 @@ Below is an example of updating a field of a linear type:
 enum Person { // Linear type.
   Person(name: String, age: i32)
 }
-let p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
+let mut p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
 
 // Update the field
-const oldName = (p.name = String.from("Bob"));
+let oldName = (p.name = String.from("Bob"));
 // oldName is the `value` moved out.
 // oldName == String.from("Alice")
 
-let myInt = 1;
-let myInt2 = myInt;
-const myInt3: i32 = *myInt2;
+let mut myInt = 1;
+let mut myInt2 = myInt;
+let myInt3: i32 = *myInt2;
 myInt = 2;
 set!(&!myInt2, 3);
 // myInt == 2
@@ -588,9 +595,9 @@ Example:
 
 ```typescript
 function main() {
-  let x = 1;
-  let y: MutableReference<i32> = &!x;
-  let z: MutableReference<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable more than once at a time.
+  let mut x = 1;
+  let mut y: MutableReference<i32> = &!x;
+  let mut z: MutableReference<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable more than once at a time.
 }
 ```
 
@@ -599,17 +606,17 @@ function main() {
 
 ```typescript
 function main() {
-  let x = 1;
-  let y: MutableReference<i32> = &!x;
-  let z: Reference<i32> = &x; // Compiler Error: Cannot borrow `x` as immutable because it is also borrowed as mutable.
+  let mut x = 1;
+  let mut y: MutableReference<i32> = &!x;
+  let mut z: Reference<i32> = &x; // Compiler Error: Cannot borrow `x` as immutable because it is also borrowed as mutable.
 }
 ```
 
 ```typescript
 function main() {
-  let x = 1;
-  let y: Reference<i32> = &x;
-  let z: MutableReference<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable because it is also borrowed as immutable.
+  let mut x = 1;
+  let mut y: Reference<i32> = &x;
+  let mut z: MutableReference<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable because it is also borrowed as immutable.
 }
 ```
 
@@ -617,9 +624,9 @@ function main() {
 
 ```typescript
 function main() {
-  let x = 1;
-  let y: MutableReference<i32> = &!x;
-  let _sum = x + 1; // Compiler Error: A value was used after it was mutably borrowed.
+  let mut x = 1;
+  let mut y: MutableReference<i32> = &!x;
+  let mut _sum = x + 1; // Compiler Error: A value was used after it was mutably borrowed.
 }
 ```
 
@@ -627,18 +634,18 @@ function main() {
 
 ```typescript
 function main() {
-  const x = String.from("Hello");
-  const y: Reference<String> = &x;
+  let x = String.from("Hello");
+  let y: Reference<String> = &x;
   consume(x); // Compiler Error: A value was moved out while it was still borrowed.
 }
 ```
 
 ```typescript
 function main() {
-  const x = String.from("Hello");
-  const y: Reference<String> = &x;
+  let x = String.from("Hello");
+  let y: Reference<String> = &x;
 
-  let z = move ()=> {
+  let mut z = move ()=> {
     println(x); // Compiler Error: Cannot move `x` into closure because it is borrowed.
   }
 }
@@ -648,8 +655,8 @@ function main() {
 
 ```typescript
 function main() {
-  let x = 1;
-  const y: Reference<i32> = &x;
+  let mut x = 1;
+  let y: Reference<i32> = &x;
   x = 2; // Compiler Error: An attempt was made to assign to a borrowed value
 }
 ```
@@ -659,7 +666,7 @@ function main() {
 ```typescript
 function main() {
   // If no return type, it is () unit
-  const number = 3;
+  let number = 3;
 
   if number < 5 {
     println("condition was true");
@@ -675,7 +682,7 @@ function main() {
 
 ```typescript
 function factorial(n: i32): i32 {
-  let result = 1;
+  let mut result = 1;
   repeat (n) (i)=> {
     result = result * i;
   }
@@ -684,7 +691,7 @@ function factorial(n: i32): i32 {
 
 // is equalvalent to
 function factorial(n: i32): i32 {
-  let result = 1;
+  let mut result = 1;
   repeat(n, (i)=> {
     result = result * i
   })
@@ -696,8 +703,8 @@ function factorial(n: i32): i32 {
 
 ```typescript
 function factorial(n: i32): i32 {
-  let m = n;
-  let result = 1;
+  let mut m = n;
+  let mut result = 1;
   while { m > 1 } {
     result = result * m; // `=` is used to update a mutable reference
     m = m - 1;
@@ -708,8 +715,8 @@ function factorial(n: i32): i32 {
 // is equavalent to
 
 function factorial(n: i32): i32 {
-  let m = n;
-  let result = 1;
+  let mut m = n;
+  let mut result = 1;
   while(()=> {
     m > 1
   }, ()=> {
@@ -752,7 +759,7 @@ type User: Linear = {
 
 type string = char[];
 
-const user: User = {
+let user: User = {
   active: true,
   username: String.from("johndoe"),
   email: String.from("test@gmail.com"),
@@ -781,18 +788,18 @@ type Language = { language: string; year: i32 };
 Destructure the record:
 
 ```typescript
-const user: User = {
+let user: User = {
   name: String.from("johndoe"),
   age: 12
 }
 
-const {name, age} = user;
+let {name, age} = user;
 // name: String, linear type
 // age: i32. Free type
 
 // Rename the field with `as`
 // Specify the type with `:`
-const {name as username: &<String>, age: i32} = user;
+let {name as username: &<String>, age: i32} = user;
 println(username); // johndoe
 // username: Reference<String, R> for some region R. Free type
 // age: i32. Free type.
@@ -814,12 +821,12 @@ enum Option<T> {
   None
 }
 
-const none: Option<i32> = None;
-const some: Option<i32> = Some(42);
+let none: Option<i32> = None;
+let some: Option<i32> = Some(42);
 
 // Access the field:
 some.value;
-const {value} = some;
+let {value} = some;
 
 enum IpAddr {
   V4(v0: u8 = 255, v1: u8 = 255, v2: u8 = 255, v3: u8 = 255),
@@ -827,9 +834,9 @@ enum IpAddr {
 }
 
 
-const home = V4(127, 0, 0, 1);
-const anotherHome = V4(v3 = 200);
-const loopback = V6(String.from("::1"))
+let home = V4(127, 0, 0, 1);
+let anotherHome = V4(v3 = 200);
+let loopback = V6(String.from("::1"))
 ```
 
 ### Generalized Algebraic Data Types (GADTs) `In Design`
@@ -852,14 +859,14 @@ function eval<T>(expr: Expr<T>): T {
   }
 }
 
-const expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
+let expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
 eval(expr1); // false
 ```
 
 ### Explicit enum variant type
 
 ```typescript
-const x: Option = Some(1); // x: Option<i32>.Some
+let x: Option = Some(1); // x: Option<i32>.Some
                            // .Some means the variant type is Some
 
 function unwrap<T>(x: Option<T>.Some): T {
@@ -915,7 +922,7 @@ class Drop<T: Linear> {
 }
 
 function main() {
-  const x = String.from("Hello");
+  let x = String.from("Hello");
 
   // If `x` is not consumed, it will be dropped at the end of the scope implicitly.
   // drop(x); // This will be called implicitly.
@@ -995,23 +1002,23 @@ function ListLength<T>(list: List<T>): i32 {
 ### Array
 
 ```typescript
-const v: Array<i32> = Array.new();
-const v2 = Array.from([1, 2, 3]);
-const value = v2.at(0);
+let v: Array<i32> = Array.new();
+let v2 = Array.from([1, 2, 3]);
+let value = v2.at(0);
 ```
 
 ### String
 
 ```typescript
-const s = String.new();
-const s2 = String.from("Hello World!");
+let s = String.new();
+let s2 = String.from("Hello World!");
 ```
 
 ### Map
 
 ```typescript
-const m: Map<String, i32> = Map.new();
-const m2 = Map.from([
+let m: Map<String, i32> = Map.new();
+let m2 = Map.from([
   [String.from("one"), 1],
   [String.from("two"), 2],
   [String.from("three"), 3],
@@ -1023,9 +1030,9 @@ m.set(String.from("one"), 1);
 ## Slice
 
 ```typescript
-const x: string = "Hello, world";
-const xs: i32[5] = [1, 2, 3, 4, 5];
-const emptyArray: i32[0] = [];
+let x: string = "Hello, world";
+let xs: i32[5] = [1, 2, 3, 4, 5];
+let emptyArray: i32[0] = [];
 ```
 
 ## Error handling
@@ -1048,7 +1055,7 @@ enum Result<T, E> {
 
 import { open, drop } from "fs"
 function main() {
-  const greetingFileResult = open("greeting.txt");
+  let greetingFileResult = open("greeting.txt");
 
   if greetingFileResult is Ok(file) {
     println("The file was opened successfully");
@@ -1104,17 +1111,17 @@ type Pointer<T: Type>: Linear;
 function main() {
   // Allocate on heap
   /// malloc
-  const dynamicFloat = malloc(@sizeOf<f32>() * 1); // dynamicFloat: Pointer<f32>. Linear type.
+  let dynamicFloat = malloc(@sizeOf<f32>() * 1); // dynamicFloat: Pointer<f32>. Linear type.
 
   /// calloc
-  const dynamicInt = calloc<i32>(1); // dynamicInt: Pointer<i32>. Linear type.
-  const dynamicIntArray = calloc<i32>(10); // dynamicIntArray: Pointer<i32>. Linear type.
-  const dynamicString = calloc<char>(10); // dynamicString: Pointer<char>. Linear type.
+  let dynamicInt = calloc<i32>(1); // dynamicInt: Pointer<i32>. Linear type.
+  let dynamicIntArray = calloc<i32>(10); // dynamicIntArray: Pointer<i32>. Linear type.
+  let dynamicString = calloc<char>(10); // dynamicString: Pointer<char>. Linear type.
 
   /// dereference
-  const dynamicIntRef = dynamicInt.deref(); // dynamicIntRef: Reference<i32, R> for some region R. Free type.
-  const dynamicIntArrayRef = dynamicIntArray.deref(offset=1);  // dynamicIntArrayRef: Reference<i32, R> for some region R. Free type.
-  const dynamicStringRef = dynamicString.deref(offset=1); // dynamicStringRef: Reference<char, R> for some region R. Free type.
+  let dynamicIntRef = dynamicInt.deref(); // dynamicIntRef: Reference<i32, R> for some region R. Free type.
+  let dynamicIntArrayRef = dynamicIntArray.deref(offset=1);  // dynamicIntArrayRef: Reference<i32, R> for some region R. Free type.
+  let dynamicStringRef = dynamicString.deref(offset=1); // dynamicStringRef: Reference<char, R> for some region R. Free type.
 
   /// free
   free(dynamicInt);
@@ -1126,8 +1133,8 @@ function main() {
 ## Type casting
 
 ```typescript
-const x: i32 = 1;
-const y: f32 = (x:f32);
+let x: i32 = 1;
+let y: f32 = (x:f32);
 ```
 
 ## Algebraic effects
@@ -1214,7 +1221,7 @@ function handle() {
 
 // or
 function handle() {
-  const exceptionHandler = handler Exception {
+  let exceptionHandler = handler Exception {
     raise(msg) {
       resume(42)
     }
@@ -1235,7 +1242,7 @@ effect Input {
 }
 
 function hello(): {Input} () {
-  const name = read();
+  let name = read();
   println("Hello, ", name);
 }
 ```
@@ -1271,7 +1278,7 @@ function main() {
 
 ```typescript
 function example(): { Exception } {
-  const file: File = open("file.txt", "w");
+  let file: File = open("file.txt", "w");
 
   raise("Some exception");
 
@@ -1284,7 +1291,7 @@ What we can do is to use the `~` operator to handle the `abort`:
 
 ```typescript
 function example(): { Exception } {
-  const file: File = open("file.txt", "w");
+  let file: File = open("file.txt", "w");
 
   raise("Some exception") ~ {
     println("Exception caught");
@@ -1314,7 +1321,7 @@ function handleGiveInt() {
       x + 1
     }
   }
-  const x = giveInt(1);
+  let x = giveInt(1);
   println(x); // 2
 }
 ```
@@ -1348,9 +1355,9 @@ function map<A: Type, B: Type>(xs: &<List<A>>, func: (x: &<A>) => {*} B): {*} Li
   if xs is Nil {
     Nil
   } else if xs is Cons {
-    const {head, tail} = xs;
-    const newHead = func(head);
-    const newTail = map(tail, func);
+    let {head, tail} = xs;
+    let newHead = func(head);
+    let newTail = map(tail, func);
     Cons(newHead, Box.new(newTail))
   }
 }
@@ -1431,7 +1438,7 @@ function add<T>(x: T): T {
 
 function mul(x: i32, y: i32): i32 { x * y }
 
-const x: i32[#mul(2, 3)] = 6;
+let x: i32[#mul(2, 3)] = 6;
 ```
 
 ## References
