@@ -391,7 +391,7 @@ let mut x = [String.from("Hi"), String.from("World")];
 }
 
 {
-  let s = &x[1]; // s: &<String, R> for some region R. Free type
+  let s = &!x[1]; // s: &<String, R> for some region R. Free type
   const old = (*s = String.from("Earth"));
   // old: String. Linear type. old == String.from("World")
 }
