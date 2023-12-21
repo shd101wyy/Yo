@@ -329,13 +329,29 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
   let name = p.name; // name: String, Linear type. The `p` variable is consumed
                        // when you extract a linear field from it.
                        // NOTE: If `p` has more than one linear field, then when you destructure, you have to consume all the linear fields, otherwise it will be a compiler error.
-}
-{
-  let { name } = p; // name: String, Linear type. The `p` variable is consumed
-                      // when you destructure it.
+
+  let age = p.age; // Compiler Error: `p` is consumed already.
 }
 
 {
+  let age = p.age; // age: i32, Free type. The `p` variable is not consumed
+                    // when you extract a free field from it.
+
+  let name = p.name; // name: String, Linear type. The `p` variable is consumed
+}
+
+{
+  let { name } = p; // name: String, Linear type. The `p` variable is consumed
+                    // when you destructure any linear type values from it.
+}
+
+{
+  let { age } = p;  // age: i32, Free type. The `p` variable is not consumed
+                    // when you destructure only free fields from it.
+}
+
+{
+  // Creating references will not consume `p`:
   let name: &<String> = &p.name; // name: Reference<String, R> for some region R. Free type.
   let age = &p.age; // age: Reference<i32, R> for some region R. Free type.
 }
@@ -352,14 +368,35 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 
 ```typescript
 let mut x = [1, 2, 3, 4, 5]; // x: i32[5]. Free type
-let mut y = x; // y: i32[5]. Free type. x is copied to y, not moved.
+let y = x; // y: i32[5]. Free type. x is copied to y, not moved.
 
-let mut ref = &!x; // ref: &!<i32[5], R> for some region R. Free type
-let mut first = ref[0]; // first: &!<i32, R> for some region R. Free type
-first = 10;
+{
+  let ref = &!x; // ref: &!<i32[5], R> for some region R. Free type
+  let first = ref[0]; // i32. Free type
+}
+{
+  let firstRef = &!x[0]; // &!<i32, R> for some region R. Free type
+  *firstRef = 10;
+}
 
 // x: [10, 2, 3, 4, 5]
 // y: [1, 2, 3, 4, 5]
+```
+
+```typescript
+let mut x = [String.from("Hi"), String.from("World")];
+
+{
+  let s = x[0]; // Compiler Error: Cannot move linear type out of a slice.
+}
+
+{
+  let s = &x[1]; // s: &<String, R> for some region R. Free type
+  const old = (*s = String.from("Earth"));
+  // old: String. Linear type. old == String.from("World")
+}
+
+// x: [String.from("Hi"), String.from("Earth")]
 ```
 
 ## Function Declaration
@@ -712,6 +749,9 @@ function main() {
 ```
 
 ### Brace elision `In Design`
+
+**Mo** does not support `while`, `for` loops from imperative languages, as they are not functional and they make it hard to reason about the code.  
+Another reason is that they make it hard to translate the effectful function to a state machine, which is required for the algebraic effects.
 
 #### repeat
 

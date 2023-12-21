@@ -14,16 +14,14 @@ struct B<'a> {
     b: i32,
 }
 
-fn main() {
-    let mut x = 1;
+fn test(x: &[String]) {
+    println!("{:?}", x[2]);
+}
 
-    let mut closure = |y: i32| {
-        return x + y
-    };
-    let mut closure2 = |y: i32| {
-        x = x + 1;
-        return x + y
-    };
-    closure(1);
-    closure2(2);
+fn main() {
+    let mut x = [String::from("Hi"), String::from("world")];
+    // let s = &mut x[1];
+    // *s = String::from("earth");
+    test(&x);
+    println!("{:?}", x);
 }
