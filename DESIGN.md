@@ -1,14 +1,14 @@
 # Language Design
 
-**Mo** (墨) is minimal, general-purpose, functional (not pure), compiled programming language that targets LLVM IR and WASM.
+**Mo** (墨) is minimal, general-purpose, functional (not pure), compiled programming language that targets LLVM IR.
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
 **Mo** has a minimal syntax design that looks like TypeScript, and uses uniform call syntax (dot notation), brace elison to make the code more concise.
 
-**Mo** is strong typed with a robust bidrectional type checker. **Mo** supports typeclass and instances, combined with algebraic effects and an efficient type system.
+**Mo** is strong typed with a robust bidrectional type checker. **Mo** supports typeclass and instances, combined with algebraic effects (one-shot) and an efficient type system.
 
-**Mo** supports advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types. `In Design`
+**Mo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types. `In Design`
 
 **Mo** has no garbage collector as it utilizes the [Linear Types](https://en.wikipedia.org/wiki/Substructural_type_system#:~:text=Linear%20types%20corresponds%20to%20linear,transitioned%20to%20a%20different%20state.) and implemented a strict borrow checker. The **Mo** compiler helps you eliminate potential errors before the code is executed.
 
@@ -44,7 +44,6 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Control Flow](#control-flow)
     - [Brace elision `In Design`](#brace-elision-in-design)
       - [repeat](#repeat)
-      - [while](#while)
       - [for](#for)
   - [Type synonyms](#type-synonyms)
   - [Enum (Algebraic Data Types)](#enum-algebraic-data-types)
@@ -99,6 +98,7 @@ The **Mo** language is heavily inspired by:
   - Algebraic effects
 - [Rust](https://www.rust-lang.org/)
   - Borrow checker
+  - Lifetime
 - [Austral](https://austral-lang.org/)
   - Linear types
   - Borrowing
@@ -177,27 +177,24 @@ A type can have the following **Kind**:
 
 #### `Linear` Types.
 
-Linear types are types that can only be used once. For example, a `String` is a linear type as it can only be used once.  
+Linear types are types that can only be used exactly once. For example, a `String` is a linear type as it can only be used once.  
 The [Austral language](https://austral-lang.org/) has a very good explanation on the incentive of using [Linear Types](https://austral-lang.org/tutorial/linear-types).
 
 ### Region
 
 A **Region** here is a block that specifies the lifetime of values.
 
-Block `{...}` and function call `func(...)` create new regions.
+Block `{...}`, function call `func(...)`, and `if` statement create new regions.
 
 **Mo** is explicit about the regions and lifetime of values.
 
 ```typescript
 function factorial(x: i32): i32 { // Region 1
-  let mut result = 1;
-
-  while x > 1 { // Region 2
-    result = result * x;
-    x = x - 1;
+  if x > 1 { // Region 2
+    x * factorial(x - 1) // Region 3 for calling `factorial`
+  } else { // Region 3
+    result
   }
-
-  result
 }
 
 function test(flag: boolean) { // Region 1
@@ -367,6 +364,8 @@ first = 10;
 
 ## Function Declaration
 
+Unlike imperative languages, **Mo** has no `return` keyword. The last expression of a function is the return value.
+
 ```typescript
 function add(x: i32, y: i32): i32 {
   x + y
@@ -400,7 +399,7 @@ function divide(x: i32, y: i32 where y != 0): i32 {
   x / y
 }
 function add<T: Type>(x: T, y: T): {Console} T
-given Integral<T> {
+with Integral<T> {
   println(x + y)
 }
 
@@ -735,34 +734,6 @@ function factorial(n: i32): i32 {
 }
 ```
 
-#### while
-
-```typescript
-function factorial(n: i32): i32 {
-  let mut m = n;
-  let mut result = 1;
-  while { m > 1 } {
-    result = result * m; // `=` is used to update a mutable reference
-    m = m - 1;
-  }
-  result
-}
-
-// is equavalent to
-
-function factorial(n: i32): i32 {
-  let mut m = n;
-  let mut result = 1;
-  while(()=> {
-    m > 1
-  }, ()=> {
-    result = result * m; // `=` is used to update a mutable reference
-    m = m - 1;
-  })
-  result
-}
-```
-
 #### for
 
 ```typescript
@@ -829,16 +800,24 @@ let user: User = {
   age: 12
 }
 
-let {name, age} = user;
-// name: String, linear type
-// age: i32. Free type
+{
+  let {age} = user; // Compiler Error: `user` is consumed while `name` is not moved out.
+}
 
-// Rename the field with `as`
-// Specify the type with `:`
-let {name as username: &<String>, age: i32} = user;
-println(username); // johndoe
-// username: Reference<String, R> for some region R. Free type
-// age: i32. Free type.
+{
+  let {name, age} = user;
+  // name: String, linear type
+  // age: i32. Free type
+}
+
+{
+  // Rename the field with `as`
+  // Specify the type with `:`
+  let {name as username: &<String>, age: i32} = user;
+  println(username); // johndoe
+  // username: Reference<String, R> for some region R. Free type
+  // age: i32. Free type.
+}
 ```
 
 ## Enum (Algebraic Data Types)
@@ -942,7 +921,7 @@ function notify(item: NewsArticle) {
   println("Breaking news! ", item.summarize());
 }
 
-function notify<T>(item: T) given Display<T> {
+function notify<T>(item: T) with Display<T> {
   println("Breaking news! ", item.summarize());
   println("Breaking news! ", item.display());
 }
@@ -961,6 +940,7 @@ function main() {
   let x = String.from("Hello");
 
   // If `x` is not consumed, it will be dropped at the end of the scope implicitly.
+  // The user needs to import the `drop` function. If no such function is found, it will be a compiler error.
   // drop(x); // This will be called implicitly.
 }
 ```
