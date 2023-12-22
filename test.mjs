@@ -701,19 +701,15 @@ function main() {
 `
 
 code = `
-enum MyLinear: Linear {
-  MyLinear
+enum Option<V> {
+  Some(val: V),
+  None
 }
 
-class ID<T: Linear> {
-  id(x: T): T;
+function testFunction() {
+  ()
 }
 
-instance ID<MyLinear> {
-  id(x: MyLinear): MyLinear {
-    x
-  }
-}
 `
 
 const codeGenerator = new CodeGenerator(code);

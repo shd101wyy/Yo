@@ -26,6 +26,7 @@ import {
   pushEnvFrame,
 } from "./env";
 import { formatErrorMessage } from "./error";
+import { isUpperCamelCase } from "./naming-checker";
 import { Token, TokenType } from "./token";
 import {
   ParserReturn,
@@ -2694,6 +2695,14 @@ Got:      ${typeToString(variableType)}`
     const typeName = tokens[index].value;
     index = index + 1;
 
+    // typeName has to be UpperCamelCase
+    if (!isUpperCamelCase(typeName)) {
+      throw this.formatErrorMessage(
+        tokens[index - 1],
+        "Type name has to be UpperCamelCase"
+      );
+    }
+
     // NOTE: This is necessary for type parameters and recursive type alias
     env = pushEnvFrame(env);
     env = addEnvValueType(env, {
@@ -2853,11 +2862,12 @@ Got:      ${typeToString(variableType)}`
     }
     const typeclassName = tokens[index].value;
     index = index + 1;
-    // typeclassName has to start with uppercase
-    if (typeclassName[0] !== typeclassName[0].toUpperCase()) {
+
+    // typeclassName has to be UpperCamelCase
+    if (!isUpperCamelCase(typeclassName)) {
       throw this.formatErrorMessage(
         tokens[index],
-        "Class name has to start with uppercase"
+        "Class name has to be UpperCamelCase"
       );
     }
 
@@ -3364,6 +3374,14 @@ Got:      ${typeToString(matchedFunction.func)}`
       }
       const enumVariantName = tokens[index].value;
       index = index + 1;
+
+      // enumVariantName has to be UpperCamelCase
+      if (!isUpperCamelCase(enumVariantName)) {
+        throw this.formatErrorMessage(
+          tokens[index - 1],
+          "Enum variant name has to be UpperCamelCase"
+        );
+      }
 
       // Parameter types
       let parameterTypes: TParameterType[] = [];
