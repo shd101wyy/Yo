@@ -1,5 +1,5 @@
-import { Expr, FunctionExpr, TraitExpr } from "./ast";
-import { TFunction, Type, checkType } from "./type-checker";
+import { Expr, FunctionExpr, TraitExpr } from "../ast";
+import { TFunction, Type, checkType } from "../type-checker";
 
 export type LlvmValue = {
   variableName?: string;
@@ -129,15 +129,15 @@ export function getLlvmFunctionByNameAndTypeArgumentsAndArguments(
 
 export function getLlvmTraitInstanceByNameAndTypeArguments(
   env: LlvmEnvironment,
-  traitName: string,
+  className: string,
   typeArguments: Type[]
 ): LlvmValue | undefined {
   for (let i = env.frames.length - 1; i >= 0; i--) {
     const frame = env.frames[i];
     const value = frame.find(
       (value) =>
-        value.variableName === traitName &&
-        value.type.type === "Trait" &&
+        value.variableName === className &&
+        value.type.type === "Class" &&
         value.trait &&
         value.trait.typeArguments.length === typeArguments.length &&
         value.trait.typeArguments.every((typeArgument, index) =>

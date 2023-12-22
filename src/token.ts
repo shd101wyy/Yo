@@ -73,7 +73,7 @@ export enum TokenType {
   Enum = "enum",
   // Interface = "interface",
   Class = "class",
-  Trait = "trait",
+  // Trait = "trait",
   Instance = "instance",
   Extends = "extends",
   Effect = "effect",

@@ -704,6 +704,16 @@ code = `
 enum MyLinear: Linear {
   MyLinear
 }
+
+class ID<T: Linear> {
+  id(x: T): T;
+}
+
+instance ID<MyLinear> {
+  id(x: MyLinear): MyLinear {
+    x
+  }
+}
 `
 
 const codeGenerator = new CodeGenerator(code);

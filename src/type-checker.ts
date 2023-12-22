@@ -230,19 +230,19 @@ export type TTypeConstructor = {
 };
 
 /**
- * NOTE: No free variable (closure) is supported for trait function
+ * NOTE: No free variable (closure) is supported for class function
  */
-export type TTraitFunction = {
+export type TClassFunction = {
   name: string;
   func: TFunction;
   functionExpr?: FunctionExpr;
 };
 
-export type TTrait = {
-  type: "Trait";
+export type TClass = {
+  type: "Class";
   kind: "Free";
   typeParameters: TTypeParameter[];
-  functions: TTraitFunction[];
+  functions: TClassFunction[];
 };
 
 export type TEnumVariant = {
@@ -298,7 +298,7 @@ export type Type =
   //  | TTuple
   | TTypeConstructor
   | TTypeParameter
-  | TTrait
+  | TClass
   | TEnum
   | TPrimitive;
 
@@ -1029,7 +1029,7 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`,
       ...typeValue,
       typeArguments,
     };
-  } else if (typeValue.type === "Trait") {
+  } else if (typeValue.type === "Class") {
     if (typeValue.typeParameters.length !== typeArguments.length) {
       throw formatErrorMessage({
         token: tokens[returnValue.index],
@@ -1119,7 +1119,7 @@ export function applyTypeArgumentsToType(
       typeArguments,
       typeParameterToTypeArgumentMap
     );
-  } else if (type.type === "Trait") {
+  } else if (type.type === "Class") {
     if (type.typeParameters.length !== typeArguments.length) {
       throw new Error(
         `(4) Mismatched type arguments.
@@ -1144,7 +1144,7 @@ export function applyTypeArgumentsToType(
     }
 
     // apply to each of the functions
-    const functions: TTraitFunction[] = type.functions.map(
+    const functions: TClassFunction[] = type.functions.map(
       ({ name, func, functionExpr }) => ({
         name,
         func: applyTypeArgumentsToType(
@@ -1160,10 +1160,10 @@ export function applyTypeArgumentsToType(
             )
           : undefined,
       })
-    ) as TTraitFunction[];
+    ) as TClassFunction[];
 
     return {
-      type: "Trait",
+      type: "Class",
       kind: "Free",
       typeParameters: newTypeParameters, // FIXME: <- this might be wrong
       functions: functions,
@@ -2424,8 +2424,8 @@ export function typeToString(type: Type): string {
           : ""
       }${typeToString(type.typeValue)}`;
     }
-    case "Trait": {
-      return `trait${
+    case "Class": {
+      return `class${
         type.typeParameters.length
           ? `<${type.typeParameters
               .map(
@@ -2455,7 +2455,9 @@ export function typeToString(type: Type): string {
           type.appliedTypeArguments.length > 0
             ? `<${type.appliedTypeArguments.map(typeToString).join(",")}>`
             : ""
-        }${type.selectedVariantName ? `.${type.selectedVariantName}` : ""}`;
+        }${
+          /*type.selectedVariantName ? `.${type.selectedVariantName}` : ""*/ ""
+        }`;
       }
 
       return `enum${

@@ -1,6 +1,6 @@
 import { Type } from "./type-checker";
 
-type ValueTypeKind = "type" | "value" | "trait";
+type ValueTypeKind = "type" | "value" | "class";
 
 export type ValueType = {
   // id: string; // NOTE: The `id` here doesn't really help in generic function

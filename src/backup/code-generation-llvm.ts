@@ -9,6 +9,15 @@ import {
 } from "../ast";
 import { ValueType } from "../env";
 import { tokenize } from "../lexer";
+import Parser from "../parser";
+import { Token } from "../token";
+import {
+  TFunction,
+  Type,
+  applyTypeArgumentsToFunctionExpr,
+  getEnumTagSize,
+  typeToString,
+} from "../type-checker";
 import {
   LlvmEnvironment,
   LlvmValue,
@@ -20,16 +29,7 @@ import {
   getLlvmTraitInstanceByNameAndTypeArguments,
   popLlvmEnvFrame,
   pushLlvmEnvFrame,
-} from "../llvm-env";
-import Parser from "../parser";
-import { Token } from "../token";
-import {
-  TFunction,
-  Type,
-  applyTypeArgumentsToFunctionExpr,
-  getEnumTagSize,
-  typeToString,
-} from "../type-checker";
+} from "./llvm-env";
 
 export class CodeGenerator {
   private inputString: string;
@@ -664,7 +664,7 @@ export class CodeGenerator {
           env,
         };
       }
-      case "Trait": {
+      case "Class": {
         // Get the function from the trait
         if (!exprValue.trait) {
           throw new Error(`Not a trait:
@@ -1665,7 +1665,7 @@ ${typeToString(enumType)}`
         if (traitTypeArguments === undefined) {
           // This is trait definition
           const value: LlvmValue = {
-            variableName: expr.traitName,
+            variableName: expr.className,
             type: expr.typeValue,
             value: this.unit,
 
@@ -1678,7 +1678,7 @@ ${typeToString(enumType)}`
           // Check if the trait instance with the same typeArguments already exists
           const traitInstance = getLlvmTraitInstanceByNameAndTypeArguments(
             env,
-            expr.traitName,
+            expr.className,
             traitTypeArguments
           );
           if (traitInstance) {
@@ -1710,7 +1710,7 @@ ${typeToString(enumType)}`
             }
 
             const value: LlvmValue = {
-              variableName: expr.traitName,
+              variableName: expr.className,
               type: expr.typeValue,
               value: this.unit,
 

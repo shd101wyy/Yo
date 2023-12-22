@@ -2,10 +2,10 @@ import { Environment, ValueType } from "./env";
 import { Token, TokenType } from "./token";
 import {
   TBoolean,
+  TClass,
   TEnum,
   TFunction,
   TPrimitive,
-  TTrait,
   TUnit,
   Type,
   TypeKind,
@@ -32,7 +32,7 @@ export enum AstType {
   LetAssignment = "let=",
   Assignment = "=",
   TypeAlias = "type=",
-  Trait = "trait",
+  Class = "class",
 
   // parameters
   TypeParameter = "type-parameter",
@@ -82,7 +82,7 @@ export type Expr =
   | AssignmentExpr
   | TypeAliasExpr
   | EnumExpr
-  | TraitExpr
+  | ClassExpr
   | UnaryOperatorExpr
   | BinaryOperatorExpr
   | IsOperatorExpr
@@ -215,18 +215,18 @@ export type EnumExpr = {
   env: Environment;
 };
 
-export type TraitExpr = {
-  type: AstType.Trait;
-  traitName: string;
-  typeValue: TTrait;
+export type ClassExpr = {
+  type: AstType.Class;
+  className: string;
+  typeValue: TClass;
   /**
-   * If typeArguments is undefined, then it's a trait definition.
-   * If typeArguments is defined, then it's a trait implementation, aka instance.
+   * If typeArguments is undefined, then it's a typeclass definition.
+   * If typeArguments is defined, then it's a typeclass implementation, aka instance.
    */
   typeArguments?: Type[];
   env: Environment;
   /**
-   * If it's a trait definition or instance definition, then isDefinition is true.
+   * If it's a typeclass definition or instance definition, then isDefinition is true.
    */
   isDefinition: boolean;
 };
@@ -401,20 +401,20 @@ export function exprToString(expr: Expr | FunctionPrototype) {
       );
       return `type ${expr.typeName}${typeParametersString}: ${expr.typeValue.kind} = ${typeValueWithoutTypeParameters}`;
     }
-    case AstType.Trait:
+    case AstType.Class:
       if (!expr.isDefinition) {
-        return `${expr.traitName}${
+        return `${expr.className}${
           expr.typeArguments && expr.typeArguments.length > 0
             ? `<${expr.typeArguments.map(typeToString).join(", ")}>`
             : ""
         }`;
       }
 
-      return `${expr.typeArguments ? "instance" : "trait"} ${expr.traitName}${
+      return `${expr.typeArguments ? "instance" : "class"} ${expr.className}${
         expr.typeArguments && expr.typeArguments.length > 0
           ? `<${expr.typeArguments.map(typeToString).join(", ")}>`
           : ""
-      }${typeToString(expr.typeValue).replace(/^(trait|instance)/, "")}`;
+      }${typeToString(expr.typeValue).replace(/^(class|instance)/, "")}`;
     case AstType.Enum:
       return `enum ${expr.enumName}${typeToString(expr.typeValue).replace(
         /^enum/,

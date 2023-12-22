@@ -29,13 +29,13 @@ import { formatErrorMessage } from "./error";
 import { Token, TokenType } from "./token";
 import {
   ParserReturn,
+  TClass,
+  TClassFunction,
   TEnum,
   TEnumVariant,
   TFunction,
   TParameterType,
   TSlice,
-  TTrait,
-  TTraitFunction,
   TTypeConstructor,
   TTypeParameter,
   Type,
@@ -452,7 +452,7 @@ export default class Parser {
           index: index + 1,
         };
       }
-    } else if (callerType.type === "Trait") {
+    } else if (callerType.type === "Class") {
       const func = callerType.functions.find(
         (property) => property.name === token.value
       );
@@ -471,7 +471,7 @@ export default class Parser {
       } else {
         throw this.formatErrorMessage(
           token,
-          `Cannot find function '${token.value}' in trait:\n${typeToString(
+          `Cannot find function '${token.value}' in class:\n${typeToString(
             callerType
           )}`
         );
@@ -1426,7 +1426,7 @@ Got:      <${appliedTypeArguments.map(typeToString).join(", ")}>`
     // Check if variable is defined
     const valueTypes = [
       ...getEnvValueTypesByVariableName(env, identifier, "value"),
-      ...getEnvValueTypesByVariableName(env, identifier, "trait"),
+      ...getEnvValueTypesByVariableName(env, identifier, "class"),
       ...getEnvValueTypesByVariableName(env, identifier, "type"),
     ];
     if (valueTypes.length === 0) {
@@ -1438,32 +1438,34 @@ Got:      <${appliedTypeArguments.map(typeToString).join(", ")}>`
     const matchedFunctions = valueTypes.filter(
       (valueType) => valueType.type.type === "Function"
     );
-    const matchedTraits = valueTypes.filter(
+    const matchedTypeclasses = valueTypes.filter(
       (valueType) =>
-        valueType.type.type === "Trait" && valueType.kind === "trait"
+        valueType.type.type === "Class" && valueType.kind === "class"
     );
     const matchedEnums = valueTypes.filter(
       (valueType) => valueType.type.type === "Enum" && valueType.kind === "type"
     );
 
-    // Check if it's a trait
-    if (matchedTraits.length > 0) {
+    // Check if it's a typeclass
+    if (matchedTypeclasses.length > 0) {
       // FIXME: Support this
-      if (matchedTraits.length > 1) {
+      if (matchedTypeclasses.length > 1) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Ambiguous traits "${identifier}"
-Found possible traits:
-- ${matchedTraits.map((traitType) => typeToString(traitType.type)).join("\n- ")}
+          `Ambiguous typeclasses "${identifier}"
+Found possible typeclasses:
+- ${matchedTypeclasses
+            .map((typeclassType) => typeToString(typeclassType.type))
+            .join("\n- ")}
           `
         );
       } else {
-        const trait = matchedTraits[0];
-        const traitType = trait.type;
-        if (traitType.type !== "Trait") {
+        const typeclass = matchedTypeclasses[0];
+        const typeclassType = typeclass.type;
+        if (typeclassType.type !== "Class") {
           throw this.formatErrorMessage(
             tokens[index],
-            `Expected trait, but got ${typeToString(traitType)}`
+            `Expected class, but got ${typeToString(typeclassType)}`
           );
         }
         let typeArguments: Type[] = [];
@@ -1486,18 +1488,21 @@ Found possible traits:
           index = index + 1;
         }
 
-        const newTraitType = applyTypeArgumentsToType(traitType, typeArguments);
-        if (newTraitType.type !== "Trait") {
+        const newTypeclassType = applyTypeArgumentsToType(
+          typeclassType,
+          typeArguments
+        );
+        if (newTypeclassType.type !== "Class") {
           throw this.formatErrorMessage(
             tokens[index],
-            `Expected trait type, but got ${typeToString(newTraitType)}`
+            `Expected class type, but got ${typeToString(newTypeclassType)}`
           );
         } else {
           return {
             expr: {
-              type: AstType.Trait,
-              traitName: identifier,
-              typeValue: newTraitType,
+              type: AstType.Class,
+              className: identifier,
+              typeValue: newTypeclassType,
               typeArguments: typeArguments,
               env,
               isDefinition: false,
@@ -2632,8 +2637,8 @@ Got:      ${typeToString(variableType)}`
           index: nextIndex,
         };
       }
-      case "Trait": {
-        // Take the trait functions out to env
+      case "Class": {
+        // Take the typeclass functions out to env
         for (const func of typeValue.functions) {
           env = addEnvValueType(env, {
             variableName: func.name,
@@ -2818,24 +2823,24 @@ Got:      ${typeToString(variableType)}`
 
   /**
    *
-   * trait ::= "trait" identifier typeParameters? "{" functionPrototype* "}"
-   *           ::= "trait" identifier typeParameters? "with" traitType "{" functionPrototype* "}"
-   * FIXME: Support `with` for trait
-   * FIXME: If the trait has no type parameters, then all functions in the trait should have default implementations.
+   * class ::= "class" identifier typeParameters? "{" functionPrototype* "}"
+   *           ::= "class" identifier typeParameters? "with" typeclassType "{" functionPrototype* "}"
+   * FIXME: Support `with` for class
+   * FIXME: If the class has no type parameters, then all functions in the class should have default implementations.
    * @param tokens
    * @param index
    * @param env
    * @returns
    */
-  private parseTrait(
+  private parseClass(
     tokens: Token[],
     index: number,
     env: Environment
   ): ParserReturn {
-    if (tokens[index].type !== TokenType.Trait) {
+    if (tokens[index].type !== TokenType.Class) {
       throw this.formatErrorMessage(
         tokens[index],
-        'Expected "trait" for trait'
+        'Expected "class" for typeclass declaration'
       );
     }
 
@@ -2843,27 +2848,27 @@ Got:      ${typeToString(variableType)}`
     if (tokens[index].type !== TokenType.Identifier) {
       throw this.formatErrorMessage(
         tokens[index],
-        "Expected identifier for trait"
+        'Expected identifier for "class"'
       );
     }
-    const traitName = tokens[index].value;
+    const typeclassName = tokens[index].value;
     index = index + 1;
-    // traitName has to start with uppercase
-    if (traitName[0] !== traitName[0].toUpperCase()) {
+    // typeclassName has to start with uppercase
+    if (typeclassName[0] !== typeclassName[0].toUpperCase()) {
       throw this.formatErrorMessage(
         tokens[index],
-        "Trait name has to start with uppercase"
+        "Class name has to start with uppercase"
       );
     }
 
     // NOTE: This is necessary for type parameters and recursive type alias
     env = pushEnvFrame(env);
     env = addEnvValueType(env, {
-      variableName: traitName,
+      variableName: typeclassName,
       type: {
         type: "unknown",
         kind: "Free",
-        typeName: traitName,
+        typeName: typeclassName,
       },
       kind: "type",
     });
@@ -2886,12 +2891,12 @@ Got:      ${typeToString(variableType)}`
       env = nextEnv;
     }
 
-    // NOTE: `extends` doesn't work for trait.
+    // NOTE: `extends` doesn't work for typeclass.
     // Should use `with` instead.
-    const functions: TTraitFunction[] = [];
+    const functions: TClassFunction[] = [];
     /*
-    // extends other trait
-    const interfaceTypes: TTrait[] = [];
+    // extends other class
+    const interfaceTypes: TClass[] = [];
     if (tokens[index].type === TokenType.Extends) {
       index = index + 1;
 
@@ -2899,7 +2904,7 @@ Got:      ${typeToString(variableType)}`
         const {
           env: nextEnv,
           index: nextIndex,
-          typeValue: traitType,
+          typeValue: typeclassType,
         } = synthesizeTypeFromTokens({
           tokens,
           index,
@@ -2907,13 +2912,13 @@ Got:      ${typeToString(variableType)}`
           env,
           parseExpression: this.parseExpression.bind(this),
         });
-        if (traitType.type !== "Trait") {
+        if (typeclassType.type !== "Class") {
           throw this.formatErrorMessage(
             tokens[index],
-            "Expected trait type, but got " + typeToString(traitType)
+            "Expected class type, but got " + typeToString(typeclassType)
           );
         }
-        interfaceTypes.push(traitType);
+        interfaceTypes.push(typeclassType);
         index = nextIndex;
         env = nextEnv;
 
@@ -2925,19 +2930,19 @@ Got:      ${typeToString(variableType)}`
         }
       }
     }
-    /// Add functions from extended traits
-    for (const traitType of interfaceTypes) {
-      for (const func of traitType.functions) {
+    /// Add functions from extended typeclasses
+    for (const typeclassType of interfaceTypes) {
+      for (const func of typeclassType.functions) {
         functions.push(func);
       }
     }
     */
 
-    // Parse trait body
+    // Parse class body
     if (tokens[index].type !== TokenType.LCurlyBracket) {
       throw this.formatErrorMessage(
         tokens[index],
-        "Expected '{' for trait body"
+        "Expected '{' for \"class\" body"
       );
     }
     index = index + 1;
@@ -2951,16 +2956,16 @@ Got:      ${typeToString(variableType)}`
         continue;
       }
 
-      // NOTE: We don't allow function declaration like `id: (...)=> ...` format in trait
+      // NOTE: We don't allow function declaration like `id: (...)=> ...` format in class
       if (
         tokens[index].type === TokenType.Identifier &&
         tokens[index + 1]?.type === TokenType.Colon
       ) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Please define functions in "trait" like below:
+          `Please define functions in "class" like below:
 
-trait Show<T> {
+class Show<T> {
   show(x: T): string
 }
 `
@@ -2992,7 +2997,7 @@ trait Show<T> {
       if (functionType.typeParameters.length > 0) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Type parameters are not allowed in trait functions as it uses the type parameters defined in the trait itself:
+          `Type parameters are not allowed in class functions as it uses the type parameters defined in the class itself:
 
 ${typeToString(functionType)}
 `
@@ -3023,8 +3028,8 @@ ${typeToString(functionType)}
       });
     }
 
-    const traitType: TTrait = {
-      type: "Trait",
+    const typeclassType: TClass = {
+      type: "Class",
       kind: "Free",
       typeParameters,
       functions,
@@ -3034,9 +3039,9 @@ ${typeToString(functionType)}
     env = addEnvValueType(
       env,
       {
-        variableName: traitName,
-        type: traitType,
-        kind: "trait",
+        variableName: typeclassName,
+        type: typeclassType,
+        kind: "class",
       },
       -1
     );
@@ -3044,10 +3049,10 @@ ${typeToString(functionType)}
     env = popEnvFrame(env);
     return {
       expr: {
-        type: AstType.Trait,
-        traitName,
-        typeValue: traitType,
-        typeArguments: undefined, // Defining trait doesn't have type arguments
+        type: AstType.Class,
+        className: typeclassName,
+        typeValue: typeclassType,
+        typeArguments: undefined, // Defining class doesn't have type arguments
         env,
         isDefinition: true,
       },
@@ -3055,7 +3060,7 @@ ${typeToString(functionType)}
     };
   }
 
-  private parseTraitInstance(
+  private parseTypeclassInstance(
     tokens: Token[],
     index: number,
     env: Environment
@@ -3063,7 +3068,7 @@ ${typeToString(functionType)}
     if (tokens[index].type !== TokenType.Instance) {
       throw this.formatErrorMessage(
         tokens[index],
-        'Expected "instance" for trait instance'
+        'Expected "instance" for class instance'
       );
     }
 
@@ -3072,27 +3077,31 @@ ${typeToString(functionType)}
       // FIXME: Allow module access
       throw this.formatErrorMessage(
         tokens[index],
-        "Expected identifier for trait instance"
+        "Expected identifier for class instance"
       );
     }
-    const traitName = tokens[index].value;
+    const typeclassName = tokens[index].value;
     index = index + 1;
 
-    // Find the trait from env
-    const traits = getEnvValueTypesByVariableName(env, traitName, "trait");
-    if (traits.length === 0) {
+    // Find the class from env
+    const typeclasses = getEnvValueTypesByVariableName(
+      env,
+      typeclassName,
+      "class"
+    );
+    if (typeclasses.length === 0) {
       throw this.formatErrorMessage(
         tokens[index],
-        `Cannot find trait "${traitName}"`
+        `Cannot find class "${typeclassName}"`
       );
-    } else if (traits.length > 1) {
+    } else if (typeclasses.length > 1) {
       throw this.formatErrorMessage(
         tokens[index],
-        `Found multiple traits with the same name "${traitName}":
-- ${traits.map((trait) => typeToString(trait.type)).join("\n- ")}`
+        `Found multiple typeclasses with the same name "${typeclassName}":
+- ${typeclasses.map((typeclass) => typeToString(typeclass.type)).join("\n- ")}`
       );
     }
-    const traitType = traits[0].type as TTrait;
+    const typeclassType = typeclasses[0].type as TClass;
 
     // Parse type arguments
     const typeArguments: Type[] = [];
@@ -3113,18 +3122,18 @@ ${typeToString(functionType)}
       env = nextEnv;
     }
 
-    // Apply type arguments to trait
-    const traitType_ = applyTypeArgumentsToType(
-      traitType,
+    // Apply type arguments to typeclass
+    const typeclassType_ = applyTypeArgumentsToType(
+      typeclassType,
       typeArguments
-    ) as TTrait;
+    ) as TClass;
 
-    // Parse trait body
-    const functions: TTraitFunction[] = [];
+    // Parse typeclass body
+    const functions: TClassFunction[] = [];
     if (tokens[index].type !== TokenType.LCurlyBracket) {
       throw this.formatErrorMessage(
         tokens[index],
-        "Expected '{' for trait instance body"
+        "Expected '{' for class instance body"
       );
     }
     index = index + 1;
@@ -3138,16 +3147,16 @@ ${typeToString(functionType)}
         continue;
       }
 
-      // NOTE: We don't allow function declaration like `id: (...)=> ...` format in trait
+      // NOTE: We don't allow function declaration like `id: (...)=> ...` format in typeclass
       if (
         tokens[index].type === TokenType.Identifier &&
         tokens[index + 1]?.type === TokenType.Colon
       ) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Please define functions in "trait" like below:
+          `Please define functions in "class" like below:
 
-trait Show<T> {
+class Show<T> {
   show(x: T): string
 }
 `
@@ -3179,7 +3188,7 @@ trait Show<T> {
       if (functionType.typeParameters.length > 0) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Type parameters are not allowed in trait functions as it uses the type parameters defined in the trait itself:
+          `Type parameters are not allowed in class functions as it uses the type parameters defined in the class itself:
 
 ${typeToString(functionType)}
 `
@@ -3210,49 +3219,51 @@ ${typeToString(functionType)}
       });
     }
 
-    // Check if all functions in trait are implemented correctly
-    for (const traitFunction of traitType_.functions) {
+    // Check if all functions in class are implemented correctly
+    for (const typeclassFunction of typeclassType_.functions) {
       const matchedFunctions = functions.filter(
-        (func) => func.name === traitFunction.name
+        (func) => func.name === typeclassFunction.name
       );
       if (matchedFunctions.length === 0) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Function "${traitFunction.name}" is not implemented:
-Expected: ${typeToString(traitFunction.func)}`
+          `Function "${typeclassFunction.name}" is not implemented:
+Expected: ${typeToString(typeclassFunction.func)}`
         );
       } else if (matchedFunctions.length > 1) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Found multiple implementations for function "${traitFunction.name}":
+          `Found multiple implementations for function "${
+            typeclassFunction.name
+          }":
 - ${matchedFunctions.map((func) => typeToString(func.func)).join("\n- ")}`
         );
       } else {
         const matchedFunction = matchedFunctions[0];
-        if (!checkType(traitFunction.func, matchedFunction.func, env)) {
+        if (!checkType(typeclassFunction.func, matchedFunction.func, env)) {
           throw this.formatErrorMessage(
             tokens[index],
             `Mismatched function type:
-Expected: ${typeToString(traitFunction.func)}
+Expected: ${typeToString(typeclassFunction.func)}
 Got:      ${typeToString(matchedFunction.func)}`
           );
         }
       }
     }
-    traitType_.functions = functions;
+    typeclassType_.functions = functions;
 
     // Add to environment
     env = addEnvValueType(env, {
-      variableName: traitName,
-      type: traitType_,
-      kind: "value", // NOTE: We need to set it to "value" instead of "trait" because we need to use it as a value
+      variableName: typeclassName,
+      type: typeclassType_,
+      kind: "value", // NOTE: We need to set it to "value" instead of "class" because we need to use it as a value
     });
 
     return {
       expr: {
-        type: AstType.Trait,
-        traitName,
-        typeValue: traitType_,
+        type: AstType.Class,
+        className: typeclassName,
+        typeValue: typeclassType_,
         typeArguments,
         env,
         isDefinition: true,
@@ -3552,8 +3563,8 @@ Got:      ${typeToString(matchedFunction.func)}`
           env = expr.env;
           break;
         }
-        case TokenType.Trait: {
-          const { expr, index: nextIndex } = this.parseTrait(
+        case TokenType.Class: {
+          const { expr, index: nextIndex } = this.parseClass(
             tokens,
             index,
             env
@@ -3566,7 +3577,7 @@ Got:      ${typeToString(matchedFunction.func)}`
           break;
         }
         case TokenType.Instance: {
-          const { expr, index: nextIndex } = this.parseTraitInstance(
+          const { expr, index: nextIndex } = this.parseTypeclassInstance(
             tokens,
             index,
             env

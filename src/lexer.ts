@@ -593,9 +593,9 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
-            case "trait":
+            case "class":
               tokens.push({
-                type: TokenType.Trait,
+                type: TokenType.Class,
                 value,
                 position: { line, character: i - totalCharacters },
               });
