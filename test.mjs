@@ -701,9 +701,9 @@ function main() {
 `
 
 code = `
-enum MyLinear: Linear {}
-
-type Coord<T: Linear> = {x: i32, y: T};
+enum MyLinear: Linear {
+  MyLinear
+}
 `
 
 const codeGenerator = new CodeGenerator(code);

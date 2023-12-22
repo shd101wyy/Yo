@@ -873,6 +873,8 @@ export function synthesizeTypeFromTokens({
         env: newReturnValue.env,
       };
     } else {
+      /*
+      NOTE: We now allow union of different types
       // Check types
       if (returnValue.typeValue.type !== newReturnValue.typeValue.type) {
         throw formatErrorMessage({
@@ -883,6 +885,7 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
           inputString,
         });
       }
+      */
 
       const returnValueTypeKind = returnValue.typeValue.kind;
       if (returnValueTypeKind === "Region") {
@@ -941,6 +944,8 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
         env: newReturnValue.env,
       };
     } else {
+      /*
+      NOTE: We now allow intersection of different types
       // Check types
       if (returnValue.typeValue.type !== newReturnValue.typeValue.type) {
         throw formatErrorMessage({
@@ -951,6 +956,7 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
           inputString,
         });
       }
+      */
 
       const returnValueTypeKind = returnValue.typeValue.kind;
       if (returnValueTypeKind === "Region") {
@@ -2058,7 +2064,7 @@ function parseTypeAndRegionKind(
   } else {
     throw formatErrorMessage({
       token: tokens[index],
-      errorMessage: `Unknown type kind ${tokens[index].value}`,
+      errorMessage: `Unknown kind ${tokens[index].value}`,
       inputString,
     });
   }
@@ -2175,7 +2181,7 @@ export function synthesizeTypeParametersFromTokens({
       if (!kind) {
         throw formatErrorMessage({
           token: tokens[index],
-          errorMessage: `Unknown type kind ${tokens[index].value}. Expected 'Type', 'Linear', 'Free', or 'Region'`,
+          errorMessage: `Unknown kind ${tokens[index].value}. Expected 'Type', 'Linear', 'Free', or 'Region'`,
           inputString,
         });
       }
@@ -2407,9 +2413,16 @@ export function typeToString(type: Type): string {
       return `${type.name}`;
     }
     case "TypeConstructor": {
-      return `<${type.typeParameters
-        .map((typeParameter) => `${typeParameter.name}: ${typeParameter.kind}`)
-        .join(", ")}>${typeToString(type.typeValue)}`;
+      return `${
+        type.typeParameters.length > 0
+          ? `<${type.typeParameters
+              .map(
+                (typeParameter) =>
+                  `${typeParameter.name}: ${typeParameter.kind}`
+              )
+              .join(", ")}>`
+          : ""
+      }${typeToString(type.typeValue)}`;
     }
     case "Trait": {
       return `trait${

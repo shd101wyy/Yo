@@ -3269,6 +3269,7 @@ Got:      ${typeToString(matchedFunction.func)}`
     if (tokens[index].type !== TokenType.Enum) {
       throw this.formatErrorMessage(tokens[index], 'Expected "enum"');
     }
+    const enumTokenIndex = index;
     index = index + 1;
 
     if (tokens[index].type !== TokenType.Identifier) {
@@ -3377,6 +3378,13 @@ Got:      ${typeToString(matchedFunction.func)}`
         name: enumVariantName,
         parameterTypes,
       });
+    }
+
+    if (enumVariants.length === 0) {
+      throw this.formatErrorMessage(
+        tokens[enumTokenIndex + 1],
+        "Enum must have at least one variant"
+      );
     }
 
     // Check if userDefinedKind is valid:
