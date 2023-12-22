@@ -700,6 +700,12 @@ function main() {
 }
 `
 
+code = `
+enum MyLinear: Linear {}
+
+type Coord<T: Linear> = {x: i32, y: T};
+`
+
 const codeGenerator = new CodeGenerator(code);
 
 // const ir = codeGenerator.getLlvmIr();

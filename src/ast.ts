@@ -8,6 +8,7 @@ import {
   TTrait,
   TUnit,
   Type,
+  TypeKind,
   typeToString,
 } from "./type-checker";
 
@@ -332,8 +333,16 @@ export function synthesizeRecordType(
     value: Expr;
   }[]
 ): Type {
+  let kind: TypeKind = "Free";
+  properties.forEach(({ value }) => {
+    if (kind === "Free") {
+      kind = value.typeValue.kind as TypeKind;
+    }
+  });
+
   return {
     type: "Record",
+    kind,
     properties: properties.map(({ name, value }) => {
       return {
         name,
@@ -383,8 +392,15 @@ export function exprToString(expr: Expr | FunctionPrototype) {
       return `const ${expr.variableName}: ${typeToString(
         expr.variableType
       )} = ${exprToString(expr.right)}`;
-    case AstType.TypeAlias:
-      return `type ${expr.typeName} = ${typeToString(expr.typeValue)}`;
+    case AstType.TypeAlias: {
+      const typeValueString = typeToString(expr.typeValue);
+      const typeParametersString = typeValueString.match(/^<.*>/)?.[0] ?? "";
+      const typeValueWithoutTypeParameters = typeValueString.replace(
+        /^<.*>/,
+        ""
+      );
+      return `type ${expr.typeName}${typeParametersString}: ${expr.typeValue.kind} = ${typeValueWithoutTypeParameters}`;
+    }
     case AstType.Trait:
       if (!expr.isDefinition) {
         return `${expr.traitName}${

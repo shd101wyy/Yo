@@ -1,6 +1,6 @@
 # Language Design
 
-**Mo** (墨) is minimal, general-purpose, functional (not pure), compiled programming language that targets LLVM IR.
+**Mo** (墨) is minimal, general-purpose, functional (not pure), compiled programming language.
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
@@ -13,6 +13,8 @@
 **Mo** has no garbage collector as it utilizes the [Linear Types](https://en.wikipedia.org/wiki/Substructural_type_system#:~:text=Linear%20types%20corresponds%20to%20linear,transitioned%20to%20a%20different%20state.) and implemented a strict borrow checker. The **Mo** compiler helps you eliminate potential errors before the code is executed.
 
 Our goal is to be a practical language that is easy to use and easy to learn.
+
+We will also post a series of articles on the design and implementation of **Mo**. Stay tuned!
 
 <!-- @import "[TOC]" {cmd="toc" depthFrom=1 depthTo=6 orderedList=false} -->
 
@@ -76,6 +78,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Effect polymorphism](#effect-polymorphism)
   - [Modules](#modules)
   - [Compile time execution `In Design`](#compile-time-execution-in-design)
+  - [Compilation `In Design`](#compilation-in-design)
   - [References](#references)
 
 <!-- /code_chunk_output -->
@@ -134,8 +137,22 @@ function main() {
 ## CLI Usage
 
 ```bash
-moc hello.mo -o hello
-moc hello.mo -arch wasm -o hello.wasm
+mo --help
+
+# Compilation
+mo hello.mo -o hello
+mo hello.mo --c-compiler clang -o hello
+mo hello.mo --target wasm -o hello.wasm
+
+# Package management
+mo install # Install dependencies defined in `mo.json` and `mo.lock`
+mo add package-name # Install a specific package
+mo add package-name@version # Install a specific version of a package
+mo add --global package-name # Install a package globally
+mo remove package-name # Uninstall a package
+
+# Run scripts
+mo run test
 ```
 
 ## Types
@@ -364,6 +381,15 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
   let age = pRef.age; // Reference<i32, R> for some region R. Free type.
   let age2 = *(pRef.age); // i32. Free type.
 }
+```
+
+```typescript
+let name = String.from("Alice");
+let p = Person.Person(name, 30); // p: Person. Linear type.
+
+const { name, age } = p; // p is consumed.
+
+p = Person.Person(name, 30); // This is allowed. We restored a consumed value.  
 ```
 
 ```typescript
@@ -1406,6 +1432,8 @@ function safeDivide(x: i32, y: i32): { Exception{raise as newRaise} } i32 {
 {?} // zero or one effect
 ```
 
+By default, a function without effect signature by default has `{*:Effect}`, which means the function has zero or more `ControlledEffect` or `LinearEffect` effects.
+
 ```typescript
 function map<A: Type, B: Type>(xs: &<List<A>>, func: (x: &<A>) => {*} B): {*} List<B> {
   if xs is Nil {
@@ -1496,6 +1524,14 @@ function mul(x: i32, y: i32): i32 { x * y }
 
 let x: i32[#mul(2, 3)] = 6;
 ```
+
+## Compilation `In Design`
+
+The current **Mo** compiler frontend is written in **TypeScript** as a proof of concept.
+
+Boostrapping the **Mo** compiler is not a priority at the moment. We will do it when it's ready.
+
+**Mo** currently compiles to C. We might support compiling to LLVM IR, JavaScript, and WebAssembly in the future.
 
 ## References
 

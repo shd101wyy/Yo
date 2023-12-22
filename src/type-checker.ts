@@ -18,81 +18,112 @@ import {
 import { formatErrorMessage } from "./error";
 import { Token, TokenType } from "./token";
 
+export type TypeKind = "Type" | "Linear" | "Free";
+
+/*
+enum EffectKind {
+  Effect,
+  LinearEffect,
+  ControlledEffect,
+}
+*/
+
+export type RegionKind = "Region";
+
 export type TUnit = {
   type: "()";
+  kind: "Free";
 };
 
 export type TBoolean = {
   type: "boolean";
+  kind: "Free";
 };
 
 export type TChar = {
   type: "char";
+  kind: "Free";
 };
 
 export type TU1 = {
   type: "u1";
+  kind: "Free";
 };
 
 export type TI1 = {
   type: "i1";
+  kind: "Free";
 };
 
 export type TU8 = {
   type: "u8";
+  kind: "Free";
 };
 
 export type TI8 = {
   type: "i8";
+  kind: "Free";
 };
 
 export type TU16 = {
   type: "u16";
+  kind: "Free";
 };
 
 export type TI16 = {
   type: "i16";
+  kind: "Free";
 };
 
 export type TU32 = {
   type: "u32";
+  kind: "Free";
 };
 
 export type TI32 = {
   type: "i32";
+  kind: "Free";
 };
 
 export type TU64 = {
   type: "u64";
+  kind: "Free";
 };
 
 export type TI64 = {
   type: "i64";
+  kind: "Free";
 };
 
 export type TU128 = {
   type: "u128";
+  kind: "Free";
 };
 
 export type TI128 = {
   type: "i128";
+  kind: "Free";
 };
 
 export type TF16 = {
   type: "f16";
+  kind: "Free";
 };
 
 export type TF32 = {
   type: "f32";
+  kind: "Free";
 };
 
 export type TF64 = {
   type: "f64";
+  kind: "Free";
 };
 
 // @"symbol"
 export type TSymbol = {
   type: "symbol";
+  kind: "Free";
 };
 
 export type TPrimitive = (
@@ -117,9 +148,15 @@ export type TPrimitive = (
   | TSymbol
 ) & { tag: "primitive"; value: string };
 
+export type TRecordProperty = {
+  name: string;
+  type: Type;
+};
+
 export type TRecord = {
   type: "Record";
-  properties: { name: string; type: Type }[];
+  kind: TypeKind;
+  properties: TRecordProperty[];
 };
 
 export type TParameterType = {
@@ -130,13 +167,15 @@ export type TParameterType = {
 
 export type TTypeParameter = {
   type: "TypeParameter";
+  kind: TypeKind | RegionKind;
   name: string;
   typeValue: Type;
-  defaultTypeValue: Type | null;
+  // defaultTypeValue: Type | null;
 };
 
 export type TFunction = {
   type: "Function";
+  kind: "Free";
   functionName?: string;
   typeParameters: TTypeParameter[]; // FIXME: Remove this
   parameterTypes: TParameterType[];
@@ -152,22 +191,26 @@ export type TFunction = {
 
 export type TUnion = {
   type: "Union";
+  kind: TypeKind;
   types: Type[];
 };
 
 export type TIntersection = {
   type: "Intersection";
+  kind: TypeKind;
   types: Type[];
 };
 
 export type TUnknown = {
   type: "unknown";
+  kind: "Free";
   typeArguments?: Type[];
   typeName?: string; // FIXME: This might be a expression in the future
 };
 
 export type TSlice = {
   type: "slice";
+  kind: TypeKind;
   elementType: Type;
   size?: number;
 };
@@ -183,6 +226,7 @@ export type TTypeConstructor = {
   type: "TypeConstructor";
   typeParameters: TTypeParameter[];
   typeValue: Type;
+  kind: TypeKind;
 };
 
 /**
@@ -196,6 +240,7 @@ export type TTraitFunction = {
 
 export type TTrait = {
   type: "Trait";
+  kind: "Free";
   typeParameters: TTypeParameter[];
   functions: TTraitFunction[];
 };
@@ -212,6 +257,7 @@ export type TEnum = {
   variants: TEnumVariant[];
   appliedTypeArguments?: Type[];
   selectedVariantName?: string;
+  kind: TypeKind;
 };
 
 /*
@@ -258,26 +304,46 @@ export type Type =
 
 // Type constructors
 
-export const TypeValues = {
-  unit: { type: "()" } as TUnit,
-  boolean: { type: "boolean" } as TBoolean,
-  char: { type: "char" } as TChar,
-  u1: { type: "u1" } as TU1,
-  u8: { type: "u8" } as TU8,
-  u16: { type: "u16" } as TU16,
-  u32: { type: "u32" } as TU32,
-  u64: { type: "u64" } as TU64,
-  u128: { type: "u128" } as TU128,
-  i1: { type: "i1" } as TI1,
-  i8: { type: "i8" } as TI8,
-  i16: { type: "i16" } as TI16,
-  i32: { type: "i32" } as TI32,
-  i64: { type: "i64" } as TI64,
-  i128: { type: "i128" } as TI128,
-  f16: { type: "f16" } as TF16,
-  f32: { type: "f32" } as TF32,
-  f64: { type: "f64" } as TF64,
-  unknown: { type: "unknown" } as TUnknown,
+export const TypeValues: {
+  unit: TUnit;
+  boolean: TBoolean;
+  char: TChar;
+  u1: TU1;
+  u8: TU8;
+  u16: TU16;
+  u32: TU32;
+  u64: TU64;
+  u128: TU128;
+  i1: TI1;
+  i8: TI8;
+  i16: TI16;
+  i32: TI32;
+  i64: TI64;
+  i128: TI128;
+  f16: TF16;
+  f32: TF32;
+  f64: TF64;
+  unknown: TUnknown;
+} = {
+  unit: { type: "()", kind: "Free" },
+  boolean: { type: "boolean", kind: "Free" },
+  char: { type: "char", kind: "Free" },
+  u1: { type: "u1", kind: "Free" },
+  u8: { type: "u8", kind: "Free" },
+  u16: { type: "u16", kind: "Free" },
+  u32: { type: "u32", kind: "Free" },
+  u64: { type: "u64", kind: "Free" },
+  u128: { type: "u128", kind: "Free" },
+  i1: { type: "i1", kind: "Free" },
+  i8: { type: "i8", kind: "Free" },
+  i16: { type: "i16", kind: "Free" },
+  i32: { type: "i32", kind: "Free" },
+  i64: { type: "i64", kind: "Free" },
+  i128: { type: "i128", kind: "Free" },
+  f16: { type: "f16", kind: "Free" },
+  f32: { type: "f32", kind: "Free" },
+  f64: { type: "f64", kind: "Free" },
+  unknown: { type: "unknown", kind: "Free" },
 };
 
 export type ParserReturn = {
@@ -481,11 +547,25 @@ export function synthesizeTypeFromTokens({
   }
   // Check the record type
   else if (tokens[index].type === TokenType.LCurlyBracket) {
-    const typeValue: TRecord = {
-      type: "Record",
-      properties: [],
-    };
+    const properties: TRecordProperty[] = [];
     index = index + 1;
+
+    // Check user defined kind
+    let userDefinedKind: TypeKind | undefined = undefined;
+    const userDefinedKindTokenIndex = index + 1;
+    if (tokens[index].type === TokenType.Colon) {
+      index = index + 1;
+      userDefinedKind = parseTypeKind(tokens[index]);
+      if (!userDefinedKind) {
+        throw formatErrorMessage({
+          token: tokens[index],
+          errorMessage: "Expected 'Type', 'Linear' or 'Free'",
+          inputString,
+        });
+      }
+      index = index + 1;
+    }
+
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const token = tokens[index];
@@ -505,7 +585,7 @@ export function synthesizeTypeFromTokens({
         if (tokens[index + 1].type === TokenType.Colon) {
           index = index + 2;
           const {
-            typeValue: type,
+            typeValue: propertyType,
             index: nextIndex,
             env: nextEnv,
           } = synthesizeTypeFromTokens({
@@ -515,7 +595,8 @@ export function synthesizeTypeFromTokens({
             env,
             parseExpression,
           });
-          typeValue.properties.push({ name, type });
+
+          properties.push({ name, type: propertyType });
           index = nextIndex;
           env = nextEnv;
 
@@ -537,6 +618,39 @@ export function synthesizeTypeFromTokens({
         });
       }
     }
+
+    // Check if userDefinedKind is valid:
+    let kind = getRecordTypeKind(properties);
+    if (
+      userDefinedKind &&
+      userDefinedKind === "Free" &&
+      (kind === "Linear" || kind === "Type")
+    ) {
+      throw formatErrorMessage({
+        token: tokens[userDefinedKindTokenIndex],
+        errorMessage: `Cannot mix 'Free' type and '${kind}' type`,
+        inputString,
+      });
+    } else if (
+      userDefinedKind &&
+      userDefinedKind === "Linear" &&
+      kind === "Type"
+    ) {
+      throw formatErrorMessage({
+        token: tokens[userDefinedKindTokenIndex],
+        errorMessage: `Cannot mix 'Linear' type and 'Type' type`,
+        inputString,
+      });
+    } else {
+      kind = userDefinedKind ? userDefinedKind : kind;
+    }
+
+    const typeValue: TRecord = {
+      type: "Record",
+      properties,
+      kind,
+    };
+
     returnValue = {
       typeValue: typeValue,
       index: index,
@@ -614,7 +728,7 @@ export function synthesizeTypeFromTokens({
         break;
       }
       case "symbol": {
-        typeValue = { type: "symbol" };
+        typeValue = { type: "symbol", kind: "Free" };
         break;
       }
       default: {
@@ -651,6 +765,14 @@ export function synthesizeTypeFromTokens({
 
   const nextTokenType = tokens[returnValue.index]?.type;
   let newTypeValue: Type = returnValue.typeValue;
+  const newTypeValueKind = newTypeValue.kind;
+  if (newTypeValueKind === "Region") {
+    throw formatErrorMessage({
+      token: tokens[index],
+      errorMessage: "Region cannot be used in type",
+      inputString,
+    });
+  }
   // Check if it's slice
   if (nextTokenType === TokenType.LBracket) {
     let index = returnValue.index + 1;
@@ -676,6 +798,7 @@ export function synthesizeTypeFromTokens({
         } else {
           newTypeValue = {
             type: "slice",
+            kind: newTypeValueKind,
             elementType: newTypeValue,
             size,
           };
@@ -684,6 +807,7 @@ export function synthesizeTypeFromTokens({
       } else if (token.type === TokenType.RBracket) {
         newTypeValue = {
           type: "slice",
+          kind: newTypeValueKind,
           elementType: newTypeValue,
           size: undefined,
         };
@@ -720,10 +844,29 @@ export function synthesizeTypeFromTokens({
       env,
       parseExpression,
     });
+    const newReturnValueTypeKind = newReturnValue.typeValue.kind;
+    if (newReturnValueTypeKind === "Region") {
+      throw formatErrorMessage({
+        token: tokens[index],
+        errorMessage: "Region cannot be used in type",
+        inputString,
+      });
+    }
+
     if (newReturnValue.typeValue.type === "Union") {
+      const returnValueTypeKind = returnValue.typeValue.kind;
+      if (returnValueTypeKind === "Region") {
+        throw formatErrorMessage({
+          token: tokens[index],
+          errorMessage: "Region cannot be used in type",
+          inputString,
+        });
+      }
+
       returnValue = {
         typeValue: {
           type: "Union",
+          kind: mixTypeKind(returnValueTypeKind, newReturnValueTypeKind),
           types: [returnValue.typeValue, ...newReturnValue.typeValue.types],
         },
         index: newReturnValue.index,
@@ -741,9 +884,19 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
         });
       }
 
+      const returnValueTypeKind = returnValue.typeValue.kind;
+      if (returnValueTypeKind === "Region") {
+        throw formatErrorMessage({
+          token: tokens[index],
+          errorMessage: "Region cannot be used in type",
+          inputString,
+        });
+      }
+
       returnValue = {
         typeValue: {
           type: "Union",
+          kind: mixTypeKind(returnValueTypeKind, newReturnValueTypeKind),
           types: [returnValue.typeValue, newReturnValue.typeValue],
         },
         index: newReturnValue.index,
@@ -760,10 +913,28 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
       env,
       parseExpression,
     });
+    const newReturnValueTypeKind = newReturnValue.typeValue.kind;
+    if (newReturnValueTypeKind === "Region") {
+      throw formatErrorMessage({
+        token: tokens[index],
+        errorMessage: "Region cannot be used in type",
+        inputString,
+      });
+    }
     if (newReturnValue.typeValue.type === "Intersection") {
+      const returnValueTypeKind = returnValue.typeValue.kind;
+      if (returnValueTypeKind === "Region") {
+        throw formatErrorMessage({
+          token: tokens[index],
+          errorMessage: "Region cannot be used in type",
+          inputString,
+        });
+      }
+
       returnValue = {
         typeValue: {
           type: "Intersection",
+          kind: mixTypeKind(returnValueTypeKind, newReturnValueTypeKind),
           types: [returnValue.typeValue, ...newReturnValue.typeValue.types],
         },
         index: newReturnValue.index,
@@ -781,9 +952,19 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
         });
       }
 
+      const returnValueTypeKind = returnValue.typeValue.kind;
+      if (returnValueTypeKind === "Region") {
+        throw formatErrorMessage({
+          token: tokens[index],
+          errorMessage: "Region cannot be used in type",
+          inputString,
+        });
+      }
+
       returnValue = {
         typeValue: {
           type: "Intersection",
+          kind: mixTypeKind(returnValueTypeKind, newReturnValueTypeKind),
           types: [returnValue.typeValue, newReturnValue.typeValue],
         },
         index: newReturnValue.index,
@@ -977,6 +1158,7 @@ export function applyTypeArgumentsToType(
 
     return {
       type: "Trait",
+      kind: "Free",
       typeParameters: newTypeParameters, // FIXME: <- this might be wrong
       functions: functions,
     };
@@ -1037,6 +1219,7 @@ export function applyTypeArgumentsToType(
 
     const enumType: TEnum = {
       type: "Enum",
+      kind: type.kind, // getEnumTypeKind(variants), NOTE: This is wrong
       enumName: type.enumName,
       typeParameters: newTypeParameters, // FIXME: <- this might be wrong
       variants: variants,
@@ -1720,7 +1903,6 @@ export function synthesizeFunctionTypeFromTokens({
       index,
       env,
       inputString,
-      parseExpression,
     });
     typeParameters = nextTypeParameters;
     index = nextIndex;
@@ -1769,6 +1951,7 @@ export function synthesizeFunctionTypeFromTokens({
       return {
         typeValue: {
           type: "Function",
+          kind: "Free",
           functionName,
           parameterTypes,
           typeParameters,
@@ -1804,6 +1987,7 @@ export function synthesizeFunctionTypeFromTokens({
       return {
         typeValue: {
           type: "Function",
+          kind: "Free",
           functionName,
           parameterTypes,
           typeParameters,
@@ -1817,11 +2001,13 @@ export function synthesizeFunctionTypeFromTokens({
       return {
         typeValue: {
           type: "Function",
+          kind: "Free",
           functionName,
           parameterTypes,
           typeParameters,
           returnType: {
             type: "unknown",
+            kind: "Free",
           },
           freeVariables: undefined,
         },
@@ -1833,6 +2019,76 @@ export function synthesizeFunctionTypeFromTokens({
 }
 
 /**
+ * @param tokens
+ * @param index
+ * @param inputString
+ * @returns
+ */
+export function parseTypeKind(token: Token): TypeKind | undefined {
+  if (token.value === "Type") {
+    return "Type";
+  } else if (token.value === "Linear") {
+    return "Linear";
+  } else if (token.value === "Free") {
+    return "Free";
+  } else {
+    return undefined;
+  }
+}
+
+/**
+ * @param tokens
+ * @param index
+ * @param inputString
+ * @returns
+ */
+function parseTypeAndRegionKind(
+  tokens: Token[],
+  index: number,
+  inputString: string
+): TypeKind | RegionKind {
+  if (tokens[index].value === "Type") {
+    return "Type";
+  } else if (tokens[index].value === "Linear") {
+    return "Linear";
+  } else if (tokens[index].value === "Free") {
+    return "Free";
+  } else if (tokens[index].value === "Region") {
+    return "Region";
+  } else {
+    throw formatErrorMessage({
+      token: tokens[index],
+      errorMessage: `Unknown type kind ${tokens[index].value}`,
+      inputString,
+    });
+  }
+}
+
+function getRecordTypeKind(properties: TRecordProperty[]): TypeKind {
+  let kind: TypeKind = "Free";
+  properties.forEach((property) => {
+    if (kind === "Free") {
+      const propertyKind = property.type.kind;
+      if (propertyKind === "Region") {
+        throw new Error("Region is not supported in record type");
+      }
+      kind = propertyKind;
+    }
+  });
+  return kind;
+}
+
+export function getEnumTypeKind(variants: TEnumVariant[]): TypeKind {
+  let kind: TypeKind = "Free";
+  variants.forEach((variant) => {
+    if (kind === "Free") {
+      kind = getRecordTypeKind(variant.parameterTypes);
+    }
+  });
+  return kind;
+}
+
+/**
  * Check type parameters declaration <...>
  * For example: <T> in `fn<T>(a: T) {}`
  */
@@ -1841,13 +2097,11 @@ export function synthesizeTypeParametersFromTokens({
   index,
   env,
   inputString,
-  parseExpression,
 }: {
   tokens: Token[];
   index: number;
   env: Environment;
   inputString: string;
-  parseExpression: ParseExpression;
 }): {
   typeParameters: TTypeParameter[];
   index: number;
@@ -1890,7 +2144,8 @@ export function synthesizeTypeParametersFromTokens({
       });
     }
     const typeParameterName = token.value;
-    let typeParameterType: Type = TypeValues.unknown;
+    const typeParameterType: Type = TypeValues.unknown;
+    /*
     if (tokens[index + 1].type === TokenType.Colon) {
       index = index + 2;
       const {
@@ -1910,7 +2165,27 @@ export function synthesizeTypeParametersFromTokens({
     } else {
       index = index + 1;
     }
+    */
 
+    // Check type kind
+    let kind: TypeKind | RegionKind | undefined = undefined;
+    if (tokens[index + 1].type === TokenType.Colon) {
+      index = index + 2;
+      kind = parseTypeAndRegionKind(tokens, index, inputString);
+      if (!kind) {
+        throw formatErrorMessage({
+          token: tokens[index],
+          errorMessage: `Unknown type kind ${tokens[index].value}. Expected 'Type', 'Linear', 'Free', or 'Region'`,
+          inputString,
+        });
+      }
+      index = index + 1;
+    } else {
+      kind = "Type";
+      index = index + 1;
+    }
+
+    /*
     // check type parameter default value
     let defaultTypeValue: Type | null = null;
     if (tokens[index].type === TokenType.Assign) {
@@ -1929,12 +2204,14 @@ export function synthesizeTypeParametersFromTokens({
       env = nextEnv;
       defaultTypeValue = nextDefaultTypeValue;
     }
+    */
 
     const typeParameter: TTypeParameter = {
       type: "TypeParameter",
+      kind: kind,
       name: typeParameterName,
       typeValue: typeParameterType,
-      defaultTypeValue: defaultTypeValue,
+      // defaultTypeValue: defaultTypeValue,
     };
     typeParameters.push(typeParameter);
 
@@ -2128,17 +2405,21 @@ export function typeToString(type: Type): string {
     }*/
     case "TypeParameter": {
       return `${type.name}`;
-      // return `${type.name}:${typeToString(type.typeValue)}`;
     }
     case "TypeConstructor": {
       return `<${type.typeParameters
-        .map((typeParameter) => typeToString(typeParameter))
+        .map((typeParameter) => `${typeParameter.name}: ${typeParameter.kind}`)
         .join(", ")}>${typeToString(type.typeValue)}`;
     }
     case "Trait": {
       return `trait${
         type.typeParameters.length
-          ? `<${type.typeParameters.map(typeToString).join(",")}>`
+          ? `<${type.typeParameters
+              .map(
+                (typeParameter) =>
+                  `${typeParameter.name}: ${typeParameter.kind}`
+              )
+              .join(",")}>`
           : ""
       } {
   ${type.functions
@@ -2166,9 +2447,14 @@ export function typeToString(type: Type): string {
 
       return `enum${
         type.typeParameters.length
-          ? `<${type.typeParameters.map(typeToString).join(",")}>`
+          ? `<${type.typeParameters
+              .map(
+                (typeParameter) =>
+                  `${typeParameter.name}: ${typeParameter.kind}`
+              )
+              .join(",")}>`
           : ""
-      } {
+      }: ${type.kind} {
 ${type.variants
   .map(({ name, parameterTypes }) => {
     return `  ${name}${
@@ -2561,5 +2847,15 @@ export function getEnumTagSize(enumType: TEnum): 8 | 16 | 32 {
     return 16;
   } else {
     return 32;
+  }
+}
+
+function mixTypeKind(kind1: TypeKind, kind2: TypeKind): TypeKind {
+  if (kind1 === "Type" || kind2 === "Type") {
+    return "Type";
+  } else if (kind1 === "Linear" || kind2 === "Linear") {
+    return "Linear";
+  } else {
+    return "Free";
   }
 }

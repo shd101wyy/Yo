@@ -39,12 +39,15 @@ import {
   TTypeConstructor,
   TTypeParameter,
   Type,
+  TypeKind,
   TypeValues,
   applyTypeArgumentsToType,
   checkType,
   convertPrimitiveToType,
+  getEnumTypeKind,
   getFunctionArgumentsInOrder,
   getFunctionsOfCallerFromEnv,
+  parseTypeKind,
   synthesizeFunctionParameterTypesFromTokens,
   synthesizeFunctionTypeFromTokens,
   synthesizeTypeArgumentsFromTokens,
@@ -81,6 +84,7 @@ export default class Parser {
           tag: "primitive",
           typeValue: {
             type: "i32",
+            kind: "Free",
             value: token.value,
             tag: "primitive",
           },
@@ -93,7 +97,12 @@ export default class Parser {
         expr: {
           type: AstType.Value,
           tag: "primitive",
-          typeValue: { type: "f32", value: token.value, tag: "primitive" },
+          typeValue: {
+            type: "f32",
+            kind: "Free",
+            value: token.value,
+            tag: "primitive",
+          },
           env,
         },
         index: index + 1,
@@ -114,7 +123,12 @@ export default class Parser {
         expr: {
           type: AstType.Value,
           tag: "primitive",
-          typeValue: { type: "char", value: token.value, tag: "primitive" },
+          typeValue: {
+            type: "char",
+            kind: "Free",
+            value: token.value,
+            tag: "primitive",
+          },
           env,
         },
         index: index + 1,
@@ -134,7 +148,12 @@ export default class Parser {
       const end: PrimitiveValueExpr = {
         type: AstType.Value,
         tag: "primitive",
-        typeValue: { type: "char", value: "\0", tag: "primitive" },
+        typeValue: {
+          type: "char",
+          kind: "Free",
+          value: "\0",
+          tag: "primitive",
+        },
         env,
       };
       return {
@@ -143,6 +162,7 @@ export default class Parser {
           tag: "slice",
           typeValue: {
             type: "slice",
+            kind: "Free",
             elementType: TypeValues.char,
             size: token.value.length + 1,
           },
@@ -153,7 +173,12 @@ export default class Parser {
               const charValue: PrimitiveValueExpr = {
                 type: AstType.Value,
                 tag: "primitive",
-                typeValue: { type: "char", value: char, tag: "primitive" },
+                typeValue: {
+                  type: "char",
+                  kind: "Free",
+                  value: char,
+                  tag: "primitive",
+                },
                 env,
               };
               return charValue;
@@ -175,7 +200,12 @@ export default class Parser {
           type: AstType.Value,
           env,
           tag: "primitive",
-          typeValue: { type: "symbol", value: token.value, tag: "primitive" },
+          typeValue: {
+            type: "symbol",
+            kind: "Free",
+            value: token.value,
+            tag: "primitive",
+          },
         },
         index: index + 1,
       };
@@ -196,7 +226,12 @@ export default class Parser {
           type: AstType.Value,
           env,
           tag: "primitive",
-          typeValue: { type: "boolean", value: token.value, tag: "primitive" },
+          typeValue: {
+            type: "boolean",
+            kind: "Free",
+            value: token.value,
+            tag: "primitive",
+          },
         },
         index: index + 1,
       };
@@ -255,6 +290,7 @@ export default class Parser {
     if (isSlice) {
       typeValue = {
         type: "slice",
+        kind: firstElementType.kind as TypeKind,
         elementType: firstElementType,
         size: values.length,
       };
@@ -313,7 +349,7 @@ export default class Parser {
         expr: {
           type: AstType.Value,
           tag: "record",
-          typeValue: { type: "Record", properties: [] },
+          typeValue: { type: "Record", kind: "Free", properties: [] },
           env,
           properties: [],
         },
@@ -775,7 +811,12 @@ Returned:  ${typeToString(returnType)}`
         expr: {
           type: AstType.Value,
           tag: "primitive",
-          typeValue: { type: "()", value: "()", tag: "primitive" },
+          typeValue: {
+            type: "()",
+            kind: "Free",
+            value: "()",
+            tag: "primitive",
+          },
           env,
         },
         index: index + 2,
@@ -1098,12 +1139,10 @@ Expected: <${typeParameters
 Got:      <${functionTypeArgumentsInOrder.map(typeToString).join(", ")}>`
       );
     } else {
-      console.log("@ Start function");
       const typeValue_ = applyTypeArgumentsToType(
         calleeTypeValue,
         functionTypeArgumentsInOrder
       );
-      console.log("@ End function");
       if (typeValue_.type !== "Function") {
         throw this.formatErrorMessage(
           tokens[index],
@@ -1281,13 +1320,6 @@ Got:      <${appliedTypeArguments.map(typeToString).join(", ")}>`
       variantTypeArgumentsInOrder
     ) as TEnum;
 
-    console.log(
-      "enumType: ",
-      typeToString(enumType),
-      appliedTypeArguments,
-      variantTypeArgumentsInOrder
-    );
-
     return {
       expr: {
         type: AstType.CallEnum,
@@ -1353,11 +1385,6 @@ Got:      <${appliedTypeArguments.map(typeToString).join(", ")}>`
       );
     }
 
-    console.log(
-      "targetEnumType.appliedTypeArguments: ",
-      targetEnumType.appliedTypeArguments,
-      typeToString(targetEnumType)
-    );
     if (
       !targetEnumType.appliedTypeArguments ||
       targetEnumType.appliedTypeArguments.length === 0 ||
@@ -1455,10 +1482,6 @@ Found possible traits:
           typeArguments = nextTypeArguments;
           index = nextIndex;
           env = nextEnv;
-          console.log(
-            "- done parsing typeArguments: ",
-            typeArguments.map(typeToString)
-          );
         } else {
           index = index + 1;
         }
@@ -1547,9 +1570,6 @@ Found possible enums:
       tokens[index + 1]?.type === TokenType.LessThan ||
       isWithStatement
     ) {
-      console.log("- isWithStatement: ", isWithStatement);
-      console.log("matchedTraits: ", matchedTraits.length);
-
       // Try all matchedFunctions to see if there is a match
       const parserReturns: ParserReturn[] = [];
       const parsedFunctions: ValueType[] = [];
@@ -1918,6 +1938,7 @@ Found possible functions:
           operator = TokenType.LessThanOrEqual;
         }
       }
+      const lhsType = convertPrimitiveToType((needsSwap ? RHS : LHS).typeValue);
       LHS = {
         type: AstType.BinaryOperator,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1925,7 +1946,7 @@ Found possible functions:
         left: needsSwap ? RHS : LHS,
         right: needsSwap ? LHS : RHS,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        typeValue: { type: LHS.typeValue.type as any }, // FIXME:
+        typeValue: lhsType, // FIXME:
         // const x = 1
         // x + 2  // give type 1
         env,
@@ -2039,7 +2060,7 @@ Found possible functions:
       exprs.push({
         type: AstType.Value,
         tag: "primitive",
-        typeValue: { type: "()", value: "()", tag: "primitive" },
+        typeValue: { type: "()", kind: "Free", value: "()", tag: "primitive" },
         env: nextEnv,
       });
     }
@@ -2154,8 +2175,6 @@ Found possible functions:
       if (prototype.typeValue.returnType.type === "unknown") {
         prototype.typeValue.returnType = functionReturnType;
       }
-
-      console.log("functionReturnType: ", typeToString(functionReturnType));
 
       if (!checkType(prototype.typeValue.returnType, functionReturnType, env)) {
         throw this.formatErrorMessage(
@@ -2676,6 +2695,7 @@ Got:      ${typeToString(variableType)}`
       variableName: typeName,
       type: {
         type: "unknown",
+        kind: "Free",
         typeName,
       },
       kind: "type",
@@ -2693,11 +2713,25 @@ Got:      ${typeToString(variableType)}`
         index,
         env,
         inputString: this.inputString,
-        parseExpression: this.parseExpression.bind(this),
       });
       index = nextIndex;
       typeParameters = tp;
       env = nextEnv;
+    }
+
+    // Parse userDefinedKind
+    let userDefinedKind: TypeKind | undefined = undefined;
+    const userDefinedKindTokenIndex = index + 1;
+    if (tokens[index].type === TokenType.Colon) {
+      index = index + 1;
+      userDefinedKind = parseTypeKind(tokens[index]);
+      if (!userDefinedKind) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected 'Type', 'Linear' or 'Free'"
+        );
+      }
+      index = index + 1;
     }
 
     // Type value
@@ -2721,8 +2755,40 @@ Got:      ${typeToString(variableType)}`
       parseExpression: this.parseExpression.bind(this),
     });
 
+    // Check if userDefinedKind is valid:
+    let kind = typeValue.kind;
+    if (kind === "Region") {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "'Region' type cannot be used for type alias"
+      );
+    }
+
+    if (
+      userDefinedKind &&
+      userDefinedKind === "Free" &&
+      (kind === "Linear" || kind === "Type")
+    ) {
+      throw this.formatErrorMessage(
+        tokens[userDefinedKindTokenIndex],
+        `Cannot mix 'Free' type and '${kind}' type`
+      );
+    } else if (
+      userDefinedKind &&
+      userDefinedKind === "Linear" &&
+      kind === "Type"
+    ) {
+      throw this.formatErrorMessage(
+        tokens[userDefinedKindTokenIndex],
+        `Cannot mix 'Linear' type and '${kind}' type`
+      );
+    } else {
+      kind = userDefinedKind ? userDefinedKind : kind;
+    }
+
     const typeConstructor: TTypeConstructor = {
       type: "TypeConstructor",
+      kind,
       typeParameters,
       typeValue,
     };
@@ -2796,6 +2862,7 @@ Got:      ${typeToString(variableType)}`
       variableName: traitName,
       type: {
         type: "unknown",
+        kind: "Free",
         typeName: traitName,
       },
       kind: "type",
@@ -2813,7 +2880,6 @@ Got:      ${typeToString(variableType)}`
         index,
         env,
         inputString: this.inputString,
-        parseExpression: this.parseExpression.bind(this),
       });
       index = nextIndex;
       typeParameters = tp;
@@ -2959,6 +3025,7 @@ ${typeToString(functionType)}
 
     const traitType: TTrait = {
       type: "Trait",
+      kind: "Free",
       typeParameters,
       functions,
     };
@@ -3219,6 +3286,7 @@ Got:      ${typeToString(matchedFunction.func)}`
       variableName: enumName,
       type: {
         type: "unknown",
+        kind: "Free",
         typeName: enumName,
       },
       kind: "type",
@@ -3236,11 +3304,25 @@ Got:      ${typeToString(matchedFunction.func)}`
         index,
         env,
         inputString: this.inputString,
-        parseExpression: this.parseExpression.bind(this),
       });
       index = nextIndex;
       typeParameters = tp;
       env = nextEnv;
+    }
+
+    // Parse userDefinedKind
+    let userDefinedKind: TypeKind | undefined = undefined;
+    const userDefinedKindTokenIndex = index + 1;
+    if (tokens[index].type === TokenType.Colon) {
+      index = index + 1;
+      userDefinedKind = parseTypeKind(tokens[index]);
+      if (!userDefinedKind) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected 'Type', 'Linear' or 'Free'"
+        );
+      }
+      index = index + 1;
     }
 
     // Parse enum body
@@ -3297,8 +3379,33 @@ Got:      ${typeToString(matchedFunction.func)}`
       });
     }
 
+    // Check if userDefinedKind is valid:
+    let kind = getEnumTypeKind(enumVariants);
+    if (
+      userDefinedKind &&
+      userDefinedKind === "Free" &&
+      (kind === "Linear" || kind === "Type")
+    ) {
+      throw this.formatErrorMessage(
+        tokens[userDefinedKindTokenIndex],
+        `Cannot mix 'Free' type and '${kind}' type`
+      );
+    } else if (
+      userDefinedKind &&
+      userDefinedKind === "Linear" &&
+      kind === "Type"
+    ) {
+      throw this.formatErrorMessage(
+        tokens[userDefinedKindTokenIndex],
+        `Cannot mix 'Linear' type and '${kind}' type`
+      );
+    } else {
+      kind = userDefinedKind ? userDefinedKind : kind;
+    }
+
     const enumType: TEnum = {
       type: "Enum",
+      kind,
       enumName,
       typeParameters,
       variants: enumVariants,
