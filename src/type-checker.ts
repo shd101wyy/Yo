@@ -16,6 +16,7 @@ import {
   pushEnvFrame,
 } from "./env";
 import { formatErrorMessage } from "./error";
+import { isUpperCamelCase } from "./naming-checker";
 import { Token, TokenType } from "./token";
 
 export type TypeKind = "Type" | "Linear" | "Free";
@@ -2157,27 +2158,14 @@ export function synthesizeTypeAndRegionParametersFromTokens({
     }
     const typeParameterName = token.value;
     const typeParameterType: Type = TypeValues.unknown;
-    /*
-    if (tokens[index + 1].type === TokenType.Colon) {
-      index = index + 2;
-      const {
-        typeValue: newTypeParameterType,
-        index: nextIndex,
-        env: nextEnv,
-      } = synthesizeTypeFromTokens({
-        tokens,
-        index,
+
+    if (!isUpperCamelCase(typeParameterName)) {
+      throw formatErrorMessage({
+        token,
+        errorMessage: `Type parameter name "${typeParameterName}" must be UpperCamelCase`,
         inputString,
-        env,
-        parseExpression: parseExpression,
       });
-      typeParameterType = newTypeParameterType;
-      env = nextEnv;
-      index = nextIndex;
-    } else {
-      index = index + 1;
     }
-    */
 
     // Check type kind
     let kind: TypeKind | RegionKind | undefined = undefined;

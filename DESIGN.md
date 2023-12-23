@@ -85,7 +85,8 @@ We will also post a series of articles on the design and implementation of **Mo*
 
 ## Philosophy
 
-Explicit is better than implicit.
+The explicit is better than the implicit.  
+The strict is better than the loose.
 
 ## Inspiration
 
@@ -389,7 +390,7 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 
 const { name, age } = p; // p is consumed.
 
-p = Person.Person(name, 30); // This is allowed. We restored a consumed value.  
+p = Person.Person(name, 30); // This is allowed. We restored a consumed value.
 ```
 
 ```typescript
