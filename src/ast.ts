@@ -28,7 +28,6 @@ export enum AstType {
   IsOperator = "isop",
 
   // assignment
-  ConstantAssignment = "const=",
   LetAssignment = "let=",
   Assignment = "=",
   TypeAlias = "type=",
@@ -79,7 +78,7 @@ export enum OperatorType {
 export type Expr =
   | FunctionExpr
   | ExternExpr
-  | AssignmentExpr
+  | LetAssignmentExpr
   | TypeAliasExpr
   | EnumExpr
   | ClassExpr
@@ -191,9 +190,10 @@ export type TypeValueExpr = {
 };
 */
 
-export type AssignmentExpr = {
-  type: AstType.ConstantAssignment; // | AstType.LetAssignment; // | AstType.Assignment;
+export type LetAssignmentExpr = {
+  type: AstType.LetAssignment;
   variableName: string;
+  isMutable: boolean;
   variableType: Type;
   frameLevel: number;
   right: Expr;
@@ -388,10 +388,10 @@ export function exprToString(expr: Expr | FunctionPrototype) {
       return `${expr.operator}${exprToString(expr.expr)}`;
     case AstType.IsOperator:
       return `${exprToString(expr.left)} is ${typeToString(expr.right)}`;
-    case AstType.ConstantAssignment:
-      return `const ${expr.variableName}: ${typeToString(
-        expr.variableType
-      )} = ${exprToString(expr.right)}`;
+    case AstType.LetAssignment:
+      return `let${expr.isMutable ? " mut" : ""} ${
+        expr.variableName
+      }: ${typeToString(expr.variableType)} = ${exprToString(expr.right)}`;
     case AstType.TypeAlias: {
       const typeValueString = typeToString(expr.typeValue);
       const typeParametersString = typeValueString.match(/^<.*>/)?.[0] ?? "";
@@ -430,7 +430,12 @@ export function exprToString(expr: Expr | FunctionPrototype) {
           ? `<${expr.prototype.typeValue.typeParameters.map(typeToString)}>`
           : ""
       }(${expr.prototype.typeValue.parameterTypes
-        .map((p) => `${p.name}: ${typeToString(p.type)}`)
+        .map(
+          (p) =>
+            `${p.isMutable ? "mut " : ""}${p.name}: ${typeToString(p.type)}${
+              p.defaultValue ? `=${exprToString(p.defaultValue)}` : ""
+            }`
+        )
         .join(", ")}):${typeToString(expr.prototype.typeValue.returnType)} ${
         expr.prototype.functionName ? "" : " => "
       } {\n${expr.body

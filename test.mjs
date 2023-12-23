@@ -701,15 +701,10 @@ function main() {
 `
 
 code = `
-enum Option<V> {
-  Some(val: V),
-  None
+function testFunction(mut a: i32 = 1) {
+  let x = 1;
+  let mut y = 12;
 }
-
-function testFunction() {
-  ()
-}
-
 `
 
 const codeGenerator = new CodeGenerator(code);

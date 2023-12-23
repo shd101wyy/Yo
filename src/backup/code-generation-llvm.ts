@@ -1590,7 +1590,7 @@ ${typeToString(enumType)}`
           }
         }
       }
-      case AstType.ConstantAssignment: {
+      case AstType.LetAssignment: {
         const { env: nextEnv, ...value } = this.codegenExpr(expr.right, env);
         env = addLlvmEnvValue(nextEnv, {
           ...value,

@@ -107,6 +107,13 @@ export function tokenize(input: string): Token[] {
             position: { line, character: i - totalCharacters },
           });
           i++;
+        } else if (input[i + 1] === "!") {
+          tokens.push({
+            type: TokenType.MutableReference,
+            value: "&!",
+            position: { line, character: i - totalCharacters },
+          });
+          i++;
         } else {
           tokens.push({
             type: TokenType.BitwiseAnd,
@@ -572,9 +579,9 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
-            case "const":
+            case "mut":
               tokens.push({
-                type: TokenType.Const,
+                type: TokenType.Mut,
                 value,
                 position: { line, character: i - totalCharacters },
               });

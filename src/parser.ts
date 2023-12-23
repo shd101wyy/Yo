@@ -4,12 +4,12 @@
  */
 
 import {
-  AssignmentExpr,
   AstType,
   BlockExpr,
   Expr,
   FunctionExpr,
   FunctionPrototype,
+  LetAssignmentExpr,
   PrimitiveValueExpr,
   getTokenPrecedence,
   synthesizeRecordType,
@@ -1002,9 +1002,10 @@ Returned:  ${typeToString(returnType)}`
                 );
               }
 
-              const parameterAssignmentExpr: AssignmentExpr = {
-                type: AstType.ConstantAssignment,
+              const parameterAssignmentExpr: LetAssignmentExpr = {
+                type: AstType.LetAssignment,
                 variableName: variableName,
+                isMutable: false, // NOTE: This is not used.
                 right: defaultParameterValueExpr,
                 typeValue: TypeValues.unit,
                 variableType: defaultParameterValueExpr.typeValue,
@@ -1737,8 +1738,8 @@ Found possible functions:
         returnValue = this.parseIfExpr(tokens, index, env, isWithStatement);
         break;
       }
-      case TokenType.Const: {
-        return this.parseConstAssignment(tokens, index, env, isWithStatement);
+      case TokenType.Let: {
+        return this.parseLetAssignment(tokens, index, env, isWithStatement);
       }
       case TokenType.Semicolon: {
         return {
@@ -2386,16 +2387,22 @@ else: ${typeToString(elseReturnType)}
     };
   }
 
-  private parseConstAssignment(
+  private parseLetAssignment(
     tokens: Token[],
     index: number,
     env: Environment,
     isWithStatement: boolean
   ): ParserReturn {
-    if (tokens[index].type !== TokenType.Const) {
-      throw this.formatErrorMessage(tokens[index], "Expected const");
+    if (tokens[index].type !== TokenType.Let) {
+      throw this.formatErrorMessage(tokens[index], 'Expected "let"');
     }
     index = index + 1;
+
+    let isMutable: boolean = false;
+    if (tokens[index].type === TokenType.Mut) {
+      isMutable = true;
+      index = index + 1;
+    }
 
     if (tokens[index].type !== TokenType.Identifier) {
       throw this.formatErrorMessage(
@@ -2548,8 +2555,9 @@ Got:      ${typeToString(variableType)}`
 
     return {
       expr: {
-        type: AstType.ConstantAssignment,
+        type: AstType.LetAssignment,
         variableName,
+        isMutable,
         variableType: userDefinedVariableType ?? variableType,
         right: value,
         typeValue: TypeValues.unit,
@@ -2597,7 +2605,8 @@ Got:      ${typeToString(variableType)}`
     const typeValue = withExpr.typeValue;
 
     switch (typeValue.type) {
-      case "Record": {
+      /*case "Record": {
+        
         // Convert to ConstAssignment
         const constAssignmentExprs: Expr[] = [];
         // Add record fields to env
@@ -2608,7 +2617,7 @@ Got:      ${typeToString(variableType)}`
             kind: "value",
           });
           constAssignmentExprs.push({
-            type: AstType.ConstantAssignment,
+            type: AstType.LetAssignment,
             variableName: field.name,
             variableType: field.type,
             right: {
@@ -2638,6 +2647,7 @@ Got:      ${typeToString(variableType)}`
           index: nextIndex,
         };
       }
+      */
       case "Class": {
         // Take the typeclass functions out to env
         for (const func of typeValue.functions) {
@@ -3527,8 +3537,8 @@ Got:      ${typeToString(matchedFunction.func)}`
           index = index + 1;
           break;
         }
-        case TokenType.Const: {
-          const { expr, index: nextIndex } = this.parseConstAssignment(
+        case TokenType.Let: {
+          const { expr, index: nextIndex } = this.parseLetAssignment(
             tokens,
             index,
             env,

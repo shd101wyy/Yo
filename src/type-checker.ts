@@ -161,6 +161,7 @@ export type TRecord = {
 
 export type TParameterType = {
   name: string;
+  isMutable: boolean;
   type: Type;
   defaultValue: Expr | null;
 };
@@ -1205,6 +1206,7 @@ export function applyTypeArgumentsToType(
           const defaultValue = parameterType.defaultValue;
           const newParameterType: TParameterType = {
             name: parameterType.name,
+            isMutable: false, // QUESTION: Is this correct?
             type: applyTypeArgumentsToType(
               parameterType.type,
               typeArguments,
@@ -1272,8 +1274,9 @@ export function applyTypeArgumentsToType(
       ...type,
       typeParameters: newTypeParamters, // FIXME: <- This might be wrong
       parameterTypes: type.parameterTypes.map(
-        ({ name, type, defaultValue }) => ({
+        ({ name, type, isMutable, defaultValue }) => ({
           name,
+          isMutable,
           type: applyTypeArgumentsToType(
             type,
             typeArguments,
@@ -1484,7 +1487,7 @@ export function applyTypeArgumentsToExpr(
         typeParameterToTypeArgumentMap
       );
     }
-    case AstType.ConstantAssignment: {
+    case AstType.LetAssignment: {
       return {
         ...expr,
         variableType: applyTypeArgumentsToType(
@@ -1701,7 +1704,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
   const parameterDefaultValues: (Expr | null)[] = [];
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const token = tokens[index];
+    let token = tokens[index];
     if (!token) {
       throw formatErrorMessage({
         token: tokens[index - 1],
@@ -1716,6 +1719,13 @@ export function synthesizeFunctionParameterTypesFromTokens({
     if (token.type === TokenType.RParen) {
       index = index + 1;
       break;
+    }
+
+    let isMutable = false;
+    if (token.type === TokenType.Mut) {
+      isMutable = true;
+      index = index + 1;
+      token = tokens[index];
     }
 
     // TODO: There might be the case that only the type is specified or pattern matching
@@ -1803,6 +1813,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
 
     parameterTypes.push({
       name: parameterName,
+      isMutable,
       type: userDefinedParamterType,
       defaultValue: defaultParameterValue,
     });
@@ -2671,7 +2682,7 @@ export function getFunctionArgumentsInOrder(
     const argument = functionArguments[i];
 
     // Keyword argument
-    if (argument.type === AstType.ConstantAssignment) {
+    if (argument.type === AstType.LetAssignment) {
       const keyword = argument.variableName;
       const value = argument.right;
       const argumentPositionIndex = functionParameterTypes.findIndex(

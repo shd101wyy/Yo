@@ -20,6 +20,7 @@ export enum TokenType {
   LambdaArrow = "=>",
   DoArrow = "<-",
   Comptime = "#",
+  MutableReference = "&!",
 
   // parens
   LParen = "(",
@@ -67,7 +68,7 @@ export enum TokenType {
   Continue = "continue",
   Fallthrough = "fallthrough",
   Let = "let",
-  Const = "const",
+  Mut = "mut",
   Do = "do",
   Type = "type",
   Enum = "enum",
