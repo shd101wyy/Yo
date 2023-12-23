@@ -6,6 +6,7 @@ import {
   TEnum,
   TFunction,
   TPrimitive,
+  TPrimitiveWithValue,
   TUnit,
   Type,
   TypeKind,
@@ -22,6 +23,9 @@ export enum AstType {
   Variable = "variable",
   PropertyAccess = "property-access",
   IndexAccess = "index-access",
+
+  // reference and dereference
+  Reference = "reference",
 
   // operators
   BinaryOperator = "binop",
@@ -87,6 +91,7 @@ export type Expr =
   | BinaryOperatorExpr
   | IsOperatorExpr
   | VariableExpr
+  | ReferenceExpr
   | PropertyAccessExpr
   | IndexAccessExpr
   | ValueExpr
@@ -128,7 +133,8 @@ export type SliceValueExpr = {
 export type PrimitiveValueExpr = {
   type: AstType.Value;
   tag: "primitive";
-  typeValue: TPrimitive;
+  value: string;
+  typeValue: TPrimitive | TPrimitiveWithValue;
   env: Environment;
 };
 
@@ -141,6 +147,14 @@ export type VariableExpr = {
   typeValue: Type;
   env: Environment;
   // isFreeVariable: boolean;
+};
+
+export type ReferenceExpr = {
+  type: AstType.Reference;
+  expr: Expr;
+  isMutableReference: boolean;
+  typeValue: Type;
+  env: Environment;
 };
 
 export type PropertyAccessExpr = {
@@ -358,7 +372,7 @@ export function exprToString(expr: Expr | FunctionPrototype) {
     case AstType.Value:
       switch (expr.tag) {
         case "primitive":
-          return expr.typeValue.value;
+          return expr.value;
         case "record":
           return `{${expr.properties
             .map(({ name, value }) => `${name}: ${exprToString(value)}`)
@@ -496,6 +510,11 @@ export function exprToString(expr: Expr | FunctionPrototype) {
       )}(${expr.prototype.typeValue.parameterTypes
         .map((p) => `${p.name}: ${typeToString(p.type)}`)
         .join(", ")}):${typeToString(expr.prototype.typeValue.returnType)}`;
+    }
+    case AstType.Reference: {
+      return `(${expr.isMutableReference ? "&!" : "&"}${exprToString(
+        expr.expr
+      )})`;
     }
     default:
       throw new Error(`Unknown expr type ${expr}`);

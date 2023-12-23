@@ -87,6 +87,8 @@ export enum TokenType {
   Shared = "shared",
   Weak = "weak",
   With = "with",
+  As = "as",
+  Const = "const",
 
   /**
    * A list of available C functions can be found at:

@@ -19,7 +19,7 @@ export type ValueType = {
 
 let regionCount = 1;
 export function getNewRegionId(): string {
-  return `region-${regionCount++}`;
+  return `R_${regionCount++}`;
 }
 
 type Frame = {

@@ -127,7 +127,7 @@ export type TSymbol = {
   kind: "Free";
 };
 
-export type TPrimitive = (
+export type TPrimitive =
   | TUnit
   | TBoolean
   | TChar
@@ -146,8 +146,12 @@ export type TPrimitive = (
   | TF16
   | TF32
   | TF64
-  | TSymbol
-) & { tag: "primitive"; value: string };
+  | TSymbol;
+
+export type TPrimitiveWithValue = TPrimitive & {
+  tag: "primitive";
+  value: string;
+};
 
 export type TRecordProperty = {
   name: string;
@@ -171,15 +175,20 @@ export type TTypeParameter = {
   type: "TypeParameter";
   kind: TypeKind;
   name: string;
-  typeValue: Type;
-  // defaultTypeValue: Type | null;
+  appliedType?: Type;
+};
+
+export type TRegion = {
+  type: "Region";
+  kind: RegionKind;
+  regionId: string;
 };
 
 export type TRegionParameter = {
   type: "RegionParameter";
   kind: RegionKind;
   name: string;
-  regionId?: string;
+  appliedRegion?: TRegion;
 };
 
 export type TFunction = {
@@ -319,10 +328,10 @@ export type Type =
   | TTypeParameter
   | TClass
   | TEnum
-  | TPrimitive
+  | TPrimitiveWithValue
   | TExternType;
 
-export type Region = TRegionParameter;
+export type Region = TRegionParameter | TRegion;
 
 // Type constructors
 
@@ -979,8 +988,7 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
         errorMessage: `(1) Mismatched type arguments.
 Expected: <${typeParameters
           .map(
-            (typeParameter) =>
-              `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
+            (typeParameter) => `${typeParameter.name}: ${typeParameter.kind}`
           )
           .join(", ")}>
 Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`,
@@ -1006,8 +1014,7 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`,
         errorMessage: `(2) Mismatched type arguments.
 Expected: <${typeValue.typeParameters
           .map(
-            (typeParameter) =>
-              `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
+            (typeParameter) => `${typeParameter.name}: ${typeParameter.kind}`
           )
           .join(", ")}>
 Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`,
@@ -1026,8 +1033,7 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`,
         errorMessage: `(2) Mismatched type arguments.
 Expected: <${typeValue.typeParameters
           .map(
-            (typeParameter) =>
-              `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
+            (typeParameter) => `${typeParameter.name}: ${typeParameter.kind}`
           )
           .join(", ")}>
 Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`,
@@ -1072,10 +1078,7 @@ export function applyTypeArgumentsToType(
       throw new Error(
         `(3) Mismatched type arguments.
   Expected: <${type.typeParameters
-    .map(
-      (typeParameter) =>
-        `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
-    )
+    .map((typeParameter) => `${typeParameter.name}: ${typeParameter.kind}`)
     .join(", ")}>
   Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
       );
@@ -1087,18 +1090,17 @@ export function applyTypeArgumentsToType(
       const typeParameter = type.typeParameters[i];
       const typeArgument = typeArguments[i];
       typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
-      if (typeArgument.type === "TypeParameter") {
-        newTypeParameters.push(typeArgument);
-      } else if (typeArgument.type === "unknown") {
-        newTypeParameters.push(typeParameter);
-      }
+      newTypeParameters.push({
+        ...typeParameter,
+        appliedType: typeArgument,
+      });
     }
 
     return {
       type: "TypeConstructor",
       kind: type.kind,
       name: type.name,
-      typeParameters: newTypeParameters, // FIXME: <- this might be wrong
+      typeParameters: newTypeParameters,
       regionParameters: type.regionParameters,
       typeValue: applyTypeArgumentsToType(
         typeValue,
@@ -1111,10 +1113,7 @@ export function applyTypeArgumentsToType(
       throw new Error(
         `(4) Mismatched type arguments.
   Expected: <${type.typeParameters
-    .map(
-      (typeParameter) =>
-        `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
-    )
+    .map((typeParameter) => `${typeParameter.name}: ${typeParameter.kind}`)
     .join(", ")}>
   Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
       );
@@ -1239,10 +1238,7 @@ export function applyTypeArgumentsToType(
       throw new Error(
         `(5) Mismatched type arguments.
   Expected: <${typeParameters
-    .map(
-      (typeParameter) =>
-        `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
-    )
+    .map((typeParameter) => `${typeParameter.name}: ${typeParameter.kind}`)
     .join(", ")}>
   Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
       );
@@ -1370,10 +1366,7 @@ export function applyTypeArgumentsToFunctionExpr(
     throw new Error(
       `(6) Mismatched type arguments.
 Expected: <${typeParameters
-        .map(
-          (typeParameter) =>
-            `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
-        )
+        .map((typeParameter) => `${typeParameter.name}: ${typeParameter.kind}`)
         .join(", ")}>
 Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
     );
@@ -2157,8 +2150,6 @@ export function synthesizeTypeAndRegionParametersFromTokens({
       });
     }
     const typeParameterName = token.value;
-    const typeParameterType: Type = TypeValues.unknown;
-
     if (!isUpperCamelCase(typeParameterName)) {
       throw formatErrorMessage({
         token,
@@ -2226,8 +2217,6 @@ export function synthesizeTypeAndRegionParametersFromTokens({
         type: "TypeParameter",
         kind: kind,
         name: typeParameterName,
-        typeValue: typeParameterType,
-        // defaultTypeValue: defaultTypeValue,
       };
       typeParameters.push(typeParameter);
 
@@ -2430,6 +2419,9 @@ export function typeToString(
       return `[${type.elements.map(typeToString).join(", ")}]`;
     }*/
     case "TypeParameter": {
+      if (type.appliedType) {
+        return typeToString(type.appliedType);
+      }
       return `${type.name}: ${type.kind}`;
     }
     case "TypeConstructor": {
@@ -2551,10 +2543,10 @@ export function checkType(
       return true;
     }
   } else if (expectedType.type === "TypeParameter") {
-    if (expectedType.typeValue.type === "unknown") {
+    if (!expectedType.appliedType) {
       return true;
     } else {
-      return checkType(expectedType.typeValue, givenType, env);
+      return checkType(expectedType.appliedType, givenType, env);
     }
   }
 
@@ -2622,7 +2614,11 @@ export function typeAndRegionParametersToString(
   } else {
     return `<${typeParameters.map((type) => typeToString(type))}${
       typeParameters.length > 0 && regionParameters.length > 0 ? ", " : ""
-    }${regionParameters.map((region) => `${region.name}: Region`)}>`;
+    }${regionParameters.map((region) =>
+      region.appliedRegion
+        ? region.appliedRegion.regionId
+        : `${region.name}: Region`
+    )}>`;
   }
 }
 

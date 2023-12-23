@@ -701,12 +701,10 @@ function main() {
 `
 
 code = `
-type Reference<T: Type, R: Region>: Free;
-type MutableReference<T: Type, R: Region>: Free;
-
 function main() {
   let x = 1;
-  let xRef: Reference<i32> = &x;
+  let xRef = &x;
+  let xRef2 = &x;
 }
 `
 

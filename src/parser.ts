@@ -11,6 +11,7 @@ import {
   FunctionPrototype,
   LetAssignmentExpr,
   PrimitiveValueExpr,
+  exprToString,
   getTokenPrecedence,
   synthesizeRecordType,
 } from "./ast";
@@ -21,6 +22,7 @@ import {
   addEnvValueType,
   copyEnvironment,
   getEnvCurrentFrameLevel,
+  getEnvCurrentRegionId,
   getEnvValueTypesByVariableName,
   getNewRegionId,
   popEnvFrame,
@@ -82,35 +84,75 @@ export default class Parser {
   ): ParserReturn {
     const token = tokens[index];
     if (token.type === TokenType.Integer) {
-      return {
-        expr: {
-          type: AstType.Value,
-          tag: "primitive",
-          typeValue: {
-            type: "i32",
-            kind: "Free",
-            value: token.value,
+      if (
+        tokens[index + 1]?.type === TokenType.As &&
+        tokens[index + 2]?.type === TokenType.Const
+      ) {
+        return {
+          expr: {
+            type: AstType.Value,
             tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "i32",
+              kind: "Free",
+              value: token.value,
+              tag: "primitive",
+            },
+            env,
           },
-          env,
-        },
-        index: index + 1,
-      };
+          index: index + 3,
+        };
+      } else {
+        return {
+          expr: {
+            type: AstType.Value,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "i32",
+              kind: "Free",
+            },
+            env,
+          },
+          index: index + 1,
+        };
+      }
     } else if (token.type === TokenType.Float) {
-      return {
-        expr: {
-          type: AstType.Value,
-          tag: "primitive",
-          typeValue: {
-            type: "f32",
-            kind: "Free",
-            value: token.value,
+      if (
+        tokens[index + 1]?.type === TokenType.As &&
+        tokens[index + 2]?.type === TokenType.Const
+      ) {
+        return {
+          expr: {
+            type: AstType.Value,
             tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "f32",
+              kind: "Free",
+              value: token.value,
+              tag: "primitive",
+            },
+            env,
           },
-          env,
-        },
-        index: index + 1,
-      };
+          index: index + 3,
+        };
+      } else {
+        return {
+          expr: {
+            type: AstType.Value,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "f32",
+              kind: "Free",
+            },
+            env,
+          },
+          index: index + 1,
+        };
+      }
     } else {
       throw this.formatErrorMessage(token, "Expected number");
     }
@@ -123,20 +165,40 @@ export default class Parser {
   ): ParserReturn {
     const token = tokens[index];
     if (token.type === TokenType.Char) {
-      return {
-        expr: {
-          type: AstType.Value,
-          tag: "primitive",
-          typeValue: {
-            type: "char",
-            kind: "Free",
-            value: token.value,
+      if (
+        tokens[index + 1]?.type === TokenType.As &&
+        tokens[index + 2]?.type === TokenType.Const
+      ) {
+        return {
+          expr: {
+            type: AstType.Value,
             tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "char",
+              kind: "Free",
+              value: token.value,
+              tag: "primitive",
+            },
+            env,
           },
-          env,
-        },
-        index: index + 1,
-      };
+          index: index + 3,
+        };
+      } else {
+        return {
+          expr: {
+            type: AstType.Value,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "char",
+              kind: "Free",
+            },
+            env,
+          },
+          index: index + 1,
+        };
+      }
     } else {
       throw this.formatErrorMessage(token, "Expected charactor");
     }
@@ -152,11 +214,10 @@ export default class Parser {
       const end: PrimitiveValueExpr = {
         type: AstType.Value,
         tag: "primitive",
+        value: "\0",
         typeValue: {
           type: "char",
           kind: "Free",
-          value: "\0",
-          tag: "primitive",
         },
         env,
       };
@@ -177,11 +238,10 @@ export default class Parser {
               const charValue: PrimitiveValueExpr = {
                 type: AstType.Value,
                 tag: "primitive",
+                value: char,
                 typeValue: {
                   type: "char",
                   kind: "Free",
-                  value: char,
-                  tag: "primitive",
                 },
                 env,
               };
@@ -199,20 +259,40 @@ export default class Parser {
   private parseSymbolExpr(tokens, index, env): ParserReturn {
     const token = tokens[index];
     if (token.type === TokenType.Symbol) {
-      return {
-        expr: {
-          type: AstType.Value,
-          env,
-          tag: "primitive",
-          typeValue: {
-            type: "symbol",
-            kind: "Free",
-            value: token.value,
+      if (
+        tokens[index + 1]?.type === TokenType.As &&
+        tokens[index + 2]?.type === TokenType.Const
+      ) {
+        return {
+          expr: {
+            type: AstType.Value,
+            env,
             tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "symbol",
+              kind: "Free",
+              value: token.value,
+              tag: "primitive",
+            },
           },
-        },
-        index: index + 1,
-      };
+          index: index + 3,
+        };
+      } else {
+        return {
+          expr: {
+            type: AstType.Value,
+            env,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "symbol",
+              kind: "Free",
+            },
+          },
+          index: index + 1,
+        };
+      }
     } else {
       throw this.formatErrorMessage(token, "Expected symbol");
     }
@@ -225,20 +305,40 @@ export default class Parser {
   ): ParserReturn {
     const token = tokens[index];
     if (token.type === TokenType.Boolean) {
-      return {
-        expr: {
-          type: AstType.Value,
-          env,
-          tag: "primitive",
-          typeValue: {
-            type: "boolean",
-            kind: "Free",
-            value: token.value,
+      if (
+        tokens[index + 1]?.type === TokenType.As &&
+        tokens[index + 2]?.type === TokenType.Const
+      ) {
+        return {
+          expr: {
+            type: AstType.Value,
+            env,
             tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "boolean",
+              kind: "Free",
+              value: token.value,
+              tag: "primitive",
+            },
           },
-        },
-        index: index + 1,
-      };
+          index: index + 3,
+        };
+      } else {
+        return {
+          expr: {
+            type: AstType.Value,
+            env,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "boolean",
+              kind: "Free",
+            },
+          },
+          index: index + 1,
+        };
+      }
     } else {
       throw this.formatErrorMessage(token, "Expected boolean");
     }
@@ -815,11 +915,10 @@ Returned:  ${typeToString(returnType)}`
         expr: {
           type: AstType.Value,
           tag: "primitive",
+          value: "()",
           typeValue: {
             type: "()",
             kind: "Free",
-            value: "()",
-            tag: "primitive",
           },
           env,
         },
@@ -1757,6 +1856,10 @@ Found possible functions:
       case TokenType.With: {
         return this.parseWithExpr(tokens, index, env);
       }
+      case TokenType.MutableReference:
+      case TokenType.BitwiseAnd: {
+        return this.parseReferenceExpr(tokens, index, env);
+      }
       default: {
         throw this.formatErrorMessage(
           token,
@@ -2074,7 +2177,8 @@ Found possible functions:
       exprs.push({
         type: AstType.Value,
         tag: "primitive",
-        typeValue: { type: "()", kind: "Free", value: "()", tag: "primitive" },
+        value: "()",
+        typeValue: { type: "()", kind: "Free" },
         env: nextEnv,
       });
     }
@@ -2455,10 +2559,10 @@ else: ${typeToString(elseReturnType)}
       isWithStatement
     );
     if (!value) {
-      return {
-        expr: { type: AstType.Ignore, typeValue: TypeValues.unit, env },
-        index: nextNextIndex,
-      };
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected expression for const assignment"
+      );
     }
     index = nextNextIndex;
     env = value.env;
@@ -3510,6 +3614,96 @@ Got:      ${typeToString(matchedFunction.func)}`
       },
       index,
     };
+  }
+
+  private parseReferenceExpr(
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    if (
+      tokens[index].type !== TokenType.BitwiseAnd &&
+      tokens[index].type !== TokenType.MutableReference
+    ) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '&' or '&!' for reference expression"
+      );
+    }
+    const isMutableReference =
+      tokens[index].type === TokenType.MutableReference;
+    index = index + 1;
+
+    const { expr, index: nextIndex } = this.parseExpression(
+      tokens,
+      index,
+      env,
+      false
+    );
+    index = nextIndex;
+
+    switch (expr.type) {
+      case AstType.Variable: {
+        const variableName = expr.name;
+        const variableValues = getEnvValueTypesByVariableName(
+          env,
+          variableName,
+          "value"
+        );
+        if (!variableValues.length) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Cannot find variable "${variableName}"`
+          );
+        }
+        const variableValue = variableValues[variableValues.length - 1];
+        return {
+          expr: {
+            type: AstType.Reference,
+            expr,
+            isMutableReference: isMutableReference,
+            typeValue: {
+              type: "TypeConstructor",
+              name: isMutableReference ? "&!" : "&",
+              kind: "Free",
+              typeParameters: [
+                {
+                  type: "TypeParameter",
+                  kind: "Type",
+                  name: "T",
+                  appliedType: variableValue.type,
+                },
+              ],
+              regionParameters: [
+                {
+                  type: "RegionParameter",
+                  kind: "Region",
+                  name: "R",
+                  appliedRegion: {
+                    type: "Region",
+                    kind: "Region",
+                    regionId: getEnvCurrentRegionId(env),
+                  },
+                },
+              ],
+              typeValue: {
+                type: "Extern",
+                kind: "Free",
+              },
+            },
+            env,
+          },
+          index,
+        };
+      }
+      default: {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Unable to create reference for:
+${exprToString(expr)}`
+        );
+      }
+    }
   }
 
   /**

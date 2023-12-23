@@ -672,6 +672,20 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            case "as":
+              tokens.push({
+                type: TokenType.As,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "const":
+              tokens.push({
+                type: TokenType.Const,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
             default:
               tokens.push({
                 type: TokenType.Identifier,
