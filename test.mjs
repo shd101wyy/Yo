@@ -711,6 +711,17 @@ function main() {
 }
 `
 
+code = `
+enum Option<V> {
+  Some(val: V),
+  None
+}
+function main() {
+  let x = Option.Some(3);
+  0
+}
+`
+
 const codeGenerator = new CodeGenerator(code);
 
 // const ir = codeGenerator.getLlvmIr();

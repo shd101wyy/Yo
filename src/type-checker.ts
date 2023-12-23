@@ -1174,15 +1174,17 @@ export function applyTypeArgumentsToType(
   Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
       );
     }
+
     // set typeParameterToTypeArgumentMap
     const newTypeParameters: TTypeParameter[] = [];
     for (let i = 0; i < type.typeParameters.length; i++) {
       const typeParameter = type.typeParameters[i];
       const typeArgument = typeArguments[i];
       typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
-      if (typeArgument.type === "TypeParameter") {
-        newTypeParameters.push(typeArgument);
-      }
+      newTypeParameters.push({
+        ...typeParameter,
+        appliedType: typeArgument,
+      });
     }
 
     // apply to each of the functions
@@ -1207,7 +1209,7 @@ export function applyTypeArgumentsToType(
     return {
       type: "Class",
       kind: "Free",
-      typeParameters: newTypeParameters, // FIXME: <- this might be wrong
+      typeParameters: newTypeParameters,
       regionParameters: type.regionParameters,
       functions: functions,
     };
@@ -2542,7 +2544,9 @@ export function typeToString(
                 .join(",")}>`
             : ""
         }${
-          /*type.selectedVariantName ? `.${type.selectedVariantName}` : ""*/ ""
+          type.selectedVariantName && !hideTypeParameterKind
+            ? `.${type.selectedVariantName}`
+            : ""
         }`;
       }
 
