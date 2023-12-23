@@ -701,9 +701,12 @@ function main() {
 `
 
 code = `
-type Coord = {x: i32, y: i32};
+type Reference<T: Type, R: Region>: Free;
+type MutableReference<T: Type, R: Region>: Free;
+
 function main() {
-  let x: Coord = {x: 1, y: 3};
+  let x = 1;
+  let xRef: Reference<i32> = &x;
 }
 `
 

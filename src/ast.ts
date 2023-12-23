@@ -9,6 +9,7 @@ import {
   TUnit,
   Type,
   TypeKind,
+  typeAndRegionParametersToString,
   typeToString,
 } from "./type-checker";
 
@@ -423,13 +424,10 @@ export function exprToString(expr: Expr | FunctionPrototype) {
         expr.prototype.functionName
           ? `function ${expr.prototype.functionName}`
           : ``
-      }${
-        expr.prototype.typeValue.typeParameters.length > 0
-          ? `<${expr.prototype.typeValue.typeParameters.map((type) =>
-              typeToString(type)
-            )}>`
-          : ""
-      }(${expr.prototype.typeValue.parameterTypes
+      }${typeAndRegionParametersToString(
+        expr.prototype.typeValue.typeParameters,
+        expr.prototype.typeValue.regionParameters
+      )}(${expr.prototype.typeValue.parameterTypes
         .map(
           (p) =>
             `${p.isMutable ? "mut " : ""}${p.name}: ${typeToString(p.type)}${
@@ -482,24 +480,20 @@ export function exprToString(expr: Expr | FunctionPrototype) {
   }`;
     }
     case AstType.FunctionPrototype: {
-      return `${expr.functionName ?? ``}${
-        expr.typeValue.typeParameters.length > 0
-          ? `<${expr.typeValue.typeParameters.map((type) =>
-              typeToString(type)
-            )}>`
-          : ""
-      }(${expr.typeValue.parameterTypes
+      return `${expr.functionName ?? ``}${typeAndRegionParametersToString(
+        expr.typeValue.typeParameters,
+        expr.typeValue.regionParameters
+      )}(${expr.typeValue.parameterTypes
         .map((p) => `${p.name}: ${typeToString(p.type)}`)
         .join(", ")}):${typeToString(expr.typeValue.returnType)}`;
     }
     case AstType.Extern: {
-      return `extern ${expr.prototype.functionName ?? ``}${
-        expr.prototype.typeValue.typeParameters.length > 0
-          ? `<${expr.prototype.typeValue.typeParameters.map((type) =>
-              typeToString(type)
-            )}>`
-          : ""
-      }(${expr.prototype.typeValue.parameterTypes
+      return `extern ${
+        expr.prototype.functionName ?? ``
+      }${typeAndRegionParametersToString(
+        expr.prototype.typeValue.typeParameters,
+        expr.prototype.typeValue.regionParameters
+      )}(${expr.prototype.typeValue.parameterTypes
         .map((p) => `${p.name}: ${typeToString(p.type)}`)
         .join(", ")}):${typeToString(expr.prototype.typeValue.returnType)}`;
     }

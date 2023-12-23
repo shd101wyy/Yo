@@ -1,11 +1,12 @@
-import { Type } from "./type-checker";
+import { Region, Type } from "./type-checker";
 
-type ValueTypeKind = "type" | "value" | "class";
+type ValueTypeKind = "type" | "region" | "value" | "class";
 
 export type ValueType = {
   // id: string; // NOTE: The `id` here doesn't really help in generic function
   variableName: string;
   type: Type;
+  region?: Region;
   kind: ValueTypeKind;
   /* referenceCount of the value inside current frame */
   // referenceCount: number;

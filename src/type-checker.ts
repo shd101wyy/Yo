@@ -168,17 +168,25 @@ export type TParameterType = {
 
 export type TTypeParameter = {
   type: "TypeParameter";
-  kind: TypeKind | RegionKind;
+  kind: TypeKind;
   name: string;
   typeValue: Type;
   // defaultTypeValue: Type | null;
+};
+
+export type TRegionParameter = {
+  type: "RegionParameter";
+  kind: RegionKind;
+  name: string;
+  regionId?: string;
 };
 
 export type TFunction = {
   type: "Function";
   kind: "Free";
   functionName?: string;
-  typeParameters: TTypeParameter[]; // FIXME: Remove this
+  typeParameters: TTypeParameter[];
+  regionParameters: TRegionParameter[];
   parameterTypes: TParameterType[];
   returnType: Type;
 
@@ -228,6 +236,7 @@ export type TTypeConstructor = {
   kind: TypeKind;
   name: string;
   typeParameters: TTypeParameter[];
+  regionParameters: TRegionParameter[];
   typeValue: Type;
 };
 
@@ -244,6 +253,7 @@ export type TClass = {
   type: "Class";
   kind: "Free";
   typeParameters: TTypeParameter[];
+  regionParameters: TRegionParameter[];
   functions: TClassFunction[];
 };
 
@@ -256,6 +266,7 @@ export type TEnum = {
   type: "Enum";
   enumName: string;
   typeParameters: TTypeParameter[];
+  regionParameters: TRegionParameter[];
   variants: TEnumVariant[];
   appliedTypeArguments?: Type[];
   selectedVariantName?: string;
@@ -309,6 +320,8 @@ export type Type =
   | TEnum
   | TPrimitive
   | TExternType;
+
+export type Region = TRegionParameter;
 
 // Type constructors
 
@@ -774,13 +787,7 @@ export function synthesizeTypeFromTokens({
   const nextTokenType = tokens[returnValue.index]?.type;
   let newTypeValue: Type = returnValue.typeValue;
   const newTypeValueKind = newTypeValue.kind;
-  if (newTypeValueKind === "Region") {
-    throw formatErrorMessage({
-      token: tokens[index],
-      errorMessage: "Region cannot be used in type",
-      inputString,
-    });
-  }
+
   // Check if it's slice
   if (nextTokenType === TokenType.LBracket) {
     let index = returnValue.index + 1;
@@ -853,24 +860,9 @@ export function synthesizeTypeFromTokens({
       parseExpression,
     });
     const newReturnValueTypeKind = newReturnValue.typeValue.kind;
-    if (newReturnValueTypeKind === "Region") {
-      throw formatErrorMessage({
-        token: tokens[index],
-        errorMessage: "Region cannot be used in type",
-        inputString,
-      });
-    }
 
     if (newReturnValue.typeValue.type === "Union") {
       const returnValueTypeKind = returnValue.typeValue.kind;
-      if (returnValueTypeKind === "Region") {
-        throw formatErrorMessage({
-          token: tokens[index],
-          errorMessage: "Region cannot be used in type",
-          inputString,
-        });
-      }
-
       returnValue = {
         typeValue: {
           type: "Union",
@@ -896,14 +888,6 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
       */
 
       const returnValueTypeKind = returnValue.typeValue.kind;
-      if (returnValueTypeKind === "Region") {
-        throw formatErrorMessage({
-          token: tokens[index],
-          errorMessage: "Region cannot be used in type",
-          inputString,
-        });
-      }
-
       returnValue = {
         typeValue: {
           type: "Union",
@@ -925,23 +909,8 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
       parseExpression,
     });
     const newReturnValueTypeKind = newReturnValue.typeValue.kind;
-    if (newReturnValueTypeKind === "Region") {
-      throw formatErrorMessage({
-        token: tokens[index],
-        errorMessage: "Region cannot be used in type",
-        inputString,
-      });
-    }
     if (newReturnValue.typeValue.type === "Intersection") {
       const returnValueTypeKind = returnValue.typeValue.kind;
-      if (returnValueTypeKind === "Region") {
-        throw formatErrorMessage({
-          token: tokens[index],
-          errorMessage: "Region cannot be used in type",
-          inputString,
-        });
-      }
-
       returnValue = {
         typeValue: {
           type: "Intersection",
@@ -967,14 +936,6 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
       */
 
       const returnValueTypeKind = returnValue.typeValue.kind;
-      if (returnValueTypeKind === "Region") {
-        throw formatErrorMessage({
-          token: tokens[index],
-          errorMessage: "Region cannot be used in type",
-          inputString,
-        });
-      }
-
       returnValue = {
         typeValue: {
           type: "Intersection",
@@ -1137,6 +1098,7 @@ export function applyTypeArgumentsToType(
       kind: type.kind,
       name: type.name,
       typeParameters: newTypeParameters, // FIXME: <- this might be wrong
+      regionParameters: type.regionParameters,
       typeValue: applyTypeArgumentsToType(
         typeValue,
         typeArguments,
@@ -1190,6 +1152,7 @@ export function applyTypeArgumentsToType(
       type: "Class",
       kind: "Free",
       typeParameters: newTypeParameters, // FIXME: <- this might be wrong
+      regionParameters: type.regionParameters,
       functions: functions,
     };
   } else if (type.type === "Enum") {
@@ -1253,6 +1216,7 @@ export function applyTypeArgumentsToType(
       kind: type.kind, // getEnumTypeKind(variants), NOTE: This is wrong
       enumName: type.enumName,
       typeParameters: newTypeParameters, // FIXME: <- this might be wrong
+      regionParameters: type.regionParameters,
       variants: variants,
       appliedTypeArguments: typeArguments,
       selectedVariantName: type.selectedVariantName,
@@ -1936,18 +1900,21 @@ export function synthesizeFunctionTypeFromTokens({
 }): { typeValue: TFunction; index: number; env: Environment } {
   // Type parameters
   let typeParameters: TTypeParameter[] = [];
+  let regionParameters: TRegionParameter[] = [];
   if (tokens[index].type === TokenType.LessThan) {
     const {
       typeParameters: nextTypeParameters,
+      regionParameters: nextRegionParameters,
       index: nextIndex,
       env: nextEnv,
-    } = synthesizeTypeParametersFromTokens({
+    } = synthesizeTypeAndRegionParametersFromTokens({
       tokens,
       index,
       env,
       inputString,
     });
     typeParameters = nextTypeParameters;
+    regionParameters = nextRegionParameters;
     index = nextIndex;
     env = nextEnv;
   }
@@ -1998,6 +1965,7 @@ export function synthesizeFunctionTypeFromTokens({
           functionName,
           parameterTypes,
           typeParameters,
+          regionParameters,
           returnType,
           freeVariables: undefined,
         },
@@ -2034,6 +2002,7 @@ export function synthesizeFunctionTypeFromTokens({
           functionName,
           parameterTypes,
           typeParameters,
+          regionParameters,
           returnType,
           freeVariables: undefined,
         },
@@ -2048,6 +2017,7 @@ export function synthesizeFunctionTypeFromTokens({
           functionName,
           parameterTypes,
           typeParameters,
+          regionParameters,
           returnType: {
             type: "unknown",
             kind: "Free",
@@ -2112,9 +2082,6 @@ function getRecordTypeKind(properties: TRecordProperty[]): TypeKind {
   properties.forEach((property) => {
     if (kind === "Free") {
       const propertyKind = property.type.kind;
-      if (propertyKind === "Region") {
-        throw new Error("Region is not supported in record type");
-      }
       kind = propertyKind;
     }
   });
@@ -2135,7 +2102,7 @@ export function getEnumTypeKind(variants: TEnumVariant[]): TypeKind {
  * Check type parameters declaration <...>
  * For example: <T> in `fn<T>(a: T) {}`
  */
-export function synthesizeTypeParametersFromTokens({
+export function synthesizeTypeAndRegionParametersFromTokens({
   tokens,
   index,
   env,
@@ -2147,6 +2114,7 @@ export function synthesizeTypeParametersFromTokens({
   inputString: string;
 }): {
   typeParameters: TTypeParameter[];
+  regionParameters: TRegionParameter[];
   index: number;
   env: Environment;
 } {
@@ -2160,6 +2128,7 @@ export function synthesizeTypeParametersFromTokens({
 
   index = index + 1;
   const typeParameters: TTypeParameter[] = [];
+  const regionParameters: TRegionParameter[] = [];
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const token = tokens[index];
@@ -2249,27 +2218,45 @@ export function synthesizeTypeParametersFromTokens({
     }
     */
 
-    const typeParameter: TTypeParameter = {
-      type: "TypeParameter",
-      kind: kind,
-      name: typeParameterName,
-      typeValue: typeParameterType,
-      // defaultTypeValue: defaultTypeValue,
-    };
-    typeParameters.push(typeParameter);
+    if (kind === "Region") {
+      const regionParameter: TRegionParameter = {
+        type: "RegionParameter",
+        kind: "Region",
+        name: typeParameterName,
+      };
+      regionParameters.push(regionParameter);
 
-    // Save to env
-    env = addEnvValueType(env, {
-      variableName: typeParameterName,
-      type: typeParameter,
-      kind: "type",
-    });
+      // Save to env
+      env = addEnvValueType(env, {
+        variableName: typeParameterName,
+        type: TypeValues.unknown,
+        region: regionParameter,
+        kind: "region",
+      });
+    } else {
+      const typeParameter: TTypeParameter = {
+        type: "TypeParameter",
+        kind: kind,
+        name: typeParameterName,
+        typeValue: typeParameterType,
+        // defaultTypeValue: defaultTypeValue,
+      };
+      typeParameters.push(typeParameter);
+
+      // Save to env
+      env = addEnvValueType(env, {
+        variableName: typeParameterName,
+        type: typeParameter,
+        kind: "type",
+      });
+    }
   }
 
   return {
     env,
     index,
     typeParameters,
+    regionParameters,
   };
 }
 
@@ -2421,9 +2408,10 @@ export function typeToString(
         .join(", ")} }`;
     }
     case "Function": {
-      return `<${type.typeParameters.map((type) =>
-        typeToString(type)
-      )}>(${type.parameterTypes
+      return `${typeAndRegionParametersToString(
+        type.typeParameters,
+        type.regionParameters
+      )}(${type.parameterTypes
         .map(
           (parameter) =>
             (parameter.name ? `${parameter.name}: ` : "") +
@@ -2454,51 +2442,34 @@ export function typeToString(
       return `[${type.elements.map(typeToString).join(", ")}]`;
     }*/
     case "TypeParameter": {
-      return `${type.name}`;
+      return `${type.name}: ${type.kind}`;
     }
     case "TypeConstructor": {
       if (extractTypeConstructor) {
         if (extractTypeConstructor === "all") {
-          return `${type.name}${
-            type.typeParameters.length > 0
-              ? `<${type.typeParameters
-                  .map(
-                    (typeParameter) =>
-                      `${typeParameter.name}: ${typeParameter.kind}`
-                  )
-                  .join(", ")}>`
-              : ""
-          }: ${type.kind} = ${typeToString(
-            type.typeValue,
-            extractTypeConstructor
-          )}`;
+          return `${type.name}${typeAndRegionParametersToString(
+            type.typeParameters,
+            type.regionParameters
+          )}: ${type.kind}${
+            type.typeValue.type === "Extern"
+              ? ";"
+              : ` = ${typeToString(type.typeValue, extractTypeConstructor)}`
+          }`;
         } else {
           return typeToString(type.typeValue, extractTypeConstructor);
         }
       } else {
-        return `${type.name}${
-          type.typeParameters.length > 0
-            ? `<${type.typeParameters
-                .map(
-                  (typeParameter) =>
-                    `${typeParameter.name}: ${typeParameter.kind}`
-                )
-                .join(", ")}>`
-            : ""
-        }`;
+        return `${type.name}${typeAndRegionParametersToString(
+          type.typeParameters,
+          type.regionParameters
+        )}`;
       }
     }
     case "Class": {
-      return `class${
-        type.typeParameters.length
-          ? `<${type.typeParameters
-              .map(
-                (typeParameter) =>
-                  `${typeParameter.name}: ${typeParameter.kind}`
-              )
-              .join(",")}>`
-          : ""
-      } {
+      return `class${typeAndRegionParametersToString(
+        type.typeParameters,
+        type.regionParameters
+      )} {
   ${type.functions
     .map(
       ({ name, func, functionExpr }) =>
@@ -2526,16 +2497,10 @@ export function typeToString(
         }`;
       }
 
-      return `enum${
-        type.typeParameters.length
-          ? `<${type.typeParameters
-              .map(
-                (typeParameter) =>
-                  `${typeParameter.name}: ${typeParameter.kind}`
-              )
-              .join(",")}>`
-          : ""
-      }: ${type.kind} {
+      return `enum${typeAndRegionParametersToString(
+        type.typeParameters,
+        type.regionParameters
+      )}: ${type.kind} {
 ${type.variants
   .map(({ name, parameterTypes }) => {
     return `  ${name}${
@@ -2657,6 +2622,19 @@ export function checkType(
     throw new Error("Intersection type is not supported yet");
   } else {
     return false;
+  }
+}
+
+export function typeAndRegionParametersToString(
+  typeParameters: TTypeParameter[],
+  regionParameters: TRegionParameter[]
+) {
+  if (typeParameters.length + regionParameters.length === 0) {
+    return "";
+  } else {
+    return `<${typeParameters.map((type) => typeToString(type))}${
+      typeParameters.length > 0 && regionParameters.length > 0 ? ", " : ""
+    }${regionParameters.map((region) => `${region.name}: Region`)}>`;
   }
 }
 

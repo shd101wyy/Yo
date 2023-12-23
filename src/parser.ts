@@ -38,6 +38,7 @@ import {
   TEnumVariant,
   TFunction,
   TParameterType,
+  TRegionParameter,
   TSlice,
   TTypeConstructor,
   TTypeParameter,
@@ -53,9 +54,9 @@ import {
   parseTypeKind,
   synthesizeFunctionParameterTypesFromTokens,
   synthesizeFunctionTypeFromTokens,
+  synthesizeTypeAndRegionParametersFromTokens,
   synthesizeTypeArgumentsFromTokens,
   synthesizeTypeFromTokens,
-  synthesizeTypeParametersFromTokens,
   typeToString,
 } from "./type-checker";
 
@@ -2733,12 +2734,14 @@ Got:      ${typeToString(variableType)}`
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
+    let regionParameters: TRegionParameter[] = [];
     if (tokens[index].type === TokenType.LessThan) {
       const {
         index: nextIndex,
         typeParameters: tp,
+        regionParameters: rp,
         env: nextEnv,
-      } = synthesizeTypeParametersFromTokens({
+      } = synthesizeTypeAndRegionParametersFromTokens({
         tokens,
         index,
         env,
@@ -2746,6 +2749,7 @@ Got:      ${typeToString(variableType)}`
       });
       index = nextIndex;
       typeParameters = tp;
+      regionParameters = rp;
       env = nextEnv;
     }
 
@@ -2787,13 +2791,6 @@ Got:      ${typeToString(variableType)}`
 
       // Check if userDefinedKind is valid:
       kind = nextTypeValue.kind;
-      if (kind === "Region") {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "'Region' type cannot be used for type alias"
-        );
-      }
-
       if (
         userDefinedKind &&
         userDefinedKind === "Free" &&
@@ -2838,6 +2835,7 @@ Got:      ${typeToString(variableType)}`
       kind,
       name: typeName,
       typeParameters,
+      regionParameters,
       typeValue,
     };
 
@@ -2918,12 +2916,14 @@ Got:      ${typeToString(variableType)}`
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
+    let regionParameters: TRegionParameter[] = [];
     if (tokens[index].type === TokenType.LessThan) {
       const {
         index: nextIndex,
         typeParameters: tp,
+        regionParameters: rp,
         env: nextEnv,
-      } = synthesizeTypeParametersFromTokens({
+      } = synthesizeTypeAndRegionParametersFromTokens({
         tokens,
         index,
         env,
@@ -2931,6 +2931,7 @@ Got:      ${typeToString(variableType)}`
       });
       index = nextIndex;
       typeParameters = tp;
+      regionParameters = rp;
       env = nextEnv;
     }
 
@@ -3075,6 +3076,7 @@ ${typeToString(functionType)}
       type: "Class",
       kind: "Free",
       typeParameters,
+      regionParameters,
       functions,
     };
 
@@ -3349,12 +3351,14 @@ Got:      ${typeToString(matchedFunction.func)}`
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
+    let regionParameters: TRegionParameter[] = [];
     if (tokens[index].type === TokenType.LessThan) {
       const {
         index: nextIndex,
         typeParameters: tp,
+        regionParameters: rp,
         env: nextEnv,
-      } = synthesizeTypeParametersFromTokens({
+      } = synthesizeTypeAndRegionParametersFromTokens({
         tokens,
         index,
         env,
@@ -3362,6 +3366,7 @@ Got:      ${typeToString(matchedFunction.func)}`
       });
       index = nextIndex;
       typeParameters = tp;
+      regionParameters = rp;
       env = nextEnv;
     }
 
@@ -3478,6 +3483,7 @@ Got:      ${typeToString(matchedFunction.func)}`
       kind,
       enumName,
       typeParameters,
+      regionParameters,
       variants: enumVariants,
       selectedVariantName:
         enumVariants.length === 1 ? enumVariants[0].name : undefined,
