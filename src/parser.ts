@@ -2655,6 +2655,8 @@ Got:      ${typeToString(variableType)}`
           }
         }
       }
+
+      userDefinedVariableType = variableType;
     }
 
     // Add variable to env
@@ -3663,9 +3665,9 @@ Got:      ${typeToString(matchedFunction.func)}`
             expr,
             isMutableReference: isMutableReference,
             typeValue: {
-              type: "TypeConstructor",
-              name: isMutableReference ? "&!" : "&",
-              kind: "Free",
+              ...(isMutableReference
+                ? TypeValues.MutableReference
+                : TypeValues.Reference),
               typeParameters: [
                 {
                   type: "TypeParameter",
@@ -3686,10 +3688,6 @@ Got:      ${typeToString(matchedFunction.func)}`
                   },
                 },
               ],
-              typeValue: {
-                type: "Extern",
-                kind: "Free",
-              },
             },
             env,
           },

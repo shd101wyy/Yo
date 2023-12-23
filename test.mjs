@@ -703,8 +703,7 @@ function main() {
 code = `
 function main() {
   let x = 1;
-  let xRef = &x;
-  let xRef2 = &x;
+  let xRef: &<i32> = &x;
 }
 `
 

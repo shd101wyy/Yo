@@ -355,6 +355,8 @@ export const TypeValues: {
   f32: TF32;
   f64: TF64;
   unknown: TUnknown;
+  Reference: TTypeConstructor;
+  MutableReference: TTypeConstructor;
 } = {
   unit: { type: "()", kind: "Free" },
   boolean: { type: "boolean", kind: "Free" },
@@ -375,6 +377,52 @@ export const TypeValues: {
   f32: { type: "f32", kind: "Free" },
   f64: { type: "f64", kind: "Free" },
   unknown: { type: "unknown", kind: "Free" },
+  Reference: {
+    type: "TypeConstructor",
+    kind: "Free",
+    name: "&",
+    typeParameters: [
+      {
+        type: "TypeParameter",
+        name: "T",
+        kind: "Type",
+      },
+    ],
+    regionParameters: [
+      {
+        type: "RegionParameter",
+        name: "R",
+        kind: "Region",
+      },
+    ],
+    typeValue: {
+      type: "Extern",
+      kind: "Free",
+    },
+  },
+  MutableReference: {
+    type: "TypeConstructor",
+    kind: "Free",
+    name: "&",
+    typeParameters: [
+      {
+        type: "TypeParameter",
+        name: "T",
+        kind: "Type",
+      },
+    ],
+    regionParameters: [
+      {
+        type: "RegionParameter",
+        name: "R",
+        kind: "Region",
+      },
+    ],
+    typeValue: {
+      type: "Extern",
+      kind: "Free",
+    },
+  },
 };
 
 export type ParserReturn = {
@@ -760,6 +808,14 @@ export function synthesizeTypeFromTokens({
       }
       case "symbol": {
         typeValue = { type: "symbol", kind: "Free" };
+        break;
+      }
+      case "&": {
+        typeValue = TypeValues.Reference;
+        break;
+      }
+      case "&!": {
+        typeValue = TypeValues.MutableReference;
         break;
       }
       default: {
@@ -2512,7 +2568,12 @@ export function checkType(
   givenType: Type,
   env: Environment
 ): boolean {
-  if (expectedType.type === "TypeConstructor") {
+  if (
+    expectedType.type === "TypeConstructor" &&
+    givenType.type === "TypeConstructor"
+  ) {
+    return checkTypeConstructorExactMatch(expectedType, givenType, env);
+  } else if (expectedType.type === "TypeConstructor") {
     return checkType(expectedType.typeValue, givenType, env);
   } else if (givenType.type === "TypeConstructor") {
     return checkType(expectedType, givenType.typeValue, env);
@@ -2542,11 +2603,17 @@ export function checkType(
     } else {
       return true;
     }
-  } else if (expectedType.type === "TypeParameter") {
+  } else if (
+    expectedType.type === "TypeParameter" &&
+    givenType.type === "TypeParameter"
+  ) {
     if (!expectedType.appliedType) {
       return true;
     } else {
-      return checkType(expectedType.appliedType, givenType, env);
+      if (!givenType.appliedType) {
+        return false;
+      }
+      return checkType(expectedType.appliedType, givenType.appliedType, env);
     }
   }
 
@@ -2605,6 +2672,20 @@ export function checkType(
   }
 }
 
+export function checkRegion(
+  expectedRegion: TRegionParameter,
+  givenRegion: TRegionParameter
+) {
+  if (!expectedRegion.appliedRegion) {
+    return true;
+  } else {
+    return (
+      expectedRegion.appliedRegion.regionId ===
+      givenRegion.appliedRegion?.regionId
+    );
+  }
+}
+
 export function typeAndRegionParametersToString(
   typeParameters: TTypeParameter[],
   regionParameters: TRegionParameter[]
@@ -2657,6 +2738,44 @@ function checkRecordExactMatchType(
     }
   }
   return result;
+}
+
+function checkTypeConstructorExactMatch(
+  expectedType: TTypeConstructor,
+  givenType: TTypeConstructor,
+  env: Environment
+) {
+  if (expectedType.name !== givenType.name) {
+    return false;
+  }
+  if (
+    expectedType.typeParameters.length !== givenType.typeParameters.length ||
+    expectedType.regionParameters.length !== givenType.regionParameters.length
+  ) {
+    return false;
+  }
+  for (let i = 0; i < expectedType.typeParameters.length; i++) {
+    if (
+      !checkType(
+        expectedType.typeParameters[i],
+        givenType.typeParameters[i],
+        env
+      )
+    ) {
+      return false;
+    }
+  }
+  for (let i = 0; i < expectedType.regionParameters.length; i++) {
+    if (
+      !checkRegion(
+        expectedType.regionParameters[i],
+        givenType.regionParameters[i]
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
