@@ -1299,20 +1299,22 @@ export function applyTypeArgumentsToType(
   Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
       );
     }
+
     // set typeParameterToTypeArgumentMap
-    const newTypeParamters: TTypeParameter[] = [];
+    const newTypeParameters: TTypeParameter[] = [];
     for (let i = 0; i < type.typeParameters.length; i++) {
       const typeParameter = type.typeParameters[i];
       const typeArgument = typeArguments[i];
       typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
-      if (typeArgument.type === "TypeParameter") {
-        newTypeParamters.push(typeArgument);
-      }
+      newTypeParameters.push({
+        ...typeParameter,
+        appliedType: typeArgument,
+      });
     }
 
     return {
       ...type,
-      typeParameters: newTypeParamters, // FIXME: <- This might be wrong
+      typeParameters: newTypeParameters,
       parameterTypes: type.parameterTypes.map(
         ({ name, type, isMutable, defaultValue }) => ({
           name,
@@ -2368,7 +2370,13 @@ function isSubtype(a: Type, b: Type): boolean {
 
 export function typeToString(
   type: Type,
-  extractTypeConstructor?: boolean | "all"
+  {
+    extractTypeConstructor,
+    hideTypeParameterKind,
+  }: {
+    extractTypeConstructor?: boolean | "all";
+    hideTypeParameterKind?: boolean;
+  } = {}
 ): string {
   if ("tag" in type) {
     if (type.type === "symbol") {
@@ -2448,9 +2456,11 @@ export function typeToString(
         .map(
           (parameter) =>
             (parameter.name ? `${parameter.name}: ` : "") +
-            typeToString(parameter.type)
+            typeToString(parameter.type, { hideTypeParameterKind: true })
         )
-        .join(", ")})=> ${typeToString(type.returnType)}`;
+        .join(", ")})=> ${typeToString(type.returnType, {
+        hideTypeParameterKind: true,
+      })}`;
     }
     case "Union": {
       return `(${type.types.map((type) => typeToString(type)).join(" | ")})`;
@@ -2477,8 +2487,11 @@ export function typeToString(
     case "TypeParameter": {
       if (type.appliedType) {
         return typeToString(type.appliedType);
+      } else if (hideTypeParameterKind) {
+        return type.name;
+      } else {
+        return `${type.name}: ${type.kind}`;
       }
-      return `${type.name}: ${type.kind}`;
     }
     case "TypeConstructor": {
       if (extractTypeConstructor) {
@@ -2489,10 +2502,10 @@ export function typeToString(
           )}: ${type.kind}${
             type.typeValue.type === "Extern"
               ? ";"
-              : ` = ${typeToString(type.typeValue, extractTypeConstructor)}`
+              : ` = ${typeToString(type.typeValue, { extractTypeConstructor })}`
           }`;
         } else {
-          return typeToString(type.typeValue, extractTypeConstructor);
+          return typeToString(type.typeValue, { extractTypeConstructor });
         }
       } else {
         return `${type.name}${typeAndRegionParametersToString(
@@ -2603,17 +2616,16 @@ export function checkType(
     } else {
       return true;
     }
-  } else if (
-    expectedType.type === "TypeParameter" &&
-    givenType.type === "TypeParameter"
-  ) {
+  } else if (expectedType.type === "TypeParameter") {
     if (!expectedType.appliedType) {
       return true;
-    } else {
+    } else if (givenType.type === "TypeParameter") {
       if (!givenType.appliedType) {
         return false;
       }
       return checkType(expectedType.appliedType, givenType.appliedType, env);
+    } else {
+      return checkType(expectedType.appliedType, givenType, env);
     }
   }
 

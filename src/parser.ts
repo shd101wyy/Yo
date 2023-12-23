@@ -2623,7 +2623,9 @@ else: ${typeToString(elseReturnType)}
         throw this.formatErrorMessage(
           tokens[userDefinedVariableTypeTokenIndex],
           `Mismatched types:
-Expected: ${typeToString(userDefinedVariableType, "all")}
+Expected: ${typeToString(userDefinedVariableType, {
+            extractTypeConstructor: "all",
+          })}
 Got:      ${typeToString(variableType)}`
         );
       }

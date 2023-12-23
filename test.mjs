@@ -701,9 +701,13 @@ function main() {
 `
 
 code = `
+function id<T>(x: T): T {
+  let y = x;
+  y
+}
 function main() {
-  let x = 1;
-  let xRef: &<i32> = &x;
+  id(3);
+  id(3.4);
 }
 `
 

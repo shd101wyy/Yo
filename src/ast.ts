@@ -406,9 +406,13 @@ export function exprToString(expr: Expr | FunctionPrototype) {
     case AstType.LetAssignment:
       return `let${expr.isMutable ? " mut" : ""} ${
         expr.variableName
-      }: ${typeToString(expr.variableType)} = ${exprToString(expr.right)}`;
+      }: ${typeToString(expr.variableType, {
+        hideTypeParameterKind: true,
+      })} = ${exprToString(expr.right)}`;
     case AstType.TypeAlias: {
-      return `type ${typeToString(expr.typeValue, "all")}`;
+      return `type ${typeToString(expr.typeValue, {
+        extractTypeConstructor: "all",
+      })}`;
     }
     case AstType.Class:
       if (!expr.isDefinition) {
@@ -444,13 +448,13 @@ export function exprToString(expr: Expr | FunctionPrototype) {
       )}(${expr.prototype.typeValue.parameterTypes
         .map(
           (p) =>
-            `${p.isMutable ? "mut " : ""}${p.name}: ${typeToString(p.type)}${
-              p.defaultValue ? `=${exprToString(p.defaultValue)}` : ""
-            }`
+            `${p.isMutable ? "mut " : ""}${p.name}: ${typeToString(p.type, {
+              hideTypeParameterKind: true,
+            })}${p.defaultValue ? `=${exprToString(p.defaultValue)}` : ""}`
         )
-        .join(", ")}):${typeToString(expr.prototype.typeValue.returnType)} ${
-        expr.prototype.functionName ? "" : " => "
-      } {\n${expr.body
+        .join(", ")}):${typeToString(expr.prototype.typeValue.returnType, {
+        hideTypeParameterKind: true,
+      })} ${expr.prototype.functionName ? "" : " => "} {\n${expr.body
         .map((expr) =>
           exprToString(expr)
             .split("\n")
