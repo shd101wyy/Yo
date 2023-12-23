@@ -22,6 +22,7 @@ import {
   copyEnvironment,
   getEnvCurrentFrameLevel,
   getEnvValueTypesByVariableName,
+  getNewRegionId,
   popEnvFrame,
   pushEnvFrame,
 } from "./env";
@@ -30,6 +31,7 @@ import { isUpperCamelCase } from "./naming-checker";
 import { Token, TokenType } from "./token";
 import {
   ParserReturn,
+  RegionKind,
   TClass,
   TClassFunction,
   TEnum,
@@ -1124,7 +1126,7 @@ Got:      (${functionArguments
 Expected: <${calleeTypeValue.typeParameters
           .map((typeParameter) => `${typeToString(typeParameter)}`)
           .join(", ")}>
-Got:      <${typeArguments.map(typeToString).join(", ")}>`
+Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
       );
     }
 
@@ -1138,7 +1140,9 @@ Got:      <${typeArguments.map(typeToString).join(", ")}>`
 Expected: <${typeParameters
           .map((typeParameter) => `${typeToString(typeParameter)}`)
           .join(", ")}>
-Got:      <${functionTypeArgumentsInOrder.map(typeToString).join(", ")}>`
+Got:      <${functionTypeArgumentsInOrder
+          .map((type) => typeToString(type))
+          .join(", ")}>`
       );
     } else {
       const typeValue_ = applyTypeArgumentsToType(
@@ -1314,7 +1318,9 @@ Got:      (${variantArguments
 Expected: <${calleeTypeValue.typeParameters
           .map((typeParameter) => `${typeToString(typeParameter)}`)
           .join(", ")}>
-Got:      <${appliedTypeArguments.map(typeToString).join(", ")}>`
+Got:      <${appliedTypeArguments
+          .map((type) => typeToString(type))
+          .join(", ")}>`
       );
     }
     const enumType: TEnum = applyTypeArgumentsToType(
@@ -2512,7 +2518,7 @@ else: ${typeToString(elseReturnType)}
         throw this.formatErrorMessage(
           tokens[userDefinedVariableTypeTokenIndex],
           `Mismatched types:
-Expected: ${typeToString(userDefinedVariableType)}
+Expected: ${typeToString(userDefinedVariableType, "all")}
 Got:      ${typeToString(variableType)}`
         );
       }
@@ -2759,65 +2765,82 @@ Got:      ${typeToString(variableType)}`
     }
 
     // Type value
-    if (tokens[index].type !== TokenType.Assign) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "Expected '=' for type alias"
-      );
-    }
-    index = index + 1;
+    let kind: TypeKind | RegionKind | undefined = undefined;
+    let typeValue: Type = {
+      type: "Extern",
+      kind: "Free",
+    };
+    if (tokens[index].type === TokenType.Assign) {
+      index = index + 1;
 
-    const {
-      index: nextIndex,
-      typeValue,
-      env: nextEnv,
-    } = synthesizeTypeFromTokens({
-      tokens,
-      index,
-      inputString: this.inputString,
-      env,
-      parseExpression: this.parseExpression.bind(this),
-    });
+      const {
+        index: nextIndex,
+        typeValue: nextTypeValue,
+        env: nextEnv,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index,
+        inputString: this.inputString,
+        env,
+        parseExpression: this.parseExpression.bind(this),
+      });
 
-    // Check if userDefinedKind is valid:
-    let kind = typeValue.kind;
-    if (kind === "Region") {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "'Region' type cannot be used for type alias"
-      );
-    }
+      // Check if userDefinedKind is valid:
+      kind = nextTypeValue.kind;
+      if (kind === "Region") {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "'Region' type cannot be used for type alias"
+        );
+      }
 
-    if (
-      userDefinedKind &&
-      userDefinedKind === "Free" &&
-      (kind === "Linear" || kind === "Type")
-    ) {
-      throw this.formatErrorMessage(
-        tokens[userDefinedKindTokenIndex],
-        `Cannot mix 'Free' type and '${kind}' type`
-      );
-    } else if (
-      userDefinedKind &&
-      userDefinedKind === "Linear" &&
-      kind === "Type"
-    ) {
-      throw this.formatErrorMessage(
-        tokens[userDefinedKindTokenIndex],
-        `Cannot mix 'Linear' type and '${kind}' type`
-      );
+      if (
+        userDefinedKind &&
+        userDefinedKind === "Free" &&
+        (kind === "Linear" || kind === "Type")
+      ) {
+        throw this.formatErrorMessage(
+          tokens[userDefinedKindTokenIndex],
+          `Cannot mix 'Free' type and '${kind}' type`
+        );
+      } else if (
+        userDefinedKind &&
+        userDefinedKind === "Linear" &&
+        kind === "Type"
+      ) {
+        throw this.formatErrorMessage(
+          tokens[userDefinedKindTokenIndex],
+          `Cannot mix 'Linear' type and '${kind}' type`
+        );
+      } else {
+        kind = userDefinedKind ? userDefinedKind : kind;
+      }
+
+      index = nextIndex;
+      env = nextEnv;
+      typeValue = nextTypeValue;
     } else {
-      kind = userDefinedKind ? userDefinedKind : kind;
+      if (!userDefinedKind) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected kind for type alias"
+        );
+      }
+      kind = userDefinedKind;
+      typeValue = {
+        type: "Extern",
+        kind,
+      };
     }
 
     const typeConstructor: TTypeConstructor = {
       type: "TypeConstructor",
       kind,
+      name: typeName,
       typeParameters,
       typeValue,
     };
 
-    env = nextEnv;
     env = addEnvValueType(
       env,
       {
@@ -2836,7 +2859,7 @@ Got:      ${typeToString(variableType)}`
         typeValue: typeConstructor,
         env,
       },
-      index: nextIndex,
+      index,
     };
   }
 
@@ -3519,7 +3542,12 @@ Got:      ${typeToString(matchedFunction.func)}`
     tokens: Token[],
     env: Environment = {
       functionDeclarationFrameLevel: -1,
-      frames: [[]],
+      frames: [
+        {
+          regionId: getNewRegionId(),
+          values: [],
+        },
+      ],
       freeVariables: [],
     }
   ): Expr[] {

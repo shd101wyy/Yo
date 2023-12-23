@@ -393,26 +393,24 @@ export function exprToString(expr: Expr | FunctionPrototype) {
         expr.variableName
       }: ${typeToString(expr.variableType)} = ${exprToString(expr.right)}`;
     case AstType.TypeAlias: {
-      const typeValueString = typeToString(expr.typeValue);
-      const typeParametersString = typeValueString.match(/^<.*>/)?.[0] ?? "";
-      const typeValueWithoutTypeParameters = typeValueString.replace(
-        /^<.*>/,
-        ""
-      );
-      return `type ${expr.typeName}${typeParametersString}: ${expr.typeValue.kind} = ${typeValueWithoutTypeParameters}`;
+      return `type ${typeToString(expr.typeValue, "all")}`;
     }
     case AstType.Class:
       if (!expr.isDefinition) {
         return `${expr.className}${
           expr.typeArguments && expr.typeArguments.length > 0
-            ? `<${expr.typeArguments.map(typeToString).join(", ")}>`
+            ? `<${expr.typeArguments
+                .map((type) => typeToString(type))
+                .join(", ")}>`
             : ""
         }`;
       }
 
       return `${expr.typeArguments ? "instance" : "class"} ${expr.className}${
         expr.typeArguments && expr.typeArguments.length > 0
-          ? `<${expr.typeArguments.map(typeToString).join(", ")}>`
+          ? `<${expr.typeArguments
+              .map((type) => typeToString(type))
+              .join(", ")}>`
           : ""
       }${typeToString(expr.typeValue).replace(/^(class|instance)/, "")}`;
     case AstType.Enum:
@@ -427,7 +425,9 @@ export function exprToString(expr: Expr | FunctionPrototype) {
           : ``
       }${
         expr.prototype.typeValue.typeParameters.length > 0
-          ? `<${expr.prototype.typeValue.typeParameters.map(typeToString)}>`
+          ? `<${expr.prototype.typeValue.typeParameters.map((type) =>
+              typeToString(type)
+            )}>`
           : ""
       }(${expr.prototype.typeValue.parameterTypes
         .map(
@@ -449,7 +449,7 @@ export function exprToString(expr: Expr | FunctionPrototype) {
     case AstType.CallFunction:
       return `${exprToString(expr.callee)}${
         expr.typeArguments.length > 0
-          ? `<${expr.typeArguments.map(typeToString)}>`
+          ? `<${expr.typeArguments.map((type) => typeToString(type))}>`
           : ""
       }(${expr.functionArguments
         .map((expr) => exprToString(expr))
@@ -484,7 +484,9 @@ export function exprToString(expr: Expr | FunctionPrototype) {
     case AstType.FunctionPrototype: {
       return `${expr.functionName ?? ``}${
         expr.typeValue.typeParameters.length > 0
-          ? `<${expr.typeValue.typeParameters.map(typeToString)}>`
+          ? `<${expr.typeValue.typeParameters.map((type) =>
+              typeToString(type)
+            )}>`
           : ""
       }(${expr.typeValue.parameterTypes
         .map((p) => `${p.name}: ${typeToString(p.type)}`)
@@ -493,7 +495,9 @@ export function exprToString(expr: Expr | FunctionPrototype) {
     case AstType.Extern: {
       return `extern ${expr.prototype.functionName ?? ``}${
         expr.prototype.typeValue.typeParameters.length > 0
-          ? `<${expr.prototype.typeValue.typeParameters.map(typeToString)}>`
+          ? `<${expr.prototype.typeValue.typeParameters.map((type) =>
+              typeToString(type)
+            )}>`
           : ""
       }(${expr.prototype.typeValue.parameterTypes
         .map((p) => `${p.name}: ${typeToString(p.type)}`)

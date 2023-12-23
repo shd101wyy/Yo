@@ -701,9 +701,9 @@ function main() {
 `
 
 code = `
-function testFunction(mut a: i32 = 1) {
-  let x = 1;
-  let mut y = 12;
+type Coord = {x: i32, y: i32};
+function main() {
+  let x: Coord = {x: 1, y: 3};
 }
 `
 

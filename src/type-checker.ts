@@ -225,9 +225,10 @@ export type TTuple = {
 
 export type TTypeConstructor = {
   type: "TypeConstructor";
+  kind: TypeKind;
+  name: string;
   typeParameters: TTypeParameter[];
   typeValue: Type;
-  kind: TypeKind;
 };
 
 /**
@@ -258,6 +259,11 @@ export type TEnum = {
   variants: TEnumVariant[];
   appliedTypeArguments?: Type[];
   selectedVariantName?: string;
+  kind: TypeKind;
+};
+
+export type TExternType = {
+  type: "Extern";
   kind: TypeKind;
 };
 
@@ -301,7 +307,8 @@ export type Type =
   | TTypeParameter
   | TClass
   | TEnum
-  | TPrimitive;
+  | TPrimitive
+  | TExternType;
 
 // Type constructors
 
@@ -1014,7 +1021,7 @@ Expected: <${typeParameters
               `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
           )
           .join(", ")}>
-Got:      <${typeArguments.map(typeToString).join(", ")}>`,
+Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`,
         inputString,
       });
     } else {
@@ -1041,7 +1048,7 @@ Expected: <${typeValue.typeParameters
               `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
           )
           .join(", ")}>
-Got:      <${typeArguments.map(typeToString).join(", ")}>`,
+Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`,
         inputString,
       });
     } else {
@@ -1061,7 +1068,7 @@ Expected: <${typeValue.typeParameters
               `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
           )
           .join(", ")}>
-Got:      <${typeArguments.map(typeToString).join(", ")}>`,
+Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`,
         inputString,
       });
     } else {
@@ -1089,7 +1096,10 @@ export function applyTypeArgumentsToType(
   console.log("- applyTypeArgumentsToType");
   console.log("  - type: ", type.type);
   console.log("    - typeToString(type): ", typeToString(type));
-  console.log("  - typeArguments: ", typeArguments.map(typeToString));
+  console.log(
+    "  - typeArguments: ",
+    typeArguments.map((type) => typeToString(type))
+  );
   console.log(
     "  - typeParameterToTypeArgumentMap: ",
     typeParameterToTypeArgumentMap
@@ -1105,21 +1115,34 @@ export function applyTypeArgumentsToType(
         `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
     )
     .join(", ")}>
-  Got:      <${typeArguments.map(typeToString).join(", ")}>`
+  Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
       );
     }
+
     // set typeParameterToTypeArgumentMap
+    const newTypeParameters: TTypeParameter[] = [];
     for (let i = 0; i < type.typeParameters.length; i++) {
       const typeParameter = type.typeParameters[i];
       const typeArgument = typeArguments[i];
       typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
+      if (typeArgument.type === "TypeParameter") {
+        newTypeParameters.push(typeArgument);
+      } else if (typeArgument.type === "unknown") {
+        newTypeParameters.push(typeParameter);
+      }
     }
 
-    return applyTypeArgumentsToType(
-      typeValue,
-      typeArguments,
-      typeParameterToTypeArgumentMap
-    );
+    return {
+      type: "TypeConstructor",
+      kind: type.kind,
+      name: type.name,
+      typeParameters: newTypeParameters, // FIXME: <- this might be wrong
+      typeValue: applyTypeArgumentsToType(
+        typeValue,
+        typeArguments,
+        typeParameterToTypeArgumentMap
+      ),
+    };
   } else if (type.type === "Class") {
     if (type.typeParameters.length !== typeArguments.length) {
       throw new Error(
@@ -1130,7 +1153,7 @@ export function applyTypeArgumentsToType(
         `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
     )
     .join(", ")}>
-  Got:      <${typeArguments.map(typeToString).join(", ")}>`
+  Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
       );
     }
     // set typeParameterToTypeArgumentMap
@@ -1256,7 +1279,7 @@ export function applyTypeArgumentsToType(
         `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
     )
     .join(", ")}>
-  Got:      <${typeArguments.map(typeToString).join(", ")}>`
+  Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
       );
     }
     // set typeParameterToTypeArgumentMap
@@ -1387,7 +1410,7 @@ Expected: <${typeParameters
             `${typeParameter.name}: ${typeToString(typeParameter.typeValue)}`
         )
         .join(", ")}>
-Got:      <${typeArguments.map(typeToString).join(", ")}>`
+Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
     );
   }
   // set typeParameterToTypeArgumentMap
@@ -1433,7 +1456,10 @@ export function applyTypeArgumentsToExpr(
 ): Expr {
   console.log("- applyTypeArgumentsToExpr");
   console.log("  - expr: ", exprToString(expr));
-  console.log("  - typeArguments: ", typeArguments.map(typeToString));
+  console.log(
+    "  - typeArguments: ",
+    typeArguments.map((type) => typeToString(type))
+  );
   console.log(
     "  - typeParameterToTypeArgumentMap: ",
     typeParameterToTypeArgumentMap
@@ -2320,7 +2346,10 @@ function isSubtype(a: Type, b: Type): boolean {
   }
 }
 
-export function typeToString(type: Type): string {
+export function typeToString(
+  type: Type,
+  extractTypeConstructor?: boolean | "all"
+): string {
   if ("tag" in type) {
     if (type.type === "symbol") {
       return `@${JSON.stringify(type.value)}`;
@@ -2392,7 +2421,9 @@ export function typeToString(type: Type): string {
         .join(", ")} }`;
     }
     case "Function": {
-      return `<${type.typeParameters.map(typeToString)}>(${type.parameterTypes
+      return `<${type.typeParameters.map((type) =>
+        typeToString(type)
+      )}>(${type.parameterTypes
         .map(
           (parameter) =>
             (parameter.name ? `${parameter.name}: ` : "") +
@@ -2401,15 +2432,17 @@ export function typeToString(type: Type): string {
         .join(", ")})=> ${typeToString(type.returnType)}`;
     }
     case "Union": {
-      return `(${type.types.map(typeToString).join(" | ")})`;
+      return `(${type.types.map((type) => typeToString(type)).join(" | ")})`;
     }
     case "Intersection": {
-      return `(${type.types.map(typeToString).join(" & ")})`;
+      return `(${type.types.map((type) => typeToString(type)).join(" & ")})`;
     }
     case "unknown": {
       return `unknown${type.typeName ? ` ${type.typeName}` : ""}${
         type.typeArguments
-          ? `<${type.typeArguments.map(typeToString).join(", ")}>`
+          ? `<${type.typeArguments
+              .map((type) => typeToString(type))
+              .join(", ")}>`
           : ""
       }`;
     }
@@ -2424,16 +2457,36 @@ export function typeToString(type: Type): string {
       return `${type.name}`;
     }
     case "TypeConstructor": {
-      return `${
-        type.typeParameters.length > 0
-          ? `<${type.typeParameters
-              .map(
-                (typeParameter) =>
-                  `${typeParameter.name}: ${typeParameter.kind}`
-              )
-              .join(", ")}>`
-          : ""
-      }${typeToString(type.typeValue)}`;
+      if (extractTypeConstructor) {
+        if (extractTypeConstructor === "all") {
+          return `${type.name}${
+            type.typeParameters.length > 0
+              ? `<${type.typeParameters
+                  .map(
+                    (typeParameter) =>
+                      `${typeParameter.name}: ${typeParameter.kind}`
+                  )
+                  .join(", ")}>`
+              : ""
+          }: ${type.kind} = ${typeToString(
+            type.typeValue,
+            extractTypeConstructor
+          )}`;
+        } else {
+          return typeToString(type.typeValue, extractTypeConstructor);
+        }
+      } else {
+        return `${type.name}${
+          type.typeParameters.length > 0
+            ? `<${type.typeParameters
+                .map(
+                  (typeParameter) =>
+                    `${typeParameter.name}: ${typeParameter.kind}`
+                )
+                .join(", ")}>`
+            : ""
+        }`;
+      }
     }
     case "Class": {
       return `class${
@@ -2464,7 +2517,9 @@ export function typeToString(type: Type): string {
       if (type.appliedTypeArguments) {
         return `${type.enumName}${
           type.appliedTypeArguments.length > 0
-            ? `<${type.appliedTypeArguments.map(typeToString).join(",")}>`
+            ? `<${type.appliedTypeArguments
+                .map((type) => typeToString(type))
+                .join(",")}>`
             : ""
         }${
           /*type.selectedVariantName ? `.${type.selectedVariantName}` : ""*/ ""
@@ -2498,6 +2553,9 @@ ${type.variants
   .join(",\n")}
 }`;
     }
+    case "Extern": {
+      return "";
+    }
     default: {
       throw new Error(`Unknown type ${JSON.stringify(type)}`);
     }
@@ -2509,6 +2567,12 @@ export function checkType(
   givenType: Type,
   env: Environment
 ): boolean {
+  if (expectedType.type === "TypeConstructor") {
+    return checkType(expectedType.typeValue, givenType, env);
+  } else if (givenType.type === "TypeConstructor") {
+    return checkType(expectedType, givenType.typeValue, env);
+  }
+
   if (expectedType.type === "unknown") {
     if (expectedType.typeName) {
       // Get real type from env
@@ -2664,11 +2728,11 @@ export function getFunctionArgumentsInOrder(
   );
   console.log(
     "  - functionTypeArguments: ",
-    functionTypeArguments.map(typeToString)
+    functionTypeArguments.map((type) => typeToString(type))
   );
   console.log(
     "  - functionTypeParamters: ",
-    functionTypeParamters.map(typeToString)
+    functionTypeParamters.map((type) => typeToString(type))
   );
 
   const functionArgumentsInOrder: (Expr | null)[] = functionParameterTypes.map(
@@ -2766,7 +2830,7 @@ export function getFunctionArgumentsInOrder(
     }
     console.log(
       "- functionTypeArgumentsInOrder: ",
-      functionTypeArgumentsInOrder.map(typeToString)
+      functionTypeArgumentsInOrder.map((type) => typeToString(type))
     );
 
     return {

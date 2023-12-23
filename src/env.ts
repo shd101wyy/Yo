@@ -16,10 +16,21 @@ export type ValueType = {
   frameLevel: number;
 };
 
-type Frame = ValueType[];
+let regionCount = 1;
+export function getNewRegionId(): string {
+  return `region-${regionCount++}`;
+}
+
+type Frame = {
+  regionId: string;
+  values: ValueType[];
+};
 
 function addFrameValueType(frame: Frame, valueType: ValueType): Frame {
-  return [...frame, valueType];
+  return {
+    regionId: frame.regionId,
+    values: [...frame.values, valueType],
+  };
 }
 
 function getFrameValueTypesByVariableName(
@@ -27,7 +38,7 @@ function getFrameValueTypesByVariableName(
   variableName: string,
   kind?: ValueTypeKind
 ): ValueType[] {
-  return frame.filter(
+  return frame.values.filter(
     (valueType) =>
       valueType.variableName === variableName &&
       (kind !== undefined ? valueType.kind === kind : true)
@@ -53,7 +64,13 @@ export function copyEnvironment(
   };
 }
 
-export function pushEnvFrame(env: Environment, frame: Frame = []): Environment {
+export function pushEnvFrame(
+  env: Environment,
+  frame: Frame = {
+    regionId: getNewRegionId(),
+    values: [],
+  }
+): Environment {
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
     freeVariables: env.freeVariables,
@@ -114,4 +131,8 @@ export function getEnvValueTypesByVariableName(
 
 export function getEnvCurrentFrameLevel(env: Environment): number {
   return env.frames.length - 1;
+}
+
+export function getEnvCurrentRegionId(env: Environment): string {
+  return env.frames[env.frames.length - 1].regionId;
 }
