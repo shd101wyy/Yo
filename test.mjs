@@ -717,7 +717,8 @@ enum Option<V> {
   None
 }
 function main() {
-  let x = Option<i32>.Some(3.4);
+  let Some = Option.Some;
+  let x = Some(3.4);
   0
 }
 `

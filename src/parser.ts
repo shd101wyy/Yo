@@ -1532,7 +1532,9 @@ Got:      <${appliedTypeArguments
         valueType.type.type === "Class" && valueType.kind === "class"
     );
     const matchedEnums = valueTypes.filter(
-      (valueType) => valueType.type.type === "Enum" && valueType.kind === "type"
+      (valueType) =>
+        valueType.type.type === "Enum" &&
+        (valueType.kind === "type" || valueType.kind === "value")
     );
 
     // Check if it's a typeclass
