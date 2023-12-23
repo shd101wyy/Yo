@@ -713,11 +713,11 @@ function main() {
 
 code = `
 enum Option<V> {
-  Some(val: V),
+  Some(value: V),
   None
 }
 function main() {
-  let x = Option.Some(3);
+  let x = Option<i32>.Some(3.4);
   0
 }
 `

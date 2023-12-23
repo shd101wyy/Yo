@@ -278,7 +278,6 @@ export type TEnum = {
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
   variants: TEnumVariant[];
-  appliedTypeArguments?: Type[];
   selectedVariantName?: string;
   kind: TypeKind;
 };
@@ -1214,32 +1213,16 @@ export function applyTypeArgumentsToType(
       functions: functions,
     };
   } else if (type.type === "Enum") {
-    const appliedTypeArguments = type.appliedTypeArguments;
-    if (appliedTypeArguments) {
-      const newAppliedTypeArguments = appliedTypeArguments.map((type) =>
-        applyTypeArgumentsToType(
-          type,
-          typeArguments,
-          typeParameterToTypeArgumentMap
-        )
-      );
-      return {
-        ...type,
-        appliedTypeArguments: newAppliedTypeArguments,
-      };
-    }
-
     // set typeParameterToTypeArgumentMap
     const newTypeParameters: TTypeParameter[] = [];
     for (let i = 0; i < type.typeParameters.length; i++) {
       const typeParameter = type.typeParameters[i];
       const typeArgument = typeArguments[i];
       typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
-      if (typeArgument.type === "TypeParameter") {
-        newTypeParameters.push(typeArgument);
-      } else if (typeArgument.type === "unknown") {
-        newTypeParameters.push(typeParameter);
-      }
+      newTypeParameters.push({
+        ...typeParameter,
+        appliedType: typeArgument,
+      });
     }
 
     // apply to each of the variants
@@ -1273,10 +1256,9 @@ export function applyTypeArgumentsToType(
       type: "Enum",
       kind: type.kind, // getEnumTypeKind(variants), NOTE: This is wrong
       enumName: type.enumName,
-      typeParameters: newTypeParameters, // FIXME: <- this might be wrong
+      typeParameters: newTypeParameters,
       regionParameters: type.regionParameters,
       variants: variants,
-      appliedTypeArguments: typeArguments,
       selectedVariantName: type.selectedVariantName,
     };
 
@@ -2536,24 +2518,11 @@ export function typeToString(
 }`;
     }
     case "Enum": {
-      if (type.appliedTypeArguments) {
-        return `${type.enumName}${
-          type.appliedTypeArguments.length > 0
-            ? `<${type.appliedTypeArguments
-                .map((type) => typeToString(type))
-                .join(",")}>`
-            : ""
-        }${
-          type.selectedVariantName && !hideTypeParameterKind
-            ? `.${type.selectedVariantName}`
-            : ""
-        }`;
-      }
-
-      return `enum${typeAndRegionParametersToString(
-        type.typeParameters,
-        type.regionParameters
-      )}: ${type.kind} {
+      if (extractTypeConstructor) {
+        return `enum${typeAndRegionParametersToString(
+          type.typeParameters,
+          type.regionParameters
+        )}: ${type.kind} {
 ${type.variants
   .map(({ name, parameterTypes }) => {
     return `  ${name}${
@@ -2562,7 +2531,7 @@ ${type.variants
             .map(
               (parameter) =>
                 (parameter.name ? `${parameter.name}: ` : "") +
-                typeToString(parameter.type)
+                typeToString(parameter.type, { hideTypeParameterKind: true })
             )
             .join(", ")})`
         : ""
@@ -2570,6 +2539,16 @@ ${type.variants
   })
   .join(",\n")}
 }`;
+      } else {
+        return `${type.enumName}${typeAndRegionParametersToString(
+          type.typeParameters,
+          type.regionParameters
+        )}${
+          type.selectedVariantName && !hideTypeParameterKind
+            ? `.${type.selectedVariantName}`
+            : ""
+        }`;
+      }
     }
     case "Extern": {
       return "";
@@ -2651,18 +2630,7 @@ export function checkType(
         checkType(expectedType.returnType, givenType.returnType, env)
       );
     } else if (expectedTypeType === "Enum" && givenTypeType === "Enum") {
-      if (expectedType.enumName !== givenType.enumName) {
-        return false;
-      }
-      const expectedTypeAppliedTypeArguments =
-        expectedType.appliedTypeArguments;
-      const givenTypeAppliedTypeArguments = givenType.appliedTypeArguments;
-      if (!expectedTypeAppliedTypeArguments || !givenTypeAppliedTypeArguments) {
-        return false;
-      }
-      return expectedTypeAppliedTypeArguments.every((type, i) =>
-        checkType(type, givenTypeAppliedTypeArguments[i], env)
-      );
+      return checkEnumExactMatchType(expectedType, givenType, env);
     } else {
       return isSubtype(givenType, expectedType);
     }
@@ -2794,6 +2762,72 @@ function checkTypeConstructorExactMatch(
   return true;
 }
 
+function checkEnumExactMatchType(
+  expectedType: TEnum,
+  givenType: TEnum,
+  env: Environment
+): boolean {
+  if (expectedType.enumName !== givenType.enumName) {
+    return false;
+  }
+  if (
+    expectedType.variants.length !== givenType.variants.length ||
+    expectedType.typeParameters.length !== givenType.typeParameters.length ||
+    expectedType.regionParameters.length !== givenType.regionParameters.length
+  ) {
+    return false;
+  }
+
+  for (let i = 0; i < expectedType.typeParameters.length; i++) {
+    if (
+      !checkType(
+        expectedType.typeParameters[i],
+        givenType.typeParameters[i],
+        env
+      )
+    ) {
+      return false;
+    }
+  }
+
+  for (let i = 0; i < expectedType.regionParameters.length; i++) {
+    if (
+      !checkRegion(
+        expectedType.regionParameters[i],
+        givenType.regionParameters[i]
+      )
+    ) {
+      return false;
+    }
+  }
+
+  for (let i = 0; i < expectedType.variants.length; i++) {
+    const expectedVariant = expectedType.variants[i];
+    const givenVariant = givenType.variants[i];
+    if (expectedVariant.name !== givenVariant.name) {
+      return false;
+    }
+    if (
+      expectedVariant.parameterTypes.length !==
+      givenVariant.parameterTypes.length
+    ) {
+      return false;
+    }
+    for (let j = 0; j < expectedVariant.parameterTypes.length; j++) {
+      if (
+        !checkType(
+          expectedVariant.parameterTypes[j].type,
+          givenVariant.parameterTypes[j].type,
+          env
+        )
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 /**
  * Get the real functionArgumentsInOrder by matching the functionArguments with the functionType
  * If not match, then return null
@@ -2820,7 +2854,7 @@ export function getFunctionArgumentsInOrder(
       .join(", ")})`
   );
   console.log(
-    "  - functionArguments: ",
+    "  - functionArguments types: ",
     functionArguments.map((expr) => typeToString(expr.typeValue))
   );
   console.log(
@@ -2913,11 +2947,23 @@ export function getFunctionArgumentsInOrder(
     for (let i = 0; i < functionTypeParamters.length; i++) {
       const typeParameter = functionTypeParamters[i];
       const typeArgument = functionTypeArguments[i];
-      if (typeArgument) {
-        functionTypeArgumentsInOrder[i] = typeArgument;
-      } else if (typeParameter.name in typeParameterToTypeArgumentMap) {
+      if (typeParameter.name in typeParameterToTypeArgumentMap) {
+        // Check type
+        if (
+          typeArgument.type !== "unknown" &&
+          !checkType(
+            typeArgument,
+            typeParameterToTypeArgumentMap[typeParameter.name],
+            env
+          )
+        ) {
+          return { functionArguments: null, functionTypeArguments: null };
+        }
+
         functionTypeArgumentsInOrder[i] =
           typeParameterToTypeArgumentMap[typeParameter.name];
+      } else if (typeArgument) {
+        functionTypeArgumentsInOrder[i] = typeArgument;
       } /* else {
         return {
           functionArguments: functionArgumentsInOrder as Expr[],
@@ -2926,7 +2972,7 @@ export function getFunctionArgumentsInOrder(
       } */
     }
     console.log(
-      "- functionTypeArgumentsInOrder: ",
+      "  - functionTypeArgumentsInOrder: ",
       functionTypeArgumentsInOrder.map((type) => typeToString(type))
     );
 

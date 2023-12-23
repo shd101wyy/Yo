@@ -591,25 +591,12 @@ export default class Parser {
         };
 
         if (variant.parameterTypes.length === 0) {
-          const typeArguments = callerType.appliedTypeArguments;
-          if (!typeArguments) {
-            throw this.formatErrorMessage(
-              token,
-              "Expected typeArguments for enum"
-            );
-          } else {
-            while (typeArguments.length < callerType.typeParameters.length) {
-              typeArguments.push(TypeValues.unknown);
-            }
-          }
-
           return {
             expr: {
               type: AstType.CallEnum,
               env,
               typeValue: {
                 ...typeValue,
-                appliedTypeArguments: typeArguments,
               },
               variantArguments: [],
             },
@@ -1343,13 +1330,9 @@ Got:      <${functionTypeArgumentsInOrder
       throw this.formatErrorMessage(tokens[index], "Expected left paren");
     }
 
-    const appliedTypeArguments = calleeTypeValue.appliedTypeArguments;
-    if (!appliedTypeArguments) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "Expected appliedTypeArguments for enum"
-      );
-    }
+    const appliedTypeArguments: Type[] = calleeTypeValue.typeParameters.map(
+      (typeParameter) => typeParameter.appliedType ?? TypeValues.unknown
+    );
 
     const variantArguments: Expr[] = [];
     index = index + 1;
@@ -1423,8 +1406,9 @@ Got:      <${appliedTypeArguments
           .join(", ")}>`
       );
     }
+
     const enumType: TEnum = applyTypeArgumentsToType(
-      { ...calleeTypeValue, appliedTypeArguments: undefined },
+      { ...calleeTypeValue },
       variantTypeArgumentsInOrder
     ) as TEnum;
 
@@ -1494,14 +1478,11 @@ Got:      <${appliedTypeArguments
     }
 
     if (
-      !targetEnumType.appliedTypeArguments ||
-      targetEnumType.appliedTypeArguments.length === 0 ||
-      targetEnumType.appliedTypeArguments.every(
-        (type) => type.type === "unknown"
+      targetEnumType.typeParameters.every(
+        (typeParameter) => !typeParameter.appliedType
       )
     ) {
-      targetEnumType.appliedTypeArguments =
-        enumExpr.typeValue.appliedTypeArguments;
+      targetEnumType.typeParameters = enumExpr.typeValue.typeParameters;
     }
 
     return {
@@ -1656,7 +1637,18 @@ Found possible enums:
 
         const newEnumType: TEnum = {
           ...enumType,
-          appliedTypeArguments: typeArguments,
+          typeParameters: enumType.typeParameters.map(
+            (typeParameter, index) => {
+              if (index >= typeArguments.length) {
+                return typeParameter;
+              } else {
+                return {
+                  ...typeParameter,
+                  appliedType: typeArguments[index],
+                };
+              }
+            }
+          ),
         };
 
         return {
@@ -2571,47 +2563,28 @@ else: ${typeToString(elseReturnType)}
     // Check if type matches
     if (userDefinedVariableType !== null) {
       // Type inference for enum type
-      if (userDefinedVariableType.type === "Enum") {
-        const typeArguments =
-          userDefinedVariableType.appliedTypeArguments ?? [];
-        while (
-          typeArguments.length < userDefinedVariableType.typeParameters.length
-        ) {
-          typeArguments.push(TypeValues.unknown);
-        }
-        userDefinedVariableType.appliedTypeArguments = typeArguments;
-      }
-
       if (
         userDefinedVariableType.type === "Enum" &&
         variableType.type === "Enum" &&
         userDefinedVariableType.enumName === variableType.enumName &&
-        userDefinedVariableType.appliedTypeArguments &&
-        variableType.appliedTypeArguments &&
-        userDefinedVariableType.appliedTypeArguments.length ===
-          variableType.appliedTypeArguments.length &&
         (userDefinedVariableType.selectedVariantName === undefined ||
           userDefinedVariableType.selectedVariantName ===
             variableType.selectedVariantName)
       ) {
         for (
           let i = 0;
-          i < userDefinedVariableType.appliedTypeArguments.length;
+          i < userDefinedVariableType.typeParameters.length;
           i++
         ) {
           const userDefinedTypeArgument =
-            userDefinedVariableType.appliedTypeArguments[i];
-          const typeArgument = variableType.appliedTypeArguments[i];
-          if (
-            userDefinedTypeArgument.type === "unknown" &&
-            typeArgument.type !== "unknown"
-          ) {
-            userDefinedVariableType.appliedTypeArguments[i] = typeArgument;
-          } else if (
-            userDefinedTypeArgument.type !== "unknown" &&
-            typeArgument.type === "unknown"
-          ) {
-            variableType.appliedTypeArguments[i] = userDefinedTypeArgument;
+            userDefinedVariableType.typeParameters[i].appliedType;
+          const typeArgument = variableType.typeParameters[i].appliedType;
+          if (!userDefinedTypeArgument && typeArgument) {
+            userDefinedVariableType.typeParameters[i].appliedType =
+              typeArgument;
+          } else if (userDefinedTypeArgument && !typeArgument) {
+            variableType.typeParameters[i].appliedType =
+              userDefinedTypeArgument;
           }
         }
         userDefinedVariableType.selectedVariantName =

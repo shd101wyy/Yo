@@ -433,10 +433,9 @@ export function exprToString(expr: Expr | FunctionPrototype) {
           : ""
       }${typeToString(expr.typeValue).replace(/^(class|instance)/, "")}`;
     case AstType.Enum:
-      return `enum ${expr.enumName}${typeToString(expr.typeValue).replace(
-        /^enum/,
-        ""
-      )}`;
+      return `${typeToString(expr.typeValue, {
+        extractTypeConstructor: true,
+      })}`;
     case AstType.Function:
       return `${
         expr.prototype.functionName
