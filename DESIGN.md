@@ -202,7 +202,7 @@ The [Austral language](https://austral-lang.org/) has a very good explanation on
 
 A **Region** here is a block that specifies the lifetime of values.
 
-Block `{...}`, function call `func(...)`, and `if` statement create new regions.
+Block `{...}`, function call `func(...)`, `if` statement, and update mutable reference by `=` create new regions.
 
 **Mo** is explicit about the regions and lifetime of values.
 
@@ -225,6 +225,11 @@ function test(flag: boolean) { // Region 1
       mul() // Region 7 for calling `mul`
     }
   }
+}
+
+function update() { // Region 1
+  let mut x = 1;
+  x = 2; // Region 2
 }
 ```
 
@@ -319,9 +324,9 @@ A **reference** is a `Free` pointer to a `Linear` or `Free` value. References ha
 type Reference<T: Type, R: Region>: Free;
 // Or written as &<T, R> for short
 
-type MutableReference<T: Type, R: Region>: Linear; 
+type MutableReference<T: Type, R: Region>: Linear;
 // Or written as &!<T, R> for short
-// There can only be one mutable reference to a value at a time.  
+// There can only be one mutable reference to a value at a time.
 ```
 
 We can use `&` to create a reference to a value, or `&!` to create a mutable reference to a value.

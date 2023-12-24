@@ -712,9 +712,24 @@ function main() {
 `
 
 code = `
+type Data: Linear;
+extern malloc(size: i32): Data;
+extern consume(data: Data): ();
+
 function main() {
-  let mut x = 3;
-  let xRef = &!x;
+  let x = malloc(4);
+  consume(x);
+  consume(x);
+}
+`
+
+code = `
+type Data: Linear;
+extern malloc(size: i32): Data;
+function main() {
+  let x = malloc(4);
+  let y = x;
+  let z = x; // error
 }
 `
 
