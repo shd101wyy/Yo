@@ -5,7 +5,7 @@ const { dependencies, devDependencies } = require("./package.json");
  * @type {import('esbuild').BuildOptions}
  */
 const sharedConfig = {
-  entryPoints: ["./src/index.ts"],
+  entryPoints: ["./src/index.ts", "./src/mo-cli.ts"],
   bundle: true,
   minify: true,
   // sourcemap: true,
@@ -30,7 +30,9 @@ const sharedConfig = {
 const cjsConfig = {
   ...sharedConfig,
   platform: "node", // For CJS
-  outfile: "./out/cjs/index.cjs",
+  outdir: "./out/cjs",
+  outExtension: { ".js": ".cjs" },
+  // outfile: "./out/cjs/index.cjs",
   target: "node16",
 };
 
@@ -39,9 +41,12 @@ const cjsConfig = {
  */
 const esmConfig = {
   ...sharedConfig,
+  entryPoints: ["./src/index.ts"],
   // TODO: Support browser
   platform: "neutral", // For ESM
-  outfile: "./out/esm/index.mjs",
+  outdir: "./out/esm",
+  outExtension: { ".js": ".mjs" },
+  // outfile: "./out/esm/index.mjs",
 };
 
 async function main() {

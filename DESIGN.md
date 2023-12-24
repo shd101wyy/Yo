@@ -149,10 +149,10 @@ mo hello.mo --target wasm -o hello.wasm
 
 # Package management
 mo install # Install dependencies defined in `mo.json` and `mo.lock`
-mo add package-name # Install a specific package
-mo add package-name@version # Install a specific version of a package
-mo add --global package-name # Install a package globally
-mo remove package-name # Uninstall a package
+mo install package-name # Install a specific package
+mo install package-name@version # Install a specific version of a package
+mo install --global package-name # Install a package globally
+mo uninstall package-name # Uninstall a package
 
 # Run scripts
 mo run test

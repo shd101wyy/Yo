@@ -1,19 +1,34 @@
 {
   "name": "mo",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "./out/cjs/index.cjs",
+  "module": "./out/esm/index.mjs",
+  "types": "./out/types/src/index.d.ts",
+  "bin": {
+    "mo": "./out/cjs/mo-cli.cjs"
+  },
+  "files": [
+    "out",
+    "standard",
+    "examples"
+  ],
   "repository": "git@github-shd101wyy:0xGG/mo.git",
   "author": "Yiyi Wang <shd101wyy@gmail.com>",
   "license": "NCSA",
   "scripts": {
-    "build": "node build.js",
+    "build:esbuild": "node build.js",
+    "build:typings": "tsc --project . --declaration",
+    "build": "yarn build:esbuild && yarn build:typings",
     "dev": "node build.js --watch",
     "format": "prettier --write \"**/*.*\""
   },
   "dependencies": {
-    "llvm-bindings": "^0.4.2"
+    "llvm-bindings": "^0.4.2",
+    "yargs": "^17.7.2"
   },
   "devDependencies": {
+    "@types/node": "^20.10.5",
+    "@types/yargs": "^17.0.32",
     "@typescript-eslint/eslint-plugin": "^6.8.0",
     "@typescript-eslint/parser": "^6.8.0",
     "esbuild": "^0.19.5",

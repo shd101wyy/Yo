@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import { Expr, exprToString } from "./ast";
 import { tokenize } from "./lexer";
 import Parser from "./parser";
@@ -8,16 +9,24 @@ export class CodeGenerator {
   private tokens: Token[];
   private ast: Expr[];
 
-  constructor(inputString: string) {
-    this.inputString = inputString;
+  constructor(
+    filePath: string,
+    { printLexer, printParser }: { printLexer?: boolean; printParser?: boolean }
+  ) {
+    this.inputString = fs.readFileSync(filePath, "utf-8");
     this.tokens = tokenize(this.inputString);
-    console.log(`= tokens: `, this.tokens);
 
-    const parser = new Parser(inputString);
+    if (printLexer) {
+      console.log(`= lexer: `, this.tokens);
+    }
+
+    const parser = new Parser(this.inputString);
     this.ast = parser.parse(this.tokens);
 
-    console.log("\n= ast: ");
-    this.ast.map((expr) => console.log(exprToString(expr)));
-    console.log("\n= ast end\n");
+    if (printParser) {
+      console.log("\n= parser: ");
+      this.ast.map((expr) => console.log(exprToString(expr)));
+      console.log("\n= parser end\n");
+    }
   }
 }

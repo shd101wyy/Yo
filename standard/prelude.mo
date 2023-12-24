@@ -2,15 +2,12 @@
  * This file contains the prelude for the Mo language.
  */
 
-type Reference<T: Type, R: Region>: Free;
-type MutableReference<T: Type, R: Region>: Free;
-
-enum Some<T: Type> {
+enum Some<T: Type>: Type {
   Some(T),
   None,
 }
 
-enum Result<T: Type, E: Type> {
+enum Result<T: Type, E: Type>: Type {
   Ok(T),
   Err(E),
 }
