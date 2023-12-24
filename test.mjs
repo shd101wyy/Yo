@@ -731,9 +731,7 @@ type Person = {name: Data, age: i32};
 function main() {
   let mut x = 1;
   let xRef = &!x;
-
-  x = x + 1;
-
+  let y = (*xRef = 12);
   0
 }
 `

@@ -86,6 +86,7 @@ export type Expr =
   | FunctionExpr
   | ExternExpr
   | LetAssignmentExpr
+  | AssignmentExpr
   | TypeAliasExpr
   | EnumExpr
   | ClassExpr
@@ -224,6 +225,14 @@ export type LetAssignmentExpr = {
   frameLevel: number;
   right: Expr;
   typeValue: TUnit;
+  env: Environment;
+};
+
+export type AssignmentExpr = {
+  type: AstType.Assignment;
+  left: Expr;
+  right: Expr;
+  typeValue: Type;
   env: Environment;
 };
 
@@ -423,6 +432,8 @@ export function exprToString(expr: Expr | FunctionPrototype) {
       }: ${typeToString(expr.variableType, {
         hideTypeParameterKind: true,
       })} = ${exprToString(expr.right)}`;
+    case AstType.Assignment:
+      return `(${exprToString(expr.left)} = ${exprToString(expr.right)})`;
     case AstType.TypeAlias: {
       return `type ${typeToString(expr.typeValue, {
         extractTypeConstructor: "all",

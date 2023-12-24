@@ -716,6 +716,70 @@ Found possible functions:
     }
   }
 
+  private parseAssignmentExpr(
+    lhs: Expr,
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.Assign) {
+      throw this.formatErrorMessage(tokens[index], "Expected '='");
+    }
+    const lhsTokenIndex = index - 1;
+    index = index + 1;
+    const { expr: rhs, index: nextIndex } = this.parseExpression(
+      tokens,
+      index,
+      env,
+      false
+    );
+    if (!rhs) {
+      throw this.formatErrorMessage(tokens[index], "Expected expression");
+    }
+    index = nextIndex;
+    env = rhs.env;
+
+    // Check if the type of rhs matches the type of lhs
+    if (!checkType(lhs.typeValue, rhs.typeValue, env)) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Mismatched types:
+LHS: ${typeToString(lhs.typeValue)}
+${exprToString(lhs)}
+
+RHS: ${typeToString(rhs.typeValue)}
+${exprToString(rhs)}
+`
+      );
+    }
+
+    let isMutable = false; // TODO: Check if it's mutable.
+    if (lhs.type === AstType.Variable) {
+      isMutable = lhs.isMutable;
+    } else if (lhs.type === AstType.Dereference) {
+      isMutable =
+        typeIsReferenceOrMutableReference(lhs.expr.typeValue) === "&!";
+    }
+
+    if (isMutable) {
+      return {
+        expr: {
+          type: AstType.Assignment,
+          left: lhs,
+          right: rhs,
+          env,
+          typeValue: rhs.typeValue,
+        },
+        index,
+      };
+    } else {
+      throw this.formatErrorMessage(
+        tokens[lhsTokenIndex],
+        "Expected mutable variable for assignment"
+      );
+    }
+  }
+
   private parseIndexAccessExpr(
     expr: Expr,
     tokens: Token[],
@@ -956,20 +1020,34 @@ Returned:  ${typeToString(returnType)}`
       // This means we failed to parse it as anonymouse function
     }
 
-    const { expr, index: nextIndex } = this.parseExpression(
+    const returnValue = this.parseExpression(
       tokens,
       index + 1,
       env,
       isWithStatement
     );
+    let expr = returnValue.expr;
+    const nextIndex = returnValue.index;
     if (!expr) {
       return { expr, index: nextIndex };
     }
+    index = nextIndex;
 
-    if (tokens[nextIndex].type !== TokenType.RParen) {
-      throw this.formatErrorMessage(tokens[nextIndex], "Expected right paren");
+    if (tokens[index].type === TokenType.Assign) {
+      const { expr: rhs, index: nextNextIndex } = this.parseAssignmentExpr(
+        expr,
+        tokens,
+        index,
+        expr.env
+      );
+      expr = rhs;
+      index = nextNextIndex;
     }
-    return { expr, index: nextIndex + 1 };
+
+    if (tokens[index].type !== TokenType.RParen) {
+      throw this.formatErrorMessage(tokens[index], "Expected right paren");
+    }
+    return { expr, index: index + 1 };
   }
 
   private parseFunctionCallArguments(
@@ -1880,10 +1958,12 @@ Found possible functions:
       }
       case TokenType.MutableReference:
       case TokenType.BitwiseAnd: {
-        return this.parseReferenceExpr(tokens, index, env);
+        returnValue = this.parseReferenceExpr(tokens, index, env);
+        break;
       }
       case TokenType.Multiply: {
-        return this.parseDereferenceExpr(tokens, index, env);
+        returnValue = this.parseDereferenceExpr(tokens, index, env);
+        break;
       }
       default: {
         throw this.formatErrorMessage(
@@ -1892,6 +1972,7 @@ Found possible functions:
         );
       }
     }
+
     return this.parsePrimaryEnd(
       returnValue.expr,
       tokens,
@@ -2189,11 +2270,20 @@ Found possible functions:
         nextEnv,
         isWithStatement
       );
-      nextEnv = expr.env;
-      if (expr) {
-        exprs.push(expr);
+
+      if (tokens[nextIndex].type === TokenType.Assign) {
+        const { expr: assignmentExpr, index: nextNextIndex } =
+          this.parseAssignmentExpr(expr, tokens, nextIndex, expr.env);
+        exprs.push(assignmentExpr);
+        nextEnv = assignmentExpr.env;
+        index = nextNextIndex;
+      } else {
+        if (expr) {
+          exprs.push(expr);
+        }
+        nextEnv = expr.env;
+        index = nextIndex;
       }
-      index = nextIndex;
     }
 
     exprs = exprs.filter((expr) => expr.type !== AstType.Ignore);
@@ -3719,11 +3809,6 @@ Got:      ${typeToString(matchedFunction.func)}`
       }
       case AstType.PropertyAccess: {
         const propertyAccessTypeValue = expr.typeValue;
-        console.log(
-          "propertyAccess: ",
-          typeToString(propertyAccessTypeValue),
-          exprToString(expr)
-        );
         return {
           expr: {
             type: AstType.Reference,
@@ -3883,7 +3968,7 @@ ${exprToString(expr)}`
       env,
       isWithStatement
     );
-    if (!expr) {
+    if (!expr || expr.type === AstType.Ignore) {
       return { expr, index: nextIndex };
     } else {
       return this.parseBinOpRHS(
@@ -3891,7 +3976,7 @@ ${exprToString(expr)}`
         0,
         expr,
         nextIndex,
-        env,
+        expr.env,
         isWithStatement
       );
     }
