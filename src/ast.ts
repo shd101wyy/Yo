@@ -65,6 +65,9 @@ export enum AstType {
 
   // block expression
   Block = "block",
+
+  // defer
+  Defer = "defer",
 }
 
 export enum OperatorType {
@@ -103,7 +106,8 @@ export type Expr =
   | CallEnumExpr
   | IfExpr
   | IgnoreExpr
-  | BlockExpr;
+  | BlockExpr
+  | DeferExpr;
 
 export type IgnoreExpr = {
   type: AstType.Ignore;
@@ -115,6 +119,13 @@ export type BlockExpr = {
   type: AstType.Block;
   exprs: Expr[];
   typeValue: Type;
+  env: Environment;
+};
+
+export type DeferExpr = {
+  type: AstType.Defer;
+  expr: BlockExpr;
+  typeValue: TUnit;
   env: Environment;
 };
 
@@ -521,7 +532,7 @@ export function exprToString(expr: Expr | FunctionPrototype) {
             .join("\n")
         )
         .join(";\n")}
-  }`;
+}`;
     }
     case AstType.FunctionPrototype: {
       return `${expr.functionName ?? ``}${typeAndRegionParametersToString(
@@ -548,6 +559,9 @@ export function exprToString(expr: Expr | FunctionPrototype) {
     }
     case AstType.Dereference: {
       return `(*${exprToString(expr.expr)})`;
+    }
+    case AstType.Defer: {
+      return `defer ${exprToString(expr.expr)}`;
     }
     default:
       throw new Error(`Unknown expr type ${expr}`);

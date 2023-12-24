@@ -1976,6 +1976,9 @@ Found possible functions:
         returnValue = this.parseDereferenceExpr(tokens, index, env);
         break;
       }
+      case TokenType.Defer: {
+        return this.parseDeferExpr(tokens, index, env);
+      }
       default: {
         throw this.formatErrorMessage(
           token,
@@ -2100,6 +2103,37 @@ Found possible functions:
         index,
       };
     }
+  }
+
+  private parseDeferExpr(
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.Defer) {
+      throw this.formatErrorMessage(tokens[index], "Expected 'defer'");
+    }
+    index = index + 1;
+    const isNextTokenLCurlyBracket =
+      tokens[index].type === TokenType.LCurlyBracket;
+
+    const { expr: nextExpr, index: nextIndex } = this.parseBlockExpressions(
+      tokens,
+      index,
+      env,
+      false,
+      isNextTokenLCurlyBracket
+    );
+
+    return {
+      expr: {
+        type: AstType.Defer,
+        expr: nextExpr,
+        typeValue: TypeValues.unit,
+        env,
+      },
+      index: nextIndex,
+    };
   }
 
   private parseBinOpRHS(

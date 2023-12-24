@@ -729,10 +729,9 @@ extern malloc(size: i32): Data;
 type Person = {name: Data, age: i32};
 
 function main() {
-  let mut x = [1, 2, 3];
-  // let xRef = &!x[0]; 
-  x[0] = x[0] + 1;
-  0
+  let mut x = 1;
+  defer malloc(2);
+  ()
 }
 `
 

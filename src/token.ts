@@ -89,6 +89,7 @@ export enum TokenType {
   With = "with",
   As = "as",
   Const = "const",
+  Defer = "defer",
 
   /**
    * A list of available C functions can be found at:
