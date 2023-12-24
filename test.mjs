@@ -749,8 +749,8 @@ function main() {
   let name = malloc(4);
   let p: Person = Person.Person(name, 12);
   {
-    let {name, age} = p;
-    let x = age + 2;
+    let {name, age as newAge} = p;
+    let x = newAge + 2;
   }
 }
 `

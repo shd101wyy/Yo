@@ -2897,7 +2897,7 @@ Got:      ${typeToString(variableType)}`
       index = index + 1;
 
       let asName: string | undefined = undefined;
-      if (tokens[index].type === TokenType.Colon) {
+      if (tokens[index].type === TokenType.As) {
         index = index + 1;
         if (tokens[index].type !== TokenType.Identifier) {
           throw this.formatErrorMessage(

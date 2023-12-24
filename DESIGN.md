@@ -139,6 +139,8 @@ function main() {
 
 ```bash
 mo --help
+mo --version
+mo init # Create a new project in the current directory
 
 # Compilation
 mo hello.mo -o hello
@@ -894,9 +896,9 @@ let user: User = {
 {
   // Rename the field with `as`
   // Specify the type with `:`
-  let {name as username: &<String>, age: i32} = user;
+  let {name as username, age} = user;
   println(username); // johndoe
-  // username: Reference<String, R> for some region R. Free type
+  // username: String, linear type.  
   // age: i32. Free type.
 }
 ```
