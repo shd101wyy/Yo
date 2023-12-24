@@ -726,12 +726,16 @@ function main() {
 code = `
 type Data: Linear;
 extern malloc(size: i32): Data;
-type Person = {name: Data, age: i32};
+type Person = {name: Data, job: Data, age: i32};
 
 function main() {
-  let mut x = 1;
-  defer malloc(2);
-  ()
+  let name = malloc(4);
+  let job = malloc(4);
+  let p: Person = {name: name, job: job, age: 12};
+  {
+    let {name, job, age} = p;
+    let x = age + 2;
+  }
 }
 `
 

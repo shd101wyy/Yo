@@ -6,6 +6,7 @@
 import {
   AstType,
   BlockExpr,
+  Destructuring,
   Expr,
   FunctionExpr,
   FunctionPrototype,
@@ -2675,6 +2676,16 @@ else: ${typeToString(elseReturnType)}
       index = index + 1;
     }
 
+    if (tokens[index].type === TokenType.LCurlyBracket) {
+      return this.parseDestructuringAssignmentExpression(
+        tokens,
+        index,
+        env,
+        isWithStatement,
+        isMutable
+      );
+    }
+
     if (tokens[index].type !== TokenType.Identifier) {
       throw this.formatErrorMessage(
         tokens[index],
@@ -2836,6 +2847,175 @@ Got:      ${typeToString(variableType)}`
         typeValue: TypeValues.unit,
         frameLevel: getEnvCurrentFrameLevel(env),
         env,
+      },
+      index,
+    };
+  }
+
+  private parseDestructuringAssignmentExpression(
+    tokens: Token[],
+    index: number,
+    env: Environment,
+    isWithStatement: boolean,
+    isMutable: boolean
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for destructuring assignment"
+      );
+    }
+    index = index + 1;
+
+    const destructurings: Destructuring[] = [];
+    while (true) {
+      if (!tokens[index]) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected '}' for destructuring assignment"
+        );
+      }
+
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+
+      let isMutable_ = isMutable;
+      if (tokens[index].type === TokenType.Mut) {
+        isMutable_ = true;
+        index = index + 1;
+      }
+
+      if (tokens[index].type !== TokenType.Identifier) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected identifier for the field."
+        );
+      }
+      const name = tokens[index].value;
+      index = index + 1;
+
+      let asName: string | undefined = undefined;
+      if (tokens[index].type === TokenType.Colon) {
+        index = index + 1;
+        if (tokens[index].type !== TokenType.Identifier) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected identifier for new name of the field."
+          );
+        }
+        asName = tokens[index].value;
+        index = index + 1;
+      }
+
+      destructurings.push({
+        name,
+        asName,
+        isMutable: isMutable_,
+      });
+
+      if (tokens[index].type === TokenType.Comma) {
+        index = index + 1;
+      }
+    }
+
+    if (tokens[index].type !== TokenType.Assign) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '=' for destructuring assignment"
+      );
+    }
+    index = index + 1;
+
+    const { expr: value, index: nextIndex } = this.parseExpression(
+      tokens,
+      index,
+      env,
+      isWithStatement
+    );
+    index = nextIndex;
+
+    switch (value.typeValue.type) {
+      case "Record": {
+        const destructuredLinearFields: string[] = [];
+        // Check if the type of `value` matches the type of destructurings
+        for (let i = 0; i < destructurings.length; i++) {
+          const { name, asName, isMutable } = destructurings[i];
+          const property = value.typeValue.properties.find(
+            (p) => p.name === name
+          );
+          if (!property) {
+            throw this.formatErrorMessage(
+              tokens[index],
+              `Cannot find the property \`${name}\` in the following type:
+${typeToString(value.typeValue)}`
+            );
+          }
+          const propertyType = property.type;
+
+          if (
+            "isMutable" in value &&
+            !value.isMutable &&
+            isMutable &&
+            propertyType.kind !== "Free"
+          ) {
+            throw this.formatErrorMessage(
+              tokens[index],
+              `Cannot destructure an immutable record with mutable field "${name}"`
+            );
+          }
+
+          // Add variable to env
+          env = addEnvValueType(env, {
+            variableName: asName ?? name,
+            type: propertyType,
+            kind: "value",
+            isMutable: isMutable,
+          });
+
+          if (propertyType.kind === "Linear") {
+            destructuredLinearFields.push(name);
+          }
+        }
+
+        // Check if all linear fields are destructured
+        if (destructuredLinearFields.length > 0) {
+          for (const property of value.typeValue.properties) {
+            if (
+              property.type.kind === "Linear" &&
+              !destructuredLinearFields.includes(property.name)
+            ) {
+              throw this.formatErrorMessage(
+                tokens[index - 1],
+                `The linear field "${property.name}" needs to be destructured
+because the following linear fields are destructured:
+${destructuredLinearFields.map((x) => `"${x}"`).join(", ")}`
+              );
+            }
+          }
+        }
+
+        break;
+      }
+      // TODO: Support Enum
+      default: {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Cannot destructure the following type:
+${typeToString(value.typeValue)}`
+        );
+      }
+    }
+
+    return {
+      expr: {
+        type: AstType.DestructuringAssignment,
+        left: destructurings,
+        right: value,
+        isMutable,
+        env,
+        typeValue: TypeValues.unit,
       },
       index,
     };

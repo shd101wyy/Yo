@@ -36,6 +36,7 @@ export enum AstType {
 
   // assignment
   LetAssignment = "let=",
+  DestructuringAssignment = "destructuring=",
   Assignment = "=",
   TypeAlias = "type=",
   Class = "class",
@@ -90,6 +91,7 @@ export type Expr =
   | ExternExpr
   | LetAssignmentExpr
   | AssignmentExpr
+  | DestructuringAssignmentExpr
   | TypeAliasExpr
   | EnumExpr
   | ClassExpr
@@ -246,6 +248,21 @@ export type AssignmentExpr = {
   left: Expr;
   right: Expr;
   typeValue: Type;
+  env: Environment;
+};
+
+export type Destructuring = {
+  name: string;
+  asName?: string;
+  isMutable: boolean;
+};
+
+export type DestructuringAssignmentExpr = {
+  type: AstType.DestructuringAssignment;
+  left: Destructuring[];
+  right: Expr;
+  isMutable: boolean;
+  typeValue: TUnit;
   env: Environment;
 };
 
@@ -445,6 +462,16 @@ export function exprToString(expr: Expr | FunctionPrototype) {
       }: ${typeToString(expr.variableType, {
         hideTypeParameterKind: true,
       })} = ${exprToString(expr.right)}`;
+    case AstType.DestructuringAssignment: {
+      const isMutable = expr.isMutable;
+      return `let${isMutable ? " mut" : ""} {${expr.left
+        .map((destructuring) => {
+          return `${isMutable ? "" : destructuring.isMutable ? "mut " : ""}${
+            destructuring.name
+          }${destructuring.asName ? `: ${destructuring.asName}` : ""}`;
+        })
+        .join(", ")}} = ${exprToString(expr.right)}`;
+    }
     case AstType.Assignment:
       return `(${exprToString(expr.left)} = ${exprToString(expr.right)})`;
     case AstType.TypeAlias: {

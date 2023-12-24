@@ -14,14 +14,19 @@ struct B<'a> {
     b: i32,
 }
 
+struct C {
+    a: String,
+}
+
 fn test(x: &[String]) {
     println!("{:?}", x[2]);
 }
 
 fn main() {
-    let mut x = 12;
-    let mut xRef1 = &mut x;
-    let mut xRef2 = xRef1;
-    *xRef1 = 12;
-    *xRef2 = 13;
+    let x = C {
+        a: String::from("hello"),
+    };
+
+    let s = x.a;
+    s.push_str(" world");
 }

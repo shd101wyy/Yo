@@ -358,6 +358,14 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 }
 
 {
+  let {name, mut age} = p;
+}
+
+{
+  let mut {name, age} = p;
+}
+
+{
   let age = p.age; // age: i32, Free type. The `p` variable is not consumed
                     // when you extract a free field from it.
 
