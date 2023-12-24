@@ -19,9 +19,9 @@ fn test(x: &[String]) {
 }
 
 fn main() {
-    let mut x = [String::from("Hi"), String::from("world")];
-    // let s = &mut x[1];
-    // *s = String::from("earth");
-    test(&x);
-    println!("{:?}", x);
+    let mut x = 12;
+    let mut xRef1 = &mut x;
+    let mut xRef2 = xRef1;
+    *xRef1 = 12;
+    *xRef2 = 13;
 }

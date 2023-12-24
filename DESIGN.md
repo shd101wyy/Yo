@@ -316,11 +316,12 @@ A **reference** is a `Free` pointer to a `Linear` or `Free` value. References ha
 - **Read-write** or **mutable** references allow you to read from and write to a linear value.
 
 ```typescript
-type Reference<T: Type, R: Region>;
+type Reference<T: Type, R: Region>: Free;
 // Or written as &<T, R> for short
 
-type MutableReference<T: Type, R: Region>;
+type MutableReference<T: Type, R: Region>: Linear; 
 // Or written as &!<T, R> for short
+// There can only be one mutable reference to a value at a time.  
 ```
 
 We can use `&` to create a reference to a value, or `&!` to create a mutable reference to a value.

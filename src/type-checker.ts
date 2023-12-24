@@ -401,8 +401,8 @@ export const TypeValues: {
   },
   MutableReference: {
     type: "TypeConstructor",
-    kind: "Free",
-    name: "&",
+    kind: "Linear",
+    name: "&!",
     typeParameters: [
       {
         type: "TypeParameter",

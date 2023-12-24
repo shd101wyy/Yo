@@ -2641,6 +2641,7 @@ Got:      ${typeToString(variableType)}`
       variableName,
       type: variableType,
       kind: "value",
+      isMutable,
     });
 
     return {
@@ -3613,6 +3614,7 @@ Got:      ${typeToString(matchedFunction.func)}`
       tokens[index].type === TokenType.MutableReference;
     index = index + 1;
 
+    const valueTokenIndex = index;
     const { expr, index: nextIndex } = this.parseExpression(
       tokens,
       index,
@@ -3620,6 +3622,7 @@ Got:      ${typeToString(matchedFunction.func)}`
       false
     );
     index = nextIndex;
+    env = expr.env;
 
     switch (expr.type) {
       case AstType.Variable: {
@@ -3631,11 +3634,19 @@ Got:      ${typeToString(matchedFunction.func)}`
         );
         if (!variableValues.length) {
           throw this.formatErrorMessage(
-            tokens[index],
+            tokens[valueTokenIndex],
             `Cannot find variable "${variableName}"`
           );
         }
         const variableValue = variableValues[variableValues.length - 1];
+
+        if (!variableValue.isMutable && isMutableReference) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Cannot create mutable reference to immutable variable "${variableName}"`
+          );
+        }
+
         return {
           expr: {
             type: AstType.Reference,

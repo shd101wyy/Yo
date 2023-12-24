@@ -5,6 +5,7 @@ type ValueTypeKind = "type" | "region" | "value" | "class";
 export type ValueType = {
   // id: string; // NOTE: The `id` here doesn't really help in generic function
   variableName: string;
+  isMutable?: boolean;
   type: Type;
   region?: Region;
   kind: ValueTypeKind;
@@ -19,7 +20,7 @@ export type ValueType = {
 
 let regionCount = 1;
 export function getNewRegionId(): string {
-  return `R_${regionCount++}`;
+  return `'R_${regionCount++}`;
 }
 
 type Frame = {

@@ -712,14 +712,9 @@ function main() {
 `
 
 code = `
-enum Option<V> {
-  Some(value: V),
-  None
-}
 function main() {
-  let Some = Option.Some;
-  let x = Some(3.4);
-  0
+  let mut x = 3;
+  let xRef = &!x;
 }
 `
 
