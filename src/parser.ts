@@ -671,6 +671,7 @@ export default class Parser {
                 name: functionName,
                 frameLevel: functionType.frameLevel,
                 typeValue: functionType.type,
+                isMutable: false,
                 env,
               },
               tokens,
@@ -1684,6 +1685,7 @@ Found possible enums:
             env,
             typeValue: newEnumType,
             frameLevel: enumValue.frameLevel,
+            isMutable: false,
           },
           index,
         };
@@ -1714,6 +1716,7 @@ Found possible enums:
                 frameLevel: functionType.frameLevel,
                 typeValue: functionType.type,
                 env,
+                isMutable: false,
               },
               tokens,
               index + 1,
@@ -1782,6 +1785,7 @@ Found possible functions:
         typeValue,
         frameLevel: valueType.frameLevel,
         env,
+        isMutable: !!valueType.isMutable,
         // isFreeVariable,
       },
       index: index + 1,
@@ -3670,22 +3674,10 @@ Got:      ${typeToString(matchedFunction.func)}`
     switch (expr.type) {
       case AstType.Variable: {
         const variableName = expr.name;
-        const variableValues = getEnvValueTypesByVariableName(
-          env,
-          variableName,
-          "value"
-        );
-        if (!variableValues.length) {
+        const variableType = expr.typeValue;
+        if (!expr.isMutable && isMutableReference) {
           throw this.formatErrorMessage(
             tokens[valueTokenIndex],
-            `Cannot find variable "${variableName}"`
-          );
-        }
-        const variableValue = variableValues[variableValues.length - 1];
-
-        if (!variableValue.isMutable && isMutableReference) {
-          throw this.formatErrorMessage(
-            tokens[index],
             `Cannot create mutable reference to immutable variable "${variableName}"`
           );
         }
@@ -3704,7 +3696,7 @@ Got:      ${typeToString(matchedFunction.func)}`
                   type: "TypeParameter",
                   kind: "Type",
                   name: "T",
-                  appliedType: variableValue.type,
+                  appliedType: variableType,
                 },
               ],
               regionParameters: [

@@ -729,13 +729,11 @@ extern malloc(size: i32): Data;
 type Person = {name: Data, age: i32};
 
 function main() {
-  let d = malloc(4);
-  let p: Person = {name: d, age: 12};
-  let pRef = &p;
-  let nameRef = pRef.name;
-  {
-    let ageRef = pRef.age;
-  }
+  let mut x = 1;
+  let xRef = &!x;
+
+  x = x + 1;
+
   0
 }
 `

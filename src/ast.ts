@@ -149,6 +149,7 @@ export type VariableExpr = {
   frameLevel: number;
   typeValue: Type;
   env: Environment;
+  isMutable: boolean;
   // isFreeVariable: boolean;
 };
 
