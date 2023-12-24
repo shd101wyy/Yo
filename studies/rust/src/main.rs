@@ -23,10 +23,7 @@ fn test(x: &[String]) {
 }
 
 fn main() {
-    let x = C {
-        a: String::from("hello"),
-    };
-
-    let s = x.a;
-    s.push_str(" world");
+   let x = String::from("Hello, world!");
+   let mut y = x;
+   y.push_str("GG");
 }

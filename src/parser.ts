@@ -2936,20 +2936,19 @@ Got:      ${typeToString(variableType)}`
     );
     index = nextIndex;
 
-    switch (value.typeValue.type) {
+    const valueType = value.typeValue;
+    switch (valueType.type) {
       case "Record": {
         const destructuredLinearFields: string[] = [];
         // Check if the type of `value` matches the type of destructurings
         for (let i = 0; i < destructurings.length; i++) {
           const { name, asName, isMutable } = destructurings[i];
-          const property = value.typeValue.properties.find(
-            (p) => p.name === name
-          );
+          const property = valueType.properties.find((p) => p.name === name);
           if (!property) {
             throw this.formatErrorMessage(
               tokens[index],
               `Cannot find the property \`${name}\` in the following type:
-${typeToString(value.typeValue)}`
+${typeToString(value.typeValue, { extractTypeConstructor: true })}`
             );
           }
           const propertyType = property.type;
@@ -2981,7 +2980,7 @@ ${typeToString(value.typeValue)}`
 
         // Check if all linear fields are destructured
         if (destructuredLinearFields.length > 0) {
-          for (const property of value.typeValue.properties) {
+          for (const property of valueType.properties) {
             if (
               property.type.kind === "Linear" &&
               !destructuredLinearFields.includes(property.name)
@@ -2996,6 +2995,86 @@ ${destructuredLinearFields.map((x) => `"${x}"`).join(", ")}`
           }
         }
 
+        break;
+      }
+      case "Enum": {
+        if (!valueType.selectedVariantName) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Cannot destructure the following enum because no variant is selected:
+${typeToString(value.typeValue)}`
+          );
+        } else {
+          const variant = valueType.variants.find(
+            (v) => v.name === valueType.selectedVariantName
+          );
+          if (!variant) {
+            throw this.formatErrorMessage(
+              tokens[index],
+              `Cannot find the variant "${
+                valueType.selectedVariantName
+              }" in the following type:
+${typeToString(value.typeValue)}`
+            );
+          }
+          const destructuredLinearFields: string[] = [];
+          // Check if the type of `value` matches the type of destructurings
+          for (let i = 0; i < destructurings.length; i++) {
+            const { name, asName, isMutable } = destructurings[i];
+            const property = variant.parameterTypes.find(
+              (p) => p.name === name
+            );
+            if (!property) {
+              throw this.formatErrorMessage(
+                tokens[index],
+                `Cannot find the property \`${name}\` in the following type:
+${typeToString(value.typeValue, { extractTypeConstructor: true })}`
+              );
+            }
+            const propertyType = property.type;
+
+            if (
+              "isMutable" in value &&
+              !value.isMutable &&
+              isMutable &&
+              propertyType.kind !== "Free"
+            ) {
+              throw this.formatErrorMessage(
+                tokens[index],
+                `Cannot destructure an immutable enum with mutable field "${name}"`
+              );
+            }
+
+            // Add variable to env
+            env = addEnvValueType(env, {
+              variableName: asName ?? name,
+              type: propertyType,
+              kind: "value",
+              isMutable: isMutable,
+            });
+
+            if (propertyType.kind === "Linear") {
+              destructuredLinearFields.push(name);
+            }
+          }
+
+          // Check if all linear fields are destructured
+          if (destructuredLinearFields.length > 0) {
+            for (const property of variant.parameterTypes) {
+              if (
+                property.type.kind === "Linear" &&
+                !destructuredLinearFields.includes(property.name)
+              ) {
+                throw this.formatErrorMessage(
+                  tokens[index - 1],
+                  `The linear field "${property.name}" needs to be destructured
+because the following linear fields are destructured:
+${destructuredLinearFields.map((x) => `"${x}"`).join(", ")}`
+                );
+              }
+            }
+          }
+        }
         break;
       }
       // TODO: Support Enum

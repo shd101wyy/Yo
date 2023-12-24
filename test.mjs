@@ -739,6 +739,22 @@ function main() {
 }
 `
 
+code = `
+type Data: Linear;
+extern malloc(size: i32): Data;
+enum Person {
+  Person(name: Data, age: i32)
+}
+function main() {
+  let name = malloc(4);
+  let p: Person = Person.Person(name, 12);
+  {
+    let {name, age} = p;
+    let x = age + 2;
+  }
+}
+`
+
 const codeGenerator = new CodeGenerator(code);
 
 // const ir = codeGenerator.getLlvmIr();
