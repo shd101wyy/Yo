@@ -726,10 +726,17 @@ function main() {
 code = `
 type Data: Linear;
 extern malloc(size: i32): Data;
+type Person = {name: Data, age: i32};
+
 function main() {
   let d = malloc(4);
-  let dRef = &d;
-  let d2 = *dRef;
+  let p: Person = {name: d, age: 12};
+  let pRef = &p;
+  let nameRef = pRef.name;
+  {
+    let ageRef = pRef.age;
+  }
+  0
 }
 `
 

@@ -59,6 +59,7 @@ import {
   synthesizeTypeAndRegionParametersFromTokens,
   synthesizeTypeArgumentsFromTokens,
   synthesizeTypeFromTokens,
+  typeIsReferenceOrMutableReference,
   typeToString,
 } from "./type-checker";
 
@@ -539,7 +540,19 @@ export default class Parser {
     }
 
     // Check if it's a valid property in the record
-    const callerType = expr.typeValue;
+    let callerType = expr.typeValue;
+    let referenceType: TTypeConstructor | undefined = undefined;
+
+    if (
+      // Reference or MutableReference
+      callerType.type === "TypeConstructor" &&
+      (callerType.name === "&" || callerType.name === "&!") &&
+      callerType.typeParameters[0].appliedType
+    ) {
+      referenceType = callerType;
+      callerType = callerType.typeParameters[0].appliedType;
+    }
+
     if (callerType.type === "Record") {
       const property = callerType.properties.find(
         (property) => property.name === token.value
@@ -550,7 +563,17 @@ export default class Parser {
             type: AstType.PropertyAccess,
             expr: expr,
             propertyName: property.name,
-            typeValue: property.type,
+            typeValue: referenceType
+              ? {
+                  ...referenceType,
+                  typeParameters: referenceType.typeParameters.map(
+                    (typeParameter) => ({
+                      ...typeParameter,
+                      appliedType: property.type,
+                    })
+                  ),
+                }
+              : property.type,
             env,
           },
           index: index + 1,
@@ -626,6 +649,7 @@ export default class Parser {
 
     // Check if it's a valid function that takes
     // the `expr` as the first argument
+    callerType = expr.typeValue;
     if (tokens[index + 1]?.type === TokenType.LParen) {
       const functionName = token.value;
       // Find the functions that takes `expr` as the first argument
@@ -2636,7 +2660,23 @@ Got:      ${typeToString(variableType)}`
         }
       }
 
-      userDefinedVariableType = variableType;
+      // userDefinedVariableType = variableType;
+      // Assign region to userDefinedVariableType if it's not set
+      if (
+        userDefinedVariableType.type === "TypeConstructor" &&
+        variableType.type === "TypeConstructor"
+      ) {
+        for (
+          let i = 0;
+          i < userDefinedVariableType.regionParameters.length;
+          i++
+        ) {
+          if (!userDefinedVariableType.regionParameters[i].appliedRegion) {
+            userDefinedVariableType.regionParameters[i].appliedRegion =
+              variableType.regionParameters[i].appliedRegion;
+          }
+        }
+      }
     }
 
     // Add variable to env
@@ -3685,6 +3725,48 @@ Got:      ${typeToString(matchedFunction.func)}`
           index,
         };
       }
+      case AstType.PropertyAccess: {
+        const propertyAccessTypeValue = expr.typeValue;
+        console.log(
+          "propertyAccess: ",
+          typeToString(propertyAccessTypeValue),
+          exprToString(expr)
+        );
+        return {
+          expr: {
+            type: AstType.Reference,
+            expr,
+            isMutableReference: isMutableReference,
+            typeValue: {
+              ...(isMutableReference
+                ? TypeValues.MutableReference
+                : TypeValues.Reference),
+              typeParameters: [
+                {
+                  type: "TypeParameter",
+                  kind: "Type",
+                  name: "T",
+                  appliedType: propertyAccessTypeValue,
+                },
+              ],
+              regionParameters: [
+                {
+                  type: "RegionParameter",
+                  kind: "Region",
+                  name: "R",
+                  appliedRegion: {
+                    type: "Region",
+                    kind: "Region",
+                    regionId: getEnvCurrentRegionId(env),
+                  },
+                },
+              ],
+            },
+            env,
+          },
+          index,
+        };
+      }
       default: {
         throw this.formatErrorMessage(
           tokens[index],
@@ -3718,53 +3800,68 @@ ${exprToString(expr)}`
     index = nextIndex;
     env = expr.env;
 
+    if (!typeIsReferenceOrMutableReference(expr.typeValue)) {
+      throw this.formatErrorMessage(
+        tokens[valueTokenIndex],
+        `Cannot dereference non-reference type: ${typeToString(
+          expr.typeValue
+        )}\n${exprToString(expr)}`
+      );
+    }
+    const referenceTypeValue = expr.typeValue as TTypeConstructor;
+    const referenceAppliedType =
+      referenceTypeValue.typeParameters[0]?.appliedType;
+    if (!referenceAppliedType) {
+      throw this.formatErrorMessage(
+        tokens[valueTokenIndex],
+        `Cannot dereference reference to unknown type`
+      );
+    }
+    if (
+      referenceAppliedType.kind === "Linear" ||
+      referenceAppliedType.kind === "Type"
+    ) {
+      throw this.formatErrorMessage(
+        tokens[valueTokenIndex],
+        `Cannot dereference linear type: ${typeToString(
+          referenceAppliedType
+        )}\n${exprToString(expr)}`
+      );
+    }
+
     switch (expr.type) {
       case AstType.Variable: {
-        const variableName = expr.name;
-        const variableValues = getEnvValueTypesByVariableName(
-          env,
-          variableName,
-          "value"
-        );
-        if (!variableValues.length) {
-          throw this.formatErrorMessage(
-            tokens[valueTokenIndex],
-            `Cannot find variable "${variableName}"`
-          );
-        }
-        const variableValue = variableValues[variableValues.length - 1];
-        const variableValueType = variableValue.type;
-        if (
-          variableValueType.type === "TypeConstructor" &&
-          (variableValueType.name === "&" || variableValueType.name === "&!") &&
-          variableValueType.typeParameters[0]?.appliedType
-        ) {
-          const appliedType = variableValueType.typeParameters[0].appliedType;
-
-          if (appliedType.kind === "Linear" || appliedType.kind === "Type") {
-            throw this.formatErrorMessage(
-              tokens[valueTokenIndex],
-              `Cannot dereference linear type: ${typeToString(
-                appliedType
-              )}\n${variableName}: ${typeToString(variableValueType)}`
-            );
-          }
-
-          return {
-            expr: {
-              type: AstType.Dereference,
-              expr,
-              typeValue: variableValueType.typeParameters[0].appliedType,
-              env,
-            },
-            index,
-          };
-        } else {
-          throw this.formatErrorMessage(
-            tokens[valueTokenIndex],
-            `Cannot dereference non-reference variable "${variableName}"`
-          );
-        }
+        return {
+          expr: {
+            type: AstType.Dereference,
+            expr,
+            typeValue: referenceAppliedType,
+            env,
+          },
+          index,
+        };
+      }
+      case AstType.Reference: {
+        return {
+          expr: {
+            type: AstType.Dereference,
+            expr,
+            typeValue: referenceAppliedType,
+            env,
+          },
+          index,
+        };
+      }
+      case AstType.PropertyAccess: {
+        return {
+          expr: {
+            type: AstType.Dereference,
+            expr,
+            typeValue: referenceAppliedType,
+            env,
+          },
+          index,
+        };
       }
       default: {
         throw this.formatErrorMessage(

@@ -7,6 +7,7 @@ import {
   TFunction,
   TPrimitive,
   TPrimitiveWithValue,
+  TTypeConstructor,
   TUnit,
   Type,
   TypeKind,
@@ -155,7 +156,7 @@ export type ReferenceExpr = {
   type: AstType.Reference;
   expr: Expr;
   isMutableReference: boolean;
-  typeValue: Type;
+  typeValue: TTypeConstructor;
   env: Environment;
 };
 

@@ -2435,7 +2435,8 @@ export function typeToString(
     case "Function": {
       return `${typeAndRegionParametersToString(
         type.typeParameters,
-        type.regionParameters
+        type.regionParameters,
+        { hideTypeParameterKind }
       )}(${type.parameterTypes
         .map(
           (parameter) =>
@@ -2470,7 +2471,10 @@ export function typeToString(
     }*/
     case "TypeParameter": {
       if (type.appliedType) {
-        return typeToString(type.appliedType);
+        return typeToString(type.appliedType, {
+          hideTypeParameterKind,
+          extractTypeConstructor,
+        });
       } else if (hideTypeParameterKind) {
         return type.name;
       } else {
@@ -2482,26 +2486,35 @@ export function typeToString(
         if (extractTypeConstructor === "all") {
           return `${type.name}${typeAndRegionParametersToString(
             type.typeParameters,
-            type.regionParameters
+            type.regionParameters,
+            { hideTypeParameterKind }
           )}: ${type.kind}${
             type.typeValue.type === "Extern"
               ? ";"
-              : ` = ${typeToString(type.typeValue, { extractTypeConstructor })}`
+              : ` = ${typeToString(type.typeValue, {
+                  extractTypeConstructor,
+                  hideTypeParameterKind,
+                })}`
           }`;
         } else {
-          return typeToString(type.typeValue, { extractTypeConstructor });
+          return typeToString(type.typeValue, {
+            extractTypeConstructor,
+            hideTypeParameterKind,
+          });
         }
       } else {
         return `${type.name}${typeAndRegionParametersToString(
           type.typeParameters,
-          type.regionParameters
+          type.regionParameters,
+          { hideTypeParameterKind }
         )}`;
       }
     }
     case "Class": {
       return `class${typeAndRegionParametersToString(
         type.typeParameters,
-        type.regionParameters
+        type.regionParameters,
+        { hideTypeParameterKind }
       )} {
   ${type.functions
     .map(
@@ -2521,7 +2534,8 @@ export function typeToString(
       if (extractTypeConstructor) {
         return `enum${typeAndRegionParametersToString(
           type.typeParameters,
-          type.regionParameters
+          type.regionParameters,
+          { hideTypeParameterKind }
         )}: ${type.kind} {
 ${type.variants
   .map(({ name, parameterTypes }) => {
@@ -2542,7 +2556,8 @@ ${type.variants
       } else {
         return `${type.enumName}${typeAndRegionParametersToString(
           type.typeParameters,
-          type.regionParameters
+          type.regionParameters,
+          { hideTypeParameterKind }
         )}${
           type.selectedVariantName && !hideTypeParameterKind
             ? `.${type.selectedVariantName}`
@@ -2672,12 +2687,15 @@ export function checkRegion(
 
 export function typeAndRegionParametersToString(
   typeParameters: TTypeParameter[],
-  regionParameters: TRegionParameter[]
+  regionParameters: TRegionParameter[],
+  { hideTypeParameterKind }: { hideTypeParameterKind?: boolean } = {}
 ) {
   if (typeParameters.length + regionParameters.length === 0) {
     return "";
   } else {
-    return `<${typeParameters.map((type) => typeToString(type))}${
+    return `<${typeParameters.map((type) =>
+      typeToString(type, { hideTypeParameterKind })
+    )}${
       typeParameters.length > 0 && regionParameters.length > 0 ? ", " : ""
     }${regionParameters.map((region) =>
       region.appliedRegion
@@ -3091,4 +3109,15 @@ function mixTypeKind(kind1: TypeKind, kind2: TypeKind): TypeKind {
   } else {
     return "Free";
   }
+}
+
+export function typeIsReferenceOrMutableReference(
+  type: Type
+): "&" | "&!" | null {
+  if (type.type === "TypeConstructor") {
+    if (type.name === "&" || type.name === "&!") {
+      return type.name;
+    }
+  }
+  return null;
 }
