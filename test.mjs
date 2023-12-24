@@ -727,9 +727,9 @@ code = `
 type Data: Linear;
 extern malloc(size: i32): Data;
 function main() {
-  let x = malloc(4);
-  let y = x;
-  let z = x; // error
+  let d = malloc(4);
+  let dRef = &d;
+  let d2 = *dRef;
 }
 `
 

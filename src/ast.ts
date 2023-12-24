@@ -26,6 +26,7 @@ export enum AstType {
 
   // reference and dereference
   Reference = "reference",
+  Dereference = "dereference",
 
   // operators
   BinaryOperator = "binop",
@@ -92,6 +93,7 @@ export type Expr =
   | IsOperatorExpr
   | VariableExpr
   | ReferenceExpr
+  | DereferenceExpr
   | PropertyAccessExpr
   | IndexAccessExpr
   | ValueExpr
@@ -153,6 +155,13 @@ export type ReferenceExpr = {
   type: AstType.Reference;
   expr: Expr;
   isMutableReference: boolean;
+  typeValue: Type;
+  env: Environment;
+};
+
+export type DereferenceExpr = {
+  type: AstType.Dereference;
+  expr: Expr;
   typeValue: Type;
   env: Environment;
 };
@@ -372,6 +381,9 @@ export function exprToString(expr: Expr | FunctionPrototype) {
     case AstType.Value:
       switch (expr.tag) {
         case "primitive":
+          if (expr.typeValue.type === "char") {
+            return JSON.stringify(expr.value);
+          }
           return expr.value;
         case "record":
           return `{${expr.properties
@@ -518,6 +530,9 @@ export function exprToString(expr: Expr | FunctionPrototype) {
       return `(${expr.isMutableReference ? "&!" : "&"}${exprToString(
         expr.expr
       )})`;
+    }
+    case AstType.Dereference: {
+      return `(*${exprToString(expr.expr)})`;
     }
     default:
       throw new Error(`Unknown expr type ${expr}`);

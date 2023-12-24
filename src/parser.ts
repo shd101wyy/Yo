@@ -1854,6 +1854,9 @@ Found possible functions:
       case TokenType.BitwiseAnd: {
         return this.parseReferenceExpr(tokens, index, env);
       }
+      case TokenType.Multiply: {
+        return this.parseDereferenceExpr(tokens, index, env);
+      }
       default: {
         throw this.formatErrorMessage(
           token,
@@ -3686,6 +3689,87 @@ Got:      ${typeToString(matchedFunction.func)}`
         throw this.formatErrorMessage(
           tokens[index],
           `Unable to create reference for:
+${exprToString(expr)}`
+        );
+      }
+    }
+  }
+
+  private parseDereferenceExpr(
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.Multiply) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '*' for dereference expression"
+      );
+    }
+    index = index + 1;
+
+    const valueTokenIndex = index;
+    const { expr, index: nextIndex } = this.parseExpression(
+      tokens,
+      index,
+      env,
+      false
+    );
+    index = nextIndex;
+    env = expr.env;
+
+    switch (expr.type) {
+      case AstType.Variable: {
+        const variableName = expr.name;
+        const variableValues = getEnvValueTypesByVariableName(
+          env,
+          variableName,
+          "value"
+        );
+        if (!variableValues.length) {
+          throw this.formatErrorMessage(
+            tokens[valueTokenIndex],
+            `Cannot find variable "${variableName}"`
+          );
+        }
+        const variableValue = variableValues[variableValues.length - 1];
+        const variableValueType = variableValue.type;
+        if (
+          variableValueType.type === "TypeConstructor" &&
+          (variableValueType.name === "&" || variableValueType.name === "&!") &&
+          variableValueType.typeParameters[0]?.appliedType
+        ) {
+          const appliedType = variableValueType.typeParameters[0].appliedType;
+
+          if (appliedType.kind === "Linear" || appliedType.kind === "Type") {
+            throw this.formatErrorMessage(
+              tokens[valueTokenIndex],
+              `Cannot dereference linear type: ${typeToString(
+                appliedType
+              )}\n${variableName}: ${typeToString(variableValueType)}`
+            );
+          }
+
+          return {
+            expr: {
+              type: AstType.Dereference,
+              expr,
+              typeValue: variableValueType.typeParameters[0].appliedType,
+              env,
+            },
+            index,
+          };
+        } else {
+          throw this.formatErrorMessage(
+            tokens[valueTokenIndex],
+            `Cannot dereference non-reference variable "${variableName}"`
+          );
+        }
+      }
+      default: {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Unable to dereference:
 ${exprToString(expr)}`
         );
       }

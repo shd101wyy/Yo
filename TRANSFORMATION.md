@@ -1,6 +1,8 @@
 ## Function call transformation
 
-Run the `parser` first to get the AST, then run the `transformer` to transform the AST.  
+Run the `parser` first to get the AST, which will keep the semantic information.  
+
+Then run the `transformer` to transform the AST. This will change the semantic information.    
 The borrow checker is also performed in the `transformer` phase.  
 
 ```typescript

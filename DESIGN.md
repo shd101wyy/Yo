@@ -1534,6 +1534,16 @@ let x: i32[#mul(2, 3)] = 6;
 
 ## Compilation `In Design`
 
+1. Run the `lexer` to tokenize the source code.
+2. Run the `parser` to convert the tokens into an AST.  
+   This step also does the type checking and type inference.  
+   This step will not change the semantics of the code.  
+3. Run the `transformer` to transform the AST into a new AST.  
+   This step also does the borrow checking.  
+   This step will change the semantics of the code.  
+4. Run the `code generator` to generate the code.  
+   This step also does the optimization.  
+
 The current **Mo** compiler frontend is written in **TypeScript** as a proof of concept.
 
 Boostrapping the **Mo** compiler is not a priority at the moment. We will do it when it's ready.
