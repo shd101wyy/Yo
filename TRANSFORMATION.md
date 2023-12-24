@@ -1,5 +1,8 @@
 ## Function call transformation
 
+Run the `parser` first to get the AST, then run the `transformer` to transform the AST.  
+The borrow checker is also performed in the `transformer` phase.  
+
 ```typescript
 add(1, add(2, 3));
 
