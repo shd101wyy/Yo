@@ -575,6 +575,7 @@ export default class Parser {
                 }
               : property.type,
             env,
+            isMutable: "isMutable" in expr ? expr.isMutable : false,
           },
           index: index + 1,
         };
@@ -592,6 +593,7 @@ export default class Parser {
             propertyName: func.name,
             typeValue: func.func,
             env,
+            isMutable: false,
           },
           index: index + 1,
         };
@@ -633,6 +635,7 @@ export default class Parser {
               propertyName: variant.name,
               typeValue: typeValue,
               env,
+              isMutable: false,
             },
             index: index + 1,
           };
@@ -759,6 +762,11 @@ ${exprToString(rhs)}
     } else if (lhs.type === AstType.Dereference) {
       isMutable =
         typeIsReferenceOrMutableReference(lhs.expr.typeValue) === "&!";
+    } else if (
+      lhs.type === AstType.IndexAccess ||
+      lhs.type === AstType.PropertyAccess
+    ) {
+      isMutable = lhs.isMutable;
     }
 
     if (isMutable) {
@@ -775,7 +783,9 @@ ${exprToString(rhs)}
     } else {
       throw this.formatErrorMessage(
         tokens[lhsTokenIndex],
-        "Expected mutable variable for assignment"
+        `Expected mutable left-hand side for assignment:
+${exprToString(lhs)}
+`
       );
     }
   }
@@ -869,6 +879,7 @@ ${exprToString(rhs)}
         indexes,
         typeValue: valueType,
         env,
+        isMutable: "isMutable" in expr ? expr.isMutable : false,
       },
       index,
     };
@@ -3752,7 +3763,7 @@ Got:      ${typeToString(matchedFunction.func)}`
     index = index + 1;
 
     const valueTokenIndex = index;
-    const { expr, index: nextIndex } = this.parseExpression(
+    const { expr, index: nextIndex } = this.parsePrimary(
       tokens,
       index,
       env,
@@ -3807,8 +3818,18 @@ Got:      ${typeToString(matchedFunction.func)}`
           index,
         };
       }
-      case AstType.PropertyAccess: {
-        const propertyAccessTypeValue = expr.typeValue;
+      case AstType.PropertyAccess:
+      case AstType.IndexAccess: {
+        if (!expr.isMutable && isMutableReference) {
+          throw this.formatErrorMessage(
+            tokens[valueTokenIndex],
+            `Cannot create mutable reference to immutable value "${exprToString(
+              expr
+            )}"`
+          );
+        }
+
+        const appliedTypeValue = expr.typeValue;
         return {
           expr: {
             type: AstType.Reference,
@@ -3823,7 +3844,7 @@ Got:      ${typeToString(matchedFunction.func)}`
                   type: "TypeParameter",
                   kind: "Type",
                   name: "T",
-                  appliedType: propertyAccessTypeValue,
+                  appliedType: appliedTypeValue,
                 },
               ],
               regionParameters: [
@@ -3868,7 +3889,7 @@ ${exprToString(expr)}`
     index = index + 1;
 
     const valueTokenIndex = index;
-    const { expr, index: nextIndex } = this.parseExpression(
+    const { expr, index: nextIndex } = this.parsePrimary(
       tokens,
       index,
       env,

@@ -175,6 +175,7 @@ export type PropertyAccessExpr = {
   expr: Expr;
   typeValue: Type;
   env: Environment;
+  isMutable: boolean;
 };
 
 export type IndexAccessExpr = {
@@ -183,6 +184,7 @@ export type IndexAccessExpr = {
   expr: Expr;
   typeValue: Type;
   env: Environment;
+  isMutable: boolean;
 };
 
 export type BinaryOperatorExpr = {
