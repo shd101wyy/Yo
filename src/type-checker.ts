@@ -262,9 +262,11 @@ export type TClassFunction = {
 export type TClass = {
   type: "Class";
   kind: "Free";
+  name: string;
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
   functions: TClassFunction[];
+  isInstance: boolean;
 };
 
 export type TEnumVariant = {
@@ -285,6 +287,13 @@ export type TEnum = {
 export type TExternType = {
   type: "Extern";
   kind: TypeKind;
+};
+
+export type TModule = {
+  type: "Module";
+  fileAbsolutePath: string;
+  ast: Expr;
+  env: Environment;
 };
 
 /*
@@ -1208,6 +1217,8 @@ export function applyTypeArgumentsToType(
     return {
       type: "Class",
       kind: "Free",
+      name: type.name,
+      isInstance: true, // type.isInstance,
       typeParameters: newTypeParameters,
       regionParameters: type.regionParameters,
       functions: functions,
@@ -2511,7 +2522,9 @@ export function typeToString(
       }
     }
     case "Class": {
-      return `class${typeAndRegionParametersToString(
+      return `${type.isInstance ? "instance" : "class"} ${
+        type.name
+      }${typeAndRegionParametersToString(
         type.typeParameters,
         type.regionParameters,
         { hideTypeParameterKind }
@@ -2519,7 +2532,10 @@ export function typeToString(
   ${type.functions
     .map(
       ({ name, func, functionExpr }) =>
-        `${name}${typeToString(func).replace(/\)=>\s/, "): ")}${
+        `${name}${typeToString(func, { extractTypeConstructor: false }).replace(
+          /\)=>\s/,
+          "): "
+        )}${
           functionExpr
             ? ` {\n${functionExpr.body
                 .map((expr) => "    " + exprToString(expr))

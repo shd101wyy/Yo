@@ -6,6 +6,7 @@ export type ValueType = {
   // id: string; // NOTE: The `id` here doesn't really help in generic function
   variableName: string;
   isMutable?: boolean;
+  isExported?: boolean;
   type: Type;
   region?: Region;
   kind: ValueTypeKind;

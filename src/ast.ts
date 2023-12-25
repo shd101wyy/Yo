@@ -69,6 +69,10 @@ export enum AstType {
 
   // defer
   Defer = "defer",
+
+  // export/import
+  Export = "export",
+  Import = "import",
 }
 
 export enum OperatorType {
@@ -109,7 +113,9 @@ export type Expr =
   | IfExpr
   | IgnoreExpr
   | BlockExpr
-  | DeferExpr;
+  | DeferExpr
+  | ExportExpr
+  | ImportExpr;
 
 export type IgnoreExpr = {
   type: AstType.Ignore;
@@ -282,18 +288,8 @@ export type EnumExpr = {
 
 export type ClassExpr = {
   type: AstType.Class;
-  className: string;
   typeValue: TClass;
-  /**
-   * If typeArguments is undefined, then it's a typeclass definition.
-   * If typeArguments is defined, then it's a typeclass implementation, aka instance.
-   */
-  typeArguments?: Type[];
   env: Environment;
-  /**
-   * If it's a typeclass definition or instance definition, then isDefinition is true.
-   */
-  isDefinition: boolean;
 };
 
 export type FunctionPrototype = {
@@ -361,6 +357,20 @@ export type SwitchExpr = {
   condition: Expr;
   cases: SwitchCase[];
   typeValue: Type;
+  env: Environment;
+};
+
+export type ExportExpr = {
+  type: AstType.Export;
+  expr: Expr;
+  typeValue: TUnit;
+  env: Environment;
+};
+
+export type ImportExpr = {
+  type: AstType.Import;
+  path: string;
+  typeValue: TUnit;
   env: Environment;
 };
 
@@ -480,23 +490,9 @@ export function exprToString(expr: Expr | FunctionPrototype) {
       })}`;
     }
     case AstType.Class:
-      if (!expr.isDefinition) {
-        return `${expr.className}${
-          expr.typeArguments && expr.typeArguments.length > 0
-            ? `<${expr.typeArguments
-                .map((type) => typeToString(type))
-                .join(", ")}>`
-            : ""
-        }`;
-      }
-
-      return `${expr.typeArguments ? "instance" : "class"} ${expr.className}${
-        expr.typeArguments && expr.typeArguments.length > 0
-          ? `<${expr.typeArguments
-              .map((type) => typeToString(type))
-              .join(", ")}>`
-          : ""
-      }${typeToString(expr.typeValue).replace(/^(class|instance)/, "")}`;
+      return `${typeToString(expr.typeValue, {
+        extractTypeConstructor: true,
+      })}`;
     case AstType.Enum:
       return `${typeToString(expr.typeValue, {
         extractTypeConstructor: true,
@@ -589,6 +585,9 @@ export function exprToString(expr: Expr | FunctionPrototype) {
     }
     case AstType.Defer: {
       return `defer ${exprToString(expr.expr)}`;
+    }
+    case AstType.Export: {
+      return `export ${exprToString(expr.expr)}`;
     }
     default:
       throw new Error(`Unknown expr type ${expr}`);

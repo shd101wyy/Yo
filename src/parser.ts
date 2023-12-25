@@ -1707,11 +1707,8 @@ Found possible typeclasses:
           return {
             expr: {
               type: AstType.Class,
-              className: identifier,
               typeValue: newTypeclassType,
-              typeArguments: typeArguments,
               env,
-              isDefinition: false,
             },
             index,
           };
@@ -2364,7 +2361,8 @@ Found possible functions:
     index: number,
     env: Environment,
     isWithStatement: boolean,
-    requireFunctionKeyword = true
+    requireFunctionKeyword = true,
+    isExported = false
   ): ParserReturn {
     if (requireFunctionKeyword) {
       if (tokens[index].type !== TokenType.Function) {
@@ -2427,6 +2425,7 @@ Found possible functions:
           variableName: prototype.functionName!,
           type: prototype.typeValue,
           kind: "value",
+          isExported,
         },
         -1
       );
@@ -2488,7 +2487,8 @@ Returned:  ${typeToString(functionReturnType)}`
   private parseExtern(
     tokens: Token[],
     index: number,
-    env: Environment
+    env: Environment,
+    isExported = false
   ): ParserReturn {
     if (tokens[index].type !== TokenType.Extern) {
       throw this.formatErrorMessage(tokens[index], "Expected extern");
@@ -2515,6 +2515,7 @@ Returned:  ${typeToString(functionReturnType)}`
         variableName: prototype.functionName!,
         type: prototype.typeValue,
         kind: "value",
+        isExported,
       });
     }
 
@@ -2663,7 +2664,8 @@ else: ${typeToString(elseReturnType)}
     tokens: Token[],
     index: number,
     env: Environment,
-    isWithStatement: boolean
+    isWithStatement: boolean,
+    isExported: boolean = false
   ): ParserReturn {
     if (tokens[index].type !== TokenType.Let) {
       throw this.formatErrorMessage(tokens[index], 'Expected "let"');
@@ -2835,6 +2837,7 @@ Got:      ${typeToString(variableType)}`
       type: variableType,
       kind: "value",
       isMutable,
+      isExported,
     });
 
     return {
@@ -3218,7 +3221,8 @@ ${typeToString(value.typeValue)}`
   private parseTypeAlias(
     tokens: Token[],
     index: number,
-    env: Environment
+    env: Environment,
+    isExported: boolean = false
   ): ParserReturn {
     if (tokens[index].type !== TokenType.Type) {
       throw this.formatErrorMessage(
@@ -3255,6 +3259,7 @@ ${typeToString(value.typeValue)}`
         typeName,
       },
       kind: "type",
+      isExported,
     });
 
     // Type parameters
@@ -3400,7 +3405,8 @@ ${typeToString(value.typeValue)}`
   private parseClass(
     tokens: Token[],
     index: number,
-    env: Environment
+    env: Environment,
+    isExported: boolean = false
   ): ParserReturn {
     if (tokens[index].type !== TokenType.Class) {
       throw this.formatErrorMessage(
@@ -3437,6 +3443,7 @@ ${typeToString(value.typeValue)}`
         typeName: typeclassName,
       },
       kind: "type",
+      isExported,
     });
 
     // Type parameters
@@ -3600,9 +3607,11 @@ ${typeToString(functionType)}
     const typeclassType: TClass = {
       type: "Class",
       kind: "Free",
+      name: typeclassName,
       typeParameters,
       regionParameters,
       functions,
+      isInstance: false,
     };
 
     // Add to environment
@@ -3620,11 +3629,8 @@ ${typeToString(functionType)}
     return {
       expr: {
         type: AstType.Class,
-        className: typeclassName,
         typeValue: typeclassType,
-        typeArguments: undefined, // Defining class doesn't have type arguments
         env,
-        isDefinition: true,
       },
       index,
     };
@@ -3633,7 +3639,8 @@ ${typeToString(functionType)}
   private parseTypeclassInstance(
     tokens: Token[],
     index: number,
-    env: Environment
+    env: Environment,
+    isExported: boolean = false
   ): ParserReturn {
     if (tokens[index].type !== TokenType.Instance) {
       throw this.formatErrorMessage(
@@ -3827,16 +3834,14 @@ Got:      ${typeToString(matchedFunction.func)}`
       variableName: typeclassName,
       type: typeclassType_,
       kind: "value", // NOTE: We need to set it to "value" instead of "class" because we need to use it as a value
+      isExported,
     });
 
     return {
       expr: {
         type: AstType.Class,
-        className: typeclassName,
         typeValue: typeclassType_,
-        typeArguments,
         env,
-        isDefinition: true,
       },
       index,
     };
@@ -3845,7 +3850,8 @@ Got:      ${typeToString(matchedFunction.func)}`
   private parseEnum(
     tokens: Token[],
     index: number,
-    env: Environment
+    env: Environment,
+    isExported: boolean = false
   ): ParserReturn {
     if (tokens[index].type !== TokenType.Enum) {
       throw this.formatErrorMessage(tokens[index], 'Expected "enum"');
@@ -3872,6 +3878,7 @@ Got:      ${typeToString(matchedFunction.func)}`
         typeName: enumName,
       },
       kind: "type",
+      isExported,
     });
 
     // Type parameters
@@ -4021,6 +4028,7 @@ Got:      ${typeToString(matchedFunction.func)}`
         variableName: enumName,
         type: enumType,
         kind: "type",
+        isExported,
       },
       -1
     );
@@ -4264,6 +4272,132 @@ ${exprToString(expr)}`
     }
   }
 
+  private parseExport(
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.Export) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "export" for export statement'
+      );
+    }
+    index = index + 1;
+
+    const token = tokens[index];
+    let exportExpr: Expr | undefined = undefined;
+    switch (token.type) {
+      case TokenType.Let: {
+        const { expr, index: nextIndex } = this.parseLetAssignment(
+          tokens,
+          index,
+          env,
+          false,
+          true
+        );
+        index = nextIndex;
+        env = expr.env;
+        exportExpr = expr;
+        break;
+      }
+      case TokenType.Function: {
+        const { expr, index: nextIndex } = this.parseFunction(
+          tokens,
+          index,
+          env,
+          false,
+          true,
+          true
+        );
+        index = nextIndex;
+        env = expr.env;
+        exportExpr = expr;
+        break;
+      }
+      case TokenType.Extern: {
+        const { expr, index: nextIndex } = this.parseExtern(
+          tokens,
+          index,
+          env,
+          true
+        );
+        index = nextIndex;
+        env = expr.env;
+        exportExpr = expr;
+        break;
+      }
+      case TokenType.Type: {
+        const { expr, index: nextIndex } = this.parseTypeAlias(
+          tokens,
+          index,
+          env,
+          true
+        );
+        index = nextIndex;
+        env = expr.env;
+        exportExpr = expr;
+        break;
+      }
+      case TokenType.Class: {
+        const { expr, index: nextIndex } = this.parseClass(
+          tokens,
+          index,
+          env,
+          true
+        );
+        index = nextIndex;
+        env = expr.env;
+        exportExpr = expr;
+        break;
+      }
+      case TokenType.Instance: {
+        const { expr, index: nextIndex } = this.parseTypeclassInstance(
+          tokens,
+          index,
+          env,
+          true
+        );
+        index = nextIndex;
+        env = expr.env;
+        exportExpr = expr;
+        break;
+      }
+      case TokenType.Enum: {
+        const { expr, index: nextIndex } = this.parseEnum(
+          tokens,
+          index,
+          env,
+          true
+        );
+        index = nextIndex;
+        env = expr.env;
+        exportExpr = expr;
+        break;
+      }
+      default: {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Invalid export statement`
+        );
+      }
+    }
+
+    if (!exportExpr) {
+      throw this.formatErrorMessage(tokens[index], `Invalid export statement`);
+    }
+
+    return {
+      expr: {
+        type: AstType.Export,
+        expr: exportExpr,
+        env,
+        typeValue: TypeValues.unit,
+      },
+      index,
+    };
+  }
+
   /**
    * expression
    *  ::= primary binoprhs
@@ -4412,18 +4546,20 @@ ${exprToString(expr)}`
           env = expr.env;
           break;
         }
-        default: {
-          /*
-          const { expr, index: nextIndex } = this.parseExpression(
+        case TokenType.Export: {
+          const { expr, index: nextIndex } = this.parseExport(
             tokens,
-            index
+            index,
+            env
           );
           if (expr) {
             exprs.push(expr);
           }
           index = nextIndex;
+          env = expr.env;
           break;
-          */
+        }
+        default: {
           throw this.formatErrorMessage(
             tokens[index],
             "Invalid top-level expression"
