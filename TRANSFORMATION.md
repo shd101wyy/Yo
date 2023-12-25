@@ -37,7 +37,7 @@ add(1, add(2, 3));
 }
 
 // 3. Reduce the number of variables.
-// there should be only one `let` statement.
+// Perform the variable hoisting, so there should be only one `let` statement.
 {
   let arg0?:i32, arg1?:i32, arg2?:i32, ret0?:i32; // from `frame` allocation
 

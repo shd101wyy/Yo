@@ -295,7 +295,7 @@ export type TExternType = {
 
 export type TModule = {
   type: "Module";
-  fileAbsolutePath: string;
+  moduleAbsolutePath: string;
   ast: Expr[];
   env: Environment;
 };

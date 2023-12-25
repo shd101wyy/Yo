@@ -4862,7 +4862,7 @@ ${exprToString(expr)}`
       type: "Module",
       ast: this.ast,
       env: this.env,
-      fileAbsolutePath: this.filePath,
+      moduleAbsolutePath: this.filePath,
     };
   }
 }
