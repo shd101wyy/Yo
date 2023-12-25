@@ -1,15 +1,33 @@
 import Parser from "./parser";
+import { TModule } from "./type-checker";
 
 export class CodeGenerator {
-  private filePath: string;
+  /**
+   * Key is the absolute path of the module
+   * Value is the module itself
+   */
+  public modules: Map<string, TModule> = new Map();
 
-  constructor(
+  constructor() {}
+
+  public loadModule(
     filePath: string,
-    { printLexer, printParser }: { printLexer?: boolean; printParser?: boolean }
-  ) {
-    this.filePath = filePath;
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const parser = new Parser(this.filePath, { printLexer, printParser });
+    {
+      printLexer,
+      printParser,
+    }: { printLexer?: boolean; printParser?: boolean } = {}
+  ): TModule {
+    let module = this.modules.get(filePath);
+    if (module) {
+      return module;
+    }
+    console.log(`= Loading module ${filePath}`);
+    const parser = new Parser(filePath, this.loadModule.bind(this), {
+      printLexer,
+      printParser,
+    });
+    module = parser.generateModule();
+    this.modules.set(filePath, module);
+    return module;
   }
 }

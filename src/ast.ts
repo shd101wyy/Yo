@@ -5,6 +5,7 @@ import {
   TClass,
   TEnum,
   TFunction,
+  TModule,
   TPrimitive,
   TPrimitiveWithValue,
   TTypeConstructor,
@@ -370,6 +371,7 @@ export type ExportExpr = {
 export type ImportExpr = {
   type: AstType.Import;
   modulePath: string;
+  module: TModule;
   qualifiedName?: string;
   destructurings: {
     name: string;
@@ -603,15 +605,15 @@ export function exprToString(expr: Expr | FunctionPrototype) {
     }
     case AstType.Import: {
       if (expr.qualifiedName) {
-        return `import * as ${expr.qualifiedName} from "${expr.modulePath}"`;
+        return `import * as ${expr.qualifiedName} from "${expr.modulePath}";`;
       } else {
-        return `import {${expr.destructurings
+        return `import { ${expr.destructurings
           .map((destructuring) => {
             return `${destructuring.name}${
               destructuring.asName ? ` as ${destructuring.asName}` : ""
             }`;
           })
-          .join(", ")}} from "${expr.modulePath}"`;
+          .join(", ")} } from "${expr.modulePath}";`;
       }
     }
     default:

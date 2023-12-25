@@ -4,6 +4,7 @@
  */
 
 import * as fs from "fs";
+import * as path from "path";
 import {
   AstType,
   BlockExpr,
@@ -42,6 +43,7 @@ import {
   TEnum,
   TEnumVariant,
   TFunction,
+  TModule,
   TParameterType,
   TRegionParameter,
   TSlice,
@@ -67,21 +69,29 @@ import {
 } from "./type-checker";
 
 export default class Parser {
+  private filePath: string;
   private inputString: string;
   private tokens: Token[];
   private ast: Expr[];
+  private env: Environment;
+  private loadModule: (filePath: string) => TModule;
 
   constructor(
     filePath: string,
+    loadModule: (filePath: string) => TModule,
     { printLexer, printParser }: { printLexer?: boolean; printParser?: boolean }
   ) {
+    this.filePath = filePath;
+    this.loadModule = loadModule;
     this.inputString = fs.readFileSync(filePath, "utf-8");
     this.tokens = tokenize(this.inputString);
     if (printLexer) {
       console.log(`= lexer: `, this.tokens);
     }
 
-    this.ast = this.parse(this.tokens);
+    const { ast, env } = this.parse(this.tokens);
+    this.ast = ast;
+    this.env = env;
 
     if (printParser) {
       console.log("\n= parser: ");
@@ -4565,11 +4575,47 @@ ${exprToString(expr)}`
       }
       const modulePath = tokens[index].value;
       index = index + 1;
+      if (!modulePath.startsWith(".")) {
+        throw new Error("Only relative path is supported for now");
+      }
+      let moduleAbsolutePath = path.resolve(
+        path.dirname(this.filePath),
+        modulePath
+      );
+      const extname = path.extname(moduleAbsolutePath);
+      if (!extname) {
+        moduleAbsolutePath = moduleAbsolutePath + ".mo";
+      } else if (extname !== ".mo") {
+        throw new Error("Only .mo file is supported for now");
+      }
+      const module = this.loadModule(moduleAbsolutePath);
+
+      // Check destructurings
+      for (const destructuring of destructurings) {
+        const variableName = destructuring.name;
+        const variables = getEnvValueTypesByVariableName(
+          module.env,
+          variableName
+        );
+        if (variables.length === 0) {
+          throw this.formatErrorMessage(
+            tokens[index - 1],
+            `Cannot find variable "${variableName}" in module "${modulePath}"`
+          );
+        }
+        for (const variable of variables) {
+          env = addEnvValueType(env, {
+            ...variable,
+            variableName: destructuring.asName ?? variableName,
+          });
+        }
+      }
 
       return {
         expr: {
           type: AstType.Import,
           modulePath,
+          module,
           destructurings,
           qualifiedName,
           env,
@@ -4614,7 +4660,7 @@ ${exprToString(expr)}`
     }
   }
 
-  public parse(
+  private parse(
     tokens: Token[],
     env: Environment = {
       functionDeclarationFrameLevel: -1,
@@ -4626,7 +4672,7 @@ ${exprToString(expr)}`
       ],
       freeVariables: [],
     }
-  ): Expr[] {
+  ): { ast: Expr[]; env: Environment } {
     let index = 0;
     const exprs: Expr[] = [];
     while (true) {
@@ -4764,6 +4810,19 @@ ${exprToString(expr)}`
         }
       }
     }
-    return exprs.filter((expr) => expr.type !== AstType.Ignore);
+    const retExprs = exprs.filter((expr) => expr.type !== AstType.Ignore);
+    return {
+      ast: retExprs,
+      env,
+    };
+  }
+
+  public generateModule(): TModule {
+    return {
+      type: "Module",
+      ast: this.ast,
+      env: this.env,
+      fileAbsolutePath: this.filePath,
+    };
   }
 }

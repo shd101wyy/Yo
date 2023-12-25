@@ -1,5 +1,5 @@
 import { add } from "./add"
 
-// function test() {
-//   add(3, 4)
-// }
+function test() {
+  add(3, 4)
+}
