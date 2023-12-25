@@ -4061,6 +4061,21 @@ Got:      ${typeToString(matchedFunction.func)}`
     );
     env = popEnvFrame(env);
 
+    // Add enum variants to environment
+    for (let i = 0; i < enumType.variants.length; i++) {
+      const variant = enumType.variants[i];
+      const newEnumType: TEnum = {
+        ...enumType,
+        selectedVariantName: variant.name,
+      };
+      env = addEnvValueType(env, {
+        variableName: variant.name,
+        type: newEnumType,
+        kind: "value",
+        isExported,
+      });
+    }
+
     return {
       expr: {
         type: AstType.Enum,

@@ -2541,7 +2541,7 @@ export function typeToString(
     .map(
       ({ name, func, functionExpr }) =>
         `${name}${typeToString(func, { extractTypeConstructor: false }).replace(
-          /\)=>\s/,
+          /\)(=>|->)\s/,
           "): "
         )}${
           functionExpr
@@ -2992,11 +2992,10 @@ export function getFunctionArgumentsInOrder(
       if (typeParameter.name in typeParameterToTypeArgumentMap) {
         console.log(typeArgument);
         // Check type
-        if (!typeArgument) {
+        if (!typeArgument || typeArgument.type === "unknown") {
           functionTypeArgumentsInOrder[i] =
             typeParameterToTypeArgumentMap[typeParameter.name];
         } else if (
-          typeArgument.type !== "unknown" &&
           !checkType(
             typeArgument,
             typeParameterToTypeArgumentMap[typeParameter.name],

@@ -2,7 +2,7 @@
  * This file contains the prelude for the Mo language.
  */
 
-enum Some<T: Type>: Type {
+enum Option<T: Type>: Type {
   Some(T),
   None,
 }
