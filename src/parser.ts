@@ -4131,7 +4131,8 @@ Got:      ${typeToString(matchedFunction.func)}`
         variableName: variant.name,
         type: newEnumType,
         kind: "value",
-        isExported,
+        isExported: false, // We use special syntax to access enum variants
+        // eg: import { Option { Some, None } } from "std/option"
       });
     }
 
@@ -4530,7 +4531,10 @@ ${exprToString(expr)}`
           break;
         }
 
-        if (tokens[index].type !== TokenType.Identifier) {
+        if (
+          tokens[index].type !== TokenType.Identifier &&
+          tokens[index].type !== TokenType.Multiply
+        ) {
           throw this.formatErrorMessage(
             tokens[index],
             "Expected identifier for import"
@@ -4591,23 +4595,59 @@ ${exprToString(expr)}`
       const module = this.loadModule(moduleAbsolutePath);
 
       // Check destructurings
-      for (const destructuring of destructurings) {
-        const variableName = destructuring.name;
-        const variables = getEnvValueTypesByVariableName(
-          module.env,
-          variableName
-        );
-        if (variables.length === 0) {
+      if (destructurings.some((d) => d.name === "*")) {
+        // Import everything
+        if (destructurings.length > 1) {
           throw this.formatErrorMessage(
             tokens[index - 1],
-            `Cannot find variable "${variableName}" in module "${modulePath}"`
+            "Cannot import everything with other variables"
           );
         }
-        for (const variable of variables) {
-          env = addEnvValueType(env, {
-            ...variable,
-            variableName: destructuring.asName ?? variableName,
-          });
+        if (qualifiedName) {
+          throw this.formatErrorMessage(
+            tokens[index - 1],
+            "Cannot import everything with qualified name"
+          );
+        }
+        if (destructurings[0].asName) {
+          throw this.formatErrorMessage(
+            tokens[index - 1],
+            'Cannot import everything with "as"'
+          );
+        }
+
+        const moduleFrame = module.env.frames[0];
+        for (const value of moduleFrame.values) {
+          if (value.isExported) {
+            env = addEnvValueType(env, { ...value });
+          }
+        }
+      } else {
+        for (const destructuring of destructurings) {
+          const variableName = destructuring.name;
+          const variables = getEnvValueTypesByVariableName(
+            module.env,
+            variableName
+          );
+          if (variables.length === 0) {
+            throw this.formatErrorMessage(
+              tokens[index - 1],
+              `Cannot find variable "${variableName}" in module "${modulePath}"`
+            );
+          }
+          for (const variable of variables) {
+            if (!variable.isExported) {
+              throw this.formatErrorMessage(
+                tokens[index - 1],
+                `Cannot import non-exported variable "${variableName}" from module "${modulePath}"`
+              );
+            }
+
+            env = addEnvValueType(env, {
+              ...variable,
+              variableName: destructuring.asName ?? variableName,
+            });
+          }
         }
       }
 
