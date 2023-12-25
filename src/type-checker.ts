@@ -1201,13 +1201,13 @@ export function applyTypeArgumentsToType(
         name,
         func: applyTypeArgumentsToType(
           func,
-          [], // FIXME: This could be wrong
+          typeArguments,
           typeParameterToTypeArgumentMap
         ),
         functionExpr: functionExpr
           ? applyTypeArgumentsToExpr(
               functionExpr,
-              [],
+              typeArguments,
               typeParameterToTypeArgumentMap
             )
           : undefined,

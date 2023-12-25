@@ -3403,7 +3403,7 @@ ${typeToString(value.typeValue)}`
    * @param env
    * @returns
    */
-  private parseClass(
+  private parseClassExpr(
     tokens: Token[],
     index: number,
     env: Environment,
@@ -3600,6 +3600,7 @@ ${typeToString(functionType)}
         index = nextNextIndex;
         env = functionExpr_.env;
         functionExpr = functionExpr_;
+        functionExpr.typeValue = functionType;
       }
 
       // functionType.typeParameters = typeParameters; // NOTE: This is wrong
@@ -3660,7 +3661,7 @@ ${typeToString(functionType)}
     };
   }
 
-  private parseTypeclassInstance(
+  private parseInstanceExpr(
     tokens: Token[],
     index: number,
     env: Environment,
@@ -3723,11 +3724,13 @@ ${typeToString(functionType)}
       env = nextEnv;
     }
 
+    console.log("Enter here 1");
     // Apply type arguments to typeclass
     const typeclassType_ = applyTypeArgumentsToType(
       typeclassType,
       typeArguments
     ) as TClass;
+    console.log("Enter here 2");
 
     // Parse typeclass body
     const functions: TClassFunction[] = [];
@@ -4364,7 +4367,7 @@ ${exprToString(expr)}`
         break;
       }
       case TokenType.Class: {
-        const { expr, index: nextIndex } = this.parseClass(
+        const { expr, index: nextIndex } = this.parseClassExpr(
           tokens,
           index,
           env,
@@ -4376,7 +4379,7 @@ ${exprToString(expr)}`
         break;
       }
       case TokenType.Instance: {
-        const { expr, index: nextIndex } = this.parseTypeclassInstance(
+        const { expr, index: nextIndex } = this.parseInstanceExpr(
           tokens,
           index,
           env,
@@ -4536,7 +4539,7 @@ ${exprToString(expr)}`
           break;
         }
         case TokenType.Class: {
-          const { expr, index: nextIndex } = this.parseClass(
+          const { expr, index: nextIndex } = this.parseClassExpr(
             tokens,
             index,
             env
@@ -4549,7 +4552,7 @@ ${exprToString(expr)}`
           break;
         }
         case TokenType.Instance: {
-          const { expr, index: nextIndex } = this.parseTypeclassInstance(
+          const { expr, index: nextIndex } = this.parseInstanceExpr(
             tokens,
             index,
             env
