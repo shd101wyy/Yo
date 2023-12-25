@@ -266,7 +266,11 @@ export type TClass = {
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
   functions: TClassFunction[];
+
+  // NOTE: Below are for "instance"
   isInstance: boolean;
+  instanceTypeParameters?: TTypeParameter[];
+  instanceRegionParameters?: TRegionParameter[];
 };
 
 export type TEnumVariant = {
@@ -1218,10 +1222,13 @@ export function applyTypeArgumentsToType(
       type: "Class",
       kind: "Free",
       name: type.name,
-      isInstance: true, // type.isInstance,
       typeParameters: newTypeParameters,
       regionParameters: type.regionParameters,
       functions: functions,
+
+      isInstance: true, // type.isInstance,
+      instanceTypeParameters: type.instanceTypeParameters,
+      instanceRegionParameters: type.instanceRegionParameters,
     };
   } else if (type.type === "Enum") {
     // set typeParameterToTypeArgumentMap
@@ -1905,6 +1912,33 @@ export function synthesizeTypeArgumentsFromTokens({
       index = index + 1;
       continue;
     }
+
+    if (token.type === TokenType.BitwiseShiftRight) {
+      // Split this token into two '>' tokens
+      tokens.splice(
+        index,
+        1,
+        {
+          type: TokenType.GreaterThan,
+          value: ">",
+          position: {
+            line: token.position.line,
+            character: token.position.character,
+          },
+        },
+        {
+          type: TokenType.GreaterThan,
+          value: ">",
+          position: {
+            line: token.position.line,
+            character: token.position.character + 1,
+          },
+        }
+      );
+      index = index + 1;
+      break;
+    }
+
     if (token.type === TokenType.GreaterThan) {
       index = index + 1;
       break;

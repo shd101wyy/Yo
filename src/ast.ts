@@ -572,8 +572,15 @@ export function exprToString(expr: Expr | FunctionPrototype) {
         expr.prototype.typeValue.typeParameters,
         expr.prototype.typeValue.regionParameters
       )}(${expr.prototype.typeValue.parameterTypes
-        .map((p) => `${p.name}: ${typeToString(p.type)}`)
-        .join(", ")}):${typeToString(expr.prototype.typeValue.returnType)}`;
+        .map(
+          (p) =>
+            `${p.name}: ${typeToString(p.type, {
+              hideTypeParameterKind: true,
+            })}`
+        )
+        .join(", ")}):${typeToString(expr.prototype.typeValue.returnType, {
+        hideTypeParameterKind: true,
+      })}`;
     }
     case AstType.Reference: {
       return `(${expr.isMutableReference ? "&!" : "&"}${exprToString(

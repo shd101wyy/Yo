@@ -1,13 +1,13 @@
 export enum Data<T> {
-  Data(value: T)
+  Value(value: T)
 }
 
 export class Id<T> {
   id(x: T): T;
 }
 
-instance<T> Id<Data<T>> {
-  id(x: Data<T>): Data<T> {
+instance<X> Id<Data<X>> {
+  id(x: Data<X>): Data<X> {
     return x;
   }
 }

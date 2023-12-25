@@ -3584,8 +3584,6 @@ ${typeToString(functionType)}
       functionType.typeParameters = typeParameters;
       functionType.regionParameters = regionParameters;
 
-      console.log(JSON.stringify(functionType));
-
       // Check if the function has a body
       let functionExpr: FunctionExpr | undefined = undefined;
       if (tokens[index].type === TokenType.LCurlyBracket) {
@@ -3670,16 +3668,40 @@ ${typeToString(functionType)}
     if (tokens[index].type !== TokenType.Instance) {
       throw this.formatErrorMessage(
         tokens[index],
-        'Expected "instance" for class instance'
+        'Expected "instance" for instance'
       );
     }
-
     index = index + 1;
+
+    // NOTE: This is necessary for type parameters:
+    env = pushEnvFrame(env);
+
+    // Instance type parameters
+    const instanceTypeParameters: TTypeParameter[] = [];
+    const instanceRegionParameters: TRegionParameter[] = [];
+    if (tokens[index].type === TokenType.LessThan) {
+      const {
+        index: nextIndex,
+        typeParameters: tp,
+        regionParameters: rp,
+        env: nextEnv,
+      } = synthesizeTypeAndRegionParametersFromTokens({
+        tokens,
+        index,
+        env,
+        inputString: this.inputString,
+      });
+      index = nextIndex;
+      instanceTypeParameters.push(...tp);
+      instanceRegionParameters.push(...rp);
+      env = nextEnv;
+    }
+
     if (tokens[index].type !== TokenType.Identifier) {
       // FIXME: Allow module access
       throw this.formatErrorMessage(
         tokens[index],
-        "Expected identifier for class instance"
+        "Expected identifier for instance"
       );
     }
     const typeclassName = tokens[index].value;
@@ -3703,9 +3725,14 @@ ${typeToString(functionType)}
 - ${typeclasses.map((typeclass) => typeToString(typeclass.type)).join("\n- ")}`
       );
     }
-    const typeclassType = typeclasses[0].type as TClass;
+    const typeclassType: TClass = {
+      ...(typeclasses[0].type as TClass),
+      instanceRegionParameters,
+      instanceTypeParameters,
+      isInstance: true,
+    };
 
-    // Parse type arguments
+    // Parse class type arguments
     const typeArguments: Type[] = [];
     if (tokens[index].type === TokenType.LessThan) {
       const {
@@ -3724,13 +3751,11 @@ ${typeToString(functionType)}
       env = nextEnv;
     }
 
-    console.log("Enter here 1");
     // Apply type arguments to typeclass
     const typeclassType_ = applyTypeArgumentsToType(
       typeclassType,
       typeArguments
     ) as TClass;
-    console.log("Enter here 2");
 
     // Parse typeclass body
     const functions: TClassFunction[] = [];
@@ -3857,12 +3882,17 @@ Got:      ${typeToString(matchedFunction.func)}`
     typeclassType_.functions = functions;
 
     // Add to environment
-    env = addEnvValueType(env, {
-      variableName: typeclassName,
-      type: typeclassType_,
-      kind: "value", // NOTE: We need to set it to "value" instead of "class" because we need to use it as a value
-      isExported,
-    });
+    env = addEnvValueType(
+      env,
+      {
+        variableName: typeclassName,
+        type: typeclassType_,
+        kind: "value", // NOTE: We need to set it to "value" instead of "class" because we need to use it as a value
+        isExported,
+      },
+      -1
+    );
+    env = popEnvFrame(env);
 
     return {
       expr: {
