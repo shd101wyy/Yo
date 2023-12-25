@@ -921,7 +921,7 @@ ${exprToString(lhs)}
       }
 
       // check if current token is `=>`
-      if (tokens[nextIndex].type !== TokenType.LambdaArrow) {
+      if (tokens[nextIndex].type !== TokenType.FatArrow) {
         throw new Error("Expected `=>` for anonymous function");
       }
 
@@ -996,7 +996,7 @@ Returned:  ${typeToString(returnType)}`
     }
     if (
       tokens[index + 1]?.type === TokenType.RParen &&
-      tokens[index + 2]?.type !== TokenType.LambdaArrow
+      tokens[index + 2]?.type !== TokenType.FatArrow
     ) {
       // unit type
       return {
@@ -1147,7 +1147,7 @@ Returned:  ${typeToString(returnType)}`
               position: tokens[index].position,
             },
             {
-              type: TokenType.LambdaArrow,
+              type: TokenType.FatArrow,
               value: "=>",
               position: tokens[index].position,
             },
@@ -1273,7 +1273,7 @@ Returned:  ${typeToString(returnType)}`
           position: tokens[index].position,
         },
         {
-          type: TokenType.LambdaArrow,
+          type: TokenType.FatArrow,
           value: "=>",
           position: tokens[index].position,
         },
@@ -1814,6 +1814,7 @@ Found possible enums:
           parsedFunctions.push(functionType);
         } catch (error) {
           // Ignore the error
+          console.error(error);
         }
       }
 
@@ -3579,6 +3580,11 @@ ${typeToString(functionType)}
 `
         );
       }
+      // Add the typeParameters and regionParameters of the class to the functionType
+      functionType.typeParameters = typeParameters;
+      functionType.regionParameters = regionParameters;
+
+      console.log(JSON.stringify(functionType));
 
       // Check if the function has a body
       let functionExpr: FunctionExpr | undefined = undefined;
@@ -3621,9 +3627,27 @@ ${typeToString(functionType)}
         variableName: typeclassName,
         type: typeclassType,
         kind: "class",
+        isExported,
       },
       -1
     );
+
+    // add pre-defined functions to env
+    for (let i = 0; i < functions.length; i++) {
+      const func = functions[i];
+      if (func.functionExpr) {
+        env = addEnvValueType(
+          env,
+          {
+            variableName: func.name,
+            type: func.func,
+            kind: "value",
+            isExported,
+          },
+          -1
+        );
+      }
+    }
 
     env = popEnvFrame(env);
     return {

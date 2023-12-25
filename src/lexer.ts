@@ -68,14 +68,24 @@ export function tokenize(input: string): Token[] {
         });
         break;
 
-      case "-":
-        tokens.push({
-          type: TokenType.Subtract,
-          value: char,
-          position: { line, character: i - totalCharacters },
-        });
-        break;
-
+      case "-": {
+        if (input[i + 1] === ">") {
+          tokens.push({
+            type: TokenType.FunctionArrow,
+            value: "->",
+            position: { line, character: i - totalCharacters },
+          });
+          i++;
+          break;
+        } else {
+          tokens.push({
+            type: TokenType.Subtract,
+            value: char,
+            position: { line, character: i - totalCharacters },
+          });
+          break;
+        }
+      }
       case "*":
         if (input[i + 1] === "*") {
           tokens.push({
@@ -208,7 +218,7 @@ export function tokenize(input: string): Token[] {
       case "=": {
         if (input[i + 1] === ">") {
           tokens.push({
-            type: TokenType.LambdaArrow,
+            type: TokenType.FatArrow,
             value: "=>",
             position: { line, character: i - totalCharacters },
           });

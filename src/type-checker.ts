@@ -517,7 +517,7 @@ export function synthesizeTypeFromTokens({
   if (
     tokens[index].value === "(" &&
     tokens[index + 1].value === ")" &&
-    tokens[index + 2].type !== TokenType.LambdaArrow
+    tokens[index + 2].type !== TokenType.FatArrow
   ) {
     index = index + 1;
     returnValue = {
@@ -1995,7 +1995,7 @@ export function synthesizeFunctionTypeFromTokens({
   env = nextEnv;
 
   if (!withFunctionBody) {
-    if (tokens[index].type === TokenType.LambdaArrow) {
+    if (tokens[index].type === TokenType.FatArrow) {
       index = index + 1;
       const {
         typeValue: returnType,
@@ -2459,9 +2459,12 @@ export function typeToString(
             (parameter.name ? `${parameter.name}: ` : "") +
             typeToString(parameter.type, { hideTypeParameterKind: true })
         )
-        .join(", ")})=> ${typeToString(type.returnType, {
-        hideTypeParameterKind: true,
-      })}`;
+        .join(", ")})${type.freeVariables ? "=>" : "->"} ${typeToString(
+        type.returnType,
+        {
+          hideTypeParameterKind: true,
+        }
+      )}`;
     }
     case "Union": {
       return `(${type.types.map((type) => typeToString(type)).join(" | ")})`;
@@ -2987,8 +2990,12 @@ export function getFunctionArgumentsInOrder(
       const typeParameter = functionTypeParamters[i];
       const typeArgument = functionTypeArguments[i];
       if (typeParameter.name in typeParameterToTypeArgumentMap) {
+        console.log(typeArgument);
         // Check type
-        if (
+        if (!typeArgument) {
+          functionTypeArgumentsInOrder[i] =
+            typeParameterToTypeArgumentMap[typeParameter.name];
+        } else if (
           typeArgument.type !== "unknown" &&
           !checkType(
             typeArgument,
@@ -2998,9 +3005,6 @@ export function getFunctionArgumentsInOrder(
         ) {
           return { functionArguments: null, functionTypeArguments: null };
         }
-
-        functionTypeArgumentsInOrder[i] =
-          typeParameterToTypeArgumentMap[typeParameter.name];
       } else if (typeArgument) {
         functionTypeArgumentsInOrder[i] = typeArgument;
       } /* else {
