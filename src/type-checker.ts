@@ -1778,7 +1778,12 @@ export function synthesizeFunctionParameterTypesFromTokens({
     // check type
     let userDefinedParamterType: Type = TypeValues.unknown;
     if (tokens[index + 1].type !== TokenType.Colon) {
-      index = index + 1;
+      // index = index + 1;
+      throw formatErrorMessage({
+        token: tokens[index + 1],
+        errorMessage: "Expected ':' after parameter name",
+        inputString,
+      });
     } else {
       index = index + 2;
       const {
