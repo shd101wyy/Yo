@@ -369,7 +369,12 @@ export type ExportExpr = {
 
 export type ImportExpr = {
   type: AstType.Import;
-  path: string;
+  modulePath: string;
+  qualifiedName?: string;
+  destructurings: {
+    name: string;
+    asName?: string;
+  }[];
   typeValue: TUnit;
   env: Environment;
 };
@@ -595,6 +600,19 @@ export function exprToString(expr: Expr | FunctionPrototype) {
     }
     case AstType.Export: {
       return `export ${exprToString(expr.expr)}`;
+    }
+    case AstType.Import: {
+      if (expr.qualifiedName) {
+        return `import * as ${expr.qualifiedName} from "${expr.modulePath}"`;
+      } else {
+        return `import {${expr.destructurings
+          .map((destructuring) => {
+            return `${destructuring.name}${
+              destructuring.asName ? ` as ${destructuring.asName}` : ""
+            }`;
+          })
+          .join(", ")}} from "${expr.modulePath}"`;
+      }
     }
     default:
       throw new Error(`Unknown expr type ${expr}`);

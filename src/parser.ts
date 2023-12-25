@@ -3,6 +3,7 @@
  * Construct an AST parser from a grammar.
  */
 
+import * as fs from "fs";
 import {
   AstType,
   BlockExpr,
@@ -30,6 +31,7 @@ import {
   pushEnvFrame,
 } from "./env";
 import { formatErrorMessage } from "./error";
+import { tokenize } from "./lexer";
 import { isUpperCamelCase } from "./naming-checker";
 import { Token, TokenType } from "./token";
 import {
@@ -66,9 +68,26 @@ import {
 
 export default class Parser {
   private inputString: string;
+  private tokens: Token[];
+  private ast: Expr[];
 
-  constructor(inputString: string) {
-    this.inputString = inputString;
+  constructor(
+    filePath: string,
+    { printLexer, printParser }: { printLexer?: boolean; printParser?: boolean }
+  ) {
+    this.inputString = fs.readFileSync(filePath, "utf-8");
+    this.tokens = tokenize(this.inputString);
+    if (printLexer) {
+      console.log(`= lexer: `, this.tokens);
+    }
+
+    this.ast = this.parse(this.tokens);
+
+    if (printParser) {
+      console.log("\n= parser: ");
+      this.ast.map((expr) => console.log(exprToString(expr)));
+      console.log("\n= parser end\n");
+    }
   }
 
   private formatErrorMessage(token: Token, errorMessage: string) {
@@ -4344,7 +4363,7 @@ ${exprToString(expr)}`
     }
   }
 
-  private parseExport(
+  private parseExportExpr(
     tokens: Token[],
     index: number,
     env: Environment
@@ -4468,6 +4487,99 @@ ${exprToString(expr)}`
       },
       index,
     };
+  }
+
+  private parseImportExpr(
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.Import) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "import" for import statement'
+      );
+    }
+    index = index + 1;
+
+    const destructurings: { name: string; asName?: string }[] = [];
+    const qualifiedName: string | undefined = undefined;
+    if (tokens[index].type === TokenType.LCurlyBracket) {
+      index = index + 1;
+
+      while (true) {
+        if (!tokens[index]) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected '}' for import"
+          );
+        }
+
+        if (tokens[index].type === TokenType.RCurlyBracket) {
+          index = index + 1;
+          break;
+        }
+
+        if (tokens[index].type !== TokenType.Identifier) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected identifier for import"
+          );
+        }
+        const name = tokens[index].value;
+        index = index + 1;
+
+        let asName: string | undefined = undefined;
+        if (tokens[index].type === TokenType.As) {
+          index = index + 1;
+          if (tokens[index].type !== TokenType.Identifier) {
+            throw this.formatErrorMessage(
+              tokens[index],
+              'Expected identifier for "as"'
+            );
+          }
+          asName = tokens[index].value;
+          index = index + 1;
+        }
+
+        destructurings.push({ name, asName });
+
+        if (tokens[index].type === TokenType.Comma) {
+          index = index + 1;
+        }
+      }
+
+      if (tokens[index].type !== TokenType.From) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          'Expected "from" for import'
+        );
+      }
+      index = index + 1;
+
+      if (tokens[index].type !== TokenType.String) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected string literal for the module path to import"
+        );
+      }
+      const modulePath = tokens[index].value;
+      index = index + 1;
+
+      return {
+        expr: {
+          type: AstType.Import,
+          modulePath,
+          destructurings,
+          qualifiedName,
+          env,
+          typeValue: TypeValues.unit,
+        },
+        index,
+      };
+    } else {
+      throw new Error("Qualifed import is not implemented yet");
+    }
   }
 
   /**
@@ -4619,7 +4731,20 @@ ${exprToString(expr)}`
           break;
         }
         case TokenType.Export: {
-          const { expr, index: nextIndex } = this.parseExport(
+          const { expr, index: nextIndex } = this.parseExportExpr(
+            tokens,
+            index,
+            env
+          );
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = expr.env;
+          break;
+        }
+        case TokenType.Import: {
+          const { expr, index: nextIndex } = this.parseImportExpr(
             tokens,
             index,
             env

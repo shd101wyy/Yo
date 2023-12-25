@@ -1,6 +1,11 @@
 import { Region, Type } from "./type-checker";
 
-type ValueTypeKind = "type" | "region" | "value" | "class";
+type ValueTypeKind =
+  | "type" // type, enum, type or region parameter
+  | "region"
+  | "value" // value, function, enum variant
+  | "class" // typeclass
+  | "module";
 
 export type ValueType = {
   // id: string; // NOTE: The `id` here doesn't really help in generic function

@@ -26,7 +26,7 @@ export function tokenize(input: string): Token[] {
       case "/":
         if (input[i + 1] === "/") {
           // single line comment
-          while (input[++i] !== "\n") {
+          while (input[++i] !== "\n" && i < input.length) {
             // ignore the rest of the line
           }
           line++;
@@ -650,6 +650,13 @@ export function tokenize(input: string): Token[] {
             case "export":
               tokens.push({
                 type: TokenType.Export,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "from":
+              tokens.push({
+                type: TokenType.From,
                 value,
                 position: { line, character: i - totalCharacters },
               });
