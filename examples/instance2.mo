@@ -8,6 +8,6 @@ export class Id<T> {
 
 instance<X> Id<Data<X>> {
   id(x: Data<X>): Data<X> {
-    return x;
+    x
   }
 }

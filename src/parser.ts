@@ -1718,6 +1718,7 @@ Found possible typeclasses:
 
     // Check if it's an enum
     if (matchedEnums.length > 0) {
+      /*
       if (matchedEnums.length > 1) {
         throw this.formatErrorMessage(
           tokens[index],
@@ -1727,56 +1728,55 @@ Found possible enums:
           `
         );
       } else {
-        const enumValue = matchedEnums[0];
-        const enumType = enumValue.type as TEnum;
-        let typeArguments: Type[] = [];
-        if (tokens[index + 1]?.type === TokenType.LessThan) {
-          const {
-            typeArguments: nextTypeArguments,
-            index: nextIndex,
-            env: nextEnv,
-          } = synthesizeTypeArgumentsFromTokens({
-            tokens,
-            index: index + 1,
-            inputString: this.inputString,
-            env,
-            parseExpression: this.parseExpression.bind(this),
-          });
-          typeArguments = nextTypeArguments;
-          index = nextIndex;
-          env = nextEnv;
-        } else {
-          index = index + 1;
-        }
-
-        const newEnumType: TEnum = {
-          ...enumType,
-          typeParameters: enumType.typeParameters.map(
-            (typeParameter, index) => {
-              if (index >= typeArguments.length) {
-                return typeParameter;
-              } else {
-                return {
-                  ...typeParameter,
-                  appliedType: typeArguments[index],
-                };
-              }
-            }
-          ),
-        };
-
-        return {
-          expr: {
-            type: AstType.Variable,
-            name: identifier,
-            env,
-            typeValue: newEnumType,
-            frameLevel: enumValue.frameLevel,
-            isMutable: false,
-          },
-          index,
-        };
+      */
+      const enumValue = matchedEnums[matchedEnums.length - 1];
+      const enumType = enumValue.type as TEnum;
+      let typeArguments: Type[] = [];
+      if (tokens[index + 1]?.type === TokenType.LessThan) {
+        const {
+          typeArguments: nextTypeArguments,
+          index: nextIndex,
+          env: nextEnv,
+        } = synthesizeTypeArgumentsFromTokens({
+          tokens,
+          index: index + 1,
+          inputString: this.inputString,
+          env,
+          parseExpression: this.parseExpression.bind(this),
+        });
+        typeArguments = nextTypeArguments;
+        index = nextIndex;
+        env = nextEnv;
+      } else {
+        index = index + 1;
       }
+
+      const newEnumType: TEnum = {
+        ...enumType,
+        typeParameters: enumType.typeParameters.map((typeParameter, index) => {
+          if (index >= typeArguments.length) {
+            return typeParameter;
+          } else {
+            return {
+              ...typeParameter,
+              appliedType: typeArguments[index],
+            };
+          }
+        }),
+      };
+
+      return {
+        expr: {
+          type: AstType.Variable,
+          name: identifier,
+          env,
+          typeValue: newEnumType,
+          frameLevel: enumValue.frameLevel,
+          isMutable: false,
+        },
+        index,
+      };
+      // }
     }
 
     // Check if it's a function

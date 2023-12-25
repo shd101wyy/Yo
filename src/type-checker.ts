@@ -2564,12 +2564,17 @@ export function typeToString(
       }
     }
     case "Class": {
-      return `${type.isInstance ? "instance" : "class"} ${
-        type.name
-      }${typeAndRegionParametersToString(
+      return `${
+        type.isInstance
+          ? `instance${typeAndRegionParametersToString(
+              type.instanceTypeParameters ?? [],
+              type.instanceRegionParameters ?? []
+            )}`
+          : "class"
+      } ${type.name}${typeAndRegionParametersToString(
         type.typeParameters,
         type.regionParameters,
-        { hideTypeParameterKind }
+        { hideTypeParameterKind: type.isInstance }
       )} {
   ${type.functions
     .map(
