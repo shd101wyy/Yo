@@ -418,6 +418,17 @@ const BinopPrecedence: { [key: string]: number } = {
   [TokenType.Modulo]: 40,
 };
 
+export function isComparisonOperator(operatorToken: Token) {
+  return (
+    operatorToken.type === TokenType.LessThan ||
+    operatorToken.type === TokenType.LessThanOrEqual ||
+    operatorToken.type === TokenType.GreaterThan ||
+    operatorToken.type === TokenType.GreaterThanOrEqual ||
+    operatorToken.type === TokenType.Equal ||
+    operatorToken.type === TokenType.NotEqual
+  );
+}
+
 export function getTokenPrecedence(token: Token | undefined): number {
   if (!token) {
     return -1;
@@ -569,9 +580,9 @@ export function exprToString(expr: Expr | FunctionPrototype) {
     case AstType.If:
       return `if ${exprToString(expr.condition)} {\n${expr.then
         .map((expr) => "  " + exprToString(expr))
-        .join(";\n")} } else {\n${expr.else
-        .map((expr) => "  " + exprToString(expr))
-        .join(";\n")} }`;
+        .join(";\n")} 
+} else {\n${expr.else.map((expr) => "  " + exprToString(expr)).join(";\n")}
+}`;
     case AstType.Match: {
       return `match ${exprToString(expr.matchedEnum)} {\n${expr.cases
         .map((matchCase) => {

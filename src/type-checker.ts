@@ -56,6 +56,16 @@ export type TI1 = {
   kind: "Free";
 };
 
+export type TIsize = {
+  type: "isize";
+  kind: "Free";
+};
+
+export type TUsize = {
+  type: "usize";
+  kind: "Free";
+};
+
 export type TU8 = {
   type: "u8";
   kind: "Free";
@@ -143,6 +153,8 @@ export type TPrimitive =
   | TI64
   | TU128
   | TI128
+  | TIsize
+  | TUsize
   | TF16
   | TF32
   | TF64
@@ -328,6 +340,8 @@ export type Type =
   | TF16
   | TF32
   | TF64
+  | TIsize
+  | TUsize
   | TSymbol
   | TRecord
   | TFunction
@@ -366,6 +380,8 @@ export const TypeValues: {
   f16: TF16;
   f32: TF32;
   f64: TF64;
+  isize: TIsize;
+  usize: TUsize;
   unknown: TUnknown;
   Reference: TTypeConstructor;
   MutableReference: TTypeConstructor;
@@ -388,6 +404,8 @@ export const TypeValues: {
   f16: { type: "f16", kind: "Free" },
   f32: { type: "f32", kind: "Free" },
   f64: { type: "f64", kind: "Free" },
+  isize: { type: "isize", kind: "Free" },
+  usize: { type: "usize", kind: "Free" },
   unknown: { type: "unknown", kind: "Free" },
   Reference: {
     type: "TypeConstructor",
@@ -455,7 +473,8 @@ export function isSignedIntegerType(type: Type): boolean {
     type.type === "i16" ||
     type.type === "i32" ||
     type.type === "i64" ||
-    type.type === "i128"
+    type.type === "i128" ||
+    type.type === "isize"
   );
 }
 
@@ -466,7 +485,8 @@ export function isUnsignedIntegerType(type: Type): boolean {
     type.type === "u16" ||
     type.type === "u32" ||
     type.type === "u64" ||
-    type.type === "u128"
+    type.type === "u128" ||
+    type.type === "usize"
   );
 }
 
@@ -826,6 +846,14 @@ export function synthesizeTypeFromTokens({
       }
       case "f64": {
         typeValue = TypeValues.f64;
+        break;
+      }
+      case "isize": {
+        typeValue = TypeValues.isize;
+        break;
+      }
+      case "usize": {
+        typeValue = TypeValues.usize;
         break;
       }
       case "symbol": {
@@ -2487,6 +2515,9 @@ export function typeToString(
     }
     case "f64": {
       return "f64";
+    }
+    case "usize": {
+      return "usize";
     }
     case "symbol": {
       return "symbol";

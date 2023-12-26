@@ -17,6 +17,7 @@ import {
   PrimitiveValueExpr,
   exprToString,
   getTokenPrecedence,
+  isComparisonOperator,
   synthesizeRecordType,
 } from "./ast";
 import {
@@ -2342,6 +2343,7 @@ Found possible functions:
         }
       }
       const lhsType = convertPrimitiveToType((needsSwap ? RHS : LHS).typeValue);
+
       LHS = {
         type: AstType.BinaryOperator,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2349,7 +2351,9 @@ Found possible functions:
         left: needsSwap ? RHS : LHS,
         right: needsSwap ? LHS : RHS,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        typeValue: lhsType, // FIXME:
+        typeValue: isComparisonOperator(binaryOperator)
+          ? TypeValues.boolean
+          : lhsType, // FIXME:
         // const x = 1
         // x + 2  // give type 1
         env,
