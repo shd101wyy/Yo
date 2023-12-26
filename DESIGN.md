@@ -63,7 +63,6 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Recoverable Errors with Result](#recoverable-errors-with-result)
   - [`with` syntax](#with-syntax)
     - [with `function`](#with-function)
-    - [with effect handler](#with-effect-handler)
   - [Pointer](#pointer)
   - [Type casting](#type-casting)
   - [Algebraic effects](#algebraic-effects)
@@ -1238,7 +1237,7 @@ Effect is defined using the `effect` keyword.
 
 ```typescript
 effect Exception<T> {
-  control raise(msg: String): {Exception, Abort} T;
+  control raise(msg: String): {*} T;
 }
 ```
 
@@ -1279,6 +1278,14 @@ function add(x: i32, y: i32): i32 {
 }
 ```
 
+Function with zero of more effects is written with `{*}`:
+
+```typescript
+function add(x: i32, y: i32): {*} i32 {
+  x + y;
+}
+```
+
 ### Effect handler
 
 Note: **Mo** only supports the **deep handlers**, that is a handler will handle all the effects in the scope, not just once.
@@ -1301,21 +1308,9 @@ function handle() {
     8 + safeDivide(1, 0) + 10 // 60
   } with Exception<i32> {
     control raise(msg) {
-      resume(42)
+      resume 42
     }
   }
-}
-
-// or
-function handle() {
-  let exceptionHandler = handler Exception {
-    raise(msg) {
-      resume(42)
-    }
-  }
-  exceptionHandler(()=> {
-    8 + safeDivide(1, 0) + 10 // 60
-  })
 }
 ```
 
@@ -1325,7 +1320,7 @@ Given the following function:
 
 ```typescript
 effect Input {
-  control read(): {Input, Abort} String;
+  control read(): {Input} String;
 }
 
 function hello(): {Input} () {
@@ -1342,7 +1337,7 @@ function main() {
     hello(); // Hello Alice
   } with Input {
     control read() {
-      resume("Alice")
+      resume "Alice"
     }
   }
 }
@@ -1357,7 +1352,7 @@ function main() {
     println("Hello, world!"); // This line won't be executed.
   } with Input {
     control read() {
-      abort("Error")
+      abort "Error"
     }
   }
 }
@@ -1366,12 +1361,12 @@ function main() {
 #### handling `abort` with `~`
 
 ```typescript
-function example(): { Exception } {
+function example(): { Exception<()> } {
   let file: File = open("file.txt", "w");
 
   raise("Some exception");
 
-  consume(file); // This line won't be executed because of the `raise` above.
+  consume(file); // This line might not be executed because of the `raise` above which might abort the execution.
   // But the `file` is not consumed yet.
 }
 ```
@@ -1379,7 +1374,7 @@ function example(): { Exception } {
 What we can do is to use the `~` operator to handle the `abort`:
 
 ```typescript
-function example(): { Exception } {
+function example(): { Exception<()> } {
   let file: File = open("file.txt", "w");
 
   raise("Some exception") ~ {
@@ -1420,10 +1415,10 @@ function handleGiveInt(): i32 {
 
 ```typescript
 effect Exception<T> {
-  control raise(msg: String): {Exception, Abort} T;
+  control raise(msg: String): {Exception<T>} T;
 }
 
-function safeDivide(x: i32, y: i32): { Exception{raise as newRaise} } i32 {
+function safeDivide(x: i32, y: i32): { Exception<i32>{raise as newRaise} } i32 {
   if y == 0 {
     newRaise("Cannot divide by 0");
   } else {
