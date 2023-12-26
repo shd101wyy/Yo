@@ -1858,6 +1858,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
       variableName: parameterName,
       type: userDefinedParamterType,
       kind: "value",
+      isMutable,
     });
 
     parameterTypes.push({

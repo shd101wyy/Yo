@@ -551,8 +551,10 @@ export function exprToString(expr: Expr | FunctionPrototype) {
     case AstType.Match: {
       return `match ${exprToString(expr.matchedEnum)} {\n${expr.cases
         .map((matchCase) => {
-          return `  case ${
-            matchCase.variantName === "*" ? "default" : matchCase.variantName
+          return `  ${
+            matchCase.variantName === "*"
+              ? "default"
+              : `case ${matchCase.variantName}`
           }: {\n${matchCase.body.exprs
             .map((expr) =>
               exprToString(expr)

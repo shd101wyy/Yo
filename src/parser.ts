@@ -638,47 +638,87 @@ export default class Parser {
         );
       }
     } else if (callerType.type === "Enum") {
-      const variant = callerType.variants.find(
-        (variant) => variant.name === token.value
-      );
-      if (variant) {
-        const typeValue: TEnum = {
-          ...callerType,
-          selectedVariantName: variant.name,
-        };
+      const propertyName = token.value;
+      const selectedVariantName = callerType.selectedVariantName;
+      if (selectedVariantName) {
+        const variant = callerType.variants.find(
+          (variant) => variant.name === selectedVariantName
+        );
+        if (!variant) {
+          throw this.formatErrorMessage(
+            token,
+            `Cannot find variant '${selectedVariantName}' in enum:\n${typeToString(
+              callerType
+            )}`
+          );
+        }
 
-        if (variant.parameterTypes.length === 0) {
-          return {
-            expr: {
-              type: AstType.CallEnum,
-              env,
-              typeValue: {
-                ...typeValue,
-              },
-              variantArguments: [],
-            },
-            index: index + 1,
-          };
+        // Check if propertyName in variant.parameterTypes
+        const parameterType = variant.parameterTypes.find(
+          (parameterType) => parameterType.name === propertyName
+        );
+        if (!parameterType) {
+          throw this.formatErrorMessage(
+            token,
+            `Cannot find property '${propertyName}' in enum variant '${selectedVariantName}'`
+          );
         } else {
+          const isMutable = "isMutable" in expr ? expr.isMutable : false;
           return {
             expr: {
               type: AstType.PropertyAccess,
               expr: expr,
-              propertyName: variant.name,
-              typeValue: typeValue,
+              propertyName: propertyName,
+              typeValue: parameterType.type,
               env,
-              isMutable: false,
+              isMutable,
             },
             index: index + 1,
           };
         }
       } else {
-        throw this.formatErrorMessage(
-          token,
-          `Cannot find variant '${token.value}' in enum:\n${typeToString(
-            callerType
-          )}`
+        const variant = callerType.variants.find(
+          (variant) => variant.name === token.value
         );
+        if (variant) {
+          const typeValue: TEnum = {
+            ...callerType,
+            selectedVariantName: variant.name,
+          };
+
+          if (variant.parameterTypes.length === 0) {
+            return {
+              expr: {
+                type: AstType.CallEnum,
+                env,
+                typeValue: {
+                  ...typeValue,
+                },
+                variantArguments: [],
+              },
+              index: index + 1,
+            };
+          } else {
+            return {
+              expr: {
+                type: AstType.PropertyAccess,
+                expr: expr,
+                propertyName: variant.name,
+                typeValue: typeValue,
+                env,
+                isMutable: false,
+              },
+              index: index + 1,
+            };
+          }
+        } else {
+          throw this.formatErrorMessage(
+            token,
+            `Cannot find variant '${token.value}' in enum:\n${typeToString(
+              callerType
+            )}`
+          );
+        }
       }
     }
 
