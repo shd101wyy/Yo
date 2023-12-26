@@ -12,6 +12,7 @@ import {
   Expr,
   FunctionExpr,
   FunctionPrototype,
+  IfCase,
   LetAssignmentExpr,
   MatchCase,
   PrimitiveValueExpr,
@@ -2257,7 +2258,8 @@ Found possible functions:
       index,
       env,
       false,
-      isNextTokenLCurlyBracket
+      isNextTokenLCurlyBracket,
+      !isNextTokenLCurlyBracket
     );
 
     return {
@@ -2424,7 +2426,8 @@ Found possible functions:
     index: number,
     env: Environment,
     isWithStatement: boolean,
-    requireLCurlyBracket = true
+    requireLCurlyBracket = true,
+    isSingleExpression = false
   ): { index: number; expr: BlockExpr } {
     let exprs: Expr[] = [];
     if (
@@ -2472,11 +2475,19 @@ Found possible functions:
         nextEnv = expr.env;
         index = nextIndex;
       }
+
+      if (isSingleExpression) {
+        index = index + 1;
+        break;
+      }
     }
 
     exprs = exprs.filter((expr) => expr.type !== AstType.Ignore);
     const lastExpr: Expr | null = exprs[exprs.length - 1] ?? null;
-    if (!lastExpr || tokens[index - 2].type === TokenType.Semicolon) {
+    if (
+      !lastExpr ||
+      tokens[index - 2].type === TokenType.Semicolon /*&& !isSingleExpression */
+    ) {
       exprs.push({
         type: AstType.Value,
         tag: "primitive",
@@ -2700,111 +2711,95 @@ Returned:  ${typeToString(functionReturnType)}`
     if (tokens[index].type !== TokenType.If) {
       throw this.formatErrorMessage(tokens[index], "Expected if");
     }
+
     const ifTokenIndex = index;
     index = index + 1;
 
-    // parse condition
-    const { expr: condition, index: nextIndex } = this.parseExpression(
-      tokens,
-      index,
-      env,
-      isWithStatement
-    );
-    if (!condition) {
-      throw this.formatErrorMessage(tokens[index], "Expected condition for if");
-    }
-    const conditionType = condition.typeValue;
-    if (!checkType(TypeValues.boolean, conditionType, env)) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        `Expected boolean for condition, but got ${typeToString(conditionType)}`
-      );
-    }
-    index = nextIndex;
-    env = condition.env;
-
-    let thenExpr: Expr[] = [];
-    let thenReturnType: Type;
-    // parse then
-    if (tokens[index].type !== TokenType.LCurlyBracket) {
-      const returnValue = this.parseExpression(
-        tokens,
-        index,
-        env,
-        isWithStatement
-      );
-      index = returnValue.index;
-      thenExpr = [returnValue.expr];
-      thenReturnType = returnValue.expr.typeValue;
-    } else {
-      const { index: nextIndex, expr } = this.parseBlockExpressions(
+    const cases: IfCase[] = [];
+    while (true) {
+      // Parse condition
+      const { expr: conditionExpr, index: nextIndex } = this.parseExpression(
         tokens,
         index,
         env,
         isWithStatement
       );
       index = nextIndex;
-      thenExpr = expr.exprs;
-      thenReturnType = expr.typeValue;
-    }
 
-    // parse else
-    const elseExpr: Expr[] = [];
-    let elseReturnType: Type = TypeValues.unit;
-    if (tokens[index].type === TokenType.Else) {
-      index = index + 1;
-
-      if (tokens[index].type === TokenType.If) {
-        const { expr, index: nextNextNextIndex } = this.parseIfExpr(
+      // Parse body
+      const isNextTokenLCurlyBracket =
+        tokens[index].type === TokenType.LCurlyBracket;
+      const { expr: bodyExpr, index: nextNextIndex } =
+        this.parseBlockExpressions(
           tokens,
           index,
-          env,
-          isWithStatement
+          conditionExpr.env,
+          false,
+          isNextTokenLCurlyBracket,
+          !isNextTokenLCurlyBracket
         );
-        if (!expr || expr.type !== AstType.If) {
-          throw "WTF";
-        }
-        elseExpr.push(expr);
-        elseReturnType = expr.typeValue;
-        index = nextNextNextIndex;
-      } else {
-        if (tokens[index].type !== TokenType.LCurlyBracket) {
-          const { expr, index: nextNextNextIndex } = this.parseExpression(
-            tokens,
-            index,
-            env,
-            isWithStatement
-          );
-          elseExpr.push(expr);
-          elseReturnType = expr.typeValue;
-          index = nextNextNextIndex;
+      index = nextNextIndex;
+
+      cases.push({
+        condition: conditionExpr,
+        body: bodyExpr,
+      });
+
+      if (tokens[index].type === TokenType.Else) {
+        index = index + 1;
+
+        if (tokens[index].type === TokenType.If) {
+          index += 1;
+          continue;
         } else {
-          const { expr, index: nextNextNextIndex } = this.parseBlockExpressions(
-            tokens,
-            index,
-            env,
-            isWithStatement
-          );
-          if (expr.exprs.length) {
-            elseExpr.push(...expr.exprs);
-          }
-          elseReturnType = expr.typeValue;
-          index = nextNextNextIndex;
+          // Last else
+          // Parse body
+          const isNextTokenLCurlyBracket =
+            tokens[index].type === TokenType.LCurlyBracket;
+          const { expr: bodyExpr, index: nextNextIndex } =
+            this.parseBlockExpressions(
+              tokens,
+              index,
+              conditionExpr.env,
+              false,
+              isNextTokenLCurlyBracket,
+              !isNextTokenLCurlyBracket
+            );
+          index = nextNextIndex;
+
+          cases.push({
+            condition: undefined,
+            body: bodyExpr,
+          });
+          break;
         }
+      } else {
+        break;
       }
     }
 
-    if (
-      !checkType(
-        convertPrimitiveToType(thenReturnType),
-        convertPrimitiveToType(elseReturnType),
-        env
-      )
-    ) {
-      throw new Error(
-        `Mismatched types between \`then\` and \`else\`.
-then: ${typeToString(thenReturnType)}
-else: ${typeToString(elseReturnType)}  
+    if (cases.length === 0) {
+      throw this.formatErrorMessage(
+        tokens[ifTokenIndex],
+        "Expected if expression body"
+      );
+    }
+
+    const expectedReturnType =
+      cases.length === 1 ? TypeValues.unit : cases[0].body.typeValue;
+
+    // Check if all cases have the same return type
+    const returnTypes = cases.map((case_) => case_.body.typeValue);
+    const hasDifferentReturnTypes = returnTypes.some(
+      (returnType) => !checkType(expectedReturnType, returnType, env)
+    );
+    if (hasDifferentReturnTypes) {
+      throw this.formatErrorMessage(
+        tokens[ifTokenIndex],
+        `Mismatched return types:
+Expected: ${typeToString(expectedReturnType)}
+Found:    
+- ${returnTypes.map((returnType) => typeToString(returnType)).join("\n- ")}
 `
       );
     }
@@ -2812,14 +2807,12 @@ else: ${typeToString(elseReturnType)}
     return {
       expr: {
         type: AstType.If,
-        condition,
-        then: thenExpr,
-        else: elseExpr,
-        typeValue: thenReturnType,
+        cases,
+        typeValue: expectedReturnType,
         env,
         token: tokens[ifTokenIndex],
       },
-      index: index,
+      index,
     };
   }
 
@@ -2933,7 +2926,8 @@ ${typeToString(caseExprType)}
             index,
             newEnv,
             false,
-            isNextTokenLCurlyBracket
+            isNextTokenLCurlyBracket,
+            !isNextTokenLCurlyBracket
           );
         index = nextNextIndex;
         cases.push({
@@ -2961,7 +2955,8 @@ ${typeToString(caseExprType)}
             index,
             env,
             false,
-            isNextTokenLCurlyBracket
+            isNextTokenLCurlyBracket,
+            !isNextTokenLCurlyBracket
           );
         index = nextIndex;
         cases.push({

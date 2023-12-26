@@ -1,5 +1,5 @@
 function max(x: i32, y: i32): i32 {
-  if x > y {
+  if (x > y) {
     x
   } else {
     y

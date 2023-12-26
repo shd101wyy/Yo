@@ -354,11 +354,14 @@ export type CallEnumExpr = {
   token: Token;
 };
 
+export type IfCase = {
+  condition?: Expr; // If no condition, then it's `else`.
+  body: BlockExpr;
+};
+
 export type IfExpr = {
   type: AstType.If;
-  condition: Expr;
-  then: Expr[];
-  else: Expr[];
+  cases: IfCase[];
   typeValue: Type;
   env: Environment;
   token: Token;
@@ -577,12 +580,25 @@ export function exprToString(expr: Expr | FunctionPrototype) {
               .join(", ")})`
           : ""
       }`;
-    case AstType.If:
-      return `if ${exprToString(expr.condition)} {\n${expr.then
-        .map((expr) => "  " + exprToString(expr))
-        .join(";\n")} 
-} else {\n${expr.else.map((expr) => "  " + exprToString(expr)).join(";\n")}
-}`;
+    case AstType.If: {
+      let result = "";
+      const cases = expr.cases;
+      for (let i = 0; i < cases.length; i++) {
+        const case_ = cases[i];
+        if (case_.condition) {
+          result += `if ${exprToString(case_.condition)} ${exprToString(
+            case_.body
+          )}`;
+        } else {
+          result += `${exprToString(case_.body)}`;
+        }
+
+        if (i !== cases.length - 1) {
+          result += " else ";
+        }
+      }
+      return result;
+    }
     case AstType.Match: {
       return `match ${exprToString(expr.matchedEnum)} {\n${expr.cases
         .map((matchCase) => {
