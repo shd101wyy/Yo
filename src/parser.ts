@@ -84,8 +84,18 @@ export default class Parser {
     { printLexer, printParser }: { printLexer?: boolean; printParser?: boolean }
   ) {
     this.filePath = filePath;
+
+    if (!this.filePath.match(/^file:\/\//)) {
+      throw new Error(
+        `Invalid file protocol: ${this.filePath}. Only file:// is supported for now.  `
+      );
+    }
+
     this.loadModule = loadModule;
-    this.inputString = fs.readFileSync(filePath, "utf-8");
+    this.inputString = fs.readFileSync(
+      filePath.replace(/^file:\/\//, ""), // NOTE: We only support local file for now
+      "utf-8"
+    );
     this.tokens = tokenize(this.inputString);
     if (printLexer) {
       console.log(`= lexer: `, this.tokens);
@@ -5011,12 +5021,15 @@ ${exprToString(expr)}`
       const modulePath = tokens[index].value;
       index = index + 1;
       if (!modulePath.startsWith(".")) {
-        throw new Error("Only relative path is supported for now");
+        throw new Error("Only local relative path is supported for now");
       }
-      let moduleAbsolutePath = path.resolve(
-        path.dirname(this.filePath),
-        modulePath
-      );
+      // FIXME: Support other protocol like https://
+      let moduleAbsolutePath =
+        "file://" +
+        path.resolve(
+          path.dirname(this.filePath.replace(/^file:\/\//, "")),
+          modulePath
+        );
       const extname = path.extname(moduleAbsolutePath);
       if (!extname) {
         moduleAbsolutePath = moduleAbsolutePath + ".mo";

@@ -27,6 +27,7 @@ export class CodeGenerator {
       printParser,
     });
     module = parser.generateModule();
+    console.log(`= Loaded module ${filePath}`);
     this.modules.set(filePath, module);
     return module;
   }

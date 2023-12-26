@@ -75,7 +75,9 @@ mo run <script>                  Run a script defined in 'mo.json'
       }
 
       // Get the absolute path of the file
-      const absolutePath = fs.realpathSync(file);
+      const absolutePath = `file://` + fs.realpathSync(file);
+      // Add file:// to the path
+
       const compiler = new CodeGenerator();
       compiler.loadModule(absolutePath, {
         printLexer: argv.lexer,
