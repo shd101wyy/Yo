@@ -2791,14 +2791,39 @@ else: ${typeToString(elseReturnType)}
 
       if (tokens[index].type === TokenType.Case) {
         index = index + 1;
-        if (tokens[index].type !== TokenType.Identifier) {
+
+        // parse case
+        const { expr: caseExpr, index: nextIndex } = this.parsePrimary(
+          tokens,
+          index,
+          env,
+          isWithStatement
+        );
+        index = nextIndex;
+        const caseExprType = caseExpr.typeValue;
+        if (caseExprType.type !== "Enum" || !caseExprType.selectedVariantName) {
           throw this.formatErrorMessage(
-            tokens[index],
-            "Expected identifier for case"
+            tokens[index - 1],
+            `Expected enum with selected variant, but got ${exprToString(
+              caseExpr
+            )}`
           );
         }
-        const variantName = tokens[index].value;
-        index = index + 1;
+
+        /*
+        // Check if the enum type matches
+        if (!checkType(matchedEnum.typeValue, caseExprType, env)) {
+          throw this.formatErrorMessage(
+            tokens[index - 1],
+            `Mismatched types between matched enum and case enum:
+${typeToString(matchedEnum.typeValue)}
+${typeToString(caseExprType)}
+`
+          );
+        }
+        */
+
+        const variantName = caseExprType.selectedVariantName;
 
         const newEnv = this.setSelectedVariantName(
           matchedEnum,
@@ -2814,7 +2839,7 @@ else: ${typeToString(elseReturnType)}
         // parse body
         const isNextTokenLCurlyBracket =
           tokens[index].type === TokenType.LCurlyBracket;
-        const { expr: blockExpr, index: nextIndex } =
+        const { expr: blockExpr, index: nextNextIndex } =
           this.parseBlockExpressions(
             tokens,
             index,
@@ -2822,10 +2847,11 @@ else: ${typeToString(elseReturnType)}
             false,
             isNextTokenLCurlyBracket
           );
-        index = nextIndex;
+        index = nextNextIndex;
         cases.push({
-          variantName,
+          case: caseExpr,
           body: blockExpr,
+          variantName,
         });
       } else if (tokens[index].type === TokenType.Default) {
         index = index + 1;
@@ -2851,7 +2877,8 @@ else: ${typeToString(elseReturnType)}
           );
         index = nextIndex;
         cases.push({
-          variantName: "*", // * means default here
+          case: undefined,
+          variantName: "*", // "*" means default
           body: blockExpr,
         });
       }

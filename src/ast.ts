@@ -346,6 +346,7 @@ export type IfExpr = {
 };
 
 export type MatchCase = {
+  case?: Expr;
   variantName: string;
   body: BlockExpr;
 };
@@ -552,9 +553,7 @@ export function exprToString(expr: Expr | FunctionPrototype) {
       return `match ${exprToString(expr.matchedEnum)} {\n${expr.cases
         .map((matchCase) => {
           return `  ${
-            matchCase.variantName === "*"
-              ? "default"
-              : `case ${matchCase.variantName}`
+            !matchCase.case ? "default" : `case ${exprToString(matchCase.case)}`
           }: {\n${matchCase.body.exprs
             .map((expr) =>
               exprToString(expr)
