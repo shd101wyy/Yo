@@ -2889,27 +2889,6 @@ ${typeToString(caseExprType)}
       }
     }
 
-    // Check each cases body returnValue type matches
-    if (cases.length === 0) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "Expected at least one case"
-      );
-    }
-    const returnType = cases[0].body.typeValue;
-    for (let i = 1; i < cases.length; i++) {
-      const caseReturnType = cases[i].body.typeValue;
-      if (!checkType(returnType, caseReturnType, env)) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Mismatched types between cases:
-${typeToString(returnType)}
-${typeToString(caseReturnType)}
-`
-        );
-      }
-    }
-
     // Exhausive check
     // Make sure all variants are covered, unless there is a default case
     const hasDefault = cases.some((case_) => case_.variantName === "*");
@@ -2927,6 +2906,38 @@ ${typeToString(caseReturnType)}
           tokens[index],
           `Not all variants are covered:
 ${uncoveredVariants.join(", ")}
+`
+        );
+      }
+    } else {
+      // Make sure default is the last case
+      const defaultCaseIndex = cases.findIndex(
+        (case_) => case_.variantName === "*"
+      );
+      if (defaultCaseIndex !== cases.length - 1) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Default case must be the last case`
+        );
+      }
+    }
+
+    // Check each cases body returnValue type matches
+    if (cases.length === 0) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected at least one case"
+      );
+    }
+    const returnType = cases[0].body.typeValue;
+    for (let i = 1; i < cases.length; i++) {
+      const caseReturnType = cases[i].body.typeValue;
+      if (!checkType(returnType, caseReturnType, env)) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Mismatched types between cases:
+${typeToString(returnType)}
+${typeToString(caseReturnType)}
 `
         );
       }
@@ -3664,7 +3675,8 @@ ${typeToString(value.typeValue)}`
       ) {
         throw this.formatErrorMessage(
           tokens[userDefinedKindTokenIndex],
-          `Cannot mix 'Free' type and '${kind}' type`
+          `Cannot set ${typeName} as 'Free' because below is '${kind}':
+${typeToString(nextTypeValue)}`
         );
       } else if (
         userDefinedKind &&
@@ -3673,7 +3685,13 @@ ${typeToString(value.typeValue)}`
       ) {
         throw this.formatErrorMessage(
           tokens[userDefinedKindTokenIndex],
-          `Cannot mix 'Linear' type and '${kind}' type`
+          `Cannot set ${typeName} as 'Linear' because it contains '${kind}' data.`
+        );
+      } else if (userDefinedKind === "Type" && kind === "Linear") {
+        throw this.formatErrorMessage(
+          tokens[userDefinedKindTokenIndex],
+          `Cannot set ${typeName} as 'Type' because below is 'Linear':
+${typeToString(nextTypeValue)}`
         );
       } else {
         kind = userDefinedKind ? userDefinedKind : kind;
@@ -4387,7 +4405,7 @@ Got:      ${typeToString(matchedFunction.func)}`
     ) {
       throw this.formatErrorMessage(
         tokens[userDefinedKindTokenIndex],
-        `Cannot mix 'Free' type and '${kind}' type`
+        `Cannot set ${enumName} as 'Free' because its variants contain '${kind}' data.`
       );
     } else if (
       userDefinedKind &&
@@ -4397,6 +4415,15 @@ Got:      ${typeToString(matchedFunction.func)}`
       throw this.formatErrorMessage(
         tokens[userDefinedKindTokenIndex],
         `Cannot mix 'Linear' type and '${kind}' type`
+      );
+    } else if (
+      userDefinedKind &&
+      userDefinedKind === "Type" &&
+      kind === "Linear"
+    ) {
+      throw this.formatErrorMessage(
+        tokens[userDefinedKindTokenIndex],
+        `Cannot set ${enumName} as 'Type' because its variants contain 'Linear' data.`
       );
     } else {
       kind = userDefinedKind ? userDefinedKind : kind;

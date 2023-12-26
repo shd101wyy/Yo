@@ -492,6 +492,7 @@ export function exprToString(expr: Expr | FunctionPrototype) {
     case AstType.TypeAlias: {
       return `type ${typeToString(expr.typeValue, {
         extractTypeConstructor: "all",
+        hideTypeParameterKind: true,
       })}`;
     }
     case AstType.Class:

@@ -719,7 +719,7 @@ export function synthesizeTypeFromTokens({
     ) {
       throw formatErrorMessage({
         token: tokens[userDefinedKindTokenIndex],
-        errorMessage: `Cannot mix 'Free' type and '${kind}' type`,
+        errorMessage: `Cannot set type as 'Free' because it contains '${kind}' data.`,
         inputString,
       });
     } else if (
@@ -729,7 +729,17 @@ export function synthesizeTypeFromTokens({
     ) {
       throw formatErrorMessage({
         token: tokens[userDefinedKindTokenIndex],
-        errorMessage: `Cannot mix 'Linear' type and 'Type' type`,
+        errorMessage: `Cannot set type as 'Linear' because it contains 'Type' data.`,
+        inputString,
+      });
+    } else if (
+      userDefinedKind &&
+      userDefinedKind === "Type" &&
+      kind === "Linear"
+    ) {
+      throw formatErrorMessage({
+        token: tokens[userDefinedKindTokenIndex],
+        errorMessage: `Cannot set type as 'Type' because it contains 'Linear' data.`,
         inputString,
       });
     } else {
@@ -1164,17 +1174,18 @@ export function applyTypeArgumentsToType(
       });
     }
 
+    const newTypeValue = applyTypeArgumentsToType(
+      typeValue,
+      typeArguments,
+      typeParameterToTypeArgumentMap
+    );
     return {
       type: "TypeConstructor",
-      kind: type.kind,
+      kind: newTypeValue.kind,
       name: type.name,
       typeParameters: newTypeParameters,
       regionParameters: type.regionParameters,
-      typeValue: applyTypeArgumentsToType(
-        typeValue,
-        typeArguments,
-        typeParameterToTypeArgumentMap
-      ),
+      typeValue: newTypeValue,
     };
   } else if (type.type === "Class") {
     if (type.typeParameters.length !== typeArguments.length) {
@@ -1272,7 +1283,7 @@ export function applyTypeArgumentsToType(
 
     const enumType: TEnum = {
       type: "Enum",
-      kind: type.kind, // getEnumTypeKind(variants), NOTE: This is wrong
+      kind: getEnumTypeKind(variants),
       enumName: type.enumName,
       typeParameters: newTypeParameters,
       regionParameters: type.regionParameters,
@@ -1350,16 +1361,18 @@ export function applyTypeArgumentsToType(
         }
       }
       case "Record": {
+        const newProperties = type.properties.map(({ name, type }) => ({
+          name,
+          type: applyTypeArgumentsToType(
+            type,
+            typeArguments,
+            typeParameterToTypeArgumentMap
+          ),
+        }));
         return {
           ...type,
-          properties: type.properties.map(({ name, type }) => ({
-            name,
-            type: applyTypeArgumentsToType(
-              type,
-              typeArguments,
-              typeParameterToTypeArgumentMap
-            ),
-          })),
+          kind: getRecordTypeKind(newProperties),
+          properties: newProperties,
         };
       }
       case "Union": {
@@ -2480,7 +2493,13 @@ export function typeToString(
     }
     case "Record": {
       return `{ ${type.properties
-        .map(({ name, type }) => `${name}: ${typeToString(type)}`)
+        .map(
+          ({ name, type }) =>
+            `${name}: ${typeToString(type, {
+              extractTypeConstructor,
+              hideTypeParameterKind,
+            })}`
+        )
         .join(", ")} }`;
     }
     case "Function": {
@@ -2546,8 +2565,8 @@ export function typeToString(
             type.typeValue.type === "Extern"
               ? ";"
               : ` = ${typeToString(type.typeValue, {
-                  extractTypeConstructor,
-                  hideTypeParameterKind,
+                  extractTypeConstructor: false,
+                  hideTypeParameterKind: true,
                 })}`
           }`;
         } else {
@@ -2596,7 +2615,7 @@ export function typeToString(
     }
     case "Enum": {
       if (extractTypeConstructor) {
-        return `enum${typeAndRegionParametersToString(
+        return `enum ${type.enumName}${typeAndRegionParametersToString(
           type.typeParameters,
           type.regionParameters,
           { hideTypeParameterKind }
