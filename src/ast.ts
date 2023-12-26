@@ -123,6 +123,7 @@ export type IgnoreExpr = {
   type: AstType.Ignore;
   typeValue: TUnit;
   env: Environment;
+  token: Token;
 };
 
 export type BlockExpr = {
@@ -130,6 +131,7 @@ export type BlockExpr = {
   exprs: Expr[];
   typeValue: Type;
   env: Environment;
+  token: Token;
 };
 
 export type DeferExpr = {
@@ -137,6 +139,7 @@ export type DeferExpr = {
   expr: BlockExpr;
   typeValue: TUnit;
   env: Environment;
+  token: Token;
 };
 
 export type RecordValueExpr = {
@@ -145,6 +148,7 @@ export type RecordValueExpr = {
   properties: { name: string; value: Expr }[];
   typeValue: Type;
   env: Environment;
+  token: Token;
 };
 
 export type SliceValueExpr = {
@@ -153,6 +157,7 @@ export type SliceValueExpr = {
   values: Expr[];
   typeValue: Type;
   env: Environment;
+  token: Token;
 };
 
 export type PrimitiveValueExpr = {
@@ -161,6 +166,7 @@ export type PrimitiveValueExpr = {
   value: string;
   typeValue: TPrimitive | TPrimitiveWithValue;
   env: Environment;
+  token: Token;
 };
 
 export type ValueExpr = PrimitiveValueExpr | RecordValueExpr | SliceValueExpr;
@@ -170,8 +176,9 @@ export type VariableExpr = {
   name: string;
   frameLevel: number;
   typeValue: Type;
-  env: Environment;
   isMutable: boolean;
+  env: Environment;
+  token: Token;
   // isFreeVariable: boolean;
 };
 
@@ -181,6 +188,7 @@ export type ReferenceExpr = {
   isMutableReference: boolean;
   typeValue: TTypeConstructor;
   env: Environment;
+  token: Token;
 };
 
 export type DereferenceExpr = {
@@ -188,6 +196,7 @@ export type DereferenceExpr = {
   expr: Expr;
   typeValue: Type;
   env: Environment;
+  token: Token;
 };
 
 export type PropertyAccessExpr = {
@@ -195,8 +204,9 @@ export type PropertyAccessExpr = {
   propertyName: string;
   expr: Expr;
   typeValue: Type;
-  env: Environment;
   isMutable: boolean;
+  env: Environment;
+  token: Token;
 };
 
 export type IndexAccessExpr = {
@@ -204,8 +214,9 @@ export type IndexAccessExpr = {
   indexes: Expr[];
   expr: Expr;
   typeValue: Type;
-  env: Environment;
   isMutable: boolean;
+  env: Environment;
+  token: Token;
 };
 
 export type BinaryOperatorExpr = {
@@ -215,6 +226,7 @@ export type BinaryOperatorExpr = {
   right: Expr;
   typeValue: Type;
   env: Environment;
+  token: Token;
 };
 
 export type IsOperatorExpr = {
@@ -223,6 +235,7 @@ export type IsOperatorExpr = {
   right: TEnum;
   typeValue: TBoolean;
   env: Environment;
+  token: Token;
 };
 
 export type UnaryOperatorExpr = {
@@ -231,14 +244,8 @@ export type UnaryOperatorExpr = {
   expr: Expr;
   typeValue: Type;
   env: Environment;
+  token: Token;
 };
-
-/*
-export type TypeValueExpr = {
-  type: AstType.TypeValue;
-  value: string;
-};
-*/
 
 export type LetAssignmentExpr = {
   type: AstType.LetAssignment;
@@ -249,6 +256,7 @@ export type LetAssignmentExpr = {
   right: Expr;
   typeValue: TUnit;
   env: Environment;
+  token: Token;
 };
 
 export type AssignmentExpr = {
@@ -257,6 +265,7 @@ export type AssignmentExpr = {
   right: Expr;
   typeValue: Type;
   env: Environment;
+  token: Token;
 };
 
 export type Destructuring = {
@@ -272,6 +281,7 @@ export type DestructuringAssignmentExpr = {
   isMutable: boolean;
   typeValue: TUnit;
   env: Environment;
+  token: Token;
 };
 
 export type TypeAliasExpr = {
@@ -279,6 +289,7 @@ export type TypeAliasExpr = {
   typeName: string;
   typeValue: Type;
   env: Environment;
+  token: Token;
 };
 
 export type EnumExpr = {
@@ -286,18 +297,21 @@ export type EnumExpr = {
   enumName: string;
   typeValue: TEnum;
   env: Environment;
+  token: Token;
 };
 
 export type ClassExpr = {
   type: AstType.Class;
   typeValue: TClass;
   env: Environment;
+  token: Token;
 };
 
 export type FunctionPrototype = {
   type: AstType.FunctionPrototype;
   functionName?: string; // If not set, it's an anonymous function
   typeValue: TFunction;
+  token: Token;
 };
 
 export type FunctionExpr = {
@@ -311,6 +325,7 @@ export type FunctionExpr = {
   body: Expr[];
   typeValue: TFunction;
   env: Environment;
+  token: Token;
 };
 
 export type ExternExpr = {
@@ -318,6 +333,7 @@ export type ExternExpr = {
   prototype: FunctionPrototype;
   typeValue: TFunction;
   env: Environment;
+  token: Token;
 };
 
 export type CallFunctionExpr = {
@@ -327,6 +343,7 @@ export type CallFunctionExpr = {
   functionArguments: Expr[];
   typeValue: Type;
   env: Environment;
+  token: Token;
 };
 
 export type CallEnumExpr = {
@@ -334,6 +351,7 @@ export type CallEnumExpr = {
   variantArguments: Expr[];
   typeValue: TEnum;
   env: Environment;
+  token: Token;
 };
 
 export type IfExpr = {
@@ -343,6 +361,7 @@ export type IfExpr = {
   else: Expr[];
   typeValue: Type;
   env: Environment;
+  token: Token;
 };
 
 export type MatchCase = {
@@ -357,6 +376,7 @@ export type MatchExpr = {
   cases: MatchCase[];
   typeValue: Type;
   env: Environment;
+  token: Token;
 };
 
 export type ExportExpr = {
@@ -364,6 +384,7 @@ export type ExportExpr = {
   expr: Expr;
   typeValue: TUnit;
   env: Environment;
+  token: Token;
 };
 
 export type ImportExpr = {
@@ -377,6 +398,7 @@ export type ImportExpr = {
   }[];
   typeValue: TUnit;
   env: Environment;
+  token: Token;
 };
 
 /**
