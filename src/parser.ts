@@ -2883,6 +2883,28 @@ ${typeToString(caseReturnType)}
       }
     }
 
+    // Exhausive check
+    // Make sure all variants are covered, unless there is a default case
+    const hasDefault = cases.some((case_) => case_.variantName === "*");
+    if (!hasDefault) {
+      const matchedEnumType = matchedEnum.typeValue;
+      const matchedEnumTypeVariants = matchedEnumType.variants.map(
+        (variant) => variant.name
+      );
+      const caseVariants = cases.map((case_) => case_.variantName);
+      const uncoveredVariants = matchedEnumTypeVariants.filter(
+        (variant) => !caseVariants.includes(variant)
+      );
+      if (uncoveredVariants.length > 0) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Not all variants are covered:
+${uncoveredVariants.join(", ")}
+`
+        );
+      }
+    }
+
     return {
       expr: {
         type: AstType.Match,
