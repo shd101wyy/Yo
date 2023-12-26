@@ -111,6 +111,24 @@ export function addEnvValueType(
   };
 }
 
+export function updateExistingValueType(
+  env: Environment,
+  valueType: ValueType,
+  newValueType: ValueType
+) {
+  const frames = env.frames.map((frame) => {
+    const values = frame.values.map((value) =>
+      value === valueType ? newValueType : value
+    );
+    return { ...frame, values };
+  });
+  return {
+    functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
+    freeVariables: env.freeVariables,
+    frames,
+  };
+}
+
 export function addEnvFreeVariable(env: Environment, valueType: ValueType) {
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,

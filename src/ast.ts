@@ -60,7 +60,7 @@ export enum AstType {
 
   // control flow
   If = "if",
-  Switch = "switch",
+  Match = "match",
 
   // ignore
   Ignore = "ignore",
@@ -112,6 +112,7 @@ export type Expr =
   | CallFunctionExpr
   | CallEnumExpr
   | IfExpr
+  | MatchExpr
   | IgnoreExpr
   | BlockExpr
   | DeferExpr
@@ -344,19 +345,15 @@ export type IfExpr = {
   env: Environment;
 };
 
-export type SwitchCase = {
-  pattern: Expr;
-  /**
-   * If body is undefined, then it's a fallthrough case.
-   */
-  body?: Expr[];
-  guard?: Expr;
+export type MatchCase = {
+  variantName: string;
+  body: BlockExpr;
 };
 
-export type SwitchExpr = {
-  type: AstType.Switch;
-  condition: Expr;
-  cases: SwitchCase[];
+export type MatchExpr = {
+  type: AstType.Match;
+  matchedEnum: Expr;
+  cases: MatchCase[];
   typeValue: Type;
   env: Environment;
 };
@@ -546,11 +543,27 @@ export function exprToString(expr: Expr | FunctionPrototype) {
           : ""
       }`;
     case AstType.If:
-      return `if (${exprToString(expr.condition)}) {\n${expr.then
+      return `if ${exprToString(expr.condition)} {\n${expr.then
         .map((expr) => "  " + exprToString(expr))
         .join(";\n")} } else {\n${expr.else
         .map((expr) => "  " + exprToString(expr))
         .join(";\n")} }`;
+    case AstType.Match: {
+      return `match ${exprToString(expr.matchedEnum)} {\n${expr.cases
+        .map((matchCase) => {
+          return `  case ${
+            matchCase.variantName === "*" ? "default" : matchCase.variantName
+          }: {\n${matchCase.body.exprs
+            .map((expr) =>
+              exprToString(expr)
+                .split("\n")
+                .map((l) => "    " + l)
+                .join("\n")
+            )
+            .join(";\n")}\n  }`;
+        })
+        .join("\n")}\n}`;
+    }
     case AstType.Ignore:
       return ``;
     case AstType.Block: {

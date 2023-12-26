@@ -13,6 +13,7 @@ import {
   FunctionExpr,
   FunctionPrototype,
   LetAssignmentExpr,
+  MatchCase,
   PrimitiveValueExpr,
   exprToString,
   getTokenPrecedence,
@@ -30,6 +31,7 @@ import {
   getNewRegionId,
   popEnvFrame,
   pushEnvFrame,
+  updateExistingValueType,
 } from "./env";
 import { formatErrorMessage } from "./error";
 import { tokenize } from "./lexer";
@@ -1983,6 +1985,10 @@ Found possible functions:
         returnValue = this.parseIfExpr(tokens, index, env, isWithStatement);
         break;
       }
+      case TokenType.Match: {
+        returnValue = this.parseMatchExpr(tokens, index, env, isWithStatement);
+        break;
+      }
       case TokenType.Let: {
         return this.parseLetAssignment(tokens, index, env, isWithStatement);
       }
@@ -2688,6 +2694,217 @@ else: ${typeToString(elseReturnType)}
       },
       index: index,
     };
+  }
+
+  private parseMatchExpr(
+    tokens: Token[],
+    index: number,
+    env: Environment,
+    isWithStatement: boolean
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.Match) {
+      throw this.formatErrorMessage(tokens[index], "Expected match");
+    }
+    index = index + 1;
+
+    const variableTokenIndex = index;
+    const { expr: matchedEnum, index: nextIndex } = this.parsePrimary(
+      tokens,
+      index,
+      env,
+      isWithStatement
+    );
+    index = nextIndex;
+    if (matchedEnum.type !== AstType.Variable) {
+      throw this.formatErrorMessage(
+        tokens[variableTokenIndex],
+        "Only variable can be matched right now. For example, `match x { ... }`, but not `match x.a.b { ... }` "
+      );
+    }
+
+    if (matchedEnum.typeValue.type !== "Enum") {
+      throw this.formatErrorMessage(
+        tokens[index - 1],
+        `Expected enum, but got ${typeToString(matchedEnum.typeValue)}`
+      );
+    }
+
+    const cases: MatchCase[] = [];
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for match expression"
+      );
+    }
+    index = index + 1;
+    while (true) {
+      if (!tokens[index]) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected '}' for match expression"
+        );
+      }
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+
+      if (tokens[index].type === TokenType.Case) {
+        index = index + 1;
+        if (tokens[index].type !== TokenType.Identifier) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected identifier for case"
+          );
+        }
+        const variantName = tokens[index].value;
+        index = index + 1;
+
+        const newEnv = this.setSelectedVariantName(
+          matchedEnum,
+          variantName,
+          env
+        );
+
+        if (tokens[index].type !== TokenType.Colon) {
+          throw this.formatErrorMessage(tokens[index], "Expected ':' for case");
+        }
+        index = index + 1;
+
+        // parse body
+        const isNextTokenLCurlyBracket =
+          tokens[index].type === TokenType.LCurlyBracket;
+        const { expr: blockExpr, index: nextIndex } =
+          this.parseBlockExpressions(
+            tokens,
+            index,
+            newEnv,
+            false,
+            isNextTokenLCurlyBracket
+          );
+        index = nextIndex;
+        cases.push({
+          variantName,
+          body: blockExpr,
+        });
+      } else if (tokens[index].type === TokenType.Default) {
+        index = index + 1;
+
+        if (tokens[index].type !== TokenType.Colon) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected ':' for default case"
+          );
+        }
+        index = index + 1;
+
+        // parse body
+        const isNextTokenLCurlyBracket =
+          tokens[index].type === TokenType.LCurlyBracket;
+        const { expr: blockExpr, index: nextIndex } =
+          this.parseBlockExpressions(
+            tokens,
+            index,
+            env,
+            false,
+            isNextTokenLCurlyBracket
+          );
+        index = nextIndex;
+        cases.push({
+          variantName: "*", // * means default here
+          body: blockExpr,
+        });
+      }
+
+      if (tokens[index].type === TokenType.Comma) {
+        index = index + 1;
+        continue;
+      }
+    }
+
+    // Check each cases body returnValue type matches
+    if (cases.length === 0) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected at least one case"
+      );
+    }
+    const returnType = cases[0].body.typeValue;
+    for (let i = 1; i < cases.length; i++) {
+      const caseReturnType = cases[i].body.typeValue;
+      if (!checkType(returnType, caseReturnType, env)) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Mismatched types between cases:
+${typeToString(returnType)}
+${typeToString(caseReturnType)}
+`
+        );
+      }
+    }
+
+    return {
+      expr: {
+        type: AstType.Match,
+        matchedEnum,
+        cases,
+        typeValue: returnType,
+        env,
+      },
+      index,
+    };
+  }
+
+  private setSelectedVariantName(
+    enumExpr: Expr,
+    variantName: string,
+    env: Environment
+  ): Environment {
+    if (enumExpr.typeValue.type !== "Enum") {
+      throw new Error(
+        `Expected enum, but got ${typeToString(enumExpr.typeValue)}`
+      );
+    }
+    // FIXME: Support reference of enum.
+    const enumType: TEnum = enumExpr.typeValue;
+
+    // Check if variantName exists
+    const matchedVariant = enumType.variants.find(
+      (variant) => variant.name === variantName
+    );
+    if (!matchedVariant) {
+      throw new Error(`Unknown variant "${variantName}"`);
+    }
+
+    switch (enumExpr.type) {
+      case AstType.Variable: {
+        const variableName = enumExpr.name;
+        const values = getEnvValueTypesByVariableName(env, variableName);
+        if (values.length === 0) {
+          throw new Error(`Unknown variable "${variableName}"`);
+        }
+        const value = values[values.length - 1];
+        if (value.type.type !== "Enum") {
+          throw new Error(`Expected enum, but got ${typeToString(value.type)}`);
+        } // FIXME: Support reference of enum.
+        const enumType: TEnum = value.type;
+        const newEnumType: TEnum = {
+          ...enumType,
+          selectedVariantName: variantName,
+        };
+        const newValueType: ValueType = {
+          ...value,
+          type: newEnumType,
+        };
+
+        return updateExistingValueType(env, value, newValueType);
+      }
+      default: {
+        break;
+      }
+    }
+
+    return env;
   }
 
   private parseLetAssignment(
@@ -4131,7 +4348,8 @@ Got:      ${typeToString(matchedFunction.func)}`
         variableName: variant.name,
         type: newEnumType,
         kind: "value",
-        isExported: false, // We use special syntax to access enum variants
+        isExported,
+        // isExported: false, // We use special syntax to access enum variants
         // eg: import { Option { Some, None } } from "std/option"
       });
     }
