@@ -405,8 +405,7 @@ export default class Parser {
   private parseSliceOrTupleExpr(
     tokens: Token[],
     index: number,
-    env: Environment,
-    isWithStatement
+    env: Environment
   ): ParserReturn {
     const token = tokens[index];
     if (token.type !== TokenType.LBracket) {
@@ -427,8 +426,7 @@ export default class Parser {
         const { expr, index: nextIndex } = this.parseExpression(
           tokens,
           index,
-          env,
-          isWithStatement
+          env
         );
         if (!expr) {
           return { expr, index: nextIndex };
@@ -488,21 +486,19 @@ export default class Parser {
   private parseCurlyBracketExpr(
     tokens: Token[],
     index: number,
-    env: Environment,
-    isWithStatement: boolean
+    env: Environment
   ): ParserReturn {
     try {
-      return this.parseRecordExpr(tokens, index, env, isWithStatement);
+      return this.parseRecordExpr(tokens, index, env);
     } catch {
-      return this.parseBlockExpressions(tokens, index, env, isWithStatement);
+      return this.parseBlockExpressions(tokens, index, env);
     }
   }
 
   private parseRecordExpr(
     tokens: Token[],
     index: number,
-    env: Environment,
-    isWithStatement: boolean
+    env: Environment
   ): ParserReturn {
     if (tokens[index].type !== TokenType.LCurlyBracket || !tokens[index + 1]) {
       throw this.formatErrorMessage(tokens[index], "Expected '{' for record");
@@ -553,8 +549,7 @@ export default class Parser {
         const { expr, index: nextIndex } = this.parseExpression(
           tokens,
           index,
-          env,
-          isWithStatement
+          env
         );
         if (!expr) {
           return { expr, index: nextIndex };
@@ -587,8 +582,7 @@ export default class Parser {
     expr: Expr,
     tokens: Token[],
     index: number,
-    env: Environment,
-    isWithStatement: boolean
+    env: Environment
   ): ParserReturn {
     if (tokens[index].type !== TokenType.Dot) {
       throw this.formatErrorMessage(tokens[index], "Expected '.'");
@@ -789,7 +783,6 @@ export default class Parser {
               tokens,
               index + 1,
               env,
-              isWithStatement,
               expr
             )
           );
@@ -842,8 +835,7 @@ Found possible functions:
     const { expr: rhs, index: nextIndex } = this.parseExpression(
       tokens,
       index,
-      env,
-      false
+      env
     );
     if (!rhs) {
       throw this.formatErrorMessage(tokens[index], "Expected expression");
@@ -904,8 +896,7 @@ ${exprToString(lhs)}
     expr: Expr,
     tokens: Token[],
     index: number,
-    env: Environment,
-    isWithStatement: boolean
+    env: Environment
   ): ParserReturn {
     if (tokens[index].type !== TokenType.LBracket) {
       throw this.formatErrorMessage(tokens[index], "Expected '['");
@@ -922,8 +913,7 @@ ${exprToString(lhs)}
       const { expr, index: nextIndex } = this.parseExpression(
         tokens,
         index,
-        env,
-        isWithStatement
+        env
       );
       if (!expr) {
         throw this.formatErrorMessage(token, "Expected expression");
@@ -1000,8 +990,7 @@ ${exprToString(lhs)}
   private parseAnonymouseFunction(
     tokens: Token[],
     index: number,
-    env: Environment,
-    isWithStatement: boolean
+    env: Environment
   ): ParserReturn {
     if (tokens[index].type !== TokenType.LParen) {
       throw this.formatErrorMessage(
@@ -1045,7 +1034,6 @@ ${exprToString(lhs)}
         tokens,
         nextIndex + 1,
         nextEnv,
-        isWithStatement,
         isNextTokenLCurlyBracket,
         !isNextTokenLCurlyBracket
       );
@@ -1106,8 +1094,7 @@ Returned:  ${typeToString(returnType)}`
   private parseParenExpr(
     tokens: Token[],
     index: number,
-    env: Environment,
-    isWithStatement: boolean
+    env: Environment
   ): ParserReturn {
     if (tokens[index].type !== TokenType.LParen) {
       throw this.formatErrorMessage(tokens[index], "Expected left paren");
@@ -1138,8 +1125,7 @@ Returned:  ${typeToString(returnType)}`
       const { expr, index: nextIndex } = this.parseAnonymouseFunction(
         tokens,
         index,
-        env,
-        isWithStatement
+        env
       );
       if (expr) {
         return { expr, index: nextIndex };
@@ -1152,12 +1138,7 @@ Returned:  ${typeToString(returnType)}`
       // This means we failed to parse it as anonymouse function
     }
 
-    const returnValue = this.parseExpression(
-      tokens,
-      index + 1,
-      env,
-      isWithStatement
-    );
+    const returnValue = this.parseExpression(tokens, index + 1, env);
     let expr = returnValue.expr;
     const nextIndex = returnValue.index;
     if (!expr) {
@@ -1187,7 +1168,6 @@ Returned:  ${typeToString(returnType)}`
     tokens: Token[],
     index: number,
     env: Environment,
-    isWithStatement: boolean,
     caller?: Expr
   ): {
     index: number;
@@ -1234,8 +1214,7 @@ Returned:  ${typeToString(returnType)}`
         const { expr, index: nextIndex } = this.parseAnonymouseFunction(
           tokens,
           index,
-          env,
-          false
+          env
         );
         if (expr) {
           functionArguments.push(expr);
@@ -1277,8 +1256,7 @@ Returned:  ${typeToString(returnType)}`
           const { expr, index: nextIndex } = this.parseAnonymouseFunction(
             newTokens,
             index,
-            env,
-            false
+            env
           );
           if (expr) {
             // FIXME: Convert block expression to anonymous function with 0 parameters
@@ -1316,7 +1294,7 @@ Returned:  ${typeToString(returnType)}`
             ) {
               const variableName = tokens[index].value;
               const { expr: defaultParameterValueExpr, index: nextIndex } =
-                this.parseExpression(tokens, index + 2, env, false);
+                this.parseExpression(tokens, index + 2, env);
               env = defaultParameterValueExpr.env;
 
               if (!defaultParameterValueExpr) {
@@ -1343,8 +1321,7 @@ Returned:  ${typeToString(returnType)}`
               const { expr, index: nextIndex } = this.parseExpression(
                 tokens,
                 index,
-                env,
-                false
+                env
               );
               env = expr.env;
 
@@ -1374,43 +1351,6 @@ Returned:  ${typeToString(returnType)}`
           parsedNormalArguments = true;
         }
       }
-    }
-
-    // Check if it's 'with' statement
-    if (isWithStatement) {
-      // Parse the rest of the tokens as anonymouse function
-      // add "(", ")", "=>", "{" to the tokens
-      // FIXME: Type arguments;
-      const newTokens: Token[] = [
-        ...tokens.slice(0, index),
-        {
-          type: TokenType.LParen,
-          value: "(",
-          position: tokens[index].position,
-        },
-        {
-          type: TokenType.RParen,
-          value: ")",
-          position: tokens[index].position,
-        },
-        {
-          type: TokenType.FatArrow,
-          value: "=>",
-          position: tokens[index].position,
-        },
-        {
-          type: TokenType.LCurlyBracket,
-          value: "{",
-          position: tokens[index].position,
-        },
-        ...tokens.slice(index),
-      ];
-      const diffSize = newTokens.length - tokens.length;
-      const { expr: lambdaExpr, index: nextNextIndex } =
-        this.parseAnonymouseFunction(newTokens, index, env, false);
-      index = nextNextIndex - diffSize - 1;
-      env = lambdaExpr.env;
-      functionArguments.push(lambdaExpr);
     }
 
     const {
@@ -1497,7 +1437,6 @@ Got:      <${functionTypeArgumentsInOrder
     tokens: Token[],
     index: number,
     env: Environment,
-    isWithStatement: boolean,
     caller?: Expr
   ): ParserReturn {
     const startIndex = index;
@@ -1507,14 +1446,7 @@ Got:      <${functionTypeArgumentsInOrder
       typeArguments,
       functionArguments,
       calleeTypeValue,
-    } = this.parseFunctionCallArguments(
-      callee,
-      tokens,
-      index,
-      env,
-      isWithStatement,
-      caller
-    );
+    } = this.parseFunctionCallArguments(callee, tokens, index, env, caller);
     index = nextIndex;
     env = nextEnv;
 
@@ -1536,8 +1468,7 @@ Got:      <${functionTypeArgumentsInOrder
     callee: Expr,
     tokens: Token[],
     index: number,
-    env: Environment,
-    isWithStatement: boolean
+    env: Environment
   ): ParserReturn {
     const startIndex = index;
     const calleeTypeValue = callee.typeValue;
@@ -1587,8 +1518,7 @@ Got:      <${functionTypeArgumentsInOrder
         const { expr, index: nextIndex } = this.parseExpression(
           tokens,
           index,
-          env,
-          isWithStatement
+          env
         );
         if (!expr) {
           throw this.formatErrorMessage(token, "Expected expression");
@@ -1684,8 +1614,7 @@ Got:      <${appliedTypeArguments
     const { expr: targetEnumExpr, index: nextIndex } = this.parseExpression(
       tokens,
       index,
-      env,
-      false
+      env
     );
     if (!targetEnumExpr) {
       throw this.formatErrorMessage(
@@ -1749,8 +1678,7 @@ Got:      <${appliedTypeArguments
   private parseIdentifierExpr(
     tokens: Token[],
     index: number,
-    env: Environment,
-    isWithStatement: boolean
+    env: Environment
   ): ParserReturn {
     const identifierTokenIndex = index;
     const identifier = tokens[index].value;
@@ -1918,8 +1846,7 @@ Found possible enums:
     if (
       tokens[index + 1]?.type === TokenType.LParen ||
       tokens[index + 1]?.type === TokenType.LCurlyBracket ||
-      tokens[index + 1]?.type === TokenType.LessThan ||
-      isWithStatement
+      tokens[index + 1]?.type === TokenType.LessThan
     ) {
       // Try all matchedFunctions to see if there is a match
       const parserReturns: ParserReturn[] = [];
@@ -1939,8 +1866,7 @@ Found possible enums:
               },
               tokens,
               index + 1,
-              env,
-              isWithStatement
+              env
             )
           );
           parsedFunctions.push(functionType);
@@ -2025,19 +1951,13 @@ Found possible functions:
   private parsePrimary(
     tokens: Token[],
     index: number,
-    env: Environment,
-    isWithStatement: boolean
+    env: Environment
   ): ParserReturn {
     const token = tokens[index];
     let returnValue: ParserReturn | null = null;
     switch (token.type) {
       case TokenType.Identifier: {
-        returnValue = this.parseIdentifierExpr(
-          tokens,
-          index,
-          env,
-          isWithStatement
-        );
+        returnValue = this.parseIdentifierExpr(tokens, index, env);
         break;
       }
       case TokenType.Integer:
@@ -2062,37 +1982,27 @@ Found possible functions:
         break;
       }
       case TokenType.LBracket: {
-        returnValue = this.parseSliceOrTupleExpr(
-          tokens,
-          index,
-          env,
-          isWithStatement
-        );
+        returnValue = this.parseSliceOrTupleExpr(tokens, index, env);
         break;
       }
       case TokenType.LParen: {
-        returnValue = this.parseParenExpr(tokens, index, env, isWithStatement);
+        returnValue = this.parseParenExpr(tokens, index, env);
         break;
       }
       case TokenType.LCurlyBracket: {
-        returnValue = this.parseCurlyBracketExpr(
-          tokens,
-          index,
-          env,
-          isWithStatement
-        );
+        returnValue = this.parseCurlyBracketExpr(tokens, index, env);
         break;
       }
       case TokenType.If: {
-        returnValue = this.parseIfExpr(tokens, index, env, isWithStatement);
+        returnValue = this.parseIfExpr(tokens, index, env);
         break;
       }
       case TokenType.Match: {
-        returnValue = this.parseMatchExpr(tokens, index, env, isWithStatement);
+        returnValue = this.parseMatchExpr(tokens, index, env);
         break;
       }
       case TokenType.Let: {
-        return this.parseLetAssignment(tokens, index, env, isWithStatement);
+        return this.parseLetAssignment(tokens, index, env);
       }
       case TokenType.Semicolon: {
         return {
@@ -2104,9 +2014,6 @@ Found possible functions:
           },
           index: index + 1,
         };
-      }
-      case TokenType.With: {
-        return this.parseWithExpr(tokens, index, env);
       }
       case TokenType.MutableReference:
       case TokenType.BitwiseAnd: {
@@ -2132,8 +2039,7 @@ Found possible functions:
       returnValue.expr,
       tokens,
       returnValue.index,
-      returnValue.expr.env,
-      isWithStatement
+      returnValue.expr.env
     );
   }
 
@@ -2141,8 +2047,7 @@ Found possible functions:
     primaryExpr: Expr,
     tokens: Token[],
     index: number,
-    env: Environment,
-    isWithStatement: boolean
+    env: Environment
   ): ParserReturn {
     const token = tokens[index];
     if (!token) {
@@ -2156,15 +2061,13 @@ Found possible functions:
         primaryExpr,
         tokens,
         index,
-        env,
-        isWithStatement
+        env
       );
       return this.parsePrimaryEnd(
         returnValue.expr,
         tokens,
         returnValue.index,
-        returnValue.expr.env,
-        isWithStatement
+        returnValue.expr.env
       );
     } else if (token.type === TokenType.LBracket) {
       // parseIndexAccessExpr
@@ -2172,15 +2075,13 @@ Found possible functions:
         primaryExpr,
         tokens,
         index,
-        env,
-        isWithStatement
+        env
       );
       return this.parsePrimaryEnd(
         returnValue.expr,
         tokens,
         returnValue.index,
-        returnValue.expr.env,
-        isWithStatement
+        returnValue.expr.env
       );
     } else if (
       primaryExpr.typeValue.type === "Function" &&
@@ -2191,15 +2092,13 @@ Found possible functions:
         primaryExpr,
         tokens,
         index,
-        env,
-        isWithStatement
+        env
       );
       return this.parsePrimaryEnd(
         returnValue.expr,
         tokens,
         returnValue.index,
-        returnValue.expr.env,
-        isWithStatement
+        returnValue.expr.env
       );
     } else if (
       primaryExpr.typeValue.type === "Enum" &&
@@ -2210,15 +2109,13 @@ Found possible functions:
         primaryExpr,
         tokens,
         index,
-        env,
-        isWithStatement
+        env
       );
       return this.parsePrimaryEnd(
         returnValue.expr,
         tokens,
         returnValue.index,
-        returnValue.expr.env,
-        isWithStatement
+        returnValue.expr.env
       );
     } else if (
       primaryExpr.typeValue.type === "Enum" &&
@@ -2235,8 +2132,7 @@ Found possible functions:
         returnValue.expr,
         tokens,
         returnValue.index,
-        returnValue.expr.env,
-        isWithStatement
+        returnValue.expr.env
       );
     } else {
       return {
@@ -2263,7 +2159,6 @@ Found possible functions:
       tokens,
       index,
       env,
-      false,
       isNextTokenLCurlyBracket,
       !isNextTokenLCurlyBracket
     );
@@ -2285,8 +2180,7 @@ Found possible functions:
     exprPrecedence: number,
     LHS: Expr,
     index: number,
-    env: Environment,
-    isWithStatement: boolean
+    env: Environment
   ): ParserReturn {
     // if it's binop, find its precedence
     while (true) {
@@ -2309,7 +2203,7 @@ Found possible functions:
         // eslint-disable-next-line prefer-const
         index: nextIndex,
         // eslint-disable-next-line prefer-const
-      } = this.parsePrimary(tokens, index, env, isWithStatement);
+      } = this.parsePrimary(tokens, index, env);
       env = RHS.env;
       if (!RHS) {
         return { expr: RHS, index: nextIndex };
@@ -2325,8 +2219,7 @@ Found possible functions:
           tokenPrecedence + 1,
           RHS,
           nextIndex,
-          env,
-          isWithStatement
+          env
         );
         if (!expr) {
           return { expr, index: nextNextIndex };
@@ -2434,7 +2327,6 @@ Found possible functions:
     tokens: Token[],
     index: number,
     env: Environment,
-    isWithStatement: boolean,
     requireLCurlyBracket = true,
     isSingleExpression = false
   ): { index: number; expr: BlockExpr } {
@@ -2467,8 +2359,7 @@ Found possible functions:
       const { expr, index: nextIndex } = this.parseExpression(
         tokens,
         index,
-        nextEnv,
-        isWithStatement
+        nextEnv
       );
 
       if (tokens[nextIndex].type === TokenType.Assign) {
@@ -2527,7 +2418,6 @@ Found possible functions:
     tokens: Token[],
     index: number,
     env: Environment,
-    isWithStatement: boolean,
     requireFunctionKeyword = true,
     isExported = false
   ): ParserReturn {
@@ -2615,8 +2505,7 @@ Found possible functions:
       const { index: nextIndex, expr } = this.parseBlockExpressions(
         tokens,
         index,
-        env,
-        isWithStatement
+        env
       );
       const functionReturnType = expr.typeValue;
       const exprs = expr.exprs;
@@ -2716,8 +2605,7 @@ Returned:  ${typeToString(functionReturnType)}`
   private parseIfExpr(
     tokens: Token[],
     index: number,
-    env: Environment,
-    isWithStatement: boolean
+    env: Environment
   ): ParserReturn {
     if (tokens[index].type !== TokenType.If) {
       throw this.formatErrorMessage(tokens[index], "Expected if");
@@ -2732,8 +2620,7 @@ Returned:  ${typeToString(functionReturnType)}`
       const { expr: conditionExpr, index: nextIndex } = this.parseExpression(
         tokens,
         index,
-        env,
-        isWithStatement
+        env
       );
       index = nextIndex;
 
@@ -2745,7 +2632,6 @@ Returned:  ${typeToString(functionReturnType)}`
           tokens,
           index,
           conditionExpr.env,
-          false,
           isNextTokenLCurlyBracket,
           !isNextTokenLCurlyBracket
         );
@@ -2772,7 +2658,6 @@ Returned:  ${typeToString(functionReturnType)}`
               tokens,
               index,
               conditionExpr.env,
-              false,
               isNextTokenLCurlyBracket,
               !isNextTokenLCurlyBracket
             );
@@ -2830,8 +2715,7 @@ Found:
   private parseMatchExpr(
     tokens: Token[],
     index: number,
-    env: Environment,
-    isWithStatement: boolean
+    env: Environment
   ): ParserReturn {
     if (tokens[index].type !== TokenType.Match) {
       throw this.formatErrorMessage(tokens[index], "Expected match");
@@ -2843,8 +2727,7 @@ Found:
     const { expr: matchedEnum, index: nextIndex } = this.parsePrimary(
       tokens,
       index,
-      env,
-      isWithStatement
+      env
     );
     index = nextIndex;
     if (matchedEnum.type !== AstType.Variable) {
@@ -2888,8 +2771,7 @@ Found:
         const { expr: caseExpr, index: nextIndex } = this.parsePrimary(
           tokens,
           index,
-          env,
-          isWithStatement
+          env
         );
         index = nextIndex;
         const caseExprType = caseExpr.typeValue;
@@ -2936,7 +2818,6 @@ ${typeToString(caseExprType)}
             tokens,
             index,
             newEnv,
-            false,
             isNextTokenLCurlyBracket,
             !isNextTokenLCurlyBracket
           );
@@ -2965,7 +2846,6 @@ ${typeToString(caseExprType)}
             tokens,
             index,
             env,
-            false,
             isNextTokenLCurlyBracket,
             !isNextTokenLCurlyBracket
           );
@@ -3106,7 +2986,6 @@ ${typeToString(caseReturnType)}
     tokens: Token[],
     index: number,
     env: Environment,
-    isWithStatement: boolean,
     isExported: boolean = false
   ): ParserReturn {
     if (tokens[index].type !== TokenType.Let) {
@@ -3126,7 +3005,6 @@ ${typeToString(caseReturnType)}
         tokens,
         index,
         env,
-        isWithStatement,
         isMutable
       );
     }
@@ -3171,8 +3049,7 @@ ${typeToString(caseReturnType)}
     const { expr: value, index: nextNextIndex } = this.parseExpression(
       tokens,
       index,
-      env,
-      isWithStatement
+      env
     );
     if (!value) {
       throw this.formatErrorMessage(
@@ -3303,7 +3180,6 @@ Got:      ${typeToString(variableType)}`
     tokens: Token[],
     index: number,
     env: Environment,
-    isWithStatement: boolean,
     isMutable: boolean
   ): ParserReturn {
     if (tokens[index].type !== TokenType.LCurlyBracket) {
@@ -3379,8 +3255,7 @@ Got:      ${typeToString(variableType)}`
     const { expr: value, index: nextIndex } = this.parseExpression(
       tokens,
       index,
-      env,
-      isWithStatement
+      env
     );
     index = nextIndex;
 
@@ -3547,122 +3422,6 @@ ${typeToString(value.typeValue)}`
       },
       index,
     };
-  }
-
-  private parseWithExpr(
-    tokens: Token[],
-    index: number,
-    env: Environment
-  ): ParserReturn {
-    if (tokens[index].type !== TokenType.With) {
-      throw this.formatErrorMessage(tokens[index], 'Expected "with"');
-    }
-    index = index + 1;
-
-    // Parse expr after `with`
-    const { expr: withExpr, index: nextIndex } = this.parseExpression(
-      tokens,
-      index,
-      env,
-      true
-    );
-    if (!withExpr) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        'Expected expression for "with"'
-      );
-    }
-    index = nextIndex;
-    env = withExpr.env;
-
-    // Check the type of `withExpr`
-    if (withExpr.type === AstType.CallFunction) {
-      return {
-        expr: withExpr,
-        index,
-      };
-    }
-
-    const typeValue = withExpr.typeValue;
-
-    switch (typeValue.type) {
-      /*case "Record": {
-        
-        // Convert to ConstAssignment
-        const constAssignmentExprs: Expr[] = [];
-        // Add record fields to env
-        for (const field of typeValue.properties) {
-          env = addEnvValueType(env, {
-            variableName: field.name,
-            type: field.type,
-            kind: "value",
-          });
-          constAssignmentExprs.push({
-            type: AstType.LetAssignment,
-            variableName: field.name,
-            variableType: field.type,
-            right: {
-              type: AstType.PropertyAccess,
-              expr: withExpr,
-              propertyName: field.name,
-              typeValue: field.type,
-              env,
-            },
-            typeValue: TypeValues.unit,
-            frameLevel: getEnvCurrentFrameLevel(env),
-            env,
-          });
-        }
-
-        // Parse the rest of the tokens
-        const { expr: blockExpr, index: nextIndex } =
-          this.parseBlockExpressions(tokens, index, env, false, false);
-
-        return {
-          expr: {
-            type: AstType.Block,
-            exprs: [...constAssignmentExprs, ...blockExpr.exprs],
-            env: blockExpr.env,
-            typeValue: blockExpr.typeValue,
-          },
-          index: nextIndex,
-        };
-      }
-      */
-      case "Class": {
-        // Take the typeclass functions out to env
-        for (const func of typeValue.functions) {
-          env = addEnvValueType(env, {
-            variableName: func.name,
-            type: func.func,
-            kind: "value",
-          });
-        }
-
-        // Parse the rest of the tokens
-        const { expr: blockExpr, index: nextIndex } =
-          this.parseBlockExpressions(tokens, index, env, false, false);
-
-        return {
-          expr: {
-            type: AstType.Block,
-            exprs: blockExpr.exprs,
-            env: blockExpr.env,
-            typeValue: blockExpr.typeValue,
-            token: tokens[index],
-          },
-          index: nextIndex,
-        };
-      }
-      default: {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `The "with" statement doesn't support the following type:\n\n${typeToString(
-            typeValue
-          )}\n`
-        );
-      }
-    }
   }
 
   private parseTypeAlias(
@@ -4610,12 +4369,7 @@ Got:      ${typeToString(matchedFunction.func)}`
     index = index + 1;
 
     const valueTokenIndex = index;
-    const { expr, index: nextIndex } = this.parsePrimary(
-      tokens,
-      index,
-      env,
-      false
-    );
+    const { expr, index: nextIndex } = this.parsePrimary(tokens, index, env);
     index = nextIndex;
     env = expr.env;
 
@@ -4739,12 +4493,7 @@ ${exprToString(expr)}`
     index = index + 1;
 
     const valueTokenIndex = index;
-    const { expr, index: nextIndex } = this.parsePrimary(
-      tokens,
-      index,
-      env,
-      false
-    );
+    const { expr, index: nextIndex } = this.parsePrimary(tokens, index, env);
     index = nextIndex;
     env = expr.env;
 
@@ -4846,7 +4595,6 @@ ${exprToString(expr)}`
           tokens,
           index,
           env,
-          false,
           true
         );
         index = nextIndex;
@@ -4859,7 +4607,6 @@ ${exprToString(expr)}`
           tokens,
           index,
           env,
-          false,
           true,
           true
         );
@@ -5134,26 +4881,13 @@ ${exprToString(expr)}`
   private parseExpression(
     tokens: Token[],
     index = 0,
-    env: Environment,
-    isWithStatement: boolean
+    env: Environment
   ): ParserReturn {
-    const { expr, index: nextIndex } = this.parsePrimary(
-      tokens,
-      index,
-      env,
-      isWithStatement
-    );
+    const { expr, index: nextIndex } = this.parsePrimary(tokens, index, env);
     if (!expr || expr.type === AstType.Ignore) {
       return { expr, index: nextIndex };
     } else {
-      return this.parseBinOpRHS(
-        tokens,
-        0,
-        expr,
-        nextIndex,
-        expr.env,
-        isWithStatement
-      );
+      return this.parseBinOpRHS(tokens, 0, expr, nextIndex, expr.env);
     }
   }
 

@@ -61,8 +61,6 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Slice](#slice)
   - [Error handling](#error-handling)
   - [Recoverable Errors with Result](#recoverable-errors-with-result)
-  - [`with` syntax](#with-syntax)
-    - [with `function`](#with-function)
   - [Pointer](#pointer)
   - [Type casting](#type-casting)
   - [Algebraic effects](#algebraic-effects)
@@ -1162,31 +1160,6 @@ function main() {
   }
 
   drop(greetingFileResult);
-}
-```
-
-## `with` syntax
-
-NOTE: This might be removed.
-
-### with `function`
-
-```typescript
-function test() {
-  with finally {
-    println("finally");
-  }
-  println("start");
-}
-
-// Translates to
-
-function test() {
-  finally(()=> {
-    println("finally");
-  }, ()=> {
-    println("start");
-  });
 }
 ```
 
