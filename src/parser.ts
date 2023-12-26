@@ -1027,6 +1027,7 @@ ${exprToString(lhs)}
         env,
         requireFunctionName: false,
         withFunctionBody: true,
+        isClosure: true,
       });
       if (!prototype) {
         throw new Error("Failed to parse prototype");
@@ -1038,11 +1039,15 @@ ${exprToString(lhs)}
       }
 
       // parse body
+      const isNextTokenLCurlyBracket =
+        tokens[nextIndex + 1].type === TokenType.LCurlyBracket;
       const { expr, index: nextNextIndex } = this.parseBlockExpressions(
         tokens,
         nextIndex + 1,
         nextEnv,
-        isWithStatement
+        isWithStatement,
+        isNextTokenLCurlyBracket,
+        !isNextTokenLCurlyBracket
       );
       const { exprs: body, typeValue: returnType, env: nextNextEnv } = expr;
       env = nextNextEnv;
@@ -1142,6 +1147,7 @@ Returned:  ${typeToString(returnType)}`
         throw new Error("Failed to parse as anonymouse function");
       }
     } catch (error) {
+      console.error(error);
       // Ignore the error
       // This means we failed to parse it as anonymouse function
     }
@@ -2370,12 +2376,14 @@ Found possible functions:
     env,
     requireFunctionName,
     withFunctionBody,
+    isClosure,
   }: {
     tokens: Token[];
     index: number;
     env: Environment;
     requireFunctionName: boolean;
     withFunctionBody: boolean;
+    isClosure: boolean;
   }): {
     prototype: FunctionPrototype | null;
     index: number;
@@ -2407,6 +2415,7 @@ Found possible functions:
       parseExpression: this.parseExpression.bind(this),
       withFunctionBody,
       functionName,
+      isClosure,
     });
 
     return {
@@ -2548,6 +2557,7 @@ Found possible functions:
       env,
       requireFunctionName: true,
       withFunctionBody: true,
+      isClosure: false,
     });
     env = nextEnv;
     if (!prototype) {
@@ -2668,6 +2678,7 @@ Returned:  ${typeToString(functionReturnType)}`
       env,
       requireFunctionName: true,
       withFunctionBody: true, // NOTE: We need to set it to `true` even though `extern` function has no function body
+      isClosure: false,
     });
     env = popEnvFrame(env);
     if (!prototype) {
@@ -4006,6 +4017,7 @@ class Show<T> {
         env,
         requireFunctionName: true,
         withFunctionBody: true, // NOTE: We need to set it to `true` even though `extern` function has no function body
+        isClosure: false,
       });
       index = nextIndex;
       env = nextEnv;
@@ -4251,6 +4263,7 @@ class Show<T> {
         env,
         requireFunctionName: true,
         withFunctionBody: true, // NOTE: We need to set it to `true` even though `extern` function has no function body
+        isClosure: false,
       });
       index = nextIndex;
       env = nextEnv;

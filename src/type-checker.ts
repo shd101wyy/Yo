@@ -2,9 +2,11 @@
 
 import {
   AstType,
+  BlockExpr,
   Expr,
   FunctionExpr,
   FunctionPrototype,
+  IfExpr,
   exprToString,
 } from "./ast";
 import {
@@ -212,6 +214,7 @@ export type TFunction = {
   parameterTypes: TParameterType[];
   returnType: Type;
 
+  isClosure: boolean;
   /**
    * Right now only ()=>{} is closure
    * function name(a: number) {} is not closure
@@ -541,7 +544,8 @@ export function synthesizeTypeFromTokens({
   if (
     tokens[index].value === "(" &&
     tokens[index + 1].value === ")" &&
-    tokens[index + 2].type !== TokenType.FatArrow
+    tokens[index + 2].type !== TokenType.FatArrow &&
+    tokens[index + 2].type !== TokenType.FunctionArrow
   ) {
     index = index + 1;
     returnValue = {
@@ -608,6 +612,7 @@ export function synthesizeTypeFromTokens({
         env,
         parseExpression,
         withFunctionBody: false,
+        isClosure: true,
       });
     } catch {
       // This means it's not a function type
@@ -1699,33 +1704,31 @@ export function applyTypeArgumentsToExpr(
       };
     }
     case AstType.If: {
-      return {
+      const newIfExpr: IfExpr = {
         ...expr,
-        condition: applyTypeArgumentsToExpr(
-          expr.condition,
-          typeArguments,
-          typeParameterToTypeArgumentMap
-        ),
-        then: expr.then.map((expr) =>
-          applyTypeArgumentsToExpr(
-            expr,
-            typeArguments,
-            typeParameterToTypeArgumentMap
-          )
-        ),
-        else: expr.else.map((expr) =>
-          applyTypeArgumentsToExpr(
-            expr,
-            typeArguments,
-            typeParameterToTypeArgumentMap
-          )
-        ),
+        cases: expr.cases.map(({ condition, body }) => {
+          return {
+            condition: condition
+              ? applyTypeArgumentsToExpr(
+                  condition,
+                  typeArguments,
+                  typeParameterToTypeArgumentMap
+                )
+              : undefined,
+            body: applyTypeArgumentsToExpr(
+              body,
+              typeArguments,
+              typeParameterToTypeArgumentMap
+            ) as BlockExpr,
+          };
+        }),
         typeValue: applyTypeArgumentsToType(
           expr.typeValue,
           typeArguments,
           typeParameterToTypeArgumentMap
         ),
       };
+      return newIfExpr;
     }
     case AstType.Ignore: {
       return expr;
@@ -2017,6 +2020,7 @@ export function synthesizeFunctionTypeFromTokens({
   parseExpression,
   withFunctionBody,
   functionName,
+  isClosure,
 }: {
   tokens: Token[];
   index: number;
@@ -2025,6 +2029,7 @@ export function synthesizeFunctionTypeFromTokens({
   parseExpression: ParseExpression;
   withFunctionBody: boolean;
   functionName?: string;
+  isClosure: boolean;
 }): { typeValue: TFunction; index: number; env: Environment } {
   // Type parameters
   let typeParameters: TTypeParameter[] = [];
@@ -2071,7 +2076,11 @@ export function synthesizeFunctionTypeFromTokens({
   env = nextEnv;
 
   if (!withFunctionBody) {
-    if (tokens[index].type === TokenType.FatArrow) {
+    if (
+      tokens[index].type === TokenType.FatArrow ||
+      tokens[index].type === TokenType.FunctionArrow
+    ) {
+      isClosure = tokens[index].type === TokenType.FatArrow;
       index = index + 1;
       const {
         typeValue: returnType,
@@ -2095,6 +2104,7 @@ export function synthesizeFunctionTypeFromTokens({
           typeParameters,
           regionParameters,
           returnType,
+          isClosure,
           freeVariables: undefined,
         },
         index,
@@ -2132,6 +2142,7 @@ export function synthesizeFunctionTypeFromTokens({
           typeParameters,
           regionParameters,
           returnType,
+          isClosure,
           freeVariables: undefined,
         },
         index,
@@ -2150,6 +2161,7 @@ export function synthesizeFunctionTypeFromTokens({
             type: "unknown",
             kind: "Free",
           },
+          isClosure,
           freeVariables: undefined,
         },
         index,
@@ -2544,7 +2556,7 @@ export function typeToString(
             (parameter.name ? `${parameter.name}: ` : "") +
             typeToString(parameter.type, { hideTypeParameterKind: true })
         )
-        .join(", ")})${type.freeVariables ? "=>" : "->"} ${typeToString(
+        .join(", ")})${type.isClosure ? "=>" : "->"} ${typeToString(
         type.returnType,
         {
           hideTypeParameterKind: true,
@@ -2751,6 +2763,7 @@ export function checkType(
       givenTypeType === "Function"
     ) {
       return (
+        expectedType.isClosure === givenType.isClosure &&
         expectedType.parameterTypes.length ===
           givenType.parameterTypes.length &&
         expectedType.parameterTypes.every((parameterType, i) =>
