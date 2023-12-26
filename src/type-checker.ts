@@ -218,7 +218,6 @@ export type TFunction = {
   /**
    * Right now only ()=>{} is closure
    * function name(a: number) {} is not closure
-   * if `freeVariables` is set to `undefined`, then it means it's not a closure
    */
   freeVariables?: ValueType[];
 };

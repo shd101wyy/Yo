@@ -1,0 +1,23 @@
+interface Greet[A] { 
+  // def helloWorld(): Int / {}
+  def sayHello(x: A): A 
+}
+
+// def test(): Int / { Greet[Int], Greet[Double] }
+def test() = { 
+  do sayHello(12)
+  do sayHello(12.3)
+  4
+}
+
+// def helloWorld(): Int / {}
+def helloWorld() =
+  try {
+    do sayHello(12)
+    do sayHello(12.3)
+    12
+  } with Greet[Int] {
+    def sayHello(x) = { println("Hello!"); resume(x) }
+  } with Greet[Double] {
+    def sayHello(x) = { println("World!"); resume(x) }
+  }

@@ -1168,6 +1168,8 @@ function main() {
 
 ## `with` syntax
 
+NOTE: This might be removed.
+
 ### with `function`
 
 ```typescript
@@ -1186,19 +1188,6 @@ function test() {
   }, ()=> {
     println("start");
   });
-}
-```
-
-### with effect handler
-
-```typescript
-function catchException() {
-  with handler Exception {
-    throw(error) {
-      println("Exception caught", error);
-    }
-  }
-  divide(1, 0);
 }
 ```
 
@@ -1294,14 +1283,12 @@ function add(x: i32, y: i32): i32 {
 
 Note: **Mo** only supports the **deep handlers**, that is a handler will handle all the effects in the scope, not just once.
 
-Use the `handler` keyword to define a handler:
-
 ```typescript
 effect Exception<T> {
   control raise(msg: String): T;
 }
 
-function safeDivide(x: i32, y: i32): {Exception} i32 {
+function safeDivide(x: i32, y: i32): {Exception<i32>} i32 {
   if y == 0 {
     raise("Cannot divide by 0");
   } else {
@@ -1310,12 +1297,13 @@ function safeDivide(x: i32, y: i32): {Exception} i32 {
 }
 
 function handle() {
-  with handler Exception {
+  try {
+    8 + safeDivide(1, 0) + 10 // 60
+  } with Exception<i32> {
     control raise(msg) {
       resume(42)
     }
   }
-  8 + safeDivide(1, 0) + 10 // 60
 }
 
 // or
@@ -1350,12 +1338,13 @@ function hello(): {Input} () {
 
 ```typescript
 function main() {
-  with handler Input {
-    read() {
+  try {
+    hello(); // Hello Alice
+  } with Input {
+    control read() {
       resume("Alice")
     }
   }
-  hello(); // Hello Alice
 }
 ```
 
@@ -1363,13 +1352,14 @@ function main() {
 
 ```typescript
 function main() {
-  with handler Input {
-    read() {
+  try {
+    hello(); // Error
+    println("Hello, world!"); // This line won't be executed.
+  } with Input {
+    control read() {
       abort("Error")
     }
   }
-  hello(); // Error
-  println("Hello, world!"); // This line won't be executed.
 }
 ```
 
@@ -1414,14 +1404,15 @@ effect GiveInt {
   giveInt(x: i32): i32
 }
 
-function handleGiveInt() {
-  with handler GiveInt {
+function handleGiveInt(): i32 {
+  try {
+    let x = giveInt(1);
+    println(x); // 2
+  } with GiveInt {
     giveInt(x) {
       x + 1
     }
   }
-  let x = giveInt(1);
-  println(x); // 2
 }
 ```
 
@@ -1505,6 +1496,8 @@ import { Option{*} } from "./test.mo"; // Unwrap all variants from Option enum f
 
 // All exported instances are implicitly imported.
 import { id } from "./test.mo"; // Import `id` function from Id<i32> instance from test.mo
+import { Id{id} } // Unwrap `id` function from Id<i32> instance from test.mo
+import { Id{*} } // Unwrap all functions from Id<i32> instance from test.mo
 ```
 
 `mo.json` and `mo.lock`
