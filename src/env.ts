@@ -57,6 +57,7 @@ export type Environment = {
   functionDeclarationFrameLevel: number;
   freeVariables: ValueType[];
   frames: Frame[];
+  modulePath: string;
 };
 
 export function copyEnvironment(
@@ -69,6 +70,7 @@ export function copyEnvironment(
       functionDeclarationFrameLevel ?? env.functionDeclarationFrameLevel,
     frames: [...env.frames],
     freeVariables: [...freeVariables],
+    modulePath: env.modulePath,
   };
 }
 
@@ -83,6 +85,7 @@ export function pushEnvFrame(
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
     freeVariables: env.freeVariables,
     frames: [...env.frames, frame],
+    modulePath: env.modulePath,
   };
 }
 
@@ -91,6 +94,7 @@ export function popEnvFrame(env: Environment): Environment {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
     freeVariables: env.freeVariables,
     frames: env.frames.slice(0, -1),
+    modulePath: env.modulePath,
   };
 }
 
@@ -108,6 +112,7 @@ export function addEnvValueType(
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
     freeVariables: env.freeVariables,
     frames: newFrames,
+    modulePath: env.modulePath,
   };
 }
 
@@ -115,7 +120,7 @@ export function updateExistingValueType(
   env: Environment,
   valueType: ValueType,
   newValueType: ValueType
-) {
+): Environment {
   const frames = env.frames.map((frame) => {
     const values = frame.values.map((value) =>
       value === valueType ? newValueType : value
@@ -126,14 +131,19 @@ export function updateExistingValueType(
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
     freeVariables: env.freeVariables,
     frames,
+    modulePath: env.modulePath,
   };
 }
 
-export function addEnvFreeVariable(env: Environment, valueType: ValueType) {
+export function addEnvFreeVariable(
+  env: Environment,
+  valueType: ValueType
+): Environment {
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
     freeVariables: Array.from(new Set([...env.freeVariables, valueType])),
     frames: env.frames,
+    modulePath: env.modulePath,
   };
 }
 
@@ -161,4 +171,18 @@ export function getEnvCurrentFrameLevel(env: Environment): number {
 
 export function getEnvCurrentRegionId(env: Environment): string {
   return env.frames[env.frames.length - 1].regionId;
+}
+
+export function createNewEnv(modulePath: string): Environment {
+  return {
+    functionDeclarationFrameLevel: -1,
+    frames: [
+      {
+        regionId: getNewRegionId(),
+        values: [],
+      },
+    ],
+    freeVariables: [],
+    modulePath,
+  };
 }

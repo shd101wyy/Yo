@@ -10,25 +10,33 @@ export class CodeGenerator {
 
   constructor() {}
 
+  /**
+   * `modulePath` is the path of the module with protocol. For example:
+   * - file:///home/username/project/src/main.mo
+   * - https://github.com/username/project
+   * - mo://std
+   * @param modulePath
+   * @returns
+   */
   public loadModule(
-    filePath: string,
+    modulePath: string,
     {
       printLexer,
       printParser,
     }: { printLexer?: boolean; printParser?: boolean } = {}
   ): TModule {
-    let module = this.modules.get(filePath);
+    let module = this.modules.get(modulePath);
     if (module) {
       return module;
     }
-    console.log(`= Loading module ${filePath}`);
-    const parser = new Parser(filePath, this.loadModule.bind(this), {
+    console.log(`= Loading module ${modulePath}`);
+    const parser = new Parser(modulePath, this.loadModule.bind(this), {
       printLexer,
       printParser,
     });
     module = parser.generateModule();
-    console.log(`= Loaded module ${filePath}`);
-    this.modules.set(filePath, module);
+    console.log(`= Loaded module ${modulePath}`);
+    this.modules.set(modulePath, module);
     return module;
   }
 }

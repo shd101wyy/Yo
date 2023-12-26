@@ -27,10 +27,10 @@ import {
   addEnvFreeVariable,
   addEnvValueType,
   copyEnvironment,
+  createNewEnv,
   getEnvCurrentFrameLevel,
   getEnvCurrentRegionId,
   getEnvValueTypesByVariableName,
-  getNewRegionId,
   popEnvFrame,
   pushEnvFrame,
   updateExistingValueType,
@@ -73,29 +73,29 @@ import {
 } from "./type-checker";
 
 export default class Parser {
-  private filePath: string;
+  private modulePath: string;
   private inputString: string;
   private tokens: Token[];
   private ast: Expr[];
   private env: Environment;
-  private loadModule: (filePath: string) => TModule;
+  private loadModule: (modulePath: string) => TModule;
 
   constructor(
-    filePath: string,
-    loadModule: (filePath: string) => TModule,
+    modulePath: string,
+    loadModule: (modulePath: string) => TModule,
     { printLexer, printParser }: { printLexer?: boolean; printParser?: boolean }
   ) {
-    this.filePath = filePath;
+    this.modulePath = modulePath;
 
-    if (!this.filePath.match(/^file:\/\//)) {
+    if (!this.modulePath.match(/^file:\/\//)) {
       throw new Error(
-        `Invalid file protocol: ${this.filePath}. Only file:// is supported for now.  `
+        `Invalid file protocol: ${this.modulePath}. Only file:// is supported for now.  `
       );
     }
 
     this.loadModule = loadModule;
     this.inputString = fs.readFileSync(
-      filePath.replace(/^file:\/\//, ""), // NOTE: We only support local file for now
+      modulePath.replace(/^file:\/\//, ""), // NOTE: We only support local file for now
       "utf-8"
     );
     this.tokens = tokenize(this.inputString);
@@ -5039,7 +5039,7 @@ ${exprToString(expr)}`
       let moduleAbsolutePath =
         "file://" +
         path.resolve(
-          path.dirname(this.filePath.replace(/^file:\/\//, "")),
+          path.dirname(this.modulePath.replace(/^file:\/\//, "")),
           modulePath
         );
       const extname = path.extname(moduleAbsolutePath);
@@ -5157,21 +5157,10 @@ ${exprToString(expr)}`
     }
   }
 
-  private parse(
-    tokens: Token[],
-    env: Environment = {
-      functionDeclarationFrameLevel: -1,
-      frames: [
-        {
-          regionId: getNewRegionId(),
-          values: [],
-        },
-      ],
-      freeVariables: [],
-    }
-  ): { ast: Expr[]; env: Environment } {
+  private parse(tokens: Token[]): { ast: Expr[]; env: Environment } {
     let index = 0;
     const exprs: Expr[] = [];
+    let env = createNewEnv(this.modulePath);
     while (true) {
       const token = tokens[index];
       if (!token) {
@@ -5319,7 +5308,7 @@ ${exprToString(expr)}`
       type: "Module",
       ast: this.ast,
       env: this.env,
-      moduleAbsolutePath: this.filePath,
+      modulePath: this.modulePath,
     };
   }
 }

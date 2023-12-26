@@ -310,7 +310,13 @@ export type TExternType = {
 
 export type TModule = {
   type: "Module";
-  moduleAbsolutePath: string;
+  /**
+   * `modulePath` is the path of the module with protocol. For example:
+   * - file:///home/username/project/src/main.mo
+   * - https://github.com/username/project
+   * - mo://std
+   */
+  modulePath: string;
   ast: Expr[];
   env: Environment;
 };
