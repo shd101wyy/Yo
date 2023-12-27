@@ -3,7 +3,7 @@ export enum Option<T> {
   Some(value: T),
 }
 
-function test() {
+let test = ()-> {
   let x = Some(12);
-  x
+  x;
 }

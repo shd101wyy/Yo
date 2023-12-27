@@ -4,7 +4,7 @@ export class Id<T: Free> {
   }
 }
 
-function main() {
+let main = ()-> {
   let x = id(12);
-  x
+  x;
 }

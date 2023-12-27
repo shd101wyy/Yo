@@ -10,8 +10,8 @@ import {
   BlockExpr,
   Destructuring,
   Expr,
+  ExternVariable,
   FunctionExpr,
-  FunctionPrototype,
   IfCase,
   LetAssignmentExpr,
   MatchCase,
@@ -987,102 +987,71 @@ ${exprToString(lhs)}
     };
   }
 
-  private parseAnonymouseFunction(
+  private parseAnonymousFunction(
     tokens: Token[],
     index: number,
     env: Environment
   ): ParserReturn {
-    if (tokens[index].type !== TokenType.LParen) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "Expected '(' for anonymous function"
-      );
-    }
-    const leftParenTokenIndex = index;
-
+    const startIndex = index;
     const currentFrameLevel = getEnvCurrentFrameLevel(env);
-    // parse prototype
+    // parse function
     const oldEnv = env;
     env = copyEnvironment(env, currentFrameLevel, []);
     env = pushEnvFrame(env);
-    try {
-      const {
-        prototype,
-        index: nextIndex,
-        env: nextEnv,
-      } = this.parsePrototype({
-        tokens,
-        index,
-        env,
-        requireFunctionName: false,
-        withFunctionBody: true,
-        isClosure: true,
-      });
-      if (!prototype) {
-        throw new Error("Failed to parse prototype");
-      }
 
-      // check if current token is `=>`
-      if (tokens[nextIndex].type !== TokenType.FatArrow) {
-        throw new Error("Expected `=>` for anonymous function");
-      }
+    const {
+      typeValue: functionType,
+      env: nextEnv,
+      index: nextIndex,
+    } = synthesizeFunctionTypeFromTokens({
+      tokens,
+      index,
+      inputString: this.inputString,
+      env,
+      parseExpression: this.parseExpression.bind(this),
+      withFunctionBody: true,
+    });
+    env = nextEnv;
+    index = nextIndex;
 
-      // parse body
-      const isNextTokenLCurlyBracket =
-        tokens[nextIndex + 1].type === TokenType.LCurlyBracket;
-      const { expr, index: nextNextIndex } = this.parseBlockExpressions(
-        tokens,
-        nextIndex + 1,
-        nextEnv,
-        isNextTokenLCurlyBracket,
-        !isNextTokenLCurlyBracket
+    // Parse body
+    const { expr: body, index: nextNextIndex } = this.parseBlockExpressions(
+      tokens,
+      index,
+      env,
+      true
+    );
+    env = body.env;
+    index = nextNextIndex;
+
+    // Check function body return type matches
+    // the function type return type
+    if (!checkType(functionType.returnType, body.typeValue, env)) {
+      throw this.formatErrorMessage(
+        body.token,
+        `Mismatched return type:
+Prototype: ${typeToString(functionType.returnType)}
+Returned : ${typeToString(body.typeValue)}
+`
       );
-      const { exprs: body, typeValue: returnType, env: nextNextEnv } = expr;
-      env = nextNextEnv;
+    }
+    functionType.freeVariables = env.freeVariables;
 
-      // Check function body return type matches
-      // prototype.returnType
-      if (prototype.typeValue.returnType.type === "unknown") {
-        prototype.typeValue.returnType = returnType;
-      }
-
-      if (
-        !checkType(returnType, prototype.typeValue.returnType, env) &&
-        !checkType(prototype.typeValue.returnType, returnType, env)
-      ) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `(1) Mismatched return type:
-Prototype: ${typeToString(prototype.typeValue.returnType)}
-Returned:  ${typeToString(returnType)}`
-        );
-      }
-
-      prototype.typeValue.freeVariables = env.freeVariables;
-
-      const functionExpr: FunctionExpr = {
+    return {
+      index,
+      expr: {
         type: AstType.Function,
-        prototype,
         body,
-        frameLevel: currentFrameLevel,
-        freeVariables: env.freeVariables, // FIXME: Implement freeVariables
-        typeValue: prototype.typeValue,
         env: copyEnvironment(
           popEnvFrame(env),
           oldEnv.functionDeclarationFrameLevel,
           oldEnv.freeVariables
         ),
-        token: tokens[leftParenTokenIndex],
-      };
-      env = popEnvFrame(env);
-      return {
-        expr: functionExpr,
-        index: nextNextIndex,
-      };
-    } catch (error) {
-      env = popEnvFrame(env);
-      throw error;
-    }
+        frameLevel: currentFrameLevel,
+        token: tokens[startIndex],
+        typeValue: functionType,
+      },
+    };
   }
 
   /**
@@ -1099,9 +1068,30 @@ Returned:  ${typeToString(returnType)}`
     if (tokens[index].type !== TokenType.LParen) {
       throw this.formatErrorMessage(tokens[index], "Expected left paren");
     }
+
+    let index_ = index + 1;
+    let rParenIndex = -1;
+    let parenCount = 1;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      if (!tokens[index_]) {
+        break;
+      } else if (tokens[index_].type === TokenType.LParen) {
+        parenCount = parenCount + 1;
+      } else if (tokens[index_].type === TokenType.RParen) {
+        parenCount = parenCount - 1;
+      }
+      if (parenCount === 0) {
+        rParenIndex = index_;
+        break;
+      }
+      index_ = index_ + 1;
+    }
+
     if (
       tokens[index + 1]?.type === TokenType.RParen &&
-      tokens[index + 2]?.type !== TokenType.FatArrow
+      tokens[index + 2]?.type !== TokenType.FatArrow &&
+      tokens[index + 2]?.type !== TokenType.FunctionArrow
     ) {
       // unit type
       return {
@@ -1120,9 +1110,13 @@ Returned:  ${typeToString(returnType)}`
       };
     }
 
-    // Try parse as anonymouse function
-    try {
-      const { expr, index: nextIndex } = this.parseAnonymouseFunction(
+    if (
+      // Anonymous function
+      rParenIndex > 0 &&
+      (tokens[rParenIndex + 1].type === TokenType.FatArrow ||
+        tokens[rParenIndex + 1].type === TokenType.FunctionArrow)
+    ) {
+      const { expr, index: nextIndex } = this.parseAnonymousFunction(
         tokens,
         index,
         env
@@ -1132,35 +1126,31 @@ Returned:  ${typeToString(returnType)}`
       } else {
         throw new Error("Failed to parse as anonymouse function");
       }
-    } catch (error) {
-      console.error(error);
-      // Ignore the error
-      // This means we failed to parse it as anonymouse function
-    }
+    } else {
+      const returnValue = this.parseExpression(tokens, index + 1, env);
+      let expr = returnValue.expr;
+      const nextIndex = returnValue.index;
+      if (!expr) {
+        return { expr, index: nextIndex };
+      }
+      index = nextIndex;
 
-    const returnValue = this.parseExpression(tokens, index + 1, env);
-    let expr = returnValue.expr;
-    const nextIndex = returnValue.index;
-    if (!expr) {
-      return { expr, index: nextIndex };
-    }
-    index = nextIndex;
+      if (tokens[index].type === TokenType.Assign) {
+        const { expr: rhs, index: nextNextIndex } = this.parseAssignmentExpr(
+          expr,
+          tokens,
+          index,
+          expr.env
+        );
+        expr = rhs;
+        index = nextNextIndex;
+      }
 
-    if (tokens[index].type === TokenType.Assign) {
-      const { expr: rhs, index: nextNextIndex } = this.parseAssignmentExpr(
-        expr,
-        tokens,
-        index,
-        expr.env
-      );
-      expr = rhs;
-      index = nextNextIndex;
+      if (tokens[index].type !== TokenType.RParen) {
+        throw this.formatErrorMessage(tokens[index], "Expected right paren");
+      }
+      return { expr, index: index + 1 };
     }
-
-    if (tokens[index].type !== TokenType.RParen) {
-      throw this.formatErrorMessage(tokens[index], "Expected right paren");
-    }
-    return { expr, index: index + 1 };
   }
 
   private parseFunctionCallArguments(
@@ -1211,7 +1201,7 @@ Returned:  ${typeToString(returnType)}`
     while (true) {
       // Try parsing as anonymous function
       try {
-        const { expr, index: nextIndex } = this.parseAnonymouseFunction(
+        const { expr, index: nextIndex } = this.parseAnonymousFunction(
           tokens,
           index,
           env
@@ -1253,7 +1243,7 @@ Returned:  ${typeToString(returnType)}`
             ...tokens.slice(index),
           ];
           const diffSize = newTokens.length - tokens.length;
-          const { expr, index: nextIndex } = this.parseAnonymouseFunction(
+          const { expr, index: nextIndex } = this.parseAnonymousFunction(
             newTokens,
             index,
             env
@@ -2263,66 +2253,6 @@ Found possible functions:
     }
   }
 
-  private parsePrototype({
-    tokens,
-    index,
-    env,
-    requireFunctionName,
-    withFunctionBody,
-    isClosure,
-  }: {
-    tokens: Token[];
-    index: number;
-    env: Environment;
-    requireFunctionName: boolean;
-    withFunctionBody: boolean;
-    isClosure: boolean;
-  }): {
-    prototype: FunctionPrototype | null;
-    index: number;
-    env: Environment;
-  } {
-    const startIndex = index;
-    let functionName: string | undefined = undefined;
-    if (requireFunctionName) {
-      if (tokens[index].type !== TokenType.Identifier) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Expected function name in prototype"
-        );
-      } else {
-        functionName = tokens[index].value;
-        index = index + 1;
-      }
-    }
-
-    const {
-      index: nextIndex,
-      typeValue: functionType,
-      env: nextEnv,
-    } = synthesizeFunctionTypeFromTokens({
-      tokens,
-      index,
-      inputString: this.inputString,
-      env,
-      parseExpression: this.parseExpression.bind(this),
-      withFunctionBody,
-      functionName,
-      isClosure,
-    });
-
-    return {
-      prototype: {
-        type: AstType.FunctionPrototype,
-        functionName,
-        typeValue: functionType,
-        token: tokens[startIndex],
-      },
-      index: nextIndex,
-      env: nextEnv,
-    };
-  }
-
   private parseBlockExpressions(
     tokens: Token[],
     index: number,
@@ -2414,140 +2344,6 @@ Found possible functions:
     };
   }
 
-  private parseFunction(
-    tokens: Token[],
-    index: number,
-    env: Environment,
-    requireFunctionKeyword = true,
-    isExported = false
-  ): ParserReturn {
-    const functionTokenIndex = index;
-    if (requireFunctionKeyword) {
-      if (tokens[index].type !== TokenType.Function) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Expected function, but got ${tokens[index].type}`
-        );
-      } else {
-        index = index + 1;
-      }
-    }
-
-    const currentFrameLevel = getEnvCurrentFrameLevel(env);
-    const oldEnv = env;
-    env = copyEnvironment(env, currentFrameLevel, []);
-    env = pushEnvFrame(env);
-    const {
-      prototype,
-      index: nextIndex,
-      env: nextEnv,
-    } = this.parsePrototype({
-      tokens,
-      index,
-      env,
-      requireFunctionName: true,
-      withFunctionBody: true,
-      isClosure: false,
-    });
-    env = nextEnv;
-    if (!prototype) {
-      env = popEnvFrame(env);
-      return {
-        expr: {
-          type: AstType.Ignore,
-          typeValue: TypeValues.unit,
-          env,
-          token: tokens[index],
-        },
-        index: nextIndex,
-      };
-    } else {
-      index = nextIndex;
-
-      /*
-      // Check allow function overloading
-      const matchedOverloadingFunctions = getMatchedOverloadingFunction(
-        prototype,
-        env
-      );
-      if (matchedOverloadingFunctions.length > 0) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Function overloading is not allowed.
-Found possible functions:
-- ${matchedOverloadingFunctions
-            .map((func) => `${func.variableName}: ${typeToString(func.type)}`)
-            .join("\n- ")}
-`
-        );
-      }
-      */
-
-      env = addEnvValueType(
-        env,
-        {
-          variableName: prototype.functionName!,
-          type: prototype.typeValue,
-          kind: "value",
-          isExported,
-        },
-        -1
-      );
-    }
-
-    // Check function body
-    if (tokens[index].type !== TokenType.LCurlyBracket) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "Expected '{' for function body"
-      );
-    } else {
-      const { index: nextIndex, expr } = this.parseBlockExpressions(
-        tokens,
-        index,
-        env
-      );
-      const functionReturnType = expr.typeValue;
-      const exprs = expr.exprs;
-      env = expr.env;
-
-      // Check function body return type matches
-      // prototype.returnType
-      if (prototype.typeValue.returnType.type === "unknown") {
-        prototype.typeValue.returnType = functionReturnType;
-      }
-
-      if (!checkType(prototype.typeValue.returnType, functionReturnType, env)) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `(2) Mismatched return type: 
-Prototype: ${typeToString(prototype.typeValue.returnType)}
-Returned:  ${typeToString(functionReturnType)}`
-        );
-      }
-
-      const functionExpr: FunctionExpr = {
-        type: AstType.Function,
-        prototype,
-        typeValue: prototype.typeValue,
-        env: copyEnvironment(
-          popEnvFrame(env),
-          oldEnv.functionDeclarationFrameLevel,
-          oldEnv.freeVariables
-        ),
-        body: exprs,
-        frameLevel: currentFrameLevel,
-        freeVariables: env.freeVariables,
-        token: tokens[functionTokenIndex],
-      };
-      env = popEnvFrame(env);
-      return {
-        expr: functionExpr,
-        index: nextIndex,
-      };
-    }
-  }
-
   private parseExtern(
     tokens: Token[],
     index: number,
@@ -2560,41 +2356,93 @@ Returned:  ${typeToString(functionReturnType)}`
     const externTokenIndex = index;
     index = index + 1;
 
-    env = pushEnvFrame(env);
-    const { prototype, index: nextIndex } = this.parsePrototype({
-      tokens,
-      index,
-      env,
-      requireFunctionName: true,
-      withFunctionBody: true, // NOTE: We need to set it to `true` even though `extern` function has no function body
-      isClosure: false,
-    });
-    env = popEnvFrame(env);
-    if (!prototype) {
-      return {
-        expr: {
-          type: AstType.Ignore,
-          typeValue: TypeValues.unit,
-          env,
-          token: tokens[index],
-        },
+    // TODO: Specify the language, like "C" or "JavaScript"
+    if (
+      tokens[index].type === TokenType.String &&
+      tokens[index].value.match(/c/i)
+    ) {
+      index = index + 1;
+    }
+
+    const variables: ExternVariable[] = [];
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for extern block"
+      );
+    }
+    index = index + 1;
+    while (true) {
+      if (!tokens[index]) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected '}' for extern block"
+        );
+      }
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+
+      if (tokens[index].type !== TokenType.Identifier) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected identifier for extern variable"
+        );
+      }
+      const variableName = tokens[index].value;
+      index = index + 1;
+
+      if (tokens[index].type !== TokenType.Colon) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected ':' for extern variable type"
+        );
+      }
+      index = index + 1;
+
+      const {
+        typeValue,
         index: nextIndex,
-      };
-    } else {
+        env: nextEnv,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index,
+        env,
+        inputString: this.inputString,
+        parseExpression: this.parseExpression.bind(this),
+      });
       index = nextIndex;
+      env = nextEnv;
+
+      variables.push({
+        name: variableName,
+        typeValue,
+      });
+
+      // Add variable to env
       env = addEnvValueType(env, {
-        variableName: prototype.functionName!,
-        type: prototype.typeValue,
+        variableName,
+        type: typeValue,
+        isMutable: false,
         kind: "value",
         isExported,
       });
+
+      if (
+        tokens[index].type === TokenType.Semicolon ||
+        tokens[index].type === TokenType.Comma
+      ) {
+        index = index + 1;
+      }
     }
 
     return {
       expr: {
         type: AstType.Extern,
-        prototype,
-        typeValue: prototype.typeValue,
+        language: "C",
+        variables,
+        typeValue: TypeValues.unit,
         env,
         token: tokens[externTokenIndex],
       },
@@ -3683,53 +3531,9 @@ ${typeToString(nextTypeValue)}`
       env = nextEnv;
     }
 
-    // NOTE: `extends` doesn't work for typeclass.
-    // Should use `with` instead.
+    // QUESTION: Does `extends` work for typeclass?
+    // Should we use `with` instead?
     const functions: TClassFunction[] = [];
-    /*
-    // extends other class
-    const interfaceTypes: TClass[] = [];
-    if (tokens[index].type === TokenType.Extends) {
-      index = index + 1;
-
-      while (true) {
-        const {
-          env: nextEnv,
-          index: nextIndex,
-          typeValue: typeclassType,
-        } = synthesizeTypeFromTokens({
-          tokens,
-          index,
-          inputString: this.inputString,
-          env,
-          parseExpression: this.parseExpression.bind(this),
-        });
-        if (typeclassType.type !== "Class") {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Expected class type, but got " + typeToString(typeclassType)
-          );
-        }
-        interfaceTypes.push(typeclassType);
-        index = nextIndex;
-        env = nextEnv;
-
-        if (tokens[index]?.type === TokenType.Comma) {
-          index = index + 1;
-          continue;
-        } else {
-          break;
-        }
-      }
-    }
-    /// Add functions from extended typeclasses
-    for (const typeclassType of interfaceTypes) {
-      for (const func of typeclassType.functions) {
-        functions.push(func);
-      }
-    }
-    */
-
     // Parse class body
     if (tokens[index].type !== TokenType.LCurlyBracket) {
       throw this.formatErrorMessage(
@@ -3748,45 +3552,40 @@ ${typeToString(nextTypeValue)}`
         continue;
       }
 
-      // NOTE: We don't allow function declaration like `id: (...)=> ...` format in class
       if (
-        tokens[index].type === TokenType.Identifier &&
-        tokens[index + 1]?.type === TokenType.Colon
+        tokens[index].type !== TokenType.Identifier &&
+        tokens[index + 1]?.type !== TokenType.Colon
       ) {
         throw this.formatErrorMessage(
           tokens[index],
           `Please define functions in "class" like below:
 
 class Show<T> {
-  show(x: T): string
+  show: (x: T)-> string;
 }
-`
+          `
         );
       }
 
-      // Parse function prototype
-      const startIndex = index;
+      const functionName = tokens[index].value;
+
+      // Parse function type
+      const functionTypeTokenIndex = index + 2;
       const {
-        prototype,
-        index: nextIndex,
         env: nextEnv,
-      } = this.parsePrototype({
+        index: nextIndex,
+        typeValue: functionType,
+      } = synthesizeFunctionTypeFromTokens({
         tokens,
-        index,
+        index: index + 2,
         env,
-        requireFunctionName: true,
-        withFunctionBody: true, // NOTE: We need to set it to `true` even though `extern` function has no function body
-        isClosure: false,
+        inputString: this.inputString,
+        parseExpression: this.parseExpression.bind(this),
+        withFunctionBody: false,
       });
       index = nextIndex;
       env = nextEnv;
-      if (!prototype) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Expected function prototype"
-        );
-      }
-      const functionType = prototype.typeValue;
+
       if (functionType.typeParameters.length > 0) {
         throw this.formatErrorMessage(
           tokens[index],
@@ -3800,26 +3599,19 @@ ${typeToString(functionType)}
       functionType.typeParameters = typeParameters;
       functionType.regionParameters = regionParameters;
 
-      // Check if the function has a body
       let functionExpr: FunctionExpr | undefined = undefined;
       if (tokens[index].type === TokenType.LCurlyBracket) {
-        const { expr: functionExpr_, index: nextNextIndex } =
-          this.parseFunction(tokens, startIndex, env, false, false);
-        if (!functionExpr_ || functionExpr_.type !== AstType.Function) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Expected function body"
-          );
-        }
-        index = nextNextIndex;
-        env = functionExpr_.env;
-        functionExpr = functionExpr_;
+        // There is a function body
+        const { expr: functionExpr_, index: nextIndex } =
+          this.parseAnonymousFunction(tokens, functionTypeTokenIndex, env);
+        index = nextIndex;
+        functionExpr = functionExpr_ as FunctionExpr;
         functionExpr.typeValue = functionType;
       }
 
       // functionType.typeParameters = typeParameters; // NOTE: This is wrong
       functions.push({
-        name: functionType.functionName!,
+        name: functionName,
         func: functionType,
         functionExpr,
       });
@@ -3994,48 +3786,30 @@ ${typeToString(functionType)}
         continue;
       }
 
-      // NOTE: We don't allow function declaration like `id: (...)=> ...` format in typeclass
       if (
-        tokens[index].type === TokenType.Identifier &&
-        tokens[index + 1]?.type === TokenType.Colon
+        tokens[index].type !== TokenType.Identifier &&
+        tokens[index + 1]?.type !== TokenType.Colon
       ) {
         throw this.formatErrorMessage(
           tokens[index],
           `Please define functions in "class" like below:
 
 class Show<T> {
-  show(x: T): string
+  show: (x: T)-> string;
 }
-`
+          `
         );
       }
-
-      // Parse function prototype
-      const startIndex = index;
-      const {
-        prototype,
-        index: nextIndex,
-        env: nextEnv,
-      } = this.parsePrototype({
-        tokens,
-        index,
-        env,
-        requireFunctionName: true,
-        withFunctionBody: true, // NOTE: We need to set it to `true` even though `extern` function has no function body
-        isClosure: false,
-      });
+      const functionName = tokens[index].value;
+      const { expr: functionExpr_, index: nextIndex } =
+        this.parseAnonymousFunction(tokens, index + 2, env);
       index = nextIndex;
-      env = nextEnv;
-      if (!prototype) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Expected function prototype"
-        );
-      }
-      const functionType = prototype.typeValue;
+      const functionExpr = functionExpr_ as FunctionExpr;
+      const functionType = functionExpr.typeValue;
+
       if (functionType.typeParameters.length > 0) {
         throw this.formatErrorMessage(
-          tokens[index],
+          functionExpr.token,
           `Type parameters are not allowed in class functions as it uses the type parameters defined in the class itself:
 
 ${typeToString(functionType)}
@@ -4043,25 +3817,8 @@ ${typeToString(functionType)}
         );
       }
 
-      // Check if the function has a body
-      let functionExpr: FunctionExpr | undefined = undefined;
-      if (tokens[index].type === TokenType.LCurlyBracket) {
-        const { expr: functionExpr_, index: nextNextIndex } =
-          this.parseFunction(tokens, startIndex, env, false, false);
-        if (!functionExpr_ || functionExpr_.type !== AstType.Function) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Expected function body"
-          );
-        }
-        index = nextNextIndex;
-        env = functionExpr_.env;
-        functionExpr = functionExpr_;
-      }
-
-      // functionType.typeParameters = typeParameters; // NOTE: This is wrong
       functions.push({
-        name: functionType.functionName!,
+        name: functionName,
         func: functionType,
         functionExpr,
       });
@@ -4602,19 +4359,6 @@ ${exprToString(expr)}`
         exportExpr = expr;
         break;
       }
-      case TokenType.Function: {
-        const { expr, index: nextIndex } = this.parseFunction(
-          tokens,
-          index,
-          env,
-          true,
-          true
-        );
-        index = nextIndex;
-        env = expr.env;
-        exportExpr = expr;
-        break;
-      }
       case TokenType.Extern: {
         const { expr, index: nextIndex } = this.parseExtern(
           tokens,
@@ -4909,20 +4653,6 @@ ${exprToString(expr)}`
         }
         case TokenType.Let: {
           const { expr, index: nextIndex } = this.parseLetAssignment(
-            tokens,
-            index,
-            env,
-            false
-          );
-          if (expr) {
-            exprs.push(expr);
-          }
-          index = nextIndex;
-          env = expr.env;
-          break;
-        }
-        case TokenType.Function: {
-          const { expr, index: nextIndex } = this.parseFunction(
             tokens,
             index,
             env,

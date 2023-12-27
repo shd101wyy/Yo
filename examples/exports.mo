@@ -8,7 +8,9 @@ export let add = (x: i32, y: i32) -> i32 {
 
 export type Data: Linear;
 
-export extern malloc(size: i32): Data;
+export extern "C" {
+  malloc: (size: i32)-> Data;
+}
 
 export class Id<T> {
   id: (x: T)-> T {

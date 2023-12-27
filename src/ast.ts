@@ -1,4 +1,4 @@
-import { Environment, ValueType } from "./env";
+import { Environment } from "./env";
 import { Token, TokenType } from "./token";
 import {
   TBoolean,
@@ -12,7 +12,6 @@ import {
   TUnit,
   Type,
   TypeKind,
-  typeAndRegionParametersToString,
   typeToString,
 } from "./type-checker";
 
@@ -307,31 +306,29 @@ export type ClassExpr = {
   token: Token;
 };
 
-export type FunctionPrototype = {
-  type: AstType.FunctionPrototype;
-  functionName?: string; // If not set, it's an anonymous function
-  typeValue: TFunction;
-  token: Token;
-};
-
 export type FunctionExpr = {
   type: AstType.Function;
-  prototype: FunctionPrototype;
   /**
    * frameLevel at which the function is defined.
    */
   frameLevel: number;
-  freeVariables: ValueType[];
-  body: Expr[];
+  // freeVariables: ValueType[];
+  body: BlockExpr;
   typeValue: TFunction;
   env: Environment;
   token: Token;
 };
 
+export type ExternVariable = {
+  name: string;
+  typeValue: Type;
+};
+
 export type ExternExpr = {
   type: AstType.Extern;
-  prototype: FunctionPrototype;
-  typeValue: TFunction;
+  language: "C";
+  variables: ExternVariable[];
+  typeValue: TUnit;
   env: Environment;
   token: Token;
 };
@@ -468,7 +465,7 @@ export function synthesizeRecordType(
   };
 }
 
-export function exprToString(expr: Expr | FunctionPrototype) {
+export function exprToString(expr: Expr, indentation = ""): string {
   switch (expr.type) {
     case AstType.Value:
       switch (expr.tag) {
@@ -540,30 +537,10 @@ export function exprToString(expr: Expr | FunctionPrototype) {
         extractTypeConstructor: true,
       })}`;
     case AstType.Function:
-      return `${
-        expr.prototype.functionName
-          ? `function ${expr.prototype.functionName}`
-          : ``
-      }${typeAndRegionParametersToString(
-        expr.prototype.typeValue.typeParameters,
-        expr.prototype.typeValue.regionParameters
-      )}(${expr.prototype.typeValue.parameterTypes
-        .map(
-          (p) =>
-            `${p.isMutable ? "mut " : ""}${p.name}: ${typeToString(p.type, {
-              hideTypeParameterKind: true,
-            })}${p.defaultValue ? `=${exprToString(p.defaultValue)}` : ""}`
-        )
-        .join(", ")}):${typeToString(expr.prototype.typeValue.returnType, {
+      return `${typeToString(expr.typeValue, {
         hideTypeParameterKind: true,
-      })} ${expr.prototype.functionName ? "" : " => "} {\n${expr.body
-        .map((expr) =>
-          exprToString(expr)
-            .split("\n")
-            .map((l) => "  " + l)
-            .join("\n")
-        )
-        .join(";\n")}\n}`;
+      })} ${exprToString(expr.body)}`;
+
     case AstType.CallFunction:
       return `${exprToString(expr.callee)}${
         expr.typeArguments.length > 0
@@ -622,36 +599,11 @@ export function exprToString(expr: Expr | FunctionPrototype) {
         .map((expr) =>
           exprToString(expr)
             .split("\n")
-            .map((l) => "  " + l)
-            .join("\n")
+            .map((l) => "  " + indentation + l)
+            .join(`\n`)
         )
         .join(";\n")}
-}`;
-    }
-    case AstType.FunctionPrototype: {
-      return `${expr.functionName ?? ``}${typeAndRegionParametersToString(
-        expr.typeValue.typeParameters,
-        expr.typeValue.regionParameters
-      )}(${expr.typeValue.parameterTypes
-        .map((p) => `${p.name}: ${typeToString(p.type)}`)
-        .join(", ")}):${typeToString(expr.typeValue.returnType)}`;
-    }
-    case AstType.Extern: {
-      return `extern ${
-        expr.prototype.functionName ?? ``
-      }${typeAndRegionParametersToString(
-        expr.prototype.typeValue.typeParameters,
-        expr.prototype.typeValue.regionParameters
-      )}(${expr.prototype.typeValue.parameterTypes
-        .map(
-          (p) =>
-            `${p.name}: ${typeToString(p.type, {
-              hideTypeParameterKind: true,
-            })}`
-        )
-        .join(", ")}):${typeToString(expr.prototype.typeValue.returnType, {
-        hideTypeParameterKind: true,
-      })}`;
+${indentation}}`;
     }
     case AstType.Reference: {
       return `(${expr.isMutableReference ? "&!" : "&"}${exprToString(
@@ -679,6 +631,13 @@ export function exprToString(expr: Expr | FunctionPrototype) {
           })
           .join(", ")} } from "${expr.modulePath}";`;
       }
+    }
+    case AstType.Extern: {
+      return `extern "${expr.language}" {\n${expr.variables
+        .map((variable) => {
+          return `  ${variable.name}: ${typeToString(variable.typeValue)};`;
+        })
+        .join("\n")}\n}`;
     }
     default:
       throw new Error(`Unknown expr type ${expr}`);

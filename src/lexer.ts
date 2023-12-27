@@ -491,6 +491,7 @@ export function tokenize(input: string): Token[] {
               });
               break;
             // keywords
+            /*
             case "function":
               tokens.push({
                 type: TokenType.Function,
@@ -498,6 +499,7 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            */
             case "if":
               tokens.push({
                 type: TokenType.If,
@@ -512,6 +514,7 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            /*
             case "for":
               tokens.push({
                 type: TokenType.For,
@@ -533,6 +536,7 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            */
             case "case":
               tokens.push({
                 type: TokenType.Case,
@@ -575,6 +579,7 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            /*
             case "fallthrough":
               tokens.push({
                 type: TokenType.Fallthrough,
@@ -582,6 +587,7 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+              */
             case "let":
               tokens.push({
                 type: TokenType.Let,

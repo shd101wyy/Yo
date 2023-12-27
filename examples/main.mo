@@ -1,5 +1,5 @@
 import { add } from "./add";
 
-let main = () -> {
+let main = () -> i32 {
   add(3, 4)
 }

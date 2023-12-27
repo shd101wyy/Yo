@@ -5,7 +5,6 @@ import {
   BlockExpr,
   Expr,
   FunctionExpr,
-  FunctionPrototype,
   IfExpr,
   exprToString,
 } from "./ast";
@@ -13,6 +12,7 @@ import {
   Environment,
   ValueType,
   addEnvValueType,
+  getEnvCurrentFrameLevel,
   getEnvValueTypesByVariableName,
   popEnvFrame,
   pushEnvFrame,
@@ -26,8 +26,6 @@ export type TypeKind = "Type" | "Linear" | "Free";
 export type RegionKind = "Region";
 
 export type EffectKind = "Effect" | "LinearEffect" | "ControlledEffect";
-
-export type MoreEffects = "*" | "+";
 
 export type TUnit = {
   type: "()";
@@ -204,13 +202,12 @@ export type TRegionParameter = {
 export type TFunction = {
   type: "Function";
   kind: "Free";
-  functionName?: string;
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
   parameterTypes: TParameterType[];
   effects: TEffect[];
+  hasMoreEffects: boolean;
   returnType: Type;
-  // moreEffects?: MoreEffects;
 
   isClosure: boolean;
   /**
@@ -218,6 +215,10 @@ export type TFunction = {
    * function name(a: number) {} is not closure
    */
   freeVariables?: ValueType[];
+  /**
+   * At which frame level the function is defined
+   */
+  frameLevel: number;
 };
 
 export type TUnion = {
@@ -573,54 +574,6 @@ export function synthesizeTypeFromTokens({
       env,
     };
   }
-  // Check if it's tuple
-  /*
-  if (tokens[index].value === TokenType.LBracket) {
-    const typeValue: TTuple = {
-      type: "tuple",
-      elements: [],
-    };
-    index = index + 1;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const token = tokens[index];
-      if (!token) {
-        throw formatErrorMessage({
-          token: tokens[index - 1],
-          errorMessage: "Expected ']'",
-          inputString,
-        });
-      }
-      if (token.type === TokenType.RBracket) {
-        index = index + 1;
-        break;
-      }
-      const {
-        typeValue: elementType,
-        index: nextIndex,
-        env: nextEnv,
-      } = synthesizeTypeFromTokens({
-        tokens,
-        index,
-        inputString,
-        env,
-        parseExpression,
-      });
-      typeValue.elements.push(elementType);
-      index = nextIndex;
-      env = nextEnv;
-
-      if (tokens[index].type === TokenType.Comma) {
-        index = index + 1;
-      }
-    }
-    returnValue = {
-      typeValue: typeValue,
-      index: index,
-      env,
-    };
-  }
-  */
   // Check if it's anonymouse function
   else if (tokens[index].value === "(") {
     try {
@@ -631,7 +584,6 @@ export function synthesizeTypeFromTokens({
         env,
         parseExpression,
         withFunctionBody: false,
-        isClosure: true,
       });
     } catch {
       // This means it's not a function type
@@ -1560,17 +1512,11 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   return {
     ...expr,
     typeValue: newTypeValue,
-    prototype: {
-      ...expr.prototype,
-      typeValue: newTypeValue,
-    },
-    body: expr.body.map((expr) =>
-      applyTypeArgumentsToExpr(
-        expr,
-        [], // typeArguments,
-        typeParameterToTypeArgumentMap
-      )
-    ),
+    body: applyTypeArgumentsToExpr(
+      expr.body,
+      [], // typeArguments,
+      typeParameterToTypeArgumentMap
+    ) as BlockExpr,
   };
 }
 
@@ -2082,16 +2028,16 @@ export function synthesizeEffectsFromTokens({
   parseExpression: ParseExpression;
 }): {
   effects: TEffect[];
-  moreEffects: MoreEffects | undefined;
+  hasMoreEffects: boolean;
   index: number;
 } {
   const effects: TEffect[] = [];
-  let moreEffects: MoreEffects | undefined = undefined;
+  let hasMoreEffects = false;
 
-  if (tokens[index].type !== TokenType.LCurlyBracket) {
+  if (tokens[index].type !== TokenType.LessThan) {
     throw formatErrorMessage({
       token: tokens[index],
-      errorMessage: "Expected '{' in effects declaration",
+      errorMessage: "Expected '<' in effects declaration",
       inputString,
     });
   }
@@ -2106,7 +2052,7 @@ export function synthesizeEffectsFromTokens({
         inputString,
       });
     }
-    if (tokens[index].type === TokenType.RCurlyBracket) {
+    if (tokens[index].type === TokenType.GreaterThan) {
       index = index + 1;
       break;
     }
@@ -2122,9 +2068,7 @@ export function synthesizeEffectsFromTokens({
     index = index + 1;
 
     if (effectName === "*") {
-      moreEffects = "*";
-    } else if (effectName === "+") {
-      moreEffects = "+";
+      hasMoreEffects = true;
     } else {
       let typeArguments: Type[] = [];
       if (tokens[index].type === TokenType.LessThan) {
@@ -2184,7 +2128,7 @@ export function synthesizeEffectsFromTokens({
 
   return {
     effects,
-    moreEffects,
+    hasMoreEffects,
     index,
   };
 }
@@ -2201,8 +2145,6 @@ export function synthesizeFunctionTypeFromTokens({
   env,
   parseExpression,
   withFunctionBody,
-  functionName,
-  isClosure,
 }: {
   tokens: Token[];
   index: number;
@@ -2210,10 +2152,13 @@ export function synthesizeFunctionTypeFromTokens({
   env: Environment;
   parseExpression: ParseExpression;
   withFunctionBody: boolean;
-  functionName?: string;
-  isClosure: boolean;
 }): { typeValue: TFunction; index: number; env: Environment } {
   // Type parameters
+  let frameLevel = getEnvCurrentFrameLevel(env);
+  if (withFunctionBody) {
+    frameLevel -= 1;
+  }
+
   let typeParameters: TTypeParameter[] = [];
   let regionParameters: TRegionParameter[] = [];
   if (tokens[index].type === TokenType.LessThan) {
@@ -2257,94 +2202,38 @@ export function synthesizeFunctionTypeFromTokens({
   index = nextIndex;
   env = nextEnv;
 
-  if (!withFunctionBody) {
-    if (
-      tokens[index].type === TokenType.FatArrow ||
-      tokens[index].type === TokenType.FunctionArrow
-    ) {
-      isClosure = tokens[index].type === TokenType.FatArrow;
-      index = index + 1;
+  if (
+    tokens[index].type === TokenType.FatArrow ||
+    tokens[index].type === TokenType.FunctionArrow
+  ) {
+    const isClosure = tokens[index].type === TokenType.FatArrow;
+    index = index + 1;
 
-      // Effects
-      let effects: TEffect[] = [];
-      // let moreEffects: MoreEffects | undefined = "*";
-      if (tokens[index].type === TokenType.LCurlyBracket) {
-        const {
-          effects: nextEffects,
-          // moreEffects: nextMoreEffects,
-          index: nextNextIndex,
-        } = synthesizeEffectsFromTokens({
-          tokens,
-          index,
-          inputString,
-          env,
-          parseExpression,
-        });
-        effects = nextEffects;
-        // moreEffects = nextMoreEffects;
-        index = nextNextIndex;
-      }
-
-      // Return type
-      const {
-        typeValue: returnType,
-        index: nextIndex,
-        env: nextEnv,
-      } = synthesizeTypeFromTokens({
-        tokens,
-        index,
-        inputString,
-        env,
-        parseExpression,
-      });
-      index = nextIndex;
-      env = nextEnv;
-      return {
-        typeValue: {
-          type: "Function",
-          kind: "Free",
-          functionName,
-          parameterTypes,
-          typeParameters,
-          regionParameters,
-          returnType,
-          effects,
-          isClosure,
-          freeVariables: undefined,
-        },
-        index,
-        env,
-      };
-    } else {
-      throw formatErrorMessage({
-        token: tokens[index],
-        errorMessage: "Expected function return type after '->' or '=>'",
-        inputString,
-      });
-    }
-  } else {
+    // Effects
     let effects: TEffect[] = [];
-    // const moreEffects: MoreEffects | undefined = "*";
-    if (tokens[index].type === TokenType.Colon) {
-      index = index + 1;
+    let hasMoreEffects = false;
+    if (tokens[index].type === TokenType.LessThan) {
+      const {
+        effects: nextEffects,
+        hasMoreEffects: nextHasMoreEffects,
+        index: nextNextIndex,
+      } = synthesizeEffectsFromTokens({
+        tokens,
+        index,
+        inputString,
+        env,
+        parseExpression,
+      });
+      effects = nextEffects;
+      hasMoreEffects = nextHasMoreEffects;
+      index = nextNextIndex;
+    }
 
-      // Effects
-      if (tokens[index].type === TokenType.LCurlyBracket) {
-        const { effects: nextEffects, index: nextNextIndex } =
-          synthesizeEffectsFromTokens({
-            tokens,
-            index,
-            inputString,
-            env,
-            parseExpression,
-          });
-        effects = nextEffects;
-        index = nextNextIndex;
-      }
-
+    let returnType: Type = TypeValues.unit;
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
       // Return type
       const {
-        typeValue: returnType,
+        typeValue: nextReturnType,
         index: nextIndex,
         env: nextEnv,
       } = synthesizeTypeFromTokens({
@@ -2356,40 +2245,32 @@ export function synthesizeFunctionTypeFromTokens({
       });
       index = nextIndex;
       env = nextEnv;
-      return {
-        typeValue: {
-          type: "Function",
-          kind: "Free",
-          functionName,
-          parameterTypes,
-          typeParameters,
-          regionParameters,
-          returnType,
-          effects,
-          isClosure,
-          freeVariables: undefined,
-        },
-        index,
-        env,
-      };
-    } else {
-      return {
-        typeValue: {
-          type: "Function",
-          kind: "Free",
-          functionName,
-          parameterTypes,
-          typeParameters,
-          regionParameters,
-          returnType: TypeValues.unit,
-          effects,
-          isClosure,
-          freeVariables: undefined,
-        },
-        index,
-        env,
-      };
+      returnType = nextReturnType;
     }
+
+    return {
+      typeValue: {
+        type: "Function",
+        kind: "Free",
+        parameterTypes,
+        typeParameters,
+        regionParameters,
+        returnType,
+        effects,
+        hasMoreEffects,
+        isClosure,
+        freeVariables: undefined,
+        frameLevel,
+      },
+      index,
+      env,
+    };
+  } else {
+    throw formatErrorMessage({
+      token: tokens[index],
+      errorMessage: "Expected function return type after '->' or '=>'",
+      inputString,
+    });
   }
 }
 
@@ -2864,15 +2745,8 @@ export function typeToString(
   ${type.functions
     .map(
       ({ name, func, functionExpr }) =>
-        `${name}${typeToString(func, { extractTypeConstructor: false }).replace(
-          /\)(=>|->)\s/,
-          "): "
-        )}${
-          functionExpr
-            ? ` {\n${functionExpr.body
-                .map((expr) => "    " + exprToString(expr))
-                .join(";\n")}\n  }`
-            : ""
+        `${name}: ${typeToString(func, { extractTypeConstructor: false })}${
+          functionExpr ? ` ${exprToString(functionExpr.body, "  ")}` : ""
         }`
     )
     .join(";\n  ")};
@@ -3073,9 +2947,9 @@ export function typeAndRegionParametersToString(
   if (typeParameters.length + regionParameters.length === 0) {
     return "";
   } else {
-    return `<${typeParameters.map((type) =>
-      typeToString(type, { hideTypeParameterKind })
-    )}${
+    return `<${typeParameters
+      .map((type) => typeToString(type, { hideTypeParameterKind }))
+      .join(", ")}${
       typeParameters.length > 0 && regionParameters.length > 0 ? ", " : ""
     }${regionParameters.map((region) =>
       region.appliedRegion
@@ -3421,52 +3295,6 @@ export function getFunctionsOfCallerFromEnv(
     matchedFunctions = matchedFunctions.concat(matchedFunctionsInInterface);
   }
   */
-
-  return matchedFunctions;
-}
-
-/**
- * NOTE: We allow the function overloading by checking the first argument type.
- * @param prototype
- * @param env
- */
-export function getMatchedOverloadingFunction(
-  prototype: FunctionPrototype,
-  env: Environment
-): ValueType[] {
-  if (!prototype.functionName) {
-    // Anonymous function
-    return [];
-  }
-
-  const functionsInEnv = getEnvValueTypesByVariableName(
-    env,
-    prototype.functionName
-  );
-
-  if (
-    prototype.typeValue.parameterTypes.length === 0 &&
-    functionsInEnv.length !== 0
-  ) {
-    // Function without parameter is not allowed to be overloaded
-    return functionsInEnv;
-  }
-
-  // Find the functions that takes `expr` as the first argument
-  const matchedFunctions = functionsInEnv.filter((functionInEnv) => {
-    if (functionInEnv.type.type !== "Function") {
-      return false;
-    }
-    const firstArgumentType = functionInEnv.type.parameterTypes[0];
-    if (!firstArgumentType) {
-      return false;
-    }
-    return checkType(
-      firstArgumentType.type,
-      prototype.typeValue.parameterTypes[0].type,
-      env
-    );
-  });
 
   return matchedFunctions;
 }
