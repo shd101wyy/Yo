@@ -459,7 +459,7 @@ function identity<T>(arg: T): T {
 }
 
 // Dependency injection (Effectful function)
-// We use `[]` to denote the dependencies of a function.
+// We use `{}` to denote the effects of a function.
 function main(): {Console} () {
   println("Hello, world");
 }
@@ -1210,7 +1210,7 @@ Effect is defined using the `effect` keyword.
 
 ```typescript
 effect Exception<T> {
-  control raise(msg: String): {*} T;
+  control raise(msg: String): T;
 }
 ```
 
@@ -1238,8 +1238,8 @@ function safeDivide(x: i32, y: i32): {Exception, Console} i32 {
 The following function signatures are equivalent:
 
 ```typescript
-function safeDivide(x: i32, y: i32): {Exception, Console} i32 {}
-function safeDivide(x: i32, y: i32): {Console, Exception} i32 {}
+function safeDivide(x: i32, y: i32): {Exception, Console} i32;
+function safeDivide(x: i32, y: i32): {Console, Exception} i32;
 ```
 
 Function with no effect is written with `{}`, and `{}` can be suppressed in this case:
@@ -1254,9 +1254,7 @@ function add(x: i32, y: i32): i32 {
 Function with zero of more effects is written with `{*}`:
 
 ```typescript
-function add(x: i32, y: i32): {*} i32 {
-  x + y;
-}
+function map<A: Type, B: Type>(xs: &<List<A>>, func: (x: &<A>) => {*} B): {*} List<B>
 ```
 
 ### Effect handler
@@ -1293,7 +1291,7 @@ Given the following function:
 
 ```typescript
 effect Input {
-  control read(): {Input} String;
+  control read(): String;
 }
 
 function hello(): {Input} () {
@@ -1388,7 +1386,7 @@ function handleGiveInt(): i32 {
 
 ```typescript
 effect Exception<T> {
-  control raise(msg: String): {Exception<T>} T;
+  control raise(msg: String): T;
 }
 
 function safeDivide(x: i32, y: i32): { Exception<i32>{raise as newRaise} } i32 {

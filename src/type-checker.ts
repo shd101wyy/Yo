@@ -23,15 +23,11 @@ import { Token, TokenType } from "./token";
 
 export type TypeKind = "Type" | "Linear" | "Free";
 
-/*
-enum EffectKind {
-  Effect,
-  LinearEffect,
-  ControlledEffect,
-}
-*/
-
 export type RegionKind = "Region";
+
+export type EffectKind = "Effect" | "LinearEffect" | "ControlledEffect";
+
+export type MoreEffects = "*" | "+";
 
 export type TUnit = {
   type: "()";
@@ -212,7 +208,9 @@ export type TFunction = {
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
   parameterTypes: TParameterType[];
+  effects: TEffect[];
   returnType: Type;
+  // moreEffects?: MoreEffects;
 
   isClosure: boolean;
   /**
@@ -302,6 +300,20 @@ export type TEnum = {
   kind: TypeKind;
 };
 
+export type TEffectOperation = {
+  name: string;
+  func: TFunction;
+  isControlled: boolean;
+};
+
+export type TEffect = {
+  type: "Effect";
+  effectName: string;
+  typeParameters: TTypeParameter[];
+  regionParameters: TRegionParameter[];
+  operations: TEffectOperation[];
+};
+
 export type TExternType = {
   type: "Extern";
   kind: TypeKind;
@@ -366,6 +378,8 @@ export type Type =
   | TExternType;
 
 export type Region = TRegionParameter | TRegion;
+
+export type Effect = TEffect;
 
 // Type constructors
 
@@ -1467,6 +1481,48 @@ export function applyTypeArgumentsToType(
   }
 }
 
+export function applyTypeArgumentsToEffect(
+  effect: TEffect,
+  typeArguments: Type[],
+  typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
+): TEffect {
+  const typeParameters = effect.typeParameters;
+  if (typeParameters.length !== typeArguments.length) {
+    throw new Error(
+      `(7) Mismatched type arguments.
+Expected: <${typeParameters
+        .map((typeParameter) => `${typeParameter.name}: ${typeParameter.kind}`)
+        .join(", ")}>
+Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
+    );
+  }
+  // set typeParameterToTypeArgumentMap
+  const newTypeParameters: TTypeParameter[] = [];
+  for (let i = 0; i < effect.typeParameters.length; i++) {
+    const typeParameter = effect.typeParameters[i];
+    const typeArgument = typeArguments[i];
+    typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
+    newTypeParameters.push({
+      ...typeParameter,
+      appliedType: typeArgument,
+    });
+  }
+
+  const newEffect: TEffect = {
+    ...effect,
+    typeParameters: newTypeParameters,
+    operations: effect.operations.map((operation) => ({
+      ...operation,
+      func: applyTypeArgumentsToType(
+        operation.func,
+        typeArguments,
+        typeParameterToTypeArgumentMap
+      ) as TFunction,
+    })),
+  };
+  return newEffect;
+}
+
 export function applyTypeArgumentsToFunctionExpr(
   expr: FunctionExpr,
   typeArguments: Type[],
@@ -2012,6 +2068,127 @@ export function synthesizeTypeArgumentsFromTokens({
   return { typeArguments, index, env };
 }
 
+export function synthesizeEffectsFromTokens({
+  tokens,
+  index,
+  inputString,
+  env,
+  parseExpression,
+}: {
+  tokens: Token[];
+  index: number;
+  inputString: string;
+  env: Environment;
+  parseExpression: ParseExpression;
+}): {
+  effects: TEffect[];
+  moreEffects: MoreEffects | undefined;
+  index: number;
+} {
+  const effects: TEffect[] = [];
+  let moreEffects: MoreEffects | undefined = undefined;
+
+  if (tokens[index].type !== TokenType.LCurlyBracket) {
+    throw formatErrorMessage({
+      token: tokens[index],
+      errorMessage: "Expected '{' in effects declaration",
+      inputString,
+    });
+  }
+  index = index + 1;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (!tokens[index]) {
+      throw formatErrorMessage({
+        token: tokens[index - 1],
+        errorMessage: "Expected '}'",
+        inputString,
+      });
+    }
+    if (tokens[index].type === TokenType.RCurlyBracket) {
+      index = index + 1;
+      break;
+    }
+
+    if (tokens[index].type !== TokenType.Identifier) {
+      throw formatErrorMessage({
+        token: tokens[index],
+        errorMessage: "Expected identifier as effect name",
+        inputString,
+      });
+    }
+    const effectName = tokens[index].value;
+    index = index + 1;
+
+    if (effectName === "*") {
+      moreEffects = "*";
+    } else if (effectName === "+") {
+      moreEffects = "+";
+    } else {
+      let typeArguments: Type[] = [];
+      if (tokens[index].type === TokenType.LessThan) {
+        const {
+          typeArguments: nextTypeArguments,
+          index: nextIndex,
+          env: nextEnv,
+        } = synthesizeTypeArgumentsFromTokens({
+          tokens,
+          index,
+          inputString,
+          env,
+          parseExpression,
+        });
+        typeArguments = nextTypeArguments;
+        index = nextIndex;
+        env = nextEnv;
+      }
+
+      // Find the effect
+      const effectValues = getEnvValueTypesByVariableName(
+        env,
+        effectName,
+        "effect"
+      );
+      if (effectValues.length === 0) {
+        throw formatErrorMessage({
+          token: tokens[index],
+          errorMessage: `Cannot find effect ${effectName}`,
+          inputString,
+        });
+      } else if (effectValues.length > 1) {
+        throw formatErrorMessage({
+          token: tokens[index],
+          errorMessage: `Ambiguous effect ${effectName}`,
+          inputString,
+        });
+      } else {
+        const effect = effectValues[0].effect;
+        if (!effect) {
+          throw formatErrorMessage({
+            token: tokens[index],
+            errorMessage: `Cannot find effect ${effectName}`,
+            inputString,
+          });
+        }
+        const newEffect = applyTypeArgumentsToEffect(effect, typeArguments, {});
+        effects.push(newEffect);
+      }
+    }
+
+    if (tokens[index].type === TokenType.Comma) {
+      index = index + 1;
+      continue;
+    }
+  }
+
+  return {
+    effects,
+    moreEffects,
+    index,
+  };
+}
+
 /**
  * - <...>(...):xx {...}
  * - <...>(...) => {...}
@@ -2087,6 +2264,28 @@ export function synthesizeFunctionTypeFromTokens({
     ) {
       isClosure = tokens[index].type === TokenType.FatArrow;
       index = index + 1;
+
+      // Effects
+      let effects: TEffect[] = [];
+      // let moreEffects: MoreEffects | undefined = "*";
+      if (tokens[index].type === TokenType.LCurlyBracket) {
+        const {
+          effects: nextEffects,
+          // moreEffects: nextMoreEffects,
+          index: nextNextIndex,
+        } = synthesizeEffectsFromTokens({
+          tokens,
+          index,
+          inputString,
+          env,
+          parseExpression,
+        });
+        effects = nextEffects;
+        // moreEffects = nextMoreEffects;
+        index = nextNextIndex;
+      }
+
+      // Return type
       const {
         typeValue: returnType,
         index: nextIndex,
@@ -2109,6 +2308,7 @@ export function synthesizeFunctionTypeFromTokens({
           typeParameters,
           regionParameters,
           returnType,
+          effects,
           isClosure,
           freeVariables: undefined,
         },
@@ -2118,13 +2318,31 @@ export function synthesizeFunctionTypeFromTokens({
     } else {
       throw formatErrorMessage({
         token: tokens[index],
-        errorMessage: "Expected '=>' for function return type",
+        errorMessage: "Expected function return type after '->' or '=>'",
         inputString,
       });
     }
   } else {
+    let effects: TEffect[] = [];
+    // const moreEffects: MoreEffects | undefined = "*";
     if (tokens[index].type === TokenType.Colon) {
       index = index + 1;
+
+      // Effects
+      if (tokens[index].type === TokenType.LCurlyBracket) {
+        const { effects: nextEffects, index: nextNextIndex } =
+          synthesizeEffectsFromTokens({
+            tokens,
+            index,
+            inputString,
+            env,
+            parseExpression,
+          });
+        effects = nextEffects;
+        index = nextNextIndex;
+      }
+
+      // Return type
       const {
         typeValue: returnType,
         index: nextIndex,
@@ -2147,6 +2365,7 @@ export function synthesizeFunctionTypeFromTokens({
           typeParameters,
           regionParameters,
           returnType,
+          effects,
           isClosure,
           freeVariables: undefined,
         },
@@ -2162,10 +2381,8 @@ export function synthesizeFunctionTypeFromTokens({
           parameterTypes,
           typeParameters,
           regionParameters,
-          returnType: {
-            type: "unknown",
-            kind: "Free",
-          },
+          returnType: TypeValues.unit,
+          effects,
           isClosure,
           freeVariables: undefined,
         },
@@ -2702,6 +2919,37 @@ ${type.variants
     default: {
       throw new Error(`Unknown type ${JSON.stringify(type)}`);
     }
+  }
+}
+
+export function effectToString(
+  effect: TEffect,
+  {
+    extractTypeConstructor,
+    hideTypeParameterKind,
+  }: {
+    extractTypeConstructor?: boolean | "all";
+    hideTypeParameterKind?: boolean;
+  } = {}
+): string {
+  if (extractTypeConstructor) {
+    return `enum ${effect.effectName}${typeAndRegionParametersToString(
+      effect.typeParameters,
+      effect.regionParameters,
+      { hideTypeParameterKind }
+    )} {
+${effect.operations.map(({ func, isControlled, name }) => {
+  return `  ${isControlled ? "control" : ""}${name}${typeToString(func, {
+    extractTypeConstructor: false,
+  }).replace(/\)(=>|->)\s/, "): ")}`;
+})}
+}`;
+  } else {
+    return `${effect.effectName}${typeAndRegionParametersToString(
+      effect.typeParameters,
+      effect.regionParameters,
+      { hideTypeParameterKind }
+    )}`;
   }
 }
 

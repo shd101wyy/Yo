@@ -22,6 +22,10 @@ fn test(x: &[String]) {
     println!("{:?}", x[2]);
 }
 
+fn test2(x: i32, y: i32) -> i32 {
+    return x + y
+}
+
 fn main() {
    let x = String::from("Hello, world!");
    let mut y = x;

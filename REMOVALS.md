@@ -14,3 +14,6 @@ function test() {
 Reason: It doesn't work well with linear types, especially the closure.  
 Besides, I decided to switch the effect handler from using `with` to using `try`/`with`.  
 
+- function signature **must** specify the return type
+
+For easier type inference.  

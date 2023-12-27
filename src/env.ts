@@ -1,10 +1,11 @@
-import { Region, Type } from "./type-checker";
+import { Effect, Region, Type } from "./type-checker";
 
 type ValueTypeKind =
   | "type" // type, enum, type or region parameter
   | "region"
   | "value" // value, function, enum variant
   | "class" // typeclass
+  | "effect" // effect
   | "module";
 
 export type ValueType = {
@@ -14,6 +15,7 @@ export type ValueType = {
   isExported?: boolean;
   type: Type;
   region?: Region;
+  effect?: Effect;
   kind: ValueTypeKind;
   /* referenceCount of the value inside current frame */
   // referenceCount: number;
