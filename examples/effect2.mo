@@ -1,14 +1,11 @@
 effect GiveInt {
-  giveInt(x: i32): i32;
+  giveInt: (x: i32)=> i32;
 }
 
 function test() {
-  let intHandler = handler GiveInt {
-    giveInt(x: i32) {
-      x + 1
-    }
-  }
-  intHandler(()=> {
+  try {
     giveInt(12)
-  })
+  } with GiveInt {
+    giveInt: (x: i32) => x + 1
+  }
 }

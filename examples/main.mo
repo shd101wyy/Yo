@@ -1,5 +1,5 @@
 import { add } from "./add";
 
-function main() {
+let main = () -> {
   add(3, 4)
 }

@@ -4,7 +4,7 @@ enum Color {
   Blue
 }
 
-function test(x: Color) {
+let test = (x: Color)-> i32 {
   match x {
     case Color.Red: {
       1

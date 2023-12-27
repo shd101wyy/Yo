@@ -1,8 +1,10 @@
 type Data: Linear;
-extern malloc(): Data;
-extern free(data: Data): ();
+extern "C" {
+  malloc: () -> Data;
+  free: (data: Data) -> ();
+}
 
-function test() {
+let test = ()->() {
   let data = malloc();
   defer free(data);
   let x = 1;

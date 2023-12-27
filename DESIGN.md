@@ -127,7 +127,7 @@ Other languages that are worth mentioning that have influenced **Mo**:
 ## Hello World
 
 ```typescript
-function main() {
+let main = ()-> {
   println("Hello World!");
 }
 ```
@@ -206,7 +206,7 @@ Block `{...}`, function call `func(...)`, `if` statement, and update mutable ref
 **Mo** is explicit about the regions and lifetime of values.
 
 ```typescript
-function factorial(x: i32): i32 { // Region 1
+let factorial = (x: i32)-> i32 { // Region 1
   if x > 1 { // Region 2
     x * factorial(x - 1) // Region 3 for calling `factorial`
   } else { // Region 3
@@ -214,7 +214,7 @@ function factorial(x: i32): i32 { // Region 1
   }
 }
 
-function test(flag: boolean) { // Region 1
+let test = (flag: boolean)-> { // Region 1
   if flag { // Region 2
     add()   // Region 3 for calling `add`
   } else {  // Region 4
@@ -226,7 +226,7 @@ function test(flag: boolean) { // Region 1
   }
 }
 
-function update() { // Region 1
+let update = ()-> { // Region 1
   let mut x = 1;
   x = 2; // Region 2
 }
@@ -243,8 +243,8 @@ function update() { // Region 1
   let mut y = 2;
 }
 {:R1 // Continue R1
-  console.log(x); // 1
-  console.log(y); // Compiler Error: y is not defined in R1
+  println(x); // 1
+  println(y); // Compiler Error: y is not defined in R1
                   // R2 is not in scope
 }
 ```
@@ -257,7 +257,7 @@ Like `rust`, **Mo** has two kinds of variables:
 let y = 5; // y: i32, immutable
 let mut x = 5; // x: i32, mutable
 
-function example(mut x: i32, y: i32) {
+let example = (mut x: i32, y: i32)-> {
   x = 1; // x: i32, mutable
   y = 2; // Error: y is immutable
 }
@@ -444,38 +444,43 @@ let mut x = [String.from("Hi"), String.from("World")];
 Unlike imperative languages, **Mo** has no `return` keyword. The last expression of a function is the return value.
 
 ```typescript
-function add(x: i32, y: i32): i32 {
+// Top level function.
+// Type after `->` is the return type. If it's not specified, it's `()` unit.
+let add = (x: i32, y: i32)-> i32 {
   x + y
 }
 
 // Default parameter values
-function add(x: i32 = 1, y: i32 = 2): i32 {
+let add = (x: i32 = 1, y: i32 = 2)-> i32 {
   x + y
 }
 
 // Generic function
-function identity<T>(arg: T): T {
+let identity = <T>(arg: T)-> T {
   arg
 }
 
 // Dependency injection (Effectful function)
-// We use `{}` to denote the effects of a function.
-function main(): {Console} () {
+// We use `<..>` to denote the effects of a function.
+let main = () -> <Console> () {
   println("Hello, world");
 }
 
 // Curried function `In Design`
-function add(x: i32)(y: i32): i32 {
+let add = (x: i32) -> (y: i32) -> i32 {
   x + y
 }
 let addOne = add(1);
 addOne(2); // 3
 
-// Value constraint, type constraint
-function divide(x: i32, y: i32 where y != 0): i32 {
+// Value constraint `In Design`
+let divide = (x: i32, y: i32)-> i32
+where y != 0 {
   x / y
 }
-function add<T: Type>(x: T, y: T): {Console} T
+
+// Type constraint
+let add = <T: Type>(x: T, y: T)-> <Console> T
 with Integral<T> {
   println(x + y)
 }
@@ -490,7 +495,7 @@ let add = (x: i32, y: i32): i32 => {
 ### Uniform Function Call Syntax
 
 ```typescript
-function addOne(x: i32): i32 {
+let addOne = (x: i32)-> i32 {
   x + 1;
 }
 
@@ -511,10 +516,10 @@ Function definitions with the same name must differ on the argument types.
 For example, below is allowed:
 
 ```typescript
-function show(x: i32) {
+let show = (x: i32)-> {
   println(x);
 }
-function show(x: string) {
+let show = (x: string)-> {
   println(x);
 }
 ```
@@ -524,12 +529,12 @@ function show(x: string) {
 Dependent types are types which depend on values.
 
 ```typescript
-function dependOnBoolean(b: boolean): i32
+let dependOnBoolean = (b: boolean) -> i32
 where b == true
 {
   1
 }
-function dependOnBoolean(b: boolean): f32
+let dependOnBoolean = (b: boolean) -> f32
 where b == false
 {
   1.0
@@ -541,13 +546,13 @@ dependOnBoolean(returnBoolean()); // Compiler Error: value constraint not satisf
 ```
 
 ```typescript
-function divide(x: i32, y: i32): i32
+let divide = (x: i32, y: i32)-> i32
 where y != 0
 {
   x / y
 }
 
-function main() {
+let main = ()-> {
   let x = readInt();
   let y = readInt();
   if y != 0 {
@@ -563,12 +568,12 @@ function main() {
 Refinement types consists of all values of a given type which satisfy a given predicate.
 
 ```typescript
-function makeArray(size: i32): Array<i32>
+let makeArray = (size: i32)-> Array<i32>
 where size < 10 && size > 0 {
   return Array<i32>.new(size)
 }
 
-function main() {
+let main = ()-> {
   let size = readInt()
   if size < 10 && size > 0 {
     let arr = makeArray(size) // The function is guaranteed to return an array of size between 1 and 9
@@ -579,12 +584,12 @@ function main() {
 ```
 
 ```typescript
-function inBetween(x: i32, min: i32, max: i32): boolean
+let inBetween = (x: i32, min: i32, max: i32)-> boolean
 where min < max && x >= min
 {
   true
 }
-function main() {
+let main = ()-> {
   let x = readInt();
   let min = readInt();
   let max = readInt();
@@ -601,7 +606,7 @@ function main() {
 `defer` will execute an expression at the end of the current scope.
 
 ```typescript
-function test() {
+let test = ()-> {
   let x = String.from("World!");
   defer {
     println(x);
@@ -619,7 +624,7 @@ test(); // Hello, World!
 ```
 
 ```typescript
-function deferExample() {
+let deferExample = ()-> {
   let mut a = 1;
 
   {
@@ -637,7 +642,7 @@ function deferExample() {
 The builtin `=` function is used to update a `MutableReference`, with the following signature:
 
 ```typescript
-function set!<T: Type, R: Region>(ref: MutableReference<T, R>, value: T): T;
+let set! = <T: Type, R: Region>(ref: MutableReference<T, R>, value: T)-> T;
 
 // `=` is a syntactic sugar for `set!`
 
@@ -686,7 +691,7 @@ Example:
 - Cannot have two mutable references to the same value [E0499](https://doc.rust-lang.org/error_codes/E0499.html).
 
 ```typescript
-function main() {
+let main = ()-> {
   let mut x = 1;
   let mut y: MutableReference<i32> = &!x;
   let mut z: MutableReference<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable more than once at a time.
@@ -698,7 +703,7 @@ type Coord {
   x: i32,
   y: i32
 }
-function main() {
+let main = ()-> {
   let mut p = Coord { x: 1, y: 2 };
   let pRef = &!p;
   let yRef = &!p.y; // Compiler Error: Cannot borrow `p` as mutable more than once at a time.
@@ -706,7 +711,7 @@ function main() {
 ```
 
 ```typescript
-function main() {
+let main = ()-> {
   let mut xs: i32[] = [1, 2, 3];
   let xsRef = &!xs;
   let firstRef = &!xs[0]; // Compiler Error: Cannot borrow `xs` as mutable more than once at a time.
@@ -717,7 +722,7 @@ function main() {
   Cannot have a mutable reference while we have an immutable one [E0502](https://doc.rust-lang.org/error_codes/E0502.html).
 
 ```typescript
-function main() {
+let main = ()-> {
   let mut x = 1;
   let mut y: MutableReference<i32> = &!x;
   let mut z: Reference<i32> = &x; // Compiler Error: Cannot borrow `x` as immutable because it is also borrowed as mutable.
@@ -725,7 +730,7 @@ function main() {
 ```
 
 ```typescript
-function main() {
+let main = ()-> {
   let mut x = 1;
   let mut y: Reference<i32> = &x;
   let mut z: MutableReference<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable because it is also borrowed as immutable.
@@ -735,7 +740,7 @@ function main() {
 - Cannot use the value while it's borrowed [E0503](https://doc.rust-lang.org/error_codes/E0503.html).
 
 ```typescript
-function main() {
+let main = ()-> {
   let mut x = 1;
   let mut y: MutableReference<i32> = &!x;
   let mut _sum = x + 1; // Compiler Error: A value was used after it was mutably borrowed.
@@ -745,7 +750,7 @@ function main() {
 - Cannot consume (move) the value while it's borrowed [E0505](https://doc.rust-lang.org/error_codes/E0505.html), [E0504](https://doc.rust-lang.org/error_codes/E0503.html).
 
 ```typescript
-function main() {
+let main = ()-> {
   let x = String.from("Hello");
   let y: Reference<String> = &x;
   consume(x); // Compiler Error: A value was moved out while it was still borrowed.
@@ -753,7 +758,7 @@ function main() {
 ```
 
 ```typescript
-function main() {
+let main = ()-> {
   let x = String.from("Hello");
   let y: Reference<String> = &x;
 
@@ -766,7 +771,7 @@ function main() {
 - Cannot assign to the value while it's borrowed [E0506](https://doc.rust-lang.org/error_codes/E0506.html).
 
 ```typescript
-function main() {
+let main = ()-> {
   let mut x = 1;
   let y: Reference<i32> = &x;
   x = 2; // Compiler Error: An attempt was made to assign to a borrowed value
@@ -776,7 +781,7 @@ function main() {
 ## Control Flow
 
 ```typescript
-function main() {
+let main = ()-> {
   // If no return type, it is () unit
   let number = 3;
 
@@ -796,16 +801,16 @@ Another reason is that they make it hard to translate the effectful function to 
 #### repeat
 
 ```typescript
-function factorial(n: i32): i32 {
+let factorial = (n: i32)-> i32 {
   let mut result = 1;
-  repeat (n) (i)=> {
+  repeat(n) (i)=> {
     result = result * i;
   }
   return result;
 }
 
 // is equalvalent to
-function factorial(n: i32): i32 {
+let factorial = (n: i32)-> i32 {
   let mut result = 1;
   repeat(n, (i)=> {
     result = result * i
@@ -817,7 +822,7 @@ function factorial(n: i32): i32 {
 #### for
 
 ```typescript
-function print10() {
+let print10 = ()-> {
   for(1, 10) (i)=> {
     println(i);
   }
@@ -825,7 +830,7 @@ function print10() {
 
 // is equalvalent to
 
-function print10() {
+let print10 = ()-> {
   for(1, 10, (i)=> {
     println(i);
   })
@@ -943,7 +948,7 @@ enum Expr<T> {
   EqExpr(left: Expr<i32>, right: Expr<i32>): Expr<boolean>
 }
 
-function eval<T>(expr: Expr<T>): T {
+let eval = <T>(expr: Expr<T>)-> T {
   // with Expr<T>;
   if expr is IntExpr(i) {
     i
@@ -964,7 +969,7 @@ eval(expr1); // false
 let x: Option = Some(1); // x: Option<i32>.Some
                            // .Some means the variant type is Some
 
-function unwrap<T>(x: Option<T>.Some): T {
+let unwrap = <T>(x: Option<T>.Some)-> T {
   x.value
 }
 unwrap(x); // 1
@@ -997,11 +1002,11 @@ instance Summary<NewsArticle> {
 }
 
 // Pass in function
-function notify(item: NewsArticle) {
+let notify = (item: NewsArticle)-> {
   println("Breaking news! ", item.summarize());
 }
 
-function notify<T>(item: T) with Display<T> {
+let notify = <T>(item: T) with Display<T>-> {
   println("Breaking news! ", item.summarize());
   println("Breaking news! ", item.display());
 }
@@ -1016,7 +1021,7 @@ class Drop<T: Linear> {
   drop(self: T): ();
 }
 
-function main() {
+let main = ()-> {
   let x = String.from("Hello");
 
   // If `x` is not consumed, it will be dropped at the end of the scope implicitly.
@@ -1041,7 +1046,7 @@ enum Coin {
 // Reference:
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
-function valueInCents(coin: Coin): u8 {
+let valueInCents = (coin: Coin)-> u8 {
   if coin is Penny {
     println("Lucky penny!");
     return 1;
@@ -1064,7 +1069,7 @@ enum List<T> {
 }
 
 
-function ListLength<T>(list: List<T>): i32 {
+let ListLength = <T>(list: List<T>)-> i32 {
   if list is Nil {
     0
   } else if list is Cons(_, tail) { // Access fields in order.
@@ -1074,7 +1079,7 @@ function ListLength<T>(list: List<T>): i32 {
 
 // or
 
-function ListLength<T>(list: List<T>): i32 {
+let ListLength = <T>(list: List<T>)-> i32 {
   if list is Nil {
     0
   } else if list is Cons {tail} { // Access fields by name.
@@ -1084,7 +1089,7 @@ function ListLength<T>(list: List<T>): i32 {
 
 // or
 
-function ListLength<T>(list: List<T>): i32 {
+let ListLength = <T>(list: List<T>)-> i32 {
   if list is Nil {
     0
   } else if list is Cons {
@@ -1134,7 +1139,7 @@ let emptyArray: i32[0] = [];
 ## Error handling
 
 ```typescript
-function main(): {Exception} () {
+let main = ()-> <Exception> () {
   throw({
     message: "Something went wrong",
   });
@@ -1150,7 +1155,7 @@ enum Result<T, E> {
 }
 
 import { open, drop } from "fs"
-function main() {
+let main = ()-> {
   let greetingFileResult = open("greeting.txt");
 
   if greetingFileResult is Ok(file) {
@@ -1168,7 +1173,7 @@ function main() {
 ```typescript
 type Pointer<T: Type>: Linear;
 
-function main() {
+let main = ()-> {
   // Allocate on heap
   /// malloc
   let dynamicFloat = malloc(@sizeOf<f32>() * 1); // dynamicFloat: Pointer<f32>. Linear type.
@@ -1210,7 +1215,7 @@ Effect is defined using the `effect` keyword.
 
 ```typescript
 effect Exception<T> {
-  control raise(msg: String): T;
+  raise: control (msg: String)-> T;
 }
 ```
 
@@ -1225,7 +1230,7 @@ effect Pure extends Exception, Divergence {}
 Effects are defined order-insensitive.
 
 ```typescript
-function safeDivide(x: i32, y: i32): {Exception, Console} i32 {
+let safeDivide = (x: i32, y: i32)-> <Exception, Console> i32 {
   if y == 0 {
     println("Cannot divide by 0"); // handled by Console effect
     raise("Cannot divide by 0");   // handled by Exception effect
@@ -1238,23 +1243,23 @@ function safeDivide(x: i32, y: i32): {Exception, Console} i32 {
 The following function signatures are equivalent:
 
 ```typescript
-function safeDivide(x: i32, y: i32): {Exception, Console} i32;
-function safeDivide(x: i32, y: i32): {Console, Exception} i32;
+safeDivide: (x: i32, y: i32)-> <Exception, Console> i32;
+safeDivide: (x: i32, y: i32)-> <Console, Exception> i32;
 ```
 
-Function with no effect is written with `{}`, and `{}` can be suppressed in this case:
+Function with no effect is written with `<>`, and `<>` can be suppressed in this case:
 
 ```typescript
-function add(x: i32, y: i32): i32 {
-  // Equivalent to function add(x: i32, y: i32): {} i32
+let add = (x: i32, y: i32)-> i32 {
+  // Equivalent to function add(x: i32, y: i32): <> i32
   x + y;
 }
 ```
 
-Function with zero of more effects is written with `{*}`:
+Function with zero of more effects is written with `<*>`:
 
 ```typescript
-function map<A: Type, B: Type>(xs: &<List<A>>, func: (x: &<A>) => {*} B): {*} List<B>
+map<A: Type, B: Type>(xs: &<List<A>>, func: (x: &<A>) => <*> B): <*> List<B>
 ```
 
 ### Effect handler
@@ -1263,10 +1268,10 @@ Note: **Mo** only supports the **deep handlers**, that is a handler will handle 
 
 ```typescript
 effect Exception<T> {
-  control raise(msg: String): T;
+  raise: control (msg: String)-> T;
 }
 
-function safeDivide(x: i32, y: i32): {Exception<i32>} i32 {
+let safeDivide = (x: i32, y: i32)-> <Exception<i32>> i32 {
   if y == 0 {
     raise("Cannot divide by 0");
   } else {
@@ -1274,11 +1279,11 @@ function safeDivide(x: i32, y: i32): {Exception<i32>} i32 {
   }
 }
 
-function handle() {
+let handle = ()-> {
   try {
     8 + safeDivide(1, 0) + 10 // 60
   } with Exception<i32> {
-    control raise(msg) {
+    raise: control (msg)-> {
       resume 42
     }
   }
@@ -1294,7 +1299,7 @@ effect Input {
   control read(): String;
 }
 
-function hello(): {Input} () {
+let hello = ()-> <Input> () {
   let name = read();
   println("Hello, ", name);
 }
@@ -1303,7 +1308,7 @@ function hello(): {Input} () {
 #### resume
 
 ```typescript
-function main() {
+let main = ()-> {
   try {
     hello(); // Hello Alice
   } with Input {
@@ -1317,7 +1322,7 @@ function main() {
 #### abort
 
 ```typescript
-function main() {
+let main = ()-> {
   try {
     hello(); // Error
     println("Hello, world!"); // This line won't be executed.
@@ -1332,7 +1337,7 @@ function main() {
 #### handling `abort` with `~`
 
 ```typescript
-function example(): { Exception<()> } {
+let example = ()-> <Exception<()>> () {
   let file: File = open("file.txt", "w");
 
   raise("Some exception");
@@ -1345,7 +1350,7 @@ function example(): { Exception<()> } {
 What we can do is to use the `~` operator to handle the `abort`:
 
 ```typescript
-function example(): { Exception<()> } {
+let example = ()-> <Exception<()>> {
   let file: File = open("file.txt", "w");
 
   raise("Some exception") ~ {
@@ -1367,15 +1372,15 @@ Effect with only tail-resumptive operations is called [Linear Effect](<[LinearEf
 
 ```typescript
 effect GiveInt {
-  giveInt(x: i32): i32
+  giveInt: (x: i32)-> i32
 }
 
-function handleGiveInt(): i32 {
+let handleGiveInt = ()-> i32 {
   try {
     let x = giveInt(1);
     println(x); // 2
   } with GiveInt {
-    giveInt(x) {
+    giveInt: (x)-> i32 {
       x + 1
     }
   }
@@ -1389,7 +1394,7 @@ effect Exception<T> {
   control raise(msg: String): T;
 }
 
-function safeDivide(x: i32, y: i32): { Exception<i32>{raise as newRaise} } i32 {
+let safeDivide = (x: i32, y: i32)-> <Exception<i32>{raise as newRaise}> i32 {
   if y == 0 {
     newRaise("Cannot divide by 0");
   } else {
@@ -1401,15 +1406,15 @@ function safeDivide(x: i32, y: i32): { Exception<i32>{raise as newRaise} } i32 {
 ### Effect polymorphism
 
 ```typescript
-{*} // zero or more effects
-{+} // one or more effects
-{?} // zero or one effect
+<*> // zero or more effects
 ```
 
-By default, a function without effect signature by default has `{*:Effect}`, which means the function has zero or more `ControlledEffect` or `LinearEffect` effects.
-
 ```typescript
-function map<A: Type, B: Type>(xs: &<List<A>>, func: (x: &<A>) => {*} B): {*} List<B> {
+let map = <A: Type, B: Type>
+( xs: &<List<A>>, 
+  func: (x: &<A>)=> <*> B
+)-> <*> List<B>
+{
   if xs is Nil {
     Nil
   } else if xs is Cons {
@@ -1428,7 +1433,7 @@ Same as the ECMAScript modules, we use the `import` and `export` keywords to imp
 ```typescript
 import { copy } from "https://github.com/mo-lang/mo/std/fs.mo";
 
-function test() {
+let test = ()-> {
   println("Hello, world!");
 }
 
@@ -1486,7 +1491,7 @@ The type comparison and value comparison cannot be used at the same time.
 The type comparison is done at compile time, while the value comparison is done at runtime.
 
 ```typescript
-function add<T>(x: T): T {
+let add = <T>(x: T)-> T {
   if T == i32 { // Type comparison
     x + 1
   } else if T == f32 {
@@ -1496,7 +1501,7 @@ function add<T>(x: T): T {
   }
 }
 
-function mul(x: i32, y: i32): i32 { x * y }
+let mul = (x: i32, y: i32)-> i32 { x * y }
 
 let x: i32[#mul(2, 3)] = 6;
 ```

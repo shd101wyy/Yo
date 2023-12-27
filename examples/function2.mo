@@ -1,16 +1,16 @@
-function add(x: i32, y: i32) {
+let add = (x: i32, y: i32) -> {
   x + y
 }
 
-function useAdd(cb: (x:i32, y:i32)-> i32) {
+let useAdd = (cb: (x:i32, y:i32)-> i32) -> i32 {
   cb(1, 2)
 }
 
-function useClosureAdd(cb: (x:i32, y:i32)=> i32) {
+let useClosureAdd = (cb: (x:i32, y:i32)=> i32) -> i32 {
   cb(1, 2)
 }
 
-function test() {
+let test = ()-> {
   // Top level function
   let add2 = add;
   useAdd(add);

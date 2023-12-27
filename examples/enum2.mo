@@ -8,4 +8,6 @@ enum Complex<X> {
 }
 
 // FIXME: Complex<Option<i32>> will cause error because of `>>`.  
-extern test(): Complex<Option<i32>>;
+extern "C" {
+  test: ()-> Complex<Option<i32>>;
+}

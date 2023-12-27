@@ -1,5 +1,5 @@
 import { add } from "./add"
 
-function test() {
+let test = ()-> i32 {
   add(3, 4)
 }

@@ -1,5 +1,7 @@
-extern println(x: char[]): ();
+extern "C" {
+  println: (x: char[])-> ();
+}
 
-function main() {
+let main = () -> {
   println("Hello, world!")
 }
