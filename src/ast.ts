@@ -523,11 +523,13 @@ export function exprToString(expr: Expr, indentation = ""): string {
     case AstType.IsOperator:
       return `${exprToString(expr.left)} is ${typeToString(expr.right)}`;
     case AstType.LetAssignment:
-      return `let${expr.isMutable ? " mut" : ""} ${
-        expr.variableName
-      }: ${typeToString(expr.variableType, {
-        hideTypeParameterKind: true,
-      })} = ${exprToString(expr.right)}`;
+      return `let${expr.isMutable ? " mut" : ""} ${expr.variableName}${
+        expr.variableType.type === "Function"
+          ? ""
+          : `: ${typeToString(expr.variableType, {
+              hideTypeParameterKind: true,
+            })}`
+      } = ${exprToString(expr.right)}`;
     case AstType.DestructuringAssignment: {
       const isMutable = expr.isMutable;
       return `let${isMutable ? " mut" : ""} {${expr.left

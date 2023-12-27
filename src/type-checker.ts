@@ -2043,19 +2043,20 @@ export function synthesizeEffectsFromTokens({
       break;
     }
 
-    if (tokens[index].type !== TokenType.Identifier) {
-      throw formatErrorMessage({
-        token: tokens[index],
-        errorMessage: "Expected identifier as effect name",
-        inputString,
-      });
-    }
-    const effectName = tokens[index].value;
-    index = index + 1;
-
-    if (effectName === "*") {
+    if (tokens[index].type === TokenType.Multiply) {
       hasMoreEffects = true;
+      index = index + 1;
     } else {
+      if (tokens[index].type !== TokenType.Identifier) {
+        throw formatErrorMessage({
+          token: tokens[index],
+          errorMessage: "Expected identifier as effect name",
+          inputString,
+        });
+      }
+      const effectName = tokens[index].value;
+      index = index + 1;
+
       let typeArguments: Type[] = [];
       if (tokens[index].type === TokenType.LessThan) {
         const {
@@ -2645,12 +2646,12 @@ export function typeToString(
             (parameter.name ? `${parameter.name}: ` : "") +
             typeToString(parameter.type, { hideTypeParameterKind: true })
         )
-        .join(", ")})${type.isClosure ? "=>" : "->"} ${typeToString(
-        type.returnType,
-        {
-          hideTypeParameterKind: true,
-        }
-      )}`;
+        .join(", ")})${type.isClosure ? "=>" : "->"} ${effectsToString(
+        type.effects,
+        type.hasMoreEffects
+      )}${typeToString(type.returnType, {
+        hideTypeParameterKind: true,
+      })}`;
     }
     case "Union": {
       return `(${type.types.map((type) => typeToString(type)).join(" | ")})`;
@@ -2921,6 +2922,19 @@ ${effect.operations
       effect.regionParameters,
       { hideTypeParameterKind }
     )}`;
+  }
+}
+
+export function effectsToString(
+  effects: TEffect[],
+  hasMoreEffects: boolean
+): string {
+  if (effects.length === 0 && !hasMoreEffects) {
+    return "";
+  } else {
+    return `<${effects.map((effect) => effectToString(effect)).join(", ")}${
+      hasMoreEffects ? (effects.length > 0 ? ", " : "") + `*` : ""
+    }>`;
   }
 }
 
@@ -3208,7 +3222,9 @@ export function getFunctionArgumentsInOrder(
     for (let i = 0; i < functionTypeParamters.length; i++) {
       const typeParameter = functionTypeParamters[i];
       const typeArgument = functionTypeArguments[i];
-      if (typeParameter.name in typeParameterToTypeArgumentMap) {
+      if (typeParameter.appliedType) {
+        functionTypeArgumentsInOrder[i] = typeParameter.appliedType;
+      } else if (typeParameter.name in typeParameterToTypeArgumentMap) {
         console.log(typeArgument);
         // Check type
         if (!typeArgument || typeArgument.type === "unknown") {

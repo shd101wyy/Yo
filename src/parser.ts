@@ -1021,6 +1021,21 @@ ${exprToString(lhs)}
     env = nextEnv;
     index = nextIndex;
 
+    // Extract effect operations
+    if (functionType.effects.length > 0) {
+      functionType.effects.forEach((effect) => {
+        effect.operations.forEach(({ name, func }) => {
+          console.log(JSON.stringify(func, null, 2));
+          env = addEnvValueType(env, {
+            variableName: name,
+            type: func,
+            kind: "value",
+            isMutable: false,
+          });
+        });
+      });
+    }
+
     // Parse body
     const { expr: body, index: nextNextIndex } = this.parseBlockExpressions(
       tokens,

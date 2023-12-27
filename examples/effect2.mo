@@ -1,11 +1,7 @@
-effect GiveInt {
-  giveInt: (x: i32)=> i32;
+effect GiveInt<T> {
+  giveInt: (x: T)-> <*>T;
 }
 
-function test() {
-  try {
-    giveInt(12)
-  } with GiveInt {
-    giveInt: (x: i32) => x + 1
-  }
+let useGiveInt = (x: i32) -> <GiveInt<i32>> i32 {
+  giveInt(x) + x
 }
