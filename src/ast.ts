@@ -13,6 +13,7 @@ import {
   TUnit,
   Type,
   TypeKind,
+  classToString,
   effectToString,
   typeToString,
 } from "./type-checker";
@@ -309,7 +310,8 @@ export type EnumExpr = {
 
 export type ClassExpr = {
   type: AstType.Class;
-  typeValue: TClass;
+  typeValue: TUnit;
+  class: TClass;
   env: Environment;
   token: Token;
 };
@@ -545,9 +547,7 @@ export function exprToString(expr: Expr, indentation = ""): string {
       })}`;
     }
     case AstType.Class:
-      return `${typeToString(expr.typeValue, {
-        extractTypeConstructor: true,
-      })}`;
+      return `${classToString(expr.class)}`;
     case AstType.Enum:
       return `${typeToString(expr.typeValue, {
         extractTypeConstructor: true,

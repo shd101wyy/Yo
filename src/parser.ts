@@ -58,6 +58,7 @@ import {
   Type,
   TypeKind,
   TypeValues,
+  applyTypeArgumentsToClass,
   applyTypeArgumentsToType,
   checkType,
   convertPrimitiveToType,
@@ -640,7 +641,10 @@ export default class Parser {
           index: index + 1,
         };
       }
-    } else if (callerType.type === "Class") {
+    }
+    // FIXME: Now calling function from typeclass like
+    //  `Id.id()` is not supported
+    /* else if (callerType === "Class") {
       const func = callerType.functions.find(
         (property) => property.name === token.value
       );
@@ -666,7 +670,8 @@ export default class Parser {
           )}`
         );
       }
-    } else if (callerType.type === "Enum") {
+    }*/
+    else if (callerType.type === "Enum") {
       const propertyName = token.value;
       const selectedVariantName = callerType.selectedVariantName;
       if (selectedVariantName) {
@@ -1691,8 +1696,7 @@ Got:      <${appliedTypeArguments
       (valueType) => valueType.type.type === "Function"
     );
     const matchedTypeclasses = valueTypes.filter(
-      (valueType) =>
-        valueType.type.type === "Class" && valueType.kind === "class"
+      (valueType) => valueType.class && valueType.kind === "class"
     );
     const matchedEnums = valueTypes.filter(
       (valueType) =>
@@ -1715,11 +1719,11 @@ Found possible typeclasses:
         );
       } else {
         const typeclass = matchedTypeclasses[0];
-        const typeclassType = typeclass.type;
-        if (typeclassType.type !== "Class") {
+        const class_ = typeclass.class;
+        if (!class_) {
           throw this.formatErrorMessage(
             tokens[index],
-            `Expected class, but got ${typeToString(typeclassType)}`
+            `Expected class, but got ${typeToString(typeclass.type)}`
           );
         }
         let typeArguments: Type[] = [];
@@ -1741,27 +1745,21 @@ Found possible typeclasses:
         } else {
           index = index + 1;
         }
-
-        const newTypeclassType = applyTypeArgumentsToType(
-          typeclassType,
+        const newTypeclassType = applyTypeArgumentsToClass(
+          class_,
           typeArguments
         );
-        if (newTypeclassType.type !== "Class") {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Expected class type, but got ${typeToString(newTypeclassType)}`
-          );
-        } else {
-          return {
-            expr: {
-              type: AstType.Class,
-              typeValue: newTypeclassType,
-              env,
-              token: tokens[identifierTokenIndex],
-            },
-            index,
-          };
-        }
+
+        return {
+          expr: {
+            type: AstType.Class,
+            typeValue: TypeValues.unit,
+            class: newTypeclassType,
+            env,
+            token: tokens[identifierTokenIndex],
+          },
+          index,
+        };
       }
     }
 
@@ -3626,7 +3624,7 @@ ${typeToString(functionType)}
       }
     }
 
-    const typeclassType: TClass = {
+    const class_: TClass = {
       type: "Class",
       kind: "Free",
       name: typeclassName,
@@ -3641,7 +3639,8 @@ ${typeToString(functionType)}
       env,
       {
         variableName: typeclassName,
-        type: typeclassType,
+        type: TypeValues.unit,
+        class: class_,
         kind: "class",
         isExported,
       },
@@ -3669,7 +3668,8 @@ ${typeToString(functionType)}
     return {
       expr: {
         type: AstType.Class,
-        typeValue: typeclassType,
+        class: class_,
+        typeValue: TypeValues.unit,
         env,
         token: tokens[classTokenIndex],
       },
@@ -3744,8 +3744,16 @@ ${typeToString(functionType)}
 - ${typeclasses.map((typeclass) => typeToString(typeclass.type)).join("\n- ")}`
       );
     }
-    const typeclassType: TClass = {
-      ...(typeclasses[0].type as TClass),
+    const typeclass = typeclasses[0].class;
+    if (!typeclass) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Cannot find class "${typeclassName}"`
+      );
+    }
+
+    const class_: TClass = {
+      ...typeclass,
       instanceRegionParameters,
       instanceTypeParameters,
       isInstance: true,
@@ -3771,10 +3779,7 @@ ${typeToString(functionType)}
     }
 
     // Apply type arguments to typeclass
-    const typeclassType_ = applyTypeArgumentsToType(
-      typeclassType,
-      typeArguments
-    ) as TClass;
+    const newClass = applyTypeArgumentsToClass(class_, typeArguments) as TClass;
 
     // Parse typeclass body
     const functions: TClassFunction[] = [];
@@ -3838,7 +3843,7 @@ ${typeToString(functionType)}
     }
 
     // Check if all functions in class are implemented correctly
-    for (const typeclassFunction of typeclassType_.functions) {
+    for (const typeclassFunction of newClass.functions) {
       const matchedFunctions = functions.filter(
         (func) => func.name === typeclassFunction.name
       );
@@ -3868,14 +3873,15 @@ Got:      ${typeToString(matchedFunction.func)}`
         }
       }
     }
-    typeclassType_.functions = functions;
+    newClass.functions = functions;
 
     // Add to environment
     env = addEnvValueType(
       env,
       {
         variableName: typeclassName,
-        type: typeclassType_,
+        type: TypeValues.unit,
+        class: newClass,
         kind: "value", // NOTE: We need to set it to "value" instead of "class" because we need to use it as a value
         isExported,
       },
@@ -3886,7 +3892,8 @@ Got:      ${typeToString(matchedFunction.func)}`
     return {
       expr: {
         type: AstType.Class,
-        typeValue: typeclassType_,
+        typeValue: TypeValues.unit,
+        class: newClass,
         env,
         token: tokens[instanceTokenIndex],
       },

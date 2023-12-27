@@ -373,7 +373,6 @@ export type Type =
   //  | TTuple
   | TTypeConstructor
   | TTypeParameter
-  | TClass
   | TEnum
   | TPrimitiveWithValue
   | TExternType;
@@ -1089,25 +1088,6 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`,
       ...typeValue,
       typeArguments,
     };
-  } else if (typeValue.type === "Class") {
-    if (typeValue.typeParameters.length !== typeArguments.length) {
-      throw formatErrorMessage({
-        token: tokens[returnValue.index],
-        errorMessage: `(2) Mismatched type arguments.
-Expected: <${typeValue.typeParameters
-          .map(
-            (typeParameter) => `${typeParameter.name}: ${typeParameter.kind}`
-          )
-          .join(", ")}>
-Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`,
-        inputString,
-      });
-    } else {
-      returnValue.index = index;
-      returnValue.env = env;
-      const typeValue_ = applyTypeArgumentsToType(typeValue, typeArguments);
-      returnValue.typeValue = typeValue_;
-    }
   } else if (typeValue.type === "Enum") {
     if (typeValue.typeParameters.length !== typeArguments.length) {
       throw formatErrorMessage({
@@ -1190,60 +1170,6 @@ export function applyTypeArgumentsToType(
       typeParameters: newTypeParameters,
       regionParameters: type.regionParameters,
       typeValue: newTypeValue,
-    };
-  } else if (type.type === "Class") {
-    if (type.typeParameters.length !== typeArguments.length) {
-      throw new Error(
-        `(4) Mismatched type arguments.
-  Expected: <${type.typeParameters
-    .map((typeParameter) => `${typeParameter.name}: ${typeParameter.kind}`)
-    .join(", ")}>
-  Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
-      );
-    }
-
-    // set typeParameterToTypeArgumentMap
-    const newTypeParameters: TTypeParameter[] = [];
-    for (let i = 0; i < type.typeParameters.length; i++) {
-      const typeParameter = type.typeParameters[i];
-      const typeArgument = typeArguments[i];
-      typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
-      newTypeParameters.push({
-        ...typeParameter,
-        appliedType: typeArgument,
-      });
-    }
-
-    // apply to each of the functions
-    const functions: TClassFunction[] = type.functions.map(
-      ({ name, func, functionExpr }) => ({
-        name,
-        func: applyTypeArgumentsToType(
-          func,
-          typeArguments,
-          typeParameterToTypeArgumentMap
-        ),
-        functionExpr: functionExpr
-          ? applyTypeArgumentsToExpr(
-              functionExpr,
-              typeArguments,
-              typeParameterToTypeArgumentMap
-            )
-          : undefined,
-      })
-    ) as TClassFunction[];
-
-    return {
-      type: "Class",
-      kind: "Free",
-      name: type.name,
-      typeParameters: newTypeParameters,
-      regionParameters: type.regionParameters,
-      functions: functions,
-
-      isInstance: true, // type.isInstance,
-      instanceTypeParameters: type.instanceTypeParameters,
-      instanceRegionParameters: type.instanceRegionParameters,
     };
   } else if (type.type === "Enum") {
     // set typeParameterToTypeArgumentMap
@@ -1473,6 +1399,66 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
     })),
   };
   return newEffect;
+}
+
+export function applyTypeArgumentsToClass(
+  class_: TClass,
+  typeArguments: Type[],
+  typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
+): TClass {
+  if (class_.typeParameters.length !== typeArguments.length) {
+    throw new Error(
+      `(4) Mismatched type arguments.
+Expected: <${class_.typeParameters
+        .map((typeParameter) => `${typeParameter.name}: ${typeParameter.kind}`)
+        .join(", ")}>
+Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
+    );
+  }
+
+  // set typeParameterToTypeArgumentMap
+  const newTypeParameters: TTypeParameter[] = [];
+  for (let i = 0; i < class_.typeParameters.length; i++) {
+    const typeParameter = class_.typeParameters[i];
+    const typeArgument = typeArguments[i];
+    typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
+    newTypeParameters.push({
+      ...typeParameter,
+      appliedType: typeArgument,
+    });
+  }
+
+  // apply to each of the functions
+  const functions: TClassFunction[] = class_.functions.map(
+    ({ name, func, functionExpr }) => ({
+      name,
+      func: applyTypeArgumentsToType(
+        func,
+        typeArguments,
+        typeParameterToTypeArgumentMap
+      ),
+      functionExpr: functionExpr
+        ? applyTypeArgumentsToExpr(
+            functionExpr,
+            typeArguments,
+            typeParameterToTypeArgumentMap
+          )
+        : undefined,
+    })
+  ) as TClassFunction[];
+
+  return {
+    type: "Class",
+    kind: "Free",
+    name: class_.name,
+    typeParameters: newTypeParameters,
+    regionParameters: class_.regionParameters,
+    functions: functions,
+
+    isInstance: true, // type.isInstance,
+    instanceTypeParameters: class_.instanceTypeParameters,
+    instanceRegionParameters: class_.instanceRegionParameters,
+  };
 }
 
 export function applyTypeArgumentsToFunctionExpr(
@@ -2729,29 +2715,6 @@ export function typeToString(
         )}`;
       }
     }
-    case "Class": {
-      return `${
-        type.isInstance
-          ? `instance${typeAndRegionParametersToString(
-              type.instanceTypeParameters ?? [],
-              type.instanceRegionParameters ?? []
-            )}`
-          : "class"
-      } ${type.name}${typeAndRegionParametersToString(
-        type.typeParameters,
-        type.regionParameters,
-        { hideTypeParameterKind: type.isInstance }
-      )} {
-  ${type.functions
-    .map(
-      ({ name, func, functionExpr }) =>
-        `${name}: ${typeToString(func, { extractTypeConstructor: false })}${
-          functionExpr ? ` ${exprToString(functionExpr.body, "  ")}` : ""
-        }`
-    )
-    .join(";\n  ")};
-}`;
-    }
     case "Enum": {
       if (extractTypeConstructor) {
         return `enum ${type.enumName}${typeAndRegionParametersToString(
@@ -2959,6 +2922,30 @@ ${effect.operations
       { hideTypeParameterKind }
     )}`;
   }
+}
+
+export function classToString(type: TClass): string {
+  return `${
+    type.isInstance
+      ? `instance${typeAndRegionParametersToString(
+          type.instanceTypeParameters ?? [],
+          type.instanceRegionParameters ?? []
+        )}`
+      : "class"
+  } ${type.name}${typeAndRegionParametersToString(
+    type.typeParameters,
+    type.regionParameters,
+    { hideTypeParameterKind: type.isInstance }
+  )} {
+${type.functions
+  .map(
+    ({ name, func, functionExpr }) =>
+      `  ${name}: ${typeToString(func, { extractTypeConstructor: false })}${
+        functionExpr ? ` ${exprToString(functionExpr.body, "  ")}` : ""
+      }`
+  )
+  .join(";\n  ")};
+}`;
 }
 
 function checkRecordExactMatchType(

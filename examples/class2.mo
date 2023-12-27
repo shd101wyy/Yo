@@ -6,5 +6,5 @@ export class Id<X: Free, T: Free> {
 
 let main = ()-> {
   let x = id(12);
-  x
+  x;
 }
