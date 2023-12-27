@@ -1,3 +1,3 @@
-effect GiveInt {
-  giveInt: (x: i32) => i32;
+effect GiveInt<T> {
+  giveInt: (x: T)-> T;
 }

@@ -716,6 +716,34 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            case "effect":
+              tokens.push({
+                type: TokenType.Effect,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "resume":
+              tokens.push({
+                type: TokenType.Resume,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "abort":
+              tokens.push({
+                type: TokenType.Abort,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "control":
+              tokens.push({
+                type: TokenType.Control,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
             default:
               tokens.push({
                 type: TokenType.Identifier,

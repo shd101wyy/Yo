@@ -64,6 +64,8 @@ export enum TokenType {
   Case = "case",
   Default = "default",
   Resume = "resume",
+  Abort = "abort",
+  Control = "control",
   Return = "return",
   Break = "break",
   Continue = "continue",

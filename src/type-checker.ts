@@ -2796,37 +2796,6 @@ ${type.variants
   }
 }
 
-export function effectToString(
-  effect: TEffect,
-  {
-    extractTypeConstructor,
-    hideTypeParameterKind,
-  }: {
-    extractTypeConstructor?: boolean | "all";
-    hideTypeParameterKind?: boolean;
-  } = {}
-): string {
-  if (extractTypeConstructor) {
-    return `enum ${effect.effectName}${typeAndRegionParametersToString(
-      effect.typeParameters,
-      effect.regionParameters,
-      { hideTypeParameterKind }
-    )} {
-${effect.operations.map(({ func, isControlled, name }) => {
-  return `  ${isControlled ? "control" : ""}${name}${typeToString(func, {
-    extractTypeConstructor: false,
-  }).replace(/\)(=>|->)\s/, "): ")}`;
-})}
-}`;
-  } else {
-    return `${effect.effectName}${typeAndRegionParametersToString(
-      effect.typeParameters,
-      effect.regionParameters,
-      { hideTypeParameterKind }
-    )}`;
-  }
-}
-
 export function checkType(
   expectedType: Type,
   givenType: Type,
@@ -2956,6 +2925,39 @@ export function typeAndRegionParametersToString(
         ? region.appliedRegion.regionId
         : `${region.name}: Region`
     )}>`;
+  }
+}
+
+export function effectToString(
+  effect: TEffect,
+  {
+    extractTypeConstructor,
+    hideTypeParameterKind,
+  }: {
+    extractTypeConstructor?: boolean | "all";
+    hideTypeParameterKind?: boolean;
+  } = {}
+): string {
+  if (extractTypeConstructor) {
+    return `effect ${effect.effectName}${typeAndRegionParametersToString(
+      effect.typeParameters,
+      effect.regionParameters,
+      { hideTypeParameterKind }
+    )} {
+${effect.operations
+  .map(({ func, isControlled, name }) => {
+    return `  ${name}: ${isControlled ? "control" : ""}${typeToString(func, {
+      extractTypeConstructor: false,
+    })}`;
+  })
+  .join(";\n  ")};
+}`;
+  } else {
+    return `${effect.effectName}${typeAndRegionParametersToString(
+      effect.typeParameters,
+      effect.regionParameters,
+      { hideTypeParameterKind }
+    )}`;
   }
 }
 

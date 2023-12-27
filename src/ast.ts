@@ -3,6 +3,7 @@ import { Token, TokenType } from "./token";
 import {
   TBoolean,
   TClass,
+  TEffect,
   TEnum,
   TFunction,
   TModule,
@@ -12,6 +13,7 @@ import {
   TUnit,
   Type,
   TypeKind,
+  effectToString,
   typeToString,
 } from "./type-checker";
 
@@ -39,7 +41,6 @@ export enum AstType {
   DestructuringAssignment = "destructuring=",
   Assignment = "=",
   TypeAlias = "type=",
-  Class = "class",
 
   // parameters
   TypeParameter = "type-parameter",
@@ -51,11 +52,17 @@ export enum AstType {
   CallFunction = "call-function",
   CallEnum = "call-enum",
 
+  // class
+  Class = "class",
+
   // enum
   Enum = "enum",
 
   // extern
   Extern = "extern",
+
+  // effect
+  Effect = "effect",
 
   // control flow
   If = "if",
@@ -99,6 +106,7 @@ export type Expr =
   | TypeAliasExpr
   | EnumExpr
   | ClassExpr
+  | EffectExpr
   | UnaryOperatorExpr
   | BinaryOperatorExpr
   | IsOperatorExpr
@@ -302,6 +310,14 @@ export type EnumExpr = {
 export type ClassExpr = {
   type: AstType.Class;
   typeValue: TClass;
+  env: Environment;
+  token: Token;
+};
+
+export type EffectExpr = {
+  type: AstType.Effect;
+  typeValue: TUnit;
+  effect: TEffect;
   env: Environment;
   token: Token;
 };
@@ -638,6 +654,12 @@ ${indentation}}`;
           return `  ${variable.name}: ${typeToString(variable.typeValue)};`;
         })
         .join("\n")}\n}`;
+    }
+    case AstType.Effect: {
+      return effectToString(expr.effect, {
+        extractTypeConstructor: true,
+        hideTypeParameterKind: false,
+      });
     }
     default:
       throw new Error(`Unknown expr type ${expr}`);

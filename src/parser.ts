@@ -44,6 +44,8 @@ import {
   RegionKind,
   TClass,
   TClassFunction,
+  TEffect,
+  TEffectOperation,
   TEnum,
   TEnumVariant,
   TFunction,
@@ -2705,7 +2707,10 @@ ${typeToString(caseExprType)}
         });
       }
 
-      if (tokens[index].type === TokenType.Comma) {
+      if (
+        tokens[index].type === TokenType.Semicolon ||
+        tokens[index].type === TokenType.Comma
+      ) {
         index = index + 1;
         continue;
       }
@@ -3547,10 +3552,6 @@ ${typeToString(nextTypeValue)}`
         index = index + 1;
         break;
       }
-      if (tokens[index].type === TokenType.Semicolon) {
-        index = index + 1;
-        continue;
-      }
 
       if (
         tokens[index].type !== TokenType.Identifier &&
@@ -3615,6 +3616,14 @@ ${typeToString(functionType)}
         func: functionType,
         functionExpr,
       });
+
+      if (
+        tokens[index].type === TokenType.Semicolon ||
+        tokens[index].type === TokenType.Comma
+      ) {
+        index = index + 1;
+        continue;
+      }
     }
 
     const typeclassType: TClass = {
@@ -3781,10 +3790,6 @@ ${typeToString(functionType)}
         index = index + 1;
         break;
       }
-      if (tokens[index].type === TokenType.Semicolon) {
-        index = index + 1;
-        continue;
-      }
 
       if (
         tokens[index].type !== TokenType.Identifier &&
@@ -3822,6 +3827,14 @@ ${typeToString(functionType)}
         func: functionType,
         functionExpr,
       });
+
+      if (
+        tokens[index].type === TokenType.Semicolon ||
+        tokens[index].type === TokenType.Comma
+      ) {
+        index = index + 1;
+        continue;
+      }
     }
 
     // Check if all functions in class are implemented correctly
@@ -3876,6 +3889,197 @@ Got:      ${typeToString(matchedFunction.func)}`
         typeValue: typeclassType_,
         env,
         token: tokens[instanceTokenIndex],
+      },
+      index,
+    };
+  }
+
+  private parseEffectExpr(
+    tokens: Token[],
+    index: number,
+    env: Environment,
+    isExported: boolean = false
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.Effect) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "effect" for effect declaration'
+      );
+    }
+    const effectTokenIndex = index;
+    index = index + 1;
+
+    if (tokens[index].type !== TokenType.Identifier) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected identifier for effect name"
+      );
+    }
+    const effectName = tokens[index].value;
+    index = index + 1;
+
+    // effectName has to be UpperCamelCase
+    if (!isUpperCamelCase(effectName)) {
+      throw this.formatErrorMessage(
+        tokens[index - 1],
+        "Effect name has to be UpperCamelCase"
+      );
+    }
+
+    // NOTE: This is necessary for type parameters and recursive type alias
+    env = pushEnvFrame(env);
+
+    // Type parameters
+    let typeParameters: TTypeParameter[] = [];
+    let regionParameters: TRegionParameter[] = [];
+    if (tokens[index].type === TokenType.LessThan) {
+      const {
+        index: nextIndex,
+        typeParameters: tp,
+        regionParameters: rp,
+        env: nextEnv,
+      } = synthesizeTypeAndRegionParametersFromTokens({
+        tokens,
+        index,
+        env,
+        inputString: this.inputString,
+      });
+      index = nextIndex;
+      typeParameters = tp;
+      regionParameters = rp;
+      env = nextEnv;
+    }
+
+    env = addEnvValueType(env, {
+      variableName: effectName,
+      type: {
+        type: "unknown",
+        kind: "Free",
+        typeName: effectName,
+      },
+      effect: {
+        effectName,
+        operations: [],
+        type: "Effect",
+        regionParameters: regionParameters,
+        typeParameters: typeParameters,
+      },
+      kind: "effect",
+      isExported,
+    });
+
+    // Parse effect body
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for effect body"
+      );
+    }
+    index = index + 1;
+    const operations: TEffectOperation[] = [];
+    while (true) {
+      if (!tokens[index]) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected '}' for effect body"
+        );
+      }
+
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+
+      if (tokens[index].type !== TokenType.Identifier) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected identifier for effect operation"
+        );
+      }
+      const operationName = tokens[index].value;
+      index = index + 1;
+
+      if (tokens[index].type !== TokenType.Colon) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected ':' for effect operation type"
+        );
+      }
+      index = index + 1;
+
+      let isControlled = false;
+      if (tokens[index].type === TokenType.Control) {
+        isControlled = true;
+        index = index + 1;
+      }
+
+      // parse function type
+      const {
+        index: nextIndex,
+        typeValue: functionType,
+        env: nextEnv,
+      } = synthesizeFunctionTypeFromTokens({
+        tokens,
+        index,
+        env,
+        inputString: this.inputString,
+        parseExpression: this.parseExpression.bind(this),
+        withFunctionBody: false,
+      });
+      index = nextIndex;
+      env = nextEnv;
+
+      if (functionType.typeParameters.length > 0) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Type parameters are not allowed in effect operations as it uses the type parameters defined in the effect itself`
+        );
+      }
+      functionType.typeParameters = typeParameters;
+      functionType.regionParameters = regionParameters;
+
+      operations.push({
+        name: operationName,
+        func: functionType,
+        isControlled,
+      });
+
+      if (
+        tokens[index].type === TokenType.Semicolon ||
+        tokens[index].type === TokenType.Comma
+      ) {
+        index = index + 1;
+        continue;
+      }
+    }
+
+    // Add to environment
+    const effectType: TEffect = {
+      type: "Effect",
+      effectName,
+      operations,
+      regionParameters,
+      typeParameters,
+    };
+    env = addEnvValueType(
+      env,
+      {
+        variableName: effectName,
+        type: TypeValues.unit,
+        effect: effectType,
+        kind: "effect",
+        isExported,
+      },
+      -1
+    );
+    env = popEnvFrame(env);
+    return {
+      expr: {
+        type: AstType.Effect,
+        effect: effectType,
+        typeValue: TypeValues.unit,
+        env,
+        token: tokens[effectTokenIndex],
       },
       index,
     };
@@ -3965,10 +4169,6 @@ Got:      ${typeToString(matchedFunction.func)}`
         index = index + 1;
         break;
       }
-      if (tokens[index].type === TokenType.Comma) {
-        index = index + 1;
-        continue;
-      }
 
       if (tokens[index].type !== TokenType.Identifier) {
         throw this.formatErrorMessage(
@@ -4011,6 +4211,14 @@ Got:      ${typeToString(matchedFunction.func)}`
         name: enumVariantName,
         parameterTypes,
       });
+
+      if (
+        tokens[index].type === TokenType.Semicolon ||
+        tokens[index].type === TokenType.Comma
+      ) {
+        index = index + 1;
+        continue;
+      }
     }
 
     if (enumVariants.length === 0) {
@@ -4395,6 +4603,18 @@ ${exprToString(expr)}`
         exportExpr = expr;
         break;
       }
+      case TokenType.Effect: {
+        const { expr, index: nextIndex } = this.parseEffectExpr(
+          tokens,
+          index,
+          env,
+          true
+        );
+        index = nextIndex;
+        env = expr.env;
+        exportExpr = expr;
+        break;
+      }
       case TokenType.Instance: {
         const { expr, index: nextIndex } = this.parseInstanceExpr(
           tokens,
@@ -4693,6 +4913,19 @@ ${exprToString(expr)}`
         }
         case TokenType.Class: {
           const { expr, index: nextIndex } = this.parseClassExpr(
+            tokens,
+            index,
+            env
+          );
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = expr.env;
+          break;
+        }
+        case TokenType.Effect: {
+          const { expr, index: nextIndex } = this.parseEffectExpr(
             tokens,
             index,
             env
