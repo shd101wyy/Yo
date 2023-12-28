@@ -1152,6 +1152,7 @@ export function applyTypeArgumentsToType(
   typeArguments: Type[],
   typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
 ): Type {
+  /*
   console.log("- applyTypeArgumentsToType");
   console.log("  - type: ", type.type);
   console.log("    - typeToString(type): ", typeToString(type));
@@ -1163,6 +1164,7 @@ export function applyTypeArgumentsToType(
     "  - typeParameterToTypeArgumentMap: ",
     typeParameterToTypeArgumentMap
   );
+  */
   if (type.type === "TypeConstructor") {
     const typeValue = type.typeValue;
     if (type.typeParameters.length !== typeArguments.length) {
@@ -1549,6 +1551,7 @@ export function applyTypeArgumentsToExpr(
   typeArguments: Type[],
   typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
 ): Expr {
+  /*
   console.log("- applyTypeArgumentsToExpr");
   console.log("  - expr: ", exprToString(expr));
   console.log(
@@ -1559,6 +1562,7 @@ export function applyTypeArgumentsToExpr(
     "  - typeParameterToTypeArgumentMap: ",
     typeParameterToTypeArgumentMap
   );
+  */
   switch (expr.type) {
     case AstType.Value: {
       switch (expr.tag) {
@@ -3233,6 +3237,7 @@ export function getFunctionArgumentsInOrder(
   functionTypeParamters: TTypeParameter[],
   env: Environment
 ): { functionArguments: Expr[] | null; functionTypeArguments: Type[] | null } {
+  /*
   console.log("- getFunctionArgumentsInOrder: ");
   console.log(
     "  - functionParameterTypes: ",
@@ -3256,6 +3261,7 @@ export function getFunctionArgumentsInOrder(
     "  - functionTypeParamters: ",
     functionTypeParamters.map((type) => typeToString(type))
   );
+  */
 
   const functionArgumentsInOrder: (Expr | null)[] = functionParameterTypes.map(
     (pt) => pt.defaultValue
@@ -3294,16 +3300,18 @@ export function getFunctionArgumentsInOrder(
     return { functionArguments: null, functionTypeArguments: null };
   } else {
     // Check if the functionArgumentsInOrder has the same types as the functionParameterTypes
-    console.log("  - check functionArgumentsInOrder types");
+    // console.log("  - check functionArgumentsInOrder types");
     for (let i = 0; i < functionArgumentsInOrder.length; i++) {
       const argument = functionArgumentsInOrder[i];
       const parameterType = functionParameterTypes[i];
+      /*
       console.log("    - argument: ", typeToString(argument!.typeValue!));
       console.log("    - parameterType: ", typeToString(parameterType.type));
       console.log(
         "    - checkType: ",
         checkType(parameterType.type, argument!.typeValue, env)
       );
+      */
       if (
         !argument ||
         !checkType(parameterType.type, argument.typeValue, env)
@@ -3330,10 +3338,12 @@ export function getFunctionArgumentsInOrder(
           convertPrimitiveToType(argumentType);
       }
     }
+    /*
     console.log(
       "  - typeParameterToTypeArgumentMap: ",
       typeParameterToTypeArgumentMap
     );
+    */
 
     for (let i = 0; i < functionTypeParamters.length; i++) {
       const typeParameter = functionTypeParamters[i];
@@ -3341,7 +3351,7 @@ export function getFunctionArgumentsInOrder(
       if (typeParameter.appliedType) {
         functionTypeArgumentsInOrder[i] = typeParameter.appliedType;
       } else if (typeParameter.name in typeParameterToTypeArgumentMap) {
-        console.log(typeArgument);
+        // console.log(typeArgument);
         // Check type
         if (!typeArgument || typeArgument.type === "unknown") {
           functionTypeArgumentsInOrder[i] =
@@ -3364,10 +3374,12 @@ export function getFunctionArgumentsInOrder(
         };
       } */
     }
+    /*
     console.log(
       "  - functionTypeArgumentsInOrder: ",
       functionTypeArgumentsInOrder.map((type) => typeToString(type))
     );
+    */
 
     return {
       functionArguments: functionArgumentsInOrder as Expr[],

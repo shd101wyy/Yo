@@ -21,9 +21,9 @@ export class CodeGenerator {
   public loadModule(
     modulePath: string,
     {
-      printLexer,
-      printParser,
-    }: { printLexer?: boolean; printParser?: boolean } = {}
+      printTokens,
+      printAst,
+    }: { printTokens?: boolean; printAst?: boolean } = {}
   ): TModule {
     let module = this.modules.get(modulePath);
     if (module) {
@@ -31,8 +31,8 @@ export class CodeGenerator {
     }
     console.log(`= Loading module ${modulePath}`);
     const parser = new Parser(modulePath, this.loadModule.bind(this), {
-      printLexer,
-      printParser,
+      printTokens,
+      printAst,
     });
     module = parser.generateModule();
     console.log(`= Loaded module ${modulePath}`);

@@ -45,13 +45,13 @@ mo run <script>                  Run a script defined in 'mo.json'
     demandOption: false,
     default: "c",
   })
-  .option("lexer", {
+  .option("print-tokens", {
     describe: "Print tokens generated from lexer",
     type: "boolean",
     demandOption: false,
     default: false,
   })
-  .option("parser", {
+  .option("print-ast", {
     describe: "Print AST generated from parser",
     type: "boolean",
     demandOption: false,
@@ -80,8 +80,8 @@ mo run <script>                  Run a script defined in 'mo.json'
 
       const compiler = new CodeGenerator();
       compiler.loadModule(absolutePath, {
-        printLexer: argv.lexer,
-        printParser: argv.parser,
+        printTokens: argv.printTokens,
+        printAst: argv.printAst,
       });
     }
   )

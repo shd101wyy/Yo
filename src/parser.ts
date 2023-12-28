@@ -100,7 +100,7 @@ export default class Parser {
   constructor(
     modulePath: string,
     loadModule: (modulePath: string) => TModule,
-    { printLexer, printParser }: { printLexer?: boolean; printParser?: boolean }
+    { printTokens, printAst }: { printTokens?: boolean; printAst?: boolean }
   ) {
     this.modulePath = modulePath;
 
@@ -116,7 +116,7 @@ export default class Parser {
       "utf-8"
     );
     this.tokens = tokenize(this.inputString);
-    if (printLexer) {
+    if (printTokens) {
       console.log(`= lexer: `, this.tokens);
     }
 
@@ -124,7 +124,7 @@ export default class Parser {
     this.ast = ast;
     this.env = env;
 
-    if (printParser) {
+    if (printAst) {
       console.log("\n= parser: ");
       this.ast.map((expr) => console.log(exprToString(expr)));
       console.log("\n= parser end\n");
