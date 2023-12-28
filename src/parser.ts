@@ -2472,7 +2472,7 @@ Got     : ${effectsToString(
         if (!parserData.isControlledEffectOperation) {
           throw this.formatErrorMessage(
             token,
-            `Unable to use ${token.type} outside of controlled effect operation.`
+            `Unable to use "${token.type}" outside of controlled effect operation.`
           );
         }
 
@@ -5422,6 +5422,20 @@ ${exprToString(expr)}`
 
         if (parserData.abortType !== undefined) {
           parserDataListToCheckForAbort.push(parserData);
+        }
+
+        // FIXME: This check is actually not enough,
+        // because there might be a `if` statement, and one branch doesn't
+        // have `resume` or `abort` but the other branch does.
+        if (
+          isControlled &&
+          parserData.resumeType === undefined &&
+          parserData.abortType === undefined
+        ) {
+          throw this.formatErrorMessage(
+            operationTokens[operations.length],
+            `Controlled effect operation must have either "resume" or "abort"`
+          );
         }
 
         operations.push({
