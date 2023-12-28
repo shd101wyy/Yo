@@ -1491,7 +1491,7 @@ Got:      <${functionTypeArgumentsInOrder
     env = nextEnv;
 
     // Check function effects
-    if (!checkFunctionEffects(caller, calleeTypeValue)) {
+    if (!checkFunctionEffects(caller, calleeTypeValue, env)) {
       throw this.formatErrorMessage(
         tokens[startIndex],
         `Mismatched effects:
@@ -4139,7 +4139,7 @@ Got:      ${typeToString(matchedFunction.func)}`
           `Type parameters are not allowed in effect operations as it uses the type parameters defined in the effect itself`
         );
       }
-      if (!functionType.effects.some((e) => checkEffect(fakeEffect, e))) {
+      if (!functionType.effects.some((e) => checkEffect(fakeEffect, e, env))) {
         throw this.formatErrorMessage(
           tokens[index - 1],
           `Effect operations must use the effect "${effectName}".

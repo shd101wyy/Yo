@@ -2861,7 +2861,7 @@ export function checkType(
           checkType(parameterType.type, givenType.parameterTypes[i].type, env)
         ) &&
         checkType(expectedType.returnType, givenType.returnType, env) &&
-        checkFunctionEffects(expectedType, givenType)
+        checkFunctionEffects(expectedType, givenType, env)
       );
     } else if (expectedTypeType === "Enum" && givenTypeType === "Enum") {
       return checkEnumExactMatchType(expectedType, givenType, env);
@@ -2906,52 +2906,51 @@ export function checkRegion(
 
 export function checkEffect(
   expectedEffect: TEffect,
-  givenEffect: TEffect
+  givenEffect: TEffect,
+  env: Environment
 ): boolean {
   // FIXME: Let's check ID in the future.
-  return expectedEffect.effectName === givenEffect.effectName;
-  /*
-  console.log("- checkEffect: ", expectedEffect, givenEffect);
   if (expectedEffect.effectName !== givenEffect.effectName) {
     return false;
   }
   if (
-    expectedEffect.typeParameters.length !== givenEffect.typeParameters.length
-  ) {
-    return false;
-  }
-  if (
+    expectedEffect.typeParameters.length !==
+      givenEffect.typeParameters.length ||
     expectedEffect.regionParameters.length !==
-    givenEffect.regionParameters.length
+      givenEffect.regionParameters.length
   ) {
     return false;
   }
+
+  for (let i = 0; i < expectedEffect.typeParameters.length; i++) {
+    const expectedTypeParameter = expectedEffect.typeParameters[i];
+    const givenTypeParameter = givenEffect.typeParameters[i];
+    if (!checkType(expectedTypeParameter, givenTypeParameter, env)) {
+      return false;
+    }
+  }
+  for (let i = 0; i < expectedEffect.regionParameters.length; i++) {
+    const expectedRegionParameter = expectedEffect.regionParameters[i];
+    const givenRegionParameter = givenEffect.regionParameters[i];
+    if (!checkRegion(expectedRegionParameter, givenRegionParameter)) {
+      return false;
+    }
+  }
+
+  /*
+  // NOTE: No need to check operations.  
   if (expectedEffect.operations.length !== givenEffect.operations.length) {
     return false;
   }
-  return expectedEffect.operations.every((expectedOperation) => {
-    return givenEffect.operations.some((givenOperation) => {
-      if (expectedOperation.name !== givenOperation.name) {
-        console.log("Here 1");
-        return false;
-      }
-      if (expectedOperation.isControlled !== givenOperation.isControlled) {
-        console.log("Here 2");
-        return false;
-      }
-      if (!checkType(expectedOperation.func, givenOperation.func, env)) {
-        console.log("Here 3");
-        return false;
-      }
-      return true;
-    });
-  });
   */
+
+  return true;
 }
 
 export function checkFunctionEffects(
   expectedFunction: TFunction,
-  givenFunction: TFunction
+  givenFunction: TFunction,
+  env: Environment
 ) {
   if (expectedFunction.hasMoreEffects) {
     return true;
@@ -2962,7 +2961,7 @@ export function checkFunctionEffects(
   } else {
     return expectedFunction.effects.every((expectedEffect) => {
       return givenFunction.effects.some((givenEffect) => {
-        return checkEffect(expectedEffect, givenEffect);
+        return checkEffect(expectedEffect, givenEffect, env);
       });
     });
   }
