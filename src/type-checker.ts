@@ -1276,7 +1276,7 @@ export function applyTypeArgumentsToType(
       });
     }
 
-    return {
+    const newFunctionType: TFunction = {
       ...type,
       typeParameters: newTypeParameters,
       parameterTypes: type.parameterTypes.map(
@@ -1296,7 +1296,15 @@ export function applyTypeArgumentsToType(
         typeArguments,
         typeParameterToTypeArgumentMap
       ),
+      effects: type.effects.map((effect) =>
+        applyTypeArgumentsToEffect(
+          effect,
+          typeArguments,
+          typeParameterToTypeArgumentMap
+        )
+      ),
     };
+    return newFunctionType;
   } else {
     switch (type.type) {
       case "TypeParameter": {

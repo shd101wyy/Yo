@@ -4750,6 +4750,7 @@ ${exprToString(expr)}`
 
       // Parse effect body
       const operations: TEffectOperation[] = [];
+      const operationTokens: Token[] = [];
       if (tokens[index].type !== TokenType.LCurlyBracket) {
         throw this.formatErrorMessage(
           tokens[index],
@@ -4777,6 +4778,7 @@ ${exprToString(expr)}`
           );
         }
         const operationName = tokens[index].value;
+        operationTokens.push(tokens[index]);
         index = index + 1;
 
         if (tokens[index].type !== TokenType.Colon) {
@@ -4818,7 +4820,8 @@ ${exprToString(expr)}`
       }
 
       // Check if the effect is implemented correctly
-      for (const effectOperation of newEffect.operations) {
+      for (let i = 0; i < newEffect.operations.length; i++) {
+        const effectOperation = newEffect.operations[i];
         const matchedOperations = operations.filter(
           (operation) => operation.name === effectOperation.name
         );
@@ -4843,11 +4846,13 @@ Expected: ${typeToString(effectOperation.func)}`
         const matchedOperation = matchedOperations[0];
         if (!checkType(effectOperation.func, matchedOperation.func, env)) {
           throw this.formatErrorMessage(
-            tokens[index],
+            operationTokens[i],
             `Mismatched function type:
 Expected: ${typeToString(effectOperation.func)}
 Got:      ${typeToString(matchedOperation.func)}`
           );
+        } else {
+          matchedOperation.func = effectOperation.func;
         }
       }
       // Add operations to env
