@@ -509,21 +509,6 @@ let s = String.from("Hello, world");
 length(&s); // 12
 ```
 
-### Function Overloading
-
-Function definitions with the same name must differ on the argument types.
-
-For example, below is allowed:
-
-```typescript
-let show = (x: i32)-> {
-  println(x);
-}
-let show = (x: string)-> {
-  println(x);
-}
-```
-
 ### Dependent types `In Design`
 
 Dependent types are types which depend on values.
@@ -1011,6 +996,36 @@ let notify = <T>(item: T) with Display<T>-> {
   println("Breaking news! ", item.display());
 }
 ```
+
+### Function Overloading
+
+Function overloading can be achieved using typeclass.  
+
+For example:
+
+```typescript
+class Id<T> {
+  id: (x: T)-> T;
+}
+
+instance Id<i32> {
+  id(x: i32): i32 {
+    x
+  }
+}
+
+instance Id<f32> {
+  id(x: f32): f32 {
+    x
+  }
+}
+
+let main = ()-> {
+  let x = id(1);  // x: i32
+  let y = id(3.2) // y: f32
+}
+```
+
 
 ### Implicit `drop` function on `Linear` types
 

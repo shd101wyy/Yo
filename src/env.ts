@@ -150,6 +150,18 @@ export function addEnvFreeVariable(
   };
 }
 
+export function isVariableNameInEnvFrame(
+  env: Environment,
+  variableName: string,
+  frameLevel?: number
+): boolean {
+  const frameLevel_ = frameLevel ?? getEnvCurrentFrameLevel(env);
+  const frame = env.frames[frameLevel_];
+  return frame.values.some(
+    (valueType) => valueType.variableName === variableName
+  );
+}
+
 export function getEnvValueTypesByVariableName(
   env: Environment,
   variableName: string,

@@ -31,6 +31,7 @@ import {
   getEnvCurrentFrameLevel,
   getEnvCurrentRegionId,
   getEnvValueTypesByVariableName,
+  isVariableNameInEnvFrame,
   popEnvFrame,
   pushEnvFrame,
   updateExistingValueType,
@@ -785,6 +786,7 @@ export default class Parser {
       // Try all functions to see if there is a match
       const parserReturns: ParserReturn[] = [];
       const parsedFunctions: ValueType[] = [];
+      const matchedFunctionErrors: Error[] = [];
       for (const functionType of matchedFunctions) {
         try {
           parserReturns.push(
@@ -808,6 +810,7 @@ export default class Parser {
           parsedFunctions.push(functionType);
         } catch (error) {
           // Ignore the error
+          matchedFunctionErrors.push(error);
         }
       }
       if (parserReturns.length === 0) {
@@ -830,6 +833,7 @@ Found possible functions:
             .join("\n- ")}`
         );
       } else {
+        /*
         const calleeTypeValue = parsedFunctions[0].type as TFunction;
         // Check function effects
         if (!checkFunctionEffects(caller, calleeTypeValue)) {
@@ -844,6 +848,7 @@ Got     : ${effectsToString(
 `
           );
         }
+        */
 
         return parserReturns[0];
       }
@@ -1490,8 +1495,8 @@ Got:      <${functionTypeArgumentsInOrder
       throw this.formatErrorMessage(
         tokens[startIndex],
         `Mismatched effects:
-Expected: ${effectsToString(caller.effects, caller.hasMoreEffects)}
-Got     : ${effectsToString(
+Caller  : ${effectsToString(caller.effects, caller.hasMoreEffects)}
+Callee  : ${effectsToString(
           calleeTypeValue.effects,
           calleeTypeValue.hasMoreEffects
         )}
@@ -1955,7 +1960,7 @@ ${matchedFunctionErrors[i]}`
         );
       } else {
         // FIXME: Might need to check `isFreeVariable` here as well
-
+        /*
         const calleeTypeValue = parsedFunctions[0].type as TFunction;
         // Check function effects
         if (!checkFunctionEffects(caller, calleeTypeValue)) {
@@ -1970,6 +1975,7 @@ Got     : ${effectsToString(
 `
           );
         }
+        */
 
         return parserReturns[0];
       }
@@ -2943,6 +2949,7 @@ ${typeToString(caseReturnType)}
         "Expected identifier for const assignment"
       );
     }
+    const variableNameTokenIndex = index;
     const variableName = tokens[index].value;
     index = index + 1;
 
@@ -3078,6 +3085,15 @@ Got:      ${typeToString(variableType)}`
           }
         }
       }
+    }
+
+    if (
+      isVariableNameInEnvFrame(env, variableName, getEnvCurrentFrameLevel(env))
+    ) {
+      throw this.formatErrorMessage(
+        tokens[variableNameTokenIndex],
+        `Variable "${variableName}" is already defined in this block scope`
+      );
     }
 
     // Add variable to env
