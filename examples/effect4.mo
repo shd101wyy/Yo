@@ -1,5 +1,5 @@
 effect GiveData<T> {
-  giveData: (x: T)-> T;
+  giveData: (x: T)-> <GiveData<T>> T;
 }
 
 let main = (x: i32) -> i32 {

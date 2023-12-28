@@ -485,6 +485,19 @@ export const TypeValues: {
   },
 };
 
+export const emptyFunctionThatHasMoreEffects: TFunction = {
+  effects: [],
+  hasMoreEffects: true,
+  frameLevel: 0,
+  isClosure: false,
+  kind: "Free",
+  parameterTypes: [],
+  regionParameters: [],
+  returnType: TypeValues.unit,
+  type: "Function",
+  typeParameters: [],
+};
+
 export type ParserReturn = {
   expr: Expr;
   index: number;
@@ -2657,7 +2670,8 @@ export function typeToString(
         )
         .join(", ")})${type.isClosure ? "=>" : "->"} ${effectsToString(
         type.effects,
-        type.hasMoreEffects
+        type.hasMoreEffects,
+        { hideTypeParameterKind: true }
       )}${typeToString(type.returnType, {
         hideTypeParameterKind: true,
       })}`;
@@ -2838,7 +2852,8 @@ export function checkType(
         expectedType.parameterTypes.every((parameterType, i) =>
           checkType(parameterType.type, givenType.parameterTypes[i].type, env)
         ) &&
-        checkType(expectedType.returnType, givenType.returnType, env)
+        checkType(expectedType.returnType, givenType.returnType, env) &&
+        checkFunctionEffects(expectedType, givenType)
       );
     } else if (expectedTypeType === "Enum" && givenTypeType === "Enum") {
       return checkEnumExactMatchType(expectedType, givenType, env);
@@ -2878,6 +2893,70 @@ export function checkRegion(
       expectedRegion.appliedRegion.regionId ===
       givenRegion.appliedRegion?.regionId
     );
+  }
+}
+
+export function checkEffect(
+  expectedEffect: TEffect,
+  givenEffect: TEffect
+): boolean {
+  // FIXME: Let's check ID in the future.
+  return expectedEffect.effectName === givenEffect.effectName;
+  /*
+  console.log("- checkEffect: ", expectedEffect, givenEffect);
+  if (expectedEffect.effectName !== givenEffect.effectName) {
+    return false;
+  }
+  if (
+    expectedEffect.typeParameters.length !== givenEffect.typeParameters.length
+  ) {
+    return false;
+  }
+  if (
+    expectedEffect.regionParameters.length !==
+    givenEffect.regionParameters.length
+  ) {
+    return false;
+  }
+  if (expectedEffect.operations.length !== givenEffect.operations.length) {
+    return false;
+  }
+  return expectedEffect.operations.every((expectedOperation) => {
+    return givenEffect.operations.some((givenOperation) => {
+      if (expectedOperation.name !== givenOperation.name) {
+        console.log("Here 1");
+        return false;
+      }
+      if (expectedOperation.isControlled !== givenOperation.isControlled) {
+        console.log("Here 2");
+        return false;
+      }
+      if (!checkType(expectedOperation.func, givenOperation.func, env)) {
+        console.log("Here 3");
+        return false;
+      }
+      return true;
+    });
+  });
+  */
+}
+
+export function checkFunctionEffects(
+  expectedFunction: TFunction,
+  givenFunction: TFunction
+) {
+  if (expectedFunction.hasMoreEffects) {
+    return true;
+  } else if (givenFunction.hasMoreEffects) {
+    return false;
+  } else if (expectedFunction.effects.length !== givenFunction.effects.length) {
+    return false;
+  } else {
+    return expectedFunction.effects.every((expectedEffect) => {
+      return givenFunction.effects.some((givenEffect) => {
+        return checkEffect(expectedEffect, givenEffect);
+      });
+    });
   }
 }
 
@@ -2938,12 +3017,23 @@ ${effect.operations
 
 export function effectsToString(
   effects: TEffect[],
-  hasMoreEffects: boolean
+  hasMoreEffects: boolean,
+  {
+    hideTypeParameterKind,
+    extractTypeConstructor,
+  }: { hideTypeParameterKind?: boolean; extractTypeConstructor?: boolean } = {}
 ): string {
   if (effects.length === 0 && !hasMoreEffects) {
     return "";
   } else {
-    return `<${effects.map((effect) => effectToString(effect)).join(", ")}${
+    return `<${effects
+      .map((effect) =>
+        effectToString(effect, {
+          hideTypeParameterKind,
+          extractTypeConstructor,
+        })
+      )
+      .join(", ")}${
       hasMoreEffects ? (effects.length > 0 ? ", " : "") + `*` : ""
     }>`;
   }
