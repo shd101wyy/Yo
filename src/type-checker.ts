@@ -318,6 +318,8 @@ export type TEffect = {
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
   operations: TEffectOperation[];
+
+  // NOTE: Below are for "handler"
   isHandler?: boolean;
 };
 
@@ -1403,6 +1405,7 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
         typeParameterToTypeArgumentMap
       ) as TFunction,
     })),
+    isHandler: true,
   };
   return newEffect;
 }
@@ -2909,16 +2912,18 @@ export function effectToString(
   } = {}
 ): string {
   if (extractTypeConstructor) {
-    return `effect ${effect.effectName}${typeAndRegionParametersToString(
+    return `${effect.isHandler ? "" : "effect "}${
+      effect.effectName
+    }${typeAndRegionParametersToString(
       effect.typeParameters,
       effect.regionParameters,
       { hideTypeParameterKind }
     )} {
 ${effect.operations
-  .map(({ func, isControlled, name }) => {
+  .map(({ func, isControlled, name, functionExpr }) => {
     return `  ${name}: ${isControlled ? "control" : ""}${typeToString(func, {
       extractTypeConstructor: false,
-    })}`;
+    })}${functionExpr ? ` ${exprToString(functionExpr.body, "  ")}` : ""}`;
   })
   .join(";\n  ")};
 }`;

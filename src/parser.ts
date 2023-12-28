@@ -59,6 +59,7 @@ import {
   TypeKind,
   TypeValues,
   applyTypeArgumentsToClass,
+  applyTypeArgumentsToEffect,
   applyTypeArgumentsToType,
   checkType,
   convertPrimitiveToType,
@@ -1089,26 +1090,6 @@ Returned : ${typeToString(body.typeValue)}
     if (tokens[index].type !== TokenType.LParen) {
       throw this.formatErrorMessage(tokens[index], "Expected left paren");
     }
-
-    let index_ = index + 1;
-    let rParenIndex = -1;
-    let parenCount = 1;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      if (!tokens[index_]) {
-        break;
-      } else if (tokens[index_].type === TokenType.LParen) {
-        parenCount = parenCount + 1;
-      } else if (tokens[index_].type === TokenType.RParen) {
-        parenCount = parenCount - 1;
-      }
-      if (parenCount === 0) {
-        rParenIndex = index_;
-        break;
-      }
-      index_ = index_ + 1;
-    }
-
     if (
       tokens[index + 1]?.type === TokenType.RParen &&
       tokens[index + 2]?.type !== TokenType.FatArrow &&
@@ -1131,6 +1112,7 @@ Returned : ${typeToString(body.typeValue)}
       };
     }
 
+    const rParenIndex = this.findTokenIndexForRBracket(tokens, index);
     if (
       // Anonymous function
       rParenIndex > 0 &&
@@ -2030,6 +2012,10 @@ Found possible functions:
       }
       case TokenType.Defer: {
         return this.parseDeferExpr(tokens, index, env);
+      }
+      case TokenType.Try: {
+        returnValue = this.parseTryExpr(tokens, index, env);
+        break;
       }
       default: {
         throw this.formatErrorMessage(
@@ -4518,6 +4504,249 @@ ${exprToString(expr)}`
     }
   }
 
+  private parseTryExpr(
+    tokens: Token[],
+    index: number,
+    env: Environment
+  ): ParserReturn {
+    if (tokens[index].type !== TokenType.Try) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "try" for try expression'
+      );
+    }
+    const tryTokenIndex = index;
+    index = index + 1;
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for try expression"
+      );
+    }
+
+    const rCurlyBracketIndex = this.findTokenIndexForRBracket(tokens, index);
+    if (rCurlyBracketIndex < 0) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '}' for try expression"
+      );
+    }
+
+    index = rCurlyBracketIndex + 1;
+    env = pushEnvFrame(env);
+    const effectHandlers: TEffect[] = [];
+    const withTokenIndex = index;
+    let endTryWithTokenIndex = index;
+    while (true) {
+      if (!tokens[index] || tokens[index].type !== TokenType.With) {
+        endTryWithTokenIndex = index;
+        break;
+      }
+      index = index + 1;
+
+      if (tokens[index].type !== TokenType.Identifier) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected identifier for effect name"
+        );
+      }
+      const effectName = tokens[index].value;
+
+      // Find the effect from env
+      const effects = getEnvValueTypesByVariableName(env, effectName, "effect");
+      if (effects.length === 0) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Cannot find effect "${effectName}"`
+        );
+      } else if (effects.length > 1) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Found multiple effects with the same name "${effectName}"`
+        );
+      }
+      const effect = effects[0].effect;
+      if (!effect) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Cannot find effect "${effectName}"`
+        );
+      }
+      index = index + 1;
+
+      // Parse effect type arguments
+      const typeArguments: Type[] = [];
+      if (tokens[index].type === TokenType.LessThan) {
+        const {
+          index: nextIndex,
+          typeArguments: ta,
+          env: nextEnv,
+        } = synthesizeTypeArgumentsFromTokens({
+          tokens,
+          index,
+          env,
+          inputString: this.inputString,
+          parseExpression: this.parseExpression.bind(this),
+        });
+        index = nextIndex;
+        typeArguments.push(...ta);
+        env = nextEnv;
+      }
+
+      // Apply type arguments to effect
+      const newEffect = applyTypeArgumentsToEffect(effect, typeArguments);
+
+      // Parse effect body
+      const operations: TEffectOperation[] = [];
+      if (tokens[index].type !== TokenType.LCurlyBracket) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected '{' for effect body"
+        );
+      }
+      index = index + 1;
+      while (true) {
+        if (!tokens[index]) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected '}' for effect body"
+          );
+        }
+
+        if (tokens[index].type === TokenType.RCurlyBracket) {
+          index = index + 1;
+          break;
+        }
+
+        if (tokens[index].type !== TokenType.Identifier) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected identifier for effect operation"
+          );
+        }
+        const operationName = tokens[index].value;
+        index = index + 1;
+
+        if (tokens[index].type !== TokenType.Colon) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected ':' for effect operation type"
+          );
+        }
+        index = index + 1;
+
+        let isControlled = false;
+        if (tokens[index].type === TokenType.Control) {
+          isControlled = true;
+          index = index + 1;
+        }
+
+        // parse function
+        const { expr: functionExpr_, index: nextIndex } =
+          this.parseAnonymousFunction(tokens, index, env);
+        index = nextIndex;
+        env = functionExpr_.env;
+        const functionExpr = functionExpr_ as FunctionExpr;
+        const functionType = functionExpr.typeValue;
+
+        operations.push({
+          name: operationName,
+          func: functionType,
+          isControlled,
+          functionExpr,
+        });
+
+        if (
+          tokens[index].type === TokenType.Semicolon ||
+          tokens[index].type === TokenType.Comma
+        ) {
+          index = index + 1;
+          continue;
+        }
+      }
+
+      // Check if the effect is implemented correctly
+      for (const effectOperation of newEffect.operations) {
+        const matchedOperations = operations.filter(
+          (operation) => operation.name === effectOperation.name
+        );
+        if (matchedOperations.length === 0) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Operation "${effectOperation.name}" is not implemented:
+Expected: ${typeToString(effectOperation.func)}`
+          );
+        }
+        if (matchedOperations.length > 1) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Found multiple implementations for operation "${
+              effectOperation.name
+            }":
+- ${matchedOperations
+              .map((operation) => typeToString(operation.func))
+              .join("\n- ")}`
+          );
+        }
+        const matchedOperation = matchedOperations[0];
+        if (!checkType(effectOperation.func, matchedOperation.func, env)) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Mismatched function type:
+Expected: ${typeToString(effectOperation.func)}
+Got:      ${typeToString(matchedOperation.func)}`
+          );
+        }
+      }
+      // Add operations to env
+      for (let i = 0; i < operations.length; i++) {
+        const operation = operations[i];
+        env = addEnvValueType(env, {
+          variableName: operation.name,
+          type: operation.func,
+          kind: "value",
+        });
+      }
+
+      // Add to effectHandlers
+      effectHandlers.push({
+        ...newEffect,
+        operations,
+        isHandler: true,
+      });
+    }
+
+    if (effectHandlers.length === 0) {
+      throw this.formatErrorMessage(
+        tokens[withTokenIndex],
+        "Expected 'with' to define handlers."
+      );
+    }
+
+    // Parse the try body
+    index = tryTokenIndex + 1;
+    const { expr: tryExpr, index: nextIndex } = this.parseBlockExpressions(
+      tokens,
+      index,
+      env
+    );
+    index = nextIndex;
+    env = tryExpr.env;
+    const returnType = tryExpr.typeValue;
+
+    return {
+      expr: {
+        type: AstType.Try,
+        body: tryExpr,
+        effectHandlers,
+        env: popEnvFrame(env),
+        token: tokens[tryTokenIndex],
+        typeValue: returnType,
+      },
+      index: endTryWithTokenIndex,
+    };
+  }
+
   private parseExportExpr(
     tokens: Token[],
     index: number,
@@ -4814,6 +5043,45 @@ ${exprToString(expr)}`
     } else {
       throw new Error("Qualifed import is not implemented yet");
     }
+  }
+
+  private findTokenIndexForRBracket(tokens: Token[], index: number): number {
+    let endBracketType = TokenType.RParen;
+    const startBracketType = tokens[index].type;
+    if (startBracketType === TokenType.LCurlyBracket) {
+      endBracketType = TokenType.RCurlyBracket;
+    } else if (startBracketType === TokenType.LParen) {
+      endBracketType = TokenType.RParen;
+    } else if (startBracketType === TokenType.LBracket) {
+      endBracketType = TokenType.RBracket;
+    } else {
+      throw this.formatErrorMessage(tokens[index], "Expected '{', '(' or '['");
+    }
+    index = index + 1;
+    let count = 1;
+    let endIndex = -1;
+    while (true) {
+      if (!tokens[index]) {
+        throw this.formatErrorMessage(
+          tokens[index - 1],
+          `Expected '${endBracketType}'`
+        );
+      }
+
+      if (tokens[index].type === endBracketType) {
+        count = count - 1;
+        if (count === 0) {
+          endIndex = index;
+          break;
+        }
+      } else if (tokens[index].type === startBracketType) {
+        count = count + 1;
+      }
+
+      index = index + 1;
+    }
+
+    return endIndex;
   }
 
   /**

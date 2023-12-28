@@ -90,6 +90,7 @@ export enum TokenType {
   //// Unique = "unique",
   //// Shared = "shared",
   //// Weak = "weak",
+  Try = "try",
   With = "with",
   As = "as",
   Const = "const",

@@ -78,6 +78,9 @@ export enum AstType {
   // defer
   Defer = "defer",
 
+  // try
+  Try = "try",
+
   // export/import
   Export = "export",
   Import = "import",
@@ -125,7 +128,8 @@ export type Expr =
   | BlockExpr
   | DeferExpr
   | ExportExpr
-  | ImportExpr;
+  | ImportExpr
+  | TryExpr;
 
 export type IgnoreExpr = {
   type: AstType.Ignore;
@@ -419,6 +423,15 @@ export type ImportExpr = {
   token: Token;
 };
 
+export type TryExpr = {
+  type: AstType.Try;
+  typeValue: Type;
+  env: Environment;
+  token: Token;
+  body: BlockExpr;
+  effectHandlers: TEffect[];
+};
+
 /**
  * 1 is the lowest precedence
  */
@@ -662,6 +675,16 @@ ${indentation}}`;
         extractTypeConstructor: true,
         hideTypeParameterKind: false,
       });
+    }
+    case AstType.Try: {
+      return `try ${exprToString(expr.body)} ${expr.effectHandlers.map(
+        (handler) => {
+          return `with ${effectToString(handler, {
+            extractTypeConstructor: true,
+            hideTypeParameterKind: false,
+          })}`;
+        }
+      )}`;
     }
     default:
       throw new Error(`Unknown expr type ${expr}`);

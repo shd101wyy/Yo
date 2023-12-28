@@ -688,6 +688,13 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            case "try":
+              tokens.push({
+                type: TokenType.Try,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
             case "with":
               tokens.push({
                 type: TokenType.With,
