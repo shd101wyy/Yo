@@ -503,7 +503,7 @@ export type ParserReturn = {
   index: number;
 };
 
-type ParseExpression = ({
+export type ParseExpression = ({
   tokens,
   index,
   env,

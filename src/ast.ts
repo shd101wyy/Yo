@@ -84,6 +84,10 @@ export enum AstType {
   // export/import
   Export = "export",
   Import = "import",
+
+  // resume/abort
+  Resume = "resume",
+  Abort = "abort",
 }
 
 export enum OperatorType {
@@ -129,7 +133,9 @@ export type Expr =
   | DeferExpr
   | ExportExpr
   | ImportExpr
-  | TryExpr;
+  | TryExpr
+  | ResumeExpr
+  | AbortExpr;
 
 export type IgnoreExpr = {
   type: AstType.Ignore;
@@ -432,6 +438,22 @@ export type TryExpr = {
   effectHandlers: TEffect[];
 };
 
+export type ResumeExpr = {
+  type: AstType.Resume;
+  typeValue: TUnit;
+  env: Environment;
+  token: Token;
+  expr: Expr;
+};
+
+export type AbortExpr = {
+  type: AstType.Abort;
+  typeValue: TUnit;
+  env: Environment;
+  token: Token;
+  expr: Expr;
+};
+
 /**
  * 1 is the lowest precedence
  */
@@ -685,6 +707,12 @@ ${indentation}}`;
           })}`;
         }
       )}`;
+    }
+    case AstType.Resume: {
+      return `resume ${exprToString(expr.expr)}`;
+    }
+    case AstType.Abort: {
+      return `abort ${exprToString(expr.expr)}`;
     }
     default:
       throw new Error(`Unknown expr type ${expr}`);
