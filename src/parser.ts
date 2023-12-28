@@ -1040,8 +1040,7 @@ ${exprToString(lhs)}
     const { expr: body, index: nextNextIndex } = this.parseBlockExpressions(
       tokens,
       index,
-      env,
-      true
+      env
     );
     env = body.env;
     index = nextNextIndex;
@@ -2157,15 +2156,11 @@ Found possible functions:
     }
     const deferTokenIndex = index;
     index = index + 1;
-    const isNextTokenLCurlyBracket =
-      tokens[index].type === TokenType.LCurlyBracket;
 
     const { expr: nextExpr, index: nextIndex } = this.parseBlockExpressions(
       tokens,
       index,
-      env,
-      isNextTokenLCurlyBracket,
-      !isNextTokenLCurlyBracket
+      env
     );
 
     return {
@@ -2271,22 +2266,14 @@ Found possible functions:
   private parseBlockExpressions(
     tokens: Token[],
     index: number,
-    env: Environment,
-    requireLCurlyBracket = true,
-    isSingleExpression = false
+    env: Environment
   ): { index: number; expr: BlockExpr } {
     let exprs: Expr[] = [];
-    if (
-      requireLCurlyBracket &&
-      tokens[index].type !== TokenType.LCurlyBracket
-    ) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "Expected '{' for block expressions"
-      );
-    }
+    let isSingleExpression = false;
     const blockTokenIndex = index;
-    if (requireLCurlyBracket) {
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      isSingleExpression = true;
+    } else {
       index = index + 1;
     }
     env = pushEnvFrame(env);
@@ -2294,13 +2281,14 @@ Found possible functions:
 
     while (true) {
       const token = tokens[index];
-      if (!token) {
+      if (!isSingleExpression && !token) {
         throw this.formatErrorMessage(token, "Expected '}' for function body");
       }
-      if (token.type === TokenType.RCurlyBracket) {
+      if (!isSingleExpression && token.type === TokenType.RCurlyBracket) {
         index = index + 1;
         break;
       }
+
       const { expr, index: nextIndex } = this.parseExpression(
         tokens,
         index,
@@ -2322,25 +2310,27 @@ Found possible functions:
       }
 
       if (isSingleExpression) {
-        index = index + 1;
         break;
       }
     }
 
-    exprs = exprs.filter((expr) => expr.type !== AstType.Ignore);
-    const lastExpr: Expr | null = exprs[exprs.length - 1] ?? null;
-    if (
-      !lastExpr ||
-      tokens[index - 2].type === TokenType.Semicolon /*&& !isSingleExpression */
-    ) {
-      exprs.push({
-        type: AstType.Value,
-        tag: "primitive",
-        value: "()",
-        typeValue: { type: "()", kind: "Free" },
-        env: nextEnv,
-        token: tokens[index - 1],
-      });
+    if (!isSingleExpression) {
+      exprs = exprs.filter((expr) => expr.type !== AstType.Ignore);
+      const lastExpr: Expr | null = exprs[exprs.length - 1] ?? null;
+      if (
+        !lastExpr ||
+        tokens[index - 2].type ===
+          TokenType.Semicolon /*&& !isSingleExpression */
+      ) {
+        exprs.push({
+          type: AstType.Value,
+          tag: "primitive",
+          value: "()",
+          typeValue: { type: "()", kind: "Free" },
+          env: nextEnv,
+          token: tokens[index - 1],
+        });
+      }
     }
 
     // NOTE: Needs to put this before `env.popFrame` to get `returnType`.
@@ -2348,7 +2338,7 @@ Found possible functions:
     env = popEnvFrame(nextEnv);
 
     return {
-      index: requireLCurlyBracket ? index : index - 1,
+      index,
       expr: {
         type: AstType.Block,
         exprs,
@@ -2488,16 +2478,8 @@ Found possible functions:
       index = nextIndex;
 
       // Parse body
-      const isNextTokenLCurlyBracket =
-        tokens[index].type === TokenType.LCurlyBracket;
       const { expr: bodyExpr, index: nextNextIndex } =
-        this.parseBlockExpressions(
-          tokens,
-          index,
-          conditionExpr.env,
-          isNextTokenLCurlyBracket,
-          !isNextTokenLCurlyBracket
-        );
+        this.parseBlockExpressions(tokens, index, conditionExpr.env);
       index = nextNextIndex;
 
       cases.push({
@@ -2514,16 +2496,8 @@ Found possible functions:
         } else {
           // Last else
           // Parse body
-          const isNextTokenLCurlyBracket =
-            tokens[index].type === TokenType.LCurlyBracket;
           const { expr: bodyExpr, index: nextNextIndex } =
-            this.parseBlockExpressions(
-              tokens,
-              index,
-              conditionExpr.env,
-              isNextTokenLCurlyBracket,
-              !isNextTokenLCurlyBracket
-            );
+            this.parseBlockExpressions(tokens, index, conditionExpr.env);
           index = nextNextIndex;
 
           cases.push({
@@ -2674,16 +2648,8 @@ ${typeToString(caseExprType)}
         index = index + 1;
 
         // parse body
-        const isNextTokenLCurlyBracket =
-          tokens[index].type === TokenType.LCurlyBracket;
         const { expr: blockExpr, index: nextNextIndex } =
-          this.parseBlockExpressions(
-            tokens,
-            index,
-            newEnv,
-            isNextTokenLCurlyBracket,
-            !isNextTokenLCurlyBracket
-          );
+          this.parseBlockExpressions(tokens, index, newEnv);
         index = nextNextIndex;
         cases.push({
           case: caseExpr,
@@ -2702,16 +2668,8 @@ ${typeToString(caseExprType)}
         index = index + 1;
 
         // parse body
-        const isNextTokenLCurlyBracket =
-          tokens[index].type === TokenType.LCurlyBracket;
         const { expr: blockExpr, index: nextIndex } =
-          this.parseBlockExpressions(
-            tokens,
-            index,
-            env,
-            isNextTokenLCurlyBracket,
-            !isNextTokenLCurlyBracket
-          );
+          this.parseBlockExpressions(tokens, index, env);
         index = nextIndex;
         cases.push({
           case: undefined,

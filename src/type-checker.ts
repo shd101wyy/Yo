@@ -304,6 +304,11 @@ export type TEnum = {
 export type TEffectOperation = {
   name: string;
   func: TFunction;
+  functionExpr?: FunctionExpr;
+  /**
+   * If it's true, then it means the operation uses `resume` or `abort`
+   * and might not be tail-resumptive.
+   */
   isControlled: boolean;
 };
 
@@ -313,6 +318,7 @@ export type TEffect = {
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
   operations: TEffectOperation[];
+  isHandler?: boolean;
 };
 
 export type TExternType = {
