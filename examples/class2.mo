@@ -1,5 +1,5 @@
 export class Id<X: Free, T: Free> {
-  id: (x: T) -> T {
+  id: (x: T)-> T {
     x
   }
 }

@@ -503,11 +503,15 @@ export type ParserReturn = {
   index: number;
 };
 
-type ParseExpression = (
-  tokens: Token[],
-  index: number,
-  env: Environment
-) => ParserReturn;
+type ParseExpression = ({
+  tokens,
+  index,
+  env,
+}: {
+  tokens: Token[];
+  index: number;
+  env: Environment;
+}) => ParserReturn;
 
 export function isSignedIntegerType(type: Type): boolean {
   return (
@@ -866,7 +870,11 @@ export function synthesizeTypeFromTokens({
       }
       default: {
         // Check if it's a real value
-        const { expr, index: nextIndex } = parseExpression(tokens, index, env);
+        const { expr, index: nextIndex } = parseExpression({
+          tokens,
+          index,
+          env,
+        });
         env = expr.env;
         if (expr.typeValue.type === "Enum") {
           typeValue = expr.typeValue;
@@ -1888,11 +1896,11 @@ export function synthesizeFunctionParameterTypesFromTokens({
     // check parameter default value
     let defaultParameterValue: Expr | null = null;
     if (tokens[index].type === TokenType.Assign) {
-      const { expr, index: nextNextIndex } = parseExpression(
+      const { expr, index: nextNextIndex } = parseExpression({
         tokens,
-        index + 1,
-        env
-      );
+        index: index + 1,
+        env,
+      });
       env = expr.env;
 
       parameterDefaultValues.push(expr);
@@ -3007,11 +3015,11 @@ export function effectToString(
     )} {
 ${effect.operations
   .map(({ func, isControlled, name, functionExpr }) => {
-    return `  ${name}: ${isControlled ? "control" : ""}${typeToString(func, {
+    return `  ${name}: ${isControlled ? "control " : ""}${typeToString(func, {
       extractTypeConstructor: false,
     })}${functionExpr ? ` ${exprToString(functionExpr.body, "  ")}` : ""}`;
   })
-  .join(";\n  ")};
+  .join(";\n")};
 }`;
   } else {
     return `${effect.effectName}${typeAndRegionParametersToString(
@@ -3066,7 +3074,7 @@ ${type.functions
         functionExpr ? ` ${exprToString(functionExpr.body, "  ")}` : ""
       }`
   )
-  .join(";\n  ")};
+  .join(";\n")};
 }`;
 }
 
