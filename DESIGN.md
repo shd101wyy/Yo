@@ -678,8 +678,8 @@ Example:
 ```typescript
 let main = ()-> {
   let mut x = 1;
-  let mut y: MutableReference<i32> = &!x;
-  let mut z: MutableReference<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable more than once at a time.
+  let mut y: &!<i32> = &!x;
+  let mut z: &!<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable more than once at a time.
 }
 ```
 

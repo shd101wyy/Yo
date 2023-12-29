@@ -1,33 +1,20 @@
 // Write an example main function that calls a closure function
 
-use std::{cell::Ref, ops::Deref, rc::Rc};
-
-#[derive(Debug)]
-struct A {
-    x: i32,
-    y: i32,
-}
-
-#[derive(Debug)]
-struct B<'a> {
-    a: &'a mut A,
-    b: i32,
-}
-
-struct C {
-    a: String,
-}
-
-fn test(x: &[String]) {
-    println!("{:?}", x[2]);
-}
-
-fn test2(x: i32, y: i32) -> i32 {
-    return x + y
+fn increment(x: &mut i32) {
+    *x = *x + 1;
 }
 
 fn main() {
-   let x = String::from("Hello, world!");
-   let mut y = x;
-   y.push_str("GG");
+    let mut x = 1;
+    let y = &mut x;
+    
+    increment(y);
+
+    let z = y;
+
+    increment(y);
+    
+    // let z = y;
+    // *z = *z + 1;
+    // *y = *y + 2;
 }

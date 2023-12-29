@@ -207,6 +207,7 @@ export type ReferenceExpr = {
   typeValue: TTypeConstructor;
   env: Environment;
   token: Token;
+  tempVariableName: string;
 };
 
 export type DereferenceExpr = {

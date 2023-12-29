@@ -439,7 +439,7 @@ export const TypeValues: {
   unknown: { type: "unknown", kind: "Free" },
   Reference: {
     type: "TypeConstructor",
-    kind: "Free",
+    kind: "Linear",
     name: "&",
     typeParameters: [
       {
@@ -599,7 +599,7 @@ export function synthesizeTypeFromTokens({
     };
   }
   // Check if it's anonymouse function
-  else if (tokens[index].value === "(") {
+  else if (tokens[index].value === "(" || tokens[index].value === "<") {
     try {
       returnValue = synthesizeFunctionTypeFromTokens({
         tokens,
@@ -609,7 +609,8 @@ export function synthesizeTypeFromTokens({
         parseExpression,
         withFunctionBody: false,
       });
-    } catch {
+    } catch (error) {
+      console.error(error);
       // This means it's not a function type
       const {
         typeValue,
@@ -1074,7 +1075,7 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
       env: nextEnv,
       index: nextIndex,
       typeArguments: nextTypeArguments,
-    } = synthesizeTypeArgumentsFromTokens({
+    } = synthesizeTypeAndRegionArgumentsFromTokens({
       env: returnValue.env,
       index: returnValue.index,
       inputString,
@@ -1957,7 +1958,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
   return { parameterTypes, index, env };
 }
 
-export function synthesizeTypeArgumentsFromTokens({
+export function synthesizeTypeAndRegionArgumentsFromTokens({
   tokens,
   index,
   inputString,
@@ -1969,7 +1970,12 @@ export function synthesizeTypeArgumentsFromTokens({
   inputString: string;
   env: Environment;
   parseExpression: ParseExpression;
-}): { typeArguments: Type[]; env: Environment; index: number } {
+}): {
+  typeArguments: Type[];
+  regionArguments: Region[];
+  env: Environment;
+  index: number;
+} {
   if (tokens[index].type !== TokenType.LessThan) {
     throw formatErrorMessage({
       token: tokens[index],
@@ -1979,6 +1985,7 @@ export function synthesizeTypeArgumentsFromTokens({
   }
 
   const typeArguments: Type[] = [];
+  const regionArguments: Region[] = [];
   index = index + 1;
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -2026,6 +2033,18 @@ export function synthesizeTypeArgumentsFromTokens({
       break;
     }
 
+    // Check if it's region argument
+    if (token.type === TokenType.Identifier) {
+      const regionName = token.value;
+      const regions = getEnvValueTypesByVariableName(env, regionName, "region");
+      if (regions.length === 1 && regions[0].region) {
+        const region = regions[0].region;
+        regionArguments.push(region);
+        index = index + 1;
+        continue;
+      }
+    }
+
     const {
       typeValue: typeArgument,
       index: nextIndex,
@@ -2041,7 +2060,7 @@ export function synthesizeTypeArgumentsFromTokens({
     index = nextIndex;
     env = nextEnv;
   }
-  return { typeArguments, index, env };
+  return { typeArguments, regionArguments, index, env };
 }
 
 export function synthesizeEffectsFromTokens({
@@ -2107,7 +2126,7 @@ export function synthesizeEffectsFromTokens({
           typeArguments: nextTypeArguments,
           index: nextIndex,
           env: nextEnv,
-        } = synthesizeTypeArgumentsFromTokens({
+        } = synthesizeTypeAndRegionArgumentsFromTokens({
           tokens,
           index,
           inputString,
@@ -2999,7 +3018,7 @@ export function typeAndRegionParametersToString(
     }${regionParameters.map((region) =>
       region.appliedRegion
         ? region.appliedRegion.regionId
-        : `${region.name}: Region`
+        : `${region.name}${hideTypeParameterKind ? "" : ": Region"}`
     )}>`;
   }
 }

@@ -1,5 +1,15 @@
 import { Token } from "./token";
 
+export function getLineAtToken(inputString: string, token: Token): string {
+  const { position } = token;
+  const { character, line } = position;
+
+  const lines = inputString.split("\n");
+  const lineString = lines[line];
+  return `${lineString}
+  ${" ".repeat(character)}^`;
+}
+
 export function formatErrorMessage({
   inputString,
   token,
@@ -22,7 +32,7 @@ Line ${line + 1}, column ${character + 1}:
 ${lineString}
 ${" ".repeat(character)}^`;
   return new Error(
-    (cause?.message ? cause.message + "\n" : "") + errorMessages
+    errorMessages + (cause?.message ? "\n" + cause.message : "")
   );
 }
 
@@ -50,6 +60,6 @@ ${" ".repeat(character)}^`;
     })
     .join("\n\n");
   return new Error(
-    (cause?.message ? cause.message + "\n" : "") + errorMessages
+    errorMessages + (cause?.message ? "\n" + cause.message : "")
   );
 }

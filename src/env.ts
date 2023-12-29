@@ -1,6 +1,12 @@
-import { formatErrorMessages } from "./error";
+import { formatErrorMessages, getLineAtToken } from "./error";
 import { Token, TokenType } from "./token";
-import { Region, TClass, TEffect, Type } from "./type-checker";
+import {
+  Region,
+  TClass,
+  TEffect,
+  Type,
+  typeIsReferenceOrMutableReference,
+} from "./type-checker";
 
 export const emptyToken: Token = {
   position: {
@@ -19,20 +25,36 @@ type ValueTypeKind =
   | "effect" // effect
   | "module";
 
+export type ReferedVariable = {
+  frameLevel: number;
+  variableName: string;
+};
+
 export type ValueType = {
   // id: string; // NOTE: The `id` here doesn't really help in generic function
   variableName: string;
-  isMutable?: boolean;
-  isExported?: boolean;
-  isUninitialized?: boolean;
-  isConsumed?: boolean;
+
+  // different kinds of values
   type: Type;
   region?: Region;
   effect?: TEffect;
   class?: TClass;
   kind: ValueTypeKind;
-  /* referenceCount of the value inside current frame */
-  // referenceCount: number;
+
+  // some flags
+  isMutable?: boolean;
+  isExported?: boolean;
+  isUninitialized?: boolean;
+  isConsumed?: boolean;
+
+  // some counts
+  mutableReferences?: Token[];
+  immutableReference?: Token[];
+
+  // This is only used for temp variable, check the
+  // tempVariableName of the ReferenceExpr of AstType.Reference
+  referedVariable?: ReferedVariable;
+
   /**
    * frameLevel is the level of the frame where the value is defined.
    * It's zero-based.
@@ -144,8 +166,12 @@ export function popEnvFrame(
     const unconsumedValues = frameToPop.values.filter(
       (value) =>
         (value.type.kind === "Linear" || value.type.kind === "Type") &&
-        !value.isConsumed
+        !value.isConsumed &&
+        // NOTE: reference and mutable reference are linear
+        // but we automatically consume in the end.
+        !typeIsReferenceOrMutableReference(value.type)
     );
+
     const uninitializedValues = frameToPop.values.filter(
       (value) => value.isUninitialized
     );
@@ -153,6 +179,7 @@ export function popEnvFrame(
       throw formatErrorMessages({
         inputString,
         tokenAndErrorList: unconsumedValues.map((value) => {
+          console.log(value);
           return {
             token: value.token,
             errorMessage: `${
@@ -270,7 +297,7 @@ export function setEnvVariableAsConsumed({
   env: Environment;
   variableName: string;
   inputString: string;
-}) {
+}): Environment {
   const valueTypes = getEnvValueTypesByVariableName(env, variableName);
   if (valueTypes.length === 0) {
     throw formatErrorMessages({
@@ -299,6 +326,110 @@ export function setEnvVariableAsConsumed({
   }
   const newValueType = { ...valueType, isConsumed: true };
   return updateExistingValueType(env, valueType, newValueType);
+}
+
+export function increaseEnvVariableReferenceCount({
+  env,
+  variableName,
+  isMutableReference,
+  inputString,
+  token,
+}: {
+  env: Environment;
+  variableName: string;
+  isMutableReference: boolean;
+  inputString: string;
+  token: Token;
+}): { env: Environment; referedVariable: ReferedVariable } {
+  const valueTypes = getEnvValueTypesByVariableName(env, variableName);
+  if (valueTypes.length === 0) {
+    throw formatErrorMessages({
+      inputString,
+      tokenAndErrorList: [
+        {
+          token: emptyToken,
+          errorMessage: `Variable ${variableName} is not defined.`,
+        },
+      ],
+    });
+  }
+  const valueType = valueTypes[valueTypes.length - 1];
+  const immutableReferences = valueType.immutableReference ?? [];
+  const mutableReferences = valueType.mutableReferences ?? [];
+  const immutableReferenceCount = immutableReferences.length;
+  const mutableReferenceCount = mutableReferences.length;
+
+  if (isMutableReference) {
+    if (immutableReferenceCount > 0) {
+      throw formatErrorMessages({
+        inputString,
+        tokenAndErrorList: [
+          {
+            token: valueType.token,
+            errorMessage: `Variable ${variableName} is already borrowed as immutable reference:
+
+${immutableReferences
+  .map((token) => getLineAtToken(inputString, token))
+  .join("\n")}`,
+          },
+        ],
+      });
+    } else if (mutableReferenceCount > 0) {
+      throw formatErrorMessages({
+        inputString,
+        tokenAndErrorList: [
+          {
+            token: valueType.token,
+            errorMessage: `Variable ${variableName} is already borrowed as mutable reference:
+
+${mutableReferences
+  .map((token) => getLineAtToken(inputString, token))
+  .join("\n")}`,
+          },
+        ],
+      });
+    } else {
+      const newValueType: ValueType = {
+        ...valueType,
+        mutableReferences: [...mutableReferences, token],
+      };
+      return {
+        env: updateExistingValueType(env, valueType, newValueType),
+        referedVariable: {
+          variableName,
+          frameLevel: valueType.frameLevel,
+        },
+      };
+    }
+  } else {
+    if (mutableReferenceCount > 0) {
+      throw formatErrorMessages({
+        inputString,
+        tokenAndErrorList: [
+          {
+            token: valueType.token,
+            errorMessage: `Variable ${variableName} is already borrowed as mutable reference:
+
+${mutableReferences
+  .map((token) => getLineAtToken(inputString, token))
+  .join("\n")}`,
+          },
+        ],
+      });
+    } else {
+      const newValueType: ValueType = {
+        ...valueType,
+        immutableReference: [...immutableReferences, token],
+      };
+      return {
+        env: updateExistingValueType(env, valueType, newValueType),
+        referedVariable: {
+          variableName,
+          frameLevel: valueType.frameLevel,
+        },
+      };
+    }
+  }
 }
 
 export function getEnvCurrentFrameLevel(env: Environment): number {

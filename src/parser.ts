@@ -23,6 +23,7 @@ import {
 } from "./ast";
 import {
   Environment,
+  ReferedVariable,
   ValueType,
   addEnvFreeVariable,
   addEnvValueType,
@@ -33,6 +34,7 @@ import {
   getEnvCurrentRegionId,
   getEnvValueTypesByVariableName,
   getNewTempVariableName,
+  increaseEnvVariableReferenceCount,
   isVariableNameInitializedInEnvFrame,
   popEnvFrame,
   pushEnvFrame,
@@ -78,8 +80,8 @@ import {
   parseTypeKind,
   synthesizeFunctionParameterTypesFromTokens,
   synthesizeFunctionTypeFromTokens,
+  synthesizeTypeAndRegionArgumentsFromTokens,
   synthesizeTypeAndRegionParametersFromTokens,
-  synthesizeTypeArgumentsFromTokens,
   synthesizeTypeFromTokens,
   typeIsReferenceOrMutableReference,
   typeToString,
@@ -1473,7 +1475,7 @@ Returned : ${typeToString(body.typeValue)}
         typeArguments: nextTypeArguments,
         index: nextIndex,
         env: nextEnv,
-      } = synthesizeTypeArgumentsFromTokens({
+      } = synthesizeTypeAndRegionArgumentsFromTokens({
         tokens,
         index: index,
         inputString: this.inputString,
@@ -2104,7 +2106,7 @@ Found possible typeclasses:
             typeArguments: nextTypeArguments,
             index: nextIndex,
             env: nextEnv,
-          } = synthesizeTypeArgumentsFromTokens({
+          } = synthesizeTypeAndRegionArgumentsFromTokens({
             tokens,
             index: index + 1,
             inputString: this.inputString,
@@ -2157,7 +2159,7 @@ Found possible enums:
           typeArguments: nextTypeArguments,
           index: nextIndex,
           env: nextEnv,
-        } = synthesizeTypeArgumentsFromTokens({
+        } = synthesizeTypeAndRegionArgumentsFromTokens({
           tokens,
           index: index + 1,
           inputString: this.inputString,
@@ -2224,7 +2226,7 @@ Found possible enums:
                 typeValue: functionType.type,
                 env,
                 isMutable: false,
-                token: tokens[index],
+                token: tokens[identifierTokenIndex],
               },
               tokens,
               index: index + 1,
@@ -2321,7 +2323,7 @@ Got     : ${effectsToString(
         frameLevel: valueType.frameLevel,
         isMutable: !!valueType.isMutable,
         env,
-        token: tokens[index],
+        token: tokens[identifierTokenIndex],
         // isFreeVariable,
       },
       index: index + 1,
@@ -2904,6 +2906,7 @@ Got     : ${effectsToString(
           });
           return newEnv;
         }
+        case AstType.Reference:
         case AstType.CallFunction: {
           const newEnv = setEnvVariableAsConsumed({
             env,
@@ -2921,6 +2924,51 @@ Got     : ${effectsToString(
         inputString: this.inputString,
         token: expr.token,
         errorMessage: `Cannot consume variable: ${exprToString(expr)}`,
+        cause: error,
+      });
+    }
+  }
+
+  private increaseVariableReferenceCount(
+    env: Environment,
+    expr: Expr,
+    isMutableReference: boolean
+  ): { env: Environment; referedVariable: ReferedVariable } {
+    try {
+      switch (expr.type) {
+        case AstType.Variable: {
+          return increaseEnvVariableReferenceCount({
+            env,
+            inputString: this.inputString,
+            variableName: expr.variableName,
+            isMutableReference,
+            token: expr.token,
+          });
+        }
+        case AstType.PropertyAccess:
+        case AstType.IndexAccess: {
+          const v = expr.expr;
+          if (v.type !== AstType.Variable) {
+            throw new Error("Expected variable");
+          } else {
+            return this.increaseVariableReferenceCount(
+              env,
+              v,
+              isMutableReference
+            );
+          }
+        }
+        default: {
+          throw new Error("Expected variable");
+        }
+      }
+    } catch (error) {
+      throw formatErrorMessage({
+        inputString: this.inputString,
+        token: expr.token,
+        errorMessage: `Failed to create ${
+          isMutableReference ? "mutable reference" : "immutable reference"
+        } for ${exprToString(expr)}\n`,
         cause: error,
       });
     }
@@ -4486,7 +4534,7 @@ ${typeToString(functionType)}
         index: nextIndex,
         typeArguments: ta,
         env: nextEnv,
-      } = synthesizeTypeArgumentsFromTokens({
+      } = synthesizeTypeAndRegionArgumentsFromTokens({
         tokens,
         index,
         env,
@@ -5151,38 +5199,55 @@ ${operationName}: ${typeToString(
           );
         }
 
+        const { env: nextEnv, referedVariable } =
+          this.increaseVariableReferenceCount(env, expr, isMutableReference);
+        env = nextEnv;
+
+        // save the reference value to a temporary variable
+        const referenceType: TTypeConstructor = {
+          ...(isMutableReference
+            ? TypeValues.MutableReference
+            : TypeValues.Reference),
+          typeParameters: [
+            {
+              type: "TypeParameter",
+              kind: "Type",
+              name: "T",
+              appliedType: variableType,
+            },
+          ],
+          regionParameters: [
+            {
+              type: "RegionParameter",
+              kind: "Region",
+              name: "R",
+              appliedRegion: {
+                type: "Region",
+                kind: "Region",
+                regionId: getEnvCurrentRegionId(env),
+              },
+            },
+          ],
+        };
+        const tempVariableName = getNewTempVariableName();
+        env = addEnvValueType(env, {
+          variableName: tempVariableName,
+          type: referenceType,
+          kind: "value",
+          isMutable: false,
+          token: tokens[referenceTokenIndex],
+          referedVariable,
+        });
+
         return {
           expr: {
             type: AstType.Reference,
             expr,
             isMutableReference: isMutableReference,
-            typeValue: {
-              ...(isMutableReference
-                ? TypeValues.MutableReference
-                : TypeValues.Reference),
-              typeParameters: [
-                {
-                  type: "TypeParameter",
-                  kind: "Type",
-                  name: "T",
-                  appliedType: variableType,
-                },
-              ],
-              regionParameters: [
-                {
-                  type: "RegionParameter",
-                  kind: "Region",
-                  name: "R",
-                  appliedRegion: {
-                    type: "Region",
-                    kind: "Region",
-                    regionId: getEnvCurrentRegionId(env),
-                  },
-                },
-              ],
-            },
+            typeValue: referenceType,
             env,
             token: tokens[referenceTokenIndex],
+            tempVariableName,
           },
           index,
         };
@@ -5198,39 +5263,56 @@ ${operationName}: ${typeToString(
           );
         }
 
+        const { env: nextEnv, referedVariable } =
+          this.increaseVariableReferenceCount(env, expr, isMutableReference);
+        env = nextEnv;
+
+        // save the reference value to a temporary variable
         const appliedTypeValue = expr.typeValue;
+        const referenceType: TTypeConstructor = {
+          ...(isMutableReference
+            ? TypeValues.MutableReference
+            : TypeValues.Reference),
+          typeParameters: [
+            {
+              type: "TypeParameter",
+              kind: "Type",
+              name: "T",
+              appliedType: appliedTypeValue,
+            },
+          ],
+          regionParameters: [
+            {
+              type: "RegionParameter",
+              kind: "Region",
+              name: "R",
+              appliedRegion: {
+                type: "Region",
+                kind: "Region",
+                regionId: getEnvCurrentRegionId(env),
+              },
+            },
+          ],
+        };
+        const tempVariableName = getNewTempVariableName();
+        env = addEnvValueType(env, {
+          variableName: tempVariableName,
+          type: referenceType,
+          kind: "value",
+          isMutable: false,
+          token: tokens[referenceTokenIndex],
+          referedVariable,
+        });
+
         return {
           expr: {
             type: AstType.Reference,
             expr,
             isMutableReference: isMutableReference,
-            typeValue: {
-              ...(isMutableReference
-                ? TypeValues.MutableReference
-                : TypeValues.Reference),
-              typeParameters: [
-                {
-                  type: "TypeParameter",
-                  kind: "Type",
-                  name: "T",
-                  appliedType: appliedTypeValue,
-                },
-              ],
-              regionParameters: [
-                {
-                  type: "RegionParameter",
-                  kind: "Region",
-                  name: "R",
-                  appliedRegion: {
-                    type: "Region",
-                    kind: "Region",
-                    regionId: getEnvCurrentRegionId(env),
-                  },
-                },
-              ],
-            },
+            typeValue: referenceType,
             env,
             token: tokens[referenceTokenIndex],
+            tempVariableName,
           },
           index,
         };
@@ -5440,7 +5522,7 @@ ${exprToString(expr)}`
           index: nextIndex,
           typeArguments: ta,
           env: nextEnv,
-        } = synthesizeTypeArgumentsFromTokens({
+        } = synthesizeTypeAndRegionArgumentsFromTokens({
           tokens,
           index,
           env,
