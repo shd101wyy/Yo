@@ -191,7 +191,7 @@ export type ValueExpr = PrimitiveValueExpr | RecordValueExpr | SliceValueExpr;
 
 export type VariableExpr = {
   type: AstType.Variable;
-  name: string;
+  variableName: string;
   frameLevel: number;
   typeValue: Type;
   isMutable: boolean;
@@ -542,7 +542,7 @@ export function exprToString(expr: Expr, indentation = ""): string {
       if ("id" in expr.typeValue) {
         return `@${expr.typeValue.id}`;
       }
-      return expr.name;
+      return expr.variableName;
     case AstType.PropertyAccess:
       return `${exprToString(expr.expr)}.${expr.propertyName}`;
     case AstType.IndexAccess:

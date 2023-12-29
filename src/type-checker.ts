@@ -1951,7 +1951,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
   }
 
   if (!withFunctionBody) {
-    env = popEnvFrame(env, inputString);
+    env = popEnvFrame(env, inputString, true);
   }
 
   return { parameterTypes, index, env };

@@ -1,6 +1,15 @@
 import { formatErrorMessages } from "./error";
-import { Token } from "./token";
+import { Token, TokenType } from "./token";
 import { Region, TClass, TEffect, Type } from "./type-checker";
+
+export const emptyToken: Token = {
+  position: {
+    line: 0,
+    character: 0,
+  },
+  type: TokenType.Undefined,
+  value: "",
+};
 
 type ValueTypeKind =
   | "type" // type, enum, type or region parameter
@@ -118,38 +127,41 @@ export function pushEnvFrame(
 
 export function popEnvFrame(
   env: Environment,
-  inputString: string
+  inputString: string,
+  ignoreCheck = false
 ): Environment {
-  const frameToPop = env.frames[env.frames.length - 1];
-  // Check if there is any value in the frame that is not consumed or uninitialized
-  const unconsumedValues = frameToPop.values.filter(
-    (value) =>
-      (value.type.kind === "Linear" || value.type.kind === "Type") &&
-      !value.isConsumed
-  );
-  const uninitializedValues = frameToPop.values.filter(
-    (value) => value.isUninitialized
-  );
-  if (unconsumedValues.length > 0) {
-    throw formatErrorMessages({
-      inputString,
-      tokenAndErrorList: unconsumedValues.map((value) => {
-        return {
-          token: value.token,
-          errorMessage: `Variable is linear type but is not consumed.`,
-        };
-      }),
-    });
-  } else if (uninitializedValues.length > 0) {
-    throw formatErrorMessages({
-      inputString,
-      tokenAndErrorList: uninitializedValues.map((value) => {
-        return {
-          token: value.token,
-          errorMessage: `Variable is not uninitialized.`,
-        };
-      }),
-    });
+  if (!ignoreCheck) {
+    const frameToPop = env.frames[env.frames.length - 1];
+    // Check if there is any value in the frame that is not consumed or uninitialized
+    const unconsumedValues = frameToPop.values.filter(
+      (value) =>
+        (value.type.kind === "Linear" || value.type.kind === "Type") &&
+        !value.isConsumed
+    );
+    const uninitializedValues = frameToPop.values.filter(
+      (value) => value.isUninitialized
+    );
+    if (unconsumedValues.length > 0) {
+      throw formatErrorMessages({
+        inputString,
+        tokenAndErrorList: unconsumedValues.map((value) => {
+          return {
+            token: value.token,
+            errorMessage: `Variable is linear type but is not consumed.`,
+          };
+        }),
+      });
+    } else if (uninitializedValues.length > 0) {
+      throw formatErrorMessages({
+        inputString,
+        tokenAndErrorList: uninitializedValues.map((value) => {
+          return {
+            token: value.token,
+            errorMessage: `Variable is not uninitialized.`,
+          };
+        }),
+      });
+    }
   }
 
   return {
@@ -238,6 +250,43 @@ export function getEnvValueTypesByVariableName(
     valueTypes.push(...valueTypesInFrame);
   }
   return valueTypes;
+}
+
+export function setEnvVariableAsConsumed({
+  env,
+  variableName,
+  inputString,
+}: {
+  env: Environment;
+  variableName: string;
+  inputString: string;
+}) {
+  const valueTypes = getEnvValueTypesByVariableName(env, variableName);
+  if (valueTypes.length === 0) {
+    throw formatErrorMessages({
+      inputString,
+      tokenAndErrorList: [
+        {
+          token: emptyToken,
+          errorMessage: `Variable ${variableName} is not defined.`,
+        },
+      ],
+    });
+  }
+  const valueType = valueTypes[valueTypes.length - 1];
+  if (valueType.isConsumed) {
+    throw formatErrorMessages({
+      inputString,
+      tokenAndErrorList: [
+        {
+          token: valueType.token,
+          errorMessage: `Variable ${variableName} is already consumed.`,
+        },
+      ],
+    });
+  }
+  const newValueType = { ...valueType, isConsumed: true };
+  return updateExistingValueType(env, valueType, newValueType);
 }
 
 export function getEnvCurrentFrameLevel(env: Environment): number {

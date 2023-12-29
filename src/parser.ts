@@ -28,12 +28,14 @@ import {
   addEnvValueType,
   copyEnvironment,
   createNewEnv,
+  emptyToken,
   getEnvCurrentFrameLevel,
   getEnvCurrentRegionId,
   getEnvValueTypesByVariableName,
   isVariableNameInitializedInEnvFrame,
   popEnvFrame,
   pushEnvFrame,
+  setEnvVariableAsConsumed,
   updateExistingValueType,
 } from "./env";
 import { formatErrorMessage } from "./error";
@@ -88,15 +90,6 @@ interface ParserData {
   abortType?: Type;
   abortTokenIndex?: number;
 }
-
-const emptyToken: Token = {
-  position: {
-    line: 0,
-    character: 0,
-  },
-  type: TokenType.Undefined,
-  value: "",
-};
 
 export default class Parser {
   private modulePath: string;
@@ -871,7 +864,7 @@ export default class Parser {
             this.parseCallFunctionExpr({
               callee: {
                 type: AstType.Variable,
-                name: functionName,
+                variableName: functionName,
                 frameLevel: functionType.frameLevel,
                 typeValue: functionType.type,
                 isMutable: false,
@@ -1724,6 +1717,11 @@ Got:      <${functionTypeArgumentsInOrder
       }
     }
 
+    // Set variable as consumed if necessary
+    for (let i = 0; i < functionArgumentsInOrder.length; i++) {
+      env = this.setVariableAsConsumed(env, functionArgumentsInOrder[i]);
+    }
+
     return {
       index,
       typeArguments: functionTypeArgumentsInOrder,
@@ -2177,7 +2175,7 @@ Found possible enums:
       return {
         expr: {
           type: AstType.Variable,
-          name: identifier,
+          variableName: identifier,
           env,
           typeValue: newEnumType,
           frameLevel: enumValue.frameLevel,
@@ -2208,7 +2206,7 @@ Found possible enums:
             this.parseCallFunctionExpr({
               callee: {
                 type: AstType.Variable,
-                name: identifier,
+                variableName: identifier,
                 frameLevel: functionType.frameLevel,
                 typeValue: functionType.type,
                 env,
@@ -2305,7 +2303,7 @@ Got     : ${effectsToString(
     return {
       expr: {
         type: AstType.Variable,
-        name: identifier,
+        variableName: identifier,
         typeValue,
         frameLevel: valueType.frameLevel,
         isMutable: !!valueType.isMutable,
@@ -2865,8 +2863,10 @@ Got     : ${effectsToString(
     }
 
     // NOTE: Needs to put this before `env.popFrame` to get `returnType`.
-    const returnType = exprs[exprs.length - 1].typeValue;
-    env = popEnvFrame(nextEnv, this.inputString);
+    const returnExpr = exprs[exprs.length - 1];
+    const returnType = returnExpr.typeValue;
+    env = this.setVariableAsConsumed(nextEnv, returnExpr);
+    env = popEnvFrame(env, this.inputString);
 
     return {
       index,
@@ -2880,7 +2880,32 @@ Got     : ${effectsToString(
     };
   }
 
-  private parseExtern({
+  private setVariableAsConsumed(env: Environment, expr: Expr): Environment {
+    try {
+      switch (expr.type) {
+        case AstType.Variable: {
+          const newEnv = setEnvVariableAsConsumed({
+            env,
+            inputString: this.inputString,
+            variableName: expr.variableName,
+          });
+          return newEnv;
+        }
+        default: {
+          return env;
+        }
+      }
+    } catch (error) {
+      throw formatErrorMessage({
+        inputString: this.inputString,
+        token: expr.token,
+        errorMessage: `Cannot consume variable: ${exprToString(expr)}`,
+        cause: error,
+      });
+    }
+  }
+
+  private parseExternExpr({
     tokens,
     index,
     env,
@@ -3369,7 +3394,7 @@ ${typeToString(caseReturnType)}
 
     switch (enumExpr.type) {
       case AstType.Variable: {
-        const variableName = enumExpr.name;
+        const variableName = enumExpr.variableName;
         const values = getEnvValueTypesByVariableName(env, variableName);
         if (values.length === 0) {
           throw new Error(`Unknown variable "${variableName}"`);
@@ -5093,7 +5118,7 @@ ${operationName}: ${typeToString(
 
     switch (expr.type) {
       case AstType.Variable: {
-        const variableName = expr.name;
+        const variableName = expr.variableName;
         const variableType = expr.typeValue;
         if (!expr.isMutable && isMutableReference) {
           throw this.formatErrorMessage(
@@ -5670,7 +5695,7 @@ Got:      ${typeToString(parserData.abortType)}`
         break;
       }
       case TokenType.Extern: {
-        const { expr, index: nextIndex } = this.parseExtern({
+        const { expr, index: nextIndex } = this.parseExternExpr({
           tokens,
           index,
           env,
@@ -6070,7 +6095,7 @@ Got:      ${typeToString(parserData.abortType)}`
           break;
         }
         case TokenType.Extern: {
-          const { expr, index: nextIndex } = this.parseExtern({
+          const { expr, index: nextIndex } = this.parseExternExpr({
             tokens,
             index,
             env,

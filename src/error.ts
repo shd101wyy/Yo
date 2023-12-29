@@ -4,10 +4,12 @@ export function formatErrorMessage({
   inputString,
   token,
   errorMessage,
+  cause,
 }: {
   inputString: string;
   token: Token;
   errorMessage: string;
+  cause?: Error;
 }): Error {
   const { position } = token;
   const { character, line } = position;
@@ -19,15 +21,19 @@ Line ${line + 1}, column ${character + 1}:
 
 ${lineString}
 ${" ".repeat(character)}^`;
-  return new Error(errorMessages);
+  return new Error(
+    (cause?.message ? cause.message + "\n" : "") + errorMessages
+  );
 }
 
 export function formatErrorMessages({
   inputString,
   tokenAndErrorList,
+  cause,
 }: {
   inputString: string;
   tokenAndErrorList: { token: Token; errorMessage: string }[];
+  cause?: Error;
 }): Error {
   const errorMessages = tokenAndErrorList
     .map(({ token, errorMessage }) => {
@@ -43,5 +49,7 @@ ${lineString}
 ${" ".repeat(character)}^`;
     })
     .join("\n\n");
-  return new Error(errorMessages);
+  return new Error(
+    (cause?.message ? cause.message + "\n" : "") + errorMessages
+  );
 }
