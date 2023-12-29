@@ -39,6 +39,7 @@ import {
   popEnvFrame,
   pushEnvFrame,
   setEnvVariableAsConsumed,
+  setEnvVariableReferedVariable,
   updateExistingValueType,
 } from "./env";
 import { formatErrorMessage } from "./error";
@@ -1722,7 +1723,11 @@ Got:      <${functionTypeArgumentsInOrder
 
     // Set variable as consumed if necessary
     for (let i = 0; i < functionArgumentsInOrder.length; i++) {
-      env = this.setVariableAsConsumed(env, functionArgumentsInOrder[i]);
+      const { env: nextEnv } = this.setVariableAsConsumed(
+        env,
+        functionArgumentsInOrder[i]
+      );
+      env = nextEnv;
     }
 
     return {
@@ -2880,7 +2885,17 @@ Got     : ${effectsToString(
     // NOTE: Needs to put this before `env.popFrame` to get `returnType`.
     const returnExpr = exprs[exprs.length - 1];
     const returnType = returnExpr.typeValue;
-    env = this.setVariableAsConsumed(nextEnv, returnExpr);
+    const { env: nextNextEnv, referedVariable } = this.setVariableAsConsumed(
+      nextEnv,
+      returnExpr
+    );
+    if (referedVariable) {
+      throw this.formatErrorMessage(
+        returnExpr.token,
+        "Cannot return a reference"
+      );
+    }
+    env = nextNextEnv;
     env = popEnvFrame(env, this.inputString);
 
     return {
@@ -2895,28 +2910,31 @@ Got     : ${effectsToString(
     };
   }
 
-  private setVariableAsConsumed(env: Environment, expr: Expr): Environment {
+  private setVariableAsConsumed(
+    env: Environment,
+    expr: Expr
+  ): { env: Environment; referedVariable?: ReferedVariable } {
     try {
       switch (expr.type) {
         case AstType.Variable: {
-          const newEnv = setEnvVariableAsConsumed({
+          return setEnvVariableAsConsumed({
             env,
             inputString: this.inputString,
             variableName: expr.variableName,
+            consumedAtToken: expr.token,
           });
-          return newEnv;
         }
         case AstType.Reference:
         case AstType.CallFunction: {
-          const newEnv = setEnvVariableAsConsumed({
+          return setEnvVariableAsConsumed({
             env,
             inputString: this.inputString,
             variableName: expr.tempVariableName,
+            consumedAtToken: expr.token,
           });
-          return newEnv;
         }
         default: {
-          return env;
+          return { env, referedVariable: undefined };
         }
       }
     } catch (error) {
@@ -3710,7 +3728,20 @@ Got:      ${typeToString(variableType)}`
     });
 
     // Set variable as consumed if necessary
-    env = this.setVariableAsConsumed(env, value);
+    const { env: nextEnv, referedVariable } = this.setVariableAsConsumed(
+      env,
+      value
+    );
+    env = nextEnv;
+
+    if (referedVariable) {
+      env = setEnvVariableReferedVariable({
+        env,
+        variableNameToken: tokens[variableNameTokenIndex],
+        referedVariable,
+        inputString: this.inputString,
+      });
+    }
 
     return {
       expr: {

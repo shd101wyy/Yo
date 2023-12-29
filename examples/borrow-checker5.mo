@@ -1,10 +1,7 @@
 let test = ()-> {
   let mut x = 1;
   {
-    let y = &!x;
+    let ref = &!x;
+    x = x + 1; // error: already borrowed as mutable reference ^
   }
-  {
-    let z = &!x; 
-  }
-  // let z = y; // Error: cannot assign mutable reference to a variable.  
 }

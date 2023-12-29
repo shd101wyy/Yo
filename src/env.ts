@@ -28,6 +28,11 @@ type ValueTypeKind =
 export type ReferedVariable = {
   frameLevel: number;
   variableName: string;
+  isMutableReference: boolean;
+  /**
+   * token where the reference is created
+   */
+  token: Token;
 };
 
 export type ValueType = {
@@ -45,11 +50,13 @@ export type ValueType = {
   isMutable?: boolean;
   isExported?: boolean;
   isUninitialized?: boolean;
-  isConsumed?: boolean;
 
-  // some counts
+  // Check linear type is consumed
+  consumedAtToken?: Token;
+
+  // References
   mutableReferences?: Token[];
-  immutableReference?: Token[];
+  immutableReferences?: Token[];
 
   // This is only used for temp variable, check the
   // tempVariableName of the ReferenceExpr of AstType.Reference
@@ -166,7 +173,7 @@ export function popEnvFrame(
     const unconsumedValues = frameToPop.values.filter(
       (value) =>
         (value.type.kind === "Linear" || value.type.kind === "Type") &&
-        !value.isConsumed &&
+        !value.consumedAtToken &&
         // NOTE: reference and mutable reference are linear
         // but we automatically consume in the end.
         !typeIsReferenceOrMutableReference(value.type)
@@ -179,7 +186,6 @@ export function popEnvFrame(
       throw formatErrorMessages({
         inputString,
         tokenAndErrorList: unconsumedValues.map((value) => {
-          console.log(value);
           return {
             token: value.token,
             errorMessage: `${
@@ -197,6 +203,28 @@ export function popEnvFrame(
             errorMessage: `Variable is not uninitialized.`,
           };
         }),
+      });
+    }
+  }
+
+  const topFrame = env.frames[env.frames.length - 1];
+  // Check if there is any unconsumed reference
+  const unconsumedReferences = topFrame.values.filter(
+    (value) =>
+      !value.consumedAtToken && typeIsReferenceOrMutableReference(value.type)
+  );
+  if (unconsumedReferences.length) {
+    for (let i = 0; i < unconsumedReferences.length; i++) {
+      const referedVariable = unconsumedReferences[i].referedVariable;
+      if (!referedVariable) {
+        // NOTE: This should never happen
+        throw new Error("Failed to find the refered variable.");
+      }
+      // decrement the reference count
+      env = decrementVariableReferenceCount({
+        env,
+        referedVariable,
+        inputString,
       });
     }
   }
@@ -293,11 +321,13 @@ export function setEnvVariableAsConsumed({
   env,
   variableName,
   inputString,
+  consumedAtToken,
 }: {
   env: Environment;
   variableName: string;
   inputString: string;
-}): Environment {
+  consumedAtToken: Token;
+}): { env: Environment; referedVariable?: ReferedVariable } {
   const valueTypes = getEnvValueTypesByVariableName(env, variableName);
   if (valueTypes.length === 0) {
     throw formatErrorMessages({
@@ -311,21 +341,84 @@ export function setEnvVariableAsConsumed({
     });
   }
   const valueType = valueTypes[valueTypes.length - 1];
-  if (valueType.isConsumed) {
+  if (valueType.consumedAtToken) {
     throw formatErrorMessages({
       inputString,
       tokenAndErrorList: [
+        /*
         {
           token: valueType.token,
           errorMessage: `${
             isTempVariableName(variableName) ? "Value" : "Variable"
           } is already consumed.`,
         },
+        */
+        {
+          token: valueType.consumedAtToken,
+          errorMessage: `Previously consumed here:`,
+        },
       ],
     });
   }
-  const newValueType = { ...valueType, isConsumed: true };
-  return updateExistingValueType(env, valueType, newValueType);
+  const referedVariable = valueType.referedVariable;
+  if (referedVariable) {
+    // decrement the reference count
+    env = decrementVariableReferenceCount({
+      env,
+      referedVariable,
+      inputString,
+    });
+  }
+
+  const newValueType: ValueType = { ...valueType, consumedAtToken };
+  return {
+    env: updateExistingValueType(env, valueType, newValueType),
+    referedVariable,
+  };
+}
+
+function decrementVariableReferenceCount({
+  env,
+  referedVariable,
+  inputString,
+}: {
+  env: Environment;
+  referedVariable: ReferedVariable;
+  inputString;
+}): Environment {
+  const referedFrame = env.frames[referedVariable.frameLevel];
+  const referedValueType = referedFrame.values.find(
+    (value) => value.variableName === referedVariable.variableName
+  );
+  if (!referedValueType) {
+    throw formatErrorMessages({
+      inputString,
+      tokenAndErrorList: [
+        {
+          token: referedVariable.token,
+          errorMessage: `Failed to find the refered variable "${referedVariable.variableName}"`,
+        },
+      ],
+    });
+  }
+  let mutableReferences = referedValueType.mutableReferences ?? [];
+  let immutableReferences = referedValueType.immutableReferences ?? [];
+  if (referedVariable.isMutableReference) {
+    mutableReferences = mutableReferences.filter(
+      (r) => r !== referedVariable.token
+    );
+  } else {
+    immutableReferences = immutableReferences.filter(
+      (r) => r !== referedVariable.token
+    );
+  }
+
+  env = updateExistingValueType(env, referedValueType, {
+    ...referedValueType,
+    mutableReferences,
+    immutableReferences,
+  });
+  return env;
 }
 
 export function increaseEnvVariableReferenceCount({
@@ -354,7 +447,7 @@ export function increaseEnvVariableReferenceCount({
     });
   }
   const valueType = valueTypes[valueTypes.length - 1];
-  const immutableReferences = valueType.immutableReference ?? [];
+  const immutableReferences = valueType.immutableReferences ?? [];
   const mutableReferences = valueType.mutableReferences ?? [];
   const immutableReferenceCount = immutableReferences.length;
   const mutableReferenceCount = mutableReferences.length;
@@ -380,7 +473,7 @@ ${immutableReferences
         tokenAndErrorList: [
           {
             token: valueType.token,
-            errorMessage: `Variable ${variableName} is already borrowed as mutable reference:
+            errorMessage: `Variable "${variableName}" is already borrowed as mutable reference:
 
 ${mutableReferences
   .map((token) => getLineAtToken(inputString, token))
@@ -398,17 +491,20 @@ ${mutableReferences
         referedVariable: {
           variableName,
           frameLevel: valueType.frameLevel,
+          isMutableReference,
+          token,
         },
       };
     }
   } else {
+    // immutable reference
     if (mutableReferenceCount > 0) {
       throw formatErrorMessages({
         inputString,
         tokenAndErrorList: [
           {
             token: valueType.token,
-            errorMessage: `Variable ${variableName} is already borrowed as mutable reference:
+            errorMessage: `Variable "${variableName}" is already borrowed as mutable reference:
 
 ${mutableReferences
   .map((token) => getLineAtToken(inputString, token))
@@ -419,17 +515,85 @@ ${mutableReferences
     } else {
       const newValueType: ValueType = {
         ...valueType,
-        immutableReference: [...immutableReferences, token],
+        immutableReferences: [...immutableReferences, token],
       };
       return {
         env: updateExistingValueType(env, valueType, newValueType),
         referedVariable: {
           variableName,
           frameLevel: valueType.frameLevel,
+          isMutableReference,
+          token,
         },
       };
     }
   }
+}
+
+export function setEnvVariableReferedVariable({
+  env,
+  variableNameToken,
+  referedVariable,
+  inputString,
+}: {
+  env: Environment;
+  variableNameToken: Token;
+  referedVariable: ReferedVariable;
+  inputString: string;
+}): Environment {
+  const variableName = variableNameToken.value;
+  // Increase the reference count for referedVariable
+  const frame = env.frames[referedVariable.frameLevel];
+  const referedValueType = frame.values.find(
+    (value) => value.variableName === referedVariable.variableName
+  );
+  if (!referedValueType) {
+    throw formatErrorMessages({
+      inputString,
+      tokenAndErrorList: [
+        {
+          token: referedVariable.token,
+          errorMessage: `Failed to find the refered variable "${referedVariable.variableName}"`,
+        },
+      ],
+    });
+  }
+  const immutableReferences = referedValueType.immutableReferences ?? [];
+  const mutableReferences = referedValueType.mutableReferences ?? [];
+  if (referedVariable.isMutableReference) {
+    mutableReferences.push(variableNameToken);
+  } else {
+    immutableReferences.push(variableNameToken);
+  }
+  const newValueType: ValueType = {
+    ...referedValueType,
+    immutableReferences,
+    mutableReferences,
+  };
+  const nextEnv = updateExistingValueType(env, referedValueType, newValueType);
+
+  const newReferedVariable: ReferedVariable = {
+    ...referedVariable,
+    token: variableNameToken,
+  };
+  const variableValueType = nextEnv.frames[
+    nextEnv.frames.length - 1
+  ].values.find((value) => value.variableName === variableName);
+  if (!variableValueType) {
+    throw formatErrorMessages({
+      inputString,
+      tokenAndErrorList: [
+        {
+          token: variableNameToken,
+          errorMessage: `Failed to find the variable "${variableName}"`,
+        },
+      ],
+    });
+  }
+  return updateExistingValueType(nextEnv, variableValueType, {
+    ...variableValueType,
+    referedVariable: newReferedVariable,
+  });
 }
 
 export function getEnvCurrentFrameLevel(env: Environment): number {

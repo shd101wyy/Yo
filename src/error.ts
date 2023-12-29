@@ -6,8 +6,10 @@ export function getLineAtToken(inputString: string, token: Token): string {
 
   const lines = inputString.split("\n");
   const lineString = lines[line];
-  return `${lineString}
-  ${" ".repeat(character)}^`;
+  return `Line ${line + 1}, column ${character + 1}:
+  
+${lineString}
+${" ".repeat(character)}^`;
 }
 
 export function formatErrorMessage({
