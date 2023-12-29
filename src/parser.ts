@@ -999,13 +999,16 @@ ${exprToString(rhs)}
 
     // Check if lhs can be created as mutable reference
     env = pushEnvFrame(env);
-    const { env: nextEnv, referedVariable } =
-      this.increaseVariableReferenceCount({
-        env,
-        expr: lhs,
-        isMutableReference: true,
-        isForAssignment: true,
-      });
+    const {
+      env: nextEnv,
+      referedVariable,
+      resetConsumedVariable,
+    } = this.increaseVariableReferenceCount({
+      env,
+      expr: lhs,
+      isMutableReference: true,
+      isForAssignment: true,
+    });
     env = nextEnv;
     env = decrementVariableReferenceCount({
       env,
@@ -1026,7 +1029,7 @@ ${exprToString(rhs)}
           left: lhs,
           right: rhs,
           env,
-          typeValue: rhs.typeValue,
+          typeValue: resetConsumedVariable ? TypeValues.unit : rhs.typeValue,
           token: tokens[lhsTokenIndex],
         },
         index,
@@ -2988,7 +2991,11 @@ Got     : ${effectsToString(
     expr: Expr;
     isMutableReference: boolean;
     isForAssignment?: boolean;
-  }): { env: Environment; referedVariable: ReferedVariable } {
+  }): {
+    env: Environment;
+    referedVariable: ReferedVariable;
+    resetConsumedVariable?: boolean;
+  } {
     try {
       switch (expr.type) {
         case AstType.Variable: {

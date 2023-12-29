@@ -8,5 +8,6 @@ extern "C" {
 let test = ()-> {
   let mut x = malloc();
   consume(x);
-  x = malloc();
+  let y = (x = malloc()); // y == ()
+  consume(x);
 }

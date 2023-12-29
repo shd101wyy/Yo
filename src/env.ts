@@ -502,7 +502,11 @@ export function increaseEnvVariableReferenceCount({
   inputString: string;
   token: Token;
   isForAssignment?: boolean;
-}): { env: Environment; referedVariable: ReferedVariable } {
+}): {
+  env: Environment;
+  referedVariable: ReferedVariable;
+  resetConsumedVariable: boolean;
+} {
   const valueTypes = getEnvValueTypesByVariableName(env, variableName);
   if (valueTypes.length === 0) {
     throw formatErrorMessages({
@@ -516,6 +520,7 @@ export function increaseEnvVariableReferenceCount({
     });
   }
 
+  let resetConsumedVariable = false;
   let valueType = valueTypes[valueTypes.length - 1];
   if (valueType.consumedAtToken) {
     if (isForAssignment) {
@@ -527,6 +532,7 @@ export function increaseEnvVariableReferenceCount({
       };
       env = updateExistingValueType(env, valueType, newValueType);
       valueType = newValueType; // <= This is necessary
+      resetConsumedVariable = true;
     } else {
       throw formatErrorMessages({
         inputString,
@@ -586,6 +592,7 @@ ${mutableReferences
           isMutableReference,
           token,
         },
+        resetConsumedVariable,
       };
     }
   } else {
@@ -617,6 +624,7 @@ ${mutableReferences
           isMutableReference,
           token,
         },
+        resetConsumedVariable,
       };
     }
   }
