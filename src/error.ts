@@ -8,7 +8,7 @@ export function formatErrorMessage({
   inputString: string;
   token: Token;
   errorMessage: string;
-}) {
+}): Error {
   const { position } = token;
   const { character, line } = position;
 
@@ -19,5 +19,29 @@ Line ${line + 1}, column ${character + 1}:
 
 ${lineString}
 ${" ".repeat(character)}^`;
+  return new Error(errorMessages);
+}
+
+export function formatErrorMessages({
+  inputString,
+  tokenAndErrorList,
+}: {
+  inputString: string;
+  tokenAndErrorList: { token: Token; errorMessage: string }[];
+}): Error {
+  const errorMessages = tokenAndErrorList
+    .map(({ token, errorMessage }) => {
+      const { position } = token;
+      const { character, line } = position;
+
+      const lines = inputString.split("\n");
+      const lineString = lines[line];
+      return `${errorMessage}
+Line ${line + 1}, column ${character + 1}:
+
+${lineString}
+${" ".repeat(character)}^`;
+    })
+    .join("\n\n");
   return new Error(errorMessages);
 }

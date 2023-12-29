@@ -1,3 +1,5 @@
+import { formatErrorMessages } from "./error";
+import { Token } from "./token";
 import { Region, TClass, TEffect, Type } from "./type-checker";
 
 type ValueTypeKind =
@@ -14,6 +16,7 @@ export type ValueType = {
   isMutable?: boolean;
   isExported?: boolean;
   isUninitialized?: boolean;
+  isConsumed?: boolean;
   type: Type;
   region?: Region;
   effect?: TEffect;
@@ -26,6 +29,10 @@ export type ValueType = {
    * It's zero-based.
    */
   frameLevel: number;
+  /**
+   * At which token the variable is defined.
+   */
+  token: Token;
 };
 
 let regionCount = 1;
@@ -109,7 +116,42 @@ export function pushEnvFrame(
   };
 }
 
-export function popEnvFrame(env: Environment): Environment {
+export function popEnvFrame(
+  env: Environment,
+  inputString: string
+): Environment {
+  const frameToPop = env.frames[env.frames.length - 1];
+  // Check if there is any value in the frame that is not consumed or uninitialized
+  if (
+    frameToPop.values.some(
+      (valueType) =>
+        (valueType.type.kind === "Linear" || valueType.type.kind === "Type") &&
+        !valueType.isConsumed
+    )
+  ) {
+    throw formatErrorMessages({
+      inputString,
+      tokenAndErrorList: frameToPop.values.map((value) => {
+        return {
+          token: value.token,
+          errorMessage: `"${value.variableName}" is linear type but is not consumed.`,
+        };
+      }),
+    });
+  } else if (
+    frameToPop.values.some((valueType) => !valueType.isUninitialized)
+  ) {
+    throw formatErrorMessages({
+      inputString,
+      tokenAndErrorList: frameToPop.values.map((value) => {
+        return {
+          token: value.token,
+          errorMessage: `"${value.variableName}" is not uninitialized.`,
+        };
+      }),
+    });
+  }
+
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
     freeVariables: env.freeVariables,

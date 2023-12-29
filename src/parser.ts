@@ -89,6 +89,15 @@ interface ParserData {
   abortTokenIndex?: number;
 }
 
+const emptyToken: Token = {
+  position: {
+    line: 0,
+    character: 0,
+  },
+  type: TokenType.Undefined,
+  value: "",
+};
+
 export default class Parser {
   private modulePath: string;
   private inputString: string;
@@ -1278,6 +1287,7 @@ Got     : ${typeToString(returnType)}
             type: func,
             kind: "value",
             isMutable: false,
+            token: emptyToken,
           });
         });
       });
@@ -1317,7 +1327,7 @@ Returned : ${typeToString(body.typeValue)}
         type: AstType.Function,
         body,
         env: copyEnvironment(
-          popEnvFrame(env),
+          popEnvFrame(env, this.inputString),
           oldEnv.functionDeclarationFrameLevel,
           oldEnv.freeVariables
         ),
@@ -2856,7 +2866,7 @@ Got     : ${effectsToString(
 
     // NOTE: Needs to put this before `env.popFrame` to get `returnType`.
     const returnType = exprs[exprs.length - 1].typeValue;
-    env = popEnvFrame(nextEnv);
+    env = popEnvFrame(nextEnv, this.inputString);
 
     return {
       index,
@@ -2926,6 +2936,7 @@ Got     : ${effectsToString(
         );
       }
       const variableName = tokens[index].value;
+      const variableNameTokenIndex = index;
       index = index + 1;
 
       if (tokens[index].type !== TokenType.Colon) {
@@ -2962,6 +2973,7 @@ Got     : ${effectsToString(
         isMutable: false,
         kind: "value",
         isExported,
+        token: tokens[variableNameTokenIndex],
       });
 
       if (
@@ -3460,6 +3472,7 @@ ${typeToString(caseReturnType)}
         isMutable,
         isExported,
         isUninitialized: true,
+        token: tokens[variableNameTokenIndex],
       });
     }
 
@@ -3599,6 +3612,7 @@ Got:      ${typeToString(variableType)}`
       isMutable,
       isExported,
       isUninitialized: false,
+      token: tokens[variableNameTokenIndex],
     });
 
     return {
@@ -3642,6 +3656,7 @@ Got:      ${typeToString(variableType)}`
     index = index + 1;
 
     const destructurings: Destructuring[] = [];
+    const destructuringTokenIndexes: number[] = [];
     while (true) {
       if (!tokens[index]) {
         throw this.formatErrorMessage(
@@ -3668,6 +3683,7 @@ Got:      ${typeToString(variableType)}`
         );
       }
       const name = tokens[index].value;
+      destructuringTokenIndexes.push(index);
       index = index + 1;
 
       let asName: string | undefined = undefined;
@@ -3746,6 +3762,7 @@ ${typeToString(value.typeValue, { extractTypeConstructor: true })}`
             type: propertyType,
             kind: "value",
             isMutable: isMutable,
+            token: tokens[destructuringTokenIndexes[i]],
           });
 
           if (propertyType.kind === "Linear") {
@@ -3826,6 +3843,7 @@ ${typeToString(value.typeValue, { extractTypeConstructor: true })}`
               type: propertyType,
               kind: "value",
               isMutable: isMutable,
+              token: tokens[destructuringTokenIndexes[i]],
             });
 
             if (propertyType.kind === "Linear") {
@@ -3907,6 +3925,7 @@ ${typeToString(value.typeValue)}`
       );
     }
     const typeName = tokens[index].value;
+    const typeNameTokenIndex = index;
     index = index + 1;
 
     // typeName has to be UpperCamelCase
@@ -3928,6 +3947,7 @@ ${typeToString(value.typeValue)}`
       },
       kind: "type",
       isExported,
+      token: tokens[typeNameTokenIndex],
     });
 
     // Type parameters
@@ -4050,11 +4070,13 @@ ${typeToString(nextTypeValue)}`
         variableName: typeName,
         type: typeConstructor,
         kind: "type",
+        isExported,
+        token: tokens[typeNameTokenIndex],
       },
       -1
     );
 
-    env = popEnvFrame(env);
+    env = popEnvFrame(env, this.inputString);
     return {
       expr: {
         type: AstType.TypeAlias,
@@ -4109,6 +4131,7 @@ ${typeToString(nextTypeValue)}`
       );
     }
     const typeclassName = tokens[index].value;
+    const classNameTokenIndex = index;
     index = index + 1;
 
     // typeclassName has to be UpperCamelCase
@@ -4130,6 +4153,7 @@ ${typeToString(nextTypeValue)}`
       },
       kind: "type",
       isExported,
+      token: tokens[classNameTokenIndex],
     });
 
     // Type parameters
@@ -4156,6 +4180,7 @@ ${typeToString(nextTypeValue)}`
     // QUESTION: Does `extends` work for typeclass?
     // Should we use `with` instead?
     const functions: TClassFunction[] = [];
+    const functionNameTokenIndexes: number[] = [];
     // Parse class body
     if (tokens[index].type !== TokenType.LCurlyBracket) {
       throw this.formatErrorMessage(
@@ -4186,6 +4211,7 @@ class Show<T> {
       }
       const functionNameTokenIndex = index;
       const functionName = tokens[index].value;
+      functionNameTokenIndexes.push(index);
 
       // Parse function type
       const functionTypeTokenIndex = index + 2;
@@ -4276,6 +4302,7 @@ ${typeToString(functionType)}
         class: class_,
         kind: "class",
         isExported,
+        token: tokens[classNameTokenIndex],
       },
       -1
     );
@@ -4291,13 +4318,14 @@ ${typeToString(functionType)}
             type: func.func,
             kind: "value",
             isExported,
+            token: tokens[functionNameTokenIndexes[i]],
           },
           -1
         );
       }
     }
 
-    env = popEnvFrame(env);
+    env = popEnvFrame(env, this.inputString);
     return {
       expr: {
         type: AstType.Class,
@@ -4366,6 +4394,7 @@ ${typeToString(functionType)}
       );
     }
     const typeclassName = tokens[index].value;
+    const classNameTokenIndex = index;
     index = index + 1;
 
     // Find the class from env
@@ -4532,10 +4561,11 @@ Got:      ${typeToString(matchedFunction.func)}`
         class: newClass,
         kind: "value", // NOTE: We need to set it to "value" instead of "class" because we need to use it as a value
         isExported,
+        token: tokens[classNameTokenIndex],
       },
       -1
     );
-    env = popEnvFrame(env);
+    env = popEnvFrame(env, this.inputString);
 
     return {
       expr: {
@@ -4580,6 +4610,7 @@ Got:      ${typeToString(matchedFunction.func)}`
       );
     }
     const effectName = tokens[index].value;
+    const effectNameTokenIndex = index;
     index = index + 1;
 
     // effectName has to be UpperCamelCase
@@ -4631,6 +4662,7 @@ Got:      ${typeToString(matchedFunction.func)}`
       effect: fakeEffect,
       kind: "effect",
       isExported,
+      token: tokens[effectNameTokenIndex],
     });
 
     // Parse effect body
@@ -4760,10 +4792,11 @@ ${operationName}: ${typeToString(
         effect: effectType,
         kind: "effect",
         isExported,
+        token: tokens[effectNameTokenIndex],
       },
       -1
     );
-    env = popEnvFrame(env);
+    env = popEnvFrame(env, this.inputString);
     return {
       expr: {
         type: AstType.Effect,
@@ -4804,6 +4837,7 @@ ${operationName}: ${typeToString(
       );
     }
     const enumName = tokens[index].value;
+    const enumNameTokenIndex = index;
     index = index + 1;
 
     // NOTE: This is necessary for type parameters and recursive type alias
@@ -4817,6 +4851,7 @@ ${operationName}: ${typeToString(
       },
       kind: "type",
       isExported,
+      token: tokens[enumNameTokenIndex],
     });
 
     // Type parameters
@@ -4864,6 +4899,7 @@ ${operationName}: ${typeToString(
     }
     index = index + 1;
     const enumVariants: TEnumVariant[] = [];
+    const enumVariantTokenIndexes: number[] = [];
     while (true) {
       if (tokens[index].type === TokenType.RCurlyBracket) {
         index = index + 1;
@@ -4877,6 +4913,7 @@ ${operationName}: ${typeToString(
         );
       }
       const enumVariantName = tokens[index].value;
+      enumVariantTokenIndexes.push(index);
       index = index + 1;
 
       // enumVariantName has to be UpperCamelCase
@@ -4980,10 +5017,11 @@ ${operationName}: ${typeToString(
         type: enumType,
         kind: "type",
         isExported,
+        token: tokens[enumNameTokenIndex],
       },
       -1
     );
-    env = popEnvFrame(env);
+    env = popEnvFrame(env, this.inputString);
 
     // Add enum variants to environment
     for (let i = 0; i < enumType.variants.length; i++) {
@@ -4999,6 +5037,7 @@ ${operationName}: ${typeToString(
         isExported,
         // isExported: false, // We use special syntax to access enum variants
         // eg: import { Option { Some, None } } from "std/option"
+        token: tokens[enumVariantTokenIndexes[i]],
       });
     }
 
@@ -5525,6 +5564,7 @@ Got:      ${
           variableName: operation.name,
           type: operation.func,
           kind: "value",
+          token: operationTokens[i],
         });
       }
 
@@ -5582,7 +5622,7 @@ Got:      ${typeToString(parserData.abortType)}`
         type: AstType.Try,
         body: tryExpr,
         effectHandlers,
-        env: popEnvFrame(env),
+        env: popEnvFrame(env, this.inputString),
         token: tokens[tryTokenIndex],
         typeValue: returnType,
       },

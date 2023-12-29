@@ -1863,6 +1863,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
 
     // check type
     let userDefinedParamterType: Type = TypeValues.unknown;
+    const parameterTypeTokenIndex = index + 2;
     if (tokens[index + 1].type !== TokenType.Colon) {
       // index = index + 1;
       throw formatErrorMessage({
@@ -1938,6 +1939,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
       type: userDefinedParamterType,
       kind: "value",
       isMutable,
+      token: tokens[parameterTypeTokenIndex],
     });
 
     parameterTypes.push({
@@ -1949,7 +1951,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
   }
 
   if (!withFunctionBody) {
-    env = popEnvFrame(env);
+    env = popEnvFrame(env, inputString);
   }
 
   return { parameterTypes, index, env };
@@ -2438,6 +2440,7 @@ export function synthesizeTypeAndRegionParametersFromTokens({
 
     // Check type kind
     let kind: TypeKind | RegionKind | undefined = undefined;
+    const parameterKindTokenIndex = index + 2;
     if (tokens[index + 1].type === TokenType.Colon) {
       index = index + 2;
       kind = parseTypeAndRegionKind(tokens, index, inputString);
@@ -2489,6 +2492,7 @@ export function synthesizeTypeAndRegionParametersFromTokens({
         type: TypeValues.unknown,
         region: regionParameter,
         kind: "region",
+        token: tokens[parameterKindTokenIndex],
       });
     } else {
       const typeParameter: TTypeParameter = {
@@ -2503,6 +2507,7 @@ export function synthesizeTypeAndRegionParametersFromTokens({
         variableName: typeParameterName,
         type: typeParameter,
         kind: "type",
+        token: tokens[parameterKindTokenIndex],
       });
     }
   }
