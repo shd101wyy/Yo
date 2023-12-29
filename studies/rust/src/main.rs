@@ -1,20 +1,19 @@
 // Write an example main function that calls a closure function
 
-fn increment(x: &mut i32) {
-    *x = *x + 1;
+fn consume(data: String) {
+
+}
+
+fn test(flag: bool) {
+    let x = String::from("Hello, world");
+    if flag {
+        let y = x;
+        consume(y)
+    } else {
+    }
+    let z = x;
 }
 
 fn main() {
-    let mut x = 1;
-    let y = &mut x;
-    
-    increment(y);
-
-    let z = y;
-
-    increment(y);
-    
-    // let z = y;
-    // *z = *z + 1;
-    // *y = *y + 2;
+    test(true)    
 }

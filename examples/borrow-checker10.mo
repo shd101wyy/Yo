@@ -4,8 +4,11 @@ extern "C" {
   consume: (x: Data)-> ();
 }
 
+
 let test = ()-> {
   let mut x = malloc();
-  let y = &!x;
-  consume(x); // Error: x is borrowed
+  let y = (x = malloc());
+
+  consume(x);
+  consume(y);
 }

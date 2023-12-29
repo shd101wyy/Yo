@@ -408,26 +408,22 @@ export function setEnvVariableAsConsumed({
   } else if (immutableReferences.length > 0) {
     throw formatErrorMessages({
       inputString,
-      tokenAndErrorList: [
-        ...immutableReferences.map((token) => {
-          return {
-            token,
-            errorMessage: "Previously borrowed as immutable reference here:",
-          };
-        }),
-      ],
+      tokenAndErrorList: immutableReferences.map((token) => {
+        return {
+          token,
+          errorMessage: "Previously borrowed as immutable reference here:",
+        };
+      }),
     });
   } else if (mutableReferences.length > 0) {
     throw formatErrorMessages({
       inputString,
-      tokenAndErrorList: [
-        ...mutableReferences.map((token) => {
-          return {
-            token,
-            errorMessage: "Previously borrowed as mutable reference here:",
-          };
-        }),
-      ],
+      tokenAndErrorList: mutableReferences.map((token) => {
+        return {
+          token,
+          errorMessage: "Previously borrowed as mutable reference here:",
+        };
+      }),
     });
   }
 

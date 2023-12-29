@@ -1009,6 +1009,11 @@ ${exprToString(rhs)}
     });
     env = popEnvFrame(env, this.inputString);
 
+    // Consume RHS value if necessary
+    const { env: nextNextEnv /*referedVariable: nextReferedVariable*/ } =
+      this.setVariableAsConsumed(env, rhs);
+    env = nextNextEnv;
+
     if (isMutable) {
       return {
         expr: {
@@ -3749,7 +3754,7 @@ Got:      ${typeToString(variableType)}`
       preventDuplicate: true,
     });
 
-    // Set variable as consumed if necessary
+    // Consume RHS value if necessary
     const { env: nextEnv, referedVariable } = this.setVariableAsConsumed(
       env,
       value
