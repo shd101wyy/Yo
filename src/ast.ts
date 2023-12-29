@@ -291,6 +291,7 @@ export type Destructuring = {
   name: string;
   asName?: string;
   isMutable: boolean;
+  token: Token;
 };
 
 export type DestructuringAssignmentExpr = {

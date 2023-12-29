@@ -36,14 +36,13 @@ import {
   getEnvValueTypesByVariableName,
   getNewTempVariableName,
   increaseEnvVariableReferenceCount,
-  isVariableNameInitializedInEnvFrame,
   popEnvFrame,
   pushEnvFrame,
   setEnvVariableAsConsumed,
   setEnvVariableReferedVariable,
   updateExistingValueType,
 } from "./env";
-import { formatErrorMessage } from "./error";
+import { formatErrorMessage, formatErrorMessages } from "./error";
 import { tokenize } from "./lexer";
 import { isUpperCamelCase } from "./naming-checker";
 import { Token, TokenType } from "./token";
@@ -60,6 +59,7 @@ import {
   TFunction,
   TModule,
   TParameterType,
+  TRecord,
   TRegionParameter,
   TSlice,
   TTypeConstructor,
@@ -1292,12 +1292,16 @@ Got     : ${typeToString(returnType)}
     if (functionType.effects.length > 0) {
       functionType.effects.forEach((effect) => {
         effect.operations.forEach(({ name, func }) => {
-          env = addEnvValueType(env, {
-            variableName: name,
-            type: func,
-            kind: "value",
-            isMutable: false,
-            token: emptyToken,
+          env = addEnvValueType({
+            env,
+            valueType: {
+              variableName: name,
+              type: func,
+              kind: "value",
+              isMutable: false,
+              token: emptyToken,
+            },
+            inputString: this.inputString,
           });
         });
       });
@@ -1805,12 +1809,16 @@ Callee  : ${effectsToString(
     // save the return value to a temporary variable
     const returnType = calleeTypeValue.returnType;
     const tempVariableName = getNewTempVariableName();
-    env = addEnvValueType(env, {
-      variableName: tempVariableName,
-      type: returnType,
-      kind: "value",
-      isMutable: false,
-      token: tokens[startIndex],
+    env = addEnvValueType({
+      env,
+      valueType: {
+        variableName: tempVariableName,
+        type: returnType,
+        kind: "value",
+        isMutable: false,
+        token: tokens[startIndex],
+      },
+      inputString: this.inputString,
     });
 
     return {
@@ -3092,13 +3100,17 @@ Got     : ${effectsToString(
       });
 
       // Add variable to env
-      env = addEnvValueType(env, {
-        variableName,
-        type: typeValue,
-        isMutable: false,
-        kind: "value",
-        isExported,
-        token: tokens[variableNameTokenIndex],
+      env = addEnvValueType({
+        env,
+        valueType: {
+          variableName,
+          type: typeValue,
+          isMutable: false,
+          kind: "value",
+          isExported,
+          token: tokens[variableNameTokenIndex],
+        },
+        inputString: this.inputString,
       });
 
       if (
@@ -3590,14 +3602,18 @@ ${typeToString(caseReturnType)}
       index = nextIndex;
       env = nextEnv;
 
-      env = addEnvValueType(env, {
-        variableName,
-        type: userDefinedVariableType,
-        kind: "value",
-        isMutable,
-        isExported,
-        isUninitialized: true,
-        token: tokens[variableNameTokenIndex],
+      env = addEnvValueType({
+        env,
+        valueType: {
+          variableName,
+          type: userDefinedVariableType,
+          kind: "value",
+          isMutable,
+          isExported,
+          isUninitialized: true,
+          token: tokens[variableNameTokenIndex],
+        },
+        inputString: this.inputString,
       });
     }
 
@@ -3716,28 +3732,20 @@ Got:      ${typeToString(variableType)}`
       }
     }
 
-    if (
-      isVariableNameInitializedInEnvFrame(
-        env,
-        variableName,
-        getEnvCurrentFrameLevel(env)
-      )
-    ) {
-      throw this.formatErrorMessage(
-        tokens[variableNameTokenIndex],
-        `Variable "${variableName}" is already defined in this block scope`
-      );
-    }
-
     // Add variable to env
-    env = addEnvValueType(env, {
-      variableName,
-      type: variableType,
-      kind: "value",
-      isMutable,
-      isExported,
-      isUninitialized: false,
-      token: tokens[variableNameTokenIndex],
+    env = addEnvValueType({
+      env,
+      valueType: {
+        variableName,
+        type: variableType,
+        kind: "value",
+        isMutable,
+        isExported,
+        isUninitialized: false,
+        token: tokens[variableNameTokenIndex],
+      },
+      inputString: this.inputString,
+      preventDuplicate: true,
     });
 
     // Set variable as consumed if necessary
@@ -3772,6 +3780,110 @@ Got:      ${typeToString(variableType)}`
     };
   }
 
+  private destructureRecordType({
+    env,
+    destructurings,
+    value,
+    recordType,
+  }: {
+    env: Environment;
+    destructurings: Destructuring[];
+    value: Expr;
+    recordType: TRecord;
+  }): Environment {
+    const destructuredLinearFields: string[] = [];
+    // Check if the type of `value` matches the type of destructurings
+    for (let i = 0; i < destructurings.length; i++) {
+      const { name, asName, isMutable } = destructurings[i];
+      const property = recordType.properties.find((p) => p.name === name);
+      if (!property) {
+        throw this.formatErrorMessage(
+          destructurings[i].token,
+          `Cannot find the property \`${name}\` in the following type:
+${typeToString(recordType, { extractTypeConstructor: true })}`
+        );
+      }
+      const propertyType = property.type;
+
+      if (
+        "isMutable" in value &&
+        !value.isMutable &&
+        isMutable &&
+        propertyType.kind !== "Free"
+      ) {
+        throw formatErrorMessages({
+          inputString: this.inputString,
+          tokenAndErrorList: [
+            {
+              token: destructurings[i].token,
+              errorMessage: `Cannot destructure an immutable value with mutable field "${name}"`,
+            },
+            {
+              token: value.token,
+              errorMessage: `Immutable value is defined here:`,
+            },
+          ],
+        });
+      }
+
+      // Add variable to env
+      env = addEnvValueType({
+        env,
+        valueType: {
+          variableName: asName ?? name,
+          type: propertyType,
+          kind: "value",
+          isMutable: isMutable,
+          token: destructurings[i].token,
+        },
+        preventDuplicate: true,
+        inputString: this.inputString,
+      });
+
+      if (propertyType.kind === "Linear") {
+        destructuredLinearFields.push(name);
+      }
+    }
+
+    // Check if all linear fields are destructured
+    const hasLinearField = recordType.properties.some(
+      (p) => p.type.kind === "Linear"
+    );
+    if (destructuredLinearFields.length > 0) {
+      for (const property of recordType.properties) {
+        if (
+          property.type.kind === "Linear" &&
+          !destructuredLinearFields.includes(property.name)
+        ) {
+          throw this.formatErrorMessage(
+            destructurings[0].token,
+            `The linear field "${property.name}" needs to be destructured
+  because the following linear fields are destructured:
+  ${destructuredLinearFields.map((x) => `"${x}"`).join(", ")}`
+          );
+        }
+      }
+    } else {
+      // Check if all linear fields are consumed
+      const linearFields = recordType.properties.filter(
+        (p) => p.type.kind === "Linear"
+      );
+      throw this.formatErrorMessage(
+        destructurings[0].token,
+        `The following linear fields need to be destructured:
+${linearFields.map((x) => `"${x.name}"`).join(", ")}`
+      );
+    }
+
+    if (hasLinearField) {
+      // Consumes the value
+      const { env: nextEnv } = this.setVariableAsConsumed(env, value);
+      env = nextEnv;
+    }
+
+    return env;
+  }
+
   private parseDestructuringAssignmentExpression({
     tokens,
     index,
@@ -3797,7 +3909,6 @@ Got:      ${typeToString(variableType)}`
     index = index + 1;
 
     const destructurings: Destructuring[] = [];
-    const destructuringTokenIndexes: number[] = [];
     while (true) {
       if (!tokens[index]) {
         throw this.formatErrorMessage(
@@ -3824,7 +3935,7 @@ Got:      ${typeToString(variableType)}`
         );
       }
       const name = tokens[index].value;
-      destructuringTokenIndexes.push(index);
+      let nameToken = tokens[index];
       index = index + 1;
 
       let asName: string | undefined = undefined;
@@ -3837,6 +3948,7 @@ Got:      ${typeToString(variableType)}`
           );
         }
         asName = tokens[index].value;
+        nameToken = tokens[index];
         index = index + 1;
       }
 
@@ -3844,6 +3956,7 @@ Got:      ${typeToString(variableType)}`
         name,
         asName,
         isMutable: isMutable_,
+        token: nameToken,
       });
 
       if (tokens[index].type === TokenType.Comma) {
@@ -3871,63 +3984,28 @@ Got:      ${typeToString(variableType)}`
     const valueType = value.typeValue;
     switch (valueType.type) {
       case "Record": {
-        const destructuredLinearFields: string[] = [];
-        // Check if the type of `value` matches the type of destructurings
-        for (let i = 0; i < destructurings.length; i++) {
-          const { name, asName, isMutable } = destructurings[i];
-          const property = valueType.properties.find((p) => p.name === name);
-          if (!property) {
-            throw this.formatErrorMessage(
-              tokens[index],
-              `Cannot find the property \`${name}\` in the following type:
-${typeToString(value.typeValue, { extractTypeConstructor: true })}`
-            );
-          }
-          const propertyType = property.type;
-
-          if (
-            "isMutable" in value &&
-            !value.isMutable &&
-            isMutable &&
-            propertyType.kind !== "Free"
-          ) {
-            throw this.formatErrorMessage(
-              tokens[index],
-              `Cannot destructure an immutable record with mutable field "${name}"`
-            );
-          }
-
-          // Add variable to env
-          env = addEnvValueType(env, {
-            variableName: asName ?? name,
-            type: propertyType,
-            kind: "value",
-            isMutable: isMutable,
-            token: tokens[destructuringTokenIndexes[i]],
-          });
-
-          if (propertyType.kind === "Linear") {
-            destructuredLinearFields.push(name);
-          }
+        env = this.destructureRecordType({
+          env,
+          destructurings,
+          value,
+          recordType: valueType,
+        });
+        break;
+      }
+      case "TypeConstructor": {
+        if (valueType.typeValue.type !== "Record") {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Cannot destructure the following type:
+  ${typeToString(value.typeValue)}`
+          );
         }
-
-        // Check if all linear fields are destructured
-        if (destructuredLinearFields.length > 0) {
-          for (const property of valueType.properties) {
-            if (
-              property.type.kind === "Linear" &&
-              !destructuredLinearFields.includes(property.name)
-            ) {
-              throw this.formatErrorMessage(
-                tokens[index - 1],
-                `The linear field "${property.name}" needs to be destructured
-because the following linear fields are destructured:
-${destructuredLinearFields.map((x) => `"${x}"`).join(", ")}`
-              );
-            }
-          }
-        }
-
+        env = this.destructureRecordType({
+          env,
+          destructurings,
+          value,
+          recordType: valueType.typeValue,
+        });
         break;
       }
       case "Enum": {
@@ -3979,12 +4057,17 @@ ${typeToString(value.typeValue, { extractTypeConstructor: true })}`
             }
 
             // Add variable to env
-            env = addEnvValueType(env, {
-              variableName: asName ?? name,
-              type: propertyType,
-              kind: "value",
-              isMutable: isMutable,
-              token: tokens[destructuringTokenIndexes[i]],
+            env = addEnvValueType({
+              env,
+              valueType: {
+                variableName: asName ?? name,
+                type: propertyType,
+                kind: "value",
+                isMutable: isMutable,
+                token: destructurings[i].token,
+              },
+              inputString: this.inputString,
+              preventDuplicate: true,
             });
 
             if (propertyType.kind === "Linear") {
@@ -4079,16 +4162,20 @@ ${typeToString(value.typeValue)}`
 
     // NOTE: This is necessary for type parameters and recursive type alias
     env = pushEnvFrame(env);
-    env = addEnvValueType(env, {
-      variableName: typeName,
-      type: {
-        type: "unknown",
-        kind: "Free",
-        typeName,
+    env = addEnvValueType({
+      env,
+      valueType: {
+        variableName: typeName,
+        type: {
+          type: "unknown",
+          kind: "Free",
+          typeName,
+        },
+        kind: "type",
+        isExported,
+        token: tokens[typeNameTokenIndex],
       },
-      kind: "type",
-      isExported,
-      token: tokens[typeNameTokenIndex],
+      inputString: this.inputString,
     });
 
     // Type parameters
@@ -4205,17 +4292,18 @@ ${typeToString(nextTypeValue)}`
       typeValue,
     };
 
-    env = addEnvValueType(
+    env = addEnvValueType({
       env,
-      {
+      valueType: {
         variableName: typeName,
         type: typeConstructor,
         kind: "type",
         isExported,
         token: tokens[typeNameTokenIndex],
       },
-      -1
-    );
+      deltaFrame: -1,
+      inputString: this.inputString,
+    });
 
     env = popEnvFrame(env, this.inputString);
     return {
@@ -4285,16 +4373,20 @@ ${typeToString(nextTypeValue)}`
 
     // NOTE: This is necessary for type parameters and recursive type alias
     env = pushEnvFrame(env);
-    env = addEnvValueType(env, {
-      variableName: typeclassName,
-      type: {
-        type: "unknown",
-        kind: "Free",
-        typeName: typeclassName,
+    env = addEnvValueType({
+      env,
+      valueType: {
+        variableName: typeclassName,
+        type: {
+          type: "unknown",
+          kind: "Free",
+          typeName: typeclassName,
+        },
+        kind: "type",
+        isExported,
+        token: tokens[classNameTokenIndex],
       },
-      kind: "type",
-      isExported,
-      token: tokens[classNameTokenIndex],
+      inputString: this.inputString,
     });
 
     // Type parameters
@@ -4435,9 +4527,9 @@ ${typeToString(functionType)}
     };
 
     // Add to environment
-    env = addEnvValueType(
+    env = addEnvValueType({
       env,
-      {
+      valueType: {
         variableName: typeclassName,
         type: TypeValues.unit,
         class: class_,
@@ -4445,24 +4537,26 @@ ${typeToString(functionType)}
         isExported,
         token: tokens[classNameTokenIndex],
       },
-      -1
-    );
+      deltaFrame: -1,
+      inputString: this.inputString,
+    });
 
     // add pre-defined functions to env
     for (let i = 0; i < functions.length; i++) {
       const func = functions[i];
       if (func.functionExpr) {
-        env = addEnvValueType(
+        env = addEnvValueType({
           env,
-          {
+          valueType: {
             variableName: func.name,
             type: func.func,
             kind: "value",
             isExported,
             token: tokens[functionNameTokenIndexes[i]],
           },
-          -1
-        );
+          deltaFrame: -1,
+          inputString: this.inputString,
+        });
       }
     }
 
@@ -4694,9 +4788,9 @@ Got:      ${typeToString(matchedFunction.func)}`
     newClass.functions = functions;
 
     // Add to environment
-    env = addEnvValueType(
+    env = addEnvValueType({
       env,
-      {
+      valueType: {
         variableName: typeclassName,
         type: TypeValues.unit,
         class: newClass,
@@ -4704,8 +4798,9 @@ Got:      ${typeToString(matchedFunction.func)}`
         isExported,
         token: tokens[classNameTokenIndex],
       },
-      -1
-    );
+      deltaFrame: -1,
+      inputString: this.inputString,
+    });
     env = popEnvFrame(env, this.inputString);
 
     return {
@@ -4793,17 +4888,21 @@ Got:      ${typeToString(matchedFunction.func)}`
       regionParameters: regionParameters,
       typeParameters: typeParameters,
     };
-    env = addEnvValueType(env, {
-      variableName: effectName,
-      type: {
-        type: "unknown",
-        kind: "Free",
-        typeName: effectName,
+    env = addEnvValueType({
+      env,
+      valueType: {
+        variableName: effectName,
+        type: {
+          type: "unknown",
+          kind: "Free",
+          typeName: effectName,
+        },
+        effect: fakeEffect,
+        kind: "effect",
+        isExported,
+        token: tokens[effectNameTokenIndex],
       },
-      effect: fakeEffect,
-      kind: "effect",
-      isExported,
-      token: tokens[effectNameTokenIndex],
+      inputString: this.inputString,
     });
 
     // Parse effect body
@@ -4925,9 +5024,9 @@ ${operationName}: ${typeToString(
       regionParameters,
       typeParameters,
     };
-    env = addEnvValueType(
+    env = addEnvValueType({
       env,
-      {
+      valueType: {
         variableName: effectName,
         type: TypeValues.unit,
         effect: effectType,
@@ -4935,8 +5034,9 @@ ${operationName}: ${typeToString(
         isExported,
         token: tokens[effectNameTokenIndex],
       },
-      -1
-    );
+      deltaFrame: -1,
+      inputString: this.inputString,
+    });
     env = popEnvFrame(env, this.inputString);
     return {
       expr: {
@@ -4983,16 +5083,20 @@ ${operationName}: ${typeToString(
 
     // NOTE: This is necessary for type parameters and recursive type alias
     env = pushEnvFrame(env);
-    env = addEnvValueType(env, {
-      variableName: enumName,
-      type: {
-        type: "unknown",
-        kind: "Free",
-        typeName: enumName,
+    env = addEnvValueType({
+      env,
+      valueType: {
+        variableName: enumName,
+        type: {
+          type: "unknown",
+          kind: "Free",
+          typeName: enumName,
+        },
+        kind: "type",
+        isExported,
+        token: tokens[enumNameTokenIndex],
       },
-      kind: "type",
-      isExported,
-      token: tokens[enumNameTokenIndex],
+      inputString: this.inputString,
     });
 
     // Type parameters
@@ -5151,17 +5255,18 @@ ${operationName}: ${typeToString(
     };
 
     // Add to environment
-    env = addEnvValueType(
+    env = addEnvValueType({
       env,
-      {
+      valueType: {
         variableName: enumName,
         type: enumType,
         kind: "type",
         isExported,
         token: tokens[enumNameTokenIndex],
       },
-      -1
-    );
+      deltaFrame: -1,
+      inputString: this.inputString,
+    });
     env = popEnvFrame(env, this.inputString);
 
     // Add enum variants to environment
@@ -5171,14 +5276,18 @@ ${operationName}: ${typeToString(
         ...enumType,
         selectedVariantName: variant.name,
       };
-      env = addEnvValueType(env, {
-        variableName: variant.name,
-        type: newEnumType,
-        kind: "value",
-        isExported,
-        // isExported: false, // We use special syntax to access enum variants
-        // eg: import { Option { Some, None } } from "std/option"
-        token: tokens[enumVariantTokenIndexes[i]],
+      env = addEnvValueType({
+        env,
+        valueType: {
+          variableName: variant.name,
+          type: newEnumType,
+          kind: "value",
+          isExported,
+          // isExported: false, // We use special syntax to access enum variants
+          // eg: import { Option { Some, None } } from "std/option"
+          token: tokens[enumVariantTokenIndexes[i]],
+        },
+        inputString: this.inputString,
       });
     }
 
@@ -5274,13 +5383,17 @@ ${operationName}: ${typeToString(
           ],
         };
         const tempVariableName = getNewTempVariableName();
-        env = addEnvValueType(env, {
-          variableName: tempVariableName,
-          type: referenceType,
-          kind: "value",
-          isMutable: false,
-          token: tokens[referenceTokenIndex],
-          referedVariable,
+        env = addEnvValueType({
+          env,
+          valueType: {
+            variableName: tempVariableName,
+            type: referenceType,
+            kind: "value",
+            isMutable: false,
+            token: tokens[referenceTokenIndex],
+            referedVariable,
+          },
+          inputString: this.inputString,
         });
 
         return {
@@ -5339,13 +5452,17 @@ ${operationName}: ${typeToString(
           ],
         };
         const tempVariableName = getNewTempVariableName();
-        env = addEnvValueType(env, {
-          variableName: tempVariableName,
-          type: referenceType,
-          kind: "value",
-          isMutable: false,
-          token: tokens[referenceTokenIndex],
-          referedVariable,
+        env = addEnvValueType({
+          env,
+          valueType: {
+            variableName: tempVariableName,
+            type: referenceType,
+            kind: "value",
+            isMutable: false,
+            token: tokens[referenceTokenIndex],
+            referedVariable,
+          },
+          inputString: this.inputString,
         });
 
         return {
@@ -5735,11 +5852,15 @@ Got:      ${
       // Add operations to env
       for (let i = 0; i < operations.length; i++) {
         const operation = operations[i];
-        env = addEnvValueType(env, {
-          variableName: operation.name,
-          type: operation.func,
-          kind: "value",
-          token: operationTokens[i],
+        env = addEnvValueType({
+          env,
+          valueType: {
+            variableName: operation.name,
+            type: operation.func,
+            kind: "value",
+            token: operationTokens[i],
+          },
+          inputString: this.inputString,
         });
       }
 
@@ -6079,7 +6200,11 @@ Got:      ${typeToString(parserData.abortType)}`
         const moduleFrame = module.env.frames[0];
         for (const value of moduleFrame.values) {
           if (value.isExported) {
-            env = addEnvValueType(env, { ...value });
+            env = addEnvValueType({
+              env,
+              valueType: { ...value },
+              inputString: this.inputString,
+            });
           }
         }
       } else {
@@ -6103,9 +6228,13 @@ Got:      ${typeToString(parserData.abortType)}`
               );
             }
 
-            env = addEnvValueType(env, {
-              ...variable,
-              variableName: destructuring.asName ?? variableName,
+            env = addEnvValueType({
+              env,
+              valueType: {
+                ...variable,
+                variableName: destructuring.asName ?? variableName,
+              },
+              inputString: this.inputString,
             });
           }
         }

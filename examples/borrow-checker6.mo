@@ -1,5 +1,19 @@
-let test = ()-> {
-  let mut x = 1;
-  let y = &!x;
-  // let z = y; // Error: cannot assign mutable reference to a variable.  
+type Data: Linear;
+extern "C" {
+  malloc: ()-> Data;
+  consume: (x: Data)-> ();
+}
+type Person = {
+  name: Data,
+  age: i32
+}
+
+let test = (person1: Person, person2: Person)-> {
+  // let {age} = person1; // error: name is not consumed
+  let {age, name} = person1; // person1 is consumed here
+  // let {age} = person1; // error: person1 is consumed above ^
+  consume(name);
+
+  let {age as person2Age, name as person2Name} = person2;
+  consume(person2Name);
 }

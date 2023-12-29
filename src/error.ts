@@ -9,7 +9,7 @@ export function getLineAtToken(inputString: string, token: Token): string {
   return `Line ${line + 1}, column ${character + 1}:
   
 ${lineString}
-${" ".repeat(character)}^`;
+${" ".repeat(character - Math.floor(token.value.length / 2))}^`;
 }
 
 export function formatErrorMessage({
@@ -23,16 +23,8 @@ export function formatErrorMessage({
   errorMessage: string;
   cause?: Error;
 }): Error {
-  const { position } = token;
-  const { character, line } = position;
-
-  const lines = inputString.split("\n");
-  const lineString = lines[line];
   const errorMessages = `${errorMessage}
-Line ${line + 1}, column ${character + 1}:
-
-${lineString}
-${" ".repeat(character)}^`;
+${getLineAtToken(inputString, token)}`;
   return new Error(
     errorMessages + (cause?.message ? "\n" + cause.message : "")
   );
@@ -49,16 +41,8 @@ export function formatErrorMessages({
 }): Error {
   const errorMessages = tokenAndErrorList
     .map(({ token, errorMessage }) => {
-      const { position } = token;
-      const { character, line } = position;
-
-      const lines = inputString.split("\n");
-      const lineString = lines[line];
       return `${errorMessage}
-Line ${line + 1}, column ${character + 1}:
-
-${lineString}
-${" ".repeat(character)}^`;
+${getLineAtToken(inputString, token)}`;
     })
     .join("\n\n");
   return new Error(

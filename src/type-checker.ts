@@ -1935,12 +1935,16 @@ export function synthesizeFunctionParameterTypesFromTokens({
     }
 
     // save to env
-    env = addEnvValueType(env, {
-      variableName: parameterName,
-      type: userDefinedParamterType,
-      kind: "value",
-      isMutable,
-      token: tokens[parameterNameTokenIndex],
+    env = addEnvValueType({
+      inputString,
+      env,
+      valueType: {
+        variableName: parameterName,
+        type: userDefinedParamterType,
+        kind: "value",
+        isMutable,
+        token: tokens[parameterNameTokenIndex],
+      },
     });
 
     parameterTypes.push({
@@ -2506,12 +2510,16 @@ export function synthesizeTypeAndRegionParametersFromTokens({
       regionParameters.push(regionParameter);
 
       // Save to env
-      env = addEnvValueType(env, {
-        variableName: typeParameterName,
-        type: TypeValues.unknown,
-        region: regionParameter,
-        kind: "region",
-        token: tokens[parameterKindTokenIndex],
+      env = addEnvValueType({
+        inputString,
+        env,
+        valueType: {
+          variableName: typeParameterName,
+          type: TypeValues.unknown,
+          region: regionParameter,
+          kind: "region",
+          token: tokens[parameterKindTokenIndex],
+        },
       });
     } else {
       const typeParameter: TTypeParameter = {
@@ -2522,11 +2530,15 @@ export function synthesizeTypeAndRegionParametersFromTokens({
       typeParameters.push(typeParameter);
 
       // Save to env
-      env = addEnvValueType(env, {
-        variableName: typeParameterName,
-        type: typeParameter,
-        kind: "type",
-        token: tokens[parameterKindTokenIndex],
+      env = addEnvValueType({
+        inputString,
+        env,
+        valueType: {
+          variableName: typeParameterName,
+          type: typeParameter,
+          kind: "type",
+          token: tokens[parameterKindTokenIndex],
+        },
       });
     }
   }

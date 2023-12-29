@@ -91,7 +91,17 @@ type Frame = {
   values: ValueType[];
 };
 
-function addFrameValueType(frame: Frame, valueType: ValueType): Frame {
+function addFrameValueType({
+  inputString,
+  frame,
+  valueType,
+  preventDuplicate,
+}: {
+  inputString: string;
+  frame: Frame;
+  valueType: ValueType;
+  preventDuplicate?: boolean;
+}): Frame {
   // Check if there is already a value with the same variableName
   // but is uninitialized
   const existingValueTypeIndex = frame.values.findIndex(
@@ -107,6 +117,27 @@ function addFrameValueType(frame: Frame, valueType: ValueType): Frame {
       values: newValues,
     };
   } else {
+    if (preventDuplicate) {
+      const existingValue = frame.values.find(
+        (value) => value.variableName === valueType.variableName
+      );
+      if (existingValue) {
+        throw formatErrorMessages({
+          inputString,
+          tokenAndErrorList: [
+            {
+              token: valueType.token,
+              errorMessage: `Failed to define variable "${valueType.variableName}":`,
+            },
+            {
+              token: existingValue.token,
+              errorMessage: `Variable "${existingValue.variableName}" is already defined here:`,
+            },
+          ],
+        });
+      }
+    }
+
     return {
       regionId: frame.regionId,
       values: [...frame.values, valueType],
@@ -237,14 +268,27 @@ export function popEnvFrame(
   };
 }
 
-export function addEnvValueType(
-  env: Environment,
-  valueType: Omit<ValueType, "frameLevel">,
-  deltaFrame = 0
-): Environment {
-  const frameLevel = env.frames.length - 1 + deltaFrame;
+export function addEnvValueType({
+  inputString,
+  env,
+  valueType,
+  deltaFrame,
+  preventDuplicate,
+}: {
+  inputString: string;
+  env: Environment;
+  valueType: Omit<ValueType, "frameLevel">;
+  deltaFrame?: number;
+  preventDuplicate?: boolean;
+}): Environment {
+  const frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
   const frame = env.frames[frameLevel];
-  const newFrame = addFrameValueType(frame, { ...valueType, frameLevel });
+  const newFrame = addFrameValueType({
+    inputString,
+    frame,
+    valueType: { ...valueType, frameLevel },
+    preventDuplicate,
+  });
   const newFrames = env.frames.slice();
   newFrames[frameLevel] = newFrame;
   return {
