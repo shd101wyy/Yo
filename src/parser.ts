@@ -2697,12 +2697,14 @@ Got     : ${effectsToString(
     env,
     caller,
     parserData,
+    applyEnv,
   }: {
     tokens: Token[];
     index: number;
     env: Environment;
     caller: TFunction;
     parserData: ParserData;
+    applyEnv?: boolean;
   }): ParserReturn {
     if (tokens[index].type !== TokenType.Defer) {
       throw this.formatErrorMessage(tokens[index], "Expected 'defer'");
@@ -2723,7 +2725,7 @@ Got     : ${effectsToString(
         type: AstType.Defer,
         expr: nextExpr,
         typeValue: TypeValues.unit,
-        env,
+        env: applyEnv ? nextExpr.env : env,
         token: tokens[deferTokenIndex],
       },
       index: nextIndex,
@@ -2929,8 +2931,25 @@ Got     : ${effectsToString(
       );
     }
     env = nextNextEnv;
-    env = popEnvFrame(env, this.inputString);
 
+    // Run the deferred expressions
+    for (let i = exprs.length - 1; i >= 0; i--) {
+      const expr = exprs[i];
+      if (expr.type === AstType.Defer) {
+        // evaluate the defer again.
+        const { expr: deferExpr } = this.parseDeferExpr({
+          tokens,
+          index: tokens.findIndex((token) => token === expr.token),
+          caller,
+          env,
+          parserData,
+          applyEnv: true,
+        });
+        env = deferExpr.env;
+      }
+    }
+
+    env = popEnvFrame(env, this.inputString);
     return {
       index,
       expr: {
