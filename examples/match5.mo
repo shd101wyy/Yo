@@ -5,11 +5,7 @@ enum Option<T> {
 
 let test = (x: Option<i32>)->i32 {
   match x {
-    case None: {
-      0
-    }
-    case Some: {
-      x.value
-    }
+    None => 0,
+    Some => x.value
   }
 }

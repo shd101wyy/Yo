@@ -5,12 +5,10 @@ enum Option<T> {
 
 let test = (x: Option<i32>) -> i32 {
   match x {
-    case Some: {
+    Some => {
       let { value } = x;
       value
-    }
-    default: {
-      0
-    }
+    },
+    _ => 0
   }
 }

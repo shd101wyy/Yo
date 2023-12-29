@@ -37,7 +37,6 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Reference and Dereference](#reference-and-dereference)
   - [Function Declaration](#function-declaration)
     - [Uniform Function Call Syntax](#uniform-function-call-syntax)
-    - [Function Overloading](#function-overloading)
     - [Dependent types `In Design`](#dependent-types-in-design)
     - [Refinement types `In Design`](#refinement-types-in-design)
     - [`defer`](#defer)
@@ -52,6 +51,7 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
     - [Explicit enum variant type](#explicit-enum-variant-type)
   - [Typeclass](#typeclass)
+    - [Function Overloading](#function-overloading)
     - [Implicit `drop` function on `Linear` types](#implicit-drop-function-on-linear-types)
   - [Pattern Matching](#pattern-matching)
   - [Collections](#collections)
@@ -1062,19 +1062,14 @@ enum Coin {
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
 let valueInCents = (coin: Coin)-> u8 {
-  if coin is Penny {
-    println("Lucky penny!");
-    return 1;
-  } else if coin is Nickel {
-    return 5;
-  } else if coin is Dime {
-    return 10;
-  } else if coin is Quarter {
-    return 25;
-  } else {
-    throw Error({
-      message: "Not a coin", // Although this is not gonna happen
-    });
+  match coin {
+    Penny => {
+      println("Lucky penny!");
+      return 1;
+    },
+    Nickel => 5,
+    Dime => 10,
+    Quarter => 25,
   }
 }
 
@@ -1084,31 +1079,13 @@ enum List<T> {
 }
 
 
-let ListLength = <T>(list: List<T>)-> i32 {
-  if list is Nil {
-    0
-  } else if list is Cons(_, tail) { // Access fields in order.
-    1 + ListLength(tail);
-  }
-}
-
-// or
-
-let ListLength = <T>(list: List<T>)-> i32 {
-  if list is Nil {
-    0
-  } else if list is Cons {tail} { // Access fields by name.
-    1 + ListLength(tail);
-  }
-}
-
-// or
-
-let ListLength = <T>(list: List<T>)-> i32 {
-  if list is Nil {
-    0
-  } else if list is Cons {
-    1 + ListLength(list.tail);
+let ListLength = <T>(list: &List<T>)-> i32 {
+  match list {
+    Nil => 0,
+    Cons => {
+      const {tail} = list;
+      1 + ListLength(tail)
+    }
   }
 }
 ```

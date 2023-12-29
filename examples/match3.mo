@@ -6,10 +6,10 @@ enum Color {
 
 let test = (x: Color)-> i32 {
   match x {
-    case Red: {
+    Red => {
       1
     }
-    default: {
+    _   => {
       2
     }
   }

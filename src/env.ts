@@ -204,6 +204,7 @@ export function popEnvFrame(
     // Check if there is any value in the frame that is not consumed or uninitialized
     const unconsumedValues = frameToPop.values.filter(
       (value) =>
+        value.kind === "value" &&
         (value.type.kind === "Linear" || value.type.kind === "Type") &&
         !value.consumedAtToken &&
         // NOTE: reference and mutable reference are linear
