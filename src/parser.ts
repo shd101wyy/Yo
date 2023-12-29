@@ -3007,7 +3007,8 @@ Got     : ${effectsToString(
         token: expr.token,
         errorMessage: `Failed to create ${
           isMutableReference ? "mutable reference" : "immutable reference"
-        } for ${exprToString(expr)}\n`,
+        } for:
+${exprToString(expr)}\n`,
         cause: error,
       });
     }

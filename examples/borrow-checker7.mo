@@ -5,7 +5,7 @@ extern "C" {
   consume: (x: Data)-> ();
 }
 
-let test = ()-> Data {
+let test = ()-> {
   let x = malloc();
   consume(x);
   let y = &x; // error: x is consumed

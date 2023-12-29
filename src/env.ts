@@ -496,6 +496,18 @@ export function increaseEnvVariableReferenceCount({
   const immutableReferenceCount = immutableReferences.length;
   const mutableReferenceCount = mutableReferences.length;
 
+  if (valueType.consumedAtToken) {
+    throw formatErrorMessages({
+      inputString,
+      tokenAndErrorList: [
+        {
+          token: valueType.consumedAtToken,
+          errorMessage: `Variable "${variableName}" is already consumed here:`,
+        },
+      ],
+    });
+  }
+
   if (isMutableReference) {
     if (immutableReferenceCount > 0) {
       throw formatErrorMessages({
