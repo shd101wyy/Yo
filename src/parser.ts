@@ -31,7 +31,7 @@ import {
   getEnvCurrentFrameLevel,
   getEnvCurrentRegionId,
   getEnvValueTypesByVariableName,
-  isVariableNameInEnvFrame,
+  isVariableNameInitializedInEnvFrame,
   popEnvFrame,
   pushEnvFrame,
   updateExistingValueType,
@@ -3452,6 +3452,15 @@ ${typeToString(caseReturnType)}
       userDefinedVariableType = typeValue;
       index = nextIndex;
       env = nextEnv;
+
+      env = addEnvValueType(env, {
+        variableName,
+        type: userDefinedVariableType,
+        kind: "value",
+        isMutable,
+        isExported,
+        isUninitialized: true,
+      });
     }
 
     if (tokens[index].type !== TokenType.Assign) {
@@ -3570,7 +3579,11 @@ Got:      ${typeToString(variableType)}`
     }
 
     if (
-      isVariableNameInEnvFrame(env, variableName, getEnvCurrentFrameLevel(env))
+      isVariableNameInitializedInEnvFrame(
+        env,
+        variableName,
+        getEnvCurrentFrameLevel(env)
+      )
     ) {
       throw this.formatErrorMessage(
         tokens[variableNameTokenIndex],
@@ -3585,6 +3598,7 @@ Got:      ${typeToString(variableType)}`
       kind: "value",
       isMutable,
       isExported,
+      isUninitialized: false,
     });
 
     return {

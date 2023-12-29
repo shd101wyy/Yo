@@ -13,6 +13,7 @@ export type ValueType = {
   variableName: string;
   isMutable?: boolean;
   isExported?: boolean;
+  isUninitialized?: boolean;
   type: Type;
   region?: Region;
   effect?: TEffect;
@@ -38,10 +39,26 @@ type Frame = {
 };
 
 function addFrameValueType(frame: Frame, valueType: ValueType): Frame {
-  return {
-    regionId: frame.regionId,
-    values: [...frame.values, valueType],
-  };
+  // Check if there is already a value with the same variableName
+  // but is uninitialized
+  const existingValueTypeIndex = frame.values.findIndex(
+    (valueType) =>
+      valueType.variableName === valueType.variableName &&
+      valueType.isUninitialized
+  );
+  if (existingValueTypeIndex > -1) {
+    const newValues = frame.values.slice();
+    newValues[existingValueTypeIndex] = valueType;
+    return {
+      regionId: frame.regionId,
+      values: newValues,
+    };
+  } else {
+    return {
+      regionId: frame.regionId,
+      values: [...frame.values, valueType],
+    };
+  }
 }
 
 function getFrameValueTypesByVariableName(
@@ -150,7 +167,7 @@ export function addEnvFreeVariable(
   };
 }
 
-export function isVariableNameInEnvFrame(
+export function isVariableNameInitializedInEnvFrame(
   env: Environment,
   variableName: string,
   frameLevel?: number
@@ -158,7 +175,8 @@ export function isVariableNameInEnvFrame(
   const frameLevel_ = frameLevel ?? getEnvCurrentFrameLevel(env);
   const frame = env.frames[frameLevel_];
   return frame.values.some(
-    (valueType) => valueType.variableName === variableName
+    (valueType) =>
+      valueType.variableName === variableName && !valueType.isUninitialized
   );
 }
 
