@@ -122,31 +122,31 @@ export function popEnvFrame(
 ): Environment {
   const frameToPop = env.frames[env.frames.length - 1];
   // Check if there is any value in the frame that is not consumed or uninitialized
-  if (
-    frameToPop.values.some(
-      (valueType) =>
-        (valueType.type.kind === "Linear" || valueType.type.kind === "Type") &&
-        !valueType.isConsumed
-    )
-  ) {
+  const unconsumedValues = frameToPop.values.filter(
+    (value) =>
+      (value.type.kind === "Linear" || value.type.kind === "Type") &&
+      !value.isConsumed
+  );
+  const uninitializedValues = frameToPop.values.filter(
+    (value) => value.isUninitialized
+  );
+  if (unconsumedValues.length > 0) {
     throw formatErrorMessages({
       inputString,
-      tokenAndErrorList: frameToPop.values.map((value) => {
+      tokenAndErrorList: unconsumedValues.map((value) => {
         return {
           token: value.token,
-          errorMessage: `"${value.variableName}" is linear type but is not consumed.`,
+          errorMessage: `Variable is linear type but is not consumed.`,
         };
       }),
     });
-  } else if (
-    frameToPop.values.some((valueType) => !valueType.isUninitialized)
-  ) {
+  } else if (uninitializedValues.length > 0) {
     throw formatErrorMessages({
       inputString,
-      tokenAndErrorList: frameToPop.values.map((value) => {
+      tokenAndErrorList: uninitializedValues.map((value) => {
         return {
           token: value.token,
-          errorMessage: `"${value.variableName}" is not uninitialized.`,
+          errorMessage: `Variable is not uninitialized.`,
         };
       }),
     });

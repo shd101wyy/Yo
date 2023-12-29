@@ -1863,7 +1863,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
 
     // check type
     let userDefinedParamterType: Type = TypeValues.unknown;
-    const parameterTypeTokenIndex = index + 2;
+    const parameterNameTokenIndex = index;
     if (tokens[index + 1].type !== TokenType.Colon) {
       // index = index + 1;
       throw formatErrorMessage({
@@ -1939,7 +1939,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
       type: userDefinedParamterType,
       kind: "value",
       isMutable,
-      token: tokens[parameterTypeTokenIndex],
+      token: tokens[parameterNameTokenIndex],
     });
 
     parameterTypes.push({
