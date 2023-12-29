@@ -369,6 +369,11 @@ export type CallFunctionExpr = {
   typeValue: Type;
   env: Environment;
   token: Token;
+  /**
+   * This is the name of the temporary variable that holds
+   * the result of the callee.
+   */
+  tempVariableName: string;
 };
 
 export type CallEnumExpr = {

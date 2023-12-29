@@ -49,6 +49,14 @@ export function getNewRegionId(): string {
   return `'R_${regionCount++}`;
 }
 
+let tempVariableNameCount = 1;
+export function getNewTempVariableName(): string {
+  return `$$temp_${tempVariableNameCount++}`;
+}
+export function isTempVariableName(variableName: string): boolean {
+  return variableName.startsWith("$$temp_");
+}
+
 type Frame = {
   regionId: string;
   values: ValueType[];
@@ -147,7 +155,9 @@ export function popEnvFrame(
         tokenAndErrorList: unconsumedValues.map((value) => {
           return {
             token: value.token,
-            errorMessage: `Variable is linear type but is not consumed.`,
+            errorMessage: `${
+              isTempVariableName(value.variableName) ? "Value" : "Variable"
+            } is linear type but is not consumed.`,
           };
         }),
       });
@@ -280,7 +290,9 @@ export function setEnvVariableAsConsumed({
       tokenAndErrorList: [
         {
           token: valueType.token,
-          errorMessage: `Variable ${variableName} is already consumed.`,
+          errorMessage: `${
+            isTempVariableName(variableName) ? "Value" : "Variable"
+          } is already consumed.`,
         },
       ],
     });

@@ -32,6 +32,7 @@ import {
   getEnvCurrentFrameLevel,
   getEnvCurrentRegionId,
   getEnvValueTypesByVariableName,
+  getNewTempVariableName,
   isVariableNameInitializedInEnvFrame,
   popEnvFrame,
   pushEnvFrame,
@@ -1781,15 +1782,27 @@ Callee  : ${effectsToString(
       );
     }
 
+    // save the return value to a temporary variable
+    const returnType = calleeTypeValue.returnType;
+    const tempVariableName = getNewTempVariableName();
+    env = addEnvValueType(env, {
+      variableName: tempVariableName,
+      type: returnType,
+      kind: "value",
+      isMutable: false,
+      token: tokens[startIndex],
+    });
+
     return {
       expr: {
         type: AstType.CallFunction,
         callee,
         typeArguments,
         functionArguments,
-        typeValue: calleeTypeValue.returnType,
+        typeValue: returnType,
         env,
         token: tokens[startIndex],
+        tempVariableName,
       },
       index,
     };
@@ -2891,6 +2904,14 @@ Got     : ${effectsToString(
           });
           return newEnv;
         }
+        case AstType.CallFunction: {
+          const newEnv = setEnvVariableAsConsumed({
+            env,
+            inputString: this.inputString,
+            variableName: expr.tempVariableName,
+          });
+          return newEnv;
+        }
         default: {
           return env;
         }
@@ -3639,6 +3660,9 @@ Got:      ${typeToString(variableType)}`
       isUninitialized: false,
       token: tokens[variableNameTokenIndex],
     });
+
+    // Set variable as consumed if necessary
+    env = this.setVariableAsConsumed(env, value);
 
     return {
       expr: {
