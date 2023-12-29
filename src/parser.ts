@@ -997,10 +997,15 @@ ${exprToString(rhs)}
       isMutable = lhs.isMutable;
     }
 
-    // Check if lhs create be created as mutable reference
+    // Check if lhs can be created as mutable reference
     env = pushEnvFrame(env);
     const { env: nextEnv, referedVariable } =
-      this.increaseVariableReferenceCount(env, lhs, true);
+      this.increaseVariableReferenceCount({
+        env,
+        expr: lhs,
+        isMutableReference: true,
+        isForAssignment: true,
+      });
     env = nextEnv;
     env = decrementVariableReferenceCount({
       env,
@@ -2973,11 +2978,17 @@ Got     : ${effectsToString(
     }
   }
 
-  private increaseVariableReferenceCount(
-    env: Environment,
-    expr: Expr,
-    isMutableReference: boolean
-  ): { env: Environment; referedVariable: ReferedVariable } {
+  private increaseVariableReferenceCount({
+    env,
+    expr,
+    isMutableReference,
+    isForAssignment,
+  }: {
+    env: Environment;
+    expr: Expr;
+    isMutableReference: boolean;
+    isForAssignment?: boolean;
+  }): { env: Environment; referedVariable: ReferedVariable } {
     try {
       switch (expr.type) {
         case AstType.Variable: {
@@ -2987,6 +2998,7 @@ Got     : ${effectsToString(
             variableName: expr.variableName,
             isMutableReference,
             token: expr.token,
+            isForAssignment,
           });
         }
         case AstType.PropertyAccess:
@@ -2995,11 +3007,12 @@ Got     : ${effectsToString(
           if (v.type !== AstType.Variable) {
             throw new Error("Expected variable");
           } else {
-            return this.increaseVariableReferenceCount(
+            return this.increaseVariableReferenceCount({
               env,
-              v,
-              isMutableReference
-            );
+              expr: v,
+              isMutableReference,
+              isForAssignment,
+            });
           }
         }
         default: {
@@ -5359,7 +5372,11 @@ ${operationName}: ${typeToString(
         }
 
         const { env: nextEnv, referedVariable } =
-          this.increaseVariableReferenceCount(env, expr, isMutableReference);
+          this.increaseVariableReferenceCount({
+            env,
+            expr,
+            isMutableReference,
+          });
         env = nextEnv;
 
         // save the reference value to a temporary variable
@@ -5427,7 +5444,11 @@ ${operationName}: ${typeToString(
         }
 
         const { env: nextEnv, referedVariable } =
-          this.increaseVariableReferenceCount(env, expr, isMutableReference);
+          this.increaseVariableReferenceCount({
+            env,
+            expr,
+            isMutableReference,
+          });
         env = nextEnv;
 
         // save the reference value to a temporary variable

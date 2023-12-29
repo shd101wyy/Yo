@@ -6,14 +6,11 @@ fn consume(data: String) {
 
 fn test(flag: bool) {
     let x = String::from("Hello, world");
-    if flag {
-        let y = x;
-        consume(y)
-    } else {
-    }
-    let z = x;
 }
 
 fn main() {
-    test(true)    
+    let mut x = String::from("Hi");
+    consume(x);
+    x = String::from("world");
+    println!("{}", x)
 }

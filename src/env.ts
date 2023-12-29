@@ -494,12 +494,14 @@ export function increaseEnvVariableReferenceCount({
   isMutableReference,
   inputString,
   token,
+  isForAssignment,
 }: {
   env: Environment;
   variableName: string;
   isMutableReference: boolean;
   inputString: string;
   token: Token;
+  isForAssignment?: boolean;
 }): { env: Environment; referedVariable: ReferedVariable } {
   const valueTypes = getEnvValueTypesByVariableName(env, variableName);
   if (valueTypes.length === 0) {
@@ -513,24 +515,35 @@ export function increaseEnvVariableReferenceCount({
       ],
     });
   }
-  const valueType = valueTypes[valueTypes.length - 1];
+
+  let valueType = valueTypes[valueTypes.length - 1];
+  if (valueType.consumedAtToken) {
+    if (isForAssignment) {
+      // NOTE: If it's for assignment, then we allow to reuse the consumed variable.
+      const newValueType: ValueType = {
+        ...valueType,
+        consumedAtToken: undefined,
+        token: token,
+      };
+      env = updateExistingValueType(env, valueType, newValueType);
+      valueType = newValueType; // <= This is necessary
+    } else {
+      throw formatErrorMessages({
+        inputString,
+        tokenAndErrorList: [
+          {
+            token: valueType.consumedAtToken,
+            errorMessage: `Variable "${variableName}" is already consumed here:`,
+          },
+        ],
+      });
+    }
+  }
+
   const immutableReferences = valueType.immutableReferences ?? [];
   const mutableReferences = valueType.mutableReferences ?? [];
   const immutableReferenceCount = immutableReferences.length;
   const mutableReferenceCount = mutableReferences.length;
-
-  if (valueType.consumedAtToken) {
-    throw formatErrorMessages({
-      inputString,
-      tokenAndErrorList: [
-        {
-          token: valueType.consumedAtToken,
-          errorMessage: `Variable "${variableName}" is already consumed here:`,
-        },
-      ],
-    });
-  }
-
   if (isMutableReference) {
     if (immutableReferenceCount > 0) {
       throw formatErrorMessages({
