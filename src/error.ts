@@ -32,10 +32,12 @@ ${getLineAtToken(inputString, token)}`;
 
 export function formatErrorMessages({
   inputString,
+  errorMessage,
   tokenAndErrorList,
   cause,
 }: {
   inputString: string;
+  errorMessage?: string;
   tokenAndErrorList: { token: Token; errorMessage: string }[];
   cause?: Error;
 }): Error {
@@ -46,6 +48,8 @@ ${getLineAtToken(inputString, token)}`;
     })
     .join("\n\n");
   return new Error(
-    errorMessages + (cause?.message ? "\n" + cause.message : "")
+    (errorMessage ? errorMessage + "\n" : "") +
+      errorMessages +
+      (cause?.message ? "\n" + cause.message : "")
   );
 }

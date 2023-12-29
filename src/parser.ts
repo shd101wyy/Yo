@@ -36,6 +36,7 @@ import {
   getEnvValueTypesByVariableName,
   getNewTempVariableName,
   increaseEnvVariableReferenceCount,
+  mergeAndCheckEnv,
   popEnvFrame,
   pushEnvFrame,
   setEnvVariableAsConsumed,
@@ -2885,9 +2886,7 @@ Got     : ${effectsToString(
         nextEnv = assignmentExpr.env;
         index = nextNextIndex;
       } else {
-        if (expr) {
-          exprs.push(expr);
-        }
+        exprs.push(expr);
         nextEnv = expr.env;
         index = nextIndex;
       }
@@ -3176,7 +3175,6 @@ ${exprToString(expr)}\n`,
     if (tokens[index].type !== TokenType.If) {
       throw this.formatErrorMessage(tokens[index], "Expected if");
     }
-
     const ifTokenIndex = index;
     index = index + 1;
 
@@ -3263,6 +3261,9 @@ Found:
 `
       );
     }
+
+    // Merge and check all environments
+    env = mergeAndCheckEnv(env, cases, this.inputString);
 
     return {
       expr: {
@@ -3491,6 +3492,9 @@ ${typeToString(caseReturnType)}
         );
       }
     }
+
+    // Merge and check all environments
+    env = mergeAndCheckEnv(env, cases, this.inputString);
 
     return {
       expr: {
