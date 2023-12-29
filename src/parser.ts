@@ -29,6 +29,7 @@ import {
   addEnvValueType,
   copyEnvironment,
   createNewEnv,
+  decrementVariableReferenceCount,
   emptyToken,
   getEnvCurrentFrameLevel,
   getEnvCurrentRegionId,
@@ -995,6 +996,18 @@ ${exprToString(rhs)}
     ) {
       isMutable = lhs.isMutable;
     }
+
+    // Check if lhs create be created as mutable reference
+    env = pushEnvFrame(env);
+    const { env: nextEnv, referedVariable } =
+      this.increaseVariableReferenceCount(env, lhs, true);
+    env = nextEnv;
+    env = decrementVariableReferenceCount({
+      env,
+      referedVariable,
+      inputString: this.inputString,
+    });
+    env = popEnvFrame(env, this.inputString);
 
     if (isMutable) {
       return {

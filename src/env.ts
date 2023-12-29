@@ -377,7 +377,7 @@ export function setEnvVariableAsConsumed({
   };
 }
 
-function decrementVariableReferenceCount({
+export function decrementVariableReferenceCount({
   env,
   referedVariable,
   inputString,
