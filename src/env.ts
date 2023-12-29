@@ -385,6 +385,8 @@ export function setEnvVariableAsConsumed({
     });
   }
   const valueType = valueTypes[valueTypes.length - 1];
+  const immutableReferences = valueType.immutableReferences ?? [];
+  const mutableReferences = valueType.mutableReferences ?? [];
   if (valueType.consumedAtToken) {
     throw formatErrorMessages({
       inputString,
@@ -403,7 +405,32 @@ export function setEnvVariableAsConsumed({
         },
       ],
     });
+  } else if (immutableReferences.length > 0) {
+    throw formatErrorMessages({
+      inputString,
+      tokenAndErrorList: [
+        ...immutableReferences.map((token) => {
+          return {
+            token,
+            errorMessage: "Previously borrowed as immutable reference here:",
+          };
+        }),
+      ],
+    });
+  } else if (mutableReferences.length > 0) {
+    throw formatErrorMessages({
+      inputString,
+      tokenAndErrorList: [
+        ...mutableReferences.map((token) => {
+          return {
+            token,
+            errorMessage: "Previously borrowed as mutable reference here:",
+          };
+        }),
+      ],
+    });
   }
+
   const referedVariable = valueType.referedVariable;
   if (referedVariable) {
     // decrement the reference count
