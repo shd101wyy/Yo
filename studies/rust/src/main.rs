@@ -1,16 +1,18 @@
 // Write an example main function that calls a closure function
 
 fn consume(data: String) {
-
 }
 
-fn test(flag: bool) {
-    let x = String::from("Hello, world");
+fn returnRef<'a>(x: &'a String)-> &'a String{
+    x
 }
 
 fn main() {
     let mut x = String::from("Hi");
+    // let xRef = &x;
+    // let newRef = returnRef(xRef);
+    // let anotherRef = returnRef(xRef);
+    let xref = returnRef(&x);
     consume(x);
-    x = String::from("world");
-    println!("{}", x)
+    println!("{}", xref)
 }

@@ -8,7 +8,9 @@ extern "C" {
 let test = (linearArray: Data[], freeArray: i32[])-> {
   let x = freeArray[0]; // Access Free value is allowed.  
   {
-    let y = &linearArray[0]; // Access Linear value is not allowed, but reference is allowed.  
+    // let z = linearArray[0]; // Access Linear value is not allowed, 
+    let y = &linearArray[0];   // but reference is allowed.
+                             
   }
   consume(linearArray)
 }

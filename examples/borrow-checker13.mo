@@ -13,13 +13,13 @@ enum Color {
 let test = (color: Color)-> {
   let x = malloc();
   match color {
-    case Red: {
+    Red => {
       consume(x);
     }
-    case Green: {
+    Green => {
       consume(x);
     }
-    case Blue: {
+    Blue => {
       consume(x);
     }
   }

@@ -1050,8 +1050,9 @@ ${exprToString(lhs)}
 
     let resetConsumedVariable = false;
     if (lhs.type !== AstType.Dereference) {
+      // NOTE: We don't need to check a dereference to an mutable reference
       // Check if lhs can be created as mutable reference
-      const { resetConsumedVariable: reset } =
+      const { resetConsumedVariable: reset, env: nextEnv } =
         this.trySettingVariableAsReference({
           env,
           expr: lhs,
@@ -1059,6 +1060,7 @@ ${exprToString(lhs)}
           isForAssignment: true,
         });
       resetConsumedVariable = !!reset;
+      env = nextEnv;
     }
 
     // Consume RHS value if necessary
@@ -2327,7 +2329,7 @@ Found possible enums:
           );
           parsedFunctions.push(functionType);
         } catch (error) {
-          console.error(error);
+          // console.error(error);
           // Ignore the error
           matchedFunctionErrors.push(error);
         }
@@ -2988,7 +2990,7 @@ Got     : ${effectsToString(
     if (referedVariable) {
       throw this.formatErrorMessage(
         returnExpr.token,
-        "Cannot return a reference"
+        "Cannot return a reference defined in the function body, not the function parameter."
       );
     }
     env = nextNextEnv;
@@ -3148,7 +3150,7 @@ ${exprToString(expr)}`,
     expr: Expr;
     isMutableReference: boolean;
     isForAssignment: boolean;
-  }): { resetConsumedVariable?: boolean } {
+  }): { resetConsumedVariable?: boolean; env: Environment } {
     env = pushEnvFrame(env);
     // Set the reference
     const {
@@ -3172,6 +3174,7 @@ ${exprToString(expr)}`,
 
     return {
       resetConsumedVariable,
+      env,
     };
   }
 
@@ -3651,7 +3654,7 @@ ${typeToString(caseExprType)}
       if (uncoveredVariants.length > 0) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Not all variants are covered:
+          `Not all variants are covered. Missing variants:
 ${uncoveredVariants.join(", ")}
 `
         );

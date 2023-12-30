@@ -241,23 +241,14 @@ export function popEnvFrame(
   }
 
   const topFrame = env.frames[env.frames.length - 1];
-  // Check if there is any unconsumed reference
-  const unconsumedReferences = topFrame.values.filter(
-    (value) =>
-      !value.consumedAtToken && typeIsReferenceOrMutableReference(value.type)
+  const references = topFrame.values.filter((value) =>
+    typeIsReferenceOrMutableReference(value.type)
   );
-  if (unconsumedReferences.length) {
-    for (let i = 0; i < unconsumedReferences.length; i++) {
-      const referedVariable = unconsumedReferences[i].referedVariable;
-      /*
-      NOTE: The line below cause problem on function parameter that is reference
-      if (!referedVariable) {
-        // NOTE: This should never happen
-        throw new Error("Failed to find the refered variable.");
-      }
-      */
-      // decrement the reference count
+  if (references.length) {
+    for (let i = 0; i < references.length; i++) {
+      const referedVariable = references[i].referedVariable;
       if (referedVariable) {
+        // decrement the reference count
         env = decrementVariableReferenceCount({
           env,
           referedVariable,
@@ -435,6 +426,10 @@ export function setEnvVariableAsConsumed({
   }
 
   const referedVariable = valueType.referedVariable;
+  /* // NOTE: We shouldn't decrement the reference count here
+     // when we consume a (immutable) reference.
+     // Instead, we decrement when the (immutable) reference is out of the scope and dropped
+     // when we `popEnvFrame`.
   if (referedVariable) {
     // decrement the reference count
     env = decrementVariableReferenceCount({
@@ -443,6 +438,7 @@ export function setEnvVariableAsConsumed({
       inputString,
     });
   }
+  */
 
   const newValueType: ValueType = { ...valueType, consumedAtToken };
   return {
