@@ -45,6 +45,7 @@ import {
 } from "./env";
 import { formatErrorMessage, formatErrorMessages } from "./error";
 import { tokenize } from "./lexer";
+import * as logger from "./logger";
 import { isUpperCamelCase } from "./naming-checker";
 import { Token, TokenType } from "./token";
 import {
@@ -111,6 +112,7 @@ export default class Parser {
     loadModule: (modulePath: string) => TModule,
     { printTokens, printAst }: { printTokens?: boolean; printAst?: boolean }
   ) {
+    logger.debug(`= parser: ${modulePath}`);
     this.modulePath = modulePath;
 
     if (!this.modulePath.match(/^file:\/\//)) {
@@ -1710,6 +1712,7 @@ Returned : ${typeToString(body.typeValue)}
       }
     }
 
+    // logger.debug(JSON.stringify(calleeTypeValue));
     const {
       functionArguments: functionArgumentsInOrder,
       functionTypeArguments: functionTypeArgumentsInOrder,
@@ -1730,12 +1733,12 @@ Expected: (${calleeTypeValue.parameterTypes
           .map(
             (parameter) =>
               (parameter.name ? `${parameter.name}: ` : "") +
-              typeToString(parameter.type)
+              typeToString(parameter.type, { hideTypeParameterKind: true })
           )
           .join(", ")})
 Got:      (${functionArguments
           .map((arg) => {
-            return typeToString(arg.typeValue);
+            return typeToString(arg.typeValue, { hideTypeParameterKind: true });
           })
           .join(", ")})`
       );
@@ -1766,11 +1769,14 @@ Got:      <${functionTypeArgumentsInOrder
           .join(", ")}>`
       );
     } else {
-      const typeValue_ = applyTypeAndRegionArgumentsToType(
-        calleeTypeValue,
-        functionTypeArgumentsInOrder,
-        functionRegionArgumentsInOrder
-      );
+      const typeValue_ = applyTypeAndRegionArgumentsToType({
+        env,
+        type: calleeTypeValue,
+        typeArguments: functionTypeArgumentsInOrder,
+        regionArguments: functionRegionArgumentsInOrder,
+        regionParameterToRegionArgumentMap: {},
+        typeParameterToTypeArgumentMap: {},
+      });
       if (typeValue_.type !== "Function") {
         throw this.formatErrorMessage(
           tokens[index],
@@ -1978,12 +1984,12 @@ Expected: (${selectedVariant.parameterTypes
           .map(
             (parameter) =>
               (parameter.name ? `${parameter.name}: ` : "") +
-              typeToString(parameter.type)
+              typeToString(parameter.type, { hideTypeParameterKind: true })
           )
           .join(", ")})
 Got:      (${variantArguments
           .map((arg) => {
-            return typeToString(arg.typeValue);
+            return typeToString(arg.typeValue, { hideTypeParameterKind: true });
           })
           .join(", ")})`
       );
@@ -2002,11 +2008,14 @@ Got:      <${appliedTypeArguments
       );
     }
 
-    const enumType: TEnum = applyTypeAndRegionArgumentsToType(
-      { ...calleeTypeValue },
-      variantTypeArgumentsInOrder,
-      variantRegionArgumentsInOrder
-    ) as TEnum;
+    const enumType: TEnum = applyTypeAndRegionArgumentsToType({
+      env,
+      type: { ...calleeTypeValue },
+      typeArguments: variantTypeArgumentsInOrder,
+      regionArguments: variantRegionArgumentsInOrder,
+      typeParameterToTypeArgumentMap: {},
+      regionParameterToRegionArgumentMap: {},
+    }) as TEnum;
 
     return {
       expr: {
@@ -2192,11 +2201,14 @@ Found possible typeclasses:
         } else {
           index = index + 1;
         }
-        const newTypeclassType = applyTypeAndRegionArgumentsToClass(
-          class_,
+        const newTypeclassType = applyTypeAndRegionArgumentsToClass({
+          class_: class_,
+          env,
           typeArguments,
-          regionArguments
-        );
+          regionArguments,
+          typeParameterToTypeArgumentMap: {},
+          regionParameterToRegionArgumentMap: {},
+        });
 
         return {
           expr: {
@@ -2311,6 +2323,7 @@ Found possible enums:
           );
           parsedFunctions.push(functionType);
         } catch (error) {
+          console.error(error);
           // Ignore the error
           matchedFunctionErrors.push(error);
         }
@@ -4898,11 +4911,14 @@ ${typeToString(functionType)}
     }
 
     // Apply type arguments to typeclass
-    const newClass = applyTypeAndRegionArgumentsToClass(
+    const newClass = applyTypeAndRegionArgumentsToClass({
+      env,
       class_,
       typeArguments,
-      regionArguments
-    ) as TClass;
+      regionArguments,
+      typeParameterToTypeArgumentMap: {},
+      regionParameterToRegionArgumentMap: {},
+    }) as TClass;
 
     // Parse typeclass body
     const functions: TClassFunction[] = [];
@@ -5924,11 +5940,14 @@ ${exprToString(expr)}`
       }
 
       // Apply type arguments to effect
-      const newEffect = applyTypeAndRegionArgumentsToEffect(
+      const newEffect = applyTypeAndRegionArgumentsToEffect({
+        env,
         effect,
         typeArguments,
-        regionArguments
-      );
+        regionArguments,
+        typeParameterToTypeArgumentMap: {},
+        regionParameterToRegionArgumentMap: {},
+      });
 
       // Parse effect body
       const operations: TEffectOperation[] = [];
