@@ -3867,6 +3867,36 @@ ${typeToString(caseReturnType)}
     }
     index = index + 1;
 
+    // Check if it's a function declaration
+    if (!userDefinedVariableType) {
+      try {
+        const { typeValue } = synthesizeFunctionTypeFromTokens({
+          tokens,
+          index,
+          env,
+          inputString: this.inputString,
+          parseExpression: this.makeParseExpression({ caller, parserData }),
+          withFunctionBody: false,
+        });
+        userDefinedVariableType = typeValue;
+        env = addEnvValueType({
+          env,
+          valueType: {
+            variableName,
+            type: userDefinedVariableType,
+            kind: "value",
+            isMutable,
+            isExported,
+            isUninitialized: true,
+            token: tokens[variableNameTokenIndex],
+          },
+          inputString: this.inputString,
+        });
+      } catch (error) {
+        // Ignore the error
+      }
+    }
+
     const { expr: value, index: nextNextIndex } = this.parseExpression({
       tokens,
       index,
