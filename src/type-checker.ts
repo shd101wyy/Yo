@@ -8,6 +8,7 @@ import {
   IfExpr,
   exprToString,
 } from "./ast";
+import * as logger from "./debug";
 import {
   Environment,
   ValueType,
@@ -192,11 +193,17 @@ export type TRegion = {
   regionId: string;
 };
 
+export const UnknownRegion: TRegion = {
+  type: "Region",
+  kind: "Region",
+  regionId: "'R_Unknown",
+};
+
 export type TRegionParameter = {
   type: "RegionParameter";
   kind: RegionKind;
   name: string;
-  appliedRegion?: TRegion;
+  appliedRegion?: Region;
 };
 
 export type TFunction = {
@@ -610,7 +617,7 @@ export function synthesizeTypeFromTokens({
         withFunctionBody: false,
       });
     } catch (error) {
-      console.error(error);
+      // console.error(error);
       // This means it's not a function type
       const {
         typeValue,
@@ -1070,11 +1077,13 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
   }
   // Type arguments
   let typeArguments: Type[] = [];
+  let regionArguments: Region[] = [];
   if (tokens[returnValue.index]?.type === TokenType.LessThan) {
     const {
       env: nextEnv,
       index: nextIndex,
       typeArguments: nextTypeArguments,
+      regionArguments: nextRegionArguments,
     } = synthesizeTypeAndRegionArgumentsFromTokens({
       env: returnValue.env,
       index: returnValue.index,
@@ -1085,6 +1094,7 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
     env = nextEnv;
     index = nextIndex;
     typeArguments = nextTypeArguments;
+    regionArguments = nextRegionArguments;
   } else {
     env = returnValue.env;
     index = returnValue.index;
@@ -1092,25 +1102,14 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
 
   const typeValue = returnValue.typeValue;
   if (typeValue.type === "TypeConstructor") {
-    const typeParameters = typeValue.typeParameters;
-    if (typeParameters.length !== typeArguments.length) {
-      throw formatErrorMessage({
-        token: tokens[returnValue.index],
-        errorMessage: `(1) Mismatched type arguments.
-Expected: <${typeParameters
-          .map(
-            (typeParameter) => `${typeParameter.name}: ${typeParameter.kind}`
-          )
-          .join(", ")}>
-Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`,
-        inputString,
-      });
-    } else {
-      returnValue.index = index;
-      returnValue.env = env;
-      const typeValue_ = applyTypeArgumentsToType(typeValue, typeArguments);
-      returnValue.typeValue = typeValue_;
-    }
+    returnValue.index = index;
+    returnValue.env = env;
+    const typeValue_ = applyTypeAndRegionArgumentsToType(
+      typeValue,
+      typeArguments,
+      regionArguments
+    );
+    returnValue.typeValue = typeValue_;
   } else if (typeValue.type === "unknown") {
     returnValue.index = index;
     returnValue.env = env;
@@ -1119,24 +1118,14 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`,
       typeArguments,
     };
   } else if (typeValue.type === "Enum") {
-    if (typeValue.typeParameters.length !== typeArguments.length) {
-      throw formatErrorMessage({
-        token: tokens[returnValue.index],
-        errorMessage: `(2) Mismatched type arguments.
-Expected: <${typeValue.typeParameters
-          .map(
-            (typeParameter) => `${typeParameter.name}: ${typeParameter.kind}`
-          )
-          .join(", ")}>
-Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`,
-        inputString,
-      });
-    } else {
-      returnValue.index = index;
-      returnValue.env = env;
-      const typeValue_ = applyTypeArgumentsToType(typeValue, typeArguments);
-      returnValue.typeValue = typeValue_;
-    }
+    returnValue.index = index;
+    returnValue.env = env;
+    const typeValue_ = applyTypeAndRegionArgumentsToType(
+      typeValue,
+      typeArguments,
+      regionArguments
+    );
+    returnValue.typeValue = typeValue_;
   } else if (typeArguments.length !== 0) {
     throw formatErrorMessage({
       token: tokens[returnValue.index],
@@ -1148,20 +1137,22 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`,
   return returnValue;
 }
 
-export function applyTypeArgumentsToType(
+export function applyTypeAndRegionArgumentsToType(
   type: Type,
   typeArguments: Type[],
-  typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
+  regionArguments: Region[],
+  typeParameterToTypeArgumentMap: { [key: string]: Type } = {},
+  regionParameterToRegionArgumentMap: { [key: string]: Region } = {}
 ): Type {
   /*
-  console.log("- applyTypeArgumentsToType");
-  console.log("  - type: ", type.type);
-  console.log("    - typeToString(type): ", typeToString(type));
-  console.log(
+  logger.debug("- applyTypeAndRegionArgumentsToType");
+  logger.debug("  - type: ", type.type);
+  logger.debug("    - typeToString(type): ", typeToString(type));
+  logger.debug(
     "  - typeArguments: ",
     typeArguments.map((type) => typeToString(type))
   );
-  console.log(
+  logger.debug(
     "  - typeParameterToTypeArgumentMap: ",
     typeParameterToTypeArgumentMap
   );
@@ -1177,6 +1168,19 @@ export function applyTypeArgumentsToType(
   Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
       );
     }
+    if (type.regionParameters.length !== regionArguments.length) {
+      throw new Error(
+        `(4) Mismatched region arguments.
+  Expected: <${type.regionParameters
+    .map(
+      (regionParameter) => `${regionParameter.name}: ${regionParameter.kind}`
+    )
+    .join(", ")}>
+  Got:      <${regionArguments
+    .map((region) => regionToString(region))
+    .join(", ")}>`
+      );
+    }
 
     // set typeParameterToTypeArgumentMap
     const newTypeParameters: TTypeParameter[] = [];
@@ -1190,17 +1194,30 @@ export function applyTypeArgumentsToType(
       });
     }
 
-    const newTypeValue = applyTypeArgumentsToType(
+    const newRegionParameters: TRegionParameter[] = [];
+    for (let i = 0; i < type.regionParameters.length; i++) {
+      const regionParameter = type.regionParameters[i];
+      const regionArgument = regionArguments[i];
+      regionParameterToRegionArgumentMap[regionParameter.name] = regionArgument;
+      newRegionParameters.push({
+        ...regionParameter,
+        appliedRegion: regionArgument,
+      });
+    }
+
+    const newTypeValue = applyTypeAndRegionArgumentsToType(
       typeValue,
       typeArguments,
-      typeParameterToTypeArgumentMap
+      regionArguments,
+      typeParameterToTypeArgumentMap,
+      regionParameterToRegionArgumentMap
     );
     return {
       type: "TypeConstructor",
       kind: newTypeValue.kind,
       name: type.name,
       typeParameters: newTypeParameters,
-      regionParameters: type.regionParameters,
+      regionParameters: newRegionParameters,
       typeValue: newTypeValue,
     };
   } else if (type.type === "Enum") {
@@ -1216,6 +1233,17 @@ export function applyTypeArgumentsToType(
       });
     }
 
+    const newRegionParameters: TRegionParameter[] = [];
+    for (let i = 0; i < type.regionParameters.length; i++) {
+      const regionParameter = type.regionParameters[i];
+      const regionArgument = regionArguments[i];
+      regionParameterToRegionArgumentMap[regionParameter.name] = regionArgument;
+      newRegionParameters.push({
+        ...regionParameter,
+        appliedRegion: regionArgument,
+      });
+    }
+
     // apply to each of the variants
     const variants: TEnumVariant[] = type.variants.map(
       ({ name, parameterTypes }) => ({
@@ -1225,16 +1253,20 @@ export function applyTypeArgumentsToType(
           const newParameterType: TParameterType = {
             name: parameterType.name,
             isMutable: false, // QUESTION: Is this correct?
-            type: applyTypeArgumentsToType(
+            type: applyTypeAndRegionArgumentsToType(
               parameterType.type,
               typeArguments,
-              typeParameterToTypeArgumentMap
+              regionArguments,
+              typeParameterToTypeArgumentMap,
+              regionParameterToRegionArgumentMap
             ),
             defaultValue: defaultValue
-              ? applyTypeArgumentsToExpr(
+              ? applyTypeAndRegionArgumentsToExpr(
                   defaultValue,
                   typeArguments,
-                  typeParameterToTypeArgumentMap
+                  regionArguments,
+                  typeParameterToTypeArgumentMap,
+                  regionParameterToRegionArgumentMap
                 )
               : null,
           };
@@ -1248,7 +1280,7 @@ export function applyTypeArgumentsToType(
       kind: getEnumTypeKind(variants),
       enumName: type.enumName,
       typeParameters: newTypeParameters,
-      regionParameters: type.regionParameters,
+      regionParameters: newRegionParameters,
       variants: variants,
       selectedVariantName: type.selectedVariantName,
     };
@@ -1287,31 +1319,49 @@ export function applyTypeArgumentsToType(
       });
     }
 
+    const newRegionParameters: TRegionParameter[] = [];
+    for (let i = 0; i < type.regionParameters.length; i++) {
+      const regionParameter = type.regionParameters[i];
+      const regionArgument = regionArguments[i];
+      regionParameterToRegionArgumentMap[regionParameter.name] = regionArgument;
+      newRegionParameters.push({
+        ...regionParameter,
+        appliedRegion: regionArgument,
+      });
+    }
+
     const newFunctionType: TFunction = {
       ...type,
       typeParameters: newTypeParameters,
+      regionParameters: newRegionParameters,
       parameterTypes: type.parameterTypes.map(
         ({ name, type, isMutable, defaultValue }) => ({
           name,
           isMutable,
-          type: applyTypeArgumentsToType(
+          type: applyTypeAndRegionArgumentsToType(
             type,
             typeArguments,
-            typeParameterToTypeArgumentMap
+            regionArguments,
+            typeParameterToTypeArgumentMap,
+            regionParameterToRegionArgumentMap
           ),
           defaultValue,
         })
       ),
-      returnType: applyTypeArgumentsToType(
+      returnType: applyTypeAndRegionArgumentsToType(
         type.returnType,
         typeArguments,
-        typeParameterToTypeArgumentMap
+        regionArguments,
+        typeParameterToTypeArgumentMap,
+        regionParameterToRegionArgumentMap
       ),
       effects: type.effects.map((effect) =>
-        applyTypeArgumentsToEffect(
+        applyTypeAndRegionArgumentsToEffect(
           effect,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         )
       ),
     };
@@ -1333,10 +1383,12 @@ export function applyTypeArgumentsToType(
       case "Record": {
         const newProperties = type.properties.map(({ name, type }) => ({
           name,
-          type: applyTypeArgumentsToType(
+          type: applyTypeAndRegionArgumentsToType(
             type,
             typeArguments,
-            typeParameterToTypeArgumentMap
+            regionArguments,
+            typeParameterToTypeArgumentMap,
+            regionParameterToRegionArgumentMap
           ),
         }));
         return {
@@ -1349,10 +1401,12 @@ export function applyTypeArgumentsToType(
         return {
           ...type,
           types: type.types.map((type) =>
-            applyTypeArgumentsToType(
+            applyTypeAndRegionArgumentsToType(
               type,
               typeArguments,
-              typeParameterToTypeArgumentMap
+              regionArguments,
+              typeParameterToTypeArgumentMap,
+              regionParameterToRegionArgumentMap
             )
           ),
         };
@@ -1361,10 +1415,12 @@ export function applyTypeArgumentsToType(
         return {
           ...type,
           types: type.types.map((type) =>
-            applyTypeArgumentsToType(
+            applyTypeAndRegionArgumentsToType(
               type,
               typeArguments,
-              typeParameterToTypeArgumentMap
+              regionArguments,
+              typeParameterToTypeArgumentMap,
+              regionParameterToRegionArgumentMap
             )
           ),
         };
@@ -1372,10 +1428,12 @@ export function applyTypeArgumentsToType(
       case "slice": {
         return {
           ...type,
-          elementType: applyTypeArgumentsToType(
+          elementType: applyTypeAndRegionArgumentsToType(
             type.elementType,
             typeArguments,
-            typeParameterToTypeArgumentMap
+            regionArguments,
+            typeParameterToTypeArgumentMap,
+            regionParameterToRegionArgumentMap
           ),
         };
       }
@@ -1384,10 +1442,12 @@ export function applyTypeArgumentsToType(
           ...type,
           typeArguments: type.typeArguments
             ? type.typeArguments.map((typeArgument) =>
-                applyTypeArgumentsToType(
+                applyTypeAndRegionArgumentsToType(
                   typeArgument,
                   typeArguments,
-                  typeParameterToTypeArgumentMap
+                  regionArguments,
+                  typeParameterToTypeArgumentMap,
+                  regionParameterToRegionArgumentMap
                 )
               )
             : undefined,
@@ -1399,10 +1459,12 @@ export function applyTypeArgumentsToType(
   }
 }
 
-export function applyTypeArgumentsToEffect(
+export function applyTypeAndRegionArgumentsToEffect(
   effect: TEffect,
   typeArguments: Type[],
-  typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
+  regionArguments: Region[],
+  typeParameterToTypeArgumentMap: { [key: string]: Type } = {},
+  regionParameterToRegionArgumentMap: { [key: string]: Region } = {}
 ): TEffect {
   const typeParameters = effect.typeParameters;
   if (typeParameters.length !== typeArguments.length) {
@@ -1431,10 +1493,12 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
     typeParameters: newTypeParameters,
     operations: effect.operations.map((operation) => ({
       ...operation,
-      func: applyTypeArgumentsToType(
+      func: applyTypeAndRegionArgumentsToType(
         operation.func,
         typeArguments,
-        typeParameterToTypeArgumentMap
+        regionArguments,
+        typeParameterToTypeArgumentMap,
+        regionParameterToRegionArgumentMap
       ) as TFunction,
     })),
     isHandler: true,
@@ -1442,10 +1506,12 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   return newEffect;
 }
 
-export function applyTypeArgumentsToClass(
+export function applyTypeAndRegionArgumentsToClass(
   class_: TClass,
   typeArguments: Type[],
-  typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
+  regionArguments: Region[],
+  typeParameterToTypeArgumentMap: { [key: string]: Type } = {},
+  regionParameterToRegionArgumentMap: { [key: string]: Region } = {}
 ): TClass {
   if (class_.typeParameters.length !== typeArguments.length) {
     throw new Error(
@@ -1473,16 +1539,20 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   const functions: TClassFunction[] = class_.functions.map(
     ({ name, func, functionExpr }) => ({
       name,
-      func: applyTypeArgumentsToType(
+      func: applyTypeAndRegionArgumentsToType(
         func,
         typeArguments,
-        typeParameterToTypeArgumentMap
+        regionArguments,
+        typeParameterToTypeArgumentMap,
+        regionParameterToRegionArgumentMap
       ),
       functionExpr: functionExpr
-        ? applyTypeArgumentsToExpr(
+        ? applyTypeAndRegionArgumentsToExpr(
             functionExpr,
             typeArguments,
-            typeParameterToTypeArgumentMap
+            regionArguments,
+            typeParameterToTypeArgumentMap,
+            regionParameterToRegionArgumentMap
           )
         : undefined,
     })
@@ -1502,10 +1572,12 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   };
 }
 
-export function applyTypeArgumentsToFunctionExpr(
+export function applyTypeAndRegionArgumentsToFunctionExpr(
   expr: FunctionExpr,
   typeArguments: Type[],
-  typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
+  regionArguments: Region[],
+  typeParameterToTypeArgumentMap: { [key: string]: Type } = {},
+  regionParameterToRegionArgumentMap: { [key: string]: Region } = {}
 ): FunctionExpr {
   const typeParameters = expr.typeValue.typeParameters;
   if (typeParameters.length !== typeArguments.length) {
@@ -1525,10 +1597,12 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
     typeParameterToTypeArgumentMap[typeParameter.name] = typeArgument;
   }
 
-  const newTypeValue = applyTypeArgumentsToType(
+  const newTypeValue = applyTypeAndRegionArgumentsToType(
     expr.typeValue,
     typeArguments,
-    typeParameterToTypeArgumentMap
+    regionArguments,
+    typeParameterToTypeArgumentMap,
+    regionParameterToRegionArgumentMap
   );
   if (newTypeValue.type !== "Function") {
     throw new Error(
@@ -1539,27 +1613,31 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   return {
     ...expr,
     typeValue: newTypeValue,
-    body: applyTypeArgumentsToExpr(
+    body: applyTypeAndRegionArgumentsToExpr(
       expr.body,
       [], // typeArguments,
-      typeParameterToTypeArgumentMap
+      [], // regionArguments,
+      typeParameterToTypeArgumentMap,
+      regionParameterToRegionArgumentMap
     ) as BlockExpr,
   };
 }
 
-export function applyTypeArgumentsToExpr(
+export function applyTypeAndRegionArgumentsToExpr(
   expr: Expr,
   typeArguments: Type[],
-  typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
+  regionArguments: Region[],
+  typeParameterToTypeArgumentMap: { [key: string]: Type } = {},
+  regionParameterToRegionArgumentMap: { [key: string]: Region } = {}
 ): Expr {
   /*
-  console.log("- applyTypeArgumentsToExpr");
-  console.log("  - expr: ", exprToString(expr));
-  console.log(
+  logger.debug("- applyTypeAndRegionArgumentsToExpr");
+  logger.debug("  - expr: ", exprToString(expr));
+  logger.debug(
     "  - typeArguments: ",
     typeArguments.map((type) => typeToString(type))
   );
-  console.log(
+  logger.debug(
     "  - typeParameterToTypeArgumentMap: ",
     typeParameterToTypeArgumentMap
   );
@@ -1570,17 +1648,21 @@ export function applyTypeArgumentsToExpr(
         case "record": {
           return {
             ...expr,
-            typeValue: applyTypeArgumentsToType(
+            typeValue: applyTypeAndRegionArgumentsToType(
               expr.typeValue,
               typeArguments,
-              typeParameterToTypeArgumentMap
+              regionArguments,
+              typeParameterToTypeArgumentMap,
+              regionParameterToRegionArgumentMap
             ),
             properties: expr.properties.map(({ name, value: expr }) => ({
               name,
-              value: applyTypeArgumentsToExpr(
+              value: applyTypeAndRegionArgumentsToExpr(
                 expr,
                 typeArguments,
-                typeParameterToTypeArgumentMap
+                regionArguments,
+                typeParameterToTypeArgumentMap,
+                regionParameterToRegionArgumentMap
               ),
             })),
           };
@@ -1588,16 +1670,20 @@ export function applyTypeArgumentsToExpr(
         case "slice": {
           return {
             ...expr,
-            typeValue: applyTypeArgumentsToType(
+            typeValue: applyTypeAndRegionArgumentsToType(
               expr.typeValue,
               typeArguments,
-              typeParameterToTypeArgumentMap
+              regionArguments,
+              typeParameterToTypeArgumentMap,
+              regionParameterToRegionArgumentMap
             ),
             values: expr.values.map((expr) =>
-              applyTypeArgumentsToExpr(
+              applyTypeAndRegionArgumentsToExpr(
                 expr,
                 typeArguments,
-                typeParameterToTypeArgumentMap
+                regionArguments,
+                typeParameterToTypeArgumentMap,
+                regionParameterToRegionArgumentMap
               )
             ),
           };
@@ -1607,105 +1693,133 @@ export function applyTypeArgumentsToExpr(
       }
     }
     case AstType.Function: {
-      return applyTypeArgumentsToFunctionExpr(
+      return applyTypeAndRegionArgumentsToFunctionExpr(
         expr,
         typeArguments,
-        typeParameterToTypeArgumentMap
+        regionArguments,
+        typeParameterToTypeArgumentMap,
+        regionParameterToRegionArgumentMap
       );
     }
     case AstType.LetAssignment: {
       return {
         ...expr,
-        variableType: applyTypeArgumentsToType(
+        variableType: applyTypeAndRegionArgumentsToType(
           expr.variableType,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
-        right: applyTypeArgumentsToExpr(
+        right: applyTypeAndRegionArgumentsToExpr(
           expr.right,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
       };
     }
     case AstType.UnaryOperator: {
       return {
         ...expr,
-        typeValue: applyTypeArgumentsToType(
+        typeValue: applyTypeAndRegionArgumentsToType(
           expr.typeValue,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
-        expr: applyTypeArgumentsToExpr(
+        expr: applyTypeAndRegionArgumentsToExpr(
           expr.expr,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
       };
     }
     case AstType.BinaryOperator: {
       return {
         ...expr,
-        typeValue: applyTypeArgumentsToType(
+        typeValue: applyTypeAndRegionArgumentsToType(
           expr.typeValue,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
-        left: applyTypeArgumentsToExpr(
+        left: applyTypeAndRegionArgumentsToExpr(
           expr.left,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
-        right: applyTypeArgumentsToExpr(
+        right: applyTypeAndRegionArgumentsToExpr(
           expr.right,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
       };
     }
     case AstType.Variable: {
       return {
         ...expr,
-        typeValue: applyTypeArgumentsToType(
+        typeValue: applyTypeAndRegionArgumentsToType(
           expr.typeValue,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
       };
     }
     case AstType.PropertyAccess: {
       return {
         ...expr,
-        typeValue: applyTypeArgumentsToType(
+        typeValue: applyTypeAndRegionArgumentsToType(
           expr.typeValue,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
-        expr: applyTypeArgumentsToExpr(
+        expr: applyTypeAndRegionArgumentsToExpr(
           expr.expr,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
       };
     }
     case AstType.IndexAccess: {
       return {
         ...expr,
-        typeValue: applyTypeArgumentsToType(
+        typeValue: applyTypeAndRegionArgumentsToType(
           expr.typeValue,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
-        expr: applyTypeArgumentsToExpr(
+        expr: applyTypeAndRegionArgumentsToExpr(
           expr.expr,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
         indexes: expr.indexes.map((expr) =>
-          applyTypeArgumentsToExpr(
+          applyTypeAndRegionArgumentsToExpr(
             expr,
             typeArguments,
-            typeParameterToTypeArgumentMap
+            regionArguments,
+            typeParameterToTypeArgumentMap,
+            regionParameterToRegionArgumentMap
           )
         ),
       };
@@ -1713,29 +1827,28 @@ export function applyTypeArgumentsToExpr(
     case AstType.CallFunction: {
       return {
         ...expr,
-        callee: applyTypeArgumentsToExpr(
+        callee: applyTypeAndRegionArgumentsToExpr(
           expr.callee,
           typeArguments,
-          typeParameterToTypeArgumentMap
-        ),
-        typeArguments: expr.typeArguments.map((typeArgument) =>
-          applyTypeArgumentsToType(
-            typeArgument,
-            typeArguments,
-            typeParameterToTypeArgumentMap
-          )
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
         functionArguments: expr.functionArguments.map((expr) =>
-          applyTypeArgumentsToExpr(
+          applyTypeAndRegionArgumentsToExpr(
             expr,
             typeArguments,
-            typeParameterToTypeArgumentMap
+            regionArguments,
+            typeParameterToTypeArgumentMap,
+            regionParameterToRegionArgumentMap
           )
         ),
-        typeValue: applyTypeArgumentsToType(
+        typeValue: applyTypeAndRegionArgumentsToType(
           expr.typeValue,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
       };
     }
@@ -1745,23 +1858,29 @@ export function applyTypeArgumentsToExpr(
         cases: expr.cases.map(({ condition, body }) => {
           return {
             condition: condition
-              ? applyTypeArgumentsToExpr(
+              ? applyTypeAndRegionArgumentsToExpr(
                   condition,
                   typeArguments,
-                  typeParameterToTypeArgumentMap
+                  regionArguments,
+                  typeParameterToTypeArgumentMap,
+                  regionParameterToRegionArgumentMap
                 )
               : undefined,
-            body: applyTypeArgumentsToExpr(
+            body: applyTypeAndRegionArgumentsToExpr(
               body,
               typeArguments,
-              typeParameterToTypeArgumentMap
+              regionArguments,
+              typeParameterToTypeArgumentMap,
+              regionParameterToRegionArgumentMap
             ) as BlockExpr,
           };
         }),
-        typeValue: applyTypeArgumentsToType(
+        typeValue: applyTypeAndRegionArgumentsToType(
           expr.typeValue,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
       };
       return newIfExpr;
@@ -1773,16 +1892,20 @@ export function applyTypeArgumentsToExpr(
       return {
         ...expr,
         exprs: expr.exprs.map((expr) =>
-          applyTypeArgumentsToExpr(
+          applyTypeAndRegionArgumentsToExpr(
             expr,
             typeArguments,
-            typeParameterToTypeArgumentMap
+            regionArguments,
+            typeParameterToTypeArgumentMap,
+            regionParameterToRegionArgumentMap
           )
         ),
-        typeValue: applyTypeArgumentsToType(
+        typeValue: applyTypeAndRegionArgumentsToType(
           expr.typeValue,
           typeArguments,
-          typeParameterToTypeArgumentMap
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
         ),
       };
     }
@@ -2125,9 +2248,11 @@ export function synthesizeEffectsFromTokens({
       index = index + 1;
 
       let typeArguments: Type[] = [];
+      let regionArguments: Region[] = [];
       if (tokens[index].type === TokenType.LessThan) {
         const {
           typeArguments: nextTypeArguments,
+          regionArguments: nextRegionArguments,
           index: nextIndex,
           env: nextEnv,
         } = synthesizeTypeAndRegionArgumentsFromTokens({
@@ -2138,6 +2263,7 @@ export function synthesizeEffectsFromTokens({
           parseExpression,
         });
         typeArguments = nextTypeArguments;
+        regionArguments = nextRegionArguments;
         index = nextIndex;
         env = nextEnv;
       }
@@ -2169,7 +2295,13 @@ export function synthesizeEffectsFromTokens({
             inputString,
           });
         }
-        const newEffect = applyTypeArgumentsToEffect(effect, typeArguments, {});
+        const newEffect = applyTypeAndRegionArgumentsToEffect(
+          effect,
+          typeArguments,
+          regionArguments,
+          {},
+          {}
+        );
         effects.push(newEffect);
       }
     }
@@ -2717,7 +2849,7 @@ export function typeToString(
       return `${typeAndRegionParametersToString(
         type.typeParameters,
         type.regionParameters,
-        { hideTypeParameterKind }
+        { hideTypeParameterKind: false }
       )}(${type.parameterTypes
         .map(
           (parameter) =>
@@ -2872,7 +3004,11 @@ export function checkType(
       // apply type arguments
       const typeArguments = expectedType.typeArguments;
       if (typeArguments) {
-        expectedType = applyTypeArgumentsToType(realType, typeArguments);
+        expectedType = applyTypeAndRegionArgumentsToType(
+          realType,
+          typeArguments,
+          [] // regionArguments
+        );
       } else {
         expectedType = realType;
       }
@@ -2938,17 +3074,21 @@ export function checkType(
   }
 }
 
-export function checkRegion(
-  expectedRegion: TRegionParameter,
-  givenRegion: TRegionParameter
-) {
-  if (!expectedRegion.appliedRegion) {
-    return true;
+export function checkRegion(expectedRegion: Region, givenRegion: Region) {
+  if (expectedRegion.type === "RegionParameter") {
+    if (!expectedRegion.appliedRegion) {
+      return true;
+    } else {
+      return checkRegion(expectedRegion.appliedRegion, givenRegion);
+    }
+  } else if (givenRegion.type === "RegionParameter") {
+    if (givenRegion.appliedRegion) {
+      return checkRegion(expectedRegion, givenRegion.appliedRegion);
+    } else {
+      return false;
+    }
   } else {
-    return (
-      expectedRegion.appliedRegion.regionId ===
-      givenRegion.appliedRegion?.regionId
-    );
+    return expectedRegion.regionId === givenRegion.regionId;
   }
 }
 
@@ -3027,11 +3167,22 @@ export function typeAndRegionParametersToString(
       .map((type) => typeToString(type, { hideTypeParameterKind }))
       .join(", ")}${
       typeParameters.length > 0 && regionParameters.length > 0 ? ", " : ""
-    }${regionParameters.map((region) =>
-      region.appliedRegion
-        ? region.appliedRegion.regionId
-        : `${region.name}${hideTypeParameterKind ? "" : ": Region"}`
-    )}>`;
+    }${regionParameters
+      .map((region) => regionToString(region, { hideTypeParameterKind }))
+      .join(", ")}>`;
+  }
+}
+
+export function regionToString(
+  region: Region,
+  { hideTypeParameterKind }: { hideTypeParameterKind?: boolean } = {}
+) {
+  if (region.type === "RegionParameter") {
+    return region.appliedRegion
+      ? regionToString(region.appliedRegion, { hideTypeParameterKind })
+      : `${region.name}${hideTypeParameterKind ? "" : ": Region"}`;
+  } else {
+    return region.regionId;
   }
 }
 
@@ -3260,6 +3411,80 @@ function checkEnumExactMatchType(
 }
 
 /**
+ * This function will modify the `typeParameterToTypeArgumentMap` and `regionParameterToRegionArgumentMap`.
+ * If the check failed, it will return false.
+ * @param parameterType
+ * @param argumentType
+ * @param typeParameterToTypeArgumentMap
+ * @param regionParameterToRegionArgumentMap
+ */
+function checkTypeAndRegionParametersAndArguments(
+  env: Environment,
+  parameterType: Type,
+  argumentType: Type,
+  typeParameterToTypeArgumentMap: { [key: string]: Type } = {},
+  regionParameterToRegionArgumentMap: { [key: string]: Region } = {}
+): boolean {
+  if (parameterType.type === "TypeParameter") {
+    if (parameterType.name in typeParameterToTypeArgumentMap) {
+      if (
+        !checkType(
+          typeParameterToTypeArgumentMap[parameterType.name],
+          argumentType,
+          env
+        )
+      ) {
+        return false;
+      }
+    }
+    typeParameterToTypeArgumentMap[parameterType.name] = argumentType;
+  } else if (
+    parameterType.type === "TypeConstructor" &&
+    argumentType.type === "TypeConstructor"
+  ) {
+    const parameterTypeParameters = parameterType.typeParameters;
+    const parameterRegionParameters = parameterType.regionParameters;
+    const argumentTypeParameters = argumentType.typeParameters;
+    const argumentRegionParameters = argumentType.regionParameters;
+    if (
+      parameterTypeParameters.length !== argumentTypeParameters.length ||
+      parameterRegionParameters.length !== argumentRegionParameters.length
+    ) {
+      return false;
+    }
+    for (let i = 0; i < parameterTypeParameters.length; i++) {
+      const parameterTypeParameter = parameterTypeParameters[i];
+      const argumentTypeParameter = argumentTypeParameters[i];
+      if (
+        !checkTypeAndRegionParametersAndArguments(
+          env,
+          parameterTypeParameter,
+          argumentTypeParameter,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
+        )
+      ) {
+        return false;
+      }
+    }
+    for (let i = 0; i < parameterRegionParameters.length; i++) {
+      const parameterRegionParameter = parameterRegionParameters[i];
+      const argumentRegionParameter = argumentRegionParameters[i];
+      if (!checkRegion(parameterRegionParameter, argumentRegionParameter)) {
+        return false;
+      } else {
+        if (argumentRegionParameter.appliedRegion) {
+          regionParameterToRegionArgumentMap[parameterRegionParameter.name] =
+            argumentRegionParameter.appliedRegion;
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+/**
  * Get the real functionArgumentsInOrder by matching the functionArguments with the functionType
  * If not match, then return null
  * @param functionArguments
@@ -3267,15 +3492,21 @@ function checkEnumExactMatchType(
  * @returns
  */
 export function getFunctionArgumentsInOrder(
-  functionArguments: Expr[],
+  calleeType: TFunction | TEnum,
   functionParameterTypes: TParameterType[],
+  functionArguments: Expr[],
   functionTypeArguments: Type[],
-  functionTypeParamters: TTypeParameter[],
   env: Environment
-): { functionArguments: Expr[] | null; functionTypeArguments: Type[] | null } {
-  /*
-  console.log("- getFunctionArgumentsInOrder: ");
-  console.log(
+): {
+  functionArguments: Expr[] | null;
+  functionTypeArguments: Type[] | null;
+  functionRegionArguments: Region[] | null;
+} {
+  const functionTypeParamters: TTypeParameter[] = calleeType.typeParameters;
+  const functionRegionParameters: TRegionParameter[] =
+    calleeType.regionParameters;
+  logger.debug("- getFunctionArgumentsInOrder: ");
+  logger.debug(
     "  - functionParameterTypes: ",
     `(${functionParameterTypes
       .map(({ name, type, defaultValue }) => {
@@ -3285,26 +3516,27 @@ export function getFunctionArgumentsInOrder(
       })
       .join(", ")})`
   );
-  console.log(
+  logger.debug(
     "  - functionArguments types: ",
     functionArguments.map((expr) => typeToString(expr.typeValue))
   );
-  console.log(
+  logger.debug(
     "  - functionTypeArguments: ",
     functionTypeArguments.map((type) => typeToString(type))
   );
-  console.log(
+  logger.debug(
     "  - functionTypeParamters: ",
     functionTypeParamters.map((type) => typeToString(type))
   );
-  */
 
   const functionArgumentsInOrder: (Expr | null)[] = functionParameterTypes.map(
     (pt) => pt.defaultValue
   );
   const functionTypeArgumentsInOrder: Type[] = functionTypeParamters.map(
-    () => /*pt.defaultTypeValue ??*/ TypeValues.unknown
+    () => TypeValues.unknown
   );
+  const functionRegionArgumentsInOrder: TRegion[] =
+    functionRegionParameters.map(() => UnknownRegion);
 
   for (let i = 0; i < functionArguments.length; i++) {
     const argument = functionArguments[i];
@@ -3317,13 +3549,21 @@ export function getFunctionArgumentsInOrder(
         (pt) => pt.name === keyword
       );
       if (argumentPositionIndex < 0) {
-        return { functionArguments: null, functionTypeArguments: null };
+        return {
+          functionArguments: null,
+          functionTypeArguments: null,
+          functionRegionArguments: null,
+        };
       } else {
         functionArgumentsInOrder[argumentPositionIndex] = value;
       }
     } else {
       if (i >= functionArgumentsInOrder.length) {
-        return { functionArguments: null, functionTypeArguments: null };
+        return {
+          functionArguments: null,
+          functionTypeArguments: null,
+          functionRegionArguments: null,
+        };
       }
       // Positional argument
       functionArgumentsInOrder[i] = argument;
@@ -3332,54 +3572,63 @@ export function getFunctionArgumentsInOrder(
 
   // If functionArgumentsInOrder has any null, then it's not a match
   const typeParameterToTypeArgumentMap: { [key: string]: Type } = {};
+  const regionParameterToRegionArgumentMap: { [key: string]: TRegion } = {};
   if (functionArgumentsInOrder.some((arg) => arg === null)) {
-    return { functionArguments: null, functionTypeArguments: null };
+    return {
+      functionArguments: null,
+      functionTypeArguments: null,
+      functionRegionArguments: null,
+    };
   } else {
     // Check if the functionArgumentsInOrder has the same types as the functionParameterTypes
-    // console.log("  - check functionArgumentsInOrder types");
+    logger.debug("  - check functionArgumentsInOrder types");
     for (let i = 0; i < functionArgumentsInOrder.length; i++) {
       const argument = functionArgumentsInOrder[i];
       const parameterType = functionParameterTypes[i];
-      /*
-      console.log("    - argument: ", typeToString(argument!.typeValue!));
-      console.log("    - parameterType: ", typeToString(parameterType.type));
-      console.log(
+
+      logger.debug("    - argument: ", typeToString(argument!.typeValue!));
+      logger.debug("    - parameterType: ", typeToString(parameterType.type));
+      logger.debug(
         "    - checkType: ",
         checkType(parameterType.type, argument!.typeValue, env)
       );
-      */
+
       if (
         !argument ||
         !checkType(parameterType.type, argument.typeValue, env)
       ) {
-        return { functionArguments: null, functionTypeArguments: null };
+        return {
+          functionArguments: null,
+          functionTypeArguments: null,
+          functionRegionArguments: null,
+        };
       }
 
-      if (parameterType.type.type === "TypeParameter") {
-        if (parameterType.type.name in typeParameterToTypeArgumentMap) {
-          if (
-            !checkType(
-              typeParameterToTypeArgumentMap[parameterType.type.name],
-              argument.typeValue,
-              env
-            )
-          ) {
-            return { functionArguments: null, functionTypeArguments: null };
-          }
-        }
-
-        const argumentType = argument.typeValue;
-        // TODO: Handle primitive type
-        typeParameterToTypeArgumentMap[parameterType.type.name] =
-          convertPrimitiveToType(argumentType);
+      if (
+        !checkTypeAndRegionParametersAndArguments(
+          env,
+          parameterType.type,
+          argument.typeValue,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap
+        )
+      ) {
+        return {
+          functionArguments: null,
+          functionTypeArguments: null,
+          functionRegionArguments: null,
+        };
       }
     }
-    /*
-    console.log(
+
+    logger.debug(
       "  - typeParameterToTypeArgumentMap: ",
       typeParameterToTypeArgumentMap
     );
-    */
+    logger.debug(
+      "  - regionParameterToRegionArgumentMap: ",
+      regionParameterToRegionArgumentMap
+    );
 
     for (let i = 0; i < functionTypeParamters.length; i++) {
       const typeParameter = functionTypeParamters[i];
@@ -3387,7 +3636,7 @@ export function getFunctionArgumentsInOrder(
       if (typeParameter.appliedType) {
         functionTypeArgumentsInOrder[i] = typeParameter.appliedType;
       } else if (typeParameter.name in typeParameterToTypeArgumentMap) {
-        // console.log(typeArgument);
+        // logger.debug(typeArgument);
         // Check type
         if (!typeArgument || typeArgument.type === "unknown") {
           functionTypeArgumentsInOrder[i] =
@@ -3399,7 +3648,11 @@ export function getFunctionArgumentsInOrder(
             env
           )
         ) {
-          return { functionArguments: null, functionTypeArguments: null };
+          return {
+            functionArguments: null,
+            functionTypeArguments: null,
+            functionRegionArguments: null,
+          };
         }
       } else if (typeArgument) {
         functionTypeArgumentsInOrder[i] = typeArgument;
@@ -3410,16 +3663,28 @@ export function getFunctionArgumentsInOrder(
         };
       } */
     }
-    /*
-    console.log(
+
+    for (let i = 0; i < functionRegionParameters.length; i++) {
+      const regionParameter = functionRegionParameters[i];
+      if (regionParameter.name in regionParameterToRegionArgumentMap) {
+        functionRegionArgumentsInOrder[i] =
+          regionParameterToRegionArgumentMap[regionParameter.name];
+      }
+    }
+
+    logger.debug(
       "  - functionTypeArgumentsInOrder: ",
       functionTypeArgumentsInOrder.map((type) => typeToString(type))
     );
-    */
+    logger.debug(
+      "  - functionRegionArgumentsInOrder: ",
+      functionRegionArgumentsInOrder.map((region) => region.regionId)
+    );
 
     return {
       functionArguments: functionArgumentsInOrder as Expr[],
       functionTypeArguments: functionTypeArgumentsInOrder,
+      functionRegionArguments: functionRegionArgumentsInOrder,
     };
   }
 }

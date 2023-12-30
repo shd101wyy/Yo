@@ -50,6 +50,7 @@ import { Token, TokenType } from "./token";
 import {
   ParseExpression,
   ParserReturn,
+  Region,
   RegionKind,
   TClass,
   TClassFunction,
@@ -68,9 +69,9 @@ import {
   Type,
   TypeKind,
   TypeValues,
-  applyTypeArgumentsToClass,
-  applyTypeArgumentsToEffect,
-  applyTypeArgumentsToType,
+  applyTypeAndRegionArgumentsToClass,
+  applyTypeAndRegionArgumentsToEffect,
+  applyTypeAndRegionArgumentsToType,
   checkEffect,
   checkFunctionEffects,
   checkType,
@@ -1712,11 +1713,12 @@ Returned : ${typeToString(body.typeValue)}
     const {
       functionArguments: functionArgumentsInOrder,
       functionTypeArguments: functionTypeArgumentsInOrder,
+      functionRegionArguments: functionRegionArgumentsInOrder,
     } = getFunctionArgumentsInOrder(
-      functionArguments,
+      calleeTypeValue,
       calleeTypeValue.parameterTypes,
+      functionArguments,
       typeArguments,
-      calleeTypeValue.typeParameters,
       env
     );
 
@@ -1738,7 +1740,7 @@ Got:      (${functionArguments
           .join(", ")})`
       );
     }
-    if (!functionTypeArgumentsInOrder) {
+    if (!functionTypeArgumentsInOrder || !functionRegionArgumentsInOrder) {
       throw this.formatErrorMessage(
         tokens[index],
         `Mismatched type arguments.
@@ -1764,9 +1766,10 @@ Got:      <${functionTypeArgumentsInOrder
           .join(", ")}>`
       );
     } else {
-      const typeValue_ = applyTypeArgumentsToType(
+      const typeValue_ = applyTypeAndRegionArgumentsToType(
         calleeTypeValue,
-        functionTypeArgumentsInOrder
+        functionTypeArgumentsInOrder,
+        functionRegionArgumentsInOrder
       );
       if (typeValue_.type !== "Function") {
         throw this.formatErrorMessage(
@@ -1818,7 +1821,6 @@ Got:      <${functionTypeArgumentsInOrder
     const {
       index: nextIndex,
       env: nextEnv,
-      typeArguments,
       functionArguments,
       calleeTypeValue,
     } = this.parseFunctionCallArguments({
@@ -1866,7 +1868,6 @@ Callee  : ${effectsToString(
       expr: {
         type: AstType.CallFunction,
         callee,
-        typeArguments,
         functionArguments,
         typeValue: returnType,
         env,
@@ -1960,11 +1961,12 @@ Callee  : ${effectsToString(
     const {
       functionArguments: variantArgumentsInOrder,
       functionTypeArguments: variantTypeArgumentsInOrder,
+      functionRegionArguments: variantRegionArgumentsInOrder,
     } = getFunctionArgumentsInOrder(
-      variantArguments,
+      calleeTypeValue,
       selectedVariant.parameterTypes,
+      variantArguments,
       appliedTypeArguments,
-      calleeTypeValue.typeParameters,
       env
     );
 
@@ -1987,7 +1989,7 @@ Got:      (${variantArguments
       );
     }
 
-    if (!variantTypeArgumentsInOrder) {
+    if (!variantTypeArgumentsInOrder || !variantRegionArgumentsInOrder) {
       throw this.formatErrorMessage(
         tokens[index],
         `Mismatched type arguments.
@@ -2000,9 +2002,10 @@ Got:      <${appliedTypeArguments
       );
     }
 
-    const enumType: TEnum = applyTypeArgumentsToType(
+    const enumType: TEnum = applyTypeAndRegionArgumentsToType(
       { ...calleeTypeValue },
-      variantTypeArgumentsInOrder
+      variantTypeArgumentsInOrder,
+      variantRegionArgumentsInOrder
     ) as TEnum;
 
     return {
@@ -2168,9 +2171,11 @@ Found possible typeclasses:
           );
         }
         let typeArguments: Type[] = [];
+        let regionArguments: Region[] = [];
         if (tokens[index + 1]?.type === TokenType.LessThan) {
           const {
             typeArguments: nextTypeArguments,
+            regionArguments: nextRegionArguments,
             index: nextIndex,
             env: nextEnv,
           } = synthesizeTypeAndRegionArgumentsFromTokens({
@@ -2181,14 +2186,16 @@ Found possible typeclasses:
             parseExpression: this.makeParseExpression({ caller, parserData }),
           });
           typeArguments = nextTypeArguments;
+          regionArguments = nextRegionArguments;
           index = nextIndex;
           env = nextEnv;
         } else {
           index = index + 1;
         }
-        const newTypeclassType = applyTypeArgumentsToClass(
+        const newTypeclassType = applyTypeAndRegionArgumentsToClass(
           class_,
-          typeArguments
+          typeArguments,
+          regionArguments
         );
 
         return {
@@ -2465,6 +2472,16 @@ Got     : ${effectsToString(
       }
       case TokenType.LParen: {
         returnValue = this.parseParenExpr({
+          tokens,
+          index,
+          env,
+          caller,
+          parserData,
+        });
+        break;
+      }
+      case TokenType.LessThan: {
+        returnValue = this.parseAnonymousFunction({
           tokens,
           index,
           env,
@@ -4859,11 +4876,13 @@ ${typeToString(functionType)}
     };
 
     // Parse class type arguments
-    const typeArguments: Type[] = [];
+    let typeArguments: Type[] = [];
+    let regionArguments: Region[] = [];
     if (tokens[index].type === TokenType.LessThan) {
       const {
         index: nextIndex,
-        typeArguments: ta,
+        typeArguments: nextTypeArguments,
+        regionArguments: nextRegionArguments,
         env: nextEnv,
       } = synthesizeTypeAndRegionArgumentsFromTokens({
         tokens,
@@ -4873,12 +4892,17 @@ ${typeToString(functionType)}
         parseExpression: this.makeParseExpression({ caller, parserData }),
       });
       index = nextIndex;
-      typeArguments.push(...ta);
+      typeArguments = nextTypeArguments;
+      regionArguments = nextRegionArguments;
       env = nextEnv;
     }
 
     // Apply type arguments to typeclass
-    const newClass = applyTypeArgumentsToClass(class_, typeArguments) as TClass;
+    const newClass = applyTypeAndRegionArgumentsToClass(
+      class_,
+      typeArguments,
+      regionArguments
+    ) as TClass;
 
     // Parse typeclass body
     const functions: TClassFunction[] = [];
@@ -5878,11 +5902,13 @@ ${exprToString(expr)}`
       index = index + 1;
 
       // Parse effect type arguments
-      const typeArguments: Type[] = [];
+      let typeArguments: Type[] = [];
+      let regionArguments: Region[] = [];
       if (tokens[index].type === TokenType.LessThan) {
         const {
           index: nextIndex,
-          typeArguments: ta,
+          typeArguments: nextTypeArguments,
+          regionArguments: nextRegionArguments,
           env: nextEnv,
         } = synthesizeTypeAndRegionArgumentsFromTokens({
           tokens,
@@ -5892,12 +5918,17 @@ ${exprToString(expr)}`
           parseExpression: this.makeParseExpression({ caller, parserData }),
         });
         index = nextIndex;
-        typeArguments.push(...ta);
+        typeArguments = nextTypeArguments;
+        regionArguments = nextRegionArguments;
         env = nextEnv;
       }
 
       // Apply type arguments to effect
-      const newEffect = applyTypeArgumentsToEffect(effect, typeArguments);
+      const newEffect = applyTypeAndRegionArgumentsToEffect(
+        effect,
+        typeArguments,
+        regionArguments
+      );
 
       // Parse effect body
       const operations: TEffectOperation[] = [];

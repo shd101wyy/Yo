@@ -15,6 +15,7 @@ import {
   TypeKind,
   classToString,
   effectToString,
+  typeAndRegionParametersToString,
   typeToString,
 } from "./type-checker";
 
@@ -376,7 +377,6 @@ export type ExternExpr = {
 export type CallFunctionExpr = {
   type: AstType.CallFunction;
   callee: Expr;
-  typeArguments: Type[];
   functionArguments: Expr[];
   typeValue: Type;
   env: Environment;
@@ -607,20 +607,37 @@ export function exprToString(expr: Expr, indentation = ""): string {
         extractTypeConstructor: true,
       })}`;
     case AstType.Function:
-      return `${typeToString(expr.typeValue, {
-        hideTypeParameterKind: true,
-      })} ${exprToString(expr.body)}`;
+      return `${typeToString(expr.typeValue)} ${exprToString(expr.body)}`;
 
-    case AstType.CallFunction:
-      return `${exprToString(expr.callee)}${
-        expr.typeArguments.length > 0
-          ? `<${expr.typeArguments.map((type) => typeToString(type))}>`
-          : ""
-      }(${expr.functionArguments
+    case AstType.CallFunction: {
+      const calleeType = expr.callee.typeValue;
+      if (calleeType.type !== "Function") {
+        throw new Error(
+          `Expected callee to be a function, but got ${typeToString(
+            calleeType
+          )}`
+        );
+      }
+      return `${exprToString(expr.callee)}${typeAndRegionParametersToString(
+        calleeType.typeParameters,
+        calleeType.regionParameters,
+        {
+          hideTypeParameterKind: true,
+        }
+      )}(${expr.functionArguments
         .map((expr) => exprToString(expr))
         .join(", ")})`;
+    }
     case AstType.CallEnum:
       return `${typeToString(expr.typeValue)}${
+        /*typeAndRegionParametersToString(
+        expr.typeValue.typeParameters,
+        expr.typeValue.regionParameters,
+        {
+          hideTypeParameterKind: true,
+        }
+      )*/ ""
+      }${
         expr.variantArguments.length > 0
           ? `(${expr.variantArguments
               .map((expr) => exprToString(expr))

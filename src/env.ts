@@ -2,9 +2,9 @@ import { IfCase, MatchCase } from "./ast";
 import { formatErrorMessages, getLineAtToken } from "./error";
 import { Token, TokenType } from "./token";
 import {
-  Region,
   TClass,
   TEffect,
+  TRegionParameter,
   Type,
   typeIsReferenceOrMutableReference,
 } from "./type-checker";
@@ -42,7 +42,7 @@ export type ValueType = {
 
   // different kinds of values
   type: Type;
-  region?: Region;
+  region?: TRegionParameter;
   effect?: TEffect;
   class?: TClass;
   kind: ValueTypeKind;
@@ -249,16 +249,21 @@ export function popEnvFrame(
   if (unconsumedReferences.length) {
     for (let i = 0; i < unconsumedReferences.length; i++) {
       const referedVariable = unconsumedReferences[i].referedVariable;
+      /*
+      NOTE: The line below cause problem on function parameter that is reference
       if (!referedVariable) {
         // NOTE: This should never happen
         throw new Error("Failed to find the refered variable.");
       }
+      */
       // decrement the reference count
-      env = decrementVariableReferenceCount({
-        env,
-        referedVariable,
-        inputString,
-      });
+      if (referedVariable) {
+        env = decrementVariableReferenceCount({
+          env,
+          referedVariable,
+          inputString,
+        });
+      }
     }
   }
 
