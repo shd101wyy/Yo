@@ -1,13 +1,6 @@
-type Data: Linear;
-extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> ();
-}
-
-let anotherLength = <T:Type, R:Region>(x: &<T,R>) -> i32 {
-  0
-}
-
-let length = <X:Type, P:Region>(x: &<X,P>) -> i32 {
-  anotherLength(x)
+let test = ()-> {
+  let mut x = 1;
+  let ref1 = &!x;
+  let ref2 = ref1;
+  // let ref3 = ref1; // error: ref1 is already consumed ^
 }

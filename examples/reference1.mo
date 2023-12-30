@@ -10,10 +10,9 @@ let length = <T:Type, R:Region>(x: &<T,R>) -> i32 {
 
 let test = ()-> {
   let x = malloc();
-  let ref = &x;
-  let len = length(ref);
   {
     let ref = &x;
+    let len = length(ref);
   }
   consume(x);
 }

@@ -22,7 +22,10 @@ let main = ()-> {
     let xRef = &x;
     {
       let yRef = &y;
-      let flag = compare(&x, &y);
+      let flag = compare(&x, &y);  // This works
+
+      // Below will not work, because xRef and yRef
+      // are not defined in the same Region.
       // let flag = compare(xRef, yRef);
     }
   }
