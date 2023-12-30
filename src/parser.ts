@@ -701,35 +701,65 @@ export default class Parser {
       referenceType = callerType;
       callerType = callerType.typeParameters[0].appliedType;
     }
+    // It's record type
+    if (
+      callerType.type === "TypeConstructor" &&
+      callerType.typeValue.type === "Record"
+    ) {
+      callerType = callerType.typeValue;
+    }
 
     if (callerType.type === "Record") {
       const property = callerType.properties.find(
         (property) => property.name === token.value
       );
-      if (property) {
-        return {
-          expr: {
-            type: AstType.PropertyAccess,
-            expr: expr,
-            propertyName: property.name,
-            typeValue: referenceType
-              ? {
-                  ...referenceType,
-                  typeParameters: referenceType.typeParameters.map(
-                    (typeParameter) => ({
-                      ...typeParameter,
-                      appliedType: property.type,
-                    })
-                  ),
-                }
-              : property.type,
-            isMutable: "isMutable" in expr ? expr.isMutable : false,
-            env,
-            token: tokens[dotTokenIndex],
-          },
-          index: index + 1,
-        };
+      if (!property) {
+        throw this.formatErrorMessage(
+          token,
+          `Cannot find property '${token.value}' in record:\n${typeToString(
+            callerType
+          )}`
+        );
       }
+
+      const returnType: Type = referenceType
+        ? {
+            ...referenceType,
+            typeParameters: referenceType.typeParameters.map(
+              (typeParameter) => ({
+                ...typeParameter,
+                appliedType: property.type,
+              })
+            ),
+          }
+        : property.type;
+      /*
+      const tempVariableName = getNewTempVariableName();
+      env = addEnvValueType({
+        env,
+        valueType: {
+          variableName: tempVariableName,
+          type: returnType,
+          kind: "value",
+          isMutable: false,
+          token: tokens[dotTokenIndex + 1],
+        },
+        inputString: this.inputString,
+      });
+      */
+
+      return {
+        expr: {
+          type: AstType.PropertyAccess,
+          expr: expr,
+          propertyName: property.name,
+          typeValue: returnType,
+          isMutable: "isMutable" in expr ? expr.isMutable : false,
+          env,
+          token: tokens[dotTokenIndex],
+        },
+        index: index + 1,
+      };
     }
     // FIXME: Now calling function from typeclass like
     //  `Id.id()` is not supported
@@ -933,7 +963,7 @@ Got     : ${effectsToString(
     } else {
       throw this.formatErrorMessage(
         token,
-        `Expected property name, but got ${token.value}`
+        `Expected property name, but got "${token.value}"`
       );
     }
   }
@@ -999,24 +1029,12 @@ ${exprToString(rhs)}
     }
 
     // Check if lhs can be created as mutable reference
-    env = pushEnvFrame(env);
-    const {
-      env: nextEnv,
-      referedVariable,
-      resetConsumedVariable,
-    } = this.increaseVariableReferenceCount({
+    const { resetConsumedVariable } = this.trySettingVariableAsReference({
       env,
       expr: lhs,
       isMutableReference: true,
       isForAssignment: true,
     });
-    env = nextEnv;
-    env = decrementVariableReferenceCount({
-      env,
-      referedVariable,
-      inputString: this.inputString,
-    });
-    env = popEnvFrame(env, this.inputString);
 
     // Consume RHS value if necessary
     const { env: nextNextEnv /*referedVariable: nextReferedVariable*/ } =
@@ -1325,7 +1343,7 @@ Got     : ${typeToString(returnType)}
     const { expr: body, index: nextNextIndex } = this.parseBlockExpressions({
       tokens,
       index,
-      env,
+      env: functionType.isClosure ? env : env, // FIXME: For top-level function, it should only be able to access the top level frame.
       caller: functionType,
       parserData,
     });
@@ -2966,6 +2984,84 @@ Got     : ${effectsToString(
     env: Environment,
     expr: Expr
   ): { env: Environment; referedVariable?: ReferedVariable } {
+    if (expr.type === AstType.PropertyAccess) {
+      {
+        // If it's accessing a linear type,
+        // then we throw error showing that
+        // dot access is not allowed for linear types.
+        if (
+          expr.typeValue.kind === "Type" ||
+          expr.typeValue.kind === "Linear"
+        ) {
+          throw this.formatErrorMessage(
+            expr.token,
+            `Cannot access "${expr.typeValue.kind}" value of "${
+              expr.propertyName
+            }" with dot access.
+Please consider using destructuring instead. For example:
+
+let {${expr.propertyName}} = ${exprToString(expr.expr)}`
+          );
+        } else {
+          try {
+            // It's accessing a Free type, so no need to consume.
+            // But we need to check if the variable is consumed.
+            this.trySettingVariableAsReference({
+              env,
+              expr,
+              isMutableReference: false,
+              isForAssignment: false,
+            });
+          } catch (error) {
+            throw formatErrorMessage({
+              inputString: this.inputString,
+              token: expr.token,
+              errorMessage: `Cannot access the property below because "${exprToString(
+                expr.expr
+              )}" is already consumed:
+${exprToString(expr)}`,
+              cause: error,
+            });
+          }
+        }
+        return { env, referedVariable: undefined };
+      }
+    } else if (expr.type === AstType.IndexAccess) {
+      if (expr.typeValue.kind === "Type" || expr.typeValue.kind === "Linear") {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Cannot access "${expr.typeValue.kind}" value of "${exprToString(
+            expr.expr
+          )}" with index access.
+Please consider using reference instead. For example:
+
+let ref = (&${exprToString(expr)})
+`
+        );
+      } else {
+        try {
+          // It's accessing a Free type, so no need to consume.
+          // But we need to check if the variable is consumed.
+          this.trySettingVariableAsReference({
+            env,
+            expr,
+            isMutableReference: false,
+            isForAssignment: false,
+          });
+        } catch (error) {
+          throw formatErrorMessage({
+            inputString: this.inputString,
+            token: expr.token,
+            errorMessage: `Cannot access the value below because "${exprToString(
+              expr.expr
+            )}" is already consumed:
+${exprToString(expr)}`,
+            cause: error,
+          });
+        }
+      }
+    }
+
     try {
       switch (expr.type) {
         case AstType.Variable: {
@@ -2997,6 +3093,43 @@ Got     : ${effectsToString(
         cause: error,
       });
     }
+  }
+
+  private trySettingVariableAsReference({
+    env,
+    expr,
+    isMutableReference,
+    isForAssignment,
+  }: {
+    env: Environment;
+    expr: Expr;
+    isMutableReference: boolean;
+    isForAssignment: boolean;
+  }): { resetConsumedVariable?: boolean } {
+    env = pushEnvFrame(env);
+    // Set the reference
+    const {
+      env: nextEnv,
+      referedVariable,
+      resetConsumedVariable,
+    } = this.increaseVariableReferenceCount({
+      env,
+      expr: expr,
+      isMutableReference,
+      isForAssignment,
+    });
+    env = nextEnv;
+    // Unset the reference
+    env = decrementVariableReferenceCount({
+      env,
+      referedVariable,
+      inputString: this.inputString,
+    });
+    env = popEnvFrame(env, this.inputString);
+
+    return {
+      resetConsumedVariable,
+    };
   }
 
   private increaseVariableReferenceCount({

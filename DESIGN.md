@@ -684,12 +684,12 @@ let main = ()-> {
 ```
 
 ```typescript
-type Coord {
+type Coord = {
   x: i32,
   y: i32
 }
 let main = ()-> {
-  let mut p = Coord { x: 1, y: 2 };
+  let mut p = { x: 1, y: 2 };
   let pRef = &!p;
   let yRef = &!p.y; // Compiler Error: Cannot borrow `p` as mutable more than once at a time.
 }

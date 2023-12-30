@@ -226,6 +226,11 @@ export type PropertyAccessExpr = {
   isMutable: boolean;
   env: Environment;
   token: Token;
+  /**
+   * This is the name of the temporary variable that holds
+   * the result of the property access.
+   */
+  // tempVariableName: string;
 };
 
 export type IndexAccessExpr = {
@@ -236,6 +241,11 @@ export type IndexAccessExpr = {
   isMutable: boolean;
   env: Environment;
   token: Token;
+  /**
+   * This is the name of the temporary variable that holds
+   * the result of the index access.
+   */
+  // tempVariableName: string;
 };
 
 export type BinaryOperatorExpr = {
