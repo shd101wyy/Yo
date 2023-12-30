@@ -4,12 +4,8 @@ extern "C" {
   consume: (x: Data)-> ();
 }
 
-let anotherLength = <T:Type, P:Region>(x: &<T,P>) -> i32 {
-  0
-}
-
 let length = <T:Type, R:Region>(x: &<T,R>) -> i32 {
-  anotherLength(x)
+  0  
 }
 
 let test = ()-> {

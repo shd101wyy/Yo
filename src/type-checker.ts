@@ -3473,10 +3473,13 @@ function checkTypeAndRegionParametersAndArguments(
       if (!checkRegion(parameterRegionParameter, argumentRegionParameter)) {
         return false;
       } else {
+        /*
         if (argumentRegionParameter.appliedRegion) {
           regionParameterToRegionArgumentMap[parameterRegionParameter.name] =
             argumentRegionParameter.appliedRegion;
-        }
+        }*/
+        regionParameterToRegionArgumentMap[parameterRegionParameter.name] =
+          argumentRegionParameter;
       }
     }
   }
@@ -3527,6 +3530,10 @@ export function getFunctionArgumentsInOrder(
   logger.debug(
     "  - functionTypeParamters: ",
     functionTypeParamters.map((type) => typeToString(type))
+  );
+  logger.debug(
+    "  - functionRegionParameters: ",
+    functionRegionParameters.map((region) => regionToString(region))
   );
 
   const functionArgumentsInOrder: (Expr | null)[] = functionParameterTypes.map(
