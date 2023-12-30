@@ -1039,33 +1039,7 @@ ${exprToString(rhs)}
     ) {
       isMutable = lhs.isMutable;
     }
-
-    // Check if lhs can be created as mutable reference
-    const { resetConsumedVariable } = this.trySettingVariableAsReference({
-      env,
-      expr: lhs,
-      isMutableReference: true,
-      isForAssignment: true,
-    });
-
-    // Consume RHS value if necessary
-    const { env: nextNextEnv /*referedVariable: nextReferedVariable*/ } =
-      this.setVariableAsConsumed(env, rhs);
-    env = nextNextEnv;
-
-    if (isMutable) {
-      return {
-        expr: {
-          type: AstType.Assignment,
-          left: lhs,
-          right: rhs,
-          env,
-          typeValue: resetConsumedVariable ? TypeValues.unit : rhs.typeValue,
-          token: tokens[lhsTokenIndex],
-        },
-        index,
-      };
-    } else {
+    if (!isMutable) {
       throw this.formatErrorMessage(
         tokens[lhsTokenIndex],
         `Expected mutable left-hand side for assignment:
@@ -1073,6 +1047,36 @@ ${exprToString(lhs)}
 `
       );
     }
+
+    let resetConsumedVariable = false;
+    if (lhs.type !== AstType.Dereference) {
+      // Check if lhs can be created as mutable reference
+      const { resetConsumedVariable: reset } =
+        this.trySettingVariableAsReference({
+          env,
+          expr: lhs,
+          isMutableReference: true,
+          isForAssignment: true,
+        });
+      resetConsumedVariable = !!reset;
+    }
+
+    // Consume RHS value if necessary
+    const { env: nextNextEnv /*referedVariable: nextReferedVariable*/ } =
+      this.setVariableAsConsumed(env, rhs);
+    env = nextNextEnv;
+
+    return {
+      expr: {
+        type: AstType.Assignment,
+        left: lhs,
+        right: rhs,
+        env,
+        typeValue: resetConsumedVariable ? TypeValues.unit : rhs.typeValue,
+        token: tokens[lhsTokenIndex],
+      },
+      index,
+    };
   }
 
   private parseIndexAccessExpr({
@@ -5779,7 +5783,16 @@ ${exprToString(expr)}`
         `Cannot dereference reference to unknown type`
       );
     }
-    if (
+
+    // Next token is =. This expression is for assignment
+    if (tokens[index].type === TokenType.Assign) {
+      if (referenceTypeValue.name !== "&!") {
+        throw this.formatErrorMessage(
+          tokens[valueTokenIndex],
+          `Cannot update value to an immutable reference.`
+        );
+      }
+    } else if (
       referenceAppliedType.kind === "Linear" ||
       referenceAppliedType.kind === "Type"
     ) {
