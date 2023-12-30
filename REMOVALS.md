@@ -17,11 +17,12 @@ Besides, I decided to switch the effect handler from using `with` to using `try`
 
 ## function signature **must** specify the return type
 
-For easier type inference.  
+For easier type inference.
+If not specified, the return type will be unit `()`.  
 
-## `if` and `match` needs to have braces
+## `if` and `match` need to have braces
 
-We use to support the following syntax:
+We used to support the following syntax:
 
 ```
 if x > y {
@@ -29,7 +30,7 @@ if x > y {
 }
 ```
 
-but this caused problem because the parser cannot distinguish between brace elision and a block.  
+but this caused problem because the parser cannot distinguish between brace elision and a block. For example, it might consider `y {...}` as a function call `y(()=> { ... })`.   
 
 So we decided to remove this feature. And we require the following syntax:
 
