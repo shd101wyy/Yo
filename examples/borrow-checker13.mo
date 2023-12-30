@@ -12,7 +12,7 @@ enum Color {
 
 let test = (color: Color)-> {
   let x = malloc();
-  match color {
+  match (color) {
     Red => {
       consume(x);
     }

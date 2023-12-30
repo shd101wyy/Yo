@@ -3378,6 +3378,12 @@ ${exprToString(expr)}\n`,
 
     const cases: IfCase[] = [];
     while (true) {
+      if (tokens[index].type !== TokenType.LParen) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected '(' for 'if' expression"
+        );
+      }
       // Parse condition
       const { expr: conditionExpr, index: nextIndex } = this.parseExpression({
         tokens,
@@ -3495,6 +3501,12 @@ Found:
     index = index + 1;
 
     const variableTokenIndex = index;
+    if (tokens[index].type !== TokenType.LParen) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '(' for 'match' expression"
+      );
+    }
     const { expr: matchedEnum, index: nextIndex } = this.parsePrimary({
       tokens,
       index,

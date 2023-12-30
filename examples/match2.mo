@@ -4,7 +4,7 @@ enum Option<T> {
 }
 
 let test = (x: Option<i32>) -> i32 {
-  match x {
+  match (x) {
     Some => x.value,
     _    => 0
   }

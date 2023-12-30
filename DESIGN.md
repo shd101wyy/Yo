@@ -207,7 +207,7 @@ Block `{...}`, function call `func(...)`, `if` statement, and update mutable ref
 
 ```typescript
 let factorial = (x: i32)-> i32 { // Region 1
-  if x > 1 { // Region 2
+  if (x > 1) { // Region 2
     x * factorial(x - 1) // Region 3 for calling `factorial`
   } else { // Region 3
     result
@@ -215,7 +215,7 @@ let factorial = (x: i32)-> i32 { // Region 1
 }
 
 let test = (flag: boolean)-> { // Region 1
-  if flag { // Region 2
+  if (flag) { // Region 2
     add()   // Region 3 for calling `add`
   } else {  // Region 4
     sub()   // Region 5 for calling `sub`
@@ -560,7 +560,7 @@ where size < 10 && size > 0 {
 
 let main = ()-> {
   let size = readInt()
-  if size < 10 && size > 0 {
+  if (size < 10 && size > 0) {
     let arr = makeArray(size) // The function is guaranteed to return an array of size between 1 and 9
   } else {
     makeArray(size) // Compiler Error: size is not between 1 and 9
@@ -770,7 +770,7 @@ let main = ()-> {
   // If no return type, it is () unit
   let number = 3;
 
-  if number < 5 {
+  if (number < 5) {
     println("condition was true");
   } else {
     println("condition was false");
@@ -935,11 +935,11 @@ enum Expr<T> {
 
 let eval = <T>(expr: Expr<T>)-> T {
   // with Expr<T>;
-  if expr is IntExpr(i) {
+  if (expr is IntExpr(i)) {
     i
-  } else if expr is BoolExpr(b) {
+  } else if (expr is BoolExpr(b)) {
     b
-  } else if expr is EqExpr(left, right) {
+  } else if (expr is EqExpr(left, right)) {
     eval(left) == eval(right)
   }
 }
@@ -1062,7 +1062,7 @@ enum Coin {
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
 let valueInCents = (coin: Coin)-> u8 {
-  match coin {
+  match (coin) {
     Penny => {
       println("Lucky penny!");
       return 1;
@@ -1080,7 +1080,7 @@ enum List<T> {
 
 
 let ListLength = <T>(list: &List<T>)-> i32 {
-  match list {
+  match (list) {
     Nil => 0,
     Cons => {
       const {tail} = list;
@@ -1223,7 +1223,7 @@ Effects are defined order-insensitive.
 
 ```typescript
 let safeDivide = (x: i32, y: i32)-> <Exception, Console> i32 {
-  if y == 0 {
+  if (y == 0) {
     println("Cannot divide by 0"); // handled by Console effect
     raise("Cannot divide by 0");   // handled by Exception effect
   } else {
@@ -1264,7 +1264,7 @@ effect Exception<T> {
 }
 
 let safeDivide = (x: i32, y: i32)-> <Exception<i32>> i32 {
-  if y == 0 {
+  if (y == 0) {
     raise("Cannot divide by 0");
   } else {
     x / y
@@ -1387,7 +1387,7 @@ effect Exception<T> {
 }
 
 let safeDivide = (x: i32, y: i32)-> <Exception<i32>{raise as newRaise}> i32 {
-  if y == 0 {
+  if (y == 0) {
     newRaise("Cannot divide by 0");
   } else {
     x / y
@@ -1407,9 +1407,9 @@ let map = <A: Type, B: Type>
   func: (x: &<A>)=> <*> B
 )-> <*> List<B>
 {
-  if xs is Nil {
+  if (xs is Nil) {
     Nil
-  } else if xs is Cons {
+  } else if (xs is Cons) {
     let {head, tail} = xs;
     let newHead = func(head);
     let newTail = map(tail, func);

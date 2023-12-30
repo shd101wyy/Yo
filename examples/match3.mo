@@ -5,7 +5,7 @@ enum Color {
 }
 
 let test = (x: Color)-> i32 {
-  match x {
+  match (x) {
     Red => {
       1
     }

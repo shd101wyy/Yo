@@ -650,7 +650,7 @@ export function exprToString(expr: Expr, indentation = ""): string {
       for (let i = 0; i < cases.length; i++) {
         const case_ = cases[i];
         if (case_.condition) {
-          result += `if ${exprToString(case_.condition)} ${exprToString(
+          result += `if (${exprToString(case_.condition)}) ${exprToString(
             case_.body
           )}`;
         } else {
@@ -664,7 +664,7 @@ export function exprToString(expr: Expr, indentation = ""): string {
       return result;
     }
     case AstType.Match: {
-      return `match ${exprToString(expr.matchedEnum)} {\n${expr.cases
+      return `match (${exprToString(expr.matchedEnum)}) {\n${expr.cases
         .map((matchCase) => {
           return `  ${
             !matchCase.case ? "_" : `${exprToString(matchCase.case)}`
