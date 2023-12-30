@@ -1,0 +1,12 @@
+type Data: Linear;
+extern "C" {
+  malloc: ()-> Data;
+  consume: (x: Data)-> ();
+}
+
+
+let test = ()-> {
+  let name = malloc();
+  let arr: Data[] = [name];
+  let ref = &name; // error: `name` is already consumed by `arr`
+}

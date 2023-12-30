@@ -493,6 +493,11 @@ export default class Parser {
         values.push(expr);
         index = nextIndex;
         env = expr.env;
+
+        // Consume the value if necessary
+        const { env: nextEnv } = this.setVariableAsConsumed(env, expr);
+        env = nextEnv;
+
         if (tokens[index].type === TokenType.Comma) {
           index = index + 1;
         }
@@ -640,6 +645,10 @@ export default class Parser {
         properties.push({ name: propertyName, value: expr });
         index = nextIndex;
         env = expr.env;
+
+        // Consume the value if necessary
+        const { env: nextEnv } = this.setVariableAsConsumed(env, expr);
+        env = nextEnv;
 
         if (tokens[index].type === TokenType.Comma) {
           index = index + 1;
