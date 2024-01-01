@@ -95,6 +95,8 @@ export enum TokenType {
   As = "as",
   Const = "const",
   Defer = "defer",
+  Async = "async",
+  Await = "await",
 
   /**
    * A list of available C functions can be found at:

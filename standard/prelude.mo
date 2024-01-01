@@ -11,3 +11,5 @@ enum Result<T: Type, E: Type>: Type {
   Ok(T),
   Err(E),
 }
+
+type Promise<T: Type>;

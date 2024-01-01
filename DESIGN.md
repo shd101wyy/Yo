@@ -63,6 +63,7 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Recoverable Errors with Result](#recoverable-errors-with-result)
   - [Pointer](#pointer)
   - [Type casting](#type-casting)
+  - [Async/Await](#asyncawait)
   - [Algebraic effects](#algebraic-effects)
     - [Effectful function](#effectful-function)
     - [Effect handler](#effect-handler)
@@ -999,7 +1000,7 @@ let notify = <T>(item: T) with Display<T>-> {
 
 ### Function Overloading
 
-Function overloading can be achieved using typeclass.  
+Function overloading can be achieved using typeclass.
 
 For example:
 
@@ -1025,7 +1026,6 @@ let main = ()-> {
   let y = id(3.2) // y: f32
 }
 ```
-
 
 ### Implicit `drop` function on `Linear` types
 
@@ -1194,6 +1194,25 @@ let x: i32 = 1;
 let y: f32 = (x:f32);
 ```
 
+## Async/Await
+
+Similar to the [async/await](https://developer.mozilla.org/en-US/docs/Learn/JavaScript/Asynchronous/Async_await) in JavaScript.
+
+```typescript
+// Promise is Linear type.
+let waitForSeconds = (seconds: i32)-> Promise<()> {
+  Promise.new((resolve, reject)-> {
+    setTimeout(resolve, seconds * 1000);
+  })
+}
+
+let main = async ()-> {
+  println("Hello");
+  await waitForSeconds(12);
+  println("World");
+}
+```
+
 ## Algebraic effects
 
 Note: **Mo** only supports **one-shot delimited continuations**.  
@@ -1206,8 +1225,8 @@ This is the hardest part of the language design. The question remains now is if 
 Effect is defined using the `effect` keyword.
 
 ```typescript
-effect Exception<T> {
-  raise: control (msg: String)-> T;
+effect Exception<T = ()> {
+  raise: (msg: String)-> Promise<T>;
 }
 ```
 
@@ -1222,12 +1241,12 @@ effect Pure extends Exception, Divergence {}
 Effects are defined order-insensitive.
 
 ```typescript
-let safeDivide = (x: i32, y: i32)-> <Exception, Console> i32 {
+let safeDivide = async (x: i32, y: i32)-> <Exception, Console> Promise<i32> {
   if (y == 0) {
-    println("Cannot divide by 0"); // handled by Console effect
-    raise("Cannot divide by 0");   // handled by Exception effect
+    await println("Cannot divide by 0"); // handled by Console effect
+    await raise("Cannot divide by 0");   // handled by Exception effect
   } else {
-    x / y
+    resume x / y;
   }
 }
 ```
@@ -1235,8 +1254,8 @@ let safeDivide = (x: i32, y: i32)-> <Exception, Console> i32 {
 The following function signatures are equivalent:
 
 ```typescript
-safeDivide: (x: i32, y: i32)-> <Exception, Console> i32;
-safeDivide: (x: i32, y: i32)-> <Console, Exception> i32;
+safeDivide: (x: i32, y: i32)-> <Exception, Console> Promise<i32>;
+safeDivide: (x: i32, y: i32)-> <Console, Exception> Promise<i32>;
 ```
 
 Function with no effect is written with `<>`, and `<>` can be suppressed in this case:
@@ -1260,22 +1279,22 @@ Note: **Mo** only supports the **deep handlers**, that is a handler will handle 
 
 ```typescript
 effect Exception<T> {
-  raise: control (msg: String)-> T;
+  raise: (msg: String)-> Promise<T>;
 }
 
-let safeDivide = (x: i32, y: i32)-> <Exception<i32>> i32 {
+let safeDivide = async (x: i32, y: i32)-> <Exception<i32>> Promise<i32> {
   if (y == 0) {
-    raise("Cannot divide by 0");
+    resume (await raise("Cannot divide by 0"))
   } else {
-    x / y
+    resume x / y
   }
 }
 
-let handle = ()-> {
+let handle = async ()-> {
   try {
-    8 + safeDivide(1, 0) + 10 // 60
+    8 + await safeDivide(1, 0) + 10 // 60
   } with Exception<i32> {
-    raise: control (msg)-> {
+    raise: async (msg)-> Promise<i32> {
       resume 42
     }
   }
@@ -1288,11 +1307,11 @@ Given the following function:
 
 ```typescript
 effect Input {
-  control read(): String;
+  read(): Promise<String>;
 }
 
-let hello = ()-> <Input> () {
-  let name = read();
+let hello = async ()-> <Input> Promise<()> {
+  let name = await read();
   println("Hello, ", name);
 }
 ```
@@ -1302,10 +1321,10 @@ let hello = ()-> <Input> () {
 ```typescript
 let main = ()-> {
   try {
-    hello(); // Hello Alice
+    await hello(); // Hello Alice
   } with Input {
-    control read() {
-      resume "Alice"
+    read: async ()-> Promise<String> {
+      resume "Alice";
     }
   }
 }
@@ -1316,10 +1335,10 @@ let main = ()-> {
 ```typescript
 let main = ()-> {
   try {
-    hello(); // Error
+    await hello(); // Error
     println("Hello, world!"); // This line won't be executed.
   } with Input {
-    control read() {
+    read: async ()-> Promise<String> {
       abort "Error"
     }
   }
@@ -1329,10 +1348,10 @@ let main = ()-> {
 #### handling `abort` with `~`
 
 ```typescript
-let example = ()-> <Exception<()>> () {
-  let file: File = open("file.txt", "w");
+let example = async ()-> <Exception<()>> Promise<()> {
+  let file: File = await open("file.txt", "w");
 
-  raise("Some exception");
+  await raise("Some exception");
 
   consume(file); // This line might not be executed because of the `raise` above which might abort the execution.
   // But the `file` is not consumed yet.
@@ -1342,10 +1361,10 @@ let example = ()-> <Exception<()>> () {
 What we can do is to use the `~` operator to handle the `abort`:
 
 ```typescript
-let example = ()-> <Exception<()>> {
-  let file: File = open("file.txt", "w");
+let example = async ()-> <Exception<()>> Promise<()> {
+  let file: File = await open("file.txt", "w");
 
-  raise("Some exception") ~ {
+  await raise("Some exception") ~ {
     println("Exception caught");
     consume(file);
   }
@@ -1355,10 +1374,6 @@ let example = ()-> <Exception<()>> {
 ```
 
 ### Tail-resumptive operation
-
-The effect operation is tail-resumptive if it is defined without `control` keyword, then it means its last statement is a `resume` operation.
-
-Calling such an operation also means you can't cast it as `K<T>`.
 
 Effect with only tail-resumptive operations is called [Linear Effect](<[LinearEffect](https://koka-lang.github.io/koka/doc/book.html#sec-linear)>).
 
@@ -1383,12 +1398,12 @@ let handleGiveInt = ()-> i32 {
 
 ```typescript
 effect Exception<T> {
-  control raise(msg: String): T;
+  raise(msg: String): Promise<T>;
 }
 
-let safeDivide = (x: i32, y: i32)-> <Exception<i32>{raise as newRaise}> i32 {
+let safeDivide = (x: i32, y: i32)-> <Exception<i32>{raise as newRaise}> Promise<i32> {
   if (y == 0) {
-    newRaise("Cannot divide by 0");
+    await newRaise("Cannot divide by 0");
   } else {
     x / y
   }
@@ -1403,7 +1418,7 @@ let safeDivide = (x: i32, y: i32)-> <Exception<i32>{raise as newRaise}> i32 {
 
 ```typescript
 let map = <A: Type, B: Type>
-( xs: &<List<A>>, 
+( xs: &<List<A>>,
   func: (x: &<A>)=> <*> B
 )-> <*> List<B>
 {

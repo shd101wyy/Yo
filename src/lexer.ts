@@ -751,6 +751,20 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            case "async":
+              tokens.push({
+                type: TokenType.Async,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "await":
+              tokens.push({
+                type: TokenType.Await,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
             default:
               tokens.push({
                 type: TokenType.Identifier,
