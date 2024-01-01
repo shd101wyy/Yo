@@ -316,11 +316,6 @@ export type TEffectOperation = {
   name: string;
   func: TFunction;
   functionExpr?: FunctionExpr;
-  /**
-   * If it's true, then it means the operation uses `resume` or `abort`
-   * and might not be tail-resumptive.
-   */
-  isControlled: boolean;
 };
 
 export type TEffect = {
@@ -426,6 +421,7 @@ export const TypeValues: {
   unknown: TUnknown;
   Reference: TTypeConstructor;
   MutableReference: TTypeConstructor;
+  Promise: TTypeConstructor;
 } = {
   unit: { type: "()", kind: "Free" },
   boolean: { type: "boolean", kind: "Free" },
@@ -489,6 +485,23 @@ export const TypeValues: {
         kind: "Region",
       },
     ],
+    typeValue: {
+      type: "Extern",
+      kind: "Free",
+    },
+  },
+  Promise: {
+    type: "TypeConstructor",
+    kind: "Linear",
+    name: "Promise",
+    typeParameters: [
+      {
+        type: "TypeParameter",
+        name: "T",
+        kind: "Type",
+      },
+    ],
+    regionParameters: [],
     typeValue: {
       type: "Extern",
       kind: "Free",
@@ -878,6 +891,10 @@ export function synthesizeTypeFromTokens({
       }
       case "&!": {
         typeValue = TypeValues.MutableReference;
+        break;
+      }
+      case "Promise": {
+        typeValue = TypeValues.Promise;
         break;
       }
       default: {
@@ -3328,8 +3345,8 @@ export function effectToString(
       { hideTypeParameterKind }
     )} {
 ${effect.operations
-  .map(({ func, isControlled, name, functionExpr }) => {
-    return `  ${name}: ${isControlled ? "control " : ""}${typeToString(func, {
+  .map(({ func, name, functionExpr }) => {
+    return `  ${name}: ${typeToString(func, {
       extractTypeConstructor: false,
     })}${functionExpr ? ` ${exprToString(functionExpr.body, "  ")}` : ""}`;
   })
@@ -3964,4 +3981,8 @@ export function typeIsReferenceOrMutableReference(
     }
   }
   return null;
+}
+
+export function typeIsFunctionTypeThatReturnsPromise(type: Type): boolean {
+  return type.type === "TypeConstructor" && type.name === "Promise";
 }
