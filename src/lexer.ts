@@ -730,6 +730,7 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            /*
             case "resume":
               tokens.push({
                 type: TokenType.Resume,
@@ -744,6 +745,7 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            */
             case "control":
               tokens.push({
                 type: TokenType.Control,

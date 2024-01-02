@@ -94,10 +94,10 @@ import {
 } from "./type-checker";
 
 interface ParserData {
-  isFunctionUsingAsync: boolean;
-  resumeType?: Type;
-  abortType?: Type;
-  abortTokenIndex?: number;
+  callSites: TFunction[];
+  // resumeType?: Type;
+  // abortType?: Type;
+  // abortTokenIndex?: number;
 }
 
 export default class Parser {
@@ -1188,108 +1188,16 @@ ${exprToString(lhs)}
     };
   }
 
-  private parseResumeOrAbortExpr({
-    tokens,
-    index,
-    env,
-    caller,
-    parserData,
-  }: {
-    tokens: Token[];
-    index: number;
-    env: Environment;
-    caller: TFunction;
-    parserData: ParserData;
-  }): ParserReturn {
-    if (!parserData.isFunctionUsingAsync) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        `Unable to use "resume" or "abort" outside of "async" function.`
-      );
-    }
-    if (
-      tokens[index].type !== TokenType.Resume &&
-      tokens[index].type !== TokenType.Abort
-    ) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        `Expected 'resume' or 'abort', but got ${tokens[index].value}`
-      );
-    }
-    const startTokenIndex = index;
-    const isResume = tokens[index].type === TokenType.Resume;
-    index = index + 1;
-
-    // parse next expression;
-    const { expr, index: nextIndex } = this.parseExpression({
-      tokens,
-      index,
-      env,
-      caller,
-      parserData,
-    });
-    index = nextIndex;
-
-    const returnType = expr.typeValue;
-    if (isResume) {
-      if (parserData.resumeType) {
-        if (!checkType(parserData.resumeType, returnType, env)) {
-          throw this.formatErrorMessage(
-            tokens[startTokenIndex],
-            `Mismatched resume type:
-Got     : ${typeToString(parserData.resumeType)}
-Got     : ${typeToString(returnType)}
-`
-          );
-        }
-      } else if (!checkType(caller.returnType, returnType, env)) {
-        throw this.formatErrorMessage(
-          tokens[startTokenIndex],
-          `Mismatched resume type:
-Expected : ${typeToString(caller.returnType)}
-Got      : ${typeToString(returnType)}
-`
-        );
-      } else {
-        parserData.resumeType = returnType;
+  private getLatestAsyncFunctionFromCallSites(
+    callSites: TFunction[]
+  ): TFunction | null {
+    for (let i = callSites.length - 1; i >= 0; i--) {
+      const func = callSites[i];
+      if (typeIsFunctionTypeThatReturnsPromise(func)) {
+        return func;
       }
-
-      return {
-        expr: {
-          type: AstType.Resume,
-          expr,
-          typeValue: TypeValues.unit,
-          env,
-          token: tokens[startTokenIndex],
-        },
-        index,
-      };
-    } else {
-      if (parserData.abortType) {
-        if (!checkType(parserData.abortType, returnType, env))
-          throw this.formatErrorMessage(
-            tokens[startTokenIndex],
-            `Mismatched abort type:
-Got     : ${typeToString(parserData.abortType)}
-Got     : ${typeToString(returnType)}
-`
-          );
-      } else {
-        parserData.abortType = returnType;
-        parserData.abortTokenIndex = startTokenIndex;
-      }
-
-      return {
-        expr: {
-          type: AstType.Abort,
-          expr,
-          typeValue: TypeValues.unit,
-          env,
-          token: tokens[startTokenIndex],
-        },
-        index,
-      };
     }
+    return null;
   }
 
   private makeParseExpression({
@@ -1309,11 +1217,13 @@ Got     : ${typeToString(returnType)}
     index,
     env,
     caller,
+    parserData,
   }: {
     tokens: Token[];
     index: number;
     env: Environment;
     caller: TFunction;
+    parserData: ParserData;
   }): ParserReturn {
     const startIndex = index;
     const currentFrameLevel = getEnvCurrentFrameLevel(env);
@@ -1321,19 +1231,6 @@ Got     : ${typeToString(returnType)}
     const oldEnv = env;
     env = copyEnvironment(env, currentFrameLevel, []);
     env = pushEnvFrame(env);
-
-    let isFunctionUsingAsync = false;
-    if (tokens[index].type === TokenType.Async) {
-      isFunctionUsingAsync = true;
-      index = index + 1;
-    }
-
-    const parserData: ParserData = {
-      isFunctionUsingAsync: isFunctionUsingAsync, // This is set in `this.parseAnonymousFunction`
-      resumeType: undefined,
-      abortType: undefined,
-      abortTokenIndex: undefined,
-    };
 
     const {
       typeValue: functionType,
@@ -1350,27 +1247,15 @@ Got     : ${typeToString(returnType)}
     env = nextEnv;
     index = nextIndex;
 
-    // Check async
-    if (
-      isFunctionUsingAsync &&
-      !typeIsFunctionTypeThatReturnsPromise(functionType.returnType)
-    ) {
-      throw this.formatErrorMessage(
-        tokens[startIndex],
-        `"async" function must return Promise.`
-      );
-    }
-
-    if (
-      !isFunctionUsingAsync &&
-      typeIsFunctionTypeThatReturnsPromise(functionType.returnType)
-    ) {
-      throw this.formatErrorMessage(
-        tokens[startIndex],
-        `Expected "async" for function that returns Promise, like below:
-async ${typeToString(functionType)}`
-      );
-    }
+    const promiseReturnType =
+      typeIsFunctionTypeThatReturnsPromise(functionType);
+    const newParserData: ParserData = {
+      callSites: [...parserData.callSites, functionType],
+      // abortType: isFunctionReturningPromise ? undefined : parserData.abortType,
+      // abortTokenIndex: isFunctionReturningPromise
+      //   ? undefined
+      //   : parserData.abortTokenIndex,
+    };
 
     // Extract effect operations
     if (functionType.effects.length > 0) {
@@ -1391,13 +1276,48 @@ async ${typeToString(functionType)}`
       });
     }
 
+    // Add "resume" and "abort" functions if the function returns promise
+    if (promiseReturnType) {
+      const resumeType = promiseReturnType.typeParameters[0].appliedType;
+      if (!resumeType) {
+        throw this.formatErrorMessage(
+          tokens[startIndex],
+          `Expected resume type`
+        );
+      }
+      const resumeFunc = this.constructResumeFunctionType(resumeType);
+      const abortFunc = this.constructAbortFunctionType();
+      env = addEnvValueType({
+        env,
+        valueType: {
+          variableName: "resume",
+          type: resumeFunc,
+          kind: "value",
+          isMutable: false,
+          token: tokens[startIndex],
+        },
+        inputString: this.inputString,
+      });
+      env = addEnvValueType({
+        env,
+        valueType: {
+          variableName: "abort",
+          type: abortFunc,
+          kind: "value",
+          isMutable: false,
+          token: tokens[startIndex],
+        },
+        inputString: this.inputString,
+      });
+    }
+
     // Parse body
     const { expr: body, index: nextNextIndex } = this.parseBlockExpressions({
       tokens,
       index,
       env: functionType.isClosure ? env : env, // FIXME: For top-level function, it should only be able to access the top level frame.
       caller: functionType,
-      parserData,
+      parserData: newParserData,
     });
     env = body.env;
     index = nextNextIndex;
@@ -1405,7 +1325,7 @@ async ${typeToString(functionType)}`
     // Check function body return type matches
     // the function type return type
     // NOTE: `control` effect operation can only return () type.
-    const expectedReturnType = parserData.isFunctionUsingAsync
+    const expectedReturnType = promiseReturnType
       ? TypeValues.unit
       : functionType.returnType;
     if (!checkType(expectedReturnType, body.typeValue, env)) {
@@ -1422,16 +1342,18 @@ Returned : ${typeToString(body.typeValue)}
     // FIXME: This check is actually not enough,
     // because there might be a `if` statement, and one branch doesn't
     // have `resume` or `abort` but the other branch does.
+    /*
     if (
-      isFunctionUsingAsync &&
+      isFunctionReturningPromise &&
       parserData.resumeType === undefined &&
       parserData.abortType === undefined
     ) {
       throw this.formatErrorMessage(
         tokens[startIndex],
-        `"async" function must have either "resume" or "abort"`
+        `async function must have either "resume" or "abort"`
       );
     }
+    */
 
     return {
       index,
@@ -1448,6 +1370,60 @@ Returned : ${typeToString(body.typeValue)}
         typeValue: functionType,
       },
     };
+  }
+
+  private constructResumeFunctionType(resumeType: Type): TFunction {
+    const func: TFunction = {
+      type: "Function",
+      kind: "Free",
+      effects: [],
+      hasMoreEffects: false,
+      typeParameters: [],
+      regionParameters: [],
+      returnType: TypeValues.unit,
+      parameterTypes: [
+        {
+          name: "value",
+          type: resumeType,
+          isMutable: false,
+          defaultValue: null,
+        },
+      ],
+      isClosure: false,
+      frameLevel: 0,
+      functionName: "resume",
+    };
+    return func;
+  }
+
+  private constructAbortFunctionType(): TFunction {
+    const typeParameter: TTypeParameter = {
+      type: "TypeParameter",
+      kind: "Type",
+      name: "AbortType",
+      appliedType: undefined,
+    };
+    const func: TFunction = {
+      type: "Function",
+      kind: "Free",
+      effects: [],
+      hasMoreEffects: false,
+      typeParameters: [typeParameter],
+      regionParameters: [],
+      returnType: TypeValues.unit,
+      parameterTypes: [
+        {
+          name: "value",
+          type: typeParameter,
+          defaultValue: null,
+          isMutable: false,
+        },
+      ],
+      isClosure: false,
+      frameLevel: 0,
+      functionName: "abort",
+    };
+    return func;
   }
 
   /**
@@ -1506,7 +1482,7 @@ Returned : ${typeToString(body.typeValue)}
         index,
         env,
         caller,
-        // parserData,
+        parserData,
       });
       if (expr) {
         return { expr, index: nextIndex };
@@ -1617,7 +1593,7 @@ Returned : ${typeToString(body.typeValue)}
           index,
           env,
           caller,
-          // parserData,
+          parserData,
         });
         if (expr) {
           functionArguments.push(expr);
@@ -1661,7 +1637,7 @@ Returned : ${typeToString(body.typeValue)}
             index,
             env,
             caller,
-            // parserData,
+            parserData,
           });
           if (expr) {
             // FIXME: Convert block expression to anonymous function with 0 parameters
@@ -2554,7 +2530,7 @@ Got     : ${effectsToString(
           index,
           env,
           caller,
-          // parserData,
+          parserData,
         });
         break;
       }
@@ -2641,23 +2617,6 @@ Got     : ${effectsToString(
           parserData,
         });
         break;
-      }
-      case TokenType.Resume:
-      case TokenType.Abort: {
-        if (!parserData.isFunctionUsingAsync) {
-          throw this.formatErrorMessage(
-            token,
-            `Unable to use "${token.type}" outside of "async" function.`
-          );
-        }
-
-        return this.parseResumeOrAbortExpr({
-          tokens,
-          index,
-          env,
-          caller,
-          parserData,
-        });
       }
       default: {
         throw this.formatErrorMessage(
@@ -4807,6 +4766,7 @@ ${typeToString(functionType)}
             index: functionTypeTokenIndex,
             env,
             caller,
+            parserData,
           });
         index = nextIndex;
         functionExpr = functionExpr_ as FunctionExpr;
@@ -5054,6 +5014,7 @@ class Show<T> {
           index: index + 2,
           env,
           caller,
+          parserData,
         });
       index = nextIndex;
       const functionExpr = functionExpr_ as FunctionExpr;
@@ -5976,7 +5937,7 @@ ${exprToString(expr)}`
     index = rCurlyBracketIndex + 1;
     env = pushEnvFrame(env);
     const effectHandlers: TEffect[] = [];
-    const parserDataListToCheckForAbort: ParserData[] = [];
+    // const parserDataListToCheckForAbort: ParserData[] = [];
     const withTokenIndex = index;
     let endTryWithTokenIndex = index;
     while (true) {
@@ -6096,15 +6057,19 @@ ${exprToString(expr)}`
             index,
             env,
             caller,
+            parserData,
           });
         index = nextIndex;
         env = functionExpr_.env;
         const functionExpr = functionExpr_ as FunctionExpr;
         const functionType = functionExpr.typeValue;
 
+        /*
+        // FIXME:
         if (parserData.abortType !== undefined) {
           parserDataListToCheckForAbort.push(parserData);
         }
+        */
 
         operations.push({
           name: operationName,
@@ -6212,6 +6177,8 @@ Got:      ${typeToString(matchedOperation.func)}`
     const returnType = tryExpr.typeValue;
 
     // Check if all abort types matches the returnType
+    /*
+    // FIXME:
     if (parserDataListToCheckForAbort.length > 0) {
       for (const parserData of parserDataListToCheckForAbort) {
         if (
@@ -6227,6 +6194,7 @@ Got:      ${typeToString(parserData.abortType)}`
         }
       }
     }
+    */
 
     return {
       expr: {
@@ -6658,7 +6626,7 @@ Got:      ${typeToString(parserData.abortType)}`
     const exprs: Expr[] = [];
     let env = createNewEnv(this.modulePath);
     const emptyParserData: ParserData = {
-      isFunctionUsingAsync: false,
+      callSites: [],
     };
     while (true) {
       const token = tokens[index];

@@ -3983,6 +3983,16 @@ export function typeIsReferenceOrMutableReference(
   return null;
 }
 
-export function typeIsFunctionTypeThatReturnsPromise(type: Type): boolean {
-  return type.type === "TypeConstructor" && type.name === "Promise";
+export function typeIsFunctionTypeThatReturnsPromise(
+  type: Type
+): TTypeConstructor | null {
+  if (
+    type.type === "Function" &&
+    type.returnType.type === "TypeConstructor" &&
+    type.returnType.name === "Promise"
+  ) {
+    return type.returnType;
+  } else {
+    return null;
+  }
 }

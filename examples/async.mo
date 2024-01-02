@@ -1,3 +1,4 @@
-let asyncFunc = async ()-> Promise<i32> {
-  resume 12;
+let asyncFunc = ()-> Promise<i32> {
+  abort(true);
+  resume(12);
 }
