@@ -40,6 +40,7 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Dependent types `In Design`](#dependent-types-in-design)
     - [Refinement types `In Design`](#refinement-types-in-design)
     - [`defer`](#defer)
+    - [Tail-call optimization `In Design`](#tail-call-optimization-in-design)
   - [Mutability](#mutability)
   - [Borrow checker](#borrow-checker)
   - [Control Flow](#control-flow)
@@ -120,10 +121,12 @@ Other languages that are worth mentioning that have influenced **Mo**:
 
 - [Effekt](https://effekt-lang.org/)
 - [PureScript](https://www.purescript.org/)
+- [Clojure](https://clojure.org/)
 - [Ante](https://antelang.org/)
 - [ATS](https://www.ats-lang.org/)
 - [Lean](https://leanprover.github.io/)
 - [Swift](https://swift.org/)
+- [Go](https://go.dev/)
 
 ## Hello World
 
@@ -620,6 +623,21 @@ let deferExample = ()-> {
 
   println(a); // 2
   a
+}
+```
+
+### Tail-call optimization `In Design`
+
+Use the `recur` to make the tail-call.  
+This is useful for anonymous function.  
+
+```typescript
+(x: u32, acc: u32 = 1)-> {
+  if (x == 1) {
+    1
+  } else {
+    recur(x - 1, acc * x)
+  }
 }
 ```
 
@@ -1191,7 +1209,7 @@ let main = ()-> {
 
 ```typescript
 let x: i32 = 1;
-let y: f32 = (x:f32);
+let y: f32 = (x as f32);
 ```
 
 ## Async/Await
@@ -1230,8 +1248,6 @@ Note: **Mo** only supports **one-shot delimited continuations**.
 This means that the continuation can only resume once.
 
 Our implementation doesn't use CPS (Continuation Passing Style) transformation as it's memory consuming and not efficient.
-
-This is the hardest part of the language design. The question remains now is if we should implement the algebraic effects [using coroutine](http://logic.cs.tsukuba.ac.jp/~sat/pdf/tfp2020.pdf) or we directly implement it in the compiler.
 
 Effect is defined using the `effect` keyword.
 
