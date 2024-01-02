@@ -7,3 +7,9 @@ let waitForSeconds = (seconds: i32)-> Promise<()> {
     resume(());
   }, seconds * 1000);
 }
+
+let main = ()-> Promise<()> {
+  let x = 1;
+  let p = await waitForSeconds(10);
+  ()
+}

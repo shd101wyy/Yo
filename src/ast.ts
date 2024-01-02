@@ -85,6 +85,9 @@ export enum AstType {
   // export/import
   Export = "export",
   Import = "import",
+
+  // await
+  Await = "await",
 }
 
 export enum OperatorType {
@@ -131,8 +134,7 @@ export type Expr =
   | ExportExpr
   | ImportExpr
   | TryExpr
-  | ResumeExpr
-  | AbortExpr;
+  | AwaitExpr;
 
 export type IgnoreExpr = {
   type: AstType.Ignore;
@@ -451,6 +453,14 @@ export type TryExpr = {
   effectHandlers: TEffect[];
 };
 
+export type AwaitExpr = {
+  type: AstType.Await;
+  typeValue: Type;
+  env: Environment;
+  token: Token;
+  expr: Expr;
+};
+
 /**
  * 1 is the lowest precedence
  */
@@ -721,6 +731,9 @@ ${indentation}}`;
           })}`;
         }
       )}`;
+    }
+    case AstType.Await: {
+      return `(await ${exprToString(expr.expr)})`;
     }
     default:
       throw new Error(`Unknown expr type ${expr}`);

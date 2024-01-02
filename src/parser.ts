@@ -89,6 +89,7 @@ import {
   synthesizeTypeAndRegionParametersFromTokens,
   synthesizeTypeFromTokens,
   typeIsFunctionTypeThatReturnsPromise,
+  typeIsPromise,
   typeIsReferenceOrMutableReference,
   typeToString,
 } from "./type-checker";
@@ -1333,7 +1334,11 @@ ${exprToString(lhs)}
         body.token,
         `Mismatched return type:
 Prototype: ${typeToString(expectedReturnType)}
-Returned : ${typeToString(body.typeValue)}
+Returned : ${typeToString(body.typeValue)}${
+          promiseReturnType
+            ? `\nPlease note function that returns a Promise requires () as its real return type.  `
+            : ""
+        }
 `
       );
     }
@@ -2610,6 +2615,16 @@ Got     : ${effectsToString(
       }
       case TokenType.Try: {
         returnValue = this.parseTryExpr({
+          tokens,
+          index,
+          env,
+          caller,
+          parserData,
+        });
+        break;
+      }
+      case TokenType.Await: {
+        returnValue = this.parseAwaitExpr({
           tokens,
           index,
           env,
@@ -6065,7 +6080,7 @@ ${exprToString(expr)}`
         const functionType = functionExpr.typeValue;
 
         /*
-        // FIXME:
+        // FIXME: Check the abort type
         if (parserData.abortType !== undefined) {
           parserDataListToCheckForAbort.push(parserData);
         }
@@ -6206,6 +6221,80 @@ Got:      ${typeToString(parserData.abortType)}`
         typeValue: returnType,
       },
       index: endTryWithTokenIndex,
+    };
+  }
+
+  private parseAwaitExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.Await) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "await" for await expression'
+      );
+    }
+
+    // Check if the caller is a function that returns a promise
+    if (!typeIsFunctionTypeThatReturnsPromise(caller)) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Cannot use "await" in a function that does not return a Promise:
+${typeToString(caller)}`
+      );
+    }
+
+    const awaitTokenIndex = index;
+    index = index + 1;
+
+    const valueTokenIndex = index;
+    const { expr, index: nextIndex } = this.parsePrimary({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    index = nextIndex;
+    env = expr.env;
+
+    const promiseType = typeIsPromise(expr.typeValue);
+    if (!promiseType) {
+      throw this.formatErrorMessage(
+        tokens[valueTokenIndex],
+        `Cannot await non-promise type: ${typeToString(expr.typeValue)}`
+      );
+    }
+    const valueType = promiseType.typeParameters[0]?.appliedType;
+    if (!valueType) {
+      throw this.formatErrorMessage(
+        tokens[valueTokenIndex],
+        `Cannot await promise to unknown type`
+      );
+    }
+
+    // Consumes the promise
+    const { env: nextNextEnv } = this.setVariableAsConsumed(env, expr);
+    env = nextNextEnv;
+
+    return {
+      expr: {
+        type: AstType.Await,
+        env,
+        expr,
+        token: tokens[awaitTokenIndex],
+        typeValue: valueType,
+      },
+      index,
     };
   }
 

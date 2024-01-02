@@ -7,6 +7,7 @@ import {
   TRegionParameter,
   Type,
   typeIsReferenceOrMutableReference,
+  typeToString,
 } from "./type-checker";
 
 export const emptyToken: Token = {
@@ -223,7 +224,13 @@ export function popEnvFrame(
             token: value.token,
             errorMessage: `${
               isTempVariableName(value.variableName) ? "Value" : "Variable"
-            } is linear type but is not consumed.`,
+            } is "Linear" type but is not consumed:
+${typeToString(value.type)}${
+              value.type.type === "TypeConstructor" &&
+              value.type.name === "Promise"
+                ? `\nPlease consider using \`await\` to consume the "Promise" value.`
+                : ""
+            }`,
           };
         }),
       });

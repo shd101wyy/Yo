@@ -70,7 +70,7 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Continuation](#continuation)
       - [resume](#resume)
       - [abort](#abort)
-      - [handling `abort` with `~`](#handling-abort-with-)
+      - [handling `abort` with `defer!`](#handling-abort-with-defer)
     - [Tail-resumptive operation](#tail-resumptive-operation)
     - [Rename effectful operation](#rename-effectful-operation)
     - [Effect polymorphism](#effect-polymorphism)
@@ -1196,17 +1196,23 @@ let y: f32 = (x:f32);
 
 ## Async/Await
 
-Similar to the [async/await](https://developer.mozilla.org/en-US/docs/Learn/JavaScript/Asynchronous/Async_await) in JavaScript.
+The async function in **Mo** is similar to the [async/await](https://developer.mozilla.org/en-US/docs/Learn/JavaScript/Asynchronous/Async_await) in JavaScript.  
+But the async function in **Mo** doesn't require using the `async` keyword.  
+Any function that returns a `Promise` will be treated as an async function.  
+It will be translated to a state machine in the backend, and two new functions, `resume` and `abort`, will be added to the function.  
+Its real return type will be `()`.  
+The `Promise` type is a `Linear` type, which means it must be consumed exactly once.  
+The `await` keyword is used to take the value out of the `Promise`. The `await` keyword can only be used inside an async function.
 
 ```typescript
 // Promise is Linear type.
 let waitForSeconds = (seconds: i32)-> Promise<()> {
-  Promise.new((resolve, reject)-> {
-    setTimeout(resolve, seconds * 1000);
-  })
+  setTimeout(()-> {
+    resume(())
+  }, seconds * 1000);
 }
 
-let main = async ()-> {
+let main = ()-> Promise<()> {
   println("Hello");
   await waitForSeconds(12);
   println("World");
@@ -1241,12 +1247,12 @@ effect Pure extends Exception, Divergence {}
 Effects are defined order-insensitive.
 
 ```typescript
-let safeDivide = async (x: i32, y: i32)-> <Exception, Console> Promise<i32> {
+let safeDivide = (x: i32, y: i32)-> <Exception, Console> Promise<i32> {
   if (y == 0) {
     await println("Cannot divide by 0"); // handled by Console effect
     await raise("Cannot divide by 0");   // handled by Exception effect
   } else {
-    resume x / y;
+    resume(x / y);
   }
 }
 ```
@@ -1282,20 +1288,20 @@ effect Exception<T> {
   raise: (msg: String)-> Promise<T>;
 }
 
-let safeDivide = async (x: i32, y: i32)-> <Exception<i32>> Promise<i32> {
+let safeDivide = (x: i32, y: i32)-> <Exception<i32>> Promise<i32> {
   if (y == 0) {
-    resume (await raise("Cannot divide by 0"))
+    resume(await raise("Cannot divide by 0"))
   } else {
-    resume x / y
+    resume(x / y)
   }
 }
 
-let handle = async ()-> {
+let handle = ()-> {
   try {
-    8 + await safeDivide(1, 0) + 10 // 60
+    8 + (await safeDivide(1, 0)) + 10 // 60
   } with Exception<i32> {
-    raise: async (msg)-> Promise<i32> {
-      resume 42
+    raise: (msg)-> Promise<i32> {
+      resume(42)
     }
   }
 }
@@ -1310,9 +1316,10 @@ effect Input {
   read(): Promise<String>;
 }
 
-let hello = async ()-> <Input> Promise<()> {
+let hello = ()-> <Input> Promise<()> {
   let name = await read();
   println("Hello, ", name);
+  resume(())
 }
 ```
 
@@ -1323,8 +1330,8 @@ let main = ()-> {
   try {
     await hello(); // Hello Alice
   } with Input {
-    read: async ()-> Promise<String> {
-      resume "Alice";
+    read: ()-> Promise<String> {
+      resume("Alice");
     }
   }
 }
@@ -1338,17 +1345,17 @@ let main = ()-> {
     await hello(); // Error
     println("Hello, world!"); // This line won't be executed.
   } with Input {
-    read: async ()-> Promise<String> {
-      abort "Error"
+    read: ()-> Promise<String> {
+      abort("Error")
     }
   }
 }
 ```
 
-#### handling `abort` with `~`
+#### handling `abort` with `defer!`
 
 ```typescript
-let example = async ()-> <Exception<()>> Promise<()> {
+let example = ()-> <Exception<()>> Promise<()> {
   let file: File = await open("file.txt", "w");
 
   await raise("Some exception");
@@ -1358,18 +1365,19 @@ let example = async ()-> <Exception<()>> Promise<()> {
 }
 ```
 
-What we can do is to use the `~` operator to handle the `abort`:
+What we can do is to use the `defer!` to defer the execution of certain code until the abort happens:
 
 ```typescript
-let example = async ()-> <Exception<()>> Promise<()> {
+let example = ()-> <Exception<()>> Promise<()> {
   let file: File = await open("file.txt", "w");
-
-  await raise("Some exception") ~ {
+  defer! {
     println("Exception caught");
     consume(file);
   }
+  await raise("Some exception")
 
   consume(file);
+  resume(());
 }
 ```
 

@@ -1371,7 +1371,7 @@ export function applyTypeAndRegionArgumentsToType({
     });
     return {
       type: "TypeConstructor",
-      kind: newTypeValue.kind,
+      kind: typeValue.type === "Extern" ? type.kind : newTypeValue.kind,
       name: type.name,
       typeParameters: newTypeParameters,
       regionParameters: newRegionParameters,
@@ -3992,6 +3992,14 @@ export function typeIsFunctionTypeThatReturnsPromise(
     type.returnType.name === "Promise"
   ) {
     return type.returnType;
+  } else {
+    return null;
+  }
+}
+
+export function typeIsPromise(type: Type): TTypeConstructor | null {
+  if (type.type === "TypeConstructor" && type.name === "Promise") {
+    return type;
   } else {
     return null;
   }
