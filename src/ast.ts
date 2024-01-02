@@ -88,6 +88,9 @@ export enum AstType {
 
   // await
   Await = "await",
+
+  // recur
+  Recur = "recur",
 }
 
 export enum OperatorType {
@@ -134,7 +137,8 @@ export type Expr =
   | ExportExpr
   | ImportExpr
   | TryExpr
-  | AwaitExpr;
+  | AwaitExpr
+  | RecurExpr;
 
 export type IgnoreExpr = {
   type: AstType.Ignore;
@@ -384,6 +388,14 @@ export type CallFunctionExpr = {
    * the result of the callee.
    */
   tempVariableName: string;
+};
+
+export type RecurExpr = {
+  type: AstType.Recur;
+  typeValue: Type;
+  env: Environment;
+  token: Token;
+  functionArguments: Expr[];
 };
 
 export type CallEnumExpr = {
@@ -734,6 +746,11 @@ ${indentation}}`;
     }
     case AstType.Await: {
       return `(await ${exprToString(expr.expr)})`;
+    }
+    case AstType.Recur: {
+      return `recur(${expr.functionArguments
+        .map((expr) => exprToString(expr))
+        .join(", ")})`;
     }
     default:
       throw new Error(`Unknown expr type ${expr}`);

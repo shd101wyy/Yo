@@ -322,12 +322,13 @@ export function addEnvValueType({
   });
   const newFrames = env.frames.slice();
   newFrames[frameLevel] = newFrame;
-  return {
+  const newEnv: Environment = {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
     freeVariables: env.freeVariables,
     frames: newFrames,
     modulePath: env.modulePath,
   };
+  return newEnv;
 }
 
 export function updateExistingValueType(
@@ -861,6 +862,11 @@ export function mergeAndCheckEnv(
       const tokens: (Token | undefined)[] = [];
       for (let j = 1; j < rows; j++) {
         tokens.push(matrix[j][i]);
+      }
+
+      // Skip the "Free" type value.
+      if (frameValues[i].type.kind === "Free") {
+        continue;
       }
 
       // case 1

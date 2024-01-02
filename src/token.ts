@@ -97,6 +97,7 @@ export enum TokenType {
   Defer = "defer",
   Async = "async",
   Await = "await",
+  Recur = "recur",
 
   /**
    * A list of available C functions can be found at:

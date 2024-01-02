@@ -40,7 +40,6 @@ export class CodeGenerator {
     this.modules.set(modulePath, module);
 
     this.compileModule(module, { printC });
-
     return module;
   }
 

@@ -1527,7 +1527,7 @@ Returned : ${typeToString(body.typeValue)}${
     /**
      * Function being called
      */
-    callee,
+    calleeType,
     tokens,
     index,
     env,
@@ -1538,7 +1538,7 @@ Returned : ${typeToString(body.typeValue)}${
      */
     firstArgument,
   }: {
-    callee: Expr;
+    calleeType: TFunction;
     tokens: Token[];
     index: number;
     env: Environment;
@@ -1552,13 +1552,8 @@ Returned : ${typeToString(body.typeValue)}${
     calleeTypeValue: TFunction;
     env: Environment;
   } {
-    let calleeTypeValue = callee.typeValue;
-    if (calleeTypeValue.type !== "Function") {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "Expected function for call expression"
-      );
-    }
+    let calleeTypeValue = calleeType;
+
     // type arguments
     let typeArguments: Type[] = [];
     if (tokens[index]?.type === TokenType.LessThan) {
@@ -1812,7 +1807,6 @@ Got:      <${functionTypeArgumentsInOrder
           "Expected function for call expression"
         );
       } else {
-        callee.typeValue = typeValue_;
         calleeTypeValue = typeValue_;
       }
     }
@@ -1853,13 +1847,21 @@ Got:      <${functionTypeArgumentsInOrder
     firstArgument?: Expr;
   }): ParserReturn {
     const startIndex = index;
+    const calleeType = callee.typeValue;
+    if (calleeType.type !== "Function") {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected function for call expression"
+      );
+    }
+
     const {
       index: nextIndex,
       env: nextEnv,
       functionArguments,
       calleeTypeValue,
     } = this.parseFunctionCallArguments({
-      callee,
+      calleeType: calleeType,
       tokens,
       index,
       env,
@@ -1897,6 +1899,7 @@ Callee  : ${effectsToString(calleeTypeValue.effects)}
       inputString: this.inputString,
     });
 
+    callee.typeValue = calleeTypeValue;
     return {
       expr: {
         type: AstType.CallFunction,
@@ -2600,6 +2603,16 @@ ${matchedFunctionErrors[i]}`
       }
       case TokenType.Await: {
         returnValue = this.parseAwaitExpr({
+          tokens,
+          index,
+          env,
+          caller,
+          parserData,
+        });
+        break;
+      }
+      case TokenType.Recur: {
+        returnValue = this.parseRecurExpr({
           tokens,
           index,
           env,
@@ -6301,6 +6314,65 @@ Please consider adding "Promise" to the return type.
         expr,
         token: tokens[awaitTokenIndex],
         typeValue: valueType,
+      },
+      index,
+    };
+  }
+
+  private parseRecurExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.Recur) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "recur" for recur expression'
+      );
+    }
+    const recurTokenIndex = index;
+    index = index + 1;
+
+    if (tokens[index].type !== TokenType.LParen) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '(' for recur expression arguments"
+      );
+    }
+
+    const {
+      index: nextIndex,
+      env: nextEnv,
+      functionArguments,
+      calleeTypeValue,
+    } = this.parseFunctionCallArguments({
+      calleeType: caller,
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    index = nextIndex;
+    env = nextEnv;
+
+    // TODO: Make sure `recur` is called as the last expression in the function body
+
+    return {
+      expr: {
+        type: AstType.Recur,
+        env,
+        functionArguments,
+        token: tokens[recurTokenIndex],
+        typeValue: calleeTypeValue.returnType,
       },
       index,
     };

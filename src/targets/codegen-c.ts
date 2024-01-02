@@ -24,6 +24,8 @@ export class CodeGeneratorC {
     this.emitter.emitHeaderLine("struct Unit {};");
     this.emitter.emitHeaderLine("struct Unit unit = {};");
 
+    this.emitter.emitDefinitionLine(`// Module ${module.modulePath}`);
+
     this.codegenExprs(this.module.ast);
   }
 
