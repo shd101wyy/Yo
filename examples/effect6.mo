@@ -5,7 +5,7 @@ effect GiveInt<T> {
 let main = ()-> Promise<f32> {
   try {
     let x = await giveInt(12);
-    3.4;
+    3.4
   } with GiveInt<i32> {
     giveInt: (x: i32)-> <GiveInt<i32>> Promise<i32> {
       if (x > 0) {

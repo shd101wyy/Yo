@@ -213,7 +213,7 @@ export type TFunction = {
   regionParameters: TRegionParameter[];
   parameterTypes: TParameterType[];
   effects: TEffect[];
-  hasMoreEffects: boolean;
+  // hasMoreEffects: boolean;
   returnType: Type;
 
   isClosure: boolean;
@@ -511,7 +511,7 @@ export const TypeValues: {
 
 export const emptyFunctionThatHasMoreEffects: TFunction = {
   effects: [],
-  hasMoreEffects: true,
+  // hasMoreEffects: true,
   frameLevel: 0,
   isClosure: false,
   kind: "Free",
@@ -2340,11 +2340,11 @@ export function synthesizeEffectsFromTokens({
   parseExpression: ParseExpression;
 }): {
   effects: TEffect[];
-  hasMoreEffects: boolean;
+  // hasMoreEffects: boolean;
   index: number;
 } {
   const effects: TEffect[] = [];
-  let hasMoreEffects = false;
+  // let hasMoreEffects = false;
 
   if (tokens[index].type !== TokenType.LessThan) {
     throw formatErrorMessage({
@@ -2370,7 +2370,7 @@ export function synthesizeEffectsFromTokens({
     }
 
     if (tokens[index].type === TokenType.Multiply) {
-      hasMoreEffects = true;
+      // hasMoreEffects = true;
       index = index + 1;
     } else {
       if (tokens[index].type !== TokenType.Identifier) {
@@ -2451,7 +2451,7 @@ export function synthesizeEffectsFromTokens({
 
   return {
     effects,
-    hasMoreEffects,
+    // hasMoreEffects,
     index,
   };
 }
@@ -2534,11 +2534,11 @@ export function synthesizeFunctionTypeFromTokens({
 
     // Effects
     let effects: TEffect[] = [];
-    let hasMoreEffects = false;
+    // let hasMoreEffects = false;
     if (tokens[index].type === TokenType.LessThan) {
       const {
         effects: nextEffects,
-        hasMoreEffects: nextHasMoreEffects,
+        // hasMoreEffects: nextHasMoreEffects,
         index: nextNextIndex,
       } = synthesizeEffectsFromTokens({
         tokens,
@@ -2548,7 +2548,7 @@ export function synthesizeFunctionTypeFromTokens({
         parseExpression,
       });
       effects = nextEffects;
-      hasMoreEffects = nextHasMoreEffects;
+      // hasMoreEffects = nextHasMoreEffects;
       index = nextNextIndex;
     }
 
@@ -2580,7 +2580,7 @@ export function synthesizeFunctionTypeFromTokens({
         regionParameters,
         returnType,
         effects,
-        hasMoreEffects,
+        // hasMoreEffects,
         isClosure,
         freeVariables: undefined,
         frameLevel,
@@ -3000,7 +3000,7 @@ export function typeToString(
         )
         .join(", ")})${type.isClosure ? "=>" : "->"} ${effectsToString(
         type.effects,
-        type.hasMoreEffects,
+        // type.hasMoreEffects,
         { hideTypeParameterKind: true }
       )}${typeToString(type.returnType, {
         hideTypeParameterKind: true,
@@ -3281,19 +3281,17 @@ export function checkEffect(
 }
 
 export function checkFunctionEffects(
-  expectedFunction: TFunction,
-  givenFunction: TFunction,
+  calleeType: TFunction,
+  callerType: TFunction,
   env: Environment
 ) {
-  if (expectedFunction.hasMoreEffects) {
+  /*if (calleeType.hasMoreEffects) {
     return true;
-  } else if (givenFunction.hasMoreEffects) {
+  } else if (callerType.hasMoreEffects) {
     return false;
-  } else if (expectedFunction.effects.length !== givenFunction.effects.length) {
-    return false;
-  } else {
-    return expectedFunction.effects.every((expectedEffect) => {
-      return givenFunction.effects.some((givenEffect) => {
+  } else */ {
+    return calleeType.effects.every((expectedEffect) => {
+      return callerType.effects.some((givenEffect) => {
         return checkEffect(expectedEffect, givenEffect, env);
       });
     });
@@ -3368,13 +3366,13 @@ ${effect.operations
 
 export function effectsToString(
   effects: TEffect[],
-  hasMoreEffects: boolean,
+  // hasMoreEffects: boolean,
   {
     hideTypeParameterKind,
     extractTypeConstructor,
   }: { hideTypeParameterKind?: boolean; extractTypeConstructor?: boolean } = {}
 ): string {
-  if (effects.length === 0 && !hasMoreEffects) {
+  if (effects.length === 0 /*&& !hasMoreEffects*/) {
     return "";
   } else {
     return `<${effects
@@ -3385,7 +3383,9 @@ export function effectsToString(
         })
       )
       .join(", ")}${
+      /*
       hasMoreEffects ? (effects.length > 0 ? ", " : "") + `*` : ""
+      */ ""
     }>`;
   }
 }

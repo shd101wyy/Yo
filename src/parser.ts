@@ -956,23 +956,6 @@ Found possible functions:
             .join("\n- ")}`
         );
       } else {
-        /*
-        const calleeTypeValue = parsedFunctions[0].type as TFunction;
-        // Check function effects
-        if (!checkFunctionEffects(caller, calleeTypeValue)) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Mismatched effects:
-Expected: ${effectsToString(caller.effects, caller.hasMoreEffects)}
-Got     : ${effectsToString(
-              calleeTypeValue.effects,
-              calleeTypeValue.hasMoreEffects
-            )}
-`
-          );
-        }
-        */
-
         return parserReturns[0];
       }
     } else {
@@ -1399,7 +1382,7 @@ Returned : ${typeToString(body.typeValue)}${
       type: "Function",
       kind: "Free",
       effects: [],
-      hasMoreEffects: false,
+      // hasMoreEffects: false,
       typeParameters: [],
       regionParameters: [],
       returnType: TypeValues.unit,
@@ -1423,7 +1406,7 @@ Returned : ${typeToString(body.typeValue)}${
       type: "Function",
       kind: "Free",
       effects: [],
-      hasMoreEffects: false,
+      // hasMoreEffects: false,
       typeParameters: [],
       regionParameters: [],
       returnType: TypeValues.unit,
@@ -1888,15 +1871,13 @@ Got:      <${functionTypeArgumentsInOrder
     env = nextEnv;
 
     // Check function effects
-    if (!checkFunctionEffects(caller, calleeTypeValue, env)) {
+    if (!checkFunctionEffects(calleeTypeValue, caller, env)) {
+      // NOTE: This order matters ^^^
       throw this.formatErrorMessage(
         tokens[startIndex],
         `Mismatched effects:
-Caller  : ${effectsToString(caller.effects, caller.hasMoreEffects)}
-Callee  : ${effectsToString(
-          calleeTypeValue.effects,
-          calleeTypeValue.hasMoreEffects
-        )}
+Caller  : ${effectsToString(caller.effects)}
+Callee  : ${effectsToString(calleeTypeValue.effects)}
 `
       );
     }
@@ -2405,23 +2386,6 @@ ${matchedFunctionErrors[i]}`
         );
       } else {
         // FIXME: Might need to check `isFreeVariable` here as well
-        /*
-        const calleeTypeValue = parsedFunctions[0].type as TFunction;
-        // Check function effects
-        if (!checkFunctionEffects(caller, calleeTypeValue)) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Mismatched effects:
-Expected: ${effectsToString(caller.effects, caller.hasMoreEffects)}
-Got     : ${effectsToString(
-              calleeTypeValue.effects,
-              calleeTypeValue.hasMoreEffects
-            )}
-`
-          );
-        }
-        */
-
         return parserReturns[0];
       }
     }
@@ -6115,28 +6079,6 @@ ${exprToString(expr)}`
         }
         index = rCurlyBracketIndex + 1;
 
-        /*
-        const { expr: functionExpr_, index: nextIndex } =
-          this.parseAnonymousFunction({
-            tokens,
-            index,
-            env,
-            caller,
-            parserData,
-            isParsingEffectOperation: true,
-          });
-        index = nextIndex;
-        env = functionExpr_.env;
-        const functionExpr = functionExpr_ as FunctionExpr;
-        const functionType = functionExpr.typeValue;
-
-        operations.push({
-          name: operationName,
-          func: functionType,
-          functionExpr,
-        });
-        */
-
         if (
           tokens[index].type === TokenType.Semicolon ||
           tokens[index].type === TokenType.Comma
@@ -6178,17 +6120,15 @@ Expected: ${typeToString(effectOperation.func)}
 Got:      ${typeToString(matchedOperation.func)}`
             );
           } else {
-            matchedOperation.func = effectOperation.func;
+            // NOTE: Line below is wrong, because for example,
+            // effectOperation.func might have effects <GiveInt, *>
+            // while matchedOperation.func might have effects <GiveInt> only.
+            //
+            // matchedOperation.func = effectOperation.func;
           }
-
-          /*
-          if (effectOperation.isControlled) {
-            // Change return type to unit,
-            effectOperation.func.returnType = TypeValues.unit;
-          }
-          */
         }
       }
+
       // Add operations to env
       for (let i = 0; i < operations.length; i++) {
         const operation = operations[i];
@@ -6210,6 +6150,23 @@ Got:      ${typeToString(matchedOperation.func)}`
         operations,
         isHandler: true,
       });
+
+      // Check if each operation effects matches the newCaller effects
+      const newCaller: TFunction = {
+        ...caller,
+        effects: [...caller.effects, ...effectHandlers],
+      };
+      for (let i = 0; i < operations.length; i++) {
+        const operation = operations[i];
+        if (!checkFunctionEffects(operation.func, newCaller, env)) {
+          throw this.formatErrorMessage(
+            operationTokens[i],
+            `Mismatched effects:
+Expected: ${effectsToString(operation.func.effects)}
+Got:      ${effectsToString(newCaller.effects)}`
+          );
+        }
+      }
     }
 
     if (effectHandlers.length === 0) {
@@ -6298,7 +6255,9 @@ Got:      ${typeToString(matchedOperation.func)}`
       throw this.formatErrorMessage(
         tokens[index],
         `Cannot use "await" in a function that does not return a Promise:
-${typeToString(caller)}`
+${typeToString(caller)}
+Please consider adding "Promise" to the return type.  
+`
       );
     }
 

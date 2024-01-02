@@ -7,5 +7,6 @@ let add = (x: i32, y: i32)-> i32 {
 }
 
 let main = ()-> <GiveInt> i32 {
-  add(3, 4)
+  add(3, 4);
+  giveInt()
 }
