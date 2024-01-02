@@ -43,16 +43,6 @@ export type TChar = {
   kind: "Free";
 };
 
-export type TU1 = {
-  type: "u1";
-  kind: "Free";
-};
-
-export type TI1 = {
-  type: "i1";
-  kind: "Free";
-};
-
 export type TIsize = {
   type: "isize";
   kind: "Free";
@@ -138,8 +128,6 @@ export type TPrimitive =
   | TUnit
   | TBoolean
   | TChar
-  | TU1
-  | TI1
   | TU8
   | TI8
   | TU16
@@ -360,13 +348,11 @@ export type Type =
   | TUnit
   | TBoolean
   | TChar
-  | TU1
   | TU8
   | TU16
   | TU32
   | TU64
   | TU128
-  | TI1
   | TI8
   | TI16
   | TI32
@@ -401,13 +387,11 @@ export const TypeValues: {
   unit: TUnit;
   boolean: TBoolean;
   char: TChar;
-  u1: TU1;
   u8: TU8;
   u16: TU16;
   u32: TU32;
   u64: TU64;
   u128: TU128;
-  i1: TI1;
   i8: TI8;
   i16: TI16;
   i32: TI32;
@@ -426,13 +410,11 @@ export const TypeValues: {
   unit: { type: "()", kind: "Free" },
   boolean: { type: "boolean", kind: "Free" },
   char: { type: "char", kind: "Free" },
-  u1: { type: "u1", kind: "Free" },
   u8: { type: "u8", kind: "Free" },
   u16: { type: "u16", kind: "Free" },
   u32: { type: "u32", kind: "Free" },
   u64: { type: "u64", kind: "Free" },
   u128: { type: "u128", kind: "Free" },
-  i1: { type: "i1", kind: "Free" },
   i8: { type: "i8", kind: "Free" },
   i16: { type: "i16", kind: "Free" },
   i32: { type: "i32", kind: "Free" },
@@ -539,7 +521,6 @@ export type ParseExpression = ({
 
 export function isSignedIntegerType(type: Type): boolean {
   return (
-    type.type === "i1" ||
     type.type === "i8" ||
     type.type === "i16" ||
     type.type === "i32" ||
@@ -551,7 +532,6 @@ export function isSignedIntegerType(type: Type): boolean {
 
 export function isUnsignedIntegerType(type: Type): boolean {
   return (
-    type.type === "u1" ||
     type.type === "u8" ||
     type.type === "u16" ||
     type.type === "u32" ||
@@ -813,10 +793,6 @@ export function synthesizeTypeFromTokens({
         typeValue = TypeValues.char;
         break;
       }
-      case "u1": {
-        typeValue = TypeValues.u1;
-        break;
-      }
       case "u8": {
         typeValue = TypeValues.u8;
         break;
@@ -835,10 +811,6 @@ export function synthesizeTypeFromTokens({
       }
       case "u128": {
         typeValue = TypeValues.u128;
-        break;
-      }
-      case "i1": {
-        typeValue = TypeValues.i1;
         break;
       }
       case "i8": {
@@ -2920,9 +2892,6 @@ export function typeToString(
     case "char": {
       return "char";
     }
-    case "u1": {
-      return "u1";
-    }
     case "u8": {
       return "u8";
     }
@@ -2937,9 +2906,6 @@ export function typeToString(
     }
     case "u128": {
       return "u128";
-    }
-    case "i1": {
-      return "i1";
     }
     case "i8": {
       return "i8";

@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { IfCase, MatchCase } from "./ast";
 import { formatErrorMessages, getLineAtToken } from "./error";
 import { Token, TokenType } from "./token";
@@ -38,7 +39,7 @@ export type ReferedVariable = {
 };
 
 export type ValueType = {
-  // id: string; // NOTE: The `id` here doesn't really help in generic function
+  id: string; // NOTE: The `id` here doesn't really help in generic function
   variableName: string;
 
   // different kinds of values
@@ -78,6 +79,30 @@ export type ValueType = {
 let regionCount = 1;
 export function getNewRegionId(): string {
   return `'R_${regionCount++}`;
+}
+
+const IdMap = new Map<string, number>();
+/**
+ * Return the first 10 characters of SHA1 of env.modulePath + variableName
+ * @param env
+ * @param variableName
+ * @returns
+ */
+export function generateValueTypeId(
+  env: Environment,
+  variableName: string
+): string {
+  const str = env.modulePath;
+  const hash = createHash("sha1").update(str).digest("hex");
+  const id = hash.slice(0, 10) + "_" + variableName;
+  let count = IdMap.get(id);
+  if (count === undefined) {
+    count = 0;
+  } else {
+    count++;
+  }
+  IdMap.set(id, count);
+  return id + (count == 0 ? "" : `_${count}`);
 }
 
 let tempVariableNameCount = 1;
@@ -282,16 +307,17 @@ export function addEnvValueType({
 }: {
   inputString: string;
   env: Environment;
-  valueType: Omit<ValueType, "frameLevel">;
+  valueType: Omit<ValueType, "frameLevel" | "id">;
   deltaFrame?: number;
   preventDuplicate?: boolean;
 }): Environment {
   const frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
   const frame = env.frames[frameLevel];
+  const id = generateValueTypeId(env, valueType.variableName);
   const newFrame = addFrameValueType({
     inputString,
     frame,
-    valueType: { ...valueType, frameLevel },
+    valueType: { ...valueType, frameLevel, id },
     preventDuplicate,
   });
   const newFrames = env.frames.slice();

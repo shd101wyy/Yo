@@ -57,6 +57,12 @@ mo run <script>                  Run a script defined in 'mo.json'
     demandOption: false,
     default: false,
   })
+  .option("print-c", {
+    describe: "Print C code generated from AST",
+    type: "boolean",
+    demandOption: false,
+    default: false,
+  })
   .command(
     "$0 <file> [options]",
     "The default command",
@@ -82,6 +88,7 @@ mo run <script>                  Run a script defined in 'mo.json'
       compiler.loadModule(absolutePath, {
         printTokens: argv.printTokens,
         printAst: argv.printAst,
+        printC: argv.printC,
       });
     }
   )
