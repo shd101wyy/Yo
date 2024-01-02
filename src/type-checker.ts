@@ -2991,7 +2991,12 @@ export function typeToString(
         .map(
           (parameter) =>
             (parameter.name ? `${parameter.name}: ` : "") +
-            typeToString(parameter.type, { hideTypeParameterKind: true })
+            typeToString(parameter.type, { hideTypeParameterKind: true }) +
+            `${
+              parameter.defaultValue
+                ? ` = ${exprToString(parameter.defaultValue)}`
+                : ""
+            }`
         )
         .join(", ")})${type.isClosure ? "=>" : "->"} ${effectsToString(
         type.effects,

@@ -173,7 +173,7 @@ export function copyEnvironment(
 ): Environment {
   return {
     functionDeclarationFrameLevel:
-      functionDeclarationFrameLevel ?? env.functionDeclarationFrameLevel,
+      functionDeclarationFrameLevel /*?? env.functionDeclarationFrameLevel*/,
     frames: [...env.frames],
     freeVariables: [...freeVariables],
     modulePath: env.modulePath,
@@ -706,6 +706,11 @@ export function setEnvVariableReferedVariable({
   });
 }
 
+/**
+ * Zero-based frame level.
+ * @param env
+ * @returns
+ */
 export function getEnvCurrentFrameLevel(env: Environment): number {
   return env.frames.length - 1;
 }
@@ -880,4 +885,16 @@ export function mergeAndCheckEnv(
   }
 
   return env;
+}
+
+export function createTopLevelEnv(
+  env: Environment,
+  delta: number = 0
+): Environment {
+  return {
+    functionDeclarationFrameLevel: -1,
+    frames: env.frames.slice(0, 1 + delta),
+    freeVariables: [],
+    modulePath: env.modulePath,
+  };
 }

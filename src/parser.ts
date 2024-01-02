@@ -29,6 +29,7 @@ import {
   addEnvValueType,
   copyEnvironment,
   createNewEnv,
+  createTopLevelEnv,
   decrementVariableReferenceCount,
   emptyToken,
   getEnvCurrentFrameLevel,
@@ -1189,18 +1190,6 @@ ${exprToString(lhs)}
     };
   }
 
-  private getLatestAsyncFunctionFromCallSites(
-    callSites: TFunction[]
-  ): TFunction | null {
-    for (let i = callSites.length - 1; i >= 0; i--) {
-      const func = callSites[i];
-      if (typeIsFunctionTypeThatReturnsPromise(func)) {
-        return func;
-      }
-    }
-    return null;
-  }
-
   private makeParseExpression({
     caller,
     parserData,
@@ -1219,12 +1208,14 @@ ${exprToString(lhs)}
     env,
     caller,
     parserData,
+    effectOperationAbortType,
   }: {
     tokens: Token[];
     index: number;
     env: Environment;
     caller: TFunction;
     parserData: ParserData;
+    effectOperationAbortType?: Type;
   }): ParserReturn {
     const startIndex = index;
     const currentFrameLevel = getEnvCurrentFrameLevel(env);
@@ -1233,9 +1224,11 @@ ${exprToString(lhs)}
     env = copyEnvironment(env, currentFrameLevel, []);
     env = pushEnvFrame(env);
 
-    const {
+    let {
       typeValue: functionType,
+      // eslint-disable-next-line prefer-const
       env: nextEnv,
+      // eslint-disable-next-line prefer-const
       index: nextIndex,
     } = synthesizeFunctionTypeFromTokens({
       tokens,
@@ -1247,6 +1240,25 @@ ${exprToString(lhs)}
     });
     env = nextEnv;
     index = nextIndex;
+
+    // NOTE: If it's top-level function, we need to set the env to the top-level frame
+    if (!functionType.isClosure) {
+      // Parse the type again with new env that only
+      // contains the top-level frame
+      let newEnv = createTopLevelEnv(oldEnv);
+      newEnv = pushEnvFrame(newEnv);
+      const { typeValue: newFunctionType, env: nextNextEnv } =
+        synthesizeFunctionTypeFromTokens({
+          tokens,
+          index: startIndex,
+          inputString: this.inputString,
+          env: newEnv,
+          parseExpression: this.makeParseExpression({ caller, parserData }),
+          withFunctionBody: true,
+        });
+      env = nextNextEnv;
+      functionType = newFunctionType;
+    }
 
     const promiseReturnType =
       typeIsFunctionTypeThatReturnsPromise(functionType);
@@ -1287,7 +1299,6 @@ ${exprToString(lhs)}
         );
       }
       const resumeFunc = this.constructResumeFunctionType(resumeType);
-      const abortFunc = this.constructAbortFunctionType();
       env = addEnvValueType({
         env,
         valueType: {
@@ -1299,24 +1310,30 @@ ${exprToString(lhs)}
         },
         inputString: this.inputString,
       });
-      env = addEnvValueType({
-        env,
-        valueType: {
-          variableName: "abort",
-          type: abortFunc,
-          kind: "value",
-          isMutable: false,
-          token: tokens[startIndex],
-        },
-        inputString: this.inputString,
-      });
+
+      if (effectOperationAbortType) {
+        const abortFunc = this.constructAbortFunctionType(
+          effectOperationAbortType
+        );
+        env = addEnvValueType({
+          env,
+          valueType: {
+            variableName: "abort",
+            type: abortFunc,
+            kind: "value",
+            isMutable: false,
+            token: tokens[startIndex],
+          },
+          inputString: this.inputString,
+        });
+      }
     }
 
     // Parse body
     const { expr: body, index: nextNextIndex } = this.parseBlockExpressions({
       tokens,
       index,
-      env: functionType.isClosure ? env : env, // FIXME: For top-level function, it should only be able to access the top level frame.
+      env: env, // FIXME: For top-level function, it should only be able to access the top level frame.
       caller: functionType,
       parserData: newParserData,
     });
@@ -1366,7 +1383,7 @@ Returned : ${typeToString(body.typeValue)}${
         type: AstType.Function,
         body,
         env: copyEnvironment(
-          popEnvFrame(env, this.inputString),
+          functionType.isClosure ? popEnvFrame(env, this.inputString) : oldEnv,
           oldEnv.functionDeclarationFrameLevel,
           oldEnv.freeVariables
         ),
@@ -1401,27 +1418,21 @@ Returned : ${typeToString(body.typeValue)}${
     return func;
   }
 
-  private constructAbortFunctionType(): TFunction {
-    const typeParameter: TTypeParameter = {
-      type: "TypeParameter",
-      kind: "Type",
-      name: "AbortType",
-      appliedType: undefined,
-    };
+  private constructAbortFunctionType(abortType: Type): TFunction {
     const func: TFunction = {
       type: "Function",
       kind: "Free",
       effects: [],
       hasMoreEffects: false,
-      typeParameters: [typeParameter],
+      typeParameters: [],
       regionParameters: [],
       returnType: TypeValues.unit,
       parameterTypes: [
         {
           name: "value",
-          type: typeParameter,
-          defaultValue: null,
+          type: abortType,
           isMutable: false,
+          defaultValue: null,
         },
       ],
       isClosure: false,
@@ -5952,6 +5963,7 @@ ${exprToString(expr)}`
     index = rCurlyBracketIndex + 1;
     env = pushEnvFrame(env);
     const effectHandlers: TEffect[] = [];
+    const effectOperationStartTokenIndexes: number[] = [];
     // const parserDataListToCheckForAbort: ParserData[] = [];
     const withTokenIndex = index;
     let endTryWithTokenIndex = index;
@@ -6065,7 +6077,45 @@ ${exprToString(expr)}`
         }
         index = index + 1;
 
-        // parse function
+        // NOTE: We only parse the function signature here.
+        // We parse its body after we finish parsing the try body.
+        // parse function signature
+        effectOperationStartTokenIndexes.push(index);
+        const { index: nextIndex, typeValue: functionType } =
+          synthesizeFunctionTypeFromTokens({
+            tokens,
+            index,
+            env,
+            inputString: this.inputString,
+            parseExpression: this.makeParseExpression({ caller, parserData }),
+            withFunctionBody: false,
+          });
+        index = nextIndex;
+        operations.push({
+          name: operationName,
+          func: functionType,
+          functionExpr: undefined,
+        });
+        if (tokens[index].type !== TokenType.LCurlyBracket) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected '{' for effect operation body"
+          );
+        }
+        // Find the end of the function body
+        const rCurlyBracketIndex = this.findTokenIndexForRBracket(
+          tokens,
+          index
+        );
+        if (rCurlyBracketIndex < 0) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected '}' for effect operation body"
+          );
+        }
+        index = rCurlyBracketIndex + 1;
+
+        /*
         const { expr: functionExpr_, index: nextIndex } =
           this.parseAnonymousFunction({
             tokens,
@@ -6073,24 +6123,19 @@ ${exprToString(expr)}`
             env,
             caller,
             parserData,
+            isParsingEffectOperation: true,
           });
         index = nextIndex;
         env = functionExpr_.env;
         const functionExpr = functionExpr_ as FunctionExpr;
         const functionType = functionExpr.typeValue;
 
-        /*
-        // FIXME: Check the abort type
-        if (parserData.abortType !== undefined) {
-          parserDataListToCheckForAbort.push(parserData);
-        }
-        */
-
         operations.push({
           name: operationName,
           func: functionType,
           functionExpr,
         });
+        */
 
         if (
           tokens[index].type === TokenType.Semicolon ||
@@ -6170,7 +6215,7 @@ Got:      ${typeToString(matchedOperation.func)}`
     if (effectHandlers.length === 0) {
       throw this.formatErrorMessage(
         tokens[withTokenIndex],
-        "Expected 'with' to define handlers."
+        "Expected handlers."
       );
     }
 
@@ -6192,24 +6237,28 @@ Got:      ${typeToString(matchedOperation.func)}`
     const returnType = tryExpr.typeValue;
 
     // Check if all abort types matches the returnType
-    /*
-    // FIXME:
-    if (parserDataListToCheckForAbort.length > 0) {
-      for (const parserData of parserDataListToCheckForAbort) {
-        if (
-          parserData.abortType &&
-          !checkType(returnType, parserData.abortType, env)
-        ) {
-          throw this.formatErrorMessage(
-            tokens[parserData.abortTokenIndex!],
-            `Mismatched abort type:
-Expected: ${typeToString(returnType)}
-Got:      ${typeToString(parserData.abortType)}`
-          );
-        }
+    // Parse each effect operation body
+    let it = 0;
+    for (let i = 0; i < effectHandlers.length; i++) {
+      const operations = effectHandlers[i].operations;
+      for (let j = 0; j < operations.length; j++) {
+        const operation = operations[j];
+        const operationTokenIndex = effectOperationStartTokenIndexes[it];
+        it = it + 1;
+
+        // Parse the anonymous function
+        const { expr: functionExpr_ } = this.parseAnonymousFunction({
+          tokens,
+          index: operationTokenIndex,
+          env,
+          caller,
+          parserData,
+          effectOperationAbortType: returnType,
+        });
+        const functionExpr = functionExpr_ as FunctionExpr;
+        operation.functionExpr = functionExpr;
       }
     }
-    */
 
     return {
       expr: {
