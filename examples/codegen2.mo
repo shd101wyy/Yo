@@ -5,5 +5,10 @@ let main = ()-> i32 {
   } else {
     2
   });
-  x + y
+
+  if (true) {
+    x
+  } else {
+    y
+  }
 }

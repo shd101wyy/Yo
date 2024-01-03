@@ -224,15 +224,17 @@ export class CodeGeneratorC {
 
     const exprs = blockExpr.exprs;
     for (let i = 0; i < exprs.length; i++) {
-      const line = this.codegenExpr({
-        expr: exprs[i],
-        indentation: indentation,
-      });
       if (i === exprs.length - 1) {
-        code += `${indentation}${blockExpr.tempVariableName} = ${line}${
-          line.trim().endsWith(";") ? "" : ";"
-        }\n`;
+        code += this.codegenAssignment({
+          variableId: blockExpr.tempVariableName,
+          rhs: exprs[i],
+          indentation,
+        });
       } else {
+        const line = this.codegenExpr({
+          expr: exprs[i],
+          indentation: indentation,
+        });
         code += `${indentation}${line}${
           line.trim().endsWith(";") ? "" : ";"
         }\n`;
@@ -297,6 +299,40 @@ export class CodeGeneratorC {
     return code;
   }
 
+  codegenAssignment({
+    variableId,
+    rhs,
+    indentation,
+  }: {
+    variableId: string;
+    rhs: Expr;
+    indentation: string;
+  }): string {
+    let code = "";
+    if (rhs.type === AstType.Block) {
+      code += `${this.codegenBlockExpression({
+        blockExpr: rhs,
+        indentation,
+        isFunctionBody: false,
+      })}
+${indentation}${variableId} = ${rhs.tempVariableName};
+`;
+    } else if (rhs.type === AstType.If) {
+      code += `${this.codegenIfExpression({
+        expr: rhs,
+        indentation,
+      })}
+${indentation}${variableId} = ${rhs.tempVariableName};
+`;
+    } else {
+      code += `${indentation}${variableId} = ${this.codegenExpr({
+        expr: rhs,
+        indentation,
+      })}`;
+    }
+    return code;
+  }
+
   codegenExpr({
     expr,
     indentation,
@@ -331,27 +367,11 @@ export class CodeGeneratorC {
           let code = `${this.getTypeInC(rhs.typeValue)} ${
             expr.variableId
           }; // ${expr.variableName}\n`;
-          if (rhs.type === AstType.Block) {
-            code += `${this.codegenBlockExpression({
-              blockExpr: rhs,
-              indentation,
-              isFunctionBody: false,
-            })}
-${indentation}${expr.variableId} = ${rhs.tempVariableName};
-`;
-          } else if (rhs.type === AstType.If) {
-            code += `${this.codegenIfExpression({
-              expr: rhs,
-              indentation,
-            })}
-${indentation}${expr.variableId} = ${rhs.tempVariableName};
-`;
-          } else {
-            code += `${indentation}${expr.variableId} = ${this.codegenExpr({
-              expr: rhs,
-              indentation,
-            })}`;
-          }
+          code += this.codegenAssignment({
+            variableId: expr.variableId,
+            rhs,
+            indentation,
+          });
           return code;
         }
       }
