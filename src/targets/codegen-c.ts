@@ -1,4 +1,11 @@
-import { AstType, BlockExpr, Expr, FunctionExpr, IfExpr } from "../ast";
+import {
+  AstType,
+  BlockExpr,
+  CallFunctionExpr,
+  Expr,
+  FunctionExpr,
+  IfExpr,
+} from "../ast";
 import { Emitter } from "../emitter";
 import { generateModuleId } from "../env";
 import {
@@ -175,7 +182,8 @@ export class CodeGeneratorC {
       functionType.functionId
     }(${functionType.parameterTypes
       .map(
-        (parameter) => `${this.getTypeInC(parameter.type)} ${parameter.name}`
+        (parameter) =>
+          `${this.getTypeInC(parameter.type)} ${parameter.parameterId}`
       )
       .join(", ")})`;
   }
@@ -315,21 +323,79 @@ export class CodeGeneratorC {
         indentation,
         isFunctionBody: false,
       })}
-${indentation}${variableId} = ${rhs.tempVariableName};
-`;
+${indentation}${variableId} = ${rhs.tempVariableName};\n`;
     } else if (rhs.type === AstType.If) {
       code += `${this.codegenIfExpression({
         expr: rhs,
         indentation,
       })}
-${indentation}${variableId} = ${rhs.tempVariableName};
-`;
+${indentation}${variableId} = ${rhs.tempVariableName};\n`;
+    } else if (rhs.type === AstType.CallFunction) {
+      code += `${this.codegenCallFunction({
+        expr: rhs,
+        indentation,
+      })}
+${
+  variableId === rhs.tempVariableName
+    ? ""
+    : `${indentation}${variableId} = ${rhs.tempVariableName};\n`
+}`;
     } else {
       code += `${indentation}${variableId} = ${this.codegenExpr({
         expr: rhs,
         indentation,
-      })}`;
+      })};\n`;
     }
+    return code;
+  }
+
+  codegenCallFunction({
+    expr,
+    indentation,
+  }: {
+    expr: CallFunctionExpr;
+    indentation: string;
+  }): string {
+    let code = "";
+    // Add temp variable;
+    code += `${indentation}${this.getTypeInC(expr.typeValue)} ${
+      expr.tempVariableName
+    };\n`;
+    const functionType = expr.callee.typeValue as TFunction;
+
+    // parse arguments
+    const functionArgumentStringList: string[] = [];
+    for (let i = 0; i < expr.functionArguments.length; i++) {
+      const argument = expr.functionArguments[i];
+      if ("tempVariableName" in argument) {
+        code += this.codegenAssignment({
+          variableId: argument.tempVariableName,
+          rhs: argument,
+          indentation,
+        });
+        functionArgumentStringList.push(argument.tempVariableName);
+      } else {
+        functionArgumentStringList.push(
+          this.codegenExpr({
+            expr: argument,
+            indentation,
+          })
+        );
+      }
+    }
+
+    const callee = this.codegenExpr({
+      expr: expr.callee,
+      indentation,
+    });
+
+    code += `${indentation}${
+      expr.tempVariableName
+    } = ${callee}(${functionArgumentStringList
+      .map((argumentString, index) => {
+        return `${argumentString} /* ${functionType.parameterTypes[index].name} */`;
+      })
+      .join(", ")}); \n`;
     return code;
   }
 
@@ -399,6 +465,9 @@ ${indentation}${variableId} = ${rhs.tempVariableName};
       }
       case AstType.If: {
         return this.codegenIfExpression({ expr, indentation });
+      }
+      case AstType.CallFunction: {
+        return this.codegenCallFunction({ expr, indentation });
       }
       default: {
         throw new Error(`Unimplemented expr type "${expr.type}"`);

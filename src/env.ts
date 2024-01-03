@@ -313,16 +313,20 @@ export function addEnvValueType({
   valueType,
   deltaFrame,
   preventDuplicate,
+  variableId,
 }: {
   inputString: string;
   env: Environment;
   valueType: Omit<ValueType, "frameLevel" | "id">;
   deltaFrame?: number;
   preventDuplicate?: boolean;
+  variableId?: string;
 }): { env: Environment; value: ValueType } {
   const frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
   const frame = env.frames[frameLevel];
-  const id = generateValueTypeId(env, valueType.variableName);
+  const id = isTempVariableName(env, valueType.variableName)
+    ? valueType.variableName
+    : variableId ?? generateValueTypeId(env, valueType.variableName);
   const value: ValueType = { ...valueType, frameLevel, id };
   const newFrame = addFrameValueType({
     inputString,

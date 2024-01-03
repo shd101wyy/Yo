@@ -1389,6 +1389,7 @@ Returned : ${typeToString(body.typeValue)}${
       parameterTypes: [
         {
           name: "value",
+          parameterId: generateValueTypeId(env, "value"),
           type: resumeType,
           isMutable: false,
           defaultValue: null,
@@ -1416,6 +1417,7 @@ Returned : ${typeToString(body.typeValue)}${
       parameterTypes: [
         {
           name: "value",
+          parameterId: generateValueTypeId(env, "value"),
           type: abortType,
           isMutable: false,
           defaultValue: null,
@@ -4058,6 +4060,7 @@ ${typeToString(caseReturnType)}
     env = value.env;
 
     const variableType: Type = value.typeValue;
+    let variableId: string | undefined = undefined;
     // Check if type matches
     if (userDefinedVariableType !== null) {
       // Type inference for enum type
@@ -4152,6 +4155,7 @@ Got:      ${typeToString(variableType)}`
         variableType.type === "Function"
       ) {
         variableType.functionId = userDefinedVariableType.functionId;
+        variableId = userDefinedVariableType.functionId;
       }
     }
 
@@ -4169,6 +4173,7 @@ Got:      ${typeToString(variableType)}`
       },
       inputString: this.inputString,
       preventDuplicate: true,
+      variableId,
     });
     env = nextEnv;
 

@@ -164,6 +164,7 @@ export type TRecord = {
 
 export type TParameterType = {
   name: string;
+  parameterId: string;
   isMutable: boolean;
   type: Type;
   defaultValue: Expr | null;
@@ -1377,6 +1378,7 @@ export function applyTypeAndRegionArgumentsToType({
           const defaultValue = parameterType.defaultValue;
           const newParameterType: TParameterType = {
             name: parameterType.name,
+            parameterId: parameterType.parameterId,
             isMutable: false, // QUESTION: Is this correct?
             type: applyTypeAndRegionArgumentsToType({
               env,
@@ -1448,8 +1450,9 @@ export function applyTypeAndRegionArgumentsToType({
       typeParameters: newTypeParameters,
       regionParameters: newRegionParameters,
       parameterTypes: type.parameterTypes.map(
-        ({ name, type, isMutable, defaultValue }) => ({
+        ({ name, parameterId, type, isMutable, defaultValue }) => ({
           name,
+          parameterId,
           isMutable,
           type: applyTypeAndRegionArgumentsToType({
             env,
@@ -2173,7 +2176,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
     }
 
     // save to env
-    const { env: nextEnv } = addEnvValueType({
+    const { env: nextEnv, value: parameterValue } = addEnvValueType({
       inputString,
       env,
       valueType: {
@@ -2188,6 +2191,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
 
     parameterTypes.push({
       name: parameterName,
+      parameterId: parameterValue.id,
       isMutable,
       type: userDefinedParamterType,
       defaultValue: defaultParameterValue,

@@ -4,33 +4,37 @@
 struct Unit {};
 struct Unit unit = {};
 
-// Module file:///home/yiyiwang/Workspace/mo/examples/codegen2.mo
-// Module ID: mo6399a6db
+// Module file:///home/yiyiwang/Workspace/mo/examples/codegen3.mo
+// Module ID: mode5d662f
+int32_t mode5d662f_add(int32_t mode5d662f_x_2, int32_t mode5d662f_y_2);
 int32_t main();
-int32_t main() {
+int32_t mode5d662f_add(int32_t mode5d662f_x_2, int32_t mode5d662f_y_2) {
   // block
-  int32_t _mo6399a6db_temp_2;
-  int32_t mo6399a6db_x; // x
-  mo6399a6db_x = ((int32_t)1);
-  int32_t mo6399a6db_y; // y
-
-  // if
-  int32_t _mo6399a6db_temp_1;
-  if ((((int32_t)0) < mo6399a6db_x)) {
-    // block
-    _mo6399a6db_temp_1 = ((int32_t)1);
-    // end block
-  } else {
-    // block
-    _mo6399a6db_temp_1 = ((int32_t)2);
-    // end block
-  }
-  // end if
-
-  mo6399a6db_y = _mo6399a6db_temp_1;
-
-  _mo6399a6db_temp_2 = (mo6399a6db_x + mo6399a6db_y);
-  return _mo6399a6db_temp_2;
+  int32_t _mode5d662f_temp_1;
+  _mode5d662f_temp_1 = (mode5d662f_x_2 + mode5d662f_y_2);
+  return _mode5d662f_temp_1;
   // end block
 }
 
+int32_t main() {
+  // block
+  int32_t _mode5d662f_temp_5;
+  int32_t mode5d662f_x_3; // x
+  mode5d662f_x_3 = ((int32_t)1);
+
+  int32_t mode5d662f_y_3; // y
+  mode5d662f_y_3 = ((int32_t)2);
+
+  int32_t _mode5d662f_temp_4;
+  int32_t _mode5d662f_temp_2;
+  _mode5d662f_temp_2 = mode5d662f_add(mode5d662f_x_3 /* x */, ((int32_t)3) /* y */); 
+
+  int32_t _mode5d662f_temp_3;
+  _mode5d662f_temp_3 = mode5d662f_add(mode5d662f_y_3 /* x */, ((int32_t)4) /* y */); 
+
+  _mode5d662f_temp_4 = mode5d662f_add(_mode5d662f_temp_2 /* x */, _mode5d662f_temp_3 /* y */); 
+
+  _mode5d662f_temp_5 = _mode5d662f_temp_4;
+  return _mode5d662f_temp_5;
+  // end block
+}
