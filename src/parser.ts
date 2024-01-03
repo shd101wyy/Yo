@@ -1846,10 +1846,10 @@ Got:      <${functionTypeArgumentsInOrder
     deltaFrame?: number;
   }): {
     env: Environment;
-    tempVariableName: string;
+    value: ValueType;
   } {
     const tempVariableName = generateNewTempVariableName(env);
-    const { env: nextEnv } = addEnvValueType({
+    const { env: nextEnv, value } = addEnvValueType({
       env,
       valueType: {
         variableName: tempVariableName,
@@ -1864,7 +1864,7 @@ Got:      <${functionTypeArgumentsInOrder
     });
 
     return {
-      tempVariableName,
+      value,
       env: nextEnv,
     };
   }
@@ -1926,7 +1926,7 @@ Callee  : ${effectsToString(calleeTypeValue.effects)}
 
     // save the return value to a temporary variable
     const returnType = calleeTypeValue.returnType;
-    const { env: nextNextEnv, tempVariableName } =
+    const { env: nextNextEnv, value: tempVariable } =
       this.generateTempVariableForHoldingValue({
         env,
         token: tokens[startIndex],
@@ -1943,7 +1943,7 @@ Callee  : ${effectsToString(calleeTypeValue.effects)}
         typeValue: returnType,
         env,
         token: tokens[startIndex],
-        tempVariableName,
+        tempVariableName: tempVariable.variableName,
       },
       index,
     };
@@ -2949,12 +2949,14 @@ ${matchedFunctionErrors[i]}`
     env,
     caller,
     parserData,
+    tempVariableName,
   }: {
     tokens: Token[];
     index: number;
     env: Environment;
     caller: TFunction;
     parserData: ParserData;
+    tempVariableName?: string;
   }): { index: number; expr: BlockExpr } {
     let exprs: Expr[] = [];
     let isSingleExpression = false;
@@ -2964,6 +2966,7 @@ ${matchedFunctionErrors[i]}`
     } else {
       index = index + 1;
     }
+
     env = pushEnvFrame(env);
     let nextEnv = env;
     let recurExprToken: Token | undefined = undefined;
@@ -3093,15 +3096,18 @@ ${matchedFunctionErrors[i]}`
       }
     }
 
-    // save the return value to a temporary variable
-    const { env: nextNextNextEnv, tempVariableName } =
-      this.generateTempVariableForHoldingValue({
-        env,
-        token: tokens[blockTokenIndex],
-        valueType: returnType,
-        deltaFrame: -1,
-      });
-    env = nextNextNextEnv;
+    if (!tempVariableName) {
+      // save the return value to a temporary variable
+      const { env: nextNextNextEnv, value } =
+        this.generateTempVariableForHoldingValue({
+          env,
+          token: tokens[blockTokenIndex],
+          valueType: returnType,
+          deltaFrame: -1,
+        });
+      env = nextNextNextEnv;
+      tempVariableName = value.variableName;
+    }
 
     env = popEnvFrame(env, this.inputString);
     return {
@@ -3211,6 +3217,8 @@ ${exprToString(expr)}`,
         }
         case AstType.Reference:
         case AstType.CallFunction:
+        case AstType.If:
+        case AstType.Match:
         case AstType.Block: {
           return setEnvVariableAsConsumed({
             env,
@@ -3470,6 +3478,16 @@ ${exprToString(expr)}\n`,
     const ifTokenIndex = index;
     index = index + 1;
 
+    // Generate temp variable for holding the return value
+    const { env: nextEnv, value: tempVariable } =
+      this.generateTempVariableForHoldingValue({
+        env,
+        token: tokens[ifTokenIndex],
+        valueType: TypeValues.unit,
+      });
+    env = nextEnv;
+    const tempVariableName = tempVariable.variableName;
+
     const cases: IfCase[] = [];
     while (true) {
       if (tokens[index].type !== TokenType.LParen) {
@@ -3496,6 +3514,7 @@ ${exprToString(expr)}\n`,
           env: conditionExpr.env,
           caller,
           parserData,
+          tempVariableName,
         });
       index = nextNextIndex;
 
@@ -3520,6 +3539,7 @@ ${exprToString(expr)}\n`,
               env: conditionExpr.env,
               caller,
               parserData,
+              tempVariableName,
             });
           index = nextNextIndex;
 
@@ -3560,6 +3580,12 @@ Found:
       );
     }
 
+    // Update the tempVariable type
+    env = updateExistingValueType(env, tempVariable, {
+      ...tempVariable,
+      type: expectedReturnType,
+    });
+
     // Merge and check all environments
     env = mergeAndCheckEnv(env, cases, this.inputString);
 
@@ -3570,6 +3596,7 @@ Found:
         typeValue: expectedReturnType,
         env,
         token: tokens[ifTokenIndex],
+        tempVariableName,
       },
       index,
     };
@@ -3622,6 +3649,16 @@ Found:
         `Expected enum, but got ${typeToString(matchedEnum.typeValue)}`
       );
     }
+
+    // Generate temp variable for holding the return value
+    const { env: nextEnv, value: tempVariable } =
+      this.generateTempVariableForHoldingValue({
+        env,
+        token: tokens[matchTokenIndex],
+        valueType: TypeValues.unit,
+      });
+    env = nextEnv;
+    const tempVariableName = tempVariable.variableName;
 
     const cases: MatchCase[] = [];
     if (tokens[index].type !== TokenType.LCurlyBracket) {
@@ -3700,6 +3737,7 @@ ${typeToString(caseExprType)}
             env: newEnv,
             caller,
             parserData,
+            tempVariableName,
           });
         index = nextNextIndex;
         cases.push({
@@ -3727,6 +3765,7 @@ ${typeToString(caseExprType)}
             env,
             caller,
             parserData,
+            tempVariableName,
           });
         index = nextIndex;
         cases.push({
@@ -3799,6 +3838,12 @@ ${typeToString(caseReturnType)}
       }
     }
 
+    // Update the tempVariable type
+    env = updateExistingValueType(env, tempVariable, {
+      ...tempVariable,
+      type: returnType,
+    });
+
     // Merge and check all environments
     env = mergeAndCheckEnv(env, cases, this.inputString);
 
@@ -3810,6 +3855,7 @@ ${typeToString(caseReturnType)}
         typeValue: returnType,
         env,
         token: tokens[matchTokenIndex],
+        tempVariableName,
       },
       index,
     };
@@ -5783,7 +5829,7 @@ ${operationName}: ${typeToString(
             },
           ],
         };
-        const { tempVariableName, env: nextNextEnv } =
+        const { value: tempVariable, env: nextNextEnv } =
           this.generateTempVariableForHoldingValue({
             env,
             token: tokens[referenceTokenIndex],
@@ -5800,7 +5846,7 @@ ${operationName}: ${typeToString(
             typeValue: referenceType,
             env,
             token: tokens[referenceTokenIndex],
-            tempVariableName,
+            tempVariableName: tempVariable.variableName,
           },
           index,
         };
@@ -5852,7 +5898,7 @@ ${operationName}: ${typeToString(
           ],
         };
 
-        const { tempVariableName, env: nextNextEnv } =
+        const { value: tempVariable, env: nextNextEnv } =
           this.generateTempVariableForHoldingValue({
             env,
             token: tokens[referenceTokenIndex],
@@ -5869,7 +5915,7 @@ ${operationName}: ${typeToString(
             typeValue: referenceType,
             env,
             token: tokens[referenceTokenIndex],
-            tempVariableName,
+            tempVariableName: tempVariable.variableName,
           },
           index,
         };

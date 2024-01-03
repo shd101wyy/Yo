@@ -83,7 +83,7 @@ export function getNewRegionId(): string {
 
 export function generateModuleId(modulePath: string) {
   const hash = createHash("sha1").update(modulePath).digest("hex");
-  return hash.slice(0, 10);
+  return "mo" + hash.slice(0, 8);
 }
 
 const IdMap = new Map<string, number>();

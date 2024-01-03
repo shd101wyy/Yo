@@ -413,6 +413,7 @@ export type IfExpr = {
   typeValue: Type;
   env: Environment;
   token: Token;
+  tempVariableName: string;
 };
 
 export type MatchCase = {
@@ -428,6 +429,7 @@ export type MatchExpr = {
   typeValue: Type;
   env: Environment;
   token: Token;
+  tempVariableName: string;
 };
 
 export type ExportExpr = {
