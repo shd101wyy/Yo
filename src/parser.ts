@@ -32,10 +32,11 @@ import {
   createTopLevelEnv,
   decrementVariableReferenceCount,
   emptyToken,
+  generateNewTempVariableName,
+  generateValueTypeId,
   getEnvCurrentFrameLevel,
   getEnvCurrentRegionId,
   getEnvValueTypesByVariableName,
-  getNewTempVariableName,
   increaseEnvVariableReferenceCount,
   mergeAndCheckEnv,
   popEnvFrame,
@@ -748,20 +749,6 @@ export default class Parser {
             ),
           }
         : property.type;
-      /*
-      const tempVariableName = getNewTempVariableName();
-      env = addEnvValueType({
-        env,
-        valueType: {
-          variableName: tempVariableName,
-          type: returnType,
-          kind: "value",
-          isMutable: false,
-          token: tokens[dotTokenIndex + 1],
-        },
-        inputString: this.inputString,
-      });
-      */
 
       return {
         expr: {
@@ -916,6 +903,7 @@ export default class Parser {
               callee: {
                 type: AstType.Variable,
                 variableName: functionName,
+                variableId: functionType.id,
                 frameLevel: functionType.frameLevel,
                 typeValue: functionType.type,
                 isMutable: false,
@@ -1192,6 +1180,7 @@ ${exprToString(lhs)}
     caller,
     parserData,
     effectOperationAbortType,
+    functionName,
   }: {
     tokens: Token[];
     index: number;
@@ -1199,6 +1188,7 @@ ${exprToString(lhs)}
     caller: TFunction;
     parserData: ParserData;
     effectOperationAbortType?: Type;
+    functionName?: string;
   }): ParserReturn {
     const startIndex = index;
     const currentFrameLevel = getEnvCurrentFrameLevel(env);
@@ -1220,6 +1210,7 @@ ${exprToString(lhs)}
       env,
       parseExpression: this.makeParseExpression({ caller, parserData }),
       withFunctionBody: true,
+      functionName,
     });
     env = nextEnv;
     index = nextIndex;
@@ -1238,6 +1229,7 @@ ${exprToString(lhs)}
           env: newEnv,
           parseExpression: this.makeParseExpression({ caller, parserData }),
           withFunctionBody: true,
+          functionName,
         });
       env = nextNextEnv;
       functionType = newFunctionType;
@@ -1257,7 +1249,7 @@ ${exprToString(lhs)}
     if (functionType.effects.length > 0) {
       functionType.effects.forEach((effect) => {
         effect.operations.forEach(({ name, func }) => {
-          env = addEnvValueType({
+          const { env: nextEnv } = addEnvValueType({
             env,
             valueType: {
               variableName: name,
@@ -1268,6 +1260,7 @@ ${exprToString(lhs)}
             },
             inputString: this.inputString,
           });
+          env = nextEnv;
         });
       });
     }
@@ -1281,8 +1274,8 @@ ${exprToString(lhs)}
           `Expected resume type`
         );
       }
-      const resumeFunc = this.constructResumeFunctionType(resumeType);
-      env = addEnvValueType({
+      const resumeFunc = this.constructResumeFunctionType(resumeType, env);
+      const { env: nextEnv } = addEnvValueType({
         env,
         valueType: {
           variableName: "resume",
@@ -1293,12 +1286,14 @@ ${exprToString(lhs)}
         },
         inputString: this.inputString,
       });
+      env = nextEnv;
 
       if (effectOperationAbortType) {
         const abortFunc = this.constructAbortFunctionType(
-          effectOperationAbortType
+          effectOperationAbortType,
+          env
         );
-        env = addEnvValueType({
+        const { env: nextEnv } = addEnvValueType({
           env,
           valueType: {
             variableName: "abort",
@@ -1309,6 +1304,7 @@ ${exprToString(lhs)}
           },
           inputString: this.inputString,
         });
+        env = nextEnv;
       }
     }
 
@@ -1377,10 +1373,14 @@ Returned : ${typeToString(body.typeValue)}${
     };
   }
 
-  private constructResumeFunctionType(resumeType: Type): TFunction {
+  private constructResumeFunctionType(
+    resumeType: Type,
+    env: Environment
+  ): TFunction {
     const func: TFunction = {
       type: "Function",
       kind: "Free",
+      functionId: generateValueTypeId(env, "resume"),
       effects: [],
       // hasMoreEffects: false,
       typeParameters: [],
@@ -1396,15 +1396,18 @@ Returned : ${typeToString(body.typeValue)}${
       ],
       isClosure: false,
       frameLevel: 0,
-      functionName: "resume",
     };
     return func;
   }
 
-  private constructAbortFunctionType(abortType: Type): TFunction {
+  private constructAbortFunctionType(
+    abortType: Type,
+    env: Environment
+  ): TFunction {
     const func: TFunction = {
       type: "Function",
       kind: "Free",
+      functionId: generateValueTypeId(env, "abort"),
       effects: [],
       // hasMoreEffects: false,
       typeParameters: [],
@@ -1420,7 +1423,6 @@ Returned : ${typeToString(body.typeValue)}${
       ],
       isClosure: false,
       frameLevel: 0,
-      functionName: "abort",
     };
     return func;
   }
@@ -1688,6 +1690,7 @@ Returned : ${typeToString(body.typeValue)}${
               const parameterAssignmentExpr: LetAssignmentExpr = {
                 type: AstType.LetAssignment,
                 variableName: variableName,
+                variableId: "", // FIXME: Is this correct?
                 isMutable: false, // NOTE: This is not used.
                 right: defaultParameterValueExpr,
                 typeValue: TypeValues.unit,
@@ -1829,6 +1832,43 @@ Got:      <${functionTypeArgumentsInOrder
     };
   }
 
+  private generateTempVariableForHoldingValue({
+    env,
+    valueType,
+    token,
+    referedVariable,
+    deltaFrame,
+  }: {
+    env: Environment;
+    valueType: Type;
+    token: Token;
+    referedVariable?: ReferedVariable;
+    deltaFrame?: number;
+  }): {
+    env: Environment;
+    tempVariableName: string;
+  } {
+    const tempVariableName = generateNewTempVariableName(env);
+    const { env: nextEnv } = addEnvValueType({
+      env,
+      valueType: {
+        variableName: tempVariableName,
+        type: valueType,
+        kind: "value",
+        isMutable: false,
+        token,
+        referedVariable,
+      },
+      inputString: this.inputString,
+      deltaFrame: deltaFrame ?? 0,
+    });
+
+    return {
+      tempVariableName,
+      env: nextEnv,
+    };
+  }
+
   private parseCallFunctionExpr({
     callee,
     tokens,
@@ -1886,18 +1926,13 @@ Callee  : ${effectsToString(calleeTypeValue.effects)}
 
     // save the return value to a temporary variable
     const returnType = calleeTypeValue.returnType;
-    const tempVariableName = getNewTempVariableName();
-    env = addEnvValueType({
-      env,
-      valueType: {
-        variableName: tempVariableName,
-        type: returnType,
-        kind: "value",
-        isMutable: false,
+    const { env: nextNextEnv, tempVariableName } =
+      this.generateTempVariableForHoldingValue({
+        env,
         token: tokens[startIndex],
-      },
-      inputString: this.inputString,
-    });
+        valueType: returnType,
+      });
+    env = nextNextEnv;
 
     callee.typeValue = calleeTypeValue;
     return {
@@ -2307,6 +2342,7 @@ Found possible enums:
         expr: {
           type: AstType.Variable,
           variableName: identifier,
+          variableId: enumValue.id,
           env,
           typeValue: newEnumType,
           frameLevel: enumValue.frameLevel,
@@ -2338,6 +2374,7 @@ Found possible enums:
               callee: {
                 type: AstType.Variable,
                 variableName: identifier,
+                variableId: functionType.id,
                 frameLevel: functionType.frameLevel,
                 typeValue: functionType.type,
                 env,
@@ -2419,6 +2456,7 @@ ${matchedFunctionErrors[i]}`
       expr: {
         type: AstType.Variable,
         variableName: identifier,
+        variableId: valueType.id,
         typeValue,
         frameLevel: valueType.frameLevel,
         isMutable: !!valueType.isMutable,
@@ -2506,8 +2544,7 @@ ${matchedFunctionErrors[i]}`
         });
         break;
       }
-      case TokenType.LessThan:
-      case TokenType.Async: {
+      case TokenType.LessThan: {
         returnValue = this.parseAnonymousFunction({
           tokens,
           index,
@@ -3056,6 +3093,16 @@ ${matchedFunctionErrors[i]}`
       }
     }
 
+    // save the return value to a temporary variable
+    const { env: nextNextNextEnv, tempVariableName } =
+      this.generateTempVariableForHoldingValue({
+        env,
+        token: tokens[blockTokenIndex],
+        valueType: returnType,
+        deltaFrame: -1,
+      });
+    env = nextNextNextEnv;
+
     env = popEnvFrame(env, this.inputString);
     return {
       index,
@@ -3065,6 +3112,7 @@ ${matchedFunctionErrors[i]}`
         env,
         typeValue: returnType,
         token: tokens[blockTokenIndex],
+        tempVariableName,
       },
     };
   }
@@ -3162,7 +3210,8 @@ ${exprToString(expr)}`,
           });
         }
         case AstType.Reference:
-        case AstType.CallFunction: {
+        case AstType.CallFunction:
+        case AstType.Block: {
           return setEnvVariableAsConsumed({
             env,
             inputString: this.inputString,
@@ -3367,7 +3416,7 @@ ${exprToString(expr)}\n`,
       });
 
       // Add variable to env
-      env = addEnvValueType({
+      const { env: nextNextEnv } = addEnvValueType({
         env,
         valueType: {
           variableName,
@@ -3379,6 +3428,7 @@ ${exprToString(expr)}\n`,
         },
         inputString: this.inputString,
       });
+      env = nextNextEnv;
 
       if (
         tokens[index].type === TokenType.Semicolon ||
@@ -3888,7 +3938,7 @@ ${typeToString(caseReturnType)}
       index = nextIndex;
       env = nextEnv;
 
-      env = addEnvValueType({
+      const { env: nextNextEnv } = addEnvValueType({
         env,
         valueType: {
           variableName,
@@ -3901,6 +3951,7 @@ ${typeToString(caseReturnType)}
         },
         inputString: this.inputString,
       });
+      env = nextNextEnv;
     }
 
     if (tokens[index].type !== TokenType.Assign) {
@@ -3921,9 +3972,10 @@ ${typeToString(caseReturnType)}
           inputString: this.inputString,
           parseExpression: this.makeParseExpression({ caller, parserData }),
           withFunctionBody: false,
+          functionName: variableName,
         });
         userDefinedVariableType = typeValue;
-        env = addEnvValueType({
+        const { env: nextEnv } = addEnvValueType({
           env,
           valueType: {
             variableName,
@@ -3936,6 +3988,7 @@ ${typeToString(caseReturnType)}
           },
           inputString: this.inputString,
         });
+        env = nextEnv;
       } catch (error) {
         // console.error(error);
         // Ignore the error
@@ -4047,10 +4100,17 @@ Got:      ${typeToString(variableType)}`
           }
         }
       }
+
+      if (
+        userDefinedVariableType.type === "Function" &&
+        variableType.type === "Function"
+      ) {
+        variableType.functionId = userDefinedVariableType.functionId;
+      }
     }
 
     // Add variable to env
-    env = addEnvValueType({
+    const { env: nextEnv, value: valueType } = addEnvValueType({
       env,
       valueType: {
         variableName,
@@ -4064,13 +4124,14 @@ Got:      ${typeToString(variableType)}`
       inputString: this.inputString,
       preventDuplicate: true,
     });
+    env = nextEnv;
 
     // Consume RHS value if necessary
-    const { env: nextEnv, referedVariable } = this.setVariableAsConsumed(
+    const { env: nextNextEnv, referedVariable } = this.setVariableAsConsumed(
       env,
       value
     );
-    env = nextEnv;
+    env = nextNextEnv;
 
     if (referedVariable) {
       env = setEnvVariableReferedVariable({
@@ -4085,6 +4146,7 @@ Got:      ${typeToString(variableType)}`
       expr: {
         type: AstType.LetAssignment,
         variableName,
+        variableId: valueType.id,
         isMutable,
         variableType: userDefinedVariableType ?? variableType,
         right: value,
@@ -4144,7 +4206,7 @@ ${typeToString(recordType, { extractTypeConstructor: true })}`
       }
 
       // Add variable to env
-      env = addEnvValueType({
+      const { env: nextEnv } = addEnvValueType({
         env,
         valueType: {
           variableName: asName ?? name,
@@ -4156,6 +4218,7 @@ ${typeToString(recordType, { extractTypeConstructor: true })}`
         preventDuplicate: true,
         inputString: this.inputString,
       });
+      env = nextEnv;
 
       if (propertyType.kind === "Linear") {
         destructuredLinearFields.push(name);
@@ -4374,7 +4437,7 @@ ${typeToString(value.typeValue, { extractTypeConstructor: true })}`
             }
 
             // Add variable to env
-            env = addEnvValueType({
+            const { env: nextEnv } = addEnvValueType({
               env,
               valueType: {
                 variableName: asName ?? name,
@@ -4386,6 +4449,7 @@ ${typeToString(value.typeValue, { extractTypeConstructor: true })}`
               inputString: this.inputString,
               preventDuplicate: true,
             });
+            env = nextEnv;
 
             if (propertyType.kind === "Linear") {
               destructuredLinearFields.push(name);
@@ -4479,7 +4543,7 @@ ${typeToString(value.typeValue)}`
 
     // NOTE: This is necessary for type parameters and recursive type alias
     env = pushEnvFrame(env);
-    env = addEnvValueType({
+    const { env: nextEnv } = addEnvValueType({
       env,
       valueType: {
         variableName: typeName,
@@ -4494,6 +4558,7 @@ ${typeToString(value.typeValue)}`
       },
       inputString: this.inputString,
     });
+    env = nextEnv;
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
@@ -4609,7 +4674,7 @@ ${typeToString(nextTypeValue)}`
       typeValue,
     };
 
-    env = addEnvValueType({
+    const { env: nextNextEnv } = addEnvValueType({
       env,
       valueType: {
         variableName: typeName,
@@ -4621,6 +4686,7 @@ ${typeToString(nextTypeValue)}`
       deltaFrame: -1,
       inputString: this.inputString,
     });
+    env = nextNextEnv;
 
     env = popEnvFrame(env, this.inputString);
     return {
@@ -4690,7 +4756,7 @@ ${typeToString(nextTypeValue)}`
 
     // NOTE: This is necessary for type parameters and recursive type alias
     env = pushEnvFrame(env);
-    env = addEnvValueType({
+    const { env: nextEnv } = addEnvValueType({
       env,
       valueType: {
         variableName: typeclassName,
@@ -4705,6 +4771,7 @@ ${typeToString(nextTypeValue)}`
       },
       inputString: this.inputString,
     });
+    env = nextEnv;
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
@@ -4803,6 +4870,7 @@ ${typeToString(functionType)}
             env,
             caller,
             parserData,
+            functionName,
           });
         index = nextIndex;
         functionExpr = functionExpr_ as FunctionExpr;
@@ -4844,7 +4912,7 @@ ${typeToString(functionType)}
     };
 
     // Add to environment
-    env = addEnvValueType({
+    const { env: nextNextEnv } = addEnvValueType({
       env,
       valueType: {
         variableName: typeclassName,
@@ -4857,12 +4925,13 @@ ${typeToString(functionType)}
       deltaFrame: -1,
       inputString: this.inputString,
     });
+    env = nextNextEnv;
 
     // add pre-defined functions to env
     for (let i = 0; i < functions.length; i++) {
       const func = functions[i];
       if (func.functionExpr) {
-        env = addEnvValueType({
+        const { env: nextEnv } = addEnvValueType({
           env,
           valueType: {
             variableName: func.name,
@@ -4874,6 +4943,7 @@ ${typeToString(functionType)}
           deltaFrame: -1,
           inputString: this.inputString,
         });
+        env = nextEnv;
       }
     }
 
@@ -5051,6 +5121,7 @@ class Show<T> {
           env,
           caller,
           parserData,
+          functionName,
         });
       index = nextIndex;
       const functionExpr = functionExpr_ as FunctionExpr;
@@ -5115,7 +5186,7 @@ Got:      ${typeToString(matchedFunction.func)}`
     newClass.functions = functions;
 
     // Add to environment
-    env = addEnvValueType({
+    const { env: nextEnv } = addEnvValueType({
       env,
       valueType: {
         variableName: typeclassName,
@@ -5128,6 +5199,7 @@ Got:      ${typeToString(matchedFunction.func)}`
       deltaFrame: -1,
       inputString: this.inputString,
     });
+    env = nextEnv;
     env = popEnvFrame(env, this.inputString);
 
     return {
@@ -5215,7 +5287,7 @@ Got:      ${typeToString(matchedFunction.func)}`
       regionParameters: regionParameters,
       typeParameters: typeParameters,
     };
-    env = addEnvValueType({
+    const { env: nextEnv } = addEnvValueType({
       env,
       valueType: {
         variableName: effectName,
@@ -5231,6 +5303,7 @@ Got:      ${typeToString(matchedFunction.func)}`
       },
       inputString: this.inputString,
     });
+    env = nextEnv;
 
     // Parse effect body
     if (tokens[index].type !== TokenType.LCurlyBracket) {
@@ -5344,7 +5417,7 @@ ${operationName}: ${typeToString(
       regionParameters,
       typeParameters,
     };
-    env = addEnvValueType({
+    const { env: nextNextEnv } = addEnvValueType({
       env,
       valueType: {
         variableName: effectName,
@@ -5357,6 +5430,7 @@ ${operationName}: ${typeToString(
       deltaFrame: -1,
       inputString: this.inputString,
     });
+    env = nextNextEnv;
     env = popEnvFrame(env, this.inputString);
     return {
       expr: {
@@ -5403,7 +5477,7 @@ ${operationName}: ${typeToString(
 
     // NOTE: This is necessary for type parameters and recursive type alias
     env = pushEnvFrame(env);
-    env = addEnvValueType({
+    const { env: nextEnv } = addEnvValueType({
       env,
       valueType: {
         variableName: enumName,
@@ -5418,6 +5492,7 @@ ${operationName}: ${typeToString(
       },
       inputString: this.inputString,
     });
+    env = nextEnv;
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
@@ -5575,7 +5650,7 @@ ${operationName}: ${typeToString(
     };
 
     // Add to environment
-    env = addEnvValueType({
+    const { env: nextNextEnv } = addEnvValueType({
       env,
       valueType: {
         variableName: enumName,
@@ -5587,6 +5662,7 @@ ${operationName}: ${typeToString(
       deltaFrame: -1,
       inputString: this.inputString,
     });
+    env = nextNextEnv;
     env = popEnvFrame(env, this.inputString);
 
     // Add enum variants to environment
@@ -5596,7 +5672,7 @@ ${operationName}: ${typeToString(
         ...enumType,
         selectedVariantName: variant.name,
       };
-      env = addEnvValueType({
+      const { env: nextEnv } = addEnvValueType({
         env,
         valueType: {
           variableName: variant.name,
@@ -5609,6 +5685,7 @@ ${operationName}: ${typeToString(
         },
         inputString: this.inputString,
       });
+      env = nextEnv;
     }
 
     return {
@@ -5706,19 +5783,14 @@ ${operationName}: ${typeToString(
             },
           ],
         };
-        const tempVariableName = getNewTempVariableName();
-        env = addEnvValueType({
-          env,
-          valueType: {
-            variableName: tempVariableName,
-            type: referenceType,
-            kind: "value",
-            isMutable: false,
+        const { tempVariableName, env: nextNextEnv } =
+          this.generateTempVariableForHoldingValue({
+            env,
             token: tokens[referenceTokenIndex],
+            valueType: referenceType,
             referedVariable,
-          },
-          inputString: this.inputString,
-        });
+          });
+        env = nextNextEnv;
 
         return {
           expr: {
@@ -5779,19 +5851,15 @@ ${operationName}: ${typeToString(
             },
           ],
         };
-        const tempVariableName = getNewTempVariableName();
-        env = addEnvValueType({
-          env,
-          valueType: {
-            variableName: tempVariableName,
-            type: referenceType,
-            kind: "value",
-            isMutable: false,
+
+        const { tempVariableName, env: nextNextEnv } =
+          this.generateTempVariableForHoldingValue({
+            env,
             token: tokens[referenceTokenIndex],
+            valueType: referenceType,
             referedVariable,
-          },
-          inputString: this.inputString,
-        });
+          });
+        env = nextNextEnv;
 
         return {
           expr: {
@@ -6178,7 +6246,7 @@ Got:      ${typeToString(matchedOperation.func)}`
       // Add operations to env
       for (let i = 0; i < operations.length; i++) {
         const operation = operations[i];
-        env = addEnvValueType({
+        const { env: nextEnv } = addEnvValueType({
           env,
           valueType: {
             variableName: operation.name,
@@ -6188,6 +6256,7 @@ Got:      ${typeToString(matchedOperation.func)}`
           },
           inputString: this.inputString,
         });
+        env = nextEnv;
       }
 
       // Add to effectHandlers
@@ -6257,6 +6326,7 @@ Got:      ${effectsToString(newCaller.effects)}`
           caller,
           parserData,
           effectOperationAbortType: returnType,
+          functionName: operation.name,
         });
         const functionExpr = functionExpr_ as FunctionExpr;
         operation.functionExpr = functionExpr;
@@ -6685,11 +6755,12 @@ Please consider adding "Promise" to the return type.
         const moduleFrame = module.env.frames[0];
         for (const value of moduleFrame.values) {
           if (value.isExported) {
-            env = addEnvValueType({
+            const { env: nextEnv } = addEnvValueType({
               env,
               valueType: { ...value },
               inputString: this.inputString,
             });
+            env = nextEnv;
           }
         }
       } else {
@@ -6713,7 +6784,7 @@ Please consider adding "Promise" to the return type.
               );
             }
 
-            env = addEnvValueType({
+            const { env: nextEnv } = addEnvValueType({
               env,
               valueType: {
                 ...variable,
@@ -6721,6 +6792,7 @@ Please consider adding "Promise" to the return type.
               },
               inputString: this.inputString,
             });
+            env = nextEnv;
           }
         }
       }

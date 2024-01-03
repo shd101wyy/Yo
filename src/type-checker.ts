@@ -12,6 +12,7 @@ import {
   Environment,
   ValueType,
   addEnvValueType,
+  generateValueTypeId,
   getEnvCurrentFrameLevel,
   getEnvValueTypesByVariableName,
   popEnvFrame,
@@ -197,6 +198,7 @@ export type TRegionParameter = {
 export type TFunction = {
   type: "Function";
   kind: "Free";
+  functionId: string;
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
   parameterTypes: TParameterType[];
@@ -214,10 +216,6 @@ export type TFunction = {
    * At which frame level the function is defined
    */
   frameLevel: number;
-  /**
-   * For tail-call optimization
-   */
-  functionName?: string;
 };
 
 export type TUnion = {
@@ -328,7 +326,7 @@ export type TModule = {
    * `modulePath` is the path of the module with protocol. For example:
    * - file:///home/username/project/src/main.mo
    * - https://github.com/username/project
-   * - mo://std
+   * - mo://@mo/std
    */
   modulePath: string;
   ast: Expr[];
@@ -493,6 +491,7 @@ export const TypeValues: {
 
 export const emptyFunctionThatHasMoreEffects: TFunction = {
   effects: [],
+  functionId: "@emptyFunction",
   // hasMoreEffects: true,
   frameLevel: 0,
   isClosure: false,
@@ -2166,7 +2165,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
     }
 
     // save to env
-    env = addEnvValueType({
+    const { env: nextEnv } = addEnvValueType({
       inputString,
       env,
       valueType: {
@@ -2177,6 +2176,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
         token: tokens[parameterNameTokenIndex],
       },
     });
+    env = nextEnv;
 
     parameterTypes.push({
       name: parameterName,
@@ -2440,6 +2440,7 @@ export function synthesizeFunctionTypeFromTokens({
   env,
   parseExpression,
   withFunctionBody,
+  functionName,
 }: {
   tokens: Token[];
   index: number;
@@ -2447,6 +2448,7 @@ export function synthesizeFunctionTypeFromTokens({
   env: Environment;
   parseExpression: ParseExpression;
   withFunctionBody: boolean;
+  functionName?: string;
 }): { typeValue: TFunction; index: number; env: Environment } {
   // Type parameters
   let frameLevel = getEnvCurrentFrameLevel(env);
@@ -2547,6 +2549,10 @@ export function synthesizeFunctionTypeFromTokens({
       typeValue: {
         type: "Function",
         kind: "Free",
+        functionId:
+          functionName === "main"
+            ? "main"
+            : generateValueTypeId(env, functionName ?? "anonymousFunction"),
         parameterTypes,
         typeParameters,
         regionParameters,
@@ -2751,7 +2757,7 @@ export function synthesizeTypeAndRegionParametersFromTokens({
       regionParameters.push(regionParameter);
 
       // Save to env
-      env = addEnvValueType({
+      const { env: nextEnv } = addEnvValueType({
         inputString,
         env,
         valueType: {
@@ -2762,6 +2768,7 @@ export function synthesizeTypeAndRegionParametersFromTokens({
           token: tokens[parameterKindTokenIndex],
         },
       });
+      env = nextEnv;
     } else {
       const typeParameter: TTypeParameter = {
         type: "TypeParameter",
@@ -2771,7 +2778,7 @@ export function synthesizeTypeAndRegionParametersFromTokens({
       typeParameters.push(typeParameter);
 
       // Save to env
-      env = addEnvValueType({
+      const { env: nextEnv } = addEnvValueType({
         inputString,
         env,
         valueType: {
@@ -2781,6 +2788,7 @@ export function synthesizeTypeAndRegionParametersFromTokens({
           token: tokens[parameterKindTokenIndex],
         },
       });
+      env = nextEnv;
     }
   }
 

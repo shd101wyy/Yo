@@ -1,5 +1,6 @@
-import { AstType, Expr, FunctionExpr } from "../ast";
+import { AstType, BlockExpr, Expr, FunctionExpr } from "../ast";
 import { Emitter } from "../emitter";
+import { generateModuleId } from "../env";
 import {
   TFunction,
   TModule,
@@ -24,9 +25,12 @@ export class CodeGeneratorC {
     this.emitter.emitHeaderLine("struct Unit {};");
     this.emitter.emitHeaderLine("struct Unit unit = {};");
 
-    this.emitter.emitDefinitionLine(`// Module ${module.modulePath}`);
+    this.emitter.emitDeclarationLine(`\n// Module ${module.modulePath}`);
+    this.emitter.emitDeclarationLine(
+      `// Module ID: ${generateModuleId(module.modulePath)}`
+    );
 
-    this.codegenExprs(this.module.ast);
+    this.emitter.emit(this.codegenExprs({ exprs: this.module.ast }));
   }
 
   print() {
@@ -85,90 +89,80 @@ export class CodeGeneratorC {
     }
   }
 
-  codegenExprs(exprs: Expr[]): string {
-    return exprs.map((expr) => this.codegenExpr(expr)).join("\n");
+  codegenExprs({ exprs }: { exprs: Expr[] }): string {
+    return exprs
+      .map((expr) => this.codegenExpr({ expr, indentation: "" }))
+      .join("\n");
   }
 
-  codegenPrimitiveValue(
-    value: string,
-    typeValue: TPrimitive | TPrimitiveWithValue
-  ): void {
+  codegenPrimitiveValue({
+    value,
+    typeValue,
+  }: {
+    value: string;
+    typeValue: TPrimitive | TPrimitiveWithValue;
+  }): string {
     switch (typeValue.type) {
       case "boolean": {
-        this.emitter.emit(`${value === "true" ? "true" : "false"}`);
-        break;
+        return `${value === "true" ? "true" : "false"}`;
       }
       case "char": {
-        this.emitter.emit(`'${value}'`);
-        break;
+        return `'${value}'`;
       }
       case "u8": {
         // cast to uint8_t
-        this.emitter.emit(`((uint8_t)${value})`);
-        break;
+        return `((uint8_t)${value})`;
       }
       case "u16": {
         // cast to uint16_t
-        this.emitter.emit(`((uint16_t)${value})`);
-        break;
+        return `((uint16_t)${value})`;
       }
       case "u32": {
         // cast to uint32_t
-        this.emitter.emit(`((uint32_t)${value})`);
-        break;
+        return `((uint32_t)${value})`;
       }
       case "u64": {
         // cast to uint64_t
-        this.emitter.emit(`((uint64_t)${value})`);
-        break;
+        return `((uint64_t)${value})`;
       }
       // FIXME: support u128
       case "usize": {
         // cast to size_t
-        this.emitter.emit(`((size_t)${value})`);
-        break;
+        return `((size_t)${value})`;
       }
       case "i8": {
         // cast to int8_t
-        this.emitter.emit(`((int8_t)${value})`);
-        break;
+        return `((int8_t)${value})`;
       }
       case "i16": {
         // cast to int16_t
-        this.emitter.emit(`((int16_t)${value})`);
-        break;
+        return `((int16_t)${value})`;
       }
       case "i32": {
         // cast to int32_t
-        this.emitter.emit(`((int32_t)${value})`);
-        break;
+        return `((int32_t)${value})`;
       }
       case "i64": {
         // cast to int64_t
-        this.emitter.emit(`((int64_t)${value})`);
-        break;
+        return `((int64_t)${value})`;
       }
       // FIXME: support i128
       // FIXME: support isize
       case "f32": {
         // cast to float
-        this.emitter.emit(`((float)${value})`);
-        break;
+        return `((float)${value})`;
       }
       case "f64": {
         // cast to double
-        this.emitter.emit(`((double)${value})`);
-        break;
+        return `((double)${value})`;
       }
       case "symbol": {
         // Generate global string
-        this.emitter.emit(`"${value}"`);
-        break;
+        return `"${value}"`;
       }
       case "()": {
         // Generate global unit value
-        this.emitter.emit(`unit`);
-        break;
+        return `unit`;
       }
       default: {
         throw new Error(`Unimplemented primitive type ${typeValue.type}`);
@@ -176,31 +170,137 @@ export class CodeGeneratorC {
     }
   }
 
-  codegenPrototype(functionType: TFunction, functionId: string): void {
-    this.emitter.emitDefinitionLine(
-      `${
-        functionType.returnType.type
-      } ${functionId}(${functionType.parameterTypes
-        .map((parameter) => `${parameter.type.type} ${parameter.name}`)
-        .join(", ")})`
-    );
+  codegenPrototype(functionType: TFunction): string {
+    return `${this.getTypeInC(functionType.returnType)} ${
+      functionType.functionId
+    }(${functionType.parameterTypes
+      .map(
+        (parameter) => `${this.getTypeInC(parameter.type)} ${parameter.name}`
+      )
+      .join(", ")})`;
   }
 
-  codegenFunction(expr: FunctionExpr): void {
-    // this.codegenPrototype(expr.typeValue);
+  codegenFunction({
+    expr,
+    indentation,
+  }: {
+    expr: FunctionExpr;
+    indentation: string;
+  }): string {
+    let code: string = "";
+    const prototype = this.codegenPrototype(expr.typeValue);
+    this.emitter.emitDeclarationLine(prototype + ";");
+
+    code += prototype + " {\n";
+    // Parse the body
+    code += this.codegenBlockExpression({
+      blockExpr: expr.body,
+      isFunctionBody: true,
+      indentation: indentation + "  ",
+    });
+    code += "\n}";
+    return code;
   }
 
-  codegenExpr(expr: Expr): void {
+  codegenBlockExpression({
+    blockExpr,
+    isFunctionBody,
+    indentation,
+  }: {
+    blockExpr: BlockExpr;
+    isFunctionBody: boolean;
+    indentation: string;
+  }): string {
+    let code = "";
+    // Add temp variable;
+    code += `${indentation}${this.getTypeInC(blockExpr.typeValue)} ${
+      blockExpr.tempVariableName
+    };\n`;
+
+    const exprs = blockExpr.exprs;
+    for (let i = 0; i < exprs.length; i++) {
+      const line = this.codegenExpr({
+        expr: exprs[i],
+        indentation: indentation,
+      });
+      if (i === exprs.length - 1) {
+        code += `${indentation}${blockExpr.tempVariableName} = ${line}${
+          line.trim().endsWith(";") ? "" : ";"
+        }\n`;
+      } else {
+        code += `${indentation}${line}${
+          line.trim().endsWith(";") ? "" : ";"
+        }\n`;
+      }
+    }
+
+    if (isFunctionBody) {
+      code += `${indentation}return ${blockExpr.tempVariableName};`;
+    }
+
+    return code;
+  }
+
+  codegenExpr({
+    expr,
+    indentation,
+  }: {
+    expr: Expr;
+    indentation: string;
+  }): string {
     switch (expr.type) {
       case AstType.Value: {
         switch (expr.tag) {
           case "primitive": {
-            return this.codegenPrimitiveValue(expr.value, expr.typeValue);
+            return this.codegenPrimitiveValue({
+              value: expr.value,
+              typeValue: expr.typeValue,
+            });
           }
           default: {
             throw new Error(`Unimplemented value tag ${expr.tag}`);
           }
         }
+      }
+      case AstType.LetAssignment: {
+        const rhs = expr.right;
+        if (rhs.typeValue.type === "Function") {
+          // ignore it
+          if (rhs.type === AstType.Function) {
+            return this.codegenFunction({ expr: rhs, indentation });
+          } else {
+            return "";
+          }
+        } else {
+          if (rhs.type === AstType.Block) {
+            return `\n${this.codegenBlockExpression({
+              blockExpr: rhs,
+              indentation,
+              isFunctionBody: false,
+            })}
+${indentation}${this.getTypeInC(rhs.typeValue)} ${expr.variableId} = ${
+              rhs.tempVariableName
+            };
+`;
+          } else {
+            return `${this.getTypeInC(rhs.typeValue)} ${
+              expr.variableId
+            } = ${this.codegenExpr({ expr: rhs, indentation })}`;
+          }
+        }
+      }
+      case AstType.Block: {
+        return (
+          "\n" +
+          this.codegenBlockExpression({
+            blockExpr: expr,
+            isFunctionBody: false,
+            indentation,
+          })
+        );
+      }
+      case AstType.Variable: {
+        return expr.variableId;
       }
       default: {
         throw new Error(`Unimplemented expr type ${expr.type}`);

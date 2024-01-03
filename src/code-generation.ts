@@ -1,4 +1,5 @@
 import Parser from "./parser";
+import { CodeGeneratorC } from "./targets/codegen-c";
 import { TModule } from "./type-checker";
 
 export class CodeGenerator {
@@ -48,5 +49,9 @@ export class CodeGenerator {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   compileModule(module: TModule, { printC }: { printC?: boolean } = {}) {
     console.log(`= Compiling module ${module.modulePath}`);
+    const c = new CodeGeneratorC(module);
+    if (printC) {
+      console.log(c.print());
+    }
   }
 }

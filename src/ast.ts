@@ -153,6 +153,7 @@ export type BlockExpr = {
   typeValue: Type;
   env: Environment;
   token: Token;
+  tempVariableName: string;
 };
 
 export type DeferExpr = {
@@ -195,6 +196,10 @@ export type ValueExpr = PrimitiveValueExpr | RecordValueExpr | SliceValueExpr;
 export type VariableExpr = {
   type: AstType.Variable;
   variableName: string;
+  /**
+   * variableId in ValueType in Environment.
+   */
+  variableId: string;
   frameLevel: number;
   typeValue: Type;
   isMutable: boolean;
@@ -229,11 +234,6 @@ export type PropertyAccessExpr = {
   isMutable: boolean;
   env: Environment;
   token: Token;
-  /**
-   * This is the name of the temporary variable that holds
-   * the result of the property access.
-   */
-  // tempVariableName: string;
 };
 
 export type IndexAccessExpr = {
@@ -244,11 +244,6 @@ export type IndexAccessExpr = {
   isMutable: boolean;
   env: Environment;
   token: Token;
-  /**
-   * This is the name of the temporary variable that holds
-   * the result of the index access.
-   */
-  // tempVariableName: string;
 };
 
 export type BinaryOperatorExpr = {
@@ -282,6 +277,7 @@ export type UnaryOperatorExpr = {
 export type LetAssignmentExpr = {
   type: AstType.LetAssignment;
   variableName: string;
+  variableId: string;
   isMutable: boolean;
   variableType: Type;
   frameLevel: number;
@@ -558,9 +554,6 @@ export function exprToString(expr: Expr, indentation = ""): string {
           throw new Error(`Unknown value tag ${expr}`);
       }
     case AstType.Variable:
-      if ("id" in expr.typeValue) {
-        return `@${expr.typeValue.id}`;
-      }
       return expr.variableName;
     case AstType.PropertyAccess:
       return `${exprToString(expr.expr)}.${expr.propertyName}`;

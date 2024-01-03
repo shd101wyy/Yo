@@ -81,6 +81,11 @@ export function getNewRegionId(): string {
   return `'R_${regionCount++}`;
 }
 
+export function generateModuleId(modulePath: string) {
+  const hash = createHash("sha1").update(modulePath).digest("hex");
+  return hash.slice(0, 10);
+}
+
 const IdMap = new Map<string, number>();
 /**
  * Return the first 10 characters of SHA1 of env.modulePath + variableName
@@ -92,9 +97,7 @@ export function generateValueTypeId(
   env: Environment,
   variableName: string
 ): string {
-  const str = env.modulePath;
-  const hash = createHash("sha1").update(str).digest("hex");
-  const id = hash.slice(0, 10) + "_" + variableName;
+  const id = generateModuleId(env.modulePath) + "_" + variableName;
   let count = IdMap.get(id);
   if (count === undefined) {
     count = 0;
@@ -106,11 +109,17 @@ export function generateValueTypeId(
 }
 
 let tempVariableNameCount = 1;
-export function getNewTempVariableName(): string {
-  return `$$temp_${tempVariableNameCount++}`;
+function generateTempVariableNamePrefix(env: Environment): string {
+  return `_${generateModuleId(env.modulePath)}_temp_`;
 }
-export function isTempVariableName(variableName: string): boolean {
-  return variableName.startsWith("$$temp_");
+export function generateNewTempVariableName(env: Environment): string {
+  return `${generateTempVariableNamePrefix(env)}${tempVariableNameCount++}`;
+}
+export function isTempVariableName(
+  env: Environment,
+  variableName: string
+): boolean {
+  return variableName.startsWith(generateTempVariableNamePrefix(env));
 }
 
 type Frame = {
@@ -248,7 +257,7 @@ export function popEnvFrame(
           return {
             token: value.token,
             errorMessage: `${
-              isTempVariableName(value.variableName) ? "Value" : "Variable"
+              isTempVariableName(env, value.variableName) ? "Value" : "Variable"
             } is "Linear" type but is not consumed:
 ${typeToString(value.type)}${
               value.type.type === "TypeConstructor" &&
@@ -310,14 +319,15 @@ export function addEnvValueType({
   valueType: Omit<ValueType, "frameLevel" | "id">;
   deltaFrame?: number;
   preventDuplicate?: boolean;
-}): Environment {
+}): { env: Environment; value: ValueType } {
   const frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
   const frame = env.frames[frameLevel];
   const id = generateValueTypeId(env, valueType.variableName);
+  const value: ValueType = { ...valueType, frameLevel, id };
   const newFrame = addFrameValueType({
     inputString,
     frame,
-    valueType: { ...valueType, frameLevel, id },
+    valueType: value,
     preventDuplicate,
   });
   const newFrames = env.frames.slice();
@@ -328,7 +338,7 @@ export function addEnvValueType({
     frames: newFrames,
     modulePath: env.modulePath,
   };
-  return newEnv;
+  return { env: newEnv, value: value };
 }
 
 export function updateExistingValueType(
