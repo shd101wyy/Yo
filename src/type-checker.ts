@@ -2326,10 +2326,10 @@ export function synthesizeEffectsFromTokens({
   const effects: TEffect[] = [];
   // let hasMoreEffects = false;
 
-  if (tokens[index].type !== TokenType.LessThan) {
+  if (tokens[index].type !== TokenType.LBracket) {
     throw formatErrorMessage({
       token: tokens[index],
-      errorMessage: "Expected '<' in effects declaration",
+      errorMessage: "Expected '[' in effects declaration",
       inputString,
     });
   }
@@ -2344,7 +2344,7 @@ export function synthesizeEffectsFromTokens({
         inputString,
       });
     }
-    if (tokens[index].type === TokenType.GreaterThan) {
+    if (tokens[index].type === TokenType.RBracket) {
       index = index + 1;
       break;
     }
@@ -2517,7 +2517,7 @@ export function synthesizeFunctionTypeFromTokens({
     // Effects
     let effects: TEffect[] = [];
     // let hasMoreEffects = false;
-    if (tokens[index].type === TokenType.LessThan) {
+    if (tokens[index].type === TokenType.LBracket) {
       const {
         effects: nextEffects,
         // hasMoreEffects: nextHasMoreEffects,
@@ -2965,6 +2965,9 @@ export function typeToString(
         .join(", ")} }`;
     }
     case "Function": {
+      const effectsString = effectsToString(type.effects, {
+        hideTypeParameterKind: true,
+      });
       return `${typeAndRegionParametersToString(
         type.typeParameters,
         type.regionParameters,
@@ -2980,11 +2983,9 @@ export function typeToString(
                 : ""
             }`
         )
-        .join(", ")})${type.isClosure ? "=>" : "->"} ${effectsToString(
-        type.effects,
-        // type.hasMoreEffects,
-        { hideTypeParameterKind: true }
-      )}${typeToString(type.returnType, {
+        .join(", ")})${type.isClosure ? "=>" : "->"} ${
+        effectsString.length > 0 ? `${effectsString} ` : ""
+      }${typeToString(type.returnType, {
         hideTypeParameterKind: true,
       })}`;
     }
@@ -3357,7 +3358,7 @@ export function effectsToString(
   if (effects.length === 0 /*&& !hasMoreEffects*/) {
     return "";
   } else {
-    return `<${effects
+    return `[${effects
       .map((effect) =>
         effectToString(effect, {
           hideTypeParameterKind,
@@ -3368,7 +3369,7 @@ export function effectsToString(
       /*
       hasMoreEffects ? (effects.length > 0 ? ", " : "") + `*` : ""
       */ ""
-    }>`;
+    }]`;
   }
 }
 

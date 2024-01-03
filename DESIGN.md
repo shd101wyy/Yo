@@ -466,16 +466,9 @@ let identity = <T>(arg: T)-> T {
 
 // Dependency injection (Effectful function)
 // We use `<..>` to denote the effects of a function.
-let main = () -> <Console> () {
+let main = () -> [Console] () {
   println("Hello, world");
 }
-
-// Curried function `In Design`
-let add = (x: i32) -> (y: i32) -> i32 {
-  x + y
-}
-let addOne = add(1);
-addOne(2); // 3
 
 // Value constraint `In Design`
 let divide = (x: i32, y: i32)-> i32
@@ -484,7 +477,7 @@ where y != 0 {
 }
 
 // Type constraint
-let add = <T: Type>(x: T, y: T)-> <Console> T
+let add = <T: Type>(x: T, y: T)-> [Console] T
 with Integral<T> {
   println(x + y)
 }
@@ -494,6 +487,12 @@ let add = (x: i32, y: i32): i32 => {
   x + y
 };
 
+// Curried function `In Design`
+let add = (x: i32) => (y: i32) => i32 {
+  x + y
+}
+let addOne = add(1);
+addOne(2); // 3
 ```
 
 ### Uniform Function Call Syntax
@@ -629,7 +628,7 @@ let deferExample = ()-> {
 ### Tail-call optimization `In Design`
 
 Use the `recur` to make the tail-call.  
-This is useful for anonymous function.  
+This is useful for anonymous function.
 
 ```typescript
 (x: u32, acc: u32 = 1)-> {
@@ -1010,7 +1009,7 @@ let notify = (item: NewsArticle)-> {
   println("Breaking news! ", item.summarize());
 }
 
-let notify = <T>(item: T) with Display<T>-> {
+let notify = <T>(item: T) with Display<T> -> {
   println("Breaking news! ", item.summarize());
   println("Breaking news! ", item.display());
 }
@@ -1149,7 +1148,8 @@ let emptyArray: i32[0] = [];
 ## Error handling
 
 ```typescript
-let main = ()-> <Exception> () {
+type MyError = {message: char[]};
+let main = ()-> [Exception<MyError>] () {
   throw({
     message: "Something went wrong",
   });
@@ -1209,7 +1209,7 @@ let main = ()-> {
 
 ```typescript
 let x: i32 = 1;
-let y: f32 = (x as f32);
+let y: f32 = x as f32;
 ```
 
 ## Async/Await
@@ -1268,7 +1268,7 @@ effect Pure extends Exception, Divergence {}
 Effects are defined order-insensitive.
 
 ```typescript
-let safeDivide = (x: i32, y: i32)-> <Exception, Console> Promise<i32> {
+let safeDivide = (x: i32, y: i32)-> [Exception, Console] Promise<i32> {
   if (y == 0) {
     await println("Cannot divide by 0"); // handled by Console effect
     await raise("Cannot divide by 0");   // handled by Exception effect
@@ -1281,23 +1281,17 @@ let safeDivide = (x: i32, y: i32)-> <Exception, Console> Promise<i32> {
 The following function signatures are equivalent:
 
 ```typescript
-safeDivide: (x: i32, y: i32)-> <Exception, Console> Promise<i32>;
-safeDivide: (x: i32, y: i32)-> <Console, Exception> Promise<i32>;
+safeDivide: (x: i32, y: i32)-> [Exception, Console] Promise<i32>;
+safeDivide: (x: i32, y: i32)-> [Console, Exception] Promise<i32>;
 ```
 
-Function with no effect is written with `<>`, and `<>` can be suppressed in this case:
+Function with no effect is written with `[]`, and `[]` can be suppressed in this case:
 
 ```typescript
 let add = (x: i32, y: i32)-> i32 {
-  // Equivalent to function add(x: i32, y: i32): <> i32
+  // Equivalent to function add(x: i32, y: i32): [] i32
   x + y;
 }
-```
-
-Function with zero of more effects is written with `<*>`:
-
-```typescript
-map<A: Type, B: Type>(xs: &<List<A>>, func: (x: &<A>) => <*> B): <*> List<B>
 ```
 
 ### Effect handler
@@ -1309,7 +1303,7 @@ effect Exception<T> {
   raise: (msg: String)-> Promise<T>;
 }
 
-let safeDivide = (x: i32, y: i32)-> <Exception<i32>> Promise<i32> {
+let safeDivide = (x: i32, y: i32)-> [Exception<i32>] Promise<i32> {
   if (y == 0) {
     resume(await raise("Cannot divide by 0"))
   } else {
@@ -1337,7 +1331,7 @@ effect Input {
   read(): Promise<String>;
 }
 
-let hello = ()-> <Input> Promise<()> {
+let hello = ()-> [Input] Promise<()> {
   let name = await read();
   println("Hello, ", name);
   resume(())
@@ -1376,7 +1370,7 @@ let main = ()-> {
 #### handling `abort` with `defer!`
 
 ```typescript
-let example = ()-> <Exception<()>> Promise<()> {
+let example = ()-> [Exception<()>] Promise<()> {
   let file: File = await open("file.txt", "w");
 
   await raise("Some exception");
@@ -1389,7 +1383,7 @@ let example = ()-> <Exception<()>> Promise<()> {
 What we can do is to use the `defer!` to defer the execution of certain code until the abort happens:
 
 ```typescript
-let example = ()-> <Exception<()>> Promise<()> {
+let example = ()-> [Exception<()>] Promise<()> {
   let file: File = await open("file.txt", "w");
   defer! {
     println("Exception caught");
@@ -1430,7 +1424,7 @@ effect Exception<T> {
   raise(msg: String): Promise<T>;
 }
 
-let safeDivide = (x: i32, y: i32)-> <Exception<i32>{raise as newRaise}> Promise<i32> {
+let safeDivide = (x: i32, y: i32)-> [Exception<i32>{raise as newRaise}] Promise<i32> {
   if (y == 0) {
     await newRaise("Cannot divide by 0");
   } else {
@@ -1439,17 +1433,17 @@ let safeDivide = (x: i32, y: i32)-> <Exception<i32>{raise as newRaise}> Promise<
 }
 ```
 
-### Effect polymorphism
+### Effect polymorphism `In Design`
 
 ```typescript
-<*> // zero or more effects
+[*] // zero or more effects
 ```
 
 ```typescript
 let map = <A: Type, B: Type>
 ( xs: &<List<A>>,
-  func: (x: &<A>)=> <*> B
-)-> <*> List<B>
+  func: (x: &<A>)=> [*] B
+)-> [*] List<B>
 {
   if (xs is Nil) {
     Nil
