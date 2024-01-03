@@ -255,6 +255,7 @@ export type TTypeConstructor = {
   type: "TypeConstructor";
   kind: TypeKind;
   name: string;
+  typeConstructorId: string;
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
   typeValue: Type;
@@ -273,6 +274,7 @@ export type TClass = {
   type: "Class";
   kind: "Free";
   name: string;
+  classId: string;
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
   functions: TClassFunction[];
@@ -307,6 +309,7 @@ export type TEffectOperation = {
 export type TEffect = {
   type: "Effect";
   effectName: string;
+  effectId: string;
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
   operations: TEffectOperation[];
@@ -428,6 +431,7 @@ export const TypeValues: {
     type: "TypeConstructor",
     kind: "Linear",
     name: "&",
+    typeConstructorId: "&",
     typeParameters: [
       {
         type: "TypeParameter",
@@ -451,6 +455,7 @@ export const TypeValues: {
     type: "TypeConstructor",
     kind: "Linear",
     name: "&!",
+    typeConstructorId: "&!",
     typeParameters: [
       {
         type: "TypeParameter",
@@ -474,6 +479,7 @@ export const TypeValues: {
     type: "TypeConstructor",
     kind: "Linear",
     name: "Promise",
+    typeConstructorId: "Promise",
     typeParameters: [
       {
         type: "TypeParameter",
@@ -1344,6 +1350,7 @@ export function applyTypeAndRegionArgumentsToType({
       type: "TypeConstructor",
       kind: typeValue.type === "Extern" ? type.kind : newTypeValue.kind,
       name: type.name,
+      typeConstructorId: generateValueTypeId(env, type.name),
       typeParameters: newTypeParameters,
       regionParameters: newRegionParameters,
       typeValue: newTypeValue,
@@ -1679,6 +1686,7 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
     type: "Class",
     kind: "Free",
     name: class_.name,
+    classId: class_.classId,
     typeParameters: newTypeParameters,
     regionParameters: newRegionParameters,
     functions: functions,

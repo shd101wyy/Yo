@@ -4715,6 +4715,7 @@ ${typeToString(nextTypeValue)}`
       type: "TypeConstructor",
       kind,
       name: typeName,
+      typeConstructorId: generateValueTypeId(env, typeName),
       typeParameters,
       regionParameters,
       typeValue,
@@ -4951,6 +4952,7 @@ ${typeToString(functionType)}
       type: "Class",
       kind: "Free",
       name: typeclassName,
+      classId: generateValueTypeId(env, typeclassName),
       typeParameters,
       regionParameters,
       functions,
@@ -5328,6 +5330,7 @@ Got:      ${typeToString(matchedFunction.func)}`
 
     const fakeEffect: TEffect = {
       effectName,
+      effectId: generateValueTypeId(env, effectName),
       operations: [],
       type: "Effect",
       regionParameters: regionParameters,
@@ -5459,6 +5462,7 @@ ${operationName}: ${typeToString(
     const effectType: TEffect = {
       type: "Effect",
       effectName,
+      effectId: fakeEffect.effectId,
       operations,
       regionParameters,
       typeParameters,
