@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import {
   AstType,
   BlockExpr,
@@ -9,17 +10,25 @@ import {
 import { Emitter } from "../emitter";
 import { generateModuleId } from "../env";
 import {
+  Region,
   TFunction,
   TModule,
   TPrimitive,
   TPrimitiveWithValue,
   Type,
+  applyTypeAndRegionArgumentsToFunctionExpr,
+  typeAndRegionParametersToString,
   typeToString,
 } from "../type-checker";
 
 export class CodeGeneratorC {
   private module: TModule;
   private emitter: Emitter;
+  private functionMap: Map<string, FunctionExpr> = new Map();
+  /**
+   * key is functionId + typeAndRegionParametersToString
+   */
+  private generatedFunctionKeySet: Set<string> = new Set();
   constructor(module: TModule) {
     this.module = module;
     this.emitter = new Emitter();
@@ -36,6 +45,8 @@ export class CodeGeneratorC {
     this.emitter.emitDeclarationLine(
       `// Module ID: ${generateModuleId(module.modulePath)}`
     );
+
+    this.emitter.emitLine("\n// Code");
 
     this.emitter.emit(this.codegenExprs({ exprs: this.module.ast }));
   }
@@ -175,6 +186,60 @@ export class CodeGeneratorC {
         throw new Error(`Unimplemented primitive type ${typeValue.type}`);
       }
     }
+  }
+
+  codegenFunctionIfNecessary(calleeType: TFunction): string {
+    const typeArguments = calleeType.typeParameters.map((t) => t.appliedType);
+    const regionArguments = calleeType.regionParameters.map(
+      (r) => r.appliedRegion
+    );
+    if (
+      typeArguments.some((t) => t === undefined) ||
+      regionArguments.some((r) => r === undefined)
+    ) {
+      return "";
+    }
+
+    // SHA1 of typeAndRegionParametersToString
+    const typeAndRegionString = typeAndRegionParametersToString(
+      calleeType.typeParameters,
+      calleeType.regionParameters
+    );
+    const hash = createHash("sha1")
+      .update(typeAndRegionString)
+      .digest("hex")
+      .slice(0, 8);
+
+    const functionKey =
+      calleeType.functionId === "main"
+        ? "main"
+        : `${calleeType.functionId}_${hash}`;
+    if (this.generatedFunctionKeySet.has(functionKey)) {
+      return functionKey;
+    }
+    const functionExpr = this.functionMap.get(calleeType.functionId);
+    if (!functionExpr) {
+      throw new Error(`Cannot find function expr of ${calleeType.functionId}`);
+    }
+
+    const newFunctionExpr = applyTypeAndRegionArgumentsToFunctionExpr({
+      env: functionExpr.env,
+      expr: functionExpr,
+      typeArguments: typeArguments as Type[],
+      regionArguments: regionArguments as Region[],
+      typeParameterToTypeArgumentMap: {},
+      regionParameterToRegionArgumentMap: {},
+    });
+    newFunctionExpr.typeValue.functionId = functionKey;
+    this.generatedFunctionKeySet.add(functionKey);
+
+    const functionCode = this.codegenFunction({
+      expr: newFunctionExpr,
+      indentation: "",
+    });
+    this.emitter.emit(functionCode);
+
+    return functionKey;
   }
 
   codegenPrototype(functionType: TFunction): string {
@@ -406,6 +471,10 @@ ${
     expr: Expr;
     indentation: string;
   }): string {
+    if (expr.typeValue.type === "Function" && expr.type !== AstType.Function) {
+      return this.codegenFunctionIfNecessary(expr.typeValue);
+    }
+
     switch (expr.type) {
       case AstType.Value: {
         switch (expr.tag) {
@@ -420,12 +489,20 @@ ${
           }
         }
       }
+      case AstType.Function: {
+        this.functionMap.set(expr.typeValue.functionId, expr);
+        this.codegenFunctionIfNecessary(expr.typeValue);
+        return "";
+      }
       case AstType.LetAssignment: {
         const rhs = expr.right;
         if (rhs.typeValue.type === "Function") {
           // ignore it
           if (rhs.type === AstType.Function) {
-            return this.codegenFunction({ expr: rhs, indentation });
+            return this.codegenExpr({
+              expr: rhs,
+              indentation,
+            });
           } else {
             return "";
           }

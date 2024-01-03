@@ -1,6 +1,6 @@
 export class Emitter {
-  private header: string = "";
-  private declaration: string = "";
+  private headers: string = "";
+  private declarations: string = "";
   private code: string = "";
   constructor() {}
 
@@ -15,16 +15,16 @@ export class Emitter {
   }
 
   emitHeaderLine(code: string, indentation = "") {
-    this.header += indentation + code + "\n";
-    return this.header;
+    this.headers += indentation + code + "\n";
+    return this.headers;
   }
 
   emitDeclarationLine(code: string, indentation = "") {
-    this.declaration += indentation + code + "\n";
-    return this.declaration;
+    this.declarations += indentation + code + "\n";
+    return this.declarations;
   }
 
   print() {
-    return this.header + this.declaration + this.code;
+    return this.headers + this.declarations + this.code;
   }
 }
