@@ -2929,7 +2929,7 @@ ${matchedFunctionErrors[i]}`
     }
     env = pushEnvFrame(env);
     let nextEnv = env;
-
+    let recurExprToken: Token | undefined = undefined;
     while (true) {
       const token = tokens[index];
       if (!isSingleExpression && !token) {
@@ -2948,6 +2948,23 @@ ${matchedFunctionErrors[i]}`
         parserData,
       });
 
+      if (recurExprToken) {
+        // recur has to be the last expression.
+        throw formatErrorMessages({
+          inputString: this.inputString,
+          tokenAndErrorList: [
+            {
+              errorMessage: `Cannot have any expression after "recur" expression, which is meant to be the tail call.`,
+              token: tokens[index],
+            },
+            {
+              errorMessage: `The "recur" expression is here.`,
+              token: recurExprToken,
+            },
+          ],
+        });
+      }
+
       if (tokens[nextIndex].type === TokenType.Assign) {
         const { expr: assignmentExpr, index: nextNextIndex } =
           this.parseAssignmentExpr({
@@ -2965,6 +2982,22 @@ ${matchedFunctionErrors[i]}`
         exprs.push(expr);
         nextEnv = expr.env;
         index = nextIndex;
+      }
+
+      // Mark the `recurExprToken` if it's a `recur` expression.
+      if (expr.type === AstType.Recur) {
+        recurExprToken = expr.token;
+      } else if (expr.type === AstType.If || expr.type == AstType.Match) {
+        const cases = expr.cases;
+        // Check if any of the cases has `recur`
+        for (const case_ of cases) {
+          const body = case_.body;
+          const lastExpr = body.exprs[body.exprs.length - 1];
+          if (lastExpr && lastExpr.type === AstType.Recur) {
+            recurExprToken = lastExpr.token;
+            break;
+          }
+        }
       }
 
       if (isSingleExpression) {
