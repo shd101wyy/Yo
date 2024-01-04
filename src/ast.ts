@@ -392,6 +392,10 @@ export type RecurExpr = {
   env: Environment;
   token: Token;
   functionArguments: Expr[];
+  /**
+   * If set to true, we enable the tail call optimization.
+   */
+  isLastExpr?: boolean;
 };
 
 export type CallEnumExpr = {

@@ -625,20 +625,35 @@ let deferExample = ()-> {
 }
 ```
 
-### Tail-call optimization `In Design`
+### `recur`
 
-Use the `recur` to make the tail-call.  
-This is useful for anonymous function.
+Use the `recur` to call the function recursively.    
+This is useful for anonymous function.  
+If `recur` is the last expression, tail-call optimization will be applied.
 
-```typescript
-(x: u32, acc: u32 = 1)-> {
-  if (x == 1) {
-    1
-  } else {
-    recur(x - 1, acc * x)
+- With tail-call optimization
+
+  ```typescript
+  (x: u32, acc: u32 = 1)-> {
+    if (x == 1) {
+      1
+    } else {
+      recur(x - 1, acc * x)
+    }
   }
-}
-```
+  ```
+
+- Without tail-call optimization
+
+  ```typescript
+  (x: u32)-> {
+    if (x == 1) {
+      1
+    } else {
+      x * recur(x - 1)
+    }
+  }
+  ```
 
 ## Mutability
 
