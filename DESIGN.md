@@ -40,7 +40,8 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Dependent types `In Design`](#dependent-types-in-design)
     - [Refinement types `In Design`](#refinement-types-in-design)
     - [`defer`](#defer)
-    - [Tail-call optimization `In Design`](#tail-call-optimization-in-design)
+    - [`recur`](#recur)
+    - [Custom Operators](#custom-operators)
   - [Mutability](#mutability)
   - [Borrow checker](#borrow-checker)
   - [Control Flow](#control-flow)
@@ -74,7 +75,7 @@ We will also post a series of articles on the design and implementation of **Mo*
       - [handling `abort` with `defer!`](#handling-abort-with-defer)
     - [Tail-resumptive operation](#tail-resumptive-operation)
     - [Rename effectful operation](#rename-effectful-operation)
-    - [Effect polymorphism](#effect-polymorphism)
+    - [Effect polymorphism `In Design`](#effect-polymorphism-in-design)
   - [Modules](#modules)
   - [Compile time execution `In Design`](#compile-time-execution-in-design)
   - [Compilation `In Design`](#compilation-in-design)
@@ -651,6 +652,26 @@ If `recur` is the last expression, tail-call optimization will be applied.
     }
   }
   ```
+
+### Custom Operators
+
+```typescript
+let (|>) = <T, U>(x: T, f: (value: T)-> U)-> U {
+  f(x)
+}
+
+12 |> addOne; // 13
+
+(|>)(12, addOne); // 13
+```
+
+We can define its precedence and associativity:
+
+```typescript
+infix  40 ==  // no associativity. Eg, 3==4==5 is invalid
+infixr 80 **  // right associativity. Eg, 3 ** 4 ** 6 == 3 ** (4 ** 6)
+infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
+```
 
 ## Mutability
 
@@ -1594,3 +1615,4 @@ Boostrapping the **Mo** compiler is not a priority at the moment. We will do it 
 - [Implementing Co, a Small Language With Coroutines](https://abhinavsarkar.net/posts/implementing-co-3/)
 - [Retrofitting Effect Handlers onto OCaml](https://arxiv.org/pdf/2104.00250.pdf)
 - [Do Be Do Be Do](https://arxiv.org/pdf/1611.09259.pdf)
+- [Custom Infix Operators in Haskell](<https://bugfactory.io/blog/custom-infix-operators-in-haskell/#:~:text=Precedence%20(aka%20Operator%20Binding)&text=All%20operators%20in%20Haskell%20have,6%20>).)

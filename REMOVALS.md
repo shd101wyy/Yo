@@ -39,3 +39,7 @@ if (x > y) {
   // ...
 }
 ```
+
+## Lisp like syntax
+
+It's so hard to read and write.  
