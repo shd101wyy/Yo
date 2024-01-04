@@ -2,26 +2,17 @@ export enum TokenType {
   Eof = "eof",
 
   // operators
-  Add = "+",
-  Subtract = "-",
-  Multiply = "*",
-  Divide = "/",
-  Modulo = "%",
-  Exponent = "**",
-  BitwiseAnd = "&",
-  BitwiseOr = "|",
-  BitwiseXor = "^",
-  BitwiseNot = "~",
-  BitwiseShiftLeft = "<<",
-  BitwiseShiftRight = ">>",
-  LogicalAnd = "&&",
-  LogicalOr = "||",
-  LogicalNot = "!",
+  Operator = "operator",
+
+  /// Below are not available as generator operators.
+  /// they are used as a part of the syntax.
+  Dot = ".",
+  Assign = "=",
+  Colon = ":",
   FunctionArrow = "->",
   FatArrow = "=>",
-  DoArrow = "<-",
+  /// end
   Comptime = "#",
-  MutableReference = "&!",
 
   // parens
   LParen = "(",
@@ -32,16 +23,7 @@ export enum TokenType {
   RCurlyBracket = "}",
 
   // comparison
-  Equal = "==",
-  NotEqual = "!=",
-  LessThan = "<",
-  LessThanOrEqual = "<=",
-  GreaterThan = ">",
-  GreaterThanOrEqual = ">=",
   Is = "is",
-
-  // assignment
-  Assign = "=",
 
   // string
   Char = "char",
@@ -115,9 +97,7 @@ export enum TokenType {
   Match = "match",
 
   // punctuation
-  Dot = ".",
   Semicolon = ";",
-  Colon = ":",
   Comma = ",",
 }
 
@@ -134,4 +114,30 @@ export interface Token {
      */
     character: number;
   };
+}
+
+export const Operators = [
+  "=",
+  "+",
+  "-",
+  "*",
+  "/",
+  "<",
+  ">",
+  "@",
+  "$",
+  "~",
+  "&",
+  "%",
+  "|",
+  "!",
+  "?",
+  "^",
+  ".",
+  ":",
+  "\\",
+];
+
+export function charIsOperator(char: string): boolean {
+  return Operators.includes(char);
 }

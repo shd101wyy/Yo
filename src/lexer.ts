@@ -1,4 +1,4 @@
-import { Token, TokenType } from "./token";
+import { Token, TokenType, charIsOperator } from "./token";
 
 /**
  * Lexer
@@ -11,6 +11,62 @@ export function tokenize(input: string): Token[] {
 
   for (let i = 0; i < input.length; i++) {
     const char = input[i];
+
+    // Check operators
+    let operator: string = "";
+    let j = i;
+    while (charIsOperator(input[j])) {
+      operator += input[j];
+      j++;
+    }
+    if (
+      operator &&
+      // Skip comments
+      operator !== "//" &&
+      operator != "/*" &&
+      // Skip symbol
+      !(operator === "@" && input[i + 1] === '"')
+    ) {
+      if (operator === ".") {
+        tokens.push({
+          type: TokenType.Dot,
+          value: operator,
+          position: { line, character: i - totalCharacters },
+        });
+      } else if (operator === ":") {
+        tokens.push({
+          type: TokenType.Colon,
+          value: operator,
+          position: { line, character: i - totalCharacters },
+        });
+      } else if (operator === "=") {
+        tokens.push({
+          type: TokenType.Assign,
+          value: char,
+          position: { line, character: i - totalCharacters },
+        });
+      } else if (operator === "=>") {
+        tokens.push({
+          type: TokenType.FatArrow,
+          value: "=>",
+          position: { line, character: i - totalCharacters },
+        });
+      } else if (operator === "->") {
+        tokens.push({
+          type: TokenType.FunctionArrow,
+          value: "->",
+          position: { line, character: i - totalCharacters },
+        });
+      } else {
+        tokens.push({
+          type: TokenType.Operator,
+          value: operator,
+          position: { line, character: i - totalCharacters },
+        });
+      }
+      i = j - 1;
+      continue;
+    }
 
     switch (char) {
       case " ":
@@ -31,136 +87,7 @@ export function tokenize(input: string): Token[] {
           }
           line++;
           totalCharacters = i + 1;
-        } else if (input[i + 1] === "*") {
-          // multi line comment
-          i = i + 2;
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            // ignore the rest of the comment
-            if (input[i] === "\n") {
-              line++;
-              totalCharacters = i + 1;
-            }
-            if (
-              (input[i] === "*" && input[i + 1] === "/") ||
-              i >= input.length - 1
-            ) {
-              break;
-            }
-            i++;
-          }
-          i += 1;
-        } else {
-          tokens.push({
-            type: TokenType.Divide,
-            value: char,
-            position: { line, character: i - totalCharacters },
-          });
         }
-        break;
-
-      // operators
-      case "+":
-        tokens.push({
-          type: TokenType.Add,
-          value: char,
-          position: { line, character: i - totalCharacters },
-        });
-        break;
-
-      case "-": {
-        if (input[i + 1] === ">") {
-          tokens.push({
-            type: TokenType.FunctionArrow,
-            value: "->",
-            position: { line, character: i - totalCharacters },
-          });
-          i++;
-          break;
-        } else {
-          tokens.push({
-            type: TokenType.Subtract,
-            value: char,
-            position: { line, character: i - totalCharacters },
-          });
-          break;
-        }
-      }
-      case "*":
-        if (input[i + 1] === "*") {
-          tokens.push({
-            type: TokenType.Exponent,
-            value: "**",
-            position: { line, character: i - totalCharacters },
-          });
-          i++;
-        } else {
-          tokens.push({
-            type: TokenType.Multiply,
-            value: char,
-            position: { line, character: i - totalCharacters },
-          });
-        }
-        break;
-      case "%":
-        tokens.push({
-          type: TokenType.Modulo,
-          value: char,
-          position: { line, character: i - totalCharacters },
-        });
-        break;
-      case "&":
-        if (input[i + 1] === "&") {
-          tokens.push({
-            type: TokenType.LogicalAnd,
-            value: "&&",
-            position: { line, character: i - totalCharacters },
-          });
-          i++;
-        } else if (input[i + 1] === "!") {
-          tokens.push({
-            type: TokenType.MutableReference,
-            value: "&!",
-            position: { line, character: i - totalCharacters },
-          });
-          i++;
-        } else {
-          tokens.push({
-            type: TokenType.BitwiseAnd,
-            value: char,
-            position: { line, character: i - totalCharacters },
-          });
-        }
-        break;
-      case "|":
-        if (input[i + 1] === "|") {
-          tokens.push({
-            type: TokenType.LogicalOr,
-            value: "||",
-            position: { line, character: i - totalCharacters },
-          });
-          i++;
-        } else {
-          tokens.push({
-            type: TokenType.BitwiseOr,
-            value: char,
-            position: { line, character: i - totalCharacters },
-          });
-        }
-        break;
-      case "^":
-        tokens.push({
-          type: TokenType.BitwiseXor,
-          value: char,
-          position: { line, character: i - totalCharacters },
-        });
-        break;
-      case "~":
-        tokens.push({
-          type: TokenType.BitwiseNot,
-          value: char,
-          position: { line, character: i - totalCharacters },
-        });
         break;
       case "#":
         tokens.push({
@@ -169,77 +96,6 @@ export function tokenize(input: string): Token[] {
           position: { line, character: i - totalCharacters },
         });
         break;
-      case "<":
-        if (input[i + 1] === "<") {
-          tokens.push({
-            type: TokenType.BitwiseShiftLeft,
-            value: "<<",
-            position: { line, character: i - totalCharacters },
-          });
-          i++;
-        } else if (input[i + 1] === "=") {
-          tokens.push({
-            type: TokenType.LessThanOrEqual,
-            value: "<=",
-            position: { line, character: i - totalCharacters },
-          });
-          i++;
-        } else {
-          tokens.push({
-            type: TokenType.LessThan,
-            value: char,
-            position: { line, character: i - totalCharacters },
-          });
-        }
-        break;
-      case ">":
-        if (input[i + 1] === ">") {
-          tokens.push({
-            type: TokenType.BitwiseShiftRight,
-            value: ">>",
-            position: { line, character: i - totalCharacters },
-          });
-          i++;
-        } else if (input[i + 1] === "=") {
-          tokens.push({
-            type: TokenType.GreaterThanOrEqual,
-            value: ">=",
-            position: { line, character: i - totalCharacters },
-          });
-          i++;
-        } else {
-          tokens.push({
-            type: TokenType.GreaterThan,
-            value: char,
-            position: { line, character: i - totalCharacters },
-          });
-        }
-        break;
-      case "=": {
-        if (input[i + 1] === ">") {
-          tokens.push({
-            type: TokenType.FatArrow,
-            value: "=>",
-            position: { line, character: i - totalCharacters },
-          });
-          i++;
-        } else if (input[i + 1] === "=") {
-          tokens.push({
-            type: TokenType.Equal,
-            value: "==",
-            position: { line, character: i - totalCharacters },
-          });
-          i++;
-        } else {
-          tokens.push({
-            type: TokenType.Assign,
-            value: char,
-            position: { line, character: i - totalCharacters },
-          });
-        }
-        break;
-      }
-
       // parens
       case "(":
         tokens.push({
@@ -288,24 +144,6 @@ export function tokenize(input: string): Token[] {
           position: { line, character: i - totalCharacters },
         });
         break;
-
-      case "!":
-        if (input[i + 1] === "=") {
-          tokens.push({
-            type: TokenType.NotEqual,
-            value: "!=",
-            position: { line, character: i - totalCharacters },
-          });
-          i++;
-        } else {
-          tokens.push({
-            type: TokenType.LogicalNot,
-            value: char,
-            position: { line, character: i - totalCharacters },
-          });
-        }
-        break;
-
       // char
       case "'": {
         let value = "";
@@ -389,13 +227,6 @@ export function tokenize(input: string): Token[] {
       }
 
       // other
-      case ":":
-        tokens.push({
-          type: TokenType.Colon,
-          value: char,
-          position: { line, character: i - totalCharacters },
-        });
-        break;
       case ",":
         tokens.push({
           type: TokenType.Comma,
@@ -406,13 +237,6 @@ export function tokenize(input: string): Token[] {
       case ";":
         tokens.push({
           type: TokenType.Semicolon,
-          value: char,
-          position: { line, character: i - totalCharacters },
-        });
-        break;
-      case ".":
-        tokens.push({
-          type: TokenType.Dot,
           value: char,
           position: { line, character: i - totalCharacters },
         });
@@ -730,22 +554,6 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
-            /*
-            case "resume":
-              tokens.push({
-                type: TokenType.Resume,
-                value,
-                position: { line, character: i - totalCharacters },
-              });
-              break;
-            case "abort":
-              tokens.push({
-                type: TokenType.Abort,
-                value,
-                position: { line, character: i - totalCharacters },
-              });
-              break;
-            */
             case "control":
               tokens.push({
                 type: TokenType.Control,

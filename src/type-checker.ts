@@ -584,7 +584,7 @@ export function synthesizeTypeFromTokens({
     env: Environment;
   } | null = null;
 
-  if (tokens[index].type === TokenType.BitwiseOr) {
+  if (tokens[index].value === "|") {
     return synthesizeTypeFromTokens({
       tokens,
       index: index + 1,
@@ -912,6 +912,7 @@ export function synthesizeTypeFromTokens({
   }
 
   const nextTokenType = tokens[returnValue.index]?.type;
+  const nextTokenValue = tokens[returnValue.index]?.value;
   let newTypeValue: Type = returnValue.typeValue;
   const newTypeValueKind = newTypeValue.kind;
 
@@ -976,7 +977,7 @@ export function synthesizeTypeFromTokens({
     };
   }
   // Check if it's union type or intersection type
-  else if (nextTokenType === TokenType.BitwiseOr) {
+  else if (nextTokenValue === "|") {
     const index = returnValue.index + 1;
 
     const newReturnValue = synthesizeTypeFromTokens({
@@ -1025,7 +1026,7 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
         env: newReturnValue.env,
       };
     }
-  } else if (nextTokenType === TokenType.BitwiseAnd) {
+  } else if (nextTokenValue === "&") {
     const index = returnValue.index + 1;
 
     const newReturnValue = synthesizeTypeFromTokens({
@@ -1077,7 +1078,7 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
   // Type arguments
   let typeArguments: Type[] = [];
   let regionArguments: Region[] = [];
-  if (tokens[returnValue.index]?.type === TokenType.LessThan) {
+  if (tokens[returnValue.index]?.value === "<") {
     const {
       env: nextEnv,
       index: nextIndex,
@@ -2223,7 +2224,7 @@ export function synthesizeTypeAndRegionArgumentsFromTokens({
   env: Environment;
   index: number;
 } {
-  if (tokens[index].type !== TokenType.LessThan) {
+  if (tokens[index].value !== "<") {
     throw formatErrorMessage({
       token: tokens[index],
       errorMessage: "Expected '<' in type arguments",
@@ -2249,13 +2250,13 @@ export function synthesizeTypeAndRegionArgumentsFromTokens({
       continue;
     }
 
-    if (token.type === TokenType.BitwiseShiftRight) {
+    if (token.value === ">>") {
       // Split this token into two '>' tokens
       tokens.splice(
         index,
         1,
         {
-          type: TokenType.GreaterThan,
+          type: TokenType.Operator,
           value: ">",
           position: {
             line: token.position.line,
@@ -2263,7 +2264,7 @@ export function synthesizeTypeAndRegionArgumentsFromTokens({
           },
         },
         {
-          type: TokenType.GreaterThan,
+          type: TokenType.Operator,
           value: ">",
           position: {
             line: token.position.line,
@@ -2275,7 +2276,7 @@ export function synthesizeTypeAndRegionArgumentsFromTokens({
       break;
     }
 
-    if (token.type === TokenType.GreaterThan) {
+    if (token.value === ">") {
       index = index + 1;
       break;
     }
@@ -2353,7 +2354,7 @@ export function synthesizeEffectsFromTokens({
       break;
     }
 
-    if (tokens[index].type === TokenType.Multiply) {
+    if (tokens[index].value === "*") {
       // hasMoreEffects = true;
       index = index + 1;
     } else {
@@ -2369,7 +2370,7 @@ export function synthesizeEffectsFromTokens({
 
       let typeArguments: Type[] = [];
       let regionArguments: Region[] = [];
-      if (tokens[index].type === TokenType.LessThan) {
+      if (tokens[index].value === "<") {
         const {
           typeArguments: nextTypeArguments,
           regionArguments: nextRegionArguments,
@@ -2470,7 +2471,7 @@ export function synthesizeFunctionTypeFromTokens({
 
   let typeParameters: TTypeParameter[] = [];
   let regionParameters: TRegionParameter[] = [];
-  if (tokens[index].type === TokenType.LessThan) {
+  if (tokens[index].value === "<") {
     const {
       typeParameters: nextTypeParameters,
       regionParameters: nextRegionParameters,
@@ -2674,7 +2675,7 @@ export function synthesizeTypeAndRegionParametersFromTokens({
   index: number;
   env: Environment;
 } {
-  if (tokens[index].type !== TokenType.LessThan) {
+  if (tokens[index].value !== "<") {
     throw formatErrorMessage({
       token: tokens[index],
       errorMessage: "Expected '<' in type parameters declaration",
@@ -2699,7 +2700,7 @@ export function synthesizeTypeAndRegionParametersFromTokens({
       index = index + 1;
       continue;
     }
-    if (token.type === TokenType.GreaterThan) {
+    if (token.value === ">") {
       index = index + 1;
       break;
     }

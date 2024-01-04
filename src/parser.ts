@@ -1563,7 +1563,7 @@ Returned : ${typeToString(body.typeValue)}${
 
     // type arguments
     let typeArguments: Type[] = [];
-    if (tokens[index]?.type === TokenType.LessThan) {
+    if (tokens[index]?.value === "<") {
       const {
         typeArguments: nextTypeArguments,
         index: nextIndex,
@@ -2251,7 +2251,7 @@ Found possible typeclasses:
         }
         let typeArguments: Type[] = [];
         let regionArguments: Region[] = [];
-        if (tokens[index + 1]?.type === TokenType.LessThan) {
+        if (tokens[index + 1]?.value === "<") {
           const {
             typeArguments: nextTypeArguments,
             regionArguments: nextRegionArguments,
@@ -2310,7 +2310,7 @@ Found possible enums:
       const enumType = enumValue.type as TEnum;
       let typeArguments: Type[] = [];
       const enumTokenIndex = index;
-      if (tokens[index + 1]?.type === TokenType.LessThan) {
+      if (tokens[index + 1]?.value === "<") {
         const {
           typeArguments: nextTypeArguments,
           index: nextIndex,
@@ -2367,7 +2367,7 @@ Found possible enums:
     if (
       tokens[index + 1]?.type === TokenType.LParen ||
       tokens[index + 1]?.type === TokenType.LCurlyBracket ||
-      tokens[index + 1]?.type === TokenType.LessThan
+      tokens[index + 1]?.value === "<"
     ) {
       // Try all matchedFunctions to see if there is a match
       const parserReturns: ParserReturn[] = [];
@@ -2497,177 +2497,182 @@ ${matchedFunctionErrors[i]}`
   }): ParserReturn {
     const token = tokens[index];
     let returnValue: ParserReturn | null = null;
-    switch (token.type) {
-      case TokenType.Identifier: {
-        returnValue = this.parseIdentifierExpr({
-          tokens,
-          index,
-          env,
-          caller,
-          parserData,
-        });
-        break;
-      }
-      case TokenType.Integer:
-      case TokenType.Float: {
-        returnValue = this.parseNumberExpr({ tokens, index, env });
-        break;
-      }
-      case TokenType.Char: {
-        returnValue = this.parseCharactorExpr({ tokens, index, env });
-        break;
-      }
-      case TokenType.String: {
-        returnValue = this.parseStringExpr({ tokens, index, env });
-        break;
-      }
-      case TokenType.Symbol: {
-        returnValue = this.parseSymbolExpr({ tokens, index, env });
-        break;
-      }
-      case TokenType.Boolean: {
-        returnValue = this.parseBooleanExpr({ tokens, index, env });
-        break;
-      }
-      case TokenType.LBracket: {
-        returnValue = this.parseSliceOrTupleExpr({
-          tokens,
-          index,
-          env,
-          caller,
-          parserData,
-        });
-        break;
-      }
-      case TokenType.LParen: {
-        returnValue = this.parseParenExpr({
-          tokens,
-          index,
-          env,
-          caller,
-          parserData,
-        });
-        break;
-      }
-      case TokenType.LessThan: {
-        returnValue = this.parseAnonymousFunction({
-          tokens,
-          index,
-          env,
-          caller,
-          parserData,
-        });
-        break;
-      }
-      case TokenType.LCurlyBracket: {
-        returnValue = this.parseCurlyBracketExpr({
-          tokens,
-          index,
-          env,
-          caller,
-          parserData,
-        });
-        break;
-      }
-      case TokenType.If: {
-        returnValue = this.parseIfExpr({
-          tokens,
-          index,
-          env,
-          caller,
-          parserData,
-        });
-        break;
-      }
-      case TokenType.Match: {
-        returnValue = this.parseMatchExpr({
-          tokens,
-          index,
-          env,
-          caller,
-          parserData,
-        });
-        break;
-      }
-      case TokenType.Let: {
-        return this.parseLetAssignment({
-          tokens,
-          index,
-          env,
-          caller,
-          parserData,
-        });
-      }
-      case TokenType.Semicolon: {
-        return {
-          expr: {
-            type: AstType.Ignore,
-            typeValue: TypeValues.unit,
+
+    if (token.value === "<") {
+      returnValue = this.parseAnonymousFunction({
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+    } else if (
+      token.value === "&" || // immutable reference
+      token.value === "&!" // mutable reference
+    ) {
+      returnValue = this.parseReferenceExpr({
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+    } else if (token.value === "*") {
+      returnValue = this.parseDereferenceExpr({
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+    } else {
+      switch (token.type) {
+        case TokenType.Identifier: {
+          returnValue = this.parseIdentifierExpr({
+            tokens,
+            index,
             env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        case TokenType.Integer:
+        case TokenType.Float: {
+          returnValue = this.parseNumberExpr({ tokens, index, env });
+          break;
+        }
+        case TokenType.Char: {
+          returnValue = this.parseCharactorExpr({ tokens, index, env });
+          break;
+        }
+        case TokenType.String: {
+          returnValue = this.parseStringExpr({ tokens, index, env });
+          break;
+        }
+        case TokenType.Symbol: {
+          returnValue = this.parseSymbolExpr({ tokens, index, env });
+          break;
+        }
+        case TokenType.Boolean: {
+          returnValue = this.parseBooleanExpr({ tokens, index, env });
+          break;
+        }
+        case TokenType.LBracket: {
+          returnValue = this.parseSliceOrTupleExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        case TokenType.LParen: {
+          returnValue = this.parseParenExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        case TokenType.LCurlyBracket: {
+          returnValue = this.parseCurlyBracketExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        case TokenType.If: {
+          returnValue = this.parseIfExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        case TokenType.Match: {
+          returnValue = this.parseMatchExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        case TokenType.Let: {
+          return this.parseLetAssignment({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+        }
+        case TokenType.Semicolon: {
+          return {
+            expr: {
+              type: AstType.Ignore,
+              typeValue: TypeValues.unit,
+              env,
+              token,
+            },
+            index: index + 1,
+          };
+        }
+        case TokenType.Defer: {
+          return this.parseDeferExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+        }
+        case TokenType.Try: {
+          returnValue = this.parseTryExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        case TokenType.Await: {
+          returnValue = this.parseAwaitExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        case TokenType.Recur: {
+          returnValue = this.parseRecurExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        default: {
+          throw this.formatErrorMessage(
             token,
-          },
-          index: index + 1,
-        };
-      }
-      case TokenType.MutableReference:
-      case TokenType.BitwiseAnd: {
-        returnValue = this.parseReferenceExpr({
-          tokens,
-          index,
-          env,
-          caller,
-          parserData,
-        });
-        break;
-      }
-      case TokenType.Multiply: {
-        returnValue = this.parseDereferenceExpr({
-          tokens,
-          index,
-          env,
-          caller,
-          parserData,
-        });
-        break;
-      }
-      case TokenType.Defer: {
-        return this.parseDeferExpr({ tokens, index, env, caller, parserData });
-      }
-      case TokenType.Try: {
-        returnValue = this.parseTryExpr({
-          tokens,
-          index,
-          env,
-          caller,
-          parserData,
-        });
-        break;
-      }
-      case TokenType.Await: {
-        returnValue = this.parseAwaitExpr({
-          tokens,
-          index,
-          env,
-          caller,
-          parserData,
-        });
-        break;
-      }
-      case TokenType.Recur: {
-        returnValue = this.parseRecurExpr({
-          tokens,
-          index,
-          env,
-          caller,
-          parserData,
-        });
-        break;
-      }
-      default: {
-        throw this.formatErrorMessage(
-          token,
-          `Unknown token: ${JSON.stringify(token)}`
-        );
+            `Unknown token: ${JSON.stringify(token)}`
+          );
+        }
       }
     }
 
@@ -2740,7 +2745,7 @@ ${matchedFunctionErrors[i]}`
       });
     } else if (
       primaryExpr.typeValue.type === "Function" &&
-      (token.type === TokenType.LParen || token.type === TokenType.LessThan)
+      (token.type === TokenType.LParen || token.value === "<")
     ) {
       // parseCallFunctionExpr
       const returnValue = this.parseCallFunctionExpr({
@@ -2916,6 +2921,7 @@ ${matchedFunctionErrors[i]}`
       }
 
       // Merge LHS/RHS
+      /*
       const needsSwap = [
         TokenType.GreaterThan,
         TokenType.GreaterThanOrEqual,
@@ -2929,13 +2935,15 @@ ${matchedFunctionErrors[i]}`
         }
       }
       const lhsType = convertPrimitiveToType((needsSwap ? RHS : LHS).typeValue);
-
+*/
+      const operator = binaryOperator.value as TokenType;
+      const lhsType = convertPrimitiveToType(LHS.typeValue);
       LHS = {
         type: AstType.BinaryOperator,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         operator: operator as any,
-        left: needsSwap ? RHS : LHS,
-        right: needsSwap ? LHS : RHS,
+        left: LHS,
+        right: RHS,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         typeValue: isComparisonOperator(binaryOperator)
           ? TypeValues.boolean
@@ -3910,8 +3918,10 @@ ${typeToString(caseReturnType)}
     index = index + 1;
 
     let isMutable: boolean = false;
+    let mutTokenIndex: number | undefined = undefined;
     if (tokens[index].type === TokenType.Mut) {
       isMutable = true;
+      mutTokenIndex = index;
       index = index + 1;
     }
 
@@ -4160,6 +4170,17 @@ Got:      ${typeToString(variableType)}`
         referedVariable,
         inputString: this.inputString,
       });
+    }
+
+    if (
+      mutTokenIndex &&
+      variableType.type === "Function" &&
+      !variableType.isClosure
+    ) {
+      throw this.formatErrorMessage(
+        tokens[mutTokenIndex],
+        `Cannot make a top-level function mutable.`
+      );
     }
 
     return {
@@ -4583,7 +4604,7 @@ ${typeToString(value.typeValue)}`
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
     let regionParameters: TRegionParameter[] = [];
-    if (tokens[index].type === TokenType.LessThan) {
+    if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeParameters: tp,
@@ -4797,7 +4818,7 @@ ${typeToString(nextTypeValue)}`
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
     let regionParameters: TRegionParameter[] = [];
-    if (tokens[index].type === TokenType.LessThan) {
+    if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeParameters: tp,
@@ -5012,7 +5033,7 @@ ${typeToString(functionType)}
     // Instance type parameters
     const instanceTypeParameters: TTypeParameter[] = [];
     const instanceRegionParameters: TRegionParameter[] = [];
-    if (tokens[index].type === TokenType.LessThan) {
+    if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeParameters: tp,
@@ -5077,7 +5098,7 @@ ${typeToString(functionType)}
     // Parse class type arguments
     let typeArguments: Type[] = [];
     let regionArguments: Region[] = [];
-    if (tokens[index].type === TokenType.LessThan) {
+    if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeArguments: nextTypeArguments,
@@ -5284,7 +5305,7 @@ Got:      ${typeToString(matchedFunction.func)}`
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
     let regionParameters: TRegionParameter[] = [];
-    if (tokens[index].type === TokenType.LessThan) {
+    if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeParameters: tp,
@@ -5521,7 +5542,7 @@ ${operationName}: ${typeToString(
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
     let regionParameters: TRegionParameter[] = [];
-    if (tokens[index].type === TokenType.LessThan) {
+    if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeParameters: tp,
@@ -5737,18 +5758,14 @@ ${operationName}: ${typeToString(
     caller: TFunction;
     parserData: ParserData;
   }): ParserReturn {
-    if (
-      tokens[index].type !== TokenType.BitwiseAnd &&
-      tokens[index].type !== TokenType.MutableReference
-    ) {
+    if (tokens[index].value !== "&" && tokens[index].value !== "&!") {
       throw this.formatErrorMessage(
         tokens[index],
         "Expected '&' or '&!' for reference expression"
       );
     }
     const referenceTokenIndex = index;
-    const isMutableReference =
-      tokens[index].type === TokenType.MutableReference;
+    const isMutableReference = tokens[index].value === "&!";
     index = index + 1;
 
     const valueTokenIndex = index;
@@ -5921,7 +5938,7 @@ ${exprToString(expr)}`
     caller: TFunction;
     parserData: ParserData;
   }): ParserReturn {
-    if (tokens[index].type !== TokenType.Multiply) {
+    if (tokens[index].value !== "*") {
       throw this.formatErrorMessage(
         tokens[index],
         "Expected '*' for dereference expression"
@@ -6109,7 +6126,7 @@ ${exprToString(expr)}`
       // Parse effect type arguments
       let typeArguments: Type[] = [];
       let regionArguments: Region[] = [];
-      if (tokens[index].type === TokenType.LessThan) {
+      if (tokens[index].value === "<") {
         const {
           index: nextIndex,
           typeArguments: nextTypeArguments,
@@ -6688,7 +6705,7 @@ Please consider adding "Promise" to the return type.
 
         if (
           tokens[index].type !== TokenType.Identifier &&
-          tokens[index].type !== TokenType.Multiply
+          tokens[index].value !== "*"
         ) {
           throw this.formatErrorMessage(
             tokens[index],

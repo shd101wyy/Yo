@@ -111,11 +111,13 @@ The **Mo** language is heavily inspired by:
   - Keyword arguments
 - [C++](https://isocpp.org/)
   - Reference
-- [Scheme](https://www.scheme.com/)
+- [Scheme (Lisp)](https://www.scheme.com/)
   - `set!`
 - [Zig](https://ziglang.org/)
   - Compile time execution
   - `defer`
+- [Nim](https://nim-lang.org/)
+  - [Custom Operators](https://nim-lang.org/docs/manual.html#lexical-analysis-operators)
 
 Other languages that are worth mentioning that have influenced **Mo**:
 
@@ -176,19 +178,14 @@ A type can have the following **Kind**:
 #### `Free` Types
 
 - `boolean`
-- `u1` (1-bit unsigned integer)
-- `i1` (1-bit signed integer)
-- `i8` (8-bit signed integer)
 - `u8` (8-bit unsigned integer)
-- `i16` (16-bit signed integer)
 - `u16` (16-bit unsigned integer)
-- `i32` (32-bit signed integer)
 - `u32` (32-bit unsigned integer)
-- `i64` (64-bit signed integer)
 - `u64` (64-bit unsigned integer)
-- `i128` (128-bit signed integer)
-- `u128` (128-bit unsigned integer)
-- `f16` (16-bit floating point)
+- `i8` (8-bit signed integer)
+- `i16` (16-bit signed integer)
+- `i32` (32-bit signed integer)
+- `i64` (64-bit signed integer)
 - `f32` (32-bit floating point)
 - `f64` (64-bit floating point)
 - `char` (ASCII character)

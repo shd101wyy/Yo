@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import {
   AstType,
+  BinaryOperatorExpr,
   BlockExpr,
   CallFunctionExpr,
   Expr,
@@ -429,9 +430,41 @@ ${
     const functionType = expr.callee.typeValue as TFunction;
 
     // parse arguments
+    const { functionArgumentStringList, code: nextCode } =
+      this.getFunctionArgumentsStringList({
+        functionArguments: expr.functionArguments,
+        code,
+        indentation,
+      });
+    code = nextCode;
+
+    const callee = this.codegenExpr({
+      expr: expr.callee,
+      indentation,
+    });
+
+    code += `${indentation}${
+      expr.tempVariableName
+    } = ${callee}(${functionArgumentStringList
+      .map((argumentString, index) => {
+        return `${argumentString} /* ${functionType.parameterTypes[index].name} */`;
+      })
+      .join(", ")}); \n`;
+    return code;
+  }
+
+  getFunctionArgumentsStringList({
+    functionArguments,
+    code,
+    indentation,
+  }: {
+    functionArguments: Expr[];
+    code: string;
+    indentation: string;
+  }): { functionArgumentStringList: string[]; code: string } {
     const functionArgumentStringList: string[] = [];
-    for (let i = 0; i < expr.functionArguments.length; i++) {
-      const argument = expr.functionArguments[i];
+    for (let i = 0; i < functionArguments.length; i++) {
+      const argument = functionArguments[i];
       if ("tempVariableName" in argument) {
         code += this.codegenAssignment({
           variableId: argument.tempVariableName,
@@ -448,19 +481,30 @@ ${
         );
       }
     }
+    return {
+      functionArgumentStringList,
+      code,
+    };
+  }
 
-    const callee = this.codegenExpr({
-      expr: expr.callee,
-      indentation,
-    });
-
-    code += `${indentation}${
-      expr.tempVariableName
-    } = ${callee}(${functionArgumentStringList
-      .map((argumentString, index) => {
-        return `${argumentString} /* ${functionType.parameterTypes[index].name} */`;
-      })
-      .join(", ")}); \n`;
+  // TODO: Convert to function call
+  codegenBinaryOperator({
+    expr,
+    indentation,
+  }: {
+    expr: BinaryOperatorExpr;
+    indentation: string;
+  }): string {
+    let code: string = "";
+    const functionArguments = [expr.left, expr.right];
+    const { functionArgumentStringList, code: nextCode } =
+      this.getFunctionArgumentsStringList({
+        functionArguments: functionArguments,
+        code,
+        indentation,
+      });
+    code = nextCode;
+    code += `(${functionArgumentStringList[0]} ${expr.operator} ${functionArgumentStringList[1]})`;
     return code;
   }
 
@@ -532,13 +576,8 @@ ${
         return expr.variableId;
       }
       case AstType.BinaryOperator: {
-        return `(${this.codegenExpr({
-          expr: expr.left,
-          indentation,
-        })} ${expr.operator} ${this.codegenExpr({
-          expr: expr.right,
-          indentation,
-        })})`;
+        // TODO: Convert to function call
+        return this.codegenBinaryOperator({ expr, indentation });
       }
       case AstType.If: {
         return this.codegenIfExpression({ expr, indentation });
