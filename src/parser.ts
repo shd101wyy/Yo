@@ -18,7 +18,6 @@ import {
   PrimitiveValueExpr,
   exprToString,
   getTokenPrecedence,
-  isComparisonOperator,
   synthesizeRecordType,
 } from "./ast";
 import {
@@ -2945,9 +2944,12 @@ ${matchedFunctionErrors[i]}`
         left: LHS,
         right: RHS,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        /*
         typeValue: isComparisonOperator(binaryOperator)
           ? TypeValues.boolean
           : lhsType, // FIXME:
+        */
+        typeValue: lhsType,
         // const x = 1
         // x + 2  // give type 1
         env,

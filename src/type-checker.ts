@@ -1858,6 +1858,7 @@ export function applyTypeAndRegionArgumentsToExpr({
         }),
       };
     }
+    /*
     case AstType.UnaryOperator: {
       return {
         ...expr,
@@ -1875,6 +1876,7 @@ export function applyTypeAndRegionArgumentsToExpr({
         }),
       };
     }
+    */
     case AstType.BinaryOperator: {
       return {
         ...expr,

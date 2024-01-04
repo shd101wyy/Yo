@@ -1,5 +1,5 @@
 import { Environment } from "./env";
-import { Token, TokenType } from "./token";
+import { Token } from "./token";
 import {
   TBoolean,
   TClass,
@@ -118,7 +118,7 @@ export type Expr =
   | EnumExpr
   | ClassExpr
   | EffectExpr
-  | UnaryOperatorExpr
+  // | UnaryOperatorExpr
   | BinaryOperatorExpr
   | IsOperatorExpr
   | VariableExpr
@@ -265,6 +265,7 @@ export type IsOperatorExpr = {
   token: Token;
 };
 
+/*
 export type UnaryOperatorExpr = {
   type: AstType.UnaryOperator;
   operator: TokenType.LogicalNot;
@@ -273,6 +274,7 @@ export type UnaryOperatorExpr = {
   env: Environment;
   token: Token;
 };
+*/
 
 export type LetAssignmentExpr = {
   type: AstType.LetAssignment;
@@ -479,29 +481,18 @@ export type AwaitExpr = {
  * 1 is the lowest precedence
  */
 const BinopPrecedence: { [key: string]: number } = {
-  [TokenType.Equal]: 10,
-  [TokenType.NotEqual]: 10,
-  [TokenType.LessThan]: 20,
-  [TokenType.LessThanOrEqual]: 20,
-  [TokenType.GreaterThan]: 20,
-  [TokenType.GreaterThanOrEqual]: 20,
-  [TokenType.Add]: 30,
-  [TokenType.Subtract]: 30,
-  [TokenType.Multiply]: 40,
-  [TokenType.Divide]: 40,
-  [TokenType.Modulo]: 40,
+  ["=="]: 10,
+  ["!="]: 10,
+  ["<"]: 20,
+  ["<="]: 20,
+  [">"]: 20,
+  [">="]: 20,
+  ["+"]: 30,
+  ["-"]: 30,
+  ["*"]: 40,
+  ["/"]: 40,
+  ["%"]: 40,
 };
-
-export function isComparisonOperator(operatorToken: Token) {
-  return (
-    operatorToken.type === TokenType.LessThan ||
-    operatorToken.type === TokenType.LessThanOrEqual ||
-    operatorToken.type === TokenType.GreaterThan ||
-    operatorToken.type === TokenType.GreaterThanOrEqual ||
-    operatorToken.type === TokenType.Equal ||
-    operatorToken.type === TokenType.NotEqual
-  );
-}
 
 export function getTokenPrecedence(token: Token | undefined): number {
   if (!token) {
@@ -571,8 +562,10 @@ export function exprToString(expr: Expr, indentation = ""): string {
       return `${exprToString(expr.left)} ${expr.operator} ${exprToString(
         expr.right
       )}`;
-    case AstType.UnaryOperator:
+    /*
+      case AstType.UnaryOperator:
       return `${expr.operator}${exprToString(expr.expr)}`;
+    */
     case AstType.IsOperator:
       return `${exprToString(expr.left)} is ${typeToString(expr.right)}`;
     case AstType.LetAssignment:

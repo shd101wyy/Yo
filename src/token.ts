@@ -114,6 +114,7 @@ export interface Token {
      */
     character: number;
   };
+  infixPrecedence?: number;
 }
 
 export const Operators = [
