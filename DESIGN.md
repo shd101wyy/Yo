@@ -627,7 +627,7 @@ let deferExample = ()-> {
 
 ### `recur`
 
-Use the `recur` to call the function recursively.    
+Use the `recur` to call the function recursively.  
 This is useful for anonymous function.  
 If `recur` is the last expression, tail-call optimization will be applied.
 
@@ -1507,13 +1507,14 @@ import { test } from "./test.mo"; // Import test function from test.mo
 import { test as test2 } from "./test.mo"; // Import test function from test.mo and rename it to test2
 
 import { Option } from "./test.mo"; // Import Option enum from test.mo
-import { Option{Some, None} } from "./test.mo"; // Unwrap Some and None variant from Option enum from test.mo
-import { Option{*} } from "./test.mo"; // Unwrap all variants from Option enum from test.mo
+import { Option: {Some, None} } from "./test.mo"; // Unwrap Some and None variant from Option enum from test.mo
+import { Option: {*} } from "./test.mo"; // Unwrap all variants from Option enum from test.mo
+import { Option as AnotherOption: {*} } from "./test.mo"; // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
 
 // All exported instances are implicitly imported.
 import { id } from "./test.mo"; // Import `id` function from Id<i32> instance from test.mo
-import { Id{id} } // Unwrap `id` function from Id<i32> instance from test.mo
-import { Id{*} } // Unwrap all functions from Id<i32> instance from test.mo
+import { Id: {id} } // Unwrap `id` function from Id<i32> instance from test.mo
+import { Id: {*} } // Unwrap all functions from Id<i32> instance from test.mo
 ```
 
 `mo.json` and `mo.lock`
