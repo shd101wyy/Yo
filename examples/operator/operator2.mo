@@ -1,6 +1,7 @@
 infixl 60 +;   // Addition
 infixl 70 *;   // Multiplication
 
+/*
 extern "Mo" {
   @codegen: (C = char[])-> ();
 }
@@ -21,3 +22,4 @@ let main = ()-> i32 {
   let value = 2 + 3 * 4;
   value
 }
+*/

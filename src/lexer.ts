@@ -24,8 +24,10 @@ export function tokenize(input: string): Token[] {
       // Skip comments
       operator !== "//" &&
       operator != "/*" &&
-      // Skip symbol
-      !(operator === "@" && input[i + 1] === '"')
+      // Skip symbol with ""
+      !(operator === "@" && input[i + 1] === '"') &&
+      // Skip symbol without ""
+      !(operator === "@" && input[i + 1].match(/[a-zA-Z]/))
     ) {
       if (operator === ".") {
         tokens.push({
@@ -87,6 +89,27 @@ export function tokenize(input: string): Token[] {
           }
           line++;
           totalCharacters = i + 1;
+        } else if (input[i + 1] === "*") {
+          // multi line comment
+          i = i + 2;
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            // ignore the rest of the comment
+            if (input[i] === "\n") {
+              line++;
+              totalCharacters = i + 1;
+            }
+            if (
+              (input[i] === "*" && input[i + 1] === "/") ||
+              i >= input.length - 1
+            ) {
+              break;
+            }
+            i++;
+          }
+          i += 1;
+        } else {
+          throw new Error(`Unexpected character ${char}`);
         }
         break;
       case "#":
@@ -209,6 +232,22 @@ export function tokenize(input: string): Token[] {
           for (let j = i + 2; j < input.length; j++) {
             if (input[j] === '"') {
               i = j;
+              break;
+            }
+
+            value += input[j];
+          }
+
+          tokens.push({
+            type: TokenType.Symbol,
+            value,
+            position: { line, character: i - totalCharacters },
+          });
+        } else if (input[i + 1].match(/[a-zA-Z]/)) {
+          let value = "";
+          for (let j = i + 1; j < input.length; j++) {
+            if (!input[j].match(/[a-zA-Z]/)) {
+              i = j - 1;
               break;
             }
 

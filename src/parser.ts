@@ -25,6 +25,7 @@ import {
   ReferedVariable,
   ValueType,
   addEnvFreeVariable,
+  addEnvOperatorPrecedence,
   addEnvValueType,
   copyEnvironment,
   createNewEnv,
@@ -6537,6 +6538,67 @@ Please consider adding "Promise" to the return type.
     };
   }
 
+  private parseInfixPrecedenceExpr({
+    tokens,
+    index,
+    env,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+  }): ParserReturn {
+    if (
+      tokens[index].type !== TokenType.Infix &&
+      tokens[index].type !== TokenType.Infixl &&
+      tokens[index].type !== TokenType.Infixr
+    ) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected 'infix', 'infixl', or 'infixr' operator"
+      );
+    }
+    const infixToken = tokens[index];
+    index = index + 1;
+
+    if (tokens[index].type !== TokenType.Integer) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected positive integer for infix operator precedence"
+      );
+    }
+    const precedence = parseInt(tokens[index].value);
+    if (isNaN(precedence) || precedence <= 0) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected positive integer for infix operator precedence"
+      );
+    }
+
+    index = index + 1;
+    if (tokens[index].type !== TokenType.Operator) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected operator for infix operator"
+      );
+    }
+    const operator = tokens[index].value;
+    index = index + 1;
+
+    const nextEnv = addEnvOperatorPrecedence(env, operator, precedence);
+    return {
+      expr: {
+        type: AstType.Infix,
+        associativity: infixToken.value as "infix" | "infixl" | "infixr",
+        operator,
+        precedence,
+        env: nextEnv,
+        token: infixToken,
+        typeValue: TypeValues.unit,
+      },
+      index,
+    };
+  }
+
   private parseExportExpr({
     tokens,
     index,
@@ -7093,6 +7155,21 @@ Please consider adding "Promise" to the return type.
         }
         case TokenType.Import: {
           const { expr, index: nextIndex } = this.parseImportExpr({
+            tokens,
+            index,
+            env,
+          });
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = expr.env;
+          break;
+        }
+        case TokenType.Infix:
+        case TokenType.Infixl:
+        case TokenType.Infixr: {
+          const { expr, index: nextIndex } = this.parseInfixPrecedenceExpr({
             tokens,
             index,
             env,

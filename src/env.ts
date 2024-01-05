@@ -198,6 +198,7 @@ export type Environment = {
   freeVariables: ValueType[];
   frames: Frame[];
   modulePath: string;
+  operatorPrecedenceMap: { [key: string]: number };
 };
 
 export function copyEnvironment(
@@ -211,6 +212,7 @@ export function copyEnvironment(
     frames: [...env.frames],
     freeVariables: [...freeVariables],
     modulePath: env.modulePath,
+    operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
 }
 
@@ -226,6 +228,7 @@ export function pushEnvFrame(
     freeVariables: env.freeVariables,
     frames: [...env.frames, frame],
     modulePath: env.modulePath,
+    operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
 }
 
@@ -304,6 +307,7 @@ ${typeToString(value.type)}${
     freeVariables: env.freeVariables,
     frames: env.frames.slice(0, -1),
     modulePath: env.modulePath,
+    operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
 }
 
@@ -341,6 +345,7 @@ export function addEnvValueType({
     freeVariables: env.freeVariables,
     frames: newFrames,
     modulePath: env.modulePath,
+    operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
   return { env: newEnv, value: value };
 }
@@ -361,6 +366,7 @@ export function updateExistingValueType(
     freeVariables: env.freeVariables,
     frames,
     modulePath: env.modulePath,
+    operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
 }
 
@@ -373,6 +379,24 @@ export function addEnvFreeVariable(
     freeVariables: Array.from(new Set([...env.freeVariables, valueType])),
     frames: env.frames,
     modulePath: env.modulePath,
+    operatorPrecedenceMap: env.operatorPrecedenceMap,
+  };
+}
+
+export function addEnvOperatorPrecedence(
+  env: Environment,
+  operator: string,
+  precedence: number
+): Environment {
+  return {
+    functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
+    freeVariables: env.freeVariables,
+    frames: env.frames,
+    modulePath: env.modulePath,
+    operatorPrecedenceMap: {
+      ...env.operatorPrecedenceMap,
+      [operator]: precedence,
+    },
   };
 }
 
@@ -771,6 +795,7 @@ export function createNewEnv(modulePath: string): Environment {
     ],
     freeVariables: [],
     modulePath,
+    operatorPrecedenceMap: {},
   };
 }
 
@@ -942,5 +967,6 @@ export function createTopLevelEnv(
     frames: env.frames.slice(0, 1 + delta),
     freeVariables: [],
     modulePath: env.modulePath,
+    operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
 }
