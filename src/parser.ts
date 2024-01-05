@@ -3689,6 +3689,7 @@ ${exprToString(expr)}\n`,
         index,
         env,
         inputString: this.inputString,
+        functionName: variableName,
         parseExpression: this.makeParseExpression({ caller, parserData }),
       });
       index = nextIndex;
@@ -4248,8 +4249,6 @@ ${typeToString(caseReturnType)}
         variableName = tokens[index + 1].value;
         operatorPrecedence = getEnvOperatorPrecedence(env, variableName);
         index = index + 3;
-
-        console.log(`${variableName} ${JSON.stringify(operatorPrecedence)}`);
       } else {
         throw this.formatErrorMessage(
           tokens[index],

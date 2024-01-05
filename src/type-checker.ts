@@ -579,12 +579,14 @@ export function synthesizeTypeFromTokens({
   index,
   inputString,
   env,
+  functionName,
   parseExpression,
 }: {
   tokens: Token[];
   index: number;
   inputString: string;
   env: Environment;
+  functionName?: string;
   parseExpression: ParseExpression;
 }): { typeValue: Type; index: number; env: Environment } {
   let returnValue: {
@@ -627,6 +629,7 @@ export function synthesizeTypeFromTokens({
         env,
         parseExpression,
         withFunctionBody: false,
+        functionName,
       });
     } catch (error) {
       // console.error(error);
@@ -1890,29 +1893,6 @@ export function applyTypeAndRegionArgumentsToExpr({
       };
     }
     */
-    case AstType.BinaryOperator: {
-      return {
-        ...expr,
-        typeValue: applyTypeAndRegionArgumentsToType({
-          env,
-          type: expr.typeValue,
-          typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
-        }),
-        left: applyTypeAndRegionArgumentsToExpr({
-          expr: expr.left,
-          env,
-          typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
-        }),
-        right: applyTypeAndRegionArgumentsToExpr({
-          expr: expr.right,
-          env,
-          typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
-        }),
-      };
-    }
     case AstType.Variable: {
       return {
         ...expr,
@@ -2578,8 +2558,8 @@ export function synthesizeFunctionTypeFromTokens({
         type: "Function",
         kind: "Free",
         functionId:
-          functionName === "main"
-            ? "main"
+          functionName === "main" || functionName?.startsWith("@") // compiletime functions
+            ? functionName
             : generateValueTypeId(env, functionName ?? "anonymousFunction"),
         parameterTypes,
         typeParameters,

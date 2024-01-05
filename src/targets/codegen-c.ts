@@ -1,7 +1,6 @@
 import { createHash } from "crypto";
 import {
   AstType,
-  BinaryOperatorExpr,
   BlockExpr,
   CallFunctionExpr,
   Expr,
@@ -10,6 +9,7 @@ import {
 } from "../ast";
 import { Emitter } from "../emitter";
 import { generateModuleId } from "../env";
+import * as logger from "../logger";
 import {
   Region,
   TFunction,
@@ -128,6 +128,9 @@ export class CodeGeneratorC {
       case "char": {
         return `'${value}'`;
       }
+      case "string": {
+        return JSON.stringify(value);
+      }
       case "u8": {
         // cast to uint8_t
         return `((uint8_t)${value})`;
@@ -233,6 +236,48 @@ export class CodeGeneratorC {
     });
     newFunctionExpr.typeValue.functionId = functionKey;
     this.generatedFunctionKeySet.add(functionKey);
+
+    // Check if the first expr in the function body
+    // is @codegen function call.
+    const firstExpr = newFunctionExpr.body.exprs[0];
+    if (
+      firstExpr.type === AstType.CallFunction &&
+      firstExpr.callee.typeValue.type === "Function"
+    ) {
+      const calleeFunctionType = firstExpr.callee.typeValue as TFunction;
+      if (calleeFunctionType.functionId === "@codegen") {
+        // Get the first argument
+        const firstArgument = firstExpr.functionArguments[0];
+        if (
+          firstArgument.type === AstType.Value &&
+          firstArgument.tag === "primitive"
+        ) {
+          const codegenTemplate = firstArgument.value;
+          const args: string[] = [
+            functionKey,
+            ...calleeType.parameterTypes.map(
+              (parameter) => parameter.parameterId
+            ),
+          ];
+          const functionCode = codegenTemplate.replace(/\$\d+/g, (match) => {
+            const argIndex = parseInt(match.slice(1));
+            if (isNaN(argIndex)) {
+              throw new Error(`Invalid codegen template: ${match}`);
+            }
+            if (argIndex >= args.length) {
+              throw new Error(
+                `Invalid codegen template: ${match} is out of range`
+              );
+            }
+            return args[argIndex];
+          });
+          logger.debug(`codegenTemplate: |${codegenTemplate}|`);
+          logger.debug(`functionCode: |${functionCode}|`);
+          this.emitter.emit(functionCode);
+          return functionKey;
+        }
+      }
+    }
 
     const functionCode = this.codegenFunction({
       expr: newFunctionExpr,
@@ -487,27 +532,6 @@ ${
     };
   }
 
-  // TODO: Convert to function call
-  codegenBinaryOperator({
-    expr,
-    indentation,
-  }: {
-    expr: BinaryOperatorExpr;
-    indentation: string;
-  }): string {
-    let code: string = "";
-    const functionArguments = [expr.left, expr.right];
-    const { functionArgumentStringList, code: nextCode } =
-      this.getFunctionArgumentsStringList({
-        functionArguments: functionArguments,
-        code,
-        indentation,
-      });
-    code = nextCode;
-    code += `(${functionArgumentStringList[0]} ${expr.operator} ${functionArgumentStringList[1]})`;
-    return code;
-  }
-
   codegenExpr({
     expr,
     indentation,
@@ -575,15 +599,18 @@ ${
       case AstType.Variable: {
         return expr.variableId;
       }
-      case AstType.BinaryOperator: {
-        // TODO: Convert to function call
-        return this.codegenBinaryOperator({ expr, indentation });
-      }
       case AstType.If: {
         return this.codegenIfExpression({ expr, indentation });
       }
       case AstType.CallFunction: {
         return this.codegenCallFunction({ expr, indentation });
+      }
+      case AstType.Extern: {
+        // TODO: Support "C"
+        if (expr.language === "mo") {
+          return "";
+        }
+        return "";
       }
       default: {
         throw new Error(`Unimplemented expr type "${expr.type}"`);
