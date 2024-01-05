@@ -2177,8 +2177,18 @@ Got:      <${appliedTypeArguments
     caller: TFunction;
     parserData: ParserData;
   }): ParserReturn {
-    const identifierTokenIndex = index;
-    const identifier = tokens[index].value;
+    let identifierTokenIndex = index;
+    let identifier = tokens[index].value;
+
+    if (
+      tokens[index].type === TokenType.LParen &&
+      tokens[index + 1]?.type === TokenType.Operator &&
+      tokens[index + 2]?.type === TokenType.RParen
+    ) {
+      identifierTokenIndex = index + 1;
+      identifier = tokens[index + 1].value;
+      index = index + 2;
+    }
 
     // Check if variable is defined
     const valueTypes = [
@@ -2188,7 +2198,7 @@ Got:      <${appliedTypeArguments
     ];
     if (valueTypes.length === 0) {
       throw this.formatErrorMessage(
-        tokens[index],
+        tokens[identifierTokenIndex],
         `Unbounded variable \`${identifier}\``
       );
     }
@@ -2210,7 +2220,7 @@ Got:      <${appliedTypeArguments
       // FIXME: Support this
       if (matchedTypeclasses.length > 1) {
         throw this.formatErrorMessage(
-          tokens[index],
+          tokens[identifierTokenIndex],
           `Ambiguous typeclasses "${identifier}"
 Found possible typeclasses:
 - ${matchedTypeclasses
@@ -2223,7 +2233,7 @@ Found possible typeclasses:
         const class_ = typeclass.class;
         if (!class_) {
           throw this.formatErrorMessage(
-            tokens[index],
+            tokens[identifierTokenIndex],
             `Expected class, but got ${typeToString(typeclass.type)}`
           );
         }
@@ -2663,18 +2673,21 @@ ${matchedFunctionErrors[i]}`
         caller,
         parserData,
       });
+    } else if (
+      token.type === TokenType.Identifier ||
+      (tokens[index].type === TokenType.LParen &&
+        tokens[index + 1]?.type === TokenType.Operator &&
+        tokens[index + 2]?.type === TokenType.RParen)
+    ) {
+      returnValue = this.parseIdentifierExpr({
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
     } else {
       switch (token.type) {
-        case TokenType.Identifier: {
-          returnValue = this.parseIdentifierExpr({
-            tokens,
-            index,
-            env,
-            caller,
-            parserData,
-          });
-          break;
-        }
         case TokenType.Symbol: {
           returnValue = this.parseSymbolExpr({
             tokens,
