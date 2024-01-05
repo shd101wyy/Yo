@@ -1,4 +1,5 @@
 import { Environment } from "./env";
+import { stringIsOperator } from "./operator";
 import { Token } from "./token";
 import {
   TBoolean,
@@ -34,7 +35,6 @@ export enum AstType {
   Dereference = "dereference",
 
   // operators
-  BinaryOperator = "binop",
   UnaryOperator = "unop",
   IsOperator = "isop",
 
@@ -122,7 +122,6 @@ export type Expr =
   | ClassExpr
   | EffectExpr
   // | UnaryOperatorExpr
-  | BinaryOperatorExpr
   | IsOperatorExpr
   | VariableExpr
   | ReferenceExpr
@@ -246,16 +245,6 @@ export type IndexAccessExpr = {
   expr: Expr;
   typeValue: Type;
   isMutable: boolean;
-  env: Environment;
-  token: Token;
-};
-
-export type BinaryOperatorExpr = {
-  type: AstType.BinaryOperator;
-  operator: OperatorType;
-  left: Expr;
-  right: Expr;
-  typeValue: Type;
   env: Environment;
   token: Token;
 };
@@ -496,34 +485,6 @@ export type InfixPrecedenceExpr = {
   operator: string;
 };
 
-/**
- * 1 is the lowest precedence
- */
-const BinopPrecedence: { [key: string]: number } = {
-  ["=="]: 10,
-  ["!="]: 10,
-  ["<"]: 20,
-  ["<="]: 20,
-  [">"]: 20,
-  [">="]: 20,
-  ["+"]: 30,
-  ["-"]: 30,
-  ["*"]: 40,
-  ["/"]: 40,
-  ["%"]: 40,
-};
-
-export function getTokenPrecedence(token: Token | undefined): number {
-  if (!token) {
-    return -1;
-  }
-  if (token.type in BinopPrecedence) {
-    return BinopPrecedence[token.type];
-  } else {
-    return -1;
-  }
-}
-
 export function synthesizeRecordType(
   properties: {
     name: string;
@@ -573,6 +534,9 @@ export function exprToString(expr: Expr, indentation = ""): string {
           throw new Error(`Unknown value tag ${expr}`);
       }
     case AstType.Variable:
+      if (stringIsOperator(expr.variableName)) {
+        return `(${expr.variableName})`;
+      }
       return expr.variableName;
     case AstType.PropertyAccess:
       return `${exprToString(expr.expr)}.${expr.propertyName}`;
@@ -580,10 +544,6 @@ export function exprToString(expr: Expr, indentation = ""): string {
       return `${exprToString(expr.expr)}[${expr.indexes
         .map((expr) => exprToString(expr))
         .join(", ")}]`;
-    case AstType.BinaryOperator:
-      return `${exprToString(expr.left)} ${expr.operator} ${exprToString(
-        expr.right
-      )}`;
     /*
       case AstType.UnaryOperator:
       return `${expr.operator}${exprToString(expr.expr)}`;
@@ -591,7 +551,11 @@ export function exprToString(expr: Expr, indentation = ""): string {
     case AstType.IsOperator:
       return `${exprToString(expr.left)} is ${typeToString(expr.right)}`;
     case AstType.LetAssignment:
-      return `let${expr.isMutable ? " mut" : ""} ${expr.variableName}${
+      return `let${expr.isMutable ? " mut" : ""} ${
+        stringIsOperator(expr.variableName)
+          ? `(${expr.variableName})`
+          : expr.variableName
+      }${
         expr.variableType.type === "Function"
           ? ""
           : `: ${typeToString(expr.variableType, {

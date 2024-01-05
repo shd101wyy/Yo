@@ -16,7 +16,6 @@ import {
   LetAssignmentExpr,
   MatchCase,
   exprToString,
-  getTokenPrecedence,
   synthesizeRecordType,
 } from "./ast";
 import {
@@ -49,7 +48,7 @@ import { formatErrorMessage, formatErrorMessages } from "./error";
 import { tokenize } from "./lexer";
 import * as logger from "./logger";
 import { isUpperCamelCase } from "./naming-checker";
-import { OperatorPrecedence } from "./operator";
+import { OperatorPrecedence, stringIsOperator } from "./operator";
 import { Token, TokenType } from "./token";
 import {
   ParseExpression,
@@ -3018,16 +3017,25 @@ ${matchedFunctionErrors[i]}`
     // if it's binop, find its precedence
     while (true) {
       const token = tokens[index];
-      const tokenPrecedence = getTokenPrecedence(token);
 
-      // If this is a binop that binds at least as tightly as the current binop,
-      // consume it, otherwise we are done.
-      if (tokenPrecedence < exprPrecedence) {
+      // Not an operator
+      if (!token || !stringIsOperator(token.value)) {
+        return { expr: LHS, index };
+      }
+
+      const operatorString: string = token.value;
+      const operatorPrecendence = getEnvOperatorPrecedence(env, operatorString);
+      if (!operatorPrecendence) {
+        // operator not found
+        return { expr: LHS, index };
+      } else if (operatorPrecendence.precedence < exprPrecedence) {
+        // If this is a binop that binds at least as tightly as the current binop,
+        // consume it, otherwise we are done.
         return { expr: LHS, index };
       }
 
       // Okay, we know this is a binop
-      const binaryOperator = token;
+      const binaryOperatorToken = token;
       index = index + 1; // eat binop
 
       // eslint-disable-next-line prefer-const
@@ -3045,11 +3053,19 @@ ${matchedFunctionErrors[i]}`
       // If BinOp binds less tightly with RHS than the operator after RHS, let
       // the pending operator take RHS as its LHS.
       const nextToken = tokens[nextIndex];
-      const nextTokenPrecedence = getTokenPrecedence(nextToken);
-      if (tokenPrecedence < nextTokenPrecedence) {
+      const nextOperatorString = nextToken.value;
+      const nextOperatorPrecedence: OperatorPrecedence | undefined =
+        stringIsOperator(nextOperatorString)
+          ? getEnvOperatorPrecedence(env, nextOperatorString)
+          : undefined;
+
+      if (
+        nextOperatorPrecedence &&
+        operatorPrecendence.precedence < nextOperatorPrecedence.precedence
+      ) {
         const { expr, index: nextNextIndex } = this.parseBinOpRHS({
           tokens,
-          exprPrecedence: tokenPrecedence + 1,
+          exprPrecedence: operatorPrecendence.precedence + 1,
           LHS: RHS,
           index: nextIndex,
           env,
@@ -3065,42 +3081,142 @@ ${matchedFunctionErrors[i]}`
         index = nextIndex;
       }
 
-      // Merge LHS/RHS
-      /*
-      const needsSwap = [
-        TokenType.GreaterThan,
-        TokenType.GreaterThanOrEqual,
-      ].includes(binaryOperator.value as TokenType);
-      let operator = binaryOperator.value as TokenType;
-      if (needsSwap) {
-        if (operator === TokenType.GreaterThan) {
-          operator = TokenType.LessThan;
-        } else if (operator === TokenType.GreaterThanOrEqual) {
-          operator = TokenType.LessThanOrEqual;
+      // Find the infix function
+      const valueTypes = getEnvValueTypesByVariableName(
+        env,
+        operatorString,
+        "value"
+      );
+      const matchedFunctions = valueTypes.filter(
+        (valueType) => valueType.type.type === "Function"
+      );
+      const matchedFunctionErrors: Error[] = [];
+      // Try all matchedFunctions to see if there is a match
+      const parserReturns: ParserReturn[] = [];
+      const parsedFunctions: ValueType[] = [];
+      for (const matchedFunction of matchedFunctions) {
+        try {
+          const functionType = matchedFunction.type as TFunction;
+          const {
+            functionArguments,
+            functionTypeArguments,
+            functionRegionArguments,
+          } = getFunctionArgumentsInOrder(
+            functionType,
+            functionType.parameterTypes,
+            [LHS, RHS],
+            [],
+            env
+          );
+          if (!functionArguments) {
+            throw this.formatErrorMessage(
+              binaryOperatorToken,
+              `Mismatched function arguments.
+Expected: (${functionType.parameterTypes
+                .map(
+                  (parameter) =>
+                    (parameter.name ? `${parameter.name}: ` : "") +
+                    typeToString(parameter.type, {
+                      hideTypeParameterKind: true,
+                    })
+                )
+                .join(", ")})
+Got:      (${[LHS, RHS]
+                .map((arg) => {
+                  return typeToString(arg.typeValue, {
+                    hideTypeParameterKind: true,
+                  });
+                })
+                .join(", ")})`
+            );
+          }
+          if (!functionTypeArguments || !functionRegionArguments) {
+            throw this.formatErrorMessage(
+              binaryOperatorToken,
+              `Mismatched type arguments.
+Expected: <${functionType.typeParameters
+                .map((typeParameter) => `${typeToString(typeParameter)}`)
+                .join(", ")}>
+Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
+            );
+          }
+
+          const newFunctionType = applyTypeAndRegionArgumentsToType({
+            env,
+            type: { ...functionType },
+            typeArguments: functionTypeArguments,
+            regionArguments: functionRegionArguments,
+            typeParameterToTypeArgumentMap: {},
+            regionParameterToRegionArgumentMap: {},
+          }) as TFunction;
+          // save the return value to a temporary variable
+          const returnType = newFunctionType.returnType;
+          const { env: nextNextEnv, value: tempVariable } =
+            this.generateTempVariableForHoldingValue({
+              env,
+              token: binaryOperatorToken,
+              valueType: returnType,
+            });
+          parserReturns.push({
+            expr: {
+              type: AstType.CallFunction,
+              callee: {
+                type: AstType.Variable,
+                variableName: operatorString,
+                variableId: matchedFunction.id,
+                frameLevel: matchedFunction.frameLevel,
+                typeValue: newFunctionType,
+                env,
+                isMutable: false,
+                token: binaryOperatorToken,
+              },
+              functionArguments: [LHS, RHS],
+              typeValue: newFunctionType.returnType,
+              env: nextNextEnv,
+              token: binaryOperatorToken,
+              tempVariableName: tempVariable.variableName,
+            },
+            index,
+          });
+          parsedFunctions.push(matchedFunction);
+        } catch (error) {
+          // console.error(error);
+          // Ignore the error
+          matchedFunctionErrors.push(error);
         }
       }
-      const lhsType = convertPrimitiveToType((needsSwap ? RHS : LHS).typeValue);
-*/
-      const operator = binaryOperator.value as TokenType;
-      const lhsType = convertPrimitiveToType(LHS.typeValue);
-      LHS = {
-        type: AstType.BinaryOperator,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        operator: operator as any,
-        left: LHS,
-        right: RHS,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        /*
-        typeValue: isComparisonOperator(binaryOperator)
-          ? TypeValues.boolean
-          : lhsType, // FIXME:
-        */
-        typeValue: lhsType,
-        // const x = 1
-        // x + 2  // give type 1
-        env,
-        token: binaryOperator,
-      };
+
+      if (parserReturns.length === 0) {
+        throw this.formatErrorMessage(
+          binaryOperatorToken,
+          `Cannot find function '${operatorString}'
+Below are the possible functions:
+
+${matchedFunctions
+  .map(
+    (func, i) => `- ${func.variableName}: ${typeToString(func.type)}
+
+${matchedFunctionErrors[i]}`
+  )
+  .join("\n")}
+          `
+        );
+      } else if (parserReturns.length > 1) {
+        throw this.formatErrorMessage(
+          binaryOperatorToken,
+          `Ambiguous function "${operatorString}"
+Found possible functions:
+- ${parsedFunctions
+            .map(
+              (func, i) => `${func.variableName}: ${typeToString(func.type)}
+
+${matchedFunctionErrors[i]}`
+            )
+            .join("\n- ")}`
+        );
+      } else {
+        LHS = parserReturns[0].expr;
+      }
     }
   }
 
