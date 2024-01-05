@@ -44,6 +44,11 @@ export type TChar = {
   kind: "Free";
 };
 
+export type TString = {
+  type: "string";
+  kind: "Free";
+};
+
 export type TIsize = {
   type: "isize";
   kind: "Free";
@@ -129,6 +134,7 @@ export type TPrimitive =
   | TUnit
   | TBoolean
   | TChar
+  | TString
   | TU8
   | TI8
   | TU16
@@ -350,6 +356,7 @@ export type Type =
   | TUnit
   | TBoolean
   | TChar
+  | TString
   | TU8
   | TU16
   | TU32
@@ -389,6 +396,7 @@ export const TypeValues: {
   unit: TUnit;
   boolean: TBoolean;
   char: TChar;
+  string: TString;
   u8: TU8;
   u16: TU16;
   u32: TU32;
@@ -412,6 +420,7 @@ export const TypeValues: {
   unit: { type: "()", kind: "Free" },
   boolean: { type: "boolean", kind: "Free" },
   char: { type: "char", kind: "Free" },
+  string: { type: "string", kind: "Free" },
   u8: { type: "u8", kind: "Free" },
   u16: { type: "u16", kind: "Free" },
   u32: { type: "u32", kind: "Free" },
@@ -797,6 +806,10 @@ export function synthesizeTypeFromTokens({
       }
       case "char": {
         typeValue = TypeValues.char;
+        break;
+      }
+      case "string": {
+        typeValue = TypeValues.string;
         break;
       }
       case "u8": {
@@ -2914,6 +2927,9 @@ export function typeToString(
     }
     case "char": {
       return "char";
+    }
+    case "string": {
+      return "string";
     }
     case "u8": {
       return "u8";

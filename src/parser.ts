@@ -15,7 +15,6 @@ import {
   IfCase,
   LetAssignmentExpr,
   MatchCase,
-  PrimitiveValueExpr,
   exprToString,
   getTokenPrecedence,
   synthesizeRecordType,
@@ -306,6 +305,24 @@ export default class Parser {
   }): ParserReturn {
     const token = tokens[index];
     if (token.type === TokenType.String) {
+      return {
+        expr: {
+          type: AstType.Value,
+          tag: "primitive",
+          value: token.value,
+          typeValue: {
+            type: "string",
+            kind: "Free",
+            tag: "primitive",
+            value: token.value,
+          },
+          env,
+          token: tokens[index],
+        },
+        index: index + 1,
+      };
+
+      /*
       const end: PrimitiveValueExpr = {
         type: AstType.Value,
         tag: "primitive",
@@ -349,60 +366,9 @@ export default class Parser {
         },
         index: index + 1,
       };
+      */
     } else {
       throw this.formatErrorMessage(token, "Expected string");
-    }
-  }
-
-  private parseSymbolExpr({
-    tokens,
-    index,
-    env,
-  }: {
-    tokens;
-    index;
-    env;
-  }): ParserReturn {
-    const token = tokens[index];
-    if (token.type === TokenType.Symbol) {
-      if (
-        tokens[index + 1]?.type === TokenType.As &&
-        tokens[index + 2]?.type === TokenType.Const
-      ) {
-        return {
-          expr: {
-            type: AstType.Value,
-            env,
-            tag: "primitive",
-            value: token.value,
-            typeValue: {
-              type: "symbol",
-              kind: "Free",
-              value: token.value,
-              tag: "primitive",
-            },
-            token: tokens[index],
-          },
-          index: index + 3,
-        };
-      } else {
-        return {
-          expr: {
-            type: AstType.Value,
-            env,
-            tag: "primitive",
-            value: token.value,
-            typeValue: {
-              type: "symbol",
-              kind: "Free",
-            },
-            token: tokens[index],
-          },
-          index: index + 1,
-        };
-      }
-    } else {
-      throw this.formatErrorMessage(token, "Expected symbol");
     }
   }
 
@@ -2484,6 +2450,166 @@ ${matchedFunctionErrors[i]}`
     };
   }
 
+  private parseSymbolValue({
+    tokens,
+    index,
+    env,
+  }: {
+    tokens;
+    index;
+    env;
+  }): ParserReturn {
+    const token = tokens[index];
+    if (token.type === TokenType.Symbol) {
+      if (
+        tokens[index + 1]?.type === TokenType.As &&
+        tokens[index + 2]?.type === TokenType.Const
+      ) {
+        return {
+          expr: {
+            type: AstType.Value,
+            env,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "symbol",
+              kind: "Free",
+              value: token.value,
+              tag: "primitive",
+            },
+            token: tokens[index],
+          },
+          index: index + 3,
+        };
+      } else {
+        return {
+          expr: {
+            type: AstType.Value,
+            env,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "symbol",
+              kind: "Free",
+            },
+            token: tokens[index],
+          },
+          index: index + 1,
+        };
+      }
+    } else {
+      throw this.formatErrorMessage(token, "Expected symbol");
+    }
+  }
+
+  private parseSymbolExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    const symbolTokenIndex = index;
+    if (tokens[index].type !== TokenType.Symbol) {
+      throw this.formatErrorMessage(tokens[index], "Expected symbol");
+    }
+    const symbol = `@${tokens[index].value}`;
+
+    // Check if variable is defined
+    const valueTypes = getEnvValueTypesByVariableName(env, symbol, "value");
+    if (valueTypes.length === 0) {
+      return this.parseSymbolValue({ tokens, index, env });
+    }
+
+    const matchedFunctions = valueTypes.filter(
+      (valueType) => valueType.type.type === "Function"
+    );
+    const matchedFunctionErrors: Error[] = [];
+    // Check if it's a function
+    // - test(1) Normal function call
+    // - test { 12 } Trailing lambda
+    // - test { 12 } { 13 } Trailing lambdas
+    // - test (x)=> { x + 1 } Trailing lambda
+    if (
+      tokens[index + 1]?.type === TokenType.LParen ||
+      tokens[index + 1]?.type === TokenType.LCurlyBracket ||
+      tokens[index + 1]?.value === "<"
+    ) {
+      // Try all matchedFunctions to see if there is a match
+      const parserReturns: ParserReturn[] = [];
+      const parsedFunctions: ValueType[] = [];
+      for (const functionType of matchedFunctions) {
+        try {
+          parserReturns.push(
+            this.parseCallFunctionExpr({
+              callee: {
+                type: AstType.Variable,
+                variableName: symbol,
+                variableId: functionType.id,
+                frameLevel: functionType.frameLevel,
+                typeValue: functionType.type,
+                env,
+                isMutable: false,
+                token: tokens[symbolTokenIndex],
+              },
+              tokens,
+              index: index + 1,
+              env,
+              caller,
+              parserData,
+            })
+          );
+          parsedFunctions.push(functionType);
+        } catch (error) {
+          // console.error(error);
+          // Ignore the error
+          matchedFunctionErrors.push(error);
+        }
+      }
+
+      if (parserReturns.length === 0) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Cannot find function "${symbol}"
+Below are the possible functions:
+
+${matchedFunctions
+  .map(
+    (func, i) => `- ${func.variableName}: ${typeToString(func.type)}
+  
+${matchedFunctionErrors[i]}`
+  )
+  .join("\n")}
+          `
+        );
+      } else if (parserReturns.length > 1) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Ambiguous function "${symbol}"
+Found possible functions:
+- ${parsedFunctions
+            .map(
+              (func, i) => `${func.variableName}: ${typeToString(func.type)}
+ 
+${matchedFunctionErrors[i]}`
+            )
+            .join("\n- ")}`
+        );
+      } else {
+        // FIXME: Might need to check `isFreeVariable` here as well
+        return parserReturns[0];
+      }
+    } else {
+      return this.parseSymbolValue({ tokens, index, env });
+    }
+  }
+
   /**
    * primary
    *   ::= identifierexpr
@@ -2548,6 +2674,16 @@ ${matchedFunctionErrors[i]}`
           });
           break;
         }
+        case TokenType.Symbol: {
+          returnValue = this.parseSymbolExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
         case TokenType.Integer:
         case TokenType.Float: {
           returnValue = this.parseNumberExpr({ tokens, index, env });
@@ -2559,10 +2695,6 @@ ${matchedFunctionErrors[i]}`
         }
         case TokenType.String: {
           returnValue = this.parseStringExpr({ tokens, index, env });
-          break;
-        }
-        case TokenType.Symbol: {
-          returnValue = this.parseSymbolExpr({ tokens, index, env });
           break;
         }
         case TokenType.Boolean: {
@@ -3383,15 +3515,31 @@ ${exprToString(expr)}\n`,
         break;
       }
 
-      if (tokens[index].type !== TokenType.Identifier) {
+      let variableName: string | undefined = undefined;
+      const variableNameTokenIndex = index;
+      if (language === "c" && tokens[index].type === TokenType.Identifier) {
+        variableName = tokens[index].value;
+        index = index + 1;
+      } else if (language === "mo") {
+        if (tokens[index].type === TokenType.Symbol) {
+          variableName = `@${tokens[index].value}`;
+          index = index + 1;
+        } else {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Expected symbol for extern variable name for language "mo", but got ${JSON.stringify(
+              tokens[index]
+            )}`
+          );
+        }
+      } else {
         throw this.formatErrorMessage(
           tokens[index],
-          "Expected identifier for extern variable"
+          `Expected identifier for extern variable name, but got ${JSON.stringify(
+            tokens[index]
+          )}`
         );
       }
-      const variableName = tokens[index].value;
-      const variableNameTokenIndex = index;
-      index = index + 1;
 
       if (tokens[index].type !== TokenType.Colon) {
         throw this.formatErrorMessage(
@@ -3954,15 +4102,31 @@ ${typeToString(caseReturnType)}
       });
     }
 
-    if (tokens[index].type !== TokenType.Identifier) {
+    let variableNameTokenIndex = index;
+    let variableName: string | undefined = undefined;
+    if (tokens[index].type === TokenType.Identifier) {
+      variableName = tokens[index].value;
+      index = index + 1;
+    } else if (tokens[index].type === TokenType.LParen) {
+      if (
+        tokens[index + 1].type === TokenType.Operator &&
+        tokens[index + 2].type === TokenType.RParen
+      ) {
+        variableNameTokenIndex = index + 1;
+        variableName = tokens[index + 1].value;
+        index = index + 3;
+      } else {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected operator like (++) for let assignment"
+        );
+      }
+    } else {
       throw this.formatErrorMessage(
         tokens[index],
-        "Expected identifier for const assignment"
+        "Expected identifier for let assignment"
       );
     }
-    const variableNameTokenIndex = index;
-    const variableName = tokens[index].value;
-    index = index + 1;
 
     const userDefinedVariableTypeTokenIndex = index;
     let userDefinedVariableType: Type | null = null;

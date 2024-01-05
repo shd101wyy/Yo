@@ -1,9 +1,8 @@
 infixl 60 +;   // Addition
 infixl 70 *;   // Multiplication
 
-/*
 extern "Mo" {
-  @codegen: (C = char[])-> ();
+  @codegen: (C: string = "")-> ();
 }
 
 let (+) = (x: i32, y: i32)-> {
@@ -17,6 +16,8 @@ let (*) = (x: i32, y: i32)-> {
     C = "$1 * $2"
   )
 }
+
+/*
 
 let main = ()-> i32 {
   let value = 2 + 3 * 4;

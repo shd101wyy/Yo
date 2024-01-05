@@ -554,7 +554,10 @@ export function exprToString(expr: Expr, indentation = ""): string {
     case AstType.Value:
       switch (expr.tag) {
         case "primitive":
-          if (expr.typeValue.type === "char") {
+          if (
+            expr.typeValue.type === "char" ||
+            expr.typeValue.type === "string"
+          ) {
             return JSON.stringify(expr.value);
           }
           return expr.value;
