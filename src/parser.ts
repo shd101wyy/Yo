@@ -1041,14 +1041,25 @@ ${exprToString(lhs)}
       this.setVariableAsConsumed(env, rhs);
     env = nextNextEnv;
 
+    // Generate temp variable for holding the old value of lhs
+    const valueType = resetConsumedVariable ? TypeValues.unit : rhs.typeValue;
+    const { env: nextNextNextEnv, value: tempVariable } =
+      this.generateTempVariableForHoldingValue({
+        env,
+        token: tokens[lhsTokenIndex],
+        valueType,
+      });
+    env = nextNextNextEnv;
+
     return {
       expr: {
         type: AstType.Assignment,
         left: lhs,
         right: rhs,
         env,
-        typeValue: resetConsumedVariable ? TypeValues.unit : rhs.typeValue,
+        typeValue: valueType,
         token: tokens[lhsTokenIndex],
+        tempVariableName: tempVariable.variableName,
       },
       index,
     };
@@ -3196,10 +3207,12 @@ ${exprToString(expr)}`,
             consumedAtToken: expr.token,
           });
         }
+        // Below are all the expressions that have `tempVariableName`.
         case AstType.Reference:
         case AstType.CallFunction:
         case AstType.If:
         case AstType.Match:
+        case AstType.Assignment:
         case AstType.Block: {
           return setEnvVariableAsConsumed({
             env,
@@ -3340,10 +3353,12 @@ ${exprToString(expr)}\n`,
     index = index + 1;
 
     // TODO: Specify the language, like "C" or "JavaScript"
+    let language: "c" | "mo" = "c";
     if (
       tokens[index].type === TokenType.String &&
-      tokens[index].value.match(/c/i)
+      tokens[index].value.match(/^(c|mo)$/i)
     ) {
+      language = tokens[index].value.toLowerCase() as "c" | "mo";
       index = index + 1;
     }
 
@@ -3430,7 +3445,7 @@ ${exprToString(expr)}\n`,
     return {
       expr: {
         type: AstType.Extern,
-        language: "C",
+        language,
         variables,
         typeValue: TypeValues.unit,
         env,

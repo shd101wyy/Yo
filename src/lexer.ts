@@ -582,6 +582,27 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            case "infix":
+              tokens.push({
+                type: TokenType.Infix,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "infixl":
+              tokens.push({
+                type: TokenType.Infixl,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "infixr":
+              tokens.push({
+                type: TokenType.Infixr,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
             default:
               tokens.push({
                 type: TokenType.Identifier,

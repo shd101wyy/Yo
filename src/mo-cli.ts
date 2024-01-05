@@ -63,7 +63,7 @@ mo run <script>                  Run a script defined in 'mo.json'
     demandOption: false,
     default: false,
   })
-  .option("skip-compile", {
+  .option("skip-codegen", {
     describe: "Do not compile the code",
     type: "boolean",
     demandOption: false,
@@ -95,7 +95,7 @@ mo run <script>                  Run a script defined in 'mo.json'
         printTokens: argv.printTokens,
         printAst: argv.printAst,
         printC: argv.printC,
-        skipCompile: argv.skipCompile,
+        skipCodegen: argv.skipCodegen,
       });
     }
   )

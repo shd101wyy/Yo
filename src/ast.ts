@@ -91,6 +91,9 @@ export enum AstType {
 
   // recur
   Recur = "recur",
+
+  // infix
+  Infix = "infix",
 }
 
 export enum OperatorType {
@@ -138,7 +141,8 @@ export type Expr =
   | ImportExpr
   | TryExpr
   | AwaitExpr
-  | RecurExpr;
+  | RecurExpr
+  | InfixPrecedenceExpr;
 
 export type IgnoreExpr = {
   type: AstType.Ignore;
@@ -296,6 +300,11 @@ export type AssignmentExpr = {
   typeValue: Type;
   env: Environment;
   token: Token;
+  /**
+   * This is the name of the temporary variable that holds
+   * the old value of the left expression.
+   */
+  tempVariableName: string;
 };
 
 export type Destructuring = {
@@ -367,7 +376,7 @@ export type ExternVariable = {
 
 export type ExternExpr = {
   type: AstType.Extern;
-  language: "C";
+  language: "c" | "mo";
   variables: ExternVariable[];
   typeValue: TUnit;
   env: Environment;
@@ -475,6 +484,16 @@ export type AwaitExpr = {
   env: Environment;
   token: Token;
   expr: Expr;
+};
+
+export type InfixPrecedenceExpr = {
+  type: AstType.Infix;
+  typeValue: TUnit;
+  env: Environment;
+  token: Token;
+  associativity: "infix" | "infixl" | "infixr";
+  precedence: number;
+  operator: string;
 };
 
 /**
@@ -743,6 +762,9 @@ ${indentation}}`;
       return `recur(${expr.functionArguments
         .map((expr) => exprToString(expr))
         .join(", ")})`;
+    }
+    case AstType.Infix: {
+      return `${expr.associativity} ${expr.precedence} ${expr.operator};`;
     }
     default:
       throw new Error(`Unknown expr type ${expr}`);

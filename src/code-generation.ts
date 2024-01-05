@@ -25,12 +25,12 @@ export class CodeGenerator {
       printTokens,
       printAst,
       printC,
-      skipCompile,
+      skipCodegen,
     }: {
       printTokens?: boolean;
       printAst?: boolean;
       printC?: boolean;
-      skipCompile?: boolean;
+      skipCodegen?: boolean;
     } = {}
   ): TModule {
     let module = this.modules.get(modulePath);
@@ -46,7 +46,7 @@ export class CodeGenerator {
     console.log(`= Loaded module ${modulePath}`);
     this.modules.set(modulePath, module);
 
-    if (!skipCompile) {
+    if (!skipCodegen) {
       this.compileModule(module, { printC });
     }
     return module;

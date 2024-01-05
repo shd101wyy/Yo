@@ -38,3 +38,91 @@ enum Result<T: Type, E: Type>: Type {
 }
 
 type Promise<T: Type>;
+
+class Add<T: Type> {
+  (+): (T, T) -> T;
+}
+
+class Sub<T: Type> {
+  (-): (T, T) -> T;
+}
+
+class Mul<T: Type> {
+  (*): (T, T) -> T;
+}
+
+class Div<T: Type> {
+  (/): (T, T) -> T;
+}
+
+class Mod<T: Type> {
+  (%): (T, T) -> T;
+}
+
+class BitAnd<T: Type> {
+  (&): (T, T) -> T;
+}
+
+class BitOr<T: Type> {
+  (|): (T, T) -> T;
+}
+
+class BitXor<T: Type> {
+  (^): (T, T) -> T;
+}
+
+class BitLeftShift<T: Type> {
+  (<<): (T, T) -> T;
+}
+
+class BitRightShift<T: Type> {
+  (>>): (T, T) -> T;
+}
+
+class BitNot<T: Type> {
+  (~): (T) -> T;
+}
+
+class LogicalAnd<T: Type> {
+  (&&): (T, T) -> T;
+}
+
+class LogicalOr<T: Type> {
+  (||): (T, T) -> T;
+}
+
+class LogicalNot<T: Type> {
+  (!): (T) -> T;
+}
+
+class Equal<T: Type> {
+  (==): (T, T) -> T;
+}
+
+class NotEqual<T: Type> {
+  (!=): (T, T) -> T;
+}
+
+class LessThan<T: Type> {
+  (<): (T, T) -> T;
+}
+
+class LessThanOrEqual<T: Type> {
+  (<=): (T, T) -> T;
+}
+
+class GreaterThan<T: Type> {
+  (>): (T, T) -> T;
+}
+
+class GreaterThanOrEqual<T: Type> {
+  (>=): (T, T) -> T;
+}
+
+class Exponentiation<T: Type> {
+  (**): (T, T) -> T;
+}
+
+class Negate<T: Type> {
+  (-): (T) -> T;
+}

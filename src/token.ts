@@ -80,6 +80,9 @@ export enum TokenType {
   Async = "async",
   Await = "await",
   Recur = "recur",
+  Infix = "infix",
+  Infixl = "infixl",
+  Infixr = "infixr",
 
   /**
    * A list of available C functions can be found at:
