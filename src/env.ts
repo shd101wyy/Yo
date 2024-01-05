@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { IfCase, MatchCase } from "./ast";
 import { formatErrorMessages, getLineAtToken } from "./error";
-import { OperatorPrecedence } from "./operator";
+import { OperatorPrecedence, Operators, charIsOperator } from "./operator";
 import { Token, TokenType } from "./token";
 import {
   TClass,
@@ -101,7 +101,17 @@ export function generateValueTypeId(
   env: Environment,
   variableName: string
 ): string {
-  const id = generateModuleId(env.modulePath) + "_" + variableName;
+  let sanitizedVariableName = "";
+  for (let i = 0; i < variableName.length; i++) {
+    if (charIsOperator(variableName[i])) {
+      const index = Operators.indexOf(variableName[i]);
+      sanitizedVariableName += `${index}`;
+    } else {
+      sanitizedVariableName += variableName[i];
+    }
+  }
+
+  const id = generateModuleId(env.modulePath) + "_" + sanitizedVariableName;
   let count = IdMap.get(id);
   if (count === undefined) {
     count = 0;

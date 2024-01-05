@@ -612,6 +612,9 @@ ${
         }
         return "";
       }
+      case AstType.Infix: {
+        return "";
+      }
       default: {
         throw new Error(`Unimplemented expr type "${expr.type}"`);
       }
