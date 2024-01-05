@@ -1,0 +1,44 @@
+export const Operators = [
+  "=",
+  "+",
+  "-",
+  "*",
+  "/",
+  "<",
+  ">",
+  "@",
+  "$",
+  "~",
+  "&",
+  "%",
+  "|",
+  "!",
+  "?",
+  "^",
+  ".",
+  ":",
+  "\\",
+];
+
+export function charIsOperator(char: string): boolean {
+  return Operators.includes(char);
+}
+
+export function stringIsOperator(str: string): boolean {
+  let isOperator = true;
+  for (let i = 0; i < str.length; i++) {
+    if (!charIsOperator(str[i])) {
+      isOperator = false;
+      break;
+    }
+  }
+  return isOperator;
+}
+
+export type OperatorAssociativity = "infix" | "infixl" | "infixr";
+
+export type OperatorPrecedence = {
+  operator: string;
+  associativity: OperatorAssociativity;
+  precedence: number;
+};

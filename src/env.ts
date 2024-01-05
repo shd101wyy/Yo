@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { IfCase, MatchCase } from "./ast";
 import { formatErrorMessages, getLineAtToken } from "./error";
+import { OperatorPrecedence } from "./operator";
 import { Token, TokenType } from "./token";
 import {
   TClass,
@@ -60,6 +61,9 @@ export type ValueType = {
   // References
   mutableReferences?: Token[];
   immutableReferences?: Token[];
+
+  // Operator precedence
+  operatorPrecedence?: OperatorPrecedence;
 
   // This is only used for temp variable, check the
   // tempVariableName of the ReferenceExpr of AstType.Reference
@@ -198,7 +202,7 @@ export type Environment = {
   freeVariables: ValueType[];
   frames: Frame[];
   modulePath: string;
-  operatorPrecedenceMap: { [key: string]: number };
+  operatorPrecedenceMap: { [key: string]: OperatorPrecedence };
 };
 
 export function copyEnvironment(
@@ -386,6 +390,7 @@ export function addEnvFreeVariable(
 export function addEnvOperatorPrecedence(
   env: Environment,
   operator: string,
+  associativity: "infix" | "infixl" | "infixr",
   precedence: number
 ): Environment {
   return {
@@ -395,7 +400,7 @@ export function addEnvOperatorPrecedence(
     modulePath: env.modulePath,
     operatorPrecedenceMap: {
       ...env.operatorPrecedenceMap,
-      [operator]: precedence,
+      [operator]: { operator, associativity, precedence },
     },
   };
 }
@@ -769,6 +774,13 @@ export function setEnvVariableReferedVariable({
     ...variableValueType,
     referedVariable: newReferedVariable,
   });
+}
+
+export function getEnvOperatorPrecedence(
+  env: Environment,
+  operator: string
+): OperatorPrecedence | undefined {
+  return env.operatorPrecedenceMap[operator];
 }
 
 /**

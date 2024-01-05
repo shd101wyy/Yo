@@ -35,6 +35,7 @@ import {
   generateValueTypeId,
   getEnvCurrentFrameLevel,
   getEnvCurrentRegionId,
+  getEnvOperatorPrecedence,
   getEnvValueTypesByVariableName,
   increaseEnvVariableReferenceCount,
   mergeAndCheckEnv,
@@ -48,6 +49,7 @@ import { formatErrorMessage, formatErrorMessages } from "./error";
 import { tokenize } from "./lexer";
 import * as logger from "./logger";
 import { isUpperCamelCase } from "./naming-checker";
+import { OperatorPrecedence } from "./operator";
 import { Token, TokenType } from "./token";
 import {
   ParseExpression,
@@ -4104,6 +4106,7 @@ ${typeToString(caseReturnType)}
 
     let variableNameTokenIndex = index;
     let variableName: string | undefined = undefined;
+    let operatorPrecedence: OperatorPrecedence | undefined = undefined;
     if (tokens[index].type === TokenType.Identifier) {
       variableName = tokens[index].value;
       index = index + 1;
@@ -4114,7 +4117,10 @@ ${typeToString(caseReturnType)}
       ) {
         variableNameTokenIndex = index + 1;
         variableName = tokens[index + 1].value;
+        operatorPrecedence = getEnvOperatorPrecedence(env, variableName);
         index = index + 3;
+
+        console.log(`${variableName} ${JSON.stringify(operatorPrecedence)}`);
       } else {
         throw this.formatErrorMessage(
           tokens[index],
@@ -4330,6 +4336,7 @@ Got:      ${typeToString(variableType)}`
         isMutable,
         isExported,
         isUninitialized: false,
+        operatorPrecedence,
         token: tokens[variableNameTokenIndex],
       },
       inputString: this.inputString,
@@ -6748,11 +6755,17 @@ Please consider adding "Promise" to the return type.
     const operator = tokens[index].value;
     index = index + 1;
 
-    const nextEnv = addEnvOperatorPrecedence(env, operator, precedence);
+    const associativity = infixToken.value as "infix" | "infixl" | "infixr";
+    const nextEnv = addEnvOperatorPrecedence(
+      env,
+      operator,
+      associativity,
+      precedence
+    );
     return {
       expr: {
         type: AstType.Infix,
-        associativity: infixToken.value as "infix" | "infixl" | "infixr",
+        associativity,
         operator,
         precedence,
         env: nextEnv,

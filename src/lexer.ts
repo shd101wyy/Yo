@@ -1,4 +1,5 @@
-import { Token, TokenType, charIsOperator } from "./token";
+import { charIsOperator } from "./operator";
+import { Token, TokenType } from "./token";
 
 /**
  * Lexer
