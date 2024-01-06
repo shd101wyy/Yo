@@ -5177,7 +5177,7 @@ ${typeToString(nextTypeValue)}`
     // QUESTION: Does `extends` work for typeclass?
     // Should we use `with` instead?
     const functions: TClassFunction[] = [];
-    const functionNameTokenIndexes: number[] = [];
+    const functionNameTokens: Token[] = [];
     // Parse class body
     if (tokens[index].type !== TokenType.LCurlyBracket) {
       throw this.formatErrorMessage(
@@ -5220,7 +5220,7 @@ ${typeToString(nextTypeValue)}`
               `
         );
       }
-      functionNameTokenIndexes.push(functionNameTokenIndex);
+      functionNameTokens.push(tokens[functionNameTokenIndex]);
 
       // Parse function type
       const {
@@ -5328,7 +5328,7 @@ ${typeToString(functionType)}
             type: func.func,
             kind: "value",
             isExported,
-            token: tokens[functionNameTokenIndexes[i]],
+            token: functionNameTokens[i],
           },
           deltaFrame: -1,
         });
@@ -5473,6 +5473,7 @@ ${typeToString(functionType)}
 
     // Parse typeclass body
     const functions: TClassFunction[] = [];
+    const functionNameTokens: Token[] = [];
     if (tokens[index].type !== TokenType.LCurlyBracket) {
       throw this.formatErrorMessage(
         tokens[index],
@@ -5516,7 +5517,9 @@ instance Show<T> {
           `
         );
       }
+      functionNameTokens.push(tokens[functionNameTokenIndex]);
 
+      // Parse the function
       const { expr: functionExpr_, index: nextIndex } =
         this.parseAnonymousFunction({
           tokens,
@@ -5588,7 +5591,24 @@ Got:      ${typeToString(matchedFunction.func)}`
     }
     newClass.functions = functions;
 
-    // Add to environment
+    // Add each function to env
+    for (let i = 0; i < functions.length; i++) {
+      const func = functions[i];
+      const { env: nextEnv } = addEnvValueType({
+        env,
+        valueType: {
+          variableName: func.name,
+          type: func.func,
+          kind: "value",
+          isExported,
+          token: functionNameTokens[i],
+        },
+        deltaFrame: -1,
+      });
+      env = nextEnv;
+    }
+
+    // Add instance to environment
     const { env: nextEnv } = addEnvValueType({
       env,
       valueType: {
@@ -6934,6 +6954,70 @@ Please consider adding "Promise" to the return type.
     };
   }
 
+  private parseImportAndExportDestructurings({
+    tokens,
+    index,
+  }: {
+    tokens: Token[];
+    index: number;
+  }): { destructurings: Destructuring[]; index: number } {
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for import. Qualified import is not implemented yet"
+      );
+    }
+    index = index + 1;
+    const destructurings: Destructuring[] = [];
+    while (true) {
+      if (!tokens[index]) {
+        throw this.formatErrorMessage(tokens[index], "Expected '}' for import");
+      }
+
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+
+      if (
+        tokens[index].type !== TokenType.Identifier &&
+        tokens[index].value !== "*"
+      ) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected identifier for import"
+        );
+      }
+      const nameToken = tokens[index];
+      const name = nameToken.value;
+      index = index + 1;
+
+      let asName: string | undefined = undefined;
+      if (tokens[index].type === TokenType.As) {
+        index = index + 1;
+        if (tokens[index].type !== TokenType.Identifier) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            'Expected identifier for "as"'
+          );
+        }
+        asName = tokens[index].value;
+        index = index + 1;
+      }
+
+      destructurings.push({ name, asName, isMutable: false, token: nameToken });
+
+      if (tokens[index].type === TokenType.Comma) {
+        index = index + 1;
+      }
+    }
+
+    return {
+      destructurings,
+      index,
+    };
+  }
+
   private parseExportExpr({
     tokens,
     index,
@@ -7057,6 +7141,64 @@ Please consider adding "Promise" to the return type.
         exportExpr = expr;
         break;
       }
+      case TokenType.LCurlyBracket: {
+        // export {*} from "module.mo";
+        const { destructurings, index: nextIndex } =
+          this.parseImportAndExportDestructurings({
+            tokens,
+            index,
+          });
+        index = nextIndex;
+
+        if (tokens[index].type !== TokenType.From) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            'Expected "from" for import'
+          );
+        }
+        index = index + 1;
+
+        if (tokens[index].type !== TokenType.String) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected string literal for the module path to import"
+          );
+        }
+        const modulePath = tokens[index].value;
+        const moduleTokenIndex = index;
+        index = index + 1;
+
+        const qualifiedName: string | undefined = undefined;
+        const { env: nextEnv, module } = this.importModule({
+          env,
+          modulePath,
+          qualifiedName,
+          destructurings,
+          importToken: tokens[exportTokenIndex],
+          moduleToken: tokens[moduleTokenIndex],
+          isExported: true,
+        });
+
+        return {
+          expr: {
+            type: AstType.Export,
+            expr: {
+              type: AstType.Import,
+              modulePath,
+              module,
+              destructurings,
+              qualifiedName,
+              typeValue: TypeValues.unit,
+              env: nextEnv,
+              token: tokens[exportTokenIndex],
+            },
+            typeValue: TypeValues.unit,
+            env: nextEnv,
+            token: tokens[exportTokenIndex],
+          },
+          index,
+        };
+      }
       default: {
         throw this.formatErrorMessage(
           tokens[index],
@@ -7088,6 +7230,7 @@ Please consider adding "Promise" to the return type.
     destructurings,
     importToken,
     moduleToken,
+    isExported,
   }: {
     env: Environment;
     modulePath: string;
@@ -7095,6 +7238,7 @@ Please consider adding "Promise" to the return type.
     destructurings: Destructuring[];
     importToken?: Token;
     moduleToken?: Token;
+    isExported?: boolean;
   }): { module: TModule; env: Environment } {
     if (modulePath.startsWith("std/")) {
       // std library
@@ -7161,7 +7305,7 @@ Please consider adding "Promise" to the return type.
         if (value.isExported) {
           const { env: nextEnv } = addEnvValueType({
             env,
-            valueType: { ...value, isExported: false },
+            valueType: { ...value, isExported: !!isExported },
           });
           env = nextEnv;
         }
@@ -7181,28 +7325,27 @@ Please consider adding "Promise" to the return type.
     } else {
       for (const destructuring of destructurings) {
         const variableName = destructuring.name;
-        const variables = getEnvValueTypesByVariableName(
-          module.env,
-          variableName
-        );
-        if (variables.length === 0) {
-          throw this.formatErrorMessage(
-            destructuring.token ?? emptyToken,
-            `Cannot find variable "${variableName}" in module "${modulePath}"`
-          );
-        }
-        for (const variable of variables) {
-          if (variable.isExported) {
+        const values = getEnvValueTypesByVariableName(module.env, variableName);
+        let importedCount = 0;
+        for (const value of values) {
+          if (value.isExported) {
+            importedCount += 1;
             const { env: nextEnv } = addEnvValueType({
               env,
               valueType: {
-                ...variable,
+                ...value,
                 variableName: destructuring.asName ?? variableName,
-                isExported: false,
+                isExported: !!isExported,
               },
             });
             env = nextEnv;
           }
+        }
+        if (importedCount === 0) {
+          throw this.formatErrorMessage(
+            destructuring.token ?? emptyToken,
+            `Cannot find exported variable "${variableName}" in module "${modulePath}"`
+          );
         }
       }
 
@@ -7243,59 +7386,14 @@ Please consider adding "Promise" to the return type.
     const importTokenIndex = index;
     index = index + 1;
 
-    const destructurings: Destructuring[] = [];
     const qualifiedName: string | undefined = undefined;
-    if (tokens[index].type !== TokenType.LCurlyBracket) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "Expected '{' for import. Qualified import is not implemented yet"
-      );
-    }
 
-    index = index + 1;
-
-    while (true) {
-      if (!tokens[index]) {
-        throw this.formatErrorMessage(tokens[index], "Expected '}' for import");
-      }
-
-      if (tokens[index].type === TokenType.RCurlyBracket) {
-        index = index + 1;
-        break;
-      }
-
-      if (
-        tokens[index].type !== TokenType.Identifier &&
-        tokens[index].value !== "*"
-      ) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Expected identifier for import"
-        );
-      }
-      const nameToken = tokens[index];
-      const name = nameToken.value;
-      index = index + 1;
-
-      let asName: string | undefined = undefined;
-      if (tokens[index].type === TokenType.As) {
-        index = index + 1;
-        if (tokens[index].type !== TokenType.Identifier) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            'Expected identifier for "as"'
-          );
-        }
-        asName = tokens[index].value;
-        index = index + 1;
-      }
-
-      destructurings.push({ name, asName, isMutable: false, token: nameToken });
-
-      if (tokens[index].type === TokenType.Comma) {
-        index = index + 1;
-      }
-    }
+    const { destructurings, index: nextIndex } =
+      this.parseImportAndExportDestructurings({
+        tokens,
+        index,
+      });
+    index = nextIndex;
 
     if (tokens[index].type !== TokenType.From) {
       throw this.formatErrorMessage(

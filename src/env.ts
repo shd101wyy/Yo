@@ -257,6 +257,10 @@ export function pushEnvFrame(
 
 export function popEnvFrame(
   env: Environment,
+  /* Check synthesizeFunctionTypeFromTokens function in type-checker.ts
+   * when withFunctionBody is false, we push fake frame for holding the parameters.
+   * In this case, when we pop the frame, we need to **ignoreCheck**
+   */
   ignoreCheck = false
 ): Environment {
   if (!ignoreCheck) {

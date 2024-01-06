@@ -696,7 +696,18 @@ ${indentation}}`;
       return `defer ${exprToString(expr.expr)}`;
     }
     case AstType.Export: {
-      return `export ${exprToString(expr.expr)}`;
+      if (expr.expr.type === AstType.Import) {
+        const importExpr = expr.expr as ImportExpr;
+        return `export { ${importExpr.destructurings
+          .map((destructuring) => {
+            return `${destructuring.name}${
+              destructuring.asName ? ` as ${destructuring.asName}` : ""
+            }`;
+          })
+          .join(", ")} } from "${importExpr.modulePath}";`;
+      } else {
+        return `export ${exprToString(expr.expr)}`;
+      }
     }
     case AstType.Import: {
       if (expr.qualifiedName) {

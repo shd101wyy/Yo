@@ -5,15 +5,15 @@
  * - Rust: https://doc.rust-lang.org/std/index.html
  */
 
-import {*} from "./builtins";
-import {*} from "./data/primitive/i32";
+export {*} from "./builtins";
+export {*} from "./data/primitive/i32";
 
-enum Option<T: Type>: Type {
+export enum Option<T: Type>: Type {
   Some(value: T),
   None,
 }
 
-enum Result<T: Type, E: Type>: Type {
+export enum Result<T: Type, E: Type>: Type {
   Ok(value: T),
   Error(error: E),
 }
