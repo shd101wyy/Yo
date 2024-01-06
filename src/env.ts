@@ -477,7 +477,10 @@ export function setEnvVariableAsConsumed({
   const valueType = valueTypes[valueTypes.length - 1];
   const immutableReferences = valueType.immutableReferences ?? [];
   const mutableReferences = valueType.mutableReferences ?? [];
-  if (valueType.consumedAtToken) {
+  if (
+    (valueType.type.kind === "Linear" || valueType.type.kind === "Type") &&
+    valueType.consumedAtToken
+  ) {
     throw formatErrorMessages({
       inputString,
       tokenAndErrorList: [
