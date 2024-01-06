@@ -1,7 +1,12 @@
 import { createHash } from "crypto";
 import { IfCase, MatchCase } from "./ast";
 import { formatErrorMessages, getLineAtToken } from "./error";
-import { OperatorPrecedence, Operators, charIsOperator } from "./operator";
+import {
+  OperatorPrecedence,
+  Operators,
+  charIsOperator,
+  stringIsOperator,
+} from "./operator";
 import { Token, TokenType } from "./token";
 import {
   TClass,
@@ -790,6 +795,10 @@ export function getEnvOperatorPrecedence(
   env: Environment,
   operator: string
 ): OperatorPrecedence | undefined {
+  if (stringIsOperator(operator) && !env.operatorPrecedenceMap[operator]) {
+    throw new Error(`The precedence of operator ${operator} is not defined.`);
+  }
+
   return env.operatorPrecedenceMap[operator];
 }
 

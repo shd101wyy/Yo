@@ -7175,6 +7175,7 @@ Please consider adding "Promise" to the return type.
           );
         }
 
+        // Import values
         const moduleFrame = module.env.frames[0];
         for (const value of moduleFrame.values) {
           if (value.isExported) {
@@ -7185,6 +7186,18 @@ Please consider adding "Promise" to the return type.
             });
             env = nextEnv;
           }
+        }
+
+        // Set infix precedence
+        for (const operatorKey in module.env.operatorPrecedenceMap) {
+          const operatorPrecedence =
+            module.env.operatorPrecedenceMap[operatorKey];
+          env = addEnvOperatorPrecedence(
+            env,
+            operatorPrecedence.operator,
+            operatorPrecedence.associativity,
+            operatorPrecedence.precedence
+          );
         }
       } else {
         for (const destructuring of destructurings) {
@@ -7217,6 +7230,18 @@ Please consider adding "Promise" to the return type.
             });
             env = nextEnv;
           }
+        }
+
+        // Set infix precedence
+        for (const operatorKey in module.env.operatorPrecedenceMap) {
+          const operatorPrecedence =
+            module.env.operatorPrecedenceMap[operatorKey];
+          env = addEnvOperatorPrecedence(
+            env,
+            operatorPrecedence.operator,
+            operatorPrecedence.associativity,
+            operatorPrecedence.precedence
+          );
         }
       }
 

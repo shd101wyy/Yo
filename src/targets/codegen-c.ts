@@ -25,11 +25,17 @@ import {
 export class CodeGeneratorC {
   private module: TModule;
   private emitter: Emitter;
-  private functionMap: Map<string, FunctionExpr> = new Map();
+  private functionIdToExprMap: Map<string, FunctionExpr> = new Map();
   /**
    * key is functionId + typeAndRegionParametersToString
    */
   private generatedFunctionKeySet: Set<string> = new Set();
+
+  /**
+   * key is functionKey, value is the @codegenInline template
+   */
+  private functionKeyToCodegenInlineMap: Map<string, string> = new Map();
+
   constructor(module: TModule) {
     this.module = module;
     this.emitter = new Emitter();
@@ -221,7 +227,7 @@ export class CodeGeneratorC {
     if (this.generatedFunctionKeySet.has(functionKey)) {
       return functionKey;
     }
-    const functionExpr = this.functionMap.get(calleeType.functionId);
+    const functionExpr = this.functionIdToExprMap.get(calleeType.functionId);
     if (!functionExpr) {
       throw new Error(`Cannot find function expr of ${calleeType.functionId}`);
     }
@@ -238,42 +244,59 @@ export class CodeGeneratorC {
     this.generatedFunctionKeySet.add(functionKey);
 
     // Check if the first expr in the function body
-    // is @codegen function call.
+    // is @codegenFunction or @codegenInline function call.
     const firstExpr = newFunctionExpr.body.exprs[0];
     if (
       firstExpr.type === AstType.CallFunction &&
       firstExpr.callee.typeValue.type === "Function"
     ) {
       const calleeFunctionType = firstExpr.callee.typeValue as TFunction;
-      if (calleeFunctionType.functionId === "@codegen") {
+      if (calleeFunctionType.functionId === "@codegenFunction") {
         // Get the first argument
         const firstArgument = firstExpr.functionArguments[0];
         if (
           firstArgument.type === AstType.Value &&
           firstArgument.tag === "primitive"
         ) {
-          const codegenTemplate = firstArgument.value;
+          const codegenFunctionTemplate = firstArgument.value;
           const args: string[] = [
             functionKey,
             ...calleeType.parameterTypes.map(
               (parameter) => parameter.parameterId
             ),
           ];
-          const functionCode = codegenTemplate.replace(/\$\d+/g, (match) => {
-            const argIndex = parseInt(match.slice(1));
-            if (isNaN(argIndex)) {
-              throw new Error(`Invalid codegen template: ${match}`);
+          const functionCode = codegenFunctionTemplate.replace(
+            /\$\d+/g,
+            (match) => {
+              const argIndex = parseInt(match.slice(1));
+              if (isNaN(argIndex)) {
+                throw new Error(`Invalid @codegenFunction template: ${match}`);
+              }
+              if (argIndex >= args.length) {
+                throw new Error(
+                  `Invalid @codegenFunction template: ${match} is out of range`
+                );
+              }
+              return args[argIndex];
             }
-            if (argIndex >= args.length) {
-              throw new Error(
-                `Invalid codegen template: ${match} is out of range`
-              );
-            }
-            return args[argIndex];
-          });
-          logger.debug(`codegenTemplate: |${codegenTemplate}|`);
+          );
+          logger.debug(`codegenFunctionTemplate: |${codegenFunctionTemplate}|`);
           logger.debug(`functionCode: |${functionCode}|`);
           this.emitter.emit(functionCode);
+          return functionKey;
+        }
+      } else if (calleeFunctionType.functionId === "@codegenInline") {
+        // Get the first argument
+        const firstArgument = firstExpr.functionArguments[0];
+        if (
+          firstArgument.type === AstType.Value &&
+          firstArgument.tag === "primitive"
+        ) {
+          const codegenInlineTemplate = firstArgument.value;
+          this.functionKeyToCodegenInlineMap.set(
+            functionKey,
+            codegenInlineTemplate
+          );
           return functionKey;
         }
       }
@@ -483,18 +506,37 @@ ${
       });
     code = nextCode;
 
-    const callee = this.codegenExpr({
+    const functionKey = this.codegenExpr({
       expr: expr.callee,
       indentation,
     });
 
-    code += `${indentation}${
-      expr.tempVariableName
-    } = ${callee}(${functionArgumentStringList
-      .map((argumentString, index) => {
-        return `${argumentString} /* ${functionType.parameterTypes[index].name} */`;
-      })
-      .join(", ")}); \n`;
+    // Check if the function is from @codegenInline
+    const codegenInlineTemplate =
+      this.functionKeyToCodegenInlineMap.get(functionKey);
+    if (codegenInlineTemplate) {
+      const replaced = codegenInlineTemplate.replace(/\$\d+/g, (match) => {
+        const argIndex = parseInt(match.slice(1));
+        if (isNaN(argIndex)) {
+          throw new Error(`Invalid @codegenInline template: ${match}`);
+        }
+        if (argIndex > functionArgumentStringList.length) {
+          throw new Error(
+            `Invalid @codegenInline template: ${match} is out of range`
+          );
+        }
+        return functionArgumentStringList[argIndex - 1];
+      });
+      code += `${indentation}${expr.tempVariableName} = ${replaced};\n`;
+    } else {
+      code += `${indentation}${
+        expr.tempVariableName
+      } = ${functionKey}(${functionArgumentStringList
+        .map((argumentString, index) => {
+          return `${argumentString} /* ${functionType.parameterTypes[index].name} */`;
+        })
+        .join(", ")}); \n`;
+    }
     return code;
   }
 
@@ -558,7 +600,7 @@ ${
         }
       }
       case AstType.Function: {
-        this.functionMap.set(expr.typeValue.functionId, expr);
+        this.functionIdToExprMap.set(expr.typeValue.functionId, expr);
         this.codegenFunctionIfNecessary(expr.typeValue);
         return "";
       }

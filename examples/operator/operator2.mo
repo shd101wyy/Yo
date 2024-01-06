@@ -2,25 +2,25 @@ infixl 60 +;   // Addition
 infixl 70 *;   // Multiplication
 
 extern "Mo" {
-  @codegen: (C: string = "")-> ();
+  @codegenFunction: (C: string = "")-> ();
 }
 
 let (+) = (x: i32, y: i32)-> i32 {
-  @codegen(
+  @codegenFunction(
     C = "(($1) + ($2))"
   );
   0
 }
 
 let (+) = (x: f32, y: f32)-> f32 {
-  @codegen(
+  @codegenFunction(
     C = "(($1) + ($2))"
   );
   0.0
 }
 
 let (*) = (x: i32, y: i32)-> i32 {
-  @codegen(
+  @codegenFunction(
     C = "(($1) * ($2))"
   );
   0

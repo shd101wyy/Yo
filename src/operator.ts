@@ -40,5 +40,20 @@ export type OperatorAssociativity = "infix" | "infixl" | "infixr";
 export type OperatorPrecedence = {
   operator: string;
   associativity: OperatorAssociativity;
+  /**
+   * 1 is the lowest precedence
+   */
   precedence: number;
 };
+
+/*
+export function generateOperatorDefaultPrecedence(
+  operator: string
+): OperatorPrecedence {
+  return {
+    operator,
+    associativity: "infixl",
+    precedence: 1,
+  };
+}
+*/
