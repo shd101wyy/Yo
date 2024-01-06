@@ -2713,11 +2713,46 @@ export function synthesizeTypeAndRegionParametersFromTokens({
       index = index + 1;
       break;
     }
+    // Split the tokens
+    if (token.type === TokenType.Operator && token.value.startsWith(">")) {
+      const operator = token.value;
+      tokens.splice(
+        index,
+        1,
+        {
+          type: TokenType.Operator,
+          value: ">",
+          position: {
+            line: token.position.line,
+            character: token.position.character,
+          },
+        },
+        operator.slice(1) === ":"
+          ? {
+              type: TokenType.Colon,
+              value: ":",
+              position: {
+                line: token.position.line,
+                character: token.position.character + 1,
+              },
+            }
+          : {
+              type: TokenType.Operator,
+              value: operator.slice(1),
+              position: {
+                line: token.position.line,
+                character: token.position.character + 1,
+              },
+            }
+      );
+      index = index + 1;
+      break;
+    }
 
     if (token.type !== TokenType.Identifier) {
       throw formatErrorMessage({
         token,
-        errorMessage: "Expected identifier as type parameter name",
+        errorMessage: `Expected identifier as type parameter name, but got "${token.value}"`,
         modulePath: env.modulePath,
         inputString: env.inputString,
       });

@@ -1,3 +1,4 @@
+import * as path from "path";
 import Parser from "./parser";
 import { CodeGeneratorC } from "./targets/codegen-c";
 import { TModule } from "./type-checker";
@@ -8,6 +9,7 @@ export class CodeGenerator {
    * Value is the module itself
    */
   public modules: Map<string, TModule> = new Map();
+  public stdPath = path.join(__dirname, "../../std");
 
   constructor() {}
 
@@ -37,10 +39,11 @@ export class CodeGenerator {
     if (module) {
       return module;
     }
-    console.log(`= Loading module ${modulePath}`);
-    const parser = new Parser(
+    // console.log(`= Loading module ${modulePath}`);
+    const parser = new Parser({
       modulePath,
-      (modulePath: string) => {
+      stdPath: this.stdPath,
+      loadModule: (modulePath: string) => {
         return this.loadModule(modulePath, {
           printTokens: false,
           printAst: false,
@@ -48,11 +51,9 @@ export class CodeGenerator {
           skipCodegen,
         });
       },
-      {
-        printTokens,
-        printAst,
-      }
-    );
+      printTokens,
+      printAst,
+    });
     module = parser.generateModule();
     console.log(`= Loaded module ${modulePath}`);
     this.modules.set(modulePath, module);

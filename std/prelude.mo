@@ -5,7 +5,8 @@
  * - Rust: https://doc.rust-lang.org/std/index.html
  */
 
-import {*} from "./operator"
+import {*} from "./builtins";
+import {*} from "./data/primitive/i32";
 
 enum Option<T: Type>: Type {
   Some(value: T),
@@ -14,7 +15,5 @@ enum Option<T: Type>: Type {
 
 enum Result<T: Type, E: Type>: Type {
   Ok(value: T),
-  Err(error: E),
+  Error(error: E),
 }
-
-type Promise<T: Type>;

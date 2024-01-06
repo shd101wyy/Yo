@@ -1,5 +1,5 @@
 extern "C" {
-  println: (x: char[])-> ();
+  println: (x: string)-> ();
 }
 
 let main = () -> {

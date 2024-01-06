@@ -105,19 +105,29 @@ interface ParserData {
 
 export default class Parser {
   private modulePath: string;
+  private stdPath: string;
   private inputString: string;
   private tokens: Token[];
   private ast: Expr[];
   private env: Environment;
   private loadModule: (modulePath: string) => TModule;
 
-  constructor(
-    modulePath: string,
-    loadModule: (modulePath: string) => TModule,
-    { printTokens, printAst }: { printTokens?: boolean; printAst?: boolean }
-  ) {
+  constructor({
+    modulePath,
+    stdPath,
+    loadModule,
+    printTokens,
+    printAst,
+  }: {
+    modulePath: string;
+    stdPath: string;
+    loadModule: (modulePath: string) => TModule;
+    printTokens?: boolean;
+    printAst?: boolean;
+  }) {
     logger.debug(`= parser: ${modulePath}`);
     this.modulePath = modulePath;
+    this.stdPath = stdPath;
 
     if (!this.modulePath.match(/^file:\/\//)) {
       throw new Error(
@@ -7071,6 +7081,150 @@ Please consider adding "Promise" to the return type.
     };
   }
 
+  private importModule({
+    env,
+    modulePath,
+    qualifiedName,
+    destructurings,
+    importToken,
+    moduleToken,
+  }: {
+    env: Environment;
+    modulePath: string;
+    qualifiedName?: string;
+    destructurings: Destructuring[];
+    importToken?: Token;
+    moduleToken?: Token;
+  }): { module: TModule; env: Environment } {
+    if (modulePath.startsWith("std/")) {
+      // std library
+      modulePath = path.relative(
+        path.dirname(this.modulePath.replace(/^file:\/\//, "")),
+        path.resolve(this.stdPath, modulePath.replace("std/", "./"))
+      );
+    }
+
+    if (!modulePath.startsWith(".")) {
+      throw new Error("Only local relative path is supported for now");
+    }
+    // FIXME: Support other protocol like https://
+    let moduleAbsolutePath =
+      "file://" +
+      path.resolve(
+        path.dirname(this.modulePath.replace(/^file:\/\//, "")),
+        modulePath
+      );
+    const extname = path.extname(moduleAbsolutePath);
+    if (!extname) {
+      moduleAbsolutePath = moduleAbsolutePath + ".mo";
+    } else if (extname !== ".mo") {
+      throw new Error("Only .mo file is supported for now");
+    }
+    let module: TModule | undefined = undefined;
+    try {
+      module = this.loadModule(moduleAbsolutePath);
+    } catch (error) {
+      throw formatErrorMessage({
+        token: moduleToken ?? emptyToken,
+        errorMessage: `Failed to load module "${moduleAbsolutePath}".`,
+        inputString: this.inputString,
+        modulePath: this.modulePath,
+        cause: error,
+      });
+    }
+
+    // Check destructurings
+    if (destructurings.some((d) => d.name === "*")) {
+      // Import everything
+      if (destructurings.length > 1) {
+        throw this.formatErrorMessage(
+          destructurings[0].token ?? emptyToken,
+          "Cannot import everything with other variables"
+        );
+      }
+      if (qualifiedName) {
+        throw this.formatErrorMessage(
+          importToken ?? emptyToken,
+          "Cannot import everything with qualified name"
+        );
+      }
+      if (destructurings[0].asName) {
+        throw this.formatErrorMessage(
+          destructurings[0].token ?? emptyToken,
+          'Cannot import everything with "as"'
+        );
+      }
+
+      // Import values
+      const moduleFrame = module.env.frames[0];
+      for (const value of moduleFrame.values) {
+        if (value.isExported) {
+          const { env: nextEnv } = addEnvValueType({
+            env,
+            valueType: { ...value, isExported: false },
+          });
+          env = nextEnv;
+        }
+      }
+
+      // Set infix precedence
+      for (const operatorKey in module.env.operatorPrecedenceMap) {
+        const operatorPrecedence =
+          module.env.operatorPrecedenceMap[operatorKey];
+        env = addEnvOperatorPrecedence(
+          env,
+          operatorPrecedence.operator,
+          operatorPrecedence.associativity,
+          operatorPrecedence.precedence
+        );
+      }
+    } else {
+      for (const destructuring of destructurings) {
+        const variableName = destructuring.name;
+        const variables = getEnvValueTypesByVariableName(
+          module.env,
+          variableName
+        );
+        if (variables.length === 0) {
+          throw this.formatErrorMessage(
+            destructuring.token ?? emptyToken,
+            `Cannot find variable "${variableName}" in module "${modulePath}"`
+          );
+        }
+        for (const variable of variables) {
+          if (variable.isExported) {
+            const { env: nextEnv } = addEnvValueType({
+              env,
+              valueType: {
+                ...variable,
+                variableName: destructuring.asName ?? variableName,
+                isExported: false,
+              },
+            });
+            env = nextEnv;
+          }
+        }
+      }
+
+      // Set infix precedence
+      for (const operatorKey in module.env.operatorPrecedenceMap) {
+        const operatorPrecedence =
+          module.env.operatorPrecedenceMap[operatorKey];
+        env = addEnvOperatorPrecedence(
+          env,
+          operatorPrecedence.operator,
+          operatorPrecedence.associativity,
+          operatorPrecedence.precedence
+        );
+      }
+    }
+
+    return {
+      module,
+      env,
+    };
+  }
+
   private parseImportExpr({
     tokens,
     index,
@@ -7089,209 +7243,100 @@ Please consider adding "Promise" to the return type.
     const importTokenIndex = index;
     index = index + 1;
 
-    const destructurings: { name: string; asName?: string }[] = [];
+    const destructurings: Destructuring[] = [];
     const qualifiedName: string | undefined = undefined;
-    if (tokens[index].type === TokenType.LCurlyBracket) {
-      index = index + 1;
-
-      while (true) {
-        if (!tokens[index]) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Expected '}' for import"
-          );
-        }
-
-        if (tokens[index].type === TokenType.RCurlyBracket) {
-          index = index + 1;
-          break;
-        }
-
-        if (
-          tokens[index].type !== TokenType.Identifier &&
-          tokens[index].value !== "*"
-        ) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Expected identifier for import"
-          );
-        }
-        const name = tokens[index].value;
-        index = index + 1;
-
-        let asName: string | undefined = undefined;
-        if (tokens[index].type === TokenType.As) {
-          index = index + 1;
-          if (tokens[index].type !== TokenType.Identifier) {
-            throw this.formatErrorMessage(
-              tokens[index],
-              'Expected identifier for "as"'
-            );
-          }
-          asName = tokens[index].value;
-          index = index + 1;
-        }
-
-        destructurings.push({ name, asName });
-
-        if (tokens[index].type === TokenType.Comma) {
-          index = index + 1;
-        }
-      }
-
-      if (tokens[index].type !== TokenType.From) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          'Expected "from" for import'
-        );
-      }
-      index = index + 1;
-
-      if (tokens[index].type !== TokenType.String) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Expected string literal for the module path to import"
-        );
-      }
-      const modulePath = tokens[index].value;
-      index = index + 1;
-      if (!modulePath.startsWith(".")) {
-        throw new Error("Only local relative path is supported for now");
-      }
-      // FIXME: Support other protocol like https://
-      let moduleAbsolutePath =
-        "file://" +
-        path.resolve(
-          path.dirname(this.modulePath.replace(/^file:\/\//, "")),
-          modulePath
-        );
-      const extname = path.extname(moduleAbsolutePath);
-      if (!extname) {
-        moduleAbsolutePath = moduleAbsolutePath + ".mo";
-      } else if (extname !== ".mo") {
-        throw new Error("Only .mo file is supported for now");
-      }
-      const moduleTokenIndex = index - 1;
-      let module: TModule | undefined = undefined;
-      try {
-        module = this.loadModule(moduleAbsolutePath);
-      } catch (error) {
-        throw formatErrorMessage({
-          token: tokens[moduleTokenIndex],
-          errorMessage: `Failed to load module "${moduleAbsolutePath}".`,
-          inputString: this.inputString,
-          modulePath: this.modulePath,
-          cause: error,
-        });
-      }
-
-      // Check destructurings
-      if (destructurings.some((d) => d.name === "*")) {
-        // Import everything
-        if (destructurings.length > 1) {
-          throw this.formatErrorMessage(
-            tokens[index - 1],
-            "Cannot import everything with other variables"
-          );
-        }
-        if (qualifiedName) {
-          throw this.formatErrorMessage(
-            tokens[index - 1],
-            "Cannot import everything with qualified name"
-          );
-        }
-        if (destructurings[0].asName) {
-          throw this.formatErrorMessage(
-            tokens[index - 1],
-            'Cannot import everything with "as"'
-          );
-        }
-
-        // Import values
-        const moduleFrame = module.env.frames[0];
-        for (const value of moduleFrame.values) {
-          if (value.isExported) {
-            const { env: nextEnv } = addEnvValueType({
-              env,
-              valueType: { ...value, isExported: false },
-            });
-            env = nextEnv;
-          }
-        }
-
-        // Set infix precedence
-        for (const operatorKey in module.env.operatorPrecedenceMap) {
-          const operatorPrecedence =
-            module.env.operatorPrecedenceMap[operatorKey];
-          env = addEnvOperatorPrecedence(
-            env,
-            operatorPrecedence.operator,
-            operatorPrecedence.associativity,
-            operatorPrecedence.precedence
-          );
-        }
-      } else {
-        for (const destructuring of destructurings) {
-          const variableName = destructuring.name;
-          const variables = getEnvValueTypesByVariableName(
-            module.env,
-            variableName
-          );
-          if (variables.length === 0) {
-            throw this.formatErrorMessage(
-              tokens[index - 1],
-              `Cannot find variable "${variableName}" in module "${modulePath}"`
-            );
-          }
-          for (const variable of variables) {
-            if (!variable.isExported) {
-              throw this.formatErrorMessage(
-                tokens[index - 1],
-                `Cannot import non-exported variable "${variableName}" from module "${modulePath}"`
-              );
-            }
-
-            const { env: nextEnv } = addEnvValueType({
-              env,
-              valueType: {
-                ...variable,
-                variableName: destructuring.asName ?? variableName,
-                isExported: false,
-              },
-            });
-            env = nextEnv;
-          }
-        }
-
-        // Set infix precedence
-        for (const operatorKey in module.env.operatorPrecedenceMap) {
-          const operatorPrecedence =
-            module.env.operatorPrecedenceMap[operatorKey];
-          env = addEnvOperatorPrecedence(
-            env,
-            operatorPrecedence.operator,
-            operatorPrecedence.associativity,
-            operatorPrecedence.precedence
-          );
-        }
-      }
-
-      return {
-        expr: {
-          type: AstType.Import,
-          modulePath,
-          module,
-          destructurings,
-          qualifiedName,
-          typeValue: TypeValues.unit,
-          env,
-          token: tokens[importTokenIndex],
-        },
-        index,
-      };
-    } else {
-      throw new Error("Qualifed import is not implemented yet");
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for import. Qualified import is not implemented yet"
+      );
     }
+
+    index = index + 1;
+
+    while (true) {
+      if (!tokens[index]) {
+        throw this.formatErrorMessage(tokens[index], "Expected '}' for import");
+      }
+
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+
+      if (
+        tokens[index].type !== TokenType.Identifier &&
+        tokens[index].value !== "*"
+      ) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected identifier for import"
+        );
+      }
+      const nameToken = tokens[index];
+      const name = nameToken.value;
+      index = index + 1;
+
+      let asName: string | undefined = undefined;
+      if (tokens[index].type === TokenType.As) {
+        index = index + 1;
+        if (tokens[index].type !== TokenType.Identifier) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            'Expected identifier for "as"'
+          );
+        }
+        asName = tokens[index].value;
+        index = index + 1;
+      }
+
+      destructurings.push({ name, asName, isMutable: false, token: nameToken });
+
+      if (tokens[index].type === TokenType.Comma) {
+        index = index + 1;
+      }
+    }
+
+    if (tokens[index].type !== TokenType.From) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "from" for import'
+      );
+    }
+    index = index + 1;
+
+    if (tokens[index].type !== TokenType.String) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected string literal for the module path to import"
+      );
+    }
+    const modulePath = tokens[index].value;
+    const moduleTokenIndex = index;
+    index = index + 1;
+
+    const { env: nextEnv, module } = this.importModule({
+      env,
+      modulePath,
+      qualifiedName,
+      destructurings,
+      importToken: tokens[importTokenIndex],
+      moduleToken: tokens[moduleTokenIndex],
+    });
+
+    return {
+      expr: {
+        type: AstType.Import,
+        modulePath,
+        module,
+        destructurings,
+        qualifiedName,
+        typeValue: TypeValues.unit,
+        env: nextEnv,
+        token: tokens[importTokenIndex],
+      },
+      index,
+    };
   }
 
   private findTokenIndexForRBracket(tokens: Token[], index: number): number {
@@ -7384,6 +7429,24 @@ Please consider adding "Promise" to the return type.
     const emptyParserData: ParserData = {
       callSites: [],
     };
+
+    // Load the std/prelude.mo
+    // NOTE: .mo files inside std/ will not load prelude.mo
+    if (!this.modulePath.startsWith(`file://${this.stdPath}`)) {
+      const { env: nextEnv } = this.importModule({
+        destructurings: [
+          {
+            name: "*",
+            isMutable: false,
+            token: emptyToken,
+          },
+        ],
+        env,
+        modulePath: "std/prelude",
+      });
+      env = nextEnv;
+    }
+
     while (true) {
       const token = tokens[index];
       if (!token) {

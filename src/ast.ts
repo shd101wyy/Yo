@@ -453,10 +453,7 @@ export type ImportExpr = {
   modulePath: string;
   module: TModule;
   qualifiedName?: string;
-  destructurings: {
-    name: string;
-    asName?: string;
-  }[];
+  destructurings: Destructuring[];
   typeValue: TUnit;
   env: Environment;
   token: Token;
