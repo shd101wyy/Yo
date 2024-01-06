@@ -259,7 +259,7 @@ export function popEnvFrame(
   if (!ignoreCheck) {
     const frameToPop = env.frames[env.frames.length - 1];
     // Check if there is any value in the frame that is not consumed or uninitialized
-    const unconsumedValues = frameToPop.values.filter(
+    const unconsumedLinearValues = frameToPop.values.filter(
       (value) =>
         value.kind === "value" &&
         (value.type.kind === "Linear" || value.type.kind === "Type") &&
@@ -268,14 +268,21 @@ export function popEnvFrame(
         // but we automatically consume in the end.
         !typeIsReferenceOrMutableReference(value.type)
     );
+    const unusedFreeValues = frameToPop.values.filter(
+      (value) =>
+        value.kind === "value" &&
+        value.type.kind === "Free" &&
+        !value.consumedAtToken &&
+        !isTempVariableName(env, value.variableName)
+    );
 
     const uninitializedValues = frameToPop.values.filter(
       (value) => value.isUninitialized
     );
-    if (unconsumedValues.length > 0) {
+    if (unconsumedLinearValues.length > 0) {
       throw formatErrorMessages({
         inputString,
-        tokenAndErrorList: unconsumedValues.map((value) => {
+        tokenAndErrorList: unconsumedLinearValues.map((value) => {
           return {
             token: value.token,
             errorMessage: `${
@@ -297,6 +304,16 @@ ${typeToString(value.type)}${
           return {
             token: value.token,
             errorMessage: `Variable is not uninitialized.`,
+          };
+        }),
+      });
+    } else if (unusedFreeValues.length > 0) {
+      throw formatErrorMessages({
+        inputString,
+        tokenAndErrorList: unusedFreeValues.map((value) => {
+          return {
+            token: value.token,
+            errorMessage: `Variable "${value.variableName}" is not used.`,
           };
         }),
       });
@@ -798,7 +815,16 @@ export function getEnvOperatorPrecedence(
   env: Environment,
   operator: string
 ): OperatorPrecedence | undefined {
-  if (stringIsOperator(operator) && !env.operatorPrecedenceMap[operator]) {
+  if (
+    stringIsOperator(operator) &&
+    // check token.ts
+    operator !== "." &&
+    operator !== "=" &&
+    operator !== ":" &&
+    operator !== "->" &&
+    operator !== "=>" &&
+    !env.operatorPrecedenceMap[operator]
+  ) {
     throw new Error(`The precedence of operator ${operator} is not defined.`);
   }
 
@@ -937,8 +963,17 @@ export function mergeAndCheckEnv(
         tokens.push(matrix[j][i]);
       }
 
-      // Skip the "Free" type value.
+      // Check the "Free" values.
+      // If any case consumed (used) the "Free" value, then we set it as consumed in env.
       if (frameValues[i].type.kind === "Free") {
+        const consumed = tokens.filter((t) => !!t) as Token[];
+        if (consumed.length > 0) {
+          const newValueType: ValueType = {
+            ...frameValues[i],
+            consumedAtToken: tokens[0],
+          };
+          env = updateExistingValueType(env, frameValues[i], newValueType);
+        }
         continue;
       }
 
