@@ -1185,8 +1185,6 @@ ${exprToString(lhs)}
     } = synthesizeFunctionTypeFromTokens({
       tokens,
       index,
-      modulePath: this.modulePath,
-      inputString: this.inputString,
       env,
       parseExpression: this.makeParseExpression({ caller, parserData }),
       withFunctionBody: true,
@@ -1205,8 +1203,6 @@ ${exprToString(lhs)}
         synthesizeFunctionTypeFromTokens({
           tokens,
           index: startIndex,
-          modulePath: this.modulePath,
-          inputString: this.inputString,
           env: newEnv,
           parseExpression: this.makeParseExpression({ caller, parserData }),
           withFunctionBody: true,
@@ -1239,7 +1235,6 @@ ${exprToString(lhs)}
               isMutable: false,
               token: emptyToken,
             },
-            inputString: this.inputString,
           });
           env = nextEnv;
         });
@@ -1265,7 +1260,6 @@ ${exprToString(lhs)}
           isMutable: false,
           token: tokens[startIndex],
         },
-        inputString: this.inputString,
       });
       env = nextEnv;
 
@@ -1283,7 +1277,6 @@ ${exprToString(lhs)}
             isMutable: false,
             token: tokens[startIndex],
           },
-          inputString: this.inputString,
         });
         env = nextEnv;
       }
@@ -1356,7 +1349,7 @@ ${exprToString(lhs)}
         type: AstType.Function,
         body,
         env: copyEnvironment(
-          functionType.isClosure ? popEnvFrame(env, this.inputString) : oldEnv,
+          functionType.isClosure ? popEnvFrame(env) : oldEnv,
           oldEnv.functionDeclarationFrameLevel,
           oldEnv.freeVariables
         ),
@@ -1562,8 +1555,6 @@ ${exprToString(lhs)}
       } = synthesizeTypeAndRegionArgumentsFromTokens({
         tokens,
         index: index,
-        modulePath: this.modulePath,
-        inputString: this.inputString,
         env,
         parseExpression: this.makeParseExpression({ caller, parserData }),
       });
@@ -1856,7 +1847,6 @@ Got:      <${functionTypeArgumentsInOrder
         token,
         referedVariable,
       },
-      inputString: this.inputString,
       deltaFrame: deltaFrame ?? 0,
     });
 
@@ -2262,8 +2252,6 @@ Found possible typeclasses:
           } = synthesizeTypeAndRegionArgumentsFromTokens({
             tokens,
             index: index + 1,
-            modulePath: this.modulePath,
-            inputString: this.inputString,
             env,
             parseExpression: this.makeParseExpression({ caller, parserData }),
           });
@@ -2321,8 +2309,6 @@ Found possible enums:
         } = synthesizeTypeAndRegionArgumentsFromTokens({
           tokens,
           index: index + 1,
-          modulePath: this.modulePath,
-          inputString: this.inputString,
           env,
           parseExpression: this.makeParseExpression({ caller, parserData }),
         });
@@ -2429,7 +2415,7 @@ Found possible functions:
             .map(
               (func, i) => `${func.variableName}: ${typeToString(func.type)}
  
-${matchedFunctionErrors[i]}`
+${matchedFunctionErrors[i] ?? ""}`
             )
             .join("\n- ")}`
         );
@@ -2624,7 +2610,7 @@ Found possible functions:
             .map(
               (func, i) => `${func.variableName}: ${typeToString(func.type)}
  
-${matchedFunctionErrors[i]}`
+${matchedFunctionErrors[i] ?? ""}`
             )
             .join("\n- ")}`
         );
@@ -2968,8 +2954,6 @@ ${matchedFunctionErrors[i]}`
         tokens,
         index: typeTokenIndex,
         env,
-        modulePath: this.modulePath,
-        inputString: this.inputString,
         parseExpression: this.makeParseExpression({ caller, parserData }),
       });
       index = nextIndex;
@@ -3265,7 +3249,7 @@ Found possible functions:
             .map(
               (func, i) => `${func.variableName}: ${typeToString(func.type)}
 
-${matchedFunctionErrors[i]}`
+${matchedFunctionErrors[i] ?? ""}`
             )
             .join("\n- ")}`
         );
@@ -3407,7 +3391,7 @@ ${matchedFunctionErrors[i]}`
       tempVariableName = value.variableName;
     }
 
-    env = popEnvFrame(env, this.inputString);
+    env = popEnvFrame(env);
     return {
       index,
       expr: {
@@ -3510,7 +3494,6 @@ ${exprToString(expr)}`,
         case AstType.Variable: {
           return setEnvVariableAsConsumed({
             env,
-            inputString: this.inputString,
             variableName: expr.variableName,
             consumedAtToken: expr.token,
           });
@@ -3524,7 +3507,6 @@ ${exprToString(expr)}`,
         case AstType.Block: {
           return setEnvVariableAsConsumed({
             env,
-            inputString: this.inputString,
             variableName: expr.tempVariableName,
             consumedAtToken: expr.token,
           });
@@ -3572,9 +3554,8 @@ ${exprToString(expr)}`,
     env = decrementVariableReferenceCount({
       env,
       referedVariable,
-      inputString: this.inputString,
     });
-    env = popEnvFrame(env, this.inputString);
+    env = popEnvFrame(env);
 
     return {
       resetConsumedVariable,
@@ -3602,7 +3583,6 @@ ${exprToString(expr)}`,
         case AstType.Variable: {
           return increaseEnvVariableReferenceCount({
             env,
-            inputString: this.inputString,
             variableName: expr.variableName,
             isMutableReference,
             token: expr.token,
@@ -3734,8 +3714,6 @@ ${exprToString(expr)}\n`,
         tokens,
         index,
         env,
-        modulePath: this.modulePath,
-        inputString: this.inputString,
         functionName: variableName,
         parseExpression: this.makeParseExpression({ caller, parserData }),
       });
@@ -3758,7 +3736,6 @@ ${exprToString(expr)}\n`,
           isExported,
           token: tokens[variableNameTokenIndex],
         },
-        inputString: this.inputString,
       });
       env = nextNextEnv;
 
@@ -3911,7 +3888,7 @@ Found:
     });
 
     // Merge and check all environments
-    env = mergeAndCheckEnv(env, cases, this.inputString);
+    env = mergeAndCheckEnv(env, cases);
 
     return {
       expr: {
@@ -4169,7 +4146,7 @@ ${typeToString(caseReturnType)}
     });
 
     // Merge and check all environments
-    env = mergeAndCheckEnv(env, cases, this.inputString);
+    env = mergeAndCheckEnv(env, cases);
 
     return {
       expr: {
@@ -4320,8 +4297,6 @@ ${typeToString(caseReturnType)}
       } = synthesizeTypeFromTokens({
         tokens,
         index,
-        modulePath: this.modulePath,
-        inputString: this.inputString,
         env,
         parseExpression: this.makeParseExpression({ caller, parserData }),
       });
@@ -4340,7 +4315,6 @@ ${typeToString(caseReturnType)}
           isUninitialized: true,
           token: tokens[variableNameTokenIndex],
         },
-        inputString: this.inputString,
       });
       env = nextNextEnv;
     }
@@ -4360,8 +4334,6 @@ ${typeToString(caseReturnType)}
           tokens,
           index: tokens[index].type === TokenType.Async ? index + 1 : index,
           env,
-          modulePath: this.modulePath,
-          inputString: this.inputString,
           parseExpression: this.makeParseExpression({ caller, parserData }),
           withFunctionBody: false,
           functionName: variableName,
@@ -4378,7 +4350,6 @@ ${typeToString(caseReturnType)}
             isUninitialized: true,
             token: tokens[variableNameTokenIndex],
           },
-          inputString: this.inputString,
         });
         env = nextEnv;
       } catch (error) {
@@ -4516,7 +4487,6 @@ Got:      ${typeToString(variableType)}`
         operatorPrecedence,
         token: tokens[variableNameTokenIndex],
       },
-      inputString: this.inputString,
       preventDuplicate: true,
       variableId,
     });
@@ -4534,7 +4504,6 @@ Got:      ${typeToString(variableType)}`
         env,
         variableNameToken: tokens[variableNameTokenIndex],
         referedVariable,
-        inputString: this.inputString,
       });
     }
 
@@ -4624,7 +4593,6 @@ ${typeToString(recordType, { extractTypeConstructor: true })}`
           token: destructurings[i].token,
         },
         preventDuplicate: true,
-        inputString: this.inputString,
       });
       env = nextEnv;
 
@@ -4854,7 +4822,6 @@ ${typeToString(value.typeValue, { extractTypeConstructor: true })}`
                 isMutable: isMutable,
                 token: destructurings[i].token,
               },
-              inputString: this.inputString,
               preventDuplicate: true,
             });
             env = nextEnv;
@@ -4964,7 +4931,6 @@ ${typeToString(value.typeValue)}`
         isExported,
         token: tokens[typeNameTokenIndex],
       },
-      inputString: this.inputString,
     });
     env = nextEnv;
 
@@ -4981,8 +4947,6 @@ ${typeToString(value.typeValue)}`
         tokens,
         index,
         env,
-        modulePath: this.modulePath,
-        inputString: this.inputString,
       });
       index = nextIndex;
       typeParameters = tp;
@@ -5021,8 +4985,6 @@ ${typeToString(value.typeValue)}`
       } = synthesizeTypeFromTokens({
         tokens,
         index,
-        modulePath: this.modulePath,
-        inputString: this.inputString,
         env,
         parseExpression: this.makeParseExpression({ caller, parserData }),
       });
@@ -5095,11 +5057,10 @@ ${typeToString(nextTypeValue)}`
         token: tokens[typeNameTokenIndex],
       },
       deltaFrame: -1,
-      inputString: this.inputString,
     });
     env = nextNextEnv;
 
-    env = popEnvFrame(env, this.inputString);
+    env = popEnvFrame(env);
     return {
       expr: {
         type: AstType.TypeAlias,
@@ -5180,7 +5141,6 @@ ${typeToString(nextTypeValue)}`
         isExported,
         token: tokens[classNameTokenIndex],
       },
-      inputString: this.inputString,
     });
     env = nextEnv;
 
@@ -5197,8 +5157,6 @@ ${typeToString(nextTypeValue)}`
         tokens,
         index,
         env,
-        modulePath: this.modulePath,
-        inputString: this.inputString,
       });
       index = nextIndex;
       typeParameters = tp;
@@ -5263,8 +5221,6 @@ ${typeToString(nextTypeValue)}`
         tokens,
         index: functionTypeTokenIndex,
         env,
-        modulePath: this.modulePath,
-        inputString: this.inputString,
         parseExpression: this.makeParseExpression({ caller, parserData }),
         withFunctionBody: false,
       });
@@ -5348,7 +5304,6 @@ ${typeToString(functionType)}
         token: tokens[classNameTokenIndex],
       },
       deltaFrame: -1,
-      inputString: this.inputString,
     });
     env = nextNextEnv;
 
@@ -5366,13 +5321,12 @@ ${typeToString(functionType)}
             token: tokens[functionNameTokenIndexes[i]],
           },
           deltaFrame: -1,
-          inputString: this.inputString,
         });
         env = nextEnv;
       }
     }
 
-    env = popEnvFrame(env, this.inputString);
+    env = popEnvFrame(env);
     return {
       expr: {
         type: AstType.Class,
@@ -5425,8 +5379,6 @@ ${typeToString(functionType)}
         tokens,
         index,
         env,
-        modulePath: this.modulePath,
-        inputString: this.inputString,
       });
       index = nextIndex;
       instanceTypeParameters.push(...tp);
@@ -5491,8 +5443,6 @@ ${typeToString(functionType)}
         tokens,
         index,
         env,
-        modulePath: this.modulePath,
-        inputString: this.inputString,
         parseExpression: this.makeParseExpression({ caller, parserData }),
       });
       index = nextIndex;
@@ -5640,10 +5590,9 @@ Got:      ${typeToString(matchedFunction.func)}`
         token: tokens[classNameTokenIndex],
       },
       deltaFrame: -1,
-      inputString: this.inputString,
     });
     env = nextEnv;
-    env = popEnvFrame(env, this.inputString);
+    env = popEnvFrame(env);
 
     return {
       expr: {
@@ -5715,8 +5664,6 @@ Got:      ${typeToString(matchedFunction.func)}`
         tokens,
         index,
         env,
-        modulePath: this.modulePath,
-        inputString: this.inputString,
       });
       index = nextIndex;
       typeParameters = tp;
@@ -5746,7 +5693,6 @@ Got:      ${typeToString(matchedFunction.func)}`
         isExported,
         token: tokens[effectNameTokenIndex],
       },
-      inputString: this.inputString,
     });
     env = nextEnv;
 
@@ -5799,8 +5745,6 @@ Got:      ${typeToString(matchedFunction.func)}`
         tokens,
         index,
         env,
-        modulePath: this.modulePath,
-        inputString: this.inputString,
         parseExpression: this.makeParseExpression({ caller, parserData }),
         withFunctionBody: false,
       });
@@ -5875,10 +5819,9 @@ ${operationName}: ${typeToString(
         token: tokens[effectNameTokenIndex],
       },
       deltaFrame: -1,
-      inputString: this.inputString,
     });
     env = nextNextEnv;
-    env = popEnvFrame(env, this.inputString);
+    env = popEnvFrame(env);
     return {
       expr: {
         type: AstType.Effect,
@@ -5937,7 +5880,6 @@ ${operationName}: ${typeToString(
         isExported,
         token: tokens[enumNameTokenIndex],
       },
-      inputString: this.inputString,
     });
     env = nextEnv;
 
@@ -5954,8 +5896,6 @@ ${operationName}: ${typeToString(
         tokens,
         index,
         env,
-        modulePath: this.modulePath,
-        inputString: this.inputString,
       });
       index = nextIndex;
       typeParameters = tp;
@@ -6023,8 +5963,6 @@ ${operationName}: ${typeToString(
           tokens,
           index,
           env,
-          modulePath: this.modulePath,
-          inputString: this.inputString,
           parseExpression: this.makeParseExpression({ caller, parserData }),
           withFunctionBody: false,
         });
@@ -6109,10 +6047,9 @@ ${operationName}: ${typeToString(
         token: tokens[enumNameTokenIndex],
       },
       deltaFrame: -1,
-      inputString: this.inputString,
     });
     env = nextNextEnv;
-    env = popEnvFrame(env, this.inputString);
+    env = popEnvFrame(env);
 
     // Add enum variants to environment
     for (let i = 0; i < enumType.variants.length; i++) {
@@ -6132,7 +6069,6 @@ ${operationName}: ${typeToString(
           // eg: import { Option { Some, None } } from "std/option"
           token: tokens[enumVariantTokenIndexes[i]],
         },
-        inputString: this.inputString,
       });
       env = nextEnv;
     }
@@ -6540,8 +6476,6 @@ ${exprToString(expr)}`
           tokens,
           index,
           env,
-          modulePath: this.modulePath,
-          inputString: this.inputString,
           parseExpression: this.makeParseExpression({ caller, parserData }),
         });
         index = nextIndex;
@@ -6610,8 +6544,6 @@ ${exprToString(expr)}`
             tokens,
             index,
             env,
-            modulePath: this.modulePath,
-            inputString: this.inputString,
             parseExpression: this.makeParseExpression({ caller, parserData }),
             withFunctionBody: false,
           });
@@ -6701,7 +6633,6 @@ Got:      ${typeToString(matchedOperation.func)}`
             kind: "value",
             token: operationTokens[i],
           },
-          inputString: this.inputString,
         });
         env = nextEnv;
       }
@@ -6785,7 +6716,7 @@ Got:      ${effectsToString(newCaller.effects)}`
         type: AstType.Try,
         body: tryExpr,
         effectHandlers,
-        env: popEnvFrame(env, this.inputString),
+        env: popEnvFrame(env),
         token: tokens[tryTokenIndex],
         typeValue: returnType,
       },
@@ -7234,9 +7165,6 @@ Please consider adding "Promise" to the return type.
           path.dirname(this.modulePath.replace(/^file:\/\//, "")),
           modulePath
         );
-      console.log("- this.modulePath: ", this.modulePath);
-      console.log("- modulePath: ", modulePath);
-      console.log("- moduleAbsolutePath: ", moduleAbsolutePath);
       const extname = path.extname(moduleAbsolutePath);
       if (!extname) {
         moduleAbsolutePath = moduleAbsolutePath + ".mo";
@@ -7248,10 +7176,13 @@ Please consider adding "Promise" to the return type.
       try {
         module = this.loadModule(moduleAbsolutePath);
       } catch (error) {
-        throw this.formatErrorMessage(
-          tokens[moduleTokenIndex],
-          `Cannot find module "${moduleAbsolutePath}" from "${this.modulePath}"`
-        );
+        throw formatErrorMessage({
+          token: tokens[moduleTokenIndex],
+          errorMessage: `Failed to load module "${moduleAbsolutePath}".`,
+          inputString: this.inputString,
+          modulePath: this.modulePath,
+          cause: error,
+        });
       }
 
       // Check destructurings
@@ -7282,8 +7213,7 @@ Please consider adding "Promise" to the return type.
           if (value.isExported) {
             const { env: nextEnv } = addEnvValueType({
               env,
-              valueType: { ...value },
-              inputString: this.inputString,
+              valueType: { ...value, isExported: false },
             });
             env = nextEnv;
           }
@@ -7326,8 +7256,8 @@ Please consider adding "Promise" to the return type.
               valueType: {
                 ...variable,
                 variableName: destructuring.asName ?? variableName,
+                isExported: false,
               },
-              inputString: this.inputString,
             });
             env = nextEnv;
           }
@@ -7447,7 +7377,10 @@ Please consider adding "Promise" to the return type.
   private parse(tokens: Token[]): { ast: Expr[]; env: Environment } {
     let index = 0;
     const exprs: Expr[] = [];
-    let env = createNewEnv(this.modulePath);
+    let env = createNewEnv({
+      modulePath: this.modulePath,
+      inputString: this.inputString,
+    });
     const emptyParserData: ParserData = {
       callSites: [],
     };

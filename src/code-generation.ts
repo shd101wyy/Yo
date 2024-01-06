@@ -42,9 +42,9 @@ export class CodeGenerator {
       modulePath,
       (modulePath: string) => {
         return this.loadModule(modulePath, {
-          printTokens,
-          printAst,
-          printC,
+          printTokens: false,
+          printAst: false,
+          printC: false,
           skipCodegen,
         });
       },

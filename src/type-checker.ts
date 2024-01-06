@@ -581,16 +581,12 @@ export type VariableTypes = { [key: string]: Type };
 export function synthesizeTypeFromTokens({
   tokens,
   index,
-  modulePath,
-  inputString,
   env,
   functionName,
   parseExpression,
 }: {
   tokens: Token[];
   index: number;
-  modulePath: string;
-  inputString: string;
   env: Environment;
   functionName?: string;
   parseExpression: ParseExpression;
@@ -605,8 +601,6 @@ export function synthesizeTypeFromTokens({
     return synthesizeTypeFromTokens({
       tokens,
       index: index + 1,
-      modulePath,
-      inputString,
       env,
       parseExpression,
     });
@@ -632,8 +626,6 @@ export function synthesizeTypeFromTokens({
       returnValue = synthesizeFunctionTypeFromTokens({
         tokens,
         index,
-        modulePath,
-        inputString,
         env,
         parseExpression,
         withFunctionBody: false,
@@ -649,8 +641,6 @@ export function synthesizeTypeFromTokens({
       } = synthesizeTypeFromTokens({
         tokens,
         index: index + 1,
-        modulePath,
-        inputString,
         env,
         parseExpression,
       });
@@ -667,8 +657,8 @@ export function synthesizeTypeFromTokens({
         throw formatErrorMessage({
           token: tokens[nextIndex],
           errorMessage: "Expected ')'",
-          modulePath,
-          inputString,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
         });
       }
     }
@@ -704,8 +694,8 @@ export function synthesizeTypeFromTokens({
         throw formatErrorMessage({
           token: tokens[index],
           errorMessage: "Expected 'Type', 'Linear' or 'Free'",
-          modulePath,
-          inputString,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
         });
       }
       index = index + 1;
@@ -718,8 +708,8 @@ export function synthesizeTypeFromTokens({
         throw formatErrorMessage({
           token: tokens[index - 1],
           errorMessage: "Expected '}'",
-          modulePath,
-          inputString,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
         });
       }
       if (token.type === TokenType.RCurlyBracket) {
@@ -737,8 +727,6 @@ export function synthesizeTypeFromTokens({
           } = synthesizeTypeFromTokens({
             tokens,
             index,
-            modulePath,
-            inputString,
             env,
             parseExpression,
           });
@@ -754,16 +742,16 @@ export function synthesizeTypeFromTokens({
           throw formatErrorMessage({
             token,
             errorMessage: "Expected ':'",
-            modulePath,
-            inputString,
+            modulePath: env.modulePath,
+            inputString: env.inputString,
           });
         }
       } else {
         throw formatErrorMessage({
           token,
           errorMessage: "Expected identifier",
-          modulePath,
-          inputString,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
         });
       }
     }
@@ -778,8 +766,8 @@ export function synthesizeTypeFromTokens({
       throw formatErrorMessage({
         token: tokens[userDefinedKindTokenIndex],
         errorMessage: `Cannot set type as 'Free' because it contains '${kind}' data.`,
-        modulePath,
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
       });
     } else if (
       userDefinedKind &&
@@ -789,8 +777,8 @@ export function synthesizeTypeFromTokens({
       throw formatErrorMessage({
         token: tokens[userDefinedKindTokenIndex],
         errorMessage: `Cannot set type as 'Linear' because it contains 'Type' data.`,
-        modulePath,
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
       });
     } else if (
       userDefinedKind &&
@@ -800,8 +788,8 @@ export function synthesizeTypeFromTokens({
       throw formatErrorMessage({
         token: tokens[userDefinedKindTokenIndex],
         errorMessage: `Cannot set type as 'Type' because it contains 'Linear' data.`,
-        modulePath,
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
       });
     } else {
       kind = userDefinedKind ? userDefinedKind : kind;
@@ -929,8 +917,8 @@ export function synthesizeTypeFromTokens({
             throw formatErrorMessage({
               token: tokens[index],
               errorMessage: `Unknown type ${tokens[index].value}`,
-              modulePath,
-              inputString,
+              modulePath: env.modulePath,
+              inputString: env.inputString,
             });
           }
 
@@ -962,8 +950,8 @@ export function synthesizeTypeFromTokens({
         throw formatErrorMessage({
           token: tokens[index - 1],
           errorMessage: "Expected ']'",
-          modulePath,
-          inputString,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
         });
       }
       if (token.type === TokenType.Integer) {
@@ -972,8 +960,8 @@ export function synthesizeTypeFromTokens({
           throw formatErrorMessage({
             token: tokens[index + 1],
             errorMessage: "Expected ']'",
-            modulePath,
-            inputString,
+            modulePath: env.modulePath,
+            inputString: env.inputString,
           });
         } else {
           newTypeValue = {
@@ -996,8 +984,8 @@ export function synthesizeTypeFromTokens({
         throw formatErrorMessage({
           token,
           errorMessage: "Expected integer or ']'",
-          modulePath,
-          inputString,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
         });
       }
 
@@ -1021,8 +1009,6 @@ export function synthesizeTypeFromTokens({
     const newReturnValue = synthesizeTypeFromTokens({
       tokens,
       index,
-      modulePath,
-      inputString,
       env,
       parseExpression,
     });
@@ -1071,8 +1057,6 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
     const newReturnValue = synthesizeTypeFromTokens({
       tokens,
       index,
-      modulePath,
-      inputString,
       env,
       parseExpression,
     });
@@ -1127,8 +1111,6 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
     } = synthesizeTypeAndRegionArgumentsFromTokens({
       env: returnValue.env,
       index: returnValue.index,
-      modulePath,
-      inputString,
       parseExpression,
       tokens,
     });
@@ -1177,8 +1159,8 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
     throw formatErrorMessage({
       token: tokens[returnValue.index],
       errorMessage: `Cannot apply type arguments to ${typeToString(typeValue)}`,
-      modulePath,
-      inputString,
+      modulePath: env.modulePath,
+      inputString: env.inputString,
     });
   }
 
@@ -2061,16 +2043,12 @@ export function applyTypeAndRegionArgumentsToExpr({
 export function synthesizeFunctionParameterTypesFromTokens({
   tokens,
   index,
-  modulePath,
-  inputString,
   env,
   parseExpression,
   withFunctionBody,
 }: {
   tokens: Token[];
   index: number;
-  modulePath: string;
-  inputString: string;
   env: Environment;
   parseExpression: ParseExpression;
   withFunctionBody: boolean;
@@ -2079,8 +2057,8 @@ export function synthesizeFunctionParameterTypesFromTokens({
     throw formatErrorMessage({
       token: tokens[index],
       errorMessage: "Expected '(' in row types declaration",
-      modulePath,
-      inputString,
+      modulePath: env.modulePath,
+      inputString: env.inputString,
     });
   }
 
@@ -2099,8 +2077,8 @@ export function synthesizeFunctionParameterTypesFromTokens({
       throw formatErrorMessage({
         token: tokens[index - 1],
         errorMessage: "Expected ')'",
-        modulePath,
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
       });
     }
     if (token.type === TokenType.Comma) {
@@ -2124,8 +2102,8 @@ export function synthesizeFunctionParameterTypesFromTokens({
       throw formatErrorMessage({
         token,
         errorMessage: "Expected identifier as parameter name",
-        modulePath,
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
       });
     }
     const parameterName = token.value;
@@ -2138,8 +2116,8 @@ export function synthesizeFunctionParameterTypesFromTokens({
       throw formatErrorMessage({
         token: tokens[index + 1],
         errorMessage: "Expected ':' after parameter name",
-        modulePath,
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
       });
     } else {
       index = index + 2;
@@ -2150,8 +2128,6 @@ export function synthesizeFunctionParameterTypesFromTokens({
       } = synthesizeTypeFromTokens({
         tokens,
         index,
-        modulePath,
-        inputString,
         env,
         parseExpression,
       });
@@ -2195,8 +2171,8 @@ export function synthesizeFunctionParameterTypesFromTokens({
               errorMessage: `Mismatched paramter types for ${parameterName} 
   Expected: ${typeToString(userDefinedParamterType)}
   Got:      ${typeToString(defaultValueType)})}`,
-              modulePath,
-              inputString,
+              modulePath: env.modulePath,
+              inputString: env.inputString,
             });
           }
         }
@@ -2207,7 +2183,6 @@ export function synthesizeFunctionParameterTypesFromTokens({
 
     // save to env
     const { env: nextEnv, value: parameterValue } = addEnvValueType({
-      inputString,
       env,
       valueType: {
         variableName: parameterName,
@@ -2229,7 +2204,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
   }
 
   if (!withFunctionBody) {
-    env = popEnvFrame(env, inputString, true);
+    env = popEnvFrame(env, true);
   }
 
   return { parameterTypes, index, env };
@@ -2238,15 +2213,11 @@ export function synthesizeFunctionParameterTypesFromTokens({
 export function synthesizeTypeAndRegionArgumentsFromTokens({
   tokens,
   index,
-  modulePath,
-  inputString,
   env,
   parseExpression,
 }: {
   tokens: Token[];
   index: number;
-  modulePath: string;
-  inputString: string;
   env: Environment;
   parseExpression: ParseExpression;
 }): {
@@ -2259,8 +2230,8 @@ export function synthesizeTypeAndRegionArgumentsFromTokens({
     throw formatErrorMessage({
       token: tokens[index],
       errorMessage: "Expected '<' in type arguments",
-      modulePath,
-      inputString,
+      modulePath: env.modulePath,
+      inputString: env.inputString,
     });
   }
 
@@ -2274,8 +2245,8 @@ export function synthesizeTypeAndRegionArgumentsFromTokens({
       throw formatErrorMessage({
         token: tokens[index - 1],
         errorMessage: "Expected '>'",
-        modulePath,
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
       });
     }
     if (token.type === TokenType.Comma) {
@@ -2333,8 +2304,6 @@ export function synthesizeTypeAndRegionArgumentsFromTokens({
     } = synthesizeTypeFromTokens({
       tokens,
       index,
-      modulePath,
-      inputString,
       env,
       parseExpression,
     });
@@ -2348,15 +2317,11 @@ export function synthesizeTypeAndRegionArgumentsFromTokens({
 export function synthesizeEffectsFromTokens({
   tokens,
   index,
-  modulePath,
-  inputString,
   env,
   parseExpression,
 }: {
   tokens: Token[];
   index: number;
-  modulePath: string;
-  inputString: string;
   env: Environment;
   parseExpression: ParseExpression;
 }): {
@@ -2371,8 +2336,8 @@ export function synthesizeEffectsFromTokens({
     throw formatErrorMessage({
       token: tokens[index],
       errorMessage: "Expected '[' in effects declaration",
-      modulePath,
-      inputString,
+      modulePath: env.modulePath,
+      inputString: env.inputString,
     });
   }
   index = index + 1;
@@ -2383,8 +2348,8 @@ export function synthesizeEffectsFromTokens({
       throw formatErrorMessage({
         token: tokens[index - 1],
         errorMessage: "Expected '}'",
-        modulePath,
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
       });
     }
     if (tokens[index].type === TokenType.RBracket) {
@@ -2400,8 +2365,8 @@ export function synthesizeEffectsFromTokens({
         throw formatErrorMessage({
           token: tokens[index],
           errorMessage: "Expected identifier as effect name",
-          modulePath,
-          inputString,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
         });
       }
       const effectName = tokens[index].value;
@@ -2418,8 +2383,6 @@ export function synthesizeEffectsFromTokens({
         } = synthesizeTypeAndRegionArgumentsFromTokens({
           tokens,
           index,
-          modulePath,
-          inputString,
           env,
           parseExpression,
         });
@@ -2439,15 +2402,15 @@ export function synthesizeEffectsFromTokens({
         throw formatErrorMessage({
           token: tokens[index],
           errorMessage: `Cannot find effect ${effectName}`,
-          modulePath,
-          inputString,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
         });
       } else if (effectValues.length > 1) {
         throw formatErrorMessage({
           token: tokens[index],
           errorMessage: `Ambiguous effect ${effectName}`,
-          modulePath,
-          inputString,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
         });
       } else {
         const effect = effectValues[0].effect;
@@ -2455,8 +2418,8 @@ export function synthesizeEffectsFromTokens({
           throw formatErrorMessage({
             token: tokens[index],
             errorMessage: `Cannot find effect ${effectName}`,
-            modulePath,
-            inputString,
+            modulePath: env.modulePath,
+            inputString: env.inputString,
           });
         }
         const newEffect = applyTypeAndRegionArgumentsToEffect({
@@ -2492,8 +2455,6 @@ export function synthesizeEffectsFromTokens({
 export function synthesizeFunctionTypeFromTokens({
   tokens,
   index,
-  modulePath,
-  inputString,
   env,
   parseExpression,
   withFunctionBody,
@@ -2501,8 +2462,6 @@ export function synthesizeFunctionTypeFromTokens({
 }: {
   tokens: Token[];
   index: number;
-  modulePath: string;
-  inputString: string;
   env: Environment;
   parseExpression: ParseExpression;
   withFunctionBody: boolean;
@@ -2526,8 +2485,6 @@ export function synthesizeFunctionTypeFromTokens({
       tokens,
       index,
       env,
-      modulePath,
-      inputString,
     });
     typeParameters = nextTypeParameters;
     regionParameters = nextRegionParameters;
@@ -2539,8 +2496,8 @@ export function synthesizeFunctionTypeFromTokens({
     throw formatErrorMessage({
       token: tokens[index],
       errorMessage: "Expected '(' in function declaration",
-      modulePath,
-      inputString,
+      modulePath: env.modulePath,
+      inputString: env.inputString,
     });
   }
 
@@ -2551,8 +2508,6 @@ export function synthesizeFunctionTypeFromTokens({
   } = synthesizeFunctionParameterTypesFromTokens({
     tokens,
     index,
-    modulePath,
-    inputString,
     env,
     parseExpression,
     withFunctionBody,
@@ -2578,8 +2533,6 @@ export function synthesizeFunctionTypeFromTokens({
       } = synthesizeEffectsFromTokens({
         tokens,
         index,
-        modulePath,
-        inputString,
         env,
         parseExpression,
       });
@@ -2598,8 +2551,6 @@ export function synthesizeFunctionTypeFromTokens({
       } = synthesizeTypeFromTokens({
         tokens,
         index,
-        modulePath,
-        inputString,
         env,
         parseExpression,
       });
@@ -2633,8 +2584,8 @@ export function synthesizeFunctionTypeFromTokens({
     throw formatErrorMessage({
       token: tokens[index],
       errorMessage: "Expected function return type after '->' or '=>'",
-      modulePath,
-      inputString,
+      modulePath: env.modulePath,
+      inputString: env.inputString,
     });
   }
 }
@@ -2721,14 +2672,10 @@ export function synthesizeTypeAndRegionParametersFromTokens({
   tokens,
   index,
   env,
-  modulePath,
-  inputString,
 }: {
   tokens: Token[];
   index: number;
   env: Environment;
-  modulePath: string;
-  inputString: string;
 }): {
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
@@ -2739,8 +2686,8 @@ export function synthesizeTypeAndRegionParametersFromTokens({
     throw formatErrorMessage({
       token: tokens[index],
       errorMessage: "Expected '<' in type parameters declaration",
-      modulePath,
-      inputString,
+      modulePath: env.modulePath,
+      inputString: env.inputString,
     });
   }
 
@@ -2754,8 +2701,8 @@ export function synthesizeTypeAndRegionParametersFromTokens({
       throw formatErrorMessage({
         token: tokens[index - 1],
         errorMessage: "Expected '>'",
-        modulePath,
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
       });
     }
     if (token.type === TokenType.Comma) {
@@ -2771,8 +2718,8 @@ export function synthesizeTypeAndRegionParametersFromTokens({
       throw formatErrorMessage({
         token,
         errorMessage: "Expected identifier as type parameter name",
-        modulePath,
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
       });
     }
     const typeParameterName = token.value;
@@ -2780,8 +2727,8 @@ export function synthesizeTypeAndRegionParametersFromTokens({
       throw formatErrorMessage({
         token,
         errorMessage: `Type parameter name "${typeParameterName}" must be UpperCamelCase`,
-        modulePath,
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
       });
     }
 
@@ -2790,13 +2737,18 @@ export function synthesizeTypeAndRegionParametersFromTokens({
     const parameterKindTokenIndex = index + 2;
     if (tokens[index + 1].type === TokenType.Colon) {
       index = index + 2;
-      kind = parseTypeAndRegionKind({ tokens, index, modulePath, inputString });
+      kind = parseTypeAndRegionKind({
+        tokens,
+        index,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+      });
       if (!kind) {
         throw formatErrorMessage({
           token: tokens[index],
           errorMessage: `Unknown kind ${tokens[index].value}. Expected 'Type', 'Linear', 'Free', or 'Region'`,
-          modulePath,
-          inputString,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
         });
       }
       index = index + 1;
@@ -2836,7 +2788,6 @@ export function synthesizeTypeAndRegionParametersFromTokens({
 
       // Save to env
       const { env: nextEnv } = addEnvValueType({
-        inputString,
         env,
         valueType: {
           variableName: typeParameterName,
@@ -2857,7 +2808,6 @@ export function synthesizeTypeAndRegionParametersFromTokens({
 
       // Save to env
       const { env: nextEnv } = addEnvValueType({
-        inputString,
         env,
         valueType: {
           variableName: typeParameterName,

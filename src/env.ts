@@ -147,12 +147,12 @@ type Frame = {
 };
 
 function addFrameValueType({
-  inputString,
+  env,
   frame,
   valueType,
   preventDuplicate,
 }: {
-  inputString: string;
+  env: Environment;
   frame: Frame;
   valueType: ValueType;
   preventDuplicate?: boolean;
@@ -178,7 +178,8 @@ function addFrameValueType({
       );
       if (existingValue) {
         throw formatErrorMessages({
-          inputString,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
           tokenAndErrorList: [
             {
               token: valueType.token,
@@ -217,6 +218,7 @@ export type Environment = {
   freeVariables: ValueType[];
   frames: Frame[];
   modulePath: string;
+  inputString: string;
   operatorPrecedenceMap: { [key: string]: OperatorPrecedence };
 };
 
@@ -231,6 +233,7 @@ export function copyEnvironment(
     frames: [...env.frames],
     freeVariables: [...freeVariables],
     modulePath: env.modulePath,
+    inputString: env.inputString,
     operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
 }
@@ -247,13 +250,13 @@ export function pushEnvFrame(
     freeVariables: env.freeVariables,
     frames: [...env.frames, frame],
     modulePath: env.modulePath,
+    inputString: env.inputString,
     operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
 }
 
 export function popEnvFrame(
   env: Environment,
-  inputString: string,
   ignoreCheck = false
 ): Environment {
   if (!ignoreCheck) {
@@ -281,7 +284,8 @@ export function popEnvFrame(
     );
     if (unconsumedLinearValues.length > 0) {
       throw formatErrorMessages({
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
         tokenAndErrorList: unconsumedLinearValues.map((value) => {
           return {
             token: value.token,
@@ -299,7 +303,8 @@ ${typeToString(value.type)}${
       });
     } else if (uninitializedValues.length > 0) {
       throw formatErrorMessages({
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
         tokenAndErrorList: uninitializedValues.map((value) => {
           return {
             token: value.token,
@@ -309,7 +314,8 @@ ${typeToString(value.type)}${
       });
     } else if (unusedFreeValues.length > 0) {
       throw formatErrorMessages({
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
         tokenAndErrorList: unusedFreeValues.map((value) => {
           return {
             token: value.token,
@@ -332,7 +338,6 @@ ${typeToString(value.type)}${
         env = decrementVariableReferenceCount({
           env,
           referedVariable,
-          inputString,
         });
       }
     }
@@ -343,19 +348,18 @@ ${typeToString(value.type)}${
     freeVariables: env.freeVariables,
     frames: env.frames.slice(0, -1),
     modulePath: env.modulePath,
+    inputString: env.inputString,
     operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
 }
 
 export function addEnvValueType({
-  inputString,
   env,
   valueType,
   deltaFrame,
   preventDuplicate,
   variableId,
 }: {
-  inputString: string;
   env: Environment;
   valueType: Omit<ValueType, "frameLevel" | "id">;
   deltaFrame?: number;
@@ -369,7 +373,7 @@ export function addEnvValueType({
     : variableId ?? generateValueTypeId(env, valueType.variableName);
   const value: ValueType = { ...valueType, frameLevel, id };
   const newFrame = addFrameValueType({
-    inputString,
+    env,
     frame,
     valueType: value,
     preventDuplicate,
@@ -381,6 +385,7 @@ export function addEnvValueType({
     freeVariables: env.freeVariables,
     frames: newFrames,
     modulePath: env.modulePath,
+    inputString: env.inputString,
     operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
   return { env: newEnv, value: value };
@@ -402,6 +407,7 @@ export function updateExistingValueType(
     freeVariables: env.freeVariables,
     frames,
     modulePath: env.modulePath,
+    inputString: env.inputString,
     operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
 }
@@ -415,6 +421,7 @@ export function addEnvFreeVariable(
     freeVariables: Array.from(new Set([...env.freeVariables, valueType])),
     frames: env.frames,
     modulePath: env.modulePath,
+    inputString: env.inputString,
     operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
 }
@@ -430,6 +437,7 @@ export function addEnvOperatorPrecedence(
     freeVariables: env.freeVariables,
     frames: env.frames,
     modulePath: env.modulePath,
+    inputString: env.inputString,
     operatorPrecedenceMap: {
       ...env.operatorPrecedenceMap,
       [operator]: { operator, associativity, precedence },
@@ -471,18 +479,17 @@ export function getEnvValueTypesByVariableName(
 export function setEnvVariableAsConsumed({
   env,
   variableName,
-  inputString,
   consumedAtToken,
 }: {
   env: Environment;
   variableName: string;
-  inputString: string;
   consumedAtToken: Token;
 }): { env: Environment; referedVariable?: ReferedVariable } {
   const valueTypes = getEnvValueTypesByVariableName(env, variableName);
   if (valueTypes.length === 0) {
     throw formatErrorMessages({
-      inputString,
+      modulePath: env.modulePath,
+      inputString: env.inputString,
       tokenAndErrorList: [
         {
           token: emptyToken,
@@ -499,7 +506,8 @@ export function setEnvVariableAsConsumed({
     valueType.consumedAtToken
   ) {
     throw formatErrorMessages({
-      inputString,
+      modulePath: env.modulePath,
+      inputString: env.inputString,
       tokenAndErrorList: [
         /*
         {
@@ -517,7 +525,8 @@ export function setEnvVariableAsConsumed({
     });
   } else if (immutableReferences.length > 0) {
     throw formatErrorMessages({
-      inputString,
+      modulePath: env.modulePath,
+      inputString: env.inputString,
       tokenAndErrorList: immutableReferences.map((token) => {
         return {
           token,
@@ -527,7 +536,8 @@ export function setEnvVariableAsConsumed({
     });
   } else if (mutableReferences.length > 0) {
     throw formatErrorMessages({
-      inputString,
+      modulePath: env.modulePath,
+      inputString: env.inputString,
       tokenAndErrorList: mutableReferences.map((token) => {
         return {
           token,
@@ -562,11 +572,9 @@ export function setEnvVariableAsConsumed({
 export function decrementVariableReferenceCount({
   env,
   referedVariable,
-  inputString,
 }: {
   env: Environment;
   referedVariable: ReferedVariable;
-  inputString;
 }): Environment {
   const referedFrame = env.frames[referedVariable.frameLevel];
   const referedValueType = referedFrame.values.find(
@@ -574,7 +582,8 @@ export function decrementVariableReferenceCount({
   );
   if (!referedValueType) {
     throw formatErrorMessages({
-      inputString,
+      modulePath: env.modulePath,
+      inputString: env.inputString,
       tokenAndErrorList: [
         {
           token: referedVariable.token,
@@ -607,14 +616,12 @@ export function increaseEnvVariableReferenceCount({
   env,
   variableName,
   isMutableReference,
-  inputString,
   token,
   isForAssignment,
 }: {
   env: Environment;
   variableName: string;
   isMutableReference: boolean;
-  inputString: string;
   token: Token;
   isForAssignment?: boolean;
 }): {
@@ -625,7 +632,8 @@ export function increaseEnvVariableReferenceCount({
   const valueTypes = getEnvValueTypesByVariableName(env, variableName);
   if (valueTypes.length === 0) {
     throw formatErrorMessages({
-      inputString,
+      modulePath: env.modulePath,
+      inputString: env.inputString,
       tokenAndErrorList: [
         {
           token: emptyToken,
@@ -650,7 +658,8 @@ export function increaseEnvVariableReferenceCount({
       resetConsumedVariable = true;
     } else {
       throw formatErrorMessages({
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
         tokenAndErrorList: [
           {
             token: valueType.consumedAtToken,
@@ -668,28 +677,42 @@ export function increaseEnvVariableReferenceCount({
   if (isMutableReference) {
     if (immutableReferenceCount > 0) {
       throw formatErrorMessages({
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
         tokenAndErrorList: [
           {
             token: valueType.token,
             errorMessage: `Variable ${variableName} is already borrowed as immutable reference:
 
 ${immutableReferences
-  .map((token) => getLineAtToken(inputString, token))
+  .map((token) =>
+    getLineAtToken({
+      modulePath: env.modulePath,
+      inputString: env.inputString,
+      token,
+    })
+  )
   .join("\n")}`,
           },
         ],
       });
     } else if (mutableReferenceCount > 0) {
       throw formatErrorMessages({
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
         tokenAndErrorList: [
           {
             token: valueType.token,
             errorMessage: `Variable "${variableName}" is already borrowed as mutable reference:
 
 ${mutableReferences
-  .map((token) => getLineAtToken(inputString, token))
+  .map((token) =>
+    getLineAtToken({
+      modulePath: env.modulePath,
+      inputString: env.inputString,
+      token,
+    })
+  )
   .join("\n")}`,
           },
         ],
@@ -714,14 +737,21 @@ ${mutableReferences
     // immutable reference
     if (mutableReferenceCount > 0) {
       throw formatErrorMessages({
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
         tokenAndErrorList: [
           {
             token: valueType.token,
             errorMessage: `Variable "${variableName}" is already borrowed as mutable reference:
 
 ${mutableReferences
-  .map((token) => getLineAtToken(inputString, token))
+  .map((token) =>
+    getLineAtToken({
+      modulePath: env.modulePath,
+      inputString: env.inputString,
+      token,
+    })
+  )
   .join("\n")}`,
           },
         ],
@@ -749,12 +779,10 @@ export function setEnvVariableReferedVariable({
   env,
   variableNameToken,
   referedVariable,
-  inputString,
 }: {
   env: Environment;
   variableNameToken: Token;
   referedVariable: ReferedVariable;
-  inputString: string;
 }): Environment {
   const variableName = variableNameToken.value;
   // Increase the reference count for referedVariable
@@ -764,7 +792,8 @@ export function setEnvVariableReferedVariable({
   );
   if (!referedValueType) {
     throw formatErrorMessages({
-      inputString,
+      modulePath: env.modulePath,
+      inputString: env.inputString,
       tokenAndErrorList: [
         {
           token: referedVariable.token,
@@ -796,7 +825,8 @@ export function setEnvVariableReferedVariable({
   ].values.find((value) => value.variableName === variableName);
   if (!variableValueType) {
     throw formatErrorMessages({
-      inputString,
+      modulePath: env.modulePath,
+      inputString: env.inputString,
       tokenAndErrorList: [
         {
           token: variableNameToken,
@@ -844,7 +874,13 @@ export function getEnvCurrentRegionId(env: Environment): string {
   return env.frames[env.frames.length - 1].regionId;
 }
 
-export function createNewEnv(modulePath: string): Environment {
+export function createNewEnv({
+  modulePath,
+  inputString,
+}: {
+  modulePath: string;
+  inputString: string;
+}): Environment {
   return {
     functionDeclarationFrameLevel: -1,
     frames: [
@@ -855,6 +891,7 @@ export function createNewEnv(modulePath: string): Environment {
     ],
     freeVariables: [],
     modulePath,
+    inputString,
     operatorPrecedenceMap: {},
   };
 }
@@ -865,8 +902,7 @@ export function createNewEnv(modulePath: string): Environment {
  */
 export function mergeAndCheckEnv(
   env: Environment,
-  cases: (IfCase | MatchCase)[],
-  inputString: string
+  cases: (IfCase | MatchCase)[]
 ): Environment {
   const maxFrameLevel = env.frames.length - 1;
   const caseEnvs: Environment[] = [];
@@ -880,7 +916,8 @@ export function mergeAndCheckEnv(
     const caseEnv = caseEnvs[i];
     if (caseEnv.frames.length - 1 !== maxFrameLevel) {
       throw formatErrorMessages({
-        inputString,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
         tokenAndErrorList: [
           {
             token: cases[i].body.token,
@@ -913,7 +950,8 @@ export function mergeAndCheckEnv(
       // Check if the number of values is the same
       if (frameValues.length !== caseEnvFrameValues.length) {
         throw formatErrorMessages({
-          inputString,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
           tokenAndErrorList: [
             {
               token: cases[j].body.token,
@@ -929,7 +967,8 @@ export function mergeAndCheckEnv(
         const caseEnvFrameValue = caseEnvFrameValues[k];
         if (frameValue.variableName !== caseEnvFrameValue.variableName) {
           throw formatErrorMessages({
-            inputString,
+            modulePath: env.modulePath,
+            inputString: env.inputString,
             tokenAndErrorList: [
               {
                 token: cases[j].body.token,
@@ -981,7 +1020,8 @@ export function mergeAndCheckEnv(
       if (tokens.length === 1) {
         if (!!tokens[0] && !frameValues[i].consumedAtToken) {
           throw formatErrorMessages({
-            inputString,
+            modulePath: env.modulePath,
+            inputString: env.inputString,
             tokenAndErrorList: [
               {
                 token: frameValues[i].token,
@@ -1008,7 +1048,8 @@ export function mergeAndCheckEnv(
         const notConsumed = tokens.filter((t) => !t);
         if (consumed.length > 0 && notConsumed.length > 0) {
           throw formatErrorMessages({
-            inputString,
+            modulePath: env.modulePath,
+            inputString: env.inputString,
             errorMessage: `Variable "${variableName}" might be consumed in some cases but not consumed in other cases:\n`,
             tokenAndErrorList: tokens.map((token, index) => {
               return {
@@ -1036,6 +1077,7 @@ export function createTopLevelEnv(
     frames: env.frames.slice(0, 1 + delta),
     freeVariables: [],
     modulePath: env.modulePath,
+    inputString: env.inputString,
     operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
 }
