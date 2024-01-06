@@ -212,7 +212,7 @@ export default class Parser {
             tag: "primitive",
             value: token.value,
             typeValue: {
-              type: "f32",
+              type: "f64",
               kind: "Free",
               value: token.value,
               tag: "primitive",
@@ -229,7 +229,7 @@ export default class Parser {
             tag: "primitive",
             value: token.value,
             typeValue: {
-              type: "f32",
+              type: "f64",
               kind: "Free",
             },
             env,
