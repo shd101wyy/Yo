@@ -38,10 +38,21 @@ export class CodeGenerator {
       return module;
     }
     console.log(`= Loading module ${modulePath}`);
-    const parser = new Parser(modulePath, this.loadModule.bind(this), {
-      printTokens,
-      printAst,
-    });
+    const parser = new Parser(
+      modulePath,
+      (modulePath: string) => {
+        return this.loadModule(modulePath, {
+          printTokens,
+          printAst,
+          printC,
+          skipCodegen,
+        });
+      },
+      {
+        printTokens,
+        printAst,
+      }
+    );
     module = parser.generateModule();
     console.log(`= Loaded module ${modulePath}`);
     this.modules.set(modulePath, module);

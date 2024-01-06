@@ -1304,17 +1304,26 @@ ${exprToString(lhs)}
       ? TypeValues.unit
       : functionType.returnType;
     if (!checkType(expectedReturnType, body.typeValue, env)) {
-      throw this.formatErrorMessage(
-        body.token,
-        `Mismatched return type:
-Prototype: ${typeToString(expectedReturnType)}
-Returned : ${typeToString(body.typeValue)}${
-          promiseReturnType
-            ? `\nPlease note function that returns a Promise requires () as its real return type.  `
-            : ""
-        }
-`
-      );
+      throw formatErrorMessages({
+        inputString: this.inputString,
+        tokenAndErrorList: [
+          {
+            token: body.token,
+            errorMessage: `Mismatched return type:
+              Prototype: ${typeToString(expectedReturnType)}
+              Returned : ${typeToString(body.typeValue)}${
+                promiseReturnType
+                  ? `\nPlease note function that returns a Promise requires () as its real return type.  `
+                  : ""
+              }
+              `,
+          },
+          {
+            token: body.exprs[body.exprs.length - 1].token,
+            errorMessage: `Returned value:`,
+          },
+        ],
+      });
     }
     functionType.freeVariables = env.freeVariables;
 
@@ -2942,6 +2951,31 @@ ${matchedFunctionErrors[i]}`
         caller,
         parserData,
       });
+    } else if (tokens[index].type === TokenType.As) {
+      const typeTokenIndex = index + 1;
+      const {
+        env: nextEnv,
+        index: nextIndex,
+        typeValue: castedType,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index: typeTokenIndex,
+        env,
+        inputString: this.inputString,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
+      });
+      index = nextIndex;
+      env = nextEnv;
+      return {
+        expr: {
+          type: AstType.TypeCast,
+          env,
+          expr: primaryExpr,
+          token: tokens[typeTokenIndex],
+          typeValue: castedType,
+        },
+        index,
+      };
     } /* else if (
       primaryExpr.typeValue.type === "Enum" &&
       token.type === TokenType.Is
@@ -5470,25 +5504,41 @@ ${typeToString(functionType)}
         break;
       }
 
+      let functionNameTokenIndex = index;
+      let functionName = tokens[index].value;
+      let functionTypeTokenIndex = index + 2;
       if (
-        tokens[index].type !== TokenType.Identifier &&
-        tokens[index + 1]?.type !== TokenType.Colon
+        tokens[index].type === TokenType.Identifier &&
+        tokens[index + 1].type === TokenType.Colon
       ) {
+        // already set
+      } else if (
+        tokens[index].type === TokenType.LParen &&
+        tokens[index + 1].type === TokenType.Operator &&
+        tokens[index + 2].type === TokenType.RParen &&
+        tokens[index + 3].type === TokenType.Colon
+      ) {
+        functionNameTokenIndex = index + 1;
+        functionName = tokens[index + 1].value;
+        functionTypeTokenIndex = index + 4;
+      } else {
         throw this.formatErrorMessage(
-          tokens[index],
-          `Please define functions in "class" like below:
+          tokens[functionNameTokenIndex],
+          `Please define functions in "instance" like below:
 
-class Show<T> {
-  show: (x: T)-> string;
+instance Show<T> {
+  show: (x: T)-> string {
+    // ...
+  };
 }
           `
         );
       }
-      const functionName = tokens[index].value;
+
       const { expr: functionExpr_, index: nextIndex } =
         this.parseAnonymousFunction({
           tokens,
-          index: index + 2,
+          index: functionTypeTokenIndex,
           env,
           caller,
           parserData,

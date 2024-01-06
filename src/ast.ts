@@ -94,6 +94,9 @@ export enum AstType {
 
   // infix
   Infix = "infix",
+
+  // type casting
+  TypeCast = "type-cast",
 }
 
 export enum OperatorType {
@@ -141,7 +144,8 @@ export type Expr =
   | TryExpr
   | AwaitExpr
   | RecurExpr
-  | InfixPrecedenceExpr;
+  | InfixPrecedenceExpr
+  | TypeCastExpr;
 
 export type IgnoreExpr = {
   type: AstType.Ignore;
@@ -485,6 +489,17 @@ export type InfixPrecedenceExpr = {
   operator: string;
 };
 
+export type TypeCastExpr = {
+  type: AstType.TypeCast;
+  /**
+   * Casted type.
+   */
+  typeValue: Type;
+  env: Environment;
+  token: Token;
+  expr: Expr;
+};
+
 export function synthesizeRecordType(
   properties: {
     name: string;
@@ -732,6 +747,9 @@ ${indentation}}`;
     }
     case AstType.Infix: {
       return `${expr.associativity} ${expr.precedence} ${expr.operator};`;
+    }
+    case AstType.TypeCast: {
+      return `(${exprToString(expr.expr)} as ${typeToString(expr.typeValue)})`;
     }
     default:
       throw new Error(`Unknown expr type ${expr}`);

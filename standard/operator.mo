@@ -1,3 +1,5 @@
+import {*} from "./builtins"
+
 /**
  * Define the operator precedence for the Mo language.  
  * 1 is the lowest precedence.  
@@ -22,7 +24,6 @@ infixl 70 <<  // Bitwise left shift
 infixl 70 >>  // Bitwise right shift
 infixl 70 &   // Bitwise AND
 infixr 80 **  // Exponentiation. 3 ** 4 ** 6 == 3 ** (4 ** 6)
-
 
 class Add<T: Type> {
   (+): (lhs: T, rhs: T) -> T;
@@ -110,4 +111,42 @@ class Exponentiation<T: Type> {
 
 class Negate<T: Type> {
   (-): (value: T) -> T;
+}
+
+/**
+ * Operators for i32
+ */
+instance Add<i32> {
+  (+): (lhs: i32, rhs: i32)-> i32 {
+    @codegenInline(C="($1 + $2)");
+    0
+  }
+}
+
+instance Sub<i32> {
+  (-): (lhs: i32, rhs: i32)-> i32 {
+    @codegenInline(C="($1 - $2)");
+    0
+  }
+}
+
+instance Mul<i32> {
+  (*): (lhs: i32, rhs: i32)-> i32 {
+    @codegenInline(C="($1 * $2)");
+    0
+  }
+}
+
+instance Div<i32> {
+  (/): (lhs: i32, rhs: i32)-> i32 {
+    @codegenInline(C="($1 / $2)");
+    0
+  }
+}
+
+instance Mod<i32> {
+  (%): (lhs: i32, rhs: i32)-> i32 {
+    @codegenInline(C="($1 % $2)");
+    0
+  }
 }
