@@ -5171,33 +5171,44 @@ ${typeToString(nextTypeValue)}`
         break;
       }
 
+      let functionNameTokenIndex = index;
+      let functionName = tokens[index].value;
+      let functionTypeTokenIndex = index + 2;
       if (
-        tokens[index].type !== TokenType.Identifier &&
-        tokens[index + 1]?.type !== TokenType.Colon
+        tokens[index].type === TokenType.Identifier &&
+        tokens[index + 1].type === TokenType.Colon
       ) {
+        // already set
+      } else if (
+        tokens[index].type === TokenType.LParen &&
+        tokens[index + 1].type === TokenType.Operator &&
+        tokens[index + 2].type === TokenType.RParen &&
+        tokens[index + 3].type === TokenType.Colon
+      ) {
+        functionNameTokenIndex = index + 1;
+        functionName = tokens[index + 1].value;
+        functionTypeTokenIndex = index + 4;
+      } else {
         throw this.formatErrorMessage(
           tokens[index],
           `Please define functions in "class" like below:
-
-class Show<T> {
-  show: (x: T)-> string;
-}
-          `
+    
+    class Show<T> {
+      show: (x: T)-> string;
+    }
+              `
         );
       }
-      const functionNameTokenIndex = index;
-      const functionName = tokens[index].value;
-      functionNameTokenIndexes.push(index);
+      functionNameTokenIndexes.push(functionNameTokenIndex);
 
       // Parse function type
-      const functionTypeTokenIndex = index + 2;
       const {
         env: nextEnv,
         index: nextIndex,
         typeValue: functionType,
       } = synthesizeFunctionTypeFromTokens({
         tokens,
-        index: index + 2,
+        index: functionTypeTokenIndex,
         env,
         inputString: this.inputString,
         parseExpression: this.makeParseExpression({ caller, parserData }),

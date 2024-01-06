@@ -105,7 +105,7 @@ class GreaterThanOrEqual<T: Type> {
 }
 
 class Exponentiation<T: Type> {
-  (**): (lhs: T, rhs: T) -> boolean;
+  (**): (lhs: T, rhs: T) -> T;
 }
 
 class Negate<T: Type> {

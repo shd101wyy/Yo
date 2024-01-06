@@ -21,6 +21,7 @@ import {
 import { formatErrorMessage } from "./error";
 import * as logger from "./logger";
 import { isUpperCamelCase } from "./naming-checker";
+import { stringIsOperator } from "./operator";
 import { Token, TokenType } from "./token";
 
 export type TypeKind = "Type" | "Linear" | "Free";
@@ -3392,9 +3393,9 @@ export function classToString(type: TClass): string {
 ${type.functions
   .map(
     ({ name, func, functionExpr }) =>
-      `  ${name}: ${typeToString(func, { extractTypeConstructor: false })}${
-        functionExpr ? ` ${exprToString(functionExpr.body, "  ")}` : ""
-      }`
+      `  ${stringIsOperator(name) ? `(${name})` : name}: ${typeToString(func, {
+        extractTypeConstructor: false,
+      })}${functionExpr ? ` ${exprToString(functionExpr.body, "  ")}` : ""}`
   )
   .join(";\n")};
 }`;

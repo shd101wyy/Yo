@@ -23,8 +23,8 @@ export function tokenize(input: string): Token[] {
     if (
       operator &&
       // Skip comments
-      operator !== "//" &&
-      operator != "/*" &&
+      !operator.startsWith("//") &&
+      !operator.startsWith("/*") &&
       // Skip symbol with ""
       !(operator === "@" && input[i + 1] === '"') &&
       // Skip symbol without ""
