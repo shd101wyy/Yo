@@ -150,6 +150,7 @@ export default class Parser {
     return formatErrorMessage({
       token,
       errorMessage,
+      modulePath: this.modulePath,
       inputString: this.inputString,
     });
   }
@@ -1184,6 +1185,7 @@ ${exprToString(lhs)}
     } = synthesizeFunctionTypeFromTokens({
       tokens,
       index,
+      modulePath: this.modulePath,
       inputString: this.inputString,
       env,
       parseExpression: this.makeParseExpression({ caller, parserData }),
@@ -1203,6 +1205,7 @@ ${exprToString(lhs)}
         synthesizeFunctionTypeFromTokens({
           tokens,
           index: startIndex,
+          modulePath: this.modulePath,
           inputString: this.inputString,
           env: newEnv,
           parseExpression: this.makeParseExpression({ caller, parserData }),
@@ -1306,6 +1309,7 @@ ${exprToString(lhs)}
     if (!checkType(expectedReturnType, body.typeValue, env)) {
       throw formatErrorMessages({
         inputString: this.inputString,
+        modulePath: this.modulePath,
         tokenAndErrorList: [
           {
             token: body.token,
@@ -1558,6 +1562,7 @@ ${exprToString(lhs)}
       } = synthesizeTypeAndRegionArgumentsFromTokens({
         tokens,
         index: index,
+        modulePath: this.modulePath,
         inputString: this.inputString,
         env,
         parseExpression: this.makeParseExpression({ caller, parserData }),
@@ -2257,6 +2262,7 @@ Found possible typeclasses:
           } = synthesizeTypeAndRegionArgumentsFromTokens({
             tokens,
             index: index + 1,
+            modulePath: this.modulePath,
             inputString: this.inputString,
             env,
             parseExpression: this.makeParseExpression({ caller, parserData }),
@@ -2315,6 +2321,7 @@ Found possible enums:
         } = synthesizeTypeAndRegionArgumentsFromTokens({
           tokens,
           index: index + 1,
+          modulePath: this.modulePath,
           inputString: this.inputString,
           env,
           parseExpression: this.makeParseExpression({ caller, parserData }),
@@ -2961,6 +2968,7 @@ ${matchedFunctionErrors[i]}`
         tokens,
         index: typeTokenIndex,
         env,
+        modulePath: this.modulePath,
         inputString: this.inputString,
         parseExpression: this.makeParseExpression({ caller, parserData }),
       });
@@ -3447,6 +3455,7 @@ let {${expr.propertyName}} = ${exprToString(expr.expr)}`
             });
           } catch (error) {
             throw formatErrorMessage({
+              modulePath: this.modulePath,
               inputString: this.inputString,
               token: expr.token,
               errorMessage: `Cannot access the property below because "${exprToString(
@@ -3483,6 +3492,7 @@ let ref = (&${exprToString(expr)})
           });
         } catch (error) {
           throw formatErrorMessage({
+            modulePath: this.modulePath,
             inputString: this.inputString,
             token: expr.token,
             errorMessage: `Cannot access the value below because "${exprToString(
@@ -3525,6 +3535,7 @@ ${exprToString(expr)}`,
       }
     } catch (error) {
       throw formatErrorMessage({
+        modulePath: this.modulePath,
         inputString: this.inputString,
         token: expr.token,
         errorMessage: `Cannot consume variable: ${exprToString(expr)}`,
@@ -3618,6 +3629,7 @@ ${exprToString(expr)}`,
       }
     } catch (error) {
       throw formatErrorMessage({
+        modulePath: this.modulePath,
         inputString: this.inputString,
         token: expr.token,
         errorMessage: `Failed to create ${
@@ -3722,6 +3734,7 @@ ${exprToString(expr)}\n`,
         tokens,
         index,
         env,
+        modulePath: this.modulePath,
         inputString: this.inputString,
         functionName: variableName,
         parseExpression: this.makeParseExpression({ caller, parserData }),
@@ -4307,6 +4320,7 @@ ${typeToString(caseReturnType)}
       } = synthesizeTypeFromTokens({
         tokens,
         index,
+        modulePath: this.modulePath,
         inputString: this.inputString,
         env,
         parseExpression: this.makeParseExpression({ caller, parserData }),
@@ -4346,6 +4360,7 @@ ${typeToString(caseReturnType)}
           tokens,
           index: tokens[index].type === TokenType.Async ? index + 1 : index,
           env,
+          modulePath: this.modulePath,
           inputString: this.inputString,
           parseExpression: this.makeParseExpression({ caller, parserData }),
           withFunctionBody: false,
@@ -4583,6 +4598,7 @@ ${typeToString(recordType, { extractTypeConstructor: true })}`
         propertyType.kind !== "Free"
       ) {
         throw formatErrorMessages({
+          modulePath: this.modulePath,
           inputString: this.inputString,
           tokenAndErrorList: [
             {
@@ -4965,6 +4981,7 @@ ${typeToString(value.typeValue)}`
         tokens,
         index,
         env,
+        modulePath: this.modulePath,
         inputString: this.inputString,
       });
       index = nextIndex;
@@ -5004,6 +5021,7 @@ ${typeToString(value.typeValue)}`
       } = synthesizeTypeFromTokens({
         tokens,
         index,
+        modulePath: this.modulePath,
         inputString: this.inputString,
         env,
         parseExpression: this.makeParseExpression({ caller, parserData }),
@@ -5179,6 +5197,7 @@ ${typeToString(nextTypeValue)}`
         tokens,
         index,
         env,
+        modulePath: this.modulePath,
         inputString: this.inputString,
       });
       index = nextIndex;
@@ -5244,6 +5263,7 @@ ${typeToString(nextTypeValue)}`
         tokens,
         index: functionTypeTokenIndex,
         env,
+        modulePath: this.modulePath,
         inputString: this.inputString,
         parseExpression: this.makeParseExpression({ caller, parserData }),
         withFunctionBody: false,
@@ -5405,6 +5425,7 @@ ${typeToString(functionType)}
         tokens,
         index,
         env,
+        modulePath: this.modulePath,
         inputString: this.inputString,
       });
       index = nextIndex;
@@ -5470,6 +5491,7 @@ ${typeToString(functionType)}
         tokens,
         index,
         env,
+        modulePath: this.modulePath,
         inputString: this.inputString,
         parseExpression: this.makeParseExpression({ caller, parserData }),
       });
@@ -5693,6 +5715,7 @@ Got:      ${typeToString(matchedFunction.func)}`
         tokens,
         index,
         env,
+        modulePath: this.modulePath,
         inputString: this.inputString,
       });
       index = nextIndex;
@@ -5776,6 +5799,7 @@ Got:      ${typeToString(matchedFunction.func)}`
         tokens,
         index,
         env,
+        modulePath: this.modulePath,
         inputString: this.inputString,
         parseExpression: this.makeParseExpression({ caller, parserData }),
         withFunctionBody: false,
@@ -5930,6 +5954,7 @@ ${operationName}: ${typeToString(
         tokens,
         index,
         env,
+        modulePath: this.modulePath,
         inputString: this.inputString,
       });
       index = nextIndex;
@@ -5998,6 +6023,7 @@ ${operationName}: ${typeToString(
           tokens,
           index,
           env,
+          modulePath: this.modulePath,
           inputString: this.inputString,
           parseExpression: this.makeParseExpression({ caller, parserData }),
           withFunctionBody: false,
@@ -6514,6 +6540,7 @@ ${exprToString(expr)}`
           tokens,
           index,
           env,
+          modulePath: this.modulePath,
           inputString: this.inputString,
           parseExpression: this.makeParseExpression({ caller, parserData }),
         });
@@ -6583,6 +6610,7 @@ ${exprToString(expr)}`
             tokens,
             index,
             env,
+            modulePath: this.modulePath,
             inputString: this.inputString,
             parseExpression: this.makeParseExpression({ caller, parserData }),
             withFunctionBody: false,
@@ -7206,13 +7234,25 @@ Please consider adding "Promise" to the return type.
           path.dirname(this.modulePath.replace(/^file:\/\//, "")),
           modulePath
         );
+      console.log("- this.modulePath: ", this.modulePath);
+      console.log("- modulePath: ", modulePath);
+      console.log("- moduleAbsolutePath: ", moduleAbsolutePath);
       const extname = path.extname(moduleAbsolutePath);
       if (!extname) {
         moduleAbsolutePath = moduleAbsolutePath + ".mo";
       } else if (extname !== ".mo") {
         throw new Error("Only .mo file is supported for now");
       }
-      const module = this.loadModule(moduleAbsolutePath);
+      const moduleTokenIndex = index - 1;
+      let module: TModule | undefined = undefined;
+      try {
+        module = this.loadModule(moduleAbsolutePath);
+      } catch (error) {
+        throw this.formatErrorMessage(
+          tokens[moduleTokenIndex],
+          `Cannot find module "${moduleAbsolutePath}" from "${this.modulePath}"`
+        );
+      }
 
       // Check destructurings
       if (destructurings.some((d) => d.name === "*")) {

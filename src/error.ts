@@ -1,41 +1,53 @@
 import { Token } from "./token";
 
-export function getLineAtToken(inputString: string, token: Token): string {
+export function getLineAtToken({
+  modulePath,
+  inputString,
+  token,
+}: {
+  modulePath: string;
+  inputString: string;
+  token: Token;
+}): string {
   const { position } = token;
   const { character, line } = position;
 
   const lines = inputString.split("\n");
   const lineString = lines[line];
-  return `Line ${line + 1}, column ${character + 1}:
+  return `${modulePath}:${line + 1}:${character + 1}:
   
 ${lineString}
 ${" ".repeat(character - Math.floor(token.value.length / 2))}^`;
 }
 
 export function formatErrorMessage({
+  modulePath,
   inputString,
   token,
   errorMessage,
   cause,
 }: {
+  modulePath: string;
   inputString: string;
   token: Token;
   errorMessage: string;
   cause?: Error;
 }): Error {
   const errorMessages = `${errorMessage}
-${getLineAtToken(inputString, token)}`;
+${getLineAtToken({ modulePath, inputString, token })}`;
   return new Error(
     errorMessages + (cause?.message ? "\n" + cause.message : "")
   );
 }
 
 export function formatErrorMessages({
+  modulePath,
   inputString,
   errorMessage,
   tokenAndErrorList,
   cause,
 }: {
+  modulePath: string;
   inputString: string;
   errorMessage?: string;
   tokenAndErrorList: { token: Token; errorMessage: string }[];
@@ -44,7 +56,7 @@ export function formatErrorMessages({
   const errorMessages = tokenAndErrorList
     .map(({ token, errorMessage }) => {
       return `${errorMessage}
-${getLineAtToken(inputString, token)}`;
+${getLineAtToken({ modulePath, inputString, token })}`;
     })
     .join("\n\n");
   return new Error(
