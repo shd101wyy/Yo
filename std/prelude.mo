@@ -1,5 +1,8 @@
 /**
  * This file contains the prelude for the Mo language.
+ * References:
+ * - Haskell: https://hackage.haskell.org/package/base-4.19.0.0/docs/index.html
+ * - Rust: https://doc.rust-lang.org/std/index.html
  */
 
 import {*} from "./operator"
