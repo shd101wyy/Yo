@@ -66,7 +66,6 @@ import {
   TParameterType,
   TRecord,
   TRegionParameter,
-  TSlice,
   TTypeConstructor,
   TTypeParameter,
   Type,
@@ -90,6 +89,7 @@ import {
   synthesizeTypeAndRegionArgumentsFromTokens,
   synthesizeTypeAndRegionParametersFromTokens,
   synthesizeTypeFromTokens,
+  synthesizeTypes,
   typeIsFunctionTypeThatReturnsPromise,
   typeIsPromise,
   typeIsReferenceOrMutableReference,
@@ -547,7 +547,8 @@ export default class Parser {
   }): ParserReturn {
     try {
       return this.parseRecordExpr({ tokens, index, env, caller, parserData });
-    } catch {
+    } catch (error) {
+      logger.debug(error);
       return this.parseBlockExpressions({
         tokens,
         index,
@@ -4384,39 +4385,29 @@ ${typeToString(caseReturnType)}
     index = nextNextIndex;
     env = value.env;
 
-    const variableType: Type = value.typeValue;
+    let variableType: Type = value.typeValue;
     let variableId: string | undefined = undefined;
     // Check if type matches
     if (userDefinedVariableType !== null) {
-      // Type inference for enum type
+      const { userDefinedType: nextUserDefinedType, givenType: nextGivenType } =
+        synthesizeTypes({
+          userDefinedType: userDefinedVariableType,
+          givenType: variableType,
+          typeParameterToTypeArgumentMap: {},
+          regionParameterToRegionArgumentMap: {},
+        });
+      userDefinedVariableType = nextUserDefinedType;
+      variableType = nextGivenType;
+
       if (
-        userDefinedVariableType.type === "Enum" &&
-        variableType.type === "Enum" &&
-        userDefinedVariableType.enumName === variableType.enumName &&
-        (userDefinedVariableType.selectedVariantName === undefined ||
-          userDefinedVariableType.selectedVariantName ===
-            variableType.selectedVariantName)
+        userDefinedVariableType.type === "Function" &&
+        variableType.type === "Function"
       ) {
-        for (
-          let i = 0;
-          i < userDefinedVariableType.typeParameters.length;
-          i++
-        ) {
-          const userDefinedTypeArgument =
-            userDefinedVariableType.typeParameters[i].appliedType;
-          const typeArgument = variableType.typeParameters[i].appliedType;
-          if (!userDefinedTypeArgument && typeArgument) {
-            userDefinedVariableType.typeParameters[i].appliedType =
-              typeArgument;
-          } else if (userDefinedTypeArgument && !typeArgument) {
-            variableType.typeParameters[i].appliedType =
-              userDefinedTypeArgument;
-          }
-        }
-        userDefinedVariableType.selectedVariantName =
-          variableType.selectedVariantName;
+        variableType.functionId = userDefinedVariableType.functionId;
+        variableId = userDefinedVariableType.functionId;
       }
 
+      // Check if the type matches
       const typeMatches = checkType(userDefinedVariableType, variableType, env);
       if (!typeMatches) {
         throw this.formatErrorMessage(
@@ -4428,60 +4419,6 @@ Expected: ${typeToString(userDefinedVariableType, {
 Got:      ${typeToString(variableType)}`
         );
       }
-
-      // QUESTION: I am not sure if this is correct or not
-      // narrow Union type if necessary
-      /*
-      if (userDefinedVariableType.type === "Union") {
-        userDefinedVariableType = variableType;
-      }
-      */
-
-      if (userDefinedVariableType.type === "slice") {
-        let userType = userDefinedVariableType;
-        let valueType = variableType as TSlice;
-        // Assign size to the slice if it's undefined
-        while (true) {
-          if (userType.size === undefined) {
-            userType.size = valueType.size;
-          } else if (valueType.size && valueType.size < userType.size) {
-            valueType.size = userType.size;
-          }
-
-          if (userType.elementType.type === "slice") {
-            userType = userType.elementType;
-            valueType = valueType.elementType as TSlice;
-          } else {
-            break;
-          }
-        }
-      }
-
-      // userDefinedVariableType = variableType;
-      // Assign region to userDefinedVariableType if it's not set
-      if (
-        userDefinedVariableType.type === "TypeConstructor" &&
-        variableType.type === "TypeConstructor"
-      ) {
-        for (
-          let i = 0;
-          i < userDefinedVariableType.regionParameters.length;
-          i++
-        ) {
-          if (!userDefinedVariableType.regionParameters[i].appliedRegion) {
-            userDefinedVariableType.regionParameters[i].appliedRegion =
-              variableType.regionParameters[i].appliedRegion;
-          }
-        }
-      }
-
-      if (
-        userDefinedVariableType.type === "Function" &&
-        variableType.type === "Function"
-      ) {
-        variableType.functionId = userDefinedVariableType.functionId;
-        variableId = userDefinedVariableType.functionId;
-      }
     }
 
     // Add variable to env
@@ -4489,7 +4426,7 @@ Got:      ${typeToString(variableType)}`
       env,
       valueType: {
         variableName,
-        type: variableType,
+        type: userDefinedVariableType ?? variableType,
         kind: "value",
         isMutable,
         isExported,
@@ -4606,25 +4543,25 @@ ${typeToString(recordType, { extractTypeConstructor: true })}`
       });
       env = nextEnv;
 
-      if (propertyType.kind === "Linear") {
+      if (propertyType.kind === "Linear" || propertyType.kind === "Type") {
         destructuredLinearFields.push(name);
       }
     }
 
     // Check if all linear fields are destructured
     const hasLinearField = recordType.properties.some(
-      (p) => p.type.kind === "Linear"
+      (p) => p.type.kind === "Linear" || p.type.kind === "Type"
     );
     if (destructuredLinearFields.length > 0) {
       for (const property of recordType.properties) {
         if (
-          property.type.kind === "Linear" &&
+          (property.type.kind === "Linear" || property.type.kind === "Type") &&
           !destructuredLinearFields.includes(property.name)
         ) {
           throw this.formatErrorMessage(
             destructurings[0].token,
-            `The linear field "${property.name}" needs to be destructured
-  because the following linear fields are destructured:
+            `The Linear field "${property.name}" needs to be destructured
+  because the following Linear fields are destructured:
   ${destructuredLinearFields.map((x) => `"${x}"`).join(", ")}`
           );
         }
@@ -4632,13 +4569,15 @@ ${typeToString(recordType, { extractTypeConstructor: true })}`
     } else {
       // Check if all linear fields are consumed
       const linearFields = recordType.properties.filter(
-        (p) => p.type.kind === "Linear"
+        (p) => p.type.kind === "Linear" || p.type.kind === "Type"
       );
-      throw this.formatErrorMessage(
-        destructurings[0].token,
-        `The following linear fields need to be destructured:
+      if (linearFields.length > 0) {
+        throw this.formatErrorMessage(
+          destructurings[0].token,
+          `The following Linear fields need to be destructured:
 ${linearFields.map((x) => `"${x.name}"`).join(", ")}`
-      );
+        );
+      }
     }
 
     if (hasLinearField) {
@@ -4851,7 +4790,7 @@ ${typeToString(value.typeValue, { extractTypeConstructor: true })}`
                 throw this.formatErrorMessage(
                   tokens[index - 1],
                   `The linear field "${property.name}" needs to be destructured
-because the following linear fields are destructured:
+because the following Linear fields are destructured:
 ${destructuredLinearFields.map((x) => `"${x}"`).join(", ")}`
                 );
               }

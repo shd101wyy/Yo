@@ -43,3 +43,6 @@ if (x > y) {
 ## Lisp like syntax
 
 It's so hard to read and write.  
+
+## Immutable reference used to be Linear, but now Free
+For supporting closure.  

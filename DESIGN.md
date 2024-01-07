@@ -42,6 +42,7 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [`defer`](#defer)
     - [`recur`](#recur)
     - [Custom Operators](#custom-operators)
+    - [Closure](#closure)
   - [Mutability](#mutability)
   - [Borrow checker](#borrow-checker)
   - [Control Flow](#control-flow)
@@ -170,9 +171,6 @@ A type can have the following **Kind**:
   - Free
   - Linear
 - Region
-- Effect
-  - Linear
-  - Controlled
 
 ### Type
 
@@ -275,14 +273,14 @@ let myStrSlice: char[] = "Hello, world"; // Stored on stack. Free type
 let myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
 let myString2 = myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
 let myString3 = myString; // Error: myString is already consumed.
-let myString4: Reference<String> = &myString2; // myString4: Reference<String, R> for some region R. Free type
-let myString5 = myString4; // myString5: Reference<String, R> for some region R. Free type
+let myString4: &<String> = &myString2; // myString4: &<String, R> for some region R. Free type
+let myString5 = myString4; // myString5: &<String, R> for some region R. Free type
 let myString6 = *myString4; // Error: Cannot dereference a linear type.
 
 let myInt = 1; // Stored on stack. Free type
 let myInt2 = myInt; // myInt2: i32, Free type
-let myInt3: Reference<i32> = &myInt; // myInt3: Reference<i32, R> for some region R. Free type
-let myInt4 = myInt3; // myInt4: Reference<i32, R> for some region R. Free type
+let myInt3: &<i32> = &myInt; // myInt3: &<i32, R> for some region R. Free type
+let myInt4 = myInt3; // myInt4: &<i32, R> for some region R. Free type
 let myInt5: i32 = *myInt3; // myInt5: i32. Use `*` to dereference a reference if free type. Free type
 
 let myIntSlice: int[] = [1, 2, 3]; // Stored on stack, with size 3. Free type
@@ -322,10 +320,10 @@ A **reference** is a `Free` pointer to a `Linear` or `Free` value. References ha
 - **Read-write** or **mutable** references allow you to read from and write to a linear value.
 
 ```typescript
-type Reference<T: Type, R: Region>: Free;
+type &<T: Type, R: Region>: Free;
 // Or written as &<T, R> for short
 
-type MutableReference<T: Type, R: Region>: Linear;
+type &!<T: Type, R: Region>: Free;
 // Or written as &!<T, R> for short
 // There can only be one mutable reference to a value at a time.
 ```
@@ -385,16 +383,16 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 
 {
   // Creating references will not consume `p`:
-  let name: &<String> = &p.name; // name: Reference<String, R> for some region R. Free type.
-  let age = &p.age; // age: Reference<i32, R> for some region R. Free type.
+  let name: &<String> = &p.name; // name: &<String, R> for some region R. Free type.
+  let age = &p.age; // age: &<i32, R> for some region R. Free type.
 }
 {
-  let pRef = &p; // pRef: Reference<Person, R> for some region R. Free type.
-  let name = pRef.name; // name: Reference<String, R> for some region R. Free type.
+  let pRef = &p; // pRef: &<Person, R> for some region R. Free type.
+  let name = pRef.name; // name: &<String, R> for some region R. Free type.
   let name2 = *(pRef.name); // Error: Cannot dereference a linear type.
   // let unwrapName = *name; // Error: Cannot dereference a linear type.
 
-  let age = pRef.age; // Reference<i32, R> for some region R. Free type.
+  let age = pRef.age; // &<i32, R> for some region R. Free type.
   let age2 = *(pRef.age); // i32. Free type.
 }
 ```
@@ -673,12 +671,65 @@ infixr 80 **  // right associativity. Eg, 3 ** 4 ** 6 == 3 ** (4 ** 6)
 infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
 ```
 
+### Closure
+
+```
+[capture]<type parameters>(parameters) => return_type { body }
+```
+
+The capture `[&]` means the closure only allows the immutable references to the variables from the outer scope. The closure can be called multiple times.
+
+The capture `[&!]` means the closure only allows the mutable references and immutable references to the variables from the outer scope. The closure can be called multiple times.
+
+The capture `[=]` means the closure will move all the Linear variables from the outer scope. It's `Linear` type. The closure can only be called once.
+
+If no capture is specified, we fallback to `[=]`.
+
+```typescript
+let add = (x: i32, y: i32)=> i32 { x + y }
+
+let test = ()-> {
+  let mut x = String.from("Hello");
+  // From type inference:
+  // let consumeClosure: [=]()=>()
+  let consumeClosure = ()=> {
+    println(&x);
+    consume(x);
+  }
+  consumeClosure(); // "Hello"
+  consumeClosure(); // Compiler Error: consumeClosure can only be called once.
+}
+
+let test = ()-> {
+  let mut x = 1;
+  // From type inference:
+  // let mut increment: [&!](y: i32)=>()
+  // `mut` here is necessary.
+  let mut increment = (y: i32)=> {
+    x = x + y;
+  }
+  increment(1); // x == 2
+  increment(1); // x == 3
+}
+
+let test = ()-> {
+  let x = 1;
+  // From type inference:
+  // let addOne: [&]()=>()
+  let printX = ()=> {
+    println(x);
+  }
+  printX();
+  printX();
+}
+```
+
 ## Mutability
 
 The builtin `=` function is used to update a `MutableReference`, with the following signature:
 
 ```typescript
-let set! = <T: Type, R: Region>(ref: MutableReference<T, R>, value: T)-> T;
+let set! = <T: Type, R: Region>(ref: &!<T, R>, value: T)-> T;
 
 // `=` is a syntactic sugar for `set!`
 
@@ -760,16 +811,16 @@ let main = ()-> {
 ```typescript
 let main = ()-> {
   let mut x = 1;
-  let mut y: MutableReference<i32> = &!x;
-  let mut z: Reference<i32> = &x; // Compiler Error: Cannot borrow `x` as immutable because it is also borrowed as mutable.
+  let mut y: &!<i32> = &!x;
+  let mut z: &<i32> = &x; // Compiler Error: Cannot borrow `x` as immutable because it is also borrowed as mutable.
 }
 ```
 
 ```typescript
 let main = ()-> {
   let mut x = 1;
-  let mut y: Reference<i32> = &x;
-  let mut z: MutableReference<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable because it is also borrowed as immutable.
+  let mut y: &<i32> = &x;
+  let mut z: &!<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable because it is also borrowed as immutable.
 }
 ```
 
@@ -778,7 +829,7 @@ let main = ()-> {
 ```typescript
 let main = ()-> {
   let mut x = 1;
-  let mut y: MutableReference<i32> = &!x;
+  let mut y: &!<i32> = &!x;
   let mut _sum = x + 1; // Compiler Error: A value was used after it was mutably borrowed.
 }
 ```
@@ -788,19 +839,8 @@ let main = ()-> {
 ```typescript
 let main = ()-> {
   let x = String.from("Hello");
-  let y: Reference<String> = &x;
+  let y: &<String> = &x;
   consume(x); // Compiler Error: A value was moved out while it was still borrowed.
-}
-```
-
-```typescript
-let main = ()-> {
-  let x = String.from("Hello");
-  let y: Reference<String> = &x;
-
-  let mut z = move ()=> {
-    println(x); // Compiler Error: Cannot move `x` into closure because it is borrowed.
-  }
 }
 ```
 
@@ -809,7 +849,7 @@ let main = ()-> {
 ```typescript
 let main = ()-> {
   let mut x = 1;
-  let y: Reference<i32> = &x;
+  let y: &<i32> = &x;
   x = 2; // Compiler Error: An attempt was made to assign to a borrowed value
 }
 ```
@@ -1005,7 +1045,9 @@ eval(expr1); // false
 let x: Option = Some(1); // x: Option<i32>.Some
                            // .Some means the variant type is Some
 
-let unwrap = <T>(x: Option<T>.Some)-> T {
+let unwrap = <T>(x: Option<T>)-> T
+where x is Option<T>.Some
+{
   x.value
 }
 unwrap(x); // 1
@@ -1227,9 +1269,9 @@ let main = ()-> {
   let dynamicString = calloc<char>(10); // dynamicString: Pointer<char>. Linear type.
 
   /// dereference
-  let dynamicIntRef = dynamicInt.deref(); // dynamicIntRef: Reference<i32, R> for some region R. Free type.
-  let dynamicIntArrayRef = dynamicIntArray.deref(offset=1);  // dynamicIntArrayRef: Reference<i32, R> for some region R. Free type.
-  let dynamicStringRef = dynamicString.deref(offset=1); // dynamicStringRef: Reference<char, R> for some region R. Free type.
+  let dynamicIntRef = &dynamicInt.deref(); // dynamicIntRef: &<i32, R> for some region R. Free type.
+  let dynamicIntArrayRef = &dynamicIntArray.deref(offset=1);  // dynamicIntArrayRef: &<i32, R> for some region R. Free type.
+  let dynamicStringRef = &dynamicString.deref(offset=1); // dynamicStringRef: &<char, R> for some region R. Free type.
 
   /// free
   free(dynamicInt);

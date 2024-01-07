@@ -65,3 +65,26 @@ ${getLineAtToken({ modulePath, inputString, token })}`;
       (cause?.message ? "\n" + cause.message : "")
   );
 }
+
+export function formatWarningMessages({
+  modulePath,
+  inputString,
+  warningMessage,
+  tokenAndWarningList,
+}: {
+  modulePath: string;
+  inputString: string;
+  warningMessage?: string;
+  tokenAndWarningList: { token: Token; warningMessage: string }[];
+}): string {
+  const warningMessages = tokenAndWarningList
+    .map(({ token, warningMessage }) => {
+      return `Warning: ${warningMessage}
+${getLineAtToken({ modulePath, inputString, token })}`;
+    })
+    .join("\n\n");
+  return (
+    (warningMessage ? "Warning: " + warningMessage + "\n" : "") +
+    warningMessages
+  );
+}

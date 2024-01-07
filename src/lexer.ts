@@ -30,7 +30,23 @@ export function tokenize(input: string): Token[] {
       // Skip symbol without ""
       !(operator === "@" && input[i + 1].match(/[a-zA-Z]/))
     ) {
-      if (operator === ".") {
+      if (operator.startsWith("&!<")) {
+        tokens.push({
+          type: TokenType.Operator,
+          value: "&!",
+          position: { line, character: i - totalCharacters },
+        });
+        i = i + 2 - 1; // Only keep &!
+        continue;
+      } else if (operator.startsWith("&<")) {
+        tokens.push({
+          type: TokenType.Operator,
+          value: "&",
+          position: { line, character: i - totalCharacters },
+        });
+        i = i + 1 - 1; // Only keep &
+        continue;
+      } else if (operator === ".") {
         tokens.push({
           type: TokenType.Dot,
           value: operator,

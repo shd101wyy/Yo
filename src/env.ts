@@ -1,6 +1,10 @@
 import { createHash } from "crypto";
 import { IfCase, MatchCase } from "./ast";
-import { formatErrorMessages, getLineAtToken } from "./error";
+import {
+  formatErrorMessages,
+  formatWarningMessages,
+  getLineAtToken,
+} from "./error";
 import {
   OperatorPrecedence,
   Operators,
@@ -312,21 +316,23 @@ ${typeToString(value.type)}${
         tokenAndErrorList: uninitializedValues.map((value) => {
           return {
             token: value.token,
-            errorMessage: `Variable is not uninitialized.`,
+            errorMessage: `Variable is not initialized.`,
           };
         }),
       });
     } else if (unusedFreeValues.length > 0) {
-      throw formatErrorMessages({
-        modulePath: env.modulePath,
-        inputString: env.inputString,
-        tokenAndErrorList: unusedFreeValues.map((value) => {
-          return {
-            token: value.token,
-            errorMessage: `Variable "${value.variableName}" is not used.`,
-          };
-        }),
-      });
+      console.warn(
+        formatWarningMessages({
+          modulePath: env.modulePath,
+          inputString: env.inputString,
+          tokenAndWarningList: unusedFreeValues.map((value) => {
+            return {
+              token: value.token,
+              warningMessage: `Variable "${value.variableName}" is not used.`,
+            };
+          }),
+        })
+      );
     }
   }
 
@@ -649,7 +655,10 @@ export function increaseEnvVariableReferenceCount({
 
   let resetConsumedVariable = false;
   let valueType = valueTypes[valueTypes.length - 1];
-  if (valueType.consumedAtToken) {
+  if (
+    (valueType.type.kind === "Linear" || valueType.type.kind === "Type") &&
+    valueType.consumedAtToken
+  ) {
     if (isForAssignment) {
       // NOTE: If it's for assignment, then we allow to reuse the consumed variable.
       const newValueType: ValueType = {

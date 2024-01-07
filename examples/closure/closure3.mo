@@ -1,0 +1,31 @@
+type Data: Linear;
+extern "C" {
+  malloc: ()-> Data;
+  consume: (x: Data)-> ();
+}
+
+// Simulation of immutable closure
+let test = ()-> {
+  let x = malloc();
+  let y = 12;
+  {
+    let context = {
+      xRef: &x,
+      y: y,
+      yRef: &y,
+    }
+    let contextRef = &context;
+  }
+  /*
+  {
+    let context = {
+      xRef: &x,
+      yRef: &y,
+    };
+    let contextRef = &context;
+    let a = contextRef.xRef;
+    let b = contextRef.yRef;
+  }
+  */
+  consume(x);
+}
