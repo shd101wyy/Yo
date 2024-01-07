@@ -41,7 +41,6 @@ import {
   popEnvFrame,
   pushEnvFrame,
   setEnvVariableAsConsumed,
-  setEnvVariableReferedVariable,
   updateExistingValueType,
 } from "./env";
 import { formatErrorMessage, formatErrorMessages } from "./error";
@@ -4440,12 +4439,11 @@ Got:      ${typeToString(variableType)}`
     env = nextEnv;
 
     // Consume RHS value if necessary
-    const { env: nextNextEnv, referedVariable } = this.setVariableAsConsumed(
-      env,
-      value
-    );
+    const { env: nextNextEnv /* referedVariable */ } =
+      this.setVariableAsConsumed(env, value);
     env = nextNextEnv;
 
+    /*
     if (referedVariable) {
       env = setEnvVariableReferedVariable({
         env,
@@ -4453,6 +4451,7 @@ Got:      ${typeToString(variableType)}`
         referedVariable,
       });
     }
+    */
 
     if (
       mutTokenIndex &&

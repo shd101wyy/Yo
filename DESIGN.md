@@ -314,17 +314,15 @@ y = 2; // Compiler Error: y is already initialized
 
 ### Reference and Dereference
 
-A **reference** is a `Free` pointer to a `Linear` or `Free` value. References have a number of restrictions that preserve the linearity guarantees. There are two kinds of references:
+A **reference** is a pointer to a `Linear` or `Free` value. References have a number of restrictions that preserve the linearity guarantees. There are two kinds of references:
 
 - **Read references** allow you to read data from a linear value.
 - **Read-write** or **mutable** references allow you to read from and write to a linear value.
 
 ```typescript
 type &<T: Type, R: Region>: Free;
-// Or written as &<T, R> for short
 
-type &!<T: Type, R: Region>: Free;
-// Or written as &!<T, R> for short
+type &!<T: Type, R: Region>: Linear;
 // There can only be one mutable reference to a value at a time.
 ```
 

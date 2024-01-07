@@ -511,15 +511,13 @@ export function setEnvVariableAsConsumed({
   const valueType = valueTypes[valueTypes.length - 1];
   const immutableReferences = valueType.immutableReferences ?? [];
   const mutableReferences = valueType.mutableReferences ?? [];
-  if (
-    (valueType.type.kind === "Linear" || valueType.type.kind === "Type") &&
-    valueType.consumedAtToken
-  ) {
-    throw formatErrorMessages({
-      modulePath: env.modulePath,
-      inputString: env.inputString,
-      tokenAndErrorList: [
-        /*
+  if (valueType.type.kind === "Linear" || valueType.type.kind === "Type") {
+    if (valueType.consumedAtToken) {
+      throw formatErrorMessages({
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+        tokenAndErrorList: [
+          /*
         {
           token: valueType.token,
           errorMessage: `${
@@ -527,34 +525,35 @@ export function setEnvVariableAsConsumed({
           } is already consumed.`,
         },
         */
-        {
-          token: valueType.consumedAtToken,
-          errorMessage: `Previously consumed here:`,
-        },
-      ],
-    });
-  } else if (immutableReferences.length > 0) {
-    throw formatErrorMessages({
-      modulePath: env.modulePath,
-      inputString: env.inputString,
-      tokenAndErrorList: immutableReferences.map((token) => {
-        return {
-          token,
-          errorMessage: "Previously borrowed as immutable reference here:",
-        };
-      }),
-    });
-  } else if (mutableReferences.length > 0) {
-    throw formatErrorMessages({
-      modulePath: env.modulePath,
-      inputString: env.inputString,
-      tokenAndErrorList: mutableReferences.map((token) => {
-        return {
-          token,
-          errorMessage: "Previously borrowed as mutable reference here:",
-        };
-      }),
-    });
+          {
+            token: valueType.consumedAtToken,
+            errorMessage: `Previously consumed here:`,
+          },
+        ],
+      });
+    } else if (immutableReferences.length > 0) {
+      throw formatErrorMessages({
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+        tokenAndErrorList: immutableReferences.map((token) => {
+          return {
+            token,
+            errorMessage: "Previously borrowed as immutable reference here:",
+          };
+        }),
+      });
+    } else if (mutableReferences.length > 0) {
+      throw formatErrorMessages({
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+        tokenAndErrorList: mutableReferences.map((token) => {
+          return {
+            token,
+            errorMessage: "Previously borrowed as mutable reference here:",
+          };
+        }),
+      });
+    }
   }
 
   const referedVariable = valueType.referedVariable;
@@ -695,7 +694,7 @@ export function increaseEnvVariableReferenceCount({
         tokenAndErrorList: [
           {
             token: valueType.token,
-            errorMessage: `Variable ${variableName} is already borrowed as immutable reference:
+            errorMessage: `Variable ${variableName} is already borrowed as immutable reference ${immutableReferenceCount} time(s):
 
 ${immutableReferences
   .map((token) =>
@@ -716,7 +715,7 @@ ${immutableReferences
         tokenAndErrorList: [
           {
             token: valueType.token,
-            errorMessage: `Variable "${variableName}" is already borrowed as mutable reference:
+            errorMessage: `Variable "${variableName}" is already borrowed as mutable reference ${mutableReferenceCount} time(s):
 
 ${mutableReferences
   .map((token) =>
@@ -755,7 +754,7 @@ ${mutableReferences
         tokenAndErrorList: [
           {
             token: valueType.token,
-            errorMessage: `Variable "${variableName}" is already borrowed as mutable reference:
+            errorMessage: `Variable "${variableName}" is already borrowed as mutable reference ${mutableReferenceCount} time(s):
 
 ${mutableReferences
   .map((token) =>
