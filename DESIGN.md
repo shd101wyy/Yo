@@ -30,21 +30,21 @@ We will also post a series of articles on the design and implementation of **Mo*
       - [`Free` Types](#free-types)
       - [`Linear` Types.](#linear-types)
     - [Region](#region)
-      - [Named Region `Might be removed`](#named-region-might-be-removed)
     - [Variable Declaration](#variable-declaration)
     - [Type inference](#type-inference)
-      - [Uninitialized variable](#uninitialized-variable)
-    - [Reference and Dereference](#reference-and-dereference)
+      - [Uninitialized variable `Might be removed`](#uninitialized-variable-might-be-removed)
+    - [Pointers](#pointers)
   - [Function Declaration](#function-declaration)
     - [Uniform Function Call Syntax](#uniform-function-call-syntax)
     - [Dependent types `In Design`](#dependent-types-in-design)
     - [Refinement types `In Design`](#refinement-types-in-design)
     - [`defer`](#defer)
     - [`recur`](#recur)
+    - [`out`](#out)
     - [Custom Operators](#custom-operators)
-    - [Closure](#closure)
-  - [Mutability](#mutability)
-  - [Borrow checker](#borrow-checker)
+    - [Closure `In Design`](#closure-in-design)
+  - [Mutability `To be updated`](#mutability-to-be-updated)
+  - [Borrow checker `To be updated`](#borrow-checker-to-be-updated)
   - [Control Flow](#control-flow)
     - [Brace elision `In Design`](#brace-elision-in-design)
       - [repeat](#repeat)
@@ -64,7 +64,6 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Slice](#slice)
   - [Error handling](#error-handling)
   - [Recoverable Errors with Result](#recoverable-errors-with-result)
-  - [Pointer](#pointer)
   - [Type casting](#type-casting)
   - [Async/Await](#asyncawait)
   - [Algebraic effects](#algebraic-effects)
@@ -73,7 +72,7 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Continuation](#continuation)
       - [resume](#resume)
       - [abort](#abort)
-      - [handling `abort` with `defer!`](#handling-abort-with-defer)
+      - [handling `abort` with `abortdefer`](#handling-abort-with-abortdefer)
     - [Tail-resumptive operation](#tail-resumptive-operation)
     - [Rename effectful operation](#rename-effectful-operation)
     - [Effect polymorphism `In Design`](#effect-polymorphism-in-design)
@@ -86,6 +85,7 @@ We will also post a series of articles on the design and implementation of **Mo*
 
 ## Philosophy
 
+A little bit safer "C", with zero-cost abstraction, and a little bit of functional programming.
 The explicit is better than the implicit.  
 The strict is better than the loose.
 
@@ -197,6 +197,10 @@ A type can have the following **Kind**:
 Linear types are types that can only be used exactly once. For example, a `String` is a linear type as it can only be used once.  
 The [Austral language](https://austral-lang.org/) has a very good explanation on the incentive of using [Linear Types](https://austral-lang.org/tutorial/linear-types).
 
+- Linear values must be consumed once.  
+- A Linear value cannot be consumed when there is a pointer or alias to it.
+
+
 ### Region
 
 A **Region** here is a block that specifies the lifetime of values.
@@ -232,23 +236,6 @@ let update = ()-> { // Region 1
 }
 ```
 
-#### Named Region `Might be removed`
-
-```typescript
-{:R1
-  let mut x = 1;
-}
-{:R2
-  let mut x = 2;
-  let mut y = 2;
-}
-{:R1 // Continue R1
-  println(x); // 1
-  println(y); // Compiler Error: y is not defined in R1
-                  // R2 is not in scope
-}
-```
-
 ### Variable Declaration
 
 Like `rust`, **Mo** has two kinds of variables:
@@ -273,14 +260,14 @@ let myStrSlice: char[] = "Hello, world"; // Stored on stack. Free type
 let myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
 let myString2 = myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
 let myString3 = myString; // Error: myString is already consumed.
-let myString4: &<String> = &myString2; // myString4: &<String, R> for some region R. Free type
-let myString5 = myString4; // myString5: &<String, R> for some region R. Free type
-let myString6 = *myString4; // Error: Cannot dereference a linear type.
+let myString4: *<String> = &myString2; // myString4: *<String, R> for some region R. Free type
+let myString5 = myString4; // myString5: *<String, R> for some region R. Free type
+let myString6 = *myString4; // Error: Cannot dereference a Linear type.
 
 let myInt = 1; // Stored on stack. Free type
 let myInt2 = myInt; // myInt2: i32, Free type
-let myInt3: &<i32> = &myInt; // myInt3: &<i32, R> for some region R. Free type
-let myInt4 = myInt3; // myInt4: &<i32, R> for some region R. Free type
+let myInt3: *<i32> = &myInt; // myInt3: *<i32, R> for some region R. Free type
+let myInt4 = myInt3; // myInt4: *<i32, R> for some region R. Free type
 let myInt5: i32 = *myInt3; // myInt5: i32. Use `*` to dereference a reference if free type. Free type
 
 let myIntSlice: int[] = [1, 2, 3]; // Stored on stack, with size 3. Free type
@@ -299,7 +286,7 @@ enum Person { // Linear type, as it contains a linear type.
 let p = Person(String.from("Alice"), 30); // p: Person. Linear type.
 ```
 
-#### Uninitialized variable
+#### Uninitialized variable `Might be removed`
 
 ```typescript
 let mut x?: i32; // x: i32, uninitialized
@@ -312,32 +299,23 @@ y = 1; // y: i32, initialized
 y = 2; // Compiler Error: y is already initialized
 ```
 
-### Reference and Dereference
+### Pointers
 
-A **reference** is a pointer to a `Linear` or `Free` value. References have a number of restrictions that preserve the linearity guarantees. There are two kinds of references:
-
-- **Read references** allow you to read data from a linear value.
-- **Read-write** or **mutable** references allow you to read from and write to a linear value.
+**Mo** support two types of pointers:
 
 ```typescript
-type &<T: Type, R: Region>: Free;
+type *<T: Type, R: Region>: Free;
 
-type &!<T: Type, R: Region>: Linear;
-// There can only be one mutable reference to a value at a time.
+type *!<T: Type>: Linear;
 ```
 
-We can use `&` to create a reference to a value, or `&!` to create a mutable reference to a value.
+We can use `&` to create a reference to a value.  
+We can use `@` to create an Free pointer alias to a Linear pointer.  
 
 ```typescript
 &a.b.c.d
-// will check
-(&a)
-// then
-(&a.b)
-// then
-(&a.b.c)
-// then
-(&a.b.c.d)
+// is equalvalent to
+&(a.b.c.d)
 ```
 
 We can only dereference the free type.
@@ -381,16 +359,16 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 
 {
   // Creating references will not consume `p`:
-  let name: &<String> = &p.name; // name: &<String, R> for some region R. Free type.
-  let age = &p.age; // age: &<i32, R> for some region R. Free type.
+  let name: *<String> = &p.name; // name: *<String, R> for some region R. Free type.
+  let age = &p.age; // age: *<i32, R> for some region R. Free type.
 }
 {
-  let pRef = &p; // pRef: &<Person, R> for some region R. Free type.
-  let name = pRef.name; // name: &<String, R> for some region R. Free type.
+  let pRef = &p; // pRef: *<Person, R> for some region R. Free type.
+  let name = pRef.name; // name: *<String, R> for some region R. Free type.
   let name2 = *(pRef.name); // Error: Cannot dereference a linear type.
   // let unwrapName = *name; // Error: Cannot dereference a linear type.
 
-  let age = pRef.age; // &<i32, R> for some region R. Free type.
+  let age = pRef.age; // *<i32, R> for some region R. Free type.
   let age2 = *(pRef.age); // i32. Free type.
 }
 ```
@@ -429,8 +407,8 @@ let mut x = [String.from("Hi"), String.from("World")];
 }
 
 {
-  let s = &!x[1]; // s: &<String, R> for some region R. Free type
-  const old = (*s = String.from("Earth"));
+  let s = &x[1]; // s: *<String, R> for some region R. Free type
+  let old = (*s = String.from("Earth"));
   // old: String. Linear type. old == String.from("World")
 }
 
@@ -649,6 +627,23 @@ If `recur` is the last expression, tail-call optimization will be applied.
   }
   ```
 
+### `out`
+
+`out` is used to move out a Linear value back to the caller parameter.  
+
+```typescript
+let increment = (x: *!<i32>)-> out x { // `x` is consumed and handed back to caller parameter.  
+  *x = *x + 1;
+}
+
+let main = ()-> {
+  let x: *!<i32> = malloc<i32>();
+  *x = 1;
+  let y = increment(x); // y == (), x == 2
+  free(x); 
+}
+```
+
 ### Custom Operators
 
 ```typescript
@@ -669,7 +664,7 @@ infixr 80 **  // right associativity. Eg, 3 ** 4 ** 6 == 3 ** (4 ** 6)
 infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
 ```
 
-### Closure
+### Closure `In Design`
 
 ```
 [capture]<type parameters>(parameters) => return_type { body }
@@ -722,7 +717,7 @@ let test = ()-> {
 }
 ```
 
-## Mutability
+## Mutability `To be updated`
 
 The builtin `=` function is used to update a `MutableReference`, with the following signature:
 
@@ -762,9 +757,9 @@ myInt = 2;
 //  myInt3 == 1
 ```
 
-## Borrow checker
+## Borrow checker `To be updated`
 
-> This is similar to the borrow checker in Rust, but stricter.
+> This is similar to the borrow checker in Rust, but simpler.
 
 First, any borrow must last for a scope no greater than that of the owner. Second, you may have one or the other of these two kinds of borrows, but not both at the same time:
 
@@ -1251,33 +1246,6 @@ let main = ()-> {
 }
 ```
 
-## Pointer
-
-```typescript
-type Pointer<T: Type>: Linear;
-
-let main = ()-> {
-  // Allocate on heap
-  /// malloc
-  let dynamicFloat = malloc(@sizeOf<f32>() * 1); // dynamicFloat: Pointer<f32>. Linear type.
-
-  /// calloc
-  let dynamicInt = calloc<i32>(1); // dynamicInt: Pointer<i32>. Linear type.
-  let dynamicIntArray = calloc<i32>(10); // dynamicIntArray: Pointer<i32>. Linear type.
-  let dynamicString = calloc<char>(10); // dynamicString: Pointer<char>. Linear type.
-
-  /// dereference
-  let dynamicIntRef = &dynamicInt.deref(); // dynamicIntRef: &<i32, R> for some region R. Free type.
-  let dynamicIntArrayRef = &dynamicIntArray.deref(offset=1);  // dynamicIntArrayRef: &<i32, R> for some region R. Free type.
-  let dynamicStringRef = &dynamicString.deref(offset=1); // dynamicStringRef: &<char, R> for some region R. Free type.
-
-  /// free
-  free(dynamicInt);
-  free(dynamicIntArray);
-  free(dynamicString);
-}
-```
-
 ## Type casting
 
 ```typescript
@@ -1440,7 +1408,7 @@ let main = ()-> {
 }
 ```
 
-#### handling `abort` with `defer!`
+#### handling `abort` with `abortdefer`
 
 ```typescript
 let example = ()-> [Exception<()>] Promise<()> {
@@ -1453,12 +1421,12 @@ let example = ()-> [Exception<()>] Promise<()> {
 }
 ```
 
-What we can do is to use the `defer!` to defer the execution of certain code until the abort happens:
+What we can do is to use the `abortdefer` to defer the execution of certain code until the abort happens:
 
 ```typescript
 let example = ()-> [Exception<()>] Promise<()> {
   let file: File = await open("file.txt", "w");
-  defer! {
+  abortdefer {
     println("Exception caught");
     consume(file);
   }
@@ -1514,8 +1482,8 @@ let safeDivide = (x: i32, y: i32)-> [Exception<i32>{raise as newRaise}] Promise<
 
 ```typescript
 let map = <A: Type, B: Type>
-( xs: &<List<A>>,
-  func: (x: &<A>)=> [*] B
+( xs: *<List<A>>,
+  func: (x: *<A>)=> [*] B
 )-> [*] List<B>
 {
   if (xs is Nil) {

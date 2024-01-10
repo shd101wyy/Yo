@@ -8,6 +8,7 @@ import * as path from "path";
 import {
   AstType,
   BlockExpr,
+  CallFunctionExpr,
   Destructuring,
   Expr,
   ExternVariable,
@@ -34,7 +35,7 @@ import {
   generateValueTypeId,
   getEnvCurrentFrameLevel,
   getEnvCurrentRegionId,
-  getEnvOperatorPrecedence,
+  getEnvInfixOperatorPrecedence,
   getEnvValueTypesByVariableName,
   increaseEnvVariableReferenceCount,
   mergeAndCheckEnv,
@@ -2677,7 +2678,25 @@ ${matchedFunctionErrors[i] ?? ""}`
         caller,
         parserData,
       });
-    } else if (token.value === "*") {
+    } else if (token.value.startsWith("*")) {
+      // Split tokens if necessary
+      if (token.value.length > 1) {
+        tokens.splice(
+          index,
+          1,
+          {
+            type: TokenType.Operator,
+            value: "*",
+            position: token.position,
+          },
+          {
+            type: TokenType.Operator,
+            value: token.value.slice(1),
+            position: token.position,
+          }
+        );
+      }
+
       returnValue = this.parseDereferenceExpr({
         tokens,
         index,
@@ -2725,6 +2744,16 @@ ${matchedFunctionErrors[i] ?? ""}`
         }
         case TokenType.Boolean: {
           returnValue = this.parseBooleanExpr({ tokens, index, env });
+          break;
+        }
+        case TokenType.Operator: {
+          returnValue = this.parseUnaryOperatorExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
           break;
         }
         case TokenType.LBracket: {
@@ -3073,7 +3102,10 @@ ${matchedFunctionErrors[i] ?? ""}`
       }
 
       const operatorString: string = token.value;
-      const operatorPrecendence = getEnvOperatorPrecedence(env, operatorString);
+      const operatorPrecendence = getEnvInfixOperatorPrecedence(
+        env,
+        operatorString
+      );
       if (!operatorPrecendence) {
         // operator not found
         return { expr: LHS, index };
@@ -3105,7 +3137,7 @@ ${matchedFunctionErrors[i] ?? ""}`
       const nextOperatorString = nextToken.value;
       const nextOperatorPrecedence: OperatorPrecedence | undefined =
         stringIsOperator(nextOperatorString)
-          ? getEnvOperatorPrecedence(env, nextOperatorString)
+          ? getEnvInfixOperatorPrecedence(env, nextOperatorString)
           : undefined;
 
       if (
@@ -3265,7 +3297,189 @@ ${matchedFunctionErrors[i] ?? ""}`
         );
       } else {
         LHS = parserReturns[0].expr;
+        if (LHS.type === AstType.CallFunction) {
+          LHS = {
+            ...LHS,
+            isOperator: "binary",
+          };
+        }
       }
+    }
+  }
+
+  private parseUnaryOperatorExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    const operatorToken = tokens[index];
+    if (tokens[index].type !== TokenType.Operator) {
+      throw this.formatErrorMessage(tokens[index], "Expected operator");
+    }
+    index = index + 1;
+
+    // Parse argument
+    const { expr, index: nextIndex } = this.parsePrimary({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    env = expr.env;
+    index = nextIndex;
+
+    // Find the unary function
+    const valueTypes = getEnvValueTypesByVariableName(
+      env,
+      operatorToken.value,
+      "value"
+    );
+    const matchedFunctions = valueTypes.filter(
+      (valueType) => valueType.type.type === "Function"
+    );
+    const matchedFunctionErrors: Error[] = [];
+    // Try all matchedFunctions to see if there is a match
+    const parserReturns: ParserReturn[] = [];
+    const parsedFunctions: ValueType[] = [];
+    for (const matchedFunction of matchedFunctions) {
+      try {
+        const functionType = matchedFunction.type as TFunction;
+        const {
+          functionArguments,
+          functionTypeArguments,
+          functionRegionArguments,
+        } = getFunctionArgumentsInOrder(
+          functionType,
+          functionType.parameterTypes,
+          [expr],
+          [],
+          env
+        );
+        if (!functionArguments) {
+          throw this.formatErrorMessage(
+            operatorToken,
+            `Mismatched function arguments.
+Expected: (${functionType.parameterTypes
+              .map(
+                (parameter) =>
+                  (parameter.name ? `${parameter.name}: ` : "") +
+                  typeToString(parameter.type, {
+                    hideTypeParameterKind: true,
+                  })
+              )
+              .join(", ")})
+Got:      (${[expr]
+              .map((arg) => {
+                return typeToString(arg.typeValue, {
+                  hideTypeParameterKind: true,
+                });
+              })
+              .join(", ")})`
+          );
+        }
+        if (!functionTypeArguments || !functionRegionArguments) {
+          throw this.formatErrorMessage(
+            operatorToken,
+            `Mismatched type arguments.
+Expected: <${functionType.typeParameters
+              .map((typeParameter) => `${typeToString(typeParameter)}`)
+              .join(", ")}>
+Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
+          );
+        }
+
+        const newFunctionType = applyTypeAndRegionArgumentsToType({
+          env,
+          type: { ...functionType },
+          typeArguments: functionTypeArguments,
+          regionArguments: functionRegionArguments,
+          typeParameterToTypeArgumentMap: {},
+          regionParameterToRegionArgumentMap: {},
+        }) as TFunction;
+        // save the return value to a temporary variable
+        const returnType = newFunctionType.returnType;
+        const { env: nextNextEnv, value: tempVariable } =
+          this.generateTempVariableForHoldingValue({
+            env,
+            token: operatorToken,
+            valueType: returnType,
+          });
+        parserReturns.push({
+          expr: {
+            type: AstType.CallFunction,
+            callee: {
+              type: AstType.Variable,
+              variableName: operatorToken.value,
+              variableId: matchedFunction.id,
+              frameLevel: matchedFunction.frameLevel,
+              typeValue: newFunctionType,
+              env,
+              isMutable: false,
+              token: operatorToken,
+            },
+            functionArguments: [expr],
+            typeValue: newFunctionType.returnType,
+            env: nextNextEnv,
+            token: operatorToken,
+            tempVariableName: tempVariable.variableName,
+          },
+          index,
+        });
+        parsedFunctions.push(matchedFunction);
+      } catch (error) {
+        // console.error(error);
+        // Ignore the error
+        matchedFunctionErrors.push(error);
+      }
+    }
+
+    if (parserReturns.length === 0) {
+      throw this.formatErrorMessage(
+        operatorToken,
+        `Cannot find function '${operatorToken.value}'
+Below are the possible functions:
+
+${matchedFunctions
+  .map(
+    (func, i) => `- ${func.variableName}: ${typeToString(func.type)}
+
+${matchedFunctionErrors[i]}`
+  )
+  .join("\n")}
+          `
+      );
+    } else if (parserReturns.length > 1) {
+      throw this.formatErrorMessage(
+        operatorToken,
+        `Ambiguous function "${operatorToken.value}"
+Found possible functions:
+- ${parsedFunctions
+          .map(
+            (func, i) => `${func.variableName}: ${typeToString(func.type)}
+
+${matchedFunctionErrors[i] ?? ""}`
+          )
+          .join("\n- ")}`
+      );
+    } else {
+      const ret = parserReturns[0];
+      const callFunctionExpr: CallFunctionExpr = ret.expr as CallFunctionExpr;
+      return {
+        expr: {
+          ...callFunctionExpr,
+          isOperator: "unary",
+        },
+        index: ret.index,
+      };
     }
   }
 
@@ -3428,15 +3642,32 @@ ${matchedFunctionErrors[i] ?? ""}`
           expr.typeValue.kind === "Type" ||
           expr.typeValue.kind === "Linear"
         ) {
-          throw this.formatErrorMessage(
-            expr.token,
-            `Cannot access "${expr.typeValue.kind}" value of "${
-              expr.propertyName
-            }" with dot access.
+          const referenceType = typeIsReferenceOrMutableReference(
+            expr.typeValue
+          );
+          if (referenceType) {
+            throw this.formatErrorMessage(
+              expr.token,
+              `Cannot access "${expr.typeValue.kind}" value "${
+                expr.propertyName
+              }" with dot access.
+
+Please consider using reference instead. For example:
+
+let ref = (${referenceType}${exprToString(expr)})
+`
+            );
+          } else {
+            throw this.formatErrorMessage(
+              expr.token,
+              `Cannot access "${expr.typeValue.kind}" value "${
+                expr.propertyName
+              }" with dot access.
 Please consider using destructuring instead. For example:
 
 let {${expr.propertyName}} = ${exprToString(expr.expr)}`
-          );
+            );
+          }
         } else {
           try {
             // It's accessing a Free type, so no need to consume.
@@ -4281,7 +4512,7 @@ ${typeToString(caseReturnType)}
       ) {
         variableNameTokenIndex = index + 1;
         variableName = tokens[index + 1].value;
-        operatorPrecedence = getEnvOperatorPrecedence(env, variableName);
+        operatorPrecedence = getEnvInfixOperatorPrecedence(env, variableName);
         index = index + 3;
       } else {
         throw this.formatErrorMessage(
@@ -4588,6 +4819,171 @@ ${linearFields.map((x) => `"${x.name}"`).join(", ")}`
     return env;
   }
 
+  private destructureValue({
+    destructurings,
+    value,
+    env,
+    tokens,
+    index,
+    isMutable,
+    curlyBracketTokenIndex,
+  }: {
+    destructurings: Destructuring[];
+    value: Expr;
+    env: Environment;
+    tokens: Token[];
+    index: number;
+    isMutable: boolean;
+    curlyBracketTokenIndex: number;
+    isReference?: "&" | "&!";
+  }): ParserReturn {
+    const valueType = value.typeValue;
+    switch (valueType.type) {
+      case "Record": {
+        env = this.destructureRecordType({
+          env,
+          destructurings,
+          value,
+          recordType: valueType,
+        });
+        break;
+      }
+      case "TypeConstructor": {
+        if (typeIsReferenceOrMutableReference(valueType)) {
+          /*
+          env = this.increaseVariableReferenceCount({
+            env,
+            expr: value,
+            isMutableReference: true,
+            isForAssignment: true,
+          }).env;
+          */
+        }
+
+        if (valueType.typeValue.type !== "Record") {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Cannot destructure the following type:
+  ${typeToString(valueType)}`
+          );
+        }
+        env = this.destructureRecordType({
+          env,
+          destructurings,
+          value,
+          recordType: valueType.typeValue,
+        });
+        break;
+      }
+      case "Enum": {
+        if (!valueType.selectedVariantName) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Cannot destructure the following enum because no variant is selected:
+${typeToString(valueType)}`
+          );
+        } else {
+          const variant = valueType.variants.find(
+            (v) => v.name === valueType.selectedVariantName
+          );
+          if (!variant) {
+            throw this.formatErrorMessage(
+              tokens[index],
+              `Cannot find the variant "${
+                valueType.selectedVariantName
+              }" in the following type:
+${typeToString(valueType)}`
+            );
+          }
+          const destructuredLinearFields: string[] = [];
+          // Check if the type of `value` matches the type of destructurings
+          for (let i = 0; i < destructurings.length; i++) {
+            const { name, asName, isMutable } = destructurings[i];
+            const property = variant.parameterTypes.find(
+              (p) => p.name === name
+            );
+            if (!property) {
+              throw this.formatErrorMessage(
+                tokens[index],
+                `Cannot find the property \`${name}\` in the following type:
+${typeToString(valueType, { extractTypeConstructor: true })}`
+              );
+            }
+            const propertyType = property.type;
+
+            if (
+              "isMutable" in value &&
+              !value.isMutable &&
+              isMutable &&
+              propertyType.kind !== "Free"
+            ) {
+              throw this.formatErrorMessage(
+                tokens[index],
+                `Cannot destructure an immutable enum with mutable field "${name}"`
+              );
+            }
+
+            // Add variable to env
+            const { env: nextEnv } = addEnvValueType({
+              env,
+              valueType: {
+                variableName: asName ?? name,
+                type: propertyType,
+                kind: "value",
+                isMutable: isMutable,
+                token: destructurings[i].token,
+              },
+              preventDuplicate: true,
+            });
+            env = nextEnv;
+
+            if (propertyType.kind === "Linear") {
+              destructuredLinearFields.push(name);
+            }
+          }
+
+          // Check if all linear fields are destructured
+          if (destructuredLinearFields.length > 0) {
+            for (const property of variant.parameterTypes) {
+              if (
+                property.type.kind === "Linear" &&
+                !destructuredLinearFields.includes(property.name)
+              ) {
+                throw this.formatErrorMessage(
+                  tokens[index - 1],
+                  `The linear field "${property.name}" needs to be destructured
+because the following Linear fields are destructured:
+${destructuredLinearFields.map((x) => `"${x}"`).join(", ")}`
+                );
+              }
+            }
+          }
+        }
+        break;
+      }
+      default: {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Cannot destructure the following type:
+${typeToString(valueType)}`
+        );
+      }
+    }
+
+    return {
+      expr: {
+        type: AstType.DestructuringAssignment,
+        left: destructurings,
+        right: value,
+        isMutable,
+        env,
+        typeValue: TypeValues.unit,
+        token: tokens[curlyBracketTokenIndex],
+      },
+      index,
+    };
+  }
+
   private parseDestructuringAssignmentExpression({
     tokens,
     index,
@@ -4685,141 +5081,15 @@ ${linearFields.map((x) => `"${x.name}"`).join(", ")}`
     });
     index = nextIndex;
 
-    const valueType = value.typeValue;
-    switch (valueType.type) {
-      case "Record": {
-        env = this.destructureRecordType({
-          env,
-          destructurings,
-          value,
-          recordType: valueType,
-        });
-        break;
-      }
-      case "TypeConstructor": {
-        if (valueType.typeValue.type !== "Record") {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Cannot destructure the following type:
-  ${typeToString(value.typeValue)}`
-          );
-        }
-        env = this.destructureRecordType({
-          env,
-          destructurings,
-          value,
-          recordType: valueType.typeValue,
-        });
-        break;
-      }
-      case "Enum": {
-        if (!valueType.selectedVariantName) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Cannot destructure the following enum because no variant is selected:
-${typeToString(value.typeValue)}`
-          );
-        } else {
-          const variant = valueType.variants.find(
-            (v) => v.name === valueType.selectedVariantName
-          );
-          if (!variant) {
-            throw this.formatErrorMessage(
-              tokens[index],
-              `Cannot find the variant "${
-                valueType.selectedVariantName
-              }" in the following type:
-${typeToString(value.typeValue)}`
-            );
-          }
-          const destructuredLinearFields: string[] = [];
-          // Check if the type of `value` matches the type of destructurings
-          for (let i = 0; i < destructurings.length; i++) {
-            const { name, asName, isMutable } = destructurings[i];
-            const property = variant.parameterTypes.find(
-              (p) => p.name === name
-            );
-            if (!property) {
-              throw this.formatErrorMessage(
-                tokens[index],
-                `Cannot find the property \`${name}\` in the following type:
-${typeToString(value.typeValue, { extractTypeConstructor: true })}`
-              );
-            }
-            const propertyType = property.type;
-
-            if (
-              "isMutable" in value &&
-              !value.isMutable &&
-              isMutable &&
-              propertyType.kind !== "Free"
-            ) {
-              throw this.formatErrorMessage(
-                tokens[index],
-                `Cannot destructure an immutable enum with mutable field "${name}"`
-              );
-            }
-
-            // Add variable to env
-            const { env: nextEnv } = addEnvValueType({
-              env,
-              valueType: {
-                variableName: asName ?? name,
-                type: propertyType,
-                kind: "value",
-                isMutable: isMutable,
-                token: destructurings[i].token,
-              },
-              preventDuplicate: true,
-            });
-            env = nextEnv;
-
-            if (propertyType.kind === "Linear") {
-              destructuredLinearFields.push(name);
-            }
-          }
-
-          // Check if all linear fields are destructured
-          if (destructuredLinearFields.length > 0) {
-            for (const property of variant.parameterTypes) {
-              if (
-                property.type.kind === "Linear" &&
-                !destructuredLinearFields.includes(property.name)
-              ) {
-                throw this.formatErrorMessage(
-                  tokens[index - 1],
-                  `The linear field "${property.name}" needs to be destructured
-because the following Linear fields are destructured:
-${destructuredLinearFields.map((x) => `"${x}"`).join(", ")}`
-                );
-              }
-            }
-          }
-        }
-        break;
-      }
-      // TODO: Support Enum
-      default: {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Cannot destructure the following type:
-${typeToString(value.typeValue)}`
-        );
-      }
-    }
-
-    return {
-      expr: {
-        type: AstType.DestructuringAssignment,
-        left: destructurings,
-        right: value,
-        isMutable,
-        env,
-        typeValue: TypeValues.unit,
-        token: tokens[curlyBracketTokenIndex],
-      },
+    return this.destructureValue({
+      destructurings,
+      value,
+      env,
+      tokens,
       index,
-    };
+      curlyBracketTokenIndex,
+      isMutable,
+    });
   }
 
   private parseTypeAlias({
@@ -6091,7 +6361,11 @@ ${operationName}: ${typeToString(
       case AstType.Variable: {
         const variableName = expr.variableName;
         const variableType = expr.typeValue;
-        if (!expr.isMutable && isMutableReference) {
+        if (
+          !expr.isMutable &&
+          typeIsReferenceOrMutableReference(expr.typeValue) !== "&!" &&
+          isMutableReference
+        ) {
           throw this.formatErrorMessage(
             tokens[valueTokenIndex],
             `Cannot create mutable reference to immutable variable "${variableName}"`
@@ -6156,7 +6430,12 @@ ${operationName}: ${typeToString(
       }
       case AstType.PropertyAccess:
       case AstType.IndexAccess: {
-        if (!expr.isMutable && isMutableReference) {
+        console.log("-here: ", typeToString(expr.typeValue));
+        if (
+          !expr.isMutable &&
+          typeIsReferenceOrMutableReference(expr.typeValue) !== "&!" &&
+          isMutableReference
+        ) {
           throw this.formatErrorMessage(
             tokens[valueTokenIndex],
             `Cannot create mutable reference to immutable value "${exprToString(
@@ -6293,42 +6572,22 @@ ${exprToString(expr)}`
         );
       }
     } else if (
-      referenceAppliedType.kind === "Linear" ||
-      referenceAppliedType.kind === "Type"
+      (referenceAppliedType.kind === "Linear" ||
+        referenceAppliedType.kind === "Type") &&
+      !typeIsReferenceOrMutableReference(referenceAppliedType)
     ) {
       throw this.formatErrorMessage(
         tokens[valueTokenIndex],
-        `Cannot dereference linear type: ${typeToString(
+        `Cannot dereference Linear type: ${typeToString(
           referenceAppliedType
         )}\n${exprToString(expr)}`
       );
     }
 
     switch (expr.type) {
-      case AstType.Variable: {
-        return {
-          expr: {
-            type: AstType.Dereference,
-            expr,
-            typeValue: referenceAppliedType,
-            env,
-            token: tokens[dereferenceTokenIndex],
-          },
-          index,
-        };
-      }
-      case AstType.Reference: {
-        return {
-          expr: {
-            type: AstType.Dereference,
-            expr,
-            typeValue: referenceAppliedType,
-            env,
-            token: tokens[dereferenceTokenIndex],
-          },
-          index,
-        };
-      }
+      case AstType.Variable:
+      case AstType.Reference:
+      case AstType.Dereference:
       case AstType.PropertyAccess: {
         return {
           expr: {

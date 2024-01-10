@@ -853,7 +853,7 @@ export function setEnvVariableReferedVariable({
   });
 }
 
-export function getEnvOperatorPrecedence(
+export function getEnvInfixOperatorPrecedence(
   env: Environment,
   operator: string
 ): OperatorPrecedence | undefined {
@@ -867,7 +867,8 @@ export function getEnvOperatorPrecedence(
     operator !== "=>" &&
     !env.operatorPrecedenceMap[operator]
   ) {
-    throw new Error(`The precedence of operator ${operator} is not defined.`);
+    return undefined;
+    // throw new Error(`The precedence of operator ${operator} is not defined.`);
   }
 
   return env.operatorPrecedenceMap[operator];

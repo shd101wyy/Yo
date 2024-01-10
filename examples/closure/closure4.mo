@@ -9,6 +9,11 @@ type Context<R:Region> = {
   yRef: &!<i32, R>
 }
 
+extern "C" {
+  consumeContext: <R:Region>(context: Context<R>)-> ();
+}
+
+
 // Simulation of mutable closure
 let test = ()-> {
   let mut x = malloc();
@@ -18,9 +23,11 @@ let test = ()-> {
       xRef: &!x,
       yRef: &!y
     };
-    let contextRef = &!context;
-    let mut context2 = *contextRef;
-    let mut {xRef as a} = *contextRef;
+    {
+      let mut contextRef = &!context;
+      let {xRef, yRef} = &!contextRef;
+    }
+    consumeContext(context);
   }
   consume(x);
 }

@@ -383,6 +383,7 @@ export type CallFunctionExpr = {
   typeValue: Type;
   env: Environment;
   token: Token;
+  isOperator?: "unary" | "binary";
   /**
    * This is the name of the temporary variable that holds
    * the result of the callee.
@@ -610,15 +611,28 @@ export function exprToString(expr: Expr, indentation = ""): string {
           )}`
         );
       }
-      return `${exprToString(expr.callee)}${typeAndRegionParametersToString(
-        calleeType.typeParameters,
-        calleeType.regionParameters,
-        {
-          hideTypeParameterKind: true,
-        }
-      )}(${expr.functionArguments
-        .map((expr) => exprToString(expr))
-        .join(", ")})`;
+      if (expr.isOperator === "unary") {
+        return `(${exprToString(expr.callee).replace(
+          /^\((.+?)\)$/,
+          "$1"
+        )}${exprToString(expr.functionArguments[0])})`;
+      } else if (expr.isOperator === "binary") {
+        return `(${exprToString(expr.functionArguments[0])} ${exprToString(
+          expr.callee
+        ).replace(/^\((.+?)\)$/, "$1")} ${exprToString(
+          expr.functionArguments[1]
+        )})`;
+      } else {
+        return `${exprToString(expr.callee)}${typeAndRegionParametersToString(
+          calleeType.typeParameters,
+          calleeType.regionParameters,
+          {
+            hideTypeParameterKind: true,
+          }
+        )}(${expr.functionArguments
+          .map((expr) => exprToString(expr))
+          .join(", ")})`;
+      }
     }
     case AstType.CallEnum:
       return `${typeToString(expr.typeValue)}${
