@@ -197,9 +197,8 @@ A type can have the following **Kind**:
 Linear types are types that can only be used exactly once. For example, a `String` is a linear type as it can only be used once.  
 The [Austral language](https://austral-lang.org/) has a very good explanation on the incentive of using [Linear Types](https://austral-lang.org/tutorial/linear-types).
 
-- Linear values must be consumed once.  
+- Linear values must be consumed once.
 - A Linear value cannot be consumed when there is a pointer or alias to it.
-
 
 ### Region
 
@@ -233,6 +232,18 @@ let test = (flag: boolean)-> { // Region 1
 let update = ()-> { // Region 1
   let mut x = 1;
   x = 2; // Region 2
+}
+```
+
+#### Safe Region
+
+We can specify a region to be `safe` by adding `safe` keyword before the block.
+
+The `safe` region prevent passing in the `*mut` pointers from outer regions.
+
+```typescript
+safe {
+  // ...
 }
 ```
 
@@ -306,16 +317,39 @@ y = 2; // Compiler Error: y is already initialized
 ```typescript
 type *<T: Type, R: Region>: Free;
 
-type *!<T: Type>: Linear;
+type *mut<T: Type, R: Region>: if (R == ()) Linear else Free;
 ```
 
 We can use `&` to create a reference to a value.  
-We can use `@` to create an Free pointer alias to a Linear pointer.  
+We can use `@` to create an Free pointer alias to a Linear pointer.
 
 ```typescript
 &a.b.c.d
 // is equalvalent to
 &(a.b.c.d)
+```
+
+```typescript
+{ // :R1
+
+  let i: *linear<i32> = malloc<i32>();
+
+  let p: *mut<i32> = @i; // @ means create an alias (Free) pointer to `i`.
+                         // p: *mut<i32, R1> for some region R1. Free type.
+
+  let p2: *<i32> = @p;   // p2: *<i32, R1> for some region R1. Free type.
+}
+
+{ // :R2
+  let x = 1;
+  let p: *<i32> = &x; // p: *<i32, R2> for some region R2. Free type.
+}
+
+{
+  let mut x = 1;
+  let p: *mut<i32> = &mut x; // p: *mut<i32, R3> for some region R3. Free type.
+  *p = 2; // x == 2
+}
 ```
 
 We can only dereference the free type.
@@ -629,10 +663,10 @@ If `recur` is the last expression, tail-call optimization will be applied.
 
 ### `out`
 
-`out` is used to move out a Linear value back to the caller parameter.  
+`out` is used to move out a Linear value back to the caller parameter.
 
 ```typescript
-let increment = (x: *!<i32>)-> out x { // `x` is consumed and handed back to caller parameter.  
+let increment = (x: *!<i32>)-> out x { // `x` is consumed and handed back to caller parameter.
   *x = *x + 1;
 }
 
@@ -640,7 +674,7 @@ let main = ()-> {
   let x: *!<i32> = malloc<i32>();
   *x = 1;
   let y = increment(x); // y == (), x == 2
-  free(x); 
+  free(x);
 }
 ```
 

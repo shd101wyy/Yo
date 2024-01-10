@@ -10,18 +10,14 @@ fn longest<'a>(x: &'a String, y: &'a String)-> &'a String {
     }
 }
 
-fn test<'a>()-> &'a i32 {
-    let x = 5;
-    &x
+
+fn test_reference(x: &i32) {
+    println!("{}", x);
 }
 
 fn main() {
-    let x = String::from("Hi");
-    let y = String::from("Bye");
-    let p:&String;
-    {
-        p = longest(&x, &y);
-    }
-    consume(x);
-    println!("{}", p);
+    let mut x = 1;
+    let x_ref = &mut x;
+
+    test_reference(x_ref);
 }
