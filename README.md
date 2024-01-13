@@ -1,4 +1,4 @@
-# Mo 墨
+# Mo 墨 🐼
 
 A multi-paradigm, general-purpose, compiled programming language.
 
