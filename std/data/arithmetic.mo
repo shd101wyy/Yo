@@ -1,4 +1,4 @@
-import {*} from "../builtins"
+import {*} from "../builtins.mo"
 
 /**
  * Define the operator precedence for the Mo language.  

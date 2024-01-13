@@ -100,3 +100,216 @@ let y = 12;
   }
 }
 ```
+
+## Thinking
+
+```typescript
+type Array<T> = {
+  length: i32,
+  capacity: i32,
+  data: *linear<T[]>
+}
+
+let new = <T>()-> *linear<Array<T>> {
+  let x: *linear<Array<T>> = malloc<Array<T>>(@sizeOf<Array<T>>());
+  *x.length = 0;
+  *x.capacity = 1;
+  *x.data = malloc<T[]>(@sizeOf<T>() * 1);
+  x
+}
+
+extern "C" {
+  realloc: <T>(x: *linear<T>, newCap: usize)-> *linear<T>;
+}
+
+
+let push = <T>(out x: *linear<Array<T>>, value: T)-> {
+  let len = x.len;
+  let cap = x.cap;
+  if (len == cap) {
+    let newCap = cap * 2;
+    out (x.data as data) {
+      *data = realloc<T[]>(data, newCap);
+    }
+    *x.data[len] = value;
+    *x.len = len + 1;
+  } else {
+    *x.data[len] = value;
+    *x.len = len + 1;
+  }
+}
+
+
+let x: *linear<Array<i32>> = Array<i32>.from([]);
+x.push(1);
+x.push(2);
+
+let p: *mut<Array<i32>> = &mut x;
+```
+
+## Mode
+
+- read: immutable reference
+- write: mutable reference
+- owned: linear type
+- consumed
+
+```typescript
+let swap = (x: write i32, y: write i32)-> {
+  let tmp = x;
+  x = y;
+  y = tmp;
+}
+
+let main = ()-> {
+  var x: i32 = 1;
+  var y: i32 = 2;
+
+  swap(write x, write y);
+}
+```
+
+## Lifetime Index
+
+What value needs to specify lifetime index in function parameters?
+
+- `read` value
+- `write` value
+
+```typescript
+let set = (
+  holder: write {x: read string} @2, // &mut<{x: &<string>}, @2>
+  value: read string @1
+)-> {
+  holder.x = value; // LHS lifetime index must be bigger than RHS lifetime index.
+}
+
+let test = ()-> {
+  let x: string = "Hello"; // @1
+  let holder: object = {}; // @2
+  {
+    let holderRef: write {x: read string} @holder = write holder; // @2 because `holder` is at @2
+    let xRef: read string @x = read x;  // @1 because `x` is at @1
+    set(holderRef, xRef);          // calling the function makes both `holderRef` and `xRef`
+                                 // to be at @2, which is the maximum lifetime index.
+  }
+  // Sow now:
+  // holderRef: write {x: read string} @2
+  // xRef: read string @2
+
+  x = realloc(x, 100); // error: cannot realloc `x` because `xRef` is at @2,
+                       // and holder, which is the owner of @2, is not consumed.
+
+  consume(x); // error: cannot consume `x` because `xRef` is at @2,
+              // and holder, which is the owner of @2, is not consumed.
+
+  consume(holder);
+  consume(x);
+}
+```
+
+The lifetime index order matters because it determines the order of consuming.
+
+```typescript
+let test = ()-> {
+  let x: string = "Hello"; // @1
+  let y: string = "World"; // @2
+
+  consume(x); // error: cannot consume `x` because `y` is at @2, which is greater than @1.
+
+  consume(y);
+  consume(x);
+}
+```
+
+strict?
+
+```typescript
+let add = (x: i32 @1, y: i32 @2)-> i32 {
+  x + y
+}
+
+let main = ()-> {
+  let x = 1; // @1
+  let y = 2; // @2
+  add(x /* @3 */, y /* @4 */); // allowed
+  add(y /* @5 */, x /* @6 */); // allowed
+  let z = 3; // @7
+}
+```
+
+longest string
+
+```typescript
+let longest = (x: read string @1, y: read string @2)
+-> read string @2 { // here we return the shortest lifetime index @1
+  if (x.length > y.length) {
+    x
+  } else {
+    y
+  }
+}
+
+let main = ()-> {
+  let x: string = "Hello"; // @1
+  let y: string = "World"; // @2
+  let z: read string @x = longest(read x /*@1*/, read y /*@2*/); // @2
+  let z2: string = longest(read y /*@2*/ , read x /*@1*/); // error, because `y` is at @2, which is greater than @1.
+}
+```
+
+### Destructuring
+
+```typescript
+let test = ()-> {
+  let data: Data = malloc(); // @1
+  let wrapper = {            // @2
+    data: data
+  };
+
+  let x = wrapper.data; // error: cannot access Linear value `data`.
+
+  let x: write Data @wrapper = write wrapper.data; // allowed
+  let y: Data = (x = malloc()); // allowed, and `x` is update with new `malloc` value.
+  drop(y);
+
+  drop(wrapper);
+
+}
+```
+
+### Array
+
+```typescript
+let test = ()-> {
+  let arr = Array.from([1, 2, 3]);
+  let first: read i32 @arr = read arr[0];
+  let result = first + 1;
+}
+```
+
+
+### JavaScript function
+
+```typescript
+let test = ()-> {
+  let arr = Array.new();
+  (write arr).push(1);
+  (write arr).push(2);
+  let length = (read arr).length();
+
+  // Because we are using the uniform calling syntax, we can do this:
+  arr.push(1); // We try `arr` first, then `read arr`, then `write arr`
+  arr.push(2);
+  let length = arr.length();
+}
+```
+
+### Lifetime index in type
+
+```typescript
+type MyData = {
+  x: read string @1,
+  y: write string @2
+}
+```

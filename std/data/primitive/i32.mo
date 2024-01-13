@@ -1,5 +1,5 @@
-import {*} from "../../builtins";
-import {*} from "../arithmetic";
+import {*} from "../../builtins.mo";
+import {*} from "../arithmetic.mo";
 
 /**
  * arithmetic

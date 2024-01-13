@@ -5,8 +5,8 @@
  * - Rust: https://doc.rust-lang.org/std/index.html
  */
 
-export {*} from "./builtins";
-export {*} from "./data/primitive/i32";
+export {*} from "./builtins.mo";
+export {*} from "./data/primitive/i32.mo";
 
 export enum Option<T: Type>: Type {
   Some(value: T),

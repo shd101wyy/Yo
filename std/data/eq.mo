@@ -1,4 +1,4 @@
-import {*} from "./builtins"
+import {*} from "./builtins.mo";
 
 infix  40 ==  // Equality
 infix  40 !=  // Inequality

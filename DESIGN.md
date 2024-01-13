@@ -10,7 +10,9 @@
 
 **Mo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types. `In Design`
 
-**Mo** has no garbage collector as it utilizes the [Linear Types](https://en.wikipedia.org/wiki/Substructural_type_system#:~:text=Linear%20types%20corresponds%20to%20linear,transitioned%20to%20a%20different%20state.) and implemented a strict borrow checker. The **Mo** compiler helps you eliminate potential errors before the code is executed.
+**Mo** has no garbage collector as it utilizes the [Linear Types](https://en.wikipedia.org/wiki/Substructural_type_system#:~:text=Linear%20types%20corresponds%20to%20linear,transitioned%20to%20a%20different%20state.) and implemented a strict borrow checker.
+
+**Mo** also imcorporates an innovative memory management technique called **Order based lifetime checking**. The **Mo** compiler helps you eliminate potential errors before the code is executed.
 
 Our goal is to be a practical language that is easy to use and easy to learn.
 
@@ -30,6 +32,7 @@ We will also post a series of articles on the design and implementation of **Mo*
       - [`Free` Types](#free-types)
       - [`Linear` Types.](#linear-types)
     - [Region](#region)
+      - [`safe` Region `In Design`](#safe-region-in-design)
     - [Variable Declaration](#variable-declaration)
     - [Type inference](#type-inference)
       - [Uninitialized variable `Might be removed`](#uninitialized-variable-might-be-removed)
@@ -40,7 +43,7 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Refinement types `In Design`](#refinement-types-in-design)
     - [`defer`](#defer)
     - [`recur`](#recur)
-    - [`out`](#out)
+    - [`inout`](#inout)
     - [Custom Operators](#custom-operators)
     - [Closure `In Design`](#closure-in-design)
   - [Mutability `To be updated`](#mutability-to-be-updated)
@@ -187,7 +190,8 @@ A type can have the following **Kind**:
 - `i64` (64-bit signed integer)
 - `f32` (32-bit floating point)
 - `f64` (64-bit floating point)
-- `char` (ASCII character)
+- `char` (Unicode character, 4 bytes)
+- `string` (UTF-8 string, immutable)
 - `usize` (pointer size. It's `u32` on 32-bit system, `u64` on 64-bit system)
 - `symbol` (unique global string)
 - `()` (unit)
@@ -200,7 +204,7 @@ The [Austral language](https://austral-lang.org/) has a very good explanation on
 - Linear values must be consumed once.
 - A Linear value cannot be consumed when there is a pointer or alias to it.
 
-### Region
+### Region `Might be removed`
 
 A **Region** here is a block that specifies the lifetime of values.
 
@@ -230,16 +234,16 @@ let test = (flag: boolean)-> { // Region 1
 }
 
 let update = ()-> { // Region 1
-  let mut x = 1;
+  var x = 1;
   x = 2; // Region 2
 }
 ```
 
-#### Safe Region
+#### `safe` Region `In Design`
 
 We can specify a region to be `safe` by adding `safe` keyword before the block.
 
-The `safe` region prevent passing in the `*mut` pointers from outer regions.
+The `safe` region prevent values inside it from having mutable & immutable pointers outside the `safe` region.
 
 ```typescript
 safe {
@@ -253,10 +257,10 @@ Like `rust`, **Mo** has two kinds of variables:
 
 ```typescript
 let y = 5; // y: i32, immutable
-let mut x = 5; // x: i32, mutable
+var x = 5; // x: i32, mutable
 
-let example = (mut x: i32, y: i32)-> {
-  x = 1; // x: i32, mutable
+let example = (x: i32, y: i32)-> {
+  x = 1; // Error: x is immutable
   y = 2; // Error: y is immutable
 }
 ```
@@ -271,15 +275,13 @@ let myStrSlice: char[] = "Hello, world"; // Stored on stack. Free type
 let myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
 let myString2 = myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
 let myString3 = myString; // Error: myString is already consumed.
-let myString4: *<String> = &myString2; // myString4: *<String, R> for some region R. Free type
-let myString5 = myString4; // myString5: *<String, R> for some region R. Free type
-let myString6 = *myString4; // Error: Cannot dereference a Linear type.
+let myString4: read String = read myString2; // myString4: read String. Free type
+let myString5 = myString4; // myString5: read String. Free type
 
 let myInt = 1; // Stored on stack. Free type
 let myInt2 = myInt; // myInt2: i32, Free type
-let myInt3: *<i32> = &myInt; // myInt3: *<i32, R> for some region R. Free type
-let myInt4 = myInt3; // myInt4: *<i32, R> for some region R. Free type
-let myInt5: i32 = *myInt3; // myInt5: i32. Use `*` to dereference a reference if free type. Free type
+let myInt3: read i32 = read myInt; // myInt3: read i32. Free type
+let myInt4 = myInt3; // myInt4: read i32. Free type
 
 let myIntSlice: int[] = [1, 2, 3]; // Stored on stack, with size 3. Free type
 let myIntSlice: int[100] = [1, 2, 3]; // Stored on stack, with size 100. Free type
@@ -300,7 +302,7 @@ let p = Person(String.from("Alice"), 30); // p: Person. Linear type.
 #### Uninitialized variable `Might be removed`
 
 ```typescript
-let mut x?: i32; // x: i32, uninitialized
+var x?: i32; // x: i32, uninitialized
 
 x = 1; // x: i32, initialized
 
@@ -310,45 +312,22 @@ y = 1; // y: i32, initialized
 y = 2; // Compiler Error: y is already initialized
 ```
 
-### Pointers
+### `read` and `write` references
 
-**Mo** support two types of pointers:
-
-```typescript
-type *<T: Type, R: Region>: Free;
-
-type *mut<T: Type, R: Region>: if (R == ()) Linear else Free;
-```
-
-We can use `&` to create a reference to a value.  
-We can use `@` to create an Free pointer alias to a Linear pointer.
-
-```typescript
-&a.b.c.d
-// is equalvalent to
-&(a.b.c.d)
-```
+We have `read` reference to immutable values, and `write` reference to mutable or immutable values.
 
 ```typescript
 { // :R1
-
-  let i: *linear<i32> = malloc<i32>();
-
-  let p: *mut<i32> = @i; // @ means create an alias (Free) pointer to `i`.
-                         // p: *mut<i32, R1> for some region R1. Free type.
-
-  let p2: *<i32> = @p;   // p2: *<i32, R1> for some region R1. Free type.
-}
-
-{ // :R2
-  let x = 1;
-  let p: *<i32> = &x; // p: *<i32, R2> for some region R2. Free type.
+  let i: Data = malloc();
+  let readRef = read i; // readRef: read Data. Free type.
+  let writeRef = write i; // error: i is not mutable.
 }
 
 {
-  let mut x = 1;
-  let p: *mut<i32> = &mut x; // p: *mut<i32, R3> for some region R3. Free type.
-  *p = 2; // x == 2
+  var x = 1;
+  let p = write x; // p: write i32. Free type.
+  p = 2;
+  // x == 2
 }
 ```
 
@@ -371,7 +350,7 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 }
 
 {
-  let mut {name, age} = p;
+  var {name, age} = p;
 }
 
 {
@@ -393,17 +372,14 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 
 {
   // Creating references will not consume `p`:
-  let name: *<String> = &p.name; // name: *<String, R> for some region R. Free type.
-  let age = &p.age; // age: *<i32, R> for some region R. Free type.
+  let name: read String = read p.name; // name: read String. Free type.
+  let age = read p.age; // age: read i32. Free type.
 }
 {
-  let pRef = &p; // pRef: *<Person, R> for some region R. Free type.
-  let name = pRef.name; // name: *<String, R> for some region R. Free type.
-  let name2 = *(pRef.name); // Error: Cannot dereference a linear type.
-  // let unwrapName = *name; // Error: Cannot dereference a linear type.
+  let pRef = read p; // pRef: read Person. Free type.
+  let name = read pRef.name; // name: read String. Free type.
 
-  let age = pRef.age; // *<i32, R> for some region R. Free type.
-  let age2 = *(pRef.age); // i32. Free type.
+  let age = read pRef.age; // age: read i32. Free type.
 }
 ```
 
@@ -411,22 +387,22 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 let name = String.from("Alice");
 let p = Person.Person(name, 30); // p: Person. Linear type.
 
-const { name, age } = p; // p is consumed.
+let { name, age } = p; // p is consumed.
 
 p = Person.Person(name, 30); // This is allowed. We restored a consumed value.
 ```
 
 ```typescript
-let mut x = [1, 2, 3, 4, 5]; // x: i32[5]. Free type
-let y = x; // y: i32[5]. Free type. x is copied to y, not moved.
+var x = [1, 2, 3, 4, 5]; // x: i32[5]. Free type
+var y = x; // y: i32[5]. Free type. x is copied to y, not moved.
 
 {
-  let ref = &!x; // ref: &!<i32[5], R> for some region R. Free type
+  let ref = read x; // ref: read i32[5]. Free type
   let first = ref[0]; // i32. Free type
 }
 {
-  let firstRef = &!x[0]; // &!<i32, R> for some region R. Free type
-  *firstRef = 10;
+  let firstRef = write x[0]; // write i32. Free type
+  firstRef = 10;
 }
 
 // x: [10, 2, 3, 4, 5]
@@ -434,15 +410,15 @@ let y = x; // y: i32[5]. Free type. x is copied to y, not moved.
 ```
 
 ```typescript
-let mut x = [String.from("Hi"), String.from("World")];
+var x = [String.from("Hi"), String.from("World")];
 
 {
   let s = x[0]; // Compiler Error: Cannot move linear type out of a slice.
 }
 
 {
-  let s = &x[1]; // s: *<String, R> for some region R. Free type
-  let old = (*s = String.from("Earth"));
+  let s = write x[1]; // s: write String. Free type
+  let old = (s = String.from("Earth"));
   // old: String. Linear type. old == String.from("World")
 }
 
@@ -457,6 +433,11 @@ Unlike imperative languages, **Mo** has no `return` keyword. The last expression
 // Top level function.
 // Type after `->` is the return type. If it's not specified, it's `()` unit.
 let add = (x: i32, y: i32)-> i32 {
+  x + y
+}
+
+// Or abbreviated form: `Not adopted yet`
+let add(x: i32, y: i32)-> i32 {
   x + y
 }
 
@@ -516,6 +497,9 @@ let s = String.from("Hello, world");
 &s.length(); // 12
 // is equalvalent to
 length(&s); // 12
+
+// Type coercion for `read` and `write` references
+s.length(); // 12. s is coerced to `read` reference.
 ```
 
 ### Dependent types `In Design`
@@ -619,7 +603,7 @@ test(); // Hello, World!
 
 ```typescript
 let deferExample = ()-> {
-  let mut a = 1;
+  var a = 1;
 
   {
     defer a = 2;
@@ -661,23 +645,6 @@ If `recur` is the last expression, tail-call optimization will be applied.
   }
   ```
 
-### `out`
-
-`out` is used to move out a Linear value back to the caller parameter.
-
-```typescript
-let increment = (x: *!<i32>)-> out x { // `x` is consumed and handed back to caller parameter.
-  *x = *x + 1;
-}
-
-let main = ()-> {
-  let x: *!<i32> = malloc<i32>();
-  *x = 1;
-  let y = increment(x); // y == (), x == 2
-  free(x);
-}
-```
-
 ### Custom Operators
 
 ```typescript
@@ -704,11 +671,11 @@ infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
 [capture]<type parameters>(parameters) => return_type { body }
 ```
 
-The capture `[&]` means the closure only allows the immutable references to the variables from the outer scope. The closure can be called multiple times.
+The capture `[&]` means the closure only allows the immutable pointers from the outer scope, but no linear values and mutable pointers from outer scope. The closure can be called multiple times.
 
-The capture `[&!]` means the closure only allows the mutable references and immutable references to the variables from the outer scope. The closure can be called multiple times.
+The capture `[&mut]` means the closure only allows the mutable pointers and immutable pointers to the variables from the outer scope, but not linear values from outer scope. The closure can be called multiple times.
 
-The capture `[=]` means the closure will move all the Linear variables from the outer scope. It's `Linear` type. The closure can only be called once.
+The capture `[=]` means the closure will move linear values from the outer scope and prevent immutable & mutable pointers of linear values from the outer scope. It behaves like the `safe` region. The closure can only be called once.
 
 If no capture is specified, we fallback to `[=]`.
 
@@ -716,7 +683,7 @@ If no capture is specified, we fallback to `[=]`.
 let add = (x: i32, y: i32)=> i32 { x + y }
 
 let test = ()-> {
-  let mut x = String.from("Hello");
+  var x = String.from("Hello");
   // From type inference:
   // let consumeClosure: [=]()=>()
   let consumeClosure = ()=> {
@@ -728,11 +695,11 @@ let test = ()-> {
 }
 
 let test = ()-> {
-  let mut x = 1;
+  var x = 1;
   // From type inference:
-  // let mut increment: [&!](y: i32)=>()
+  // var increment: [&!](y: i32)=>()
   // `mut` here is necessary.
-  let mut increment = (y: i32)=> {
+  var increment = (y: i32)=> {
     x = x + y;
   }
   increment(1); // x == 2
@@ -753,7 +720,7 @@ let test = ()-> {
 
 ## Mutability `To be updated`
 
-The builtin `=` function is used to update a `MutableReference`, with the following signature:
+The builtin `=` function is used to update a value that can be `write`, with the following signature:
 
 ```typescript
 let set! = <T: Type, R: Region>(ref: &!<T, R>, value: T)-> T;
@@ -762,7 +729,7 @@ let set! = <T: Type, R: Region>(ref: &!<T, R>, value: T)-> T;
 
 x = x + 1
 // is equalvalent to
-set!(&!x, x + 1)
+set!(write x, x + 1)
 // so we append `&!` to the variable on the left hand side of `=`
 
 // &!* will cancel out, for example:
@@ -775,21 +742,103 @@ Below is an example of updating a field of a linear type:
 enum Person { // Linear type.
   Person(name: String, age: i32)
 }
-let mut p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
+var p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
 
 // Update the field
 let oldName = (p.name = String.from("Bob"));
 // oldName is the `value` moved out.
 // oldName == String.from("Alice")
-
-let mut myInt = 1;
-let myInt2 = &myInt;
-let myInt3: i32 = *myInt2;
-myInt = 2;
-//  myInt == 2
-// *myInt2 == 2
-//  myInt3 == 1
 ```
+
+## Order based lifetime checking
+
+Unlike Rust, which requires specify lifetime parameters in some cases, **Mo** uses an innovative memory management technique called **Order based lifetime checking** which doesn't require the lifetime parameters in type.
+
+Instead, we use the lifetime **order** to denote the lifetime of values.
+
+The idea is simple, the first created value will have the lifetime order of `@1`, the second created value will have the lifetime order of `@2`, and so on. The linear value must be consumed in the **reverse** order of the lifetime order.
+
+For example, below is an error case:
+
+```typescript
+let test = ()-> {
+  let x = malloc(); // @1
+  let y = malloc(); // @2
+
+  consume(x); // error: x is consumed before y
+  consume(y);
+}
+```
+
+But this is correct:
+
+```typescript
+let test = ()-> {
+  let x = malloc(); // @1
+  let y = malloc(); // @2
+
+  consume(y);
+  consume(x);
+}
+```
+
+We also allow to specify the order in function parameters:
+
+```typescript
+let test = (x: String @2, y: String @1)-> {
+  consume(x);
+  consume(y);
+}
+```
+
+if the order is not specified in the function parameters, we will use the order of the parameters to infer the order of the parameters:
+
+```typescript
+let test = (x: String /* @1 */, y: String /* @2 */ )-> {
+  // consume(x); // error: x is consumed before y
+  consume(y);
+  consume(x);
+}
+```
+
+### Order of `read` and `write` references  
+
+The `read` and `write` references will inherit the order of the value they are referencing to.
+
+```typescript
+let test = ()-> {
+  let x: Data = malloc(); // @1
+  let y: Data = malloc(); // @2
+
+  let xRef: Data @x = read x; // @1
+  let yRef: Data @y = read y; // @2
+
+  consume(xRef);
+  consume(yRef);
+}
+```
+
+if you pass two references of different orders to a function, then both references will turn to have the largest order after the function call:
+
+```typescript
+let test = ()-> {
+  let x: Data = malloc(); // @1
+  let y: Data = malloc(); // @2
+
+  let xRef: Data @x = read x; // @1
+  let yRef: Data @y = read y; // @2
+
+  someFunction(xRef, yRef);  
+  // Now
+  // xRef: Data @y // @2
+  // yRef: Data @y // @2 
+
+  // To continue to use `x`, we must consume `y` first
+  // to make sure the order of `xRef` is smaller than `yRef`.
+}
+
+```
+
 
 ## Borrow checker `To be updated`
 
@@ -806,7 +855,7 @@ Example:
 
 ```typescript
 let main = ()-> {
-  let mut x = 1;
+  var x = 1;
   let y = &!x;
   let z = &!x; // Compiler Error: Cannot borrow `x` as mutable more than once at a time.
 }
@@ -818,7 +867,7 @@ type Coord = {
   y: i32
 }
 let main = ()-> {
-  let mut p = { x: 1, y: 2 };
+  var p = { x: 1, y: 2 };
   let pRef = &!p;
   let yRef = &!p.y; // Compiler Error: Cannot borrow `p` as mutable more than once at a time.
 }
@@ -826,7 +875,7 @@ let main = ()-> {
 
 ```typescript
 let main = ()-> {
-  let mut xs: i32[] = [1, 2, 3];
+  var xs: i32[] = [1, 2, 3];
   let xsRef = &!xs;
   let firstRef = &!xs[0]; // Compiler Error: Cannot borrow `xs` as mutable more than once at a time.
 }
@@ -837,17 +886,17 @@ let main = ()-> {
 
 ```typescript
 let main = ()-> {
-  let mut x = 1;
-  let mut y: &!<i32> = &!x;
-  let mut z: &<i32> = &x; // Compiler Error: Cannot borrow `x` as immutable because it is also borrowed as mutable.
+  var x = 1;
+  var y: &!<i32> = &!x;
+  var z: &<i32> = &x; // Compiler Error: Cannot borrow `x` as immutable because it is also borrowed as mutable.
 }
 ```
 
 ```typescript
 let main = ()-> {
-  let mut x = 1;
-  let mut y: &<i32> = &x;
-  let mut z: &!<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable because it is also borrowed as immutable.
+  var x = 1;
+  var y: &<i32> = &x;
+  var z: &!<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable because it is also borrowed as immutable.
 }
 ```
 
@@ -855,9 +904,9 @@ let main = ()-> {
 
 ```typescript
 let main = ()-> {
-  let mut x = 1;
-  let mut y: &!<i32> = &!x;
-  let mut _sum = x + 1; // Compiler Error: A value was used after it was mutably borrowed.
+  var x = 1;
+  var y: &!<i32> = &!x;
+  var _sum = x + 1; // Compiler Error: A value was used after it was mutably borrowed.
 }
 ```
 
@@ -875,7 +924,7 @@ let main = ()-> {
 
 ```typescript
 let main = ()-> {
-  let mut x = 1;
+  var x = 1;
   let y: &<i32> = &x;
   x = 2; // Compiler Error: An attempt was made to assign to a borrowed value
 }
@@ -905,7 +954,7 @@ Another reason is that they make it hard to translate the effectful function to 
 
 ```typescript
 let factorial = (n: i32)-> i32 {
-  let mut result = 1;
+  var result = 1;
   repeat(n) (i)=> {
     result = result * i;
   }
@@ -914,7 +963,7 @@ let factorial = (n: i32)-> i32 {
 
 // is equalvalent to
 let factorial = (n: i32)-> i32 {
-  let mut result = 1;
+  var result = 1;
   repeat(n, (i)=> {
     result = result * i
   })
@@ -1556,6 +1605,11 @@ export instance Id<i32> {
   id(x: i32): i32 {
     x
   }
+}
+
+// Prevent name mangling.
+export "C" {
+  Option,
 }
 ```
 

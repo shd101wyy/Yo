@@ -1,4 +1,4 @@
-import {*} from "./builtins"
+import {*} from "./builtins.mo";
 
 infix  40 <   // Less than
 infix  40 <=  // Less than or equal to

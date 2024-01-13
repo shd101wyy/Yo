@@ -1,4 +1,5 @@
-import { charIsOperator } from "./operator";
+import { BuiltinFunctions } from "./builtins";
+import { SpecialOperators, charIsOperator } from "./operator";
 import { Token, TokenType } from "./token";
 
 /**
@@ -13,6 +14,34 @@ export function tokenize(input: string): Token[] {
   for (let i = 0; i < input.length; i++) {
     const char = input[i];
 
+    // Check if it's the builtin function
+    const builtinFunction = BuiltinFunctions.find((functionName) =>
+      input.startsWith(functionName, i)
+    );
+    if (builtinFunction) {
+      tokens.push({
+        type: TokenType.Identifier,
+        value: builtinFunction,
+        position: { line, character: i - totalCharacters },
+      });
+      i += builtinFunction.length - 1;
+      continue;
+    }
+
+    // Check if it's the special operator
+    const specialOperator = SpecialOperators.find((operator) =>
+      input.startsWith(operator, i)
+    );
+    if (specialOperator) {
+      tokens.push({
+        type: TokenType.Operator,
+        value: specialOperator,
+        position: { line, character: i - totalCharacters },
+      });
+      i += specialOperator.length - 1;
+      continue;
+    }
+
     // Check operators
     let operator: string = "";
     let j = i;
@@ -26,9 +55,7 @@ export function tokenize(input: string): Token[] {
       !operator.startsWith("//") &&
       !operator.startsWith("/*") &&
       // Skip symbol with ""
-      !(operator === "@" && input[i + 1] === '"') &&
-      // Skip symbol without ""
-      !(operator === "@" && input[i + 1].match(/[a-zA-Z]/))
+      !(operator === "@" && input[i + 1] === '"')
     ) {
       if (operator.startsWith("&!<")) {
         tokens.push({
@@ -242,6 +269,7 @@ export function tokenize(input: string): Token[] {
         break;
       }
       // symbol @"Red"
+      // symbol is in format of @"..."
       case "@": {
         if (input[i + 1] === '"') {
           let value = "";
@@ -249,22 +277,6 @@ export function tokenize(input: string): Token[] {
           for (let j = i + 2; j < input.length; j++) {
             if (input[j] === '"') {
               i = j;
-              break;
-            }
-
-            value += input[j];
-          }
-
-          tokens.push({
-            type: TokenType.Symbol,
-            value,
-            position: { line, character: i - totalCharacters },
-          });
-        } else if (input[i + 1].match(/[a-zA-Z]/)) {
-          let value = "";
-          for (let j = i + 1; j < input.length; j++) {
-            if (!input[j].match(/[a-zA-Z]/)) {
-              i = j - 1;
               break;
             }
 
