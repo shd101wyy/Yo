@@ -313,3 +313,35 @@ type MyData = {
   y: write string @2
 }
 ```
+
+### Multiple references
+
+```typescript
+type Foo = {
+  x: read i32,
+  y: read i32
+}
+
+let getXOrZeroRef = (x: read i32 @1, y: read i32 @2)-> read i32 /*@2 // It can only be the shortest lifetime in parameters
+*/ {
+  if (x > y) {
+    x
+  } else {
+    y
+  }
+}
+
+let main = ()-> {
+  let x = 1; // @1
+  {
+    let y = 2; // @2
+
+    let readX = read x; // @1
+    let readY = read y; // @2
+
+    let f: Foo = {x: readX, y: readY}; // @3
+    let v = getXOrZeroRef(f.x, f.y); // @3
+  }
+}
+
+```

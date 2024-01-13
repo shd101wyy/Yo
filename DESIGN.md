@@ -243,7 +243,7 @@ let update = ()-> { // Region 1
 
 We can specify a region to be `safe` by adding `safe` keyword before the block.
 
-The `safe` region prevent values inside it from having mutable & immutable pointers outside the `safe` region.
+The `safe` region prevent values inside it from having mutable & immutable references outside the `safe` region.
 
 ```typescript
 safe {
@@ -494,9 +494,9 @@ let addOne = (x: i32)-> i32 {
 addOne(12); // 13
 
 let s = String.from("Hello, world");
-&s.length(); // 12
+(read s).length(); // 12
 // is equalvalent to
-length(&s); // 12
+length(read s); // 12
 
 // Type coercion for `read` and `write` references
 s.length(); // 12. s is coerced to `read` reference.
@@ -671,11 +671,11 @@ infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
 [capture]<type parameters>(parameters) => return_type { body }
 ```
 
-The capture `[&]` means the closure only allows the immutable pointers from the outer scope, but no linear values and mutable pointers from outer scope. The closure can be called multiple times.
+The capture `[read]` means the closure only allows the immutable references from the outer scope, but no linear values and mutable references from outer scope. The closure can be called multiple times.
 
-The capture `[&mut]` means the closure only allows the mutable pointers and immutable pointers to the variables from the outer scope, but not linear values from outer scope. The closure can be called multiple times.
+The capture `[write]` means the closure only allows the mutable references and immutable references to the variables from the outer scope, but not linear values from outer scope. The closure can be called multiple times.
 
-The capture `[=]` means the closure will move linear values from the outer scope and prevent immutable & mutable pointers of linear values from the outer scope. It behaves like the `safe` region. The closure can only be called once.
+The capture `[=]` means the closure will move linear values from the outer scope and prevent immutable & mutable references of linear values from the outer scope. It behaves like the `safe` region. The closure can only be called once.
 
 If no capture is specified, we fallback to `[=]`.
 
@@ -687,7 +687,7 @@ let test = ()-> {
   // From type inference:
   // let consumeClosure: [=]()=>()
   let consumeClosure = ()=> {
-    println(&x);
+    println(read x);
     consume(x);
   }
   consumeClosure(); // "Hello"
@@ -697,8 +697,8 @@ let test = ()-> {
 let test = ()-> {
   var x = 1;
   // From type inference:
-  // var increment: [&!](y: i32)=>()
-  // `mut` here is necessary.
+  // var increment: [write](y: i32)=>()
+  // `var` here is necessary.
   var increment = (y: i32)=> {
     x = x + y;
   }
@@ -709,9 +709,9 @@ let test = ()-> {
 let test = ()-> {
   let x = 1;
   // From type inference:
-  // let addOne: [&]()=>()
+  // let addOne: [read]()=>()
   let printX = ()=> {
-    println(x);
+    println(read x);
   }
   printX();
   printX();
@@ -723,17 +723,14 @@ let test = ()-> {
 The builtin `=` function is used to update a value that can be `write`, with the following signature:
 
 ```typescript
-let set! = <T: Type, R: Region>(ref: &!<T, R>, value: T)-> T;
+let set! = <T: Type>(ref: write T, value: T)-> T;
 
 // `=` is a syntactic sugar for `set!`
 
 x = x + 1
 // is equalvalent to
 set!(write x, x + 1)
-// so we append `&!` to the variable on the left hand side of `=`
-
-// &!* will cancel out, for example:
-// &!*x is equalvalent to x
+// so we append `write` to the variable on the left hand side of `=`
 ```
 
 Below is an example of updating a field of a linear type:
@@ -846,8 +843,8 @@ let test = ()-> {
 
 First, any borrow must last for a scope no greater than that of the owner. Second, you may have one or the other of these two kinds of borrows, but not both at the same time:
 
-- One or more references (`&<T>`) to a resource.
-- Exactly one mutable reference (`&!<T>`).
+- One or more references (`read T`) to a resource.
+- Exactly one mutable reference (`write T`).
 
 Example:
 
@@ -856,8 +853,8 @@ Example:
 ```typescript
 let main = ()-> {
   var x = 1;
-  let y = &!x;
-  let z = &!x; // Compiler Error: Cannot borrow `x` as mutable more than once at a time.
+  let y = write x;
+  let z = write x; // Compiler Error: Cannot borrow `x` as mutable more than once at a time.
 }
 ```
 
@@ -868,16 +865,16 @@ type Coord = {
 }
 let main = ()-> {
   var p = { x: 1, y: 2 };
-  let pRef = &!p;
-  let yRef = &!p.y; // Compiler Error: Cannot borrow `p` as mutable more than once at a time.
+  let pRef = write p;
+  let yRef = write p.y; // Compiler Error: Cannot borrow `p` as mutable more than once at a time.
 }
 ```
 
 ```typescript
 let main = ()-> {
   var xs: i32[] = [1, 2, 3];
-  let xsRef = &!xs;
-  let firstRef = &!xs[0]; // Compiler Error: Cannot borrow `xs` as mutable more than once at a time.
+  let xsRef = write xs;
+  let firstRef = write xs[0]; // Compiler Error: Cannot borrow `xs` as mutable more than once at a time.
 }
 ```
 
@@ -887,16 +884,16 @@ let main = ()-> {
 ```typescript
 let main = ()-> {
   var x = 1;
-  var y: &!<i32> = &!x;
-  var z: &<i32> = &x; // Compiler Error: Cannot borrow `x` as immutable because it is also borrowed as mutable.
+  var y: write i32 = write x;
+  var z: read i32 = read x; // Compiler Error: Cannot borrow `x` as immutable because it is also borrowed as mutable.
 }
 ```
 
 ```typescript
 let main = ()-> {
   var x = 1;
-  var y: &<i32> = &x;
-  var z: &!<i32> = &!x; // Compiler Error: Cannot borrow `x` as mutable because it is also borrowed as immutable.
+  var y: read i32 = read x;
+  var z: write i32 = write x; // Compiler Error: Cannot borrow `x` as mutable because it is also borrowed as immutable.
 }
 ```
 
@@ -905,7 +902,7 @@ let main = ()-> {
 ```typescript
 let main = ()-> {
   var x = 1;
-  var y: &!<i32> = &!x;
+  var y: write i32 = write x;
   var _sum = x + 1; // Compiler Error: A value was used after it was mutably borrowed.
 }
 ```
@@ -915,7 +912,7 @@ let main = ()-> {
 ```typescript
 let main = ()-> {
   let x = String.from("Hello");
-  let y: &<String> = &x;
+  let y: read String = read x;
   consume(x); // Compiler Error: A value was moved out while it was still borrowed.
 }
 ```
@@ -925,7 +922,7 @@ let main = ()-> {
 ```typescript
 let main = ()-> {
   var x = 1;
-  let y: &<i32> = &x;
+  let y: read i32 = read x;
   x = 2; // Compiler Error: An attempt was made to assign to a borrowed value
 }
 ```
@@ -1247,7 +1244,7 @@ enum List<T> {
 }
 
 
-let ListLength = <T>(list: &List<T>)-> i32 {
+let ListLength = <T>(list: read List<T>)-> i32 {
   match (list) {
     Nil => 0,
     Cons => {
