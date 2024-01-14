@@ -671,6 +671,34 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            case "read":
+              tokens.push({
+                type: TokenType.Read,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "write":
+              tokens.push({
+                type: TokenType.Write,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "own":
+              tokens.push({
+                type: TokenType.Own,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "copy":
+              tokens.push({
+                type: TokenType.Copy,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
             default:
               tokens.push({
                 type: TokenType.Identifier,

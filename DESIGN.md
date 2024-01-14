@@ -313,14 +313,14 @@ y = 1; // y: i32, initialized
 y = 2; // Compiler Error: y is already initialized
 ```
 
-### `move`
+### `own`
 
-`move` is used to move a Linear value from one variable to another variable.
+`own` is used to move a Linear value from one variable to another variable.
 
 ```typescript
 let x = String.from("Hello"); // x: own String. Linear type
-let y = move x; // y: own String. Linear type. x is moved and consumed.
-let z = move x; // Compiler Error: x is already consumed.
+let y = own x; // y: own String. Linear type. x is moved and consumed.
+let z = own x; // Compiler Error: x is already consumed.
 ```
 
 ### `read` and `write` references
@@ -329,7 +329,7 @@ We have `read` reference to immutable values, and `write` reference to mutable o
 
 There is also `own` reference to linear values, which is the same as the value itself.
 
-So we have the following modes:
+So we have the following permissions:
 
 - `read` : Linear and Free
 - `write` : Linear and Free
@@ -343,8 +343,7 @@ So we have the following modes:
 
 {
   var i = malloc(); // i: own Data
-  var writeRef = i; // ref: write Data, because i is mutable.
-  let readRef = i; // ref: read Data.
+  let ref = i; // ref: write Data, because i is mutable.
 }
 ```
 
@@ -353,7 +352,7 @@ We can use `read` and `write` keywords to explicitly specify the reference type:
 ```typescript
 {
   var x = 1; // x: copied i32. Free type
-  var p: write i32 = write x; // p: write i32. Free type.
+  let p: write i32 = write x; // p: write i32. Free type.
   p = 2;
   // x == 2
 }
@@ -703,7 +702,7 @@ The capture `[read]` means the closure only allows the immutable references from
 
 The capture `[write]` means the closure only allows the mutable references and immutable references to the variables from the outer scope, but not linear values from outer scope. The closure can be called multiple times.
 
-The capture `[=]` means the closure will move linear values from the outer scope and prevent immutable & mutable references of linear values from the outer scope. It behaves like the `safe` region. The closure can only be called once.
+The capture `[own]` means the closure will move linear values from the outer scope and prevent immutable & mutable references of linear values from the outer scope. It behaves like the `safe` region. The closure can only be called once.
 
 If no capture is specified, we fallback to `[=]`.
 

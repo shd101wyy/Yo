@@ -188,6 +188,7 @@ export default class Parser {
             typeValue: {
               type: "i32",
               kind: "Free",
+              permission: "own",
               value: token.value,
               tag: "primitive",
             },
@@ -205,6 +206,7 @@ export default class Parser {
             typeValue: {
               type: "i32",
               kind: "Free",
+              permission: "own",
             },
             env,
             token: tokens[index],
@@ -225,6 +227,7 @@ export default class Parser {
             typeValue: {
               type: "f64",
               kind: "Free",
+              permission: "own",
               value: token.value,
               tag: "primitive",
             },
@@ -242,6 +245,7 @@ export default class Parser {
             typeValue: {
               type: "f64",
               kind: "Free",
+              permission: "own",
             },
             env,
             token: tokens[index],
@@ -277,6 +281,7 @@ export default class Parser {
             typeValue: {
               type: "char",
               kind: "Free",
+              permission: "own",
               value: token.value,
               tag: "primitive",
             },
@@ -294,6 +299,7 @@ export default class Parser {
             typeValue: {
               type: "char",
               kind: "Free",
+              permission: "own",
             },
             env,
             token: tokens[index],
@@ -325,6 +331,7 @@ export default class Parser {
           typeValue: {
             type: "string",
             kind: "Free",
+            permission: "own",
             tag: "primitive",
             value: token.value,
           },
@@ -408,6 +415,7 @@ export default class Parser {
             typeValue: {
               type: "boolean",
               kind: "Free",
+              permission: "own",
               value: token.value,
               tag: "primitive",
             },
@@ -425,6 +433,7 @@ export default class Parser {
             typeValue: {
               type: "boolean",
               kind: "Free",
+              permission: "own",
             },
             token: tokens[index],
           },
@@ -501,6 +510,7 @@ export default class Parser {
       typeValue = {
         type: "slice",
         kind: firstElementType.kind as TypeKind,
+        permission: "own",
         elementType: firstElementType,
         size: values.length,
       };
@@ -582,7 +592,12 @@ export default class Parser {
         expr: {
           type: AstType.Value,
           tag: "record",
-          typeValue: { type: "Record", kind: "Free", properties: [] },
+          typeValue: {
+            type: "Record",
+            kind: "Free",
+            permission: "own",
+            properties: [],
+          },
           env,
           properties: [],
           token: tokens[recordTokenIndex],
@@ -1378,6 +1393,7 @@ ${exprToString(lhs)}
     const func: TFunction = {
       type: "Function",
       kind: "Free",
+      permission: "own",
       functionId: generateValueTypeId(env, "resume"),
       effects: [],
       // hasMoreEffects: false,
@@ -1406,6 +1422,7 @@ ${exprToString(lhs)}
     const func: TFunction = {
       type: "Function",
       kind: "Free",
+      permission: "own",
       functionId: generateValueTypeId(env, "abort"),
       effects: [],
       // hasMoreEffects: false,
@@ -1463,6 +1480,7 @@ ${exprToString(lhs)}
           typeValue: {
             type: "()",
             kind: "Free",
+            permission: "own",
           },
           env,
           token: tokens[index],
@@ -2498,6 +2516,7 @@ ${matchedFunctionErrors[i] ?? ""}`
             typeValue: {
               type: "symbol",
               kind: "Free",
+              permission: "own",
               value: token.value,
               tag: "primitive",
             },
@@ -2515,6 +2534,7 @@ ${matchedFunctionErrors[i] ?? ""}`
             typeValue: {
               type: "symbol",
               kind: "Free",
+              permission: "own",
             },
             token: tokens[index],
           },
@@ -3563,7 +3583,7 @@ ${matchedFunctionErrors[i] ?? ""}`
           type: AstType.Value,
           tag: "primitive",
           value: "()",
-          typeValue: { type: "()", kind: "Free" },
+          typeValue: { type: "()", kind: "Free", permission: "own" },
           env: nextEnv,
           token: tokens[index - 1],
         });
@@ -3919,8 +3939,11 @@ ${exprToString(expr)}\n`,
         variableName = tokens[index].value;
         index = index + 1;
       } else if (language === "mo") {
-        if (tokens[index].type === TokenType.Symbol) {
-          variableName = `@${tokens[index].value}`;
+        if (
+          tokens[index].type === TokenType.Identifier &&
+          tokens[index].value.startsWith("@")
+        ) {
+          variableName = `${tokens[index].value}`;
           index = index + 1;
         } else {
           throw this.formatErrorMessage(
@@ -5143,6 +5166,7 @@ ${typeToString(valueType)}`
         type: {
           type: "unknown",
           kind: "Free",
+          permission: "own",
           typeName,
         },
         kind: "type",
@@ -5192,6 +5216,7 @@ ${typeToString(valueType)}`
     let typeValue: Type = {
       type: "Extern",
       kind: "Free",
+      permission: "own",
     };
     if (tokens[index].type === TokenType.Assign) {
       index = index + 1;
@@ -5252,12 +5277,14 @@ ${typeToString(nextTypeValue)}`
       typeValue = {
         type: "Extern",
         kind,
+        permission: "own",
       };
     }
 
     const typeConstructor: TTypeConstructor = {
       type: "TypeConstructor",
       kind,
+      permission: "own",
       name: typeName,
       typeConstructorId: generateValueTypeId(env, typeName),
       typeParameters,
@@ -5353,6 +5380,7 @@ ${typeToString(nextTypeValue)}`
         type: {
           type: "unknown",
           kind: "Free",
+          permission: "own",
           typeName: typeclassName,
         },
         kind: "type",
@@ -5502,6 +5530,7 @@ ${typeToString(functionType)}
     const class_: TClass = {
       type: "Class",
       kind: "Free",
+      permission: "own",
       name: typeclassName,
       classId: generateValueTypeId(env, typeclassName),
       typeParameters,
@@ -5924,6 +5953,7 @@ Got:      ${typeToString(matchedFunction.func)}`
         type: {
           type: "unknown",
           kind: "Free",
+          permission: "own",
           typeName: effectName,
         },
         effect: fakeEffect,
@@ -6112,6 +6142,7 @@ ${operationName}: ${typeToString(
         type: {
           type: "unknown",
           kind: "Free",
+          permission: "own",
           typeName: enumName,
         },
         kind: "type",
@@ -6266,6 +6297,7 @@ ${operationName}: ${typeToString(
     const enumType: TEnum = {
       type: "Enum",
       kind,
+      permission: "own",
       enumName,
       typeParameters,
       regionParameters,
@@ -6389,6 +6421,7 @@ ${operationName}: ${typeToString(
             {
               type: "TypeParameter",
               kind: "Type",
+              permission: "own",
               name: "T",
               appliedType: variableType,
             },
@@ -6462,6 +6495,7 @@ ${operationName}: ${typeToString(
             {
               type: "TypeParameter",
               kind: "Type",
+              permission: "own",
               name: "T",
               appliedType: appliedTypeValue,
             },

@@ -1,1 +1,5 @@
-export const BuiltinFunctions = ["@codegenFunction", "@codegenInline"];
+export const BuiltinFunctions = [
+  "@codegenFunction",
+  "@codegenInline",
+  "@consume",
+];

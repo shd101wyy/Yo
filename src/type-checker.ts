@@ -30,20 +30,21 @@ export type RegionKind = "Region";
 
 export type EffectKind = "Effect" | "LinearEffect" | "ControlledEffect";
 
-export type TypeMode =
+export type TypePermission =
   | "read" // linear and free
   | "write" // linear and free
-  | "own" // linear
-  | "copy"; // free
+  | "own"; // linear and free
 
 export type TUnit = {
   type: "()";
   kind: "Free";
+  permission: "own";
 };
 
 export type TBoolean = {
   type: "boolean";
   kind: "Free";
+  permission: TypePermission;
 };
 
 /**
@@ -52,92 +53,114 @@ export type TBoolean = {
 export type TChar = {
   type: "char";
   kind: "Free";
+  permission: TypePermission;
 };
 
 export type TString = {
   type: "string";
   kind: "Free";
+  permission: TypePermission;
 };
 
+/*
 export type TIsize = {
   type: "isize";
   kind: "Free";
+  permission: "own";
 };
+*/
 
 export type TUsize = {
   type: "usize";
   kind: "Free";
+  permission: TypePermission;
 };
 
 export type TU8 = {
   type: "u8";
   kind: "Free";
+  permission: TypePermission;
 };
 
 export type TI8 = {
   type: "i8";
   kind: "Free";
+  permission: TypePermission;
 };
 
 export type TU16 = {
   type: "u16";
   kind: "Free";
+  permission: TypePermission;
 };
 
 export type TI16 = {
   type: "i16";
   kind: "Free";
+  permission: TypePermission;
 };
 
 export type TU32 = {
   type: "u32";
   kind: "Free";
+  permission: TypePermission;
 };
 
 export type TI32 = {
   type: "i32";
   kind: "Free";
+  permission: TypePermission;
 };
 
 export type TU64 = {
   type: "u64";
   kind: "Free";
+  permission: TypePermission;
 };
 
 export type TI64 = {
   type: "i64";
   kind: "Free";
+  permission: TypePermission;
 };
 
+/*
 export type TU128 = {
   type: "u128";
   kind: "Free";
+  permission: "own";
 };
 
 export type TI128 = {
   type: "i128";
   kind: "Free";
+  permission: "own";
 };
+*/
 
 export type TF16 = {
   type: "f16";
   kind: "Free";
+  permission: TypePermission;
 };
 
 export type TF32 = {
   type: "f32";
   kind: "Free";
+  permission: TypePermission;
 };
 
 export type TF64 = {
   type: "f64";
   kind: "Free";
+  permission: TypePermission;
 };
 
 // @"symbol"
 export type TSymbol = {
   type: "symbol";
   kind: "Free";
+  permission: TypePermission;
 };
 
 export type TPrimitive =
@@ -153,9 +176,11 @@ export type TPrimitive =
   | TI32
   | TU64
   | TI64
+  /*
   | TU128
   | TI128
   | TIsize
+  */
   | TUsize
   | TF16
   | TF32
@@ -175,6 +200,7 @@ export type TRecordProperty = {
 export type TRecord = {
   type: "Record";
   kind: TypeKind;
+  permission: TypePermission;
   properties: TRecordProperty[];
 };
 
@@ -189,6 +215,7 @@ export type TParameterType = {
 export type TTypeParameter = {
   type: "TypeParameter";
   kind: TypeKind;
+  permission: TypePermission;
   name: string;
   appliedType?: Type;
 };
@@ -215,6 +242,7 @@ export type TRegionParameter = {
 export type TFunction = {
   type: "Function";
   kind: "Free";
+  permission: "own";
   functionId: string;
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
@@ -238,18 +266,21 @@ export type TFunction = {
 export type TUnion = {
   type: "Union";
   kind: TypeKind;
+  permission: TypePermission;
   types: Type[];
 };
 
 export type TIntersection = {
   type: "Intersection";
   kind: TypeKind;
+  permission: TypePermission;
   types: Type[];
 };
 
 export type TUnknown = {
   type: "unknown";
   kind: "Free";
+  permission: "own";
   typeArguments?: Type[];
   typeName?: string; // FIXME: This might be a expression in the future
 };
@@ -257,6 +288,7 @@ export type TUnknown = {
 export type TSlice = {
   type: "slice";
   kind: TypeKind;
+  permission: TypePermission;
   elementType: Type;
   size?: number;
 };
@@ -271,6 +303,7 @@ export type TTuple = {
 export type TTypeConstructor = {
   type: "TypeConstructor";
   kind: TypeKind;
+  permission: TypePermission;
   name: string;
   typeConstructorId: string;
   typeParameters: TTypeParameter[];
@@ -290,6 +323,7 @@ export type TClassFunction = {
 export type TClass = {
   type: "Class";
   kind: "Free";
+  permission: "own";
   name: string;
   classId: string;
   typeParameters: TTypeParameter[];
@@ -315,6 +349,7 @@ export type TEnum = {
   variants: TEnumVariant[];
   selectedVariantName?: string;
   kind: TypeKind;
+  permission: TypePermission;
 };
 
 export type TEffectOperation = {
@@ -338,6 +373,7 @@ export type TEffect = {
 export type TExternType = {
   type: "Extern";
   kind: TypeKind;
+  permission: TypePermission;
 };
 
 export type TModule = {
@@ -371,16 +407,16 @@ export type Type =
   | TU16
   | TU32
   | TU64
-  | TU128
+  // | TU128
   | TI8
   | TI16
   | TI32
   | TI64
-  | TI128
+  // | TI128
   | TF16
   | TF32
   | TF64
-  | TIsize
+  // | TIsize
   | TUsize
   | TSymbol
   | TRecord
@@ -411,45 +447,46 @@ export const TypeValues: {
   u16: TU16;
   u32: TU32;
   u64: TU64;
-  u128: TU128;
+  // u128: TU128;
   i8: TI8;
   i16: TI16;
   i32: TI32;
   i64: TI64;
-  i128: TI128;
+  // i128: TI128;
   f16: TF16;
   f32: TF32;
   f64: TF64;
-  isize: TIsize;
+  // isize: TIsize;
   usize: TUsize;
   unknown: TUnknown;
   Reference: TTypeConstructor;
   MutableReference: TTypeConstructor;
   Promise: TTypeConstructor;
 } = {
-  unit: { type: "()", kind: "Free" },
-  boolean: { type: "boolean", kind: "Free" },
-  char: { type: "char", kind: "Free" },
-  string: { type: "string", kind: "Free" },
-  u8: { type: "u8", kind: "Free" },
-  u16: { type: "u16", kind: "Free" },
-  u32: { type: "u32", kind: "Free" },
-  u64: { type: "u64", kind: "Free" },
-  u128: { type: "u128", kind: "Free" },
-  i8: { type: "i8", kind: "Free" },
-  i16: { type: "i16", kind: "Free" },
-  i32: { type: "i32", kind: "Free" },
-  i64: { type: "i64", kind: "Free" },
-  i128: { type: "i128", kind: "Free" },
-  f16: { type: "f16", kind: "Free" },
-  f32: { type: "f32", kind: "Free" },
-  f64: { type: "f64", kind: "Free" },
-  isize: { type: "isize", kind: "Free" },
-  usize: { type: "usize", kind: "Free" },
-  unknown: { type: "unknown", kind: "Free" },
+  unit: { type: "()", kind: "Free", permission: "own" },
+  boolean: { type: "boolean", kind: "Free", permission: "own" },
+  char: { type: "char", kind: "Free", permission: "own" },
+  string: { type: "string", kind: "Free", permission: "own" },
+  u8: { type: "u8", kind: "Free", permission: "own" },
+  u16: { type: "u16", kind: "Free", permission: "own" },
+  u32: { type: "u32", kind: "Free", permission: "own" },
+  u64: { type: "u64", kind: "Free", permission: "own" },
+  // u128: { type: "u128", kind: "Free", permission: "own" },
+  i8: { type: "i8", kind: "Free", permission: "own" },
+  i16: { type: "i16", kind: "Free", permission: "own" },
+  i32: { type: "i32", kind: "Free", permission: "own" },
+  i64: { type: "i64", kind: "Free", permission: "own" },
+  // i128: { type: "i128", kind: "Free", permission: "own" },
+  f16: { type: "f16", kind: "Free", permission: "own" },
+  f32: { type: "f32", kind: "Free", permission: "own" },
+  f64: { type: "f64", kind: "Free", permission: "own" },
+  // isize: { type: "isize", kind: "Free", permission: "own" },
+  usize: { type: "usize", kind: "Free", permission: "own" },
+  unknown: { type: "unknown", kind: "Free", permission: "own" },
   Reference: {
     type: "TypeConstructor",
     kind: "Free",
+    permission: "own",
     name: "&",
     typeConstructorId: "&",
     typeParameters: [
@@ -457,6 +494,7 @@ export const TypeValues: {
         type: "TypeParameter",
         name: "T",
         kind: "Type",
+        permission: "own",
       },
     ],
     regionParameters: [
@@ -469,11 +507,13 @@ export const TypeValues: {
     typeValue: {
       type: "Extern",
       kind: "Free",
+      permission: "own",
     },
   },
   MutableReference: {
     type: "TypeConstructor",
     kind: "Linear",
+    permission: "own",
     name: "&!",
     typeConstructorId: "&!",
     typeParameters: [
@@ -481,6 +521,7 @@ export const TypeValues: {
         type: "TypeParameter",
         name: "T",
         kind: "Type",
+        permission: "own",
       },
     ],
     regionParameters: [
@@ -493,11 +534,13 @@ export const TypeValues: {
     typeValue: {
       type: "Extern",
       kind: "Free",
+      permission: "own",
     },
   },
   Promise: {
     type: "TypeConstructor",
     kind: "Linear",
+    permission: "own",
     name: "Promise",
     typeConstructorId: "Promise",
     typeParameters: [
@@ -505,12 +548,14 @@ export const TypeValues: {
         type: "TypeParameter",
         name: "T",
         kind: "Type",
+        permission: "own",
       },
     ],
     regionParameters: [],
     typeValue: {
       type: "Extern",
       kind: "Free",
+      permission: "own",
     },
   },
 };
@@ -522,6 +567,7 @@ export const emptyFunctionThatHasMoreEffects: TFunction = {
   frameLevel: 0,
   isClosure: false,
   kind: "Free",
+  permission: "own",
   parameterTypes: [],
   regionParameters: [],
   returnType: TypeValues.unit,
@@ -549,9 +595,9 @@ export function isSignedIntegerType(type: Type): boolean {
     type.type === "i8" ||
     type.type === "i16" ||
     type.type === "i32" ||
-    type.type === "i64" ||
-    type.type === "i128" ||
-    type.type === "isize"
+    type.type === "i64" // ||
+    // type.type === "i128" ||
+    // type.type === "isize"
   );
 }
 
@@ -560,9 +606,9 @@ export function isUnsignedIntegerType(type: Type): boolean {
     type.type === "u8" ||
     type.type === "u16" ||
     type.type === "u32" ||
-    type.type === "u64" ||
-    type.type === "u128" ||
-    type.type === "usize"
+    type.type === "u64" // ||
+    // type.type === "u128" ||
+    // type.type === "usize"
   );
 }
 
@@ -610,6 +656,18 @@ export function synthesizeTypeFromTokens({
       env,
       parseExpression,
     });
+  }
+
+  let typePermission: TypePermission = "own";
+  if (tokens[index].type === TokenType.Read) {
+    typePermission = "read";
+    index = index + 1;
+  } else if (tokens[index].type === TokenType.Write) {
+    typePermission = "write";
+    index = index + 1;
+  } else if (tokens[index].type === TokenType.Own) {
+    typePermission = "own";
+    index = index + 1;
   }
 
   // Check if it's unit
@@ -805,6 +863,7 @@ export function synthesizeTypeFromTokens({
       type: "Record",
       properties,
       kind,
+      permission: typePermission,
     };
 
     returnValue = {
@@ -843,10 +902,12 @@ export function synthesizeTypeFromTokens({
         typeValue = TypeValues.u64;
         break;
       }
+      /*
       case "u128": {
         typeValue = TypeValues.u128;
         break;
       }
+      */
       case "i8": {
         typeValue = TypeValues.i8;
         break;
@@ -863,10 +924,12 @@ export function synthesizeTypeFromTokens({
         typeValue = TypeValues.i64;
         break;
       }
+      /*
       case "i128": {
         typeValue = TypeValues.i128;
         break;
       }
+      */
       case "f16": {
         typeValue = TypeValues.f16;
         break;
@@ -879,16 +942,18 @@ export function synthesizeTypeFromTokens({
         typeValue = TypeValues.f64;
         break;
       }
+      /*
       case "isize": {
         typeValue = TypeValues.isize;
         break;
       }
+      */
       case "usize": {
         typeValue = TypeValues.usize;
         break;
       }
       case "symbol": {
-        typeValue = { type: "symbol", kind: "Free" };
+        typeValue = { type: "symbol", kind: "Free", permission: "own" };
         break;
       }
       case "&": {
@@ -933,6 +998,7 @@ export function synthesizeTypeFromTokens({
         }
       }
     }
+    typeValue.permission = typePermission;
     returnValue = {
       typeValue: typeValue,
       index: index + 1,
@@ -973,6 +1039,7 @@ export function synthesizeTypeFromTokens({
           newTypeValue = {
             type: "slice",
             kind: newTypeValueKind,
+            permission: typePermission,
             elementType: newTypeValue,
             size,
           };
@@ -982,6 +1049,7 @@ export function synthesizeTypeFromTokens({
         newTypeValue = {
           type: "slice",
           kind: newTypeValueKind,
+          permission: typePermission,
           elementType: newTypeValue,
           size: undefined,
         };
@@ -1022,35 +1090,25 @@ export function synthesizeTypeFromTokens({
 
     if (newReturnValue.typeValue.type === "Union") {
       const returnValueTypeKind = returnValue.typeValue.kind;
+      const kind = mixTypeKind(returnValueTypeKind, newReturnValueTypeKind);
       returnValue = {
         typeValue: {
           type: "Union",
-          kind: mixTypeKind(returnValueTypeKind, newReturnValueTypeKind),
+          kind: kind,
+          permission: typePermission,
           types: [returnValue.typeValue, ...newReturnValue.typeValue.types],
         },
         index: newReturnValue.index,
         env: newReturnValue.env,
       };
     } else {
-      /*
-      NOTE: We now allow union of different types
-      // Check types
-      if (returnValue.typeValue.type !== newReturnValue.typeValue.type) {
-        throw formatErrorMessage({
-          token: tokens[index],
-          errorMessage: `Cannot union types: 
-${returnValue.typeValue.type}: ${typeToString(returnValue.typeValue)}
-${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
-          inputString,
-        });
-      }
-      */
-
       const returnValueTypeKind = returnValue.typeValue.kind;
+      const kind = mixTypeKind(returnValueTypeKind, newReturnValueTypeKind);
       returnValue = {
         typeValue: {
           type: "Union",
-          kind: mixTypeKind(returnValueTypeKind, newReturnValueTypeKind),
+          kind: kind,
+          permission: typePermission,
           types: [returnValue.typeValue, newReturnValue.typeValue],
         },
         index: newReturnValue.index,
@@ -1069,35 +1127,25 @@ ${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
     const newReturnValueTypeKind = newReturnValue.typeValue.kind;
     if (newReturnValue.typeValue.type === "Intersection") {
       const returnValueTypeKind = returnValue.typeValue.kind;
+      const kind = mixTypeKind(returnValueTypeKind, newReturnValueTypeKind);
       returnValue = {
         typeValue: {
           type: "Intersection",
-          kind: mixTypeKind(returnValueTypeKind, newReturnValueTypeKind),
+          kind: kind,
+          permission: typePermission,
           types: [returnValue.typeValue, ...newReturnValue.typeValue.types],
         },
         index: newReturnValue.index,
         env: newReturnValue.env,
       };
     } else {
-      /*
-      NOTE: We now allow intersection of different types
-      // Check types
-      if (returnValue.typeValue.type !== newReturnValue.typeValue.type) {
-        throw formatErrorMessage({
-          token: tokens[index],
-          errorMessage: `Cannot intersect types:
-${returnValue.typeValue.type}: ${typeToString(returnValue.typeValue)}
-${newReturnValue.typeValue.type}: ${typeToString(newReturnValue.typeValue)}`,
-          inputString,
-        });
-      }
-      */
-
       const returnValueTypeKind = returnValue.typeValue.kind;
+      const kind = mixTypeKind(returnValueTypeKind, newReturnValueTypeKind);
       returnValue = {
         typeValue: {
           type: "Intersection",
-          kind: mixTypeKind(returnValueTypeKind, newReturnValueTypeKind),
+          kind: kind,
+          permission: typePermission,
           types: [returnValue.typeValue, newReturnValue.typeValue],
         },
         index: newReturnValue.index,
@@ -1395,9 +1443,11 @@ export function applyTypeAndRegionArgumentsToType({
       typeParameterToTypeArgumentMap,
       regionParameterToRegionArgumentMap,
     });
+    const kind = typeValue.type === "Extern" ? type.kind : newTypeValue.kind;
     return {
       type: "TypeConstructor",
-      kind: typeValue.type === "Extern" ? type.kind : newTypeValue.kind,
+      kind: kind,
+      permission: "own",
       name: type.name,
       typeConstructorId: generateValueTypeId(env, type.name),
       typeParameters: newTypeParameters,
@@ -1448,9 +1498,11 @@ export function applyTypeAndRegionArgumentsToType({
       })
     ) as TEnumVariant[];
 
+    const kind = getEnumTypeKind(variants);
     const enumType: TEnum = {
       type: "Enum",
-      kind: getEnumTypeKind(variants),
+      kind: kind,
+      permission: "own",
       enumName: type.enumName,
       typeParameters: newTypeParameters,
       regionParameters: newRegionParameters,
@@ -1736,6 +1788,7 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   return {
     type: "Class",
     kind: "Free",
+    permission: "own",
     name: class_.name,
     classId: class_.classId,
     typeParameters: newTypeParameters,
@@ -2095,7 +2148,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
   const parameterDefaultValues: (Expr | null)[] = [];
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    let token = tokens[index];
+    const token = tokens[index];
     if (!token) {
       throw formatErrorMessage({
         token: tokens[index - 1],
@@ -2113,12 +2166,14 @@ export function synthesizeFunctionParameterTypesFromTokens({
       break;
     }
 
-    let isMutable = false;
+    const isMutable = false;
+    /*
     if (token.type === TokenType.Mut) {
       isMutable = true;
       index = index + 1;
       token = tokens[index];
     }
+    */
 
     // TODO: There might be the case that only the type is specified or pattern matching
     if (token.type !== TokenType.Identifier) {
@@ -2586,6 +2641,7 @@ export function synthesizeFunctionTypeFromTokens({
       typeValue: {
         type: "Function",
         kind: "Free",
+        permission: "own",
         functionId:
           functionName === "main" || functionName?.startsWith("@") // compiletime functions
             ? functionName
@@ -2860,6 +2916,8 @@ export function synthesizeTypeAndRegionParametersFromTokens({
       const typeParameter: TTypeParameter = {
         type: "TypeParameter",
         kind: kind,
+        // FIXME: The `permission` below could be wrong
+        permission: "own",
         name: typeParameterName,
       };
       typeParameters.push(typeParameter);
@@ -2981,61 +3039,65 @@ export function typeToString(
       return "()";
     }
     case "boolean": {
-      return "boolean";
+      return `${type.permission} boolean`;
     }
     case "char": {
-      return "char";
+      return `${type.permission} char`;
     }
     case "string": {
-      return "string";
+      return `${type.permission} string`;
     }
     case "u8": {
-      return "u8";
+      return `${type.permission} u8`;
     }
     case "u16": {
-      return "u16";
+      return `${type.permission} u16`;
     }
     case "u32": {
-      return "u32";
+      return `${type.permission} u32`;
     }
     case "u64": {
-      return "u64";
+      return `${type.permission} u64`;
     }
+    /*
     case "u128": {
       return "u128";
     }
+    */
     case "i8": {
-      return "i8";
+      return `${type.permission} i8`;
     }
     case "i16": {
-      return "i16";
+      return `${type.permission} i16`;
     }
     case "i32": {
-      return "i32";
+      return `${type.permission} i32`;
     }
     case "i64": {
-      return "i64";
+      return `${type.permission} i64`;
     }
+    /*
     case "i128": {
       return "i128";
     }
+    */
     case "f16": {
-      return "f16";
+      return `${type.permission} f16`;
     }
     case "f32": {
-      return "f32";
+      return `${type.permission} f32`;
     }
     case "f64": {
-      return "f64";
+      return `${type.permission} f64`;
     }
     case "usize": {
-      return "usize";
+      return `${type.permission} usize`;
     }
     case "symbol": {
-      return "symbol";
+      return `${type.permission} symbol`;
     }
     case "Record": {
-      return `{ ${type.properties
+      return `${type.permission} { ${type.properties
         .map(
           ({ name, type }) =>
             `${name}: ${typeToString(type, {
@@ -3071,10 +3133,14 @@ export function typeToString(
       })}`;
     }
     case "Union": {
-      return `(${type.types.map((type) => typeToString(type)).join(" | ")})`;
+      return `${type.permission} (${type.types
+        .map((type) => typeToString(type))
+        .join(" | ")})`;
     }
     case "Intersection": {
-      return `(${type.types.map((type) => typeToString(type)).join(" & ")})`;
+      return `${type.permission} (${type.types
+        .map((type) => typeToString(type))
+        .join(" & ")})`;
     }
     case "unknown": {
       return `unknown${type.typeName ? ` ${type.typeName}` : ""}${
@@ -3086,7 +3152,9 @@ export function typeToString(
       }`;
     }
     case "slice": {
-      return `${typeToString(type.elementType)}[${type.size ?? ""}]`;
+      return `${type.permission} ${typeToString(type.elementType)}[${
+        type.size ?? ""
+      }]`;
     }
     /*
     case "tuple": {
@@ -3126,7 +3194,9 @@ export function typeToString(
           });
         }
       } else {
-        return `${type.name}${typeAndRegionParametersToString(
+        return `${type.permission} ${
+          type.name
+        }${typeAndRegionParametersToString(
           type.typeParameters,
           type.regionParameters,
           { hideTypeParameterKind }
@@ -3157,7 +3227,9 @@ ${type.variants
   .join(",\n")}
 }`;
       } else {
-        return `${type.enumName}${typeAndRegionParametersToString(
+        return `${type.permission} ${
+          type.enumName
+        }${typeAndRegionParametersToString(
           type.typeParameters,
           type.regionParameters,
           { hideTypeParameterKind }

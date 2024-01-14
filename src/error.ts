@@ -17,7 +17,7 @@ export function getLineAtToken({
   return `${modulePath}:${line + 1}:${character + 1}:
   
 ${lineString}
-${" ".repeat(character - Math.floor(token.value.length / 2))}^`;
+${" ".repeat(Math.max(character - Math.floor(token.value.length / 2), 0))}^`;
 }
 
 export function formatErrorMessage({
