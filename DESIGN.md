@@ -10,7 +10,7 @@
 
 **Mo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types. `In Design`
 
-**Mo** has no garbage collector as it utilizes the [Linear Types](https://en.wikipedia.org/wiki/Substructural_type_system#:~:text=Linear%20types%20corresponds%20to%20linear,transitioned%20to%20a%20different%20state.) and implemented a strict borrow checker.
+**Mo** has no garbage collector as it utilizes the [Linear Types](https://en.wikipedia.org/wiki/Substructural_type_system#:~:text=Linear%20types%20corresponds%20to%20linear,transitioned%20to%20a%20different%20state.).
 
 **Mo** also imcorporates an innovative memory management technique called **Order based lifetime checking**. The **Mo** compiler helps you eliminate potential errors before the code is executed.
 
@@ -31,23 +31,24 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Type](#type)
       - [`Free` Types](#free-types)
       - [`Linear` Types.](#linear-types)
-    - [Region](#region)
+    - [Region `Might be removed`](#region-might-be-removed)
       - [`safe` Region `In Design`](#safe-region-in-design)
     - [Variable Declaration](#variable-declaration)
     - [Type inference](#type-inference)
       - [Uninitialized variable `Might be removed`](#uninitialized-variable-might-be-removed)
-    - [Pointers](#pointers)
+    - [`move`](#move)
+    - [`readonly` and `writable` references](#readonly-and-writable-references)
   - [Function Declaration](#function-declaration)
     - [Uniform Function Call Syntax](#uniform-function-call-syntax)
     - [Dependent types `In Design`](#dependent-types-in-design)
     - [Refinement types `In Design`](#refinement-types-in-design)
     - [`defer`](#defer)
     - [`recur`](#recur)
-    - [`inout`](#inout)
     - [Custom Operators](#custom-operators)
     - [Closure `In Design`](#closure-in-design)
   - [Mutability `To be updated`](#mutability-to-be-updated)
-  - [Borrow checker `To be updated`](#borrow-checker-to-be-updated)
+  - [Order based lifetime checking](#order-based-lifetime-checking)
+    - [Order of `read` and `write` references](#order-of-read-and-write-references)
   - [Control Flow](#control-flow)
     - [Brace elision `In Design`](#brace-elision-in-design)
       - [repeat](#repeat)
@@ -105,11 +106,11 @@ The **Mo** language is heavily inspired by:
   - Perceus and reuse
   - Algebraic effects
 - [Rust](https://www.rust-lang.org/)
-  - Borrow checker
+  - ~~Borrow checker~~
   - Lifetime
 - [Austral](https://austral-lang.org/)
   - Linear types
-  - Borrowing
+  - ~~Borrowing~~
 - [Haskell](https://www.haskell.org/)
   - Type and typeclass
 - [Python](https://python.org/)
@@ -272,15 +273,15 @@ let mySymbol = @"Hi"; // Symbol. Free type
 
 let myStrSlice: char[] = "Hello, world"; // Stored on stack. Free type
 
-let myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
-let myString2 = myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
-let myString3 = myString; // Error: myString is already consumed.
-let myString4: read String = read myString2; // myString4: read String. Free type
-let myString5 = myString4; // myString5: read String. Free type
+let myString: owned String = String.from("Hello, world"); // Stored on heap. Linear type.
+let myString2 = move myString; // myString2: owned String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
+let myString3 = move myString; // Error: myString is already consumed.
+let myString4: readonly String = myString2; // myString4: readonly String. Free type
+let myString5 = myString4; // myString5: readonly String. Free type
 
 let myInt = 1; // Stored on stack. Free type
 let myInt2 = myInt; // myInt2: i32, Free type
-let myInt3: read i32 = read myInt; // myInt3: read i32. Free type
+let myInt3: readonly i32 = read myInt; // myInt3: read i32. Free type
 let myInt4 = myInt3; // myInt4: read i32. Free type
 
 let myIntSlice: int[] = [1, 2, 3]; // Stored on stack, with size 3. Free type
@@ -312,20 +313,48 @@ y = 1; // y: i32, initialized
 y = 2; // Compiler Error: y is already initialized
 ```
 
-### `read` and `write` references
+### `move`
 
-We have `read` reference to immutable values, and `write` reference to mutable or immutable values.
+`move` is used to move a Linear value from one variable to another variable.
 
 ```typescript
-{ // :R1
-  let i: Data = malloc();
-  let readRef = read i; // readRef: read Data. Free type.
-  let writeRef = write i; // error: i is not mutable.
+let x = String.from("Hello"); // x: owned String. Linear type
+let y = move x; // y: owned String. Linear type. x is moved and consumed.
+let z = move x; // Compiler Error: x is already consumed.
+```
+
+### `readonly` and `writable` references
+
+We have `readonly` reference to immutable values, and `writable` reference to mutable or immutable values.
+
+There is also `owned` reference to linear values, which is the same as the value itself.
+
+So we have the following modes:
+
+- `readonly`: Linear and Free
+- `writable`: Linear and Free
+- `owned`   : Linear
+- `copied`  : Free
+
+```typescript
+{
+  let i = malloc(); // i: owned Data
+  let ref = i; // ref: readonly Data, because i is not mutable.
 }
 
 {
-  var x = 1;
-  let p = write x; // p: write i32. Free type.
+  var i = malloc(); // i: owned Data
+  var writeRef = i; // ref: writable Data, because i is mutable.
+  let readRef = i;  // ref: readonly Data.
+}
+```
+
+We can use `read` and `write` keywords to explicitly specify the reference type:
+
+```typescript
+{
+  var x = 1; // x: copied i32. Free type
+  var p: writable i32 = write x; // p: writable i32. Free type.
   p = 2;
   // x == 2
 }
@@ -346,7 +375,7 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 }
 
 {
-  let {name, mut age} = p;
+  let {name, var age} = p;
 }
 
 {
@@ -749,11 +778,11 @@ let oldName = (p.name = String.from("Bob"));
 
 ## Order based lifetime checking
 
-Unlike Rust, which requires specify lifetime parameters in some cases, **Mo** uses an innovative memory management technique called **Order based lifetime checking** which doesn't require the lifetime parameters in type.
+Unlike Rust, which requires specify lifetime parameters when defining a data structure or a function, **Mo** uses a simple memory management technique called **Order based lifetime checking** which doesn't require the lifetime parameters.
 
-Instead, we use the lifetime **order** to denote the lifetime of values.
+We use the lifetime **order** to denote the lifetime of values.
 
-The idea is simple, the first created value will have the lifetime order of `@1`, the second created value will have the lifetime order of `@2`, and so on. The linear value must be consumed in the **reverse** order of the lifetime order.
+The idea is simple, the first created value will have the lifetime order of `@1`, the second created value will have the lifetime order of `@2`, and so on. The linear value must be consumed in the reverse order of the lifetime order, like a stack.
 
 For example, below is an error case:
 
@@ -798,7 +827,7 @@ let test = (x: String /* @1 */, y: String /* @2 */ )-> {
 }
 ```
 
-### Order of `read` and `write` references  
+### Order of `read` and `write` references
 
 The `read` and `write` references will inherit the order of the value they are referencing to.
 
@@ -807,11 +836,11 @@ let test = ()-> {
   let x: Data = malloc(); // @1
   let y: Data = malloc(); // @2
 
-  let xRef: Data @x = read x; // @1
-  let yRef: Data @y = read y; // @2
+  let xRef: Data /* @x */ = read x; // @1
+  let yRef: Data /* @y */ = read y; // @2
 
-  consume(xRef);
   consume(yRef);
+  consume(xRef);
 }
 ```
 
@@ -825,106 +854,15 @@ let test = ()-> {
   let xRef: Data @x = read x; // @1
   let yRef: Data @y = read y; // @2
 
-  someFunction(xRef, yRef);  
+  someFunction(xRef, yRef);
   // Now
   // xRef: Data @y // @2
-  // yRef: Data @y // @2 
+  // yRef: Data @y // @2
 
   // To continue to use `x`, we must consume `y` first
   // to make sure the order of `xRef` is smaller than `yRef`.
 }
 
-```
-
-
-## Borrow checker `To be updated`
-
-> This is similar to the borrow checker in Rust, but simpler.
-
-First, any borrow must last for a scope no greater than that of the owner. Second, you may have one or the other of these two kinds of borrows, but not both at the same time:
-
-- One or more references (`read T`) to a resource.
-- Exactly one mutable reference (`write T`).
-
-Example:
-
-- Cannot have two mutable references to the same value [E0499](https://doc.rust-lang.org/error_codes/E0499.html).
-
-```typescript
-let main = ()-> {
-  var x = 1;
-  let y = write x;
-  let z = write x; // Compiler Error: Cannot borrow `x` as mutable more than once at a time.
-}
-```
-
-```typescript
-type Coord = {
-  x: i32,
-  y: i32
-}
-let main = ()-> {
-  var p = { x: 1, y: 2 };
-  let pRef = write p;
-  let yRef = write p.y; // Compiler Error: Cannot borrow `p` as mutable more than once at a time.
-}
-```
-
-```typescript
-let main = ()-> {
-  var xs: i32[] = [1, 2, 3];
-  let xsRef = write xs;
-  let firstRef = write xs[0]; // Compiler Error: Cannot borrow `xs` as mutable more than once at a time.
-}
-```
-
-- Cannot have an immutable reference while we have a mutable one [E0502](https://doc.rust-lang.org/error_codes/E0502.html).  
-  Cannot have a mutable reference while we have an immutable one [E0502](https://doc.rust-lang.org/error_codes/E0502.html).
-
-```typescript
-let main = ()-> {
-  var x = 1;
-  var y: write i32 = write x;
-  var z: read i32 = read x; // Compiler Error: Cannot borrow `x` as immutable because it is also borrowed as mutable.
-}
-```
-
-```typescript
-let main = ()-> {
-  var x = 1;
-  var y: read i32 = read x;
-  var z: write i32 = write x; // Compiler Error: Cannot borrow `x` as mutable because it is also borrowed as immutable.
-}
-```
-
-- Cannot use the value while it's borrowed [E0503](https://doc.rust-lang.org/error_codes/E0503.html).
-
-```typescript
-let main = ()-> {
-  var x = 1;
-  var y: write i32 = write x;
-  var _sum = x + 1; // Compiler Error: A value was used after it was mutably borrowed.
-}
-```
-
-- Cannot consume (move) the value while it's borrowed [E0505](https://doc.rust-lang.org/error_codes/E0505.html), [E0504](https://doc.rust-lang.org/error_codes/E0503.html).
-
-```typescript
-let main = ()-> {
-  let x = String.from("Hello");
-  let y: read String = read x;
-  consume(x); // Compiler Error: A value was moved out while it was still borrowed.
-}
-```
-
-- Cannot assign to the value while it's borrowed [E0506](https://doc.rust-lang.org/error_codes/E0506.html).
-
-```typescript
-let main = ()-> {
-  var x = 1;
-  let y: read i32 = read x;
-  x = 2; // Compiler Error: An attempt was made to assign to a borrowed value
-}
 ```
 
 ## Control Flow

@@ -343,5 +343,27 @@ let main = ()-> {
     let v = getXOrZeroRef(f.x, f.y); // @3
   }
 }
-
 ```
+
+### Test
+
+```typescript
+let set = (
+  holder: write {x: read string} @2, // &mut<{x: &<string>}, @2>
+  value: read string @1
+)-> {
+  holder.x = value; // LHS lifetime index must be bigger than RHS lifetime index.
+}
+
+let test = ()-> {
+  let x: string = "Hello"; // @1
+  let holder: object = {}; // @2
+  {
+    let holderRef: write {x: read string} @holder = write holder; // @2 because `holder` is at @2
+    let xRef: read string @x = read x;  // @1 because `x` is at @1
+    set(holderRef, xRef);          // calling the function makes both `holderRef` and `xRef`
+                                 // to be at @2, which is the maximum lifetime index.
+  }
+}
+```
+
