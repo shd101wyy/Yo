@@ -37,7 +37,7 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Type inference](#type-inference)
       - [Uninitialized variable `Might be removed`](#uninitialized-variable-might-be-removed)
     - [`move`](#move)
-    - [`readonly` and `writable` references](#readonly-and-writable-references)
+    - [`read` and `write` references](#read-and-write-references)
   - [Function Declaration](#function-declaration)
     - [Uniform Function Call Syntax](#uniform-function-call-syntax)
     - [Dependent types `In Design`](#dependent-types-in-design)
@@ -273,15 +273,15 @@ let mySymbol = @"Hi"; // Symbol. Free type
 
 let myStrSlice: char[] = "Hello, world"; // Stored on stack. Free type
 
-let myString: owned String = String.from("Hello, world"); // Stored on heap. Linear type.
-let myString2 = move myString; // myString2: owned String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
+let myString: own String = String.from("Hello, world"); // Stored on heap. Linear type.
+let myString2 = move myString; // myString2: own String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
 let myString3 = move myString; // Error: myString is already consumed.
-let myString4: readonly String = myString2; // myString4: readonly String. Free type
-let myString5 = myString4; // myString5: readonly String. Free type
+let myString4: read String = myString2; // myString4: read String. Free type
+let myString5 = myString4; // myString5: read String. Free type
 
 let myInt = 1; // Stored on stack. Free type
 let myInt2 = myInt; // myInt2: i32, Free type
-let myInt3: readonly i32 = read myInt; // myInt3: read i32. Free type
+let myInt3: read i32 = read myInt; // myInt3: read i32. Free type
 let myInt4 = myInt3; // myInt4: read i32. Free type
 
 let myIntSlice: int[] = [1, 2, 3]; // Stored on stack, with size 3. Free type
@@ -318,34 +318,33 @@ y = 2; // Compiler Error: y is already initialized
 `move` is used to move a Linear value from one variable to another variable.
 
 ```typescript
-let x = String.from("Hello"); // x: owned String. Linear type
-let y = move x; // y: owned String. Linear type. x is moved and consumed.
+let x = String.from("Hello"); // x: own String. Linear type
+let y = move x; // y: own String. Linear type. x is moved and consumed.
 let z = move x; // Compiler Error: x is already consumed.
 ```
 
-### `readonly` and `writable` references
+### `read` and `write` references
 
-We have `readonly` reference to immutable values, and `writable` reference to mutable or immutable values.
+We have `read` reference to immutable values, and `write` reference to mutable or immutable values.
 
-There is also `owned` reference to linear values, which is the same as the value itself.
+There is also `own` reference to linear values, which is the same as the value itself.
 
 So we have the following modes:
 
-- `readonly`: Linear and Free
-- `writable`: Linear and Free
-- `owned`   : Linear
-- `copied`  : Free
+- `read` : Linear and Free
+- `write` : Linear and Free
+- `own` : Linear
 
 ```typescript
 {
-  let i = malloc(); // i: owned Data
-  let ref = i; // ref: readonly Data, because i is not mutable.
+  let i = malloc(); // i: own Data
+  let ref = i; // ref: read Data, because i is not mutable.
 }
 
 {
-  var i = malloc(); // i: owned Data
-  var writeRef = i; // ref: writable Data, because i is mutable.
-  let readRef = i;  // ref: readonly Data.
+  var i = malloc(); // i: own Data
+  var writeRef = i; // ref: write Data, because i is mutable.
+  let readRef = i; // ref: read Data.
 }
 ```
 
@@ -354,7 +353,7 @@ We can use `read` and `write` keywords to explicitly specify the reference type:
 ```typescript
 {
   var x = 1; // x: copied i32. Free type
-  var p: writable i32 = write x; // p: writable i32. Free type.
+  var p: write i32 = write x; // p: write i32. Free type.
   p = 2;
   // x == 2
 }

@@ -31,10 +31,10 @@ export type RegionKind = "Region";
 export type EffectKind = "Effect" | "LinearEffect" | "ControlledEffect";
 
 export type TypeMode =
-  | "readonly" // linear and free
-  | "writable" // linear and free
-  | "owned" // linear
-  | "copied"; // free
+  | "read" // linear and free
+  | "write" // linear and free
+  | "own" // linear
+  | "copy"; // free
 
 export type TUnit = {
   type: "()";
