@@ -288,7 +288,6 @@ let test = ()-> {
 }
 ```
 
-
 ### JavaScript function
 
 ```typescript
@@ -367,3 +366,30 @@ let test = ()-> {
 }
 ```
 
+```typescript
+let length = (x: read String)-> i32;
+let push = (x: write String, value: read String)-> ();
+let drop = (x: String)-> ();
+
+let main = ()-> {
+  var x = String.from("Hello, world"); // x: String. mutable
+  var y = x; // y: write String @x     // mutable reference, must use `var`
+  let z = x; // z: read String @x      // immutable reference, must use `let`
+
+  length(x); // allowed
+  length(y); // allowed
+  length(z); // allowed
+
+  let t = own x;                           // transfer ownership
+
+  length(x); // error: cannot access `x` because `x` is consumed.
+  length(y); // error: cannot access `y` because `x` is consumed.
+  length(z); // error: cannot access `z` because `x` is consumed.
+
+  drop(own t);                             // consume `t`
+
+  length(x); // error: cannot access `x` because `x` is consumed.
+  length(y); // error: cannot access `y` because `x` is consumed.
+  length(z); // error: cannot access `z` because `x` is consumed.
+}
+```

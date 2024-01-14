@@ -3039,25 +3039,25 @@ export function typeToString(
       return "()";
     }
     case "boolean": {
-      return `${type.permission} boolean`;
+      return `${typePermissionToString(type.permission)} boolean`.trim();
     }
     case "char": {
-      return `${type.permission} char`;
+      return `${typePermissionToString(type.permission)} char`.trim();
     }
     case "string": {
-      return `${type.permission} string`;
+      return `${typePermissionToString(type.permission)} string`.trim();
     }
     case "u8": {
-      return `${type.permission} u8`;
+      return `${typePermissionToString(type.permission)} u8`.trim();
     }
     case "u16": {
-      return `${type.permission} u16`;
+      return `${typePermissionToString(type.permission)} u16`.trim();
     }
     case "u32": {
-      return `${type.permission} u32`;
+      return `${typePermissionToString(type.permission)} u32`.trim();
     }
     case "u64": {
-      return `${type.permission} u64`;
+      return `${typePermissionToString(type.permission)} u64`.trim();
     }
     /*
     case "u128": {
@@ -3065,16 +3065,16 @@ export function typeToString(
     }
     */
     case "i8": {
-      return `${type.permission} i8`;
+      return `${typePermissionToString(type.permission)} i8`.trim();
     }
     case "i16": {
-      return `${type.permission} i16`;
+      return `${typePermissionToString(type.permission)} i16`.trim();
     }
     case "i32": {
-      return `${type.permission} i32`;
+      return `${typePermissionToString(type.permission)} i32`.trim();
     }
     case "i64": {
-      return `${type.permission} i64`;
+      return `${typePermissionToString(type.permission)} i64`.trim();
     }
     /*
     case "i128": {
@@ -3082,22 +3082,22 @@ export function typeToString(
     }
     */
     case "f16": {
-      return `${type.permission} f16`;
+      return `${typePermissionToString(type.permission)} f16`.trim();
     }
     case "f32": {
-      return `${type.permission} f32`;
+      return `${typePermissionToString(type.permission)} f32`.trim();
     }
     case "f64": {
-      return `${type.permission} f64`;
+      return `${typePermissionToString(type.permission)} f64`.trim();
     }
     case "usize": {
-      return `${type.permission} usize`;
+      return `${typePermissionToString(type.permission)} usize`.trim();
     }
     case "symbol": {
-      return `${type.permission} symbol`;
+      return `${typePermissionToString(type.permission)} symbol`.trim();
     }
     case "Record": {
-      return `${type.permission} { ${type.properties
+      return `${typePermissionToString(type.permission)} { ${type.properties
         .map(
           ({ name, type }) =>
             `${name}: ${typeToString(type, {
@@ -3133,14 +3133,14 @@ export function typeToString(
       })}`;
     }
     case "Union": {
-      return `${type.permission} (${type.types
+      return `${typePermissionToString(type.permission)} (${type.types
         .map((type) => typeToString(type))
-        .join(" | ")})`;
+        .join(" | ")})`.trim();
     }
     case "Intersection": {
-      return `${type.permission} (${type.types
+      return `${typePermissionToString(type.permission)} (${type.types
         .map((type) => typeToString(type))
-        .join(" & ")})`;
+        .join(" & ")})`.trim();
     }
     case "unknown": {
       return `unknown${type.typeName ? ` ${type.typeName}` : ""}${
@@ -3152,9 +3152,9 @@ export function typeToString(
       }`;
     }
     case "slice": {
-      return `${type.permission} ${typeToString(type.elementType)}[${
-        type.size ?? ""
-      }]`;
+      return `${typePermissionToString(type.permission)} ${typeToString(
+        type.elementType
+      )}[${type.size ?? ""}]`.trim();
     }
     /*
     case "tuple": {
@@ -3227,7 +3227,7 @@ ${type.variants
   .join(",\n")}
 }`;
       } else {
-        return `${type.permission} ${
+        return `${typePermissionToString(type.permission)} ${
           type.enumName
         }${typeAndRegionParametersToString(
           type.typeParameters,
@@ -3237,7 +3237,7 @@ ${type.variants
           type.selectedVariantName && !hideTypeParameterKind
             ? `.${type.selectedVariantName}`
             : ""
-        }`;
+        }`.trim();
       }
     }
     case "Extern": {
@@ -3247,6 +3247,10 @@ ${type.variants
       throw new Error(`Unknown type ${JSON.stringify(type)}`);
     }
   }
+}
+
+export function typePermissionToString(permission: TypePermission): string {
+  return permission === "own" ? "" : permission;
 }
 
 export function checkType(

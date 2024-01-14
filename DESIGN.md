@@ -273,9 +273,9 @@ let mySymbol = @"Hi"; // Symbol. Free type
 
 let myStrSlice: char[] = "Hello, world"; // Stored on stack. Free type
 
-let myString: own String = String.from("Hello, world"); // Stored on heap. Linear type.
-let myString2 = move myString; // myString2: own String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
-let myString3 = move myString; // Error: myString is already consumed.
+let myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
+let myString2 = own myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
+let myString3 = own myString; // Error: myString is already consumed.
 let myString4: read String = myString2; // myString4: read String. Free type
 let myString5 = myString4; // myString5: read String. Free type
 
@@ -318,8 +318,8 @@ y = 2; // Compiler Error: y is already initialized
 `own` is used to move a Linear value from one variable to another variable.
 
 ```typescript
-let x = String.from("Hello"); // x: own String. Linear type
-let y = own x; // y: own String. Linear type. x is moved and consumed.
+let x = String.from("Hello"); // x: String. Linear type
+let y = own x; // y: String. Linear type. x is moved and consumed.
 let z = own x; // Compiler Error: x is already consumed.
 ```
 
@@ -327,23 +327,22 @@ let z = own x; // Compiler Error: x is already consumed.
 
 We have `read` reference to immutable values, and `write` reference to mutable or immutable values.
 
-There is also `own` reference to linear values, which is the same as the value itself.
-
 So we have the following permissions:
 
 - `read` : Linear and Free
 - `write` : Linear and Free
-- `own` : Linear
+- `own` : Linear and Free
 
 ```typescript
 {
-  let i = malloc(); // i: own Data
+  let i = malloc(); // i: Data
   let ref = i; // ref: read Data, because i is not mutable.
 }
 
 {
-  var i = malloc(); // i: own Data
-  let ref = i; // ref: write Data, because i is mutable.
+  var i = malloc(); // i: Data
+  var ref = i; // ref: write Data, because i is mutable.
+               // Must use `var` to declare write reference.
 }
 ```
 
@@ -352,12 +351,44 @@ We can use `read` and `write` keywords to explicitly specify the reference type:
 ```typescript
 {
   var x = 1; // x: copied i32. Free type
-  let p: write i32 = write x; // p: write i32. Free type.
+  let r: read i32 = read x; // r: read i32. Free type
+  var p: write i32 = write x; // p: write i32. Free type.
   p = 2;
   // x == 2
+  // r == 2
+  // p == 2
 }
 ```
 
+A longer example:
+
+```typescript
+let length = (x: read String)-> i32;
+let push = (x: write String, value: read String)-> ();
+let drop = (x: String)-> ();
+
+let main = ()-> {
+  var x = String.from("Hello, world"); // x: String. mutable
+  var y = x; // y: write String @x     // mutable reference, must use `var`
+  let z = x; // z: read String @x      // immutable reference, must use `let`
+
+  length(x); // allowed
+  length(y); // allowed
+  length(z); // allowed
+
+  let t = own x;                           // transfer ownership
+
+  length(x); // error: cannot access `x` because `x` is consumed.
+  length(y); // error: cannot access `y` because `x` is consumed.
+  length(z); // error: cannot access `z` because `x` is consumed.
+
+  drop(own t);                             // consume `t`
+
+  length(x); // error: cannot access `x` because `x` is consumed.
+  length(y); // error: cannot access `y` because `x` is consumed.
+  length(z); // error: cannot access `z` because `x` is consumed.
+}
+```
 We can only dereference the free type.
 
 ```typescript
