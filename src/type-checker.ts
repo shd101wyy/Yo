@@ -38,7 +38,7 @@ export type TypePermission =
 export type TUnit = {
   type: "()";
   kind: "Free";
-  permission: "own";
+  permission: TypePermission;
 };
 
 export type TBoolean = {
@@ -204,12 +204,24 @@ export type TRecord = {
   properties: TRecordProperty[];
 };
 
+export type TParameterTypeOrder = {
+  /**
+   * This is 1-based
+   */
+  default: number;
+  /**
+   * This is 1-based
+   */
+  assigned?: number;
+};
+
 export type TParameterType = {
   name: string;
   parameterId: string;
   isMutable: boolean;
   type: Type;
   defaultValue: Expr | null;
+  order: TParameterTypeOrder;
 };
 
 export type TTypeParameter = {
@@ -242,7 +254,7 @@ export type TRegionParameter = {
 export type TFunction = {
   type: "Function";
   kind: "Free";
-  permission: "own";
+  permission: TypePermission;
   functionId: string;
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
@@ -280,7 +292,7 @@ export type TIntersection = {
 export type TUnknown = {
   type: "unknown";
   kind: "Free";
-  permission: "own";
+  permission: TypePermission;
   typeArguments?: Type[];
   typeName?: string; // FIXME: This might be a expression in the future
 };
@@ -323,7 +335,7 @@ export type TClassFunction = {
 export type TClass = {
   type: "Class";
   kind: "Free";
-  permission: "own";
+  permission: TypePermission;
   name: string;
   classId: string;
   typeParameters: TTypeParameter[];
@@ -459,8 +471,6 @@ export const TypeValues: {
   // isize: TIsize;
   usize: TUsize;
   unknown: TUnknown;
-  Reference: TTypeConstructor;
-  MutableReference: TTypeConstructor;
   Promise: TTypeConstructor;
 } = {
   unit: { type: "()", kind: "Free", permission: "own" },
@@ -483,60 +493,6 @@ export const TypeValues: {
   // isize: { type: "isize", kind: "Free", permission: "own" },
   usize: { type: "usize", kind: "Free", permission: "own" },
   unknown: { type: "unknown", kind: "Free", permission: "own" },
-  Reference: {
-    type: "TypeConstructor",
-    kind: "Free",
-    permission: "own",
-    name: "&",
-    typeConstructorId: "&",
-    typeParameters: [
-      {
-        type: "TypeParameter",
-        name: "T",
-        kind: "Type",
-        permission: "own",
-      },
-    ],
-    regionParameters: [
-      {
-        type: "RegionParameter",
-        name: "R",
-        kind: "Region",
-      },
-    ],
-    typeValue: {
-      type: "Extern",
-      kind: "Free",
-      permission: "own",
-    },
-  },
-  MutableReference: {
-    type: "TypeConstructor",
-    kind: "Linear",
-    permission: "own",
-    name: "&!",
-    typeConstructorId: "&!",
-    typeParameters: [
-      {
-        type: "TypeParameter",
-        name: "T",
-        kind: "Type",
-        permission: "own",
-      },
-    ],
-    regionParameters: [
-      {
-        type: "RegionParameter",
-        name: "R",
-        kind: "Region",
-      },
-    ],
-    typeValue: {
-      type: "Extern",
-      kind: "Free",
-      permission: "own",
-    },
-  },
   Promise: {
     type: "TypeConstructor",
     kind: "Linear",
@@ -738,7 +694,10 @@ export function synthesizeTypeFromTokens({
     );
 
     returnValue = {
-      typeValue: valueTypes[valueTypes.length - 1].type,
+      typeValue: {
+        ...valueTypes[valueTypes.length - 1].type,
+        permission: typePermission,
+      },
       index: index + 1,
       env,
     };
@@ -953,15 +912,11 @@ export function synthesizeTypeFromTokens({
         break;
       }
       case "symbol": {
-        typeValue = { type: "symbol", kind: "Free", permission: "own" };
-        break;
-      }
-      case "&": {
-        typeValue = TypeValues.Reference;
-        break;
-      }
-      case "&!": {
-        typeValue = TypeValues.MutableReference;
+        typeValue = {
+          type: "symbol",
+          kind: "Free",
+          permission: typePermission,
+        };
         break;
       }
       case "Promise": {
@@ -998,9 +953,8 @@ export function synthesizeTypeFromTokens({
         }
       }
     }
-    typeValue.permission = typePermission;
     returnValue = {
-      typeValue: typeValue,
+      typeValue: { ...typeValue, permission: typePermission },
       index: index + 1,
       env,
     };
@@ -1447,7 +1401,7 @@ export function applyTypeAndRegionArgumentsToType({
     return {
       type: "TypeConstructor",
       kind: kind,
-      permission: "own",
+      permission: type.permission,
       name: type.name,
       typeConstructorId: generateValueTypeId(env, type.name),
       typeParameters: newTypeParameters,
@@ -1492,6 +1446,7 @@ export function applyTypeAndRegionArgumentsToType({
                   regionParameterToRegionArgumentMap,
                 })
               : null,
+            order: parameterType.order,
           };
           return newParameterType;
         }),
@@ -1502,7 +1457,7 @@ export function applyTypeAndRegionArgumentsToType({
     const enumType: TEnum = {
       type: "Enum",
       kind: kind,
-      permission: "own",
+      permission: type.permission,
       enumName: type.enumName,
       typeParameters: newTypeParameters,
       regionParameters: newRegionParameters,
@@ -1550,7 +1505,7 @@ export function applyTypeAndRegionArgumentsToType({
       typeParameters: newTypeParameters,
       regionParameters: newRegionParameters,
       parameterTypes: type.parameterTypes.map(
-        ({ name, parameterId, type, isMutable, defaultValue }) => ({
+        ({ name, parameterId, type, isMutable, defaultValue, order }) => ({
           name,
           parameterId,
           isMutable,
@@ -1561,6 +1516,7 @@ export function applyTypeAndRegionArgumentsToType({
             regionParameterToRegionArgumentMap,
           }),
           defaultValue,
+          order,
         })
       ),
       returnType: applyTypeAndRegionArgumentsToType({
@@ -1788,7 +1744,7 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   return {
     type: "Class",
     kind: "Free",
-    permission: "own",
+    permission: class_.permission,
     name: class_.name,
     classId: class_.classId,
     typeParameters: newTypeParameters,
@@ -2144,7 +2100,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
 
   // Read the list of parameter names.
   index = index + 1;
-  const parameterTypes: TParameterType[] = [];
+  const parameterTypes: (TParameterType & { token: Token })[] = [];
   const parameterDefaultValues: (Expr | null)[] = [];
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -2166,7 +2122,6 @@ export function synthesizeFunctionParameterTypesFromTokens({
       break;
     }
 
-    const isMutable = false;
     /*
     if (token.type === TokenType.Mut) {
       isMutable = true;
@@ -2223,6 +2178,29 @@ export function synthesizeFunctionParameterTypesFromTokens({
       }
     }
 
+    // Check order
+    const order: TParameterTypeOrder = {
+      default: parameterTypes.length + 1,
+      assigned: undefined,
+    };
+    if (
+      tokens[index].value === "@" &&
+      tokens[index + 1].type === TokenType.Integer
+    ) {
+      const orderValue = parseInt(tokens[index + 1].value);
+      if (orderValue < 1) {
+        throw formatErrorMessage({
+          token: tokens[index + 1],
+          errorMessage: "Order value >= 1",
+          modulePath: env.modulePath,
+          inputString: env.inputString,
+        });
+      }
+
+      order.assigned = orderValue;
+      index = index + 2;
+    }
+
     // check parameter default value
     let defaultParameterValue: Expr | null = null;
     if (tokens[index].type === TokenType.Assign) {
@@ -2259,26 +2237,45 @@ export function synthesizeFunctionParameterTypesFromTokens({
       parameterDefaultValues.push(null);
     }
 
-    // save to env
+    const isMutable =
+      userDefinedParamterType.permission === "write" ||
+      userDefinedParamterType.permission === "own";
+
+    parameterTypes.push({
+      name: parameterName,
+      parameterId: "", // parameterValue.id, // NOTE: We update parameterId later
+      isMutable,
+      type: userDefinedParamterType,
+      defaultValue: defaultParameterValue,
+      order,
+      token: tokens[parameterNameTokenIndex],
+    });
+  }
+
+  // Save parameterTypes to env
+  // Let's sort the parameterTypes by order
+  const sortedParameterTypes = [...parameterTypes].sort((a, b) => {
+    return (
+      (a.order.assigned ?? a.order.default) -
+      (b.order.assigned ?? b.order.default)
+    );
+  });
+  for (let i = 0; i < sortedParameterTypes.length; i++) {
+    const parameterType = sortedParameterTypes[i];
     const { env: nextEnv, value: parameterValue } = addEnvValueType({
       env,
       valueType: {
-        variableName: parameterName,
-        type: userDefinedParamterType,
+        variableName: parameterType.name,
+        type: parameterType.type,
         kind: "value",
-        isMutable,
-        token: tokens[parameterNameTokenIndex],
+        isMutable: parameterType.isMutable,
+        token: parameterType.token,
       },
     });
     env = nextEnv;
 
-    parameterTypes.push({
-      name: parameterName,
-      parameterId: parameterValue.id,
-      isMutable,
-      type: userDefinedParamterType,
-      defaultValue: defaultParameterValue,
-    });
+    // Update the parameterId
+    parameterType.parameterId = parameterValue.id;
   }
 
   if (!withFunctionBody) {
@@ -2286,6 +2283,32 @@ export function synthesizeFunctionParameterTypesFromTokens({
   }
 
   return { parameterTypes, index, env };
+}
+
+export function synthesizeRecordType(
+  properties: {
+    name: string;
+    value: Expr;
+  }[]
+): Type {
+  let kind: TypeKind = "Free";
+  properties.forEach(({ value }) => {
+    if (kind === "Free") {
+      kind = value.typeValue.kind as TypeKind;
+    }
+  });
+
+  return {
+    type: "Record",
+    kind,
+    permission: "own",
+    properties: properties.map(({ name, value }) => {
+      return {
+        name,
+        type: value.typeValue,
+      };
+    }),
+  };
 }
 
 export function synthesizeTypeAndRegionArgumentsFromTokens({
@@ -3120,6 +3143,9 @@ export function typeToString(
           (parameter) =>
             (parameter.name ? `${parameter.name}: ` : "") +
             typeToString(parameter.type, { hideTypeParameterKind: true }) +
+            (parameter.order.assigned !== undefined
+              ? ` @${parameter.order.assigned}`
+              : "") +
             `${
               parameter.defaultValue
                 ? ` = ${exprToString(parameter.defaultValue)}`
@@ -3194,13 +3220,13 @@ export function typeToString(
           });
         }
       } else {
-        return `${type.permission} ${
+        return `${typePermissionToString(type.permission)} ${
           type.name
         }${typeAndRegionParametersToString(
           type.typeParameters,
           type.regionParameters,
           { hideTypeParameterKind }
-        )}`;
+        )}`.trim();
       }
     }
     case "Enum": {
@@ -3258,6 +3284,28 @@ export function checkType(
   givenType: Type,
   env: Environment
 ): boolean {
+  // Check permission
+  if (expectedType.kind !== "Free" && givenType.kind !== "Free") {
+    if (
+      !(
+        (expectedType.permission === "own" && givenType.permission === "own") ||
+        (expectedType.permission === "write" &&
+          (givenType.permission === "own" ||
+            givenType.permission === "write")) ||
+        expectedType.permission === "read"
+      )
+    ) {
+      return false;
+    }
+  } else if (expectedType.kind === "Free" && givenType.kind === "Free") {
+    if (
+      expectedType.permission === "write" &&
+      givenType.permission === "read"
+    ) {
+      return false;
+    }
+  }
+
   if (
     expectedType.type === "TypeConstructor" &&
     givenType.type === "TypeConstructor"
@@ -4115,17 +4163,6 @@ function mixTypeKind(kind1: TypeKind, kind2: TypeKind): TypeKind {
   } else {
     return "Free";
   }
-}
-
-export function typeIsReferenceOrMutableReference(
-  type: Type
-): "&" | "&!" | null {
-  if (type.type === "TypeConstructor") {
-    if (type.name === "&" || type.name === "&!") {
-      return type.name;
-    }
-  }
-  return null;
 }
 
 export function typeIsFunctionTypeThatReturnsPromise(

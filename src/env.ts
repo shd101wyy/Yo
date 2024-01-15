@@ -1,10 +1,6 @@
 import { createHash } from "crypto";
 import { IfCase, MatchCase } from "./ast";
-import {
-  formatErrorMessages,
-  formatWarningMessages,
-  getLineAtToken,
-} from "./error";
+import { formatErrorMessages, formatWarningMessages } from "./error";
 import {
   OperatorPrecedence,
   Operators,
@@ -17,7 +13,6 @@ import {
   TEffect,
   TRegionParameter,
   Type,
-  typeIsReferenceOrMutableReference,
   typeToString,
 } from "./type-checker";
 
@@ -275,9 +270,7 @@ export function popEnvFrame(
         value.kind === "value" &&
         (value.type.kind === "Linear" || value.type.kind === "Type") &&
         !value.consumedAtToken &&
-        // NOTE: reference and mutable reference are linear
-        // but we automatically consume in the end.
-        !typeIsReferenceOrMutableReference(value.type)
+        value.type.permission === "own"
     );
     const unusedFreeValues = frameToPop.values.filter(
       (value) =>
@@ -337,8 +330,8 @@ ${typeToString(value.type)}${
   }
 
   const topFrame = env.frames[env.frames.length - 1];
-  const references = topFrame.values.filter((value) =>
-    typeIsReferenceOrMutableReference(value.type)
+  const references = topFrame.values.filter(
+    (value) => value.type.permission !== "own"
   );
   if (references.length) {
     for (let i = 0; i < references.length; i++) {
@@ -509,6 +502,10 @@ export function setEnvVariableAsConsumed({
     });
   }
   const valueType = valueTypes[valueTypes.length - 1];
+  if (valueType.type.permission !== "own") {
+    return { env, referedVariable: valueType.referedVariable };
+  }
+
   const immutableReferences = valueType.immutableReferences ?? [];
   const mutableReferences = valueType.mutableReferences ?? [];
   if (valueType.type.kind === "Linear" || valueType.type.kind === "Type") {
@@ -517,21 +514,26 @@ export function setEnvVariableAsConsumed({
         modulePath: env.modulePath,
         inputString: env.inputString,
         tokenAndErrorList: [
-          /*
-        {
-          token: valueType.token,
-          errorMessage: `${
-            isTempVariableName(variableName) ? "Value" : "Variable"
-          } is already consumed.`,
-        },
-        */
           {
             token: valueType.consumedAtToken,
             errorMessage: `Previously consumed here:`,
           },
         ],
       });
-    } else if (immutableReferences.length > 0) {
+    }
+
+    if (immutableReferences.length > 0) {
+      /*
+      for (let i = 0; i < immutableReferences.length; i++) {
+        const valueType = getEnvValueTypeByReferedVariableToken(
+          env,
+          immutableReferences[i]
+        );
+        if (valueType) {
+          env = deleteEnvValueType(env, valueType);
+        }
+      }
+      */
       throw formatErrorMessages({
         modulePath: env.modulePath,
         inputString: env.inputString,
@@ -542,7 +544,21 @@ export function setEnvVariableAsConsumed({
           };
         }),
       });
-    } else if (mutableReferences.length > 0) {
+    }
+
+    if (mutableReferences.length > 0) {
+      /*
+      for (let i = 0; i < mutableReferences.length; i++) {
+        const valueType = getEnvValueTypeByReferedVariableToken(
+          env,
+          mutableReferences[i]
+        );
+        if (valueType) {
+          env = deleteEnvValueType(env, valueType);
+        }
+      }
+      */
+
       throw formatErrorMessages({
         modulePath: env.modulePath,
         inputString: env.inputString,
@@ -570,6 +586,41 @@ export function setEnvVariableAsConsumed({
     });
   }
   */
+
+  // Check if there is any linear value after that is not consumed
+  if (!isTempVariableName(env, variableName)) {
+    const { frameLevel, index } = getEnvFrameLevelAndIndexForValueType(
+      env,
+      valueType
+    );
+    const frame = env.frames[frameLevel];
+    const valuesAfter = [
+      ...frame.values.slice(index + 1),
+      ...env.frames.slice(frameLevel + 1).flatMap((frame) => frame.values),
+    ];
+    const linearValuesAfter = valuesAfter.filter(
+      (value) =>
+        (value.type.kind === "Linear" || value.type.kind === "Type") &&
+        value.type.permission === "own" &&
+        !value.consumedAtToken
+    );
+    if (linearValuesAfter.length > 0) {
+      throw formatErrorMessages({
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+        tokenAndErrorList: linearValuesAfter.slice(0, 1).map((value) => {
+          return {
+            token: value.token,
+            errorMessage: `Please consume ${
+              isTempVariableName(env, value.variableName)
+                ? "the value"
+                : `"${value.variableName}"`
+            } before "${variableName}":`,
+          };
+        }),
+      });
+    }
+  }
 
   const newValueType: ValueType = { ...valueType, consumedAtToken };
   return {
@@ -684,9 +735,10 @@ export function increaseEnvVariableReferenceCount({
 
   const immutableReferences = valueType.immutableReferences ?? [];
   const mutableReferences = valueType.mutableReferences ?? [];
-  const immutableReferenceCount = immutableReferences.length;
-  const mutableReferenceCount = mutableReferences.length;
+  // const immutableReferenceCount = immutableReferences.length;
+  // const mutableReferenceCount = mutableReferences.length;
   if (isMutableReference) {
+    /* NOTE: We allow to have multiple immutable references and mutable references at the same time.
     if (immutableReferenceCount > 0) {
       throw formatErrorMessages({
         modulePath: env.modulePath,
@@ -729,7 +781,7 @@ ${mutableReferences
           },
         ],
       });
-    } else {
+    } else */ {
       const newValueType: ValueType = {
         ...valueType,
         mutableReferences: [...mutableReferences, token],
@@ -747,6 +799,7 @@ ${mutableReferences
     }
   } else {
     // immutable reference
+    /* NOTE: We allow to have multiple immutable references and mutable references at the same time.
     if (mutableReferenceCount > 0) {
       throw formatErrorMessages({
         modulePath: env.modulePath,
@@ -768,7 +821,7 @@ ${mutableReferences
           },
         ],
       });
-    } else {
+    } else */ {
       const newValueType: ValueType = {
         ...valueType,
         immutableReferences: [...immutableReferences, token],
@@ -787,6 +840,7 @@ ${mutableReferences
   }
 }
 
+/*
 export function setEnvVariableReferedVariable({
   env,
   variableNameToken,
@@ -852,6 +906,7 @@ export function setEnvVariableReferedVariable({
     referedVariable: newReferedVariable,
   });
 }
+*/
 
 export function getEnvInfixOperatorPrecedence(
   env: Environment,
@@ -1081,6 +1136,42 @@ export function mergeAndCheckEnv(
   return env;
 }
 
+/*
+function getEnvValueTypeByReferedVariableToken(
+  env: Environment,
+  token: Token
+): ValueType | null {
+  for (let i = env.frames.length - 1; i >= 0; i--) {
+    const frame = env.frames[i];
+    const valueType = frame.values.find(
+      (value) => value.referedVariable?.token === token
+    );
+    if (valueType) {
+      return valueType;
+    }
+  }
+  return null;
+}
+
+function deleteEnvValueType(
+  env: Environment,
+  valueType: ValueType
+): Environment {
+  const frames = env.frames.map((frame) => {
+    const values = frame.values.filter((value) => value !== valueType);
+    return { ...frame, values };
+  });
+  return {
+    functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
+    freeVariables: env.freeVariables,
+    frames,
+    modulePath: env.modulePath,
+    inputString: env.inputString,
+    operatorPrecedenceMap: env.operatorPrecedenceMap,
+  };
+}
+*/
+
 export function createTopLevelEnv(
   env: Environment,
   delta: number = 0
@@ -1093,4 +1184,18 @@ export function createTopLevelEnv(
     inputString: env.inputString,
     operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
+}
+
+export function getEnvFrameLevelAndIndexForValueType(
+  env: Environment,
+  valueType: ValueType
+): { frameLevel: number; index: number } {
+  for (let i = 0; i < env.frames.length; i++) {
+    const frame = env.frames[i];
+    const index = frame.values.findIndex((v) => v === valueType);
+    if (index > -1) {
+      return { frameLevel: i, index };
+    }
+  }
+  throw new Error("Failed to find the value type in env.");
 }

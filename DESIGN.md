@@ -36,7 +36,7 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Variable Declaration](#variable-declaration)
     - [Type inference](#type-inference)
       - [Uninitialized variable `Might be removed`](#uninitialized-variable-might-be-removed)
-    - [`move`](#move)
+    - [`own`](#own)
     - [`read` and `write` references](#read-and-write-references)
   - [Function Declaration](#function-declaration)
     - [Uniform Function Call Syntax](#uniform-function-call-syntax)
@@ -174,7 +174,7 @@ A type can have the following **Kind**:
 - Type
   - Free
   - Linear
-- Region
+- ~~Region~~ `Might be removed`
 
 ### Type
 
@@ -274,9 +274,9 @@ let mySymbol = @"Hi"; // Symbol. Free type
 let myStrSlice: char[] = "Hello, world"; // Stored on stack. Free type
 
 let myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
-let myString2 = own myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
-let myString3 = own myString; // Error: myString is already consumed.
-let myString4: read String = myString2; // myString4: read String. Free type
+let myString2 = myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
+let myString3 = myString; // Error: myString is already consumed.
+let myString4: read String = read myString2; // myString4: read String. Free type
 let myString5 = myString4; // myString5: read String. Free type
 
 let myInt = 1; // Stored on stack. Free type
@@ -329,24 +329,31 @@ We have `read` reference to immutable values, and `write` reference to mutable o
 
 So we have the following permissions:
 
-- `read` : Linear and Free
-- `write` : Linear and Free
-- `own` : Linear and Free
+- `read` : Can read.  
+- `write` : Can read, and write.  
+- `own` : Can read, write, and move ownership.  
 
 ```typescript
 {
   let i = malloc(); // i: Data
-  let ref = i; // ref: read Data, because i is not mutable.
+  let ref = read i; // ref: read Data, because i is not mutable.
 }
 
 {
   var i = malloc(); // i: Data
-  var ref = i; // ref: write Data, because i is mutable.
+  var ref = write i; // ref: write Data, because i is mutable.
                // Must use `var` to declare write reference.
 }
-```
 
-We can use `read` and `write` keywords to explicitly specify the reference type:
+// Please note you cannot reseat a reference.
+{
+  var i = 1; // i: i32
+  var ref = write i; // ref: write i32
+
+  var j = 2; // j: i32
+  ref = write j; // Compiler Error: Cannot reseat a reference.
+}
+```
 
 ```typescript
 {
@@ -369,8 +376,8 @@ let drop = (x: String)-> ();
 
 let main = ()-> {
   var x = String.from("Hello, world"); // x: String. mutable
-  var y = x; // y: write String @x     // mutable reference, must use `var`
-  let z = x; // z: read String @x      // immutable reference, must use `let`
+  var y = write x; // y: write String @x     // mutable reference, must use `var`
+  let z = read x; // z: read String @x      // immutable reference, must use `let`
 
   length(x); // allowed
   length(y); // allowed
@@ -379,14 +386,14 @@ let main = ()-> {
   let t = own x;                           // transfer ownership
 
   length(x); // error: cannot access `x` because `x` is consumed.
-  length(y); // error: cannot access `y` because `x` is consumed.
-  length(z); // error: cannot access `z` because `x` is consumed.
+  length(y); // allowed
+  length(z); // allowed
 
   drop(own t);                             // consume `t`
 
   length(x); // error: cannot access `x` because `x` is consumed.
-  length(y); // error: cannot access `y` because `x` is consumed.
-  length(z); // error: cannot access `z` because `x` is consumed.
+  length(y); // error: cannot access `y` because `t` is consumed.
+  length(z); // error: cannot access `z` because `t` is consumed.
 }
 ```
 We can only dereference the free type.

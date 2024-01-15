@@ -10,10 +10,8 @@ import {
   TModule,
   TPrimitive,
   TPrimitiveWithValue,
-  TTypeConstructor,
   TUnit,
   Type,
-  TypeKind,
   classToString,
   effectToString,
   typeAndRegionParametersToString,
@@ -31,8 +29,8 @@ export enum AstType {
   IndexAccess = "index-access",
 
   // reference and dereference
-  Reference = "reference",
-  Dereference = "dereference",
+  // Reference = "reference",
+  // Dereference = "dereference",
 
   // operators
   UnaryOperator = "unop",
@@ -97,6 +95,9 @@ export enum AstType {
 
   // type casting
   TypeCast = "type-cast",
+
+  // read / write
+  ReadWrite = "read-write",
 }
 
 export enum OperatorType {
@@ -127,8 +128,8 @@ export type Expr =
   // | UnaryOperatorExpr
   | IsOperatorExpr
   | VariableExpr
-  | ReferenceExpr
-  | DereferenceExpr
+  // | ReferenceExpr
+  // | DereferenceExpr
   | PropertyAccessExpr
   | IndexAccessExpr
   | ValueExpr
@@ -145,7 +146,8 @@ export type Expr =
   | AwaitExpr
   | RecurExpr
   | InfixPrecedenceExpr
-  | TypeCastExpr;
+  | TypeCastExpr
+  | ReadWriteExpr;
 
 export type IgnoreExpr = {
   type: AstType.Ignore;
@@ -215,6 +217,7 @@ export type VariableExpr = {
   // isFreeVariable: boolean;
 };
 
+/*
 export type ReferenceExpr = {
   type: AstType.Reference;
   expr: Expr;
@@ -232,6 +235,7 @@ export type DereferenceExpr = {
   env: Environment;
   token: Token;
 };
+*/
 
 export type PropertyAccessExpr = {
   type: AstType.PropertyAccess;
@@ -498,30 +502,15 @@ export type TypeCastExpr = {
   expr: Expr;
 };
 
-export function synthesizeRecordType(
-  properties: {
-    name: string;
-    value: Expr;
-  }[]
-): Type {
-  let kind: TypeKind = "Free";
-  properties.forEach(({ value }) => {
-    if (kind === "Free") {
-      kind = value.typeValue.kind as TypeKind;
-    }
-  });
-
-  return {
-    type: "Record",
-    kind,
-    properties: properties.map(({ name, value }) => {
-      return {
-        name,
-        type: value.typeValue,
-      };
-    }),
-  };
-}
+export type ReadWriteExpr = {
+  type: AstType.ReadWrite;
+  typeValue: Type;
+  env: Environment;
+  token: Token;
+  expr: Expr;
+  permission: "read" | "write";
+  tempVariableName: string;
+};
 
 export function exprToString(expr: Expr, indentation = ""): string {
   switch (expr.type) {
@@ -564,7 +553,7 @@ export function exprToString(expr: Expr, indentation = ""): string {
     case AstType.IsOperator:
       return `${exprToString(expr.left)} is ${typeToString(expr.right)}`;
     case AstType.LetAssignment:
-      return `let${expr.isMutable ? " mut" : ""} ${
+      return `${expr.isMutable ? "var" : "let"} ${
         stringIsOperator(expr.variableName)
           ? `(${expr.variableName})`
           : expr.variableName
@@ -698,6 +687,7 @@ export function exprToString(expr: Expr, indentation = ""): string {
         .join(";\n")}
 ${indentation}}`;
     }
+    /*
     case AstType.Reference: {
       return `(${expr.isMutableReference ? "&!" : "&"}${exprToString(
         expr.expr
@@ -706,6 +696,7 @@ ${indentation}}`;
     case AstType.Dereference: {
       return `(*${exprToString(expr.expr)})`;
     }
+    */
     case AstType.Defer: {
       return `defer ${exprToString(expr.expr)}`;
     }
@@ -772,6 +763,11 @@ ${indentation}}`;
     }
     case AstType.TypeCast: {
       return `(${exprToString(expr.expr)} as ${typeToString(expr.typeValue)})`;
+    }
+    case AstType.ReadWrite: {
+      return `(${expr.permission === "read" ? "read" : "write"} ${exprToString(
+        expr.expr
+      )})`;
     }
     default:
       throw new Error(`Unknown expr type ${expr}`);

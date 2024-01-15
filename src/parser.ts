@@ -17,7 +17,6 @@ import {
   LetAssignmentExpr,
   MatchCase,
   exprToString,
-  synthesizeRecordType,
 } from "./ast";
 import {
   Environment,
@@ -34,7 +33,6 @@ import {
   generateNewTempVariableName,
   generateValueTypeId,
   getEnvCurrentFrameLevel,
-  getEnvCurrentRegionId,
   getEnvInfixOperatorPrecedence,
   getEnvValueTypesByVariableName,
   increaseEnvVariableReferenceCount,
@@ -86,13 +84,13 @@ import {
   parseTypeKind,
   synthesizeFunctionParameterTypesFromTokens,
   synthesizeFunctionTypeFromTokens,
+  synthesizeRecordType,
   synthesizeTypeAndRegionArgumentsFromTokens,
   synthesizeTypeAndRegionParametersFromTokens,
   synthesizeTypeFromTokens,
   synthesizeTypes,
   typeIsFunctionTypeThatReturnsPromise,
   typeIsPromise,
-  typeIsReferenceOrMutableReference,
   typeToString,
 } from "./type-checker";
 
@@ -998,9 +996,6 @@ ${exprToString(rhs)}
     let isMutable = false; // TODO: Check if it's mutable.
     if (lhs.type === AstType.Variable) {
       isMutable = lhs.isMutable;
-    } else if (lhs.type === AstType.Dereference) {
-      isMutable =
-        typeIsReferenceOrMutableReference(lhs.expr.typeValue) === "&!";
     } else if (
       lhs.type === AstType.IndexAccess ||
       lhs.type === AstType.PropertyAccess
@@ -1016,7 +1011,8 @@ ${exprToString(lhs)}
       );
     }
 
-    let resetConsumedVariable = false;
+    const resetConsumedVariable = false;
+    /*
     if (lhs.type !== AstType.Dereference) {
       // NOTE: We don't need to check a dereference to an mutable reference
       // Check if lhs can be created as mutable reference
@@ -1030,6 +1026,7 @@ ${exprToString(lhs)}
       resetConsumedVariable = !!reset;
       env = nextEnv;
     }
+    */
 
     // Consume RHS value if necessary
     const { env: nextNextEnv /*referedVariable: nextReferedVariable*/ } =
@@ -1833,11 +1830,14 @@ Got:      <${functionTypeArgumentsInOrder
 
     // Set variable as consumed if necessary
     for (let i = 0; i < functionArgumentsInOrder.length; i++) {
-      const { env: nextEnv } = this.setVariableAsConsumed(
-        env,
-        functionArgumentsInOrder[i]
-      );
-      env = nextEnv;
+      const functionParameter = calleeTypeValue.parameterTypes[i];
+      if (functionParameter.type.permission === "own") {
+        const { env: nextEnv } = this.setVariableAsConsumed(
+          env,
+          functionArgumentsInOrder[i]
+        );
+        env = nextEnv;
+      }
     }
 
     return {
@@ -2471,6 +2471,28 @@ ${matchedFunctionErrors[i] ?? ""}`
     const isFreeVariable =
       valueType.frameLevel <= env.functionDeclarationFrameLevel;
 
+    /*
+    NOTE: We shouldn't check here because 
+    we might perform type coercion.  
+    
+    if (valueType.consumedAtToken) {
+      throw formatErrorMessages({
+        modulePath: this.modulePath,
+        inputString: this.inputString,
+        tokenAndErrorList: [
+          {
+            token: tokens[identifierTokenIndex],
+            errorMessage: `Variable \`${identifier}\` is already consumed.`,
+          },
+          {
+            token: valueType.consumedAtToken,
+            errorMessage: `Previously consumed here:`,
+          },
+        ],
+      });
+    }
+    */
+
     // Add free variables to env
     if (isFreeVariable) {
       env = addEnvFreeVariable(env, valueType);
@@ -2687,7 +2709,7 @@ ${matchedFunctionErrors[i] ?? ""}`
         caller,
         parserData,
       });
-    } else if (
+    } /* else if (
       token.value === "&" || // immutable reference
       token.value === "&!" // mutable reference
     ) {
@@ -2724,7 +2746,7 @@ ${matchedFunctionErrors[i] ?? ""}`
         caller,
         parserData,
       });
-    } else if (
+    } */ else if (
       token.type === TokenType.Identifier ||
       (tokens[index].type === TokenType.LParen &&
         tokens[index + 1]?.type === TokenType.Operator &&
@@ -2826,7 +2848,8 @@ ${matchedFunctionErrors[i] ?? ""}`
           });
           break;
         }
-        case TokenType.Let: {
+        case TokenType.Let:
+        case TokenType.Var: {
           return this.parseLetAssignment({
             tokens,
             index,
@@ -2834,6 +2857,17 @@ ${matchedFunctionErrors[i] ?? ""}`
             caller,
             parserData,
           });
+        }
+        case TokenType.Read:
+        case TokenType.Write: {
+          returnValue = this.parseReadWriteExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
         }
         case TokenType.Semicolon: {
           return {
@@ -3653,6 +3687,8 @@ ${matchedFunctionErrors[i] ?? ""}`
     env: Environment,
     expr: Expr
   ): { env: Environment; referedVariable?: ReferedVariable } {
+    /*
+    // FIXME:
     if (expr.type === AstType.PropertyAccess) {
       {
         // If it's accessing a linear type,
@@ -3749,6 +3785,7 @@ ${exprToString(expr)}`,
         }
       }
     }
+    */
 
     try {
       switch (expr.type) {
@@ -3760,7 +3797,8 @@ ${exprToString(expr)}`,
           });
         }
         // Below are all the expressions that have `tempVariableName`.
-        case AstType.Reference:
+        // case AstType.Reference:
+        case AstType.ReadWrite:
         case AstType.CallFunction:
         case AstType.If:
         case AstType.Match:
@@ -4497,19 +4535,15 @@ ${typeToString(caseReturnType)}
     parserData: ParserData;
     isExported?: boolean;
   }): ParserReturn {
-    if (tokens[index].type !== TokenType.Let) {
-      throw this.formatErrorMessage(tokens[index], 'Expected "let"');
+    if (
+      tokens[index].type !== TokenType.Let &&
+      tokens[index].type !== TokenType.Var
+    ) {
+      throw this.formatErrorMessage(tokens[index], 'Expected "let" or "var"');
     }
+    const isMutable: boolean = tokens[index].type === TokenType.Var;
     const letTokenIndex = index;
     index = index + 1;
-
-    let isMutable: boolean = false;
-    let mutTokenIndex: number | undefined = undefined;
-    if (tokens[index].type === TokenType.Mut) {
-      isMutable = true;
-      mutTokenIndex = index;
-      index = index + 1;
-    }
 
     if (tokens[index].type === TokenType.LCurlyBracket) {
       return this.parseDestructuringAssignmentExpression({
@@ -4674,12 +4708,23 @@ Got:      ${typeToString(variableType)}`
       }
     }
 
+    const finalType = userDefinedVariableType ?? variableType;
+    if (finalType.permission === "write" && !isMutable) {
+      finalType.permission = "read";
+    }
+    if (finalType.permission === "read" && isMutable) {
+      throw this.formatErrorMessage(
+        tokens[letTokenIndex],
+        `Expected "let" for "read" value.`
+      );
+    }
+
     // Add variable to env
     const { env: nextEnv, value: valueType } = addEnvValueType({
       env,
       valueType: {
         variableName,
-        type: userDefinedVariableType ?? variableType,
+        type: finalType,
         kind: "value",
         isMutable,
         isExported,
@@ -4707,29 +4752,139 @@ Got:      ${typeToString(variableType)}`
     }
     */
 
-    if (
-      mutTokenIndex &&
-      variableType.type === "Function" &&
-      !variableType.isClosure
-    ) {
-      throw this.formatErrorMessage(
-        tokens[mutTokenIndex],
-        `Cannot make a top-level function mutable.`
-      );
-    }
-
     return {
       expr: {
         type: AstType.LetAssignment,
         variableName,
         variableId: valueType.id,
         isMutable,
-        variableType: userDefinedVariableType ?? variableType,
+        variableType: finalType,
         right: value,
         typeValue: TypeValues.unit,
         frameLevel: getEnvCurrentFrameLevel(env),
         env,
         token: tokens[letTokenIndex],
+      },
+      index,
+    };
+  }
+
+  private parseReadWriteExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (
+      tokens[index].type !== TokenType.Read &&
+      tokens[index].type !== TokenType.Write
+    ) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "read" or "write"'
+      );
+    }
+    const readWriteTokenIndex = index;
+    index = index + 1;
+
+    const isRead = tokens[readWriteTokenIndex].type === TokenType.Read;
+
+    const { expr, index: nextIndex } = this.parsePrimary({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    index = nextIndex;
+    env = expr.env;
+
+    const newTypeValue: Type = {
+      ...expr.typeValue,
+    };
+    if (newTypeValue.permission === "read") {
+      if (!isRead) {
+        throw this.formatErrorMessage(
+          tokens[readWriteTokenIndex],
+          `Cannot write to a read-only value:
+${exprToString(expr)}`
+        );
+      }
+    }
+    if (
+      isRead === false // write
+    ) {
+      // Check if the value is mutable
+      if (
+        ("isMutable" in expr && !expr.isMutable) ||
+        expr.typeValue.permission === "read"
+      ) {
+        throw this.formatErrorMessage(
+          tokens[readWriteTokenIndex],
+          `Cannot "write" to an immutable value:
+${exprToString(expr)}`
+        );
+      }
+    }
+    newTypeValue.permission = isRead ? "read" : "write";
+    // newTypeValue.kind = "Free";
+
+    // Check if the value is consumed
+    try {
+      // It's accessing a Free type, so no need to consume.
+      // But we need to check if the variable is consumed.
+      this.trySettingVariableAsReference({
+        env,
+        expr,
+        isMutableReference: false,
+        isForAssignment: false,
+      });
+    } catch (error) {
+      throw formatErrorMessage({
+        modulePath: this.modulePath,
+        inputString: this.inputString,
+        token: expr.token,
+        errorMessage: `Cannot access the value below because "${exprToString(
+          expr
+        )}" is already consumed:
+${exprToString(expr)}`,
+        cause: error,
+      });
+    }
+
+    // Increase the reference count
+    const { env: nextEnv, referedVariable } =
+      this.increaseVariableReferenceCount({
+        env,
+        expr,
+        isMutableReference: !isRead,
+        isForAssignment: false,
+      });
+    // Create temp variable for holding the value
+    const { env: nextNextEnv, value: tempVariable } =
+      this.generateTempVariableForHoldingValue({
+        env: nextEnv,
+        token: tokens[readWriteTokenIndex],
+        valueType: newTypeValue,
+        referedVariable,
+      });
+
+    return {
+      expr: {
+        type: AstType.ReadWrite,
+        typeValue: newTypeValue,
+        env: nextNextEnv,
+        token: tokens[readWriteTokenIndex],
+        expr,
+        permission: isRead ? "read" : "write",
+        tempVariableName: tempVariable.variableName,
       },
       index,
     };
@@ -4872,16 +5027,16 @@ ${linearFields.map((x) => `"${x.name}"`).join(", ")}`
         break;
       }
       case "TypeConstructor": {
+        /*
         if (typeIsReferenceOrMutableReference(valueType)) {
-          /*
           env = this.increaseVariableReferenceCount({
             env,
             expr: value,
             isMutableReference: true,
             isForAssignment: true,
           }).env;
-          */
-        }
+          
+        }*/
 
         if (valueType.typeValue.type !== "Record") {
           throw this.formatErrorMessage(
@@ -5046,7 +5201,7 @@ ${typeToString(valueType)}`
       }
 
       let isMutable_ = isMutable;
-      if (tokens[index].type === TokenType.Mut) {
+      if (tokens[index].type === TokenType.Var) {
         isMutable_ = true;
         index = index + 1;
       }
@@ -6355,6 +6510,7 @@ ${operationName}: ${typeToString(
     };
   }
 
+  /*
   private parseReferenceExpr({
     tokens,
     index,
@@ -6643,6 +6799,7 @@ ${exprToString(expr)}`
       }
     }
   }
+  */
 
   private parseTryExpr({
     tokens,

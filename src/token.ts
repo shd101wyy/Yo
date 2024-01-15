@@ -53,7 +53,7 @@ export enum TokenType {
   Continue = "continue",
   //// Fallthrough = "fallthrough",
   Let = "let",
-  Mut = "mut",
+  // Mut = "mut",
   Do = "do",
   Type = "type",
   Enum = "enum",
