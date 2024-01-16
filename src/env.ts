@@ -25,7 +25,7 @@ export const emptyToken: Token = {
   value: "",
 };
 
-type ValueTypeKind =
+type VariableValueKind =
   | "type" // type, enum, type or region parameter
   | "region"
   | "value" // value, function, enum variant
@@ -36,6 +36,10 @@ type ValueTypeKind =
 export type ReferedVariable = {
   frameLevel: number;
   variableName: string;
+  /**
+   * The lifetime order of the refered variable.
+   */
+  order: number;
   isMutableReference: boolean;
   /**
    * token where the reference is created
@@ -43,16 +47,21 @@ export type ReferedVariable = {
   token: Token;
 };
 
-export type ValueType = {
+export type VariableValue = {
   id: string; // NOTE: The `id` here doesn't really help in generic function
   variableName: string;
+
+  /**
+   * lifetime order
+   */
+  order: number;
 
   // different kinds of values
   type: Type;
   region?: TRegionParameter;
   effect?: TEffect;
   class?: TClass;
-  kind: ValueTypeKind;
+  kind: VariableValueKind;
 
   // some flags
   isMutable?: boolean;
@@ -101,7 +110,7 @@ const IdMap = new Map<string, number>();
  * @param variableName
  * @returns
  */
-export function generateValueTypeId(
+export function generateVarialeValueId(
   env: Environment,
   variableName: string
 ): string {
@@ -142,30 +151,30 @@ export function isTempVariableName(
 
 type Frame = {
   regionId: string;
-  values: ValueType[];
+  values: VariableValue[];
 };
 
-function addFrameValueType({
+function addFrameVariableValue({
   env,
   frame,
-  valueType,
+  variableValue,
   preventDuplicate,
 }: {
   env: Environment;
   frame: Frame;
-  valueType: ValueType;
+  variableValue: VariableValue;
   preventDuplicate?: boolean;
 }): Frame {
   // Check if there is already a value with the same variableName
   // but is uninitialized
-  const existingValueTypeIndex = frame.values.findIndex(
-    (valueType) =>
-      valueType.variableName === valueType.variableName &&
-      valueType.isUninitialized
+  const existingValueIndex = frame.values.findIndex(
+    (value_) =>
+      value_.variableName === variableValue.variableName &&
+      value_.isUninitialized
   );
-  if (existingValueTypeIndex > -1) {
+  if (existingValueIndex > -1) {
     const newValues = frame.values.slice();
-    newValues[existingValueTypeIndex] = valueType;
+    newValues[existingValueIndex] = variableValue;
     return {
       regionId: frame.regionId,
       values: newValues,
@@ -173,7 +182,7 @@ function addFrameValueType({
   } else {
     if (preventDuplicate) {
       const existingValue = frame.values.find(
-        (value) => value.variableName === valueType.variableName
+        (value) => value.variableName === variableValue.variableName
       );
       if (existingValue) {
         throw formatErrorMessages({
@@ -181,8 +190,8 @@ function addFrameValueType({
           inputString: env.inputString,
           tokenAndErrorList: [
             {
-              token: valueType.token,
-              errorMessage: `Failed to define variable "${valueType.variableName}":`,
+              token: variableValue.token,
+              errorMessage: `Failed to define variable "${variableValue.variableName}":`,
             },
             {
               token: existingValue.token,
@@ -195,26 +204,26 @@ function addFrameValueType({
 
     return {
       regionId: frame.regionId,
-      values: [...frame.values, valueType],
+      values: [...frame.values, variableValue],
     };
   }
 }
 
-function getFrameValueTypesByVariableName(
+function getFrameVariableValuesByVariableName(
   frame: Frame,
   variableName: string,
-  kind?: ValueTypeKind
-): ValueType[] {
+  kind?: VariableValueKind
+): VariableValue[] {
   return frame.values.filter(
-    (valueType) =>
-      valueType.variableName === variableName &&
-      (kind !== undefined ? valueType.kind === kind : true)
+    (value) =>
+      value.variableName === variableName &&
+      (kind !== undefined ? value.kind === kind : true)
   );
 }
 
 export type Environment = {
   functionDeclarationFrameLevel: number;
-  freeVariables: ValueType[];
+  freeVariables: VariableValue[];
   frames: Frame[];
   modulePath: string;
   inputString: string;
@@ -224,7 +233,7 @@ export type Environment = {
 export function copyEnvironment(
   env: Environment,
   functionDeclarationFrameLevel: number,
-  freeVariables: ValueType[]
+  freeVariables: VariableValue[]
 ): Environment {
   return {
     functionDeclarationFrameLevel:
@@ -356,29 +365,32 @@ ${typeToString(value.type)}${
   };
 }
 
-export function addEnvValueType({
+export function addEnvVariableValue({
   env,
-  valueType,
+  variableValue,
   deltaFrame,
   preventDuplicate,
   variableId,
+  lifetimeOrder,
 }: {
   env: Environment;
-  valueType: Omit<ValueType, "frameLevel" | "id">;
+  variableValue: Omit<VariableValue, "frameLevel" | "id" | "order">;
   deltaFrame?: number;
   preventDuplicate?: boolean;
   variableId?: string;
-}): { env: Environment; value: ValueType } {
+  lifetimeOrder?: number;
+}): { env: Environment; value: VariableValue } {
   const frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
   const frame = env.frames[frameLevel];
-  const id = isTempVariableName(env, valueType.variableName)
-    ? valueType.variableName
-    : variableId ?? generateValueTypeId(env, valueType.variableName);
-  const value: ValueType = { ...valueType, frameLevel, id };
-  const newFrame = addFrameValueType({
+  const id = isTempVariableName(env, variableValue.variableName)
+    ? variableValue.variableName
+    : variableId ?? generateVarialeValueId(env, variableValue.variableName);
+  const order = lifetimeOrder ?? getEnvLastestLifetimeOrder(env);
+  const value: VariableValue = { ...variableValue, frameLevel, id, order };
+  const newFrame = addFrameVariableValue({
     env,
     frame,
-    valueType: value,
+    variableValue: value,
     preventDuplicate,
   });
   const newFrames = env.frames.slice();
@@ -391,17 +403,27 @@ export function addEnvValueType({
     inputString: env.inputString,
     operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
+
+  if (variableValue.referedVariable) {
+    env = setEnvVariableReferedVariable({
+      env: newEnv,
+      variableName: variableValue.variableName,
+      variableToken: variableValue.token,
+      referedVariable: variableValue.referedVariable,
+    });
+  }
+
   return { env: newEnv, value: value };
 }
 
-export function updateExistingValueType(
+export function updateExistingVariableValue(
   env: Environment,
-  valueType: ValueType,
-  newValueType: ValueType
+  variableValue: VariableValue,
+  newVariableValue: VariableValue
 ): Environment {
   const frames = env.frames.map((frame) => {
     const values = frame.values.map((value) =>
-      value === valueType ? newValueType : value
+      value === variableValue ? newVariableValue : value
     );
     return { ...frame, values };
   });
@@ -417,11 +439,11 @@ export function updateExistingValueType(
 
 export function addEnvFreeVariable(
   env: Environment,
-  valueType: ValueType
+  variableValue: VariableValue
 ): Environment {
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
-    freeVariables: Array.from(new Set([...env.freeVariables, valueType])),
+    freeVariables: Array.from(new Set([...env.freeVariables, variableValue])),
     frames: env.frames,
     modulePath: env.modulePath,
     inputString: env.inputString,
@@ -456,27 +478,26 @@ export function isVariableNameInitializedInEnvFrame(
   const frameLevel_ = frameLevel ?? getEnvCurrentFrameLevel(env);
   const frame = env.frames[frameLevel_];
   return frame.values.some(
-    (valueType) =>
-      valueType.variableName === variableName && !valueType.isUninitialized
+    (value) => value.variableName === variableName && !value.isUninitialized
   );
 }
 
-export function getEnvValueTypesByVariableName(
+export function getEnvVariableValueByVariableName(
   env: Environment,
   variableName: string,
-  kind?: ValueTypeKind
-): ValueType[] {
-  const valueTypes: ValueType[] = [];
+  kind?: VariableValueKind
+): VariableValue[] {
+  const variableValues: VariableValue[] = [];
   for (let i = 0; i < env.frames.length; i++) {
     const frame = env.frames[i];
-    const valueTypesInFrame = getFrameValueTypesByVariableName(
+    const variableValuesInFrame = getFrameVariableValuesByVariableName(
       frame,
       variableName,
       kind
     );
-    valueTypes.push(...valueTypesInFrame);
+    variableValues.push(...variableValuesInFrame);
   }
-  return valueTypes;
+  return variableValues;
 }
 
 export function setEnvVariableAsConsumed({
@@ -488,8 +509,8 @@ export function setEnvVariableAsConsumed({
   variableName: string;
   consumedAtToken: Token;
 }): { env: Environment; referedVariable?: ReferedVariable } {
-  const valueTypes = getEnvValueTypesByVariableName(env, variableName);
-  if (valueTypes.length === 0) {
+  const variableValues = getEnvVariableValueByVariableName(env, variableName);
+  if (variableValues.length === 0) {
     throw formatErrorMessages({
       modulePath: env.modulePath,
       inputString: env.inputString,
@@ -501,21 +522,24 @@ export function setEnvVariableAsConsumed({
       ],
     });
   }
-  const valueType = valueTypes[valueTypes.length - 1];
-  if (valueType.type.permission !== "own") {
-    return { env, referedVariable: valueType.referedVariable };
+  const variableValue = variableValues[variableValues.length - 1];
+  if (variableValue.type.permission !== "own") {
+    return { env, referedVariable: variableValue.referedVariable };
   }
 
-  const immutableReferences = valueType.immutableReferences ?? [];
-  const mutableReferences = valueType.mutableReferences ?? [];
-  if (valueType.type.kind === "Linear" || valueType.type.kind === "Type") {
-    if (valueType.consumedAtToken) {
+  const immutableReferences = variableValue.immutableReferences ?? [];
+  const mutableReferences = variableValue.mutableReferences ?? [];
+  if (
+    variableValue.type.kind === "Linear" ||
+    variableValue.type.kind === "Type"
+  ) {
+    if (variableValue.consumedAtToken) {
       throw formatErrorMessages({
         modulePath: env.modulePath,
         inputString: env.inputString,
         tokenAndErrorList: [
           {
-            token: valueType.consumedAtToken,
+            token: variableValue.consumedAtToken,
             errorMessage: `Previously consumed here:`,
           },
         ],
@@ -523,17 +547,20 @@ export function setEnvVariableAsConsumed({
     }
 
     if (immutableReferences.length > 0) {
-      /*
       for (let i = 0; i < immutableReferences.length; i++) {
-        const valueType = getEnvValueTypeByReferedVariableToken(
+        const variableValue = getEnvVariableValueByToken(
           env,
           immutableReferences[i]
         );
-        if (valueType) {
-          env = deleteEnvValueType(env, valueType);
+        if (variableValue) {
+          env = updateExistingVariableValue(env, variableValue, {
+            ...variableValue,
+            consumedAtToken,
+          });
         }
       }
-      */
+
+      /*
       throw formatErrorMessages({
         modulePath: env.modulePath,
         inputString: env.inputString,
@@ -544,21 +571,25 @@ export function setEnvVariableAsConsumed({
           };
         }),
       });
+      */
     }
 
     if (mutableReferences.length > 0) {
-      /*
       for (let i = 0; i < mutableReferences.length; i++) {
-        const valueType = getEnvValueTypeByReferedVariableToken(
+        const variableValue = getEnvVariableValueByToken(
           env,
           mutableReferences[i]
         );
-        if (valueType) {
-          env = deleteEnvValueType(env, valueType);
+        if (variableValue) {
+          // env = deleteEnvVariableValue(env, variableValue);
+          env = updateExistingVariableValue(env, variableValue, {
+            ...variableValue,
+            consumedAtToken,
+          });
         }
       }
-      */
 
+      /*
       throw formatErrorMessages({
         modulePath: env.modulePath,
         inputString: env.inputString,
@@ -569,10 +600,11 @@ export function setEnvVariableAsConsumed({
           };
         }),
       });
+      */
     }
   }
 
-  const referedVariable = valueType.referedVariable;
+  const referedVariable = variableValue.referedVariable;
   /* // NOTE: We shouldn't decrement the reference count here
      // when we consume a (immutable) reference.
      // Instead, we decrement when the (immutable) reference is out of the scope and dropped
@@ -588,10 +620,10 @@ export function setEnvVariableAsConsumed({
   */
 
   // Check if there is any linear value after that is not consumed
-  if (!isTempVariableName(env, variableName)) {
-    const { frameLevel, index } = getEnvFrameLevelAndIndexForValueType(
+  /*if (!isTempVariableName(env, variableName)) */ {
+    const { frameLevel, index } = getEnvFrameLevelAndIndexForVariableValue(
       env,
-      valueType
+      variableValue
     );
     const frame = env.frames[frameLevel];
     const valuesAfter = [
@@ -620,11 +652,20 @@ export function setEnvVariableAsConsumed({
         }),
       });
     }
+    // Set all valuesAfter as consumed, no matter Linar or Free.
+    valuesAfter.forEach((value) => {
+      if (value.kind === "value") {
+        env = updateExistingVariableValue(env, value, {
+          ...value,
+          consumedAtToken,
+        });
+      }
+    });
   }
 
-  const newValueType: ValueType = { ...valueType, consumedAtToken };
+  const newVariableValue: VariableValue = { ...variableValue, consumedAtToken };
   return {
-    env: updateExistingValueType(env, valueType, newValueType),
+    env: updateExistingVariableValue(env, variableValue, newVariableValue),
     referedVariable,
   };
 }
@@ -637,10 +678,10 @@ export function decrementVariableReferenceCount({
   referedVariable: ReferedVariable;
 }): Environment {
   const referedFrame = env.frames[referedVariable.frameLevel];
-  const referedValueType = referedFrame.values.find(
+  const referedVariableValue = referedFrame.values.find(
     (value) => value.variableName === referedVariable.variableName
   );
-  if (!referedValueType) {
+  if (!referedVariableValue) {
     throw formatErrorMessages({
       modulePath: env.modulePath,
       inputString: env.inputString,
@@ -652,8 +693,8 @@ export function decrementVariableReferenceCount({
       ],
     });
   }
-  let mutableReferences = referedValueType.mutableReferences ?? [];
-  let immutableReferences = referedValueType.immutableReferences ?? [];
+  let mutableReferences = referedVariableValue.mutableReferences ?? [];
+  let immutableReferences = referedVariableValue.immutableReferences ?? [];
   if (referedVariable.isMutableReference) {
     mutableReferences = mutableReferences.filter(
       (r) => r !== referedVariable.token
@@ -664,8 +705,8 @@ export function decrementVariableReferenceCount({
     );
   }
 
-  env = updateExistingValueType(env, referedValueType, {
-    ...referedValueType,
+  env = updateExistingVariableValue(env, referedVariableValue, {
+    ...referedVariableValue,
     mutableReferences,
     immutableReferences,
   });
@@ -689,8 +730,8 @@ export function increaseEnvVariableReferenceCount({
   referedVariable: ReferedVariable;
   resetConsumedVariable: boolean;
 } {
-  const valueTypes = getEnvValueTypesByVariableName(env, variableName);
-  if (valueTypes.length === 0) {
+  const variableValues = getEnvVariableValueByVariableName(env, variableName);
+  if (variableValues.length === 0) {
     throw formatErrorMessages({
       modulePath: env.modulePath,
       inputString: env.inputString,
@@ -704,20 +745,21 @@ export function increaseEnvVariableReferenceCount({
   }
 
   let resetConsumedVariable = false;
-  let valueType = valueTypes[valueTypes.length - 1];
+  let variableValue = variableValues[variableValues.length - 1];
   if (
-    (valueType.type.kind === "Linear" || valueType.type.kind === "Type") &&
-    valueType.consumedAtToken
+    (variableValue.type.kind === "Linear" ||
+      variableValue.type.kind === "Type") &&
+    variableValue.consumedAtToken
   ) {
     if (isForAssignment) {
       // NOTE: If it's for assignment, then we allow to reuse the consumed variable.
-      const newValueType: ValueType = {
-        ...valueType,
+      const newVariableValue: VariableValue = {
+        ...variableValue,
         consumedAtToken: undefined,
         token: token,
       };
-      env = updateExistingValueType(env, valueType, newValueType);
-      valueType = newValueType; // <= This is necessary
+      env = updateExistingVariableValue(env, variableValue, newVariableValue);
+      variableValue = newVariableValue; // <= This is necessary
       resetConsumedVariable = true;
     } else {
       throw formatErrorMessages({
@@ -725,7 +767,7 @@ export function increaseEnvVariableReferenceCount({
         inputString: env.inputString,
         tokenAndErrorList: [
           {
-            token: valueType.consumedAtToken,
+            token: variableValue.consumedAtToken,
             errorMessage: `Variable "${variableName}" is already consumed here:`,
           },
         ],
@@ -733,8 +775,8 @@ export function increaseEnvVariableReferenceCount({
     }
   }
 
-  const immutableReferences = valueType.immutableReferences ?? [];
-  const mutableReferences = valueType.mutableReferences ?? [];
+  const immutableReferences = variableValue.immutableReferences ?? [];
+  const mutableReferences = variableValue.mutableReferences ?? [];
   // const immutableReferenceCount = immutableReferences.length;
   // const mutableReferenceCount = mutableReferences.length;
   if (isMutableReference) {
@@ -745,7 +787,7 @@ export function increaseEnvVariableReferenceCount({
         inputString: env.inputString,
         tokenAndErrorList: [
           {
-            token: valueType.token,
+            token: variableValue.token,
             errorMessage: `Variable ${variableName} is already borrowed as immutable reference ${immutableReferenceCount} time(s):
 
 ${immutableReferences
@@ -766,7 +808,7 @@ ${immutableReferences
         inputString: env.inputString,
         tokenAndErrorList: [
           {
-            token: valueType.token,
+            token: variableValue.token,
             errorMessage: `Variable "${variableName}" is already borrowed as mutable reference ${mutableReferenceCount} time(s):
 
 ${mutableReferences
@@ -782,15 +824,16 @@ ${mutableReferences
         ],
       });
     } else */ {
-      const newValueType: ValueType = {
-        ...valueType,
+      const newVariableValue: VariableValue = {
+        ...variableValue,
         mutableReferences: [...mutableReferences, token],
       };
       return {
-        env: updateExistingValueType(env, valueType, newValueType),
+        env: updateExistingVariableValue(env, variableValue, newVariableValue),
         referedVariable: {
           variableName,
-          frameLevel: valueType.frameLevel,
+          order: variableValue.order,
+          frameLevel: variableValue.frameLevel,
           isMutableReference,
           token,
         },
@@ -806,7 +849,7 @@ ${mutableReferences
         inputString: env.inputString,
         tokenAndErrorList: [
           {
-            token: valueType.token,
+            token: variableValue.token,
             errorMessage: `Variable "${variableName}" is already borrowed as mutable reference ${mutableReferenceCount} time(s):
 
 ${mutableReferences
@@ -822,15 +865,16 @@ ${mutableReferences
         ],
       });
     } else */ {
-      const newValueType: ValueType = {
-        ...valueType,
+      const newVariableValue: VariableValue = {
+        ...variableValue,
         immutableReferences: [...immutableReferences, token],
       };
       return {
-        env: updateExistingValueType(env, valueType, newValueType),
+        env: updateExistingVariableValue(env, variableValue, newVariableValue),
         referedVariable: {
           variableName,
-          frameLevel: valueType.frameLevel,
+          order: variableValue.order,
+          frameLevel: variableValue.frameLevel,
           isMutableReference,
           token,
         },
@@ -840,23 +884,23 @@ ${mutableReferences
   }
 }
 
-/*
-export function setEnvVariableReferedVariable({
+function setEnvVariableReferedVariable({
   env,
-  variableNameToken,
+  // variableName,
+  variableToken,
   referedVariable,
 }: {
   env: Environment;
-  variableNameToken: Token;
+  variableName: string;
+  variableToken: Token;
   referedVariable: ReferedVariable;
 }): Environment {
-  const variableName = variableNameToken.value;
   // Increase the reference count for referedVariable
   const frame = env.frames[referedVariable.frameLevel];
-  const referedValueType = frame.values.find(
+  const referedVariableValue = frame.values.find(
     (value) => value.variableName === referedVariable.variableName
   );
-  if (!referedValueType) {
+  if (!referedVariableValue) {
     throw formatErrorMessages({
       modulePath: env.modulePath,
       inputString: env.inputString,
@@ -868,23 +912,28 @@ export function setEnvVariableReferedVariable({
       ],
     });
   }
-  const immutableReferences = referedValueType.immutableReferences ?? [];
-  const mutableReferences = referedValueType.mutableReferences ?? [];
+  const immutableReferences = referedVariableValue.immutableReferences ?? [];
+  const mutableReferences = referedVariableValue.mutableReferences ?? [];
   if (referedVariable.isMutableReference) {
-    mutableReferences.push(variableNameToken);
+    mutableReferences.push(variableToken);
   } else {
-    immutableReferences.push(variableNameToken);
+    immutableReferences.push(variableToken);
   }
-  const newValueType: ValueType = {
-    ...referedValueType,
+  const newVariableValue: VariableValue = {
+    ...referedVariableValue,
     immutableReferences,
     mutableReferences,
   };
-  const nextEnv = updateExistingValueType(env, referedValueType, newValueType);
-
+  const nextEnv = updateExistingVariableValue(
+    env,
+    referedVariableValue,
+    newVariableValue
+  );
+  return nextEnv;
+  /*
   const newReferedVariable: ReferedVariable = {
     ...referedVariable,
-    token: variableNameToken,
+    token: variableToken,
   };
   const variableValueType = nextEnv.frames[
     nextEnv.frames.length - 1
@@ -895,18 +944,18 @@ export function setEnvVariableReferedVariable({
       inputString: env.inputString,
       tokenAndErrorList: [
         {
-          token: variableNameToken,
+          token: variableToken,
           errorMessage: `Failed to find the variable "${variableName}"`,
         },
       ],
     });
   }
-  return updateExistingValueType(nextEnv, variableValueType, {
+  return updateExistingVariableValue(nextEnv, variableValueType, {
     ...variableValueType,
     referedVariable: newReferedVariable,
   });
+  */
 }
-*/
 
 export function getEnvInfixOperatorPrecedence(
   env: Environment,
@@ -970,7 +1019,8 @@ export function createNewEnv({
  */
 export function mergeAndCheckEnv(
   env: Environment,
-  cases: (IfCase | MatchCase)[]
+  cases: (IfCase | MatchCase)[],
+  tempVariableName: string
 ): Environment {
   const maxFrameLevel = env.frames.length - 1;
   const caseEnvs: Environment[] = [];
@@ -1075,11 +1125,15 @@ export function mergeAndCheckEnv(
       if (frameValues[i].type.kind === "Free") {
         const consumed = tokens.filter((t) => !!t) as Token[];
         if (consumed.length > 0) {
-          const newValueType: ValueType = {
+          const newVariableValue: VariableValue = {
             ...frameValues[i],
             consumedAtToken: tokens[0],
           };
-          env = updateExistingValueType(env, frameValues[i], newValueType);
+          env = updateExistingVariableValue(
+            env,
+            frameValues[i],
+            newVariableValue
+          );
         }
         continue;
       }
@@ -1105,11 +1159,15 @@ export function mergeAndCheckEnv(
       }
       // case 2
       else if (tokens.every((t) => !!t)) {
-        const newValueType: ValueType = {
+        const newVariableValue: VariableValue = {
           ...frameValues[i],
           consumedAtToken: tokens[0],
         };
-        env = updateExistingValueType(env, frameValues[i], newValueType);
+        env = updateExistingVariableValue(
+          env,
+          frameValues[i],
+          newVariableValue
+        );
       } else {
         // case 3
         const consumed = tokens.filter((t) => !!t) as Token[];
@@ -1133,32 +1191,61 @@ export function mergeAndCheckEnv(
     }
   }
 
+  // Update the tempVariable to host the shortest lifetime
+  const tempVariables = getEnvVariableValueByVariableName(
+    env,
+    tempVariableName
+  );
+  let tempVariable = tempVariables[0];
+  // console.log("tempVariable: ", tempVariable);
+
+  for (let i = 0; i < caseEnvs.length; i++) {
+    const caseEnv = caseEnvs[i];
+    const caseTempVariables = getEnvVariableValueByVariableName(
+      caseEnv,
+      tempVariableName
+    );
+    const caseTempVariable = caseTempVariables[0];
+    if (caseTempVariable.referedVariable) {
+      if (
+        !tempVariable.referedVariable ||
+        tempVariable.order < caseTempVariable.order
+      ) {
+        const newTempVariable: VariableValue = {
+          ...tempVariable,
+          referedVariable: caseTempVariable.referedVariable,
+          order: caseTempVariable.order,
+        };
+        env = updateExistingVariableValue(env, tempVariable, newTempVariable);
+        tempVariable = newTempVariable;
+      }
+    }
+    // console.log("caseTempVariable: ", caseTempVariable);
+  }
+
   return env;
 }
 
-/*
-function getEnvValueTypeByReferedVariableToken(
+function getEnvVariableValueByToken(
   env: Environment,
   token: Token
-): ValueType | null {
+): VariableValue | null {
   for (let i = env.frames.length - 1; i >= 0; i--) {
     const frame = env.frames[i];
-    const valueType = frame.values.find(
-      (value) => value.referedVariable?.token === token
-    );
-    if (valueType) {
-      return valueType;
+    const variableValue = frame.values.find((value) => value.token === token);
+    if (variableValue) {
+      return variableValue;
     }
   }
   return null;
 }
 
-function deleteEnvValueType(
+export function deleteEnvVariableValue(
   env: Environment,
-  valueType: ValueType
+  variableValue: VariableValue
 ): Environment {
   const frames = env.frames.map((frame) => {
-    const values = frame.values.filter((value) => value !== valueType);
+    const values = frame.values.filter((value) => value !== variableValue);
     return { ...frame, values };
   });
   return {
@@ -1170,7 +1257,6 @@ function deleteEnvValueType(
     operatorPrecedenceMap: env.operatorPrecedenceMap,
   };
 }
-*/
 
 export function createTopLevelEnv(
   env: Environment,
@@ -1186,16 +1272,50 @@ export function createTopLevelEnv(
   };
 }
 
-export function getEnvFrameLevelAndIndexForValueType(
+export function getEnvFrameLevelAndIndexForVariableValue(
   env: Environment,
-  valueType: ValueType
+  variableValue: VariableValue
 ): { frameLevel: number; index: number } {
   for (let i = 0; i < env.frames.length; i++) {
     const frame = env.frames[i];
-    const index = frame.values.findIndex((v) => v === valueType);
+    const index = frame.values.findIndex((v) => v === variableValue);
     if (index > -1) {
       return { frameLevel: i, index };
     }
   }
   throw new Error("Failed to find the value type in env.");
+}
+
+export function getEnvVariableLifetimeOrder(
+  env: Environment,
+  variableName: string
+): number {
+  let order = -1;
+
+  for (let i = 0; i < env.frames.length; i++) {
+    const frame = env.frames[i];
+    for (let j = 0; j < frame.values.length; j++) {
+      const value = frame.values[j];
+      if (value.variableName === variableName) {
+        order = Math.max(order, value.order);
+      }
+    }
+  }
+
+  return order;
+}
+
+export function getEnvLastestLifetimeOrder(env: Environment): number {
+  let order = -1;
+
+  // TODO: This part of code can be optimized
+  for (let i = 0; i < env.frames.length; i++) {
+    const frame = env.frames[i];
+    for (let j = 0; j < frame.values.length; j++) {
+      const value = frame.values[j];
+      order = Math.max(order, value.order);
+    }
+  }
+
+  return order + 1;
 }

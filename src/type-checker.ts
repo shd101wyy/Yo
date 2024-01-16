@@ -10,11 +10,11 @@ import {
 } from "./ast";
 import {
   Environment,
-  ValueType,
-  addEnvValueType,
-  generateValueTypeId,
+  VariableValue,
+  addEnvVariableValue,
+  generateVarialeValueId,
   getEnvCurrentFrameLevel,
-  getEnvValueTypesByVariableName,
+  getEnvVariableValueByVariableName,
   popEnvFrame,
   pushEnvFrame,
 } from "./env";
@@ -268,7 +268,7 @@ export type TFunction = {
    * Right now only ()=>{} is closure
    * function name(a: number) {} is not closure
    */
-  freeVariables?: ValueType[];
+  freeVariables?: VariableValue[];
   /**
    * At which frame level the function is defined
    */
@@ -685,9 +685,10 @@ export function synthesizeTypeFromTokens({
   }
   // Check if it's defined in variableTypes
   else if (
-    getEnvValueTypesByVariableName(env, tokens[index].value, "type").length > 0
+    getEnvVariableValueByVariableName(env, tokens[index].value, "type").length >
+    0
   ) {
-    const valueTypes = getEnvValueTypesByVariableName(
+    const valueTypes = getEnvVariableValueByVariableName(
       env,
       tokens[index].value,
       "type"
@@ -1175,6 +1176,14 @@ export function synthesizeTypeFromTokens({
       });
     }
 
+    // NOTE: If it's "read" or "write" permission, we set its kind to "Free"
+    if (
+      returnValue.typeValue.permission === "read" ||
+      returnValue.typeValue.permission === "write"
+    ) {
+      returnValue.typeValue.kind = "Free";
+    }
+
     return returnValue;
   } catch (error) {
     throw formatErrorMessage({
@@ -1403,7 +1412,7 @@ export function applyTypeAndRegionArgumentsToType({
       kind: kind,
       permission: type.permission,
       name: type.name,
-      typeConstructorId: generateValueTypeId(env, type.name),
+      typeConstructorId: generateVarialeValueId(env, type.name),
       typeParameters: newTypeParameters,
       regionParameters: newRegionParameters,
       typeValue: newTypeValue,
@@ -2262,9 +2271,9 @@ export function synthesizeFunctionParameterTypesFromTokens({
   });
   for (let i = 0; i < sortedParameterTypes.length; i++) {
     const parameterType = sortedParameterTypes[i];
-    const { env: nextEnv, value: parameterValue } = addEnvValueType({
+    const { env: nextEnv, value: parameterValue } = addEnvVariableValue({
       env,
-      valueType: {
+      variableValue: {
         variableName: parameterType.name,
         type: parameterType.type,
         kind: "value",
@@ -2389,7 +2398,11 @@ export function synthesizeTypeAndRegionArgumentsFromTokens({
     // Check if it's region argument
     if (token.type === TokenType.Identifier) {
       const regionName = token.value;
-      const regions = getEnvValueTypesByVariableName(env, regionName, "region");
+      const regions = getEnvVariableValueByVariableName(
+        env,
+        regionName,
+        "region"
+      );
       if (regions.length === 1 && regions[0].region) {
         const region = regions[0].region;
         regionArguments.push(region);
@@ -2494,7 +2507,7 @@ export function synthesizeEffectsFromTokens({
       }
 
       // Find the effect
-      const effectValues = getEnvValueTypesByVariableName(
+      const effectValues = getEnvVariableValueByVariableName(
         env,
         effectName,
         "effect"
@@ -2668,7 +2681,7 @@ export function synthesizeFunctionTypeFromTokens({
         functionId:
           functionName === "main" || functionName?.startsWith("@") // compiletime functions
             ? functionName
-            : generateValueTypeId(env, functionName ?? "anonymousFunction"),
+            : generateVarialeValueId(env, functionName ?? "anonymousFunction"),
         parameterTypes,
         typeParameters,
         regionParameters,
@@ -2924,9 +2937,9 @@ export function synthesizeTypeAndRegionParametersFromTokens({
       regionParameters.push(regionParameter);
 
       // Save to env
-      const { env: nextEnv } = addEnvValueType({
+      const { env: nextEnv } = addEnvVariableValue({
         env,
-        valueType: {
+        variableValue: {
           variableName: typeParameterName,
           type: TypeValues.unknown,
           region: regionParameter,
@@ -2946,9 +2959,9 @@ export function synthesizeTypeAndRegionParametersFromTokens({
       typeParameters.push(typeParameter);
 
       // Save to env
-      const { env: nextEnv } = addEnvValueType({
+      const { env: nextEnv } = addEnvVariableValue({
         env,
-        valueType: {
+        variableValue: {
           variableName: typeParameterName,
           type: typeParameter,
           kind: "type",
@@ -3320,7 +3333,7 @@ export function checkType(
   if (expectedType.type === "unknown") {
     if (expectedType.typeName) {
       // Get real type from env
-      const valueTypes = getEnvValueTypesByVariableName(
+      const valueTypes = getEnvVariableValueByVariableName(
         env,
         expectedType.typeName,
         "type"
@@ -4106,7 +4119,7 @@ export function getFunctionsOfCallerFromEnv(
   functionName: string,
   env: Environment
 ) {
-  const functionTypes = getEnvValueTypesByVariableName(env, functionName);
+  const functionTypes = getEnvVariableValueByVariableName(env, functionName);
   // Find the functions that takes `expr` as the first argument
   const matchedFunctions = functionTypes.filter((functionType) => {
     if (functionType.type.type !== "Function") {

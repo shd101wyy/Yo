@@ -10,8 +10,8 @@ let main = ()-> {
   var x = 1;
   let r = read x;
   var w = write x;
-  w = add(w, 1);
+  w = w + r;
  
   let w2 = write x;
-  w = r + 1;
+  w = r + w2;
 }

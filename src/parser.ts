@@ -21,26 +21,27 @@ import {
 import {
   Environment,
   ReferedVariable,
-  ValueType,
+  VariableValue,
   addEnvFreeVariable,
   addEnvOperatorPrecedence,
-  addEnvValueType,
+  addEnvVariableValue,
   copyEnvironment,
   createNewEnv,
   createTopLevelEnv,
   decrementVariableReferenceCount,
   emptyToken,
   generateNewTempVariableName,
-  generateValueTypeId,
+  generateVarialeValueId,
   getEnvCurrentFrameLevel,
   getEnvInfixOperatorPrecedence,
-  getEnvValueTypesByVariableName,
+  getEnvVariableLifetimeOrder,
+  getEnvVariableValueByVariableName,
   increaseEnvVariableReferenceCount,
   mergeAndCheckEnv,
   popEnvFrame,
   pushEnvFrame,
   setEnvVariableAsConsumed,
-  updateExistingValueType,
+  updateExistingVariableValue,
 } from "./env";
 import { formatErrorMessage, formatErrorMessages } from "./error";
 import { tokenize } from "./lexer";
@@ -886,7 +887,7 @@ export default class Parser {
 
       // Try all functions to see if there is a match
       const parserReturns: ParserReturn[] = [];
-      const parsedFunctions: ValueType[] = [];
+      const parsedFunctions: VariableValue[] = [];
       const matchedFunctionErrors: Error[] = [];
       for (const functionType of matchedFunctions) {
         try {
@@ -1027,6 +1028,26 @@ ${exprToString(lhs)}
       env = nextEnv;
     }
     */
+
+    // We need to make sure that
+    // RHS can outlive LHS if RHS is a reference
+    if (
+      rhs.typeValue.permission === "read" ||
+      rhs.typeValue.permission === "write"
+    ) {
+      const lhsOrder = this.getVariableLifetimeOrder(env, lhs);
+      const rhsOrder = this.getVariableLifetimeOrder(env, rhs);
+      if (lhsOrder < rhsOrder) {
+        throw this.formatErrorMessage(
+          tokens[lhsTokenIndex],
+          `Cannot assign a ${
+            rhs.typeValue.permission === "read" ? '"read"' : '"write"'
+          } reference that doesn't outlive the variable it refers to:
+LHS order: ${lhsOrder}
+RHS order: ${rhsOrder}`
+        );
+      }
+    }
 
     // Consume RHS value if necessary
     const { env: nextNextEnv /*referedVariable: nextReferedVariable*/ } =
@@ -1249,9 +1270,9 @@ ${exprToString(lhs)}
     if (functionType.effects.length > 0) {
       functionType.effects.forEach((effect) => {
         effect.operations.forEach(({ name, func }) => {
-          const { env: nextEnv } = addEnvValueType({
+          const { env: nextEnv } = addEnvVariableValue({
             env,
-            valueType: {
+            variableValue: {
               variableName: name,
               type: func,
               kind: "value",
@@ -1274,9 +1295,9 @@ ${exprToString(lhs)}
         );
       }
       const resumeFunc = this.constructResumeFunctionType(resumeType, env);
-      const { env: nextEnv } = addEnvValueType({
+      const { env: nextEnv } = addEnvVariableValue({
         env,
-        valueType: {
+        variableValue: {
           variableName: "resume",
           type: resumeFunc,
           kind: "value",
@@ -1291,9 +1312,9 @@ ${exprToString(lhs)}
           effectOperationAbortType,
           env
         );
-        const { env: nextEnv } = addEnvValueType({
+        const { env: nextEnv } = addEnvVariableValue({
           env,
-          valueType: {
+          variableValue: {
             variableName: "abort",
             type: abortFunc,
             kind: "value",
@@ -1391,7 +1412,7 @@ ${exprToString(lhs)}
       type: "Function",
       kind: "Free",
       permission: "own",
-      functionId: generateValueTypeId(env, "resume"),
+      functionId: generateVarialeValueId(env, "resume"),
       effects: [],
       // hasMoreEffects: false,
       typeParameters: [],
@@ -1400,10 +1421,13 @@ ${exprToString(lhs)}
       parameterTypes: [
         {
           name: "value",
-          parameterId: generateValueTypeId(env, "value"),
+          parameterId: generateVarialeValueId(env, "value"),
           type: resumeType,
           isMutable: false,
           defaultValue: null,
+          order: {
+            default: 1,
+          },
         },
       ],
       isClosure: false,
@@ -1420,7 +1444,7 @@ ${exprToString(lhs)}
       type: "Function",
       kind: "Free",
       permission: "own",
-      functionId: generateValueTypeId(env, "abort"),
+      functionId: generateVarialeValueId(env, "abort"),
       effects: [],
       // hasMoreEffects: false,
       typeParameters: [],
@@ -1429,10 +1453,13 @@ ${exprToString(lhs)}
       parameterTypes: [
         {
           name: "value",
-          parameterId: generateValueTypeId(env, "value"),
+          parameterId: generateVarialeValueId(env, "value"),
           type: abortType,
           isMutable: false,
           defaultValue: null,
+          order: {
+            default: 1,
+          },
         },
       ],
       isClosure: false,
@@ -1863,12 +1890,12 @@ Got:      <${functionTypeArgumentsInOrder
     deltaFrame?: number;
   }): {
     env: Environment;
-    value: ValueType;
+    value: VariableValue;
   } {
     const tempVariableName = generateNewTempVariableName(env);
-    const { env: nextEnv, value } = addEnvValueType({
+    const { env: nextEnv, value } = addEnvVariableValue({
       env,
-      valueType: {
+      variableValue: {
         variableName: tempVariableName,
         type: valueType,
         kind: "value",
@@ -1877,6 +1904,7 @@ Got:      <${functionTypeArgumentsInOrder
         referedVariable,
       },
       deltaFrame: deltaFrame ?? 0,
+      lifetimeOrder: referedVariable?.order,
     });
 
     return {
@@ -2224,28 +2252,28 @@ Got:      <${appliedTypeArguments
     }
 
     // Check if variable is defined
-    const valueTypes = [
-      ...getEnvValueTypesByVariableName(env, identifier, "value"),
-      ...getEnvValueTypesByVariableName(env, identifier, "class"),
-      ...getEnvValueTypesByVariableName(env, identifier, "type"),
+    const variableValues = [
+      ...getEnvVariableValueByVariableName(env, identifier, "value"),
+      ...getEnvVariableValueByVariableName(env, identifier, "class"),
+      ...getEnvVariableValueByVariableName(env, identifier, "type"),
     ];
-    if (valueTypes.length === 0) {
+    if (variableValues.length === 0) {
       throw this.formatErrorMessage(
         tokens[identifierTokenIndex],
         `Unbounded variable \`${identifier}\``
       );
     }
-    const matchedFunctions = valueTypes.filter(
-      (valueType) => valueType.type.type === "Function"
+    const matchedFunctions = variableValues.filter(
+      (value) => value.type.type === "Function"
     );
     const matchedFunctionErrors: Error[] = [];
-    const matchedTypeclasses = valueTypes.filter(
-      (valueType) => valueType.class && valueType.kind === "class"
+    const matchedTypeclasses = variableValues.filter(
+      (value) => value.class && value.kind === "class"
     );
-    const matchedEnums = valueTypes.filter(
-      (valueType) =>
-        valueType.type.type === "Enum" &&
-        (valueType.kind === "type" || valueType.kind === "value")
+    const matchedEnums = variableValues.filter(
+      (value) =>
+        value.type.type === "Enum" &&
+        (value.kind === "type" || value.kind === "value")
     );
 
     // Check if it's a typeclass
@@ -2390,7 +2418,7 @@ Found possible enums:
     ) {
       // Try all matchedFunctions to see if there is a match
       const parserReturns: ParserReturn[] = [];
-      const parsedFunctions: ValueType[] = [];
+      const parsedFunctions: VariableValue[] = [];
       for (const functionType of matchedFunctions) {
         try {
           parserReturns.push(
@@ -2454,28 +2482,44 @@ ${matchedFunctionErrors[i] ?? ""}`
       }
     }
 
-    const valueTypes_ = getEnvValueTypesByVariableName(
+    const variableValues_ = getEnvVariableValueByVariableName(
       env,
       identifier,
       "value"
     );
-    if (valueTypes_.length === 0) {
+    if (variableValues_.length === 0) {
       throw this.formatErrorMessage(
         tokens[index],
         `Unbounded variable \`${identifier}\``
       );
     }
 
-    const valueType = valueTypes_[valueTypes_.length - 1];
-    const typeValue = valueType.type;
+    // Remove consumed variables
+    const notConsumedVariableValues = variableValues_.filter(
+      (value) => !value.consumedAtToken
+    );
+    if (notConsumedVariableValues.length === 0) {
+      throw formatErrorMessages({
+        inputString: this.inputString,
+        modulePath: this.modulePath,
+        errorMessage: `Cannot use the variable \`${identifier}\`.`,
+        tokenAndErrorList: variableValues_.map((value) => ({
+          token: value.consumedAtToken!,
+          errorMessage: `The Linear value defined before \`${identifier}\` was consumed here:`,
+        })),
+      });
+    }
+
+    const variableValue =
+      notConsumedVariableValues[notConsumedVariableValues.length - 1];
+    const typeValue = variableValue.type;
     const isFreeVariable =
-      valueType.frameLevel <= env.functionDeclarationFrameLevel;
+      variableValue.frameLevel <= env.functionDeclarationFrameLevel;
 
     /*
     NOTE: We shouldn't check here because 
     we might perform type coercion.  
-    
-    if (valueType.consumedAtToken) {
+    if (variableValue.consumedAtToken) {
       throw formatErrorMessages({
         modulePath: this.modulePath,
         inputString: this.inputString,
@@ -2485,7 +2529,7 @@ ${matchedFunctionErrors[i] ?? ""}`
             errorMessage: `Variable \`${identifier}\` is already consumed.`,
           },
           {
-            token: valueType.consumedAtToken,
+            token: variableValue.consumedAtToken,
             errorMessage: `Previously consumed here:`,
           },
         ],
@@ -2495,17 +2539,17 @@ ${matchedFunctionErrors[i] ?? ""}`
 
     // Add free variables to env
     if (isFreeVariable) {
-      env = addEnvFreeVariable(env, valueType);
+      env = addEnvFreeVariable(env, variableValue);
     }
 
     return {
       expr: {
         type: AstType.Variable,
         variableName: identifier,
-        variableId: valueType.id,
+        variableId: variableValue.id,
         typeValue,
-        frameLevel: valueType.frameLevel,
-        isMutable: !!valueType.isMutable,
+        frameLevel: variableValue.frameLevel,
+        isMutable: !!variableValue.isMutable,
         env,
         token: tokens[identifierTokenIndex],
         // isFreeVariable,
@@ -2588,13 +2632,17 @@ ${matchedFunctionErrors[i] ?? ""}`
     const symbol = `@${tokens[index].value}`;
 
     // Check if variable is defined
-    const valueTypes = getEnvValueTypesByVariableName(env, symbol, "value");
-    if (valueTypes.length === 0) {
+    const variableValues = getEnvVariableValueByVariableName(
+      env,
+      symbol,
+      "value"
+    );
+    if (variableValues.length === 0) {
       return this.parseSymbolValue({ tokens, index, env });
     }
 
-    const matchedFunctions = valueTypes.filter(
-      (valueType) => valueType.type.type === "Function"
+    const matchedFunctions = variableValues.filter(
+      (value) => value.type.type === "Function"
     );
     const matchedFunctionErrors: Error[] = [];
     // Check if it's a function
@@ -2609,7 +2657,7 @@ ${matchedFunctionErrors[i] ?? ""}`
     ) {
       // Try all matchedFunctions to see if there is a match
       const parserReturns: ParserReturn[] = [];
-      const parsedFunctions: ValueType[] = [];
+      const parsedFunctions: VariableValue[] = [];
       for (const functionType of matchedFunctions) {
         try {
           parserReturns.push(
@@ -3217,18 +3265,18 @@ ${matchedFunctionErrors[i] ?? ""}`
       }
 
       // Find the infix function
-      const valueTypes = getEnvValueTypesByVariableName(
+      const variableValues = getEnvVariableValueByVariableName(
         env,
         operatorString,
         "value"
       );
-      const matchedFunctions = valueTypes.filter(
-        (valueType) => valueType.type.type === "Function"
+      const matchedFunctions = variableValues.filter(
+        (value) => value.type.type === "Function"
       );
       const matchedFunctionErrors: Error[] = [];
       // Try all matchedFunctions to see if there is a match
       const parserReturns: ParserReturn[] = [];
-      const parsedFunctions: ValueType[] = [];
+      const parsedFunctions: VariableValue[] = [];
       for (const matchedFunction of matchedFunctions) {
         try {
           const functionType = matchedFunction.type as TFunction;
@@ -3392,18 +3440,18 @@ ${matchedFunctionErrors[i] ?? ""}`
     index = nextIndex;
 
     // Find the unary function
-    const valueTypes = getEnvValueTypesByVariableName(
+    const variableValues = getEnvVariableValueByVariableName(
       env,
       operatorToken.value,
       "value"
     );
-    const matchedFunctions = valueTypes.filter(
-      (valueType) => valueType.type.type === "Function"
+    const matchedFunctions = variableValues.filter(
+      (value) => value.type.type === "Function"
     );
     const matchedFunctionErrors: Error[] = [];
     // Try all matchedFunctions to see if there is a match
     const parserReturns: ParserReturn[] = [];
-    const parsedFunctions: ValueType[] = [];
+    const parsedFunctions: VariableValue[] = [];
     for (const matchedFunction of matchedFunctions) {
       try {
         const functionType = matchedFunction.type as TFunction;
@@ -3631,7 +3679,11 @@ ${matchedFunctionErrors[i] ?? ""}`
       nextEnv,
       returnExpr
     );
-    if (referedVariable) {
+
+    if (
+      referedVariable &&
+      referedVariable.frameLevel === env.frames.length - 1
+    ) {
       throw this.formatErrorMessage(
         returnExpr.token,
         "Cannot return a reference defined in the function body, not the function parameter."
@@ -3664,9 +3716,39 @@ ${matchedFunctionErrors[i] ?? ""}`
           token: tokens[blockTokenIndex],
           valueType: returnType,
           deltaFrame: -1,
+          referedVariable,
         });
       env = nextNextNextEnv;
       tempVariableName = value.variableName;
+      // console.log("block: value", value);
+      // console.log("here: ", value.order, value.variableName, referedVariable);
+    } else {
+      // console.log("block: ", tempVariableName, referedVariable);
+      if (referedVariable) {
+        const tempVariableValues = getEnvVariableValueByVariableName(
+          env,
+          tempVariableName
+        );
+        const tempVariableValue = tempVariableValues[0];
+        if (tempVariableValue) {
+          // console.log("block tempVariableValue: ", tempVariableValue);
+          if (
+            !tempVariableValue.referedVariable ||
+            tempVariableValue.order < referedVariable.order
+          ) {
+            const newTempVariableValue: VariableValue = {
+              ...tempVariableValue,
+              referedVariable,
+              order: referedVariable.order,
+            };
+            env = updateExistingVariableValue(
+              env,
+              tempVariableValue,
+              newTempVariableValue
+            );
+          }
+        }
+      }
     }
 
     env = popEnvFrame(env);
@@ -3822,6 +3904,22 @@ ${exprToString(expr)}`,
         errorMessage: `Cannot consume variable: ${exprToString(expr)}`,
         cause: error,
       });
+    }
+  }
+
+  private getVariableLifetimeOrder(env: Environment, expr: Expr): number {
+    if (
+      expr.type === AstType.PropertyAccess ||
+      expr.type === AstType.IndexAccess ||
+      expr.type === AstType.ReadWrite
+    ) {
+      return this.getVariableLifetimeOrder(env, expr.expr);
+    } else if (expr.type === AstType.Variable) {
+      return getEnvVariableLifetimeOrder(env, expr.variableName);
+    } else {
+      throw new Error(
+        "getVariableLifetimeOrder to be implemented:\n" + exprToString(expr)
+      );
     }
   }
 
@@ -4028,9 +4126,9 @@ ${exprToString(expr)}\n`,
       });
 
       // Add variable to env
-      const { env: nextNextEnv } = addEnvValueType({
+      const { env: nextNextEnv } = addEnvVariableValue({
         env,
-        valueType: {
+        variableValue: {
           variableName,
           type: typeValue,
           isMutable: false,
@@ -4184,13 +4282,13 @@ Found:
     }
 
     // Update the tempVariable type
-    env = updateExistingValueType(env, tempVariable, {
+    env = updateExistingVariableValue(env, tempVariable, {
       ...tempVariable,
       type: expectedReturnType,
     });
 
     // Merge and check all environments
-    env = mergeAndCheckEnv(env, cases);
+    env = mergeAndCheckEnv(env, cases, tempVariableName);
 
     return {
       expr: {
@@ -4442,13 +4540,13 @@ ${typeToString(caseReturnType)}
     }
 
     // Update the tempVariable type
-    env = updateExistingValueType(env, tempVariable, {
+    env = updateExistingVariableValue(env, tempVariable, {
       ...tempVariable,
       type: returnType,
     });
 
     // Merge and check all environments
-    env = mergeAndCheckEnv(env, cases);
+    env = mergeAndCheckEnv(env, cases, tempVariableName);
 
     return {
       expr: {
@@ -4492,7 +4590,7 @@ ${typeToString(caseReturnType)}
     switch (enumExpr.type) {
       case AstType.Variable: {
         const variableName = enumExpr.variableName;
-        const values = getEnvValueTypesByVariableName(env, variableName);
+        const values = getEnvVariableValueByVariableName(env, variableName);
         if (values.length === 0) {
           throw new Error(`Unknown variable "${variableName}"`);
         }
@@ -4505,12 +4603,12 @@ ${typeToString(caseReturnType)}
           ...enumType,
           selectedVariantName: variantName,
         };
-        const newValueType: ValueType = {
+        const newVariableValue: VariableValue = {
           ...value,
           type: newEnumType,
         };
 
-        return updateExistingValueType(env, value, newValueType);
+        return updateExistingVariableValue(env, value, newVariableValue);
       }
       default: {
         break;
@@ -4602,9 +4700,9 @@ ${typeToString(caseReturnType)}
       index = nextIndex;
       env = nextEnv;
 
-      const { env: nextNextEnv } = addEnvValueType({
+      const { env: nextNextEnv } = addEnvVariableValue({
         env,
-        valueType: {
+        variableValue: {
           variableName,
           type: userDefinedVariableType,
           kind: "value",
@@ -4637,9 +4735,9 @@ ${typeToString(caseReturnType)}
           functionName: variableName,
         });
         userDefinedVariableType = typeValue;
-        const { env: nextEnv } = addEnvValueType({
+        const { env: nextEnv } = addEnvVariableValue({
           env,
-          valueType: {
+          variableValue: {
             variableName,
             type: userDefinedVariableType,
             kind: "value",
@@ -4719,10 +4817,19 @@ Got:      ${typeToString(variableType)}`
       );
     }
 
-    // Add variable to env
-    const { env: nextEnv, value: valueType } = addEnvValueType({
+    // Consume RHS value if necessary
+    const { env: nextNextEnv, referedVariable } = this.setVariableAsConsumed(
       env,
-      valueType: {
+      value
+    );
+    env = nextNextEnv;
+
+    // console.log("let= referedVariable: ", referedVariable);
+
+    // Add variable to env
+    const { env: nextEnv, value: variableValue } = addEnvVariableValue({
+      env,
+      variableValue: {
         variableName,
         type: finalType,
         kind: "value",
@@ -4731,32 +4838,20 @@ Got:      ${typeToString(variableType)}`
         isUninitialized: false,
         operatorPrecedence,
         token: tokens[variableNameTokenIndex],
+        referedVariable,
       },
       preventDuplicate: true,
       variableId,
+      lifetimeOrder: referedVariable?.order,
     });
     env = nextEnv;
-
-    // Consume RHS value if necessary
-    const { env: nextNextEnv /* referedVariable */ } =
-      this.setVariableAsConsumed(env, value);
-    env = nextNextEnv;
-
-    /*
-    if (referedVariable) {
-      env = setEnvVariableReferedVariable({
-        env,
-        variableNameToken: tokens[variableNameTokenIndex],
-        referedVariable,
-      });
-    }
-    */
+    // console.log("let= valueType: ", valueType);
 
     return {
       expr: {
         type: AstType.LetAssignment,
         variableName,
-        variableId: valueType.id,
+        variableId: variableValue.id,
         isMutable,
         variableType: finalType,
         right: value,
@@ -4834,7 +4929,7 @@ ${exprToString(expr)}`
       }
     }
     newTypeValue.permission = isRead ? "read" : "write";
-    // newTypeValue.kind = "Free";
+    newTypeValue.kind = "Free"; // NOTE: <- this is necessary
 
     // Check if the value is consumed
     try {
@@ -4867,6 +4962,7 @@ ${exprToString(expr)}`,
         isMutableReference: !isRead,
         isForAssignment: false,
       });
+    // console.log("read/write referedVariable: ", referedVariable);
     // Create temp variable for holding the value
     const { env: nextNextEnv, value: tempVariable } =
       this.generateTempVariableForHoldingValue({
@@ -4875,6 +4971,7 @@ ${exprToString(expr)}`,
         valueType: newTypeValue,
         referedVariable,
       });
+    // console.log("read/write temp value: ", tempVariable);
 
     return {
       expr: {
@@ -4938,9 +5035,9 @@ ${typeToString(recordType, { extractTypeConstructor: true })}`
       }
 
       // Add variable to env
-      const { env: nextEnv } = addEnvValueType({
+      const { env: nextEnv } = addEnvVariableValue({
         env,
-        valueType: {
+        variableValue: {
           variableName: asName ?? name,
           type: propertyType,
           kind: "value",
@@ -5102,9 +5199,9 @@ ${typeToString(valueType, { extractTypeConstructor: true })}`
             }
 
             // Add variable to env
-            const { env: nextEnv } = addEnvValueType({
+            const { env: nextEnv } = addEnvVariableValue({
               env,
-              valueType: {
+              variableValue: {
                 variableName: asName ?? name,
                 type: propertyType,
                 kind: "value",
@@ -5314,9 +5411,9 @@ ${typeToString(valueType)}`
 
     // NOTE: This is necessary for type parameters and recursive type alias
     env = pushEnvFrame(env);
-    const { env: nextEnv } = addEnvValueType({
+    const { env: nextEnv } = addEnvVariableValue({
       env,
-      valueType: {
+      variableValue: {
         variableName: typeName,
         type: {
           type: "unknown",
@@ -5441,15 +5538,15 @@ ${typeToString(nextTypeValue)}`
       kind,
       permission: "own",
       name: typeName,
-      typeConstructorId: generateValueTypeId(env, typeName),
+      typeConstructorId: generateVarialeValueId(env, typeName),
       typeParameters,
       regionParameters,
       typeValue,
     };
 
-    const { env: nextNextEnv } = addEnvValueType({
+    const { env: nextNextEnv } = addEnvVariableValue({
       env,
-      valueType: {
+      variableValue: {
         variableName: typeName,
         type: typeConstructor,
         kind: "type",
@@ -5528,9 +5625,9 @@ ${typeToString(nextTypeValue)}`
 
     // NOTE: This is necessary for type parameters and recursive type alias
     env = pushEnvFrame(env);
-    const { env: nextEnv } = addEnvValueType({
+    const { env: nextEnv } = addEnvVariableValue({
       env,
-      valueType: {
+      variableValue: {
         variableName: typeclassName,
         type: {
           type: "unknown",
@@ -5687,7 +5784,7 @@ ${typeToString(functionType)}
       kind: "Free",
       permission: "own",
       name: typeclassName,
-      classId: generateValueTypeId(env, typeclassName),
+      classId: generateVarialeValueId(env, typeclassName),
       typeParameters,
       regionParameters,
       functions,
@@ -5695,9 +5792,9 @@ ${typeToString(functionType)}
     };
 
     // Add to environment
-    const { env: nextNextEnv } = addEnvValueType({
+    const { env: nextNextEnv } = addEnvVariableValue({
       env,
-      valueType: {
+      variableValue: {
         variableName: typeclassName,
         type: TypeValues.unit,
         class: class_,
@@ -5713,9 +5810,9 @@ ${typeToString(functionType)}
     for (let i = 0; i < functions.length; i++) {
       const func = functions[i];
       if (func.functionExpr) {
-        const { env: nextEnv } = addEnvValueType({
+        const { env: nextEnv } = addEnvVariableValue({
           env,
-          valueType: {
+          variableValue: {
             variableName: func.name,
             type: func.func,
             kind: "value",
@@ -5800,7 +5897,7 @@ ${typeToString(functionType)}
     index = index + 1;
 
     // Find the class from env
-    const typeclasses = getEnvValueTypesByVariableName(
+    const typeclasses = getEnvVariableValueByVariableName(
       env,
       typeclassName,
       "class"
@@ -5986,9 +6083,9 @@ Got:      ${typeToString(matchedFunction.func)}`
     // Add each function to env
     for (let i = 0; i < functions.length; i++) {
       const func = functions[i];
-      const { env: nextEnv } = addEnvValueType({
+      const { env: nextEnv } = addEnvVariableValue({
         env,
-        valueType: {
+        variableValue: {
           variableName: func.name,
           type: func.func,
           kind: "value",
@@ -6001,9 +6098,9 @@ Got:      ${typeToString(matchedFunction.func)}`
     }
 
     // Add instance to environment
-    const { env: nextEnv } = addEnvValueType({
+    const { env: nextEnv } = addEnvVariableValue({
       env,
-      valueType: {
+      variableValue: {
         variableName: typeclassName,
         type: TypeValues.unit,
         class: newClass,
@@ -6095,15 +6192,15 @@ Got:      ${typeToString(matchedFunction.func)}`
 
     const fakeEffect: TEffect = {
       effectName,
-      effectId: generateValueTypeId(env, effectName),
+      effectId: generateVarialeValueId(env, effectName),
       operations: [],
       type: "Effect",
       regionParameters: regionParameters,
       typeParameters: typeParameters,
     };
-    const { env: nextEnv } = addEnvValueType({
+    const { env: nextEnv } = addEnvVariableValue({
       env,
-      valueType: {
+      variableValue: {
         variableName: effectName,
         type: {
           type: "unknown",
@@ -6231,9 +6328,9 @@ ${operationName}: ${typeToString(
       regionParameters,
       typeParameters,
     };
-    const { env: nextNextEnv } = addEnvValueType({
+    const { env: nextNextEnv } = addEnvVariableValue({
       env,
-      valueType: {
+      variableValue: {
         variableName: effectName,
         type: TypeValues.unit,
         effect: effectType,
@@ -6290,9 +6387,9 @@ ${operationName}: ${typeToString(
 
     // NOTE: This is necessary for type parameters and recursive type alias
     env = pushEnvFrame(env);
-    const { env: nextEnv } = addEnvValueType({
+    const { env: nextEnv } = addEnvVariableValue({
       env,
-      valueType: {
+      variableValue: {
         variableName: enumName,
         type: {
           type: "unknown",
@@ -6462,9 +6559,9 @@ ${operationName}: ${typeToString(
     };
 
     // Add to environment
-    const { env: nextNextEnv } = addEnvValueType({
+    const { env: nextNextEnv } = addEnvVariableValue({
       env,
-      valueType: {
+      variableValue: {
         variableName: enumName,
         type: enumType,
         kind: "type",
@@ -6483,9 +6580,9 @@ ${operationName}: ${typeToString(
         ...enumType,
         selectedVariantName: variant.name,
       };
-      const { env: nextEnv } = addEnvValueType({
+      const { env: nextEnv } = addEnvVariableValue({
         env,
-        valueType: {
+        variableValue: {
           variableName: variant.name,
           type: newEnumType,
           kind: "value",
@@ -6860,7 +6957,11 @@ ${exprToString(expr)}`
       const effectName = tokens[index].value;
 
       // Find the effect from env
-      const effects = getEnvValueTypesByVariableName(env, effectName, "effect");
+      const effects = getEnvVariableValueByVariableName(
+        env,
+        effectName,
+        "effect"
+      );
       if (effects.length === 0) {
         throw this.formatErrorMessage(
           tokens[index],
@@ -7043,9 +7144,9 @@ Got:      ${typeToString(matchedOperation.func)}`
       // Add operations to env
       for (let i = 0; i < operations.length; i++) {
         const operation = operations[i];
-        const { env: nextEnv } = addEnvValueType({
+        const { env: nextEnv } = addEnvVariableValue({
           env,
-          valueType: {
+          variableValue: {
             variableName: operation.name,
             type: operation.func,
             kind: "value",
@@ -7691,9 +7792,9 @@ Please consider adding "Promise" to the return type.
       const moduleFrame = module.env.frames[0];
       for (const value of moduleFrame.values) {
         if (value.isExported) {
-          const { env: nextEnv } = addEnvValueType({
+          const { env: nextEnv } = addEnvVariableValue({
             env,
-            valueType: { ...value, isExported: !!isExported },
+            variableValue: { ...value, isExported: !!isExported },
           });
           env = nextEnv;
         }
@@ -7713,14 +7814,17 @@ Please consider adding "Promise" to the return type.
     } else {
       for (const destructuring of destructurings) {
         const variableName = destructuring.name;
-        const values = getEnvValueTypesByVariableName(module.env, variableName);
+        const values = getEnvVariableValueByVariableName(
+          module.env,
+          variableName
+        );
         let importedCount = 0;
         for (const value of values) {
           if (value.isExported) {
             importedCount += 1;
-            const { env: nextEnv } = addEnvValueType({
+            const { env: nextEnv } = addEnvVariableValue({
               env,
-              valueType: {
+              variableValue: {
                 ...value,
                 variableName: destructuring.asName ?? variableName,
                 isExported: !!isExported,
