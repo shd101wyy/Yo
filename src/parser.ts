@@ -967,6 +967,7 @@ Found possible functions:
     }
     const lhsTokenIndex = index - 1;
     index = index + 1;
+    const rhsTokenIndex = index;
     const { expr: rhs, index: nextIndex } = this.parseExpression({
       tokens,
       index,
@@ -981,7 +982,13 @@ Found possible functions:
     env = rhs.env;
 
     // Check if the type of rhs matches the type of lhs
-    if (!checkType(lhs.typeValue, rhs.typeValue, env)) {
+    if (
+      !checkType(
+        { ...lhs.typeValue, permission: "own" },
+        { ...rhs.typeValue, permission: "own" },
+        env
+      )
+    ) {
       throw this.formatErrorMessage(
         tokens[index],
         `Mismatched types:
@@ -995,9 +1002,8 @@ ${exprToString(rhs)}
     }
 
     let isMutable = false; // TODO: Check if it's mutable.
-    if (lhs.type === AstType.Variable) {
-      isMutable = lhs.isMutable;
-    } else if (
+    if (
+      lhs.type === AstType.Variable ||
       lhs.type === AstType.IndexAccess ||
       lhs.type === AstType.PropertyAccess
     ) {
@@ -1035,17 +1041,32 @@ ${exprToString(lhs)}
       rhs.typeValue.permission === "read" ||
       rhs.typeValue.permission === "write"
     ) {
-      const lhsOrder = this.getVariableLifetimeOrder(env, lhs);
-      const rhsOrder = this.getVariableLifetimeOrder(env, rhs);
-      if (lhsOrder < rhsOrder) {
-        throw this.formatErrorMessage(
-          tokens[lhsTokenIndex],
-          `Cannot assign a ${
-            rhs.typeValue.permission === "read" ? '"read"' : '"write"'
-          } reference that doesn't outlive the variable it refers to:
+      if (lhs.typeValue.permission === "write") {
+        // This means we can dereference the RHS
+        // and assign the value to the deferenced LHS
+        if (rhs.typeValue.kind === "Free") {
+          // We set the value
+        } else {
+          throw this.formatErrorMessage(
+            tokens[rhsTokenIndex],
+            `Cannot dereference a Linear value:
+${exprToString(rhs)}
+`
+          );
+        }
+      } else {
+        const lhsOrder = this.getVariableLifetimeOrder(env, lhs);
+        const rhsOrder = this.getVariableLifetimeOrder(env, rhs);
+        if (lhsOrder < rhsOrder) {
+          throw this.formatErrorMessage(
+            tokens[lhsTokenIndex],
+            `Cannot assign a ${
+              rhs.typeValue.permission === "read" ? '"read"' : '"write"'
+            } reference that doesn't outlive the variable it refers to:
 LHS order: ${lhsOrder}
 RHS order: ${rhsOrder}`
-        );
+          );
+        }
       }
     }
 
@@ -4806,7 +4827,7 @@ Got:      ${typeToString(variableType)}`
       }
     }
 
-    const finalType = userDefinedVariableType ?? variableType;
+    const finalType: Type = { ...(userDefinedVariableType ?? variableType) };
     if (finalType.permission === "write" && !isMutable) {
       finalType.permission = "read";
     }

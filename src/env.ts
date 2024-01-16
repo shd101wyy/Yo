@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { IfCase, MatchCase } from "./ast";
-import { formatErrorMessages, formatWarningMessages } from "./error";
+import { formatErrorMessages } from "./error";
 import {
   OperatorPrecedence,
   Operators,
@@ -281,6 +281,7 @@ export function popEnvFrame(
         !value.consumedAtToken &&
         value.type.permission === "own"
     );
+    /*
     const unusedFreeValues = frameToPop.values.filter(
       (value) =>
         value.kind === "value" &&
@@ -288,6 +289,7 @@ export function popEnvFrame(
         !value.consumedAtToken &&
         !isTempVariableName(env, value.variableName)
     );
+    */
 
     const uninitializedValues = frameToPop.values.filter(
       (value) => value.isUninitialized
@@ -322,7 +324,7 @@ ${typeToString(value.type)}${
           };
         }),
       });
-    } else if (unusedFreeValues.length > 0) {
+    } /* else if (unusedFreeValues.length > 0) {
       console.warn(
         formatWarningMessages({
           modulePath: env.modulePath,
@@ -335,7 +337,7 @@ ${typeToString(value.type)}${
           }),
         })
       );
-    }
+    }*/
   }
 
   const topFrame = env.frames[env.frames.length - 1];
@@ -546,6 +548,8 @@ export function setEnvVariableAsConsumed({
       });
     }
 
+    // QUESTION: We probably don't need to check this because
+    //           we will set all valuesAfter as consumed.
     if (immutableReferences.length > 0) {
       for (let i = 0; i < immutableReferences.length; i++) {
         const variableValue = getEnvVariableValueByToken(
@@ -574,6 +578,8 @@ export function setEnvVariableAsConsumed({
       */
     }
 
+    // QUESTION: We probably don't need to check this because
+    //           we will set all valuesAfter as consumed.
     if (mutableReferences.length > 0) {
       for (let i = 0; i < mutableReferences.length; i++) {
         const variableValue = getEnvVariableValueByToken(
@@ -654,7 +660,11 @@ export function setEnvVariableAsConsumed({
     }
     // Set all valuesAfter as consumed, no matter Linar or Free.
     valuesAfter.forEach((value) => {
-      if (value.kind === "value") {
+      if (
+        value.kind === "value" &&
+        value.order > variableValue.order &&
+        !value.consumedAtToken
+      ) {
         env = updateExistingVariableValue(env, value, {
           ...value,
           consumedAtToken,

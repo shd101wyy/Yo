@@ -1,11 +1,13 @@
 // Types
 
 import {
+  AssignmentExpr,
   AstType,
   BlockExpr,
   Expr,
   FunctionExpr,
   IfExpr,
+  ReadWriteExpr,
   exprToString,
 } from "./ast";
 import {
@@ -1923,25 +1925,30 @@ export function applyTypeAndRegionArgumentsToExpr({
         }),
       };
     }
-    /*
-    case AstType.UnaryOperator: {
-      return {
+    case AstType.Assignment: {
+      const e: AssignmentExpr = {
         ...expr,
+        right: applyTypeAndRegionArgumentsToExpr({
+          env,
+          expr: expr.right,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap,
+        }),
+        left: applyTypeAndRegionArgumentsToExpr({
+          env,
+          expr: expr.left,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap,
+        }),
         typeValue: applyTypeAndRegionArgumentsToType({
           env,
           type: expr.typeValue,
           typeParameterToTypeArgumentMap,
           regionParameterToRegionArgumentMap,
         }),
-        expr: applyTypeAndRegionArgumentsToExpr({
-          env,
-          expr: expr.expr,
-          typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
-        }),
       };
+      return e;
     }
-    */
     case AstType.Variable: {
       return {
         ...expr,
@@ -2071,6 +2078,24 @@ export function applyTypeAndRegionArgumentsToExpr({
           regionParameterToRegionArgumentMap,
         }),
       };
+    }
+    case AstType.ReadWrite: {
+      const e: ReadWriteExpr = {
+        ...expr,
+        expr: applyTypeAndRegionArgumentsToExpr({
+          expr: expr.expr,
+          env,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap,
+        }),
+        typeValue: applyTypeAndRegionArgumentsToType({
+          type: expr.typeValue,
+          env,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap,
+        }),
+      };
+      return e;
     }
 
     default:
@@ -2673,25 +2698,26 @@ export function synthesizeFunctionTypeFromTokens({
       returnType = nextReturnType;
     }
 
+    const functionType: TFunction = {
+      type: "Function",
+      kind: "Free",
+      permission: "own",
+      functionId:
+        functionName === "main" || functionName?.startsWith("@") // compiletime functions
+          ? functionName
+          : generateVarialeValueId(env, functionName ?? "anonymousFunction"),
+      parameterTypes,
+      typeParameters,
+      regionParameters,
+      returnType,
+      effects,
+      // hasMoreEffects,
+      isClosure,
+      freeVariables: undefined,
+      frameLevel,
+    };
     return {
-      typeValue: {
-        type: "Function",
-        kind: "Free",
-        permission: "own",
-        functionId:
-          functionName === "main" || functionName?.startsWith("@") // compiletime functions
-            ? functionName
-            : generateVarialeValueId(env, functionName ?? "anonymousFunction"),
-        parameterTypes,
-        typeParameters,
-        regionParameters,
-        returnType,
-        effects,
-        // hasMoreEffects,
-        isClosure,
-        freeVariables: undefined,
-        frameLevel,
-      },
+      typeValue: functionType,
       index,
       env,
     };

@@ -1553,7 +1553,7 @@ let map = <A: Type, B: Type>
 
 ## Modules
 
-Same as the ECMAScript modules, we use the `import` and `export` keywords to import and export modules. The syntax is extended a bit.
+Similar to the ECMAScript modules, we use the `import` and `export` keywords to import and export modules. The syntax is changed and extended a bit.
 
 ```typescript
 import { copy } from "https://github.com/mo-lang/mo/std/fs.mo";
@@ -1587,7 +1587,7 @@ export "C" {
 ```typescript
 // There is no `default` export.
 import {*} from "./test.mo"; // Import everything from test.mo
-import * as Test from "./test.mo"; // Import everything from test.mo and put it in the Test namespace
+import {*}  as Test from "./test.mo"; // Import everything from test.mo and put it in the Test namespace
 import { test } from "./test.mo"; // Import test function from test.mo
 import { test as test2 } from "./test.mo"; // Import test function from test.mo and rename it to test2
 

@@ -1,11 +1,13 @@
 import { createHash } from "crypto";
 import {
+  AssignmentExpr,
   AstType,
   BlockExpr,
   CallFunctionExpr,
   Expr,
   FunctionExpr,
   IfExpr,
+  ReadWriteExpr,
 } from "../ast";
 import { Emitter } from "../emitter";
 import { generateModuleId } from "../env";
@@ -63,55 +65,75 @@ export class CodeGeneratorC {
   }
 
   getTypeInC(type: Type): string {
+    let typeString = "";
     switch (type.type) {
       case "i8": {
-        return "int8_t";
+        typeString = "int8_t";
+        break;
       }
       case "i16": {
-        return "int16_t";
+        typeString = "int16_t";
+        break;
       }
       case "i32": {
-        return "int32_t";
+        typeString = "int32_t";
+        break;
       }
       case "i64": {
-        return "int64_t";
+        typeString = "int64_t";
+        break;
       }
       // FIXME: i128
       case "u8": {
-        return "uint8_t";
+        typeString = "uint8_t";
+        break;
       }
       case "u16": {
-        return "uint16_t";
+        typeString = "uint16_t";
+        break;
       }
       case "u32": {
-        return "uint32_t";
+        typeString = "uint32_t";
+        break;
       }
       case "u64": {
-        return "uint64_t";
+        typeString = "uint64_t";
+        break;
       }
       // FIXME: u128
       case "f32": {
-        return "float";
+        typeString = "float";
+        break;
       }
       case "f64": {
-        return "double";
+        typeString = "double";
+        break;
       }
       case "boolean": {
         return "bool";
       }
       case "char": {
-        return "char";
+        typeString = "char";
+        break;
       }
       case "symbol": {
-        return "char*";
+        typeString = "char*";
+        break;
       }
       case "()": {
-        return "struct Unit";
+        typeString = "struct Unit";
+        break;
       }
       default: {
         throw new Error(`Unimplemented type ${typeToString(type)}`);
       }
     }
+
+    if (type.permission === "read" || type.permission === "write") {
+      typeString += "*";
+    }
+
+    return typeString;
   }
 
   codegenExprs({ exprs }: { exprs: Expr[] }): string {
@@ -367,7 +389,7 @@ export class CodeGeneratorC {
     const exprs = blockExpr.exprs;
     for (let i = 0; i < exprs.length; i++) {
       if (i === exprs.length - 1) {
-        code += this.codegenAssignment({
+        code += this.codegenAssignmentByVariableId({
           variableId: blockExpr.tempVariableName,
           rhs: exprs[i],
           indentation,
@@ -441,7 +463,7 @@ export class CodeGeneratorC {
     return code;
   }
 
-  codegenAssignment({
+  codegenAssignmentByVariableId({
     variableId,
     rhs,
     indentation,
@@ -474,6 +496,8 @@ ${
     ? ""
     : `${indentation}${variableId} = ${rhs.tempVariableName};\n`
 }`;
+    } else if (rhs.type === AstType.ReadWrite) {
+      code += `${this.codegenReadWrite({ expr: rhs, indentation })};\n`;
     } else {
       code += `${indentation}${variableId} = ${this.codegenExpr({
         expr: rhs,
@@ -540,6 +564,27 @@ ${
     return code;
   }
 
+  codegenReadWrite({
+    expr,
+    indentation,
+  }: {
+    expr: ReadWriteExpr;
+    indentation: string;
+  }): string {
+    let code = "";
+    // Add temp variable;
+    code += `${indentation}${this.getTypeInC(expr.typeValue)} ${
+      expr.tempVariableName
+    };\n`;
+
+    code += `${indentation}${expr.tempVariableName} = &(${this.codegenExpr({
+      expr: expr.expr,
+      indentation,
+    })})`;
+
+    return code;
+  }
+
   getFunctionArgumentsStringList({
     functionArguments,
     code,
@@ -553,7 +598,7 @@ ${
     for (let i = 0; i < functionArguments.length; i++) {
       const argument = functionArguments[i];
       if ("tempVariableName" in argument) {
-        code += this.codegenAssignment({
+        code += this.codegenAssignmentByVariableId({
           variableId: argument.tempVariableName,
           rhs: argument,
           indentation,
@@ -572,6 +617,33 @@ ${
       functionArgumentStringList,
       code,
     };
+  }
+
+  codegenAssignment({
+    expr,
+    indentation,
+  }: {
+    expr: AssignmentExpr;
+    indentation: string;
+  }): string {
+    let code = `// assignment\n`;
+    if (
+      expr.left.typeValue.permission === "read" ||
+      expr.left.typeValue.permission === "write"
+    ) {
+      code += `${indentation}*`;
+    } else {
+      code += `${indentation}`;
+    }
+    code += `${this.codegenExpr({ expr: expr.left, indentation: "" })} = `;
+    if (
+      expr.right.typeValue.permission === "read" ||
+      expr.right.typeValue.permission === "write"
+    ) {
+      code += "*";
+    }
+    code += `${this.codegenExpr({ expr: expr.right, indentation: "" })};\n`;
+    return code;
   }
 
   codegenExpr({
@@ -620,13 +692,16 @@ ${
           let code = `${this.getTypeInC(rhs.typeValue)} ${
             expr.variableId
           }; // ${expr.variableName}\n`;
-          code += this.codegenAssignment({
+          code += this.codegenAssignmentByVariableId({
             variableId: expr.variableId,
             rhs,
             indentation,
           });
           return code;
         }
+      }
+      case AstType.Assignment: {
+        return this.codegenAssignment({ expr, indentation });
       }
       case AstType.Block: {
         return (
@@ -654,11 +729,16 @@ ${
         }
         return "";
       }
+      case AstType.ReadWrite: {
+        return this.codegenReadWrite({ expr, indentation });
+      }
+      case AstType.Import:
+      case AstType.Export:
       case AstType.Infix: {
         return "";
       }
       default: {
-        throw new Error(`Unimplemented expr type "${expr.type}"`);
+        throw new Error(`Codegen: Unimplemented expr type "${expr.type}"`);
       }
     }
   }
