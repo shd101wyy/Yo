@@ -522,6 +522,8 @@ export function exprToString(expr: Expr, indentation = ""): string {
             expr.typeValue.type === "string"
           ) {
             return JSON.stringify(expr.value);
+          } else if (expr.typeValue.type === "symbol") {
+            return `@${JSON.stringify(expr.value)}`;
           }
           return expr.value;
         case "record":

@@ -1637,6 +1637,7 @@ RHS order: ${rhsOrder}`
       env = nextEnv;
     }
 
+    const lParenIndex = index;
     const functionArguments: Expr[] = [];
     if (firstArgument) {
       functionArguments.push(firstArgument);
@@ -1876,6 +1877,77 @@ Got:      <${functionTypeArgumentsInOrder
       }
     }
 
+    // Check the order of the arguments
+    const functionArgumentOrders = functionArgumentsInOrder.map((arg) =>
+      this.getVariableLifetimeOrder(env, arg)
+    );
+    // console.log("functionArgumentOrders: ", functionArgumentOrders);
+
+    const functionParameterOrders = calleeTypeValue.parameterTypes.map(
+      (parameter) => parameter.order.assigned ?? parameter.order.default
+    );
+    // console.log("functionParameterOrders: ", functionParameterOrders);
+
+    const orderMap: { [key: number]: number | undefined } = {};
+    const functionArgumentMap: { [key: number]: Expr } = {};
+    const functionParameterMap: { [key: number]: TParameterType } = {};
+    for (let i = 0; i < functionArgumentsInOrder.length; i++) {
+      const functionArgumentOrder = functionArgumentOrders[i];
+      const functionParameterOrder = functionParameterOrders[i];
+      const functionParameter = calleeTypeValue.parameterTypes[i];
+      const functionArgument = functionArgumentsInOrder[i];
+      if (functionParameter.type.permission === "own") {
+        // Ignore the lifetime order check
+        orderMap[functionParameterOrder] = undefined;
+      } else {
+        orderMap[functionParameterOrder] = functionArgumentOrder;
+      }
+      functionArgumentMap[functionParameterOrder] = functionArgument;
+      functionParameterMap[functionParameterOrder] = functionParameter;
+    }
+
+    // Check if the order is increasing
+    let previousOrder = 0;
+    for (let i = 0; i < functionArgumentsInOrder.length; i++) {
+      const functionArgumentOrder = orderMap[i + 1];
+      const functionParameter = functionParameterMap[i + 1];
+      const functionArgument = functionArgumentMap[i + 1];
+      if (functionArgumentOrder === undefined) {
+        // Set argument as consumed if necessary
+        if (functionArgument && functionParameter) {
+          if (functionParameter.type.permission === "own") {
+            const { env: nextEnv } = this.setVariableAsConsumed(
+              env,
+              functionArgument
+            );
+            env = nextEnv;
+          }
+        }
+
+        continue;
+      } else if (
+        functionArgumentOrder < previousOrder
+        // We allow ==
+      ) {
+        throw this.formatErrorMessage(
+          tokens[lParenIndex],
+          `Wrong lifetime order of function arguments:
+Expected: ${typeToString(calleeTypeValue)}
+Got     : (${functionArgumentsInOrder
+            .map(
+              (arg, index) =>
+                exprToString(arg) + ` @${functionArgumentOrders[index]}`
+            )
+            .join(", ")}) 
+`
+        );
+      } else {
+        previousOrder = functionArgumentOrder;
+      }
+    }
+
+    /*
+    // NOTE: This is done in previous step
     // Set variable as consumed if necessary
     for (let i = 0; i < functionArgumentsInOrder.length; i++) {
       const functionParameter = calleeTypeValue.parameterTypes[i];
@@ -1887,6 +1959,7 @@ Got:      <${functionTypeArgumentsInOrder
         env = nextEnv;
       }
     }
+    */
 
     return {
       index,
@@ -2533,30 +2606,19 @@ ${matchedFunctionErrors[i] ?? ""}`
 
     const variableValue =
       notConsumedVariableValues[notConsumedVariableValues.length - 1];
-    const typeValue = variableValue.type;
+    let typeValue = variableValue.type;
+
+    // NOTE: We automatically dereference the variable if it's a reference
+    // We return the variable it refered to
+    if (typeValue.permission === "read" || typeValue.permission === "write") {
+      typeValue = {
+        ...typeValue,
+        permission: "own",
+      };
+    }
+
     const isFreeVariable =
       variableValue.frameLevel <= env.functionDeclarationFrameLevel;
-
-    /*
-    NOTE: We shouldn't check here because 
-    we might perform type coercion.  
-    if (variableValue.consumedAtToken) {
-      throw formatErrorMessages({
-        modulePath: this.modulePath,
-        inputString: this.inputString,
-        tokenAndErrorList: [
-          {
-            token: tokens[identifierTokenIndex],
-            errorMessage: `Variable \`${identifier}\` is already consumed.`,
-          },
-          {
-            token: variableValue.consumedAtToken,
-            errorMessage: `Previously consumed here:`,
-          },
-        ],
-      });
-    }
-    */
 
     // Add free variables to env
     if (isFreeVariable) {
@@ -3901,7 +3963,7 @@ ${exprToString(expr)}`,
         }
         // Below are all the expressions that have `tempVariableName`.
         // case AstType.Reference:
-        case AstType.ReadWrite:
+        // case AstType.ReadWrite: // NOTE: No need to consume for "read"/"write" expression.
         case AstType.CallFunction:
         case AstType.If:
         case AstType.Match:
@@ -3922,7 +3984,7 @@ ${exprToString(expr)}`,
         modulePath: this.modulePath,
         inputString: this.inputString,
         token: expr.token,
-        errorMessage: `Cannot consume variable: ${exprToString(expr)}`,
+        errorMessage: `Cannot consume value: ${exprToString(expr)}`,
         cause: error,
       });
     }
@@ -3937,6 +3999,10 @@ ${exprToString(expr)}`,
       return this.getVariableLifetimeOrder(env, expr.expr);
     } else if (expr.type === AstType.Variable) {
       return getEnvVariableLifetimeOrder(env, expr.variableName);
+    } else if (expr.type === AstType.Value) {
+      return 0; // global?
+    } else if (expr.type === AstType.CallFunction) {
+      return getEnvVariableLifetimeOrder(env, expr.tempVariableName);
     } else {
       throw new Error(
         "getVariableLifetimeOrder to be implemented:\n" + exprToString(expr)
@@ -4839,13 +4905,27 @@ Got:      ${typeToString(variableType)}`
     }
 
     // Consume RHS value if necessary
-    const { env: nextNextEnv, referedVariable } = this.setVariableAsConsumed(
-      env,
-      value
-    );
-    env = nextNextEnv;
+    let referedVariable: ReferedVariable | undefined = undefined;
+    if (finalType.permission === "own") {
+      const { env: nextNextEnv, referedVariable: nextReferedVariable } =
+        this.setVariableAsConsumed(env, value);
+      env = nextNextEnv;
+      referedVariable = nextReferedVariable;
+    }
 
-    // console.log("let= referedVariable: ", referedVariable);
+    if (isMutable) {
+      // Check if RHS is mutable
+      if (
+        ("isMutable" in value && !value.isMutable) ||
+        value.typeValue.permission === "read"
+      ) {
+        throw this.formatErrorMessage(
+          tokens[letTokenIndex],
+          `Cannot assign an immutable value to a mutable variable:
+${exprToString(value)}`
+        );
+      }
+    }
 
     // Add variable to env
     const { env: nextEnv, value: variableValue } = addEnvVariableValue({
@@ -4950,7 +5030,7 @@ ${exprToString(expr)}`
       }
     }
     newTypeValue.permission = isRead ? "read" : "write";
-    newTypeValue.kind = "Free"; // NOTE: <- this is necessary
+    // newTypeValue.kind = "Free";
 
     // Check if the value is consumed
     try {

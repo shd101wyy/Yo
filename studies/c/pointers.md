@@ -393,3 +393,15 @@ let main = ()-> {
   length(z); // error: cannot access `z` because `x` is consumed.
 }
 ```
+
+```typescript
+let main = ()=> {
+  // 
+  let x = malloc(); // @1
+  let y = malloc(); // @2
+
+  // Order of x and y swiched
+  let a = y; // @3
+  let b = x; // @4
+}
+```

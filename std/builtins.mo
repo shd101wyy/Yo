@@ -1,5 +1,5 @@
 export extern "Mo" {
-  @codegenFunction: (C: string = "")-> ();
-  @codegenInline: (C: string = "")-> ();
+  @codegenFunction: (C: symbol = @"")-> ();
+  @codegenInline: (C: symbol = @"")-> ();
   @consume: <T: Type>(value: T)-> ();
 }

@@ -49,12 +49,19 @@ export function tokenize(input: string): Token[] {
       operator += input[j];
       j++;
     }
+
+    // Skip symbol with @""
+    if (operator.endsWith("@") && input[j] === '"') {
+      operator = operator.slice(0, -1);
+      j--;
+    }
+
     if (
       operator &&
       // Skip comments
       !operator.startsWith("//") &&
       !operator.startsWith("/*") &&
-      // Skip symbol with ""
+      // Skip symbol with @""
       !(operator === "@" && input[i + 1] === '"')
     ) {
       if (operator.startsWith("&!<")) {

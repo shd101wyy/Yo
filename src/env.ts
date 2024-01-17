@@ -525,7 +525,27 @@ export function setEnvVariableAsConsumed({
     });
   }
   const variableValue = variableValues[variableValues.length - 1];
-  if (variableValue.type.permission !== "own") {
+
+  if (
+    variableValue.type.permission === "read" ||
+    variableValue.type.permission === "write"
+  ) {
+    if (
+      variableValue.type.kind === "Linear" ||
+      variableValue.type.kind === "Type"
+    ) {
+      throw formatErrorMessages({
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+        tokenAndErrorList: [
+          {
+            token: variableValue.token,
+            errorMessage: `Variable "${variableName}" doesn't "own" the value. Please consider adding "read" or "write" in front.`,
+          },
+        ],
+      });
+    }
+
     return { env, referedVariable: variableValue.referedVariable };
   }
 
