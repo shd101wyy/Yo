@@ -8,5 +8,8 @@ extern "C" {
 }
 
 let main = ()-> {
-  testOrder(malloc(), malloc());
+  let x = malloc();
+  let y = malloc();
+
+  testOrder(x, y);
 }

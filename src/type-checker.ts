@@ -2288,6 +2288,20 @@ export function synthesizeFunctionParameterTypesFromTokens({
 
   // Save parameterTypes to env
   // Let's sort the parameterTypes by order
+  /*
+  parameterTypes = parameterTypes.map(
+    // Reverse the order.default
+    (p) => {
+      return {
+        ...p,
+        order: {
+          default: parameterTypes.length - p.order.default + 1,
+          assigned: p.order.assigned,
+        },
+      };
+    }
+  );
+  */
   const sortedParameterTypes = [...parameterTypes].sort((a, b) => {
     return (
       (a.order.assigned ?? a.order.default) -
@@ -3182,9 +3196,7 @@ export function typeToString(
           (parameter) =>
             (parameter.name ? `${parameter.name}: ` : "") +
             typeToString(parameter.type, { hideTypeParameterKind: true }) +
-            (parameter.order.assigned !== undefined
-              ? ` @${parameter.order.assigned}`
-              : "") +
+            ` @${parameter.order.assigned ?? parameter.order.default}` +
             `${
               parameter.defaultValue
                 ? ` = ${exprToString(parameter.defaultValue)}`

@@ -1908,6 +1908,7 @@ Got:      <${functionTypeArgumentsInOrder
 
     // Check if the order is increasing
     let previousOrder = 0;
+    const functionArgumentsToConsume: Expr[] = [];
     for (let i = 0; i < functionArgumentsInOrder.length; i++) {
       const functionArgumentOrder = orderMap[i + 1];
       const functionParameter = functionParameterMap[i + 1];
@@ -1916,11 +1917,7 @@ Got:      <${functionTypeArgumentsInOrder
         // Set argument as consumed if necessary
         if (functionArgument && functionParameter) {
           if (functionParameter.type.permission === "own") {
-            const { env: nextEnv } = this.setVariableAsConsumed(
-              env,
-              functionArgument
-            );
-            env = nextEnv;
+            functionArgumentsToConsume.push(functionArgument);
           }
         }
 
@@ -1944,6 +1941,15 @@ Got     : (${functionArgumentsInOrder
       } else {
         previousOrder = functionArgumentOrder;
       }
+    }
+
+    for (let i = functionArgumentsToConsume.length - 1; i >= 0; i--) {
+      const functionArgument = functionArgumentsToConsume[i];
+      const { env: nextEnv } = this.setVariableAsConsumed(
+        env,
+        functionArgument
+      );
+      env = nextEnv;
     }
 
     /*
