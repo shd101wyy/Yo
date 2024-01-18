@@ -2403,7 +2403,9 @@ export function synthesizeTypeAndRegionArgumentsFromTokens({
       continue;
     }
 
-    if (token.value === ">>") {
+    if (token.value.startsWith(">") && token.value.length > 1) {
+      const rest = token.value.slice(1);
+
       // Split this token into two '>' tokens
       tokens.splice(
         index,
@@ -2417,8 +2419,8 @@ export function synthesizeTypeAndRegionArgumentsFromTokens({
           },
         },
         {
-          type: TokenType.Operator,
-          value: ">",
+          type: rest === "." ? TokenType.Dot : TokenType.Operator,
+          value: rest,
           position: {
             line: token.position.line,
             character: token.position.character + 1,
@@ -3771,6 +3773,7 @@ function checkEnumExactMatchType(
     const expectedVariant = expectedType.variants[i];
     const givenVariant = givenType.variants[i];
     if (expectedVariant.name !== givenVariant.name) {
+      console.log("false 5");
       return false;
     }
     if (

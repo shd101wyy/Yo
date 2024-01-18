@@ -1579,9 +1579,7 @@ export instance Id<i32> {
 }
 
 // Prevent name mangling.
-export "C" {
-  Option,
-}
+export "C" let x = 1;
 ```
 
 ```typescript

@@ -699,17 +699,7 @@ export default class Parser {
 
     // Check if it's a valid property in the record
     let callerType = expr.typeValue;
-    let referenceType: TTypeConstructor | undefined = undefined;
 
-    if (
-      // Reference or MutableReference
-      callerType.type === "TypeConstructor" &&
-      (callerType.name === "&" || callerType.name === "&!") &&
-      callerType.typeParameters[0].appliedType
-    ) {
-      referenceType = callerType;
-      callerType = callerType.typeParameters[0].appliedType;
-    }
     // It's record type
     if (
       callerType.type === "TypeConstructor" &&
@@ -730,18 +720,7 @@ export default class Parser {
           )}`
         );
       }
-
-      const returnType: Type = referenceType
-        ? {
-            ...referenceType,
-            typeParameters: referenceType.typeParameters.map(
-              (typeParameter) => ({
-                ...typeParameter,
-                appliedType: property.type,
-              })
-            ),
-          }
-        : property.type;
+      const returnType: Type = property.type;
 
       return {
         expr: {
@@ -836,6 +815,15 @@ export default class Parser {
           };
 
           if (variant.parameterTypes.length === 0) {
+            // Save the return value to a temp variable
+            const { env: nextEnv, value: tempVariable } =
+              this.generateTempVariableForHoldingValue({
+                env,
+                token: tokens[dotTokenIndex],
+                valueType: typeValue,
+              });
+            env = nextEnv;
+
             return {
               expr: {
                 type: AstType.CallEnum,
@@ -845,6 +833,7 @@ export default class Parser {
                 },
                 variantArguments: [],
                 token: tokens[dotTokenIndex],
+                tempVariableName: tempVariable.variableName,
               },
               index: index + 1,
             };
@@ -1637,7 +1626,6 @@ RHS order: ${rhsOrder}`
       env = nextEnv;
     }
 
-    const lParenIndex = index;
     const functionArguments: Expr[] = [];
     if (firstArgument) {
       functionArguments.push(firstArgument);
@@ -1878,94 +1866,11 @@ Got:      <${functionTypeArgumentsInOrder
     }
 
     // Check the order of the arguments
-    const functionArgumentOrders = functionArgumentsInOrder.map((arg) =>
-      this.getVariableLifetimeOrder(env, arg)
-    );
-    // console.log("functionArgumentOrders: ", functionArgumentOrders);
-
-    const functionParameterOrders = calleeTypeValue.parameterTypes.map(
-      (parameter) => parameter.order.assigned ?? parameter.order.default
-    );
-    // console.log("functionParameterOrders: ", functionParameterOrders);
-
-    const orderMap: { [key: number]: number | undefined } = {};
-    const functionArgumentMap: { [key: number]: Expr } = {};
-    const functionParameterMap: { [key: number]: TParameterType } = {};
-    for (let i = 0; i < functionArgumentsInOrder.length; i++) {
-      const functionArgumentOrder = functionArgumentOrders[i];
-      const functionParameterOrder = functionParameterOrders[i];
-      const functionParameter = calleeTypeValue.parameterTypes[i];
-      const functionArgument = functionArgumentsInOrder[i];
-      if (functionParameter.type.permission === "own") {
-        // Ignore the lifetime order check
-        orderMap[functionParameterOrder] = undefined;
-      } else {
-        orderMap[functionParameterOrder] = functionArgumentOrder;
-      }
-      functionArgumentMap[functionParameterOrder] = functionArgument;
-      functionParameterMap[functionParameterOrder] = functionParameter;
-    }
-
-    // Check if the order is increasing
-    let previousOrder = 0;
-    const functionArgumentsToConsume: Expr[] = [];
-    for (let i = 0; i < functionArgumentsInOrder.length; i++) {
-      const functionArgumentOrder = orderMap[i + 1];
-      const functionParameter = functionParameterMap[i + 1];
-      const functionArgument = functionArgumentMap[i + 1];
-      if (functionArgumentOrder === undefined) {
-        // Set argument as consumed if necessary
-        if (functionArgument && functionParameter) {
-          if (functionParameter.type.permission === "own") {
-            functionArgumentsToConsume.push(functionArgument);
-          }
-        }
-
-        continue;
-      } else if (
-        functionArgumentOrder < previousOrder
-        // We allow ==
-      ) {
-        throw this.formatErrorMessage(
-          tokens[lParenIndex],
-          `Wrong lifetime order of function arguments:
-Expected: ${typeToString(calleeTypeValue)}
-Got     : (${functionArgumentsInOrder
-            .map(
-              (arg, index) =>
-                exprToString(arg) + ` @${functionArgumentOrders[index]}`
-            )
-            .join(", ")}) 
-`
-        );
-      } else {
-        previousOrder = functionArgumentOrder;
-      }
-    }
-
-    for (let i = functionArgumentsToConsume.length - 1; i >= 0; i--) {
-      const functionArgument = functionArgumentsToConsume[i];
-      const { env: nextEnv } = this.setVariableAsConsumed(
-        env,
-        functionArgument
-      );
-      env = nextEnv;
-    }
-
-    /*
-    // NOTE: This is done in previous step
-    // Set variable as consumed if necessary
-    for (let i = 0; i < functionArgumentsInOrder.length; i++) {
-      const functionParameter = calleeTypeValue.parameterTypes[i];
-      if (functionParameter.type.permission === "own") {
-        const { env: nextEnv } = this.setVariableAsConsumed(
-          env,
-          functionArgumentsInOrder[i]
-        );
-        env = nextEnv;
-      }
-    }
-    */
+    env = this.checkFunctionArgumentsOrderAndConsumeOwnLinearValues({
+      calleeType,
+      functionArgumentsInOrder,
+      env,
+    });
 
     return {
       index,
@@ -2226,6 +2131,21 @@ Got:      <${appliedTypeArguments
       regionParameterToRegionArgumentMap: {},
     }) as TEnum;
 
+    env = this.checkFunctionArgumentsOrderAndConsumeOwnLinearValues({
+      calleeType: enumType,
+      env,
+      functionArgumentsInOrder: variantArgumentsInOrder,
+    });
+
+    // Save the return value to a temporary variable
+    const { env: nextNextEnv, value: tempVariable } =
+      this.generateTempVariableForHoldingValue({
+        env,
+        token: tokens[startIndex],
+        valueType: enumType,
+      });
+    env = nextNextEnv;
+
     return {
       expr: {
         type: AstType.CallEnum,
@@ -2233,6 +2153,7 @@ Got:      <${appliedTypeArguments
         typeValue: enumType,
         env,
         token: tokens[startIndex],
+        tempVariableName: tempVariable.variableName,
       },
       index,
     };
@@ -2457,10 +2378,12 @@ Found possible enums:
       const enumValue = matchedEnums[matchedEnums.length - 1];
       const enumType = enumValue.type as TEnum;
       let typeArguments: Type[] = [];
+      let regionArguments: Region[] = [];
       const enumTokenIndex = index;
       if (tokens[index + 1]?.value === "<") {
         const {
           typeArguments: nextTypeArguments,
+          regionArguments: nextRegionArguments,
           index: nextIndex,
           env: nextEnv,
         } = synthesizeTypeAndRegionArgumentsFromTokens({
@@ -2470,25 +2393,21 @@ Found possible enums:
           parseExpression: this.makeParseExpression({ caller, parserData }),
         });
         typeArguments = nextTypeArguments;
+        regionArguments = nextRegionArguments;
         index = nextIndex;
         env = nextEnv;
       } else {
         index = index + 1;
       }
 
-      const newEnumType: TEnum = {
-        ...enumType,
-        typeParameters: enumType.typeParameters.map((typeParameter, index) => {
-          if (index >= typeArguments.length) {
-            return typeParameter;
-          } else {
-            return {
-              ...typeParameter,
-              appliedType: typeArguments[index],
-            };
-          }
-        }),
-      };
+      const newEnumType = applyTypeAndRegionArgumentsToType({
+        env,
+        type: enumType,
+        typeArguments,
+        regionArguments,
+        typeParameterToTypeArgumentMap: {},
+        regionParameterToRegionArgumentMap: {},
+      });
 
       return {
         expr: {
@@ -3423,6 +3342,11 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
           }) as TFunction;
           // save the return value to a temporary variable
           const returnType = newFunctionType.returnType;
+          env = this.checkFunctionArgumentsOrderAndConsumeOwnLinearValues({
+            calleeType: newFunctionType,
+            functionArgumentsInOrder: functionArguments,
+            env,
+          });
           const { env: nextNextEnv, value: tempVariable } =
             this.generateTempVariableForHoldingValue({
               env,
@@ -3598,6 +3522,11 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
         }) as TFunction;
         // save the return value to a temporary variable
         const returnType = newFunctionType.returnType;
+        env = this.checkFunctionArgumentsOrderAndConsumeOwnLinearValues({
+          calleeType: newFunctionType,
+          functionArgumentsInOrder: functionArguments,
+          env,
+        });
         const { env: nextNextEnv, value: tempVariable } =
           this.generateTempVariableForHoldingValue({
             env,
@@ -3968,9 +3897,9 @@ ${exprToString(expr)}`,
           });
         }
         // Below are all the expressions that have `tempVariableName`.
-        // case AstType.Reference:
         // case AstType.ReadWrite: // NOTE: No need to consume for "read"/"write" expression.
         case AstType.CallFunction:
+        case AstType.CallEnum:
         case AstType.If:
         case AstType.Match:
         case AstType.Assignment:
@@ -4014,6 +3943,110 @@ ${exprToString(expr)}`,
         "getVariableLifetimeOrder to be implemented:\n" + exprToString(expr)
       );
     }
+  }
+
+  private checkFunctionArgumentsOrderAndConsumeOwnLinearValues({
+    calleeType,
+    functionArgumentsInOrder,
+    env,
+  }: {
+    calleeType: TFunction | TEnum;
+    functionArgumentsInOrder: Expr[];
+    env: Environment;
+  }): Environment {
+    // Check the order of the arguments
+    const functionArgumentOrders = functionArgumentsInOrder.map((arg) =>
+      this.getVariableLifetimeOrder(env, arg)
+    );
+    // console.log("functionArgumentOrders: ", functionArgumentOrders);
+
+    let parameterTypes: TParameterType[] = [];
+    if (calleeType.type === "Function") {
+      parameterTypes = calleeType.parameterTypes;
+    } else {
+      if (!calleeType.selectedVariantName) {
+        throw new Error("Expected enum variant name");
+      } else {
+        const variant = calleeType.variants.find(
+          (variant) => variant.name === calleeType.selectedVariantName
+        );
+        if (!variant) {
+          throw new Error("Expected variant");
+        }
+        parameterTypes = variant.parameterTypes;
+      }
+    }
+
+    const functionParameterOrders = parameterTypes.map(
+      (parameter) => parameter.order.assigned ?? parameter.order.default
+    );
+    // console.log("functionParameterOrders: ", functionParameterOrders);
+
+    const orderMap: { [key: number]: number | undefined } = {};
+    const functionArgumentMap: { [key: number]: Expr } = {};
+    const functionParameterMap: { [key: number]: TParameterType } = {};
+    for (let i = 0; i < functionArgumentsInOrder.length; i++) {
+      const functionArgumentOrder = functionArgumentOrders[i];
+      const functionParameterOrder = functionParameterOrders[i];
+      const functionParameter = parameterTypes[i];
+      const functionArgument = functionArgumentsInOrder[i];
+      if (functionParameter.type.permission === "own") {
+        // Ignore the lifetime order check
+        orderMap[functionParameterOrder] = undefined;
+      } else {
+        orderMap[functionParameterOrder] = functionArgumentOrder;
+      }
+      functionArgumentMap[functionParameterOrder] = functionArgument;
+      functionParameterMap[functionParameterOrder] = functionParameter;
+    }
+
+    // Check if the order is increasing
+    let previousOrder = 0;
+    const functionArgumentsToConsume: Expr[] = [];
+    for (let i = 0; i < functionArgumentsInOrder.length; i++) {
+      const functionArgumentOrder = orderMap[i + 1];
+      const functionParameter = functionParameterMap[i + 1];
+      const functionArgument = functionArgumentMap[i + 1];
+      if (functionArgumentOrder === undefined) {
+        // Set argument as consumed if necessary
+        if (functionArgument && functionParameter) {
+          if (functionParameter.type.permission === "own") {
+            functionArgumentsToConsume.push(functionArgument);
+          }
+        }
+
+        continue;
+      } else if (
+        functionArgumentOrder < previousOrder
+        // We allow ==
+      ) {
+        throw this.formatErrorMessage(
+          functionArgument.token,
+          `Wrong lifetime order of function arguments:
+Expected: ${typeToString(calleeType)}
+Got     : (${functionArgumentsInOrder
+            .map(
+              (arg, index) =>
+                exprToString(arg) + ` @${functionArgumentOrders[index]}`
+            )
+            .join(", ")}) 
+`
+        );
+      } else {
+        previousOrder = functionArgumentOrder;
+      }
+    }
+
+    for (let i = functionArgumentsToConsume.length - 1; i >= 0; i--) {
+      const functionArgument = functionArgumentsToConsume[i];
+      const { env: nextEnv } = this.setVariableAsConsumed(
+        env,
+        functionArgument
+      );
+      env = nextEnv;
+    }
+
+    return env;
   }
 
   private trySettingVariableAsReference({

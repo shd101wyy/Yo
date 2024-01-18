@@ -413,6 +413,7 @@ export type CallEnumExpr = {
   typeValue: TEnum;
   env: Environment;
   token: Token;
+  tempVariableName: string;
 };
 
 export type IfCase = {
