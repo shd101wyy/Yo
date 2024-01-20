@@ -1378,20 +1378,6 @@ export function applyTypeAndRegionArgumentsToType({
       while (regionArguments.length < type.regionParameters.length) {
         regionArguments.push(UnknownRegion);
       }
-
-      /*
-      throw new Error(
-        `(4) Mismatched region arguments.
-  Expected: <${type.regionParameters
-    .map(
-      (regionParameter) => `${regionParameter.name}: ${regionParameter.kind}`
-    )
-    .join(", ")}>
-  Got:      <${regionArguments
-    .map((region) => regionToString(region))
-    .join(", ")}>`
-      );
-      */
     }
 
     // set typeParameterToTypeArgumentMap
@@ -3527,6 +3513,10 @@ export function checkType(
     if (!expectedType.appliedType) {
       return true;
     } else if (givenType.type === "TypeParameter") {
+      if (expectedType.appliedType.type === "TypeParameter") {
+        return checkType(expectedType.appliedType, givenType, env);
+      }
+
       if (!givenType.appliedType) {
         return false;
       }

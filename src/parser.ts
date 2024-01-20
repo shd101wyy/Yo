@@ -768,7 +768,7 @@ export default class Parser {
     else if (callerType.type === "Enum") {
       const propertyName = token.value;
       const selectedVariantName = callerType.selectedVariantName;
-      if (selectedVariantName) {
+      if (selectedVariantName && propertyName !== selectedVariantName) {
         const variant = callerType.variants.find(
           (variant) => variant.name === selectedVariantName
         );
@@ -1805,6 +1805,10 @@ RHS order: ${rhsOrder}`
     }
 
     // logger.debug(JSON.stringify(calleeTypeValue));
+    console.log(
+      "- typeArguments: ",
+      typeArguments?.map((arg) => typeToString(arg))
+    );
     const {
       functionArguments: functionArgumentsInOrder,
       functionTypeArguments: functionTypeArgumentsInOrder,
@@ -1815,6 +1819,14 @@ RHS order: ${rhsOrder}`
       functionArguments,
       typeArguments,
       env
+    );
+    console.log(
+      "- functionArgumentsInOrder: ",
+      functionArgumentsInOrder?.map((arg) => exprToString(arg))
+    );
+    console.log(
+      "- functionTypeArguments: ",
+      functionTypeArgumentsInOrder?.map((arg) => typeToString(arg))
     );
 
     if (!functionArgumentsInOrder) {
@@ -1958,6 +1970,7 @@ Got:      <${functionTypeArgumentsInOrder
       );
     }
 
+    console.log("- calleeType: ", typeToString(calleeType));
     const {
       index: nextIndex,
       env: nextEnv,
@@ -1974,6 +1987,7 @@ Got:      <${functionTypeArgumentsInOrder
     });
     index = nextIndex;
     env = nextEnv;
+    console.log("calleeTypeValue: ", typeToString(calleeTypeValue));
 
     // Check function effects
     if (!checkFunctionEffects(calleeTypeValue, caller, env)) {
@@ -6294,6 +6308,7 @@ instance Show<T> {
           caller,
           parserData,
           functionName,
+          isForTypeclass: true,
         });
       index = nextIndex;
       const functionExpr = functionExpr_ as FunctionExpr;
@@ -6308,6 +6323,12 @@ ${typeToString(functionType)}
 `
         );
       }
+
+      // Add the typeParameters and regionParameters of the class to the functionType
+      functionType.typeParameters = newClass.typeParameters;
+      functionType.regionParameters = newClass.regionParameters;
+      // functionType.typeParameters = newClass.instanceTypeParameters ?? [];
+      // functionType.regionParameters = newClass.instanceRegionParameters ?? [];
 
       functions.push({
         name: functionName,
