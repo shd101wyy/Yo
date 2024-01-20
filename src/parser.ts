@@ -2296,6 +2296,9 @@ Got:      <${appliedTypeArguments
         value.type.type === "Enum" &&
         (value.kind === "type" || value.kind === "value")
     );
+    const matchedTypeConstructors = variableValues.filter(
+      (value) => value.type.type === "TypeConstructor" && value.kind === "type"
+    );
 
     // Check if it's a typeclass
     if (matchedTypeclasses.length > 0) {
@@ -2423,6 +2426,84 @@ Found possible enums:
         index,
       };
       // }
+    }
+
+    // Check if it's type constructor
+    if (matchedTypeConstructors.length > 0) {
+      const typeConstructor =
+        matchedTypeConstructors[matchedTypeConstructors.length - 1];
+      const typeConstructorType = typeConstructor.type as TTypeConstructor;
+      let typeArguments: Type[] = [];
+      let regionArguments: Region[] = [];
+      const typeConstructorTokenIndex = index;
+      if (tokens[index + 1]?.value === "<") {
+        const {
+          typeArguments: nextTypeArguments,
+          regionArguments: nextRegionArguments,
+          index: nextIndex,
+          env: nextEnv,
+        } = synthesizeTypeAndRegionArgumentsFromTokens({
+          tokens,
+          index: index + 1,
+          env,
+          parseExpression: this.makeParseExpression({ caller, parserData }),
+        });
+        typeArguments = nextTypeArguments;
+        regionArguments = nextRegionArguments;
+        index = nextIndex;
+        env = nextEnv;
+      } else {
+        index = index + 1;
+      }
+
+      const newTypeConstructorType = applyTypeAndRegionArgumentsToType({
+        env,
+        type: typeConstructorType,
+        typeArguments,
+        regionArguments,
+        typeParameterToTypeArgumentMap: {},
+        regionParameterToRegionArgumentMap: {},
+      }) as TTypeConstructor;
+
+      // Parse next expressions as primary
+      const { expr: primaryExpr, index: nextIndex } = this.parsePrimary({
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+      env = primaryExpr.env;
+      index = nextIndex;
+
+      // Check if the types match
+      if (!checkType(newTypeConstructorType, primaryExpr.typeValue, env)) {
+        throw this.formatErrorMessage(
+          tokens[typeConstructorTokenIndex],
+          `Mismatched types.
+Expected: ${typeToString(newTypeConstructorType)}
+Got:      ${typeToString(primaryExpr.typeValue)}`
+        );
+      }
+
+      const { env: nextNextEnv, value: tempVariable } =
+        this.generateTempVariableForHoldingValue({
+          env,
+          token: tokens[typeConstructorTokenIndex],
+          valueType: newTypeConstructorType,
+        });
+      env = nextNextEnv;
+      return {
+        expr: {
+          type: AstType.CallTypeConstructor,
+          typeValue: newTypeConstructorType,
+          env,
+          expr: primaryExpr,
+          tempVariableName: tempVariable.variableName,
+          token: tokens[typeConstructorTokenIndex],
+        },
+        index,
+      };
     }
 
     // Check if it's a function
@@ -3900,6 +3981,7 @@ ${exprToString(expr)}`,
         // case AstType.ReadWrite: // NOTE: No need to consume for "read"/"write" expression.
         case AstType.CallFunction:
         case AstType.CallEnum:
+        case AstType.CallTypeConstructor:
         case AstType.If:
         case AstType.Match:
         case AstType.Assignment:

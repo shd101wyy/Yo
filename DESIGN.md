@@ -12,7 +12,7 @@
 
 **Mo** has no garbage collector as it utilizes the [Linear Types](https://en.wikipedia.org/wiki/Substructural_type_system#:~:text=Linear%20types%20corresponds%20to%20linear,transitioned%20to%20a%20different%20state.).
 
-**Mo** also imcorporates an innovative memory management technique called **Order based lifetime checking**. The **Mo** compiler helps you eliminate potential errors before the code is executed.
+**Mo** also imcorporates an innovative memory management technique called **Explicit lifetime orders**. The **Mo** compiler helps you eliminate potential errors before the code is executed.
 
 Our goal is to be a practical language that is easy to use and easy to learn.
 
@@ -47,7 +47,7 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Custom Operators](#custom-operators)
     - [Closure `In Design`](#closure-in-design)
   - [Mutability `To be updated`](#mutability-to-be-updated)
-  - [Order based lifetime checking](#order-based-lifetime-checking)
+  - [Explicit lifetime orders](#explicit-lifetime-orders)
     - [Order of `read` and `write` references](#order-of-read-and-write-references)
   - [Control Flow](#control-flow)
     - [Brace elision `In Design`](#brace-elision-in-design)
@@ -812,9 +812,9 @@ let oldName = (p.name = String.from("Bob"));
 // oldName == String.from("Alice")
 ```
 
-## Order based lifetime checking
+## Explicit lifetime orders
 
-Unlike Rust, which requires specify lifetime parameters when defining a data structure or a function, **Mo** uses a simple memory management technique called **Order based lifetime checking** which doesn't require the lifetime parameters.
+Unlike Rust, which requires specify lifetime parameters when defining a data structure or a function, **Mo** uses a simple memory management technique called **Explicit lifetime orders** which doesn't require the lifetime parameters.
 
 We use the lifetime **order** to denote the lifetime of values.
 
@@ -974,7 +974,7 @@ type User: Linear = {
 
 type string = char[];
 
-let user: User = {
+let user: User = User {
   active: true,
   username: String.from("johndoe"),
   email: String.from("test@gmail.com"),
@@ -1003,7 +1003,7 @@ type Language = { language: string; year: i32 };
 Destructure the record:
 
 ```typescript
-let user: User = {
+let user: User = User {
   name: String.from("johndoe"),
   age: 12
 }

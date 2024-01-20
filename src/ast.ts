@@ -10,6 +10,7 @@ import {
   TModule,
   TPrimitive,
   TPrimitiveWithValue,
+  TTypeConstructor,
   TUnit,
   Type,
   classToString,
@@ -51,6 +52,7 @@ export enum AstType {
   Function = "function",
   CallFunction = "call-function",
   CallEnum = "call-enum",
+  CallTypeConstructor = "call-type-constructor",
 
   // class
   Class = "class",
@@ -135,6 +137,7 @@ export type Expr =
   | ValueExpr
   | CallFunctionExpr
   | CallEnumExpr
+  | CallTypeConstructorExpr
   | IfExpr
   | MatchExpr
   | IgnoreExpr
@@ -416,6 +419,15 @@ export type CallEnumExpr = {
   tempVariableName: string;
 };
 
+export type CallTypeConstructorExpr = {
+  type: AstType.CallTypeConstructor;
+  expr: Expr;
+  typeValue: TTypeConstructor;
+  env: Environment;
+  token: Token;
+  tempVariableName: string;
+};
+
 export type IfCase = {
   condition?: Expr; // If no condition, then it's `else`.
   body: BlockExpr;
@@ -642,6 +654,11 @@ export function exprToString(expr: Expr, indentation = ""): string {
               .join(", ")})`
           : ""
       }`;
+    case AstType.CallTypeConstructor:
+      return `${typeToString(expr.typeValue, {
+        extractTypeConstructor: false,
+        hideTypeParameterKind: true,
+      })} ${exprToString(expr.expr)}`;
     case AstType.If: {
       let result = "";
       const cases = expr.cases;
