@@ -9,6 +9,7 @@ import {
   FunctionExpr,
   IfExpr,
   ImplicitDereferenceExpr,
+  MatchExpr,
   ReadWriteExpr,
   exprToString,
 } from "../ast";
@@ -559,6 +560,55 @@ export class CodeGeneratorC {
     return code;
   }
 
+  codegenMatchExpression({
+    expr,
+    indentation,
+  }: {
+    expr: MatchExpr;
+    indentation: string;
+  }): string {
+    let code = `\n${indentation}// match\n`;
+    // Add temp variable;
+    code += `${indentation}${this.getTypeInC(expr.typeValue)} ${
+      expr.tempVariableName
+    };\n`;
+    code += `${indentation}switch ((${this.codegenExpr({
+      expr: expr.matchedEnum,
+      indentation: "",
+    })}).tag) {
+${expr.cases
+  .map(({ case: _case, body, variantName }) => {
+    let variantIndex = -1;
+    if (variantName !== "*") {
+      const enumType = expr.matchedEnum.typeValue as TEnum;
+      variantIndex = enumType.variants.findIndex(
+        (variant) => variant.name === variantName
+      );
+      if (variantIndex === -1) {
+        throw new Error(
+          `Cannot find variant "${variantName}" in enum ${typeToString(
+            enumType
+          )}`
+        );
+      }
+    }
+
+    return `${indentation}  ${
+      _case ? `case ${variantIndex}` : "default"
+    }: // ${variantName}
+${indentation}    ${this.codegenBlockExpression({
+      blockExpr: body,
+      isFunctionBody: false,
+      indentation: indentation + "    ",
+      ignoreTempVariableDeclaration: true,
+    })}
+${indentation}    break;`;
+  })
+  .join("\n")}
+${indentation}};\n\n`;
+    return code;
+  }
+
   codegenAssignmentByVariableId({
     variableId,
     variableType,
@@ -586,16 +636,23 @@ export class CodeGeneratorC {
 ${indentation}${variableId} = ${needsDereference ? "*" : ""}(${
         rhs.tempVariableName
       });\n`;
-    } else if (rhs.type === AstType.If) {
-      code += `${this.codegenIfExpression({
+    } else if (
+      rhs.type === AstType.Match ||
+      rhs.type === AstType.If ||
+      rhs.type === AstType.ReadWrite
+    ) {
+      code += `${this.codegenExpr({
         expr: rhs,
         indentation,
       })}
 ${indentation}${variableId} = ${needsDereference ? "*" : ""}(${
         rhs.tempVariableName
       });\n`;
-    } else if (rhs.type === AstType.CallFunction) {
-      code += `${this.codegenCallFunction({
+    } else if (
+      rhs.type === AstType.CallFunction ||
+      rhs.type === AstType.CallEnum
+    ) {
+      code += `${this.codegenExpr({
         expr: rhs,
         indentation,
       })}
@@ -606,23 +663,6 @@ ${
         rhs.tempVariableName
       });\n`
 }`;
-    } else if (rhs.type === AstType.CallEnum) {
-      code += `${this.codegenCallEnum({
-        expr: rhs,
-        indentation,
-      })}
-${
-  variableId === rhs.tempVariableName
-    ? ""
-    : `${indentation}${variableId} = ${needsDereference ? "*" : ""}(${
-        rhs.tempVariableName
-      });\n`
-}`;
-    } else if (rhs.type === AstType.ReadWrite) {
-      code += `${this.codegenReadWrite({ expr: rhs, indentation })};\n`;
-      code += `${indentation}${variableId} = ${needsDereference ? "*" : ""}(${
-        rhs.tempVariableName
-      });\n`;
     } else {
       code += `${indentation}${variableId} = ${
         needsDereference ? "*" : ""
@@ -930,6 +970,9 @@ ${indentation}};
       }
       case AstType.If: {
         return this.codegenIfExpression({ expr, indentation });
+      }
+      case AstType.Match: {
+        return this.codegenMatchExpression({ expr, indentation });
       }
       case AstType.CallFunction: {
         return this.codegenCallFunction({ expr, indentation });

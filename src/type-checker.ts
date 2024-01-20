@@ -9,6 +9,7 @@ import {
   FunctionExpr,
   IfExpr,
   ImplicitDereferenceExpr,
+  MatchExpr,
   ReadWriteExpr,
   exprToString,
 } from "./ast";
@@ -2080,6 +2081,43 @@ export function applyTypeAndRegionArgumentsToExpr({
         }),
       };
       return newIfExpr;
+    }
+    case AstType.Match: {
+      const e: MatchExpr = {
+        ...expr,
+        matchedEnum: applyTypeAndRegionArgumentsToExpr({
+          expr: expr.matchedEnum,
+          env,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap,
+        }),
+        cases: expr.cases.map(({ case: case_, variantName, body }) => {
+          return {
+            case: case_
+              ? applyTypeAndRegionArgumentsToExpr({
+                  expr: case_,
+                  env,
+                  typeParameterToTypeArgumentMap,
+                  regionParameterToRegionArgumentMap,
+                })
+              : undefined,
+            variantName,
+            body: applyTypeAndRegionArgumentsToExpr({
+              expr: body,
+              env,
+              typeParameterToTypeArgumentMap,
+              regionParameterToRegionArgumentMap,
+            }) as BlockExpr,
+          };
+        }),
+        typeValue: applyTypeAndRegionArgumentsToType({
+          type: expr.typeValue,
+          env,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap,
+        }),
+      };
+      return e;
     }
     case AstType.Ignore: {
       return expr;
