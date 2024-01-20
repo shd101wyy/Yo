@@ -4,54 +4,104 @@
 struct Unit {};
 struct Unit unit = {};
 
-// Module file:///home/yiyiwang/Workspace/mo/examples/function/swap1.mo
-// Module ID: mo949dbe77
-struct Unit mo949dbe77_swap_da39a3ee(int32_t* mo949dbe77_x_2, int32_t* mo949dbe77_y_2);
-int32_t main();
+// Module file:///home/yiyiwang/Workspace/mo/examples/enum/enum1.mo
+// Module ID: mo2df43d4e
+struct Unit main();
 
 // Code
-struct Unit mo949dbe77_swap_da39a3ee(int32_t* mo949dbe77_x_2, int32_t* mo949dbe77_y_2) {
+// enum Color
+typedef struct {
+  int tag;
+  union {
+    struct {
+    } Red;
+    struct {
+    } Green;
+    struct {
+    } Blue;
+  } variant;
+} mo2df43d4e_Color_1_da39a3ee;
+
+// enum MyOption<i32>
+typedef struct {
+  int tag;
+  union {
+    struct {
+    } None;
+    struct {
+      int32_t value;
+    } Some;
+  } variant;
+} mo2df43d4e_MyOption_1_55d2be0b;
+
+// enum MyOption<f32>
+typedef struct {
+  int tag;
+  union {
+    struct {
+    } None;
+    struct {
+      float value;
+    } Some;
+  } variant;
+} mo2df43d4e_MyOption_1_78bf0757;
+
+struct Unit main() {
   // block
-  struct Unit _mo949dbe77_temp_13;
-  int32_t mo949dbe77_tmp; // tmp
-  mo949dbe77_tmp = (*(mo949dbe77_y_2));
+  struct Unit _mo2df43d4e_temp_15;
+  mo2df43d4e_Color_1_da39a3ee mo2df43d4e_r; // r
+  mo2df43d4e_Color_1_da39a3ee _mo2df43d4e_temp_11;
+  _mo2df43d4e_temp_11 = (mo2df43d4e_Color_1_da39a3ee){ 
+    .tag = 0,
+    .variant = {
+      .Red = {
 
-  // assignment
-  *(mo949dbe77_y_2) = *(mo949dbe77_x_2);
+      }
+    }
+  };
 
-  // assignment
-  *(mo949dbe77_x_2) = mo949dbe77_tmp;
+  mo2df43d4e_r = (_mo2df43d4e_temp_11);
 
-  _mo949dbe77_temp_13 = (unit);
-  return _mo949dbe77_temp_13;
-  // end block
-}
-int32_t main() {
-  // block
-  int32_t _mo949dbe77_temp_17;
-  int32_t mo949dbe77_x_3; // x
-  mo949dbe77_x_3 = (((int32_t)1));
+  mo2df43d4e_MyOption_1_55d2be0b mo2df43d4e_x; // x
+  mo2df43d4e_MyOption_1_55d2be0b _mo2df43d4e_temp_12;
+  _mo2df43d4e_temp_12 = (mo2df43d4e_MyOption_1_55d2be0b){ 
+    .tag = 1,
+    .variant = {
+      .Some = {
+        .value = (((int32_t)12))
+      }
+    }
+  };
 
-  int32_t mo949dbe77_y_3; // y
-  mo949dbe77_y_3 = (((int32_t)2));
+  mo2df43d4e_x = (_mo2df43d4e_temp_12);
 
-  int32_t* mo949dbe77_xRef; // xRef
-  int32_t* _mo949dbe77_temp_14;
-  _mo949dbe77_temp_14 = &(mo949dbe77_x_3);
-  mo949dbe77_xRef = (_mo949dbe77_temp_14);
+  mo2df43d4e_MyOption_1_55d2be0b mo2df43d4e_y; // y
+  mo2df43d4e_MyOption_1_55d2be0b _mo2df43d4e_temp_13;
+  _mo2df43d4e_temp_13 = (mo2df43d4e_MyOption_1_55d2be0b){ 
+    .tag = 0,
+    .variant = {
+      .None = {
 
-  int32_t* mo949dbe77_yRef; // yRef
-  int32_t* _mo949dbe77_temp_15;
-  _mo949dbe77_temp_15 = &(mo949dbe77_y_3);
-  mo949dbe77_yRef = (_mo949dbe77_temp_15);
+      }
+    }
+  };
 
-  int32_t mo949dbe77_a; // a
-  mo949dbe77_a = (*(mo949dbe77_xRef));
+  mo2df43d4e_y = (_mo2df43d4e_temp_13);
 
-    struct Unit _mo949dbe77_temp_16;
-  _mo949dbe77_temp_16 = mo949dbe77_swap_da39a3ee((&*(mo949dbe77_xRef)) /* x */, (&*(mo949dbe77_yRef)) /* y */); 
+  mo2df43d4e_MyOption_1_78bf0757 mo2df43d4e_z; // z
+  mo2df43d4e_MyOption_1_78bf0757 _mo2df43d4e_temp_14;
+  _mo2df43d4e_temp_14 = (mo2df43d4e_MyOption_1_78bf0757){ 
+    .tag = 0,
+    .variant = {
+      .None = {
 
-  _mo949dbe77_temp_17 = (mo949dbe77_x_3);
-  return _mo949dbe77_temp_17;
+      }
+    }
+  };
+
+  mo2df43d4e_z = (_mo2df43d4e_temp_14);
+
+  _mo2df43d4e_temp_15 = (unit);
+  return _mo2df43d4e_temp_15;
   // end block
 }

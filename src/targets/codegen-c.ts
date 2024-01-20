@@ -3,18 +3,21 @@ import {
   AssignmentExpr,
   AstType,
   BlockExpr,
+  CallEnumExpr,
   CallFunctionExpr,
   Expr,
   FunctionExpr,
   IfExpr,
   ImplicitDereferenceExpr,
   ReadWriteExpr,
+  exprToString,
 } from "../ast";
 import { Emitter } from "../emitter";
 import { generateModuleId } from "../env";
 import * as logger from "../logger";
 import {
   Region,
+  TEnum,
   TFunction,
   TModule,
   TParameterType,
@@ -30,10 +33,16 @@ export class CodeGeneratorC {
   private module: TModule;
   private emitter: Emitter;
   private functionIdToExprMap: Map<string, FunctionExpr> = new Map();
+  private enumIdToEnumMap: Map<string, string> = new Map();
   /**
    * key is functionId + typeAndRegionParametersToString
    */
   private generatedFunctionKeySet: Set<string> = new Set();
+
+  /**
+   * key is enumId + typeAndRegionParametersToString
+   */
+  private generatedEnumKeySet: Set<string> = new Set();
 
   /**
    * key is functionKey, value is the @codegenInline template
@@ -124,6 +133,11 @@ export class CodeGeneratorC {
       }
       case "()": {
         typeString = "struct Unit";
+        break;
+      }
+      case "Enum": {
+        const enumKey = this.codegenEnumIfNecessary(type);
+        typeString = enumKey;
         break;
       }
       default: {
@@ -222,9 +236,9 @@ export class CodeGeneratorC {
     }
   }
 
-  codegenFunctionIfNecessary(calleeType: TFunction): string {
-    const typeArguments = calleeType.typeParameters.map((t) => t.appliedType);
-    const regionArguments = calleeType.regionParameters.map(
+  codegenFunctionIfNecessary(functionType: TFunction): string {
+    const typeArguments = functionType.typeParameters.map((t) => t.appliedType);
+    const regionArguments = functionType.regionParameters.map(
       (r) => r.appliedRegion
     );
     if (
@@ -236,8 +250,8 @@ export class CodeGeneratorC {
 
     // SHA1 of typeAndRegionParametersToString
     const typeAndRegionString = typeAndRegionParametersToString(
-      calleeType.typeParameters,
-      calleeType.regionParameters
+      functionType.typeParameters,
+      functionType.regionParameters
     );
     const hash = createHash("sha1")
       .update(typeAndRegionString)
@@ -245,15 +259,17 @@ export class CodeGeneratorC {
       .slice(0, 8);
 
     const functionKey =
-      calleeType.functionId === "main"
+      functionType.functionId === "main"
         ? "main"
-        : `${calleeType.functionId}_${hash}`;
+        : `${functionType.functionId}_${hash}`;
     if (this.generatedFunctionKeySet.has(functionKey)) {
       return functionKey;
     }
-    const functionExpr = this.functionIdToExprMap.get(calleeType.functionId);
+    const functionExpr = this.functionIdToExprMap.get(functionType.functionId);
     if (!functionExpr) {
-      throw new Error(`Cannot find function expr of ${calleeType.functionId}`);
+      throw new Error(
+        `Cannot find function expr of ${functionType.functionId}`
+      );
     }
 
     const newFunctionExpr = applyTypeAndRegionArgumentsToFunctionExpr({
@@ -285,7 +301,7 @@ export class CodeGeneratorC {
           const codegenFunctionTemplate = firstArgument.value;
           const args: string[] = [
             functionKey,
-            ...calleeType.parameterTypes.map(
+            ...functionType.parameterTypes.map(
               (parameter) => parameter.parameterId
             ),
           ];
@@ -335,6 +351,48 @@ export class CodeGeneratorC {
     return functionKey;
   }
 
+  codegenEnumIfNecessary(enumType: TEnum): string {
+    const typeArguments = enumType.typeParameters.map((t) => t.appliedType);
+    const regionArguments = enumType.regionParameters.map(
+      (r) => r.appliedRegion
+    );
+    if (
+      typeArguments.some((t) => t === undefined) ||
+      regionArguments.some((r) => r === undefined)
+    ) {
+      return "";
+    }
+
+    // SHA1 of typeAndRegionParametersToString
+    const typeAndRegionString = typeAndRegionParametersToString(
+      enumType.typeParameters,
+      enumType.regionParameters
+    );
+    const hash = createHash("sha1")
+      .update(typeAndRegionString)
+      .digest("hex")
+      .slice(0, 8);
+
+    const enumKey = `${enumType.enumId}_${hash}`;
+    if (this.generatedEnumKeySet.has(enumKey)) {
+      return enumKey;
+    }
+    const enumExpr = this.enumIdToEnumMap.get(enumType.enumId);
+    if (!enumExpr) {
+      throw new Error(`Cannot find enum expr of ${enumType.enumId}`);
+    }
+    this.generatedEnumKeySet.add(enumKey);
+
+    const enumCode = this.codegenEnum({
+      enumType: enumType,
+      enumKey,
+      indentation: "",
+    });
+    this.emitter.emit(enumCode);
+
+    return enumKey;
+  }
+
   codegenPrototype(functionType: TFunction): string {
     return `${this.getTypeInC(functionType.returnType)} ${
       functionType.functionId
@@ -366,6 +424,41 @@ export class CodeGeneratorC {
       indentation: indentation + "  ",
     });
     code += "}\n";
+    return code;
+  }
+
+  codegenEnum({
+    enumType,
+    enumKey,
+    indentation,
+  }: {
+    enumType: TEnum;
+    enumKey: string;
+    indentation: string;
+  }): string {
+    let code: string = `${indentation}// enum ${typeToString(enumType, {
+      extractTypeConstructor: false,
+      hideTypeParameterKind: true,
+    })}\n`;
+
+    code += `${indentation}typedef struct {\n`;
+    code += `${indentation}  int tag;\n`; // TODO: Minimum bits
+    code += `${indentation}  union {\n`;
+
+    // variants
+    enumType.variants.forEach((variant) => {
+      code += `${indentation}    struct {\n`;
+      variant.parameterTypes.forEach((parameterType) => {
+        code += `${indentation}      ${this.getTypeInC(parameterType.type)} ${
+          parameterType.name
+        };\n`;
+      });
+      code += `${indentation}    } ${variant.name};\n`;
+    });
+
+    code += `${indentation}  } variant;\n`;
+    code += `${indentation}} ${enumKey};\n\n`;
+
     return code;
   }
 
@@ -513,6 +606,18 @@ ${
         rhs.tempVariableName
       });\n`
 }`;
+    } else if (rhs.type === AstType.CallEnum) {
+      code += `${this.codegenCallEnum({
+        expr: rhs,
+        indentation,
+      })}
+${
+  variableId === rhs.tempVariableName
+    ? ""
+    : `${indentation}${variableId} = ${needsDereference ? "*" : ""}(${
+        rhs.tempVariableName
+      });\n`
+}`;
     } else if (rhs.type === AstType.ReadWrite) {
       code += `${this.codegenReadWrite({ expr: rhs, indentation })};\n`;
       code += `${indentation}${variableId} = ${needsDereference ? "*" : ""}(${
@@ -584,6 +689,61 @@ ${
         })
         .join(", ")}); \n`;
     }
+    return code;
+  }
+
+  codegenCallEnum({
+    expr,
+    indentation,
+  }: {
+    expr: CallEnumExpr;
+    indentation: string;
+  }): string {
+    let code = "";
+    // Add temp variable:
+    code += `${indentation}${this.getTypeInC(expr.typeValue)} ${
+      expr.tempVariableName
+    };\n`;
+    const enumType = expr.typeValue;
+    const selectedVariantIndex = enumType.variants.findIndex(
+      (variant) => variant.name === enumType.selectedVariantName
+    );
+    const selectedVariant = enumType.variants[selectedVariantIndex];
+    if (!selectedVariant) {
+      throw new Error(
+        `Cannot find variant "${
+          enumType.selectedVariantName
+        }" in enum ${typeToString(enumType)}`
+      );
+    }
+
+    // parse arguments
+    const { functionArgumentStringList, code: nextCode } =
+      this.getFunctionArgumentsStringList({
+        functionArguments: expr.variantArguments,
+        parameterTypes: selectedVariant.parameterTypes,
+        code,
+        indentation,
+      });
+    code = nextCode;
+
+    const enumKey = this.codegenEnumIfNecessary(enumType);
+    {
+      code += `${indentation}${expr.tempVariableName} = (${enumKey}){ 
+${indentation}  .tag = ${selectedVariantIndex},
+${indentation}  .variant = {
+${indentation}    .${selectedVariant.name} = {
+${functionArgumentStringList
+  .map((argumentString, index) => {
+    return `${indentation}      .${selectedVariant.parameterTypes[index].name} = ${argumentString}`;
+  })
+  .join(",\n")}
+${indentation}    }
+${indentation}  }
+${indentation}};
+`;
+    }
+
     return code;
   }
 
@@ -719,6 +879,14 @@ ${
         this.codegenFunctionIfNecessary(expr.typeValue);
         return "";
       }
+      case AstType.Enum: {
+        this.enumIdToEnumMap.set(expr.typeValue.enumId, expr.typeValue.enumId);
+        this.codegenEnumIfNecessary(expr.typeValue);
+        return "";
+      }
+      case AstType.Class: {
+        return ""; // TODO: To be implemented
+      }
       case AstType.LetAssignment: {
         const rhs = expr.right;
         if (rhs.typeValue.type === "Function") {
@@ -766,6 +934,9 @@ ${
       case AstType.CallFunction: {
         return this.codegenCallFunction({ expr, indentation });
       }
+      case AstType.CallEnum: {
+        return this.codegenCallEnum({ expr, indentation });
+      }
       case AstType.Extern: {
         // TODO: Support "C"
         if (expr.language === "mo") {
@@ -780,12 +951,18 @@ ${
         return this.codegenImplicitDereference({ expr, indentation });
       }
       case AstType.Import:
-      case AstType.Export:
       case AstType.Infix: {
         return "";
       }
+      case AstType.Export: {
+        return this.codegenExpr({ expr: expr.expr, indentation });
+      }
       default: {
-        throw new Error(`Codegen: Unimplemented expr type "${expr.type}"`);
+        throw new Error(
+          `Codegen: Unimplemented expr type "${expr.type}"\n${exprToString(
+            expr
+          )}`
+        );
       }
     }
   }

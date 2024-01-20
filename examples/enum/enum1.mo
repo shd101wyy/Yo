@@ -1,9 +1,17 @@
-export enum Option<T> {
+export enum Color {
+  Red,
+  Green,
+  Blue,
+}
+
+export enum MyOption<T> {
   None,
   Some(value: T),
 }
 
-let test = ()-> {
-  let x = Some(12);
-  x;
+let main = ()-> {
+  let r = Color.Red;
+  let x = MyOption.Some(12);
+  let y = MyOption<i32>.None;
+  let z = MyOption<f32>.None;
 }

@@ -1651,7 +1651,7 @@ The current **Mo** compiler frontend is written in **TypeScript** as a proof of 
 
 Boostrapping the **Mo** compiler is not a priority at the moment. We will do it when it's ready.
 
-**Mo** currently compiles to C. We might support compiling to LLVM IR, JavaScript, and WebAssembly in the future.
+**Mo** currently compiles to C (C11). We might support compiling to LLVM IR, JavaScript, and WebAssembly in the future.
 
 ## References
 

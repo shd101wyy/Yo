@@ -4,6 +4,7 @@ import {
   AssignmentExpr,
   AstType,
   BlockExpr,
+  CallEnumExpr,
   Expr,
   FunctionExpr,
   IfExpr,
@@ -358,6 +359,7 @@ export type TEnumVariant = {
 
 export type TEnum = {
   type: "Enum";
+  enumId: string;
   enumName: string;
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
@@ -1470,6 +1472,7 @@ export function applyTypeAndRegionArgumentsToType({
       type: "Enum",
       kind: kind,
       permission: type.permission,
+      enumId: type.enumId,
       enumName: type.enumName,
       typeParameters: newTypeParameters,
       regionParameters: newRegionParameters,
@@ -2027,6 +2030,26 @@ export function applyTypeAndRegionArgumentsToExpr({
           regionParameterToRegionArgumentMap,
         }),
       };
+    }
+    case AstType.CallEnum: {
+      const e: CallEnumExpr = {
+        ...expr,
+        typeValue: applyTypeAndRegionArgumentsToType({
+          type: expr.typeValue,
+          env,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap,
+        }) as TEnum,
+        variantArguments: expr.variantArguments.map((expr) =>
+          applyTypeAndRegionArgumentsToExpr({
+            expr,
+            env,
+            typeParameterToTypeArgumentMap,
+            regionParameterToRegionArgumentMap,
+          })
+        ),
+      };
+      return e;
     }
     case AstType.If: {
       const newIfExpr: IfExpr = {
@@ -4329,7 +4352,7 @@ export function synthesizeTypes({
   if (
     userDefinedType.type === "Enum" &&
     givenType.type === "Enum" &&
-    userDefinedType.enumName === givenType.enumName &&
+    userDefinedType.enumId === givenType.enumId &&
     (userDefinedType.selectedVariantName === undefined ||
       userDefinedType.selectedVariantName === givenType.selectedVariantName)
   ) {

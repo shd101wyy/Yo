@@ -6815,6 +6815,7 @@ ${operationName}: ${typeToString(
       type: "Enum",
       kind,
       permission: "own",
+      enumId: generateVarialeValueId(env, enumName),
       enumName,
       typeParameters,
       regionParameters,
