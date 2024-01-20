@@ -1220,6 +1220,7 @@ RHS order: ${rhsOrder}`
     parserData,
     effectOperationAbortType,
     functionName,
+    isForTypeclass,
   }: {
     tokens: Token[];
     index: number;
@@ -1228,6 +1229,7 @@ RHS order: ${rhsOrder}`
     parserData: ParserData;
     effectOperationAbortType?: Type;
     functionName?: string;
+    isForTypeclass?: boolean;
   }): ParserReturn {
     const startIndex = index;
     const currentFrameLevel = getEnvCurrentFrameLevel(env);
@@ -1258,6 +1260,12 @@ RHS order: ${rhsOrder}`
       // Parse the type again with new env that only
       // contains the top-level frame
       let newEnv = createTopLevelEnv(oldEnv);
+
+      // If it's for typeclass, we need to add another frame
+      // that might contains the type parameters.
+      if (isForTypeclass) {
+        newEnv = pushEnvFrame(newEnv, oldEnv.frames[oldEnv.frames.length - 1]);
+      }
       newEnv = pushEnvFrame(newEnv);
       const { typeValue: newFunctionType, env: nextNextEnv } =
         synthesizeFunctionTypeFromTokens({
@@ -5976,10 +5984,11 @@ ${typeToString(nextTypeValue)}`
       functionNameTokens.push(tokens[functionNameTokenIndex]);
 
       // Parse function type
+      let functionType: TFunction | undefined = undefined;
       const {
         env: nextEnv,
         index: nextIndex,
-        typeValue: functionType,
+        typeValue: nextFunctionType,
       } = synthesizeFunctionTypeFromTokens({
         tokens,
         index: functionTypeTokenIndex,
@@ -5989,6 +5998,7 @@ ${typeToString(nextTypeValue)}`
       });
       index = nextIndex;
       env = nextEnv;
+      functionType = nextFunctionType;
 
       if (functionType.typeParameters.length > 0) {
         throw this.formatErrorMessage(
@@ -5999,9 +6009,6 @@ ${typeToString(functionType)}
 `
         );
       }
-      // Add the typeParameters and regionParameters of the class to the functionType
-      functionType.typeParameters = typeParameters;
-      functionType.regionParameters = regionParameters;
 
       let functionExpr: FunctionExpr | undefined = undefined;
       if (tokens[index].type === TokenType.LCurlyBracket) {
@@ -6014,11 +6021,16 @@ ${typeToString(functionType)}
             caller,
             parserData,
             functionName,
+            isForTypeclass: true,
           });
         index = nextIndex;
         functionExpr = functionExpr_ as FunctionExpr;
-        functionExpr.typeValue = functionType;
+        functionType = functionExpr.typeValue; // NOTE: <= This is necessary
       }
+
+      // Add the typeParameters and regionParameters of the class to the functionType
+      functionType.typeParameters = typeParameters;
+      functionType.regionParameters = regionParameters;
 
       // Check if the function name is already defined in the class
       if (functions.some((func) => func.name === functionName)) {
@@ -6048,7 +6060,7 @@ ${typeToString(functionType)}
       type: "Class",
       kind: "Free",
       permission: "own",
-      name: typeclassName,
+      className: typeclassName,
       classId: generateVarialeValueId(env, typeclassName),
       typeParameters,
       regionParameters,

@@ -12,6 +12,7 @@ import {
   ImplicitDereferenceExpr,
   MatchExpr,
   ReadWriteExpr,
+  RecurExpr,
   exprToString,
 } from "./ast";
 import {
@@ -342,7 +343,7 @@ export type TClass = {
   type: "Class";
   kind: "Free";
   permission: TypePermission;
-  name: string;
+  className: string;
   classId: string;
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
@@ -1762,7 +1763,7 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
     type: "Class",
     kind: "Free",
     permission: class_.permission,
-    name: class_.name,
+    className: class_.className,
     classId: class_.classId,
     typeParameters: newTypeParameters,
     regionParameters: newRegionParameters,
@@ -2196,9 +2197,31 @@ export function applyTypeAndRegionArgumentsToExpr({
       };
       return e;
     }
+    case AstType.Recur: {
+      const e: RecurExpr = {
+        ...expr,
+        functionArguments: expr.functionArguments.map((expr) =>
+          applyTypeAndRegionArgumentsToExpr({
+            expr,
+            env,
+            typeParameterToTypeArgumentMap,
+            regionParameterToRegionArgumentMap,
+          })
+        ),
+        typeValue: applyTypeAndRegionArgumentsToType({
+          type: expr.typeValue,
+          env,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap,
+        }),
+      };
+      return e;
+    }
 
     default:
-      throw new Error(`Unknown expr type ${expr.type}`);
+      throw new Error(
+        `applyTypeAndRegionArgumentsToExpr: Unknown expr type ${expr.type}`
+      );
   }
 }
 
@@ -3738,7 +3761,7 @@ export function classToString(type: TClass): string {
           type.instanceRegionParameters ?? []
         )}`
       : "class"
-  } ${type.name}${typeAndRegionParametersToString(
+  } ${type.className}${typeAndRegionParametersToString(
     type.typeParameters,
     type.regionParameters,
     { hideTypeParameterKind: type.isInstance }

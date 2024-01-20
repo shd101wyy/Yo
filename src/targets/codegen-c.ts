@@ -34,9 +34,9 @@ import {
 } from "../type-checker";
 
 export class CodeGeneratorC {
-  private module: TModule;
   private emitter: Emitter;
   private functionIdToExprMap: Map<string, FunctionExpr> = new Map();
+
   /**
    * key is functionId + typeAndRegionParametersToString
    */
@@ -57,8 +57,7 @@ export class CodeGeneratorC {
    */
   private functionKeyToCodegenInlineMap: Map<string, string> = new Map();
 
-  constructor(module: TModule) {
-    this.module = module;
+  constructor() {
     this.emitter = new Emitter();
     this.emitter.emitHeaderLine("#include <stdbool.h>");
     this.emitter.emitHeaderLine("#include <stdint.h>");
@@ -68,15 +67,15 @@ export class CodeGeneratorC {
     // Initialize a global variable for the Unit type
     this.emitter.emitHeaderLine("struct Unit {};");
     this.emitter.emitHeaderLine("struct Unit unit = {};");
+  }
 
+  public compileModule(module: TModule) {
     this.emitter.emitDeclarationLine(`\n// Module ${module.modulePath}`);
     this.emitter.emitDeclarationLine(
       `// Module ID: ${generateModuleId(module.modulePath)}`
     );
 
-    this.emitter.emitLine("\n// Code");
-
-    this.emitter.emit(this.codegenExprs({ exprs: this.module.ast }));
+    this.emitter.emit(this.codegenExprs({ exprs: module.ast }));
   }
 
   print() {
@@ -1097,8 +1096,20 @@ ${indentation}};
         return "";
       }
       case AstType.Class: {
+        // Check if there is pre-defined function
+        for (let i = 0; i < expr.class.functions.length; i++) {
+          const func = expr.class.functions[i];
+          if (func.functionExpr) {
+            this.functionIdToExprMap.set(
+              func.func.functionId,
+              func.functionExpr
+            );
+            this.codegenFunctionIfNecessary(func.functionExpr.typeValue);
+          }
+        }
         return ""; // TODO: To be implemented
       }
+
       case AstType.TypeAlias: {
         this.codegenTypeConstructorIfNecessary(expr.typeValue);
         return ""; // TODO: To be implemented

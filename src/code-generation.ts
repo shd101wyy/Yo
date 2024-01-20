@@ -10,8 +10,11 @@ export class CodeGenerator {
    */
   public modules: Map<string, TModule> = new Map();
   public stdPath = path.join(__dirname, "../../std");
+  private codeGenratorC: CodeGeneratorC;
 
-  constructor() {}
+  constructor() {
+    this.codeGenratorC = new CodeGeneratorC();
+  }
 
   /**
    * `modulePath` is the path of the module with protocol. For example:
@@ -69,9 +72,9 @@ export class CodeGenerator {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   compileModule(module: TModule, { printC }: { printC?: boolean } = {}) {
     console.log(`= Compiling module ${module.modulePath}`);
-    const c = new CodeGeneratorC(module);
+    this.codeGenratorC.compileModule(module);
     if (printC) {
-      console.log(c.print());
+      console.log(this.codeGenratorC.print());
     }
   }
 }

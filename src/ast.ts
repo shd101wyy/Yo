@@ -809,6 +809,6 @@ ${indentation}}`;
       return `${exprToString(expr.expr)}`;
     }
     default:
-      throw new Error(`Unknown expr type ${expr}`);
+      throw new Error(`exprToString: Unknown expr type ${expr}`);
   }
 }
