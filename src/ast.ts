@@ -100,6 +100,7 @@ export enum AstType {
 
   // read / write
   ReadWrite = "read-write",
+  ImplicitDereference = "implicit-dereference",
 }
 
 export enum OperatorType {
@@ -150,7 +151,8 @@ export type Expr =
   | RecurExpr
   | InfixPrecedenceExpr
   | TypeCastExpr
-  | ReadWriteExpr;
+  | ReadWriteExpr
+  | ImplicitDereferenceExpr;
 
 export type IgnoreExpr = {
   type: AstType.Ignore;
@@ -525,6 +527,20 @@ export type ReadWriteExpr = {
   tempVariableName: string;
 };
 
+export type ImplicitDereferenceExpr = {
+  type: AstType.ImplicitDereference;
+  /**
+   * The type after dereferencing.
+   */
+  typeValue: Type;
+  env: Environment;
+  token: Token;
+  /**
+   * The expression to be dereferenced.
+   */
+  expr: Expr;
+};
+
 export function exprToString(expr: Expr, indentation = ""): string {
   switch (expr.type) {
     case AstType.Value:
@@ -788,6 +804,9 @@ ${indentation}}`;
       return `(${expr.permission === "read" ? "read" : "write"} ${exprToString(
         expr.expr
       )})`;
+    }
+    case AstType.ImplicitDereference: {
+      return `${exprToString(expr.expr)}`;
     }
     default:
       throw new Error(`Unknown expr type ${expr}`);

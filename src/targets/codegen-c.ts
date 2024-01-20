@@ -7,6 +7,7 @@ import {
   Expr,
   FunctionExpr,
   IfExpr,
+  ImplicitDereferenceExpr,
   ReadWriteExpr,
 } from "../ast";
 import { Emitter } from "../emitter";
@@ -16,6 +17,7 @@ import {
   Region,
   TFunction,
   TModule,
+  TParameterType,
   TPrimitive,
   TPrimitiveWithValue,
   Type,
@@ -391,6 +393,7 @@ export class CodeGeneratorC {
       if (i === exprs.length - 1) {
         code += this.codegenAssignmentByVariableId({
           variableId: blockExpr.tempVariableName,
+          variableType: blockExpr.typeValue,
           rhs: exprs[i],
           indentation,
         });
@@ -465,27 +468,39 @@ export class CodeGeneratorC {
 
   codegenAssignmentByVariableId({
     variableId,
+    variableType,
     rhs,
     indentation,
   }: {
     variableId: string;
+    variableType: Type;
     rhs: Expr;
     indentation: string;
   }): string {
     let code = "";
+
+    const needsDereference =
+      variableType.permission === "own" &&
+      (rhs.typeValue.permission === "read" ||
+        rhs.typeValue.permission === "write");
+
     if (rhs.type === AstType.Block) {
       code += `${this.codegenBlockExpression({
         blockExpr: rhs,
         indentation,
         isFunctionBody: false,
       })}
-${indentation}${variableId} = ${rhs.tempVariableName};\n`;
+${indentation}${variableId} = ${needsDereference ? "*" : ""}(${
+        rhs.tempVariableName
+      });\n`;
     } else if (rhs.type === AstType.If) {
       code += `${this.codegenIfExpression({
         expr: rhs,
         indentation,
       })}
-${indentation}${variableId} = ${rhs.tempVariableName};\n`;
+${indentation}${variableId} = ${needsDereference ? "*" : ""}(${
+        rhs.tempVariableName
+      });\n`;
     } else if (rhs.type === AstType.CallFunction) {
       code += `${this.codegenCallFunction({
         expr: rhs,
@@ -494,15 +509,22 @@ ${indentation}${variableId} = ${rhs.tempVariableName};\n`;
 ${
   variableId === rhs.tempVariableName
     ? ""
-    : `${indentation}${variableId} = ${rhs.tempVariableName};\n`
+    : `${indentation}${variableId} = ${needsDereference ? "*" : ""}(${
+        rhs.tempVariableName
+      });\n`
 }`;
     } else if (rhs.type === AstType.ReadWrite) {
       code += `${this.codegenReadWrite({ expr: rhs, indentation })};\n`;
+      code += `${indentation}${variableId} = ${needsDereference ? "*" : ""}(${
+        rhs.tempVariableName
+      });\n`;
     } else {
-      code += `${indentation}${variableId} = ${this.codegenExpr({
+      code += `${indentation}${variableId} = ${
+        needsDereference ? "*" : ""
+      }(${this.codegenExpr({
         expr: rhs,
         indentation,
-      })};\n`;
+      })});\n`;
     }
     return code;
   }
@@ -525,6 +547,7 @@ ${
     const { functionArgumentStringList, code: nextCode } =
       this.getFunctionArgumentsStringList({
         functionArguments: expr.functionArguments,
+        parameterTypes: functionType.parameterTypes,
         code,
         indentation,
       });
@@ -585,31 +608,51 @@ ${
     return code;
   }
 
+  codegenImplicitDereference({
+    expr,
+    indentation,
+  }: {
+    expr: ImplicitDereferenceExpr;
+    indentation: string;
+  }): string {
+    const code = `*(${this.codegenExpr({ expr: expr.expr, indentation })})`;
+    return code;
+  }
+
   getFunctionArgumentsStringList({
     functionArguments,
+    parameterTypes,
     code,
     indentation,
   }: {
     functionArguments: Expr[];
+    parameterTypes: TParameterType[];
     code: string;
     indentation: string;
   }): { functionArgumentStringList: string[]; code: string } {
     const functionArgumentStringList: string[] = [];
     for (let i = 0; i < functionArguments.length; i++) {
       const argument = functionArguments[i];
+      const parameterType = parameterTypes[i];
       if ("tempVariableName" in argument) {
         code += this.codegenAssignmentByVariableId({
           variableId: argument.tempVariableName,
+          variableType: parameterType.type,
           rhs: argument,
           indentation,
         });
         functionArgumentStringList.push(argument.tempVariableName);
       } else {
+        const needsReference =
+          (parameterType.type.permission === "read" ||
+            parameterType.type.permission === "write") &&
+          argument.typeValue.permission === "own";
+
         functionArgumentStringList.push(
-          this.codegenExpr({
+          `(${needsReference ? "&" : ""}${this.codegenExpr({
             expr: argument,
             indentation,
-          })
+          })})`
         );
       }
     }
@@ -694,6 +737,7 @@ ${
           }; // ${expr.variableName}\n`;
           code += this.codegenAssignmentByVariableId({
             variableId: expr.variableId,
+            variableType: expr.variableType,
             rhs,
             indentation,
           });
@@ -731,6 +775,9 @@ ${
       }
       case AstType.ReadWrite: {
         return this.codegenReadWrite({ expr, indentation });
+      }
+      case AstType.ImplicitDereference: {
+        return this.codegenImplicitDereference({ expr, indentation });
       }
       case AstType.Import:
       case AstType.Export:

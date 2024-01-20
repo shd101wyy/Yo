@@ -7,6 +7,7 @@ import {
   Expr,
   FunctionExpr,
   IfExpr,
+  ImplicitDereferenceExpr,
   ReadWriteExpr,
   exprToString,
 } from "./ast";
@@ -2081,6 +2082,24 @@ export function applyTypeAndRegionArgumentsToExpr({
     }
     case AstType.ReadWrite: {
       const e: ReadWriteExpr = {
+        ...expr,
+        expr: applyTypeAndRegionArgumentsToExpr({
+          expr: expr.expr,
+          env,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap,
+        }),
+        typeValue: applyTypeAndRegionArgumentsToType({
+          type: expr.typeValue,
+          env,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap,
+        }),
+      };
+      return e;
+    }
+    case AstType.ImplicitDereference: {
+      const e: ImplicitDereferenceExpr = {
         ...expr,
         expr: applyTypeAndRegionArgumentsToExpr({
           expr: expr.expr,

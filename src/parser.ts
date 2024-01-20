@@ -14,6 +14,7 @@ import {
   ExternVariable,
   FunctionExpr,
   IfCase,
+  ImplicitDereferenceExpr,
   LetAssignmentExpr,
   MatchCase,
   exprToString,
@@ -997,6 +998,11 @@ ${exprToString(rhs)}
       lhs.type === AstType.PropertyAccess
     ) {
       isMutable = lhs.isMutable;
+    } else if (
+      lhs.type === AstType.ImplicitDereference &&
+      "isMutable" in lhs.expr
+    ) {
+      isMutable = lhs.expr.isMutable;
     }
     if (!isMutable) {
       throw this.formatErrorMessage(
@@ -2612,16 +2618,18 @@ ${matchedFunctionErrors[i] ?? ""}`
 
     const variableValue =
       notConsumedVariableValues[notConsumedVariableValues.length - 1];
-    let typeValue = variableValue.type;
+    const typeValue = variableValue.type;
 
     // NOTE: We automatically dereference the variable if it's a reference
     // We return the variable it refered to
+    /*
     if (typeValue.permission === "read" || typeValue.permission === "write") {
       typeValue = {
         ...typeValue,
         permission: "own",
       };
     }
+    */
 
     const isFreeVariable =
       variableValue.frameLevel <= env.functionDeclarationFrameLevel;
@@ -3065,7 +3073,7 @@ ${matchedFunctionErrors[i] ?? ""}`
       }
     }
 
-    return this.parsePrimaryEnd({
+    returnValue = this.parsePrimaryEnd({
       primaryExpr: returnValue.expr,
       tokens,
       index: returnValue.index,
@@ -3073,6 +3081,28 @@ ${matchedFunctionErrors[i] ?? ""}`
       caller,
       parserData,
     });
+
+    // We automatically dereference the value
+    if (
+      returnValue.expr.type !== AstType.ReadWrite &&
+      (returnValue.expr.typeValue.permission === "read" ||
+        returnValue.expr.typeValue.permission === "write")
+    ) {
+      const typeValue: Type = {
+        ...returnValue.expr.typeValue,
+        permission: "own",
+      };
+      const implicitDeferenceExpr: ImplicitDereferenceExpr = {
+        type: AstType.ImplicitDereference,
+        expr: returnValue.expr,
+        env: returnValue.expr.env,
+        token: returnValue.expr.token,
+        typeValue,
+      };
+      returnValue.expr = implicitDeferenceExpr;
+    }
+
+    return returnValue;
   }
 
   private parsePrimaryEnd({
@@ -3977,6 +4007,9 @@ ${exprToString(expr)}`,
             consumedAtToken: expr.token,
           });
         }
+        case AstType.ImplicitDereference: {
+          return this.setVariableAsConsumed(env, expr.expr);
+        }
         // Below are all the expressions that have `tempVariableName`.
         // case AstType.ReadWrite: // NOTE: No need to consume for "read"/"write" expression.
         case AstType.CallFunction:
@@ -4016,6 +4049,8 @@ ${exprToString(expr)}`,
       return this.getVariableLifetimeOrder(env, expr.expr);
     } else if (expr.type === AstType.Variable) {
       return getEnvVariableLifetimeOrder(env, expr.variableName);
+    } else if (expr.type === AstType.ImplicitDereference) {
+      return this.getVariableLifetimeOrder(env, expr.expr);
     } else if (expr.type === AstType.Value) {
       return 0; // global?
     } else if (expr.type === AstType.CallFunction) {
@@ -4191,6 +4226,14 @@ Got     : (${functionArgumentsInOrder
             variableName: expr.variableName,
             isMutableReference,
             token: expr.token,
+            isForAssignment,
+          });
+        }
+        case AstType.ImplicitDereference: {
+          return this.increaseVariableReferenceCount({
+            env,
+            expr: expr.expr,
+            isMutableReference,
             isForAssignment,
           });
         }
