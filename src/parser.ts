@@ -5802,7 +5802,7 @@ ${typeToString(nextTypeValue)}`
       type: "TypeConstructor",
       kind,
       permission: "own",
-      name: typeName,
+      typeConstructorName: typeName,
       typeConstructorId: generateVarialeValueId(env, typeName),
       typeParameters,
       regionParameters,

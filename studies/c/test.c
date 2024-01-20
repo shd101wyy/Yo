@@ -4,69 +4,60 @@
 struct Unit {};
 struct Unit unit = {};
 
-// Module file:///home/yiyiwang/Workspace/mo/examples/enum/enum3.mo
-// Module ID: moa93acf49
-int32_t main();
+// Module file:///home/yiyiwang/Workspace/mo/examples/type/type3.mo
+// Module ID: mob6ca533f
+struct Unit main();
 
 // Code
-// enum Color
+// type MyI32
+typedef int32_t mob6ca533f_MyI32_1_da39a3ee;
+
+// type MyInt
+typedef union {
+  int8_t;
+  int16_t;
+  int32_t;
+} mob6ca533f_MyInt_1_da39a3ee;
+
+// type Coord
 typedef struct {
-  int tag;
-  union {
-    struct {
-    } Red;
-    struct {
-    } Green;
-    struct {
-    } Blue;
-  } variant;
-} moa93acf49_Color_1_da39a3ee;
+  int32_t x;
+  int32_t y;
+} mob6ca533f_Coord_1_da39a3ee;
 
-int32_t main() {
+// type AnotherCoord
+typedef union {
+  mob6ca533f_Coord_1_da39a3ee;
+  struct {
+    float x;
+    float y;
+  };
+} mob6ca533f_AnotherCoord_1_da39a3ee;
+
+// type Coord3D
+typedef struct {
+  mob6ca533f_Coord_1_da39a3ee;
+  struct {
+    int32_t z;
+  };
+} mob6ca533f_Coord3D_1_da39a3ee;
+
+struct Unit main() {
   // block
-  int32_t _moa93acf49_temp_15;
-  moa93acf49_Color_1_da39a3ee moa93acf49_r; // r
-  moa93acf49_Color_1_da39a3ee _moa93acf49_temp_11;
-  _moa93acf49_temp_11 = (moa93acf49_Color_1_da39a3ee){ 
-    .tag = 0,
-    .variant = {
-      .Red = {
+  struct Unit _mob6ca533f_temp_13;
+  mob6ca533f_MyI32_1_da39a3ee mob6ca533f_x; // x
+  mob6ca533f_MyI32_1_da39a3ee _mob6ca533f_temp_11;
+  _mob6ca533f_temp_11 = ((mob6ca533f_MyI32_1_da39a3ee) ((int32_t)12));
+  mob6ca533f_x = (_mob6ca533f_temp_11);
 
-      }
-    }
-  };
+  mob6ca533f_Coord_1_da39a3ee mob6ca533f_coord; // coord
+  mob6ca533f_Coord_1_da39a3ee _mob6ca533f_temp_12;
+  _mob6ca533f_temp_12 = ((mob6ca533f_Coord_1_da39a3ee) {.x = ((int32_t)12), .y = ((int32_t)13)});
+  mob6ca533f_coord = (_mob6ca533f_temp_12);
 
-  moa93acf49_r = (_moa93acf49_temp_11);
-
-  int32_t moa93acf49_num; // num
-
-  // match
-  int32_t _moa93acf49_temp_12;
-  switch ((moa93acf49_r).tag) {
-    case 1: // Green
-            // block
-      _moa93acf49_temp_12 = (((int32_t)1));
-      // end block
-
-      break;
-    case 0: // Red
-            // block
-      _moa93acf49_temp_12 = (((int32_t)2));
-      // end block
-
-      break;
-    default: // *
-            // block
-      _moa93acf49_temp_12 = (((int32_t)3));
-      // end block
-
-      break;
-  };
-
-
-  moa93acf49_num = (_moa93acf49_temp_12);
-
-  _moa93acf49_temp_15 = (moa93acf49_num);
-  return _moa93acf49_temp_15;
+  _mob6ca533f_temp_13 = (unit);
+  return _mob6ca533f_temp_13;
   // end block
 }
+
+

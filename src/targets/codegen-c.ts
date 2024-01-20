@@ -5,12 +5,14 @@ import {
   BlockExpr,
   CallEnumExpr,
   CallFunctionExpr,
+  CallTypeConstructorExpr,
   Expr,
   FunctionExpr,
   IfExpr,
   ImplicitDereferenceExpr,
   MatchExpr,
   ReadWriteExpr,
+  RecordValueExpr,
   exprToString,
 } from "../ast";
 import { Emitter } from "../emitter";
@@ -24,6 +26,7 @@ import {
   TParameterType,
   TPrimitive,
   TPrimitiveWithValue,
+  TTypeConstructor,
   Type,
   applyTypeAndRegionArgumentsToFunctionExpr,
   typeAndRegionParametersToString,
@@ -34,7 +37,6 @@ export class CodeGeneratorC {
   private module: TModule;
   private emitter: Emitter;
   private functionIdToExprMap: Map<string, FunctionExpr> = new Map();
-  private enumIdToEnumMap: Map<string, string> = new Map();
   /**
    * key is functionId + typeAndRegionParametersToString
    */
@@ -44,6 +46,11 @@ export class CodeGeneratorC {
    * key is enumId + typeAndRegionParametersToString
    */
   private generatedEnumKeySet: Set<string> = new Set();
+
+  /**
+   * key is typeConstructorId + typeAndRegionParametersToString
+   */
+  private generatedTypeConstructorKeySet: Set<string> = new Set();
 
   /**
    * key is functionKey, value is the @codegenInline template
@@ -113,6 +120,7 @@ export class CodeGeneratorC {
         break;
       }
       // FIXME: u128
+      // FIXME: f16
       case "f32": {
         typeString = "float";
         break;
@@ -124,10 +132,12 @@ export class CodeGeneratorC {
       case "boolean": {
         return "bool";
       }
+      /*
       case "char": {
-        typeString = "char";
+        typeString = "char"; // FIXME: Shouldn't be char
         break;
       }
+      */
       case "symbol": {
         typeString = "char*";
         break;
@@ -139,6 +149,11 @@ export class CodeGeneratorC {
       case "Enum": {
         const enumKey = this.codegenEnumIfNecessary(type);
         typeString = enumKey;
+        break;
+      }
+      case "TypeConstructor": {
+        const typeConstructorKey = this.codegenTypeConstructorIfNecessary(type);
+        typeString = typeConstructorKey;
         break;
       }
       default: {
@@ -235,6 +250,17 @@ export class CodeGeneratorC {
         throw new Error(`Unimplemented primitive type ${typeValue.type}`);
       }
     }
+  }
+
+  codegenRecordValue({ expr }: { expr: RecordValueExpr }): string {
+    return `{${expr.properties
+      .map(({ name, value }) => {
+        return `.${name} = ${this.codegenExpr({
+          expr: value,
+          indentation: "",
+        })}`;
+      })
+      .join(", ")}}`;
   }
 
   codegenFunctionIfNecessary(functionType: TFunction): string {
@@ -378,10 +404,6 @@ export class CodeGeneratorC {
     if (this.generatedEnumKeySet.has(enumKey)) {
       return enumKey;
     }
-    const enumExpr = this.enumIdToEnumMap.get(enumType.enumId);
-    if (!enumExpr) {
-      throw new Error(`Cannot find enum expr of ${enumType.enumId}`);
-    }
     this.generatedEnumKeySet.add(enumKey);
 
     const enumCode = this.codegenEnum({
@@ -392,6 +414,48 @@ export class CodeGeneratorC {
     this.emitter.emit(enumCode);
 
     return enumKey;
+  }
+
+  codegenTypeConstructorIfNecessary(
+    typeConstructorType: TTypeConstructor
+  ): string {
+    const typeArguments = typeConstructorType.typeParameters.map(
+      (t) => t.appliedType
+    );
+    const regionArguments = typeConstructorType.regionParameters.map(
+      (r) => r.appliedRegion
+    );
+    if (
+      typeArguments.some((t) => t === undefined) ||
+      regionArguments.some((r) => r === undefined)
+    ) {
+      return "";
+    }
+
+    // SHA1 of typeAndRegionParametersToString
+    const typeAndRegionString = typeAndRegionParametersToString(
+      typeConstructorType.typeParameters,
+      typeConstructorType.regionParameters
+    );
+    const hash = createHash("sha1")
+      .update(typeAndRegionString)
+      .digest("hex")
+      .slice(0, 8);
+
+    const typeConstructorKey = `${typeConstructorType.typeConstructorId}_${hash}`;
+    if (this.generatedTypeConstructorKeySet.has(typeConstructorKey)) {
+      return typeConstructorKey;
+    }
+    this.generatedTypeConstructorKeySet.add(typeConstructorKey);
+
+    const code = this.codegenTypeConstructor({
+      typeConstructorType: typeConstructorType,
+      typeConstructorKey,
+      indentation: "",
+    });
+    this.emitter.emit(code);
+
+    return typeConstructorKey;
   }
 
   codegenPrototype(functionType: TFunction): string {
@@ -461,6 +525,84 @@ export class CodeGeneratorC {
     code += `${indentation}} ${enumKey};\n\n`;
 
     return code;
+  }
+
+  codegenTypeConstructor({
+    typeConstructorKey,
+    typeConstructorType,
+    indentation,
+  }: {
+    typeConstructorType: TTypeConstructor;
+    typeConstructorKey: string;
+    indentation: string;
+  }): string {
+    let code: string = `${indentation}// type ${typeToString(
+      typeConstructorType,
+      { extractTypeConstructor: false, hideTypeParameterKind: true }
+    )}\n`;
+
+    code += `${indentation}typedef ${this.convertTypeConstructorToTypeInC({
+      type: typeConstructorType.typeValue,
+      indentation: indentation,
+    }).trim()} ${typeConstructorKey};\n\n`;
+
+    return code;
+  }
+
+  convertTypeConstructorToTypeInC({
+    type,
+    indentation,
+  }: {
+    type: Type;
+    indentation: string;
+  }): string {
+    let typeString = "";
+    switch (type.type) {
+      case "Union": {
+        typeString += `${indentation}union {
+${type.types
+  .map((type) => {
+    return `${this.convertTypeConstructorToTypeInC({
+      type,
+      indentation: indentation + "  ",
+    })};`;
+  })
+  .join("\n")}
+${indentation}}\n`;
+        break;
+      }
+      case "Intersection": {
+        typeString += `${indentation}struct {
+${type.types
+  .map((type) => {
+    return `${this.convertTypeConstructorToTypeInC({
+      type,
+      indentation: indentation + "  ",
+    })};`;
+  })
+  .join("\n")}
+${indentation}}\n`;
+        break;
+      }
+      case "Record": {
+        typeString += `${indentation}struct {
+${type.properties
+  .map((field) => {
+    return `${this.convertTypeConstructorToTypeInC({
+      type: field.type,
+      indentation: indentation + "  ",
+    })} ${field.name};`;
+  })
+  .join("\n")}
+${indentation}}\n`;
+        break;
+      }
+      default: {
+        // FIXME: Support function
+        typeString = indentation + this.getTypeInC(type);
+      }
+    }
+    return typeString.trimEnd();
   }
 
   codegenBlockExpression({
@@ -650,7 +792,8 @@ ${indentation}${variableId} = ${needsDereference ? "*" : ""}(${
       });\n`;
     } else if (
       rhs.type === AstType.CallFunction ||
-      rhs.type === AstType.CallEnum
+      rhs.type === AstType.CallEnum ||
+      rhs.type === AstType.CallTypeConstructor
     ) {
       code += `${this.codegenExpr({
         expr: rhs,
@@ -787,6 +930,31 @@ ${indentation}};
     return code;
   }
 
+  codegenCallTypeConstructor({
+    expr,
+    indentation,
+  }: {
+    expr: CallTypeConstructorExpr;
+    indentation: string;
+  }): string {
+    let code = "";
+    // Add temp variable:
+    code += `${indentation}${this.getTypeInC(expr.typeValue)} ${
+      expr.tempVariableName
+    };\n`;
+    const typeConstructorType = expr.typeValue;
+    const typeConstructorKey =
+      this.codegenTypeConstructorIfNecessary(typeConstructorType);
+
+    code += `${indentation}${
+      expr.tempVariableName
+    } = ((${typeConstructorKey}) ${this.codegenExpr({
+      expr: expr.expr,
+      indentation: "",
+    })});`;
+    return code;
+  }
+
   codegenReadWrite({
     expr,
     indentation,
@@ -909,6 +1077,11 @@ ${indentation}};
               typeValue: expr.typeValue,
             });
           }
+          case "record": {
+            return this.codegenRecordValue({
+              expr: expr,
+            });
+          }
           default: {
             throw new Error(`Unimplemented value tag ${expr.tag}`);
           }
@@ -920,11 +1093,14 @@ ${indentation}};
         return "";
       }
       case AstType.Enum: {
-        this.enumIdToEnumMap.set(expr.typeValue.enumId, expr.typeValue.enumId);
         this.codegenEnumIfNecessary(expr.typeValue);
         return "";
       }
       case AstType.Class: {
+        return ""; // TODO: To be implemented
+      }
+      case AstType.TypeAlias: {
+        this.codegenTypeConstructorIfNecessary(expr.typeValue);
         return ""; // TODO: To be implemented
       }
       case AstType.LetAssignment: {
@@ -979,6 +1155,9 @@ ${indentation}};
       }
       case AstType.CallEnum: {
         return this.codegenCallEnum({ expr, indentation });
+      }
+      case AstType.CallTypeConstructor: {
+        return this.codegenCallTypeConstructor({ expr, indentation });
       }
       case AstType.Extern: {
         // TODO: Support "C"

@@ -5,6 +5,7 @@ import {
   AstType,
   BlockExpr,
   CallEnumExpr,
+  CallTypeConstructorExpr,
   Expr,
   FunctionExpr,
   IfExpr,
@@ -319,10 +320,10 @@ export type TTuple = {
 
 export type TTypeConstructor = {
   type: "TypeConstructor";
+  typeConstructorName: string;
+  typeConstructorId: string;
   kind: TypeKind;
   permission: TypePermission;
-  name: string;
-  typeConstructorId: string;
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
   typeValue: Type;
@@ -503,7 +504,7 @@ export const TypeValues: {
     type: "TypeConstructor",
     kind: "Linear",
     permission: "own",
-    name: "Promise",
+    typeConstructorName: "Promise",
     typeConstructorId: "Promise",
     typeParameters: [
       {
@@ -1417,8 +1418,8 @@ export function applyTypeAndRegionArgumentsToType({
       type: "TypeConstructor",
       kind: kind,
       permission: type.permission,
-      name: type.name,
-      typeConstructorId: generateVarialeValueId(env, type.name),
+      typeConstructorName: type.typeConstructorName,
+      typeConstructorId: type.typeConstructorId,
       typeParameters: newTypeParameters,
       regionParameters: newRegionParameters,
       typeValue: newTypeValue,
@@ -2049,6 +2050,24 @@ export function applyTypeAndRegionArgumentsToExpr({
             regionParameterToRegionArgumentMap,
           })
         ),
+      };
+      return e;
+    }
+    case AstType.CallTypeConstructor: {
+      const e: CallTypeConstructorExpr = {
+        ...expr,
+        expr: applyTypeAndRegionArgumentsToExpr({
+          expr: expr.expr,
+          env,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap,
+        }),
+        typeValue: applyTypeAndRegionArgumentsToType({
+          type: expr.typeValue,
+          env,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap,
+        }) as TTypeConstructor,
       };
       return e;
     }
@@ -3334,7 +3353,7 @@ export function typeToString(
     case "TypeConstructor": {
       if (extractTypeConstructor) {
         if (extractTypeConstructor === "all") {
-          return `${type.name}${typeAndRegionParametersToString(
+          return `${type.typeConstructorName}${typeAndRegionParametersToString(
             type.typeParameters,
             type.regionParameters,
             { hideTypeParameterKind }
@@ -3354,7 +3373,7 @@ export function typeToString(
         }
       } else {
         return `${typePermissionToString(type.permission)} ${
-          type.name
+          type.typeConstructorName
         }${typeAndRegionParametersToString(
           type.typeParameters,
           type.regionParameters,
@@ -3777,7 +3796,7 @@ function checkTypeConstructorExactMatch(
   givenType: TTypeConstructor,
   env: Environment
 ) {
-  if (expectedType.name !== givenType.name) {
+  if (expectedType.typeConstructorId !== givenType.typeConstructorId) {
     return false;
   }
   if (
@@ -4305,7 +4324,7 @@ export function typeIsFunctionTypeThatReturnsPromise(
   if (
     type.type === "Function" &&
     type.returnType.type === "TypeConstructor" &&
-    type.returnType.name === "Promise"
+    type.returnType.typeConstructorId === "Promise"
   ) {
     return type.returnType;
   } else {
@@ -4314,7 +4333,7 @@ export function typeIsFunctionTypeThatReturnsPromise(
 }
 
 export function typeIsPromise(type: Type): TTypeConstructor | null {
-  if (type.type === "TypeConstructor" && type.name === "Promise") {
+  if (type.type === "TypeConstructor" && type.typeConstructorId === "Promise") {
     return type;
   } else {
     return null;

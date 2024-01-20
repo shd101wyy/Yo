@@ -1,3 +1,4 @@
+#include <stdint.h>
 
 typedef struct
 {
@@ -19,19 +20,32 @@ typedef struct
   int tag;
 } Color;
 
+// type Coord
+typedef struct {
+  int32_t x;
+  int32_t y;
+} Coord;
+
+// type AnotherCoord
+typedef union {
+  Coord;
+  struct {
+    float x;
+    float y;
+  };
+} mob6ca533f_AnotherCoord_1_da39a3ee;
+
+// type Coord3D
+typedef struct {
+  Coord;
+  struct {
+    int32_t z;
+  };
+} Coord3D;
+
+
 int main()
 {
-  Color color = {.tag = 0};
-  Option option;
-  option = (Option){.tag = 0, .variant = {.Some = {.value = 0}}};
-  switch (color.tag)
-  {
-  case /* constant-expression */:
-    /* code */
-    break;
-  
-  default:
-    break;
-  }
+  Coord3D coord = {.x = 1, .y = 2, .z = 3};
   return 0;
 }

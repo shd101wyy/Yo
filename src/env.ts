@@ -306,7 +306,7 @@ export function popEnvFrame(
             } is "Linear" type but is not consumed:
 ${typeToString(value.type)}${
               value.type.type === "TypeConstructor" &&
-              value.type.name === "Promise"
+              value.type.typeConstructorId === "Promise"
                 ? `\nPlease consider using \`await\` to consume the "Promise" value.`
                 : ""
             }`,

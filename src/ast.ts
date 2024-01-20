@@ -329,7 +329,7 @@ export type DestructuringAssignmentExpr = {
 export type TypeAliasExpr = {
   type: AstType.TypeAlias;
   typeName: string;
-  typeValue: Type;
+  typeValue: TTypeConstructor;
   env: Environment;
   token: Token;
 };
