@@ -14,8 +14,8 @@ let main = () -> i32 {
   let a = xRef;
 
   swap(xRef, yRef);
+  swap(x, y);
   
-  // swap(x, y);
   // assert(x == 2, "x should be 2");
   // assert(y == 1, "y should be 1");
   x

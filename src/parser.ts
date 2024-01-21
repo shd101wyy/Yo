@@ -1805,10 +1805,6 @@ RHS order: ${rhsOrder}`
     }
 
     // logger.debug(JSON.stringify(calleeTypeValue));
-    console.log(
-      "- typeArguments: ",
-      typeArguments?.map((arg) => typeToString(arg))
-    );
     const {
       functionArguments: functionArgumentsInOrder,
       functionTypeArguments: functionTypeArgumentsInOrder,
@@ -1819,14 +1815,6 @@ RHS order: ${rhsOrder}`
       functionArguments,
       typeArguments,
       env
-    );
-    console.log(
-      "- functionArgumentsInOrder: ",
-      functionArgumentsInOrder?.map((arg) => exprToString(arg))
-    );
-    console.log(
-      "- functionTypeArguments: ",
-      functionTypeArgumentsInOrder?.map((arg) => typeToString(arg))
     );
 
     if (!functionArgumentsInOrder) {
@@ -1880,7 +1868,8 @@ Got:      <${functionTypeArgumentsInOrder
         regionArguments: functionRegionArgumentsInOrder,
         regionParameterToRegionArgumentMap: {},
         typeParameterToTypeArgumentMap: {},
-      });
+      }) as TFunction;
+
       if (typeValue_.type !== "Function") {
         throw this.formatErrorMessage(
           tokens[index],
@@ -1970,7 +1959,6 @@ Got:      <${functionTypeArgumentsInOrder
       );
     }
 
-    console.log("- calleeType: ", typeToString(calleeType));
     const {
       index: nextIndex,
       env: nextEnv,
@@ -1987,7 +1975,6 @@ Got:      <${functionTypeArgumentsInOrder
     });
     index = nextIndex;
     env = nextEnv;
-    console.log("calleeTypeValue: ", typeToString(calleeTypeValue));
 
     // Check function effects
     if (!checkFunctionEffects(calleeTypeValue, caller, env)) {
