@@ -30,6 +30,7 @@ import {
   Type,
   applyTypeAndRegionArgumentsToFunctionExpr,
   typeAndRegionParametersToString,
+  typeContainsTypeParameterThatDoesntHaveAppliedType,
   typeToString,
 } from "../type-checker";
 
@@ -155,6 +156,16 @@ export class CodeGeneratorC {
         typeString = typeConstructorKey;
         break;
       }
+      case "TypeParameter": {
+        if (type.appliedType) {
+          typeString = this.getTypeInC(type.appliedType);
+        } else {
+          throw new Error(
+            "Didn't find appliedType in TypeParameter: " + typeToString(type)
+          );
+        }
+        break;
+      }
       default: {
         throw new Error(`Unimplemented type ${typeToString(type)}`);
       }
@@ -269,7 +280,8 @@ export class CodeGeneratorC {
     );
     if (
       typeArguments.some((t) => t === undefined) ||
-      regionArguments.some((r) => r === undefined)
+      regionArguments.some((r) => r === undefined) ||
+      typeContainsTypeParameterThatDoesntHaveAppliedType(functionType)
     ) {
       return "";
     }
@@ -384,7 +396,8 @@ export class CodeGeneratorC {
     );
     if (
       typeArguments.some((t) => t === undefined) ||
-      regionArguments.some((r) => r === undefined)
+      regionArguments.some((r) => r === undefined) ||
+      typeContainsTypeParameterThatDoesntHaveAppliedType(enumType)
     ) {
       return "";
     }
@@ -426,7 +439,8 @@ export class CodeGeneratorC {
     );
     if (
       typeArguments.some((t) => t === undefined) ||
-      regionArguments.some((r) => r === undefined)
+      regionArguments.some((r) => r === undefined) ||
+      typeContainsTypeParameterThatDoesntHaveAppliedType(typeConstructorType)
     ) {
       return "";
     }
@@ -882,11 +896,12 @@ ${
     indentation: string;
   }): string {
     let code = "";
+    const enumType = expr.typeValue;
+    const enumKey = this.codegenEnumIfNecessary(enumType);
     // Add temp variable:
-    code += `${indentation}${this.getTypeInC(expr.typeValue)} ${
+    code += `${indentation}${this.getTypeInC(enumType)} ${
       expr.tempVariableName
     };\n`;
-    const enumType = expr.typeValue;
     const selectedVariantIndex = enumType.variants.findIndex(
       (variant) => variant.name === enumType.selectedVariantName
     );
@@ -909,7 +924,6 @@ ${
       });
     code = nextCode;
 
-    const enumKey = this.codegenEnumIfNecessary(enumType);
     {
       code += `${indentation}${expr.tempVariableName} = (${enumKey}){ 
 ${indentation}  .tag = ${selectedVariantIndex},
@@ -1109,7 +1123,6 @@ ${indentation}};
         }
         return ""; // TODO: To be implemented
       }
-
       case AstType.TypeAlias: {
         this.codegenTypeConstructorIfNecessary(expr.typeValue);
         return ""; // TODO: To be implemented

@@ -25,6 +25,6 @@ export class Emitter {
   }
 
   print() {
-    return this.headers + this.declarations + this.code;
+    return this.headers + "\n" + this.declarations + "\n" + this.code.trim();
   }
 }

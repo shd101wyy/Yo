@@ -1232,6 +1232,7 @@ function generateNewTypeAndRegionParameters({
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
 } {
+  /*
   const r = Math.random();
   logger.debug("- generateNewTypeAndRegionParameters");
   logger.debug(
@@ -1249,6 +1250,7 @@ function generateNewTypeAndRegionParameters({
     r,
     typeParameterToTypeArgumentMap
   );
+  */
 
   // set typeParameterToTypeArgumentMap
   const newTypeParameters: TTypeParameter[] = [];
@@ -1308,8 +1310,16 @@ Expected: ${typeToString(existingTypeArgument)}
 Got     : ${typeToString(typeArgument)}`
         );
       }
-      typeParameterToTypeArgumentMap[typeParameter.typeParameterId] =
-        typeArgument;
+      if (
+        !(
+          typeArgument.type === "TypeParameter" &&
+          typeArgument.typeParameterId === typeParameter.typeParameterId
+        )
+      ) {
+        typeParameterToTypeArgumentMap[typeParameter.typeParameterId] =
+          typeArgument;
+      }
+
       if (
         typeArgument &&
         "typeParameterId" in typeArgument &&
@@ -1512,7 +1522,8 @@ export function applyTypeAndRegionArgumentsToType({
       typeValue: newTypeValue,
     };
   } else if (type.type === "Enum") {
-    // logger.debug("- applyTypeAndRegionArgumentsToType Enum");
+    logger.debug("- applyTypeAndRegionArgumentsToType Enum");
+    logger.debug("  - typeParameters: ", JSON.stringify(type.typeParameters));
     const {
       typeParameters: newTypeParameters,
       regionParameters: newRegionParameters,
@@ -1650,20 +1661,28 @@ export function applyTypeAndRegionArgumentsToType({
       case "TypeParameter": {
         const typeParameter = type;
         const typeArgument =
-          typeParameterToTypeArgumentMap[type.typeParameterId];
+          typeParameterToTypeArgumentMap[typeParameter.typeParameterId];
         if (typeParameter.appliedType) {
-          return applyTypeAndRegionArgumentsToType({
-            type: typeParameter.appliedType,
-            env,
-            typeArguments,
-            regionArguments,
-            typeParameterToTypeArgumentMap,
-            regionParameterToRegionArgumentMap,
-          });
+          const returnType: TTypeParameter = {
+            ...typeParameter,
+            appliedType: applyTypeAndRegionArgumentsToType({
+              type: typeParameter.appliedType,
+              env,
+              typeArguments,
+              regionArguments,
+              typeParameterToTypeArgumentMap,
+              regionParameterToRegionArgumentMap,
+            }),
+          };
+          return returnType;
         } else if (typeArgument) {
-          return typeArgument;
+          const returnType: TTypeParameter = {
+            ...typeParameter,
+            appliedType: typeArgument,
+          };
+          return returnType;
         } else {
-          return type;
+          return typeParameter;
         }
       }
       case "Record": {
@@ -3041,6 +3060,19 @@ function getRecordTypeKind(properties: TRecordProperty[]): TypeKind {
     if (kind === "Free") {
       const propertyKind = property.type.kind;
       kind = propertyKind;
+
+      if (property.type.type === "TypeParameter") {
+        let appliedType = property.type.appliedType;
+        if (appliedType) {
+          while (
+            appliedType.type === "TypeParameter" &&
+            appliedType.appliedType
+          ) {
+            appliedType = appliedType.appliedType;
+          }
+          kind = appliedType.kind;
+        }
+      }
     }
   });
   return kind;
@@ -3549,11 +3581,9 @@ ${type.variants
           type.regionParameters,
           { hideTypeParameterKind: true }
         )}${
-          /*
           type.selectedVariantName && !hideTypeParameterKind
             ? `.${type.selectedVariantName}`
             : ""
-            */ ""
         }`.trim();
       }
     }
@@ -4496,6 +4526,27 @@ export function typeIsPromise(type: Type): TTypeConstructor | null {
   } else {
     return null;
   }
+}
+
+export function typeContainsTypeParameterThatDoesntHaveAppliedType(
+  type: Type
+): boolean {
+  if (type.type === "TypeParameter") {
+    if (type.appliedType) {
+      return typeContainsTypeParameterThatDoesntHaveAppliedType(
+        type.appliedType
+      );
+    } else {
+      return true;
+    }
+  } else if ("typeParameters" in type) {
+    const typeParameters = type.typeParameters;
+    return typeParameters.some((t) =>
+      typeContainsTypeParameterThatDoesntHaveAppliedType(t)
+    );
+  }
+
+  return false;
 }
 
 function synthesizeTypeAndRegionParameters({
