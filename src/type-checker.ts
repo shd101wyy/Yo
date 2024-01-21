@@ -3547,11 +3547,13 @@ ${type.variants
         }${typeAndRegionParametersToString(
           type.typeParameters,
           type.regionParameters,
-          { hideTypeParameterKind }
+          { hideTypeParameterKind: true }
         )}${
+          /*
           type.selectedVariantName && !hideTypeParameterKind
             ? `.${type.selectedVariantName}`
             : ""
+            */ ""
         }`.trim();
       }
     }
@@ -3753,14 +3755,6 @@ export function checkEffect(
       return false;
     }
   }
-
-  /*
-  // NOTE: No need to check operations.  
-  if (expectedEffect.operations.length !== givenEffect.operations.length) {
-    return false;
-  }
-  */
-
   return true;
 }
 
