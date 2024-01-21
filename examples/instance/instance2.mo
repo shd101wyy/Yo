@@ -18,7 +18,7 @@ instance<X> Id<Data<X>> {
 
 let main = ()-> i32 {
   let x = Data<i32>.Value(1);
-  // let y = id<Data<i32>>(x);
+  let y = id<Data<i32>>(x);
   let z = id(x);
   0
 }

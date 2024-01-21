@@ -5030,19 +5030,29 @@ ${typeToString(caseReturnType)}
     index = nextNextIndex;
     env = value.env;
 
-    let variableType: Type = value.typeValue;
+    const variableType: Type = value.typeValue;
     let variableId: string | undefined = undefined;
     // Check if type matches
     if (userDefinedVariableType !== null) {
-      const { userDefinedType: nextUserDefinedType, givenType: nextGivenType } =
-        synthesizeTypes({
-          userDefinedType: userDefinedVariableType,
-          givenType: variableType,
-          typeParameterToTypeArgumentMap: {},
-          regionParameterToRegionArgumentMap: {},
-        });
+      const nextUserDefinedType = synthesizeTypes({
+        expectedType: userDefinedVariableType,
+        givenType: variableType,
+        typeParameterToTypeArgumentMap: {},
+        regionParameterToRegionArgumentMap: {},
+      });
+      if (!nextUserDefinedType) {
+        throw this.formatErrorMessage(
+          tokens[userDefinedVariableTypeTokenIndex],
+          `Mismatched types:
+Expected: ${typeToString(userDefinedVariableType, {
+            extractTypeConstructor: "all",
+          })}
+Got:      ${typeToString(variableType)}`
+        );
+      }
+
       userDefinedVariableType = nextUserDefinedType;
-      variableType = nextGivenType;
+      // variableType = nextGivenType;
 
       if (
         userDefinedVariableType.type === "Function" &&

@@ -1232,7 +1232,6 @@ function generateNewTypeAndRegionParameters({
   typeParameters: TTypeParameter[];
   regionParameters: TRegionParameter[];
 } {
-  /*
   const r = Math.random();
   logger.debug("- generateNewTypeAndRegionParameters");
   logger.debug(
@@ -1250,7 +1249,6 @@ function generateNewTypeAndRegionParameters({
     r,
     typeParameterToTypeArgumentMap
   );
-  */
 
   // set typeParameterToTypeArgumentMap
   const newTypeParameters: TTypeParameter[] = [];
@@ -1340,7 +1338,16 @@ Got     : ${typeToString(typeArgument)}`
         });
       }
     } else {
-      newTypeParameters.push(typeParameter);
+      newTypeParameters.push(
+        applyTypeAndRegionArgumentsToType({
+          env,
+          type: typeParameter,
+          typeArguments,
+          regionArguments,
+          typeParameterToTypeArgumentMap,
+          regionParameterToRegionArgumentMap,
+        }) as TTypeParameter
+      );
     }
   }
 
@@ -1641,15 +1648,21 @@ export function applyTypeAndRegionArgumentsToType({
   } else {
     switch (type.type) {
       case "TypeParameter": {
+        const typeParameter = type;
         const typeArgument =
           typeParameterToTypeArgumentMap[type.typeParameterId];
-        if (typeArgument) {
+        if (typeParameter.appliedType) {
+          return applyTypeAndRegionArgumentsToType({
+            type: typeParameter.appliedType,
+            env,
+            typeArguments,
+            regionArguments,
+            typeParameterToTypeArgumentMap,
+            regionParameterToRegionArgumentMap,
+          });
+        } else if (typeArgument) {
           return typeArgument;
         } else {
-          /*
-          throw new Error(
-            `Cannot find type argument for type parameter ${type.name}`
-          );*/
           return type;
         }
       }
@@ -4078,8 +4091,9 @@ function checkTypeAndRegionParametersAndArguments(
         argumentType;
     }
   } else if (
-    parameterType.type === "TypeConstructor" &&
-    argumentType.type === "TypeConstructor"
+    "typeParameters" in parameterType &&
+    "typeParameters" in argumentType &&
+    parameterType.type === argumentType.type
   ) {
     const parameterTypeParameters = parameterType.typeParameters;
     const parameterRegionParameters = parameterType.regionParameters;
@@ -4154,9 +4168,11 @@ function checkTypeAndRegionParametersAndArguments(
         regionParameterToRegionArgumentMap[p.name] = a;
       }
     }
+
+    return true;
   }
 
-  return true;
+  return checkType(parameterType, argumentType, env);
 }
 
 /**
@@ -4300,7 +4316,6 @@ export function getFunctionArgumentsInOrder(
       }
     }
 
-    /*
     logger.debug(
       "  - typeParameterToTypeArgumentMap: ",
       typeParameterToTypeArgumentMap
@@ -4309,7 +4324,6 @@ export function getFunctionArgumentsInOrder(
       "  - regionParameterToRegionArgumentMap: ",
       regionParameterToRegionArgumentMap
     );
-    */
 
     for (let i = 0; i < functionTypeParamters.length; i++) {
       const typeParameter = functionTypeParamters[i];
@@ -4351,6 +4365,15 @@ export function getFunctionArgumentsInOrder(
           functionTypeArguments: null,
         };
       } */
+
+      functionTypeArgumentsInOrder[i] = applyTypeAndRegionArgumentsToType({
+        env,
+        type: functionTypeArgumentsInOrder[i],
+        typeArguments: [],
+        regionArguments: [],
+        typeParameterToTypeArgumentMap,
+        regionParameterToRegionArgumentMap,
+      });
     }
 
     for (let i = 0; i < functionRegionParameters.length; i++) {
@@ -4525,48 +4548,71 @@ function synthesizeTypeAndRegionParameters({
 }
 
 /**
- * This function is used in parser.ts parseLetAssignment
- * @param userDefinedType
+ * Synthesize types
+ * @param expectedType
  * @param givenType
  * @returns
  */
 export function synthesizeTypes({
-  userDefinedType,
+  expectedType,
   givenType,
   typeParameterToTypeArgumentMap,
   regionParameterToRegionArgumentMap,
 }: {
-  userDefinedType: Type;
+  expectedType: Type;
   givenType: Type;
-  typeParameterToTypeArgumentMap;
-  regionParameterToRegionArgumentMap;
-}): {
-  userDefinedType: Type;
-  givenType: Type;
-  typeParameterToTypeArgumentMap: { [key: string]: Type };
-  regionParameterToRegionArgumentMap: { [key: string]: Region };
-} {
+  typeParameterToTypeArgumentMap: { [key: string]: Type } | undefined;
+  regionParameterToRegionArgumentMap: { [key: string]: Region } | undefined;
+}): Type | null {
+  typeParameterToTypeArgumentMap = typeParameterToTypeArgumentMap ?? {};
+  regionParameterToRegionArgumentMap = regionParameterToRegionArgumentMap ?? {};
+  if (!expectedType || !givenType) {
+    return null;
+  }
+
+  // Check permission
+  if (expectedType.kind !== "Free" && givenType.kind !== "Free") {
+    if (
+      !(
+        (expectedType.permission === "own" && givenType.permission === "own") ||
+        (expectedType.permission === "write" &&
+          (givenType.permission === "own" ||
+            givenType.permission === "write")) ||
+        expectedType.permission === "read"
+      )
+    ) {
+      return null;
+    }
+  } else if (expectedType.kind === "Free" && givenType.kind === "Free") {
+    if (
+      expectedType.permission === "write" &&
+      givenType.permission === "read"
+    ) {
+      return null;
+    }
+  }
+
   // Type inference for enum type
   if (
-    userDefinedType.type === "Enum" &&
+    expectedType.type === "Enum" &&
     givenType.type === "Enum" &&
-    userDefinedType.enumId === givenType.enumId &&
-    (userDefinedType.selectedVariantName === undefined ||
-      userDefinedType.selectedVariantName === givenType.selectedVariantName)
+    expectedType.enumId === givenType.enumId &&
+    (expectedType.selectedVariantName === undefined ||
+      expectedType.selectedVariantName === givenType.selectedVariantName)
   ) {
     synthesizeTypeAndRegionParameters({
-      typeParameters: userDefinedType.typeParameters,
-      regionParameters: userDefinedType.regionParameters,
+      typeParameters: expectedType.typeParameters,
+      regionParameters: expectedType.regionParameters,
       givenTypeParameters: givenType.typeParameters,
       givenRegionParameters: givenType.regionParameters,
       typeParameterToTypeArgumentMap,
       regionParameterToRegionArgumentMap,
     });
-    userDefinedType.selectedVariantName = givenType.selectedVariantName;
+    expectedType.selectedVariantName = givenType.selectedVariantName;
   }
 
-  if (userDefinedType.type === "slice") {
-    let userType = userDefinedType;
+  if (expectedType.type === "slice") {
+    let userType = expectedType;
     let valueType = givenType as TSlice;
     // Assign size to the slice if it's undefined
     // eslint-disable-next-line no-constant-condition
@@ -4588,11 +4634,11 @@ export function synthesizeTypes({
 
   // userDefinedVariableType = variableType;
   // Assign region to userDefinedVariableType if it's not set
-  if (userDefinedType.type === "TypeConstructor") {
+  if (expectedType.type === "TypeConstructor") {
     if (givenType.type === "TypeConstructor") {
       synthesizeTypeAndRegionParameters({
-        typeParameters: userDefinedType.typeParameters,
-        regionParameters: userDefinedType.regionParameters,
+        typeParameters: expectedType.typeParameters,
+        regionParameters: expectedType.regionParameters,
         givenTypeParameters: givenType.typeParameters,
         givenRegionParameters: givenType.regionParameters,
         typeParameterToTypeArgumentMap,
@@ -4600,13 +4646,13 @@ export function synthesizeTypes({
       });
     } else {
       synthesizeTypes({
-        userDefinedType: userDefinedType.typeValue,
+        expectedType: expectedType.typeValue,
         givenType,
         typeParameterToTypeArgumentMap,
         regionParameterToRegionArgumentMap,
       });
-      for (let i = 0; i < userDefinedType.typeParameters.length; i++) {
-        const typeParameter = userDefinedType.typeParameters[i];
+      for (let i = 0; i < expectedType.typeParameters.length; i++) {
+        const typeParameter = expectedType.typeParameters[i];
         if (
           (!typeParameter.appliedType ||
             typeParameter.appliedType.type === "unknown") &&
@@ -4616,8 +4662,8 @@ export function synthesizeTypes({
             typeParameterToTypeArgumentMap[typeParameter.typeParameterId];
         }
       }
-      for (let i = 0; i < userDefinedType.regionParameters.length; i++) {
-        const regionParameter = userDefinedType.regionParameters[i];
+      for (let i = 0; i < expectedType.regionParameters.length; i++) {
+        const regionParameter = expectedType.regionParameters[i];
         if (
           (!regionParameter.appliedRegion ||
             regionParameter.appliedRegion === UnknownRegion) &&
@@ -4630,26 +4676,26 @@ export function synthesizeTypes({
     }
   }
 
-  if (userDefinedType.type === "Function" && givenType.type === "Function") {
+  if (expectedType.type === "Function" && givenType.type === "Function") {
     synthesizeTypeAndRegionParameters({
-      typeParameters: userDefinedType.typeParameters,
-      regionParameters: userDefinedType.regionParameters,
+      typeParameters: expectedType.typeParameters,
+      regionParameters: expectedType.regionParameters,
       givenTypeParameters: givenType.typeParameters,
       givenRegionParameters: givenType.regionParameters,
       typeParameterToTypeArgumentMap,
       regionParameterToRegionArgumentMap,
     });
-    givenType.functionId = userDefinedType.functionId;
+    givenType.functionId = expectedType.functionId;
   }
 
-  if (userDefinedType.type === "Record" && givenType.type === "Record") {
-    if (userDefinedType.properties.length !== givenType.properties.length) {
+  if (expectedType.type === "Record" && givenType.type === "Record") {
+    if (expectedType.properties.length !== givenType.properties.length) {
       throw new Error(
         `Cannot synthesize types for record with different number of properties`
       );
     }
-    for (let i = 0; i < userDefinedType.properties.length; i++) {
-      const userDefinedTypeProperty = userDefinedType.properties[i];
+    for (let i = 0; i < expectedType.properties.length; i++) {
+      const userDefinedTypeProperty = expectedType.properties[i];
       const givenTypeProperty = givenType.properties[i];
       if (userDefinedTypeProperty.name !== givenTypeProperty.name) {
         throw new Error(
@@ -4668,7 +4714,7 @@ export function synthesizeTypes({
         givenTypeProperty.type = userDefinedTypeProperty.type;
       }*/ else {
         synthesizeTypes({
-          userDefinedType: userDefinedTypeProperty.type,
+          expectedType: userDefinedTypeProperty.type,
           givenType: givenTypeProperty.type,
           typeParameterToTypeArgumentMap,
           regionParameterToRegionArgumentMap,
@@ -4677,10 +4723,5 @@ export function synthesizeTypes({
     }
   }
 
-  return {
-    userDefinedType,
-    givenType,
-    typeParameterToTypeArgumentMap,
-    regionParameterToRegionArgumentMap,
-  };
+  return expectedType;
 }
