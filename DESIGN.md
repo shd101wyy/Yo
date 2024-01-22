@@ -59,7 +59,7 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Explicit enum variant type](#explicit-enum-variant-type)
   - [Typeclass](#typeclass)
     - [Function Overloading](#function-overloading)
-    - [Implicit `drop` function on `Linear` types](#implicit-drop-function-on-linear-types)
+    - [Implicit `drop` function on `Linear` types - RAII](#implicit-drop-function-on-linear-types---raii)
   - [Pattern Matching](#pattern-matching)
   - [Collections](#collections)
     - [Array](#array)
@@ -89,9 +89,9 @@ We will also post a series of articles on the design and implementation of **Mo*
 
 ## Philosophy
 
-A little bit safer "C", with zero-cost abstraction, and a little bit of functional programming.
-The explicit is better than the implicit.  
-The strict is better than the loose.
+A little bit safer "C", with zero-cost abstraction, and a little bit of functional programming.  
+Explicit is better than Implicit.    
+Strict is better than Loose.
 
 ## Inspiration
 
@@ -135,6 +135,7 @@ Other languages that are worth mentioning that have influenced **Mo**:
 - [Lean](https://leanprover.github.io/)
 - [Swift](https://swift.org/)
 - [Go](https://go.dev/)
+- [Ada](https://www.adacore.com/)
 
 ## Hello World
 
@@ -1166,9 +1167,7 @@ let main = ()-> {
 }
 ```
 
-### Implicit `drop` function on `Linear` types
-
-NOTE: We might not need this as we have `defer` for explicit `drop`.
+### Implicit `drop` function on `Linear` types - RAII
 
 ```typescript
 class Drop<T: Linear> {

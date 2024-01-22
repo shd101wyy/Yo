@@ -1,4 +1,3 @@
-
 type Data: Linear;
 extern "C" {
   malloc: ()-> Data;
@@ -6,9 +5,11 @@ extern "C" {
 }
 
 let main = ()-> {
-  let x = malloc();  
-  let xRef = read x;
-  let len = length(xRef);
+  let coord = {
+    x: malloc(),
+    y: malloc()
+  };
+  let {x, y} = coord;
+  @consume(y);
   @consume(x);
-  // let len2 = length(xRef); error:
 }

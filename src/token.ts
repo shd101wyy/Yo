@@ -63,6 +63,7 @@ export enum TokenType {
   Instance = "instance",
   Extends = "extends",
   Effect = "effect",
+  Match = "match",
   //// Handler = "handler",
   //// Implement = "implement",
   Import = "import",
@@ -105,7 +106,7 @@ export enum TokenType {
   Struct = "struct",
   Union = "union",
   Override = "override",
-  Match = "match",
+  Declare = "declare",
 
   // punctuation
   Semicolon = ";",

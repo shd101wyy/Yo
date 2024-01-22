@@ -382,6 +382,20 @@ export function addEnvVariableValue({
   variableId?: string;
   lifetimeOrder?: number;
 }): { env: Environment; value: VariableValue } {
+  // Disable anonymous record
+  if (variableValue.kind === "value" && variableValue.type.type === "Record") {
+    throw formatErrorMessages({
+      modulePath: env.modulePath,
+      inputString: env.inputString,
+      tokenAndErrorList: [
+        {
+          token: variableValue.token,
+          errorMessage: `Anonymous record is currently not allowed.`,
+        },
+      ],
+    });
+  }
+
   const frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
   const frame = env.frames[frameLevel];
   const id = isTempVariableName(env, variableValue.variableName)

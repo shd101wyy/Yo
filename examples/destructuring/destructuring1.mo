@@ -9,7 +9,7 @@ type MyStruct = {
 }
 
 let main = ()-> {
-  var x: MyStruct = {
+  var x = MyStruct {
     a: Some(malloc()),
   }
 

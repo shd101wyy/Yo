@@ -3091,25 +3091,14 @@ ${matchedFunctionErrors[i] ?? ""}`
       parserData,
     });
 
-    // We automatically dereference the value
-    if (
-      returnValue.expr.type !== AstType.ReadWrite &&
-      (returnValue.expr.typeValue.permission === "read" ||
-        returnValue.expr.typeValue.permission === "write")
-    ) {
-      const typeValue: Type = {
-        ...returnValue.expr.typeValue,
-        permission: "own",
-      };
-      const implicitDeferenceExpr: ImplicitDereferenceExpr = {
-        type: AstType.ImplicitDereference,
-        expr: returnValue.expr,
-        env: returnValue.expr.env,
-        token: returnValue.expr.token,
-        typeValue,
-      };
-      returnValue.expr = implicitDeferenceExpr;
-    }
+    returnValue = this.parseImplicitDereference({
+      expr: returnValue.expr,
+      tokens,
+      index: returnValue.index,
+      env: returnValue.expr.env,
+      caller,
+      parserData,
+    });
 
     return returnValue;
   }
@@ -3259,6 +3248,49 @@ ${matchedFunctionErrors[i] ?? ""}`
     }*/ else {
       return {
         expr: primaryExpr,
+        index,
+      };
+    }
+  }
+
+  private parseImplicitDereference({
+    expr,
+    // tokens,
+    index, // env,
+    // caller,
+  } // parserData,
+  : {
+    expr: Expr;
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    // We automatically dereference the value
+    if (
+      expr.type !== AstType.ReadWrite &&
+      (expr.typeValue.permission === "read" ||
+        expr.typeValue.permission === "write")
+    ) {
+      const typeValue: Type = {
+        ...expr.typeValue,
+        permission: "own",
+      };
+      const implicitDeferenceExpr: ImplicitDereferenceExpr = {
+        type: AstType.ImplicitDereference,
+        expr: expr,
+        env: expr.env,
+        token: expr.token,
+        typeValue,
+      };
+      return {
+        expr: implicitDeferenceExpr,
+        index,
+      };
+    } else {
+      return {
+        expr,
         index,
       };
     }
@@ -3907,7 +3939,6 @@ ${matchedFunctionErrors[i] ?? ""}`
     env: Environment,
     expr: Expr
   ): { env: Environment; referedVariable?: ReferedVariable } {
-    /*
     // FIXME:
     if (expr.type === AstType.PropertyAccess) {
       {
@@ -3918,32 +3949,21 @@ ${matchedFunctionErrors[i] ?? ""}`
           expr.typeValue.kind === "Type" ||
           expr.typeValue.kind === "Linear"
         ) {
-          const referenceType = typeIsReferenceOrMutableReference(
-            expr.typeValue
-          );
-          if (referenceType) {
-            throw this.formatErrorMessage(
-              expr.token,
-              `Cannot access "${expr.typeValue.kind}" value "${
-                expr.propertyName
-              }" with dot access.
+          throw this.formatErrorMessage(
+            expr.token,
+            `Cannot access "${expr.typeValue.kind}" value "${
+              expr.propertyName
+            }" with dot access.
 
-Please consider using reference instead. For example:
+Please consider using "read" or "write" instead. For example:
 
-let ref = (${referenceType}${exprToString(expr)})
+  let ref = (read ${exprToString(expr)})
+
+Or consider using destructuring instead, which will consume the RHS. For example:
+
+  let { ${expr.propertyName} } = ${exprToString(expr.expr)}
 `
-            );
-          } else {
-            throw this.formatErrorMessage(
-              expr.token,
-              `Cannot access "${expr.typeValue.kind}" value "${
-                expr.propertyName
-              }" with dot access.
-Please consider using destructuring instead. For example:
-
-let {${expr.propertyName}} = ${exprToString(expr.expr)}`
-            );
-          }
+          );
         } else {
           try {
             // It's accessing a Free type, so no need to consume.
@@ -3976,9 +3996,9 @@ ${exprToString(expr)}`,
           `Cannot access "${expr.typeValue.kind}" value of "${exprToString(
             expr.expr
           )}" with index access.
-Please consider using reference instead. For example:
+Please consider using "read" or "write" instead. For example:
 
-let ref = (&${exprToString(expr)})
+let ref = (read ${exprToString(expr)})
 `
         );
       } else {
@@ -4005,7 +4025,6 @@ ${exprToString(expr)}`,
         }
       }
     }
-    */
 
     try {
       switch (expr.type) {
@@ -5282,6 +5301,15 @@ ${exprToString(expr)}`,
     value: Expr;
     recordType: TRecord;
   }): Environment {
+    const hasLinearField = recordType.properties.some(
+      (p) => p.type.kind === "Linear" || p.type.kind === "Type"
+    );
+    if (hasLinearField) {
+      // Consumes the value
+      const { env: nextEnv } = this.setVariableAsConsumed(env, value);
+      env = nextEnv;
+    }
+
     const destructuredLinearFields: string[] = [];
     // Check if the type of `value` matches the type of destructurings
     for (let i = 0; i < destructurings.length; i++) {
@@ -5338,9 +5366,6 @@ ${typeToString(recordType, { extractTypeConstructor: true })}`
     }
 
     // Check if all linear fields are destructured
-    const hasLinearField = recordType.properties.some(
-      (p) => p.type.kind === "Linear" || p.type.kind === "Type"
-    );
     if (destructuredLinearFields.length > 0) {
       for (const property of recordType.properties) {
         if (
@@ -5367,12 +5392,6 @@ ${typeToString(recordType, { extractTypeConstructor: true })}`
 ${linearFields.map((x) => `"${x.name}"`).join(", ")}`
         );
       }
-    }
-
-    if (hasLinearField) {
-      // Consumes the value
-      const { env: nextEnv } = this.setVariableAsConsumed(env, value);
-      env = nextEnv;
     }
 
     return env;
