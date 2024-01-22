@@ -90,7 +90,7 @@ We will also post a series of articles on the design and implementation of **Mo*
 ## Philosophy
 
 A little bit safer "C", with zero-cost abstraction, and a little bit of functional programming.  
-Explicit is better than Implicit.    
+Explicit is better than Implicit.  
 Strict is better than Loose.
 
 ## Inspiration
@@ -330,9 +330,9 @@ We have `read` reference to immutable values, and `write` reference to mutable o
 
 So we have the following permissions:
 
-- `read` : Can read.  
-- `write` : Can read, and write.  
-- `own` : Can read, write, and move ownership.  
+- `read` : Can read.
+- `write` : Can read, and write.
+- `own` : Can read, write, and move ownership.
 
 ```typescript
 {
@@ -397,6 +397,7 @@ let main = ()-> {
   length(z); // error: cannot access `z` because `t` is consumed.
 }
 ```
+
 We can only dereference the free type.
 
 ```typescript
@@ -741,9 +742,9 @@ The capture `[read]` means the closure only allows the immutable references from
 
 The capture `[write]` means the closure only allows the mutable references and immutable references to the variables from the outer scope, but not linear values from outer scope. The closure can be called multiple times.
 
-The capture `[own]` means the closure will move linear values from the outer scope and prevent immutable & mutable references of linear values from the outer scope. It behaves like the `safe` region. The closure can only be called once.
+The capture `[own]` means the closure will move linear values from the outer scope and prevent immutable & mutable references of linear values from the outer scope. ~~It behaves like the `safe` region. The closure can only be called once.~~
 
-If no capture is specified, we fallback to `[=]`.
+If no capture is specified, we fallback to `[own]`.
 
 ```typescript
 let add = (x: i32, y: i32)=> i32 { x + y }
@@ -751,7 +752,7 @@ let add = (x: i32, y: i32)=> i32 { x + y }
 let test = ()-> {
   var x = String.from("Hello");
   // From type inference:
-  // let consumeClosure: [=]()=>()
+  // let consumeClosure: [own]()=>()
   let consumeClosure = ()=> {
     println(read x);
     consume(x);
