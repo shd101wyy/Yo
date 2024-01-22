@@ -20,70 +20,56 @@ struct Unit unit = {};
 // Module file:///home/yiyiwang/Workspace/mo/std/prelude.mo
 // Module ID: mo213980cc
 
-// Module file:///home/yiyiwang/Workspace/mo/examples/type/anonymous_record1.mo
-// Module ID: mo9dbd615d
+// Module file:///home/yiyiwang/Workspace/mo/examples/type/slice.mo
+// Module ID: mo2b15e616
 int32_t main();
-
-// type Coord
-typedef struct {
-  int32_t x;
-  int32_t y;
-} mo9dbd615d_Coord_1_da39a3ee;
 
 int32_t main() {
   { // block
-    int32_t _mo9dbd615d_temp_21;
-    mo9dbd615d_Coord_1_da39a3ee mo9dbd615d_coord; // coord
-    mo9dbd615d_Coord_1_da39a3ee _mo9dbd615d_temp_11;
-    _mo9dbd615d_temp_11 = ((mo9dbd615d_Coord_1_da39a3ee) {.x = ((int32_t)3), .y = ((int32_t)4)});
-    mo9dbd615d_coord = (_mo9dbd615d_temp_11);
+    int32_t _mo2b15e616_temp_20;
+    int32_t* mo2b15e616_arr; // arr
+    mo2b15e616_arr = ((int32_t[5]) {((int32_t)1), ((int32_t)2), ((int32_t)3), ((int32_t)4), ((int32_t)5)});
 
     
     { // block
-      struct Unit _mo9dbd615d_temp_15;
-      int32_t mo9dbd615d_x; // x
-      mo9dbd615d_x = (mo9dbd615d_coord.x);
-
-      int32_t* mo9dbd615d_xRef; // xRef
-      int32_t* _mo9dbd615d_temp_12;
-      _mo9dbd615d_temp_12 = &(      mo9dbd615d_coord.x);
-      mo9dbd615d_xRef = (_mo9dbd615d_temp_12);
+      struct Unit _mo2b15e616_temp_14;
+      int32_t* mo2b15e616_first; // first
+      int32_t* _mo2b15e616_temp_11;
+      _mo2b15e616_temp_11 = &(mo2b15e616_arr[((int32_t)0)]);
+      mo2b15e616_first = (_mo2b15e616_temp_11);
 
       // assignment
-      int32_t _mo9dbd615d_temp_13;
-      _mo9dbd615d_temp_13 = (((int32_t)(*(mo9dbd615d_xRef))) + ((int32_t)(((int32_t)1))));
+      int32_t _mo2b15e616_temp_12;
+      _mo2b15e616_temp_12 = (((int32_t)(*(mo2b15e616_first))) + ((int32_t)(((int32_t)10))));
 
-      *(mo9dbd615d_xRef) = (_mo9dbd615d_temp_13);
+      *(mo2b15e616_first) = (_mo2b15e616_temp_12);
 
-      _mo9dbd615d_temp_15 = (unit);
+      _mo2b15e616_temp_14 = (unit);
     } // end block
 
     
     { // block
-      struct Unit _mo9dbd615d_temp_20;
-      mo9dbd615d_Coord_1_da39a3ee* mo9dbd615d_coordRef; // coordRef
-      mo9dbd615d_Coord_1_da39a3ee* _mo9dbd615d_temp_16;
-      _mo9dbd615d_temp_16 = &(mo9dbd615d_coord);
-      mo9dbd615d_coordRef = (_mo9dbd615d_temp_16);
+      struct Unit _mo2b15e616_temp_19;
+      int32_t** mo2b15e616_ref; // ref
+      int32_t** _mo2b15e616_temp_15;
+      _mo2b15e616_temp_15 = &(mo2b15e616_arr);
+      mo2b15e616_ref = (_mo2b15e616_temp_15);
 
-      int32_t mo9dbd615d_x_1; // x
-      mo9dbd615d_x_1 = (mo9dbd615d_coordRef->x);
-
-      int32_t* mo9dbd615d_xRef_1; // xRef
-      int32_t* _mo9dbd615d_temp_17;
-      _mo9dbd615d_temp_17 = &(      mo9dbd615d_coordRef->x);
-      mo9dbd615d_xRef_1 = (_mo9dbd615d_temp_17);
+      int32_t* mo2b15e616_first_1; // first
+      int32_t* _mo2b15e616_temp_16;
+      _mo2b15e616_temp_16 = &(*(mo2b15e616_ref)[((int32_t)0)]);
+      mo2b15e616_first_1 = (_mo2b15e616_temp_16);
 
       // assignment
-      int32_t _mo9dbd615d_temp_18;
-      _mo9dbd615d_temp_18 = (((int32_t)(*(mo9dbd615d_xRef_1))) + ((int32_t)(((int32_t)1))));
+      int32_t _mo2b15e616_temp_17;
+      _mo2b15e616_temp_17 = (((int32_t)(*(mo2b15e616_first_1))) + ((int32_t)(((int32_t)10))));
 
-      *(mo9dbd615d_xRef_1) = (_mo9dbd615d_temp_18);
+      *(mo2b15e616_first_1) = (_mo2b15e616_temp_17);
 
-      _mo9dbd615d_temp_20 = (unit);
+      _mo2b15e616_temp_19 = (unit);
     } // end block
 
-    _mo9dbd615d_temp_21 = (((int32_t)0));
-    return _mo9dbd615d_temp_21;
+    _mo2b15e616_temp_20 = (mo2b15e616_arr[((int32_t)0)]);
+    return _mo2b15e616_temp_20;
   } // end block
 }

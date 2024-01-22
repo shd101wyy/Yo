@@ -14,5 +14,5 @@ let main = ()-> i32 {
     var xRef = write coordRef.x;
     xRef = xRef + 1;
   }
-  0
+  coord.x + coord.y
 }

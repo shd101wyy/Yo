@@ -49,4 +49,12 @@ fn test<'a>() {
     // consume(holder);
 }
 
-fn main() {}
+fn get_slice_length(slice: &[i32]) -> usize {
+    slice.len()
+}
+
+fn main() {
+    let arr = [1, 2, 3];
+    let len = get_slice_length(&arr);
+    println!("{}", len);
+}

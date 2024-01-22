@@ -10,10 +10,12 @@ import {
   FunctionExpr,
   IfExpr,
   ImplicitDereferenceExpr,
+  IndexAccessExpr,
   MatchExpr,
   PropertyAccessExpr,
   ReadWriteExpr,
   RecordValueExpr,
+  SliceValueExpr,
   exprToString,
 } from "../ast";
 import { Emitter } from "../emitter";
@@ -84,7 +86,7 @@ export class CodeGeneratorC {
     return this.emitter.print();
   }
 
-  getTypeInC(type: Type): string {
+  getTypeInC(type: Type, setSliceAsPointer = true): string {
     let typeString = "";
     switch (type.type) {
       case "i8": {
@@ -145,6 +147,16 @@ export class CodeGeneratorC {
       }
       case "()": {
         typeString = "struct Unit";
+        break;
+      }
+      case "slice": {
+        if (setSliceAsPointer) {
+          typeString += `${this.getTypeInC(type.elementType)}*`;
+        } else {
+          typeString += `${this.getTypeInC(type.elementType)}[${
+            type.size === undefined ? "" : type.size
+          }]`;
+        }
         break;
       }
       case "Enum": {
@@ -268,6 +280,17 @@ export class CodeGeneratorC {
       .map(({ name, value }) => {
         return `.${name} = ${this.codegenExpr({
           expr: value,
+          indentation: "",
+        })}`;
+      })
+      .join(", ")}}`;
+  }
+
+  codegenSliceValue({ expr }: { expr: SliceValueExpr }): string {
+    return `(${this.getTypeInC(expr.typeValue, false)}) {${expr.values
+      .map((element) => {
+        return `${this.codegenExpr({
+          expr: element,
           indentation: "",
         })}`;
       })
@@ -985,7 +1008,7 @@ ${indentation}};
     code += `${indentation}${expr.tempVariableName} = &(${this.codegenExpr({
       expr: expr.expr,
       indentation,
-    })});`;
+    }).trim()});`;
 
     return code;
   }
@@ -1034,7 +1057,7 @@ ${indentation}};
           `(${needsReference ? "&" : ""}${this.codegenExpr({
             expr: argument,
             indentation,
-          })})`
+          }).trim()})`
         );
       }
     }
@@ -1092,6 +1115,26 @@ ${indentation}};
     return code;
   }
 
+  codegenIndexAccess({
+    expr,
+    indentation,
+  }: {
+    expr: IndexAccessExpr;
+    indentation: string;
+  }): string {
+    const isReference =
+      expr.expr.typeValue.permission === "read" ||
+      expr.expr.typeValue.permission === "write";
+
+    const code = `${indentation}${isReference ? "*(" : ""}${this.codegenExpr({
+      expr: expr.expr,
+      indentation: "",
+    })}${isReference ? ")" : ""}${expr.indexes
+      .map((index) => `[${this.codegenExpr({ expr: index, indentation: "" })}]`)
+      .join("")}`;
+    return code;
+  }
+
   codegenExpr({
     expr,
     indentation,
@@ -1117,8 +1160,13 @@ ${indentation}};
               expr: expr,
             });
           }
+          case "slice": {
+            return this.codegenSliceValue({
+              expr: expr,
+            });
+          }
           default: {
-            throw new Error(`Unimplemented value tag ${expr.tag}`);
+            throw new Error(`Unimplemented value tag ${expr}`);
           }
         }
       }
@@ -1227,6 +1275,9 @@ ${indentation}};
       }
       case AstType.PropertyAccess: {
         return this.codegenPropertyAccess({ expr, indentation });
+      }
+      case AstType.IndexAccess: {
+        return this.codegenIndexAccess({ expr, indentation });
       }
       default: {
         throw new Error(
