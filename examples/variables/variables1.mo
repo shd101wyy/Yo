@@ -1,5 +1,5 @@
 let test = ()-> {
-  let mut x = 1;
+  var x = 1;
   {
     let x = 2;
   }

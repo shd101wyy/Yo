@@ -1595,8 +1595,8 @@ import { Option as AnotherOption: {*} } from "./test.mo"; // Unwrap all variants
 
 // All exported instances are implicitly imported.
 import { id } from "./test.mo"; // Import `id` function from Id<i32> instance from test.mo
-import { Id: {id} } // Unwrap `id` function from Id<i32> instance from test.mo
-import { Id: {*} } // Unwrap all functions from Id<i32> instance from test.mo
+import { Id: {id} } from "./test.mo"; // Unwrap `id` function from Id<i32> instance from test.mo
+import { Id: {*} } from "./test.mo"; // Unwrap all functions from Id<i32> instance from test.mo
 ```
 
 `mo.json` and `mo.lock`

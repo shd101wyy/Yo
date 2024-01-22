@@ -11,6 +11,7 @@ import {
   IfExpr,
   ImplicitDereferenceExpr,
   MatchExpr,
+  PropertyAccessExpr,
   ReadWriteExpr,
   RecordValueExpr,
   exprToString,
@@ -629,7 +630,9 @@ ${indentation}}\n`;
     indentation: string;
     ignoreTempVariableDeclaration?: boolean;
   }): string {
-    let code = `${indentation}// block\n`;
+    let code = `${indentation}{ // block\n`;
+    const originalIndentation = indentation;
+    indentation = indentation + "  ";
     if (!ignoreTempVariableDeclaration) {
       // Add temp variable;
       code += `${indentation}${this.getTypeInC(blockExpr.typeValue)} ${
@@ -651,9 +654,7 @@ ${indentation}}\n`;
           expr: exprs[i],
           indentation: indentation,
         });
-        code += `${indentation}${line}${
-          line.trim().endsWith(";") ? "" : ";"
-        }\n`;
+        code += `${indentation}${line}\n`;
       }
     }
 
@@ -661,7 +662,7 @@ ${indentation}}\n`;
       code += `${indentation}return ${blockExpr.tempVariableName};\n`;
     }
 
-    code += `${indentation}// end block\n`;
+    code += `${originalIndentation}} // end block\n`;
     return code;
   }
 
@@ -825,7 +826,7 @@ ${
       }(${this.codegenExpr({
         expr: rhs,
         indentation,
-      })});\n`;
+      }).trim()});\n`;
     }
     return code;
   }
@@ -984,7 +985,7 @@ ${indentation}};
     code += `${indentation}${expr.tempVariableName} = &(${this.codegenExpr({
       expr: expr.expr,
       indentation,
-    })})`;
+    })});`;
 
     return code;
   }
@@ -1051,22 +1052,43 @@ ${indentation}};
     indentation: string;
   }): string {
     let code = `// assignment\n`;
+    let variableId = "";
     if (
       expr.left.typeValue.permission === "read" ||
       expr.left.typeValue.permission === "write"
     ) {
-      code += `${indentation}*`;
-    } else {
-      code += `${indentation}`;
+      variableId = "*";
     }
-    code += `${this.codegenExpr({ expr: expr.left, indentation: "" })} = `;
-    if (
-      expr.right.typeValue.permission === "read" ||
-      expr.right.typeValue.permission === "write"
-    ) {
-      code += "*";
-    }
-    code += `${this.codegenExpr({ expr: expr.right, indentation: "" })};\n`;
+    code += this.codegenAssignmentByVariableId({
+      variableId:
+        variableId +
+        this.codegenExpr({
+          expr: expr.left,
+          indentation: "",
+        }),
+      variableType: expr.left.typeValue,
+      indentation,
+      rhs: expr.right,
+    });
+    return code;
+  }
+
+  codegenPropertyAccess({
+    expr,
+    indentation,
+  }: {
+    expr: PropertyAccessExpr;
+    indentation: string;
+  }): string {
+    const code = `${indentation}${this.codegenExpr({
+      expr: expr.expr,
+      indentation: "",
+    })}${
+      expr.expr.typeValue.permission === "read" ||
+      expr.expr.typeValue.permission === "write"
+        ? "->"
+        : "."
+    }${expr.propertyName}`;
     return code;
   }
 
@@ -1202,6 +1224,9 @@ ${indentation}};
       }
       case AstType.Export: {
         return this.codegenExpr({ expr: expr.expr, indentation });
+      }
+      case AstType.PropertyAccess: {
+        return this.codegenPropertyAccess({ expr, indentation });
       }
       default: {
         throw new Error(

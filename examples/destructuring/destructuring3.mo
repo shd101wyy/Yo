@@ -10,11 +10,13 @@ type Coord = {
 }
 
 let main = ()-> {
-  let coord = Coord {
+  var coord = Coord {
     x: malloc(),
     y: malloc()
   };
-  let {x, y} = coord;
-  @consume(y);
-  @consume(x);
+  var ref = write coord;
+  var x = write ref.x;
+  let old = (x = malloc());
+  @consume(old);
+  @consume(coord);
 }

@@ -3257,8 +3257,8 @@ ${matchedFunctionErrors[i] ?? ""}`
     expr,
     // tokens,
     index, // env,
-    // caller,
-  } // parserData,
+    // parserData,
+  } // caller,
   : {
     expr: Expr;
     tokens: Token[];
@@ -5415,6 +5415,17 @@ ${linearFields.map((x) => `"${x.name}"`).join(", ")}`
     curlyBracketTokenIndex: number;
     isReference?: "&" | "&!";
   }): ParserReturn {
+    // NOTE: We disable destructuring from "read" and "write" for now.
+    if (
+      value.typeValue.permission === "read" ||
+      value.typeValue.permission === "write"
+    ) {
+      throw this.formatErrorMessage(
+        value.token,
+        `Cannot destructuring from "read" or "write" value:`
+      );
+    }
+
     const valueType = value.typeValue;
     switch (valueType.type) {
       case "Record": {
@@ -5542,7 +5553,7 @@ ${destructuredLinearFields.map((x) => `"${x}"`).join(", ")}`
       default: {
         throw this.formatErrorMessage(
           tokens[index],
-          `Cannot destructure the following type:
+          `Cannot destructuring from the following type:
 ${typeToString(valueType)}`
         );
       }
