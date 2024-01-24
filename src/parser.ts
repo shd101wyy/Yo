@@ -91,6 +91,7 @@ import {
   synthesizeTypeAndRegionParametersFromTokens,
   synthesizeTypeFromTokens,
   synthesizeTypes,
+  typeContainsReadWrite,
   typeIsFunctionTypeThatReturnsPromise,
   typeIsPromise,
   typeToString,
@@ -488,15 +489,14 @@ export default class Parser {
         index = nextIndex;
         env = expr.env;
 
-        // Consume the value if necessary
-        const { env: nextEnv } = this.setVariableAsConsumed(env, expr);
-        env = nextEnv;
-
         if (tokens[index].type === TokenType.Comma) {
           index = index + 1;
         }
       }
     }
+
+    // Consume the value if necessary
+    env = this.consumeExprs({ exprs: values, env });
 
     const elementTypes = values.map((value) => value.typeValue);
     // Check if all the element types are the same
@@ -609,6 +609,7 @@ export default class Parser {
       tokens[index + 1].type === TokenType.Colon
     ) {
       const properties: { name: string; value: Expr }[] = [];
+      const exprsToConsume: Expr[] = [];
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const token = tokens[index];
@@ -648,13 +649,16 @@ export default class Parser {
         env = expr.env;
 
         // Consume the value if necessary
-        const { env: nextEnv } = this.setVariableAsConsumed(env, expr);
-        env = nextEnv;
+        exprsToConsume.push(expr);
 
         if (tokens[index].type === TokenType.Comma) {
           index = index + 1;
         }
       }
+
+      // Consume the exprs
+      env = this.consumeExprs({ exprs: exprsToConsume, env });
+
       return {
         expr: {
           type: AstType.Value,
@@ -669,6 +673,28 @@ export default class Parser {
     } else {
       throw this.formatErrorMessage(tokens[index], "Expected invalid record");
     }
+  }
+
+  /**
+   * Consume the exprs based on the lifetime order
+   */
+  private consumeExprs({
+    exprs,
+    env,
+  }: {
+    exprs: Expr[];
+    env: Environment;
+  }): Environment {
+    const exprsWithOrder = exprs.map((expr) => ({
+      expr,
+      order: this.getVariableLifetimeOrder({ env, expr }),
+    }));
+    const sortedExprs = exprsWithOrder.sort((a, b) => b.order - a.order);
+    for (const { expr } of sortedExprs) {
+      const { env: nextEnv } = this.setVariableAsConsumed(env, expr);
+      env = nextEnv;
+    }
+    return env;
   }
 
   private parsePropertyAccessExpr({
@@ -1050,8 +1076,8 @@ ${exprToString(rhs)}
           );
         }
       } else {
-        const lhsOrder = this.getVariableLifetimeOrder(env, lhs);
-        const rhsOrder = this.getVariableLifetimeOrder(env, rhs);
+        const lhsOrder = this.getVariableLifetimeOrder({ env, expr: lhs });
+        const rhsOrder = this.getVariableLifetimeOrder({ env, expr: rhs });
         if (lhsOrder < rhsOrder) {
           throw this.formatErrorMessage(
             tokens[lhsTokenIndex],
@@ -2492,7 +2518,9 @@ Found possible enums:
       index = nextIndex;
 
       // Check if the types match
-      if (!checkType(newTypeConstructorType, primaryExpr.typeValue, env)) {
+      if (
+        !checkType(newTypeConstructorType.typeValue, primaryExpr.typeValue, env)
+      ) {
         throw this.formatErrorMessage(
           tokens[typeConstructorTokenIndex],
           `Mismatched types.
@@ -3257,8 +3285,8 @@ ${matchedFunctionErrors[i] ?? ""}`
     expr,
     // tokens,
     index, // env,
-    // parserData,
-  } // caller,
+    // caller,
+  } // parserData,
   : {
     expr: Expr;
     tokens: Token[];
@@ -3856,7 +3884,7 @@ ${matchedFunctionErrors[i] ?? ""}`
     ) {
       throw this.formatErrorMessage(
         returnExpr.token,
-        "Cannot return a reference defined in the function body, not the function parameter."
+        "Cannot return a reference defined in the block body."
       );
     }
     env = nextNextEnv;
@@ -3919,6 +3947,15 @@ ${matchedFunctionErrors[i] ?? ""}`
           }
         }
       }
+    }
+
+    // Disallow the "own"ed return value to contain
+    // "read" or "write" fields.
+    if (returnType.permission === "own" && typeContainsReadWrite(returnType)) {
+      throw this.formatErrorMessage(
+        returnExpr.token,
+        `Cannot return a value that contains "read" or "write" fields.`
+      );
     }
 
     env = popEnvFrame(env);
@@ -4068,17 +4105,22 @@ ${exprToString(expr)}`,
     }
   }
 
-  private getVariableLifetimeOrder(env: Environment, expr: Expr): number {
+  private getVariableLifetimeOrder({
+    expr,
+    env,
+  }: {
+    expr: Expr;
+    env: Environment;
+  }): number {
     if (
       expr.type === AstType.PropertyAccess ||
       expr.type === AstType.IndexAccess ||
-      expr.type === AstType.ReadWrite
+      expr.type === AstType.ReadWrite ||
+      expr.type === AstType.ImplicitDereference
     ) {
-      return this.getVariableLifetimeOrder(env, expr.expr);
+      return this.getVariableLifetimeOrder({ env, expr: expr.expr });
     } else if (expr.type === AstType.Variable) {
       return getEnvVariableLifetimeOrder(env, expr.variableName);
-    } else if (expr.type === AstType.ImplicitDereference) {
-      return this.getVariableLifetimeOrder(env, expr.expr);
     } else if (expr.type === AstType.Value) {
       return 0; // global?
     } else if (expr.type === AstType.CallFunction) {
@@ -4101,7 +4143,7 @@ ${exprToString(expr)}`,
   }): Environment {
     // Check the order of the arguments
     const functionArgumentOrders = functionArgumentsInOrder.map((arg) =>
-      this.getVariableLifetimeOrder(env, arg)
+      this.getVariableLifetimeOrder({ env, expr: arg })
     );
     // console.log("functionArgumentOrders: ", functionArgumentOrders);
 

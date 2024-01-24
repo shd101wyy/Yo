@@ -1681,3 +1681,4 @@ Boostrapping the **Mo** compiler is not a priority at the moment. We will do it 
 - [Retrofitting Effect Handlers onto OCaml](https://arxiv.org/pdf/2104.00250.pdf)
 - [Do Be Do Be Do](https://arxiv.org/pdf/1611.09259.pdf)
 - [Custom Infix Operators in Haskell](<https://bugfactory.io/blog/custom-infix-operators-in-haskell/#:~:text=Precedence%20(aka%20Operator%20Binding)&text=All%20operators%20in%20Haskell%20have,6%20>).)
+- [Region-Based Memory Management in Cyclone](https://www.cs.umd.edu/projects/cyclone/papers/cyclone-regions.pdf)

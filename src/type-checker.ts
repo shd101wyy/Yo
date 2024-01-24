@@ -769,7 +769,10 @@ export function synthesizeTypeFromTokens({
           index = nextIndex;
           env = nextEnv;
 
-          if (tokens[index].type === TokenType.Comma) {
+          if (
+            tokens[index].type === TokenType.Comma ||
+            tokens[index].type === TokenType.Semicolon
+          ) {
             index = index + 1;
           }
         } else {
@@ -1678,7 +1681,10 @@ export function applyTypeAndRegionArgumentsToType({
         } else if (typeArgument) {
           const returnType: TTypeParameter = {
             ...typeParameter,
-            appliedType: typeArgument,
+            appliedType: {
+              ...typeArgument,
+              permission: typeParameter.permission,
+            },
           };
           return returnType;
         } else {
@@ -2275,6 +2281,8 @@ export function applyTypeAndRegionArgumentsToExpr({
       return expr;
     }
     case AstType.Block: {
+      // FIXME: Check if the return value
+      // contains the "read" or "write" fields.
       return {
         ...expr,
         exprs: expr.exprs.map((expr) =>
@@ -3444,14 +3452,13 @@ export function typeToString(
     }
     case "Record": {
       return `${typePermissionToString(type.permission)} { ${type.properties
-        .map(
-          ({ name, type }) =>
-            `${name}: ${typeToString(type, {
-              extractTypeConstructor,
-              hideTypeParameterKind,
-            })}`
-        )
-        .join(", ")} }`;
+        .map(({ name, type }) => {
+          return `${name}: ${typeToString(type, {
+            extractTypeConstructor: false,
+            hideTypeParameterKind: true,
+          })}`;
+        })
+        .join("; ")} }`;
     }
     case "Function": {
       const effectsString = effectsToString(type.effects, {
@@ -3514,7 +3521,9 @@ export function typeToString(
           extractTypeConstructor,
         });
       } else if (hideTypeParameterKind) {
-        return type.typeParameterName;
+        return `${typePermissionToString(type.permission)} ${
+          type.typeParameterName
+        }`;
       } else {
         return `${type.typeParameterName}: ${type.kind}`;
       }
@@ -3676,14 +3685,21 @@ export function checkType(
     if (!expectedType.appliedType) {
       return true;
     } else if (givenType.type === "TypeParameter") {
+      /*
+      if (expectedType.typeParameterId === givenType.typeParameterId) {
+        return true;
+      }
+      */
+
       if (expectedType.appliedType.type === "TypeParameter") {
         return checkType(expectedType.appliedType, givenType, env);
       }
 
-      if (!givenType.appliedType) {
-        return false;
+      if (givenType.appliedType) {
+        return checkType(expectedType.appliedType, givenType.appliedType, env);
       }
-      return checkType(expectedType.appliedType, givenType.appliedType, env);
+
+      return false;
     } else {
       return checkType(expectedType.appliedType, givenType, env);
     }
@@ -4769,4 +4785,28 @@ export function synthesizeTypes({
   }
 
   return expectedType;
+}
+
+export function typeContainsReadWrite(type: Type): boolean {
+  if (type.permission === "read" || type.permission === "write") {
+    return true;
+  } else if (type.type === "Record") {
+    return type.properties.some((property) =>
+      typeContainsReadWrite(property.type)
+    );
+  } else if (type.type === "slice") {
+    return typeContainsReadWrite(type.elementType);
+  } else if (type.type === "TypeConstructor") {
+    return typeContainsReadWrite(type.typeValue);
+  } else if (type.type === "Enum") {
+    return type.variants.some((variant) =>
+      variant.parameterTypes.some((parameterType) =>
+        typeContainsReadWrite(parameterType.type)
+      )
+    );
+  } else if (type.type === "Union" || type.type === "Intersection") {
+    return type.types.some((type) => typeContainsReadWrite(type));
+  } else {
+    return false;
+  }
 }
