@@ -18,11 +18,12 @@ fn test_string_reference(x: &String) {
     println!("{}", x);
 }
 
+#[derive(Debug)]
 struct Holder<'a> {
     x: &'a String,
 }
 
-fn set_x<'a>(holder: &'a mut Holder<'a>, x: &'a String) {
+fn set_x<'a, 'b>(holder: &'a mut Holder<'a>, x: &'b String) {
     // holder.x = x;
 }
 
@@ -33,28 +34,19 @@ fn test_mut(x: &mut Holder) {
 fn test<'a>() {
     let a = String::from("hello");
     let mut holder = Holder { x: &a };
-    let x = String::from("World");
     {
+        let x = String::from("World");
         // let holder_ref = &mut holder;
         // test_mut(&mut holder);
         set_x(&mut holder, &x);
     }
-
-
-    let b = 1;
-    let b_ref = &b;
-    let b_ref2 = b_ref;
+    println!("{:?}", holder);
 
     // consume(x);
     // consume(holder);
 }
 
-fn get_slice_length(slice: &[i32]) -> usize {
-    slice.len()
-}
 
 fn main() {
-    let arr = [1, 2, 3];
-    let len = get_slice_length(&arr);
-    println!("{}", len);
+    test();
 }

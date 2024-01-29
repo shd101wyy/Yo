@@ -12,7 +12,7 @@
 
 **Mo** has no garbage collector as it utilizes the [Linear Types](https://en.wikipedia.org/wiki/Substructural_type_system#:~:text=Linear%20types%20corresponds%20to%20linear,transitioned%20to%20a%20different%20state.).
 
-**Mo** also imcorporates an innovative memory management technique called **Explicit lifetime orders**. The **Mo** compiler helps you eliminate potential errors before the code is executed.
+**Mo** also imcorporates an innovative memory management technique called **Order based lifetime checker**. The **Mo** compiler helps you eliminate potential errors before the code is executed.
 
 Our goal is to be a practical language that is easy to use and easy to learn.
 
@@ -47,8 +47,10 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Custom Operators](#custom-operators)
     - [Closure `In Design`](#closure-in-design)
   - [Mutability `To be updated`](#mutability-to-be-updated)
-  - [Explicit lifetime orders](#explicit-lifetime-orders)
-    - [Order of `read` and `write` references](#order-of-read-and-write-references)
+  - [Lifetime checker](#lifetime-checker)
+    - [Prevent dangling pointers](#prevent-dangling-pointers)
+    - [Lifetime of `read` and `write` references](#lifetime-of-read-and-write-references)
+    - [`read` and `write` parameters](#read-and-write-parameters)
   - [Control Flow](#control-flow)
     - [Brace elision `In Design`](#brace-elision-in-design)
       - [repeat](#repeat)
@@ -81,6 +83,7 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Rename effectful operation](#rename-effectful-operation)
     - [Effect polymorphism `In Design`](#effect-polymorphism-in-design)
   - [Modules](#modules)
+  - [Ignore lifetime checking](#ignore-lifetime-checking)
   - [Compile time execution `In Design`](#compile-time-execution-in-design)
   - [Compilation `In Design`](#compilation-in-design)
   - [References](#references)
@@ -136,6 +139,8 @@ Other languages that are worth mentioning that have influenced **Mo**:
 - [Swift](https://swift.org/)
 - [Go](https://go.dev/)
 - [Ada](https://www.adacore.com/)
+- [Lobster](https://aardappel.github.io/lobster/README_FIRST.html)
+- [dyon](https://github.com/PistonDevelopers/dyon)
 
 ## Hello World
 
@@ -755,7 +760,7 @@ let test = ()-> {
   // let consumeClosure: [own]()=>()
   let consumeClosure = ()=> {
     println(read x);
-    consume(x);
+    @consume(x);
   }
   consumeClosure(); // "Hello"
   consumeClosure(); // Compiler Error: consumeClosure can only be called once.
@@ -814,60 +819,83 @@ let oldName = (p.name = String.from("Bob"));
 // oldName == String.from("Alice")
 ```
 
-## Explicit lifetime orders
+## Lifetime checker
 
-Unlike Rust, which requires specify lifetime parameters when defining a data structure or a function, **Mo** uses a simple memory management technique called **Explicit lifetime orders** which doesn't require the lifetime parameters.
+**Mo** implements a very simple and straight lifetime checker that is much easier to use than the borrow checker in Rust.
 
-We use the lifetime **order** to denote the lifetime of values.
-
-The idea is simple, the first created value will have the lifetime order of `@1`, the second created value will have the lifetime order of `@2`, and so on. The linear value must be consumed in the reverse order of the lifetime order, like a stack.
-
-For example, below is an error case:
+The lifetime of a variable means the time period when the variable is valid.
+For example:
 
 ```typescript
 let test = ()-> {
-  let x = malloc(); // @1
-  let y = malloc(); // @2
+  let x = malloc();
+  let y = malloc();
 
-  consume(x); // error: x is consumed before y
-  consume(y);
+  @consume(x);
+  @consume(y);
 }
 ```
 
-But this is correct:
+here `x` is consumed before `y`, so the lifetime of `x` is smaller than `y`.
+
+We use the `'` to denote the lifetime of a variable. For example, `'x` is the lifetime of `x`.
+
+In this case, the lifetime of `x` is smaller than `y`, so we have `'x < 'y`.
+
+The lifetime checker will check if the lifetime of a variable is smaller than the lifetime of another variable when they are used together.
 
 ```typescript
+type Holder: Linear = {
+  x: read Data;
+}
 let test = ()-> {
-  let x = malloc(); // @1
-  let y = malloc(); // @2
+  let x = malloc();
+  let holder = {
+    x: read x // Here we create a lifetime constratint that
+              // 'x > 'holder
+              // otherwise the assignment will fail
+  };
 
-  consume(y);
-  consume(x);
+  {
+    @consume(x);
+    @consume(holder);
+    // Compiler error: x is consumed before holder.
+    // which violates the lifetime constraint above.
+  }
+
+  {
+    // Below is the right order.
+    @consume(holder);
+    @consume(x);
+  }
 }
 ```
 
-We also allow to specify the order in function parameters:
+### Prevent dangling pointers
 
 ```typescript
-let test = (x: String @2, y: String @1)-> {
-  consume(x);
-  consume(y);
+type Holder = {
+  x: read i32;
+}
+
+let test = ()-> {
+  let x = 12;
+  let holder = {
+    x: read x; // Here we create a lifetime constraint that
+               // 'x > 'holder
+  }
+
+  holder // return holder here will fail
+         // because before we return a value,
+         // we will clean up the local variable on stack.
+         // in this case, x will be cleaned up first,
+         // and this means 'x < 'holder, and it violates the lifetime constraint.
 }
 ```
 
-if the order is not specified in the function parameters, we will use the order of the parameters to infer the order of the parameters:
+### Lifetime of `read` and `write` references
 
-```typescript
-let test = (x: String /* @1 */, y: String /* @2 */ )-> {
-  // consume(x); // error: x is consumed before y
-  consume(y);
-  consume(x);
-}
-```
-
-### Order of `read` and `write` references
-
-The `read` and `write` references will inherit the order of the value they are referencing to.
+The `read` and `write` references will inherit the lifetime of the value they are referencing to.
 
 ```typescript
 let test = ()-> {
@@ -877,12 +905,12 @@ let test = ()-> {
   let xRef: Data /* @x */ = read x; // @1
   let yRef: Data /* @y */ = read y; // @2
 
-  consume(yRef);
-  consume(xRef);
+  @consume(y);
+  @consume(x);
 }
 ```
 
-if you pass two references of different orders to a function, then both references will turn to have the largest order after the function call:
+if you pass two references of different orders to a function, then both references will turn to have the shortest lifetime of the two references.
 
 ```typescript
 let test = ()-> {
@@ -897,10 +925,78 @@ let test = ()-> {
   // xRef: Data @y // @2
   // yRef: Data @y // @2
 
-  // To continue to use `x`, we must consume `y` first
-  // to make sure the order of `xRef` is smaller than `yRef`.
+  @consume(y);
+  @consume(x);
 }
 
+```
+
+### `read` and `write` parameters
+
+```typescript
+type Data: Linear;
+type Holder: Linear = {
+  x: read Data;
+}
+
+let setValue = (holder: write Holder, x: read Data)-> {
+  holder.x = x; // The compiler here cannot infer the comparison of the lifetime of `x` and `holder.x`.
+                // So we have to specify the lifetime of `x` and `holder.x` manually.
+                // In this case, we have 'x > 'holder.x
+}
+```
+
+The right way to specify the lifetime of `x` and `holder` is:
+
+```typescript
+let setValue = (holder: write Holder, x: read Data)-> ()
+  where 'x > 'holder
+{
+  holder.x = x;
+}
+```
+
+Calling such function will also create a lifetime constraint:
+
+```typescript
+let test = ()-> {
+  let x: Data = malloc();
+  let y: Data = malloc();
+  let holder: Holder = Holder {
+    x: read x; // Implies 'x > 'holder
+  }
+  setValue(holder, y); // Implies 'y > 'holder
+
+  @consume(x); // Compiler Error: x is consumed before holder. It violates the lifetime constraint 'x > 'holder
+  @consume(y); // Compiler Error: y is consumed before holder. It violates the lifetime constraint 'y > 'holder
+
+  // Below is the right order.
+  @consume(holder);
+  @consume(x);
+  @consume(y);
+}
+```
+
+### Lifetime propagation by transfering ownership
+
+```typescript
+let test = ()-> {
+  let x: Data = malloc();
+  let holder = Holder {
+    x: x  // Implies 'x > 'holder
+  }
+  let anotherHolder = AnotherHolder {
+    holder: holder // The ownership of `holder` is transfered to `anotherHolder`.
+                   // Its lifetime also propagates to `anotherHolder`.
+                   // Implies 'x > 'anotherHolder
+  }
+
+  @consume(x); // Compiler Error: x is consumed before anotherHolder. It violates the lifetime constraint 'x > 'anotherHolder
+
+  // Below is the right order.
+  @consume(anotherHolder);
+  @consume(x);
+}
 ```
 
 ## Control Flow
@@ -1470,7 +1566,7 @@ let example = ()-> [Exception<()>] Promise<()> {
 
   await raise("Some exception");
 
-  consume(file); // This line might not be executed because of the `raise` above which might abort the execution.
+  @consume(file); // This line might not be executed because of the `raise` above which might abort the execution.
   // But the `file` is not consumed yet.
 }
 ```
@@ -1482,11 +1578,11 @@ let example = ()-> [Exception<()>] Promise<()> {
   let file: File = await open("file.txt", "w");
   abortdefer {
     println("Exception caught");
-    consume(file);
+    @consume(file);
   }
   await raise("Some exception")
 
-  consume(file);
+  @consume(file);
   resume(());
 }
 ```
@@ -1609,6 +1705,20 @@ import { Id: {*} } from "./test.mo"; // Unwrap all functions from Id<i32> instan
   "dependencies": {
     "std": ""
   }
+}
+```
+
+## Ignore lifetime checking
+
+Use the `$` prefix to ignore the lifetime checking.
+
+```typescript
+let test = ()-> {
+  let x = malloc(); // @1
+  let y = malloc(); // @2
+
+  @consume($x); // You need to pay the $debt if it caused a memory leak :)
+  @consume(y);
 }
 ```
 

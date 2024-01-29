@@ -55,3 +55,27 @@ let x: unique<Person> = { name: "John" };
 printPerson(x);
 print(x.name); // Error! x loses ownership
 ```
+
+
+```typescript
+let main = ()=> {
+  let x = malloc();
+  let y = malloc();
+  let z = {
+    x: read x,
+  }
+  drop(x);
+  drop(y);
+  println(z); // Error! z.x is a dangling pointer
+}
+```
+
+
+
+
+
+
+
+
+
+
