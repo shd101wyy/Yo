@@ -1,4 +1,3 @@
-
 type Data: Linear;
 extern "C" {
   malloc: ()-> Data;
@@ -6,7 +5,8 @@ extern "C" {
 
 let test = ()-> {
   let x = malloc();
-  let y: read Data = x;
-  let z: read Data = y;
+  let y = malloc();
+
   @consume(x);
+  @consume(y);
 }

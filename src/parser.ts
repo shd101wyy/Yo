@@ -35,7 +35,6 @@ import {
   generateVarialeValueId,
   getEnvCurrentFrameLevel,
   getEnvInfixOperatorPrecedence,
-  getEnvVariableLifetimeOrder,
   getEnvVariableValueByVariableName,
   increaseEnvVariableReferenceCount,
   mergeAndCheckEnv,
@@ -489,14 +488,15 @@ export default class Parser {
         index = nextIndex;
         env = expr.env;
 
+        // Consume the value
+        const { env: nextEnv } = this.setVariableAsConsumed(env, expr);
+        env = nextEnv;
+
         if (tokens[index].type === TokenType.Comma) {
           index = index + 1;
         }
       }
     }
-
-    // Consume the value if necessary
-    env = this.consumeExprs({ exprs: values, env });
 
     const elementTypes = values.map((value) => value.typeValue);
     // Check if all the element types are the same
@@ -609,7 +609,6 @@ export default class Parser {
       tokens[index + 1].type === TokenType.Colon
     ) {
       const properties: { name: string; value: Expr }[] = [];
-      const exprsToConsume: Expr[] = [];
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const token = tokens[index];
@@ -649,15 +648,13 @@ export default class Parser {
         env = expr.env;
 
         // Consume the value if necessary
-        exprsToConsume.push(expr);
+        const { env: nextEnv } = this.setVariableAsConsumed(env, expr);
+        env = nextEnv;
 
         if (tokens[index].type === TokenType.Comma) {
           index = index + 1;
         }
       }
-
-      // Consume the exprs
-      env = this.consumeExprs({ exprs: exprsToConsume, env });
 
       return {
         expr: {
@@ -673,28 +670,6 @@ export default class Parser {
     } else {
       throw this.formatErrorMessage(tokens[index], "Expected invalid record");
     }
-  }
-
-  /**
-   * Consume the exprs based on the lifetime order
-   */
-  private consumeExprs({
-    exprs,
-    env,
-  }: {
-    exprs: Expr[];
-    env: Environment;
-  }): Environment {
-    const exprsWithOrder = exprs.map((expr) => ({
-      expr,
-      order: this.getVariableLifetimeOrder({ env, expr }),
-    }));
-    const sortedExprs = exprsWithOrder.sort((a, b) => b.order - a.order);
-    for (const { expr } of sortedExprs) {
-      const { env: nextEnv } = this.setVariableAsConsumed(env, expr);
-      env = nextEnv;
-    }
-    return env;
   }
 
   private parsePropertyAccessExpr({
@@ -1076,6 +1051,8 @@ ${exprToString(rhs)}
           );
         }
       } else {
+        // FIXME: Add constraint
+        /*
         const lhsOrder = this.getVariableLifetimeOrder({ env, expr: lhs });
         const rhsOrder = this.getVariableLifetimeOrder({ env, expr: rhs });
         if (lhsOrder < rhsOrder) {
@@ -1088,6 +1065,7 @@ LHS order: ${lhsOrder}
 RHS order: ${rhsOrder}`
           );
         }
+        */
       }
     }
 
@@ -1950,7 +1928,6 @@ Got:      <${functionTypeArgumentsInOrder
         referedVariable,
       },
       deltaFrame: deltaFrame ?? 0,
-      lifetimeOrder: referedVariable?.order,
     });
 
     return {
@@ -3285,8 +3262,8 @@ ${matchedFunctionErrors[i] ?? ""}`
     expr,
     // tokens,
     index, // env,
-    // caller,
-  } // parserData,
+    // parserData,
+  } // caller,
   : {
     expr: Expr;
     tokens: Token[];
@@ -3922,6 +3899,8 @@ ${matchedFunctionErrors[i] ?? ""}`
       // console.log("here: ", value.order, value.variableName, referedVariable);
     } else {
       // console.log("block: ", tempVariableName, referedVariable);
+      // FIXME:
+      /*
       if (referedVariable) {
         const tempVariableValues = getEnvVariableValueByVariableName(
           env,
@@ -3947,6 +3926,7 @@ ${matchedFunctionErrors[i] ?? ""}`
           }
         }
       }
+      */
     }
 
     // Disallow the "own"ed return value to contain
@@ -4105,6 +4085,7 @@ ${exprToString(expr)}`,
     }
   }
 
+  /*
   private getVariableLifetimeOrder({
     expr,
     env,
@@ -4131,8 +4112,10 @@ ${exprToString(expr)}`,
       );
     }
   }
+  */
 
   private checkFunctionArgumentsOrderAndConsumeOwnLinearValues({
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     calleeType,
     functionArgumentsInOrder,
     env,
@@ -4141,6 +4124,18 @@ ${exprToString(expr)}`,
     functionArgumentsInOrder: Expr[];
     env: Environment;
   }): Environment {
+    // FIXME: Add lifetime constraint from the calleeType
+    for (let i = 0; i < functionArgumentsInOrder.length; i++) {
+      const functionArgument = functionArgumentsInOrder[i];
+      const { env: nextEnv } = this.setVariableAsConsumed(
+        env,
+        functionArgument
+      );
+      env = nextEnv;
+    }
+    return env;
+
+    /*
     // Check the order of the arguments
     const functionArgumentOrders = functionArgumentsInOrder.map((arg) =>
       this.getVariableLifetimeOrder({ env, expr: arg })
@@ -4234,6 +4229,7 @@ Got     : (${functionArgumentsInOrder
     }
 
     return env;
+    */
   }
 
   private trySettingVariableAsReference({
@@ -5187,7 +5183,6 @@ ${exprToString(value)}`
       },
       preventDuplicate: true,
       variableId,
-      lifetimeOrder: referedVariable?.order,
     });
     env = nextEnv;
     // console.log("let= valueType: ", valueType);

@@ -36,10 +36,6 @@ type VariableValueKind =
 export type ReferedVariable = {
   frameLevel: number;
   variableName: string;
-  /**
-   * The lifetime order of the refered variable.
-   */
-  order: number;
   isMutableReference: boolean;
   /**
    * token where the reference is created
@@ -50,11 +46,6 @@ export type ReferedVariable = {
 export type VariableValue = {
   id: string; // NOTE: The `id` here doesn't really help in generic function
   variableName: string;
-
-  /**
-   * lifetime order
-   */
-  order: number;
 
   // different kinds of values
   type: Type;
@@ -373,14 +364,12 @@ export function addEnvVariableValue({
   deltaFrame,
   preventDuplicate,
   variableId,
-  lifetimeOrder,
 }: {
   env: Environment;
   variableValue: Omit<VariableValue, "frameLevel" | "id" | "order">;
   deltaFrame?: number;
   preventDuplicate?: boolean;
   variableId?: string;
-  lifetimeOrder?: number;
 }): { env: Environment; value: VariableValue } {
   // Disable anonymous record
   if (variableValue.kind === "value" && variableValue.type.type === "Record") {
@@ -401,8 +390,7 @@ export function addEnvVariableValue({
   const id = isTempVariableName(env, variableValue.variableName)
     ? variableValue.variableName
     : variableId ?? generateVarialeValueId(env, variableValue.variableName);
-  const order = lifetimeOrder ?? getEnvLastestLifetimeOrder(env);
-  const value: VariableValue = { ...variableValue, frameLevel, id, order };
+  const value: VariableValue = { ...variableValue, frameLevel, id };
   const newFrame = addFrameVariableValue({
     env,
     frame,
@@ -661,6 +649,8 @@ export function setEnvVariableAsConsumed({
 
   // Check if there is any linear value after that is not consumed
   /*if (!isTempVariableName(env, variableName)) */ {
+    // FIXME: Check the constraints
+    /*
     const { frameLevel, index } = getEnvFrameLevelAndIndexForVariableValue(
       env,
       variableValue
@@ -692,7 +682,9 @@ export function setEnvVariableAsConsumed({
         }),
       });
     }
+    */
     // Set all valuesAfter as consumed, no matter Linar or Free.
+    /*
     valuesAfter.forEach((value) => {
       if (
         value.kind === "value" &&
@@ -705,6 +697,8 @@ export function setEnvVariableAsConsumed({
         });
       }
     });
+    */
+    // FIXME: ^^^ Set references as consumed
   }
 
   const newVariableValue: VariableValue = { ...variableValue, consumedAtToken };
@@ -876,7 +870,6 @@ ${mutableReferences
         env: updateExistingVariableValue(env, variableValue, newVariableValue),
         referedVariable: {
           variableName,
-          order: variableValue.order,
           frameLevel: variableValue.frameLevel,
           isMutableReference,
           token,
@@ -917,7 +910,6 @@ ${mutableReferences
         env: updateExistingVariableValue(env, variableValue, newVariableValue),
         referedVariable: {
           variableName,
-          order: variableValue.order,
           frameLevel: variableValue.frameLevel,
           isMutableReference,
           token,
@@ -1064,6 +1056,7 @@ export function createNewEnv({
 export function mergeAndCheckEnv(
   env: Environment,
   cases: (IfCase | MatchCase)[],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   tempVariableName: string
 ): Environment {
   const maxFrameLevel = env.frames.length - 1;
@@ -1235,6 +1228,8 @@ export function mergeAndCheckEnv(
     }
   }
 
+  // FIXME: This part of code is not correct.
+  /*
   // Update the tempVariable to host the shortest lifetime
   const tempVariables = getEnvVariableValueByVariableName(
     env,
@@ -1242,6 +1237,7 @@ export function mergeAndCheckEnv(
   );
   let tempVariable = tempVariables[0];
   // console.log("tempVariable: ", tempVariable);
+
 
   for (let i = 0; i < caseEnvs.length; i++) {
     const caseEnv = caseEnvs[i];
@@ -1266,6 +1262,7 @@ export function mergeAndCheckEnv(
     }
     // console.log("caseTempVariable: ", caseTempVariable);
   }
+  */
 
   return env;
 }
@@ -1328,38 +1325,4 @@ export function getEnvFrameLevelAndIndexForVariableValue(
     }
   }
   throw new Error("Failed to find the value type in env.");
-}
-
-export function getEnvVariableLifetimeOrder(
-  env: Environment,
-  variableName: string
-): number {
-  let order = -1;
-
-  for (let i = 0; i < env.frames.length; i++) {
-    const frame = env.frames[i];
-    for (let j = 0; j < frame.values.length; j++) {
-      const value = frame.values[j];
-      if (value.variableName === variableName) {
-        order = Math.max(order, value.order);
-      }
-    }
-  }
-
-  return order;
-}
-
-export function getEnvLastestLifetimeOrder(env: Environment): number {
-  let order = -1;
-
-  // TODO: This part of code can be optimized
-  for (let i = 0; i < env.frames.length; i++) {
-    const frame = env.frames[i];
-    for (let j = 0; j < frame.values.length; j++) {
-      const value = frame.values[j];
-      order = Math.max(order, value.order);
-    }
-  }
-
-  return order + 1;
 }
