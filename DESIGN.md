@@ -1,18 +1,16 @@
 # Language Design
 
-**Mo** (墨) is minimal, general-purpose, functional (not pure), compiled programming language.
+**Mo** (墨) is minimal, general-purpose, compiled programming language that incorporates the Linear Types, Mutable Value Semantics (2nd class references), and Algebraic Effects (one-shot).
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
-**Mo** has a minimal syntax design that looks like TypeScript, and uses uniform call syntax (dot notation), brace elison to make the code more concise.
+**Mo** has a minimal syntax design that looks like TypeScript, and uses uniform call syntax (dot notation)~~, brace elison~~ to make the code more concise.
 
 **Mo** is strong typed with a robust bidrectional type checker. **Mo** supports typeclass and instances, combined with algebraic effects (one-shot) and an efficient type system.
 
 **Mo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types. `In Design`
 
-**Mo** has no garbage collector as it utilizes the [Linear Types](https://en.wikipedia.org/wiki/Substructural_type_system#:~:text=Linear%20types%20corresponds%20to%20linear,transitioned%20to%20a%20different%20state.).
-
-**Mo** also imcorporates an innovative memory management technique called **Order based lifetime checker**. The **Mo** compiler helps you eliminate potential errors before the code is executed.
+**Mo** has no garbage collector. **Mo** utilizes the Linear type and Mutable Value Semantics to achieve memory safety.
 
 Our goal is to be a practical language that is easy to use and easy to learn.
 
@@ -36,7 +34,7 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Variable Declaration](#variable-declaration)
     - [Type inference](#type-inference)
       - [Uninitialized variable `Might be removed`](#uninitialized-variable-might-be-removed)
-    - [`own`](#own)
+    - [Transfer ownership](#transfer-ownership)
     - [`read` and `write` references](#read-and-write-references)
   - [Function Declaration](#function-declaration)
     - [Uniform Function Call Syntax](#uniform-function-call-syntax)
@@ -45,12 +43,9 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [`defer`](#defer)
     - [`recur`](#recur)
     - [Custom Operators](#custom-operators)
-    - [Closure `In Design`](#closure-in-design)
+  - [Closure `In Design`](#closure-in-design)
   - [Mutability `To be updated`](#mutability-to-be-updated)
-  - [Lifetime checker](#lifetime-checker)
-    - [Prevent dangling pointers](#prevent-dangling-pointers)
-    - [Lifetime of `read` and `write` references](#lifetime-of-read-and-write-references)
-    - [`read` and `write` parameters](#read-and-write-parameters)
+  - [Mutable Value Semantics](#mutable-value-semantics)
   - [Control Flow](#control-flow)
     - [Brace elision `In Design`](#brace-elision-in-design)
       - [repeat](#repeat)
@@ -59,9 +54,10 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Enum (Algebraic Data Types)](#enum-algebraic-data-types)
     - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
     - [Explicit enum variant type](#explicit-enum-variant-type)
-  - [Typeclass](#typeclass)
+  - [`interface` (type class/trait)](#interface-type-classtrait)
     - [Function Overloading](#function-overloading)
     - [Implicit `drop` function on `Linear` types - RAII](#implicit-drop-function-on-linear-types---raii)
+  - [`implicit` keyword `In Design`](#implicit-keyword-in-design)
   - [Pattern Matching](#pattern-matching)
   - [Collections](#collections)
     - [Array](#array)
@@ -83,7 +79,6 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Rename effectful operation](#rename-effectful-operation)
     - [Effect polymorphism `In Design`](#effect-polymorphism-in-design)
   - [Modules](#modules)
-  - [Ignore lifetime checking](#ignore-lifetime-checking)
   - [Compile time execution `In Design`](#compile-time-execution-in-design)
   - [Compilation `In Design`](#compilation-in-design)
   - [References](#references)
@@ -141,6 +136,8 @@ Other languages that are worth mentioning that have influenced **Mo**:
 - [Ada](https://www.adacore.com/)
 - [Lobster](https://aardappel.github.io/lobster/README_FIRST.html)
 - [dyon](https://github.com/PistonDevelopers/dyon)
+- [Vale](https://vale.dev/)
+- [hylo](https://www.hylo-lang.org/)
 
 ## Hello World
 
@@ -319,14 +316,14 @@ y = 1; // y: i32, initialized
 y = 2; // Compiler Error: y is already initialized
 ```
 
-### `own`
+### Transfer ownership
 
-`own` is used to move a Linear value from one variable to another variable.
+Linear types can only be used once. When a linear type is transferred, it is consumed and cannot be used again.
 
 ```typescript
 let x = String.from("Hello"); // x: String. Linear type
-let y = own x; // y: String. Linear type. x is moved and consumed.
-let z = own x; // Compiler Error: x is already consumed.
+let y = x; // y: String. Linear type. x is moved and consumed.
+let z = x; // Compiler Error: x is already consumed.
 ```
 
 ### `read` and `write` references
@@ -737,58 +734,55 @@ infixr 80 **  // right associativity. Eg, 3 ** 4 ** 6 == 3 ** (4 ** 6)
 infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
 ```
 
-### Closure `In Design`
+## Closure `In Design`
 
 ```
-[capture]<type parameters>(parameters) => return_type { body }
+<type parameters>(parameters) => return_type { body }
 ```
 
-The capture `[read]` means the closure only allows the immutable references from the outer scope, but no linear values and mutable references from outer scope. The closure can be called multiple times.
+The closure in **Mo** is a function that can capture the **Linear** variables from the outer scope.
 
-The capture `[write]` means the closure only allows the mutable references and immutable references to the variables from the outer scope, but not linear values from outer scope. The closure can be called multiple times.
+The closure in **Mo** has **Linear** type and needs to be freed manually.
 
-The capture `[own]` means the closure will move linear values from the outer scope and prevent immutable & mutable references of linear values from the outer scope. ~~It behaves like the `safe` region. The closure can only be called once.~~
+- **read/write closure** `call` that doesn't take ownership
 
-If no capture is specified, we fallback to `[own]`.
+  ```typescript
+  let test = ()-> {
+    var x = Box(1);
 
-```typescript
-let add = (x: i32, y: i32)=> i32 { x + y }
-
-let test = ()-> {
-  var x = String.from("Hello");
-  // From type inference:
-  // let consumeClosure: [own]()=>()
-  let consumeClosure = ()=> {
-    println(read x);
-    @consume(x);
+    // var increment = {x: x};
+    var increment: [write](a: i32)=> () = (a: i32)=> {
+      // var {x} = write increment;
+      x = x + a;
+    }
+    // Generate: call(closure: write [write](a: i32)=> (), a: i32);
+    increment.call(1); // call(write increment, 1);
+    increment.call(2); // call(write increment, 2);
+    {
+      let x = read increment.x;
+      println(x); // 4
+    }
+    drop(increment);
   }
-  consumeClosure(); // "Hello"
-  consumeClosure(); // Compiler Error: consumeClosure can only be called once.
-}
+  ```
 
-let test = ()-> {
-  var x = 1;
-  // From type inference:
-  // var increment: [write](y: i32)=>()
-  // `var` here is necessary.
-  var increment = (y: i32)=> {
-    x = x + y;
-  }
-  increment(1); // x == 2
-  increment(1); // x == 3
-}
+- **closure** `call` that takes ownership
 
-let test = ()-> {
-  let x = 1;
-  // From type inference:
-  // let addOne: [read]()=>()
-  let printX = ()=> {
-    println(read x);
+  ```typescript
+  let test = ()-> {
+    var x: Data = malloc();
+
+    // var increment = {x: x};
+    var increment: ()=>() = ()=> {
+      // var {x} = increment;
+      let old = (x = malloc());
+      drop(old);
+      drop(x);
+    }
+    // Generate: call(closure: ()=> ());
+    increment.call(); // call(increment);
   }
-  printX();
-  printX();
-}
-```
+  ```
 
 ## Mutability `To be updated`
 
@@ -819,185 +813,21 @@ let oldName = (p.name = String.from("Bob"));
 // oldName == String.from("Alice")
 ```
 
-## Lifetime checker
+## Mutable Value Semantics
 
-**Mo** implements a very simple and straight lifetime checker that is much easier to use than the borrow checker in Rust.
+> Mutable value semantics is a programming discipline that upholds the independence of values to support local
+> reasoning. In the discipline’s strictest form, references become second-class citizens: they are only created implicitly, at function
+> boundaries, and cannot be stored in variables or object fields. Hence, variables can never share mutable state. Unlike pure
+> functional programming, however, mutable value semantics allows part-wise in-place mutation, thereby eliminating the memory
+> traffic usually associated with functional updates of immutable data.
 
-The lifetime of a variable means the time period when the variable is valid.
-For example:
+> MVS does not
+> surface references as a first-class concept in the programming
+> model. As such, they can neither be assigned to a variable nor
+> stored in object fields, and all values form disjoint topological
+> trees rooted in the program’s variables
 
-```typescript
-let test = ()-> {
-  let x = malloc();
-  let y = malloc();
-
-  @consume(x);
-  @consume(y);
-}
-```
-
-here `x` is consumed before `y`, so the lifetime of `x` is smaller than `y`.
-
-We use the `'` to denote the lifetime of a variable. For example, `'x` is the lifetime of `x`.
-
-In this case, the lifetime of `x` is smaller than `y`, so we have `'x < 'y`.
-
-The lifetime checker will check if the lifetime of a variable is smaller than the lifetime of another variable when they are used together.
-
-```typescript
-type Holder: Linear = {
-  x: read Data;
-}
-let test = ()-> {
-  let x = malloc();
-  let holder = {
-    x: read x // Here we create a lifetime constratint that
-              // 'x > 'holder
-              // otherwise the assignment will fail
-  };
-
-  {
-    @consume(x);
-    @consume(holder);
-    // Compiler error: x is consumed before holder.
-    // which violates the lifetime constraint above.
-  }
-
-  {
-    // Below is the right order.
-    @consume(holder);
-    @consume(x);
-  }
-}
-```
-
-### Prevent dangling pointers
-
-```typescript
-type Holder = {
-  x: read i32;
-}
-
-let test = ()-> {
-  let x = 12;
-  let holder = {
-    x: read x; // Here we create a lifetime constraint that
-               // 'x > 'holder
-  }
-
-  holder // return holder here will fail
-         // because before we return a value,
-         // we will clean up the local variable on stack.
-         // in this case, x will be cleaned up first,
-         // and this means 'x < 'holder, and it violates the lifetime constraint.
-}
-```
-
-### Lifetime of `read` and `write` references
-
-The `read` and `write` references will inherit the lifetime of the value they are referencing to.
-
-```typescript
-let test = ()-> {
-  let x: Data = malloc(); // @1
-  let y: Data = malloc(); // @2
-
-  let xRef: Data /* @x */ = read x; // @1
-  let yRef: Data /* @y */ = read y; // @2
-
-  @consume(y);
-  @consume(x);
-}
-```
-
-if you pass two references of different orders to a function, then both references will turn to have the shortest lifetime of the two references.
-
-```typescript
-let test = ()-> {
-  let x: Data = malloc(); // @1
-  let y: Data = malloc(); // @2
-
-  let xRef: Data @x = read x; // @1
-  let yRef: Data @y = read y; // @2
-
-  someFunction(xRef, yRef);
-  // Now
-  // xRef: Data @y // @2
-  // yRef: Data @y // @2
-
-  @consume(y);
-  @consume(x);
-}
-
-```
-
-### `read` and `write` parameters
-
-```typescript
-type Data: Linear;
-type Holder: Linear = {
-  x: read Data;
-}
-
-let setValue = (holder: write Holder, x: read Data)-> {
-  holder.x = x; // The compiler here cannot infer the comparison of the lifetime of `x` and `holder.x`.
-                // So we have to specify the lifetime of `x` and `holder.x` manually.
-                // In this case, we have 'x > 'holder.x
-}
-```
-
-The right way to specify the lifetime of `x` and `holder` is:
-
-```typescript
-let setValue = (holder: write Holder, x: read Data)-> ()
-  where 'x > 'holder
-{
-  holder.x = x;
-}
-```
-
-Calling such function will also create a lifetime constraint:
-
-```typescript
-let test = ()-> {
-  let x: Data = malloc();
-  let y: Data = malloc();
-  let holder: Holder = Holder {
-    x: read x; // Implies 'x > 'holder
-  }
-  setValue(holder, y); // Implies 'y > 'holder
-
-  @consume(x); // Compiler Error: x is consumed before holder. It violates the lifetime constraint 'x > 'holder
-  @consume(y); // Compiler Error: y is consumed before holder. It violates the lifetime constraint 'y > 'holder
-
-  // Below is the right order.
-  @consume(holder);
-  @consume(x);
-  @consume(y);
-}
-```
-
-### Lifetime propagation by transfering ownership
-
-```typescript
-let test = ()-> {
-  let x: Data = malloc();
-  let holder = Holder {
-    x: x  // Implies 'x > 'holder
-  }
-  let anotherHolder = AnotherHolder {
-    holder: holder // The ownership of `holder` is transfered to `anotherHolder`.
-                   // Its lifetime also propagates to `anotherHolder`.
-                   // Implies 'x > 'anotherHolder
-  }
-
-  @consume(x); // Compiler Error: x is consumed before anotherHolder. It violates the lifetime constraint 'x > 'anotherHolder
-
-  // Below is the right order.
-  @consume(anotherHolder);
-  @consume(x);
-}
-```
+The references in **Mo** are second-class citizens. They cannot be stored in `Enum`, `Record`, `Slice`, `Union`, and `Intersection` object. We also disable to return a local reference from a function.
 
 ## Control Flow
 
@@ -1199,15 +1029,15 @@ unwrap(x); // 1
 unwrap(None); // Won't compile. None is not a Some variant.
 ```
 
-## Typeclass
+## `interface` (type class/trait)
 
 ```typescript
-class Summary<T> extends Eq<T> {
-  summarize(self: T): String;
+interface Summary<T> extends Eq<T> {
+  summarize: (self: T)-> String;
 }
 
-class Display<T> extends Summary<T> {
-  display(self: T): String;
+interface Display<T> extends Summary<T> {
+  display: (self: T)-> String;
 }
 
 type NewsArticle = {
@@ -1218,41 +1048,49 @@ type NewsArticle = {
 };
 
 // Implement the class instance
-instance Summary<NewsArticle> {
-  summarize(self: NewsArticle): String {
+implement Summary<NewsArticle> {
+  summarize: (self: NewsArticle)-> String {
     "${self.headline}, by ${self.author} (${self.location})";
   }
 }
 
 // Pass in function
-let notify = (item: NewsArticle)-> {
+let notify = (item: NewsArticle)-> () {
   println("Breaking news! ", item.summarize());
+  // or
+  println("Breaking news! ", Summary<NewsArticle>.summarize(item));
 }
 
-let notify = <T>(item: T) with Display<T> -> {
+let notify = <T>(
+  item: T,
+  implicit {*}: Display<T>
+)-> () {
   println("Breaking news! ", item.summarize());
   println("Breaking news! ", item.display());
+  // Or
+  println("Breaking news! ", Display<T>.summarize(item));
+  println("Breaking news! ", Display<T>.display(item));
 }
 ```
 
 ### Function Overloading
 
-Function overloading can be achieved using typeclass.
+Function overloading can be achieved using `interface`.
 
 For example:
 
 ```typescript
-class Id<T> {
+interface Id<T> {
   id: (x: T)-> T;
 }
 
-instance Id<i32> {
+implement Id<i32> {
   id(x: i32): i32 {
     x
   }
 }
 
-instance Id<f32> {
+implement Id<f32> {
   id(x: f32): f32 {
     x
   }
@@ -1267,8 +1105,8 @@ let main = ()-> {
 ### Implicit `drop` function on `Linear` types - RAII
 
 ```typescript
-class Drop<T: Linear> {
-  drop(self: T): ();
+interface Drop<T: Linear> {
+  drop: (self: T)-> ();
 }
 
 let main = ()-> {
@@ -1277,6 +1115,22 @@ let main = ()-> {
   // If `x` is not consumed, it will be dropped at the end of the scope implicitly.
   // The user needs to import the `drop` function. If no such function is found, it will be a compiler error.
   // drop(x); // This will be called implicitly.
+}
+```
+
+## `implicit` keyword `In Design`
+
+```typescript
+let add = (x: i32, implicit y: i32) -> i32 {
+  x + y
+}
+let test = ()-> {
+  implicit let a: i32 = 13;
+  
+  // implicit let b: i32 = 14;  Conflict! Two possible implicits of the same type. Error will occur.
+
+  add(1);    // 14
+  add(1, 2); // 3
 }
 ```
 
@@ -1440,10 +1294,10 @@ This means that the continuation can only resume once.
 
 Our implementation doesn't use CPS (Continuation Passing Style) transformation as it's memory consuming and not efficient.
 
-Effect is defined using the `effect` keyword.
+Effect is defined using the `interface` keyword as well.
 
 ```typescript
-effect Exception<T = ()> {
+interface Exception<T = ()> {
   raise: (msg: String)-> Promise<T>;
 }
 ```
@@ -1451,7 +1305,7 @@ effect Exception<T = ()> {
 You can extend an effect using the `extends` keyword.
 
 ```typescript
-effect Pure extends Exception, Divergence {}
+interface Pure extends Exception, Divergence {}
 ```
 
 ### Effectful function
@@ -1490,7 +1344,7 @@ let add = (x: i32, y: i32)-> i32 {
 Note: **Mo** only supports the **deep handlers**, that is a handler will handle all the effects in the scope, not just once.
 
 ```typescript
-effect Exception<T> {
+interface Exception<T> {
   raise: (msg: String)-> Promise<T>;
 }
 
@@ -1518,8 +1372,8 @@ let handle = ()-> {
 Given the following function:
 
 ```typescript
-effect Input {
-  read(): Promise<String>;
+interface Input {
+  read: ()-> Promise<String>;
 }
 
 let hello = ()-> [Input] Promise<()> {
@@ -1592,7 +1446,7 @@ let example = ()-> [Exception<()>] Promise<()> {
 Effect with only tail-resumptive operations is called [Linear Effect](<[LinearEffect](https://koka-lang.github.io/koka/doc/book.html#sec-linear)>).
 
 ```typescript
-effect GiveInt {
+interface GiveInt {
   giveInt: (x: i32)-> i32
 }
 
@@ -1611,8 +1465,8 @@ let handleGiveInt = ()-> i32 {
 ### Rename effectful operation
 
 ```typescript
-effect Exception<T> {
-  raise(msg: String): Promise<T>;
+interface Exception<T> {
+  raise: (msg: String)-> Promise<T>;
 }
 
 let safeDivide = (x: i32, y: i32)-> [Exception<i32>{raise as newRaise}] Promise<i32> {
@@ -1666,10 +1520,15 @@ export enum Option<T> {
   None,
 }
 
+// Export the interface
+export interface Id<T> {
+  id: (x: T)-> T;
+}
+
 // Explicitly export the functions defined in the instance.
 // The instance will be exported implicitly.
-export instance Id<i32> {
-  id(x: i32): i32 {
+implement Id<i32> {
+  id: (x: i32)-> i32 {
     x
   }
 }
@@ -1691,9 +1550,8 @@ import { Option: {*} } from "./test.mo"; // Unwrap all variants from Option enum
 import { Option as AnotherOption: {*} } from "./test.mo"; // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
 
 // All exported instances are implicitly imported.
-import { id } from "./test.mo"; // Import `id` function from Id<i32> instance from test.mo
-import { Id: {id} } from "./test.mo"; // Unwrap `id` function from Id<i32> instance from test.mo
-import { Id: {*} } from "./test.mo"; // Unwrap all functions from Id<i32> instance from test.mo
+import { id } from "./test.mo"; // Import `id` function defined in `Id` interface from test.mo
+import { Id } from "./test.mo"; // Import `Id` interface from test.mo
 ```
 
 `mo.json` and `mo.lock`
@@ -1705,20 +1563,6 @@ import { Id: {*} } from "./test.mo"; // Unwrap all functions from Id<i32> instan
   "dependencies": {
     "std": ""
   }
-}
-```
-
-## Ignore lifetime checking
-
-Use the `$` prefix to ignore the lifetime checking.
-
-```typescript
-let test = ()-> {
-  let x = malloc(); // @1
-  let y = malloc(); // @2
-
-  @consume($x); // You need to pay the $debt if it caused a memory leak :)
-  @consume(y);
 }
 ```
 
@@ -1792,3 +1636,8 @@ Boostrapping the **Mo** compiler is not a priority at the moment. We will do it 
 - [Do Be Do Be Do](https://arxiv.org/pdf/1611.09259.pdf)
 - [Custom Infix Operators in Haskell](<https://bugfactory.io/blog/custom-infix-operators-in-haskell/#:~:text=Precedence%20(aka%20Operator%20Binding)&text=All%20operators%20in%20Haskell%20have,6%20>).)
 - [Region-Based Memory Management in Cyclone](https://www.cs.umd.edu/projects/cyclone/papers/cyclone-regions.pdf)
+- [Implementation Strategies for Mutable Value Semantics](https://www.jot.fm/issues/issue_2022_02/article2.pdf)
+- [Type Classes as Objects and Implicits](https://citeseerx.ist.psu.edu/document?repid=rep1&type=pdf&doi=d30d65ca9ce7891352024a5c71ebe0ae8c41f7ac)
+- [Implicit Parameters: Dynamic Scoping with Static Types](https://dl.acm.org/doi/pdf/10.1145/325694.325708)
+- [Scrap your type classes](https://www.haskellforall.com/2012/05/scrap-your-type-classes.html)
+- [Implicit Parameters in Scala and Haskell](https://trebledj.me/posts/implicit-parameters-in-scala-and-haskell/)

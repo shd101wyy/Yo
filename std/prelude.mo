@@ -8,16 +8,9 @@
 export {*} from "./builtins.mo";
 export {*} from "./data/primitive/i32.mo";
 export {*} from "./data/option.mo";
+export {*} from "./class.mo";
 
 export enum Result<T: Type, E: Type>: Type {
   Ok(value: T),
   Error(error: E),
-}
-
-export class Drop<T: Type> {
-  drop: (value: T)-> ();
-}
-
-export class Clone<T: Type> {
-  clone: (value: read T)-> T;
 }
