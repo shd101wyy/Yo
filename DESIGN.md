@@ -43,8 +43,12 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [`defer`](#defer)
     - [`recur`](#recur)
     - [Custom Operators](#custom-operators)
+    - [Mulitple Return Values](#mulitple-return-values)
   - [Closure `In Design`](#closure-in-design)
   - [Mutability `To be updated`](#mutability-to-be-updated)
+  - [Generic](#generic)
+    - [Type parameters](#type-parameters)
+    - [Type constraints](#type-constraints)
   - [Mutable Value Semantics](#mutable-value-semantics)
   - [Control Flow](#control-flow)
     - [Brace elision `In Design`](#brace-elision-in-design)
@@ -178,6 +182,7 @@ A type can have the following **Kind**:
   - Free
   - Linear
 - ~~Region~~ `Might be removed`
+- Interface
 
 ### Type
 
@@ -534,7 +539,7 @@ where y != 0 {
 
 // Type constraint
 let add = <T: Type>(x: T, y: T)-> [Console] T
-with Integral<T> {
+given Integral<T> {
   println(x + y)
 }
 
@@ -734,6 +739,20 @@ infixr 80 **  // right associativity. Eg, 3 ** 4 ** 6 == 3 ** (4 ** 6)
 infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
 ```
 
+### Mulitple Return Values `In Design`
+
+REASON: Necessary for returning multiple references.
+
+```typescript
+let vals = ()-> (i32, i32) {
+  1, 2
+}
+
+let main = ()-> {
+  let a, b = vals();
+}
+```
+
 ## Closure `In Design`
 
 ```
@@ -766,7 +785,7 @@ The closure in **Mo** has **Linear** type and needs to be freed manually.
   }
   ```
 
-- **closure** `call` that takes ownership
+- **own closure** `call` that takes ownership
 
   ```typescript
   let test = ()-> {
@@ -783,6 +802,33 @@ The closure in **Mo** has **Linear** type and needs to be freed manually.
     increment.call(); // call(increment);
   }
   ```
+
+### Closure group
+
+The collection of functions sharing the same closure is called a **closure group**.
+
+Each closure group can have at most one **own closure** because calling it will consume the closure.
+
+You can use the `+` operator to combine multiple functions into a **closure group**.
+
+```typescript
+let test = ()-> {
+  var x = Box(1);
+  var y = Box(2);
+
+  var closure = addX(a: i32)=> {
+    x = x + a;
+  } + addY(a: i32)=> {
+    y = y + a;
+  }
+  addX.call(1);
+  addY.call(2);
+  drop(closure);
+
+  addX.call(1); // Compiler Error: closure is already consumed.
+  addY.call(2); // Compiler Error: closure is already consumed.
+}
+```
 
 ## Mutability `To be updated`
 
@@ -811,6 +857,39 @@ var p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
 let oldName = (p.name = String.from("Bob"));
 // oldName is the `value` moved out.
 // oldName == String.from("Alice")
+```
+
+## Generic
+
+### Type parameters
+
+Type parameters are defined inside `<...>`
+
+```typescript
+let id = <T: Type>(x: T)-> T {
+  x
+}
+
+// or
+let id = <T>(x: T)-> T { // T will be inferred as `Type` kind
+  x
+}
+```
+
+### Type constraints
+
+Type constraints are defined using `given` keyword followed by a list of interface implementations.
+
+```typescript
+let lessThan = <T: Type>(x: T, y: T)-> boolean given Ord<T> {
+  x < y
+}
+
+implement<X> Show<List<X>> given Show<X> {
+  show: (list: List<X>)-> String {
+    // ...
+  }
+}
 ```
 
 ## Mutable Value Semantics
@@ -1126,7 +1205,7 @@ let add = (x: i32, implicit y: i32) -> i32 {
 }
 let test = ()-> {
   implicit let a: i32 = 13;
-  
+
   // implicit let b: i32 = 14;  Conflict! Two possible implicits of the same type. Error will occur.
 
   add(1);    // 14
