@@ -207,24 +207,12 @@ export type TRecord = {
   properties: TRecordProperty[];
 };
 
-export type TParameterTypeOrder = {
-  /**
-   * This is 1-based
-   */
-  default: number;
-  /**
-   * This is 1-based
-   */
-  assigned?: number;
-};
-
 export type TParameterType = {
   name: string;
   parameterId: string;
   isMutable: boolean;
   type: Type;
   defaultValue: Expr | null;
-  order: TParameterTypeOrder;
 };
 
 export type TTypeParameter = {
@@ -1444,7 +1432,6 @@ export function applyTypeArgumentsToType({
                   typeParameterToTypeArgumentMap,
                 })
               : null,
-            order: parameterType.order,
           };
           return newParameterType;
         }),
@@ -1501,7 +1488,7 @@ export function applyTypeArgumentsToType({
       ...type,
       typeParameters: newTypeParameters,
       parameterTypes: type.parameterTypes.map(
-        ({ name, parameterId, type, isMutable, defaultValue, order }) => ({
+        ({ name, parameterId, type, isMutable, defaultValue }) => ({
           name,
           parameterId,
           isMutable,
@@ -1511,7 +1498,6 @@ export function applyTypeArgumentsToType({
             typeParameterToTypeArgumentMap,
           }),
           defaultValue,
-          order,
         })
       ),
       returnType: applyTypeArgumentsToType({
@@ -2261,29 +2247,6 @@ export function synthesizeFunctionParameterTypesFromTokens({
       }
     }
 
-    // Check order
-    const order: TParameterTypeOrder = {
-      default: parameterTypes.length + 1,
-      assigned: undefined,
-    };
-    if (
-      tokens[index].value === "@" &&
-      tokens[index + 1].type === TokenType.Integer
-    ) {
-      const orderValue = parseInt(tokens[index + 1].value);
-      if (orderValue < 1) {
-        throw formatErrorMessage({
-          token: tokens[index + 1],
-          errorMessage: "Order value >= 1",
-          modulePath: env.modulePath,
-          inputString: env.inputString,
-        });
-      }
-
-      order.assigned = orderValue;
-      index = index + 2;
-    }
-
     // check parameter default value
     let defaultParameterValue: Expr | null = null;
     if (tokens[index].type === TokenType.Assign) {
@@ -2330,33 +2293,11 @@ export function synthesizeFunctionParameterTypesFromTokens({
       isMutable,
       type: userDefinedParamterType,
       defaultValue: defaultParameterValue,
-      order,
       token: tokens[parameterNameTokenIndex],
     });
   }
 
-  // Save parameterTypes to env
-  // Let's sort the parameterTypes by order
-  /*
-  parameterTypes = parameterTypes.map(
-    // Reverse the order.default
-    (p) => {
-      return {
-        ...p,
-        order: {
-          default: parameterTypes.length - p.order.default + 1,
-          assigned: p.order.assigned,
-        },
-      };
-    }
-  );
-  */
-  const sortedParameterTypes = [...parameterTypes].sort((a, b) => {
-    return (
-      (a.order.assigned ?? a.order.default) -
-      (b.order.assigned ?? b.order.default)
-    );
-  });
+  const sortedParameterTypes = [...parameterTypes];
   for (let i = 0; i < sortedParameterTypes.length; i++) {
     const parameterType = sortedParameterTypes[i];
     const { env: nextEnv, value: parameterValue } = addEnvVariableValue({
@@ -3168,7 +3109,6 @@ export function typeToString(
           (parameter) =>
             (parameter.name ? `${parameter.name}: ` : "") +
             typeToString(parameter.type, { hideTypeParameterKind: true }) +
-            ` @${parameter.order.assigned ?? parameter.order.default}` +
             `${
               parameter.defaultValue
                 ? ` = ${exprToString(parameter.defaultValue)}`

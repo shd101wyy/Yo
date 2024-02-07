@@ -1449,9 +1449,6 @@ RHS order: ${rhsOrder}`
           type: resumeType,
           isMutable: false,
           defaultValue: null,
-          order: {
-            default: 1,
-          },
         },
       ],
       isClosure: false,
@@ -1480,9 +1477,6 @@ RHS order: ${rhsOrder}`
           type: abortType,
           isMutable: false,
           defaultValue: null,
-          order: {
-            default: 1,
-          },
         },
       ],
       isClosure: false,
@@ -2588,6 +2582,7 @@ ${matchedFunctionErrors[i] ?? ""}`
       );
     }
 
+    /*
     // Remove consumed variables
     const notConsumedVariableValues = variableValues_.filter(
       (value) => !value.consumedAtToken
@@ -2606,6 +2601,9 @@ ${matchedFunctionErrors[i] ?? ""}`
 
     const variableValue =
       notConsumedVariableValues[notConsumedVariableValues.length - 1];
+    */
+
+    const variableValue = variableValues_[variableValues_.length - 1];
     const typeValue = variableValue.type;
 
     // NOTE: We automatically dereference the variable if it's a reference
