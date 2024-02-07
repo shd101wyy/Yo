@@ -1374,11 +1374,25 @@ This means that the continuation can only resume once.
 
 Our implementation doesn't use CPS (Continuation Passing Style) transformation as it's memory consuming and not efficient.
 
-Effect is defined using the `interface` keyword as well.
+We can define effect values in `interface`. 
 
 ```typescript
+interface GiveInt {
+  giveInt: (x: i32)-> [GiveInt] i32; // Effectful function
+  anotherGiveInt: (x: i32)-> i32;    // Normal function
+}
+
+implement GiveInt {
+  // But we can implement the normal function.
+  anotherGiveInt: (x: i32)-> i32 {
+    x
+  }
+  // But it's usually not recommended to implement the effectful function in the interface.
+  // Instead, we use the effect handler to handle the effectful function.
+}
+
 interface Exception<T = ()> {
-  raise: (msg: String)-> Promise<T>;
+  raise: (msg: String)-> [Exception<T>] Promise<T>; // Effectful function
 }
 ```
 
@@ -1393,7 +1407,7 @@ interface Pure extends Exception, Divergence {}
 Effects are defined order-insensitive.
 
 ```typescript
-let safeDivide = (x: i32, y: i32)-> [Exception, Console] Promise<i32> {
+let safeDivide = (x: i32, y: i32)-> [Exception<i32>, Console] Promise<i32> {
   if (y == 0) {
     await println("Cannot divide by 0"); // handled by Console effect
     await raise("Cannot divide by 0");   // handled by Exception effect
@@ -1406,8 +1420,8 @@ let safeDivide = (x: i32, y: i32)-> [Exception, Console] Promise<i32> {
 The following function signatures are equivalent:
 
 ```typescript
-safeDivide: (x: i32, y: i32)-> [Exception, Console] Promise<i32>;
-safeDivide: (x: i32, y: i32)-> [Console, Exception] Promise<i32>;
+safeDivide: (x: i32, y: i32)-> [Exception<i32>, Console] Promise<i32>;
+safeDivide: (x: i32, y: i32)-> [Console, Exception<i32>] Promise<i32>;
 ```
 
 Function with no effect is written with `[]`, and `[]` can be suppressed in this case:
@@ -1425,7 +1439,7 @@ Note: **Mo** only supports the **deep handlers**, that is a handler will handle 
 
 ```typescript
 interface Exception<T> {
-  raise: (msg: String)-> Promise<T>;
+  raise: (msg: String)-> [Exception<T>] Promise<T>;
 }
 
 let safeDivide = (x: i32, y: i32)-> [Exception<i32>] Promise<i32> {
@@ -1436,11 +1450,11 @@ let safeDivide = (x: i32, y: i32)-> [Exception<i32>] Promise<i32> {
   }
 }
 
-let handle = ()-> {
+let handle = ()-> i32 {
   try {
     8 + (await safeDivide(1, 0)) + 10 // 60
-  } with Exception<i32> {
-    raise: (msg)-> Promise<i32> {
+  } with Exception<i32> { // The effect handler dischard the `Exception<i32>` effect.  
+    raise: (msg)-> Promise<i32> { // Please note the function is returning `Promise<i32>`` without `Exception<i32>`.  
       resume(42)
     }
   }
@@ -1453,7 +1467,7 @@ Given the following function:
 
 ```typescript
 interface Input {
-  read: ()-> Promise<String>;
+  read: ()-> [Input] Promise<String>;
 }
 
 let hello = ()-> [Input] Promise<()> {
@@ -1527,7 +1541,7 @@ Effect with only tail-resumptive operations is called [Linear Effect](<[LinearEf
 
 ```typescript
 interface GiveInt {
-  giveInt: (x: i32)-> i32
+  giveInt: (x: i32)-> [GiveInt] i32
 }
 
 let handleGiveInt = ()-> i32 {
@@ -1546,7 +1560,7 @@ let handleGiveInt = ()-> i32 {
 
 ```typescript
 interface Exception<T> {
-  raise: (msg: String)-> Promise<T>;
+  raise: (msg: String)-> [Exception<T>] Promise<T>;
 }
 
 let safeDivide = (x: i32, y: i32)-> [Exception<i32>{raise as newRaise}] Promise<i32> {
