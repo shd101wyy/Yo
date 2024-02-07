@@ -32,8 +32,8 @@ import {
   TTypeConstructor,
   Type,
   applyTypeAndRegionArgumentsToFunctionExpr,
-  typeAndRegionParametersToString,
   typeContainsTypeParameterThatDoesntHaveAppliedType,
+  typeParametersToString,
   typeToString,
 } from "../type-checker";
 
@@ -42,17 +42,17 @@ export class CodeGeneratorC {
   private functionIdToExprMap: Map<string, FunctionExpr> = new Map();
 
   /**
-   * key is functionId + typeAndRegionParametersToString
+   * key is functionId + typeParametersToString
    */
   private generatedFunctionKeySet: Set<string> = new Set();
 
   /**
-   * key is enumId + typeAndRegionParametersToString
+   * key is enumId + typeParametersToString
    */
   private generatedEnumKeySet: Set<string> = new Set();
 
   /**
-   * key is typeConstructorId + typeAndRegionParametersToString
+   * key is typeConstructorId + typeParametersToString
    */
   private generatedTypeConstructorKeySet: Set<string> = new Set();
 
@@ -310,8 +310,8 @@ export class CodeGeneratorC {
       return "";
     }
 
-    // SHA1 of typeAndRegionParametersToString
-    const typeAndRegionString = typeAndRegionParametersToString(
+    // SHA1 of typeParametersToString
+    const typeAndRegionString = typeParametersToString(
       functionType.typeParameters,
       functionType.regionParameters
     );
@@ -426,8 +426,8 @@ export class CodeGeneratorC {
       return "";
     }
 
-    // SHA1 of typeAndRegionParametersToString
-    const typeAndRegionString = typeAndRegionParametersToString(
+    // SHA1 of typeParametersToString
+    const typeAndRegionString = typeParametersToString(
       enumType.typeParameters,
       enumType.regionParameters
     );
@@ -469,8 +469,8 @@ export class CodeGeneratorC {
       return "";
     }
 
-    // SHA1 of typeAndRegionParametersToString
-    const typeAndRegionString = typeAndRegionParametersToString(
+    // SHA1 of typeParametersToString
+    const typeAndRegionString = typeParametersToString(
       typeConstructorType.typeParameters,
       typeConstructorType.regionParameters
     );

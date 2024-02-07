@@ -33,10 +33,6 @@ import { Token, TokenType } from "./token";
 
 export type TypeKind = "Type" | "Linear" | "Free";
 
-export type RegionKind = "Region";
-
-export type EffectKind = "Effect" | "LinearEffect" | "ControlledEffect";
-
 export type TypePermission =
   | "read" // linear and free
   | "write" // linear and free
@@ -240,32 +236,12 @@ export type TTypeParameter = {
   appliedType?: Type;
 };
 
-export type TRegion = {
-  type: "Region";
-  kind: RegionKind;
-  regionId: string;
-};
-
-export const UnknownRegion: TRegion = {
-  type: "Region",
-  kind: "Region",
-  regionId: "'R_Unknown",
-};
-
-export type TRegionParameter = {
-  type: "RegionParameter";
-  kind: RegionKind;
-  name: string;
-  appliedRegion?: Region;
-};
-
 export type TFunction = {
   type: "Function";
   kind: "Free";
   permission: TypePermission;
   functionId: string;
   typeParameters: TTypeParameter[];
-  regionParameters: TRegionParameter[];
   parameterTypes: TParameterType[];
   effects: TEffect[];
   // hasMoreEffects: boolean;
@@ -327,7 +303,6 @@ export type TTypeConstructor = {
   kind: TypeKind;
   permission: TypePermission;
   typeParameters: TTypeParameter[];
-  regionParameters: TRegionParameter[];
   typeValue: Type;
 };
 
@@ -347,13 +322,11 @@ export type TClass = {
   className: string;
   classId: string;
   typeParameters: TTypeParameter[];
-  regionParameters: TRegionParameter[];
   functions: TClassFunction[];
 
   // NOTE: Below are for "instance"
   isInstance: boolean;
   instanceTypeParameters?: TTypeParameter[];
-  instanceRegionParameters?: TRegionParameter[];
 };
 
 export type TEnumVariant = {
@@ -366,7 +339,6 @@ export type TEnum = {
   enumId: string;
   enumName: string;
   typeParameters: TTypeParameter[];
-  regionParameters: TRegionParameter[];
   variants: TEnumVariant[];
   selectedVariantName?: string;
   kind: TypeKind;
@@ -384,7 +356,6 @@ export type TEffect = {
   effectName: string;
   effectId: string;
   typeParameters: TTypeParameter[];
-  regionParameters: TRegionParameter[];
   operations: TEffectOperation[];
 
   // NOTE: Below are for "handler"
@@ -453,8 +424,6 @@ export type Type =
   | TPrimitiveWithValue
   | TExternType;
 
-export type Region = TRegionParameter | TRegion;
-
 export type Effect = TEffect;
 
 // Type constructors
@@ -517,7 +486,6 @@ export const TypeValues: {
         permission: "own",
       },
     ],
-    regionParameters: [],
     typeValue: {
       type: "Extern",
       kind: "Free",
@@ -535,7 +503,6 @@ export const emptyFunctionThatHasMoreEffects: TFunction = {
   kind: "Free",
   permission: "own",
   parameterTypes: [],
-  regionParameters: [],
   returnType: TypeValues.unit,
   type: "Function",
   typeParameters: [],
@@ -1123,14 +1090,12 @@ export function synthesizeTypeFromTokens({
   }
   // Type arguments
   let typeArguments: Type[] = [];
-  let regionArguments: Region[] = [];
   if (tokens[returnValue.index]?.value === "<") {
     const {
       env: nextEnv,
       index: nextIndex,
       typeArguments: nextTypeArguments,
-      regionArguments: nextRegionArguments,
-    } = synthesizeTypeAndRegionArgumentsFromTokens({
+    } = synthesizeTypeArgumentsFromTokens({
       env: returnValue.env,
       index: returnValue.index,
       parseExpression,
@@ -1139,7 +1104,6 @@ export function synthesizeTypeFromTokens({
     env = nextEnv;
     index = nextIndex;
     typeArguments = nextTypeArguments;
-    regionArguments = nextRegionArguments;
   } else {
     env = returnValue.env;
     index = returnValue.index;
@@ -1150,12 +1114,10 @@ export function synthesizeTypeFromTokens({
     if (typeValue.type === "TypeConstructor") {
       returnValue.index = index;
       returnValue.env = env;
-      const typeValue_ = applyTypeAndRegionArgumentsToType({
+      const typeValue_ = applyTypeArgumentsToType({
         env,
         type: typeValue,
         typeArguments,
-        regionArguments,
-        regionParameterToRegionArgumentMap: {},
         typeParameterToTypeArgumentMap: {},
       });
       returnValue.typeValue = typeValue_;
@@ -1169,12 +1131,10 @@ export function synthesizeTypeFromTokens({
     } else if (typeValue.type === "Enum") {
       returnValue.index = index;
       returnValue.env = env;
-      const typeValue_ = applyTypeAndRegionArgumentsToType({
+      const typeValue_ = applyTypeArgumentsToType({
         env,
         type: typeValue,
         typeArguments,
-        regionArguments,
-        regionParameterToRegionArgumentMap: {},
         typeParameterToTypeArgumentMap: {},
       });
       returnValue.typeValue = typeValue_;
@@ -1215,29 +1175,22 @@ export function synthesizeTypeFromTokens({
  * @param typeParameterToTypeArgumentMap
  * @param regionParameterToRegionArgumentMap
  */
-function generateNewTypeAndRegionParameters({
+function generateNewTypeParameters({
   env,
   typeParameters,
-  regionParameters,
   typeArguments,
-  regionArguments,
   typeParameterToTypeArgumentMap,
-  regionParameterToRegionArgumentMap,
 }: {
   env: Environment;
   typeParameters: TTypeParameter[];
-  regionParameters: TRegionParameter[];
   typeArguments?: Type[];
-  regionArguments?: Region[];
   typeParameterToTypeArgumentMap: { [key: string]: Type };
-  regionParameterToRegionArgumentMap: { [key: string]: Region };
 }): {
   typeParameters: TTypeParameter[];
-  regionParameters: TRegionParameter[];
 } {
   /*
   const r = Math.random();
-  logger.debug("- generateNewTypeAndRegionParameters");
+  logger.debug("- generateNewTypeParameters");
   logger.debug(
     "  - typeParameters: ",
     typeParameters.map(
@@ -1275,28 +1228,22 @@ function generateNewTypeAndRegionParameters({
         typeArgument &&
         "typeParameters" in typeArgument
       ) {
-        generateNewTypeAndRegionParameters({
+        generateNewTypeParameters({
           env,
           typeParameters: typeParameterAppliedType.typeParameters,
-          regionParameters: typeParameterAppliedType.regionParameters,
           typeArguments: typeArgument.typeParameters,
-          regionArguments: typeArgument.regionParameters,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         });
       } else if (
         typeParameterAppliedType &&
         typeParameterAppliedType.type === "TypeParameter" &&
         typeArgument
       ) {
-        generateNewTypeAndRegionParameters({
+        generateNewTypeParameters({
           env,
           typeParameters: [typeParameterAppliedType],
-          regionParameters: [],
           typeArguments: [typeArgument],
-          regionArguments: [],
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         });
       }
 
@@ -1352,51 +1299,13 @@ Got     : ${typeToString(typeArgument)}`
       }
     } else {
       newTypeParameters.push(
-        applyTypeAndRegionArgumentsToType({
+        applyTypeArgumentsToType({
           env,
           type: typeParameter,
           typeArguments,
-          regionArguments,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }) as TTypeParameter
       );
-    }
-  }
-
-  const newRegionParameters: TRegionParameter[] = [];
-  for (let i = 0; i < regionParameters.length; i++) {
-    const regionParameter = regionParameters[i];
-    if (regionArguments) {
-      const regionArgument = regionArguments[i];
-
-      const existingRegionArgument =
-        regionParameterToRegionArgumentMap[regionParameter.name];
-      if (
-        existingRegionArgument &&
-        !checkRegion(existingRegionArgument, regionArgument)
-      ) {
-        // Check if matches
-        throw new Error(
-          `Mismatched region arguments.
-Expected: ${regionToString(existingRegionArgument)}
-Got     : ${regionToString(regionArgument)}`
-        );
-      } else {
-        regionParameterToRegionArgumentMap[regionParameter.name] =
-          regionArgument;
-      }
-      newRegionParameters.push({
-        ...regionParameter,
-        appliedRegion: regionArgument,
-      });
-    } else if (regionParameterToRegionArgumentMap[regionParameter.name]) {
-      newRegionParameters.push({
-        ...regionParameter,
-        appliedRegion: regionParameterToRegionArgumentMap[regionParameter.name],
-      });
-    } else {
-      newRegionParameters.push(regionParameter);
     }
   }
 
@@ -1410,7 +1319,6 @@ Got     : ${regionToString(regionArgument)}`
 
   return {
     typeParameters: newTypeParameters,
-    regionParameters: newRegionParameters,
   };
 }
 
@@ -1424,23 +1332,19 @@ Got     : ${regionToString(regionArgument)}`
  * @param regionParameterToRegionArgumentMap
  * @returns
  */
-export function applyTypeAndRegionArgumentsToType({
+export function applyTypeArgumentsToType({
   env,
   type,
   typeArguments,
-  regionArguments,
   typeParameterToTypeArgumentMap,
-  regionParameterToRegionArgumentMap,
 }: {
   env: Environment;
   type: Type;
   typeArguments?: Type[];
-  regionArguments?: Region[];
   typeParameterToTypeArgumentMap: { [key: string]: Type };
-  regionParameterToRegionArgumentMap: { [key: string]: Region };
 }): Type {
   /*
-  logger.debug("- applyTypeAndRegionArgumentsToType");
+  logger.debug("- applyTypeArgumentsToType");
   logger.debug("  - type: ", type.type);
   logger.debug("    - typeToString(type): ", typeToString(type));
   logger.debug(
@@ -1458,7 +1362,7 @@ export function applyTypeAndRegionArgumentsToType({
   */
 
   if (type.type === "TypeConstructor") {
-    // logger.debug("- applyTypeAndRegionArgumentsToType TypeConstructor");
+    // logger.debug("- applyTypeArgumentsToType TypeConstructor");
     const typeValue = type.typeValue;
     /*
     logger.debug(
@@ -1484,34 +1388,19 @@ export function applyTypeAndRegionArgumentsToType({
   Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
       );
     }
-    if (
-      regionArguments &&
-      type.regionParameters.length !== regionArguments.length
-    ) {
-      while (regionArguments.length < type.regionParameters.length) {
-        regionArguments.push(UnknownRegion);
-      }
-    }
 
     // set typeParameterToTypeArgumentMap
-    const {
-      typeParameters: newTypeParameters,
-      regionParameters: newRegionParameters,
-    } = generateNewTypeAndRegionParameters({
+    const { typeParameters: newTypeParameters } = generateNewTypeParameters({
       env,
       typeParameters: type.typeParameters,
-      regionParameters: type.regionParameters,
       typeArguments,
-      regionArguments,
       typeParameterToTypeArgumentMap,
-      regionParameterToRegionArgumentMap,
     });
 
-    const newTypeValue = applyTypeAndRegionArgumentsToType({
+    const newTypeValue = applyTypeArgumentsToType({
       env,
       type: typeValue,
       typeParameterToTypeArgumentMap,
-      regionParameterToRegionArgumentMap,
     });
     const kind = typeValue.type === "Extern" ? type.kind : newTypeValue.kind;
     return {
@@ -1521,23 +1410,16 @@ export function applyTypeAndRegionArgumentsToType({
       typeConstructorName: type.typeConstructorName,
       typeConstructorId: type.typeConstructorId,
       typeParameters: newTypeParameters,
-      regionParameters: newRegionParameters,
       typeValue: newTypeValue,
     };
   } else if (type.type === "Enum") {
-    logger.debug("- applyTypeAndRegionArgumentsToType Enum");
+    logger.debug("- applyTypeArgumentsToType Enum");
     logger.debug("  - typeParameters: ", JSON.stringify(type.typeParameters));
-    const {
-      typeParameters: newTypeParameters,
-      regionParameters: newRegionParameters,
-    } = generateNewTypeAndRegionParameters({
+    const { typeParameters: newTypeParameters } = generateNewTypeParameters({
       env,
       typeParameters: type.typeParameters,
-      regionParameters: type.regionParameters,
       typeArguments,
-      regionArguments,
       typeParameterToTypeArgumentMap,
-      regionParameterToRegionArgumentMap,
     });
 
     // apply to each of the variants
@@ -1550,18 +1432,16 @@ export function applyTypeAndRegionArgumentsToType({
             name: parameterType.name,
             parameterId: parameterType.parameterId,
             isMutable: false, // QUESTION: Is this correct?
-            type: applyTypeAndRegionArgumentsToType({
+            type: applyTypeArgumentsToType({
               env,
               type: parameterType.type,
               typeParameterToTypeArgumentMap,
-              regionParameterToRegionArgumentMap,
             }),
             defaultValue: defaultValue
-              ? applyTypeAndRegionArgumentsToExpr({
+              ? applyTypeArgumentsToExpr({
                   expr: defaultValue,
                   env,
                   typeParameterToTypeArgumentMap,
-                  regionParameterToRegionArgumentMap,
                 })
               : null,
             order: parameterType.order,
@@ -1579,7 +1459,6 @@ export function applyTypeAndRegionArgumentsToType({
       enumId: type.enumId,
       enumName: type.enumName,
       typeParameters: newTypeParameters,
-      regionParameters: newRegionParameters,
       variants: variants,
       selectedVariantName: type.selectedVariantName,
     };
@@ -1595,7 +1474,7 @@ export function applyTypeAndRegionArgumentsToType({
 
     return enumType;
   } else if (type.type === "Function") {
-    // logger.debug("- applyTypeAndRegionArgumentsToType Function");
+    // logger.debug("- applyTypeArgumentsToType Function");
 
     const typeParameters = type.typeParameters;
     if (typeArguments && typeParameters.length !== typeArguments.length) {
@@ -1611,50 +1490,40 @@ export function applyTypeAndRegionArgumentsToType({
       );
     }
 
-    const {
-      typeParameters: newTypeParameters,
-      regionParameters: newRegionParameters,
-    } = generateNewTypeAndRegionParameters({
+    const { typeParameters: newTypeParameters } = generateNewTypeParameters({
       env,
       typeParameters: type.typeParameters,
-      regionParameters: type.regionParameters,
       typeArguments,
-      regionArguments,
       typeParameterToTypeArgumentMap,
-      regionParameterToRegionArgumentMap,
     });
 
     const newFunctionType: TFunction = {
       ...type,
       typeParameters: newTypeParameters,
-      regionParameters: newRegionParameters,
       parameterTypes: type.parameterTypes.map(
         ({ name, parameterId, type, isMutable, defaultValue, order }) => ({
           name,
           parameterId,
           isMutable,
-          type: applyTypeAndRegionArgumentsToType({
+          type: applyTypeArgumentsToType({
             env,
             type,
             typeParameterToTypeArgumentMap,
-            regionParameterToRegionArgumentMap,
           }),
           defaultValue,
           order,
         })
       ),
-      returnType: applyTypeAndRegionArgumentsToType({
+      returnType: applyTypeArgumentsToType({
         env,
         type: type.returnType,
         typeParameterToTypeArgumentMap,
-        regionParameterToRegionArgumentMap,
       }),
       effects: type.effects.map((effect) =>
-        applyTypeAndRegionArgumentsToEffect({
+        applyTypeArgumentsToEffect({
           env,
           effect,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         })
       ),
     };
@@ -1668,13 +1537,11 @@ export function applyTypeAndRegionArgumentsToType({
         if (typeParameter.appliedType) {
           const returnType: TTypeParameter = {
             ...typeParameter,
-            appliedType: applyTypeAndRegionArgumentsToType({
+            appliedType: applyTypeArgumentsToType({
               type: typeParameter.appliedType,
               env,
               typeArguments,
-              regionArguments,
               typeParameterToTypeArgumentMap,
-              regionParameterToRegionArgumentMap,
             }),
           };
           return returnType;
@@ -1694,11 +1561,10 @@ export function applyTypeAndRegionArgumentsToType({
       case "Record": {
         const newProperties = type.properties.map(({ name, type }) => ({
           name,
-          type: applyTypeAndRegionArgumentsToType({
+          type: applyTypeArgumentsToType({
             env,
             type,
             typeParameterToTypeArgumentMap,
-            regionParameterToRegionArgumentMap,
           }),
         }));
         return {
@@ -1711,11 +1577,10 @@ export function applyTypeAndRegionArgumentsToType({
         return {
           ...type,
           types: type.types.map((type) =>
-            applyTypeAndRegionArgumentsToType({
+            applyTypeArgumentsToType({
               env,
               type,
               typeParameterToTypeArgumentMap,
-              regionParameterToRegionArgumentMap,
             })
           ),
         };
@@ -1724,11 +1589,10 @@ export function applyTypeAndRegionArgumentsToType({
         return {
           ...type,
           types: type.types.map((type) =>
-            applyTypeAndRegionArgumentsToType({
+            applyTypeArgumentsToType({
               env,
               type,
               typeParameterToTypeArgumentMap,
-              regionParameterToRegionArgumentMap,
             })
           ),
         };
@@ -1736,11 +1600,10 @@ export function applyTypeAndRegionArgumentsToType({
       case "slice": {
         return {
           ...type,
-          elementType: applyTypeAndRegionArgumentsToType({
+          elementType: applyTypeArgumentsToType({
             env,
             type: type.elementType,
             typeParameterToTypeArgumentMap,
-            regionParameterToRegionArgumentMap,
           }),
         };
       }
@@ -1749,11 +1612,10 @@ export function applyTypeAndRegionArgumentsToType({
           ...type,
           typeArguments: type.typeArguments
             ? type.typeArguments.map((typeArgument) =>
-                applyTypeAndRegionArgumentsToType({
+                applyTypeArgumentsToType({
                   env,
                   type: typeArgument,
                   typeParameterToTypeArgumentMap,
-                  regionParameterToRegionArgumentMap,
                 })
               )
             : undefined,
@@ -1765,22 +1627,18 @@ export function applyTypeAndRegionArgumentsToType({
   }
 }
 
-export function applyTypeAndRegionArgumentsToEffect({
+export function applyTypeArgumentsToEffect({
   env,
   effect,
   typeArguments,
-  regionArguments,
   typeParameterToTypeArgumentMap,
-  regionParameterToRegionArgumentMap,
 }: {
   env: Environment;
   effect: TEffect;
   typeArguments?: Type[];
-  regionArguments?: Region[];
   typeParameterToTypeArgumentMap: { [key: string]: Type };
-  regionParameterToRegionArgumentMap: { [key: string]: Region };
 }): TEffect {
-  // logger.debug("- applyTypeAndRegionArgumentsToEffect");
+  // logger.debug("- applyTypeArgumentsToEffect");
 
   const typeParameters = effect.typeParameters;
   if (typeArguments && typeParameters.length !== typeArguments.length) {
@@ -1797,30 +1655,22 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   }
 
   // set typeParameterToTypeArgumentMap
-  const {
-    typeParameters: newTypeParameters,
-    regionParameters: newRegionParameters,
-  } = generateNewTypeAndRegionParameters({
+  const { typeParameters: newTypeParameters } = generateNewTypeParameters({
     env,
     typeParameters: effect.typeParameters,
-    regionParameters: effect.regionParameters,
     typeArguments,
-    regionArguments,
     typeParameterToTypeArgumentMap,
-    regionParameterToRegionArgumentMap,
   });
 
   const newEffect: TEffect = {
     ...effect,
     typeParameters: newTypeParameters,
-    regionParameters: newRegionParameters,
     operations: effect.operations.map((operation) => ({
       ...operation,
-      func: applyTypeAndRegionArgumentsToType({
+      func: applyTypeArgumentsToType({
         env,
         type: operation.func,
         typeParameterToTypeArgumentMap,
-        regionParameterToRegionArgumentMap,
       }) as TFunction,
     })),
     isHandler: true,
@@ -1828,22 +1678,18 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   return newEffect;
 }
 
-export function applyTypeAndRegionArgumentsToClass({
+export function applyTypeArgumentsToClass({
   env,
   class_,
   typeArguments,
-  regionArguments,
   typeParameterToTypeArgumentMap,
-  regionParameterToRegionArgumentMap,
 }: {
   env: Environment;
   class_: TClass;
   typeArguments?: Type[];
-  regionArguments?: Region[];
   typeParameterToTypeArgumentMap: { [key: string]: Type };
-  regionParameterToRegionArgumentMap: { [key: string]: Region };
 }): TClass {
-  // logger.debug("- applyTypeAndRegionArgumentsToClass");
+  // logger.debug("- applyTypeArgumentsToClass");
 
   if (typeArguments && class_.typeParameters.length !== typeArguments.length) {
     throw new Error(
@@ -1859,35 +1705,27 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   }
 
   // set typeParameterToTypeArgumentMap
-  const {
-    typeParameters: newTypeParameters,
-    regionParameters: newRegionParameters,
-  } = generateNewTypeAndRegionParameters({
+  const { typeParameters: newTypeParameters } = generateNewTypeParameters({
     env,
     typeParameters: class_.typeParameters,
-    regionParameters: class_.regionParameters,
     typeArguments,
-    regionArguments,
     typeParameterToTypeArgumentMap,
-    regionParameterToRegionArgumentMap,
   });
 
   // apply to each of the functions
   const functions: TClassFunction[] = class_.functions.map(
     ({ name, func, functionExpr }) => ({
       name,
-      func: applyTypeAndRegionArgumentsToType({
+      func: applyTypeArgumentsToType({
         env,
         type: func,
         typeParameterToTypeArgumentMap,
-        regionParameterToRegionArgumentMap,
       }),
       functionExpr: functionExpr
-        ? applyTypeAndRegionArgumentsToExpr({
+        ? applyTypeArgumentsToExpr({
             expr: functionExpr,
             env,
             typeParameterToTypeArgumentMap,
-            regionParameterToRegionArgumentMap,
           })
         : undefined,
     })
@@ -1900,11 +1738,9 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
     className: class_.className,
     classId: class_.classId,
     typeParameters: newTypeParameters,
-    regionParameters: newRegionParameters,
     functions: functions,
     isInstance: true, // type.isInstance,
     instanceTypeParameters: class_.instanceTypeParameters,
-    instanceRegionParameters: class_.instanceRegionParameters,
   };
 }
 
@@ -1912,16 +1748,12 @@ export function applyTypeAndRegionArgumentsToFunctionExpr({
   env,
   expr,
   typeArguments,
-  regionArguments,
   typeParameterToTypeArgumentMap,
-  regionParameterToRegionArgumentMap,
 }: {
   env: Environment;
   expr: FunctionExpr;
   typeArguments?: Type[];
-  regionArguments?: Region[];
   typeParameterToTypeArgumentMap: { [key: string]: Type };
-  regionParameterToRegionArgumentMap: { [key: string]: Region };
 }): FunctionExpr {
   const type: TFunction = expr.typeValue as TFunction;
   if (typeArguments && type.typeParameters.length !== typeArguments.length) {
@@ -1942,21 +1774,17 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   /*const {
     typeParameters: newTypeParameters,
     regionParameters: newRegionParameters,
-  } =*/ generateNewTypeAndRegionParameters({
+  } =*/ generateNewTypeParameters({
     env,
     typeParameters: type.typeParameters,
-    regionParameters: type.regionParameters,
     typeArguments,
-    regionArguments,
     typeParameterToTypeArgumentMap,
-    regionParameterToRegionArgumentMap,
   });
 
-  const newTypeValue = applyTypeAndRegionArgumentsToType({
+  const newTypeValue = applyTypeArgumentsToType({
     type: expr.typeValue,
     env,
     typeParameterToTypeArgumentMap,
-    regionParameterToRegionArgumentMap,
   });
   if (newTypeValue.type !== "Function") {
     throw new Error(
@@ -1967,28 +1795,25 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   return {
     ...expr,
     typeValue: newTypeValue,
-    body: applyTypeAndRegionArgumentsToExpr({
+    body: applyTypeArgumentsToExpr({
       expr: expr.body,
       env,
       typeParameterToTypeArgumentMap,
-      regionParameterToRegionArgumentMap,
     }) as BlockExpr,
   };
 }
 
-export function applyTypeAndRegionArgumentsToExpr({
+export function applyTypeArgumentsToExpr({
   env,
   expr,
   typeParameterToTypeArgumentMap,
-  regionParameterToRegionArgumentMap,
 }: {
   env: Environment;
   expr: Expr;
   typeParameterToTypeArgumentMap: { [key: string]: Type };
-  regionParameterToRegionArgumentMap: { [key: string]: Region };
 }): Expr {
   /*
-  logger.debug("- applyTypeAndRegionArgumentsToExpr");
+  logger.debug("- applyTypeArgumentsToExpr");
   logger.debug("  - expr: ", exprToString(expr));
   logger.debug(
     "  - typeArguments: ",
@@ -2005,19 +1830,17 @@ export function applyTypeAndRegionArgumentsToExpr({
         case "record": {
           return {
             ...expr,
-            typeValue: applyTypeAndRegionArgumentsToType({
+            typeValue: applyTypeArgumentsToType({
               env,
               type: expr.typeValue,
               typeParameterToTypeArgumentMap,
-              regionParameterToRegionArgumentMap,
             }),
             properties: expr.properties.map(({ name, value: expr }) => ({
               name,
-              value: applyTypeAndRegionArgumentsToExpr({
+              value: applyTypeArgumentsToExpr({
                 env,
                 expr,
                 typeParameterToTypeArgumentMap,
-                regionParameterToRegionArgumentMap,
               }),
             })),
           };
@@ -2025,18 +1848,16 @@ export function applyTypeAndRegionArgumentsToExpr({
         case "slice": {
           return {
             ...expr,
-            typeValue: applyTypeAndRegionArgumentsToType({
+            typeValue: applyTypeArgumentsToType({
               env,
               type: expr.typeValue,
               typeParameterToTypeArgumentMap,
-              regionParameterToRegionArgumentMap,
             }),
             values: expr.values.map((expr) =>
-              applyTypeAndRegionArgumentsToExpr({
+              applyTypeArgumentsToExpr({
                 env,
                 expr,
                 typeParameterToTypeArgumentMap,
-                regionParameterToRegionArgumentMap,
               })
             ),
           };
@@ -2050,46 +1871,40 @@ export function applyTypeAndRegionArgumentsToExpr({
         expr,
         env,
         typeParameterToTypeArgumentMap,
-        regionParameterToRegionArgumentMap,
       });
     }
     case AstType.LetAssignment: {
       return {
         ...expr,
-        variableType: applyTypeAndRegionArgumentsToType({
+        variableType: applyTypeArgumentsToType({
           env,
           type: expr.variableType,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
-        right: applyTypeAndRegionArgumentsToExpr({
+        right: applyTypeArgumentsToExpr({
           env,
           expr: expr.right,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
       };
     }
     case AstType.Assignment: {
       const e: AssignmentExpr = {
         ...expr,
-        right: applyTypeAndRegionArgumentsToExpr({
+        right: applyTypeArgumentsToExpr({
           env,
           expr: expr.right,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
-        left: applyTypeAndRegionArgumentsToExpr({
+        left: applyTypeArgumentsToExpr({
           env,
           expr: expr.left,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
-        typeValue: applyTypeAndRegionArgumentsToType({
+        typeValue: applyTypeArgumentsToType({
           env,
           type: expr.typeValue,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
       };
       return e;
@@ -2097,52 +1912,46 @@ export function applyTypeAndRegionArgumentsToExpr({
     case AstType.Variable: {
       return {
         ...expr,
-        typeValue: applyTypeAndRegionArgumentsToType({
+        typeValue: applyTypeArgumentsToType({
           env: env,
           type: expr.typeValue,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
       };
     }
     case AstType.PropertyAccess: {
       return {
         ...expr,
-        typeValue: applyTypeAndRegionArgumentsToType({
+        typeValue: applyTypeArgumentsToType({
           type: expr.typeValue,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
-        expr: applyTypeAndRegionArgumentsToExpr({
+        expr: applyTypeArgumentsToExpr({
           expr: expr.expr,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
       };
     }
     case AstType.IndexAccess: {
       return {
         ...expr,
-        typeValue: applyTypeAndRegionArgumentsToType({
+        typeValue: applyTypeArgumentsToType({
           type: expr.typeValue,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
-        expr: applyTypeAndRegionArgumentsToExpr({
+        expr: applyTypeArgumentsToExpr({
           expr: expr.expr,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
         indexes: expr.indexes.map((expr) =>
-          applyTypeAndRegionArgumentsToExpr({
+          applyTypeArgumentsToExpr({
             expr: expr,
             env,
             typeParameterToTypeArgumentMap,
-            regionParameterToRegionArgumentMap,
           })
         ),
       };
@@ -2150,43 +1959,38 @@ export function applyTypeAndRegionArgumentsToExpr({
     case AstType.CallFunction: {
       return {
         ...expr,
-        callee: applyTypeAndRegionArgumentsToExpr({
+        callee: applyTypeArgumentsToExpr({
           expr: expr.callee,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
         functionArguments: expr.functionArguments.map((expr) =>
-          applyTypeAndRegionArgumentsToExpr({
+          applyTypeArgumentsToExpr({
             expr,
             env,
             typeParameterToTypeArgumentMap,
-            regionParameterToRegionArgumentMap,
           })
         ),
-        typeValue: applyTypeAndRegionArgumentsToType({
+        typeValue: applyTypeArgumentsToType({
           type: expr.typeValue,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
       };
     }
     case AstType.CallEnum: {
       const e: CallEnumExpr = {
         ...expr,
-        typeValue: applyTypeAndRegionArgumentsToType({
+        typeValue: applyTypeArgumentsToType({
           type: expr.typeValue,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }) as TEnum,
         variantArguments: expr.variantArguments.map((expr) =>
-          applyTypeAndRegionArgumentsToExpr({
+          applyTypeArgumentsToExpr({
             expr,
             env,
             typeParameterToTypeArgumentMap,
-            regionParameterToRegionArgumentMap,
           })
         ),
       };
@@ -2195,17 +1999,15 @@ export function applyTypeAndRegionArgumentsToExpr({
     case AstType.CallTypeConstructor: {
       const e: CallTypeConstructorExpr = {
         ...expr,
-        expr: applyTypeAndRegionArgumentsToExpr({
+        expr: applyTypeArgumentsToExpr({
           expr: expr.expr,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
-        typeValue: applyTypeAndRegionArgumentsToType({
+        typeValue: applyTypeArgumentsToType({
           type: expr.typeValue,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }) as TTypeConstructor,
       };
       return e;
@@ -2216,26 +2018,23 @@ export function applyTypeAndRegionArgumentsToExpr({
         cases: expr.cases.map(({ condition, body }) => {
           return {
             condition: condition
-              ? applyTypeAndRegionArgumentsToExpr({
+              ? applyTypeArgumentsToExpr({
                   expr: condition,
                   env,
                   typeParameterToTypeArgumentMap,
-                  regionParameterToRegionArgumentMap,
                 })
               : undefined,
-            body: applyTypeAndRegionArgumentsToExpr({
+            body: applyTypeArgumentsToExpr({
               expr: body,
               env,
               typeParameterToTypeArgumentMap,
-              regionParameterToRegionArgumentMap,
             }) as BlockExpr,
           };
         }),
-        typeValue: applyTypeAndRegionArgumentsToType({
+        typeValue: applyTypeArgumentsToType({
           type: expr.typeValue,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
       };
       return newIfExpr;
@@ -2243,36 +2042,32 @@ export function applyTypeAndRegionArgumentsToExpr({
     case AstType.Match: {
       const e: MatchExpr = {
         ...expr,
-        matchedEnum: applyTypeAndRegionArgumentsToExpr({
+        matchedEnum: applyTypeArgumentsToExpr({
           expr: expr.matchedEnum,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
         cases: expr.cases.map(({ case: case_, variantName, body }) => {
           return {
             case: case_
-              ? applyTypeAndRegionArgumentsToExpr({
+              ? applyTypeArgumentsToExpr({
                   expr: case_,
                   env,
                   typeParameterToTypeArgumentMap,
-                  regionParameterToRegionArgumentMap,
                 })
               : undefined,
             variantName,
-            body: applyTypeAndRegionArgumentsToExpr({
+            body: applyTypeArgumentsToExpr({
               expr: body,
               env,
               typeParameterToTypeArgumentMap,
-              regionParameterToRegionArgumentMap,
             }) as BlockExpr,
           };
         }),
-        typeValue: applyTypeAndRegionArgumentsToType({
+        typeValue: applyTypeArgumentsToType({
           type: expr.typeValue,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
       };
       return e;
@@ -2286,35 +2081,31 @@ export function applyTypeAndRegionArgumentsToExpr({
       return {
         ...expr,
         exprs: expr.exprs.map((expr) =>
-          applyTypeAndRegionArgumentsToExpr({
+          applyTypeArgumentsToExpr({
             expr,
             env,
             typeParameterToTypeArgumentMap,
-            regionParameterToRegionArgumentMap,
           })
         ),
-        typeValue: applyTypeAndRegionArgumentsToType({
+        typeValue: applyTypeArgumentsToType({
           type: expr.typeValue,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
       };
     }
     case AstType.ReadWrite: {
       const e: ReadWriteExpr = {
         ...expr,
-        expr: applyTypeAndRegionArgumentsToExpr({
+        expr: applyTypeArgumentsToExpr({
           expr: expr.expr,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
-        typeValue: applyTypeAndRegionArgumentsToType({
+        typeValue: applyTypeArgumentsToType({
           type: expr.typeValue,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
       };
       return e;
@@ -2322,17 +2113,15 @@ export function applyTypeAndRegionArgumentsToExpr({
     case AstType.ImplicitDereference: {
       const e: ImplicitDereferenceExpr = {
         ...expr,
-        expr: applyTypeAndRegionArgumentsToExpr({
+        expr: applyTypeArgumentsToExpr({
           expr: expr.expr,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
-        typeValue: applyTypeAndRegionArgumentsToType({
+        typeValue: applyTypeArgumentsToType({
           type: expr.typeValue,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
       };
       return e;
@@ -2341,18 +2130,16 @@ export function applyTypeAndRegionArgumentsToExpr({
       const e: RecurExpr = {
         ...expr,
         functionArguments: expr.functionArguments.map((expr) =>
-          applyTypeAndRegionArgumentsToExpr({
+          applyTypeArgumentsToExpr({
             expr,
             env,
             typeParameterToTypeArgumentMap,
-            regionParameterToRegionArgumentMap,
           })
         ),
-        typeValue: applyTypeAndRegionArgumentsToType({
+        typeValue: applyTypeArgumentsToType({
           type: expr.typeValue,
           env,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         }),
       };
       return e;
@@ -2360,7 +2147,7 @@ export function applyTypeAndRegionArgumentsToExpr({
 
     default:
       throw new Error(
-        `applyTypeAndRegionArgumentsToExpr: Unknown expr type ${expr.type}`
+        `applyTypeArgumentsToExpr: Unknown expr type ${expr.type}`
       );
   }
 }
@@ -2621,7 +2408,7 @@ export function synthesizeRecordType(
   };
 }
 
-export function synthesizeTypeAndRegionArgumentsFromTokens({
+export function synthesizeTypeArgumentsFromTokens({
   tokens,
   index,
   env,
@@ -2633,7 +2420,6 @@ export function synthesizeTypeAndRegionArgumentsFromTokens({
   parseExpression: ParseExpression;
 }): {
   typeArguments: Type[];
-  regionArguments: Region[];
   env: Environment;
   index: number;
 } {
@@ -2647,7 +2433,6 @@ export function synthesizeTypeAndRegionArgumentsFromTokens({
   }
 
   const typeArguments: Type[] = [];
-  const regionArguments: Region[] = [];
   index = index + 1;
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -2698,22 +2483,6 @@ export function synthesizeTypeAndRegionArgumentsFromTokens({
       break;
     }
 
-    // Check if it's region argument
-    if (token.type === TokenType.Identifier) {
-      const regionName = token.value;
-      const regions = getEnvVariableValueByVariableName(
-        env,
-        regionName,
-        "region"
-      );
-      if (regions.length === 1 && regions[0].region) {
-        const region = regions[0].region;
-        regionArguments.push(region);
-        index = index + 1;
-        continue;
-      }
-    }
-
     const {
       typeValue: typeArgument,
       index: nextIndex,
@@ -2728,7 +2497,7 @@ export function synthesizeTypeAndRegionArgumentsFromTokens({
     index = nextIndex;
     env = nextEnv;
   }
-  return { typeArguments, regionArguments, index, env };
+  return { typeArguments, index, env };
 }
 
 export function synthesizeEffectsFromTokens({
@@ -2790,21 +2559,18 @@ export function synthesizeEffectsFromTokens({
       index = index + 1;
 
       let typeArguments: Type[] = [];
-      let regionArguments: Region[] = [];
       if (tokens[index].value === "<") {
         const {
           typeArguments: nextTypeArguments,
-          regionArguments: nextRegionArguments,
           index: nextIndex,
           env: nextEnv,
-        } = synthesizeTypeAndRegionArgumentsFromTokens({
+        } = synthesizeTypeArgumentsFromTokens({
           tokens,
           index,
           env,
           parseExpression,
         });
         typeArguments = nextTypeArguments;
-        regionArguments = nextRegionArguments;
         index = nextIndex;
         env = nextEnv;
       }
@@ -2839,13 +2605,11 @@ export function synthesizeEffectsFromTokens({
             inputString: env.inputString,
           });
         }
-        const newEffect = applyTypeAndRegionArgumentsToEffect({
+        const newEffect = applyTypeArgumentsToEffect({
           effect,
           env,
           typeArguments,
-          regionArguments,
           typeParameterToTypeArgumentMap: {},
-          regionParameterToRegionArgumentMap: {},
         });
         effects.push(newEffect);
       }
@@ -2891,20 +2655,17 @@ export function synthesizeFunctionTypeFromTokens({
   }
 
   let typeParameters: TTypeParameter[] = [];
-  let regionParameters: TRegionParameter[] = [];
   if (tokens[index].value === "<") {
     const {
       typeParameters: nextTypeParameters,
-      regionParameters: nextRegionParameters,
       index: nextIndex,
       env: nextEnv,
-    } = synthesizeTypeAndRegionParametersFromTokens({
+    } = synthesizeTypeParametersFromTokens({
       tokens,
       index,
       env,
     });
     typeParameters = nextTypeParameters;
-    regionParameters = nextRegionParameters;
     index = nextIndex;
     env = nextEnv;
   }
@@ -2986,7 +2747,6 @@ export function synthesizeFunctionTypeFromTokens({
           : generateVarialeValueId(env, functionName ?? "anonymousFunction"),
       parameterTypes,
       typeParameters,
-      regionParameters,
       returnType,
       effects,
       // hasMoreEffects,
@@ -3024,41 +2784,6 @@ export function parseTypeKind(token: Token): TypeKind | undefined {
     return "Free";
   } else {
     return undefined;
-  }
-}
-
-/**
- * @param tokens
- * @param index
- * @param inputString
- * @returns
- */
-function parseTypeAndRegionKind({
-  tokens,
-  index,
-  modulePath,
-  inputString,
-}: {
-  tokens: Token[];
-  index: number;
-  modulePath: string;
-  inputString: string;
-}): TypeKind | RegionKind {
-  if (tokens[index].value === "Type") {
-    return "Type";
-  } else if (tokens[index].value === "Linear") {
-    return "Linear";
-  } else if (tokens[index].value === "Free") {
-    return "Free";
-  } else if (tokens[index].value === "Region") {
-    return "Region";
-  } else {
-    throw formatErrorMessage({
-      token: tokens[index],
-      errorMessage: `Unknown kind ${tokens[index].value}`,
-      modulePath,
-      inputString,
-    });
   }
 }
 
@@ -3100,7 +2825,7 @@ export function getEnumTypeKind(variants: TEnumVariant[]): TypeKind {
  * Check type parameters declaration <...>
  * For example: <T> in `fn<T>(a: T) {}`
  */
-export function synthesizeTypeAndRegionParametersFromTokens({
+export function synthesizeTypeParametersFromTokens({
   tokens,
   index,
   env,
@@ -3110,7 +2835,6 @@ export function synthesizeTypeAndRegionParametersFromTokens({
   env: Environment;
 }): {
   typeParameters: TTypeParameter[];
-  regionParameters: TRegionParameter[];
   index: number;
   env: Environment;
 } {
@@ -3125,7 +2849,6 @@ export function synthesizeTypeAndRegionParametersFromTokens({
 
   index = index + 1;
   const typeParameters: TTypeParameter[] = [];
-  const regionParameters: TRegionParameter[] = [];
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const token = tokens[index];
@@ -3200,16 +2923,11 @@ export function synthesizeTypeAndRegionParametersFromTokens({
     }
 
     // Check type kind
-    let kind: TypeKind | RegionKind | undefined = undefined;
+    let kind: TypeKind | undefined = undefined;
     const parameterKindTokenIndex = index + 2;
     if (tokens[index + 1].type === TokenType.Colon) {
       index = index + 2;
-      kind = parseTypeAndRegionKind({
-        tokens,
-        index,
-        modulePath: env.modulePath,
-        inputString: env.inputString,
-      });
+      kind = parseTypeKind(tokens[index]);
       if (!kind) {
         throw formatErrorMessage({
           token: tokens[index],
@@ -3245,27 +2963,7 @@ export function synthesizeTypeAndRegionParametersFromTokens({
     }
     */
 
-    if (kind === "Region") {
-      const regionParameter: TRegionParameter = {
-        type: "RegionParameter",
-        kind: "Region",
-        name: typeParameterName,
-      };
-      regionParameters.push(regionParameter);
-
-      // Save to env
-      const { env: nextEnv } = addEnvVariableValue({
-        env,
-        variableValue: {
-          variableName: typeParameterName,
-          type: TypeValues.unknown,
-          region: regionParameter,
-          kind: "region",
-          token: tokens[parameterKindTokenIndex],
-        },
-      });
-      env = nextEnv;
-    } else {
+    {
       const typeParameter: TTypeParameter = {
         type: "TypeParameter",
         kind: kind,
@@ -3294,7 +2992,6 @@ export function synthesizeTypeAndRegionParametersFromTokens({
     env,
     index,
     typeParameters,
-    regionParameters,
   };
 }
 
@@ -3464,11 +3161,9 @@ export function typeToString(
       const effectsString = effectsToString(type.effects, {
         hideTypeParameterKind: true,
       });
-      return `${typeAndRegionParametersToString(
-        type.typeParameters,
-        type.regionParameters,
-        { hideTypeParameterKind: false }
-      )}(${type.parameterTypes
+      return `${typeParametersToString(type.typeParameters, {
+        hideTypeParameterKind: false,
+      })}(${type.parameterTypes
         .map(
           (parameter) =>
             (parameter.name ? `${parameter.name}: ` : "") +
@@ -3531,9 +3226,8 @@ export function typeToString(
     case "TypeConstructor": {
       if (extractTypeConstructor) {
         if (extractTypeConstructor === "all") {
-          return `${type.typeConstructorName}${typeAndRegionParametersToString(
+          return `${type.typeConstructorName}${typeParametersToString(
             type.typeParameters,
-            type.regionParameters,
             { hideTypeParameterKind }
           )}: ${type.kind}${
             type.typeValue.type === "Extern"
@@ -3552,18 +3246,15 @@ export function typeToString(
       } else {
         return `${typePermissionToString(type.permission)} ${
           type.typeConstructorName
-        }${typeAndRegionParametersToString(
-          type.typeParameters,
-          type.regionParameters,
-          { hideTypeParameterKind }
-        )}`.trim();
+        }${typeParametersToString(type.typeParameters, {
+          hideTypeParameterKind,
+        })}`.trim();
       }
     }
     case "Enum": {
       if (extractTypeConstructor) {
-        return `enum ${type.enumName}${typeAndRegionParametersToString(
+        return `enum ${type.enumName}${typeParametersToString(
           type.typeParameters,
-          type.regionParameters,
           { hideTypeParameterKind }
         )}: ${type.kind} {
 ${type.variants
@@ -3585,11 +3276,9 @@ ${type.variants
       } else {
         return `${typePermissionToString(type.permission)} ${
           type.enumName
-        }${typeAndRegionParametersToString(
-          type.typeParameters,
-          type.regionParameters,
-          { hideTypeParameterKind: true }
-        )}${
+        }${typeParametersToString(type.typeParameters, {
+          hideTypeParameterKind: true,
+        })}${
           type.selectedVariantName && !hideTypeParameterKind
             ? `.${type.selectedVariantName}`
             : ""
@@ -3667,12 +3356,10 @@ export function checkType(
       // apply type arguments
       const typeArguments = expectedType.typeArguments;
       if (typeArguments) {
-        expectedType = applyTypeAndRegionArgumentsToType({
+        expectedType = applyTypeArgumentsToType({
           type: realType,
           env,
           typeArguments,
-          regionArguments: [], // regionArguments
-          regionParameterToRegionArgumentMap: {},
           typeParameterToTypeArgumentMap: {},
         });
       } else {
@@ -3751,24 +3438,6 @@ export function checkType(
   }
 }
 
-export function checkRegion(expectedRegion: Region, givenRegion: Region) {
-  if (expectedRegion.type === "RegionParameter") {
-    if (!expectedRegion.appliedRegion) {
-      return true;
-    } else {
-      return checkRegion(expectedRegion.appliedRegion, givenRegion);
-    }
-  } else if (givenRegion.type === "RegionParameter") {
-    if (givenRegion.appliedRegion) {
-      return checkRegion(expectedRegion, givenRegion.appliedRegion);
-    } else {
-      return false;
-    }
-  } else {
-    return expectedRegion.regionId === givenRegion.regionId;
-  }
-}
-
 export function checkEffect(
   expectedEffect: TEffect,
   givenEffect: TEffect,
@@ -3779,10 +3448,7 @@ export function checkEffect(
     return false;
   }
   if (
-    expectedEffect.typeParameters.length !==
-      givenEffect.typeParameters.length ||
-    expectedEffect.regionParameters.length !==
-      givenEffect.regionParameters.length
+    expectedEffect.typeParameters.length !== givenEffect.typeParameters.length
   ) {
     return false;
   }
@@ -3794,13 +3460,7 @@ export function checkEffect(
       return false;
     }
   }
-  for (let i = 0; i < expectedEffect.regionParameters.length; i++) {
-    const expectedRegionParameter = expectedEffect.regionParameters[i];
-    const givenRegionParameter = givenEffect.regionParameters[i];
-    if (!checkRegion(expectedRegionParameter, givenRegionParameter)) {
-      return false;
-    }
-  }
+
   return true;
 }
 
@@ -3822,34 +3482,16 @@ export function checkFunctionEffects(
   }
 }
 
-export function typeAndRegionParametersToString(
+export function typeParametersToString(
   typeParameters: TTypeParameter[],
-  regionParameters: TRegionParameter[],
   { hideTypeParameterKind }: { hideTypeParameterKind?: boolean } = {}
 ) {
-  if (typeParameters.length + regionParameters.length === 0) {
+  if (typeParameters.length === 0) {
     return "";
   } else {
     return `<${typeParameters
       .map((type) => typeToString(type, { hideTypeParameterKind }))
-      .join(", ")}${
-      typeParameters.length > 0 && regionParameters.length > 0 ? ", " : ""
-    }${regionParameters
-      .map((region) => regionToString(region, { hideTypeParameterKind }))
-      .join(", ")}>`;
-  }
-}
-
-export function regionToString(
-  region: Region,
-  { hideTypeParameterKind }: { hideTypeParameterKind?: boolean } = {}
-) {
-  if (region.type === "RegionParameter") {
-    return region.appliedRegion
-      ? regionToString(region.appliedRegion, { hideTypeParameterKind })
-      : `${region.name}${hideTypeParameterKind ? "" : ": Region"}`;
-  } else {
-    return region.regionId;
+      .join(", ")}${typeParameters.length > 0 ? ", " : ""}>`;
   }
 }
 
@@ -3866,11 +3508,9 @@ export function effectToString(
   if (extractTypeConstructor) {
     return `${effect.isHandler ? "" : "effect "}${
       effect.effectName
-    }${typeAndRegionParametersToString(
-      effect.typeParameters,
-      effect.regionParameters,
-      { hideTypeParameterKind }
-    )} {
+    }${typeParametersToString(effect.typeParameters, {
+      hideTypeParameterKind,
+    })} {
 ${effect.operations
   .map(({ func, name, functionExpr }) => {
     return `  ${name}: ${typeToString(func, {
@@ -3880,9 +3520,8 @@ ${effect.operations
   .join(";\n")};
 }`;
   } else {
-    return `${effect.effectName}${typeAndRegionParametersToString(
+    return `${effect.effectName}${typeParametersToString(
       effect.typeParameters,
-      effect.regionParameters,
       { hideTypeParameterKind }
     )}`;
   }
@@ -3917,16 +3556,11 @@ export function effectsToString(
 export function classToString(type: TClass): string {
   return `${
     type.isInstance
-      ? `instance${typeAndRegionParametersToString(
-          type.instanceTypeParameters ?? [],
-          type.instanceRegionParameters ?? []
-        )}`
+      ? `instance${typeParametersToString(type.instanceTypeParameters ?? [])}`
       : "class"
-  } ${type.className}${typeAndRegionParametersToString(
-    type.typeParameters,
-    type.regionParameters,
-    { hideTypeParameterKind: type.isInstance }
-  )} {
+  } ${type.className}${typeParametersToString(type.typeParameters, {
+    hideTypeParameterKind: type.isInstance,
+  })} {
 ${type.functions
   .map(
     ({ name, func, functionExpr }) =>
@@ -3983,10 +3617,7 @@ function checkTypeConstructorExactMatch(
   if (expectedType.typeConstructorId !== givenType.typeConstructorId) {
     return false;
   }
-  if (
-    expectedType.typeParameters.length !== givenType.typeParameters.length ||
-    expectedType.regionParameters.length !== givenType.regionParameters.length
-  ) {
+  if (expectedType.typeParameters.length !== givenType.typeParameters.length) {
     return false;
   }
   for (let i = 0; i < expectedType.typeParameters.length; i++) {
@@ -4000,16 +3631,7 @@ function checkTypeConstructorExactMatch(
       return false;
     }
   }
-  for (let i = 0; i < expectedType.regionParameters.length; i++) {
-    if (
-      !checkRegion(
-        expectedType.regionParameters[i],
-        givenType.regionParameters[i]
-      )
-    ) {
-      return false;
-    }
-  }
+
   return true;
 }
 
@@ -4023,8 +3645,7 @@ function checkEnumExactMatchType(
   }
   if (
     expectedType.variants.length !== givenType.variants.length ||
-    expectedType.typeParameters.length !== givenType.typeParameters.length ||
-    expectedType.regionParameters.length !== givenType.regionParameters.length
+    expectedType.typeParameters.length !== givenType.typeParameters.length
   ) {
     return false;
   }
@@ -4035,17 +3656,6 @@ function checkEnumExactMatchType(
         expectedType.typeParameters[i],
         givenType.typeParameters[i],
         env
-      )
-    ) {
-      return false;
-    }
-  }
-
-  for (let i = 0; i < expectedType.regionParameters.length; i++) {
-    if (
-      !checkRegion(
-        expectedType.regionParameters[i],
-        givenType.regionParameters[i]
       )
     ) {
       return false;
@@ -4085,25 +3695,22 @@ function checkEnumExactMatchType(
  * @param parameterType
  * @param argumentType
  * @param typeParameterToTypeArgumentMap
- * @param regionParameterToRegionArgumentMap
  */
-function checkTypeAndRegionParametersAndArguments(
+function checkTypeParametersAndArguments(
   env: Environment,
   parameterType: Type,
   argumentType: Type,
-  typeParameterToTypeArgumentMap: { [key: string]: Type } = {},
-  regionParameterToRegionArgumentMap: { [key: string]: Region } = {}
+  typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
 ): boolean {
-  // .debug("- checkTypeAndRegionParametersAndArguments");
+  // .debug("- checkTypeParametersAndArguments");
   // logger.debug("  - parameterType: ", typeToString(parameterType));
   // logger.debug("  - argumentType:  ", typeToString(argumentType));
   if (argumentType.type === "TypeParameter" && argumentType.appliedType) {
-    return checkTypeAndRegionParametersAndArguments(
+    return checkTypeParametersAndArguments(
       env,
       parameterType,
       argumentType.appliedType,
-      typeParameterToTypeArgumentMap,
-      regionParameterToRegionArgumentMap
+      typeParameterToTypeArgumentMap
     );
   }
   if (parameterType.type === "TypeParameter") {
@@ -4119,12 +3726,11 @@ function checkTypeAndRegionParametersAndArguments(
       }
     }
     if (parameterType.appliedType) {
-      checkTypeAndRegionParametersAndArguments(
+      checkTypeParametersAndArguments(
         env,
         parameterType.appliedType,
         argumentType,
-        typeParameterToTypeArgumentMap,
-        regionParameterToRegionArgumentMap
+        typeParameterToTypeArgumentMap
       );
     } else {
       typeParameterToTypeArgumentMap[parameterType.typeParameterId] =
@@ -4136,25 +3742,19 @@ function checkTypeAndRegionParametersAndArguments(
     parameterType.type === argumentType.type
   ) {
     const parameterTypeParameters = parameterType.typeParameters;
-    const parameterRegionParameters = parameterType.regionParameters;
     const argumentTypeParameters = argumentType.typeParameters;
-    const argumentRegionParameters = argumentType.regionParameters;
-    if (
-      parameterTypeParameters.length !== argumentTypeParameters.length ||
-      parameterRegionParameters.length !== argumentRegionParameters.length
-    ) {
+    if (parameterTypeParameters.length !== argumentTypeParameters.length) {
       return false;
     }
     for (let i = 0; i < parameterTypeParameters.length; i++) {
       const parameterTypeParameter = parameterTypeParameters[i];
       const argumentTypeParameter = argumentTypeParameters[i];
       if (
-        !checkTypeAndRegionParametersAndArguments(
+        !checkTypeParametersAndArguments(
           env,
           parameterTypeParameter,
           argumentTypeParameter,
-          typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap
+          typeParameterToTypeArgumentMap
         )
       ) {
         return false;
@@ -4162,51 +3762,6 @@ function checkTypeAndRegionParametersAndArguments(
         typeParameterToTypeArgumentMap[parameterTypeParameter.name] =
           argumentTypeParameter;
       } */
-    }
-    for (let i = 0; i < parameterRegionParameters.length; i++) {
-      const parameterRegionParameter = parameterRegionParameters[i];
-      const argumentRegionParameter = argumentRegionParameters[i];
-      if (!checkRegion(parameterRegionParameter, argumentRegionParameter)) {
-        return false;
-      } else {
-        let p: TRegionParameter = parameterRegionParameter;
-        while (p.type === "RegionParameter") {
-          if (p.appliedRegion && p.appliedRegion.type === "RegionParameter") {
-            p = p.appliedRegion;
-          } else {
-            break;
-          }
-        }
-
-        let a: Region = argumentRegionParameter;
-        if (a.appliedRegion) {
-          a = a.appliedRegion;
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            if (
-              a.type === "RegionParameter" &&
-              a.appliedRegion &&
-              a.appliedRegion.type === "RegionParameter"
-            ) {
-              a = a.appliedRegion;
-            } else {
-              break;
-            }
-          }
-        }
-
-        const existingRegionArgument =
-          regionParameterToRegionArgumentMap[p.name];
-        if (
-          existingRegionArgument &&
-          existingRegionArgument !== UnknownRegion &&
-          !checkRegion(existingRegionArgument, a)
-        ) {
-          return false;
-        }
-
-        regionParameterToRegionArgumentMap[p.name] = a;
-      }
     }
 
     return true;
@@ -4231,11 +3786,8 @@ export function getFunctionArgumentsInOrder(
 ): {
   functionArguments: Expr[] | null;
   functionTypeArguments: Type[] | null;
-  functionRegionArguments: Region[] | null;
 } {
   const functionTypeParamters: TTypeParameter[] = calleeType.typeParameters;
-  const functionRegionParameters: TRegionParameter[] =
-    calleeType.regionParameters;
   logger.debug("- getFunctionArgumentsInOrder: ");
   logger.debug(
     "  - functionParameterTypes: ",
@@ -4259,10 +3811,6 @@ export function getFunctionArgumentsInOrder(
     "  - functionTypeParamters: ",
     functionTypeParamters.map((type) => typeToString(type))
   );
-  logger.debug(
-    "  - functionRegionParameters: ",
-    functionRegionParameters.map((region) => regionToString(region))
-  );
 
   const functionArgumentsInOrder: (Expr | null)[] = functionParameterTypes.map(
     (pt) => pt.defaultValue
@@ -4270,8 +3818,6 @@ export function getFunctionArgumentsInOrder(
   const functionTypeArgumentsInOrder: Type[] = functionTypeParamters.map(
     () => TypeValues.unknown
   );
-  const functionRegionArgumentsInOrder: TRegion[] =
-    functionRegionParameters.map(() => UnknownRegion);
 
   for (let i = 0; i < functionArguments.length; i++) {
     const argument = functionArguments[i];
@@ -4287,7 +3833,6 @@ export function getFunctionArgumentsInOrder(
         return {
           functionArguments: null,
           functionTypeArguments: null,
-          functionRegionArguments: null,
         };
       } else {
         functionArgumentsInOrder[argumentPositionIndex] = value;
@@ -4297,7 +3842,6 @@ export function getFunctionArgumentsInOrder(
         return {
           functionArguments: null,
           functionTypeArguments: null,
-          functionRegionArguments: null,
         };
       }
       // Positional argument
@@ -4307,12 +3851,10 @@ export function getFunctionArgumentsInOrder(
 
   // If functionArgumentsInOrder has any null, then it's not a match
   const typeParameterToTypeArgumentMap: { [key: string]: Type } = {};
-  const regionParameterToRegionArgumentMap: { [key: string]: TRegion } = {};
   if (functionArgumentsInOrder.some((arg) => arg === null)) {
     return {
       functionArguments: null,
       functionTypeArguments: null,
-      functionRegionArguments: null,
     };
   } else {
     // Check if the functionArgumentsInOrder has the same types as the functionParameterTypes
@@ -4335,23 +3877,20 @@ export function getFunctionArgumentsInOrder(
         return {
           functionArguments: null,
           functionTypeArguments: null,
-          functionRegionArguments: null,
         };
       }
 
       if (
-        !checkTypeAndRegionParametersAndArguments(
+        !checkTypeParametersAndArguments(
           env,
           parameterType.type,
           argument.typeValue,
-          typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap
+          typeParameterToTypeArgumentMap
         )
       ) {
         return {
           functionArguments: null,
           functionTypeArguments: null,
-          functionRegionArguments: null,
         };
       }
     }
@@ -4359,10 +3898,6 @@ export function getFunctionArgumentsInOrder(
     logger.debug(
       "  - typeParameterToTypeArgumentMap: ",
       typeParameterToTypeArgumentMap
-    );
-    logger.debug(
-      "  - regionParameterToRegionArgumentMap: ",
-      regionParameterToRegionArgumentMap
     );
 
     for (let i = 0; i < functionTypeParamters.length; i++) {
@@ -4394,7 +3929,6 @@ export function getFunctionArgumentsInOrder(
           return {
             functionArguments: null,
             functionTypeArguments: null,
-            functionRegionArguments: null,
           };
         }
       } else if (typeArgument) {
@@ -4406,54 +3940,22 @@ export function getFunctionArgumentsInOrder(
         };
       } */
 
-      functionTypeArgumentsInOrder[i] = applyTypeAndRegionArgumentsToType({
+      functionTypeArgumentsInOrder[i] = applyTypeArgumentsToType({
         env,
         type: functionTypeArgumentsInOrder[i],
         typeArguments: [],
-        regionArguments: [],
         typeParameterToTypeArgumentMap,
-        regionParameterToRegionArgumentMap,
       });
-    }
-
-    for (let i = 0; i < functionRegionParameters.length; i++) {
-      const regionParameter = functionRegionParameters[i];
-      if (regionParameter.name in regionParameterToRegionArgumentMap) {
-        const existingRegionArgument = functionRegionArgumentsInOrder[i];
-        // logger.debug("existingRegionArgument: ", existingRegionArgument);
-        if (
-          existingRegionArgument &&
-          existingRegionArgument !== UnknownRegion &&
-          !checkRegion(
-            existingRegionArgument,
-            regionParameterToRegionArgumentMap[regionParameter.name]
-          )
-        ) {
-          return {
-            functionArguments: null,
-            functionTypeArguments: null,
-            functionRegionArguments: null,
-          };
-        }
-
-        functionRegionArgumentsInOrder[i] =
-          regionParameterToRegionArgumentMap[regionParameter.name];
-      }
     }
 
     logger.debug(
       "  - functionTypeArgumentsInOrder: ",
       functionTypeArgumentsInOrder.map((type) => typeToString(type))
     );
-    logger.debug(
-      "  - functionRegionArgumentsInOrder: ",
-      functionRegionArgumentsInOrder.map((region) => regionToString(region))
-    );
 
     return {
       functionArguments: functionArgumentsInOrder as Expr[],
       functionTypeArguments: functionTypeArgumentsInOrder,
-      functionRegionArguments: functionRegionArgumentsInOrder,
     };
   }
 }
@@ -4565,20 +4067,14 @@ export function typeContainsTypeParameterThatDoesntHaveAppliedType(
   return false;
 }
 
-function synthesizeTypeAndRegionParameters({
+function synthesizeTypeParameters({
   typeParameters,
-  regionParameters,
   givenTypeParameters,
-  givenRegionParameters,
   typeParameterToTypeArgumentMap,
-  regionParameterToRegionArgumentMap,
 }: {
   typeParameters: TTypeParameter[];
-  regionParameters: TRegionParameter[];
   givenTypeParameters: TTypeParameter[];
-  givenRegionParameters: TRegionParameter[];
   typeParameterToTypeArgumentMap: { [key: string]: Type };
-  regionParameterToRegionArgumentMap: { [key: string]: Region };
 }): void {
   for (let i = 0; i < typeParameters.length; i++) {
     const typeParameter = typeParameters[i];
@@ -4590,19 +4086,6 @@ function synthesizeTypeAndRegionParameters({
       if (typeParameter.appliedType) {
         typeParameterToTypeArgumentMap[typeParameter.typeParameterId] =
           typeParameter.appliedType;
-      }
-    }
-  }
-  for (let i = 0; i < regionParameters.length; i++) {
-    const regionParameter = regionParameters[i];
-    if (
-      !regionParameter.appliedRegion ||
-      regionParameter.appliedRegion === UnknownRegion
-    ) {
-      regionParameter.appliedRegion = givenRegionParameters[i].appliedRegion;
-      if (regionParameter.appliedRegion) {
-        regionParameterToRegionArgumentMap[regionParameter.name] =
-          regionParameter.appliedRegion;
       }
     }
   }
@@ -4618,15 +4101,12 @@ export function synthesizeTypes({
   expectedType,
   givenType,
   typeParameterToTypeArgumentMap,
-  regionParameterToRegionArgumentMap,
 }: {
   expectedType: Type;
   givenType: Type;
   typeParameterToTypeArgumentMap: { [key: string]: Type } | undefined;
-  regionParameterToRegionArgumentMap: { [key: string]: Region } | undefined;
 }): Type | null {
   typeParameterToTypeArgumentMap = typeParameterToTypeArgumentMap ?? {};
-  regionParameterToRegionArgumentMap = regionParameterToRegionArgumentMap ?? {};
   if (!expectedType || !givenType) {
     return null;
   }
@@ -4661,13 +4141,10 @@ export function synthesizeTypes({
     (expectedType.selectedVariantName === undefined ||
       expectedType.selectedVariantName === givenType.selectedVariantName)
   ) {
-    synthesizeTypeAndRegionParameters({
+    synthesizeTypeParameters({
       typeParameters: expectedType.typeParameters,
-      regionParameters: expectedType.regionParameters,
       givenTypeParameters: givenType.typeParameters,
-      givenRegionParameters: givenType.regionParameters,
       typeParameterToTypeArgumentMap,
-      regionParameterToRegionArgumentMap,
     });
     expectedType.selectedVariantName = givenType.selectedVariantName;
   }
@@ -4697,20 +4174,16 @@ export function synthesizeTypes({
   // Assign region to userDefinedVariableType if it's not set
   if (expectedType.type === "TypeConstructor") {
     if (givenType.type === "TypeConstructor") {
-      synthesizeTypeAndRegionParameters({
+      synthesizeTypeParameters({
         typeParameters: expectedType.typeParameters,
-        regionParameters: expectedType.regionParameters,
         givenTypeParameters: givenType.typeParameters,
-        givenRegionParameters: givenType.regionParameters,
         typeParameterToTypeArgumentMap,
-        regionParameterToRegionArgumentMap,
       });
     } else {
       synthesizeTypes({
         expectedType: expectedType.typeValue,
         givenType,
         typeParameterToTypeArgumentMap,
-        regionParameterToRegionArgumentMap,
       });
       for (let i = 0; i < expectedType.typeParameters.length; i++) {
         const typeParameter = expectedType.typeParameters[i];
@@ -4723,28 +4196,14 @@ export function synthesizeTypes({
             typeParameterToTypeArgumentMap[typeParameter.typeParameterId];
         }
       }
-      for (let i = 0; i < expectedType.regionParameters.length; i++) {
-        const regionParameter = expectedType.regionParameters[i];
-        if (
-          (!regionParameter.appliedRegion ||
-            regionParameter.appliedRegion === UnknownRegion) &&
-          regionParameter.name in regionParameterToRegionArgumentMap
-        ) {
-          regionParameter.appliedRegion =
-            regionParameterToRegionArgumentMap[regionParameter.name];
-        }
-      }
     }
   }
 
   if (expectedType.type === "Function" && givenType.type === "Function") {
-    synthesizeTypeAndRegionParameters({
+    synthesizeTypeParameters({
       typeParameters: expectedType.typeParameters,
-      regionParameters: expectedType.regionParameters,
       givenTypeParameters: givenType.typeParameters,
-      givenRegionParameters: givenType.regionParameters,
       typeParameterToTypeArgumentMap,
-      regionParameterToRegionArgumentMap,
     });
     givenType.functionId = expectedType.functionId;
   }
@@ -4778,7 +4237,6 @@ export function synthesizeTypes({
           expectedType: userDefinedTypeProperty.type,
           givenType: givenTypeProperty.type,
           typeParameterToTypeArgumentMap,
-          regionParameterToRegionArgumentMap,
         });
       }
     }

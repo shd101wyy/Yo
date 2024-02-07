@@ -15,7 +15,7 @@ import {
   Type,
   classToString,
   effectToString,
-  typeAndRegionParametersToString,
+  typeParametersToString,
   typeToString,
 } from "./type-checker";
 
@@ -643,9 +643,8 @@ export function exprToString(expr: Expr, indentation = ""): string {
           expr.functionArguments[1]
         )})`;
       } else {
-        return `${exprToString(expr.callee)}${typeAndRegionParametersToString(
+        return `${exprToString(expr.callee)}${typeParametersToString(
           calleeType.typeParameters,
-          calleeType.regionParameters,
           {
             hideTypeParameterKind: true,
           }
@@ -656,7 +655,7 @@ export function exprToString(expr: Expr, indentation = ""): string {
     }
     case AstType.CallEnum:
       return `${typeToString(expr.typeValue)}${
-        /*typeAndRegionParametersToString(
+        /*typeParametersToString(
         expr.typeValue.typeParameters,
         expr.typeValue.regionParameters,
         {

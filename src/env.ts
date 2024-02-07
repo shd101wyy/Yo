@@ -8,13 +8,7 @@ import {
   stringIsOperator,
 } from "./operator";
 import { Token, TokenType } from "./token";
-import {
-  TClass,
-  TEffect,
-  TRegionParameter,
-  Type,
-  typeToString,
-} from "./type-checker";
+import { TClass, TEffect, Type, typeToString } from "./type-checker";
 
 export const emptyToken: Token = {
   position: {
@@ -49,7 +43,6 @@ export type VariableValue = {
 
   // different kinds of values
   type: Type;
-  region?: TRegionParameter;
   effect?: TEffect;
   class?: TClass;
   kind: VariableValueKind;

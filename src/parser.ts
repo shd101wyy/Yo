@@ -52,8 +52,6 @@ import { Token, TokenType } from "./token";
 import {
   ParseExpression,
   ParserReturn,
-  Region,
-  RegionKind,
   TClass,
   TClassFunction,
   TEffect,
@@ -64,15 +62,14 @@ import {
   TModule,
   TParameterType,
   TRecord,
-  TRegionParameter,
   TTypeConstructor,
   TTypeParameter,
   Type,
   TypeKind,
   TypeValues,
-  applyTypeAndRegionArgumentsToClass,
-  applyTypeAndRegionArgumentsToEffect,
-  applyTypeAndRegionArgumentsToType,
+  applyTypeArgumentsToClass,
+  applyTypeArgumentsToEffect,
+  applyTypeArgumentsToType,
   checkEffect,
   checkFunctionEffects,
   checkType,
@@ -86,9 +83,9 @@ import {
   synthesizeFunctionParameterTypesFromTokens,
   synthesizeFunctionTypeFromTokens,
   synthesizeRecordType,
-  synthesizeTypeAndRegionArgumentsFromTokens,
-  synthesizeTypeAndRegionParametersFromTokens,
+  synthesizeTypeArgumentsFromTokens,
   synthesizeTypeFromTokens,
+  synthesizeTypeParametersFromTokens,
   synthesizeTypes,
   typeContainsReadWrite,
   typeIsFunctionTypeThatReturnsPromise,
@@ -1444,7 +1441,6 @@ RHS order: ${rhsOrder}`
       effects: [],
       // hasMoreEffects: false,
       typeParameters: [],
-      regionParameters: [],
       returnType: TypeValues.unit,
       parameterTypes: [
         {
@@ -1476,7 +1472,6 @@ RHS order: ${rhsOrder}`
       effects: [],
       // hasMoreEffects: false,
       typeParameters: [],
-      regionParameters: [],
       returnType: TypeValues.unit,
       parameterTypes: [
         {
@@ -1633,7 +1628,7 @@ RHS order: ${rhsOrder}`
         typeArguments: nextTypeArguments,
         index: nextIndex,
         env: nextEnv,
-      } = synthesizeTypeAndRegionArgumentsFromTokens({
+      } = synthesizeTypeArgumentsFromTokens({
         tokens,
         index: index,
         env,
@@ -1812,7 +1807,6 @@ RHS order: ${rhsOrder}`
     const {
       functionArguments: functionArgumentsInOrder,
       functionTypeArguments: functionTypeArgumentsInOrder,
-      functionRegionArguments: functionRegionArgumentsInOrder,
     } = getFunctionArgumentsInOrder(
       calleeTypeValue,
       calleeTypeValue.parameterTypes,
@@ -1839,7 +1833,7 @@ Got:      (${functionArguments
           .join(", ")})`
       );
     }
-    if (!functionTypeArgumentsInOrder || !functionRegionArgumentsInOrder) {
+    if (!functionTypeArgumentsInOrder) {
       throw this.formatErrorMessage(
         tokens[index],
         `Mismatched type arguments.
@@ -1865,12 +1859,10 @@ Got:      <${functionTypeArgumentsInOrder
           .join(", ")}>`
       );
     } else {
-      const typeValue_ = applyTypeAndRegionArgumentsToType({
+      const typeValue_ = applyTypeArgumentsToType({
         env,
         type: calleeTypeValue,
         typeArguments: functionTypeArgumentsInOrder,
-        regionArguments: functionRegionArgumentsInOrder,
-        regionParameterToRegionArgumentMap: {},
         typeParameterToTypeArgumentMap: {},
       }) as TFunction;
 
@@ -2099,7 +2091,6 @@ Callee  : ${effectsToString(calleeTypeValue.effects)}
     const {
       functionArguments: variantArgumentsInOrder,
       functionTypeArguments: variantTypeArgumentsInOrder,
-      functionRegionArguments: variantRegionArgumentsInOrder,
     } = getFunctionArgumentsInOrder(
       calleeTypeValue,
       selectedVariant.parameterTypes,
@@ -2127,7 +2118,7 @@ Got:      (${variantArguments
       );
     }
 
-    if (!variantTypeArgumentsInOrder || !variantRegionArgumentsInOrder) {
+    if (!variantTypeArgumentsInOrder) {
       throw this.formatErrorMessage(
         tokens[index],
         `Mismatched type arguments.
@@ -2140,13 +2131,11 @@ Got:      <${appliedTypeArguments
       );
     }
 
-    const enumType: TEnum = applyTypeAndRegionArgumentsToType({
+    const enumType: TEnum = applyTypeArgumentsToType({
       env,
       type: { ...calleeTypeValue },
       typeArguments: variantTypeArgumentsInOrder,
-      regionArguments: variantRegionArgumentsInOrder,
       typeParameterToTypeArgumentMap: {},
-      regionParameterToRegionArgumentMap: {},
     }) as TEnum;
 
     env = this.checkFunctionArgumentsOrderAndConsumeOwnLinearValues({
@@ -2341,33 +2330,28 @@ Found possible typeclasses:
           );
         }
         let typeArguments: Type[] = [];
-        let regionArguments: Region[] = [];
         if (tokens[index + 1]?.value === "<") {
           const {
             typeArguments: nextTypeArguments,
-            regionArguments: nextRegionArguments,
             index: nextIndex,
             env: nextEnv,
-          } = synthesizeTypeAndRegionArgumentsFromTokens({
+          } = synthesizeTypeArgumentsFromTokens({
             tokens,
             index: index + 1,
             env,
             parseExpression: this.makeParseExpression({ caller, parserData }),
           });
           typeArguments = nextTypeArguments;
-          regionArguments = nextRegionArguments;
           index = nextIndex;
           env = nextEnv;
         } else {
           index = index + 1;
         }
-        const newTypeclassType = applyTypeAndRegionArgumentsToClass({
+        const newTypeclassType = applyTypeArgumentsToClass({
           class_: class_,
           env,
           typeArguments,
-          regionArguments,
           typeParameterToTypeArgumentMap: {},
-          regionParameterToRegionArgumentMap: {},
         });
 
         return {
@@ -2399,35 +2383,30 @@ Found possible enums:
       const enumValue = matchedEnums[matchedEnums.length - 1];
       const enumType = enumValue.type as TEnum;
       let typeArguments: Type[] = [];
-      let regionArguments: Region[] = [];
       const enumTokenIndex = index;
       if (tokens[index + 1]?.value === "<") {
         const {
           typeArguments: nextTypeArguments,
-          regionArguments: nextRegionArguments,
           index: nextIndex,
           env: nextEnv,
-        } = synthesizeTypeAndRegionArgumentsFromTokens({
+        } = synthesizeTypeArgumentsFromTokens({
           tokens,
           index: index + 1,
           env,
           parseExpression: this.makeParseExpression({ caller, parserData }),
         });
         typeArguments = nextTypeArguments;
-        regionArguments = nextRegionArguments;
         index = nextIndex;
         env = nextEnv;
       } else {
         index = index + 1;
       }
 
-      const newEnumType = applyTypeAndRegionArgumentsToType({
+      const newEnumType = applyTypeArgumentsToType({
         env,
         type: enumType,
         typeArguments,
-        regionArguments,
         typeParameterToTypeArgumentMap: {},
-        regionParameterToRegionArgumentMap: {},
       });
 
       return {
@@ -2452,35 +2431,30 @@ Found possible enums:
         matchedTypeConstructors[matchedTypeConstructors.length - 1];
       const typeConstructorType = typeConstructor.type as TTypeConstructor;
       let typeArguments: Type[] = [];
-      let regionArguments: Region[] = [];
       const typeConstructorTokenIndex = index;
       if (tokens[index + 1]?.value === "<") {
         const {
           typeArguments: nextTypeArguments,
-          regionArguments: nextRegionArguments,
           index: nextIndex,
           env: nextEnv,
-        } = synthesizeTypeAndRegionArgumentsFromTokens({
+        } = synthesizeTypeArgumentsFromTokens({
           tokens,
           index: index + 1,
           env,
           parseExpression: this.makeParseExpression({ caller, parserData }),
         });
         typeArguments = nextTypeArguments;
-        regionArguments = nextRegionArguments;
         index = nextIndex;
         env = nextEnv;
       } else {
         index = index + 1;
       }
 
-      const newTypeConstructorType = applyTypeAndRegionArgumentsToType({
+      const newTypeConstructorType = applyTypeArgumentsToType({
         env,
         type: typeConstructorType,
         typeArguments,
-        regionArguments,
         typeParameterToTypeArgumentMap: {},
-        regionParameterToRegionArgumentMap: {},
       }) as TTypeConstructor;
 
       // Parse next expressions as primary
@@ -3262,8 +3236,8 @@ ${matchedFunctionErrors[i] ?? ""}`
     expr,
     // tokens,
     index, // env,
-    // parserData,
-  } // caller,
+    // caller,
+  } // parserData,
   : {
     expr: Expr;
     tokens: Token[];
@@ -3445,17 +3419,14 @@ ${matchedFunctionErrors[i] ?? ""}`
       for (const matchedFunction of matchedFunctions) {
         try {
           const functionType = matchedFunction.type as TFunction;
-          const {
-            functionArguments,
-            functionTypeArguments,
-            functionRegionArguments,
-          } = getFunctionArgumentsInOrder(
-            functionType,
-            functionType.parameterTypes,
-            [LHS, RHS],
-            [],
-            env
-          );
+          const { functionArguments, functionTypeArguments } =
+            getFunctionArgumentsInOrder(
+              functionType,
+              functionType.parameterTypes,
+              [LHS, RHS],
+              [],
+              env
+            );
           if (!functionArguments) {
             throw this.formatErrorMessage(
               binaryOperatorToken,
@@ -3478,7 +3449,7 @@ Got:      (${[LHS, RHS]
                 .join(", ")})`
             );
           }
-          if (!functionTypeArguments || !functionRegionArguments) {
+          if (!functionTypeArguments) {
             throw this.formatErrorMessage(
               binaryOperatorToken,
               `Mismatched type arguments.
@@ -3489,13 +3460,11 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
             );
           }
 
-          const newFunctionType = applyTypeAndRegionArgumentsToType({
+          const newFunctionType = applyTypeArgumentsToType({
             env,
             type: { ...functionType },
             typeArguments: functionTypeArguments,
-            regionArguments: functionRegionArguments,
             typeParameterToTypeArgumentMap: {},
-            regionParameterToRegionArgumentMap: {},
           }) as TFunction;
           // save the return value to a temporary variable
           const returnType = newFunctionType.returnType;
@@ -3625,17 +3594,14 @@ ${matchedFunctionErrors[i] ?? ""}`
     for (const matchedFunction of matchedFunctions) {
       try {
         const functionType = matchedFunction.type as TFunction;
-        const {
-          functionArguments,
-          functionTypeArguments,
-          functionRegionArguments,
-        } = getFunctionArgumentsInOrder(
-          functionType,
-          functionType.parameterTypes,
-          [expr],
-          [],
-          env
-        );
+        const { functionArguments, functionTypeArguments } =
+          getFunctionArgumentsInOrder(
+            functionType,
+            functionType.parameterTypes,
+            [expr],
+            [],
+            env
+          );
         if (!functionArguments) {
           throw this.formatErrorMessage(
             operatorToken,
@@ -3658,7 +3624,7 @@ Got:      (${[expr]
               .join(", ")})`
           );
         }
-        if (!functionTypeArguments || !functionRegionArguments) {
+        if (!functionTypeArguments) {
           throw this.formatErrorMessage(
             operatorToken,
             `Mismatched type arguments.
@@ -3669,13 +3635,11 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
           );
         }
 
-        const newFunctionType = applyTypeAndRegionArgumentsToType({
+        const newFunctionType = applyTypeArgumentsToType({
           env,
           type: { ...functionType },
           typeArguments: functionTypeArguments,
-          regionArguments: functionRegionArguments,
           typeParameterToTypeArgumentMap: {},
-          regionParameterToRegionArgumentMap: {},
         }) as TFunction;
         // save the return value to a temporary variable
         const returnType = newFunctionType.returnType;
@@ -5095,7 +5059,6 @@ ${typeToString(caseReturnType)}
         expectedType: userDefinedVariableType,
         givenType: variableType,
         typeParameterToTypeArgumentMap: {},
-        regionParameterToRegionArgumentMap: {},
       });
       if (!nextUserDefinedType) {
         throw this.formatErrorMessage(
@@ -5781,21 +5744,18 @@ ${typeToString(valueType)}`
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
-    let regionParameters: TRegionParameter[] = [];
     if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeParameters: tp,
-        regionParameters: rp,
         env: nextEnv,
-      } = synthesizeTypeAndRegionParametersFromTokens({
+      } = synthesizeTypeParametersFromTokens({
         tokens,
         index,
         env,
       });
       index = nextIndex;
       typeParameters = tp;
-      regionParameters = rp;
       env = nextEnv;
     }
 
@@ -5815,7 +5775,7 @@ ${typeToString(valueType)}`
     }
 
     // Type value
-    let kind: TypeKind | RegionKind | undefined = undefined;
+    let kind: TypeKind | undefined = undefined;
     let typeValue: Type = {
       type: "Extern",
       kind: "Free",
@@ -5891,7 +5851,6 @@ ${typeToString(nextTypeValue)}`
       typeConstructorName: typeName,
       typeConstructorId: generateVarialeValueId(env, typeName),
       typeParameters,
-      regionParameters,
       typeValue,
     };
 
@@ -5995,21 +5954,18 @@ ${typeToString(nextTypeValue)}`
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
-    let regionParameters: TRegionParameter[] = [];
     if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeParameters: tp,
-        regionParameters: rp,
         env: nextEnv,
-      } = synthesizeTypeAndRegionParametersFromTokens({
+      } = synthesizeTypeParametersFromTokens({
         tokens,
         index,
         env,
       });
       index = nextIndex;
       typeParameters = tp;
-      regionParameters = rp;
       env = nextEnv;
     }
 
@@ -6106,9 +6062,8 @@ ${typeToString(functionType)}
         functionType = functionExpr.typeValue; // NOTE: <= This is necessary
       }
 
-      // Add the typeParameters and regionParameters of the class to the functionType
+      // Add the typeParameters of the class to the functionType
       functionType.typeParameters = typeParameters;
-      functionType.regionParameters = regionParameters;
 
       // Check if the function name is already defined in the class
       if (functions.some((func) => func.name === functionName)) {
@@ -6141,7 +6096,6 @@ ${typeToString(functionType)}
       className: typeclassName,
       classId: generateVarialeValueId(env, typeclassName),
       typeParameters,
-      regionParameters,
       functions,
       isInstance: false,
     };
@@ -6222,21 +6176,18 @@ ${typeToString(functionType)}
 
     // Instance type parameters
     const instanceTypeParameters: TTypeParameter[] = [];
-    const instanceRegionParameters: TRegionParameter[] = [];
     if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeParameters: tp,
-        regionParameters: rp,
         env: nextEnv,
-      } = synthesizeTypeAndRegionParametersFromTokens({
+      } = synthesizeTypeParametersFromTokens({
         tokens,
         index,
         env,
       });
       index = nextIndex;
       instanceTypeParameters.push(...tp);
-      instanceRegionParameters.push(...rp);
       env = nextEnv;
     }
 
@@ -6279,21 +6230,18 @@ ${typeToString(functionType)}
 
     const class_: TClass = {
       ...typeclass,
-      instanceRegionParameters,
       instanceTypeParameters,
       isInstance: true,
     };
 
     // Parse class type arguments
     let typeArguments: Type[] = [];
-    let regionArguments: Region[] = [];
     if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeArguments: nextTypeArguments,
-        regionArguments: nextRegionArguments,
         env: nextEnv,
-      } = synthesizeTypeAndRegionArgumentsFromTokens({
+      } = synthesizeTypeArgumentsFromTokens({
         tokens,
         index,
         env,
@@ -6301,18 +6249,15 @@ ${typeToString(functionType)}
       });
       index = nextIndex;
       typeArguments = nextTypeArguments;
-      regionArguments = nextRegionArguments;
       env = nextEnv;
     }
 
     // Apply type arguments to typeclass
-    const newClass = applyTypeAndRegionArgumentsToClass({
+    const newClass = applyTypeArgumentsToClass({
       env,
       class_,
       typeArguments,
-      regionArguments,
       typeParameterToTypeArgumentMap: {},
-      regionParameterToRegionArgumentMap: {},
     }) as TClass;
 
     // Parse typeclass body
@@ -6390,7 +6335,6 @@ ${typeToString(functionType)}
 
       // Add the typeParameters and regionParameters of the class to the functionType
       functionType.typeParameters = newClass.typeParameters;
-      functionType.regionParameters = newClass.regionParameters;
       // functionType.typeParameters = newClass.instanceTypeParameters ?? [];
       // functionType.regionParameters = newClass.instanceRegionParameters ?? [];
 
@@ -6534,21 +6478,18 @@ Got:      ${typeToString(matchedFunction.func)}`
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
-    let regionParameters: TRegionParameter[] = [];
     if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeParameters: tp,
-        regionParameters: rp,
         env: nextEnv,
-      } = synthesizeTypeAndRegionParametersFromTokens({
+      } = synthesizeTypeParametersFromTokens({
         tokens,
         index,
         env,
       });
       index = nextIndex;
       typeParameters = tp;
-      regionParameters = rp;
       env = nextEnv;
     }
 
@@ -6557,7 +6498,6 @@ Got:      ${typeToString(matchedFunction.func)}`
       effectId: generateVarialeValueId(env, effectName),
       operations: [],
       type: "Effect",
-      regionParameters: regionParameters,
       typeParameters: typeParameters,
     };
     const { env: nextEnv } = addEnvVariableValue({
@@ -6655,9 +6595,7 @@ ${operationName}: ${typeToString(
 `
         );
       }
-
       functionType.typeParameters = typeParameters;
-      functionType.regionParameters = regionParameters;
 
       // Check if there is already an operation with the same name
       if (operations.some((op) => op.name === operationName)) {
@@ -6687,7 +6625,6 @@ ${operationName}: ${typeToString(
       effectName,
       effectId: fakeEffect.effectId,
       operations,
-      regionParameters,
       typeParameters,
     };
     const { env: nextNextEnv } = addEnvVariableValue({
@@ -6768,21 +6705,18 @@ ${operationName}: ${typeToString(
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
-    let regionParameters: TRegionParameter[] = [];
     if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeParameters: tp,
-        regionParameters: rp,
         env: nextEnv,
-      } = synthesizeTypeAndRegionParametersFromTokens({
+      } = synthesizeTypeParametersFromTokens({
         tokens,
         index,
         env,
       });
       index = nextIndex;
       typeParameters = tp;
-      regionParameters = rp;
       env = nextEnv;
     }
 
@@ -6915,7 +6849,6 @@ ${operationName}: ${typeToString(
       enumId: generateVarialeValueId(env, enumName),
       enumName,
       typeParameters,
-      regionParameters,
       variants: enumVariants,
       selectedVariantName:
         enumVariants.length === 1 ? enumVariants[0].name : undefined,
@@ -7347,14 +7280,12 @@ ${exprToString(expr)}`
 
       // Parse effect type arguments
       let typeArguments: Type[] = [];
-      let regionArguments: Region[] = [];
       if (tokens[index].value === "<") {
         const {
           index: nextIndex,
           typeArguments: nextTypeArguments,
-          regionArguments: nextRegionArguments,
           env: nextEnv,
-        } = synthesizeTypeAndRegionArgumentsFromTokens({
+        } = synthesizeTypeArgumentsFromTokens({
           tokens,
           index,
           env,
@@ -7362,18 +7293,15 @@ ${exprToString(expr)}`
         });
         index = nextIndex;
         typeArguments = nextTypeArguments;
-        regionArguments = nextRegionArguments;
         env = nextEnv;
       }
 
       // Apply type arguments to effect
-      const newEffect = applyTypeAndRegionArgumentsToEffect({
+      const newEffect = applyTypeArgumentsToEffect({
         env,
         effect,
         typeArguments,
-        regionArguments,
         typeParameterToTypeArgumentMap: {},
-        regionParameterToRegionArgumentMap: {},
       });
 
       // Parse effect body
