@@ -6,7 +6,7 @@
 
 **Mo** has a minimal syntax design that looks like TypeScript, and uses uniform call syntax (dot notation)~~, brace elison~~ to make the code more concise.
 
-**Mo** is strong typed with a robust bidrectional type checker. **Mo** supports typeclass and instances, combined with algebraic effects (one-shot) and an efficient type system.
+**Mo** is strong typed with a robust bidrectional type checker. **Mo** supports `interface` that works like typeclass/trait, combined with algebraic effects (one-shot) and an efficient type system.
 
 **Mo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types. `In Design`
 
@@ -43,8 +43,9 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [`defer`](#defer)
     - [`recur`](#recur)
     - [Custom Operators](#custom-operators)
-    - [Mulitple Return Values](#mulitple-return-values)
+    - [Mulitple Return Values `In Design`](#mulitple-return-values-in-design)
   - [Closure `In Design`](#closure-in-design)
+    - [Closure group](#closure-group)
   - [Mutability `To be updated`](#mutability-to-be-updated)
   - [Generic](#generic)
     - [Type parameters](#type-parameters)
