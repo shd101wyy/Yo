@@ -1,4 +1,4 @@
-effect GiveInt<T> {
+interface GiveInt<T> {
   giveInt: (x: T)-> [GiveInt<T>, *] T;
 }
 

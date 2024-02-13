@@ -231,7 +231,7 @@ export type TFunction = {
   functionId: string;
   typeParameters: TTypeParameter[];
   parameterTypes: TParameterType[];
-  effects: TEffect[];
+  effects: TInterface[];
   // hasMoreEffects: boolean;
   returnType: Type;
 
@@ -239,6 +239,7 @@ export type TFunction = {
 
   hasNoImplementation?: boolean;
   ignoreAmbiguityCheck?: boolean;
+  isEffectOperation?: boolean;
 
   /**
    * Right now only ()=>{} is closure
@@ -316,8 +317,8 @@ export type TInterface = {
   typeParameters: TTypeParameter[];
   functions: TInterfaceFunction[];
 
-  // NOTE: Below are for "instance"
-  isInstance: boolean;
+  // NOTE: Below are for "implement"
+  isImplementation: boolean;
   instanceTypeParameters?: TTypeParameter[];
 };
 
@@ -335,23 +336,6 @@ export type TEnum = {
   selectedVariantName?: string;
   kind: TypeKind;
   permission: TypePermission;
-};
-
-export type TEffectOperation = {
-  name: string;
-  func: TFunction;
-  functionExpr?: FunctionExpr;
-};
-
-export type TEffect = {
-  type: "Effect";
-  effectName: string;
-  effectId: string;
-  typeParameters: TTypeParameter[];
-  operations: TEffectOperation[];
-
-  // NOTE: Below are for "handler"
-  isHandler?: boolean;
 };
 
 export type TExternType = {
@@ -415,10 +399,6 @@ export type Type =
   | TEnum
   | TPrimitiveWithValue
   | TExternType;
-
-export type Effect = TEffect;
-
-// Type constructors
 
 export const TypeValues: {
   unit: TUnit;
@@ -1511,9 +1491,9 @@ export function applyTypeArgumentsToType({
         typeParameterToTypeArgumentMap,
       }),
       effects: type.effects.map((effect) =>
-        applyTypeArgumentsToEffect({
+        applyTypeArgumentsToInterface({
           env,
-          effect,
+          interface_: effect,
           typeParameterToTypeArgumentMap,
         })
       ),
@@ -1621,57 +1601,6 @@ export function applyTypeArgumentsToType({
   }
 }
 
-export function applyTypeArgumentsToEffect({
-  env,
-  effect,
-  typeArguments,
-  typeParameterToTypeArgumentMap,
-}: {
-  env: Environment;
-  effect: TEffect;
-  typeArguments?: Type[];
-  typeParameterToTypeArgumentMap: { [key: string]: Type };
-}): TEffect {
-  // logger.debug("- applyTypeArgumentsToEffect");
-
-  const typeParameters = effect.typeParameters;
-  if (typeArguments && typeParameters.length !== typeArguments.length) {
-    throw new Error(
-      `(7) Mismatched type arguments.
-Expected: <${typeParameters
-        .map(
-          (typeParameter) =>
-            `${typeParameter.typeParameterName}: ${typeParameter.kind}`
-        )
-        .join(", ")}>
-Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
-    );
-  }
-
-  // set typeParameterToTypeArgumentMap
-  const { typeParameters: newTypeParameters } = generateNewTypeParameters({
-    env,
-    typeParameters: effect.typeParameters,
-    typeArguments,
-    typeParameterToTypeArgumentMap,
-  });
-
-  const newEffect: TEffect = {
-    ...effect,
-    typeParameters: newTypeParameters,
-    operations: effect.operations.map((operation) => ({
-      ...operation,
-      func: applyTypeArgumentsToType({
-        env,
-        type: operation.func,
-        typeParameterToTypeArgumentMap,
-      }) as TFunction,
-    })),
-    isHandler: true,
-  };
-  return newEffect;
-}
-
 export function applyTypeArgumentsToInterface({
   env,
   interface_,
@@ -1734,7 +1663,7 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
     interfaceId: interface_.interfaceId,
     typeParameters: newTypeParameters,
     functions: functions,
-    isInstance: true, // type.isInstance,
+    isImplementation: true, // type.isImplementation,
     instanceTypeParameters: interface_.instanceTypeParameters,
   };
 }
@@ -2461,11 +2390,11 @@ export function synthesizeEffectsFromTokens({
   env: Environment;
   parseExpression: ParseExpression;
 }): {
-  effects: TEffect[];
+  effects: TInterface[];
   // hasMoreEffects: boolean;
   index: number;
 } {
-  const effects: TEffect[] = [];
+  const effects: TInterface[] = [];
   // let hasMoreEffects = false;
 
   if (tokens[index].type !== TokenType.LBracket) {
@@ -2529,7 +2458,7 @@ export function synthesizeEffectsFromTokens({
       const effectValues = getEnvVariableValueByVariableName(
         env,
         effectName,
-        "effect"
+        "interface"
       );
       if (effectValues.length === 0) {
         throw formatErrorMessage({
@@ -2546,7 +2475,7 @@ export function synthesizeEffectsFromTokens({
           inputString: env.inputString,
         });
       } else {
-        const effect = effectValues[0].effect;
+        const effect = effectValues[0].interface;
         if (!effect) {
           throw formatErrorMessage({
             token: tokens[index],
@@ -2555,8 +2484,8 @@ export function synthesizeEffectsFromTokens({
             inputString: env.inputString,
           });
         }
-        const newEffect = applyTypeArgumentsToEffect({
-          effect,
+        const newEffect = applyTypeArgumentsToInterface({
+          interface_: effect,
           env,
           typeArguments,
           typeParameterToTypeArgumentMap: {},
@@ -2651,7 +2580,7 @@ export function synthesizeFunctionTypeFromTokens({
     index = index + 1;
 
     // Effects
-    let effects: TEffect[] = [];
+    let effects: TInterface[] = [];
     // let hasMoreEffects = false;
     if (tokens[index].type === TokenType.LBracket) {
       const {
@@ -3396,12 +3325,11 @@ export function checkType(
 }
 
 export function checkEffect(
-  expectedEffect: TEffect,
-  givenEffect: TEffect,
+  expectedEffect: TInterface,
+  givenEffect: TInterface,
   env: Environment
 ): boolean {
-  // FIXME: Let's check ID in the future.
-  if (expectedEffect.effectName !== givenEffect.effectName) {
+  if (expectedEffect.interfaceId !== givenEffect.interfaceId) {
     return false;
   }
   if (
@@ -3453,7 +3381,7 @@ export function typeParametersToString(
 }
 
 export function effectToString(
-  effect: TEffect,
+  effect: TInterface,
   {
     extractTypeConstructor,
     hideTypeParameterKind,
@@ -3463,12 +3391,12 @@ export function effectToString(
   } = {}
 ): string {
   if (extractTypeConstructor) {
-    return `${effect.isHandler ? "" : "effect "}${
-      effect.effectName
+    return `${effect.isImplementation ? "" : "effect "}${
+      effect.interfaceName
     }${typeParametersToString(effect.typeParameters, {
       hideTypeParameterKind,
     })} {
-${effect.operations
+${effect.functions
   .map(({ func, name, functionExpr }) => {
     return `  ${name}: ${typeToString(func, {
       extractTypeConstructor: false,
@@ -3477,7 +3405,7 @@ ${effect.operations
   .join(";\n")};
 }`;
   } else {
-    return `${effect.effectName}${typeParametersToString(
+    return `${effect.interfaceName}${typeParametersToString(
       effect.typeParameters,
       { hideTypeParameterKind }
     )}`;
@@ -3485,7 +3413,7 @@ ${effect.operations
 }
 
 export function effectsToString(
-  effects: TEffect[],
+  effects: TInterface[],
   // hasMoreEffects: boolean,
   {
     hideTypeParameterKind,
@@ -3512,11 +3440,11 @@ export function effectsToString(
 
 export function interfaceToString(type: TInterface): string {
   return `${
-    type.isInstance
+    type.isImplementation
       ? `implement${typeParametersToString(type.instanceTypeParameters ?? [])}`
       : "interface"
   } ${type.interfaceName}${typeParametersToString(type.typeParameters, {
-    hideTypeParameterKind: type.isInstance,
+    hideTypeParameterKind: type.isImplementation,
   })} {
 ${type.functions
   .map(

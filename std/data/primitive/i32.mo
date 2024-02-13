@@ -1,5 +1,6 @@
 import {*} from "../../builtins.mo";
-import {*} from "../arithmetic.mo";
+import {*} from "../../interface/arithmetic.mo";
+import {*} from "../../interface/logic.mo";
 
 /**
  * arithmetic
@@ -38,3 +39,7 @@ implement Mod<i32> {
     recur(a, b)
   }
 }
+
+/**
+ * logic
+ */

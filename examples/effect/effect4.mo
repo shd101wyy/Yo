@@ -1,4 +1,4 @@
-effect GiveData<T> {
+interface GiveData<T> {
   giveData: (x: T)-> [GiveData<T>] T;
 }
 

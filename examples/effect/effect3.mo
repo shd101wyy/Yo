@@ -1,4 +1,4 @@
-effect GiveInt {
+interface GiveInt {
   giveInt: (x: i32)-> [GiveInt] i32;
 }
 

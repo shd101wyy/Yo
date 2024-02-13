@@ -8,7 +8,7 @@ import {
   stringIsOperator,
 } from "./operator";
 import { Token, TokenType } from "./token";
-import { TEffect, TInterface, Type, typeToString } from "./type-checker";
+import { TInterface, Type, typeToString } from "./type-checker";
 
 export const emptyToken: Token = {
   position: {
@@ -24,7 +24,6 @@ type VariableValueKind =
   | "region"
   | "value" // value, function, enum variant
   | "interface" // interface
-  | "effect" // effect
   | "module";
 
 export type ReferedVariable = {
@@ -43,7 +42,6 @@ export type VariableValue = {
 
   // different kinds of values
   type: Type;
-  effect?: TEffect;
   interface?: TInterface;
   kind: VariableValueKind;
 

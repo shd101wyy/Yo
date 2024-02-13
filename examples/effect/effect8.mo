@@ -1,8 +1,8 @@
-effect Ask<T> {
+interface Ask<T> {
   ask: ()-> [Ask<T>] Promise<T>;
 }
 
-effect Random {}
+interface Random {}
 
 extern "C" {
   randomInt: () -> [Random] Promise<i32>;

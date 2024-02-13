@@ -3,7 +3,6 @@ import { stringIsOperator } from "./operator";
 import { Token } from "./token";
 import {
   TBoolean,
-  TEffect,
   TEnum,
   TFunction,
   TInterface,
@@ -103,18 +102,6 @@ export enum AstType {
   ImplicitDereference = "implicit-dereference",
 }
 
-export enum OperatorType {
-  LessThan = "<",
-  LessThanOrEqual = "<=",
-  Equal = "==",
-  NotEqual = "!=",
-  Add = "+",
-  Subtract = "-",
-  Multiply = "*",
-  Divide = "/",
-  Modulo = "%",
-}
-
 /**
  * All Expr should have `typeValue` and `env` attribute.
  */
@@ -127,7 +114,6 @@ export type Expr =
   | TypeAliasExpr
   | EnumExpr
   | InterfaceExpr
-  | EffectExpr
   // | UnaryOperatorExpr
   | IsOperatorExpr
   | VariableExpr
@@ -350,14 +336,6 @@ export type InterfaceExpr = {
   token: Token;
 };
 
-export type EffectExpr = {
-  type: AstType.Effect;
-  typeValue: TUnit;
-  effect: TEffect;
-  env: Environment;
-  token: Token;
-};
-
 export type FunctionExpr = {
   type: AstType.Function;
   /**
@@ -485,7 +463,7 @@ export type TryExpr = {
   env: Environment;
   token: Token;
   body: BlockExpr;
-  effectHandlers: TEffect[];
+  handlers: TInterface[];
 };
 
 export type AwaitExpr = {
@@ -769,21 +747,13 @@ ${indentation}}`;
         })
         .join("\n")}\n}`;
     }
-    case AstType.Effect: {
-      return effectToString(expr.effect, {
-        extractTypeConstructor: true,
-        hideTypeParameterKind: false,
-      });
-    }
     case AstType.Try: {
-      return `try ${exprToString(expr.body)} ${expr.effectHandlers.map(
-        (handler) => {
-          return `with ${effectToString(handler, {
-            extractTypeConstructor: true,
-            hideTypeParameterKind: false,
-          })}`;
-        }
-      )}`;
+      return `try ${exprToString(expr.body)} ${expr.handlers.map((handler) => {
+        return `with ${effectToString(handler, {
+          extractTypeConstructor: true,
+          hideTypeParameterKind: false,
+        })}`;
+      })}`;
     }
     case AstType.Await: {
       return `(await ${exprToString(expr.expr)})`;

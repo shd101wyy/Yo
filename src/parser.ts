@@ -52,8 +52,6 @@ import { Token, TokenType } from "./token";
 import {
   ParseExpression,
   ParserReturn,
-  TEffect,
-  TEffectOperation,
   TEnum,
   TEnumVariant,
   TFunction,
@@ -67,7 +65,6 @@ import {
   Type,
   TypeKind,
   TypeValues,
-  applyTypeArgumentsToEffect,
   applyTypeArgumentsToInterface,
   applyTypeArgumentsToType,
   checkEffect,
@@ -1294,7 +1291,7 @@ RHS order: ${rhsOrder}`
     // Extract effect operations
     if (functionType.effects.length > 0) {
       functionType.effects.forEach((effect) => {
-        effect.operations.forEach(({ name, func }) => {
+        effect.functions.forEach(({ name, func }) => {
           const { env: nextEnv } = addEnvVariableValue({
             env,
             variableValue: {
@@ -1981,8 +1978,8 @@ Got:      <${functionTypeArgumentsInOrder
       throw this.formatErrorMessage(
         tokens[startIndex],
         `Mismatched effects:
-Caller  : ${effectsToString(caller.effects)}
-Callee  : ${effectsToString(calleeTypeValue.effects)}
+  Caller: ${effectsToString(caller.effects)}
+  Callee: ${effectsToString(calleeTypeValue.effects)}
 `
       );
     }
@@ -2520,8 +2517,17 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
         functionName: string;
         functionType: TFunction;
       }[] = [];
+      const failedFunctions: {
+        functionName: string;
+        functionType: TFunction;
+      }[] = [];
       const helper = (functionName: string, functionType: TFunction) => {
-        if (functionType.hasNoImplementation) {
+        if (
+          !functionType.isEffectOperation &&
+          functionType.hasNoImplementation
+        ) {
+          matchedFunctionErrors.push(new Error("No implementation found"));
+          failedFunctions.push({ functionName, functionType });
           return;
         }
         try {
@@ -2549,6 +2555,7 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
           // console.error(error);
           // Ignore the error
           matchedFunctionErrors.push(error);
+          failedFunctions.push({ functionName, functionType });
         }
       };
       for (const functionValue of matchedFunctions) {
@@ -2567,16 +2574,18 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
         throw this.formatErrorMessage(
           tokens[index],
           `Cannot find function '${identifier}'
-Below are the possible functions:
-
-${matchedFunctions
+${
+  failedFunctions.length > 0
+    ? `Below are the possible ${failedFunctions.length} functions:`
+    : ""
+}
+${failedFunctions
   .map(
-    (func, i) => `- ${func.variableName}: ${typeToString(func.type)}
-  
-${matchedFunctionErrors[i]}`
+    (func, i) => `- ${func.functionName}: ${typeToString(func.functionType)}
+  ${matchedFunctionErrors[i]}`
   )
   .join("\n")}
-          `
+          `.trim()
         );
       } else if (
         parserReturns.filter((p) => {
@@ -2594,8 +2603,7 @@ Found possible functions:
               (func, i) => `${func.functionName}: ${typeToString(
                 func.functionType
               )}
- 
-${matchedFunctionErrors[i] ?? ""}`
+  ${matchedFunctionErrors[i] ?? ""}`
             )
             .join("\n- ")}`
         );
@@ -3269,8 +3277,8 @@ ${matchedFunctionErrors[i] ?? ""}`
     expr,
     // tokens,
     index, // env,
-    // caller,
-  } // parserData,
+    // parserData,
+  } // caller,
   : {
     expr: Expr;
     tokens: Token[];
@@ -3544,7 +3552,7 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
       if (parserReturns.length === 0) {
         throw this.formatErrorMessage(
           binaryOperatorToken,
-          `Cannot find function '${operatorString}'
+          `Cannot find function '${operatorString}' as binary operator
 Below are the possible functions:
 
 ${matchedFunctions
@@ -3719,7 +3727,7 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
     if (parserReturns.length === 0) {
       throw this.formatErrorMessage(
         operatorToken,
-        `Cannot find function '${operatorToken.value}'
+        `Cannot find function '${operatorToken.value}' as unary operator
 Below are the possible functions:
 
 ${matchedFunctions
@@ -5962,28 +5970,12 @@ ${typeToString(nextTypeValue)}`
     if (!isUpperCamelCase(interfaceName)) {
       throw this.formatErrorMessage(
         tokens[index],
-        "Class name has to be UpperCamelCase"
+        "interface name has to be UpperCamelCase"
       );
     }
 
     // NOTE: This is necessary for type parameters and recursive type alias
     env = pushEnvFrame(env);
-    const { env: nextEnv } = addEnvVariableValue({
-      env,
-      variableValue: {
-        variableName: interfaceName,
-        type: {
-          type: "unknown",
-          kind: "Free",
-          permission: "own",
-          typeName: interfaceName,
-        },
-        kind: "type",
-        isExported,
-        token: tokens[interfaceNameTokenIndex],
-      },
-    });
-    env = nextEnv;
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
@@ -6001,6 +5993,33 @@ ${typeToString(nextTypeValue)}`
       typeParameters = tp;
       env = nextEnv;
     }
+
+    const interfaceId = generateVarialeValueId(env, interfaceName);
+    const fakeInterface: TInterface = {
+      type: "Interface",
+      interfaceName,
+      interfaceId,
+      functions: [],
+      typeParameters,
+      isImplementation: false,
+    };
+    const { env: nextEnv } = addEnvVariableValue({
+      env,
+      variableValue: {
+        variableName: interfaceName,
+        type: {
+          type: "unknown",
+          kind: "Free",
+          permission: "own",
+          typeName: interfaceName,
+        },
+        kind: "interface",
+        interface: fakeInterface,
+        isExported,
+        token: tokens[interfaceNameTokenIndex],
+      },
+    });
+    env = nextEnv;
 
     // QUESTION: Does `extends` work for typeclass?
     // Should we use `with` instead?
@@ -6102,6 +6121,13 @@ ${typeToString(functionType)}
       functionType.hasNoImplementation = !functionExpr;
       functionType.ignoreAmbiguityCheck = true;
 
+      // Check if function is effect operation
+      if (
+        functionType.effects.some((e) => checkEffect(fakeInterface, e, env))
+      ) {
+        functionType.isEffectOperation = true;
+      }
+
       // Check if the function name is already defined in the class
       if (functions.some((func) => func.name === functionName)) {
         throw this.formatErrorMessage(
@@ -6129,10 +6155,10 @@ ${typeToString(functionType)}
     const interface_: TInterface = {
       type: "Interface",
       interfaceName: interfaceName,
-      interfaceId: generateVarialeValueId(env, interfaceName),
+      interfaceId: interfaceId,
       typeParameters,
       functions,
-      isInstance: false,
+      isImplementation: false,
     };
 
     // Add interface to environment
@@ -6264,7 +6290,7 @@ ${typeToString(functionType)}
     const interface_: TInterface = {
       ...interface1,
       instanceTypeParameters,
-      isInstance: true,
+      isImplementation: true,
     };
 
     // Parse class type arguments
@@ -6471,6 +6497,7 @@ Got:      ${typeToString(matchedFunction.func)}`
     };
   }
 
+  /*
   private parseEffectExpr({
     tokens,
     index,
@@ -6659,7 +6686,7 @@ ${operationName}: ${typeToString(
       }
     }
 
-    // Add to environment
+    // Add effect to environment
     const effectType: TEffect = {
       type: "Effect",
       effectName,
@@ -6692,6 +6719,7 @@ ${operationName}: ${typeToString(
       index,
     };
   }
+  */
 
   private parseEnum({
     tokens,
@@ -7272,7 +7300,7 @@ ${exprToString(expr)}`
 
     index = rCurlyBracketIndex + 1;
     env = pushEnvFrame(env);
-    const effectHandlers: TEffect[] = [];
+    const handlers: TInterface[] = [];
     const effectOperationStartTokenIndexes: number[] = [];
     // const parserDataListToCheckForAbort: ParserData[] = [];
     const withTokenIndex = index;
@@ -7296,7 +7324,7 @@ ${exprToString(expr)}`
       const effects = getEnvVariableValueByVariableName(
         env,
         effectName,
-        "effect"
+        "interface"
       );
       if (effects.length === 0) {
         throw this.formatErrorMessage(
@@ -7309,7 +7337,7 @@ ${exprToString(expr)}`
           `Found multiple effects with the same name "${effectName}"`
         );
       }
-      const effect = effects[0].effect;
+      const effect = effects[0].interface;
       if (!effect) {
         throw this.formatErrorMessage(
           tokens[index],
@@ -7337,15 +7365,15 @@ ${exprToString(expr)}`
       }
 
       // Apply type arguments to effect
-      const newEffect = applyTypeArgumentsToEffect({
+      const newEffect = applyTypeArgumentsToInterface({
         env,
-        effect,
+        interface_: effect,
         typeArguments,
         typeParameterToTypeArgumentMap: {},
       });
 
       // Parse effect body
-      const operations: TEffectOperation[] = [];
+      const operations: TInterfaceFunction[] = [];
       const operationTokens: Token[] = [];
       if (tokens[index].type !== TokenType.LCurlyBracket) {
         throw this.formatErrorMessage(
@@ -7432,8 +7460,8 @@ ${exprToString(expr)}`
       }
 
       // Check if the effect is implemented correctly
-      for (let i = 0; i < newEffect.operations.length; i++) {
-        const effectOperation = newEffect.operations[i];
+      for (let i = 0; i < newEffect.functions.length; i++) {
+        const effectOperation = newEffect.functions[i];
         const matchedOperations = operations.filter(
           (operation) => operation.name === effectOperation.name
         );
@@ -7487,17 +7515,17 @@ Got:      ${typeToString(matchedOperation.func)}`
         env = nextEnv;
       }
 
-      // Add to effectHandlers
-      effectHandlers.push({
+      // Add to handlers
+      handlers.push({
         ...newEffect,
-        operations,
-        isHandler: true,
+        functions: operations,
+        // isHandler: true,
       });
 
       // Check if each operation effects matches the newCaller effects
       const newCaller: TFunction = {
         ...caller,
-        effects: [...caller.effects, ...effectHandlers],
+        effects: [...caller.effects, ...handlers],
       };
       for (let i = 0; i < operations.length; i++) {
         const operation = operations[i];
@@ -7512,7 +7540,7 @@ Got:      ${effectsToString(newCaller.effects)}`
       }
     }
 
-    if (effectHandlers.length === 0) {
+    if (handlers.length === 0) {
       throw this.formatErrorMessage(
         tokens[withTokenIndex],
         "Expected handlers."
@@ -7523,7 +7551,7 @@ Got:      ${effectsToString(newCaller.effects)}`
     index = tryTokenIndex + 1;
     const newCaller: TFunction = {
       ...caller,
-      effects: [...caller.effects, ...effectHandlers],
+      effects: [...caller.effects, ...handlers],
     };
     const { expr: tryExpr, index: nextIndex } = this.parseBlockExpressions({
       tokens,
@@ -7539,8 +7567,8 @@ Got:      ${effectsToString(newCaller.effects)}`
     // Check if all abort types matches the returnType
     // Parse each effect operation body
     let it = 0;
-    for (let i = 0; i < effectHandlers.length; i++) {
-      const operations = effectHandlers[i].operations;
+    for (let i = 0; i < handlers.length; i++) {
+      const operations = handlers[i].functions;
       for (let j = 0; j < operations.length; j++) {
         const operation = operations[j];
         const operationTokenIndex = effectOperationStartTokenIndexes[it];
@@ -7565,7 +7593,7 @@ Got:      ${effectsToString(newCaller.effects)}`
       expr: {
         type: AstType.Try,
         body: tryExpr,
-        effectHandlers,
+        handlers,
         env: popEnvFrame(env),
         token: tokens[tryTokenIndex],
         typeValue: returnType,
@@ -7907,20 +7935,6 @@ Please consider adding "Promise" to the return type.
       }
       case TokenType.Interface: {
         const { expr, index: nextIndex } = this.parseInterfaceExpr({
-          tokens,
-          index,
-          env,
-          caller,
-          parserData,
-          isExported: true,
-        });
-        index = nextIndex;
-        env = expr.env;
-        exportExpr = expr;
-        break;
-      }
-      case TokenType.Effect: {
-        const { expr, index: nextIndex } = this.parseEffectExpr({
           tokens,
           index,
           env,
@@ -8431,21 +8445,6 @@ Please consider adding "Promise" to the return type.
         }
         case TokenType.Interface: {
           const { expr, index: nextIndex } = this.parseInterfaceExpr({
-            tokens,
-            index,
-            env,
-            caller: emptyFunctionThatHasMoreEffects,
-            parserData: emptyParserData,
-          });
-          if (expr) {
-            exprs.push(expr);
-          }
-          index = nextIndex;
-          env = expr.env;
-          break;
-        }
-        case TokenType.Effect: {
-          const { expr, index: nextIndex } = this.parseEffectExpr({
             tokens,
             index,
             env,
