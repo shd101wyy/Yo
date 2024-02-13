@@ -11,7 +11,7 @@ export enum Ordering {
   Greater
 }
 
-class Ord<T: Type> {
+export interface Ord<T: Type> {
   compare: (a: T, b: T)-> Ordering;
   (<): (a: T, b: T)-> boolean;
   (>): (a: T, b: T)-> boolean;

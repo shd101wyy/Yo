@@ -236,6 +236,10 @@ export type TFunction = {
   returnType: Type;
 
   isClosure: boolean;
+
+  hasNoImplementation?: boolean;
+  ignoreAmbiguityCheck?: boolean;
+
   /**
    * Right now only ()=>{} is closure
    * function name(a: number) {} is not closure
@@ -245,6 +249,8 @@ export type TFunction = {
    * At which frame level the function is defined
    */
   frameLevel: number;
+
+  interfaceFunctionImplementations: TInterfaceFunction[];
 };
 
 export type TUnion = {
@@ -297,20 +303,18 @@ export type TTypeConstructor = {
 /**
  * NOTE: No free variable (closure) is supported for class function
  */
-export type TClassFunction = {
+export type TInterfaceFunction = {
   name: string;
   func: TFunction;
   functionExpr?: FunctionExpr;
 };
 
-export type TClass = {
-  type: "Class";
-  kind: "Free";
-  permission: TypePermission;
-  className: string;
-  classId: string;
+export type TInterface = {
+  type: "Interface";
+  interfaceName: string;
+  interfaceId: string;
   typeParameters: TTypeParameter[];
-  functions: TClassFunction[];
+  functions: TInterfaceFunction[];
 
   // NOTE: Below are for "instance"
   isInstance: boolean;
@@ -494,6 +498,7 @@ export const emptyFunctionThatHasMoreEffects: TFunction = {
   returnType: TypeValues.unit,
   type: "Function",
   typeParameters: [],
+  interfaceFunctionImplementations: [],
 };
 
 export type ParserReturn = {
@@ -1532,6 +1537,7 @@ export function applyTypeArgumentsToType({
           };
           return returnType;
         } else if (typeArgument) {
+          /*
           const returnType: TTypeParameter = {
             ...typeParameter,
             appliedType: {
@@ -1540,6 +1546,8 @@ export function applyTypeArgumentsToType({
             },
           };
           return returnType;
+          */
+          return typeArgument;
         } else {
           return typeParameter;
         }
@@ -1664,23 +1672,26 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   return newEffect;
 }
 
-export function applyTypeArgumentsToClass({
+export function applyTypeArgumentsToInterface({
   env,
-  class_,
+  interface_,
   typeArguments,
   typeParameterToTypeArgumentMap,
 }: {
   env: Environment;
-  class_: TClass;
+  interface_: TInterface;
   typeArguments?: Type[];
   typeParameterToTypeArgumentMap: { [key: string]: Type };
-}): TClass {
-  // logger.debug("- applyTypeArgumentsToClass");
+}): TInterface {
+  // logger.debug("- applyTypeArgumentsToInterface");
 
-  if (typeArguments && class_.typeParameters.length !== typeArguments.length) {
+  if (
+    typeArguments &&
+    interface_.typeParameters.length !== typeArguments.length
+  ) {
     throw new Error(
       `(4) Mismatched type arguments.
-Expected: <${class_.typeParameters
+Expected: <${interface_.typeParameters
         .map(
           (typeParameter) =>
             `${typeParameter.typeParameterName}: ${typeParameter.kind}`
@@ -1693,13 +1704,13 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   // set typeParameterToTypeArgumentMap
   const { typeParameters: newTypeParameters } = generateNewTypeParameters({
     env,
-    typeParameters: class_.typeParameters,
+    typeParameters: interface_.typeParameters,
     typeArguments,
     typeParameterToTypeArgumentMap,
   });
 
   // apply to each of the functions
-  const functions: TClassFunction[] = class_.functions.map(
+  const functions: TInterfaceFunction[] = interface_.functions.map(
     ({ name, func, functionExpr }) => ({
       name,
       func: applyTypeArgumentsToType({
@@ -1715,18 +1726,16 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
           })
         : undefined,
     })
-  ) as TClassFunction[];
+  ) as TInterfaceFunction[];
 
   return {
-    type: "Class",
-    kind: "Free",
-    permission: class_.permission,
-    className: class_.className,
-    classId: class_.classId,
+    type: "Interface",
+    interfaceName: interface_.interfaceName,
+    interfaceId: interface_.interfaceId,
     typeParameters: newTypeParameters,
     functions: functions,
     isInstance: true, // type.isInstance,
-    instanceTypeParameters: class_.instanceTypeParameters,
+    instanceTypeParameters: interface_.instanceTypeParameters,
   };
 }
 
@@ -2694,6 +2703,7 @@ export function synthesizeFunctionTypeFromTokens({
       isClosure,
       freeVariables: undefined,
       frameLevel,
+      interfaceFunctionImplementations: [],
     };
     return {
       typeValue: functionType,
@@ -3158,9 +3168,9 @@ export function typeToString(
       } else if (hideTypeParameterKind) {
         return `${typePermissionToString(type.permission)} ${
           type.typeParameterName
-        }`;
+        }`.trim();
       } else {
-        return `${type.typeParameterName}: ${type.kind}`;
+        return `${type.typeParameterName}: ${type.kind}`.trim();
       }
     }
     case "TypeConstructor": {
@@ -3266,6 +3276,13 @@ export function checkType(
     ) {
       return false;
     }
+  }
+
+  if (expectedType.type === "TypeParameter" && expectedType.appliedType) {
+    return checkType(expectedType.appliedType, givenType, env);
+  }
+  if (givenType.type === "TypeParameter" && givenType.appliedType) {
+    return checkType(expectedType, givenType.appliedType, env);
   }
 
   if (
@@ -3431,7 +3448,7 @@ export function typeParametersToString(
   } else {
     return `<${typeParameters
       .map((type) => typeToString(type, { hideTypeParameterKind }))
-      .join(", ")}${typeParameters.length > 0 ? ", " : ""}>`;
+      .join(", ")}>`;
   }
 }
 
@@ -3493,12 +3510,12 @@ export function effectsToString(
   }
 }
 
-export function classToString(type: TClass): string {
+export function interfaceToString(type: TInterface): string {
   return `${
     type.isInstance
-      ? `instance${typeParametersToString(type.instanceTypeParameters ?? [])}`
-      : "class"
-  } ${type.className}${typeParametersToString(type.typeParameters, {
+      ? `implement${typeParametersToString(type.instanceTypeParameters ?? [])}`
+      : "interface"
+  } ${type.interfaceName}${typeParametersToString(type.typeParameters, {
     hideTypeParameterKind: type.isInstance,
   })} {
 ${type.functions
@@ -3636,17 +3653,17 @@ function checkEnumExactMatchType(
  * @param argumentType
  * @param typeParameterToTypeArgumentMap
  */
-function checkTypeParametersAndArguments(
+function checkTypeForFunctionParametersAndArguments(
   env: Environment,
   parameterType: Type,
   argumentType: Type,
   typeParameterToTypeArgumentMap: { [key: string]: Type } = {}
 ): boolean {
-  // .debug("- checkTypeParametersAndArguments");
+  // .debug("- checkTypeForFunctionParametersAndArguments");
   // logger.debug("  - parameterType: ", typeToString(parameterType));
   // logger.debug("  - argumentType:  ", typeToString(argumentType));
   if (argumentType.type === "TypeParameter" && argumentType.appliedType) {
-    return checkTypeParametersAndArguments(
+    return checkTypeForFunctionParametersAndArguments(
       env,
       parameterType,
       argumentType.appliedType,
@@ -3666,7 +3683,7 @@ function checkTypeParametersAndArguments(
       }
     }
     if (parameterType.appliedType) {
-      checkTypeParametersAndArguments(
+      checkTypeForFunctionParametersAndArguments(
         env,
         parameterType.appliedType,
         argumentType,
@@ -3690,7 +3707,7 @@ function checkTypeParametersAndArguments(
       const parameterTypeParameter = parameterTypeParameters[i];
       const argumentTypeParameter = argumentTypeParameters[i];
       if (
-        !checkTypeParametersAndArguments(
+        !checkTypeForFunctionParametersAndArguments(
           env,
           parameterTypeParameter,
           argumentTypeParameter,
@@ -3821,7 +3838,7 @@ export function getFunctionArgumentsInOrder(
       }
 
       if (
-        !checkTypeParametersAndArguments(
+        !checkTypeForFunctionParametersAndArguments(
           env,
           parameterType.type,
           argument.typeValue,
@@ -3845,10 +3862,19 @@ export function getFunctionArgumentsInOrder(
       const typeArgument = functionTypeArguments[i];
 
       if (typeParameter.appliedType) {
-        if (checkType(typeParameter.appliedType, typeArgument, env)) {
-          functionTypeArgumentsInOrder[i] = typeArgument;
+        if (typeArgument) {
+          if (checkType(typeParameter.appliedType, typeArgument, env)) {
+            functionTypeArgumentsInOrder[i] = typeArgument;
+          } else {
+            // QUESTION: Should we throw error here?
+            // ANSWER: Yes we should. The line below will override the type argument that we passed to the function, which might be different from the type parameter's appliedType.
+            // functionTypeArgumentsInOrder[i] = typeParameter.appliedType;
+            return {
+              functionArguments: [],
+              functionTypeArguments: null,
+            };
+          }
         } else {
-          // QUESTION: Should we throw error here?
           functionTypeArgumentsInOrder[i] = typeParameter.appliedType;
         }
       } else if (
@@ -3867,7 +3893,7 @@ export function getFunctionArgumentsInOrder(
           )
         ) {
           return {
-            functionArguments: null,
+            functionArguments: [],
             functionTypeArguments: null,
           };
         }

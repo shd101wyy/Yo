@@ -1,4 +1,4 @@
-export class Id<T: Free> {
+export interface Id<T: Free> {
   id: (x: T) -> T {
     x
   }

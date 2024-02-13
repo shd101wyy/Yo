@@ -12,13 +12,13 @@ export extern "C" {
   malloc: (size: i32)-> Data;
 }
 
-export class Id<T> {
+export interface Id<T> {
   id: (x: T)-> T {
     x
   }
 }
 
-export instance Id<i32> {
+implement Id<i32> {
   id: (x: i32)-> i32 {
     x + 1
   }

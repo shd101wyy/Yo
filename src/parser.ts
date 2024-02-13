@@ -52,13 +52,13 @@ import { Token, TokenType } from "./token";
 import {
   ParseExpression,
   ParserReturn,
-  TClass,
-  TClassFunction,
   TEffect,
   TEffectOperation,
   TEnum,
   TEnumVariant,
   TFunction,
+  TInterface,
+  TInterfaceFunction,
   TModule,
   TParameterType,
   TRecord,
@@ -67,8 +67,8 @@ import {
   Type,
   TypeKind,
   TypeValues,
-  applyTypeArgumentsToClass,
   applyTypeArgumentsToEffect,
+  applyTypeArgumentsToInterface,
   applyTypeArgumentsToType,
   checkEffect,
   checkFunctionEffects,
@@ -734,7 +734,7 @@ export default class Parser {
         index: index + 1,
       };
     }
-    // FIXME: Now calling function from typeclass like
+    // FIXME: Now calling function from interface implementation like
     //  `Id.id()` is not supported
     /* else if (callerType === "Class") {
       const func = callerType.functions.find(
@@ -1262,7 +1262,7 @@ RHS order: ${rhsOrder}`
       // contains the top-level frame
       let newEnv = createTopLevelEnv(oldEnv);
 
-      // If it's for typeclass, we need to add another frame
+      // If it's for interface, we need to add another frame
       // that might contains the type parameters.
       if (isForTypeclass) {
         newEnv = pushEnvFrame(newEnv, oldEnv.frames[oldEnv.frames.length - 1]);
@@ -1453,6 +1453,7 @@ RHS order: ${rhsOrder}`
       ],
       isClosure: false,
       frameLevel: 0,
+      interfaceFunctionImplementations: [],
     };
     return func;
   }
@@ -1481,6 +1482,7 @@ RHS order: ${rhsOrder}`
       ],
       isClosure: false,
       frameLevel: 0,
+      interfaceFunctionImplementations: [],
     };
     return func;
   }
@@ -1642,6 +1644,8 @@ RHS order: ${rhsOrder}`
     while (true) {
       // Try parsing as anonymous function
       try {
+        /*
+        // FIXME: We disabled this for now
         const { expr, index: nextIndex } = this.parseAnonymousFunction({
           tokens,
           index,
@@ -1656,11 +1660,15 @@ RHS order: ${rhsOrder}`
         } else {
           throw new Error("Failed to parse as anonymouse function");
         }
+        */
+        throw new Error("Failed to parse as anonymouse function");
       } catch (error) {
         // Ignore the error
         // This means we failed to parse it as anonymouse function
         // Try parse as block expression
         try {
+          /*
+          // FIXME: We disabled the trailing lambda for now
           if (tokens[index].type !== TokenType.LCurlyBracket) {
             throw new Error("Expected left curly bracket");
           }
@@ -1701,6 +1709,8 @@ RHS order: ${rhsOrder}`
           } else {
             throw new Error("Failed to parse as block expression");
           }
+          */
+          throw new Error("Failed to parse as trailing lambda");
         } catch (error) {
           if (parsedNormalArguments) {
             break;
@@ -2276,7 +2286,7 @@ Got:      <${appliedTypeArguments
     // Check if variable is defined
     const variableValues = [
       ...getEnvVariableValueByVariableName(env, identifier, "value"),
-      ...getEnvVariableValueByVariableName(env, identifier, "class"),
+      ...getEnvVariableValueByVariableName(env, identifier, "interface"),
       ...getEnvVariableValueByVariableName(env, identifier, "type"),
     ];
     if (variableValues.length === 0) {
@@ -2289,8 +2299,8 @@ Got:      <${appliedTypeArguments
       (value) => value.type.type === "Function"
     );
     const matchedFunctionErrors: Error[] = [];
-    const matchedTypeclasses = variableValues.filter(
-      (value) => value.class && value.kind === "class"
+    const matchedInterfaces = variableValues.filter(
+      (value) => value.interface && value.kind === "interface"
     );
     const matchedEnums = variableValues.filter(
       (value) =>
@@ -2301,26 +2311,26 @@ Got:      <${appliedTypeArguments
       (value) => value.type.type === "TypeConstructor" && value.kind === "type"
     );
 
-    // Check if it's a typeclass
-    if (matchedTypeclasses.length > 0) {
+    // Check if it's an interface
+    if (matchedInterfaces.length > 0) {
       // FIXME: Support this
-      if (matchedTypeclasses.length > 1) {
+      if (matchedInterfaces.length > 1) {
         throw this.formatErrorMessage(
           tokens[identifierTokenIndex],
-          `Ambiguous typeclasses "${identifier}"
-Found possible typeclasses:
-- ${matchedTypeclasses
+          `Ambiguous interfaces "${identifier}"
+Found possible interfaces:
+- ${matchedInterfaces
             .map((typeclassType) => typeToString(typeclassType.type))
             .join("\n- ")}
           `
         );
       } else {
-        const typeclass = matchedTypeclasses[0];
-        const class_ = typeclass.class;
-        if (!class_) {
+        const typeclass = matchedInterfaces[0];
+        const interface_ = typeclass.interface;
+        if (!interface_) {
           throw this.formatErrorMessage(
             tokens[identifierTokenIndex],
-            `Expected class, but got ${typeToString(typeclass.type)}`
+            `Expected interface, but got ${typeToString(typeclass.type)}`
           );
         }
         let typeArguments: Type[] = [];
@@ -2341,8 +2351,8 @@ Found possible typeclasses:
         } else {
           index = index + 1;
         }
-        const newTypeclassType = applyTypeArgumentsToClass({
-          class_: class_,
+        const newInterfaceType = applyTypeArgumentsToInterface({
+          interface_: interface_,
           env,
           typeArguments,
           typeParameterToTypeArgumentMap: {},
@@ -2350,9 +2360,9 @@ Found possible typeclasses:
 
         return {
           expr: {
-            type: AstType.Class,
+            type: AstType.Interface,
             typeValue: TypeValues.unit,
-            class: newTypeclassType,
+            interface: newInterfaceType,
             env,
             token: tokens[identifierTokenIndex],
           },
@@ -2506,17 +2516,23 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
     ) {
       // Try all matchedFunctions to see if there is a match
       const parserReturns: ParserReturn[] = [];
-      const parsedFunctions: VariableValue[] = [];
-      for (const functionType of matchedFunctions) {
+      const parsedFunctions: {
+        functionName: string;
+        functionType: TFunction;
+      }[] = [];
+      const helper = (functionName: string, functionType: TFunction) => {
+        if (functionType.hasNoImplementation) {
+          return;
+        }
         try {
           parserReturns.push(
             this.parseCallFunctionExpr({
               callee: {
                 type: AstType.Variable,
                 variableName: identifier,
-                variableId: functionType.id,
+                variableId: functionType.functionId,
                 frameLevel: functionType.frameLevel,
-                typeValue: functionType.type,
+                typeValue: functionType,
                 env,
                 isMutable: false,
                 token: tokens[identifierTokenIndex],
@@ -2528,11 +2544,22 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
               parserData,
             })
           );
-          parsedFunctions.push(functionType);
+          parsedFunctions.push({ functionName, functionType });
         } catch (error) {
           // console.error(error);
           // Ignore the error
           matchedFunctionErrors.push(error);
+        }
+      };
+      for (const functionValue of matchedFunctions) {
+        const functionType = functionValue.type as TFunction;
+        helper(functionValue.variableName, functionType);
+
+        if (functionType.interfaceFunctionImplementations.length > 0) {
+          for (const interfaceFunctionImplementation of functionType.interfaceFunctionImplementations) {
+            const implementFunctionType = interfaceFunctionImplementation.func;
+            helper(functionValue.variableName, implementFunctionType);
+          }
         }
       }
 
@@ -2551,14 +2578,22 @@ ${matchedFunctionErrors[i]}`
   .join("\n")}
           `
         );
-      } else if (parserReturns.length > 1) {
+      } else if (
+        parserReturns.filter((p) => {
+          const expr = p.expr as CallFunctionExpr;
+          const functionType = expr.callee.typeValue as TFunction;
+          return !functionType.ignoreAmbiguityCheck;
+        }).length > 1
+      ) {
         throw this.formatErrorMessage(
           tokens[index],
           `Ambiguous function "${identifier}"
 Found possible functions:
 - ${parsedFunctions
             .map(
-              (func, i) => `${func.variableName}: ${typeToString(func.type)}
+              (func, i) => `${func.functionName}: ${typeToString(
+                func.functionType
+              )}
  
 ${matchedFunctionErrors[i] ?? ""}`
             )
@@ -2566,7 +2601,7 @@ ${matchedFunctionErrors[i] ?? ""}`
         );
       } else {
         // FIXME: Might need to check `isFreeVariable` here as well
-        return parserReturns[0];
+        return parserReturns[parserReturns.length - 1];
       }
     }
 
@@ -5880,16 +5915,16 @@ ${typeToString(nextTypeValue)}`
 
   /**
    *
-   * class ::= "class" identifier typeParameters? "{" functionPrototype* "}"
-   *           ::= "class" identifier typeParameters? "with" typeclassType "{" functionPrototype* "}"
-   * FIXME: Support `with` for class
+   * interface ::= "interface" identifier typeParameters? "{" functionPrototype* "}"
+   *           ::= "interface" identifier typeParameters? "with" typeclassType "{" functionPrototype* "}"
+   * FIXME: Support `with` for interface
    * FIXME: If the class has no type parameters, then all functions in the class should have default implementations.
    * @param tokens
    * @param index
    * @param env
    * @returns
    */
-  private parseClassExpr({
+  private parseInterfaceExpr({
     tokens,
     index,
     env,
@@ -5904,10 +5939,10 @@ ${typeToString(nextTypeValue)}`
     parserData: ParserData;
     isExported?: boolean;
   }): ParserReturn {
-    if (tokens[index].type !== TokenType.Class) {
+    if (tokens[index].type !== TokenType.Interface) {
       throw this.formatErrorMessage(
         tokens[index],
-        'Expected "class" for typeclass declaration'
+        'Expected "interface" for declaration'
       );
     }
     const classTokenIndex = index;
@@ -5919,12 +5954,12 @@ ${typeToString(nextTypeValue)}`
         'Expected identifier for "class"'
       );
     }
-    const typeclassName = tokens[index].value;
-    const classNameTokenIndex = index;
+    const interfaceName = tokens[index].value;
+    const interfaceNameTokenIndex = index;
     index = index + 1;
 
-    // typeclassName has to be UpperCamelCase
-    if (!isUpperCamelCase(typeclassName)) {
+    // interfaceName has to be UpperCamelCase
+    if (!isUpperCamelCase(interfaceName)) {
       throw this.formatErrorMessage(
         tokens[index],
         "Class name has to be UpperCamelCase"
@@ -5936,16 +5971,16 @@ ${typeToString(nextTypeValue)}`
     const { env: nextEnv } = addEnvVariableValue({
       env,
       variableValue: {
-        variableName: typeclassName,
+        variableName: interfaceName,
         type: {
           type: "unknown",
           kind: "Free",
           permission: "own",
-          typeName: typeclassName,
+          typeName: interfaceName,
         },
         kind: "type",
         isExported,
-        token: tokens[classNameTokenIndex],
+        token: tokens[interfaceNameTokenIndex],
       },
     });
     env = nextEnv;
@@ -5969,7 +6004,7 @@ ${typeToString(nextTypeValue)}`
 
     // QUESTION: Does `extends` work for typeclass?
     // Should we use `with` instead?
-    const functions: TClassFunction[] = [];
+    const functions: TInterfaceFunction[] = [];
     const functionNameTokens: Token[] = [];
     // Parse class body
     if (tokens[index].type !== TokenType.LCurlyBracket) {
@@ -6063,6 +6098,10 @@ ${typeToString(functionType)}
       // Add the typeParameters of the class to the functionType
       functionType.typeParameters = typeParameters;
 
+      // Set special property for functionType
+      functionType.hasNoImplementation = !functionExpr;
+      functionType.ignoreAmbiguityCheck = true;
+
       // Check if the function name is already defined in the class
       if (functions.some((func) => func.name === functionName)) {
         throw this.formatErrorMessage(
@@ -6087,56 +6126,54 @@ ${typeToString(functionType)}
       }
     }
 
-    const class_: TClass = {
-      type: "Class",
-      kind: "Free",
-      permission: "own",
-      className: typeclassName,
-      classId: generateVarialeValueId(env, typeclassName),
+    const interface_: TInterface = {
+      type: "Interface",
+      interfaceName: interfaceName,
+      interfaceId: generateVarialeValueId(env, interfaceName),
       typeParameters,
       functions,
       isInstance: false,
     };
 
-    // Add to environment
+    // Add interface to environment
     const { env: nextNextEnv } = addEnvVariableValue({
       env,
       variableValue: {
-        variableName: typeclassName,
+        variableName: interfaceName,
         type: TypeValues.unit,
-        class: class_,
-        kind: "class",
+        interface: interface_,
+        kind: "interface",
         isExported,
-        token: tokens[classNameTokenIndex],
+        token: tokens[interfaceNameTokenIndex],
       },
       deltaFrame: -1,
     });
     env = nextNextEnv;
 
-    // add pre-defined functions to env
+    // add functions to env
     for (let i = 0; i < functions.length; i++) {
       const func = functions[i];
-      if (func.functionExpr) {
-        const { env: nextEnv } = addEnvVariableValue({
-          env,
-          variableValue: {
-            variableName: func.name,
-            type: func.func,
-            kind: "value",
-            isExported,
-            token: functionNameTokens[i],
-          },
-          deltaFrame: -1,
-        });
-        env = nextEnv;
-      }
+      // if (func.functionExpr) {
+      const { env: nextEnv } = addEnvVariableValue({
+        env,
+        variableValue: {
+          variableName: func.name,
+          type: func.func,
+          kind: "value",
+          isExported,
+          token: functionNameTokens[i],
+        },
+        deltaFrame: -1,
+      });
+      env = nextEnv;
+      // }
     }
 
     env = popEnvFrame(env);
     return {
       expr: {
-        type: AstType.Class,
-        class: class_,
+        type: AstType.Interface,
+        interface: interface_,
         typeValue: TypeValues.unit,
         env,
         token: tokens[classTokenIndex],
@@ -6145,25 +6182,23 @@ ${typeToString(functionType)}
     };
   }
 
-  private parseInstanceExpr({
+  private parseImplementExpr({
     tokens,
     index,
     env,
     caller,
     parserData,
-    isExported,
   }: {
     tokens: Token[];
     index: number;
     env: Environment;
     caller: TFunction;
     parserData: ParserData;
-    isExported?: boolean;
   }): ParserReturn {
-    if (tokens[index].type !== TokenType.Instance) {
+    if (tokens[index].type !== TokenType.Implement) {
       throw this.formatErrorMessage(
         tokens[index],
-        'Expected "instance" for instance'
+        'Expected "implement" for interface implementation'
       );
     }
     const instanceTokenIndex = index;
@@ -6196,38 +6231,38 @@ ${typeToString(functionType)}
         "Expected identifier for instance"
       );
     }
-    const typeclassName = tokens[index].value;
-    const classNameTokenIndex = index;
+    const interfaceName = tokens[index].value;
+    // const interfaceNameTokenIndex = index;
     index = index + 1;
 
     // Find the class from env
-    const typeclasses = getEnvVariableValueByVariableName(
+    const interfaces = getEnvVariableValueByVariableName(
       env,
-      typeclassName,
-      "class"
+      interfaceName,
+      "interface"
     );
-    if (typeclasses.length === 0) {
+    if (interfaces.length === 0) {
       throw this.formatErrorMessage(
         tokens[index],
-        `Cannot find class "${typeclassName}"`
+        `Cannot find class "${interfaceName}"`
       );
-    } else if (typeclasses.length > 1) {
+    } else if (interfaces.length > 1) {
       throw this.formatErrorMessage(
         tokens[index],
-        `Found multiple typeclasses with the same name "${typeclassName}":
-- ${typeclasses.map((typeclass) => typeToString(typeclass.type)).join("\n- ")}`
+        `Found multiple interfaces with the same name "${interfaceName}":
+- ${interfaces.map((interface_) => typeToString(interface_.type)).join("\n- ")}`
       );
     }
-    const typeclass = typeclasses[0].class;
-    if (!typeclass) {
+    const interface1 = interfaces[0].interface;
+    if (!interface1) {
       throw this.formatErrorMessage(
         tokens[index],
-        `Cannot find class "${typeclassName}"`
+        `Cannot find class "${interfaceName}"`
       );
     }
 
-    const class_: TClass = {
-      ...typeclass,
+    const interface_: TInterface = {
+      ...interface1,
       instanceTypeParameters,
       isInstance: true,
     };
@@ -6250,21 +6285,21 @@ ${typeToString(functionType)}
       env = nextEnv;
     }
 
-    // Apply type arguments to typeclass
-    const newClass = applyTypeArgumentsToClass({
+    // Apply type arguments to interface
+    const newInterface = applyTypeArgumentsToInterface({
       env,
-      class_,
+      interface_,
       typeArguments,
       typeParameterToTypeArgumentMap: {},
-    }) as TClass;
+    }) as TInterface;
 
-    // Parse typeclass body
-    const functions: TClassFunction[] = [];
+    // Parse "implement" body
+    const functions: TInterfaceFunction[] = [];
     const functionNameTokens: Token[] = [];
     if (tokens[index].type !== TokenType.LCurlyBracket) {
       throw this.formatErrorMessage(
         tokens[index],
-        "Expected '{' for class instance body"
+        "Expected '{' for interface implementation body"
       );
     }
     index = index + 1;
@@ -6294,10 +6329,10 @@ ${typeToString(functionType)}
       } else {
         throw this.formatErrorMessage(
           tokens[functionNameTokenIndex],
-          `Please define functions in "instance" like below:
+          `Please define functions in "implement" like below:
 
-instance Show<T> {
-  show: (x: T)-> string {
+implement Show<i32> {
+  show: (x: i32)-> string {
     // ...
   };
 }
@@ -6331,11 +6366,9 @@ ${typeToString(functionType)}
         );
       }
 
-      // Add the typeParameters and regionParameters of the class to the functionType
-      functionType.typeParameters = newClass.typeParameters;
-      // functionType.typeParameters = newClass.instanceTypeParameters ?? [];
-      // functionType.regionParameters = newClass.instanceRegionParameters ?? [];
-
+      // Add the typeParameters of the class to the functionType
+      functionType.typeParameters = newInterface.typeParameters;
+      // functionType.typeParameters = newInterface.instanceTypeParameters ?? [];
       functions.push({
         name: functionName,
         func: functionType,
@@ -6352,39 +6385,46 @@ ${typeToString(functionType)}
     }
 
     // Check if all functions in class are implemented correctly
-    for (const typeclassFunction of newClass.functions) {
+    for (let i = 0; i < newInterface.functions.length; i++) {
+      const interfaceFunction = newInterface.functions[i];
       const matchedFunctions = functions.filter(
-        (func) => func.name === typeclassFunction.name
+        (func) => func.name === interfaceFunction.name
       );
       if (matchedFunctions.length === 0) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Function "${typeclassFunction.name}" is not implemented:
-Expected: ${typeToString(typeclassFunction.func)}`
+          `Function "${interfaceFunction.name}" is not implemented:
+Expected: ${typeToString(interfaceFunction.func)}`
         );
       } else if (matchedFunctions.length > 1) {
         throw this.formatErrorMessage(
           tokens[index],
           `Found multiple implementations for function "${
-            typeclassFunction.name
+            interfaceFunction.name
           }":
 - ${matchedFunctions.map((func) => typeToString(func.func)).join("\n- ")}`
         );
       } else {
         const matchedFunction = matchedFunctions[0];
-        if (!checkType(typeclassFunction.func, matchedFunction.func, env)) {
+        if (!checkType(interfaceFunction.func, matchedFunction.func, env)) {
           throw this.formatErrorMessage(
             tokens[index],
             `Mismatched function type:
-Expected: ${typeToString(typeclassFunction.func)}
+Expected: ${typeToString(interfaceFunction.func)}
 Got:      ${typeToString(matchedFunction.func)}`
+          );
+        } else {
+          // Add the interface implementation function to the matchedFunction
+          interface1.functions[i].func.interfaceFunctionImplementations.push(
+            matchedFunction
           );
         }
       }
     }
-    newClass.functions = functions;
+    newInterface.functions = functions;
 
     // Add each function to env
+    /*
     for (let i = 0; i < functions.length; i++) {
       const func = functions[i];
       const { env: nextEnv } = addEnvVariableValue({
@@ -6405,23 +6445,25 @@ Got:      ${typeToString(matchedFunction.func)}`
     const { env: nextEnv } = addEnvVariableValue({
       env,
       variableValue: {
-        variableName: typeclassName,
+        variableName: interfaceName,
         type: TypeValues.unit,
-        class: newClass,
+        interface: newInterface,
         kind: "value", // NOTE: We need to set it to "value" instead of "class" because we need to use it as a value
         isExported,
-        token: tokens[classNameTokenIndex],
+        token: tokens[interfaceNameTokenIndex],
       },
       deltaFrame: -1,
     });
     env = nextEnv;
+    */
+
     env = popEnvFrame(env);
 
     return {
       expr: {
-        type: AstType.Class,
+        type: AstType.Interface,
         typeValue: TypeValues.unit,
-        class: newClass,
+        interface: newInterface,
         env,
         token: tokens[instanceTokenIndex],
       },
@@ -7863,8 +7905,8 @@ Please consider adding "Promise" to the return type.
         exportExpr = expr;
         break;
       }
-      case TokenType.Class: {
-        const { expr, index: nextIndex } = this.parseClassExpr({
+      case TokenType.Interface: {
+        const { expr, index: nextIndex } = this.parseInterfaceExpr({
           tokens,
           index,
           env,
@@ -7891,8 +7933,10 @@ Please consider adding "Promise" to the return type.
         exportExpr = expr;
         break;
       }
-      case TokenType.Instance: {
-        const { expr, index: nextIndex } = this.parseInstanceExpr({
+      /*
+      // Implement is implicitly exported
+      case TokenType.Implement: {
+        const { expr, index: nextIndex } = this.parseImplementExpr({
           tokens,
           index,
           env,
@@ -7905,6 +7949,7 @@ Please consider adding "Promise" to the return type.
         exportExpr = expr;
         break;
       }
+      */
       case TokenType.Enum: {
         const { expr, index: nextIndex } = this.parseEnum({
           tokens,
@@ -8384,8 +8429,8 @@ Please consider adding "Promise" to the return type.
           env = expr.env;
           break;
         }
-        case TokenType.Class: {
-          const { expr, index: nextIndex } = this.parseClassExpr({
+        case TokenType.Interface: {
+          const { expr, index: nextIndex } = this.parseInterfaceExpr({
             tokens,
             index,
             env,
@@ -8414,8 +8459,8 @@ Please consider adding "Promise" to the return type.
           env = expr.env;
           break;
         }
-        case TokenType.Instance: {
-          const { expr, index: nextIndex } = this.parseInstanceExpr({
+        case TokenType.Implement: {
+          const { expr, index: nextIndex } = this.parseImplementExpr({
             tokens,
             index,
             env,

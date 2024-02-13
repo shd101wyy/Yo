@@ -3,18 +3,18 @@ import { stringIsOperator } from "./operator";
 import { Token } from "./token";
 import {
   TBoolean,
-  TClass,
   TEffect,
   TEnum,
   TFunction,
+  TInterface,
   TModule,
   TPrimitive,
   TPrimitiveWithValue,
   TTypeConstructor,
   TUnit,
   Type,
-  classToString,
   effectToString,
+  interfaceToString,
   typeParametersToString,
   typeToString,
 } from "./type-checker";
@@ -54,8 +54,8 @@ export enum AstType {
   CallEnum = "call-enum",
   CallTypeConstructor = "call-type-constructor",
 
-  // class
-  Class = "class",
+  // interface
+  Interface = "interface",
 
   // enum
   Enum = "enum",
@@ -126,7 +126,7 @@ export type Expr =
   | DestructuringAssignmentExpr
   | TypeAliasExpr
   | EnumExpr
-  | ClassExpr
+  | InterfaceExpr
   | EffectExpr
   // | UnaryOperatorExpr
   | IsOperatorExpr
@@ -342,10 +342,10 @@ export type EnumExpr = {
   token: Token;
 };
 
-export type ClassExpr = {
-  type: AstType.Class;
+export type InterfaceExpr = {
+  type: AstType.Interface;
   typeValue: TUnit;
-  class: TClass;
+  interface: TInterface;
   env: Environment;
   token: Token;
 };
@@ -613,8 +613,8 @@ export function exprToString(expr: Expr, indentation = ""): string {
         hideTypeParameterKind: true,
       })}`;
     }
-    case AstType.Class:
-      return `${classToString(expr.class)}`;
+    case AstType.Interface:
+      return `${interfaceToString(expr.interface)}`;
     case AstType.Enum:
       return `${typeToString(expr.typeValue, {
         extractTypeConstructor: true,

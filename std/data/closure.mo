@@ -1,4 +1,4 @@
-export class Closure<
+export interface Closure<
   ContextType: Linear, 
   ArgumentsType: Type,
   ReturnType: Type
@@ -7,7 +7,7 @@ export class Closure<
         -> ReturnType;
 }
 
-export class ImmutableClosure<
+export interface ImmutableClosure<
   ContextType: Free, 
   ArgumentsType: Type,
   ReturnType: Type
@@ -17,7 +17,7 @@ export class ImmutableClosure<
         -> ReturnType;
 }
 
-export class MutableClosure<
+export interface MutableClosure<
   ContextType: Free, 
   ArgumentsType: Type,
   ReturnType: Type

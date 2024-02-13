@@ -1179,7 +1179,7 @@ ${indentation}};
         this.codegenEnumIfNecessary(expr.typeValue);
         return "";
       }
-      case AstType.Class: {
+      case AstType.Interface: {
         // Check if there is pre-defined function
         for (let i = 0; i < expr.class.functions.length; i++) {
           const func = expr.class.functions[i];

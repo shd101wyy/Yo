@@ -524,6 +524,13 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            case "interface":
+              tokens.push({
+                type: TokenType.Interface,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
             case "class":
               tokens.push({
                 type: TokenType.Class,
@@ -545,7 +552,6 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
-            /*
             case "implement":
               tokens.push({
                 type: TokenType.Implement,
@@ -553,7 +559,6 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
-            */
             case "import":
               tokens.push({
                 type: TokenType.Import,

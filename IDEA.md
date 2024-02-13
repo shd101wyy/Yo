@@ -63,7 +63,7 @@ export interface Show<T> {
   show(x: T): string;
 }
 
-export instance Show<i32> {
+implement Show<i32> {
   show(x: i32): string {
     return x.toString();
   }

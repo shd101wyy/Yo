@@ -1,7 +1,7 @@
-export class Drop<T: Type> {
+export interface Drop<T: Type> {
   drop: (value: T)-> ();
 }
 
-export class Clone<T: Type> {
+export interface Clone<T: Type> {
   clone: (value: read T)-> T;
 }

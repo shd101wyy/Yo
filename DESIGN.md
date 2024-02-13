@@ -907,7 +907,7 @@ implement<X> Show<List<X>> given Show<X> {
 > stored in object fields, and all values form disjoint topological
 > trees rooted in the program’s variables
 
-The references in **Mo** are second-class citizens. They cannot be stored in `Enum`, `Record`, `Slice`, `Union`, and `Intersection` object. We also disable to return a local reference from a function.
+The references in **Mo** are second-class citizens. They cannot be stored in `Enum`, `Record`, `Slice`, `Union`, and `Intersection` object. We also disable to return a reference to a local value from a function.
 
 ## Control Flow
 
@@ -1374,7 +1374,7 @@ This means that the continuation can only resume once.
 
 Our implementation doesn't use CPS (Continuation Passing Style) transformation as it's memory consuming and not efficient.
 
-We can define effect values in `interface`. 
+We can define effect values in `interface`.
 
 ```typescript
 interface GiveInt {
@@ -1453,8 +1453,8 @@ let safeDivide = (x: i32, y: i32)-> [Exception<i32>] Promise<i32> {
 let handle = ()-> i32 {
   try {
     8 + (await safeDivide(1, 0)) + 10 // 60
-  } with Exception<i32> { // The effect handler dischard the `Exception<i32>` effect.  
-    raise: (msg)-> Promise<i32> { // Please note the function is returning `Promise<i32>`` without `Exception<i32>`.  
+  } with Exception<i32> { // The effect handler dischard the `Exception<i32>` effect.
+    raise: (msg)-> Promise<i32> { // Please note the function is returning `Promise<i32>`` without `Exception<i32>`.
       resume(42)
     }
   }

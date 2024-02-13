@@ -2,7 +2,7 @@ export enum Data<T> {
   Value(value: T)
 }
 
-export class Id<M> {
+export interface Id<M> {
   id: (x: M)-> M;
 }
 
