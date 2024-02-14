@@ -18,7 +18,7 @@ export interface Id<T> {
   }
 }
 
-implement Id<i32> {
+implements Id<i32> {
   id: (x: i32)-> i32 {
     x + 1
   }

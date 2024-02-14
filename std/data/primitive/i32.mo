@@ -6,35 +6,35 @@ import {*} from "../../interface/eq.mo";
 /**
  * arithmetic
  */
-implement Add<i32> {
+implements Add<i32> {
   (+): (a: i32, b: i32)-> i32 {
     @codegenInline(C=@"(((int32_t)$1) + ((int32_t)$2))");
     recur(a, b)
   }
 }
 
-implement Sub<i32> {
+implements Sub<i32> {
   (-): (a: i32, b: i32)-> i32 {
     @codegenInline(C=@"(((int32_t)$1) - ((int32_t)$2))");
     recur(a, b)
   }
 }
 
-implement Mul<i32> {
+implements Mul<i32> {
   (*): (a: i32, b: i32)-> i32 {
     @codegenInline(C=@"(((int32_t)$1) * ((int32_t)$2))");
     recur(a, b)
   }
 }
 
-implement Div<i32> {
+implements Div<i32> {
   (/): (a: i32, b: i32)-> i32 {
     @codegenInline(C=@"(((int32_t)$1) / ((int32_t)$2))");
     recur(a, b)
   }
 }
 
-implement Mod<i32> {
+implements Mod<i32> {
   (%): (a: i32, b: i32)-> i32 {
     @codegenInline(C=@"(((int32_t)$1) % ((int32_t)$2))");
     recur(a, b)
@@ -44,7 +44,7 @@ implement Mod<i32> {
 /**
  * logic
  */
-implement LogicalNot<i32> {
+implements LogicalNot<i32> {
   (!): (a: i32)-> boolean {
     @codegenInline(C=@"!((int32_t)$1)");
     recur(a)
@@ -55,7 +55,7 @@ implement LogicalNot<i32> {
 /**
  * eq
  */
-implement Eq<i32> {
+implements Eq<i32> {
   (==): (a: i32, b: i32)-> boolean {
     @codegenInline(C=@"(((int32_t)$1) == ((int32_t)$2))");
     recur(a, b)

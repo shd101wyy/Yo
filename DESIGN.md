@@ -539,8 +539,7 @@ where y != 0 {
 }
 
 // Type constraint
-let add = <T: Type>(x: T, y: T)-> [Console] T
-given Integral<T> {
+let add = <T: Type given Integral<T>>(x: T, y: T)-> [Console] T {
   println(x + y)
 }
 
@@ -879,14 +878,15 @@ let id = <T>(x: T)-> T { // T will be inferred as `Type` kind
 
 ### Type constraints
 
-Type constraints are defined using `given` keyword followed by a list of interface implementations.
+Type constraints are defined after the type parameters, separated by `implements`, followed by a list of interface implementations.
 
 ```typescript
-let lessThan = <T: Type>(x: T, y: T)-> boolean given Ord<T> {
+let lessThan = <T: Type given Ord<T>, Show<T>>(x: T, y: T)-> boolean {
+  println(x);
   x < y
 }
 
-implement<X> Show<List<X>> given Show<X> {
+implements<X: Type given Show<X>> Show<List<X>> {
   show: (list: List<X>)-> String {
     // ...
   }
@@ -1127,8 +1127,8 @@ type NewsArticle = {
   content: String;
 };
 
-// Implement the class instance
-implement Summary<NewsArticle> {
+// Implements the class instance
+implements Summary<NewsArticle> {
   summarize: (self: NewsArticle)-> String {
     "${self.headline}, by ${self.author} (${self.location})";
   }
@@ -1164,13 +1164,13 @@ interface Id<T> {
   id: (x: T)-> T;
 }
 
-implement Id<i32> {
+implements Id<i32> {
   id(x: i32): i32 {
     x
   }
 }
 
-implement Id<f32> {
+implements Id<f32> {
   id(x: f32): f32 {
     x
   }
@@ -1382,7 +1382,7 @@ interface GiveInt {
   anotherGiveInt: (x: i32)-> i32;    // Normal function
 }
 
-implement GiveInt {
+implements GiveInt {
   // But we can implement the normal function.
   anotherGiveInt: (x: i32)-> i32 {
     x
@@ -1621,7 +1621,7 @@ export interface Id<T> {
 
 // Explicitly export the functions defined in the instance.
 // The instance will be exported implicitly.
-implement Id<i32> {
+implements Id<i32> {
   id: (x: i32)-> i32 {
     x
   }

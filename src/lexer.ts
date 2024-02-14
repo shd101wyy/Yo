@@ -552,9 +552,9 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
-            case "implement":
+            case "implements":
               tokens.push({
-                type: TokenType.Implement,
+                type: TokenType.Implements,
                 value,
                 position: { line, character: i - totalCharacters },
               });
@@ -611,6 +611,20 @@ export function tokenize(input: string): Token[] {
             case "with":
               tokens.push({
                 type: TokenType.With,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "where":
+              tokens.push({
+                type: TokenType.Where,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "given":
+              tokens.push({
+                type: TokenType.Given,
                 value,
                 position: { line, character: i - totalCharacters },
               });

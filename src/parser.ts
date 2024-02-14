@@ -6216,7 +6216,7 @@ ${typeToString(functionType)}
     caller: TFunction;
     parserData: ParserData;
   }): ParserReturn {
-    if (tokens[index].type !== TokenType.Implement) {
+    if (tokens[index].type !== TokenType.Implements) {
       throw this.formatErrorMessage(
         tokens[index],
         'Expected "implement" for interface implementation'
@@ -8462,7 +8462,7 @@ Please consider adding "Promise" to the return type.
           env = expr.env;
           break;
         }
-        case TokenType.Implement: {
+        case TokenType.Implements: {
           const { expr, index: nextIndex } = this.parseImplementExpr({
             tokens,
             index,

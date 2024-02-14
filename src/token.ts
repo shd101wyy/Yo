@@ -65,7 +65,7 @@ export enum TokenType {
   Effect = "effect",
   Match = "match",
   //// Handler = "handler",
-  Implement = "implement",
+  Implements = "implements",
   Import = "import",
   Export = "export",
   From = "from",
@@ -92,6 +92,8 @@ export enum TokenType {
   Infix = "infix",
   Infixl = "infixl",
   Infixr = "infixr",
+  Where = "where",
+  Given = "given",
 
   /**
    * A list of available C functions can be found at:

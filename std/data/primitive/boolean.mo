@@ -5,7 +5,7 @@ import {*} from "../../interface/eq.mo";
 /**
  * logic
  */
-implement LogicalNot<boolean> {
+implements LogicalNot<boolean> {
   (!): (a: boolean)-> boolean {
     @codegenInline(C=@"!$1");
     recur(a)

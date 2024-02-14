@@ -5,7 +5,7 @@ export type Coord = {
   y: i32;
 }
 
-implement Id<Coord> {
+implements Id<Coord> {
   id: (x: Coord)-> Coord {
     x
   }

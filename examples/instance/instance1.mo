@@ -4,7 +4,7 @@ export interface Id<T: Free> {
   }*/
 }
 
-implement Id<i32> {
+implements Id<i32> {
   id: (x: i32) -> i32 {
     x + 2
   }
