@@ -1,0 +1,113 @@
+{
+  "my_comments": [
+    "Referenec: https://github.com/microsoft/vscode/blob/main/extensions/typescript-basics/syntaxes/TypeScript.tmLanguage.json"
+  ],
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Mo",
+  "patterns": [
+    {
+      "include": "#statements"
+    },
+    {
+      "include": "#shebang"
+    }
+  ],
+  "repository": {
+    "shebang": {
+      "name": "comment.line.shebang.ts",
+      "match": "\\A(#!).*(?=$)",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.comment.ts"
+        }
+      }
+    },
+    "statements": {
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#keywords" },
+        { "include": "#type-declaration" },
+        { "include": "#type-kind" },
+        { "include": "#defer" },
+        { "include": "#condition" },
+        { "include": "#clause" },
+        { "include": "#module" },
+        { "include": "#try-with" },
+        { "include": "#async-await" },
+        { "include": "#infix-precedence" },
+        { "include": "#strings" }
+      ]
+    },
+    "comment": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.mo",
+          "match": "//.*"
+        },
+        {
+          "name": "comment.block.mo",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.mo",
+          "match": "\\b(let|var)\\b"
+        }
+      ]
+    },
+    "type-declaration": {
+      "name": "storage.type.mo",
+      "match": "\\b(type|interface|enum|implements)\\b"
+    },
+    "type-kind": {
+      "name": "entity.name.type",
+      "match": "\\b(Type|Free|Linear)\\b"
+    },
+    "defer": {
+      "name": "keyword.control.mo",
+      "match": "\\b(defer|abortdefer)\\b"
+    },
+    "condition": {
+      "name": "keyword.control.mo",
+      "match": "\\b(if|else|switch|case|default|match)\\b"
+    },
+    "clause": {
+      "name": "keyword.control.mo",
+      "match": "\\b(given|where)\\b"
+    },
+    "module": {
+      "name": "keyword.control.mo",
+      "match": "\\b(import|export|from)\\b"
+    },
+    "try-with": {
+      "name": "keyword.control.mo",
+      "match": "\\b(try|with)\\b"
+    },
+    "async-await": {
+      "patterns": [
+        { "name": "keyword.control.mo", "match": "\\b(async|await)\\b" },
+        { "name": "entity.name.type", "match": "\\b(Promise)\\b" }
+      ]
+    },
+    "infix-precedence": {
+      "name": "keyword.control",
+      "match": "\\b(infix|infixl|infixr)\\b"
+    },
+    "strings": {
+      "name": "string.quoted.double.mo",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.mo",
+          "match": "\\\\."
+        }
+      ]
+    }
+  },
+  "scopeName": "source.mo"
+}
