@@ -9,6 +9,7 @@ export enum Ordering {
   Greater
 }
 
+// given Eq<T>
 export interface Ord<T: Type> {
   compare: (a: T, b: T)-> Ordering;
   (<): (a: T, b: T)-> boolean;

@@ -666,6 +666,124 @@ export default class Parser {
     }
   }
 
+  private tryCallFunctions({
+    matchedFunctions,
+    env,
+    tokens,
+    caller,
+    parserData,
+    calleeToken,
+    leftParenTokenIndex,
+    firstArgument,
+  }: {
+    matchedFunctions: VariableValue[];
+    env: Environment;
+    tokens: Token[];
+    caller: TFunction;
+    parserData: ParserData;
+    calleeToken: Token;
+    leftParenTokenIndex: number;
+    firstArgument?: Expr;
+  }): ParserReturn {
+    // Try all matchedFunctions to see if there is a match
+    const parserReturns: ParserReturn[] = [];
+    const parsedFunctions: {
+      functionName: string;
+      functionType: TFunction;
+    }[] = [];
+    const failedFunctions: {
+      functionName: string;
+      functionType: TFunction;
+      error: Error;
+    }[] = [];
+    const helper = (functionName: string, functionType: TFunction) => {
+      if (!functionType.isEffectOperation && functionType.hasNoImplementation) {
+        failedFunctions.push({
+          functionName,
+          functionType,
+          error: new Error("No implementation found"),
+        });
+        return;
+      }
+      try {
+        parserReturns.push(
+          this.parseCallFunctionExpr({
+            callee: {
+              type: AstType.Variable,
+              variableName: functionName,
+              variableId: functionType.functionId,
+              frameLevel: functionType.frameLevel,
+              typeValue: functionType,
+              env,
+              isMutable: false,
+              token: calleeToken,
+            },
+            tokens,
+            index: leftParenTokenIndex,
+            env,
+            caller,
+            parserData,
+            firstArgument,
+          })
+        );
+        parsedFunctions.push({ functionName, functionType });
+      } catch (error) {
+        // console.error(error);
+        // Ignore the error
+        failedFunctions.push({ functionName, functionType, error });
+      }
+    };
+    for (const matchedFunction of matchedFunctions) {
+      const functionName = matchedFunction.variableName;
+      const functionType = matchedFunction.type as TFunction;
+      helper(functionName, functionType);
+
+      if (functionType.interfaceFunctionImplementations.length > 0) {
+        for (const interfaceFunctionImplementation of functionType.interfaceFunctionImplementations) {
+          const implementFunctionType = interfaceFunctionImplementation.func;
+          helper(functionName, implementFunctionType);
+        }
+      }
+    }
+
+    if (parserReturns.length === 0) {
+      throw this.formatErrorMessage(
+        calleeToken,
+        `Cannot find function '${calleeToken.value}'
+${
+  failedFunctions.length > 0
+    ? `Below are the possible ${failedFunctions.length} function(s):`
+    : ""
+}
+${failedFunctions
+  .map(
+    (func) => `- ${func.functionName}: ${typeToString(func.functionType)}
+${func.error}`
+  )
+  .join("\n")}
+        `.trim()
+      );
+    } else if (
+      this.hasAmbiguousFunctionCall(
+        parserReturns.map((p) => p.expr as CallFunctionExpr)
+      )
+    ) {
+      throw this.formatErrorMessage(
+        calleeToken,
+        `Ambiguous function "${calleeToken.value}"
+Found possible functions:
+- ${parsedFunctions
+          .map(
+            (func) => `${func.functionName}: ${typeToString(func.functionType)}`
+          )
+          .join("\n- ")}`.trim()
+      );
+    } else {
+      // FIXME: Might need to check `isFreeVariable` here as well
+      return parserReturns[parserReturns.length - 1];
+    }
+  }
+
   private parsePropertyAccessExpr({
     expr,
     tokens,
@@ -871,59 +989,16 @@ export default class Parser {
       );
 
       // Try all functions to see if there is a match
-      const parserReturns: ParserReturn[] = [];
-      const parsedFunctions: VariableValue[] = [];
-      const matchedFunctionErrors: Error[] = [];
-      for (const functionType of matchedFunctions) {
-        try {
-          parserReturns.push(
-            this.parseCallFunctionExpr({
-              callee: {
-                type: AstType.Variable,
-                variableName: functionName,
-                variableId: functionType.id,
-                frameLevel: functionType.frameLevel,
-                typeValue: functionType.type,
-                isMutable: false,
-                env,
-                token: tokens[index - 1],
-              },
-              tokens,
-              index: index + 1,
-              env,
-              caller,
-              firstArgument: expr,
-              parserData,
-            })
-          );
-          parsedFunctions.push(functionType);
-        } catch (error) {
-          // Ignore the error
-          matchedFunctionErrors.push(error);
-        }
-      }
-      if (parserReturns.length === 0) {
-        throw this.formatErrorMessage(
-          token,
-          `Cannot find function '${functionName}' that takes the following type as the first argument:
-
-${typeToString(callerType)}
-`
-        );
-      } else if (parserReturns.length > 1) {
-        throw this.formatErrorMessage(
-          token,
-          `Ambiguous function "${functionName}" that takes ${typeToString(
-            callerType
-          )} as the first argument
-Found possible functions:
-- ${parsedFunctions
-            .map((func) => `${func.variableName}: ${typeToString(func.type)}`)
-            .join("\n- ")}`
-        );
-      } else {
-        return parserReturns[0];
-      }
+      return this.tryCallFunctions({
+        matchedFunctions,
+        calleeToken: tokens[index - 1],
+        env,
+        tokens,
+        caller,
+        parserData,
+        leftParenTokenIndex: index + 1,
+        firstArgument: expr,
+      });
     } else {
       throw this.formatErrorMessage(
         token,
@@ -2295,7 +2370,6 @@ Got:      <${appliedTypeArguments
     const matchedFunctions = variableValues.filter(
       (value) => value.type.type === "Function"
     );
-    const matchedFunctionErrors: Error[] = [];
     const matchedInterfaces = variableValues.filter(
       (value) => value.interface && value.kind === "interface"
     );
@@ -2512,107 +2586,19 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
       tokens[index + 1]?.value === "<"
     ) {
       // Try all matchedFunctions to see if there is a match
-      const parserReturns: ParserReturn[] = [];
-      const parsedFunctions: {
-        functionName: string;
-        functionType: TFunction;
-      }[] = [];
-      const failedFunctions: {
-        functionName: string;
-        functionType: TFunction;
-      }[] = [];
-      const helper = (functionName: string, functionType: TFunction) => {
-        if (
-          !functionType.isEffectOperation &&
-          functionType.hasNoImplementation
-        ) {
-          matchedFunctionErrors.push(new Error("No implementation found"));
-          failedFunctions.push({ functionName, functionType });
-          return;
-        }
-        try {
-          parserReturns.push(
-            this.parseCallFunctionExpr({
-              callee: {
-                type: AstType.Variable,
-                variableName: identifier,
-                variableId: functionType.functionId,
-                frameLevel: functionType.frameLevel,
-                typeValue: functionType,
-                env,
-                isMutable: false,
-                token: tokens[identifierTokenIndex],
-              },
-              tokens,
-              index: index + 1,
-              env,
-              caller,
-              parserData,
-            })
-          );
-          parsedFunctions.push({ functionName, functionType });
-        } catch (error) {
-          // console.error(error);
-          // Ignore the error
-          matchedFunctionErrors.push(error);
-          failedFunctions.push({ functionName, functionType });
-        }
-      };
-      for (const functionValue of matchedFunctions) {
-        const functionType = functionValue.type as TFunction;
-        helper(functionValue.variableName, functionType);
-
-        if (functionType.interfaceFunctionImplementations.length > 0) {
-          for (const interfaceFunctionImplementation of functionType.interfaceFunctionImplementations) {
-            const implementFunctionType = interfaceFunctionImplementation.func;
-            helper(functionValue.variableName, implementFunctionType);
-          }
-        }
-      }
-
-      if (parserReturns.length === 0) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Cannot find function '${identifier}'
-${
-  failedFunctions.length > 0
-    ? `Below are the possible ${failedFunctions.length} functions:`
-    : ""
-}
-${failedFunctions
-  .map(
-    (func, i) => `- ${func.functionName}: ${typeToString(func.functionType)}
-  ${matchedFunctionErrors[i]}`
-  )
-  .join("\n")}
-          `.trim()
-        );
-      } else if (
-        parserReturns.filter((p) => {
-          const expr = p.expr as CallFunctionExpr;
-          const functionType = expr.callee.typeValue as TFunction;
-          return !functionType.ignoreAmbiguityCheck;
-        }).length > 1
-      ) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Ambiguous function "${identifier}"
-Found possible functions:
-- ${parsedFunctions
-            .map(
-              (func, i) => `${func.functionName}: ${typeToString(
-                func.functionType
-              )}
-  ${matchedFunctionErrors[i] ?? ""}`
-            )
-            .join("\n- ")}`
-        );
-      } else {
-        // FIXME: Might need to check `isFreeVariable` here as well
-        return parserReturns[parserReturns.length - 1];
-      }
+      return this.tryCallFunctions({
+        matchedFunctions,
+        calleeToken: tokens[identifierTokenIndex],
+        caller,
+        env,
+        parserData,
+        tokens,
+        leftParenTokenIndex: index + 1,
+        firstArgument: undefined,
+      });
     }
 
+    // Normal variable
     const variableValues_ = getEnvVariableValueByVariableName(
       env,
       identifier,
@@ -2770,7 +2756,6 @@ Found possible functions:
     const matchedFunctions = variableValues.filter(
       (value) => value.type.type === "Function"
     );
-    const matchedFunctionErrors: Error[] = [];
     // Check if it's a function
     // - test(1) Normal function call
     // - test { 12 } Trailing lambda
@@ -2782,69 +2767,16 @@ Found possible functions:
       tokens[index + 1]?.value === "<"
     ) {
       // Try all matchedFunctions to see if there is a match
-      const parserReturns: ParserReturn[] = [];
-      const parsedFunctions: VariableValue[] = [];
-      for (const functionType of matchedFunctions) {
-        try {
-          parserReturns.push(
-            this.parseCallFunctionExpr({
-              callee: {
-                type: AstType.Variable,
-                variableName: symbol,
-                variableId: functionType.id,
-                frameLevel: functionType.frameLevel,
-                typeValue: functionType.type,
-                env,
-                isMutable: false,
-                token: tokens[symbolTokenIndex],
-              },
-              tokens,
-              index: index + 1,
-              env,
-              caller,
-              parserData,
-            })
-          );
-          parsedFunctions.push(functionType);
-        } catch (error) {
-          // console.error(error);
-          // Ignore the error
-          matchedFunctionErrors.push(error);
-        }
-      }
-
-      if (parserReturns.length === 0) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Cannot find function "${symbol}"
-Below are the possible functions:
-
-${matchedFunctions
-  .map(
-    (func, i) => `- ${func.variableName}: ${typeToString(func.type)}
-  
-${matchedFunctionErrors[i]}`
-  )
-  .join("\n")}
-          `
-        );
-      } else if (parserReturns.length > 1) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Ambiguous function "${symbol}"
-Found possible functions:
-- ${parsedFunctions
-            .map(
-              (func, i) => `${func.variableName}: ${typeToString(func.type)}
- 
-${matchedFunctionErrors[i] ?? ""}`
-            )
-            .join("\n- ")}`
-        );
-      } else {
-        // FIXME: Might need to check `isFreeVariable` here as well
-        return parserReturns[0];
-      }
+      return this.tryCallFunctions({
+        matchedFunctions,
+        calleeToken: tokens[symbolTokenIndex],
+        caller,
+        env,
+        parserData,
+        leftParenTokenIndex: index + 1,
+        tokens,
+        firstArgument: undefined,
+      });
     } else {
       return this.parseSymbolValue({ tokens, index, env });
     }
@@ -3277,8 +3209,8 @@ ${matchedFunctionErrors[i] ?? ""}`
     expr,
     // tokens,
     index, // env,
-    // parserData,
-  } // caller,
+    // caller,
+  } // parserData,
   : {
     expr: Expr;
     tokens: Token[];
@@ -3453,13 +3385,31 @@ ${matchedFunctionErrors[i] ?? ""}`
       const matchedFunctions = variableValues.filter(
         (value) => value.type.type === "Function"
       );
-      const matchedFunctionErrors: Error[] = [];
       // Try all matchedFunctions to see if there is a match
       const parserReturns: ParserReturn[] = [];
-      const parsedFunctions: VariableValue[] = [];
-      for (const matchedFunction of matchedFunctions) {
+      const parsedFunctions: {
+        functionName: string;
+        functionType: TFunction;
+      }[] = [];
+      const failedFunctions: {
+        functionName: string;
+        functionType: TFunction;
+        error: Error;
+      }[] = [];
+      const helper = (functionName: string, functionType: TFunction) => {
+        if (
+          !functionType.isEffectOperation &&
+          functionType.hasNoImplementation
+        ) {
+          failedFunctions.push({
+            functionName,
+            functionType,
+            error: new Error("No implementation found"),
+          });
+          return;
+        }
+
         try {
-          const functionType = matchedFunction.type as TFunction;
           const { functionArguments, functionTypeArguments } =
             getFunctionArgumentsInOrder(
               functionType,
@@ -3526,8 +3476,8 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
               callee: {
                 type: AstType.Variable,
                 variableName: operatorString,
-                variableId: matchedFunction.id,
-                frameLevel: matchedFunction.frameLevel,
+                variableId: functionType.functionId,
+                frameLevel: functionType.frameLevel,
                 typeValue: newFunctionType,
                 env,
                 isMutable: false,
@@ -3541,11 +3491,27 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
             },
             index,
           });
-          parsedFunctions.push(matchedFunction);
+          parsedFunctions.push({
+            functionName,
+            functionType,
+          });
         } catch (error) {
           // console.error(error);
           // Ignore the error
-          matchedFunctionErrors.push(error);
+          failedFunctions.push({ functionName, functionType, error });
+        }
+      };
+
+      for (const matchedFunction of matchedFunctions) {
+        const functionName = matchedFunction.variableName;
+        const functionType = matchedFunction.type as TFunction;
+        helper(functionName, functionType);
+
+        if (functionType.interfaceFunctionImplementations.length > 0) {
+          for (const interfaceFunctionImplementation of functionType.interfaceFunctionImplementations) {
+            const implementFunctionType = interfaceFunctionImplementation.func;
+            helper(functionName, implementFunctionType);
+          }
         }
       }
 
@@ -3553,29 +3519,30 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
         throw this.formatErrorMessage(
           binaryOperatorToken,
           `Cannot find function '${operatorString}' as binary operator
-Below are the possible functions:
-
-${matchedFunctions
+${failedFunctions.length > 0 ? `Below are the possible functions:` : ""}
+${failedFunctions
   .map(
-    (func, i) => `- ${func.variableName}: ${typeToString(func.type)}
-
-${matchedFunctionErrors[i]}`
+    (func) => `- ${func.functionName}: ${typeToString(func.functionType)}
+  ${func.error}`
   )
   .join("\n")}
-          `
+          `.trim()
         );
-      } else if (parserReturns.length > 1) {
+      } else if (
+        this.hasAmbiguousFunctionCall(
+          parserReturns.map((p) => p.expr as CallFunctionExpr)
+        )
+      ) {
         throw this.formatErrorMessage(
           binaryOperatorToken,
           `Ambiguous function "${operatorString}"
 Found possible functions:
 - ${parsedFunctions
             .map(
-              (func, i) => `${func.variableName}: ${typeToString(func.type)}
-
-${matchedFunctionErrors[i] ?? ""}`
+              (func) =>
+                `${func.functionName}: ${typeToString(func.functionType)}`
             )
-            .join("\n- ")}`
+            .join("\n- ")}`.trim()
         );
       } else {
         LHS = parserReturns[0].expr;
@@ -3628,13 +3595,25 @@ ${matchedFunctionErrors[i] ?? ""}`
     const matchedFunctions = variableValues.filter(
       (value) => value.type.type === "Function"
     );
-    const matchedFunctionErrors: Error[] = [];
     // Try all matchedFunctions to see if there is a match
     const parserReturns: ParserReturn[] = [];
-    const parsedFunctions: VariableValue[] = [];
-    for (const matchedFunction of matchedFunctions) {
+    const parsedFunctions: { functionName: string; functionType: TFunction }[] =
+      [];
+    const failedFunctions: {
+      functionName: string;
+      functionType: TFunction;
+      error: Error;
+    }[] = [];
+    const helper = (functionName: string, functionType: TFunction) => {
+      if (!functionType.isEffectOperation && functionType.hasNoImplementation) {
+        failedFunctions.push({
+          functionName,
+          functionType,
+          error: new Error("No implementation found"),
+        });
+        return;
+      }
       try {
-        const functionType = matchedFunction.type as TFunction;
         const { functionArguments, functionTypeArguments } =
           getFunctionArgumentsInOrder(
             functionType,
@@ -3701,8 +3680,8 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
             callee: {
               type: AstType.Variable,
               variableName: operatorToken.value,
-              variableId: matchedFunction.id,
-              frameLevel: matchedFunction.frameLevel,
+              variableId: functionType.functionId,
+              frameLevel: functionType.frameLevel,
               typeValue: newFunctionType,
               env,
               isMutable: false,
@@ -3716,11 +3695,27 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
           },
           index,
         });
-        parsedFunctions.push(matchedFunction);
+        parsedFunctions.push({
+          functionName,
+          functionType,
+        });
       } catch (error) {
         // console.error(error);
         // Ignore the error
-        matchedFunctionErrors.push(error);
+        failedFunctions.push({ functionName, functionType, error });
+      }
+    };
+
+    for (const matchedFunction of matchedFunctions) {
+      const functionName = matchedFunction.variableName;
+      const functionType = matchedFunction.type as TFunction;
+      helper(functionName, functionType);
+
+      if (functionType.interfaceFunctionImplementations.length > 0) {
+        for (const interfaceFunctionImplementation of functionType.interfaceFunctionImplementations) {
+          const implementFunctionType = interfaceFunctionImplementation.func;
+          helper(functionName, implementFunctionType);
+        }
       }
     }
 
@@ -3728,29 +3723,29 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
       throw this.formatErrorMessage(
         operatorToken,
         `Cannot find function '${operatorToken.value}' as unary operator
-Below are the possible functions:
-
-${matchedFunctions
+${failedFunctions.length > 0 ? `Below are the possible functions:` : ""}
+${failedFunctions
   .map(
-    (func, i) => `- ${func.variableName}: ${typeToString(func.type)}
-
-${matchedFunctionErrors[i]}`
+    (func) => `- ${func.functionName}: ${typeToString(func.functionType)}
+  ${func.error}`
   )
   .join("\n")}
-          `
+          `.trim()
       );
-    } else if (parserReturns.length > 1) {
+    } else if (
+      this.hasAmbiguousFunctionCall(
+        parserReturns.map((p) => p.expr as CallFunctionExpr)
+      )
+    ) {
       throw this.formatErrorMessage(
         operatorToken,
         `Ambiguous function "${operatorToken.value}"
 Found possible functions:
 - ${parsedFunctions
           .map(
-            (func, i) => `${func.variableName}: ${typeToString(func.type)}
-
-${matchedFunctionErrors[i] ?? ""}`
+            (func) => `${func.functionName}: ${typeToString(func.functionType)}`
           )
-          .join("\n- ")}`
+          .join("\n- ")}`.trim()
       );
     } else {
       const ret = parserReturns[0];
@@ -6495,6 +6490,15 @@ Got:      ${typeToString(matchedFunction.func)}`
       },
       index,
     };
+  }
+
+  hasAmbiguousFunctionCall(functionCallExprs: CallFunctionExpr[]): boolean {
+    return (
+      functionCallExprs.filter((expr) => {
+        const functionType = expr.callee.typeValue as TFunction;
+        return !functionType.ignoreAmbiguityCheck;
+      }).length > 1
+    );
   }
 
   /*

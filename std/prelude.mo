@@ -5,15 +5,17 @@
  * - Rust: https://doc.rust-lang.org/std/index.html
  */
 
+// builtins
 export {*} from "./builtins.mo";
-export {*} from "./data/primitive/i32.mo";
-export {*} from "./data/option.mo";
+
+// interface
 export {*} from "./interface/arithmetic.mo";
 export {*} from "./interface/logic.mo";
 export {*} from "./interface/common.mo";
+export {*} from "./interface/eq.mo";
 export {*} from "./interface/ord.mo";
 
-export enum Result<T: Type, E: Type>: Type {
-  Ok(value: T),
-  Error(error: E),
-}
+// data
+export {*} from "./data/option.mo";
+export {*} from "./data/primitive/i32.mo";
+export {*} from "./data/primitive/boolean.mo";
