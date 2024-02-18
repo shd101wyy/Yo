@@ -1613,7 +1613,8 @@ export function applyTypeArgumentsToInterface({
   typeParameterToTypeArgumentMap: { [key: string]: Type };
 }): TInterface {
   // logger.debug("- applyTypeArgumentsToInterface");
-
+  /*
+  // NOTE: Adding the code below will cause ./examples/interface/use_id3.mo failed to parse
   if (
     typeArguments &&
     interface_.typeParameters.length !== typeArguments.length
@@ -1629,6 +1630,7 @@ Expected: <${interface_.typeParameters
 Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
     );
   }
+  */
 
   // set typeParameterToTypeArgumentMap
   const { typeParameters: newTypeParameters } = generateNewTypeParameters({
@@ -1668,7 +1670,7 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   };
 }
 
-export function applyTypeAndRegionArgumentsToFunctionExpr({
+export function applyTypeArgumentsToFunctionExpr({
   env,
   expr,
   typeArguments,
@@ -1693,7 +1695,7 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
     );
   }
 
-  // logger.debug("- applyTypeAndRegionArgumentsToFunctionExpr");
+  // logger.debug("- applyTypeArgumentsToFunctionExpr");
   // set typeParameterToTypeArgumentMap
   /*const {
     typeParameters: newTypeParameters,
@@ -1791,7 +1793,7 @@ export function applyTypeArgumentsToExpr({
       }
     }
     case AstType.Function: {
-      return applyTypeAndRegionArgumentsToFunctionExpr({
+      return applyTypeArgumentsToFunctionExpr({
         expr,
         env,
         typeParameterToTypeArgumentMap,
@@ -3438,14 +3440,20 @@ export function effectsToString(
   }
 }
 
-export function interfaceToString(type: TInterface): string {
-  return `${
-    type.isImplementation
-      ? `implement${typeParametersToString(type.instanceTypeParameters ?? [])}`
-      : "interface"
-  } ${type.interfaceName}${typeParametersToString(type.typeParameters, {
-    hideTypeParameterKind: type.isImplementation,
-  })} {
+export function interfaceToString(
+  type: TInterface,
+  { extractTypeConstructor }: { extractTypeConstructor?: boolean } = {}
+): string {
+  if (extractTypeConstructor) {
+    return `${
+      type.isImplementation
+        ? `implement${typeParametersToString(
+            type.instanceTypeParameters ?? []
+          )}`
+        : "interface"
+    } ${type.interfaceName}${typeParametersToString(type.typeParameters, {
+      hideTypeParameterKind: type.isImplementation,
+    })} {
 ${type.functions
   .map(
     ({ name, func, functionExpr }) =>
@@ -3455,6 +3463,11 @@ ${type.functions
   )
   .join(";\n")};
 }`;
+  } else {
+    return `${type.interfaceName}${typeParametersToString(type.typeParameters, {
+      hideTypeParameterKind: true,
+    })}`;
+  }
 }
 
 function checkRecordExactMatchType(

@@ -550,6 +550,11 @@ export function exprToString(expr: Expr, indentation = ""): string {
       }
       return expr.variableName;
     case AstType.PropertyAccess:
+      if (expr.expr.type === AstType.Interface) {
+        return `${interfaceToString(expr.expr.interface, {
+          extractTypeConstructor: false,
+        })}.${expr.propertyName}`;
+      }
       return `${exprToString(expr.expr)}.${expr.propertyName}`;
     case AstType.IndexAccess:
       return `${exprToString(expr.expr)}[${expr.indexes
@@ -592,7 +597,9 @@ export function exprToString(expr: Expr, indentation = ""): string {
       })}`;
     }
     case AstType.Interface:
-      return `${interfaceToString(expr.interface)}`;
+      return `${interfaceToString(expr.interface, {
+        extractTypeConstructor: true,
+      })}`;
     case AstType.Enum:
       return `${typeToString(expr.typeValue, {
         extractTypeConstructor: true,

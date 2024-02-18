@@ -13,6 +13,8 @@ implements Id<Coord> {
 
 let test = ()-> {
   let coord: Coord = Coord { x: 1, y: 2 };
-  let coord2 = id(coord);
-  // let coord3 = Id<Coord>.id(coord);
+  
+  let call1 = id(coord);
+  let call2 = Id<Coord>.id(coord); // Explicit type argument
+  let call3 = Id.id(coord); // By type inference
 }

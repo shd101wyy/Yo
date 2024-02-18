@@ -667,7 +667,7 @@ export default class Parser {
   }
 
   private tryCallFunctions({
-    matchedFunctions,
+    functions,
     env,
     tokens,
     caller,
@@ -676,16 +676,18 @@ export default class Parser {
     leftParenTokenIndex,
     firstArgument,
   }: {
-    matchedFunctions: VariableValue[];
+    functions: TFunction[];
     env: Environment;
     tokens: Token[];
     caller: TFunction;
     parserData: ParserData;
     calleeToken: Token;
+    functionName?: string;
     leftParenTokenIndex: number;
     firstArgument?: Expr;
   }): ParserReturn {
-    // Try all matchedFunctions to see if there is a match
+    const functionName = calleeToken.value;
+    // Try all functions to see if there is a match
     const parserReturns: ParserReturn[] = [];
     const parsedFunctions: {
       functionName: string;
@@ -733,9 +735,7 @@ export default class Parser {
         failedFunctions.push({ functionName, functionType, error });
       }
     };
-    for (const matchedFunction of matchedFunctions) {
-      const functionName = matchedFunction.variableName;
-      const functionType = matchedFunction.type as TFunction;
+    for (const functionType of functions) {
       helper(functionName, functionType);
 
       if (functionType.interfaceFunctionImplementations.length > 0) {
@@ -848,11 +848,9 @@ Found possible functions:
         },
         index: index + 1,
       };
-    }
-    // FIXME: Now calling function from interface implementation like
-    //  `Id.id()` is not supported
-    /* else if (callerType === "Class") {
-      const func = callerType.functions.find(
+    } else if (expr.type === AstType.Interface) {
+      const interface_ = expr.interface;
+      const func = interface_.functions.find(
         (property) => property.name === token.value
       );
       if (func) {
@@ -877,8 +875,7 @@ Found possible functions:
           )}`
         );
       }
-    }*/
-    else if (callerType.type === "Enum") {
+    } else if (callerType.type === "Enum") {
       const propertyName = token.value;
       const selectedVariantName = callerType.selectedVariantName;
       if (selectedVariantName && propertyName !== selectedVariantName) {
@@ -990,7 +987,9 @@ Found possible functions:
 
       // Try all functions to see if there is a match
       return this.tryCallFunctions({
-        matchedFunctions,
+        functions: matchedFunctions.map((fv) => {
+          return fv.type as TFunction;
+        }),
         calleeToken: tokens[index - 1],
         env,
         tokens,
@@ -2391,17 +2390,17 @@ Got:      <${appliedTypeArguments
           `Ambiguous interfaces "${identifier}"
 Found possible interfaces:
 - ${matchedInterfaces
-            .map((typeclassType) => typeToString(typeclassType.type))
+            .map((interfaceValue) => typeToString(interfaceValue.type))
             .join("\n- ")}
           `
         );
       } else {
-        const typeclass = matchedInterfaces[0];
-        const interface_ = typeclass.interface;
+        const interfaceValue = matchedInterfaces[matchedInterfaces.length - 1];
+        const interface_ = interfaceValue.interface;
         if (!interface_) {
           throw this.formatErrorMessage(
             tokens[identifierTokenIndex],
-            `Expected interface, but got ${typeToString(typeclass.type)}`
+            `Expected interface, but got ${typeToString(interfaceValue.type)}`
           );
         }
         let typeArguments: Type[] = [];
@@ -2587,7 +2586,9 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
     ) {
       // Try all matchedFunctions to see if there is a match
       return this.tryCallFunctions({
-        matchedFunctions,
+        functions: matchedFunctions.map((fv) => {
+          return fv.type as TFunction;
+        }),
         calleeToken: tokens[identifierTokenIndex],
         caller,
         env,
@@ -2768,7 +2769,9 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
     ) {
       // Try all matchedFunctions to see if there is a match
       return this.tryCallFunctions({
-        matchedFunctions,
+        functions: matchedFunctions.map((fv) => {
+          return fv.type as TFunction;
+        }),
         calleeToken: tokens[symbolTokenIndex],
         caller,
         env,
@@ -3116,14 +3119,14 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
       primaryExpr.typeValue.type === "Function" &&
       (token.type === TokenType.LParen || token.value === "<")
     ) {
-      // parseCallFunctionExpr
-      const returnValue = this.parseCallFunctionExpr({
-        callee: primaryExpr,
-        tokens,
-        index,
-        env,
+      const returnValue = this.tryCallFunctions({
+        functions: [primaryExpr.typeValue],
+        calleeToken: tokens[index - 1],
         caller,
+        env,
+        leftParenTokenIndex: index,
         parserData,
+        tokens,
       });
       return this.parsePrimaryEnd({
         primaryExpr: returnValue.expr,
@@ -3209,8 +3212,8 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
     expr,
     // tokens,
     index, // env,
-    // caller,
-  } // parserData,
+    // parserData,
+  } // caller,
   : {
     expr: Expr;
     tokens: Token[];

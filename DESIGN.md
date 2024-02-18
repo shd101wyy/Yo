@@ -1127,7 +1127,7 @@ type NewsArticle = {
   content: String;
 };
 
-// Implements the class instance
+// Implements the interface
 implements Summary<NewsArticle> {
   summarize: (self: NewsArticle)-> String {
     "${self.headline}, by ${self.author} (${self.location})";
@@ -1136,9 +1136,11 @@ implements Summary<NewsArticle> {
 
 // Pass in function
 let notify = (item: NewsArticle)-> () {
-  println("Breaking news! ", item.summarize());
+  println("Breaking news! ", summarize(item));
   // or
   println("Breaking news! ", Summary<NewsArticle>.summarize(item));
+  // or
+  println("Breaking news! ", Summary.summarize(item));
 }
 
 let notify = <T>(

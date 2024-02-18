@@ -31,7 +31,7 @@ import {
   TPrimitiveWithValue,
   TTypeConstructor,
   Type,
-  applyTypeAndRegionArgumentsToFunctionExpr,
+  applyTypeArgumentsToFunctionExpr,
   typeContainsTypeParameterThatDoesntHaveAppliedType,
   typeParametersToString,
   typeToString,
@@ -334,7 +334,7 @@ export class CodeGeneratorC {
       );
     }
 
-    const newFunctionExpr = applyTypeAndRegionArgumentsToFunctionExpr({
+    const newFunctionExpr = applyTypeArgumentsToFunctionExpr({
       env: functionExpr.env,
       expr: functionExpr,
       typeArguments: typeArguments as Type[],
