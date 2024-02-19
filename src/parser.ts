@@ -1944,15 +1944,17 @@ Got:      <${functionTypeArgumentsInOrder
         // Check if the same function with the same signature exists in env
         if (
           !checkIfInterfaceFunctionImplementationExistsInEnv({
-            interfaceId: typeConstraint.interfaceId,
+            interface_: typeConstraint,
             interfaceFunction,
             env,
           })
         ) {
           throw this.formatErrorMessage(
             tokens[index],
-            `Failed to satisfy type constraint:
-${interfaceToString(typeConstraint, { extractTypeConstructor: false })}`
+            `Failed to satisfy type constraint: ${interfaceToString(
+              typeConstraint,
+              { extractTypeConstructor: false }
+            )}`
           );
         }
       }

@@ -1345,18 +1345,20 @@ export function getEnvInterfaceById(
 }
 
 export function checkIfInterfaceFunctionImplementationExistsInEnv({
-  interfaceId,
+  interface_,
   interfaceFunction,
   env,
 }: {
-  interfaceId: string;
+  interface_: TInterface;
   interfaceFunction: TInterfaceFunction;
   env: Environment;
 }): boolean {
+  /*
   const interface_ = getEnvInterfaceById(env, interfaceId);
   if (!interface_) {
     return false;
   }
+  */
   const targetInterfaceFunction = interface_.functions.find(
     (f) => f.name === interfaceFunction.name
   );

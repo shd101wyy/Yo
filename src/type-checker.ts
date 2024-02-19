@@ -1535,6 +1535,7 @@ export function applyTypeArgumentsToType({
           typeParameterToTypeArgumentMap,
         })
       ),
+      // NOTE: interfaceFunctionImplementations is not updated
     };
     return newFunctionType;
   } else {
