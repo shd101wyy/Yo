@@ -26,6 +26,7 @@ import {
   addEnvFreeVariable,
   addEnvOperatorPrecedence,
   addEnvVariableValue,
+  checkIfInterfaceFunctionImplementationExistsInEnv,
   copyEnvironment,
   createNewEnv,
   createTopLevelEnv,
@@ -76,6 +77,7 @@ import {
   getEnumTypeKind,
   getFunctionArgumentsInOrder,
   getFunctionsOfCallerFromEnv,
+  interfaceToString,
   parseTypeKind,
   synthesizeFunctionParameterTypesFromTokens,
   synthesizeFunctionTypeFromTokens,
@@ -1931,6 +1933,28 @@ Got:      <${functionTypeArgumentsInOrder
         );
       } else {
         calleeTypeValue = typeValue_;
+      }
+    }
+
+    // TODO: Check if the type constraints are satisfied
+    for (let i = 0; i < calleeTypeValue.typeConstraints.length; i++) {
+      const typeConstraint = calleeTypeValue.typeConstraints[i];
+      for (let i = 0; i < typeConstraint.functions.length; i++) {
+        const interfaceFunction = typeConstraint.functions[i];
+        // Check if the same function with the same signature exists in env
+        if (
+          !checkIfInterfaceFunctionImplementationExistsInEnv({
+            interfaceId: typeConstraint.interfaceId,
+            interfaceFunction,
+            env,
+          })
+        ) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Failed to satisfy type constraint:
+${interfaceToString(typeConstraint, { extractTypeConstructor: false })}`
+          );
+        }
       }
     }
 
@@ -6111,6 +6135,7 @@ ${typeToString(functionType)}
       // Set special property for functionType
       functionType.hasNoImplementation = !functionExpr;
       functionType.ignoreAmbiguityCheck = true;
+      functionType.ownerInterfaceId = interfaceId;
 
       // Check if function is effect operation
       if (
@@ -6257,7 +6282,7 @@ ${typeToString(functionType)}
     // const interfaceNameTokenIndex = index;
     index = index + 1;
 
-    // Find the class from env
+    // Find the interfaces from env
     const interfaces = getEnvVariableValueByVariableName(
       env,
       interfaceName,
@@ -6282,6 +6307,7 @@ ${typeToString(functionType)}
         `Cannot find interface "${interfaceName}"`
       );
     }
+    const interfaceId = interface1.interfaceId;
 
     const interface_: TInterface = {
       ...interface1,
@@ -6392,6 +6418,7 @@ ${typeToString(functionType)}
       // Add the typeParameters of the class to the functionType
       functionType.typeParameters = newInterface.typeParameters;
       // functionType.typeParameters = newInterface.instanceTypeParameters ?? [];
+      functionType.ownerInterfaceId = interfaceId;
       functions.push({
         name: functionName,
         func: functionType,

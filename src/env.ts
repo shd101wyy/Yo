@@ -8,7 +8,13 @@ import {
   stringIsOperator,
 } from "./operator";
 import { Token, TokenType } from "./token";
-import { TInterface, Type, typeToString } from "./type-checker";
+import {
+  TInterface,
+  TInterfaceFunction,
+  Type,
+  checkType,
+  typeToString,
+} from "./type-checker";
 
 export const emptyToken: Token = {
   position: {
@@ -1316,4 +1322,67 @@ export function getEnvFrameLevelAndIndexForVariableValue(
     }
   }
   throw new Error("Failed to find the value type in env.");
+}
+
+export function getEnvInterfaceById(
+  env: Environment,
+  interfaceId: string
+): TInterface | null {
+  for (let i = 0; i < env.frames.length; i++) {
+    const frame = env.frames[i];
+    for (let j = 0; j < frame.values.length; j++) {
+      const value = frame.values[j];
+      if (
+        value.kind === "interface" &&
+        value.interface &&
+        value.interface.interfaceId === interfaceId
+      ) {
+        return value.interface;
+      }
+    }
+  }
+  return null;
+}
+
+export function checkIfInterfaceFunctionImplementationExistsInEnv({
+  interfaceId,
+  interfaceFunction,
+  env,
+}: {
+  interfaceId: string;
+  interfaceFunction: TInterfaceFunction;
+  env: Environment;
+}): boolean {
+  const interface_ = getEnvInterfaceById(env, interfaceId);
+  if (!interface_) {
+    return false;
+  }
+  const targetInterfaceFunction = interface_.functions.find(
+    (f) => f.name === interfaceFunction.name
+  );
+  if (!targetInterfaceFunction) {
+    return false;
+  }
+  const targetFunctionType = targetInterfaceFunction.func;
+
+  if (
+    !targetFunctionType.hasNoImplementation &&
+    checkType(targetFunctionType, interfaceFunction.func, env)
+  ) {
+    return true;
+  }
+
+  for (
+    let i = 0;
+    i < targetFunctionType.interfaceFunctionImplementations.length;
+    i++
+  ) {
+    const implementation =
+      targetFunctionType.interfaceFunctionImplementations[i];
+    if (checkType(implementation.func, interfaceFunction.func, env)) {
+      return true;
+    }
+  }
+
+  return false;
 }

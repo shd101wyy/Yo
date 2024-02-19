@@ -244,6 +244,12 @@ export type TFunction = {
   isEffectOperation?: boolean;
 
   /**
+   * The id of the interface under which the function is defined
+   * Note this is not the `interfaceId` of `implements`, but the `interfaceId` of `interface`.
+   */
+  ownerInterfaceId?: string;
+
+  /**
    * Right now only ()=>{} is closure
    * function name(a: number) {} is not closure
    */
