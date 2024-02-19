@@ -1362,25 +1362,6 @@ RHS order: ${rhsOrder}`
       //   : parserData.abortTokenIndex,
     };
 
-    // Extract effect operations
-    if (functionType.effects.length > 0) {
-      functionType.effects.forEach((effect) => {
-        effect.functions.forEach(({ name, func }) => {
-          const { env: nextEnv } = addEnvVariableValue({
-            env,
-            variableValue: {
-              variableName: name,
-              type: func,
-              kind: "value",
-              isMutable: false,
-              token: emptyToken,
-            },
-          });
-          env = nextEnv;
-        });
-      });
-    }
-
     // Add "resume" and "abort" functions if the function returns promise
     if (promiseReturnType) {
       const resumeType = promiseReturnType.typeParameters[0].appliedType;
@@ -1512,6 +1493,7 @@ RHS order: ${rhsOrder}`
       effects: [],
       // hasMoreEffects: false,
       typeParameters: [],
+      typeConstraints: [],
       returnType: TypeValues.unit,
       parameterTypes: [
         {
@@ -1541,6 +1523,7 @@ RHS order: ${rhsOrder}`
       effects: [],
       // hasMoreEffects: false,
       typeParameters: [],
+      typeConstraints: [],
       returnType: TypeValues.unit,
       parameterTypes: [
         {
@@ -3212,8 +3195,8 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
     expr,
     // tokens,
     index, // env,
-    // parserData,
-  } // caller,
+    // caller,
+  } // parserData,
   : {
     expr: Expr;
     tokens: Token[];
@@ -5783,18 +5766,22 @@ ${typeToString(valueType)}`
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
+    let typeConstraints: TInterface[] = [];
     if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeParameters: tp,
+        typeConstraints: tc,
         env: nextEnv,
       } = synthesizeTypeParametersFromTokens({
         tokens,
         index,
         env,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
       });
       index = nextIndex;
       typeParameters = tp;
+      typeConstraints = tc;
       env = nextEnv;
     }
 
@@ -5890,6 +5877,7 @@ ${typeToString(nextTypeValue)}`
       typeConstructorName: typeName,
       typeConstructorId: generateVarialeValueId(env, typeName),
       typeParameters,
+      typeConstraints,
       typeValue,
     };
 
@@ -5977,18 +5965,22 @@ ${typeToString(nextTypeValue)}`
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
+    let typeConstraints: TInterface[] = [];
     if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeParameters: tp,
+        typeConstraints: tc,
         env: nextEnv,
       } = synthesizeTypeParametersFromTokens({
         tokens,
         index,
         env,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
       });
       index = nextIndex;
       typeParameters = tp;
+      typeConstraints = tc;
       env = nextEnv;
     }
 
@@ -5999,6 +5991,7 @@ ${typeToString(nextTypeValue)}`
       interfaceId,
       functions: [],
       typeParameters,
+      typeConstraints,
       isImplementation: false,
     };
     const { env: nextEnv } = addEnvVariableValue({
@@ -6155,6 +6148,7 @@ ${typeToString(functionType)}
       interfaceName: interfaceName,
       interfaceId: interfaceId,
       typeParameters,
+      typeConstraints,
       functions,
       isImplementation: false,
     };
@@ -6206,7 +6200,7 @@ ${typeToString(functionType)}
     };
   }
 
-  private parseImplementExpr({
+  private parseImplementsExpr({
     tokens,
     index,
     env,
@@ -6233,18 +6227,22 @@ ${typeToString(functionType)}
 
     // Instance type parameters
     const instanceTypeParameters: TTypeParameter[] = [];
+    const instanceTypeConstraints: TInterface[] = [];
     if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeParameters: tp,
+        typeConstraints: tc,
         env: nextEnv,
       } = synthesizeTypeParametersFromTokens({
         tokens,
         index,
         env,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
       });
       index = nextIndex;
       instanceTypeParameters.push(...tp);
+      instanceTypeConstraints.push(...tc);
       env = nextEnv;
     }
 
@@ -6268,7 +6266,7 @@ ${typeToString(functionType)}
     if (interfaces.length === 0) {
       throw this.formatErrorMessage(
         tokens[index],
-        `Cannot find class "${interfaceName}"`
+        `Cannot find interface "${interfaceName}"`
       );
     } else if (interfaces.length > 1) {
       throw this.formatErrorMessage(
@@ -6281,13 +6279,14 @@ ${typeToString(functionType)}
     if (!interface1) {
       throw this.formatErrorMessage(
         tokens[index],
-        `Cannot find class "${interfaceName}"`
+        `Cannot find interface "${interfaceName}"`
       );
     }
 
     const interface_: TInterface = {
       ...interface1,
       instanceTypeParameters,
+      instanceTypeConstraints,
       isImplementation: true,
     };
 
@@ -6780,18 +6779,22 @@ ${operationName}: ${typeToString(
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
+    let typeConstraints: TInterface[] = [];
     if (tokens[index].value === "<") {
       const {
         index: nextIndex,
         typeParameters: tp,
+        typeConstraints: tc,
         env: nextEnv,
       } = synthesizeTypeParametersFromTokens({
         tokens,
         index,
         env,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
       });
       index = nextIndex;
       typeParameters = tp;
+      typeConstraints = tc;
       env = nextEnv;
     }
 
@@ -6924,6 +6927,7 @@ ${operationName}: ${typeToString(
       enumId: generateVarialeValueId(env, enumName),
       enumName,
       typeParameters,
+      typeConstraints,
       variants: enumVariants,
       selectedVariantName:
         enumVariants.length === 1 ? enumVariants[0].name : undefined,
@@ -7957,7 +7961,7 @@ Please consider adding "Promise" to the return type.
       /*
       // Implement is implicitly exported
       case TokenType.Implement: {
-        const { expr, index: nextIndex } = this.parseImplementExpr({
+        const { expr, index: nextIndex } = this.parseImplementsExpr({
           tokens,
           index,
           env,
@@ -8466,7 +8470,7 @@ Please consider adding "Promise" to the return type.
           break;
         }
         case TokenType.Implements: {
-          const { expr, index: nextIndex } = this.parseImplementExpr({
+          const { expr, index: nextIndex } = this.parseImplementsExpr({
             tokens,
             index,
             env,

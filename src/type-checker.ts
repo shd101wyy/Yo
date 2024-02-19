@@ -19,6 +19,7 @@ import {
   Environment,
   VariableValue,
   addEnvVariableValue,
+  emptyToken,
   generateVarialeValueId,
   getEnvCurrentFrameLevel,
   getEnvVariableValueByVariableName,
@@ -230,6 +231,7 @@ export type TFunction = {
   permission: TypePermission;
   functionId: string;
   typeParameters: TTypeParameter[];
+  typeConstraints: TInterface[];
   parameterTypes: TParameterType[];
   effects: TInterface[];
   // hasMoreEffects: boolean;
@@ -298,6 +300,7 @@ export type TTypeConstructor = {
   kind: TypeKind;
   permission: TypePermission;
   typeParameters: TTypeParameter[];
+  typeConstraints: TInterface[];
   typeValue: Type;
 };
 
@@ -315,11 +318,13 @@ export type TInterface = {
   interfaceName: string;
   interfaceId: string;
   typeParameters: TTypeParameter[];
+  typeConstraints: TInterface[];
   functions: TInterfaceFunction[];
 
   // NOTE: Below are for "implement"
   isImplementation: boolean;
   instanceTypeParameters?: TTypeParameter[];
+  instanceTypeConstraints?: TInterface[];
 };
 
 export type TEnumVariant = {
@@ -332,6 +337,7 @@ export type TEnum = {
   enumId: string;
   enumName: string;
   typeParameters: TTypeParameter[];
+  typeConstraints: TInterface[];
   variants: TEnumVariant[];
   selectedVariantName?: string;
   kind: TypeKind;
@@ -458,6 +464,7 @@ export const TypeValues: {
         permission: "own",
       },
     ],
+    typeConstraints: [],
     typeValue: {
       type: "Extern",
       kind: "Free",
@@ -478,6 +485,7 @@ export const emptyFunctionThatHasMoreEffects: TFunction = {
   returnType: TypeValues.unit,
   type: "Function",
   typeParameters: [],
+  typeConstraints: [],
   interfaceFunctionImplementations: [],
 };
 
@@ -1383,6 +1391,13 @@ export function applyTypeArgumentsToType({
       typeConstructorName: type.typeConstructorName,
       typeConstructorId: type.typeConstructorId,
       typeParameters: newTypeParameters,
+      typeConstraints: type.typeConstraints.map((typeConstraint) =>
+        applyTypeArgumentsToInterface({
+          env,
+          interface_: typeConstraint,
+          typeParameterToTypeArgumentMap,
+        })
+      ),
       typeValue: newTypeValue,
     };
   } else if (type.type === "Enum") {
@@ -1431,6 +1446,13 @@ export function applyTypeArgumentsToType({
       enumId: type.enumId,
       enumName: type.enumName,
       typeParameters: newTypeParameters,
+      typeConstraints: type.typeConstraints.map((typeConstraint) =>
+        applyTypeArgumentsToInterface({
+          env,
+          interface_: typeConstraint,
+          typeParameterToTypeArgumentMap,
+        })
+      ),
       variants: variants,
       selectedVariantName: type.selectedVariantName,
     };
@@ -1664,9 +1686,18 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
     interfaceName: interface_.interfaceName,
     interfaceId: interface_.interfaceId,
     typeParameters: newTypeParameters,
+    typeConstraints: interface_.typeConstraints.map((typeConstraint) =>
+      applyTypeArgumentsToInterface({
+        env,
+        interface_: typeConstraint,
+        typeArguments,
+        typeParameterToTypeArgumentMap,
+      })
+    ),
     functions: functions,
     isImplementation: true, // type.isImplementation,
-    instanceTypeParameters: interface_.instanceTypeParameters,
+    instanceTypeParameters: interface_.instanceTypeParameters, // QUESTION: Is this correct?
+    instanceTypeConstraints: interface_.instanceTypeConstraints, // QUESTION: Is this correct?
   };
 }
 
@@ -2395,6 +2426,7 @@ export function synthesizeEffectsFromTokens({
   effects: TInterface[];
   // hasMoreEffects: boolean;
   index: number;
+  env: Environment;
 } {
   const effects: TInterface[] = [];
   // let hasMoreEffects = false;
@@ -2414,7 +2446,7 @@ export function synthesizeEffectsFromTokens({
     if (!tokens[index]) {
       throw formatErrorMessage({
         token: tokens[index - 1],
-        errorMessage: "Expected '}'",
+        errorMessage: "Expected ']'",
         modulePath: env.modulePath,
         inputString: env.inputString,
       });
@@ -2502,10 +2534,183 @@ export function synthesizeEffectsFromTokens({
     }
   }
 
+  // Extract effect operations
+  if (effects.length > 0) {
+    effects.forEach((effect) => {
+      effect.functions.forEach(({ name, func }) => {
+        const { env: nextEnv } = addEnvVariableValue({
+          env,
+          variableValue: {
+            variableName: name,
+            type: func,
+            kind: "value",
+            isMutable: false,
+            token: emptyToken,
+          },
+        });
+        env = nextEnv;
+      });
+    });
+  }
+
   return {
     effects,
     // hasMoreEffects,
     index,
+    env,
+  };
+}
+
+export function synthesizeTypeConstraintsFromTokens({
+  tokens,
+  index,
+  env,
+  parseExpression,
+}: {
+  tokens: Token[];
+  index: number;
+  env: Environment;
+  parseExpression: ParseExpression;
+}): {
+  typeConstraints: TInterface[];
+  index: number;
+  env: Environment;
+} {
+  const typeConstraints: TInterface[] = [];
+  if (tokens[index].type !== TokenType.Given) {
+    throw formatErrorMessage({
+      token: tokens[index],
+      errorMessage: "Expected 'given' before declaring type constraints.",
+      modulePath: env.modulePath,
+      inputString: env.inputString,
+    });
+  }
+  index = index + 1;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (!tokens[index]) {
+      throw formatErrorMessage({
+        token: tokens[index - 1],
+        errorMessage: "Expected '>'",
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+      });
+    }
+    if (tokens[index].value === ">") {
+      index = index + 1;
+      break;
+    }
+
+    if (tokens[index].type !== TokenType.Identifier) {
+      throw formatErrorMessage({
+        token: tokens[index],
+        errorMessage: "Expected identifier as type constraint name",
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+      });
+    }
+    const typeConstraintName = tokens[index].value;
+    index = index + 1;
+
+    let typeArguments: Type[] = [];
+    if (tokens[index].value === "<") {
+      const {
+        typeArguments: nextTypeArguments,
+        index: nextIndex,
+        env: nextEnv,
+      } = synthesizeTypeArgumentsFromTokens({
+        tokens,
+        index,
+        env,
+        parseExpression,
+      });
+      typeArguments = nextTypeArguments;
+      index = nextIndex;
+      env = nextEnv;
+    }
+
+    // Find the interfaces
+    const interfaceValues = getEnvVariableValueByVariableName(
+      env,
+      typeConstraintName,
+      "interface"
+    );
+    if (interfaceValues.length === 0) {
+      throw formatErrorMessage({
+        token: tokens[index],
+        errorMessage: `Cannot find interface ${typeConstraintName}`,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+      });
+    } else if (interfaceValues.length > 1) {
+      throw formatErrorMessage({
+        token: tokens[index],
+        errorMessage: `Ambiguous interface ${interfaceValues}`,
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+      });
+    } else {
+      const interface_ = interfaceValues[0].interface;
+      if (!interface_) {
+        throw formatErrorMessage({
+          token: tokens[index],
+          errorMessage: `Cannot find interface ${typeConstraintName}`,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
+        });
+      }
+      const newInterface = applyTypeArgumentsToInterface({
+        interface_: interface_,
+        env,
+        typeArguments,
+        typeParameterToTypeArgumentMap: {},
+      });
+      typeConstraints.push(newInterface);
+
+      // Add the interface implementation function
+      for (let i = 0; i < newInterface.functions.length; i++) {
+        const interfaceFunction = newInterface.functions[i];
+        interfaceFunction.func.hasNoImplementation = false; // Assume that the implementation exists
+        interface_.functions[i].func.interfaceFunctionImplementations.push(
+          interfaceFunction
+        );
+      }
+    }
+
+    if (tokens[index].type === TokenType.Comma) {
+      index = index + 1;
+      continue;
+    }
+  }
+
+  // Extract functions from type constraints
+  if (typeConstraints.length > 0) {
+    typeConstraints.forEach((typeConstraint) => {
+      typeConstraint.functions.forEach(({ name, func }) => {
+        const newFunctionType: TFunction = {
+          ...func,
+          hasNoImplementation: false,
+        };
+        const { env: nextEnv } = addEnvVariableValue({
+          env,
+          variableValue: {
+            variableName: name,
+            type: newFunctionType,
+            kind: "value",
+            isMutable: false,
+            token: emptyToken,
+          },
+        });
+        env = nextEnv;
+      });
+    });
+  }
+
+  return {
+    typeConstraints,
+    index,
+    env,
   };
 }
 
@@ -2536,17 +2741,21 @@ export function synthesizeFunctionTypeFromTokens({
   }
 
   let typeParameters: TTypeParameter[] = [];
+  let typeConstraints: TInterface[] = [];
   if (tokens[index].value === "<") {
     const {
       typeParameters: nextTypeParameters,
+      typeConstraints: nextTypeConstraints,
       index: nextIndex,
       env: nextEnv,
     } = synthesizeTypeParametersFromTokens({
       tokens,
       index,
       env,
+      parseExpression,
     });
     typeParameters = nextTypeParameters;
+    typeConstraints = nextTypeConstraints;
     index = nextIndex;
     env = nextEnv;
   }
@@ -2589,6 +2798,7 @@ export function synthesizeFunctionTypeFromTokens({
         effects: nextEffects,
         // hasMoreEffects: nextHasMoreEffects,
         index: nextNextIndex,
+        env: nextEnv,
       } = synthesizeEffectsFromTokens({
         tokens,
         index,
@@ -2598,6 +2808,7 @@ export function synthesizeFunctionTypeFromTokens({
       effects = nextEffects;
       // hasMoreEffects = nextHasMoreEffects;
       index = nextNextIndex;
+      env = nextEnv;
     }
 
     let returnType: Type = TypeValues.unit;
@@ -2628,6 +2839,7 @@ export function synthesizeFunctionTypeFromTokens({
           : generateVarialeValueId(env, functionName ?? "anonymousFunction"),
       parameterTypes,
       typeParameters,
+      typeConstraints,
       returnType,
       effects,
       // hasMoreEffects,
@@ -2711,12 +2923,15 @@ export function synthesizeTypeParametersFromTokens({
   tokens,
   index,
   env,
+  parseExpression,
 }: {
   tokens: Token[];
   index: number;
   env: Environment;
+  parseExpression: ParseExpression;
 }): {
   typeParameters: TTypeParameter[];
+  typeConstraints: TInterface[];
   index: number;
   env: Environment;
 } {
@@ -2731,6 +2946,7 @@ export function synthesizeTypeParametersFromTokens({
 
   index = index + 1;
   const typeParameters: TTypeParameter[] = [];
+  let typeConstraints: TInterface[] = [];
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const token = tokens[index];
@@ -2750,6 +2966,25 @@ export function synthesizeTypeParametersFromTokens({
       index = index + 1;
       break;
     }
+
+    // Type constraints
+    if (token.type === TokenType.Given) {
+      const {
+        typeConstraints: nextTypeConstraints,
+        index: nextIndex,
+        env: nextEnv,
+      } = synthesizeTypeConstraintsFromTokens({
+        tokens,
+        index,
+        env,
+        parseExpression,
+      });
+      typeConstraints = nextTypeConstraints;
+      index = nextIndex;
+      env = nextEnv;
+      break;
+    }
+
     // Split the tokens
     if (token.type === TokenType.Operator && token.value.startsWith(">")) {
       const operator = token.value;
@@ -2874,6 +3109,7 @@ export function synthesizeTypeParametersFromTokens({
     env,
     index,
     typeParameters,
+    typeConstraints,
   };
 }
 
@@ -3043,9 +3279,13 @@ export function typeToString(
       const effectsString = effectsToString(type.effects, {
         hideTypeParameterKind: true,
       });
-      return `${typeParametersToString(type.typeParameters, {
-        hideTypeParameterKind: false,
-      })}(${type.parameterTypes
+      return `${typeParametersToString(
+        type.typeParameters,
+        type.typeConstraints,
+        {
+          hideTypeParameterKind: false,
+        }
+      )}(${type.parameterTypes
         .map(
           (parameter) =>
             (parameter.name ? `${parameter.name}: ` : "") +
@@ -3109,6 +3349,7 @@ export function typeToString(
         if (extractTypeConstructor === "all") {
           return `${type.typeConstructorName}${typeParametersToString(
             type.typeParameters,
+            type.typeConstraints,
             { hideTypeParameterKind }
           )}: ${type.kind}${
             type.typeValue.type === "Extern"
@@ -3127,7 +3368,7 @@ export function typeToString(
       } else {
         return `${typePermissionToString(type.permission)} ${
           type.typeConstructorName
-        }${typeParametersToString(type.typeParameters, {
+        }${typeParametersToString(type.typeParameters, type.typeConstraints, {
           hideTypeParameterKind,
         })}`.trim();
       }
@@ -3136,6 +3377,7 @@ export function typeToString(
       if (extractTypeConstructor) {
         return `enum ${type.enumName}${typeParametersToString(
           type.typeParameters,
+          type.typeConstraints,
           { hideTypeParameterKind }
         )}: ${type.kind} {
 ${type.variants
@@ -3157,7 +3399,7 @@ ${type.variants
       } else {
         return `${typePermissionToString(type.permission)} ${
           type.enumName
-        }${typeParametersToString(type.typeParameters, {
+        }${typeParametersToString(type.typeParameters, type.typeConstraints, {
           hideTypeParameterKind: true,
         })}${
           type.selectedVariantName && !hideTypeParameterKind
@@ -3371,6 +3613,7 @@ export function checkFunctionEffects(
 
 export function typeParametersToString(
   typeParameters: TTypeParameter[],
+  typeConstraints: TInterface[],
   { hideTypeParameterKind }: { hideTypeParameterKind?: boolean } = {}
 ) {
   if (typeParameters.length === 0) {
@@ -3378,7 +3621,15 @@ export function typeParametersToString(
   } else {
     return `<${typeParameters
       .map((type) => typeToString(type, { hideTypeParameterKind }))
-      .join(", ")}>`;
+      .join(", ")}${
+      typeConstraints.length > 0
+        ? ` given ${typeConstraints
+            .map((interface_) =>
+              interfaceToString(interface_, { extractTypeConstructor: false })
+            )
+            .join(", ")}`
+        : ""
+    }>`;
   }
 }
 
@@ -3395,7 +3646,7 @@ export function effectToString(
   if (extractTypeConstructor) {
     return `${effect.isImplementation ? "" : "effect "}${
       effect.interfaceName
-    }${typeParametersToString(effect.typeParameters, {
+    }${typeParametersToString(effect.typeParameters, effect.typeConstraints, {
       hideTypeParameterKind,
     })} {
 ${effect.functions
@@ -3409,6 +3660,7 @@ ${effect.functions
   } else {
     return `${effect.interfaceName}${typeParametersToString(
       effect.typeParameters,
+      effect.typeConstraints,
       { hideTypeParameterKind }
     )}`;
   }
@@ -3448,12 +3700,17 @@ export function interfaceToString(
     return `${
       type.isImplementation
         ? `implement${typeParametersToString(
-            type.instanceTypeParameters ?? []
+            type.instanceTypeParameters ?? [],
+            type.instanceTypeConstraints ?? []
           )}`
         : "interface"
-    } ${type.interfaceName}${typeParametersToString(type.typeParameters, {
-      hideTypeParameterKind: type.isImplementation,
-    })} {
+    } ${type.interfaceName}${typeParametersToString(
+      type.typeParameters,
+      type.typeConstraints,
+      {
+        hideTypeParameterKind: type.isImplementation,
+      }
+    )} {
 ${type.functions
   .map(
     ({ name, func, functionExpr }) =>
@@ -3464,9 +3721,13 @@ ${type.functions
   .join(";\n")};
 }`;
   } else {
-    return `${type.interfaceName}${typeParametersToString(type.typeParameters, {
-      hideTypeParameterKind: true,
-    })}`;
+    return `${type.interfaceName}${typeParametersToString(
+      type.typeParameters,
+      type.typeConstraints,
+      {
+        hideTypeParameterKind: true,
+      }
+    )}`;
   }
 }
 

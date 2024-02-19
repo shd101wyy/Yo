@@ -630,6 +630,7 @@ export function exprToString(expr: Expr, indentation = ""): string {
       } else {
         return `${exprToString(expr.callee)}${typeParametersToString(
           calleeType.typeParameters,
+          calleeType.typeConstraints,
           {
             hideTypeParameterKind: true,
           }

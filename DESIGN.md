@@ -1636,7 +1636,7 @@ export "C" let x = 1;
 ```typescript
 // There is no `default` export.
 import {*} from "./test.mo"; // Import everything from test.mo
-import {*}  as Test from "./test.mo"; // Import everything from test.mo and put it in the Test namespace
+import {*} as Test from "./test.mo"; // Import everything from test.mo and put it in the Test namespace
 import { test } from "./test.mo"; // Import test function from test.mo
 import { test as test2 } from "./test.mo"; // Import test function from test.mo and rename it to test2
 

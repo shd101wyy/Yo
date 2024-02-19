@@ -1,0 +1,14 @@
+import { genericId1 } from "./function_type_constraint.mo";
+import { Id } from "../interface/id.mo";
+
+implements Id<i32> {
+  id: (x: i32)-> i32 {
+    x
+  }
+}
+
+let main = ()-> {
+  let x = 12;
+  let y = genericId1<i32>(x);
+  let z = genericId1(x);
+}
