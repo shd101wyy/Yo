@@ -44,6 +44,7 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [`recur`](#recur)
     - [Custom Operators](#custom-operators)
     - [Mulitple Return Values `In Design`](#mulitple-return-values-in-design)
+  - [Duck Typing `In Design`](#duck-typing-in-design)
   - [Closure `In Design`](#closure-in-design)
     - [Closure group](#closure-group)
   - [Mutability `To be updated`](#mutability-to-be-updated)
@@ -750,6 +751,22 @@ let vals = ()-> (i32, i32) {
 
 let main = ()-> {
   let a, b = vals();
+}
+```
+
+## Duck Typing `In Design`
+
+The duck typing only works in the `read` / `write` reference.
+
+```typescript
+// This function can take any type that has a `length: i32` property.
+let print = (x: read { length: i32 })-> {
+  println(x.length);
+}
+
+let main = ()-> {
+  let s = String.from("Hello, world");
+  print(s);
 }
 ```
 

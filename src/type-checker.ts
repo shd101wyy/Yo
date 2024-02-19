@@ -321,6 +321,9 @@ export type TInterface = {
   typeConstraints: TInterface[];
   functions: TInterfaceFunction[];
 
+  // NOTE: Below are for "implements" for this interface
+  // implementations: TInterface[];
+
   // NOTE: Below are for "implement"
   isImplementation: boolean;
   instanceTypeParameters?: TTypeParameter[];
@@ -1494,6 +1497,13 @@ export function applyTypeArgumentsToType({
     const newFunctionType: TFunction = {
       ...type,
       typeParameters: newTypeParameters,
+      typeConstraints: type.typeConstraints.map((typeConstraint) =>
+        applyTypeArgumentsToInterface({
+          env,
+          interface_: typeConstraint,
+          typeParameterToTypeArgumentMap,
+        })
+      ),
       parameterTypes: type.parameterTypes.map(
         ({ name, parameterId, type, isMutable, defaultValue }) => ({
           name,
@@ -2668,14 +2678,16 @@ export function synthesizeTypeConstraintsFromTokens({
       });
       typeConstraints.push(newInterface);
 
+      /*
       // Add the interface implementation function
       for (let i = 0; i < newInterface.functions.length; i++) {
         const interfaceFunction = newInterface.functions[i];
-        interfaceFunction.func.hasNoImplementation = false; // Assume that the implementation exists
+        // interfaceFunction.func.hasNoImplementation = false; // Assume that the implementation exists
         interface_.functions[i].func.interfaceFunctionImplementations.push(
           interfaceFunction
         );
       }
+      */
     }
 
     if (tokens[index].type === TokenType.Comma) {
@@ -4063,6 +4075,17 @@ export function getFunctionArgumentsInOrder(
       const typeParameter = functionTypeParamters[i];
       const typeArgument = functionTypeArguments[i];
 
+      logger.debug(
+        "    - typeParameter: ",
+        typeToString(typeParameter),
+        !!typeParameter.appliedType,
+        typeParameter.typeParameterId in typeParameterToTypeArgumentMap
+      );
+      logger.debug(
+        "    - typeArgument: ",
+        typeArgument ? typeToString(typeArgument) : undefined
+      );
+
       if (typeParameter.appliedType) {
         if (typeArgument) {
           if (checkType(typeParameter.appliedType, typeArgument, env)) {
@@ -4082,7 +4105,7 @@ export function getFunctionArgumentsInOrder(
       } else if (
         typeParameter.typeParameterId in typeParameterToTypeArgumentMap
       ) {
-        // logger.debug(typeArgument);
+        // logger.debug(typeArgument) ;
         // Check type
         if (!typeArgument || typeArgument.type === "unknown") {
           functionTypeArgumentsInOrder[i] =
@@ -4098,6 +4121,9 @@ export function getFunctionArgumentsInOrder(
             functionArguments: [],
             functionTypeArguments: null,
           };
+        } else {
+          functionTypeArgumentsInOrder[i] =
+            typeParameterToTypeArgumentMap[typeParameter.typeParameterId];
         }
       } else if (typeArgument) {
         functionTypeArgumentsInOrder[i] = typeArgument;

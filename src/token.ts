@@ -94,6 +94,7 @@ export enum TokenType {
   Infixr = "infixr",
   Where = "where",
   Given = "given",
+  Using = "using",
 
   /**
    * A list of available C functions can be found at:
