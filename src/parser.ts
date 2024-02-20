@@ -61,6 +61,7 @@ import {
   TModule,
   TParameterType,
   TRecord,
+  TRecordProperty,
   TTypeConstructor,
   TTypeParameter,
   Type,
@@ -1936,7 +1937,7 @@ Got:      <${functionTypeArgumentsInOrder
       }
     }
 
-    // TODO: Check if the type constraints are satisfied
+    // Check if the type constraints are satisfied
     for (let i = 0; i < calleeTypeValue.typeConstraints.length; i++) {
       const typeConstraint = calleeTypeValue.typeConstraints[i];
       for (let i = 0; i < typeConstraint.functions.length; i++) {
@@ -5338,18 +5339,18 @@ ${exprToString(expr)}`,
     };
   }
 
-  private destructureRecordType({
-    env,
+  private destructureFields({
+    fields,
     destructurings,
     value,
-    recordType,
+    env,
   }: {
-    env: Environment;
+    fields: TRecordProperty[] | TParameterType[];
     destructurings: Destructuring[];
     value: Expr;
-    recordType: TRecord;
+    env: Environment;
   }): Environment {
-    const hasLinearField = recordType.properties.some(
+    const hasLinearField = fields.some(
       (p) => p.type.kind === "Linear" || p.type.kind === "Type"
     );
     if (hasLinearField) {
@@ -5362,12 +5363,11 @@ ${exprToString(expr)}`,
     // Check if the type of `value` matches the type of destructurings
     for (let i = 0; i < destructurings.length; i++) {
       const { name, asName, isMutable } = destructurings[i];
-      const property = recordType.properties.find((p) => p.name === name);
+      const property = fields.find((p) => p.name === name);
       if (!property) {
         throw this.formatErrorMessage(
           destructurings[i].token,
-          `Cannot find the property \`${name}\` in the following type:
-${typeToString(recordType, { extractTypeConstructor: true })}`
+          `Cannot find the property \`${name}\`:`
         );
       }
       const propertyType = property.type;
@@ -5415,7 +5415,7 @@ ${typeToString(recordType, { extractTypeConstructor: true })}`
 
     // Check if all linear fields are destructured
     if (destructuredLinearFields.length > 0) {
-      for (const property of recordType.properties) {
+      for (const property of fields) {
         if (
           (property.type.kind === "Linear" || property.type.kind === "Type") &&
           !destructuredLinearFields.includes(property.name)
@@ -5430,7 +5430,7 @@ ${typeToString(recordType, { extractTypeConstructor: true })}`
       }
     } else {
       // Check if all linear fields are consumed
-      const linearFields = recordType.properties.filter(
+      const linearFields = fields.filter(
         (p) => p.type.kind === "Linear" || p.type.kind === "Type"
       );
       if (linearFields.length > 0) {
@@ -5443,6 +5443,64 @@ ${linearFields.map((x) => `"${x.name}"`).join(", ")}`
     }
 
     return env;
+  }
+
+  private destructureRecordType({
+    env,
+    destructurings,
+    value,
+    recordType,
+  }: {
+    env: Environment;
+    destructurings: Destructuring[];
+    value: Expr;
+    recordType: TRecord;
+  }): Environment {
+    return this.destructureFields({
+      fields: recordType.properties,
+      destructurings,
+      value,
+      env,
+    });
+  }
+
+  private destructureEnumType({
+    env,
+    destructurings,
+    value,
+    enumType,
+  }: {
+    env: Environment;
+    destructurings: Destructuring[];
+    value: Expr;
+    enumType: TEnum;
+  }): Environment {
+    if (!enumType.selectedVariantName) {
+      throw this.formatErrorMessage(
+        value.token,
+        `Cannot destructure the following enum because no variant is selected:
+${typeToString(enumType)}`
+      );
+    }
+    const variant = enumType.variants.find(
+      (v) => v.name === enumType.selectedVariantName
+    );
+    if (!variant) {
+      throw this.formatErrorMessage(
+        value.token,
+        `Cannot find the variant "${
+          enumType.selectedVariantName
+        }" in the following type:
+${typeToString(enumType)}`
+      );
+    }
+
+    return this.destructureFields({
+      fields: variant.parameterTypes,
+      destructurings,
+      value,
+      env,
+    });
   }
 
   private destructureValue({
@@ -5513,89 +5571,12 @@ ${linearFields.map((x) => `"${x.name}"`).join(", ")}`
         break;
       }
       case "Enum": {
-        if (!valueType.selectedVariantName) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Cannot destructure the following enum because no variant is selected:
-${typeToString(valueType)}`
-          );
-        } else {
-          const variant = valueType.variants.find(
-            (v) => v.name === valueType.selectedVariantName
-          );
-          if (!variant) {
-            throw this.formatErrorMessage(
-              tokens[index],
-              `Cannot find the variant "${
-                valueType.selectedVariantName
-              }" in the following type:
-${typeToString(valueType)}`
-            );
-          }
-          const destructuredLinearFields: string[] = [];
-          // Check if the type of `value` matches the type of destructurings
-          for (let i = 0; i < destructurings.length; i++) {
-            const { name, asName, isMutable } = destructurings[i];
-            const property = variant.parameterTypes.find(
-              (p) => p.name === name
-            );
-            if (!property) {
-              throw this.formatErrorMessage(
-                tokens[index],
-                `Cannot find the property \`${name}\` in the following type:
-${typeToString(valueType, { extractTypeConstructor: true })}`
-              );
-            }
-            const propertyType = property.type;
-
-            if (
-              "isMutable" in value &&
-              !value.isMutable &&
-              isMutable &&
-              propertyType.kind !== "Free"
-            ) {
-              throw this.formatErrorMessage(
-                tokens[index],
-                `Cannot destructure an immutable enum with mutable field "${name}"`
-              );
-            }
-
-            // Add variable to env
-            const { env: nextEnv } = addEnvVariableValue({
-              env,
-              variableValue: {
-                variableName: asName ?? name,
-                type: propertyType,
-                kind: "value",
-                isMutable: isMutable,
-                token: destructurings[i].token,
-              },
-              preventDuplicate: true,
-            });
-            env = nextEnv;
-
-            if (propertyType.kind === "Linear") {
-              destructuredLinearFields.push(name);
-            }
-          }
-
-          // Check if all linear fields are destructured
-          if (destructuredLinearFields.length > 0) {
-            for (const property of variant.parameterTypes) {
-              if (
-                property.type.kind === "Linear" &&
-                !destructuredLinearFields.includes(property.name)
-              ) {
-                throw this.formatErrorMessage(
-                  tokens[index - 1],
-                  `The linear field "${property.name}" needs to be destructured
-because the following Linear fields are destructured:
-${destructuredLinearFields.map((x) => `"${x}"`).join(", ")}`
-                );
-              }
-            }
-          }
-        }
+        env = this.destructureEnumType({
+          env,
+          destructurings,
+          value,
+          enumType: valueType,
+        });
         break;
       }
       default: {
@@ -6474,6 +6455,30 @@ Got:      ${typeToString(matchedFunction.func)}`
       }
     }
     newInterface.functions = functions;
+
+    // Check if the type constraints are satisfied
+    for (let i = 0; i < newInterface.typeConstraints.length; i++) {
+      const typeConstraint = newInterface.typeConstraints[i];
+      for (let i = 0; i < typeConstraint.functions.length; i++) {
+        const interfaceFunction = typeConstraint.functions[i];
+        // Check if the same function with the same signature exists in env
+        if (
+          !checkIfInterfaceFunctionImplementationExistsInEnv({
+            interface_: typeConstraint,
+            interfaceFunction,
+            env,
+          })
+        ) {
+          throw this.formatErrorMessage(
+            tokens[instanceTokenIndex],
+            `Failed to satisfy type constraint: ${interfaceToString(
+              typeConstraint,
+              { extractTypeConstructor: false }
+            )}`
+          );
+        }
+      }
+    }
 
     // Add each function to env
     /*
