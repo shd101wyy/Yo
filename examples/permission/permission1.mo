@@ -1,17 +1,15 @@
-let test = (x: write i32)-> {
-  x = 2;
+// The references in **Mo** are second-class citizens. 
+// They cannot be stored in `Enum`, `Record`, `Slice`.  
+// We also disable to return a reference to a local value from a function.
+
+/*
+type CustomType = {
+  x: read i32; 
 }
 
-let add = (x: i32, y: i32)-> i32 {
-  x + y
+enum CustomEnum {
+  Some(value: read i32)
 }
 
-let main = ()-> {
-  var x = 1;
-  let r = read x;
-  var w = write x;
-  w = w + r;
- 
-  let w2 = write x;
-  w = r + w2;
-}
+type CustomSlice = (read i32)[];
+*/

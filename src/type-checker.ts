@@ -723,6 +723,16 @@ export function synthesizeTypeFromTokens({
             parseExpression,
           });
 
+          if (propertyType.permission !== "own") {
+            throw formatErrorMessage({
+              token: tokens[index],
+              errorMessage:
+                '"read" and "write" permissions are not allowed for record properties',
+              modulePath: env.modulePath,
+              inputString: env.inputString,
+            });
+          }
+
           properties.push({ name, type: propertyType });
           index = nextIndex;
           env = nextEnv;
@@ -940,6 +950,21 @@ export function synthesizeTypeFromTokens({
   // Check if it's slice
   if (nextTokenType === TokenType.LBracket) {
     let index = returnValue.index + 1;
+
+    /*
+    // QUESTION: Do we need to check it here?
+    // We disallow "read" and "write" permissions for slice
+    if (newTypeValue.permission !== "own") {
+      throw formatErrorMessage({
+        token: tokens[index - 1],
+        errorMessage:
+          '"read" and "write" permissions are not allowed for slice',
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+      });
+    }
+    */
+
     // TODO: We only support number as size for now
     // eslint-disable-next-line no-constant-condition
     while (true) {

@@ -924,7 +924,21 @@ implements<X: Type given Show<X>> Show<List<X>> {
 > stored in object fields, and all values form disjoint topological
 > trees rooted in the program’s variables
 
-The references in **Mo** are second-class citizens. They cannot be stored in `Enum`, `Record`, `Slice`, `Union`, and `Intersection` object. We also disable to return a reference to a local value from a function.
+The references in **Mo** are second-class citizens. They cannot be stored in `Enum`, `Record`, `Slice`~~, `Union`, and `Intersection` object~~. We also disable to return a reference to a local value from a function.
+
+For example, the types below are not allowed:
+
+```typescript
+type CustomType = {
+  x: read i32; // Compiler Error: read reference is not allowed in a record.
+}
+
+enum CustomEnum {
+  Some(value: read i32); // Compiler Error: read reference is not allowed in an enum.
+}
+
+type CustomSlice = (read i32)[]; // Compiler Error: read reference is not allowed in a slice.
+```
 
 ## Control Flow
 
