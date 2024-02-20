@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { IfCase, MatchCase } from "./ast";
-import { formatErrorMessages } from "./error";
+import { formatErrorMessage, formatErrorMessages } from "./error";
 import {
   OperatorPrecedence,
   Operators,
@@ -13,6 +13,7 @@ import {
   TInterfaceFunction,
   Type,
   checkType,
+  interfaceToString,
   typeToString,
 } from "./type-checker";
 
@@ -1344,7 +1345,7 @@ export function getEnvInterfaceById(
   return null;
 }
 
-export function checkIfInterfaceFunctionImplementationExistsInEnv({
+function checkIfInterfaceFunctionImplementationExistsInEnv({
   interface_,
   interfaceFunction,
   env,
@@ -1387,4 +1388,39 @@ export function checkIfInterfaceFunctionImplementationExistsInEnv({
   }
 
   return false;
+}
+
+export function checkIfTypeConstraintsAreSatisfied({
+  env,
+  typeConstraints,
+  token,
+}: {
+  env: Environment;
+  typeConstraints: TInterface[];
+  token: Token;
+}) {
+  for (let i = 0; i < typeConstraints.length; i++) {
+    const typeConstraint = typeConstraints[i];
+    for (let j = 0; j < typeConstraint.functions.length; j++) {
+      const interfaceFunction = typeConstraint.functions[j];
+      // Check if the same function with the same signature exists in env
+      if (
+        !checkIfInterfaceFunctionImplementationExistsInEnv({
+          interface_: typeConstraint,
+          interfaceFunction,
+          env,
+        })
+      ) {
+        throw formatErrorMessage({
+          token,
+          errorMessage: `Failed to satisfy type constraint: ${interfaceToString(
+            typeConstraint,
+            { extractTypeConstructor: false }
+          )}`,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
+        });
+      }
+    }
+  }
 }

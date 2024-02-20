@@ -26,7 +26,7 @@ import {
   addEnvFreeVariable,
   addEnvOperatorPrecedence,
   addEnvVariableValue,
-  checkIfInterfaceFunctionImplementationExistsInEnv,
+  checkIfTypeConstraintsAreSatisfied,
   copyEnvironment,
   createNewEnv,
   createTopLevelEnv,
@@ -78,7 +78,6 @@ import {
   getEnumTypeKind,
   getFunctionArgumentsInOrder,
   getFunctionsOfCallerFromEnv,
-  interfaceToString,
   parseTypeKind,
   synthesizeFunctionParameterTypesFromTokens,
   synthesizeFunctionTypeFromTokens,
@@ -1938,28 +1937,11 @@ Got:      <${functionTypeArgumentsInOrder
     }
 
     // Check if the type constraints are satisfied
-    for (let i = 0; i < calleeTypeValue.typeConstraints.length; i++) {
-      const typeConstraint = calleeTypeValue.typeConstraints[i];
-      for (let i = 0; i < typeConstraint.functions.length; i++) {
-        const interfaceFunction = typeConstraint.functions[i];
-        // Check if the same function with the same signature exists in env
-        if (
-          !checkIfInterfaceFunctionImplementationExistsInEnv({
-            interface_: typeConstraint,
-            interfaceFunction,
-            env,
-          })
-        ) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Failed to satisfy type constraint: ${interfaceToString(
-              typeConstraint,
-              { extractTypeConstructor: false }
-            )}`
-          );
-        }
-      }
-    }
+    checkIfTypeConstraintsAreSatisfied({
+      env,
+      typeConstraints: calleeTypeValue.typeConstraints,
+      token: tokens[index],
+    });
 
     // Check the order of the arguments
     env = this.checkFunctionArgumentsOrderAndConsumeOwnLinearValues({
@@ -6224,7 +6206,7 @@ ${typeToString(functionType)}
     if (tokens[index].type !== TokenType.Implements) {
       throw this.formatErrorMessage(
         tokens[index],
-        'Expected "implement" for interface implementation'
+        'Expected "implements" for interface implementation'
       );
     }
     const instanceTokenIndex = index;
@@ -6325,7 +6307,7 @@ ${typeToString(functionType)}
       typeParameterToTypeArgumentMap: {},
     }) as TInterface;
 
-    // Parse "implement" body
+    // Parse "implements" body
     const functions: TInterfaceFunction[] = [];
     const functionNameTokens: Token[] = [];
     if (tokens[index].type !== TokenType.LCurlyBracket) {
@@ -6361,10 +6343,10 @@ ${typeToString(functionType)}
       } else {
         throw this.formatErrorMessage(
           tokens[functionNameTokenIndex],
-          `Please define functions in "implement" like below:
+          `Please define functions in "implements" like below:
 
-implement Show<i32> {
-  show: (x: i32)-> string {
+implements Id<i32> {
+  id: (x: i32)-> i32 {
     // ...
   };
 }
@@ -6457,28 +6439,11 @@ Got:      ${typeToString(matchedFunction.func)}`
     newInterface.functions = functions;
 
     // Check if the type constraints are satisfied
-    for (let i = 0; i < newInterface.typeConstraints.length; i++) {
-      const typeConstraint = newInterface.typeConstraints[i];
-      for (let i = 0; i < typeConstraint.functions.length; i++) {
-        const interfaceFunction = typeConstraint.functions[i];
-        // Check if the same function with the same signature exists in env
-        if (
-          !checkIfInterfaceFunctionImplementationExistsInEnv({
-            interface_: typeConstraint,
-            interfaceFunction,
-            env,
-          })
-        ) {
-          throw this.formatErrorMessage(
-            tokens[instanceTokenIndex],
-            `Failed to satisfy type constraint: ${interfaceToString(
-              typeConstraint,
-              { extractTypeConstructor: false }
-            )}`
-          );
-        }
-      }
-    }
+    checkIfTypeConstraintsAreSatisfied({
+      typeConstraints: newInterface.typeConstraints,
+      env,
+      token: tokens[instanceTokenIndex],
+    });
 
     // Add each function to env
     /*

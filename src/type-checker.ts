@@ -19,6 +19,7 @@ import {
   Environment,
   VariableValue,
   addEnvVariableValue,
+  checkIfTypeConstraintsAreSatisfied,
   emptyToken,
   generateVarialeValueId,
   getEnvCurrentFrameLevel,
@@ -330,7 +331,7 @@ export type TInterface = {
   // NOTE: Below are for "implements" for this interface
   // implementations: TInterface[];
 
-  // NOTE: Below are for "implement"
+  // NOTE: Below are for "implements"
   isImplementation: boolean;
   instanceTypeParameters?: TTypeParameter[];
   instanceTypeConstraints?: TInterface[];
@@ -1145,6 +1146,16 @@ export function synthesizeTypeFromTokens({
       returnValue.typeValue.permission === "write"
     ) {
       returnValue.typeValue.kind = "Free";
+    }
+
+    // Check if the type constraints are satisfied
+    if ("typeConstraints" in returnValue.typeValue) {
+      const typeConstraints = returnValue.typeValue.typeConstraints;
+      checkIfTypeConstraintsAreSatisfied({
+        env,
+        typeConstraints,
+        token: tokens[returnValue.index - 1],
+      });
     }
 
     return returnValue;
@@ -3718,7 +3729,7 @@ export function interfaceToString(
   if (extractTypeConstructor) {
     return `${
       type.isImplementation
-        ? `implement${typeParametersToString(
+        ? `implements${typeParametersToString(
             type.instanceTypeParameters ?? [],
             type.instanceTypeConstraints ?? []
           )}`
