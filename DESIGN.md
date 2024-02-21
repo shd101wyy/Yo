@@ -836,7 +836,7 @@ let test = ()-> {
   var c = closure {
     addX: (a: i32)=> {
       x = x + a;
-    }, 
+    },
     addY: (a: i32)=> {
       y = y + a;
     }
@@ -1373,7 +1373,7 @@ let x: i32 = 1;
 let y: f32 = x as f32;
 ```
 
-## ~~Async/Await~~ `Removed`
+## Async/Await
 
 The async function in **Mo** is similar to the [async/await](https://developer.mozilla.org/en-US/docs/Learn/JavaScript/Asynchronous/Async_await) in JavaScript.  
 But the async function in **Mo** doesn't require using the `async` keyword.  
@@ -1433,7 +1433,7 @@ interface Exception<T = ()> {
 ```
 
 The `control` keyword here means the function will have `resume` and `abort` to control the continuation.  
-The `control` keyword is only allowed in the `interface`.  
+The `control` keyword is only allowed in the `interface`.
 
 ### Effectful function
 
@@ -1543,7 +1543,7 @@ let main = ()-> {
 ```typescript
 let example = ()-> [Exception<()>] () {
   let file: File = open("file.txt", "w");
-  
+
   raise("Some exception");
 
   @consume(file); // This line might not be executed because of the `raise` above which might abort the execution.
@@ -1767,3 +1767,5 @@ Boostrapping the **Mo** compiler is not a priority at the moment. We will do it 
 - [Implicit Parameters: Dynamic Scoping with Static Types](https://dl.acm.org/doi/pdf/10.1145/325694.325708)
 - [Scrap your type classes](https://www.haskellforall.com/2012/05/scrap-your-type-classes.html)
 - [Implicit Parameters in Scala and Haskell](https://trebledj.me/posts/implicit-parameters-in-scala-and-haskell/)
+- [High-level effect handlers in C](https://homepages.inf.ed.ac.uk/slindley/papers/libseff-draft-november2023.pdf)
+- [Exceptions in C with longjmp and setjmp](https://web.archive.org/web/20091104065428/http://www.di.unipi.it/~nids/docs/longjump_try_trow_catch.html)
