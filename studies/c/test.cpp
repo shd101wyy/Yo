@@ -12,6 +12,7 @@ int main() {
     int &y = x;
     auto z = y;
     int &m = y;
+    auto t = "Hello";
     test(x);
     test(y);
     test(z);

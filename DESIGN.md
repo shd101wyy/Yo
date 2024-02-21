@@ -204,7 +204,7 @@ A type can have the following **Kind**:
 - `char` (Unicode character, 4 bytes)
 - `string` (UTF-8 string, immutable)
 - `usize` (pointer size. It's `u32` on 32-bit system, `u64` on 64-bit system)
-- `symbol` (unique global string)
+- `symbol` (unique global string, `const char*` in C)
 - `()` (unit)
 
 #### `Linear` Types.
@@ -833,17 +833,20 @@ let test = ()-> {
   var x = Box(1);
   var y = Box(2);
 
-  var closure = addX(a: i32)=> {
-    x = x + a;
-  } + addY(a: i32)=> {
-    y = y + a;
+  var c = closure {
+    addX: (a: i32)=> {
+      x = x + a;
+    }, 
+    addY: (a: i32)=> {
+      y = y + a;
+    }
   }
-  addX.call(1);
-  addY.call(2);
-  drop(closure);
+  c.addX.call(1);
+  c.addY.call(2);
+  drop(c);
 
-  addX.call(1); // Compiler Error: closure is already consumed.
-  addY.call(2); // Compiler Error: closure is already consumed.
+  c.addX.call(1); // Compiler Error: closure is already consumed.
+  c.addY.call(2); // Compiler Error: closure is already consumed.
 }
 ```
 
@@ -1370,7 +1373,7 @@ let x: i32 = 1;
 let y: f32 = x as f32;
 ```
 
-## Async/Await
+## ~~Async/Await~~ `Removed`
 
 The async function in **Mo** is similar to the [async/await](https://developer.mozilla.org/en-US/docs/Learn/JavaScript/Asynchronous/Async_await) in JavaScript.  
 But the async function in **Mo** doesn't require using the `async` keyword.  
@@ -1425,25 +1428,22 @@ implements GiveInt {
 }
 
 interface Exception<T = ()> {
-  raise: (msg: String)-> [Exception<T>] Promise<T>; // Effectful function
+  control raise: (msg: String)-> [Exception<T>] T; // Effectful function
 }
 ```
 
-You can extend an effect using the `extends` keyword.
-
-```typescript
-interface Pure extends Exception, Divergence {}
-```
+The `control` keyword here means the function will have `resume` and `abort` to control the continuation.  
+The `control` keyword is only allowed in the `interface`.  
 
 ### Effectful function
 
 Effects are defined order-insensitive.
 
 ```typescript
-let safeDivide = (x: i32, y: i32)-> [Exception<i32>, Console] Promise<i32> {
+let safeDivide = (x: i32, y: i32)-> [Exception<i32>, Console] i32 {
   if (y == 0) {
-    await println("Cannot divide by 0"); // handled by Console effect
-    await raise("Cannot divide by 0");   // handled by Exception effect
+    println("Cannot divide by 0"); // handled by Console effect
+    raise("Cannot divide by 0");   // handled by Exception effect
   } else {
     resume(x / y);
   }
@@ -1453,8 +1453,8 @@ let safeDivide = (x: i32, y: i32)-> [Exception<i32>, Console] Promise<i32> {
 The following function signatures are equivalent:
 
 ```typescript
-safeDivide: (x: i32, y: i32)-> [Exception<i32>, Console] Promise<i32>;
-safeDivide: (x: i32, y: i32)-> [Console, Exception<i32>] Promise<i32>;
+safeDivide: (x: i32, y: i32)-> [Exception<i32>, Console] i32;
+safeDivide: (x: i32, y: i32)-> [Console, Exception<i32>] i32;
 ```
 
 Function with no effect is written with `[]`, and `[]` can be suppressed in this case:
@@ -1472,22 +1472,22 @@ Note: **Mo** only supports the **deep handlers**, that is a handler will handle 
 
 ```typescript
 interface Exception<T> {
-  raise: (msg: String)-> [Exception<T>] Promise<T>;
+  control raise: (msg: String)-> [Exception<T>] T;
 }
 
-let safeDivide = (x: i32, y: i32)-> [Exception<i32>] Promise<i32> {
+let safeDivide = (x: i32, y: i32)-> [Exception<i32>] i32 {
   if (y == 0) {
-    resume(await raise("Cannot divide by 0"))
+    raise("Cannot divide by 0")
   } else {
-    resume(x / y)
+    x / y
   }
 }
 
 let handle = ()-> i32 {
   try {
-    8 + (await safeDivide(1, 0)) + 10 // 60
+    8 + safeDivide(1, 0) + 10 // 60
   } with Exception<i32> { // The effect handler dischard the `Exception<i32>` effect.
-    raise: (msg)-> Promise<i32> { // Please note the function is returning `Promise<i32>`` without `Exception<i32>`.
+    control raise: (msg)-> i32 { // Please note the function is returning `i32` without `Exception<i32>`.
       resume(42)
     }
   }
@@ -1500,13 +1500,12 @@ Given the following function:
 
 ```typescript
 interface Input {
-  read: ()-> [Input] Promise<String>;
+  control read: ()-> [Input] String;
 }
 
-let hello = ()-> [Input] Promise<()> {
-  let name = await read();
+let hello = ()-> [Input] () {
+  let name = read();
   println("Hello, ", name);
-  resume(())
 }
 ```
 
@@ -1515,9 +1514,9 @@ let hello = ()-> [Input] Promise<()> {
 ```typescript
 let main = ()-> {
   try {
-    await hello(); // Hello Alice
+    hello(); // Hello Alice
   } with Input {
-    read: ()-> Promise<String> {
+    control read: ()-> String {
       resume("Alice");
     }
   }
@@ -1529,10 +1528,10 @@ let main = ()-> {
 ```typescript
 let main = ()-> {
   try {
-    await hello(); // Error
+    hello(); // Error
     println("Hello, world!"); // This line won't be executed.
   } with Input {
-    read: ()-> Promise<String> {
+    control read: ()-> String {
       abort("Error")
     }
   }
@@ -1542,10 +1541,10 @@ let main = ()-> {
 #### handling `abort` with `abortdefer`
 
 ```typescript
-let example = ()-> [Exception<()>] Promise<()> {
-  let file: File = await open("file.txt", "w");
-
-  await raise("Some exception");
+let example = ()-> [Exception<()>] () {
+  let file: File = open("file.txt", "w");
+  
+  raise("Some exception");
 
   @consume(file); // This line might not be executed because of the `raise` above which might abort the execution.
   // But the `file` is not consumed yet.
@@ -1555,16 +1554,16 @@ let example = ()-> [Exception<()>] Promise<()> {
 What we can do is to use the `abortdefer` to defer the execution of certain code until the abort happens:
 
 ```typescript
-let example = ()-> [Exception<()>] Promise<()> {
-  let file: File = await open("file.txt", "w");
+let example = ()-> [Exception<()>] () {
+  let file: File = open("file.txt", "w");
   abortdefer {
     println("Exception caught");
     @consume(file);
   }
-  await raise("Some exception")
+  raise("Some exception")
 
+  println("This line won't be executed");
   @consume(file);
-  resume(());
 }
 ```
 
@@ -1593,12 +1592,12 @@ let handleGiveInt = ()-> i32 {
 
 ```typescript
 interface Exception<T> {
-  raise: (msg: String)-> [Exception<T>] Promise<T>;
+  control raise: (msg: String)-> [Exception<T>] T;
 }
 
-let safeDivide = (x: i32, y: i32)-> [Exception<i32>{raise as newRaise}] Promise<i32> {
+let safeDivide = (x: i32, y: i32)-> [Exception<i32>{raise as newRaise}] i32 {
   if (y == 0) {
-    await newRaise("Cannot divide by 0");
+    newRaise("Cannot divide by 0");
   } else {
     x / y
   }

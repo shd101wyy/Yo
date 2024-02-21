@@ -6077,8 +6077,16 @@ ${typeToString(nextTypeValue)}`
       if (functionType.typeParameters.length > 0) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Type parameters are not allowed in class functions as it uses the type parameters defined in the class itself:
+          `Type parameters are not allowed in 'interface' functions as it uses the type parameters defined in the class itself:
 
+${typeToString(functionType)}
+`
+        );
+      }
+      if (functionType.isClosure) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Closure is not allowed in 'interface' functions:
 ${typeToString(functionType)}
 `
         );
@@ -6381,7 +6389,7 @@ implements Id<i32> {
       if (functionType.typeParameters.length > 0) {
         throw this.formatErrorMessage(
           functionExpr.token,
-          `Type parameters are not allowed in class functions as it uses the type parameters defined in the class itself:
+          `Type parameters are not allowed in 'implements' functions as it uses the type parameters defined in the class itself:
 
 ${typeToString(functionType)}
 `

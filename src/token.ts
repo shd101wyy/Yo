@@ -110,6 +110,7 @@ export enum TokenType {
   Union = "union",
   Override = "override",
   Declare = "declare",
+  Closure = "closure",
 
   // punctuation
   Semicolon = ";",
