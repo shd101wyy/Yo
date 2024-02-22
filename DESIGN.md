@@ -1428,12 +1428,9 @@ implements GiveInt {
 }
 
 interface Exception<T = ()> {
-  control raise: (msg: String)-> [Exception<T>] T; // Effectful function
+  raise: (msg: String)-> [Exception<T>] Promise<T>; // Effectful function
 }
 ```
-
-The `control` keyword here means the function will have `resume` and `abort` to control the continuation.  
-The `control` keyword is only allowed in the `interface`.
 
 ### Effectful function
 
@@ -1442,8 +1439,8 @@ Effects are defined order-insensitive.
 ```typescript
 let safeDivide = (x: i32, y: i32)-> [Exception<i32>, Console] i32 {
   if (y == 0) {
-    println("Cannot divide by 0"); // handled by Console effect
-    raise("Cannot divide by 0");   // handled by Exception effect
+    await println("Cannot divide by 0"); // handled by Console effect
+    await raise("Cannot divide by 0");   // handled by Exception effect
   } else {
     resume(x / y);
   }
@@ -1472,12 +1469,12 @@ Note: **Mo** only supports the **deep handlers**, that is a handler will handle 
 
 ```typescript
 interface Exception<T> {
-  control raise: (msg: String)-> [Exception<T>] T;
+  raise: (msg: String)-> [Exception<T>] Promise<T>;
 }
 
-let safeDivide = (x: i32, y: i32)-> [Exception<i32>] i32 {
+let safeDivide = (x: i32, y: i32)-> [Exception<i32>] Promise<i32> {
   if (y == 0) {
-    raise("Cannot divide by 0")
+    await raise("Cannot divide by 0")
   } else {
     x / y
   }
@@ -1487,7 +1484,7 @@ let handle = ()-> i32 {
   try {
     8 + safeDivide(1, 0) + 10 // 60
   } with Exception<i32> { // The effect handler dischard the `Exception<i32>` effect.
-    control raise: (msg)-> i32 { // Please note the function is returning `i32` without `Exception<i32>`.
+    raise: (msg)-> Promise<i32> { // Please note the function is returning `i32` without `Exception<i32>`.
       resume(42)
     }
   }
@@ -1500,7 +1497,7 @@ Given the following function:
 
 ```typescript
 interface Input {
-  control read: ()-> [Input] String;
+  read: ()-> [Input] Promise<String>;
 }
 
 let hello = ()-> [Input] () {
@@ -1516,7 +1513,7 @@ let main = ()-> {
   try {
     hello(); // Hello Alice
   } with Input {
-    control read: ()-> String {
+    read: ()-> Promise<String> {
       resume("Alice");
     }
   }
@@ -1531,7 +1528,7 @@ let main = ()-> {
     hello(); // Error
     println("Hello, world!"); // This line won't be executed.
   } with Input {
-    control read: ()-> String {
+    read: ()-> Promise<String> {
       abort("Error")
     }
   }
@@ -1541,10 +1538,10 @@ let main = ()-> {
 #### handling `abort` with `abortdefer`
 
 ```typescript
-let example = ()-> [Exception<()>] () {
+let example = ()-> [Exception<()>] Promise<()> {
   let file: File = open("file.txt", "w");
 
-  raise("Some exception");
+  await raise("Some exception");
 
   @consume(file); // This line might not be executed because of the `raise` above which might abort the execution.
   // But the `file` is not consumed yet.
@@ -1554,13 +1551,13 @@ let example = ()-> [Exception<()>] () {
 What we can do is to use the `abortdefer` to defer the execution of certain code until the abort happens:
 
 ```typescript
-let example = ()-> [Exception<()>] () {
+let example = ()-> [Exception<()>] Promise<()> {
   let file: File = open("file.txt", "w");
   abortdefer {
     println("Exception caught");
     @consume(file);
   }
-  raise("Some exception")
+  await raise("Some exception")
 
   println("This line won't be executed");
   @consume(file);
@@ -1592,12 +1589,12 @@ let handleGiveInt = ()-> i32 {
 
 ```typescript
 interface Exception<T> {
-  control raise: (msg: String)-> [Exception<T>] T;
+  raise: (msg: String)-> [Exception<T>] Promise<T>;
 }
 
-let safeDivide = (x: i32, y: i32)-> [Exception<i32>{raise as newRaise}] i32 {
+let safeDivide = (x: i32, y: i32)-> [Exception<i32>{raise as newRaise}] Promise<i32> {
   if (y == 0) {
-    newRaise("Cannot divide by 0");
+    await newRaise("Cannot divide by 0");
   } else {
     x / y
   }
