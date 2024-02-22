@@ -31,18 +31,24 @@ void coroutine_resume(coroutine_t *coro, int value)
 
 void coroutine_abort(coroutine_t *coro, int value)
 {
-    if (coro != NULL) {
-        coroutine_t *parent = coro->parent;
-        while (coro->parent != NULL) {
+    if (coro != NULL)
+    {
+        while (coro != NULL)
+        {
+            // Abort
+            coro->step = -1;
+            if (coro->parent == NULL)
+            {
+                coro->value = value;
+            }
+            coro->function(coro);
             // TODO: Free coro->context
+
             coro = coro->parent;
-            parent = coro->parent;
         }
-        // Abort
-        coro->step = -1;
-        coro->value = value;
-        coro->function(parent);
-    } else {
+    }
+    else
+    {
         printf("Coroutine to abort is NULL. Value: %d\n", value);
     }
 }
@@ -56,9 +62,22 @@ let test = ()-> Promise<()> {
   resume(a + b);
 }
 
+let test = ()-> Promise<()> {
+    let aA = getInt();
+    let bB = getInt();
+
+    let b = await bB;
+    let a = await aA;
+    resume(a + b);
+}
+
 let getInt = ()-> Promise<i32> {
-    x = x + 1;
-    resume(x);
+    if (x == 1) {
+        abort(x);
+    } else {
+        x = x + 1;
+        resume(x);
+    }
 }
 */
 
@@ -79,8 +98,15 @@ void getInt(coroutine_t *self)
     switch (self->step)
     {
     default:
-        x = x + 1;
-        coroutine_resume(self->parent, x);
+        if (x == 1)
+        {
+            coroutine_abort(self->parent, x);
+        }
+        else
+        {
+            x = x + 1;
+            coroutine_resume(self->parent, x);
+        }
     }
 }
 
@@ -132,8 +158,8 @@ void test(coroutine_t *self)
 int main()
 {
     test_context_t context = {
-        .a = 1,
-        .b = 2,
+        .a = 0,
+        .b = 0,
     };
     coroutine_t testCoroutine = {
         .context = &context,
