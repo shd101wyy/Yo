@@ -5,10 +5,17 @@ interface TestContext {
   a: i32;
   b: i32;
 }
-interface Coroutine<SelfContext: Type, ParentContext: Type> {
+
+interface Coroutine<CoroutineType, ResumeType, AbortType> {
+  resume: (coro: CoroutineType, value: ResumeType)-> ();
+  abort: (coro: CoroutineType, value: AbortType)-> ();
+}
+
+
+type Coroutine<SelfContext: Type, ParentContext: Type> = {
   step: i32;
   context: SelfContext;
-  parent: Option<Coroutine<ParentContext>>;
+  parent: Option<Box<Coroutine<ParentContext>>>;
   function: (self: Coroutine<SelfContext>)-> ();
   value: i32;
 }
