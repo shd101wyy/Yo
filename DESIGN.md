@@ -312,6 +312,8 @@ let p = Person(String.from("Alice"), 30); // p: Person. Linear type.
 
 #### Uninitialized variable `Might be removed`
 
+IDEA: Uninitialized variable is only available for **Free** type.  
+
 ```typescript
 var x?: i32; // x: i32, uninitialized
 

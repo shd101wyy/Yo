@@ -48,9 +48,8 @@ let main = ()=> {
 typedef struct effect_jmp_buf
 {
     jmp_buf *env;
-    void *resume_value;
-    void *abort_value;
-    struct effect_jmp_buf *root
+    void *value;
+    struct effect_jmp_buf *root;
 } effect_jmp_buf_t;
 
 int safeDivide(int a,
@@ -63,25 +62,22 @@ int safeDivide(int a,
         // calling "control" effect operation "throw":
         jmp_buf throw_env;
         int throw_resume_result;
-        double throw_abort_result;
-        effect_jmp_buf_t throw_buffer = (effect_jmp_buf_t){
-            .env = &throw_env,
-            .resume_value = &throw_resume_result,
-            .abort_value = &throw_abort_result,
-            .root = parent->root == NULL ? parent : parent->root,
-        };
         int c;
-        switch (setjmp(*throw_buffer.env))
+        switch (setjmp(throw_env))
         {
         case INIT_EFFECT_OPERATION:
         {
-            throw("Division by zero", &throw_buffer);
+            throw("Division by zero", &((effect_jmp_buf_t){
+                                          .env = &throw_env,
+                                          .value = &throw_resume_result,
+                                          .root = parent->root == NULL ? parent : parent->root,
+                                      }));
             break;
         }
         case RESUME_EFFECT_OPERATION:
         {
             // resume
-            c = *((int *)throw_buffer.resume_value);
+            c = throw_resume_result;
             printf("resume throw\n");
             break;
         }
@@ -104,36 +100,33 @@ int safeDivide(int a,
 // Effect handler
 void throw(char *msg, effect_jmp_buf_t *buffer)
 {
-
+    /*
     // resume(1);
-    *((int *)(buffer->resume_value)) = 1;
+    *((int *)(buffer->value)) = 1;
     longjmp(*(buffer->env), RESUME_EFFECT_OPERATION);
     printf("after longjmp\n");
-
-    /*
-    // abort(6.6);
-    *((double *)(buffer->root->abort_value)) = 6.6;
-    longjmp(*(buffer->env), ABORT_EFFECT_OPERATION);
     */
+
+    // abort(6.6);
+    *((double *)(buffer->root->value)) = 6.6;
+    longjmp(*(buffer->env), ABORT_EFFECT_OPERATION);
+    
 }
 
 int main()
 {
     jmp_buf env;
-    int try_resume_result;
     double try_abort_result;
-    effect_jmp_buf_t try_buffer = (effect_jmp_buf_t){
-        .env = &env,
-        .resume_value = &try_resume_result,
-        .abort_value = &try_abort_result,
-        .root = NULL, // Because itself is root.
-    };
     double result;
-    switch (setjmp(*try_buffer.env))
+    switch (setjmp(env))
     {
     case INIT_EFFECT_OPERATION:
     {
-        int x = safeDivide(10, 0, &try_buffer, throw);
+        int x = safeDivide(10, 0, &((effect_jmp_buf_t){
+                                      .env = &env, .value = &try_abort_result,
+                                      .root = NULL, // Because itself is root.
+                                  }),
+                           throw);
         printf("Done safeDivide: %d\n", x);
         result = x * 2.0;
         break;
@@ -142,7 +135,7 @@ int main()
     {
         // abort
         printf("abort\n");
-        result = *((double *)try_buffer.abort_value);
+        result = try_abort_result;
         break;
     }
     default:
