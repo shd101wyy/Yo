@@ -1,12 +1,12 @@
 # Language Design
 
-**Mo** (墨) is minimal, general-purpose, compiled programming language that incorporates the Linear Types, Mutable Value Semantics (2nd class references), and Algebraic Effects (one-shot).
+**Mo** 墨 🐼 is minimal, general-purpose, compiled programming language that incorporates the Linear Types, Mutable Value Semantics (2nd class references), and Algebraic Effects (one-shot, lexical scoped).
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
 **Mo** has a minimal syntax design that looks like TypeScript, and uses uniform call syntax (dot notation)~~, brace elison~~ to make the code more concise.
 
-**Mo** is strong typed with a robust bidrectional type checker. **Mo** supports `interface` that works like typeclass/trait, combined with algebraic effects (one-shot) and an efficient type system.
+**Mo** is strong typed with a robust bidrectional type checker. **Mo** supports `interface` that works like typeclass/trait, combined with Algebraic Effects (one-shot, lexical scoped) and an efficient type system.
 
 **Mo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types. `In Design`
 
@@ -148,9 +148,9 @@ Other languages that are worth mentioning that have influenced **Mo**:
 ## Hello World
 
 ```typescript
-let main = ()=> {
+let main = () => {
   println("Hello World!");
-}
+};
 ```
 
 ## CLI Usage
@@ -270,10 +270,10 @@ Like `rust`, **Mo** has two kinds of variables:
 let y = 5; // y: i32, immutable
 var x = 5; // x: i32, mutable
 
-let example = (x: i32, y: i32)=> {
+let example = (x: i32, y: i32) => {
   x = 1; // Error: x is immutable
   y = 2; // Error: y is immutable
-}
+};
 ```
 
 ### Type inference
@@ -312,7 +312,7 @@ let p = Person(String.from("Alice"), 30); // p: Person. Linear type.
 
 #### Uninitialized variable `Might be removed`
 
-IDEA: Uninitialized variable is only available for **Free** type.  
+IDEA: Uninitialized variable is only available for **Free** type.
 
 ```typescript
 var x?: i32; // x: i32, uninitialized
@@ -701,25 +701,25 @@ If `recur` is the last expression, tail-call optimization will be applied.
 - With tail-call optimization
 
   ```typescript
-  (x: u32, acc: u32 = 1)=> {
+  (x: u32, acc: u32 = 1) => {
     if (x == 1) {
-      1
+      1;
     } else {
-      recur(x - 1, acc * x)
+      recur(x - 1, acc * x);
     }
-  }
+  };
   ```
 
 - Without tail-call optimization
 
   ```typescript
-  (x: u32)=> {
+  (x: u32) => {
     if (x == 1) {
-      1
+      1;
     } else {
-      x * recur(x - 1)
+      x * recur(x - 1);
     }
-  }
+  };
   ```
 
 ### Custom Operators
@@ -929,20 +929,39 @@ implements<X: Type given Show<X>> Show<List<X>> {
 > stored in object fields, and all values form disjoint topological
 > trees rooted in the program’s variables
 
-The references in **Mo** are second-class citizens. They cannot be stored in `Enum`, `Record`, `Slice`~~, `Union`, and `Intersection` object~~. We also disable to return a reference to a local value from a function.
+The references in **Mo** are second-class citizens.
 
-For example, the types below are not allowed:
+However, unlike the [hylo language](https://www.hylo-lang.org/), we allow to define them in types. We only disable to bind them to a local variable defined in either `let` or `var` statements.
+
+We also disable to return a reference to a local value from a function.
+
+For example, the types below are allowed:
 
 ```typescript
 type CustomType = {
-  x: read i32; // Compiler Error: read reference is not allowed in a record.
+  x: read i32;
 }
 
 enum CustomEnum {
-  Some(value: read i32); // Compiler Error: read reference is not allowed in an enum.
+  Some(value: read i32);
 }
 
-type CustomSlice = (read i32)[]; // Compiler Error: read reference is not allowed in a slice.
+type CustomSlice = (read i32)[];
+
+let swap = (x: write i32, y: write i32)=> {
+  let temp = x;
+  x = y;
+  y = temp;
+}
+```
+
+But the following is not allowed:
+
+```typescript
+let test = ()=> {
+  var x = 1;
+  var y = write x; // Compiler Error: write reference is not allowed in a local variable.
+}
 ```
 
 ## Control Flow
@@ -957,7 +976,7 @@ let main = ()=> {
   } else {
     println("condition was false");
   }
-}
+};
 ```
 
 ### Brace elision `In Design`
