@@ -52,3 +52,7 @@ Only the tagged union (sum type) is supported.
 
 ## Let's require file extension for import and export
 Because we might support importing `.c` file in the future.  
+
+## Don't use setjmp/longjmp to implement effect handler
+Because it does produce the overhead.  
+Let take [protothread](https://dunkels.com/adam/pt/) or [async.h](https://github.com/naasking/async.h) as references.  

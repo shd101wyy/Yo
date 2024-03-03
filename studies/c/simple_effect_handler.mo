@@ -15,7 +15,7 @@ let AbortEffectOperation = 2;
 type EffectJmpBuf = {
   env: read jmp_buf,
   value: write any,
-  root: Option<read EffectJmpBuf>,
+  root: Option<read EffectJmpBuf>, // If it's option that takes a reference, we can convert it to "void*". None means nullptr
 }
 
 let safeDivide = (

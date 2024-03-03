@@ -63,19 +63,19 @@ let test = ()-> Promise<()> {
 }
 
 let test = ()-> Promise<()> {
-    let aA = getInt();
-    let bB = getInt();
+    let aA = getInt(1);
+    let bB = getInt(2);
 
     let b = await bB;
     let a = await aA;
     resume(a + b);
 }
 
-let getInt = ()-> Promise<i32> {
-    if (x == 1) {
+let getInt = (y: i32)-> Promise<i32> {
+    if (x + y < 1) {
         abort(x);
     } else {
-        x = x + 1;
+        x = x + y;
         resume(x);
     }
 }

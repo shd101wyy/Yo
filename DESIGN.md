@@ -1771,3 +1771,4 @@ Boostrapping the **Mo** compiler is not a priority at the moment. We will do it 
 - [Implicit Parameters in Scala and Haskell](https://trebledj.me/posts/implicit-parameters-in-scala-and-haskell/)
 - [High-level effect handlers in C](https://homepages.inf.ed.ac.uk/slindley/papers/libseff-draft-november2023.pdf)
 - [Exceptions in C with longjmp and setjmp](https://web.archive.org/web/20091104065428/http://www.di.unipi.it/~nids/docs/longjump_try_trow_catch.html)
+- [Continuation Passing for C](https://www.irif.fr/~jch/cpc.pdf)
