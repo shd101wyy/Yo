@@ -504,6 +504,15 @@ var x = [String.from("Hi"), String.from("World")];
 // x: [String.from("Hi"), String.from("Earth")]
 ```
 
+### Cast Linear to Free
+
+NOTE: This is unsafe and should be avoided.
+
+```typescript
+let x = String.from("Hi"); // x: String. Linear type
+let y = @castToFree(x); // y: String. Free type
+```
+
 ## Function Declaration
 
 Unlike imperative languages, **Mo** has no `return` keyword. The last expression of a function is the return value.
@@ -824,6 +833,8 @@ The closure in **Mo** has **Linear** type and needs to be freed manually.
   }
   ```
 
+NOTE: We can pass normal function ()=>() to a function argument that expects a closure, but not the other way around.
+
 ### Closure group `In Design`
 
 The collection of functions sharing the same closure is called a **closure group**.
@@ -933,7 +944,7 @@ implements<X: Type given Show<X>> Show<List<X>> {
 
 The references in **Mo** are second-class citizens.
 
-However, unlike the [hylo language](https://www.hylo-lang.org/), we allow to define them in types. We only disable to bind them to a local variable defined in either `let` or `var` statements, but we can pass them in function arguments.  
+However, unlike the [hylo language](https://www.hylo-lang.org/), we allow to define them in types. We only disable to bind them to a local variable defined in either `let` or `var` statements, but we can pass them in function arguments.
 
 We also disable to return a reference to a local value from a function.
 
@@ -1468,7 +1479,7 @@ let safeDivide = (x: i32, y: i32)=> [Exception<i32>, Console] i32 {
     println("Cannot divide by 0"); // handled by Console effect
     raise("Cannot divide by 0");   // handled by Exception effect
   } else {
-    resume(x / y);
+    x / y
   }
 }
 ```

@@ -12,7 +12,15 @@ It is just a list of things that need to be done.
   1. [x] Get the type constraint working for `function`.
   2. [x] Get the type constraint working for `interface`.
   3. [x] Get the type constraint working for `implements`.
+- [ ] 2nd-class reference
+  1. [x] Disable in `let/var =` assignment.  
+  2. [ ] QUESTION: Disable in `let/var` destructuring?
+  3. [ ] Overlapping detection.  
 - [ ] (Linear) Pointer
+- [ ] Pattern matching
+  1. [x] Support matching the `enum` variant.  
+  2. [ ] Other types.  
+  3. [ ] Multiple patterns.  
 - [ ] Different types of `closure`
   1. [ ] `[own]()=> ()`
   2. [ ] `[write]()=> {}`
@@ -26,3 +34,4 @@ It is just a list of things that need to be done.
 - [ ] Package manager.
 - [ ] RAII
   1. [ ] Implicit `drop` method.
+- [ ] Standard Library

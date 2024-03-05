@@ -598,8 +598,8 @@ export function synthesizeTypeFromTokens({
   if (
     tokens[index].value === "(" &&
     tokens[index + 1].value === ")" &&
-    tokens[index + 2].type !== TokenType.FatArrow &&
-    tokens[index + 2].type !== TokenType.FunctionArrow
+    tokens[index + 2].type !== TokenType.FatArrow /* &&
+    tokens[index + 2].type !== TokenType.FunctionArrow */
   ) {
     index = index + 1;
     returnValue = {
@@ -2746,8 +2746,10 @@ export function synthesizeTypeConstraintsFromTokens({
 }
 
 /**
- * - <...>(...):xx {...}
- * - <...>(...) => {...}
+ * - Closure:
+ *  - [own|read|write]<...>(...) => {...}
+ * - Normal function:
+ *  - <...>(...) => {...}
  * @returns
  */
 export function synthesizeFunctionTypeFromTokens({
@@ -2815,10 +2817,11 @@ export function synthesizeFunctionTypeFromTokens({
   env = nextEnv;
 
   if (
-    tokens[index].type === TokenType.FatArrow ||
-    tokens[index].type === TokenType.FunctionArrow
+    tokens[index].type === TokenType.FatArrow /* ||
+    tokens[index].type === TokenType.FunctionArrow */
   ) {
-    const isClosure = tokens[index].type === TokenType.FatArrow;
+    // FIXME:
+    const isClosure = false; // tokens[index].type === TokenType.FatArrow;
     index = index + 1;
 
     // Effects

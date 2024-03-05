@@ -14,37 +14,37 @@ infixr 80 **  // Exponentiation. 3 ** 4 ** 6 == 3 ** (4 ** 6)
 
 
 export interface Add<T: Type> {
-  (+): (a: T, b: T) -> T;
+  (+): (a: T, b: T)=> T;
 }
 
 export interface Sub<T: Type> {
-  (-): (a: T, b: T) -> T;
+  (-): (a: T, b: T)=> T;
 }
 
 export interface Mul<T: Type> {
-  (*): (a: T, b: T) -> T;
+  (*): (a: T, b: T)=> T;
 }
 
 export interface Div<T: Type> {
-  (/): (a: T, b: T) -> T;
+  (/): (a: T, b: T)=> T;
 }
 
 export interface Mod<T: Type> {
-  (%): (a: T, b: T) -> T;
+  (%): (a: T, b: T)=> T;
 }
 
 export interface BitLeftShift<T: Type> {
-  (<<): (a: T, b: T) -> T;
+  (<<): (a: T, b: T)=> T;
 }
 
 export interface BitRightShift<T: Type> {
-  (>>): (a: T, b: T) -> T;
+  (>>): (a: T, b: T)=> T;
 }
 
 export interface Exponentiation<T: Type> {
-  (**): (a: T, b: T) -> T;
+  (**): (a: T, b: T)=> T;
 }
 
 export interface Negate<T: Type> {
-  (-): (value: T) -> T;
+  (-): (value: T)=> T;
 }

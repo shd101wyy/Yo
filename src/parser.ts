@@ -1567,8 +1567,8 @@ RHS order: ${rhsOrder}`
     }
     if (
       tokens[index + 1]?.type === TokenType.RParen &&
-      tokens[index + 2]?.type !== TokenType.FatArrow &&
-      tokens[index + 2]?.type !== TokenType.FunctionArrow
+      tokens[index + 2]?.type !== TokenType.FatArrow /* &&
+      tokens[index + 2]?.type !== TokenType.FunctionArrow */
     ) {
       // unit type
       return {
@@ -1592,8 +1592,8 @@ RHS order: ${rhsOrder}`
     if (
       // Anonymous function
       rParenIndex > 0 &&
-      (tokens[rParenIndex + 1].type === TokenType.FatArrow ||
-        tokens[rParenIndex + 1].type === TokenType.FunctionArrow)
+      tokens[rParenIndex + 1].type === TokenType.FatArrow /*||
+        tokens[rParenIndex + 1].type === TokenType.FunctionArrow*/
     ) {
       const { expr, index: nextIndex } = this.parseAnonymousFunction({
         tokens,

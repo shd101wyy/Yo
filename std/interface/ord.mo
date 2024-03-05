@@ -11,11 +11,11 @@ export enum Ordering {
 
 // given Eq<T>
 export interface Ord<T: Type> {
-  compare: (a: T, b: T)-> Ordering;
-  (<): (a: T, b: T)-> boolean;
-  (>): (a: T, b: T)-> boolean;
-  (<=): (a: T, b: T)-> boolean;
-  (>=): (a: T, b: T)-> boolean;
-  max: (a: T, b: T)-> T;
-  min: (a: T, b: T)-> T;
+  compare: (a: T, b: T)=> Ordering;
+  (<): (a: T, b: T)=> boolean;
+  (>): (a: T, b: T)=> boolean;
+  (<=): (a: T, b: T)=> boolean;
+  (>=): (a: T, b: T)=> boolean;
+  max: (a: T, b: T)=> T;
+  min: (a: T, b: T)=> T;
 }

@@ -4,4 +4,5 @@ export extern "Mo" {
   @consume: <T: Type>(value: T)=> ();
   @compileError: (message: symbol)=> ();
   @noop: <T>()=> T;
+  @castToFree: <T: Type>(value: read T)=> T;
 }

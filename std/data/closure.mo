@@ -4,7 +4,7 @@ export interface Closure<
   ReturnType: Type
   > {
   call: (context: ContextType, arguments: ArgumentsType)
-        -> ReturnType;
+        => ReturnType;
 }
 
 export interface ImmutableClosure<
@@ -14,7 +14,7 @@ export interface ImmutableClosure<
   RegionType: Region
   > {
   call: (context: &<ContextType, RegionType>, arguments: ArgumentsType)
-        -> ReturnType;
+        => ReturnType;
 }
 
 export interface MutableClosure<
@@ -24,5 +24,5 @@ export interface MutableClosure<
   RegionType: Region
   > {
   call: (context: &!<ContextType, RegionType>, arguments: ArgumentsType)
-        -> ReturnType;
+        => ReturnType;
 }
