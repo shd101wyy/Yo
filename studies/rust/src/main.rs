@@ -46,7 +46,15 @@ fn test<'a>() {
     // consume(holder);
 }
 
+// Create a function that takes a closure as parameter
+fn call_closure<F>(closure: F) where F: Fn(i32)->i32 {
+    closure(13);
+}
 
 fn main() {
-    test();
+    let mut x = 5;
+    {
+        let mut square_x = || x *= x;
+        square_x();
+    }
 }

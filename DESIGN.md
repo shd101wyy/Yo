@@ -1,6 +1,6 @@
 # Language Design
 
-**Mo** 墨 🐼 is minimal, general-purpose, compiled programming language that incorporates the Linear Types, Mutable Value Semantics (2nd class references), and Algebraic Effects (one-shot, lexical scoped).
+**Mo** 墨 🐼 is minimal, general-purpose, compiled programming language that incorporates the Linear Types, 2nd-Class References (Mutable Value Semantics), and Algebraic Effects (one-shot, lexical scoped).
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
@@ -46,12 +46,12 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Mulitple Return Values `In Design`](#mulitple-return-values-in-design)
   - [Duck Typing `In Design`](#duck-typing-in-design)
   - [Closure `In Design`](#closure-in-design)
-    - [Closure group](#closure-group)
+    - [Closure group `In Design`](#closure-group-in-design)
   - [Mutability `To be updated`](#mutability-to-be-updated)
   - [Generic](#generic)
     - [Type parameters](#type-parameters)
     - [Type constraints](#type-constraints)
-  - [Mutable Value Semantics](#mutable-value-semantics)
+  - [2nd-Class Reference](#2nd-class-reference)
   - [Control Flow](#control-flow)
     - [Brace elision `In Design`](#brace-elision-in-design)
       - [repeat](#repeat)
@@ -105,13 +105,14 @@ The **Mo** language is heavily inspired by:
   - Syntax and semantics
   - Module system
 - [Koka](https://koka-lang.github.io/)
-  - Brace elision
+  - ~~Brace elision~~
   - Dot notation (Uniform Function Call Syntax)
-  - Perceus and reuse
+  - ~~Perceus and reuse~~
   - Algebraic effects
 - [Rust](https://www.rust-lang.org/)
   - ~~Borrow checker~~
-  - Lifetime
+  - ~~Lifetime~~
+  - Pattern matching
 - [Austral](https://austral-lang.org/)
   - Linear types
   - ~~Borrowing~~
@@ -183,7 +184,7 @@ A type can have the following **Kind**:
 - Type
   - Free
   - Linear
-- ~~Region~~ `Might be removed`
+- ~~Region~~ `Removed now`
 - Interface
 
 ### Type
@@ -547,7 +548,7 @@ let add = <T: Type given Integral<T>>(x: T, y: T)=> [Console] T {
 }
 
 // Closure
-let add = [read](x: i32, y: i32): i32 => {
+let add = [write](x: i32, y: i32)=> i32 {
   x + y
 };
 
@@ -775,7 +776,7 @@ let main = ()=> {
 ## Closure `In Design`
 
 ```
-<type parameters>(parameters) => return_type { body }
+[permission]<type parameters>(parameters) => return_type { body }
 ```
 
 The closure in **Mo** is a function that can capture ~~Linear~~ values from the outer scope.
@@ -789,7 +790,7 @@ The closure in **Mo** has **Linear** type and needs to be freed manually.
     var x = Box(1);
 
     // var increment = {x: x};
-    var increment: [write](a: i32)=> () = (a: i32)=> {
+    var increment: [write](a: i32)=> () = [write](a: i32)=> {
       // var {x} = write increment;
       x = x + a;
     }
@@ -819,10 +820,11 @@ The closure in **Mo** has **Linear** type and needs to be freed manually.
     }
     // Generate: call(closure: ()=> ());
     increment.call(); // call(increment);
+    increment.call(); // Compiler Error: closure is already consumed.
   }
   ```
 
-### Closure group
+### Closure group `In Design`
 
 The collection of functions sharing the same closure is called a **closure group**.
 
@@ -915,7 +917,7 @@ implements<X: Type given Show<X>> Show<List<X>> {
 }
 ```
 
-## Mutable Value Semantics
+## 2nd-Class Reference
 
 > Mutable value semantics is a programming discipline that upholds the independence of values to support local
 > reasoning. In the discipline’s strictest form, references become second-class citizens: they are only created implicitly, at function
@@ -931,7 +933,7 @@ implements<X: Type given Show<X>> Show<List<X>> {
 
 The references in **Mo** are second-class citizens.
 
-However, unlike the [hylo language](https://www.hylo-lang.org/), we allow to define them in types. We only disable to bind them to a local variable defined in either `let` or `var` statements.
+However, unlike the [hylo language](https://www.hylo-lang.org/), we allow to define them in types. We only disable to bind them to a local variable defined in either `let` or `var` statements, but we can pass them in function arguments.  
 
 We also disable to return a reference to a local value from a function.
 
@@ -967,7 +969,7 @@ let test = ()=> {
 ## Control Flow
 
 ```typescript
-let main = ()=> {
+let main = () => {
   // If no return type, it is () unit
   let number = 3;
 

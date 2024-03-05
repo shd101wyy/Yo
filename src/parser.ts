@@ -503,14 +503,6 @@ export default class Parser {
 
     let typeValue: Type;
     if (isSlice) {
-      // Disallow "read" and "write" permission
-      if (firstElementType.permission !== "own") {
-        throw this.formatErrorMessage(
-          tokens[sliceTokenIndex],
-          `Slice element type cannot have "read" or "write" permission`
-        );
-      }
-
       typeValue = {
         type: "slice",
         kind: firstElementType.kind as TypeKind,
@@ -5189,6 +5181,16 @@ ${exprToString(value)}`
     env = nextEnv;
     // console.log("let= valueType: ", valueType);
 
+    // "read" and "write" permission are not allowed in let/var assignment
+    if (typeContainsReadWrite(finalType)) {
+      throw this.formatErrorMessage(
+        tokens[letTokenIndex],
+        `Expected "own" or "read" permission for let assignment, but got ${typeToString(
+          finalType
+        )}`
+      );
+    }
+
     return {
       expr: {
         type: AstType.LetAssignment,
@@ -6879,17 +6881,6 @@ ${operationName}: ${typeToString(
         index = nextIndex;
         parameterTypes = pt;
         env = nextEnv;
-      }
-
-      // Disallow "read" or "write" permissions in parameterTypes
-      for (let i = 0; i < parameterTypes.length; i++) {
-        if (parameterTypes[i].type.permission !== "own") {
-          throw this.formatErrorMessage(
-            tokens[enumTokenIndex],
-            `Enum variant parameter type cannot have 'read' or 'write' permission
-${typeToString(parameterTypes[i].type)}`
-          );
-        }
       }
 
       enumVariants.push({
