@@ -1,5 +1,6 @@
-import { add } from "./add";
+// import { add } from "./add.mo";
+import * from "./add.mo";
 
-let main = () -> i32 {
+let main = ()=> i32 {
   add(3, 4)
 }

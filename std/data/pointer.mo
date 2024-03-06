@@ -1,4 +1,4 @@
-import {*} from "../builtins.mo";
+import * from "../builtins.mo";
 
 /*
 export interface Alias<InputType: Type, OutputType: Type> {

@@ -724,13 +724,18 @@ ${indentation}}`;
     case AstType.Export: {
       if (expr.expr.type === AstType.Import) {
         const importExpr = expr.expr as ImportExpr;
-        return `export { ${importExpr.destructurings
-          .map((destructuring) => {
-            return `${destructuring.name}${
-              destructuring.asName ? ` as ${destructuring.asName}` : ""
-            }`;
-          })
-          .join(", ")} } from "${importExpr.modulePath}";`;
+        return `export ${
+          importExpr.destructurings.length === 1 &&
+          importExpr.destructurings[0].name === "*"
+            ? `*`
+            : `{ ${importExpr.destructurings
+                .map((destructuring) => {
+                  return `${destructuring.name}${
+                    destructuring.asName ? ` as ${destructuring.asName}` : ""
+                  }`;
+                })
+                .join(", ")} }`
+        } from "${importExpr.modulePath}";`;
       } else {
         return `export ${exprToString(expr.expr)}`;
       }
@@ -739,13 +744,18 @@ ${indentation}}`;
       if (expr.qualifiedName) {
         return `import * as ${expr.qualifiedName} from "${expr.modulePath}";`;
       } else {
-        return `import { ${expr.destructurings
-          .map((destructuring) => {
-            return `${destructuring.name}${
-              destructuring.asName ? ` as ${destructuring.asName}` : ""
-            }`;
-          })
-          .join(", ")} } from "${expr.modulePath}";`;
+        return `import ${
+          expr.destructurings.length === 1 &&
+          expr.destructurings[0].name === "*"
+            ? "*"
+            : `{ ${expr.destructurings
+                .map((destructuring) => {
+                  return `${destructuring.name}${
+                    destructuring.asName ? ` as ${destructuring.asName}` : ""
+                  }`;
+                })
+                .join(", ")} }`
+        } from "${expr.modulePath}";`;
       }
     }
     case AstType.Extern: {

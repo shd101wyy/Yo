@@ -1699,15 +1699,20 @@ export "C" let x = 1;
 
 ```typescript
 // There is no `default` export.
-import {*} from "./test.mo"; // Import everything from test.mo
-import {*} as Test from "./test.mo"; // Import everything from test.mo and put it in the Test namespace
+import * from "./test.mo"; // Import everything from test.mo
+import * as Test from "./test.mo"; // Import everything from test.mo and put it in the Test namespace
+
 import { test } from "./test.mo"; // Import test function from test.mo
 import { test as test2 } from "./test.mo"; // Import test function from test.mo and rename it to test2
 
 import { Option } from "./test.mo"; // Import Option enum from test.mo
-import { Option: {Some, None} } from "./test.mo"; // Unwrap Some and None variant from Option enum from test.mo
-import { Option: {*} } from "./test.mo"; // Unwrap all variants from Option enum from test.mo
-import { Option as AnotherOption: {*} } from "./test.mo"; // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
+
+/*
+// BELOW ARE IN DESIGN
+import { Option:{Some, None} } from "./test.mo"; // Unwrap Some and None variant from Option enum from test.mo
+import { Option:* } from "./test.mo"; // Unwrap all variants from Option enum from test.mo
+import { Option as AnotherOption:* } from "./test.mo"; // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
+*/
 
 // All exported instances are implicitly imported.
 import { id } from "./test.mo"; // Import `id` function defined in `Id` interface from test.mo

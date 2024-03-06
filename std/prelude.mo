@@ -6,16 +6,16 @@
  */
 
 // builtins
-export {*} from "./builtins.mo";
+export * from "./builtins.mo";
 
 // interface
-export {*} from "./interface/arithmetic.mo";
-export {*} from "./interface/logic.mo";
-export {*} from "./interface/common.mo";
-export {*} from "./interface/eq.mo";
-export {*} from "./interface/ord.mo";
+export * from "./interface/arithmetic.mo";
+export * from "./interface/logic.mo";
+export * from "./interface/common.mo";
+export * from "./interface/eq.mo";
+export * from "./interface/ord.mo";
 
 // data
-export {*} from "./data/option.mo";
-export {*} from "./data/primitive/i32.mo";
-export {*} from "./data/primitive/boolean.mo";
+export * from "./data/option.mo";
+export * from "./data/primitive/i32.mo";
+export * from "./data/primitive/boolean.mo";

@@ -3330,7 +3330,7 @@ export function typeToString(
                 : ""
             }`
         )
-        .join(", ")})${type.isClosure ? "=>" : "->"} ${
+        .join(", ")})=> ${
         effectsString.length > 0 ? `${effectsString} ` : ""
       }${typeToString(type.returnType, {
         hideTypeParameterKind: true,

@@ -13,14 +13,13 @@ It is just a list of things that need to be done.
   2. [x] Get the type constraint working for `interface`.
   3. [x] Get the type constraint working for `implements`.
 - [ ] 2nd-class reference
-  1. [x] Disable in `let/var =` assignment.  
+  1. [x] Disable in `let/var =` assignment.
   2. [ ] QUESTION: Disable in `let/var` destructuring?
-  3. [ ] Overlapping detection.  
-- [ ] (Linear) Pointer
+  3. [ ] Overlapping detection.
 - [ ] Pattern matching
-  1. [x] Support matching the `enum` variant.  
-  2. [ ] Other types.  
-  3. [ ] Multiple patterns.  
+  1. [x] Support matching the `enum` variant.
+  2. [ ] Other types.
+  3. [ ] Multiple patterns.
 - [ ] Different types of `closure`
   1. [ ] `[own]()=> ()`
   2. [ ] `[write]()=> {}`
@@ -32,6 +31,15 @@ It is just a list of things that need to be done.
   3. [ ] Dependency injection.
   4. [ ] `abortdefer`.
 - [ ] Package manager.
-- [ ] RAII
+- [ ] Standard Library.
+
+## To be considered
+
+- [ ] Anonymous record.
+- [ ] RAII QUESTION: Should we support this or be more explicit?
   1. [ ] Implicit `drop` method.
-- [ ] Standard Library
+- [ ] (Linear) Pointer
+- [ ] Loops
+  - [ ] `for`
+  - [ ] `while`
+  - [ ] `do while`

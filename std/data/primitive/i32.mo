@@ -1,7 +1,7 @@
-import {*} from "../../builtins.mo";
-import {*} from "../../interface/arithmetic.mo";
-import {*} from "../../interface/logic.mo";
-import {*} from "../../interface/eq.mo";
+import * from "../../builtins.mo";
+import * from "../../interface/arithmetic.mo";
+import * from "../../interface/logic.mo";
+import * from "../../interface/eq.mo";
 
 /**
  * arithmetic

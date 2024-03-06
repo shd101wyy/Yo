@@ -3,4 +3,5 @@ export const BuiltinFunctions = [
   "@codegenInline",
   "@consume",
   "@compileError",
+  "@castToFree",
 ];

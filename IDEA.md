@@ -80,3 +80,7 @@ function test(x: T) {
   Show<T>.show(x);
 }
 ```
+
+## Function parameter of type that contains reference
+
+It will be treated as "mutable".  

@@ -7837,6 +7837,21 @@ Please consider adding "Promise" to the return type.
     tokens: Token[];
     index: number;
   }): { destructurings: Destructuring[]; index: number } {
+    const destructurings: Destructuring[] = [];
+    if (tokens[index].value === "*") {
+      destructurings.push({
+        name: "*",
+        asName: undefined,
+        isMutable: false,
+        token: tokens[index],
+      });
+      index = index + 1;
+      return {
+        destructurings,
+        index,
+      };
+    }
+
     if (tokens[index].type !== TokenType.LCurlyBracket) {
       throw this.formatErrorMessage(
         tokens[index],
@@ -7844,7 +7859,6 @@ Please consider adding "Promise" to the return type.
       );
     }
     index = index + 1;
-    const destructurings: Destructuring[] = [];
     while (true) {
       if (!tokens[index]) {
         throw this.formatErrorMessage(tokens[index], "Expected '}' for import");
@@ -8006,8 +8020,13 @@ Please consider adding "Promise" to the return type.
         exportExpr = expr;
         break;
       }
-      case TokenType.LCurlyBracket: {
-        // export {*} from "module.mo";
+      case TokenType.LCurlyBracket:
+      case TokenType.Operator: {
+        if (token.type === TokenType.Operator && token.value !== "*") {
+          throw this.formatErrorMessage(token, "Invalid export statement");
+        }
+
+        // export * from "module.mo";
         const { destructurings, index: nextIndex } =
           this.parseImportAndExportDestructurings({
             tokens,

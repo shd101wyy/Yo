@@ -1,6 +1,6 @@
-import {*} from "../../builtins.mo";
-import {*} from "../../interface/logic.mo";
-import {*} from "../../interface/eq.mo";
+import * from "../../builtins.mo";
+import * from "../../interface/logic.mo";
+import * from "../../interface/eq.mo";
 
 /**
  * logic
