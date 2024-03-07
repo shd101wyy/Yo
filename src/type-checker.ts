@@ -2283,10 +2283,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
       parameterDefaultValues.push(null);
     }
 
-    const isMutable =
-      userDefinedParamterType.permission === "write" ||
-      userDefinedParamterType.permission === "own";
-
+    const isMutable = typeContainsReadWrite(userDefinedParamterType);
     parameterTypes.push({
       name: parameterName,
       parameterId: "", // parameterValue.id, // NOTE: We update parameterId later

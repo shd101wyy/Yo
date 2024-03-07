@@ -14,6 +14,7 @@ export * from "./interface/logic.mo";
 export * from "./interface/common.mo";
 export * from "./interface/eq.mo";
 export * from "./interface/ord.mo";
+export * from "./interface/closure.mo";
 
 // data
 export * from "./data/option.mo";

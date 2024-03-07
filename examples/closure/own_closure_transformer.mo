@@ -2,9 +2,15 @@ type OwnClosure = {
   x: i32;
 }
 
-let call = (context: OwnClosure, y: i32)=> {
-  var {x} = context;
-  x = x + y;
+implements Closure<OwnClosure, [i32], ()> {
+  apply: (context: OwnClosure, [y]: [i32])=> () {
+    var {x} = context;
+    x = x + y;
+  }
+}
+
+let test = (fn: [own](y: i32)=> (), y: i32)=> () {
+  fn(y);
 }
 
 let main = ()=> {
@@ -12,5 +18,5 @@ let main = ()=> {
   var func = OwnClosure {
     x: x
   };
-  call(func, 3);
+  test(func, 2);
 }

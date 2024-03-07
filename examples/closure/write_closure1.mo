@@ -1,7 +1,11 @@
+let test = (fn: [write](y: i32)=> (), y: i32)=> {
+  fn(y)
+}
+
 let main = ()=> {
   var x = 1;
-  ([write](y: i32)=> {
+  test([write](y: i32)=> {
     x = x + y;
-  }).call(3);
+  }, 3);
   x // x should be 4
 }
