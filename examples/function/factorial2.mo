@@ -1,5 +1,5 @@
 
-let factorial = (x: i32)-> i32 {
+let factorial = (x: i32)=> i32 {
     if (x == 0) {
         1
     } else {

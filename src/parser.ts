@@ -4986,6 +4986,16 @@ ${typeToString(caseReturnType)}
       }
     }
 
+    if (
+      userDefinedVariableType &&
+      typeContainsReadWrite(userDefinedVariableType)
+    ) {
+      throw this.formatErrorMessage(
+        tokens[userDefinedVariableTypeTokenIndex],
+        `"read" and "write" permission are not allowed in let/var assignment`
+      );
+    }
+
     const { expr: value, index: nextNextIndex } = this.parseExpression({
       tokens,
       index,
@@ -5065,6 +5075,17 @@ Got:      ${typeToString(variableType)}`
         this.setVariableAsConsumed(env, value);
       env = nextNextEnv;
       referedVariable = nextReferedVariable;
+    } else {
+      // Implicit dereference
+      if (finalType.kind === "Free") {
+        finalType.permission = "own";
+      } else {
+        throw this.formatErrorMessage(
+          tokens[letTokenIndex],
+          `Failed to dereference the Linear value:
+${exprToString(value)}`
+        );
+      }
     }
 
     if (isMutable) {
