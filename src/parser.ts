@@ -14,7 +14,6 @@ import {
   ExternVariable,
   FunctionExpr,
   IfCase,
-  ImplicitDereferenceExpr,
   LetAssignmentExpr,
   MatchCase,
   exprToString,
@@ -1069,11 +1068,6 @@ ${exprToString(rhs)}
       lhs.type === AstType.PropertyAccess
     ) {
       isMutable = lhs.isMutable;
-    } else if (
-      lhs.type === AstType.ImplicitDereference &&
-      "isMutable" in lhs.expr
-    ) {
-      isMutable = lhs.expr.isMutable;
     }
     if (!isMutable) {
       throw this.formatErrorMessage(
@@ -2959,17 +2953,6 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
             parserData,
           });
         }
-        case TokenType.Read:
-        case TokenType.Write: {
-          returnValue = this.parseReadWriteExpr({
-            tokens,
-            index,
-            env,
-            caller,
-            parserData,
-          });
-          break;
-        }
         case TokenType.Semicolon: {
           return {
             expr: {
@@ -3031,15 +3014,6 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
 
     returnValue = this.parsePrimaryEnd({
       primaryExpr: returnValue.expr,
-      tokens,
-      index: returnValue.index,
-      env: returnValue.expr.env,
-      caller,
-      parserData,
-    });
-
-    returnValue = this.parseImplicitDereference({
-      expr: returnValue.expr,
       tokens,
       index: returnValue.index,
       env: returnValue.expr.env,
@@ -3195,57 +3169,6 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
     }*/ else {
       return {
         expr: primaryExpr,
-        index,
-      };
-    }
-  }
-
-  private parseImplicitDereference({
-    expr,
-    // tokens,
-    index, // env,
-    // parserData,
-  } // caller,
-  : {
-    expr: Expr;
-    tokens: Token[];
-    index: number;
-    env: Environment;
-    caller: TFunction;
-    parserData: ParserData;
-  }): ParserReturn {
-    // We automatically dereference the value
-    if (
-      expr.type !== AstType.ReadWrite &&
-      (expr.typeValue.permission === "read" ||
-        expr.typeValue.permission === "write")
-    ) {
-      console.log(expr.typeValue.kind);
-      if (expr.typeValue.kind === "Linear" || expr.typeValue.kind === "Type") {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Cannot dereference a reference to Linear or Type value`
-        );
-      }
-
-      const typeValue: Type = {
-        ...expr.typeValue,
-        permission: "own",
-      };
-      const implicitDeferenceExpr: ImplicitDereferenceExpr = {
-        type: AstType.ImplicitDereference,
-        expr: expr,
-        env: expr.env,
-        token: expr.token,
-        typeValue,
-      };
-      return {
-        expr: implicitDeferenceExpr,
-        index,
-      };
-    } else {
-      return {
-        expr,
         index,
       };
     }
@@ -4055,9 +3978,6 @@ ${exprToString(expr)}`,
             consumedAtToken: expr.token,
           });
         }
-        case AstType.ImplicitDereference: {
-          return this.setVariableAsConsumed(env, expr.expr);
-        }
         // Below are all the expressions that have `tempVariableName`.
         // case AstType.ReadWrite: // NOTE: No need to consume for "read"/"write" expression.
         case AstType.CallFunction:
@@ -4295,14 +4215,6 @@ Got     : (${functionArgumentsInOrder
             variableName: expr.variableName,
             isMutableReference,
             token: expr.token,
-            isForAssignment,
-          });
-        }
-        case AstType.ImplicitDereference: {
-          return this.increaseVariableReferenceCount({
-            env,
-            expr: expr.expr,
-            isMutableReference,
             isForAssignment,
           });
         }
@@ -5211,129 +5123,6 @@ ${exprToString(value)}`
         frameLevel: getEnvCurrentFrameLevel(env),
         env,
         token: tokens[letTokenIndex],
-      },
-      index,
-    };
-  }
-
-  private parseReadWriteExpr({
-    tokens,
-    index,
-    env,
-    caller,
-    parserData,
-  }: {
-    tokens: Token[];
-    index: number;
-    env: Environment;
-    caller: TFunction;
-    parserData: ParserData;
-  }): ParserReturn {
-    if (
-      tokens[index].type !== TokenType.Read &&
-      tokens[index].type !== TokenType.Write
-    ) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        'Expected "read" or "write"'
-      );
-    }
-    const readWriteTokenIndex = index;
-    index = index + 1;
-
-    const isRead = tokens[readWriteTokenIndex].type === TokenType.Read;
-
-    const { expr, index: nextIndex } = this.parsePrimary({
-      tokens,
-      index,
-      env,
-      caller,
-      parserData,
-    });
-    index = nextIndex;
-    env = expr.env;
-
-    const newTypeValue: Type = {
-      ...expr.typeValue,
-    };
-    if (newTypeValue.permission === "read") {
-      if (!isRead) {
-        throw this.formatErrorMessage(
-          tokens[readWriteTokenIndex],
-          `Cannot write to a read-only value:
-${exprToString(expr)}`
-        );
-      }
-    }
-    if (
-      isRead === false // write
-    ) {
-      // Check if the value is mutable
-      if (
-        ("isMutable" in expr && !expr.isMutable) ||
-        expr.typeValue.permission === "read"
-      ) {
-        throw this.formatErrorMessage(
-          tokens[readWriteTokenIndex],
-          `Cannot "write" to an immutable value:
-${exprToString(expr)}`
-        );
-      }
-    }
-    newTypeValue.permission = isRead ? "read" : "write";
-    // newTypeValue.kind = "Free";
-
-    // Check if the value is consumed
-    try {
-      // It's accessing a Free type, so no need to consume.
-      // But we need to check if the variable is consumed.
-      this.trySettingVariableAsReference({
-        env,
-        expr,
-        isMutableReference: false,
-        isForAssignment: false,
-      });
-    } catch (error) {
-      throw formatErrorMessage({
-        modulePath: this.modulePath,
-        inputString: this.inputString,
-        token: expr.token,
-        errorMessage: `Cannot access the value below because "${exprToString(
-          expr
-        )}" is already consumed:
-${exprToString(expr)}`,
-        cause: error,
-      });
-    }
-
-    // Increase the reference count
-    const { env: nextEnv, referedVariable } =
-      this.increaseVariableReferenceCount({
-        env,
-        expr,
-        isMutableReference: !isRead,
-        isForAssignment: false,
-      });
-    // console.log("read/write referedVariable: ", referedVariable);
-    // Create temp variable for holding the value
-    const { env: nextNextEnv, value: tempVariable } =
-      this.generateTempVariableForHoldingValue({
-        env: nextEnv,
-        token: tokens[readWriteTokenIndex],
-        valueType: newTypeValue,
-        referedVariable,
-      });
-    // console.log("read/write temp value: ", tempVariable);
-
-    return {
-      expr: {
-        type: AstType.ReadWrite,
-        typeValue: newTypeValue,
-        env: nextNextEnv,
-        token: tokens[readWriteTokenIndex],
-        expr,
-        permission: isRead ? "read" : "write",
-        tempVariableName: tempVariable.variableName,
       },
       index,
     };

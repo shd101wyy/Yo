@@ -96,10 +96,6 @@ export enum AstType {
 
   // type casting
   TypeCast = "type-cast",
-
-  // read / write
-  ReadWrite = "read-write",
-  ImplicitDereference = "implicit-dereference",
 }
 
 /**
@@ -136,9 +132,7 @@ export type Expr =
   | AwaitExpr
   | RecurExpr
   | InfixPrecedenceExpr
-  | TypeCastExpr
-  | ReadWriteExpr
-  | ImplicitDereferenceExpr;
+  | TypeCastExpr;
 
 export type IgnoreExpr = {
   type: AstType.Ignore;
@@ -495,30 +489,6 @@ export type TypeCastExpr = {
   expr: Expr;
 };
 
-export type ReadWriteExpr = {
-  type: AstType.ReadWrite;
-  typeValue: Type;
-  env: Environment;
-  token: Token;
-  expr: Expr;
-  permission: "read" | "write";
-  tempVariableName: string;
-};
-
-export type ImplicitDereferenceExpr = {
-  type: AstType.ImplicitDereference;
-  /**
-   * The type after dereferencing.
-   */
-  typeValue: Type;
-  env: Environment;
-  token: Token;
-  /**
-   * The expression to be dereferenced.
-   */
-  expr: Expr;
-};
-
 export function exprToString(expr: Expr, indentation = ""): string {
   switch (expr.type) {
     case AstType.Value:
@@ -786,14 +756,6 @@ ${indentation}}`;
     }
     case AstType.TypeCast: {
       return `(${exprToString(expr.expr)} as ${typeToString(expr.typeValue)})`;
-    }
-    case AstType.ReadWrite: {
-      return `(${expr.permission === "read" ? "read" : "write"} ${exprToString(
-        expr.expr
-      )})`;
-    }
-    case AstType.ImplicitDereference: {
-      return `${exprToString(expr.expr)}`;
     }
     default:
       throw new Error(`exprToString: Unknown expr type ${expr}`);
