@@ -1141,6 +1141,8 @@ export function synthesizeTypeFromTokens({
       });
     }
 
+    /*
+    // NOTE: We shouldn't set it to Free. 2024-03-12
     // NOTE: If it's "read" or "write" permission, we set its kind to "Free"
     if (
       returnValue.typeValue.permission === "read" ||
@@ -1148,6 +1150,7 @@ export function synthesizeTypeFromTokens({
     ) {
       returnValue.typeValue.kind = "Free";
     }
+    */
 
     // Check if the type constraints are satisfied
     if ("typeConstraints" in returnValue.typeValue) {

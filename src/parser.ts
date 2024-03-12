@@ -3204,8 +3204,8 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
     expr,
     // tokens,
     index, // env,
-    // caller,
-  } // parserData,
+    // parserData,
+  } // caller,
   : {
     expr: Expr;
     tokens: Token[];
@@ -3220,6 +3220,14 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
       (expr.typeValue.permission === "read" ||
         expr.typeValue.permission === "write")
     ) {
+      console.log(expr.typeValue.kind);
+      if (expr.typeValue.kind === "Linear" || expr.typeValue.kind === "Type") {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Cannot dereference a reference to Linear or Type value`
+        );
+      }
+
       const typeValue: Type = {
         ...expr.typeValue,
         permission: "own",
@@ -5386,12 +5394,34 @@ ${exprToString(expr)}`,
         });
       }
 
+      if (
+        (propertyType.kind === "Linear" || propertyType.kind === "Type") &&
+        (propertyType.permission === "read" ||
+          propertyType.permission === "write")
+      ) {
+        // We failed to dereference a reference to a linear field
+        throw formatErrorMessages({
+          modulePath: this.modulePath,
+          inputString: this.inputString,
+          tokenAndErrorList: [
+            {
+              token: destructurings[i].token,
+              errorMessage: `Cannot destructure a reference to a linear field "${name}"`,
+            },
+            {
+              token: value.token,
+              errorMessage: `Failed to destructure the value here:`,
+            },
+          ],
+        });
+      }
+
       // Add variable to env
       const { env: nextEnv } = addEnvVariableValue({
         env,
         variableValue: {
           variableName: asName ?? name,
-          type: propertyType,
+          type: { ...propertyType, permission: "own" },
           kind: "value",
           isMutable: isMutable,
           token: destructurings[i].token,

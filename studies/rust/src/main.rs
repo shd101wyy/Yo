@@ -5,10 +5,7 @@ struct Holder {
 }
 
 fn main() {
-    let mut holder: Holder = Holder {
-        x: String::from("Hi there")
-    };
-    let x = holder.x;
-    print!("{}", x);
-    print!("{:?}", holder);
+    let x = [1, 2, 3];
+    let x_ref = &x;
+    let a = x_ref[0];
 }

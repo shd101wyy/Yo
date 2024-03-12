@@ -56,3 +56,29 @@ Because we might support importing `.c` file in the future.
 ## Don't use setjmp/longjmp to implement effect handler
 Because it does produce the overhead.  
 Let take [protothread](https://dunkels.com/adam/pt/) or [async.h](https://github.com/naasking/async.h) as references.  
+
+## Remove `read` and `write` permission?
+
+It might not work in generics, like:
+
+```typescript
+interface Test<T> {
+  modify: (value: write T)=> T;
+}
+
+implements Test<read i32> {
+  // What should be the signature of `modify`???
+}
+```
+
+Also, the implicit dereference is confusing sometimes.  
+
+```typescript
+let readInt = (x: i32)=> {
+
+}
+
+let readIntRef = (read x: i32)=> {
+  readInt(x); // This causes confusion  
+}
+```

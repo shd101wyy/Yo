@@ -7,9 +7,9 @@ type OwnClosureArgs = {
 }
 
 implements Closure<OwnClosureContext, OwnClosureArgs, ()> {
-  apply: (context: OwnClosureContext, {y}: OwnClosureArgs)=> () {
+  apply: (context: OwnClosureContext, args: OwnClosureArgs)=> () {
     var {x} = context;
-    x = x + y;
+    x = x + args.y;
   }
 }
 

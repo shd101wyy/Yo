@@ -1,18 +1,13 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> ();
+  malloc: ()=> Data;
 }
 
-let length = <T:Type, R:Region>(x: &<T,R>) -> i32 {
-  0  
+let test = (x: read Data)=> {
+  let y = x; // Should give error
 }
 
-let test = ()-> {
+let main = ()=> {
   let x = malloc();
-  {
-    let ref = &x;
-    let len = length(ref);
-  }
-  consume(x);
+  test(x);
 }

@@ -7,8 +7,8 @@ type ReadClosureArgs = {
 }
 
 implements Closure<ReadClosureContext, ReadClosureArgs, i32> {
-  apply: (context: ReadClosureContext, {y}: ReadClosureArgs)=> i32 {
-    context.x + y
+  apply: (context: ReadClosureContext, args: ReadClosureArgs)=> i32 {
+    context.x + args.y
   }
 }
 

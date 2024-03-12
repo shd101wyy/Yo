@@ -7,8 +7,8 @@ type WriteClosureArgs = {
 }
 
 implements Closure<WriteClosureContext, WriteClosureArgs, ()> {
-  apply: (context: WriteClosureContext, {y}: WriteClosureArgs)=> {
-    context.x = context.x + y;
+  apply: (context: WriteClosureContext, args: WriteClosureArgs)=> {
+    context.x = context.x + args.y;
   }
 }
 

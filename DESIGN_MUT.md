@@ -36,6 +36,7 @@ We will also post a series of articles on the design and implementation of **Mo*
       - [Uninitialized variable `Might be removed`](#uninitialized-variable-might-be-removed)
     - [Transfer ownership](#transfer-ownership)
     - [`read` and `write` references](#read-and-write-references)
+    - [Cast Linear to Free](#cast-linear-to-free)
   - [Function Declaration](#function-declaration)
     - [Uniform Function Call Syntax](#uniform-function-call-syntax)
     - [Dependent types `In Design`](#dependent-types-in-design)
@@ -246,7 +247,7 @@ let test = (flag: boolean)=> { // Region 1
 }
 
 let update = ()=> { // Region 1
-  var x = 1;
+  let mut x = 1;
   x = 2; // Region 2
 }
 ```
@@ -269,7 +270,7 @@ Like `rust`, **Mo** has two kinds of variables:
 
 ```typescript
 let y = 5; // y: i32, immutable
-var x = 5; // x: i32, mutable
+let mut x = 5; // x: i32, mutable
 
 let example = (x: i32, y: i32) => {
   x = 1; // Error: x is immutable
@@ -287,13 +288,13 @@ let myStrSlice: char[] = "Hello, world"; // Stored on stack. Free type
 let myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
 let myString2 = myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
 let myString3 = myString; // Error: myString is already consumed.
-let myString4: read String = read myString2; // myString4: read String. Free type
-let myString5 = myString4; // myString5: read String. Free type
+let myString4: &String = &myString2; // myString4: &String. Free type
+let myString5 = myString4; // myString5: &String. Free type
 
 let myInt = 1; // Stored on stack. Free type
 let myInt2 = myInt; // myInt2: i32, Free type
-let myInt3: read i32 = read myInt; // myInt3: read i32. Free type
-let myInt4 = myInt3; // myInt4: read i32. Free type
+let myInt3: &i32 = &myInt; // myInt3: &i32. Free type
+let myInt4 = myInt3; // myInt4: &i32. Free type
 
 let myIntSlice: int[] = [1, 2, 3]; // Stored on stack, with size 3. Free type
 let myIntSlice: int[100] = [1, 2, 3]; // Stored on stack, with size 100. Free type
@@ -316,7 +317,7 @@ let p = Person(String.from("Alice"), 30); // p: Person. Linear type.
 IDEA: Uninitialized variable is only available for **Free** type.
 
 ```typescript
-var x?: i32; // x: i32, uninitialized
+let mut x?: i32; // x: i32, uninitialized
 
 x = 1; // x: i32, initialized
 
@@ -349,50 +350,48 @@ So we have the following permissions:
 ```typescript
 {
   let i = malloc(); // i: Data
-  let ref = read i; // ref: read Data, because i is not mutable.
+  let ref = &i; // ref: &Data, because i is not mutable.
 }
 
 {
-  var i = malloc(); // i: Data
-  var ref = write i; // ref: write Data, because i is mutable.
+  let mut i = malloc(); // i: Data
+  let ref = &mut i; // ref: &mut Data, because i is mutable.
                // Must use `var` to declare write reference.
 }
 
 // Please note you cannot reseat a reference.
 {
-  var i = 1; // i: i32
-  var ref = write i; // ref: write i32
+  let mut i = 1; // i: i32
+  let ref = &mut i; // ref: &mut i32
 
-  var j = 2; // j: i32
-  ref = write j; // Compiler Error: Cannot reseat a reference.
+  let j = 2; // j: i32
+  ref = &mut j; // Compiler Error: Cannot reseat a reference.
 }
 ```
 
 ```typescript
 {
-  var x = 1; // x: copied i32. Free type
-  let r: read i32 = read x; // r: read i32. Free type
-  var p: write i32 = write x; // p: write i32. Free type.
-  p = 2;
+  let mut x = 1; // x: copied i32. Free type
+  let r: &i32 = &x; // r: &i32. Free type
+  let p: &mut i32 = &mut x; // p: &mut i32. Free type.
+  *p = 2;
   // x == 2
-  // r == 2
-  // p == 2
+  // *r == 2
+  // *p == 2
 }
 ```
 
 A longer example:
 
 ```typescript
-extern "C" {
-  length: (x: read String)=> i32;
-  push: (x: write String, value: read String)=> ();
-  drop: (x: String)=> ();
-}
+let length = (x: &String)=> i32;
+let push = (x: &mut String, value: &String)=> ();
+let drop = (x: String)=> ();
 
 let main = ()=> {
-  var x = String.from("Hello, world"); // x: String. mutable
-  var y = write x; // y: write String @x     // mutable reference, must use `var`
-  let z = read x; // z: read String @x      // immutable reference, must use `let`
+  let mut x = String.from("Hello, world"); // x: String. mutable
+  let y = &mut x; // y: &mut String @x     // mutable reference, must use `var`
+  let z = &x; // z: &String @x      // immutable reference, must use `let`
 
   length(x); // allowed
   length(y); // allowed
@@ -427,11 +426,11 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 }
 
 {
-  let {name, var age} = p;
+  let {name, mut age} = p;
 }
 
 {
-  var {name, age} = p;
+  let mut {name, age} = p;
 }
 
 {
@@ -453,14 +452,14 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 
 {
   // Creating references will not consume `p`:
-  let name: read String = read p.name; // name: read String. Free type.
-  let age = read p.age; // age: read i32. Free type.
+  let name: &String = &p.name; // name: &String. Free type.
+  let age = &p.age; // age: &i32. Free type.
 }
 {
-  let pRef = read p; // pRef: read Person. Free type.
-  let name = read pRef.name; // name: read String. Free type.
+  let pRef = &p; // pRef: &Person. Free type.
+  let name = &pRef.name; // name: &String. Free type.
 
-  let age = read pRef.age; // age: read i32. Free type.
+  let age = &pRef.age; // age: &i32. Free type.
 }
 ```
 
@@ -474,15 +473,15 @@ p = Person.Person(name, 30); // This is allowed. We restored a consumed value.
 ```
 
 ```typescript
-var x = [1, 2, 3, 4, 5]; // x: i32[5]. Free type
-var y = x; // y: i32[5]. Free type. x is copied to y, not moved.
+let mut x = [1, 2, 3, 4, 5]; // x: i32[5]. Free type
+let mut y = x; // y: i32[5]. Free type. x is copied to y, not moved.
 
 {
-  let ref = read x; // ref: read i32[5]. Free type
+  let ref = &x; // ref: &i32[5]. Free type
   let first = ref[0]; // i32. Free type
 }
 {
-  let firstRef = write x[0]; // write i32. Free type
+  let firstRef = &mut x[0]; // &mut i32. Free type
   firstRef = 10;
 }
 
@@ -491,14 +490,14 @@ var y = x; // y: i32[5]. Free type. x is copied to y, not moved.
 ```
 
 ```typescript
-var x = [String.from("Hi"), String.from("World")];
+let mut x = [String.from("Hi"), String.from("World")];
 
 {
   let s = x[0]; // Compiler Error: Cannot move linear type out of a slice.
 }
 
 {
-  let s = write x[1]; // s: write String. Free type
+  let s = &mut x[1]; // s: &mut String. Free type
   let old = (s = String.from("Earth"));
   // old: String. Linear type. old == String.from("World")
 }
@@ -583,9 +582,9 @@ let addOne = (x: i32)=> i32 {
 addOne(12); // 13
 
 let s = String.from("Hello, world");
-(read s).length(); // 12
+(&s).length(); // 12
 // is equalvalent to
-length(read s); // 12
+length(&s); // 12
 
 // Type coercion for `read` and `write` references
 s.length(); // 12. s is coerced to `read` reference.
@@ -692,7 +691,7 @@ test(); // Hello, World!
 
 ```typescript
 let deferExample = ()=> {
-  var a = 1;
+  let mut a = 1;
 
   {
     defer a = 2;
@@ -774,7 +773,7 @@ The duck typing only works in the `read` / `write` reference.
 
 ```typescript
 // This function can take any type that has a `length: i32` property.
-let print = (x: read { length: i32 })=> {
+let print = (x: &{ length: i32 })=> {
   println(x.length);
 }
 
@@ -798,18 +797,18 @@ The closure in **Mo** has **Linear** type and needs to be freed manually.
 
   ```typescript
   let test = ()=> {
-    var x = Box(1);
+    let mut x = Box(1);
 
-    // var increment = {x: x};
-    var increment: [write](a: i32)=> () = [write](a: i32)=> {
-      // var {x} = write increment;
+    // let increment = {x: &mut x};
+    let increment: [write](a: i32)=> () = [write](a: i32)=> {
+      // var {x} = &mut increment;
       x = x + a;
     }
-    // Generate: call(closure: write [write](a: i32)=> (), a: i32);
-    increment.call(1); // call(write increment, 1);
-    increment.call(2); // call(write increment, 2);
+    // Generate: call(closure: &mut [write](a: i32)=> (), a: i32);
+    increment.call(1); // call(&mut increment, 1);
+    increment.call(2); // call(&mut increment, 2);
     {
-      let x = read increment.x;
+      let x = &increment.x;
       println(x); // 4
     }
     drop(increment);
@@ -820,10 +819,10 @@ The closure in **Mo** has **Linear** type and needs to be freed manually.
 
   ```typescript
   let test = ()=> {
-    var x: Data = malloc();
+    let mut x: Data = malloc();
 
-    // var increment = {x: x};
-    var increment: [own]()=>() = ()=> {
+    // let mut increment = {x: x};
+    let mut increment: [own]()=>() = ()=> {
       // var {x} = increment;
       let old = (x = malloc());
       drop(old);
@@ -847,10 +846,10 @@ You can use the `+` operator to combine multiple functions into a **closure grou
 
 ```typescript
 let test = ()=> {
-  var x = Box(1);
-  var y = Box(2);
+  let mut x = Box(1);
+  let mut y = Box(2);
 
-  var c = closure {
+  let mut c = closure {
     addX: (a: i32)=> {
       x = x + a;
     },
@@ -872,13 +871,13 @@ let test = ()=> {
 The builtin `=` function is used to update a value that can be `write`, with the following signature:
 
 ```typescript
-let set! = <T: Type>(ref: write T, value: T)=> T;
+let set! = <T: Type>(ref: &mut T, value: T)=> T;
 
 // `=` is a syntactic sugar for `set!`
 
 x = x + 1
 // is equalvalent to
-set!(write x, x + 1)
+set!(&mut x, x + 1)
 // so we append `write` to the variable on the left hand side of `=`
 ```
 
@@ -888,7 +887,7 @@ Below is an example of updating a field of a linear type:
 enum Person { // Linear type.
   Person(name: String, age: i32)
 }
-var p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
+let mut p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
 
 // Update the field
 let oldName = (p.name = String.from("Bob"));
@@ -954,16 +953,16 @@ For example, the types below are allowed:
 
 ```typescript
 type CustomType = {
-  x: read i32;
+  x: &i32;
 }
 
 enum CustomEnum {
-  Some(value: read i32);
+  Some(value: &i32);
 }
 
-type CustomSlice = (read i32)[];
+type CustomSlice = (&i32)[];
 
-let swap = (x: write i32, y: write i32)=> {
+let swap = (x: &mut i32, y: &mut i32)=> {
   let temp = x;
   x = y;
   y = temp;
@@ -974,8 +973,8 @@ But the following is not allowed:
 
 ```typescript
 let test = ()=> {
-  var x = 1;
-  var y = write x; // Compiler Error: write reference is not allowed in a local variable.
+  let mut x = 1;
+  let y = &mut x; // Compiler Error: write reference is not allowed in a local variable.
 }
 ```
 
@@ -1003,7 +1002,7 @@ Another reason is that they make it hard to translate the effectful function to 
 
 ```typescript
 let factorial = (n: i32)=> i32 {
-  var result = 1;
+  let mut result = 1;
   repeat(n) (i)=> {
     result = result * i;
   }
@@ -1012,7 +1011,7 @@ let factorial = (n: i32)=> i32 {
 
 // is equalvalent to
 let factorial = (n: i32)=> i32 {
-  var result = 1;
+  let mut result = 1;
   repeat(n, (i)=> {
     result = result * i
   })
@@ -1320,7 +1319,7 @@ enum List<T> {
 }
 
 
-let ListLength = <T>(list: read List<T>)=> i32 {
+let ListLength = <T>(list: &List<T>)=> i32 {
   match (list) {
     Nil => 0,
     Cons => {
