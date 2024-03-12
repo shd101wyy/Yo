@@ -9,9 +9,7 @@ import {
   Expr,
   FunctionExpr,
   IfExpr,
-  ImplicitDereferenceExpr,
   MatchExpr,
-  ReadWriteExpr,
   RecurExpr,
   exprToString,
 } from "./ast";
@@ -2083,38 +2081,6 @@ export function applyTypeArgumentsToExpr({
         }),
       };
     }
-    case AstType.ReadWrite: {
-      const e: ReadWriteExpr = {
-        ...expr,
-        expr: applyTypeArgumentsToExpr({
-          expr: expr.expr,
-          env,
-          typeParameterToTypeArgumentMap,
-        }),
-        typeValue: applyTypeArgumentsToType({
-          type: expr.typeValue,
-          env,
-          typeParameterToTypeArgumentMap,
-        }),
-      };
-      return e;
-    }
-    case AstType.ImplicitDereference: {
-      const e: ImplicitDereferenceExpr = {
-        ...expr,
-        expr: applyTypeArgumentsToExpr({
-          expr: expr.expr,
-          env,
-          typeParameterToTypeArgumentMap,
-        }),
-        typeValue: applyTypeArgumentsToType({
-          type: expr.typeValue,
-          env,
-          typeParameterToTypeArgumentMap,
-        }),
-      };
-      return e;
-    }
     case AstType.Recur: {
       const e: RecurExpr = {
         ...expr,
@@ -2286,7 +2252,8 @@ export function synthesizeFunctionParameterTypesFromTokens({
       parameterDefaultValues.push(null);
     }
 
-    const isMutable = typeContainsReadWrite(userDefinedParamterType);
+    const isMutable = true; // NOTE: Let's assume all parameters are mutable 2024-03-12
+    // const isMutable = typeContainsReadWrite(userDefinedParamterType);
     parameterTypes.push({
       name: parameterName,
       parameterId: "", // parameterValue.id, // NOTE: We update parameterId later

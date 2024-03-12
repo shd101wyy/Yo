@@ -12,8 +12,8 @@ implements Closure<ReadClosureContext, ReadClosureArgs, i32> {
   }
 }
 
-let test = (fn: [read](y: i32)=> i32, y: i32)=> i32 {
-  fn(y)
+let test = <T given Closure<T, ReadClosureArgs, i32>>(fn: T, y: i32)=> i32 {
+  apply(fn, ReadClosureArgs { y: y })
 }
 
 let main = ()=> {

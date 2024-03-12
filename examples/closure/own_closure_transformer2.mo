@@ -12,8 +12,8 @@ implements Closure<OwnClosureContext, OwnClosureArgs, ()> {
   }
 }
 
-let test = (fn: [own](y: i32)=> (), y: i32)=> () {
-  fn(y);
+let test = <T given Closure<T, OwnClosureArgs, ()>>(fn: T, y: i32)=> () {
+  apply(fn, OwnClosureArgs {y: y})
 }
 
 let main = ()=> {
