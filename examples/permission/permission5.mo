@@ -6,7 +6,7 @@ extern "C" {
 
 let test = ()-> {
   let x = malloc();
-  let y: read Data = x;
-  let z: read Data = y;
+  let y: &Data = x;
+  let z: &Data = y;
   consume(x);
 }

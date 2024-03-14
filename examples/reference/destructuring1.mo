@@ -1,5 +1,5 @@
 type Holder = {
-  x: read i32;
+  x: &i32;
 }
 
 let test = (holder: Holder)=> {
@@ -8,5 +8,5 @@ let test = (holder: Holder)=> {
 
 let main = ()=> {
   let x = 10;
-  test(Holder {x: read x});
+  test(Holder {x: &x});
 }

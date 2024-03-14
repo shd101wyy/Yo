@@ -1,5 +1,5 @@
 type WriteClosureContext = {
-  x: write i32;
+  x: @i32;
 };
 
 type WriteClosureArgs = {

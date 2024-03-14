@@ -3,12 +3,12 @@ type Holder<T: Type> = {
   y: T;
 }
 
-let test = <X>(x: read X, y: read X)-> Holder<X> {
-  var holder = Holder<read X> {
+let test = <X>(x: &X, y: &X)-> Holder<X> {
+  var holder = Holder<&X> {
     x: x,
     y: y
   };
   // let z = 3;
-  // holder.x = read z;
+  // holder.x = &z;
   holder               // We disallow to return any type that contains a `read` or `write` field that are defined in function body.
 }

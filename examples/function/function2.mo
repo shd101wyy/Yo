@@ -6,7 +6,7 @@ let useAdd = (cb: (x:i32, y:i32)=> i32)=> i32 {
   cb(1, 2)
 }
 
-let useClosureAdd = (cb: [read](x:i32, y:i32)=> i32) -> i32 {
+let useClosureAdd = (cb: [&](x:i32, y:i32)=> i32) -> i32 {
   cb(1, 2)
 }
 

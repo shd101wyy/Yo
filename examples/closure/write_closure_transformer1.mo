@@ -1,5 +1,5 @@
 type WriteClosureContext = {
-  x: write i32;
+  x: @i32;
 };
 
 type WriteClosureArgs = {
@@ -12,7 +12,7 @@ implements Closure<WriteClosureContext, WriteClosureArgs, ()> {
   }
 }
 
-let test = (fn: [write](y: i32)=> (), y: i32)=> {
+let test = (fn: [@](y: i32)=> (), y: i32)=> {
   fn(y)
 }
 

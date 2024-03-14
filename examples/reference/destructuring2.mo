@@ -1,11 +1,11 @@
 type Data: Linear;
 extern "C" {
   malloc: ()=> Data;
-  length: (read Data)=> i32;
+  length: (&Data)=> i32;
 }
 
 type Holder = {
-  x: read Data;
+  x: &Data;
 }
 
 let test = (holder: Holder)=> {
@@ -15,6 +15,6 @@ let test = (holder: Holder)=> {
 
 let main = ()=> {
   let x = malloc();
-  test(Holder {x: read x});
+  test(Holder {x: &x});
   consume(x);
 }

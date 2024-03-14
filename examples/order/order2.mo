@@ -3,7 +3,7 @@ type Data: Linear;
 extern "C" {
   malloc: ()-> Data;
   consume: (x: Data)-> ();
-  length: (x: read Data)-> i32;
+  length: (x: &Data)-> i32;
 }
 
 let test = (x: Data @1, y: Data @3, z: Data @2)-> {

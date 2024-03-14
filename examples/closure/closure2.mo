@@ -1,11 +1,11 @@
 type Data: Linear;
 extern "C" {
   malloc: ()-> Data;
-  length: (x: read Data)-> i32;
+  length: (x: &Data)-> i32;
 }
 
 let main = ()-> {
-  // [read]()=> ();
+  // [&]()=> ();
   // The closure is Free type.
   {
     var x = 1;
@@ -17,7 +17,7 @@ let main = ()-> {
     closure(); // Can be called multiple times
   }
 
-  // [write]()=> (); 
+  // [@]()=> (); 
   // The closure is Free type.
   {
     var x = 1;
@@ -28,7 +28,7 @@ let main = ()-> {
     closure(); // Can be called multiple times
   }
 
-  // [own]()=> ();
+  // [=]()=> ();
   // The closure is Linear type.
   {
     var x = malloc();

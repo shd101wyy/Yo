@@ -4,12 +4,12 @@ extern "C" {
 }
 
 type Holder = {
-  x: read Data
+  x: &Data
 }
 
 let test = ()-> {
   let x = malloc();
-  let xRef: read Data = x;
+  let xRef: &Data = x;
   
   let holder = Holder {
     x: xRef

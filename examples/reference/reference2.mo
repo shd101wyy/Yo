@@ -1,6 +1,6 @@
 let test = ()-> {
-  let mut x = 1;
-  let ref1 = &!x;
-  let ref2 = ref1;
-  // let ref3 = ref1; // error: ref1 is already consumed ^
+  var x = 1;
+  let ref1 = &x; // &i32
+  let ref2 = @x; // @i32
+  *ref2 = 2;
 }

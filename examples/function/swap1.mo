@@ -1,4 +1,4 @@
-let swap = (x: write i32, y: write i32)=> {
+let swap = (x: @i32, y: @i32)=> {
   let tmp = y;
   y = x;
   x = tmp;

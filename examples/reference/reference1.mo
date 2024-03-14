@@ -3,7 +3,7 @@ extern "C" {
   malloc: ()=> Data;
 }
 
-let test = (x: read Data)=> {
+let test = (x: &Data)=> {
   let y = x; // Should give error
 }
 

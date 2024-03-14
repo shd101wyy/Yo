@@ -1,5 +1,5 @@
 type ReadClosureContext = {
-  x: read i32;
+  x: &i32;
 }
 
 type ReadClosureArgs = {
@@ -12,7 +12,7 @@ implements Closure<ReadClosureContext, ReadClosureArgs, i32> {
   }
 }
 
-let test = (fn: [read](y: i32)=> i32, y: i32)=> i32 {
+let test = (fn: [&](y: i32)=> i32, y: i32)=> i32 {
   fn(y)
 }
 

@@ -1,5 +1,5 @@
 type ReadClosureContext = {
-  x: read i32;
+  x: &i32;
 }
 
 type ReadClosureArgs = {

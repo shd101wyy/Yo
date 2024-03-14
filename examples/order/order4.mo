@@ -3,21 +3,21 @@ type Data: Linear;
 extern "C" {
   malloc: ()-> Data;
   consume: <T>(x: T)-> ();
-  length: (x: read Data)-> i32;
+  length: (x: &Data)-> i32;
 }
 
 let test = (flag: boolean)-> {
   let x = malloc();
   
   var holder = {
-    data: (read x)
+    data: (&x)
   };
   let y = malloc();
 
   let z = if (flag) {
-    read x
+    &x
   } else {
-    read x
+    &x
   };
 
   holder.data = z;

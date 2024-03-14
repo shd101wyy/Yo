@@ -1,10 +1,10 @@
-let test = (fn: [own](y: i32)=> (), y: i32)=> () {
+let test = (fn: [=](y: i32)=> (), y: i32)=> () {
   fn(y);
 }
 
 let main = ()=> {
   var x = 1;
-  var func = [own](y: i32)=> {
+  var func = [=](y: i32)=> {
     x = x + y;
   };
   test(func, 2);

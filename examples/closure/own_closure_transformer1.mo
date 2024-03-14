@@ -12,7 +12,7 @@ implements Closure<OwnClosureContext, OwnClosureArgs, ()> {
   }
 }
 
-let test = (fn: [own](y: i32)=> (), y: i32)=> () {
+let test = (fn: [=](y: i32)=> (), y: i32)=> () {
   fn(y);
 }
 

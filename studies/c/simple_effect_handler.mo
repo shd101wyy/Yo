@@ -13,16 +13,16 @@ let AbortEffectOperation = 2;
 
 
 type EffectJmpBuf = {
-  env: read jmp_buf,
-  value: write any,
-  root: Option<read EffectJmpBuf>, // If it's option that takes a reference, we can convert it to "void*". None means nullptr
+  env: &jmp_buf,
+  value: @any,
+  root: Option<&EffectJmpBuf>, // If it's option that takes a reference, we can convert it to "void*". None means nullptr
 }
 
 let safeDivide = (
   a: i32,
   b: i32,
-  parent: write EffectJmpBuf,
-  throw: (msg: symbol, buffer: write EffectJmpBuf)=> ())=> i32 {
+  parent: @EffectJmpBuf,
+  throw: (msg: symbol, buffer: @EffectJmpBuf)=> ())=> i32 {
     if (b == 0) {
       var throwEnv: jmp_buf;
       var throwResumeResult: i32;
@@ -31,9 +31,9 @@ let safeDivide = (
       let jmp = setjmp(throwEnv);
       if (jmp == InitEffectOperation) {
         throw("Division by zero", EffectJmpBuf {
-          env: read throwEnv,
-          value: write throwResumeResult,
-          // abortValue: write throwAbortResult,
+          env: &throwEnv,
+          value: @throwResumeResult,
+          // abortValue: @throwAbortResult,
           root: match(parent.root) {
             Some => parent.root,
             None => parent
@@ -55,13 +55,13 @@ let safeDivide = (
 }
 
 // Effect handler
-let throw = (msg: symbol, buffer: write EffectJmpBuf)=> () {
+let throw = (msg: symbol, buffer: @EffectJmpBuf)=> () {
   // resume(1);
-  (buffer.value as write i32) = 1;
+  (buffer.value as @i32) = 1;
   longjmp(buffer.env, InitEffectOperation);
 
   // abort(6.6);
-  (buffer.root.value as write f64) = 6.6;
+  (buffer.root.value as @f64) = 6.6;
   longjmp(buffer.env, AbortEffectOperation);
 }
 
@@ -74,8 +74,8 @@ let main = ()=> {
   let jmp = setjmp(env);
   if (jmp == InitEffectOperation) {
     let x = safeDivide(10, 0, EffectJmpBuf {
-      env: read env,
-      value: write tryAbortResult,
+      env: &env,
+      value: @tryAbortResult,
       root: None
     }, throw);
     println("Done with safeDivide");

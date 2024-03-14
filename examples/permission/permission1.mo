@@ -4,14 +4,14 @@
 
 /*
 type CustomType = {
-  x: read i32; 
+  x: &i32; 
 }
 
 enum CustomEnum {
-  Some(value: read i32)
+  Some(value: &i32)
 }
 
-type CustomSlice = (read i32)[];
+type CustomSlice = (&i32)[];
 */
 
 type Data: Linear;
@@ -20,7 +20,7 @@ extern "C" {
 }
 
 type Holder {
-  data: read Data;
+  data: &Data;
 }
 
 let useHolder = (holder: Holder)=> {

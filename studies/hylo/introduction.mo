@@ -1,5 +1,5 @@
 
-let longerOf = (a: write String, b: write String)=> write String {
+let longerOf = (a: @String, b: @String)=> @String {
   if (a.count() > b.count()) {
     a
   } else {
@@ -7,7 +7,7 @@ let longerOf = (a: write String, b: write String)=> write String {
   }
 }
 
-let emphasize = (z: write String, strength: i32 = 1)=> {
+let emphasize = (z: @String, strength: i32 = 1)=> {
   z.append(repeatElement("!", count=strength));
 }
 
