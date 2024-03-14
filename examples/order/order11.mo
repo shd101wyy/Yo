@@ -17,5 +17,5 @@ let main = ()-> {
     x: {x: x}, // FIXME: the order prevented setting like this
     y: {y: y}  // IDEA: We consume only in the end of each expression in block
   };
-  @consume(z);
+  consume(z);
 }

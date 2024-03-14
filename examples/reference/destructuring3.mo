@@ -15,5 +15,5 @@ let test = (holder: Holder)=> {
 let main = ()=> {
   let x = malloc();
   test(Holder {x: &x});
-  @consume(x);
+  consume(x);
 }

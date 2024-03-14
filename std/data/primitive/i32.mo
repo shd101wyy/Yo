@@ -8,35 +8,35 @@ import * from "../../interface/eq.mo";
  */
 implements Add<i32> {
   (+): (a: i32, b: i32)=> i32 {
-    @codegenInline(C=@"(((int32_t)$1) + ((int32_t)$2))");
+    codegenInline(C=@"(((int32_t)$1) + ((int32_t)$2))");
     recur(a, b)
   }
 }
 
 implements Sub<i32> {
   (-): (a: i32, b: i32)=> i32 {
-    @codegenInline(C=@"(((int32_t)$1) - ((int32_t)$2))");
+    codegenInline(C=@"(((int32_t)$1) - ((int32_t)$2))");
     recur(a, b)
   }
 }
 
 implements Mul<i32> {
   (*): (a: i32, b: i32)=> i32 {
-    @codegenInline(C=@"(((int32_t)$1) * ((int32_t)$2))");
+    codegenInline(C=@"(((int32_t)$1) * ((int32_t)$2))");
     recur(a, b)
   }
 }
 
 implements Div<i32> {
   (/): (a: i32, b: i32)=> i32 {
-    @codegenInline(C=@"(((int32_t)$1) / ((int32_t)$2))");
+    codegenInline(C=@"(((int32_t)$1) / ((int32_t)$2))");
     recur(a, b)
   }
 }
 
 implements Mod<i32> {
   (%): (a: i32, b: i32)=> i32 {
-    @codegenInline(C=@"(((int32_t)$1) % ((int32_t)$2))");
+    codegenInline(C=@"(((int32_t)$1) % ((int32_t)$2))");
     recur(a, b)
   }
 }
@@ -46,7 +46,7 @@ implements Mod<i32> {
  */
 implements LogicalNot<i32> {
   (!): (a: i32)=> boolean {
-    @codegenInline(C=@"!((int32_t)$1)");
+    codegenInline(C=@"!((int32_t)$1)");
     recur(a)
   }
 }
@@ -57,11 +57,11 @@ implements LogicalNot<i32> {
  */
 implements Eq<i32> {
   (==): (a: i32, b: i32)=> boolean {
-    @codegenInline(C=@"(((int32_t)$1) == ((int32_t)$2))");
+    codegenInline(C=@"(((int32_t)$1) == ((int32_t)$2))");
     recur(a, b)
   };
   (!=): (a: i32, b: i32)=> boolean {
-    @codegenInline(C=@"(((int32_t)$1) != ((int32_t)$2))");
+    codegenInline(C=@"(((int32_t)$1) != ((int32_t)$2))");
     recur(a, b)
   }
 }

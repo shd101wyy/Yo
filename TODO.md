@@ -1,15 +1,1 @@
-- [ ] `interface` 
-  - [ ] and `with`
-  - [ ] and default implementation
-  - [ ] and `extends`
-- [ ] `instance`
-- [ ] `enum`  
-- [ ] `effect`  
-- [ ] `with` statement
-  - [ ] `,` to separate multiple resources
-- [ ] `import` and `export`
-- [ ] `switch` and pattern matching  
-- [ ] Type narrowing
-- [ ] Dependent type
-- [ ] `return`  
-- [ ] infix operator
+Fix `setVariableAsConsumed`. Especially for record type.   

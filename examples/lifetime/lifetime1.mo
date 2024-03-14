@@ -7,6 +7,6 @@ let test = ()-> {
   let x = malloc();
   let y = malloc();
 
-  @consume(x);
-  @consume(y);
+  consume(x);
+  consume(y);
 }

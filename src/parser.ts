@@ -4307,16 +4307,13 @@ ${exprToString(expr)}\n`,
         variableName = tokens[index].value;
         index = index + 1;
       } else if (language === "mo") {
-        if (
-          tokens[index].type === TokenType.Identifier &&
-          tokens[index].value.startsWith("@")
-        ) {
+        if (tokens[index].type === TokenType.Identifier) {
           variableName = `${tokens[index].value}`;
           index = index + 1;
         } else {
           throw this.formatErrorMessage(
             tokens[index],
-            `Expected symbol for extern variable name for language "mo", but got ${JSON.stringify(
+            `Expected identifier for extern variable name for language "mo", but got ${JSON.stringify(
               tokens[index]
             )}`
           );

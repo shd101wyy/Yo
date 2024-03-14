@@ -22,13 +22,38 @@ let main = ()=> {
 
 ```typescript
 type Holder = {
-  x: read Data;
+  read x: Data;
 };
 
 let main = ()=> {
   let x = malloc();
-  let holder = Holder {x: read x};
+  let holder = Holder {x: x};
   drop(x);
   println(holder.x); // Access to freed memory
+}
+```
+
+3. Disallow `read/write` for type that contains `read/write`?
+
+
+```typescript
+type Holder = {
+  x: write Data;
+}
+
+let useHolder = (holder: read Holder) {
+  holder.x = malloc(); // Confusion here if we allow `read Holder`.  
+}
+```
+
+solution, we use the explicit reference:
+
+```typescript
+type Holder = {
+  x: &<Data>;
+}
+
+let useHolder = (holder: &mut<Holder>) {
+  *holder.x = malloc();
 }
 ```

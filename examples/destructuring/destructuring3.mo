@@ -17,6 +17,6 @@ let main = ()-> {
   var ref = write coord;
   var x = write ref.x;
   let old = (x = malloc());
-  @consume(old);
-  @consume(coord);
+  consume(old);
+  consume(coord);
 }

@@ -6,7 +6,7 @@ extern "C" {
 
 implements Drop<Data> {
   drop: (value: Data)=> {
-    @consume(value);
+    consume(value);
   }
 }
 

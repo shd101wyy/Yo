@@ -1,4 +1,3 @@
-import { BuiltinFunctions } from "./builtins";
 import { SpecialOperators, charIsOperator } from "./operator";
 import { Token, TokenType } from "./token";
 
@@ -14,6 +13,7 @@ export function tokenize(input: string): Token[] {
   for (let i = 0; i < input.length; i++) {
     const char = input[i];
 
+    /*
     // Check if it's the builtin function
     const builtinFunction = BuiltinFunctions.find((functionName) =>
       input.startsWith(functionName, i)
@@ -27,6 +27,7 @@ export function tokenize(input: string): Token[] {
       i += builtinFunction.length - 1;
       continue;
     }
+    */
 
     // Check if it's the special operator
     const specialOperator = SpecialOperators.find((operator) =>

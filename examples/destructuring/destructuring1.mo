@@ -15,8 +15,8 @@ let main = ()-> {
 
   {
     let takeOut = (x.a = Option<Data>.None);
-    @consume(takeOut);
+    consume(takeOut);
   }
   
-  @consume(x);
+  consume(x);
 }

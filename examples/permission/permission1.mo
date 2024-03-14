@@ -13,3 +13,23 @@ enum CustomEnum {
 
 type CustomSlice = (read i32)[];
 */
+
+type Data: Linear;
+extern "C" {
+  malloc: ()=> Data;
+}
+
+type Holder {
+  data: read Data;
+}
+
+let useHolder = (holder: Holder)=> {
+  let x = holder.data; // This should give error
+}
+
+let main = ()=> {
+  let data = malloc();
+  let holder = Holder { data: data }; // `data` shouldn't get consumed here.
+  useHolder(holder);  
+  consume(data);
+}

@@ -512,7 +512,7 @@ NOTE: This is unsafe and should be avoided.
 
 ```typescript
 let x = String.from("Hi"); // x: String. Linear type
-let y = @castToFree(x); // y: String. Free type
+let y = castToFree(x); // y: String. Free type
 ```
 
 ## Function Declaration
@@ -1582,7 +1582,7 @@ let example = ()=> [Exception<()>] () {
 
   raise("Some exception");
 
-  @consume(file); // This line might not be executed because of the `raise` above which might abort the execution.
+  consume(file); // This line might not be executed because of the `raise` above which might abort the execution.
   // But the `file` is not consumed yet.
 }
 ```
@@ -1594,12 +1594,12 @@ let example = ()=> [Exception<()>] () {
   let file: File = open("file.txt", "w");
   abortdefer {
     println("Exception caught");
-    @consume(file);
+    consume(file);
   }
   raise("Some exception")
 
   println("This line won't be executed");
-  @consume(file);
+  consume(file);
 }
 ```
 

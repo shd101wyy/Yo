@@ -15,6 +15,6 @@ let test = ()-> {
     x: xRef
   };
 
-  @consume(x); // error: Expected `holder` to be consumed before `x`
-  @consume(holder);
+  consume(x); // error: Expected `holder` to be consumed before `x`
+  consume(holder);
 }

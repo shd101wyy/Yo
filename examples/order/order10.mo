@@ -9,5 +9,5 @@ let main = ()-> {
   let x = malloc();
   let y = malloc();
   let arr = [x, y];
-  @consume(arr);
+  consume(arr);
 }

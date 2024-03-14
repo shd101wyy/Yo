@@ -15,6 +15,6 @@ let main = ()-> {
     y: malloc()
   };
   let {x, y} = coord;
-  @consume(y);
-  @consume(x);
+  consume(y);
+  consume(x);
 }

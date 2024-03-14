@@ -34,8 +34,8 @@ let main = ()-> {
     var x = malloc();
     var closure = ()=> {
       let old = (x = malloc());
-      @consume(old);
-      @consume(x);
+      consume(old);
+      consume(x);
     }
     closure(); // Can only be called once
   }

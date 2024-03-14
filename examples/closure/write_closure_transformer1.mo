@@ -16,7 +16,7 @@ let test = (fn: [write](y: i32)=> (), y: i32)=> {
   fn(y)
 }
 
-let main = ()=> {
+let main = ()=> i32 {
   var x = 1;
   test(WriteClosureContext {x: x}, 3);
   x // x should be 4

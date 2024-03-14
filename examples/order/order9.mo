@@ -17,5 +17,5 @@ let main = ()-> {
     x: x,
     y: y
   };
-  @consume(z);
+  consume(z);
 }

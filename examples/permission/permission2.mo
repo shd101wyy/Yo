@@ -9,6 +9,6 @@ let main = ()-> {
   let x = malloc();  
   let xRef = read x;
   let len = length(xRef);
-  @consume(x);
+  consume(x);
   // let len2 = length(xRef); error:
 }
