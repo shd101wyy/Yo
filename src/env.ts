@@ -14,6 +14,7 @@ import {
   Type,
   checkType,
   interfaceToString,
+  typeIsReference,
   typeToString,
 } from "./type-checker";
 
@@ -267,8 +268,7 @@ export function popEnvFrame(
       (value) =>
         value.kind === "value" &&
         (value.type.kind === "Linear" || value.type.kind === "Type") &&
-        !value.consumedAtToken &&
-        value.type.permission === "own"
+        !value.consumedAtToken
     );
     /*
     const unusedFreeValues = frameToPop.values.filter(
@@ -330,8 +330,8 @@ ${typeToString(value.type)}${
   }
 
   const topFrame = env.frames[env.frames.length - 1];
-  const references = topFrame.values.filter(
-    (value) => value.type.permission !== "own"
+  const references = topFrame.values.filter((value) =>
+    typeIsReference(value.type)
   );
   if (references.length) {
     for (let i = 0; i < references.length; i++) {
@@ -525,30 +525,6 @@ export function setEnvVariableAsConsumed({
     });
   }
   const variableValue = variableValues[variableValues.length - 1];
-
-  if (
-    variableValue.type.permission === "read" ||
-    variableValue.type.permission === "write"
-  ) {
-    if (
-      variableValue.type.kind === "Linear" ||
-      variableValue.type.kind === "Type"
-    ) {
-      throw formatErrorMessages({
-        modulePath: env.modulePath,
-        inputString: env.inputString,
-        tokenAndErrorList: [
-          {
-            token: variableValue.token,
-            errorMessage: `Variable "${variableName}" doesn't "own" the value. Please consider adding "read" or "write" in front.`,
-          },
-        ],
-      });
-    }
-
-    return { env, referedVariable: variableValue.referedVariable };
-  }
-
   const immutableReferences = variableValue.immutableReferences ?? [];
   const mutableReferences = variableValue.mutableReferences ?? [];
   if (

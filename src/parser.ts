@@ -85,7 +85,7 @@ import {
   synthesizeTypeFromTokens,
   synthesizeTypeParametersFromTokens,
   synthesizeTypes,
-  typeContainsReadWrite,
+  typeContainsReference,
   typeIsFunctionTypeThatReturnsPromise,
   typeIsPromise,
   typeToString,
@@ -183,7 +183,6 @@ export default class Parser {
             typeValue: {
               type: "i32",
               kind: "Free",
-              permission: "own",
               value: token.value,
               tag: "primitive",
             },
@@ -201,7 +200,6 @@ export default class Parser {
             typeValue: {
               type: "i32",
               kind: "Free",
-              permission: "own",
             },
             env,
             token: tokens[index],
@@ -222,7 +220,6 @@ export default class Parser {
             typeValue: {
               type: "f64",
               kind: "Free",
-              permission: "own",
               value: token.value,
               tag: "primitive",
             },
@@ -240,7 +237,6 @@ export default class Parser {
             typeValue: {
               type: "f64",
               kind: "Free",
-              permission: "own",
             },
             env,
             token: tokens[index],
@@ -276,7 +272,6 @@ export default class Parser {
             typeValue: {
               type: "char",
               kind: "Free",
-              permission: "own",
               value: token.value,
               tag: "primitive",
             },
@@ -294,7 +289,6 @@ export default class Parser {
             typeValue: {
               type: "char",
               kind: "Free",
-              permission: "own",
             },
             env,
             token: tokens[index],
@@ -304,85 +298,6 @@ export default class Parser {
       }
     } else {
       throw this.formatErrorMessage(token, "Expected charactor");
-    }
-  }
-
-  private parseStringExpr({
-    tokens,
-    index,
-    env,
-  }: {
-    tokens: Token[];
-    index: number;
-    env: Environment;
-  }): ParserReturn {
-    const token = tokens[index];
-    if (token.type === TokenType.String) {
-      return {
-        expr: {
-          type: AstType.Value,
-          tag: "primitive",
-          value: token.value,
-          typeValue: {
-            type: "string",
-            kind: "Free",
-            permission: "own",
-            tag: "primitive",
-            value: token.value,
-          },
-          env,
-          token: tokens[index],
-        },
-        index: index + 1,
-      };
-
-      /*
-      const end: PrimitiveValueExpr = {
-        type: AstType.Value,
-        tag: "primitive",
-        value: "\0",
-        typeValue: {
-          type: "char",
-          kind: "Free",
-        },
-        token: tokens[index],
-        env,
-      };
-      return {
-        expr: {
-          type: AstType.Value,
-          tag: "slice",
-          typeValue: {
-            type: "slice",
-            kind: "Free",
-            elementType: TypeValues.char,
-            size: token.value.length + 1,
-          },
-          env,
-          token: tokens[index],
-          values: token.value
-            .split("")
-            .map((char) => {
-              const charValue: PrimitiveValueExpr = {
-                type: AstType.Value,
-                tag: "primitive",
-                value: char,
-                typeValue: {
-                  type: "char",
-                  kind: "Free",
-                },
-                env,
-                token: tokens[index],
-              };
-              return charValue;
-            })
-            .concat(end),
-        },
-        index: index + 1,
-      };
-      */
-    } else {
-      throw this.formatErrorMessage(token, "Expected string");
     }
   }
 
@@ -410,7 +325,6 @@ export default class Parser {
             typeValue: {
               type: "boolean",
               kind: "Free",
-              permission: "own",
               value: token.value,
               tag: "primitive",
             },
@@ -428,7 +342,6 @@ export default class Parser {
             typeValue: {
               type: "boolean",
               kind: "Free",
-              permission: "own",
             },
             token: tokens[index],
           },
@@ -505,7 +418,6 @@ export default class Parser {
       typeValue = {
         type: "slice",
         kind: firstElementType.kind as TypeKind,
-        permission: "own",
         elementType: firstElementType,
         size: values.length,
       };
@@ -590,7 +502,6 @@ export default class Parser {
           typeValue: {
             type: "Record",
             kind: "Free",
-            permission: "own",
             properties: [],
           },
           env,
@@ -1027,7 +938,7 @@ Found possible functions:
     }
     const lhsTokenIndex = index - 1;
     index = index + 1;
-    const rhsTokenIndex = index;
+    // const rhsTokenIndex = index;
     const { expr: rhs, index: nextIndex } = this.parseExpression({
       tokens,
       index,
@@ -1042,13 +953,7 @@ Found possible functions:
     env = rhs.env;
 
     // Check if the type of rhs matches the type of lhs
-    if (
-      !checkType(
-        { ...lhs.typeValue, permission: "own" },
-        { ...rhs.typeValue, permission: "own" },
-        env
-      )
-    ) {
+    if (!checkType({ ...lhs.typeValue }, { ...rhs.typeValue }, env)) {
       throw this.formatErrorMessage(
         tokens[index],
         `Mismatched types:
@@ -1094,44 +999,6 @@ ${exprToString(lhs)}
       env = nextEnv;
     }
     */
-
-    // We need to make sure that
-    // RHS can outlive LHS if RHS is a reference
-    if (
-      rhs.typeValue.permission === "read" ||
-      rhs.typeValue.permission === "write"
-    ) {
-      if (lhs.typeValue.permission === "write") {
-        // This means we can dereference the RHS
-        // and assign the value to the deferenced LHS
-        if (rhs.typeValue.kind === "Free") {
-          // We set the value
-        } else {
-          throw this.formatErrorMessage(
-            tokens[rhsTokenIndex],
-            `Cannot dereference a Linear value:
-${exprToString(rhs)}
-`
-          );
-        }
-      } else {
-        // FIXME: Add constraint
-        /*
-        const lhsOrder = this.getVariableLifetimeOrder({ env, expr: lhs });
-        const rhsOrder = this.getVariableLifetimeOrder({ env, expr: rhs });
-        if (lhsOrder < rhsOrder) {
-          throw this.formatErrorMessage(
-            tokens[lhsTokenIndex],
-            `Cannot assign a ${
-              rhs.typeValue.permission === "read" ? '"read"' : '"write"'
-            } reference that doesn't outlive the variable it refers to:
-LHS order: ${lhsOrder}
-RHS order: ${rhsOrder}`
-          );
-        }
-        */
-      }
-    }
 
     // Consume RHS value if necessary
     const { env: nextNextEnv /*referedVariable: nextReferedVariable*/ } =
@@ -1484,7 +1351,6 @@ RHS order: ${rhsOrder}`
     const func: TFunction = {
       type: "Function",
       kind: "Free",
-      permission: "own",
       functionId: generateVarialeValueId(env, "resume"),
       effects: [],
       // hasMoreEffects: false,
@@ -1514,7 +1380,6 @@ RHS order: ${rhsOrder}`
     const func: TFunction = {
       type: "Function",
       kind: "Free",
-      permission: "own",
       functionId: generateVarialeValueId(env, "abort"),
       effects: [],
       // hasMoreEffects: false,
@@ -1573,7 +1438,6 @@ RHS order: ${rhsOrder}`
           typeValue: {
             type: "()",
             kind: "Free",
-            permission: "own",
           },
           env,
           token: tokens[index],
@@ -2681,7 +2545,6 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
             typeValue: {
               type: "symbol",
               kind: "Free",
-              permission: "own",
               value: token.value,
               tag: "primitive",
             },
@@ -2699,7 +2562,6 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
             typeValue: {
               type: "symbol",
               kind: "Free",
-              permission: "own",
             },
             token: tokens[index],
           },
@@ -3725,7 +3587,7 @@ Found possible functions:
           type: AstType.Value,
           tag: "primitive",
           value: "()",
-          typeValue: { type: "()", kind: "Free", permission: "own" },
+          typeValue: { type: "()", kind: "Free" },
           env: nextEnv,
           token: tokens[index - 1],
         });
@@ -3816,10 +3678,10 @@ Found possible functions:
 
     // Disallow the "own"ed return value to contain
     // "read" or "write" fields.
-    if (returnType.permission === "own" && typeContainsReadWrite(returnType)) {
+    if (typeContainsReference(returnType)) {
       throw this.formatErrorMessage(
         returnExpr.token,
-        `Cannot return a value that contains "read" or "write" fields.`
+        `Cannot return a value that contains reference.`
       );
     }
 
@@ -4944,7 +4806,7 @@ ${typeToString(caseReturnType)}
 
     if (
       userDefinedVariableType &&
-      typeContainsReadWrite(userDefinedVariableType)
+      typeContainsReference(userDefinedVariableType)
     ) {
       throw this.formatErrorMessage(
         tokens[userDefinedVariableTypeTokenIndex],
@@ -5014,36 +4876,15 @@ Got:      ${typeToString(variableType)}`
     }
 
     const finalType: Type = { ...(userDefinedVariableType ?? variableType) };
-    if (finalType.permission === "write" && !isMutable) {
-      finalType.permission = "read";
-    }
-    if (finalType.permission === "read" && isMutable) {
-      throw this.formatErrorMessage(
-        tokens[letTokenIndex],
-        `Expected "let" for "read" value.`
-      );
-    }
 
     // Consume RHS value if necessary
     let referedVariable: ReferedVariable | undefined = undefined;
-    if (finalType.permission === "own") {
-      const { env: nextNextEnv, referedVariable: nextReferedVariable } =
-        this.setVariableAsConsumed(env, value);
-      env = nextNextEnv;
-      referedVariable = nextReferedVariable;
-    } else {
-      // Implicit dereference
-      if (finalType.kind === "Free") {
-        finalType.permission = "own";
-      } else {
-        throw this.formatErrorMessage(
-          tokens[letTokenIndex],
-          `Failed to dereference the Linear value:
-${exprToString(value)}`
-        );
-      }
-    }
+    const { env: nextNextEnv, referedVariable: nextReferedVariable } =
+      this.setVariableAsConsumed(env, value);
+    env = nextNextEnv;
+    referedVariable = nextReferedVariable;
 
+    /*
     if (isMutable) {
       // Check if RHS is mutable
       if (
@@ -5057,6 +4898,7 @@ ${exprToString(value)}`
         );
       }
     }
+    */
 
     // Add variable to env
     const { env: nextEnv, value: variableValue } = addEnvVariableValue({
@@ -5079,7 +4921,7 @@ ${exprToString(value)}`
     // console.log("let= valueType: ", valueType);
 
     // "read" and "write" permission are not allowed in let/var assignment
-    if (typeContainsReadWrite(finalType)) {
+    if (typeContainsReference(finalType)) {
       throw this.formatErrorMessage(
         tokens[letTokenIndex],
         `Expected "own" or "read" permission for let assignment, but got ${typeToString(
@@ -5160,6 +5002,7 @@ ${exprToString(value)}`
         });
       }
 
+      /*
       if (
         (propertyType.kind === "Linear" || propertyType.kind === "Type") &&
         (propertyType.permission === "read" ||
@@ -5181,13 +5024,14 @@ ${exprToString(value)}`
           ],
         });
       }
+      */
 
       // Add variable to env
       const { env: nextEnv } = addEnvVariableValue({
         env,
         variableValue: {
           variableName: asName ?? name,
-          type: { ...propertyType, permission: "own" },
+          type: { ...propertyType },
           kind: "value",
           isMutable: isMutable,
           token: destructurings[i].token,
@@ -5309,6 +5153,7 @@ ${typeToString(enumType)}`
     curlyBracketTokenIndex: number;
     isReference?: "&" | "&!";
   }): ParserReturn {
+    /*
     // NOTE: We disable destructuring from "read" and "write" for now.
     if (
       value.typeValue.permission === "read" ||
@@ -5319,6 +5164,7 @@ ${typeToString(enumType)}`
         `Cannot destructuring from "read" or "write" value:`
       );
     }
+    */
 
     const valueType = value.typeValue;
     switch (valueType.type) {
@@ -5549,7 +5395,6 @@ ${typeToString(valueType)}`
         type: {
           type: "unknown",
           kind: "Free",
-          permission: "own",
           typeName,
         },
         kind: "type",
@@ -5600,7 +5445,6 @@ ${typeToString(valueType)}`
     let typeValue: Type = {
       type: "Extern",
       kind: "Free",
-      permission: "own",
     };
     if (tokens[index].type === TokenType.Assign) {
       index = index + 1;
@@ -5661,14 +5505,12 @@ ${typeToString(nextTypeValue)}`
       typeValue = {
         type: "Extern",
         kind,
-        permission: "own",
       };
     }
 
     const typeConstructor: TTypeConstructor = {
       type: "TypeConstructor",
       kind,
-      permission: "own",
       typeConstructorName: typeName,
       typeConstructorId: generateVarialeValueId(env, typeName),
       typeParameters,
@@ -5796,7 +5638,6 @@ ${typeToString(nextTypeValue)}`
         type: {
           type: "unknown",
           kind: "Free",
-          permission: "own",
           typeName: interfaceName,
         },
         kind: "interface",
@@ -6580,7 +6421,6 @@ ${operationName}: ${typeToString(
         type: {
           type: "unknown",
           kind: "Free",
-          permission: "own",
           typeName: enumName,
         },
         kind: "type",
@@ -6736,7 +6576,6 @@ ${operationName}: ${typeToString(
     const enumType: TEnum = {
       type: "Enum",
       kind,
-      permission: "own",
       enumId: generateVarialeValueId(env, enumName),
       enumName,
       typeParameters,
