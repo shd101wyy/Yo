@@ -51,19 +51,11 @@ export function tokenize(input: string): Token[] {
       j++;
     }
 
-    // Skip symbol with @""
-    if (operator.endsWith("@") && input[j] === '"') {
-      operator = operator.slice(0, -1);
-      j--;
-    }
-
     if (
       operator &&
       // Skip comments
       !operator.startsWith("//") &&
-      !operator.startsWith("/*") &&
-      // Skip symbol with @""
-      !(operator === "@" && input[i + 1] === '"')
+      !operator.startsWith("/*")
     ) {
       if (operator.startsWith("&!<")) {
         tokens.push({
@@ -276,32 +268,6 @@ export function tokenize(input: string): Token[] {
 
         break;
       }
-      // symbol @"Red"
-      // symbol is in format of @"..."
-      case "@": {
-        if (input[i + 1] === '"') {
-          let value = "";
-
-          for (let j = i + 2; j < input.length; j++) {
-            if (input[j] === '"') {
-              i = j;
-              break;
-            }
-
-            value += input[j];
-          }
-
-          tokens.push({
-            type: TokenType.Symbol,
-            value,
-            position: { line, character: i - totalCharacters },
-          });
-        } else {
-          throw new Error(`Unexpected character ${char}`);
-        }
-        break;
-      }
-
       // other
       case ",":
         tokens.push({

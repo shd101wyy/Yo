@@ -7,7 +7,7 @@ import * from "../../interface/eq.mo";
  */
 implements LogicalNot<boolean> {
   (!): (a: boolean)=> boolean {
-    codegenInline(C=@"!$1");
+    codegenInline(C="!$1");
     recur(a)
   }
 }

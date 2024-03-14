@@ -159,7 +159,7 @@ export type TF64 = {
   permission: TypePermission;
 };
 
-// @"symbol"
+// "symbol"
 export type TSymbol = {
   type: "symbol";
   kind: "Free";
@@ -3199,7 +3199,7 @@ export function typeToString(
 ): string {
   if ("tag" in type) {
     if (type.type === "symbol") {
-      return `@${JSON.stringify(type.value)}`;
+      return `${JSON.stringify(type.value)}`;
     }
     return type.value; // + "::" + type.type;
   }

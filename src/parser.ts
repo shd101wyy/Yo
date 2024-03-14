@@ -2667,7 +2667,7 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
     env;
   }): ParserReturn {
     const token = tokens[index];
-    if (token.type === TokenType.Symbol) {
+    if (token.type === TokenType.String) {
       if (
         tokens[index + 1]?.type === TokenType.As &&
         tokens[index + 2]?.type === TokenType.Const
@@ -2707,7 +2707,7 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
         };
       }
     } else {
-      throw this.formatErrorMessage(token, "Expected symbol");
+      throw this.formatErrorMessage(token, 'Expected "..."');
     }
   }
 
@@ -2715,8 +2715,6 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
     tokens,
     index,
     env,
-    caller,
-    parserData,
   }: {
     tokens: Token[];
     index: number;
@@ -2724,51 +2722,10 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
     caller: TFunction;
     parserData: ParserData;
   }): ParserReturn {
-    const symbolTokenIndex = index;
-    if (tokens[index].type !== TokenType.Symbol) {
-      throw this.formatErrorMessage(tokens[index], "Expected symbol");
+    if (tokens[index].type !== TokenType.String) {
+      throw this.formatErrorMessage(tokens[index], 'Expected "..."');
     }
-    const symbol = `@${tokens[index].value}`;
-
-    // Check if variable is defined
-    const variableValues = getEnvVariableValueByVariableName(
-      env,
-      symbol,
-      "value"
-    );
-    if (variableValues.length === 0) {
-      return this.parseSymbolValue({ tokens, index, env });
-    }
-
-    const matchedFunctions = variableValues.filter(
-      (value) => value.type.type === "Function"
-    );
-    // Check if it's a function
-    // - test(1) Normal function call
-    // - test { 12 } Trailing lambda
-    // - test { 12 } { 13 } Trailing lambdas
-    // - test (x)=> { x + 1 } Trailing lambda
-    if (
-      tokens[index + 1]?.type === TokenType.LParen ||
-      tokens[index + 1]?.type === TokenType.LCurlyBracket ||
-      tokens[index + 1]?.value === "<"
-    ) {
-      // Try all matchedFunctions to see if there is a match
-      return this.tryCallFunctions({
-        functions: matchedFunctions.map((fv) => {
-          return fv.type as TFunction;
-        }),
-        calleeToken: tokens[symbolTokenIndex],
-        caller,
-        env,
-        parserData,
-        leftParenTokenIndex: index + 1,
-        tokens,
-        firstArgument: undefined,
-      });
-    } else {
-      return this.parseSymbolValue({ tokens, index, env });
-    }
+    return this.parseSymbolValue({ tokens, index, env });
   }
 
   /**
@@ -2856,7 +2813,7 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
       });
     } else {
       switch (token.type) {
-        case TokenType.Symbol: {
+        case TokenType.String: {
           returnValue = this.parseSymbolExpr({
             tokens,
             index,
@@ -2875,10 +2832,12 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
           returnValue = this.parseCharactorExpr({ tokens, index, env });
           break;
         }
+        /*
         case TokenType.String: {
           returnValue = this.parseStringExpr({ tokens, index, env });
           break;
         }
+        */
         case TokenType.Boolean: {
           returnValue = this.parseBooleanExpr({ tokens, index, env });
           break;
