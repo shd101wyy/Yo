@@ -90,6 +90,7 @@ import {
   synthesizeTypes,
   typeContainsReference,
   typeIsFunctionTypeThatReturnsPromise,
+  typeIsMutableReference,
   typeIsPromise,
   typeIsReference,
   typeToString,
@@ -977,7 +978,17 @@ ${exprToString(rhs)}
       lhs.type === AstType.PropertyAccess
     ) {
       isMutable = lhs.isMutable;
+    } else if (
+      // Dereference a mutable reference
+      lhs.type === AstType.CallFunction &&
+      lhs.callee.type === AstType.Variable &&
+      lhs.callee.variableName === DereferenceOperator &&
+      lhs.functionArguments.length === 1 &&
+      typeIsMutableReference(lhs.functionArguments[0].typeValue)
+    ) {
+      isMutable = true;
     }
+
     if (!isMutable) {
       throw this.formatErrorMessage(
         tokens[lhsTokenIndex],

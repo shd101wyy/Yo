@@ -3780,7 +3780,14 @@ function checkTypeConstructorExactMatch(
   env: Environment
 ) {
   if (expectedType.typeConstructorId !== givenType.typeConstructorId) {
-    return false;
+    if (
+      typeIsImmutableReference(expectedType) &&
+      typeIsMutableReference(givenType)
+    ) {
+      // Do thing
+    } else {
+      return false;
+    }
   }
   if (expectedType.typeParameters.length !== givenType.typeParameters.length) {
     return false;
@@ -4441,5 +4448,19 @@ export function typeIsReference(type: Type): boolean {
     (type.typeConstructorId ===
       TypeValues.ImmutableReference.typeConstructorId ||
       type.typeConstructorId === TypeValues.MutableReference.typeConstructorId)
+  );
+}
+
+export function typeIsMutableReference(type: Type): boolean {
+  return (
+    type.type === "TypeConstructor" &&
+    type.typeConstructorId === TypeValues.MutableReference.typeConstructorId
+  );
+}
+
+export function typeIsImmutableReference(type: Type): boolean {
+  return (
+    type.type === "TypeConstructor" &&
+    type.typeConstructorId === TypeValues.ImmutableReference.typeConstructorId
   );
 }
