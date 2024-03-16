@@ -86,3 +86,5 @@ let readIntRef = (read x: i32)=> {
 ## Remove the RAII?
 
 I don't remember why I stopped doing this 🤔
+
+## Remove the custom operators?? 🤔

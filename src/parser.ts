@@ -733,11 +733,20 @@ Found possible functions:
     let callerType = expr.typeValue;
 
     // It's record type
-    if (
-      callerType.type === "TypeConstructor" &&
-      callerType.typeValue.type === "Record"
-    ) {
-      callerType = callerType.typeValue;
+    while (true) {
+      if (
+        callerType.type === "TypeConstructor" &&
+        callerType.typeValue.type === "Record"
+      ) {
+        callerType = callerType.typeValue;
+      } else if (typeIsReference(callerType)) {
+        // We need to dereference the reference
+        callerType = (callerType as TTypeConstructor).typeParameters[0]
+          .appliedType!;
+        console.log("callerType: ", typeToString(callerType));
+      } else {
+        break;
+      }
     }
 
     if (callerType.type === "Record") {

@@ -2312,7 +2312,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
       parameterDefaultValues.push(null);
     }
 
-    const isMutable = false;
+    const isMutable = true; // false;
     parameterTypes.push({
       name: parameterName,
       parameterId: "", // parameterValue.id, // NOTE: We update parameterId later
