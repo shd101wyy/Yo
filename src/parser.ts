@@ -101,6 +101,7 @@ interface ParserData {
   // resumeType?: Type;
   // abortType?: Type;
   // abortTokenIndex?: number;
+  allowDereferenceReferenceToLinearValue?: boolean;
 }
 
 export default class Parser {
@@ -980,11 +981,7 @@ ${exprToString(rhs)}
       isMutable = lhs.isMutable;
     } else if (
       // Dereference a mutable reference
-      lhs.type === AstType.CallFunction &&
-      lhs.callee.type === AstType.Variable &&
-      lhs.callee.variableName === DereferenceOperator &&
-      lhs.functionArguments.length === 1 &&
-      typeIsMutableReference(lhs.functionArguments[0].typeValue)
+      this.checkIfDereferenceMutableReference(lhs)
     ) {
       isMutable = true;
     }
@@ -3232,6 +3229,7 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
               token: binaryOperatorToken,
               valueType: returnType,
             });
+
           parserReturns.push({
             expr: {
               type: AstType.CallFunction,
@@ -3245,7 +3243,7 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
                 isMutable: false,
                 token: binaryOperatorToken,
               },
-              functionArguments: [LHS, RHS],
+              functionArguments: functionArguments, // [LHS, RHS],
               typeValue: newFunctionType.returnType,
               env: nextNextEnv,
               token: binaryOperatorToken,
@@ -3473,7 +3471,7 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
               isMutable: false,
               token: operatorToken,
             },
-            functionArguments: [expr],
+            functionArguments: functionArguments, // [expr],
             typeValue: newFunctionType.returnType,
             env: nextNextEnv,
             token: operatorToken,
@@ -3569,7 +3567,6 @@ Found possible functions:
       );
     }
     const referenceOperatorToken = tokens[index];
-    const referenceOperator = tokens[index].value;
     const referenceKind: "immutable" | "mutable" =
       tokens[index].value === ImmutableReferenceOperator
         ? "immutable"
@@ -3605,31 +3602,15 @@ ${exprToString(expr)}`
       typeArguments: [expr.typeValue],
       typeParameterToTypeArgumentMap: {},
     });
-    const { env: nextEnv, value: tempVariable } =
-      this.generateTempVariableForHoldingValue({
-        env,
-        token: referenceOperatorToken,
-        valueType: referenceType,
-      });
 
     return {
       expr: {
-        type: AstType.CallFunction,
-        callee: {
-          type: AstType.Variable,
-          variableName: referenceOperator,
-          variableId: referenceOperator,
-          frameLevel: -1,
-          typeValue: emptyFunctionThatHasMoreEffects,
-          env: nextEnv,
-          isMutable: false,
-          token: referenceOperatorToken,
-        },
-        functionArguments: [expr],
+        type: AstType.Reference,
         typeValue: referenceType,
-        env: nextEnv,
+        env,
+        expr,
+        isMutableReference: referenceKind === "mutable",
         token: referenceOperatorToken,
-        tempVariableName: tempVariable.variableName,
       },
       index,
     };
@@ -3685,35 +3666,41 @@ ${exprToString(expr)}: ${typeToString(expr.typeValue)}`
 ${exprToString(expr)}: ${typeToString(expr.typeValue)}`
       );
     }
-
-    const { env: nextEnv, value: tempVariable } =
-      this.generateTempVariableForHoldingValue({
-        env,
-        token: dereferenceOperatorToken,
-        valueType: dereferencedType,
-      });
-
     return {
       expr: {
-        type: AstType.CallFunction,
-        callee: {
-          type: AstType.Variable,
-          variableName: DereferenceOperator,
-          variableId: DereferenceOperator,
-          frameLevel: -1,
-          typeValue: emptyFunctionThatHasMoreEffects,
-          env: nextEnv,
-          isMutable: false,
-          token: dereferenceOperatorToken,
-        },
-        functionArguments: [expr],
+        type: AstType.Dereference,
         typeValue: dereferencedType,
-        env: nextEnv,
+        env,
+        expr,
         token: dereferenceOperatorToken,
-        tempVariableName: tempVariable.variableName,
       },
       index,
     };
+  }
+
+  /**
+   * If it's dereference, check if it's dereferencing a reference to Linear value.
+   * If yes, then throw an error.
+   * @param expr
+   */
+  private checkIfDereferenceReferenceToLinearValue(expr: Expr) {
+    if (
+      expr.type === AstType.Dereference &&
+      (expr.typeValue.kind === "Linear" || expr.typeValue.kind === "Type")
+    ) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Cannot dereference a reference to Linear value:
+${exprToString(expr)}`
+      );
+    }
+  }
+
+  private checkIfDereferenceMutableReference(expr: Expr): boolean {
+    return (
+      expr.type === AstType.Dereference &&
+      typeIsMutableReference(expr.expr.typeValue)
+    );
   }
 
   private parseBlockExpressions({
@@ -3928,9 +3915,9 @@ ${exprToString(expr)}: ${typeToString(expr.typeValue)}`
               expr.propertyName
             }" with dot access.
 
-Please consider using "read" or "write" instead. For example:
+Please consider using "&" or "@" instead. For example:
 
-  let ref = (read ${exprToString(expr)})
+  let ref = &${exprToString(expr)}
 
 Or consider using destructuring instead, which will consume the RHS. For example:
 
@@ -3969,9 +3956,9 @@ ${exprToString(expr)}`,
           `Cannot access "${expr.typeValue.kind}" value of "${exprToString(
             expr.expr
           )}" with index access.
-Please consider using "read" or "write" instead. For example:
+Please consider using "&" or "@" instead. For example:
 
-let ref = (read ${exprToString(expr)})
+let ref = (&${exprToString(expr)})
 `
         );
       } else {
@@ -4080,6 +4067,10 @@ ${exprToString(expr)}`,
     // FIXME: Add lifetime constraint from the calleeType
     for (let i = 0; i < functionArgumentsInOrder.length; i++) {
       const functionArgument = functionArgumentsInOrder[i];
+
+      // Check if any argument is dereferencing a reference to linear value
+      this.checkIfDereferenceReferenceToLinearValue(functionArgument);
+
       const { env: nextEnv } = this.setVariableAsConsumed(
         env,
         functionArgument
@@ -5019,7 +5010,8 @@ ${typeToString(caseReturnType)}
     ) {
       throw this.formatErrorMessage(
         tokens[userDefinedVariableTypeTokenIndex],
-        `"read" and "write" permission are not allowed in let/var assignment`
+        `References are not allowed in let/var assignment:
+${typeToString(userDefinedVariableType)}`
       );
     }
 
@@ -5038,6 +5030,7 @@ ${typeToString(caseReturnType)}
     }
     index = nextNextIndex;
     env = value.env;
+    this.checkIfDereferenceReferenceToLinearValue(value);
 
     const variableType: Type = value.typeValue;
     let variableId: string | undefined = undefined;
@@ -5129,17 +5122,13 @@ ${exprToString(value)}`
     env = nextEnv;
     // console.log("let= valueType: ", valueType);
 
-    // "read" and "write" permission are not allowed in let/var assignment
-    /*
-    // FIXME: Renable this
     if (typeContainsReference(finalType)) {
       throw this.formatErrorMessage(
         tokens[letTokenIndex],
-        `Expected "own" or "read" permission for let assignment, but got ${typeToString(
-          finalType
-        )}`
+        `References are not allowed in let/var assignment:
+${typeToString(finalType)}`
       );
-    }*/
+    }
 
     return {
       expr: {

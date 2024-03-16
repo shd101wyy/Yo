@@ -47,7 +47,7 @@ It's so hard to read and write.
 ## Immutable reference used to be Linear, but now Free
 For supporting closure.  
 
-## Let's remove the Union and Intersection types  
+## ~~Let's remove the Union and Intersection types~~  
 Only the tagged union (sum type) is supported.  
 
 ## Let's require file extension for import and export
@@ -82,3 +82,7 @@ let readIntRef = (read x: i32)=> {
   readInt(x); // This causes confusion  
 }
 ```
+
+## Remove the RAII?
+
+I don't remember why I stopped doing this 🤔

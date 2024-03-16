@@ -6,11 +6,13 @@ import {
   BlockExpr,
   CallEnumExpr,
   CallTypeConstructorExpr,
+  DereferenceExpr,
   Expr,
   FunctionExpr,
   IfExpr,
   MatchExpr,
   RecurExpr,
+  ReferenceExpr,
   exprToString,
 } from "./ast";
 import {
@@ -2126,7 +2128,38 @@ export function applyTypeArgumentsToExpr({
       };
       return e;
     }
-
+    case AstType.Dereference: {
+      const e: DereferenceExpr = {
+        ...expr,
+        expr: applyTypeArgumentsToExpr({
+          expr: expr.expr,
+          env,
+          typeParameterToTypeArgumentMap,
+        }),
+        typeValue: applyTypeArgumentsToType({
+          type: expr.typeValue,
+          env,
+          typeParameterToTypeArgumentMap,
+        }),
+      };
+      return e;
+    }
+    case AstType.Reference: {
+      const e: ReferenceExpr = {
+        ...expr,
+        expr: applyTypeArgumentsToExpr({
+          expr: expr.expr,
+          env,
+          typeParameterToTypeArgumentMap,
+        }),
+        typeValue: applyTypeArgumentsToType({
+          type: expr.typeValue,
+          env,
+          typeParameterToTypeArgumentMap,
+        }),
+      };
+      return e;
+    }
     default:
       throw new Error(
         `applyTypeArgumentsToExpr: Unknown expr type ${expr.type}`

@@ -1,25 +1,27 @@
-type I32 = &i32;
-
-let swap = (x: @i32, y: @i32)=> {
-  let tmp = *x;
-  *x = *y;
-  *y = tmp;
+type Data: Linear;
+extern "C" {
+  malloc: ()=> Data;
 }
 
-let useImmutableReference = (x: &i32)=> {}
+let useReference = (ref: &Data)=> {
+  // let x = *ref;
+}
+
+let takeOwnership = (data: Data)=> {
+  consume(data);
+}
 
 let test = ()=> {
-  var x = 1;
-  var y = 2;
+  var x = malloc();
 
-  let ref1 = &x; // &i32
-  let ref2 = @x; // @i32
-  let x1 = *ref1;
-  let x2 = *ref2;
-  *ref2 = 3;
-  // *ref1 = 3; // Error
-  
-  swap(@x, @y);
-  useImmutableReference(&x);
-  useImmutableReference(@x);
+  // let ref1 = &x;
+  // let ref2 = @x;
+
+  // let y = *ref1; // Error dereferencing a reference to linear value.  
+  // let old = (*ref2 = malloc());
+  // consume(old);
+
+  useReference(&x);
+  useReference(@x);
+  takeOwnership(x);
 }

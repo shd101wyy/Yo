@@ -96,6 +96,12 @@ export enum AstType {
 
   // type casting
   TypeCast = "type-cast",
+
+  // dereference
+  Dereference = "dereference",
+
+  // reference
+  Reference = "reference",
 }
 
 /**
@@ -132,7 +138,9 @@ export type Expr =
   | AwaitExpr
   | RecurExpr
   | InfixPrecedenceExpr
-  | TypeCastExpr;
+  | TypeCastExpr
+  | DereferenceExpr
+  | ReferenceExpr;
 
 export type IgnoreExpr = {
   type: AstType.Ignore;
@@ -489,6 +497,29 @@ export type TypeCastExpr = {
   expr: Expr;
 };
 
+export type DereferenceExpr = {
+  type: AstType.Dereference;
+  /**
+   * Dereferenced type.
+   */
+  typeValue: Type;
+  env: Environment;
+  token: Token;
+  expr: Expr;
+};
+
+export type ReferenceExpr = {
+  type: AstType.Reference;
+  /**
+   * Reference type.
+   */
+  typeValue: Type;
+  env: Environment;
+  token: Token;
+  expr: Expr;
+  isMutableReference: boolean;
+};
+
 export function exprToString(expr: Expr, indentation = ""): string {
   switch (expr.type) {
     case AstType.Value:
@@ -675,16 +706,6 @@ export function exprToString(expr: Expr, indentation = ""): string {
         .join(";\n")}
 ${indentation}}`;
     }
-    /*
-    case AstType.Reference: {
-      return `(${expr.isMutableReference ? "&!" : "&"}${exprToString(
-        expr.expr
-      )})`;
-    }
-    case AstType.Dereference: {
-      return `(*${exprToString(expr.expr)})`;
-    }
-    */
     case AstType.Defer: {
       return `defer ${exprToString(expr.expr)}`;
     }
@@ -753,6 +774,14 @@ ${indentation}}`;
     }
     case AstType.TypeCast: {
       return `(${exprToString(expr.expr)} as ${typeToString(expr.typeValue)})`;
+    }
+    case AstType.Reference: {
+      return `(${expr.isMutableReference ? "@" : "&"}${exprToString(
+        expr.expr
+      )})`;
+    }
+    case AstType.Dereference: {
+      return `(*${exprToString(expr.expr)})`;
     }
     default:
       throw new Error(`exprToString: Unknown expr type ${expr}`);
