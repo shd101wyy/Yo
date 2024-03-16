@@ -375,6 +375,10 @@ export type Type =
   | TPrimitiveWithValue
   | TExternType;
 
+export const ImmutableReferenceOperator = "&";
+export const MutableReferenceOperator = "@";
+export const DereferenceOperator = "*";
+
 export const TypeValues: {
   unit: TUnit;
   boolean: TBoolean;
@@ -398,6 +402,7 @@ export const TypeValues: {
   Promise: TTypeConstructor;
   MutableReference: TTypeConstructor;
   ImmutableReference: TTypeConstructor;
+  Pointer: TTypeConstructor;
 } = {
   unit: { type: "()", kind: "Free" },
   boolean: { type: "boolean", kind: "Free" },
@@ -440,13 +445,13 @@ export const TypeValues: {
   MutableReference: {
     type: "TypeConstructor",
     kind: "Free",
-    typeConstructorName: "@",
+    typeConstructorName: MutableReferenceOperator,
     typeConstructorId: "MutableReference",
     typeParameters: [
       {
         type: "TypeParameter",
         typeParameterName: "T",
-        typeParameterId: "T",
+        typeParameterId: "T@",
         kind: "Type",
       },
     ],
@@ -459,13 +464,32 @@ export const TypeValues: {
   ImmutableReference: {
     type: "TypeConstructor",
     kind: "Free",
-    typeConstructorName: "&",
+    typeConstructorName: ImmutableReferenceOperator,
     typeConstructorId: "ImmutableReference",
     typeParameters: [
       {
         type: "TypeParameter",
         typeParameterName: "T",
-        typeParameterId: "T",
+        typeParameterId: "T&",
+        kind: "Type",
+      },
+    ],
+    typeConstraints: [],
+    typeValue: {
+      type: "Extern",
+      kind: "Free",
+    },
+  },
+  Pointer: {
+    type: "TypeConstructor",
+    kind: "Free",
+    typeConstructorName: "^",
+    typeConstructorId: "Pointer",
+    typeParameters: [
+      {
+        type: "TypeParameter",
+        typeParameterName: "T",
+        typeParameterId: "T^",
         kind: "Type",
       },
     ],
@@ -573,6 +597,41 @@ export function synthesizeTypeFromTokens({
       env,
       parseExpression,
     });
+  }
+
+  // FIXME: Support && like
+  // Check if it's ImmutableReference, MutableReference
+  if (tokens[index].value === "&" || tokens[index].value === "@") {
+    const wrapperType =
+      tokens[index].value === "&"
+        ? TypeValues.ImmutableReference
+        : TypeValues.MutableReference;
+    const {
+      typeValue,
+      env: nextEnv,
+      index: nextIndex,
+    } = synthesizeTypeFromTokens({
+      tokens,
+      index: index + 1,
+      env,
+      parseExpression,
+    });
+    return {
+      typeValue: {
+        ...wrapperType,
+        typeParameters: [
+          {
+            type: "TypeParameter",
+            typeParameterName: "T",
+            typeParameterId: "T",
+            kind: "Type",
+            appliedType: typeValue,
+          },
+        ],
+      },
+      index: nextIndex,
+      env: nextEnv,
+    };
   }
 
   // Check if it's unit
@@ -3323,13 +3382,24 @@ export function typeToString(
           });
         }
       } else {
-        return `${type.typeConstructorName}${typeParametersToString(
+        let typeString = `${type.typeConstructorName}${typeParametersToString(
           type.typeParameters,
           type.typeConstraints,
           {
             hideTypeParameterKind,
           }
         )}`.trim();
+
+        if (
+          type.typeConstructorId ===
+            TypeValues.ImmutableReference.typeConstructorId ||
+          type.typeConstructorId ===
+            TypeValues.MutableReference.typeConstructorId
+        ) {
+          typeString = typeString.replace(/<(.+?)>$/, "$1");
+        }
+
+        return typeString;
       }
     }
     case "Enum": {

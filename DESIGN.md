@@ -36,6 +36,7 @@ We will also post a series of articles on the design and implementation of **Mo*
       - [Uninitialized variable `Might be removed`](#uninitialized-variable-might-be-removed)
     - [Transfer ownership](#transfer-ownership)
     - [immutable and mutable references](#immutable-and-mutable-references)
+    - [Pointer `In Design`](#pointer-in-design)
     - [Cast Linear to Free](#cast-linear-to-free)
   - [Function Declaration](#function-declaration)
     - [Uniform Function Call Syntax](#uniform-function-call-syntax)
@@ -485,6 +486,17 @@ var x = [String.from("Hi"), String.from("World")];
 }
 
 // x: [String.from("Hi"), String.from("Earth")]
+```
+
+### Pointer `In Design`
+
+We use the `^` to denote the pointer, same as in Pascal.  
+
+```typescript
+type IntPtr = ^i32;  
+
+let x = 1;
+let xRef = &x as ^i32
 ```
 
 ### Cast Linear to Free

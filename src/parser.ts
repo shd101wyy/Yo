@@ -50,6 +50,9 @@ import { isUpperCamelCase } from "./naming-checker";
 import { OperatorPrecedence, stringIsOperator } from "./operator";
 import { Token, TokenType } from "./token";
 import {
+  DereferenceOperator,
+  ImmutableReferenceOperator,
+  MutableReferenceOperator,
   ParseExpression,
   ParserReturn,
   TEnum,
@@ -88,6 +91,7 @@ import {
   typeContainsReference,
   typeIsFunctionTypeThatReturnsPromise,
   typeIsPromise,
+  typeIsReference,
   typeToString,
 } from "./type-checker";
 
@@ -3322,6 +3326,30 @@ Found possible functions:
     }
     index = index + 1;
 
+    // Immutable reference and Mutable reference
+    if (
+      operatorToken.value === ImmutableReferenceOperator ||
+      operatorToken.value === MutableReferenceOperator
+    ) {
+      return this.parseReferenceExpr({
+        tokens,
+        env,
+        caller,
+        index: index - 1,
+        parserData,
+      });
+    }
+
+    if (operatorToken.value === DereferenceOperator) {
+      return this.parseDereferenceExpr({
+        tokens,
+        env,
+        caller,
+        index: index - 1,
+        parserData,
+      });
+    }
+
     // Parse argument
     const { expr, index: nextIndex } = this.parsePrimary({
       tokens,
@@ -3505,6 +3533,176 @@ Found possible functions:
         index: ret.index,
       };
     }
+  }
+
+  private parseReferenceExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (
+      tokens[index].value !== ImmutableReferenceOperator &&
+      tokens[index].value !== MutableReferenceOperator
+    ) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Expected ${ImmutableReferenceOperator} for immutable reference or ${MutableReferenceOperator} mutable reference`
+      );
+    }
+    const referenceOperatorToken = tokens[index];
+    const referenceOperator = tokens[index].value;
+    const referenceKind: "immutable" | "mutable" =
+      tokens[index].value === ImmutableReferenceOperator
+        ? "immutable"
+        : "mutable";
+    index = index + 1;
+
+    // Parse argument
+    const { expr, index: nextIndex } = this.parsePrimary({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    env = expr.env;
+    index = nextIndex;
+    const isMutable = "isMutable" in expr ? expr.isMutable : false;
+
+    if (!isMutable && referenceKind === "mutable") {
+      throw this.formatErrorMessage(
+        referenceOperatorToken,
+        `Cannot create mutable reference to immutable value:
+${exprToString(expr)}`
+      );
+    }
+
+    const referenceType = applyTypeArgumentsToType({
+      env,
+      type:
+        referenceKind === "immutable"
+          ? TypeValues.ImmutableReference
+          : TypeValues.MutableReference,
+      typeArguments: [expr.typeValue],
+      typeParameterToTypeArgumentMap: {},
+    });
+    const { env: nextEnv, value: tempVariable } =
+      this.generateTempVariableForHoldingValue({
+        env,
+        token: referenceOperatorToken,
+        valueType: referenceType,
+      });
+
+    return {
+      expr: {
+        type: AstType.CallFunction,
+        callee: {
+          type: AstType.Variable,
+          variableName: referenceOperator,
+          variableId: referenceOperator,
+          frameLevel: -1,
+          typeValue: emptyFunctionThatHasMoreEffects,
+          env: nextEnv,
+          isMutable: false,
+          token: referenceOperatorToken,
+        },
+        functionArguments: [expr],
+        typeValue: referenceType,
+        env: nextEnv,
+        token: referenceOperatorToken,
+        tempVariableName: tempVariable.variableName,
+      },
+      index,
+    };
+  }
+
+  private parseDereferenceExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].value !== DereferenceOperator) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Expected ${DereferenceOperator} for dereference`
+      );
+    }
+    const dereferenceOperatorToken = tokens[index];
+    index = index + 1;
+
+    // Parse argument
+    const { expr, index: nextIndex } = this.parsePrimary({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    env = expr.env;
+    index = nextIndex;
+
+    if (!typeIsReference(expr.typeValue)) {
+      throw this.formatErrorMessage(
+        dereferenceOperatorToken,
+        `Cannot dereference non-reference value:
+${exprToString(expr)}: ${typeToString(expr.typeValue)}`
+      );
+    }
+
+    const dereferencedType = (expr.typeValue as TTypeConstructor)
+      .typeParameters[0].appliedType;
+    if (!dereferencedType) {
+      throw this.formatErrorMessage(
+        dereferenceOperatorToken,
+        `Cannot dereference non-reference value (2):
+${exprToString(expr)}: ${typeToString(expr.typeValue)}`
+      );
+    }
+
+    const { env: nextEnv, value: tempVariable } =
+      this.generateTempVariableForHoldingValue({
+        env,
+        token: dereferenceOperatorToken,
+        valueType: dereferencedType,
+      });
+
+    return {
+      expr: {
+        type: AstType.CallFunction,
+        callee: {
+          type: AstType.Variable,
+          variableName: DereferenceOperator,
+          variableId: DereferenceOperator,
+          frameLevel: -1,
+          typeValue: emptyFunctionThatHasMoreEffects,
+          env: nextEnv,
+          isMutable: false,
+          token: dereferenceOperatorToken,
+        },
+        functionArguments: [expr],
+        typeValue: dereferencedType,
+        env: nextEnv,
+        token: dereferenceOperatorToken,
+        tempVariableName: tempVariable.variableName,
+      },
+      index,
+    };
   }
 
   private parseBlockExpressions({
@@ -4921,6 +5119,8 @@ ${exprToString(value)}`
     // console.log("let= valueType: ", valueType);
 
     // "read" and "write" permission are not allowed in let/var assignment
+    /*
+    // FIXME: Renable this
     if (typeContainsReference(finalType)) {
       throw this.formatErrorMessage(
         tokens[letTokenIndex],
@@ -4928,7 +5128,7 @@ ${exprToString(value)}`
           finalType
         )}`
       );
-    }
+    }*/
 
     return {
       expr: {
