@@ -1,4 +1,3 @@
-
 type Data: Linear;
 extern "C" {
   malloc: ()=> Data;

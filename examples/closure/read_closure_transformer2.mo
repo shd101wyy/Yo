@@ -8,7 +8,7 @@ type ReadClosureArgs = {
 
 implements Closure<ReadClosureContext, ReadClosureArgs, i32> {
   apply: (context: ReadClosureContext, args: ReadClosureArgs)=> i32 {
-    context.x + args.y
+    *context.x + args.y
   }
 }
 
@@ -18,5 +18,5 @@ let test = <T given Closure<T, ReadClosureArgs, i32>>(fn: T, y: i32)=> i32 {
 
 let main = ()=> {
   let x = 1;
-  test(ReadClosureContext { x: x }, 2);
+  test(ReadClosureContext { x: &x }, 2);
 }
