@@ -3,8 +3,13 @@ extern "C" {
   malloc: ()=> Data;
 }
 
-let useReference = (ref: &Data)=> {
+let useImmutableReference = (ref: &Data)=> {
   // let x = *ref;
+}
+
+let useMutableReference = (ref: @Data)=> {
+  let old = (*ref = malloc());
+  consume(old);
 }
 
 let takeOwnership = (data: Data)=> {
@@ -21,7 +26,8 @@ let test = ()=> {
   // let old = (*ref2 = malloc());
   // consume(old);
 
-  useReference(&x);
-  useReference(@x);
+  useImmutableReference(&x);
+  useImmutableReference(@x);
+  useMutableReference(@x);
   takeOwnership(x);
 }

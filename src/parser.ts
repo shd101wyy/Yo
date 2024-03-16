@@ -5235,6 +5235,21 @@ ${typeToString(finalType)}`
       }
       */
 
+      // We disallow destructuring
+      if (typeIsReference(propertyType)) {
+        throw formatErrorMessages({
+          modulePath: this.modulePath,
+          inputString: this.inputString,
+          tokenAndErrorList: [
+            {
+              token: destructurings[i].token,
+              errorMessage: `Cannot destructure field "${name}" that is a reference:
+  ${typeToString(propertyType)}`,
+            },
+          ],
+        });
+      }
+
       // Add variable to env
       const { env: nextEnv } = addEnvVariableValue({
         env,
