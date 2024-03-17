@@ -1393,6 +1393,31 @@ let x: i32 = 1;
 let y: f32 = x as f32;
 ```
 
+## Async/Await
+The async function in **Mo** is similar to the [async/await](https://developer.mozilla.org/en-US/docs/Learn/JavaScript/Asynchronous/Async_await) in JavaScript.  
+But the async function in **Mo** doesn't require using the `async` keyword.  
+Any function that returns a `Promise` will be treated as an async function.
+It will be translated to a state machine in the backend, and two new functions, `resume` and `abort`, will be injected to the function as parameters.
+- `resume` function is available in all functions that return a `Promise`.
+- `abort` function is available in the effect operations that return a `Promise`.
+Its real return type will be `()`.  
+The `Promise` type is a `Linear` type, which means it must be consumed exactly once.  
+The `await` keyword is used to take the value out of the `Promise`. The `await` keyword can only be used inside an async function.
+```typescript
+// Promise is Linear type.
+let waitForSeconds = (seconds: i32)=> Promise<()> {
+  setTimeout(()=> {
+    resume(())
+  }, seconds * 1000);
+}
+
+let main = ()=> Promise<()> {
+  println("Hello");
+  await waitForSeconds(12);
+  println("World");
+}
+```
+
 ## Algebraic effects
 
 Note: **Mo** only supports **one-shot delimited continuations**.  

@@ -88,3 +88,17 @@ let readIntRef = (read x: i32)=> {
 I don't remember why I stopped doing this 🤔
 
 ## Remove the custom operators?? 🤔
+
+## Remove the native `Promise` and `await` syntax??
+
+Hard to translate to C:
+
+```typescript
+let main = ()=> {
+  let async1 = someAsyncTask(); // ()=> Promise<()>
+  let async2 = someAsyncTask();
+
+  await async2;
+  await async1;
+}
+```
