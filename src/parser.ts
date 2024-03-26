@@ -80,6 +80,7 @@ import {
   getEnumTypeKind,
   getFunctionArgumentsInOrder,
   getFunctionsOfCallerFromEnv,
+  isClosureCaptureMode,
   parseTypeKind,
   synthesizeFunctionParameterTypesFromTokens,
   synthesizeFunctionTypeFromTokens,
@@ -1212,7 +1213,8 @@ ${exprToString(lhs)}
     index = nextIndex;
 
     // NOTE: If it's top-level function, we need to set the env to the top-level frame
-    if (!functionType.isClosure) {
+    if (functionType.closureCaptureMode === "none") {
+      // Not a closure
       // Parse the type again with new env that only
       // contains the top-level frame
       let newEnv = createTopLevelEnv(oldEnv);
@@ -1354,7 +1356,9 @@ ${exprToString(lhs)}
         type: AstType.Function,
         body,
         env: copyEnvironment(
-          functionType.isClosure ? popEnvFrame(env) : oldEnv,
+          functionType.closureCaptureMode !== "none"
+            ? popEnvFrame(env)
+            : oldEnv,
           oldEnv.functionDeclarationFrameLevel,
           oldEnv.freeVariables
         ),
@@ -1387,7 +1391,7 @@ ${exprToString(lhs)}
           defaultValue: null,
         },
       ],
-      isClosure: false,
+      closureCaptureMode: "none",
       frameLevel: 0,
       interfaceFunctionImplementations: [],
     };
@@ -1416,7 +1420,7 @@ ${exprToString(lhs)}
           defaultValue: null,
         },
       ],
-      isClosure: false,
+      closureCaptureMode: "none",
       frameLevel: 0,
       interfaceFunctionImplementations: [],
     };
@@ -2636,7 +2640,7 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
     const token = tokens[index];
     let returnValue: ParserReturn | null = null;
 
-    if (token.value === "<") {
+    if (token.value === "<" || isClosureCaptureMode(tokens, index)) {
       returnValue = this.parseAnonymousFunction({
         tokens,
         index,
@@ -5946,7 +5950,7 @@ ${typeToString(functionType)}
 `
         );
       }
-      if (functionType.isClosure) {
+      if (functionType.closureCaptureMode !== "none") {
         throw this.formatErrorMessage(
           tokens[index],
           `Closure is not allowed in 'interface' functions:

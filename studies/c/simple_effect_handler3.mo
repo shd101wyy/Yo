@@ -1,15 +1,15 @@
-type Value = 
-  | i32 
-  | f32 
-  | f64;
-
-type Coroutine<ArgumentsType, ContextType, ResumeType, AbortType, ParentCoroutineType> = {
+type Coroutine<
+  ArgumentsType, 
+  ContextType, 
+  ResumeType, 
+  AbortType, 
+  ParentCoroutineType> = {
   arguments: ArgumentsType,
   context: ContextType,
   function: (self: Coroutine<ArgumentsType, ContextType, ResumeType, AbortType>)=> (),
   step: i32,
   value: ResumeType | AbortType,
-  parent: Some<ParentCoroutineType>
+  parent: ParentCoroutineType
 }
 
 interface CoroutineInterface<CoroutineType, ResumeType, AbortType> {
@@ -22,8 +22,17 @@ type GetIntArguments = {
 };
 type GetIntContext = {};
 
-let getInt = <AbortType, ParentCoroutineType>(
-  self: Coroutine<GetIntArguments, GetIntContext, i32, AbortType, ParentCoroutineType>)=> {
+let getInt = 
+  < AbortType, 
+    ParentCoroutineType 
+    given CoroutineInterface<ParentCoroutineType, i32, AbortType>
+  >(
+    self: Coroutine<
+      GetIntArguments, 
+      GetIntContext, 
+      i32, 
+      AbortType, 
+      ParentCoroutineType>)=> {
   let { arguments, context, function, step, value, parent } = self;
   match (step) {
     _ => {

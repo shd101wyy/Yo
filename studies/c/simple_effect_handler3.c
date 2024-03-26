@@ -1,13 +1,13 @@
 #include <stdio.h>
 
 /*
-interface GiveInt {
+effect GiveInt {
     control giveInt: (x: i32)=> i32;
 }
 
 let main = ()=> {
     try {
-        let a = getInt(10);
+        let a = givetInt(10);
     } with GiveInt {
         control giveInt: (x: i32)=> {
             if (x > 10) {

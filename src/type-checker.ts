@@ -196,9 +196,15 @@ export type TTypeParameter = {
   appliedType?: Type;
 };
 
+export type ClosureCaptureMode =
+  | "&" // read
+  | "@" // write
+  | "=" // own
+  | "none"; // not closure
+
 export type TFunction = {
   type: "Function";
-  kind: "Free";
+  kind: TypeKind;
   functionId: string;
   typeParameters: TTypeParameter[];
   typeConstraints: TInterface[];
@@ -207,7 +213,7 @@ export type TFunction = {
   // hasMoreEffects: boolean;
   returnType: Type;
 
-  isClosure: boolean;
+  closureCaptureMode: ClosureCaptureMode;
 
   hasNoImplementation?: boolean;
   ignoreAmbiguityCheck?: boolean;
@@ -508,7 +514,7 @@ export const emptyFunctionThatHasMoreEffects: TFunction = {
   functionId: "@emptyFunction",
   // hasMoreEffects: true,
   frameLevel: 0,
-  isClosure: false,
+  closureCaptureMode: "none",
   kind: "Free",
   parameterTypes: [],
   returnType: TypeValues.unit,
@@ -651,7 +657,11 @@ export function synthesizeTypeFromTokens({
     };
   }
   // Check if it's anonymouse function
-  else if (tokens[index].value === "(" || tokens[index].value === "<") {
+  else if (
+    tokens[index].value === "(" ||
+    tokens[index].value === "<" ||
+    isClosureCaptureMode(tokens, index)
+  ) {
     try {
       returnValue = synthesizeFunctionTypeFromTokens({
         tokens,
@@ -2798,6 +2808,19 @@ export function synthesizeFunctionTypeFromTokens({
     frameLevel -= 1;
   }
 
+  // Check Closure capture mode
+  let closureCaptureMode: ClosureCaptureMode = "none";
+  if (isClosureCaptureMode(tokens, index)) {
+    if (tokens[index + 1].value === "&") {
+      closureCaptureMode = "&";
+    } else if (tokens[index + 1].value === "@") {
+      closureCaptureMode = "@";
+    } else if (tokens[index + 1].value === "=") {
+      closureCaptureMode = "=";
+    }
+    index = index + 3;
+  }
+
   let typeParameters: TTypeParameter[] = [];
   let typeConstraints: TInterface[] = [];
   if (tokens[index].value === "<") {
@@ -2845,8 +2868,6 @@ export function synthesizeFunctionTypeFromTokens({
     tokens[index].type === TokenType.FatArrow /* ||
     tokens[index].type === TokenType.FunctionArrow */
   ) {
-    // FIXME:
-    const isClosure = false; // tokens[index].type === TokenType.FatArrow;
     index = index + 1;
 
     // Effects
@@ -2890,7 +2911,7 @@ export function synthesizeFunctionTypeFromTokens({
 
     const functionType: TFunction = {
       type: "Function",
-      kind: "Free",
+      kind: closureCaptureMode === "=" ? "Type" : "Free",
       functionId:
         functionName === "main" || functionName?.startsWith("@") // compiletime functions
           ? functionName
@@ -2901,7 +2922,7 @@ export function synthesizeFunctionTypeFromTokens({
       returnType,
       effects,
       // hasMoreEffects,
-      isClosure,
+      closureCaptureMode,
       freeVariables: undefined,
       frameLevel,
       interfaceFunctionImplementations: [],
@@ -3332,13 +3353,11 @@ export function typeToString(
       const effectsString = effectsToString(type.effects, {
         hideTypeParameterKind: true,
       });
-      return `${typeParametersToString(
-        type.typeParameters,
-        type.typeConstraints,
-        {
-          hideTypeParameterKind: false,
-        }
-      )}(${type.parameterTypes
+      return `${closureCaptureModeToString(
+        type.closureCaptureMode
+      )}${typeParametersToString(type.typeParameters, type.typeConstraints, {
+        hideTypeParameterKind: false,
+      })}(${type.parameterTypes
         .map(
           (parameter) =>
             (parameter.name ? `${parameter.name}: ` : "") +
@@ -3571,7 +3590,14 @@ export function checkType(
       givenTypeType === "Function"
     ) {
       return (
-        expectedType.isClosure === givenType.isClosure &&
+        ((expectedType.closureCaptureMode === "none" &&
+          givenType.closureCaptureMode === "none") ||
+          (expectedType.closureCaptureMode === "=" &&
+            givenType.closureCaptureMode !== "none") ||
+          (expectedType.closureCaptureMode === "@" &&
+            givenType.closureCaptureMode === "@") ||
+          (expectedType.closureCaptureMode === "&" &&
+            givenType.closureCaptureMode === "&")) &&
         expectedType.parameterTypes.length ===
           givenType.parameterTypes.length &&
         expectedType.parameterTypes.every((parameterType, i) =>
@@ -3669,6 +3695,19 @@ export function typeParametersToString(
             .join(", ")}`
         : ""
     }>`;
+  }
+}
+
+export function closureCaptureModeToString(mode: ClosureCaptureMode): string {
+  switch (mode) {
+    case "none":
+      return "";
+    case "=":
+      return "[=]";
+    case "&":
+      return "[&]";
+    case "@":
+      return "[@]";
   }
 }
 
@@ -4495,5 +4534,13 @@ export function typeIsImmutableReference(type: Type): boolean {
   return (
     type.type === "TypeConstructor" &&
     type.typeConstructorId === TypeValues.ImmutableReference.typeConstructorId
+  );
+}
+
+export function isClosureCaptureMode(tokens: Token[], index: number): boolean {
+  return (
+    tokens[index]?.value === "[" &&
+    ["&", "@", "="].includes(tokens[index + 1]?.value) &&
+    tokens[index + 2]?.value === "]"
   );
 }
