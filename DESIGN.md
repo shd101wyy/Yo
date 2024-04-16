@@ -30,10 +30,9 @@ We will also post a series of articles on the design and implementation of **Mo*
       - [`Free` Types](#free-types)
       - [`Linear` Types.](#linear-types)
     - [Region `Might be removed`](#region-might-be-removed)
-      - [`safe` Region `In Design`](#safe-region-in-design)
     - [Variable Declaration](#variable-declaration)
     - [Type inference](#type-inference)
-      - [Uninitialized variable `Might be removed`](#uninitialized-variable-might-be-removed)
+      - [Uninitialized variable `In Design`](#uninitialized-variable-in-design)
     - [Transfer ownership](#transfer-ownership)
     - [immutable and mutable references](#immutable-and-mutable-references)
     - [Pointer `In Design`](#pointer-in-design)
@@ -67,13 +66,13 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Implicit `drop` function on `Linear` types - RAII](#implicit-drop-function-on-linear-types---raii)
   - [`implicit` keyword `In Design`](#implicit-keyword-in-design)
   - [Pattern Matching](#pattern-matching)
+    - [Using Range in `case`](#using-range-in-case)
   - [Collections](#collections)
     - [Array](#array)
     - [String](#string)
     - [Map](#map)
   - [Slice](#slice)
   - [Error handling](#error-handling)
-  - [Recoverable Errors with Result](#recoverable-errors-with-result)
   - [Type casting](#type-casting)
   - [Algebraic effects](#algebraic-effects)
     - [Effectful function](#effectful-function)
@@ -252,18 +251,6 @@ let update = ()=> { // Region 1
 }
 ```
 
-#### `safe` Region `In Design`
-
-We can specify a region to be `safe` by adding `safe` keyword before the block.
-
-The `safe` region prevent values inside it from having mutable & immutable references outside the `safe` region.
-
-```typescript
-safe {
-  // ...
-}
-```
-
 ### Variable Declaration
 
 Like `rust`, **Mo** has two kinds of variables:
@@ -310,7 +297,7 @@ enum Person { // Linear type, as it contains a linear type.
 let p = Person(String.from("Alice"), 30); // p: Person. Linear type.
 ```
 
-#### Uninitialized variable `Might be removed`
+#### Uninitialized variable `In Design`
 
 IDEA: Uninitialized variable is only available for **Free** type.
 
@@ -490,10 +477,10 @@ var x = [String.from("Hi"), String.from("World")];
 
 ### Pointer `In Design`
 
-We use the `^` to denote the pointer, same as in Pascal.  
+We use the `^` to denote the pointer, same as in Pascal.
 
 ```typescript
-type IntPtr = ^i32;  
+type IntPtr = ^i32;
 
 let x = 1;
 let xRef = &x as ^i32
@@ -536,7 +523,7 @@ let identity = <T>(arg: T)=> T {
 
 // Dependency injection (Effectful function)
 // We use `<..>` to denote the effects of a function.
-let main = ()=> [Console] () {
+let main = ()=> () with Console {
   println("Hello, world");
 }
 
@@ -547,7 +534,7 @@ where y != 0 {
 }
 
 // Type constraint
-let add = <T: Type given Integral<T>>(x: T, y: T)=> [Console] T {
+let add = <T: Type given Integral<T>>(x: T, y: T)=> T with Console {
   println(x + y)
 }
 
@@ -762,23 +749,42 @@ let main = ()=> {
 
 ```typescript
 // This function can take any type that has a `length: i32` property.
-let print = (x: &{ length: i32 })=> {
+let printLength = (x: { length: i32 }) => {
   println(x.length);
-}
+};
 
-let main = ()=> {
+let main = () => {
   let s = String.from("Hello, world");
-  print(s);
+  printLength(s); 
+  // ^ This works as the compiler converts it to below from the background: 
+  printLength({ length: s.length })
 }
 ```
 
 ## Closure `In Design`
 
+The closure in **Mo** is a function that can capture ~~Linear~~ values from the outer scope.  
+**Mo** only supports **explicit captures** in closures.
+
+The closure type is defined as:
+
 ```
 [permission]<type parameters>(parameters) => return_type { body }
 ```
 
-The closure in **Mo** is a function that can capture ~~Linear~~ values from the outer scope.
+where the `permission` can be:
+
+- `&` for closure that captures immutable references
+- `@` for closure that captures immutable or mutable references
+- `=` for closure that takes ownership
+
+A closure can be defined using the following syntax:
+
+```
+^{captures}<type parameters>(paramters) => return_type { body }
+```
+
+Examples:
 
 - **&/@ closure** of Free type
 
@@ -786,10 +792,9 @@ The closure in **Mo** is a function that can capture ~~Linear~~ values from the 
   let test = ()=> {
     var x = 1;
 
-    // let increment = {x: @x};
-    let increment: [@](a: i32)=> () = [write](a: i32)=> {
-      // var {x} = @increment;
-      x = x + a;
+    let increment: [@](a: i32)=> () = ^{x: @x}(a: i32)=> {
+      // let {x} = increment;
+      *x = *x + a;
     }
     increment(1);
     increment(2);
@@ -800,6 +805,8 @@ The closure in **Mo** is a function that can capture ~~Linear~~ values from the 
   }
   ```
 
+  **NOTE:** The example above will not actually compile because according to the rule of 2nd-class reference, the closure `increment` contains the reference so it cannot be saved to a local variable.
+
 - **own closure** `call` that takes ownership
 
   ```typescript
@@ -807,10 +814,8 @@ The closure in **Mo** is a function that can capture ~~Linear~~ values from the 
     var x: Data = malloc();
 
     // var increment = {x: x};
-    var increment: [=]()=>() = ()=> {
-      // var {x} = increment;
-      let old = (x = malloc());
-      drop(old);
+    var increment: [=]()=>() = ^{x: x}()=> {
+      // let {x} = increment;
       drop(x);
     }
     // Generate: call(closure: ()=> ());
@@ -819,7 +824,7 @@ The closure in **Mo** is a function that can capture ~~Linear~~ values from the 
   }
   ```
 
-NOTE: We can pass normal function ()=>() to a function argument that expects a closure, but not the other way around.
+**NOTE:** We can pass normal function ()=>() to a function argument that expects a closure, but not the other way around.
 
 ### Closure group `In Design`
 
@@ -1288,13 +1293,13 @@ enum Coin {
 // - https://github.com/tc39/proposal-pattern-matching
 let valueInCents = (coin: Coin)=> u8 {
   match (coin) {
-    Penny => {
+    case Penny: {
       println("Lucky penny!");
       return 1;
     },
-    Nickel => 5,
-    Dime => 10,
-    Quarter => 25,
+    case Nickel: 5,
+    case Dime: 10,
+    case Quarter: 25,
   }
 }
 
@@ -1306,10 +1311,28 @@ enum List<T> {
 
 let ListLength = <T>(list: &List<T>)=> i32 {
   match (list) {
-    Nil => 0,
-    Cons => {
+    case Nil: 0,
+    case Cons: {
       const {tail} = list;
       1 + ListLength(tail)
+    }
+  }
+}
+```
+
+### Using Range in `case`
+
+```typescript
+let checkInt = (x: i32)=> {
+  match (x) {
+    case 1 .. 6: {
+      println("1 to 6");
+    }
+    case 7 .. 10: {
+      println("7 to 10");
+    }
+    default: {
+      println("Other");
     }
   }
 }
@@ -1357,32 +1380,10 @@ let emptyArray: i32[0] = [];
 
 ```typescript
 type MyError = {message: char[]};
-let main = ()=> [Exception<MyError>] () {
+let main = ()=> () with Exception<MyError> {
   throw({
     message: "Something went wrong",
   });
-}
-```
-
-## Recoverable Errors with Result
-
-```typescript
-enum Result<T, E> {
-  Ok(T)
-  Err(E)
-}
-
-import { open, drop } from "fs"
-let main = ()=> {
-  let greetingFileResult = open("greeting.txt");
-
-  if greetingFileResult is Ok(file) {
-    println("The file was opened successfully");
-  } else if greetingFileResult is Err(error) {
-    println("The file could not be opened: ${error}");
-  }
-
-  drop(greetingFileResult);
 }
 ```
 
@@ -1391,31 +1392,6 @@ let main = ()=> {
 ```typescript
 let x: i32 = 1;
 let y: f32 = x as f32;
-```
-
-## Async/Await
-The async function in **Mo** is similar to the [async/await](https://developer.mozilla.org/en-US/docs/Learn/JavaScript/Asynchronous/Async_await) in JavaScript.  
-But the async function in **Mo** doesn't require using the `async` keyword.  
-Any function that returns a `Promise` will be treated as an async function.
-It will be translated to a state machine in the backend, and two new functions, `resume` and `abort`, will be injected to the function as parameters.
-- `resume` function is available in all functions that return a `Promise`.
-- `abort` function is available in the effect operations that return a `Promise`.
-Its real return type will be `()`.  
-The `Promise` type is a `Linear` type, which means it must be consumed exactly once.  
-The `await` keyword is used to take the value out of the `Promise`. The `await` keyword can only be used inside an async function.
-```typescript
-// Promise is Linear type.
-let waitForSeconds = (seconds: i32)=> Promise<()> {
-  setTimeout(()=> {
-    resume(())
-  }, seconds * 1000);
-}
-
-let main = ()=> Promise<()> {
-  println("Hello");
-  await waitForSeconds(12);
-  println("World");
-}
 ```
 
 ## Algebraic effects
@@ -1429,8 +1405,8 @@ We can define effect values in `interface`.
 
 ```typescript
 interface GiveInt {
-  giveInt: (x: i32)=> [GiveInt] i32; // Effectful function
-  anotherGiveInt: (x: i32)=> i32;    // Normal function
+  giveInt: (x: i32)=> i32 with Self;    // Effectful function
+  anotherGiveInt: (x: i32)=> i32;       // Normal function
 }
 
 implements GiveInt {
@@ -1443,7 +1419,9 @@ implements GiveInt {
 }
 
 interface Exception<T = ()> {
-  control raise: (msg: String)=> [Exception<T>] T; // Effectful function
+  control raise: (msg: String)=> T with Exception<T>; // Effectful function
+  // or
+  control raise: (msg: String)=> T with Self;
 }
 ```
 
@@ -1455,7 +1433,7 @@ The `control` keyword is only allowed in the `interface`.
 Effects are defined order-insensitive.
 
 ```typescript
-let safeDivide = (x: i32, y: i32)=> [Exception<i32>, Console] i32 {
+let safeDivide = (x: i32, y: i32)=> i32 with Exception<i32>, Console {
   if (y == 0) {
     println("Cannot divide by 0"); // handled by Console effect
     raise("Cannot divide by 0");   // handled by Exception effect
@@ -1468,8 +1446,8 @@ let safeDivide = (x: i32, y: i32)=> [Exception<i32>, Console] i32 {
 The following function signatures are equivalent:
 
 ```typescript
-safeDivide: (x: i32, y: i32)=> [Exception<i32>, Console] i32;
-safeDivide: (x: i32, y: i32)=> [Console, Exception<i32>] i32;
+safeDivide: (x: i32, y: i32)=> i32 with Exception<i32>, Console;
+safeDivide: (x: i32, y: i32)=> i32 with Console, Exception<i32>;
 ```
 
 Function with no effect is written with `[]`, and `[]` can be suppressed in this case:
@@ -1487,10 +1465,10 @@ Note: **Mo** only supports the **deep handlers**, that is a handler will handle 
 
 ```typescript
 interface Exception<T> {
-  control raise: (msg: String)=> [Exception<T>] T;
+  control raise: (msg: String)=> T with Self;
 }
 
-let safeDivide = (x: i32, y: i32)=> [Exception<i32>] i32 {
+let safeDivide = (x: i32, y: i32)=> i32 with Exception<i32> {
   if (y == 0) {
     raise("Cannot divide by 0")
   } else {
@@ -1515,10 +1493,10 @@ Given the following function:
 
 ```typescript
 interface Input {
-  control read: ()=> [Input] String;
+  control read: ()=> symbol with Input;
 }
 
-let hello = ()=> [Input] () {
+let hello = ()=> () with Input {
   let name = read();
   println("Hello, ", name);
 }
@@ -1531,7 +1509,7 @@ let main = ()=> {
   try {
     hello(); // Hello Alice
   } with Input {
-    control read: ()=> String {
+    control read: ()=> symbol {
       resume("Alice");
     }
   }
@@ -1546,7 +1524,7 @@ let main = ()=> {
     hello(); // Error
     println("Hello, world!"); // This line won't be executed.
   } with Input {
-    control read: ()=> String {
+    control read: ()=> symbol {
       abort("Error")
     }
   }
@@ -1588,7 +1566,7 @@ Effect with only tail-resumptive operations is called [Linear Effect](<[LinearEf
 
 ```typescript
 interface GiveInt {
-  giveInt: (x: i32)=> [GiveInt] i32
+  giveInt: (x: i32)=> i32 with Self;
 }
 
 let handleGiveInt = ()=> i32 {
@@ -1607,10 +1585,10 @@ let handleGiveInt = ()=> i32 {
 
 ```typescript
 interface Exception<T> {
-  control raise: (msg: String)=> [Exception<T>] T;
+  control raise: (msg: String)=> T with Self;
 }
 
-let safeDivide = (x: i32, y: i32)=> [Exception<i32>{raise as newRaise}] i32 {
+let safeDivide = (x: i32, y: i32)=> i32 with Exception<i32>{raise as newRaise} {
   if (y == 0) {
     newRaise("Cannot divide by 0");
   } else {
@@ -1621,15 +1599,13 @@ let safeDivide = (x: i32, y: i32)=> [Exception<i32>{raise as newRaise}] i32 {
 
 ### Effect polymorphism `In Design`
 
-```typescript
-[*] // zero or more effects
-```
+By default, without specifying the effect, the function is effect polymorphic. If you want the function to accepts no effect, you can specify it with `with None`.
 
 ```typescript
 let map = <A: Type, B: Type>
 ( xs: *<List<A>>,
-  func: (x: *<A>)=> [*] B
-)=> [*] List<B>
+  func: (x: *<A>)=> B
+)=> List<B>
 {
   if (xs is Nil) {
     Nil

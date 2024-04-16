@@ -681,8 +681,8 @@ export function exprToString(expr: Expr, indentation = ""): string {
       return `match (${exprToString(expr.matchedEnum)}) {\n${expr.cases
         .map((matchCase) => {
           return `  ${
-            !matchCase.case ? "_" : `${exprToString(matchCase.case)}`
-          } => {\n${matchCase.body.exprs
+            !matchCase.case ? "default" : `case ${exprToString(matchCase.case)}`
+          }: {\n${matchCase.body.exprs
             .map((expr) =>
               exprToString(expr)
                 .split("\n")

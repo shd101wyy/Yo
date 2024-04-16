@@ -4644,7 +4644,15 @@ Found:
         break;
       }
 
-      if (tokens[index].value !== "_") {
+      if (tokens[index].value !== TokenType.Default) {
+        if (tokens[index].type !== TokenType.Case) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected 'case' for case"
+          );
+        }
+        index = index + 1;
+
         // parse case
         const { expr: caseExpr, index: nextIndex } = this.parsePrimary({
           tokens,
@@ -4685,11 +4693,8 @@ ${typeToString(caseExprType)}
           env,
         });
 
-        if (tokens[index].type !== TokenType.FatArrow) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Expected '=>' for case"
-          );
+        if (tokens[index].type !== TokenType.Colon) {
+          throw this.formatErrorMessage(tokens[index], "Expected ':' for case");
         }
         index = index + 1;
 
@@ -4713,10 +4718,10 @@ ${typeToString(caseExprType)}
         // Default case
         index = index + 1;
 
-        if (tokens[index].type !== TokenType.FatArrow) {
+        if (tokens[index].type !== TokenType.Colon) {
           throw this.formatErrorMessage(
             tokens[index],
-            "Expected '=>' for default case"
+            "Expected ':' for default case"
           );
         }
         index = index + 1;

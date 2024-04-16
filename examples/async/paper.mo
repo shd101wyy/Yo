@@ -5,8 +5,8 @@ enum Result<OkType, ErrorType=symbol> {
   Error(error: ErrorType),
 }
 
-effect Exception<ResumeType> {
-  control throw: (s: symbol)=> ResumeType;
+interface Exception<ResumeType, ErrorType=symbol> {
+  control throw: (s: ErrorType)=> [Self] ResumeType;
 }
 
 let try_ = <T>(action: ()=> T)=> Result<T, symbol> {
@@ -33,14 +33,14 @@ let untry = <T>(result: Result<T, symbol>)=> [Exception<T, symbol>] T {
   }
 }
 
-effect Async<OkType=(), ErrorType=symbol> {
+interface Async<OkType=(), ErrorType=symbol> {
   control await: 
     (initiate: 
       (callback: (result: Result<OkType, ErrorType>)=> ())=> ()
-    )=> Result<OkType, ErrorType>
+    )=> [Self] Result<OkType, ErrorType>
 }
 
-let await1 = <T>(initiate: (callback: (result: T)=> ())=> ())=> [Async<T>] T {
+let await1 = <T>(initiate: (callback: (result: T)=> ())=> ())=> [Async<T>, Exception<T>] T {
   untry(
     await((cb)=> {
       initiate((result)=> {
@@ -50,7 +50,7 @@ let await1 = <T>(initiate: (callback: (result: T)=> ())=> ())=> [Async<T>] T {
   )
 }
 
-let await0 = (initiate: (callback: ()=> ())=> ())=> [Async<()>] () {
+let await0 = (initiate: (callback: ()=> ())=> ())=> [Async<()>, Exception<()>] () {
   await1((cb)=> {
     initiate(()=> {
       cb(())
@@ -58,7 +58,7 @@ let await0 = (initiate: (callback: ()=> ())=> ())=> [Async<()>] () {
   })
 }
 
-let wait = (secs: i32)=> [Async<()>] () {
+let wait = (secs: i32)=> [Async<()>, Exception<()>] () {
   await0((cb)=> {
     setTimeout(()=> {
       cb()
@@ -66,7 +66,7 @@ let wait = (secs: i32)=> [Async<()>] () {
   })
 }
 
-let helloWorld = ()=> [Async<()>] () {
+let helloWorld = ()=> [Async<()>, Exception<(), Console>] () {
   console.log("hello");
   wait(2);
   console.log("world");
@@ -81,3 +81,4 @@ let main = ()=> {
     }
   }
 }
+

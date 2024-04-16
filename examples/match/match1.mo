@@ -3,12 +3,12 @@ enum Option<T> {
   None,
 }
 
-let test = (x: Option<i32>) -> i32 {
+let test = (x: Option<i32>)=> i32 {
   match (x) {
-    Some => {
+    case Some: {
       let { value } = x;
       value
     },
-    _ => 0
+    default: 0
   }
 }
