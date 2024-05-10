@@ -64,7 +64,7 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [`interface` (type class/trait)](#interface-type-classtrait)
     - [Function Overloading](#function-overloading)
     - [Implicit `drop` function on `Linear` types - RAII](#implicit-drop-function-on-linear-types---raii)
-  - [`implicit` keyword `In Design`](#implicit-keyword-in-design)
+  - [Contextual parameters, aka implicit parameters](#contextual-parameters-aka-implicit-parameters)
   - [Pattern Matching](#pattern-matching)
     - [Using Range in `case`](#using-range-in-case)
   - [Collections](#collections)
@@ -87,6 +87,7 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Modules](#modules)
   - [Compile time execution `In Design`](#compile-time-execution-in-design)
   - [Compilation `In Design`](#compilation-in-design)
+  - [Meta-programming `In Design`](#meta-programming-in-design)
   - [References](#references)
 
 <!-- /code_chunk_output -->
@@ -115,7 +116,7 @@ The **Mo** language is heavily inspired by:
   - Pattern matching
 - [Austral](https://austral-lang.org/)
   - Linear types
-  - ~~Borrowing~~
+  - ~~Borrowing~~ Replaced with 2nd-Class Reference
 - [Haskell](https://www.haskell.org/)
   - Type and typeclass
 - [Python](https://python.org/)
@@ -124,9 +125,12 @@ The **Mo** language is heavily inspired by:
   - Reference
 - [Scheme (Lisp)](https://www.scheme.com/)
   - `set!`
+  - [Meta-programming (Macros)](https://docs.racket-lang.org/reference/quasiquote.html)
 - [Zig](https://ziglang.org/)
   - Compile time execution
   - `defer`
+- [Elixir](https://elixir-lang.org/)
+  - [Meta-programming (Macros)](https://hexdocs.pm/elixir/quote-and-unquote.html)
 - [Nim](https://nim-lang.org/)
   - [Custom Operators](https://nim-lang.org/docs/manual.html#lexical-analysis-operators)
 
@@ -749,15 +753,15 @@ let main = ()=> {
 
 ```typescript
 // This function can take any type that has a `length: i32` property.
-let printLength = (x: { length: i32 }) => {
+let printLength = (x: &{ length: i32 }) => {
   println(x.length);
 };
 
 let main = () => {
   let s = String.from("Hello, world");
-  printLength(s); 
-  // ^ This works as the compiler converts it to below from the background: 
-  printLength({ length: s.length })
+  printLength(&s);
+  // ^ This works as the compiler converts it to below from the background:
+  printLength(&{ length: s.length })
 }
 ```
 
@@ -781,7 +785,7 @@ where the `permission` can be:
 A closure can be defined using the following syntax:
 
 ```
-^{captures}<type parameters>(paramters) => return_type { body }
+[{captures}]<type parameters>(paramters) => return_type { body }
 ```
 
 Examples:
@@ -792,7 +796,7 @@ Examples:
   let test = ()=> {
     var x = 1;
 
-    let increment: [@](a: i32)=> () = ^{x: @x}(a: i32)=> {
+    let increment: [@](a: i32)=> () = [{x: @x}](a: i32)=> {
       // let {x} = increment;
       *x = *x + a;
     }
@@ -814,7 +818,7 @@ Examples:
     var x: Data = malloc();
 
     // var increment = {x: x};
-    var increment: [=]()=>() = ^{x: x}()=> {
+    var increment: [=]()=>() = [{x: x}]()=> {
       // let {x} = increment;
       drop(x);
     }
@@ -1259,19 +1263,29 @@ let main = ()=> {
 }
 ```
 
-## `implicit` keyword `In Design`
+## Contextual parameters, aka implicit parameters
 
 ```typescript
-let add = (x: i32, implicit y: i32)=> i32 {
+let add = (x: i32, using y: i32)=> i32 {
   x + y
 }
-let test = ()=> {
-  implicit let a: i32 = 13;
 
-  // implicit let b: i32 = 14;  Conflict! Two possible implicits of the same type. Error will occur.
+let test = ()=> {
+  given let a: i32 = 13;
+
+  // given let b: i32 = 14;  Conflict! Two possible implicits of the same type. Error will occur.
 
   add(1);    // 14
   add(1, 2); // 3
+}
+
+let test = ()=> {
+  {
+    given 4;
+    add(1); // 5
+  }
+  given 6;
+  add(1); // 7
 }
 ```
 
@@ -1324,7 +1338,33 @@ let ListLength = <T>(list: &List<T>)=> i32 {
 
 ```typescript
 let checkInt = (x: i32)=> {
-  match (x) {
+  match(x) {
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+    case 6: {
+      println("1 to 6");
+    }
+    case 7:
+    case 8:
+    case 9:
+    case 10: {
+      println("7 to 10");
+    }
+    default: {
+      println("Other");
+    }
+  }
+}
+```
+
+Can also use range:
+
+```typescript
+let checkInt = (x: i32)=> {
+  match(x) {
     case 1 .. 6: {
       println("1 to 6");
     }
@@ -1728,6 +1768,29 @@ The current **Mo** compiler frontend is written in **TypeScript** as a proof of 
 Boostrapping the **Mo** compiler is not a priority at the moment. We will do it when it's ready.
 
 **Mo** currently compiles to C (C11). We might support compiling to LLVM IR, JavaScript, and WebAssembly in the future.
+
+## Meta-programming `In Design`
+
+```typescript
+macro add("(", e: Expr, ")") {
+  `((${e}) + 1)`
+}
+
+let x = 1;
+let y = add(x + 1); // 3
+// The above code is equal to
+let y = ((x + 1) + 1);
+```
+
+```typescript
+macro add("(", ...exprs: Expr[], ")") {
+  `(${exprs.join(" + ")})`
+}
+
+add(1, 2, 3); // 6
+// The above code is equal to
+(1 + 2 + 3)
+```
 
 ## References
 
