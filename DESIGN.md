@@ -38,6 +38,7 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Pointer `In Design`](#pointer-in-design)
     - [Cast Linear to Free](#cast-linear-to-free)
   - [Function Declaration](#function-declaration)
+    - [Contextual parameters, aka implicit parameters](#contextual-parameters-aka-implicit-parameters)
     - [Uniform Function Call Syntax](#uniform-function-call-syntax)
     - [Dependent types `In Design`](#dependent-types-in-design)
     - [Refinement types `In Design`](#refinement-types-in-design)
@@ -47,7 +48,6 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Mulitple Return Values `In Design`](#mulitple-return-values-in-design)
   - [Duck Typing `In Design`](#duck-typing-in-design)
   - [Closure `In Design`](#closure-in-design)
-    - [Closure group `In Design`](#closure-group-in-design)
   - [Mutability `To be updated`](#mutability-to-be-updated)
   - [Generic](#generic)
     - [Type parameters](#type-parameters)
@@ -64,7 +64,6 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [`interface` (type class/trait)](#interface-type-classtrait)
     - [Function Overloading](#function-overloading)
     - [Implicit `drop` function on `Linear` types - RAII](#implicit-drop-function-on-linear-types---raii)
-  - [Contextual parameters, aka implicit parameters](#contextual-parameters-aka-implicit-parameters)
   - [Pattern Matching](#pattern-matching)
     - [Using Range in `case`](#using-range-in-case)
   - [Collections](#collections)
@@ -81,9 +80,6 @@ We will also post a series of articles on the design and implementation of **Mo*
       - [resume](#resume)
       - [abort](#abort)
       - [handling `abort` with `abortdefer`](#handling-abort-with-abortdefer)
-    - [Tail-resumptive operation](#tail-resumptive-operation)
-    - [Rename effectful operation](#rename-effectful-operation)
-    - [Effect polymorphism `In Design`](#effect-polymorphism-in-design)
   - [Modules](#modules)
   - [Compile time execution `In Design`](#compile-time-execution-in-design)
   - [Compilation `In Design`](#compilation-in-design)
@@ -527,7 +523,7 @@ let identity = <T>(arg: T)=> T {
 
 // Dependency injection (Effectful function)
 // We use `<..>` to denote the effects of a function.
-let main = ()=> () with Console {
+let main = (using {println}: Console)=> () {
   println("Hello, world");
 }
 
@@ -538,13 +534,15 @@ where y != 0 {
 }
 
 // Type constraint
-let add = <T: Type given Integral<T>>(x: T, y: T)=> T with Console {
+let add = <T: Type>(x: T, y: T,
+  using {+}:Integral<T>, {println}:Console)=> T {
   println(x + y)
 }
 
 // Closure
-let add = [write](x: i32, y: i32)=> i32 {
-  x + y
+let y = 1;
+let add = [{y: &y}](x: i32)=> i32 {
+  x + *y
 };
 
 // Curried function `In Design`
@@ -553,6 +551,38 @@ let add = (x: i32) => (y: i32) => i32 {
 }
 let addOne = add(1);
 addOne(2); // 3
+```
+
+### Contextual parameters, aka implicit parameters
+
+The contextual parameters are passed implicitly to the function.  
+Mo matches the implicit parameters by the **type** and **name**.
+
+```typescript
+let add = (x: i32, using y: i32)=> i32 {
+  x + y
+}
+
+let main = ()=> {
+  {
+    add(3); // error: missing implicit parameter y
+  }
+  {
+    let y = 4;
+    add(3); // ok, 7
+  }
+  {
+    let z = 4;
+    add(3); // error: missing implicit parameter y
+  }
+  {
+    add(3, 4); // ok, 7
+  }
+  {
+    let y = 5;
+    add(3); // ok, 8
+  }
+}
 ```
 
 ### Uniform Function Call Syntax
@@ -830,36 +860,6 @@ Examples:
 
 **NOTE:** We can pass normal function ()=>() to a function argument that expects a closure, but not the other way around.
 
-### Closure group `In Design`
-
-The collection of functions sharing the same closure is called a **closure group**.
-
-Each closure group can have at most one **own closure** because calling it will consume the closure.
-
-You can use the `+` operator to combine multiple functions into a **closure group**.
-
-```typescript
-let test = ()=> {
-  var x = Box(1);
-  var y = Box(2);
-
-  var c = closure {
-    addX: (a: i32)=> {
-      x = x + a;
-    },
-    addY: (a: i32)=> {
-      y = y + a;
-    }
-  }
-  c.addX(1);
-  c.addY(2);
-  drop(c);
-
-  c.addX(1); // Compiler Error: closure is already consumed.
-  c.addY(2); // Compiler Error: closure is already consumed.
-}
-```
-
 ## Mutability `To be updated`
 
 The builtin `=` function is used to update a value that can be `write`, with the following signature:
@@ -908,18 +908,29 @@ let id = <T>(x: T)=> T { // T will be inferred as `Type` kind
 
 ### Type constraints
 
-Type constraints are defined after the type parameters, separated by `implements`, followed by a list of interface implementations.
+Type constraints are achieved using the implicit parameters.
 
 ```typescript
-let lessThan = <T: Type given Ord<T>, Show<T>>(x: T, y: T)=> boolean {
-  println(x);
-  x < y
+type Show<T> = {
+  show: (x: T)=> string;
+}
+export let show: (x: i32)=> string {
+  // ...
+}
+export let show: (x: f32)=> string {
+  // ...
+}
+export let { show }: Show<i64> = {
+  show: (x: i64)=> x.toString()
+}
+export let show = <T>(x: Array<T>, using {show as showT}: Show<T>)=> string {
+  // ...
 }
 
-implements<X: Type given Show<X>> Show<List<X>> {
-  show: (list: List<X>)=> String {
-    // ...
-  }
+let lessThan = <T: Type>(x: T, y: T,
+  using {<}: Ord<T>, {show}:Show<T>)=> boolean {
+  println(show(x));
+  x < y
 }
 ```
 
@@ -1174,7 +1185,11 @@ unwrap(None); // Won't compile. None is not a Some variant.
 
 ## `interface` (type class/trait)
 
+NOTE: `interface` keyword is removed. We use `type` instead.
+
 ```typescript
+/*
+// Deprecated
 interface Summary<T> extends Eq<T> {
   summarize: (self: T)=> String;
 }
@@ -1182,6 +1197,15 @@ interface Summary<T> extends Eq<T> {
 interface Display<T> extends Summary<T> {
   display: (self: T)=> String;
 }
+*/
+
+type Summary<T> = {
+  summarize: (self: T)=> String;
+} & Eq<T>;
+
+type Display<T> = {
+  display: (self: T)=> String;
+} & Summary<T>;
 
 type NewsArticle = {
   headline: String;
@@ -1190,52 +1214,39 @@ type NewsArticle = {
   content: String;
 };
 
-// Implements the interface
-implements Summary<NewsArticle> {
-  summarize: (self: NewsArticle)=> String {
-    "${self.headline}, by ${self.author} (${self.location})";
-  }
+// Implements the `summarize` function in `Summary`
+let summarize = (self: NewsArticle)=> String {
+  "${self.headline}, by ${self.author} (${self.location})";
 }
 
 // Pass in function
 let notify = (item: NewsArticle)=> () {
   println("Breaking news! ", summarize(item));
-  // or
-  println("Breaking news! ", Summary<NewsArticle>.summarize(item));
-  // or
-  println("Breaking news! ", Summary.summarize(item));
 }
 
 let notify = <T>(
   item: T,
-  implicit {*}: Display<T>
+  using {summarize, display}: Display<T>
 )=> () {
-  println("Breaking news! ", item.summarize());
-  println("Breaking news! ", item.display());
-  // Or
-  println("Breaking news! ", Display<T>.summarize(item));
-  println("Breaking news! ", Display<T>.display(item));
+  println("Breaking news! ", summarize(item));
+  println("Breaking news! ", display(item));
 }
 ```
 
 ### Function Overloading
 
-Function overloading can be achieved using `interface`.
-
 For example:
 
 ```typescript
-interface Id<T> {
+type Id<T> = {
   id: (x: T)=> T;
 }
 
-implements Id<i32> {
-  id(x: i32): i32 {
-    x
-  }
+export let id = (x: i32)=> i32 {
+  x
 }
-
-implements Id<f32> {
+// or by destructuring so you won't miss any fields
+export let {id} = Id<f32> {
   id(x: f32): f32 {
     x
   }
@@ -1250,7 +1261,7 @@ let main = ()=> {
 ### Implicit `drop` function on `Linear` types - RAII
 
 ```typescript
-interface Drop<T: Linear> {
+type Drop<T: Linear> = {
   drop: (self: T)=> ();
 }
 
@@ -1260,32 +1271,6 @@ let main = ()=> {
   // If `x` is not consumed, it will be dropped at the end of the scope implicitly.
   // The user needs to import the `drop` function. If no such function is found, it will be a compiler error.
   // drop(x); // This will be called implicitly.
-}
-```
-
-## Contextual parameters, aka implicit parameters
-
-```typescript
-let add = (x: i32, using y: i32)=> i32 {
-  x + y
-}
-
-let test = ()=> {
-  given let a: i32 = 13;
-
-  // given let b: i32 = 14;  Conflict! Two possible implicits of the same type. Error will occur.
-
-  add(1);    // 14
-  add(1, 2); // 3
-}
-
-let test = ()=> {
-  {
-    given 4;
-    add(1); // 5
-  }
-  given 6;
-  add(1); // 7
 }
 ```
 
@@ -1420,7 +1405,7 @@ let emptyArray: i32[0] = [];
 
 ```typescript
 type MyError = {message: char[]};
-let main = ()=> () with Exception<MyError> {
+let main = (using {throw}: Exception<MyError>)=> () {
   throw({
     message: "Something went wrong",
   });
@@ -1441,61 +1426,41 @@ This means that the continuation can only resume once.
 
 Our implementation doesn't use CPS (Continuation Passing Style) transformation as it's memory consuming and not efficient.
 
-We can define effect values in `interface`.
+We can define effect values in ~~`interface`~~`type`.
 
 ```typescript
-interface GiveInt {
-  giveInt: (x: i32)=> i32 with Self;    // Effectful function
-  anotherGiveInt: (x: i32)=> i32;       // Normal function
+type GiveInt = {
+  giveInt: (x: i32)=> i32;
 }
 
-implements GiveInt {
-  // But we can implement the normal function.
-  anotherGiveInt: (x: i32)=> i32 {
-    x
+// Implement
+let {giveInt} = GiveInt {
+  giveInt: (x: i32)=> i32 {
+    x + 1
   }
-  // But it's usually not recommended to implement the effectful function in the interface.
-  // Instead, we use the effect handler to handle the effectful function.
 }
 
-interface Exception<T = ()> {
-  control raise: (msg: String)=> T with Exception<T>; // Effectful function
-  // or
-  control raise: (msg: String)=> T with Self;
+type Exception<ResumeType=(), ErrorType=symbol> = {
+  raise: control (msg: ErrorType)=> ResumeType; // Effectful function
 }
 ```
 
 The `control` keyword here means the function will have `resume` and `abort` to control the continuation.  
-The `control` keyword is only allowed in the `interface`.
+~~The `control` keyword is only allowed in the `interface`.~~
 
 ### Effectful function
 
 Effects are defined order-insensitive.
 
 ```typescript
-let safeDivide = (x: i32, y: i32)=> i32 with Exception<i32>, Console {
+let safeDivide = (x: i32, y: i32,
+  using {raise}: Exception<i32>)=> i32 {
   if (y == 0) {
-    println("Cannot divide by 0"); // handled by Console effect
+    println("Cannot divide by 0");
     raise("Cannot divide by 0");   // handled by Exception effect
   } else {
     x / y
   }
-}
-```
-
-The following function signatures are equivalent:
-
-```typescript
-safeDivide: (x: i32, y: i32)=> i32 with Exception<i32>, Console;
-safeDivide: (x: i32, y: i32)=> i32 with Console, Exception<i32>;
-```
-
-Function with no effect is written with `[]`, and `[]` can be suppressed in this case:
-
-```typescript
-let add = (x: i32, y: i32)=> i32 {
-  // Equivalent to function add(x: i32, y: i32): [] i32
-  x + y;
 }
 ```
 
@@ -1504,11 +1469,12 @@ let add = (x: i32, y: i32)=> i32 {
 Note: **Mo** only supports the **deep handlers**, that is a handler will handle all the effects in the scope, not just once.
 
 ```typescript
-interface Exception<T> {
-  control raise: (msg: String)=> T with Self;
+type Exception<ResumeType=(), ErrorType=symbol> = {
+  raise: control (msg: ErrorType)=> ResumeType;
 }
 
-let safeDivide = (x: i32, y: i32)=> i32 with Exception<i32> {
+let safeDivide = (x: i32, y: i32,
+                  using {raise}: Exception<i32>)=> i32 {
   if (y == 0) {
     raise("Cannot divide by 0")
   } else {
@@ -1517,13 +1483,12 @@ let safeDivide = (x: i32, y: i32)=> i32 with Exception<i32> {
 }
 
 let handle = ()=> i32 {
-  try {
-    8 + safeDivide(1, 0) + 10 // 60
-  } with Exception<i32> { // The effect handler dischard the `Exception<i32>` effect.
-    control raise: (msg)=> i32 { // Please note the function is returning `i32` without `Exception<i32>`.
+  let {raise} = Exception<i32> {
+    raise: control (msg)=> i32 {
       resume(42)
     }
   }
+  8 + safeDivide(1, 0) + 10 // 60
 }
 ```
 
@@ -1532,11 +1497,11 @@ let handle = ()=> i32 {
 Given the following function:
 
 ```typescript
-interface Input {
-  control read: ()=> symbol with Input;
+type Input = {
+  read: control ()=> symbol;
 }
 
-let hello = ()=> () with Input {
+let hello = (using {read}: Input)=> () {
   let name = read();
   println("Hello, ", name);
 }
@@ -1546,13 +1511,12 @@ let hello = ()=> () with Input {
 
 ```typescript
 let main = ()=> {
-  try {
-    hello(); // Hello Alice
-  } with Input {
-    control read: ()=> symbol {
+  let {read} = Input {
+    read: control ()=> symbol {
       resume("Alice");
     }
   }
+  hello(); // Hello Alice
 }
 ```
 
@@ -1560,21 +1524,24 @@ let main = ()=> {
 
 ```typescript
 let main = ()=> {
-  try {
+  println("Hello, world!"); // This line will be executed.
+  {
+    let {read} = Input {
+      read: control ()=> symbol {
+        abort("Error");
+      }
+    }
     hello(); // Error
     println("Hello, world!"); // This line won't be executed.
-  } with Input {
-    control read: ()=> symbol {
-      abort("Error")
-    }
   }
+  println("Hello, world!"); // This line will be executed.
 }
 ```
 
 #### handling `abort` with `abortdefer`
 
 ```typescript
-let example = ()=> [Exception<()>] () {
+let example = (using {raise}: Exception<()>)=> () {
   let file: File = open("file.txt", "w");
 
   raise("Some exception");
@@ -1587,7 +1554,7 @@ let example = ()=> [Exception<()>] () {
 What we can do is to use the `abortdefer` to defer the execution of certain code until the abort happens:
 
 ```typescript
-let example = ()=> [Exception<()>] () {
+let example = (using {raise}: Exception<()>)=> () {
   let file: File = open("file.txt", "w");
   abortdefer {
     println("Exception caught");
@@ -1597,64 +1564,6 @@ let example = ()=> [Exception<()>] () {
 
   println("This line won't be executed");
   consume(file);
-}
-```
-
-### Tail-resumptive operation
-
-Effect with only tail-resumptive operations is called [Linear Effect](<[LinearEffect](https://koka-lang.github.io/koka/doc/book.html#sec-linear)>).
-
-```typescript
-interface GiveInt {
-  giveInt: (x: i32)=> i32 with Self;
-}
-
-let handleGiveInt = ()=> i32 {
-  try {
-    let x = giveInt(1);
-    println(x); // 2
-  } with GiveInt {
-    giveInt: (x)=> i32 {
-      x + 1
-    }
-  }
-}
-```
-
-### Rename effectful operation
-
-```typescript
-interface Exception<T> {
-  control raise: (msg: String)=> T with Self;
-}
-
-let safeDivide = (x: i32, y: i32)=> i32 with Exception<i32>{raise as newRaise} {
-  if (y == 0) {
-    newRaise("Cannot divide by 0");
-  } else {
-    x / y
-  }
-}
-```
-
-### Effect polymorphism `In Design`
-
-By default, without specifying the effect, the function is effect polymorphic. If you want the function to accepts no effect, you can specify it with `with None`.
-
-```typescript
-let map = <A: Type, B: Type>
-( xs: *<List<A>>,
-  func: (x: *<A>)=> B
-)=> List<B>
-{
-  if (xs is Nil) {
-    Nil
-  } else if (xs is Cons) {
-    let {head, tail} = xs;
-    let newHead = func(head);
-    let newTail = map(tail, func);
-    Cons(newHead, Box.new(newTail))
-  }
 }
 ```
 
