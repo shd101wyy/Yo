@@ -157,7 +157,7 @@ export let show: (x: f32)=> string {
 export let { show }: Show<i64> = {
   show: (x: i64)=> x.toString()
 }
-export let show = <T>(x: Array<T>, using {show as showT}: Show<T>)=> string {
+export let show = <T>(x: Array<T>, using (show as showT):Show<T>)=> string {
   // ...
 }
 
@@ -170,7 +170,9 @@ let main = ()=> {
 What if we want to pass multiple functions
 
 ```typescript
-export let test = <T>(x: T, y: T, using (+): (x: T, y: T)=> T, using (*): (x: T, y: T)=> T)=> T {
+export let test = <T>(x: T, y: T, 
+  using (+): (x: T, y: T)=> T,
+        (*): (x: T, y: T)=> T )=> T {
   x + y * x
 }
 
@@ -179,7 +181,7 @@ type Arith<T> = {
   (+): (x: T, y: T)=> T,
   (*): (x: T, y: T)=> T
 }
-export let test = <T>(x: T, y: T, using {+, *}: Arith<T>)=> T {
+export let test = <T>(x: T, y: T, using (+, *): Arith<T>)=> T {
   x + y * x
 }
 

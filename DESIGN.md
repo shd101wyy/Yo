@@ -523,7 +523,7 @@ let identity = <T>(arg: T)=> T {
 
 // Dependency injection (Effectful function)
 // We use `<..>` to denote the effects of a function.
-let main = (using {println}: Console)=> () {
+let main = (using (println):Console)=> () {
   println("Hello, world");
 }
 
@@ -535,7 +535,7 @@ where y != 0 {
 
 // Type constraint
 let add = <T: Type>(x: T, y: T,
-  using {+}:Integral<T>, {println}:Console)=> T {
+  using (+):Integral<T>, (println):Console)=> T {
   println(x + y)
 }
 
@@ -556,7 +556,7 @@ addOne(2); // 3
 ### Contextual parameters, aka implicit parameters
 
 The contextual parameters are passed implicitly to the function.  
-It finds the latest variable that matches the contextual parameter by the **type** and **name**.
+**Mo** looks for the closest value that matches the contextual parameter by the **type** and **name**.
 
 ```typescript
 let add = (x: i32, using y: i32)=> i32 {
@@ -586,7 +586,7 @@ let main = ()=> {
 }
 ```
 
-It's lexical scoped, not dynamic scoped.
+The arguments are provided in lexical scope, not dynamic scope.
 
 ```typescript
 let test = (x: i32, using id: (x: i32)=> i32) {
@@ -607,6 +607,47 @@ let main = ()=> {
               // print 4
 }
 ```
+
+Sometimes, we may have a function that accepts multiple implicit parameters.
+
+```typescript
+export let test = <T>(x: T, y: T,
+  using (+): (x: T, y: T)=> T,
+        (*): (x: T, y: T)=> T )=> T {
+  x + y * x
+}
+```
+
+We may want to group the functions that are used as implicit parameters.
+
+```typescript
+type Arith<T> = {
+  (+): (x: T, y: T)=> T,
+  (*): (x: T, y: T)=> T
+}
+
+export let test = <T>(x: T, y: T, using (+, *): Arith<T>)=> T {
+  x + y * x
+}
+// This is equalvalent to:
+export let test = <T>(x: T, y: T,
+  using (+): (x: T, y: T)=> T,
+        (*): (x: T, y: T)=> T )=> T {
+  x + y * x
+}
+
+// Usage
+let (+) = (x: i32, y: i32)=> x + y;
+let (*) = (x: i32, y: i32)=> x * y;
+let main = ()=> {
+  test(3, 4); // 15
+}
+```
+
+Please note that `using {+, *}: Arith<T>` and `using (+, *): Arith<T>` are different:
+
+- `{+, *}: Arith<T>` declares one parameter of type `Arith<T>` that contains two functions `+` and `*`, and we destructure it.
+- `(+, *): Arith<T>` declares two parameters `+` and `*` that are passed to the function.
 
 ### Uniform Function Call Syntax
 
@@ -946,12 +987,12 @@ export let show: (x: f32)=> string {
 export let { show }: Show<i64> = {
   show: (x: i64)=> x.toString()
 }
-export let show = <T>(x: Array<T>, using {show as showT}: Show<T>)=> string {
+export let show = <T>(x: Array<T>, using (show as showT): Show<T>)=> string {
   // ...
 }
 
 let lessThan = <T: Type>(x: T, y: T,
-  using {<}: Ord<T>, {show}:Show<T>)=> boolean {
+  using (<): Ord<T>, (show):Show<T>)=> boolean {
   println(show(x));
   x < y
 }
@@ -1249,7 +1290,7 @@ let notify = (item: NewsArticle)=> () {
 
 let notify = <T>(
   item: T,
-  using {summarize, display}: Display<T>
+  using (summarize, display): Display<T>
 )=> () {
   println("Breaking news! ", summarize(item));
   println("Breaking news! ", display(item));
@@ -1428,7 +1469,7 @@ let emptyArray: i32[0] = [];
 
 ```typescript
 type MyError = {message: char[]};
-let main = (using {throw}: Exception<MyError>)=> () {
+let main = (using (throw): Exception<MyError>)=> () {
   throw({
     message: "Something went wrong",
   });
@@ -1477,7 +1518,7 @@ Effects are defined order-insensitive.
 
 ```typescript
 let safeDivide = (x: i32, y: i32,
-  using {raise}: Exception<i32>)=> i32 {
+  using (raise): Exception<i32>)=> i32 {
   if (y == 0) {
     println("Cannot divide by 0");
     raise("Cannot divide by 0");   // handled by Exception effect
@@ -1497,7 +1538,7 @@ type Exception<ResumeType=(), ErrorType=symbol> = {
 }
 
 let safeDivide = (x: i32, y: i32,
-                  using {raise}: Exception<i32>)=> i32 {
+                  using (raise): Exception<i32>)=> i32 {
   if (y == 0) {
     raise("Cannot divide by 0")
   } else {
@@ -1524,7 +1565,7 @@ type Input = {
   read: control ()=> symbol;
 }
 
-let hello = (using {read}: Input)=> () {
+let hello = (using (read): Input)=> () {
   let name = read();
   println("Hello, ", name);
 }
@@ -1564,7 +1605,7 @@ let main = ()=> {
 #### handling `abort` with `abortdefer`
 
 ```typescript
-let example = (using {raise}: Exception<()>)=> () {
+let example = (using (raise): Exception<()>)=> () {
   let file: File = open("file.txt", "w");
 
   raise("Some exception");
@@ -1577,7 +1618,7 @@ let example = (using {raise}: Exception<()>)=> () {
 What we can do is to use the `abortdefer` to defer the execution of certain code until the abort happens:
 
 ```typescript
-let example = (using {raise}: Exception<()>)=> () {
+let example = (using (raise): Exception<()>)=> () {
   let file: File = open("file.txt", "w");
   abortdefer {
     println("Exception caught");
