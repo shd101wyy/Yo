@@ -20,9 +20,6 @@ function List(t::type)::type {
 
 ## Dependent type
 
-```typescript
-
-```
 
 ## Typeclass
 
@@ -191,5 +188,40 @@ let (*) = (x: i32, y: i32)=> x * y;
 
 let main = ()=> {
   test(3, 4); // 15
+}
+```
+
+```typescript
+let test = (x: i32, using id: (x: i32)=> i32) {
+  id(x)
+}
+
+let id = (x: i32)=> x;
+let main = ()=> {
+  test(3); // 3
+
+  let id = (x: i32)=> x + 1;
+  test(3); // 4
+}
+```
+
+The code above compiles to C
+
+```c
+int test(int x, int (*id)(int)) {
+  return id(x);
+}
+
+int id(int x) {
+  return x;
+}
+
+int id_2(int x) {
+  return x + 1;
+}
+
+int main() {
+  test(3, id);
+  test(3, id_2);
 }
 ```

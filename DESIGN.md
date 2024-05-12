@@ -556,7 +556,7 @@ addOne(2); // 3
 ### Contextual parameters, aka implicit parameters
 
 The contextual parameters are passed implicitly to the function.  
-Mo matches the implicit parameters by the **type** and **name**.
+It finds the latest variable that matches the contextual parameter by the **type** and **name**.
 
 ```typescript
 let add = (x: i32, using y: i32)=> i32 {
@@ -579,9 +579,32 @@ let main = ()=> {
     add(3, 4); // ok, 7
   }
   {
+    let y = 4;
     let y = 5;
     add(3); // ok, 8
   }
+}
+```
+
+It's lexical scoped, not dynamic scoped.
+
+```typescript
+let test = (x: i32, using id: (x: i32)=> i32) {
+  print(id(x))
+}
+
+let id = (x: i32)=> x;
+let useTest = ()=> {
+  test(3); // print 3
+
+  let id = (x: i32)=> x + 1;
+  test(3); // print 4
+}
+
+let main = ()=> {
+  let id = (x: i32)=> x + 2; // This will not affect the `test` function calls in `useTest`
+  useTest();  // print 3
+              // print 4
 }
 ```
 
