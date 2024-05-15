@@ -6,35 +6,35 @@ import * from "../../interface/eq.mo";
 /**
  * arithmetic
  */
-implements Add<i32> {
+export let {(+)} = Add<i32> {
   (+): (a: i32, b: i32)=> i32 {
     codegenInline(C="(((int32_t)$1) + ((int32_t)$2))");
     recur(a, b)
   }
 }
 
-implements Sub<i32> {
+export let {(-)} = Sub<i32> {
   (-): (a: i32, b: i32)=> i32 {
     codegenInline(C="(((int32_t)$1) - ((int32_t)$2))");
     recur(a, b)
   }
 }
 
-implements Mul<i32> {
+export let {(*)} = Mul<i32> {
   (*): (a: i32, b: i32)=> i32 {
     codegenInline(C="(((int32_t)$1) * ((int32_t)$2))");
     recur(a, b)
   }
 }
 
-implements Div<i32> {
+export let {(/)} = Div<i32> {
   (/): (a: i32, b: i32)=> i32 {
     codegenInline(C="(((int32_t)$1) / ((int32_t)$2))");
     recur(a, b)
   }
 }
 
-implements Mod<i32> {
+export let {(%)} = Mod<i32> {
   (%): (a: i32, b: i32)=> i32 {
     codegenInline(C="(((int32_t)$1) % ((int32_t)$2))");
     recur(a, b)
@@ -44,7 +44,7 @@ implements Mod<i32> {
 /**
  * logic
  */
-implements LogicalNot<i32> {
+export let {(!)} = LogicalNot<i32> {
   (!): (a: i32)=> boolean {
     codegenInline(C="!((int32_t)$1)");
     recur(a)
@@ -55,7 +55,7 @@ implements LogicalNot<i32> {
 /**
  * eq
  */
-implements Eq<i32> {
+export let {(==), (!=)} = Eq<i32> {
   (==): (a: i32, b: i32)=> boolean {
     codegenInline(C="(((int32_t)$1) == ((int32_t)$2))");
     recur(a, b)

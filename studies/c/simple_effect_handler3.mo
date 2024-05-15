@@ -25,7 +25,7 @@ type GetIntContext = {};
 let getInt = 
   < AbortType, 
     ParentCoroutineType 
-    given CoroutineInterface<ParentCoroutineType, i32, AbortType>
+    using CoroutineInterface<ParentCoroutineType, i32, AbortType>
   >(
     self: Coroutine<
       GetIntArguments, 

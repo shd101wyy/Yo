@@ -12,7 +12,7 @@ implements Closure<WriteClosureContext, WriteClosureArgs, ()> {
   }
 }
 
-let test = <T given Closure<T, WriteClosureArgs, ()>>(fn: T, y: i32)=> {
+let test = <T using Closure<T, WriteClosureArgs, ()>>(fn: T, y: i32)=> {
   apply(fn, WriteClosureArgs { y: y });
 }
 

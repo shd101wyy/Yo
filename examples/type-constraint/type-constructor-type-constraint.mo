@@ -1,6 +1,6 @@
 import { Id } from "../interface/id.mo";
 
-type MyType<T: Type given Id<T>> = {
+type MyType<T: Type using Id<T>> = {
   value: T
 }
 

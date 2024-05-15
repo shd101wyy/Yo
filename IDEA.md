@@ -161,9 +161,43 @@ export let show = <T>(x: Array<T>, using (show as showT):Show<T>)=> string {
   // ...
 }
 
+let showValue = <T>(x: T, using (show as showT):Show<T>)=> string {
+  showT(x)
+}
+
 let main = ()=> {
-  let x = Array.from([1, 2, 3]);
-  show(x);
+  showValue(1);
+  showValue(1.2);
+  showValue(Array.from([1, 2, 3]));
+}
+```
+
+^^^ Compiles above code to C
+
+```c
+char* show_i32(int x) {
+  // ...
+}
+char* show_f32(float x) {
+  // ...
+}
+char* show_i32_array(int* x, /*int len,*/ char* (*showT)(int)) {
+  // ...
+}
+char* show_value_i32(int x, char* (*showT)(int)) {
+  return showT(x);
+}
+char* show_value_f32(float x, char* (*showT)(float)) {
+  return showT(x);
+}
+char* show_value_i32_array(int* x, /*int len,*/ char* (*show_i32_array)(int*, char* (*showT)(int))) {
+  return show_i32_array(x, showT);
+}
+
+int main() {
+  show_value_i32(1, show_i32);
+  show_value_f32(1.2, show_f32);
+  show_value_i32_array((int[]){1, 2, 3}, show_i32_array);
 }
 ```
 

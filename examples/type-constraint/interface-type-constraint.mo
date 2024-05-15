@@ -1,6 +1,6 @@
 import { Id } from "../interface/id.mo";
 
-interface AnotherId<X given Id<X>> {
+interface AnotherId<X using Id<X>> {
   anotherId: (x: X)-> X;
 }
 
@@ -25,7 +25,7 @@ implements<Y> Id<Option<Y>> {
   }
 }
 
-implements<Z given Id<Z>> AnotherId<Option<Z>> {
+implements<Z using Id<Z>> AnotherId<Option<Z>> {
   anotherId: (x: Option<Z>) -> Option<Z> {
     match (x) {
       Some => {

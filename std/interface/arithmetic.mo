@@ -13,38 +13,38 @@ infixl 70 >>  // Bitwise right shift
 infixr 80 **  // Exponentiation. 3 ** 4 ** 6 == 3 ** (4 ** 6)
 
 
-export interface Add<T: Type> {
+export type Add<T: Type> = {
   (+): (a: T, b: T)=> T;
 }
 
-export interface Sub<T: Type> {
+export type Sub<T: Type> = {
   (-): (a: T, b: T)=> T;
 }
 
-export interface Mul<T: Type> {
+export type Mul<T: Type> = {
   (*): (a: T, b: T)=> T;
 }
 
-export interface Div<T: Type> {
+export type Div<T: Type> = {
   (/): (a: T, b: T)=> T;
 }
 
-export interface Mod<T: Type> {
+export type Mod<T: Type> = {
   (%): (a: T, b: T)=> T;
 }
 
-export interface BitLeftShift<T: Type> {
+export type BitLeftShift<T: Type> = {
   (<<): (a: T, b: T)=> T;
 }
 
-export interface BitRightShift<T: Type> {
+export type BitRightShift<T: Type> = {
   (>>): (a: T, b: T)=> T;
 }
 
-export interface Exponentiation<T: Type> {
+export type Exponentiation<T: Type> = {
   (**): (a: T, b: T)=> T;
 }
 
-export interface Negate<T: Type> {
+export type Negate<T: Type> = {
   (-): (value: T)=> T;
 }

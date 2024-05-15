@@ -2641,10 +2641,10 @@ export function synthesizeTypeConstraintsFromTokens({
   env: Environment;
 } {
   const typeConstraints: TInterface[] = [];
-  if (tokens[index].type !== TokenType.Given) {
+  if (tokens[index].type !== TokenType.Using) {
     throw formatErrorMessage({
       token: tokens[index],
-      errorMessage: "Expected 'given' before declaring type constraints.",
+      errorMessage: "Expected 'using' before declaring type constraints.",
       modulePath: env.modulePath,
       inputString: env.inputString,
     });

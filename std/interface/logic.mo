@@ -4,30 +4,30 @@ infixl 60 |   // Bitwise OR
 infixl 60 ^   // Bitwise XOR
 infixl 70 &   // Bitwise AND
 
-export interface LogicalAnd<T: Type> {
+export type LogicalAnd<T: Type> = {
   (&&): (a: T, b: T)=> boolean;
 }
 
-export interface LogicalOr<T: Type> {
+export type LogicalOr<T: Type> = {
   (||): (a: T, b: T)=> boolean;
 }
 
-export interface BitNot<T: Type> {
+export type BitNot<T: Type> = {
   (~): (value: T)=> T;
 }
 
-export interface LogicalNot<T: Type> {
+export type LogicalNot<T: Type> = {
   (!): (value: T)=> boolean;
 }
 
-export interface BitAnd<T: Type> {
+export type BitAnd<T: Type> = {
   (&): (a: T, b: T)=> T;
 }
 
-export interface BitOr<T: Type> {
+export type BitOr<T: Type> = {
   (|): (a: T, b: T)=> T;
 }
 
-export interface BitXor<T: Type> {
+export type BitXor<T: Type> = {
   (^): (a: T, b: T)=> T;
 }

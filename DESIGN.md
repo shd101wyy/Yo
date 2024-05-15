@@ -39,6 +39,8 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [Cast Linear to Free](#cast-linear-to-free)
   - [Function Declaration](#function-declaration)
     - [Contextual parameters, aka implicit parameters](#contextual-parameters-aka-implicit-parameters)
+      - [Compiletime](#compiletime)
+      - [Runtime](#runtime)
     - [Uniform Function Call Syntax](#uniform-function-call-syntax)
     - [Dependent types `In Design`](#dependent-types-in-design)
     - [Refinement types `In Design`](#refinement-types-in-design)
@@ -522,9 +524,8 @@ let identity = <T>(arg: T)=> T {
 }
 
 // Dependency injection (Effectful function)
-// We use `<..>` to denote the effects of a function.
-let main = (using (println):Console)=> () {
-  println("Hello, world");
+let main = (using {raise}: Exception<i32>)=> () {
+  let x: i32 = raise("Hello, world");
 }
 
 // Value constraint `In Design`
@@ -534,8 +535,7 @@ where y != 0 {
 }
 
 // Type constraint
-let add = <T: Type>(x: T, y: T,
-  using (+):Integral<T>, (println):Console)=> T {
+let add = <T: Type, using {+}:Integral<T>>(x: T, y: T)=> T {
   println(x + y)
 }
 
@@ -557,6 +557,21 @@ addOne(2); // 3
 
 The contextual parameters are passed implicitly to the function.  
 **Mo** looks for the closest value that matches the contextual parameter by the **type** and **name**.
+
+#### Compiletime
+
+```typescript
+type Id<T> = {
+  id: (x: T) => T;
+};
+
+let id = <T>(x: T) => x;
+let useId = <T, using {id}: Id<T>>(x: T)=> T {
+  id(x)
+}
+```
+
+#### Runtime
 
 ```typescript
 let add = (x: i32, using y: i32)=> i32 {
@@ -612,9 +627,9 @@ Sometimes, we may have a function that accepts multiple implicit parameters.
 
 ```typescript
 export let test = <T>(x: T, y: T,
-  using (+): (x: T, y: T)=> T,
-        (*): (x: T, y: T)=> T )=> T {
-  x + y * x
+  using add: (x: T, y: T)=> T,
+        mul: (x: T, y: T)=> T )=> T {
+  add(x, mul(y, x))
 }
 ```
 
@@ -622,32 +637,27 @@ We may want to group the functions that are used as implicit parameters.
 
 ```typescript
 type Arith<T> = {
-  (+): (x: T, y: T)=> T,
-  (*): (x: T, y: T)=> T
+  add: (x: T, y: T)=> T,
+  mul: (x: T, y: T)=> T
 }
 
-export let test = <T>(x: T, y: T, using (+, *): Arith<T>)=> T {
-  x + y * x
+export let test = <T>(x: T, y: T, using {add, mul}: Arith<T>)=> T {
+  add(x, mul(y, x))
 }
 // This is equalvalent to:
 export let test = <T>(x: T, y: T,
-  using (+): (x: T, y: T)=> T,
-        (*): (x: T, y: T)=> T )=> T {
+  using add: (x: T, y: T)=> T,
+        mul: (x: T, y: T)=> T )=> T {
   x + y * x
 }
 
 // Usage
-let (+) = (x: i32, y: i32)=> x + y;
-let (*) = (x: i32, y: i32)=> x * y;
+let add = (x: i32, y: i32)=> x + y;
+let mul = (x: i32, y: i32)=> x * y;
 let main = ()=> {
   test(3, 4); // 15
 }
 ```
-
-Please note that `using {+, *}: Arith<T>` and `using (+, *): Arith<T>` are different:
-
-- `{+, *}: Arith<T>` declares one parameter of type `Arith<T>` that contains two functions `+` and `*`, and we destructure it.
-- `(+, *): Arith<T>` declares two parameters `+` and `*` that are passed to the function.
 
 ### Uniform Function Call Syntax
 
@@ -987,12 +997,12 @@ export let show: (x: f32)=> string {
 export let { show }: Show<i64> = {
   show: (x: i64)=> x.toString()
 }
-export let show = <T>(x: Array<T>, using (show as showT): Show<T>)=> string {
+export let show = <T, using {show as showT}: Show<T>>(x: Array<T>)=> string {
   // ...
 }
 
-let lessThan = <T: Type>(x: T, y: T,
-  using (<): Ord<T>, (show):Show<T>)=> boolean {
+let lessThan = <T: Type,
+  using {<}: Ord<T>, {show}:Show<T>>(x: T, y: T)=> boolean {
   println(show(x));
   x < y
 }
@@ -1288,9 +1298,8 @@ let notify = (item: NewsArticle)=> () {
   println("Breaking news! ", summarize(item));
 }
 
-let notify = <T>(
-  item: T,
-  using (summarize, display): Display<T>
+let notify = <T, using {summarize, display}: Display<T>>(
+  item: T
 )=> () {
   println("Breaking news! ", summarize(item));
   println("Breaking news! ", display(item));
@@ -1469,7 +1478,7 @@ let emptyArray: i32[0] = [];
 
 ```typescript
 type MyError = {message: char[]};
-let main = (using (throw): Exception<MyError>)=> () {
+let main = (using {throw}: Exception<MyError>)=> () {
   throw({
     message: "Something went wrong",
   });
@@ -1518,7 +1527,7 @@ Effects are defined order-insensitive.
 
 ```typescript
 let safeDivide = (x: i32, y: i32,
-  using (raise): Exception<i32>)=> i32 {
+  using {raise}: Exception<i32>)=> i32 {
   if (y == 0) {
     println("Cannot divide by 0");
     raise("Cannot divide by 0");   // handled by Exception effect
@@ -1538,7 +1547,7 @@ type Exception<ResumeType=(), ErrorType=symbol> = {
 }
 
 let safeDivide = (x: i32, y: i32,
-                  using (raise): Exception<i32>)=> i32 {
+                  using {raise}: Exception<i32>)=> i32 {
   if (y == 0) {
     raise("Cannot divide by 0")
   } else {
@@ -1565,7 +1574,7 @@ type Input = {
   read: control ()=> symbol;
 }
 
-let hello = (using (read): Input)=> () {
+let hello = (using {read}: Input)=> () {
   let name = read();
   println("Hello, ", name);
 }
@@ -1605,7 +1614,7 @@ let main = ()=> {
 #### handling `abort` with `abortdefer`
 
 ```typescript
-let example = (using (raise): Exception<()>)=> () {
+let example = (using {raise}: Exception<()>)=> () {
   let file: File = open("file.txt", "w");
 
   raise("Some exception");
@@ -1618,7 +1627,7 @@ let example = (using (raise): Exception<()>)=> () {
 What we can do is to use the `abortdefer` to defer the execution of certain code until the abort happens:
 
 ```typescript
-let example = (using (raise): Exception<()>)=> () {
+let example = (using {raise}: Exception<()>)=> () {
   let file: File = open("file.txt", "w");
   abortdefer {
     println("Exception caught");

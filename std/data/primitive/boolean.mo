@@ -5,7 +5,7 @@ import * from "../../interface/eq.mo";
 /**
  * logic
  */
-implements LogicalNot<boolean> {
+export let {(!)} = LogicalNot<boolean> {
   (!): (a: boolean)=> boolean {
     codegenInline(C="!$1");
     recur(a)

@@ -1,6 +1,6 @@
 import { Id } from "./id.mo";
 
-interface AnotherId<T: Type given Id<T>> {
+interface AnotherId<T: Type using Id<T>> {
   anotherId: (x: T)-> T {
     // x
     id(x)

@@ -1,6 +1,6 @@
 import { Id } from "../interface/id.mo";
 
-enum Option<T: Type given Id<T>> {
+enum Option<T: Type using Id<T>> {
   Some(value: T),
   None
 }
