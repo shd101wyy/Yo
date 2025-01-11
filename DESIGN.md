@@ -1,12 +1,10 @@
 # Language Design
 
-**Mo** 墨 🐼 is minimal, general-purpose, compiled programming language that incorporates the Linear Types, 2nd-Class References (Mutable Value Semantics), and Algebraic Effects (one-shot, lexical scoped).
+**Mo** 墨 🐼 is minimal, general-purpose, compiled programming language that incorporates the Linear Types, 2nd-Class References (Mutable Value Semantics), dependency injections.
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
 **Mo** has a minimal syntax design that looks like TypeScript, and uses uniform call syntax (dot notation)~~, brace elison~~ to make the code more concise.
-
-**Mo** is strong typed with a robust bidrectional type checker. **Mo** supports `interface` that works like typeclass/trait, combined with Algebraic Effects (one-shot, lexical scoped) and an efficient type system.
 
 **Mo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types. `In Design`
 
@@ -59,7 +57,7 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Enum (Algebraic Data Types)](#enum-algebraic-data-types)
     - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
     - [Explicit enum variant type](#explicit-enum-variant-type)
-  - [`interface` (type class/trait)](#interface-type-classtrait)
+  - [Typeclass](#typeclass)
   - [Pattern Matching](#pattern-matching)
     - [Using Range in `case`](#using-range-in-case)
   - [Collections](#collections)
@@ -173,8 +171,6 @@ A type can have the following **Kind**:
 - Type
   - Free
   - Linear
-- ~~Region~~ `Removed now`
-- Interface
 
 ### Type
 
@@ -904,13 +900,13 @@ export class Show<T> {
   show: (x: T)=> string;
 }
 
-implements Show<i32> {
+instance Show<i32> {
   show: (x: i32)=> {
     // ...
   }
 }
 
-implements Show<string> {
+instance Show<string> {
   show: (x: string)=> {
     // ...
   }
@@ -982,7 +978,7 @@ let test = ()=> {
 ## Control Flow
 
 ```typescript
-let main = ()=> {
+let main = () => {
   // If no return type, it is () unit
   let number = 3;
 
@@ -1134,14 +1130,14 @@ unwrap(x); // 1
 unwrap(None); // Won't compile. None is not a Some variant.
 ```
 
-## `interface` (type class/trait)
+## Typeclass
 
 ```typescript
 class Summary<T, using Eq<T>> {
   summarize: (self: T)=> String;
 };
 
-class Display<T, using Summary<T>> = {
+class Display<T, using Summary<T>> {
   display: (self: T)=> String;
 };
 
@@ -1152,7 +1148,7 @@ type NewsArticle = {
   content: String;
 };
 
-implements Summary<NewsArticle> {
+instance Summary<NewsArticle> {
   summarize: (self: NewsArticle)=> String {
     "${self.headline}, by ${self.author} (${self.location})"
   }
@@ -1342,7 +1338,7 @@ export class Id<T> {
 
 // Explicitly export the functions defined in the instance.
 // The implementations will be exported implicitly.
-implements Id<i32> {
+instance Id<i32> {
   id: (x: i32)=> i32 {
     x
   }
