@@ -9,7 +9,7 @@ export enum MyOption<T> {
   Some(value: T),
 }
 
-let main = ()-> {
+let main = ()=> {
   let r = Color.Red;
   let x = MyOption.Some(12);
   let y = MyOption<i32>.None;

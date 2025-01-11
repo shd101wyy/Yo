@@ -1,11 +1,11 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()-> Data;
-  length: (x: &Data)-> i32;
+  malloc: ()=> Data;
+  length: (x: &Data)=> i32;
 }
 
 
-let main = ()-> {
+let main = ()=> {
   let x = malloc();
   let y = malloc();
   let arr = [x, y];

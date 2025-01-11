@@ -1,4 +1,4 @@
-let main = ()-> i32 {
+let main = ()=> i32 {
   let x = 1;
   let y = (if (x > 0) {
     1

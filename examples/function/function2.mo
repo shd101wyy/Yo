@@ -6,11 +6,11 @@ let useAdd = (cb: (x:i32, y:i32)=> i32)=> i32 {
   cb(1, 2)
 }
 
-let useClosureAdd = (cb: [&](x:i32, y:i32)=> i32) -> i32 {
+let useClosureAdd = (cb: [&](x:i32, y:i32)=> i32) => i32 {
   cb(1, 2)
 }
 
-let test = ()-> {
+let test = ()=> {
   // Top level function
   let add2 = add;
   useAdd(add);

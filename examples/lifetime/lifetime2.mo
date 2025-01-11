@@ -1,13 +1,13 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()-> Data;
+  malloc: ()=> Data;
 }
 
 type Holder = {
   x: &Data
 }
 
-let test = ()-> {
+let test = ()=> {
   let x = malloc();
   let xRef: &Data = x;
   

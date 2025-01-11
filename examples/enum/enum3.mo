@@ -5,7 +5,7 @@ export enum Color {
 }
 
 
-let main = ()-> i32 {
+let main = ()=> i32 {
   let r = Color.Red;
   let num = match (r) {
     Color.Green => 1,

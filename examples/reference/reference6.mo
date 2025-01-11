@@ -1,8 +1,8 @@
 extern "C" {
-  consume: <T>(x: T)-> ();
+  consume: <T>(x: T)=> ();
 }
 
-let test = ()-> {
+let test = ()=> {
   let mut x = 1;
   let mut y = 2;
   let mut context = {

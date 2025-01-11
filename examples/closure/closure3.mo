@@ -1,11 +1,11 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> ();
+  malloc: ()=> Data;
+  consume: (x: Data)=> ();
 }
 
 // Simulation of immutable closure
-let test = ()-> {
+let test = ()=> {
   let x = malloc();
   let y = 12;
   {

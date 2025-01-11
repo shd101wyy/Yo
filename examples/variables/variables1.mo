@@ -1,4 +1,4 @@
-let test = ()-> {
+let test = ()=> {
   var x = 1;
   {
     let x = 2;

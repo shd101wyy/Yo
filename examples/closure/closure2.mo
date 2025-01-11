@@ -1,10 +1,10 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()-> Data;
-  length: (x: &Data)-> i32;
+  malloc: ()=> Data;
+  length: (x: &Data)=> i32;
 }
 
-let main = ()-> {
+let main = ()=> {
   // [&]()=> ();
   // The closure is Free type.
   {

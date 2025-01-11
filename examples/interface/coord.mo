@@ -6,12 +6,12 @@ export type Coord = {
 }
 
 implements Id<Coord> {
-  id: (x: Coord)-> Coord {
+  id: (x: Coord)=> Coord {
     x
   }
 }
 
-let test = ()-> {
+let test = ()=> {
   let coord: Coord = Coord { x: 1, y: 2 };
   
   let call1 = id(coord);

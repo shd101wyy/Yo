@@ -1,20 +1,20 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> ();
+  malloc: ()=> Data;
+  consume: (x: Data)=> ();
 }
 
-let length = <X:Type, P:Region>(x: &<X,P>) -> i32 {
+let length = <X:Type, P:Region>(x: &<X,P>) => i32 {
   0
 }
 
-let compare = <R:Region>(x: &<Data, R>, y: &<Data, R>) -> boolean {
+let compare = <R:Region>(x: &<Data, R>, y: &<Data, R>) => boolean {
   let a = length(x);
   let b = length(y);
   true
 }
 
-let main = ()-> {
+let main = ()=> {
   let x = malloc();
   let y = malloc();
 

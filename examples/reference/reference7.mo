@@ -1,4 +1,4 @@
-let main = ()-> {
+let main = ()=> {
   let context = {
     x: 1
   };

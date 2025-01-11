@@ -1,4 +1,4 @@
-let test = ()-> {
+let test = ()=> {
   let mut x = 1;
   {
     let ref = &!x;

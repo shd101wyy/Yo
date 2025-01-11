@@ -6,12 +6,12 @@ enum Option<T: Type using Id<T>> {
 }
 
 implements Id<i32> {
-  id: (x: i32)-> i32 {
+  id: (x: i32)=> i32 {
     x
   }
 }
 
-let test = (x: Option<i32>)-> i32 {
+let test = (x: Option<i32>)=> i32 {
   match (x) {
     Some => {
       let {value} = x;

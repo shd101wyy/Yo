@@ -1,7 +1,7 @@
-export type Drop<T: Type> = {
+export class Drop<T: Type> {
   drop: (value: T)=> ();
 }
 
-export type Clone<T: Type> = {
+export class Clone<T: Type> {
   clone: (value: &T)=> T;
 }

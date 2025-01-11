@@ -1,11 +1,11 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> ();
+  malloc: ()=> Data;
+  consume: (x: Data)=> ();
 }
 
 
-let test = (flag: boolean)-> {
+let test = (flag: boolean)=> {
   let x = malloc();
   defer consume(x);
 
