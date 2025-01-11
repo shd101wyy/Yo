@@ -9,8 +9,8 @@ export enum Ordering {
   Greater
 }
 
-// using Eq<T>
-export type Ord<T: Type> = {
+// Using Eq<T>
+export type Ord<T: Type, using Eq<T>> = {
   compare: (a: T, b: T)=> Ordering;
   (<): (a: T, b: T)=> boolean;
   (>): (a: T, b: T)=> boolean;

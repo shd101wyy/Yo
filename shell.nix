@@ -5,7 +5,7 @@ let
 in
 mkShell rec {
   buildInputs = [
-    nodejs_18
+    nodejs_22
     yarn
     python3
     cmake

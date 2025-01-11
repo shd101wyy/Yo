@@ -20,7 +20,6 @@ function List(t::type)::type {
 
 ## Dependent type
 
-
 ## Typeclass
 
 ```typescript
@@ -204,7 +203,7 @@ int main() {
 What if we want to pass multiple functions
 
 ```typescript
-export let test = <T>(x: T, y: T, 
+export let test = <T>(x: T, y: T,
   using (+): (x: T, y: T)=> T,
         (*): (x: T, y: T)=> T )=> T {
   x + y * x
@@ -259,5 +258,95 @@ int id_2(int x) {
 int main() {
   test(3, id);
   test(3, id_2);
+}
+```
+
+## Effect
+
+```typescript
+type Raise = <ResumeType, AbortType>(error: string, resume: (value: ResumeType)=> (), return Return<i32>);
+let safeDivide = <AbortType>(x: i32, y: i32, using raise: Raise<i32, AbortType>, return Return<i32>) {
+  if (y == 0) {
+    raise("Divide by zero", (value: i32)=> {
+      return(value);
+    })
+  } else {
+    x / y
+  }
+}
+let main = ()=> {
+  let raise = (error: string, resume: (value: i32)=> ())=> {
+    42 // abort
+  };
+  let raise = (error: string, resume: (value: i32)=> ())=> {
+    resume(42) // resume
+  };
+  8 + safeDivide(1, 0)
+}
+```
+
+```typescript
+enum KState<ResumeType, AbortType> {
+  Resume(value: ResumeType),
+  Abort(value: AbortType)
+}
+type K<ResumeType, AbortType=anytype> = [=](state: KState)=> ();
+let Raise<ResumeType> = (error: string, k: K<ResumeType>)-> ();
+
+let safeDivide = (x: i32, y: i32, k: K<i32>, using raise: Raise<i32>)-> {
+  if (y == 0) {
+    raise("Divide by zero", (state)=> {
+      k(state)
+    })
+  } else {
+    k(Resume(x / y))
+  }
+}
+
+let safeDivide = (x: i32, y: i32, k: K<i32>, using raise: Raise<i32>)-> {
+  if (y == 0) {
+    let state = do raise("Divide by zero");
+    k(state)
+  } else {
+    k(Resume(x / y))
+  }
+}
+
+let raise = (error: string, k: K<i32>)-> {
+  k(42, Resume)
+}
+let raise = (error: string, k: K<i32, i32>)-> {
+  k(15, Abort)
+}
+
+let main = (k: K<i32>)-> {
+  safeDivide(1, 0, (state)=> {
+    if (state is Resume) {
+      print("Will not print if it's aborted");
+      k(state)
+    } else { // Abort
+      k(state)
+    }
+  });
+}
+
+let main = (k: K<i32>)-> {
+  let state = do safeDivide(1, 0);
+  if (state is Abort) {
+    k(state)
+  } else {
+    print("Will not print if it's aborted");
+    k(state)
+  }
+}
+
+let main = (k: K<i32>)-> {
+  try {
+    let value = do safeDivide(1, 0);
+    print("Will not print if it's aborted");
+    k(Resume(value))
+  } onabort(value) {
+    k(Abort(value))
+  }
 }
 ```

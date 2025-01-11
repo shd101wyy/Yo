@@ -151,7 +151,7 @@ Other languages that are worth mentioning that have influenced **Mo**:
 ## Hello World
 
 ```typescript
-let main = () => {
+let main = ()-> {
   println("Hello World!");
 };
 ```
@@ -227,7 +227,7 @@ Block `{...}`, function call `func(...)`, `if` statement, and update mutable ref
 **Mo** is explicit about the regions and lifetime of values.
 
 ```typescript
-let factorial = (x: i32)=> i32 { // Region 1
+let factorial = (x: i32)-> i32 { // Region 1
   if (x > 1) { // Region 2
     x * factorial(x - 1) // Region 3 for calling `factorial`
   } else { // Region 3
@@ -235,7 +235,7 @@ let factorial = (x: i32)=> i32 { // Region 1
   }
 }
 
-let test = (flag: boolean)=> { // Region 1
+let test = (flag: boolean)-> { // Region 1
   if (flag) { // Region 2
     add()   // Region 3 for calling `add`
   } else {  // Region 4
@@ -247,7 +247,7 @@ let test = (flag: boolean)=> { // Region 1
   }
 }
 
-let update = ()=> { // Region 1
+let update = ()-> { // Region 1
   var x = 1;
   x = 2; // Region 2
 }
@@ -261,7 +261,7 @@ Like `rust`, **Mo** has two kinds of variables:
 let y = 5; // y: i32, immutable
 var x = 5; // x: i32, mutable
 
-let example = (x: i32, y: i32) => {
+let example = (x: i32, y: i32)-> {
   x = 1; // Error: x is immutable
   y = 2; // Error: y is immutable
 };
@@ -356,12 +356,12 @@ A longer example:
 
 ```typescript
 extern "C" {
-  length: (x: &String)=> i32;
-  push: (x: @String, value: String)=> ();
-  drop: (x: String)=> ();
+  length: (x: &String)-> i32;
+  push: (x: @String, value: String)-> ();
+  drop: (x: String)-> ();
 }
 
-let main = ()=> {
+let main = ()-> {
   var x = String.from("Hello, world"); // x: String. mutable
   let y = @x; // y: @String   // mutable reference
   let z = &x; // z: &String   // immutable reference
@@ -503,39 +503,39 @@ Unlike imperative languages, **Mo** has no `return` keyword. The last expression
 
 ```typescript
 // Top level function.
-// Type after `=>` is the return type. If it's not specified, it's `()` unit.
-let add = (x: i32, y: i32)=> i32 {
+// Type after `->` is the return type. If it's not specified, it's `()` unit.
+let add = (x: i32, y: i32)-> i32 {
   x + y
 }
 
 // Or abbreviated form: `Not adopted yet`
-let add(x: i32, y: i32)=> i32 {
+let add(x: i32, y: i32)-> i32 {
   x + y
 }
 
 // Default parameter values
-let add = (x: i32 = 1, y: i32 = 2)=> i32 {
+let add = (x: i32 = 1, y: i32 = 2)-> i32 {
   x + y
 }
 
 // Generic function
-let identity = <T>(arg: T)=> T {
+let identity = <T>(arg: T)-> T {
   arg
 }
 
 // Dependency injection (Effectful function)
-let main = (using {raise}: Exception<i32>)=> () {
+let main = (using {raise}: Exception<i32>)-> () {
   let x: i32 = raise("Hello, world");
 }
 
 // Value constraint `In Design`
-let divide = (x: i32, y: i32)=> i32
+let divide = (x: i32, y: i32)-> i32
 where y != 0 {
   x / y
 }
 
 // Type constraint
-let add = <T: Type, using {+}:Integral<T>>(x: T, y: T)=> T {
+let add = <T: Type, using {+}:Integral<T>>(x: T, y: T)-> T {
   println(x + y)
 }
 
@@ -546,7 +546,7 @@ let add = [{y: &y}](x: i32)=> i32 {
 };
 
 // Curried function `In Design`
-let add = (x: i32) => (y: i32) => i32 {
+let add = (x: i32)-> (y: i32)-> i32 {
   x + y
 }
 let addOne = add(1);
@@ -562,11 +562,11 @@ The contextual parameters are passed implicitly to the function.
 
 ```typescript
 type Id<T> = {
-  id: (x: T) => T;
+  id: (x: T)-> T;
 };
 
-let id = <T>(x: T) => x;
-let useId = <T, using {id}: Id<T>>(x: T)=> T {
+let id = <T>(x: T)-> x;
+let useId = <T, using {id}: Id<T>>(x: T)-> T {
   id(x)
 }
 ```
@@ -574,11 +574,11 @@ let useId = <T, using {id}: Id<T>>(x: T)=> T {
 #### Runtime
 
 ```typescript
-let add = (x: i32, using y: i32)=> i32 {
+let add = (x: i32, using y: i32)-> i32 {
   x + y
 }
 
-let main = ()=> {
+let main = ()-> {
   {
     add(3); // error: missing implicit parameter y
   }
@@ -604,20 +604,20 @@ let main = ()=> {
 The arguments are provided in lexical scope, not dynamic scope.
 
 ```typescript
-let test = (x: i32, using id: (x: i32)=> i32) {
+let test = (x: i32, using id: (x: i32)-> i32) {
   print(id(x))
 }
 
-let id = (x: i32)=> x;
-let useTest = ()=> {
+let id = (x: i32)-> x;
+let useTest = ()-> {
   test(3); // print 3
 
-  let id = (x: i32)=> x + 1;
+  let id = (x: i32)-> x + 1;
   test(3); // print 4
 }
 
-let main = ()=> {
-  let id = (x: i32)=> x + 2; // This will not affect the `test` function calls in `useTest`
+let main = ()-> {
+  let id = (x: i32)-> x + 2; // This will not affect the `test` function calls in `useTest`
   useTest();  // print 3
               // print 4
 }
@@ -627,8 +627,8 @@ Sometimes, we may have a function that accepts multiple implicit parameters.
 
 ```typescript
 export let test = <T>(x: T, y: T,
-  using add: (x: T, y: T)=> T,
-        mul: (x: T, y: T)=> T )=> T {
+  using add: (x: T, y: T)-> T,
+        mul: (x: T, y: T)-> T )-> T {
   add(x, mul(y, x))
 }
 ```
@@ -637,24 +637,24 @@ We may want to group the functions that are used as implicit parameters.
 
 ```typescript
 type Arith<T> = {
-  add: (x: T, y: T)=> T,
-  mul: (x: T, y: T)=> T
+  add: (x: T, y: T)-> T,
+  mul: (x: T, y: T)-> T
 }
 
-export let test = <T>(x: T, y: T, using {add, mul}: Arith<T>)=> T {
+export let test = <T>(x: T, y: T, using {add, mul}: Arith<T>)-> T {
   add(x, mul(y, x))
 }
 // This is equalvalent to:
 export let test = <T>(x: T, y: T,
-  using add: (x: T, y: T)=> T,
-        mul: (x: T, y: T)=> T )=> T {
+  using add: (x: T, y: T)-> T,
+        mul: (x: T, y: T)-> T )-> T {
   x + y * x
 }
 
 // Usage
-let add = (x: i32, y: i32)=> x + y;
-let mul = (x: i32, y: i32)=> x * y;
-let main = ()=> {
+let add = (x: i32, y: i32)-> x + y;
+let mul = (x: i32, y: i32)-> x * y;
+let main = ()-> {
   test(3, 4); // 15
 }
 ```
@@ -662,7 +662,7 @@ let main = ()=> {
 ### Uniform Function Call Syntax
 
 ```typescript
-let addOne = (x: i32)=> i32 {
+let addOne = (x: i32)-> i32 {
   x + 1;
 }
 
@@ -681,12 +681,12 @@ length(&s); // 12
 Dependent types are types which depend on values.
 
 ```typescript
-let dependOnBoolean = (b: boolean)=> i32
+let dependOnBoolean = (b: boolean)-> i32
 where b == true
 {
   1
 }
-let dependOnBoolean = (b: boolean)=> f32
+let dependOnBoolean = (b: boolean)-> f32
 where b == false
 {
   1.0
@@ -698,13 +698,13 @@ dependOnBoolean(returnBoolean()); // Compiler Error: value constraint not satisf
 ```
 
 ```typescript
-let divide = (x: i32, y: i32)=> i32
+let divide = (x: i32, y: i32)-> i32
 where y != 0
 {
   x / y
 }
 
-let main = ()=> {
+let main = ()-> {
   let x = readInt();
   let y = readInt();
   if y != 0 {
@@ -720,12 +720,12 @@ let main = ()=> {
 Refinement types consists of all values of a given type which satisfy a given predicate.
 
 ```typescript
-let makeArray = (size: i32)=> Array<i32>
+let makeArray = (size: i32)-> Array<i32>
 where size < 10 && size > 0 {
   return Array<i32>.new(size)
 }
 
-let main = ()=> {
+let main = ()-> {
   let size = readInt()
   if (size < 10 && size > 0) {
     let arr = makeArray(size) // The function is guaranteed to return an array of size between 1 and 9
@@ -736,12 +736,12 @@ let main = ()=> {
 ```
 
 ```typescript
-let inBetween = (x: i32, min: i32, max: i32)=> boolean
+let inBetween = (x: i32, min: i32, max: i32)-> boolean
 where min < max && x >= min
 {
   true
 }
-let main = ()=> {
+let main = ()-> {
   let x = readInt();
   let min = readInt();
   let max = readInt();
@@ -758,7 +758,7 @@ let main = ()=> {
 `defer` will execute an expression at the end of the current scope.
 
 ```typescript
-let test = ()=> {
+let test = ()-> {
   let x = String.from("World!");
   defer {
     println(x);
@@ -776,7 +776,7 @@ test(); // Hello, World!
 ```
 
 ```typescript
-let deferExample = ()=> {
+let deferExample = ()-> {
   var a = 1;
 
   {
@@ -798,7 +798,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 - With tail-call optimization
 
   ```typescript
-  (x: u32, acc: u32 = 1) => {
+  (x: u32, acc: u32 = 1)-> {
     if (x == 1) {
       1;
     } else {
@@ -810,7 +810,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 - Without tail-call optimization
 
   ```typescript
-  (x: u32) => {
+  (x: u32)-> {
     if (x == 1) {
       1;
     } else {
@@ -822,7 +822,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 ### Custom Operators
 
 ```typescript
-let (|>) = <T, U>(x: T, f: (value: T)=> U)=> U {
+let (|>) = <T, U>(x: T, f: (value: T)-> U)-> U {
   f(x)
 }
 
@@ -844,11 +844,11 @@ infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
 REASON: Necessary for returning multiple references.
 
 ```typescript
-let vals = ()=> (i32, i32) {
+let vals = ()-> (i32, i32) {
   1, 2
 }
 
-let main = ()=> {
+let main = ()-> {
   let a, b = vals();
 }
 ```
@@ -857,11 +857,11 @@ let main = ()=> {
 
 ```typescript
 // This function can take any type that has a `length: i32` property.
-let printLength = (x: &{ length: i32 }) => {
+let printLength = (x: &{ length: i32 })-> {
   println(x.length);
 };
 
-let main = () => {
+let main = ()-> {
   let s = String.from("Hello, world");
   printLength(&s);
   // ^ This works as the compiler converts it to below from the background:
@@ -877,7 +877,7 @@ The closure in **Mo** is a function that can capture ~~Linear~~ values from the 
 The closure type is defined as:
 
 ```
-[permission]<type parameters>(parameters) => return_type { body }
+[permission]<type parameters>(parameters)-> return_type { body }
 ```
 
 where the `permission` can be:
@@ -889,7 +889,7 @@ where the `permission` can be:
 A closure can be defined using the following syntax:
 
 ```
-[{captures}]<type parameters>(paramters) => return_type { body }
+[{captures}]<type parameters>(paramters)-> return_type { body }
 ```
 
 Examples:
@@ -897,7 +897,7 @@ Examples:
 - **&/@ closure** of Free type
 
   ```typescript
-  let test = ()=> {
+  let test = ()-> {
     var x = 1;
 
     let increment: [@](a: i32)=> () = [{x: @x}](a: i32)=> {
@@ -918,7 +918,7 @@ Examples:
 - **own closure** `call` that takes ownership
 
   ```typescript
-  let test = ()=> {
+  let test = ()-> {
     var x: Data = malloc();
 
     // var increment = {x: x};
@@ -926,20 +926,20 @@ Examples:
       // let {x} = increment;
       drop(x);
     }
-    // Generate: call(closure: ()=> ());
+    // Generate: call(closure: ()-> ());
     increment(); //
     increment(); // Compiler Error: closure is already consumed.
   }
   ```
 
-**NOTE:** We can pass normal function ()=>() to a function argument that expects a closure, but not the other way around.
+**NOTE:** We can pass normal function ()->() to a function argument that expects a closure, but not the other way around.
 
 ## Mutability `To be updated`
 
 The builtin `=` function is used to update a value that can be `write`, with the following signature:
 
 ```typescript
-let set! = <T: Type>(ref: @T, value: T)=> T;
+let set! = <T: Type>(ref: @T, value: T)-> T;
 
 // `=` is a syntactic sugar for `set!`
 
@@ -970,12 +970,12 @@ let oldName = (p.name = String.from("Bob"));
 Type parameters are defined inside `<...>`
 
 ```typescript
-let id = <T: Type>(x: T)=> T {
+let id = <T: Type>(x: T)-> T {
   x
 }
 
 // or
-let id = <T>(x: T)=> T { // T will be inferred as `Type` kind
+let id = <T>(x: T)-> T { // T will be inferred as `Type` kind
   x
 }
 ```
@@ -986,23 +986,23 @@ Type constraints are achieved using the implicit parameters.
 
 ```typescript
 type Show<T> = {
-  show: (x: T)=> string;
+  show: (x: T)-> string;
 }
-export let show: (x: i32)=> string {
+export let show: (x: i32)-> string {
   // ...
 }
-export let show: (x: f32)=> string {
+export let show: (x: f32)-> string {
   // ...
 }
 export let { show }: Show<i64> = {
-  show: (x: i64)=> x.toString()
+  show: (x: i64)-> x.toString()
 }
-export let show = <T, using {show as showT}: Show<T>>(x: Array<T>)=> string {
+export let show = <T, using {show as showT}: Show<T>>(x: Array<T>)-> string {
   // ...
 }
 
 let lessThan = <T: Type,
-  using {<}: Ord<T>, {show}:Show<T>>(x: T, y: T)=> boolean {
+  using {<}: Ord<T>, {show}:Show<T>>(x: T, y: T)-> boolean {
   println(show(x));
   x < y
 }
@@ -1041,7 +1041,7 @@ enum CustomEnum {
 
 type CustomSlice = (&i32)[];
 
-let swap = (x: @i32, y: @i32)=> {
+let swap = (x: @i32, y: @i32)-> {
   let temp = x;
   x = y;
   y = temp;
@@ -1051,7 +1051,7 @@ let swap = (x: @i32, y: @i32)=> {
 But the following is not allowed:
 
 ```typescript
-let test = ()=> {
+let test = ()-> {
   var x = 1;
   let y = @x; // Compiler Error: write reference is not allowed in a local variable.
 }
@@ -1060,7 +1060,7 @@ let test = ()=> {
 ## Control Flow
 
 ```typescript
-let main = () => {
+let main = ()-> {
   // If no return type, it is () unit
   let number = 3;
 
@@ -1080,18 +1080,18 @@ Another reason is that they make it hard to translate the effectful function to 
 #### repeat
 
 ```typescript
-let factorial = (n: i32)=> i32 {
+let factorial = (n: i32)-> i32 {
   var result = 1;
-  repeat(n) (i)=> {
+  repeat(n) (i)-> {
     result = result * i;
   }
   return result;
 }
 
 // is equalvalent to
-let factorial = (n: i32)=> i32 {
+let factorial = (n: i32)-> i32 {
   var result = 1;
-  repeat(n, (i)=> {
+  repeat(n, (i)-> {
     result = result * i
   })
   return result;
@@ -1101,16 +1101,16 @@ let factorial = (n: i32)=> i32 {
 #### for
 
 ```typescript
-let print10 = ()=> {
-  for(1, 10) (i)=> {
+let print10 = ()-> {
+  for(1, 10) (i)-> {
     println(i);
   }
 }
 
 // is equalvalent to
 
-let print10 = ()=> {
-  for(1, 10, (i)=> {
+let print10 = ()-> {
+  for(1, 10, (i)-> {
     println(i);
   })
 }
@@ -1227,7 +1227,7 @@ enum Expr<T> {
   EqExpr(left: Expr<i32>, right: Expr<i32>): Expr<boolean>
 }
 
-let eval = <T>(expr: Expr<T>)=> T {
+let eval = <T>(expr: Expr<T>)-> T {
   // with Expr<T>;
   if (expr is IntExpr(i)) {
     i
@@ -1248,7 +1248,7 @@ eval(expr1); // false
 let x: Option = Some(1); // x: Option<i32>.Some
                            // .Some means the variant type is Some
 
-let unwrap = <T>(x: Option<T>)=> T
+let unwrap = <T>(x: Option<T>)-> T
 where x is Option<T>.Some
 {
   x.value
@@ -1265,20 +1265,20 @@ NOTE: `interface` keyword is removed. We use `type` instead.
 /*
 // Deprecated
 interface Summary<T> extends Eq<T> {
-  summarize: (self: T)=> String;
+  summarize: (self: T)-> String;
 }
 
 interface Display<T> extends Summary<T> {
-  display: (self: T)=> String;
+  display: (self: T)-> String;
 }
 */
 
 type Summary<T> = {
-  summarize: (self: T)=> String;
+  summarize: (self: T)-> String;
 } & Eq<T>;
 
 type Display<T> = {
-  display: (self: T)=> String;
+  display: (self: T)-> String;
 } & Summary<T>;
 
 type NewsArticle = {
@@ -1289,18 +1289,18 @@ type NewsArticle = {
 };
 
 // Implements the `summarize` function in `Summary`
-let summarize = (self: NewsArticle)=> String {
+let summarize = (self: NewsArticle)-> String {
   "${self.headline}, by ${self.author} (${self.location})";
 }
 
 // Pass in function
-let notify = (item: NewsArticle)=> () {
+let notify = (item: NewsArticle)-> () {
   println("Breaking news! ", summarize(item));
 }
 
 let notify = <T, using {summarize, display}: Display<T>>(
   item: T
-)=> () {
+)-> () {
   println("Breaking news! ", summarize(item));
   println("Breaking news! ", display(item));
 }
@@ -1312,10 +1312,10 @@ For example:
 
 ```typescript
 type Id<T> = {
-  id: (x: T)=> T;
+  id: (x: T)-> T;
 }
 
-export let id = (x: i32)=> i32 {
+export let id = (x: i32)-> i32 {
   x
 }
 // or by destructuring so you won't miss any fields
@@ -1325,7 +1325,7 @@ export let {id} = Id<f32> {
   }
 }
 
-let main = ()=> {
+let main = ()-> {
   let x = id(1);  // x: i32
   let y = id(3.2) // y: f32
 }
@@ -1335,10 +1335,10 @@ let main = ()=> {
 
 ```typescript
 type Drop<T: Linear> = {
-  drop: (self: T)=> ();
+  drop: (self: T)-> ();
 }
 
-let main = ()=> {
+let main = ()-> {
   let x = String.from("Hello");
 
   // If `x` is not consumed, it will be dropped at the end of the scope implicitly.
@@ -1363,7 +1363,7 @@ enum Coin {
 // Reference:
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
-let valueInCents = (coin: Coin)=> u8 {
+let valueInCents = (coin: Coin)-> u8 {
   match (coin) {
     case Penny: {
       println("Lucky penny!");
@@ -1381,7 +1381,7 @@ enum List<T> {
 }
 
 
-let ListLength = <T>(list: &List<T>)=> i32 {
+let ListLength = <T>(list: &List<T>)-> i32 {
   match (list) {
     case Nil: 0,
     case Cons: {
@@ -1395,7 +1395,7 @@ let ListLength = <T>(list: &List<T>)=> i32 {
 ### Using Range in `case`
 
 ```typescript
-let checkInt = (x: i32)=> {
+let checkInt = (x: i32)-> {
   match(x) {
     case 1:
     case 2:
@@ -1421,7 +1421,7 @@ let checkInt = (x: i32)=> {
 Can also use range:
 
 ```typescript
-let checkInt = (x: i32)=> {
+let checkInt = (x: i32)-> {
   match(x) {
     case 1 .. 6: {
       println("1 to 6");
@@ -1478,7 +1478,7 @@ let emptyArray: i32[0] = [];
 
 ```typescript
 type MyError = {message: char[]};
-let main = (using {throw}: Exception<MyError>)=> () {
+let main = (using {throw}: Exception<MyError>)-> () {
   throw({
     message: "Something went wrong",
   });
@@ -1503,18 +1503,18 @@ We can define effect values in ~~`interface`~~`type`.
 
 ```typescript
 type GiveInt = {
-  giveInt: (x: i32)=> i32;
+  giveInt: (x: i32)-> i32;
 }
 
 // Implement
 let {giveInt} = GiveInt {
-  giveInt: (x: i32)=> i32 {
+  giveInt: (x: i32)-> i32 {
     x + 1
   }
 }
 
 type Exception<ResumeType=(), ErrorType=symbol> = {
-  raise: control (msg: ErrorType)=> ResumeType; // Effectful function
+  raise: control (msg: ErrorType)-> ResumeType; // Effectful function
 }
 ```
 
@@ -1527,7 +1527,7 @@ Effects are defined order-insensitive.
 
 ```typescript
 let safeDivide = (x: i32, y: i32,
-  using {raise}: Exception<i32>)=> i32 {
+  using {raise}: Exception<i32>)-> i32 {
   if (y == 0) {
     println("Cannot divide by 0");
     raise("Cannot divide by 0");   // handled by Exception effect
@@ -1543,11 +1543,11 @@ Note: **Mo** only supports the **deep handlers**, that is a handler will handle 
 
 ```typescript
 type Exception<ResumeType=(), ErrorType=symbol> = {
-  raise: control (msg: ErrorType)=> ResumeType;
+  raise: control (msg: ErrorType)-> ResumeType;
 }
 
 let safeDivide = (x: i32, y: i32,
-                  using {raise}: Exception<i32>)=> i32 {
+                  using {raise}: Exception<i32>)-> i32 {
   if (y == 0) {
     raise("Cannot divide by 0")
   } else {
@@ -1555,9 +1555,9 @@ let safeDivide = (x: i32, y: i32,
   }
 }
 
-let handle = ()=> i32 {
+let handle = ()-> i32 {
   let {raise} = Exception<i32> {
-    raise: control (msg)=> i32 {
+    raise: control (msg)-> i32 {
       resume(42)
     }
   }
@@ -1571,10 +1571,10 @@ Given the following function:
 
 ```typescript
 type Input = {
-  read: control ()=> symbol;
+  read: control ()-> symbol;
 }
 
-let hello = (using {read}: Input)=> () {
+let hello = (using {read}: Input)-> () {
   let name = read();
   println("Hello, ", name);
 }
@@ -1583,9 +1583,9 @@ let hello = (using {read}: Input)=> () {
 #### resume
 
 ```typescript
-let main = ()=> {
+let main = ()-> {
   let {read} = Input {
-    read: control ()=> symbol {
+    read: control ()-> symbol {
       resume("Alice");
     }
   }
@@ -1596,11 +1596,11 @@ let main = ()=> {
 #### abort
 
 ```typescript
-let main = ()=> {
+let main = ()-> {
   println("Hello, world!"); // This line will be executed.
   {
     let {read} = Input {
-      read: control ()=> symbol {
+      read: control ()-> symbol {
         abort("Error");
       }
     }
@@ -1614,7 +1614,7 @@ let main = ()=> {
 #### handling `abort` with `abortdefer`
 
 ```typescript
-let example = (using {raise}: Exception<()>)=> () {
+let example = (using {raise}: Exception<()>)-> () {
   let file: File = open("file.txt", "w");
 
   raise("Some exception");
@@ -1627,7 +1627,7 @@ let example = (using {raise}: Exception<()>)=> () {
 What we can do is to use the `abortdefer` to defer the execution of certain code until the abort happens:
 
 ```typescript
-let example = (using {raise}: Exception<()>)=> () {
+let example = (using {raise}: Exception<()>)-> () {
   let file: File = open("file.txt", "w");
   abortdefer {
     println("Exception caught");
@@ -1647,7 +1647,7 @@ Similar to the ECMAScript modules, we use the `import` and `export` keywords to 
 ```typescript
 import { copy } from "https://github.com/mo-lang/mo/std/fs.mo";
 
-let test = ()=> {
+let test = ()-> {
   println("Hello, world!");
 }
 
@@ -1661,13 +1661,13 @@ export enum Option<T> {
 
 // Export the interface
 export interface Id<T> {
-  id: (x: T)=> T;
+  id: (x: T)-> T;
 }
 
 // Explicitly export the functions defined in the instance.
 // The instance will be exported implicitly.
 implements Id<i32> {
-  id: (x: i32)=> i32 {
+  id: (x: i32)-> i32 {
     x
   }
 }
@@ -1718,7 +1718,7 @@ The type comparison and value comparison cannot be used at the same time.
 The type comparison is done at compile time, while the value comparison is done at runtime.
 
 ```typescript
-let add = <T>(x: T)=> T {
+let add = <T>(x: T)-> T {
   if T == i32 { // Type comparison
     x + 1
   } else if T == f32 {
@@ -1728,7 +1728,7 @@ let add = <T>(x: T)=> T {
   }
 }
 
-let mul = (x: i32, y: i32)=> i32 { x * y }
+let mul = (x: i32, y: i32)-> i32 { x * y }
 
 let x: i32[#mul(2, 3)] = 6;
 ```
@@ -1774,8 +1774,33 @@ add(1, 2, 3); // 6
 (1 + 2 + 3)
 ```
 
-## References
+$sin(x) = 1$
 
+```mermaid
+---
+title: "TCP Packet"
+---
+packet-beta
+0-15: "Source Port"
+16-31: "Destination Port"
+32-63: "Sequence Number"
+64-95: "Acknowledgment Number"
+96-99: "Data Offset"
+100-105: "Reserved"
+106: "URG"
+107: "ACK"
+108: "PSH"
+109: "RST"
+110: "SYN"
+111: "FIN"
+112-127: "Window"
+128-143: "Checksum"
+144-159: "Urgent Pointer"
+160-191: "(Options and Padding)"
+192-255: "Data (variable length)"
+```
+
+## References
 - [Ocaml Locality](https://blog.janestreet.com/oxidizing-ocaml-locality/)
 - [Data race freedom](https://github.com/ocaml-flambda/ocaml-jst/blob/main/jane/doc/proposals/data-race-freedom.md)
 - [ICFP'21 Tutorials - Programming with Effect Handlers and FBIP in Koka](https://www.youtube.com/watch?v=6OFhD_mHtKA&ab_channel=ACMSIGPLAN)
