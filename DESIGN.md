@@ -1,6 +1,6 @@
 # Language Design
 
-**Mo** 墨 🐼 is minimal, general-purpose, compiled programming language that incorporates the Linear Types, 2nd-Class References (Mutable Value Semantics), dependency injections.
+**Mo** 墨 🐼 is minimal, general-purpose, compiled programming language that incorporates the Linear Types.
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
@@ -8,76 +8,75 @@
 
 **Mo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types. `In Design`
 
-**Mo** has no garbage collector. **Mo** utilizes the Linear type and Mutable Value Semantics to achieve memory safety.
-
 Our goal is to be a practical language that is easy to use and easy to learn.
 
 We will also post a series of articles on the design and implementation of **Mo**. Stay tuned!
 
-<!-- @import "[TOC]" {cmd="toc" depthFrom=1 depthTo=6 orderedList=false} -->
+<!-- @import "[TOC]" {cmd="toc" depthFrom=2 depthTo=6 orderedList=false} -->
 
 <!-- code_chunk_output -->
 
-- [Language Design](#language-design)
-  - [Philosophy](#philosophy)
-  - [Inspiration](#inspiration)
-  - [Hello World](#hello-world)
-  - [CLI Usage](#cli-usage)
-  - [Types](#types)
-    - [Type](#type)
-      - [`Free` Types](#free-types)
-      - [`Linear` Types.](#linear-types)
-    - [Variable Declaration](#variable-declaration)
-    - [Type inference](#type-inference)
-      - [Uninitialized variable `In Design`](#uninitialized-variable-in-design)
-    - [Transfer ownership](#transfer-ownership)
-    - [immutable and mutable references](#immutable-and-mutable-references)
-    - [Pointer `In Design`](#pointer-in-design)
-    - [Cast Linear to Free](#cast-linear-to-free)
-  - [Function Declaration](#function-declaration)
-    - [Contextual parameters, aka implicit parameters](#contextual-parameters-aka-implicit-parameters)
-      - [Compiletime](#compiletime)
-      - [Runtime](#runtime)
-    - [Uniform Function Call Syntax](#uniform-function-call-syntax)
-    - [Dependent types `In Design`](#dependent-types-in-design)
-    - [Refinement types `In Design`](#refinement-types-in-design)
-    - [`defer`](#defer)
-    - [`recur`](#recur)
-    - [Custom Operators](#custom-operators)
-    - [Mulitple Return Values `In Design`](#mulitple-return-values-in-design)
-  - [Duck Typing `In Design`](#duck-typing-in-design)
-  - [Closure `In Design`](#closure-in-design)
-  - [Mutability `To be updated`](#mutability-to-be-updated)
-  - [Generic](#generic)
-    - [Type parameters](#type-parameters)
-    - [Type constraints](#type-constraints)
-  - [2nd-Class Reference](#2nd-class-reference)
-  - [Control Flow](#control-flow)
-  - [Type synonyms](#type-synonyms)
-  - [Enum (Algebraic Data Types)](#enum-algebraic-data-types)
-    - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
-    - [Explicit enum variant type](#explicit-enum-variant-type)
-  - [Typeclass](#typeclass)
-  - [Pattern Matching](#pattern-matching)
-    - [Using Range in `case`](#using-range-in-case)
-  - [Collections](#collections)
-    - [Array](#array)
-    - [String](#string)
-    - [Map](#map)
-  - [Slice](#slice)
-  - [Error handling](#error-handling)
-  - [Type casting](#type-casting)
-  - [Modules](#modules)
-  - [Compile time execution `In Design`](#compile-time-execution-in-design)
-  - [Compilation `In Design`](#compilation-in-design)
-  - [Meta-programming `In Design`](#meta-programming-in-design)
-  - [References](#references)
+- [Philosophy](#philosophy)
+- [Inspiration](#inspiration)
+- [Hello World](#hello-world)
+- [CLI Usage](#cli-usage)
+- [Types](#types)
+  - [Type](#type)
+    - [`Free` Types](#free-types)
+    - [`Linear` Types.](#linear-types)
+  - [Variable Declaration](#variable-declaration)
+  - [Type inference](#type-inference)
+    - [Uninitialized variable `In Design`](#uninitialized-variable-in-design)
+  - [Transfer ownership](#transfer-ownership)
+  - [immutable and mutable references](#immutable-and-mutable-references)
+  - [Unique Pointer `In Design`](#unique-pointer-in-design)
+  - [Cast Linear to Free](#cast-linear-to-free)
+- [Function Declaration](#function-declaration)
+  - [Contextual parameters, aka implicit parameters](#contextual-parameters-aka-implicit-parameters)
+    - [Compiletime](#compiletime)
+    - [Runtime](#runtime)
+  - [Uniform Function Call Syntax](#uniform-function-call-syntax)
+  - [`defer`](#defer)
+  - [`recur` `In Design`](#recur-in-design)
+  - [Custom Operators](#custom-operators)
+  - [Mulitple Return Values `In Design`](#mulitple-return-values-in-design)
+- [Duck Typing `In Design`](#duck-typing-in-design)
+- [Closure `In Design`](#closure-in-design)
+- [Mutability `To be updated`](#mutability-to-be-updated)
+- [Generic](#generic)
+  - [Type parameters](#type-parameters)
+  - [Type constraints](#type-constraints)
+- [Control Flow](#control-flow)
+  - [if/else](#ifelse)
+  - [while](#while)
+  - [for](#for)
+- [Type synonyms](#type-synonyms)
+- [Enum (Algebraic Data Types)](#enum-algebraic-data-types)
+  - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
+- [Advanced Types `In Design`](#advanced-types-in-design)
+  - [Dependent types `In Design`](#dependent-types-in-design)
+  - [Refinement types `In Design`](#refinement-types-in-design)
+- [Typeclass](#typeclass)
+- [Pattern Matching](#pattern-matching)
+  - [Using Range in `case`](#using-range-in-case)
+- [Collections](#collections)
+  - [Array](#array)
+  - [String](#string)
+  - [Map](#map)
+- [Slice](#slice)
+- [Error handling](#error-handling)
+- [Type casting](#type-casting)
+- [async/await](#asyncawait)
+- [Modules](#modules)
+- [Compilation `In Design`](#compilation-in-design)
+- [Meta-programming `In Design`](#meta-programming-in-design)
+- [References](#references)
 
 <!-- /code_chunk_output -->
 
 ## Philosophy
 
-A little bit safer "C", with zero-cost abstraction, and a little bit of functional programming.  
+Just another "C", with a little bit of functional programming.  
 Explicit is better than Implicit.  
 Strict is better than Loose.
 
@@ -136,7 +135,7 @@ Other languages that are worth mentioning that have influenced **Mo**:
 ## Hello World
 
 ```typescript
-let main = () => {
+const main = () => {
   println("Hello World!");
 };
 ```
@@ -206,10 +205,10 @@ The [Austral language](https://austral-lang.org/) has a very good explanation on
 Like `rust`, **Mo** has two kinds of variables:
 
 ```typescript
-let y = 5; // y: i32, immutable
+const y = 5; // y: i32, immutable
 var x = 5; // x: i32, mutable
 
-let example = (x: i32, y: i32) => {
+const example = (x: i32, y: i32) => {
   x = 1; // Error: x is immutable
   y = 2; // Error: y is immutable
 };
@@ -218,25 +217,25 @@ let example = (x: i32, y: i32) => {
 ### Type inference
 
 ```typescript
-let mySymbol = "Hi"; // symbol. Free type
+const mySymbol = "Hi"; // symbol. Free type
 
-let myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
-let myString2 = myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
-let myString3 = myString; // Error: myString is already consumed.
-let myString4: &String = &myString2; // myString4: &String. Free type
-let myString5 = myString4; // myString5: &String. Free type
+const myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
+const myString2 = myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
+const myString3 = myString; // Error: myString is already consumed.
+const myString4: *const String = &myString2; // myString4: *const String. Free type
+const myString5 = myString4; // myString5: &String. Free type
 
-let myInt = 1; // Stored on stack. Free type
-let myInt2 = myInt; // myInt2: i32, Free type
-let myInt3: &i32 = &myInt; // myInt3: &i32. Free type
-let myInt4 = myInt3; // myInt4: &i32. Free type
+const myInt = 1; // Stored on stack. Free type
+const myInt2 = myInt; // myInt2: i32, Free type
+const myInt3: *const i32 = &myInt; // myInt3: *const. Free type
+const myInt4 = myInt3; // myInt4: *const i32. Free type
 
-let myIntSlice: int[] = [1, 2, 3]; // Stored on stack, with size 3. Free type
-let myIntSlice: int[100] = [1, 2, 3]; // Stored on stack, with size 100. Free type
-let myArray: Array<int> = Array.from([1, 2, 3]); // Stored on heap. Linear type.
+const myIntSlice: int[] = [1, 2, 3]; // Stored on stack, with size 3. Free type
+const myIntSlice: int[100] = [1, 2, 3]; // Stored on stack, with size 100. Free type
+const myArray: Array<int> = Array.from([1, 2, 3]); // Stored on heap. Linear type.
 
-let mySet: Set<int> = Set.from([1, 2, 3]); // Stored on heap. Linear type.
-let myMap: Map<string, int> = Map.from([
+const mySet: Set<int> = Set.from([1, 2, 3]); // Stored on heap. Linear type.
+const myMap: Map<string, int> = Map.from([
   ["one", 1],
   ["two", 2],
 ]); // Stored on heap. Linear type.
@@ -244,22 +243,21 @@ let myMap: Map<string, int> = Map.from([
 enum Person { // Linear type, as it contains a linear type.
   Person(name: String, age: i32)
 }
-let p = Person(String.from("Alice"), 30); // p: Person. Linear type.
+const p = Person(String.from("Alice"), 30); // p: Person. Linear type.
 ```
 
 #### Uninitialized variable `In Design`
 
-IDEA: Uninitialized variable is only available for **Free** type.
-
 ```typescript
-var x?: i32; // x: i32, uninitialized
+var x: i32; // x: i32, uninitialized
+
+// Compiler prevents using uninitialized variable.
+println(x); // Compiler Error: x is uninitialized.
 
 x = 1; // x: i32, initialized
 
-let y?: i32; // y: i32, uninitialized
-
-y = 1; // y: i32, initialized
-y = 2; // Compiler Error: y is already initialized
+const y: i32; // y: i32, uninitialized
+y = 12; // Compiler Error: cannot assign to constant.
 ```
 
 ### Transfer ownership
@@ -267,36 +265,41 @@ y = 2; // Compiler Error: y is already initialized
 Linear types can only be used once. When a linear type is transferred, it is consumed and cannot be used again.
 
 ```typescript
-let x = String.from("Hello"); // x: String. Linear type
-let y = x; // y: String. Linear type. x is moved and consumed.
-let z = x; // Compiler Error: x is already consumed.
+const x = String.from("Hello"); // x: String. Linear type
+const y = x; // y: String. Linear type. x is moved and consumed.
+const z = x; // Compiler Error: x is already consumed.
 ```
 
 ### immutable and mutable references
 
 ```typescript
-// Immutable reference, using `&`
+// Immutable reference, using `*` or `^`
 {
-  let i = malloc(); // i: Data
-  let ref = &i; // ref: &Data
-}
+  const some_i = malloc(sizeof<i32>()); // i: Option<^i32> Linear type
+  const i = some_i.unwrap(); // i: ^i32. Linear type
 
-// Mutable reference, using `@`
-{
-  var i = malloc(); // i: Data
-  let ref = @i; // ref: @Data
+  const p1: *i32 = i; // p: *i32. Free type
+
+  const p2: *const i32 = i; // p: *const i32. Free type
+
+  const p2_2: *i32 = p2; // Compiler Error: Cannot assign a `*const i32` to a `*i32`.
+
+  const p3 = i; // p: ^i32. Linear type, ownership is transferred.
+  free(p3);
+
+  println(*p1); // Compile Error: The value it points to is consumed.
 }
 ```
 
 ```typescript
 {
   var x = 1; // x: copied i32. Free type
-  let r: &i32 = &x; // r: &i32. Free type
-  let p: @i32 = @x; // p: @i32. Free type.
-  *p = 2;
+  const p1: *i32 = &x; // r: *i32. Free type
+  const p2: *const i32 = &x; // p: *const i32. Free type.
+  *p1 = 2;
   // x == 2
-  // *r == 2
-  // *p == 2
+  // *p1 == 2
+  // *p2 == 2
 }
 ```
 
@@ -304,21 +307,22 @@ A longer example:
 
 ```typescript
 extern "C" {
-  length: (x: &String)=> i32;
-  push: (x: @String, value: String)=> ();
-  drop: (x: String)=> ();
+  length: (x: *const String)=> i32;
+  push: (x: *String, value: String)=> ;
+  drop: (x: String)=> ;
 }
 
-let main = ()=> {
+const main = ()=> {
   var x = String.from("Hello, world"); // x: String. mutable
-  let y = @x; // y: @String   // mutable reference
-  let z = &x; // z: &String   // immutable reference
+  const y: *String = &x; // y: *String   // mutable reference
+  const z: *const String = &x; // z: *const String   // immutable reference
 
-  length(x); // allowed
-  length(y); // allowed
-  length(z); // allowed
+  length(x);  // not allowed
+  length(y);  // allowed
+  length(z);  // allowed
+  x.length(); // allowed, implicit conversion to *const
 
-  let t = x;                           // transfer ownership
+  const t = x;                           // transfer ownership
 
   length(x); // error: cannot access `x` because `x` is consumed.
   length(y); // allowed
@@ -335,61 +339,72 @@ let main = ()=> {
 We can only dereference the free type.
 
 ```typescript
-let name = String.from("Alice");
-let p = Person.Person(name, 30); // p: Person. Linear type.
+enum Person { // Linear type, as it contains a linear type.
+  Person(name: String, age: i32)
+}
+const name = String.from("Alice");
+const p = Person(name, 30); // p: Person. Linear type.
 
 {
-  let name = p.name; // name: String, Linear type. The `p` variable is consumed
+  const name = p.name; // name: String, Linear type. The `p` variable is consumed
                        // when you extract a linear field from it.
                        // NOTE: If `p` has more than one linear field, then when you destructure, you have to consume all the linear fields, otherwise it will be a compiler error.
 
-  let age = p.age; // Compiler Error: `p` is consumed already.
+  const age = p.age; // Compiler Error: `p` is consumed already.
 }
 
 {
-  let {name, var age} = p;
+  const { name, var age } = p;
 }
 
 {
-  var {name, age} = p;
+  var { name, age } = p;
 }
 
 {
-  let age = p.age; // age: i32, Free type. The `p` variable is not consumed
+  const age = p.age; // age: i32, Free type. The `p` variable is not consumed
                     // when you extract a free field from it.
 
-  let name = p.name; // name: String, Linear type. The `p` variable is consumed
+  const name = p.name; // name: String, Linear type. The `p` variable is consumed
 }
 
 {
-  let { name } = p; // name: String, Linear type. The `p` variable is consumed
+  const { name } = p; // name: String, Linear type. The `p` variable is consumed
                     // when you destructure any linear type values from it.
 }
 
 {
-  let { age } = p;  // age: i32, Free type. The `p` variable is not consumed
+  const { age } = p;  // age: i32, Free type. The `p` variable is not consumed
                     // when you destructure only free fields from it.
 }
 
 {
   // Creating references will not consume `p`:
-  let name: &String = &p.name; // name: &String. Free type.
-  let age = &p.age; // age: &i32. Free type.
+  const name: *const String = &p.name; // name: *const String. Free type.
+  const age = &p.age; // age: *const i32. Free type.
 }
 {
-  let pRef = &p; // pRef: &Person. Free type.
-  let name = &pRef.name; // name: &String. Free type.
-  let age = &pRef.age; // age: &i32. Free type.
+  const p_ref = &p; // p_ref: *const Person. Free type.
+  const name = &p_ref.name; // name: *const String. Free type.
+  const age = &p_ref.age; // age: *const i32. Free type.
+
+  some_function(*p_ref); // Derference a reference of linear type is not allowed.
+}
+{
+  var p = Person(String.from("Alice"), 30); // p: Person. Linear type.
+  const p_ref = &p; // p_ref: *const Person. Free type.
+  const old_name = (p_ref.name = String.from("Bob")); // old_name: String. Linear type. Take the value out.
+  // old_name == String.from("Alice")
 }
 ```
 
 ```typescript
-let name = String.from("Alice");
-let p = Person.Person(name, 30); // p: Person. Linear type.
+const name = String.from("Alice");
+const p = Person(name, 30); // p: Person. Linear type.
 
-let { name, age } = p; // p is consumed.
+const { name, age } = p; // p is consumed.
 
-p = Person.Person(name, 30); // This is allowed. We restored a consumed value.
+p = Person(name, 30); // This is allowed. We restored a consumed value.
 ```
 
 ```typescript
@@ -397,12 +412,12 @@ var x = [1, 2, 3, 4, 5]; // x: i32[5]. Free type
 var y = x; // y: i32[5]. Free type. x is copied to y, not moved.
 
 {
-  let ref = &x; // ref: &i32[5]. Free type
-  let first = ref[0]; // i32. Free type
+  const ref = &x; // ref: *i32[]. Free type
+  const first = ref[0]; // i32. Free type
 }
 {
-  let firstRef = @x[0]; // @i32. Free type
-  firstRef = 10;
+  const firstRef = &x[0]; // *i32. Free type
+  *firstRef = 10;
 }
 
 // x: [10, 2, 3, 4, 5]
@@ -413,27 +428,34 @@ var y = x; // y: i32[5]. Free type. x is copied to y, not moved.
 var x = [String.from("Hi"), String.from("World")];
 
 {
-  let s = x[0]; // Compiler Error: Cannot move linear type out of a slice.
+  const s = x[0]; // Compiler Error: Cannot move linear type out of a slice.
 }
 
 {
-  let s = @x[1]; // s: @String. Free type
-  let old = (s = String.from("Earth"));
+  const s = &x[1]; // s: *String. Free type
+  const old = (*s = String.from("Earth"));
   // old: String. Linear type. old == String.from("World")
 }
 
 // x: [String.from("Hi"), String.from("Earth")]
 ```
 
-### Pointer `In Design`
+### Unique Pointer `In Design`
 
 We use the `^` to denote the pointer, same as in Pascal.
 
 ```typescript
-type IntPtr = ^i32;
-
-let x = 1;
-let xRef = &x as ^i32
+const some_int_ptr = malloc(sizeof<i32>()); // int_ptr: Option<^i32>. Linear type
+match int_ptr {
+  case Some: {
+    const int_ptr = some_int_ptr.value; // int_ptr: ^i32. Linear type.
+    *int_ptr = 10;
+    free(int_ptr);
+  }
+  case None: {
+    // handle error
+  }
+}
 ```
 
 ### Cast Linear to Free
@@ -441,71 +463,72 @@ let xRef = &x as ^i32
 NOTE: This is unsafe and should be avoided.
 
 ```typescript
-let x = String.from("Hi"); // x: String. Linear type
-let y = castToFree(x); // y: String. Free type
+const x = String.from("Hi"); // x: String. Linear type
+const y = cast_to_free(x); // y: String. Free type
 ```
 
 ## Function Declaration
 
-Unlike imperative languages, **Mo** has no `return` keyword. The last expression of a function is the return value.
+Function parameters are immutable by default.
 
 ```typescript
 // Top level function.
-// Type after `=>` is the return type. If it's not specified, it's `()` unit.
-let add = (x: i32, y: i32)=> i32 {
-  x + y
+// Type after `=>` is the return type. If it's not specified, it's `void`.
+const add = (x: i32, y: i32)=> i32 {
+  return x + y;
 }
 
 // Or abbreviated form: `Not adopted yet`
-let add(x: i32, y: i32)=> i32 {
-  x + y
+const add(x: i32, y: i32)=> i32 {
+  return x + y;
 }
 
 // Default parameter values
-let add = (x: i32 = 1, y: i32 = 2)=> i32 {
-  x + y
+const add = (x: i32 = 1, y: i32 = 2)=> i32 {
+  return x + y;
 }
 
 // Generic function
-let identity = <T>(arg: T)=> T {
-  arg
+const identity = <T>(arg: T)=> T {
+  return arg;
 }
 
-// Dependency injection (Effectful function)
-let main = (?raise: (error: symbol)=> i32)=> () {
-  let x: i32 = raise("Hello, world");
+// Dependency injection
+const main = (?raise: (error: symbol)=> i32)=> void {
+  const x: i32 = raise("Hello, world");
 }
 
 // Value constraint `In Design`
-let divide = (x: i32, y: i32)=> i32
-where y != 0 {
-  x / y
+type NotZero = i32 where _ != 0;
+const divide = (x: i32, y: NotZero)=> i32 {
+  return x / y;
 }
 
 // Type constraint
-let add = <T: Type, using Integral<T>>(x: T, y: T)=> T {
-  println(x + y)
+const add = <T: Type, Integral<T>>(x: T, y: T)=> T {
+  return x + y;
 }
 
 // Closure
-let add = [{y: 0}](x: i32)=> i32 {
+const add = [{y: 0}](x: i32)=> i32 {
   y = x + y
 };
 add(1); // {y: 1}
 add(1); // {y: 2}
+// add.y == 2
 
-// Curried function `In Design`
-let add = (x: i32)=> (y: i32)=> i32 {
+// Curried function `In Design` `Hard` to support`  
+const add = (x: i32)=> (y: i32)=> i32 {
   x + y
 }
-let addOne = add(1);
-addOne(2); // 3
+const add_one = add(1);
+add_one(2); // 3
 ```
 
 ### Contextual parameters, aka implicit parameters
 
 The contextual parameters are passed implicitly to the function.  
-**Mo** looks for the closest value that matches the contextual parameter by the **type** and **name**.
+**Mo** looks for the closest value that matches the contextual parameter by the **type**, not by **name**.
 
 #### Compiletime
 
@@ -517,7 +540,7 @@ export class Id<T> {
 
 // main.mo
 import {Id, id} from "./id.mo";
-let useId = <T, using Id<T>>(x: T)=> T {
+const useId = <T, Id<T>>(x: T)=> T {
   id(x)
 }
 ```
@@ -525,28 +548,29 @@ let useId = <T, using Id<T>>(x: T)=> T {
 #### Runtime
 
 ```typescript
-let add = (x: i32, ?y: i32)=> i32 {
-  x + y
+const add = (x: i32, ?y: i32)=> i32 {
+  return x + y;
 }
 
-let main = ()=> {
+const main = ()=> {
   {
     add(3); // error: missing implicit parameter y
   }
   {
-    let ?y = 4;
+    const ?y = 4;
     add(3); // ok, 7
   }
   {
-    let ?z = 4;
-    add(3); // error: missing implicit parameter y
+    const ?a = 4;
+    const ?b = 5;
+    add(3); // will pick the closest value, which is ?b, so it's 8
   }
   {
     add(3, 4); // ok, 7
   }
   {
-    let ?y = 4;
-    let ?y = 5;
+    const ?y = 4;
+    const ?y = 5;
     add(3); // ok, 8
   }
 }
@@ -555,20 +579,20 @@ let main = ()=> {
 The arguments are provided in lexical scope, not dynamic scope.
 
 ```typescript
-let test = (x: i32, ?id: (x: i32)=> i32) {
+const test = (x: i32, ?id: (x: i32)=> i32) {
   print(id(x))
 }
 
-let ?id = (x: i32)=> x;
-let useTest = ()=> {
+const ?id = (x: i32)=> x;
+const useTest = ()=> {
   test(3); // print 3
 
-  let ?id = (x: i32)=> x + 1;
+  const ?id = (x: i32)=> x + 1;
   test(3); // print 4
 }
 
-let main = ()=> {
-  let ?id = (x: i32)=> x + 2; // This will not affect the `test` function calls in `useTest`
+const main = ()=> {
+  const ?id = (x: i32)=> x + 2; // This will not affect the `test` function calls in `useTest`
   useTest();  // print 3
               // print 4
 }
@@ -577,95 +601,19 @@ let main = ()=> {
 ### Uniform Function Call Syntax
 
 ```typescript
-let addOne = (x: i32)=> i32 {
-  x + 1;
+const add_one = (x: i32)=> i32 {
+  return x + 1;
 }
 
-(12).addOne(); // 13
+(12).add_one(); // 13
 // is equalvalent to
-addOne(12); // 13
+add_one(12); // 13
 
-let s = String.from("Hello, world");
-(&s).length(); // 12
+const s = String.from("Hello, world");
+s.length(); // 12
 // is equalvalent to
 length(&s); // 12
-```
-
-### Dependent types `In Design`
-
-Dependent types are types which depend on values.
-
-```typescript
-let dependOnBoolean = (b: boolean)=> i32
-where b == true
-{
-  1
-}
-let dependOnBoolean = (b: boolean)=> f32
-where b == false
-{
-  1.0
-}
-
-dependOnBoolean(true); // 1
-dependOnBoolean(false); // 1.0
-dependOnBoolean(returnBoolean()); // Compiler Error: value constraint not satisfied for both `dependOnBoolean` functions
-```
-
-```typescript
-let divide = (x: i32, y: i32)=> i32
-where y != 0
-{
-  x / y
-}
-
-let main = ()=> {
-  let x = readInt();
-  let y = readInt();
-  if y != 0 {
-    divide(x, y);
-  } else {
-    divide(x, y); // Compiler Error: y is not equal to 0
-  }
-}
-```
-
-### Refinement types `In Design`
-
-Refinement types consists of all values of a given type which satisfy a given predicate.
-
-```typescript
-let makeArray = (size: i32)=> Array<i32>
-where size < 10 && size > 0 {
-  return Array<i32>.new(size)
-}
-
-let main = ()=> {
-  let size = readInt()
-  if (size < 10 && size > 0) {
-    let arr = makeArray(size) // The function is guaranteed to return an array of size between 1 and 9
-  } else {
-    makeArray(size) // Compiler Error: size is not between 1 and 9
-  }
-}
-```
-
-```typescript
-let inBetween = (x: i32, min: i32, max: i32)=> boolean
-where min < max && x >= min
-{
-  true
-}
-let main = ()=> {
-  let x = readInt();
-  let min = readInt();
-  let max = readInt();
-  if min < max && x >= min {
-    inBetween(x, min, max);
-  } else {
-    inBetween(x, min, max); // Compiler Error: Predicate not satisfied.
-  }
-}
+// We will automatically convert to reference when needed.
 ```
 
 ### `defer`
@@ -673,14 +621,14 @@ let main = ()=> {
 `defer` will execute an expression at the end of the current scope.
 
 ```typescript
-let test = ()=> {
-  let x = String.from("World!");
+const test = ()=> {
+  const x = String.from("World!");
   defer {
     println(x);
     drop(x);
   }
 
-  let y = String.from("Hello, ");
+  const y = String.from("Hello, ");
   defer {
     println(y);
     drop(y);
@@ -691,7 +639,7 @@ test(); // Hello, World!
 ```
 
 ```typescript
-let deferExample = ()=> {
+const deferExample = ()=> {
   var a = 1;
 
   {
@@ -700,11 +648,11 @@ let deferExample = ()=> {
   }
 
   println(a); // 2
-  a
+  return a;
 }
 ```
 
-### `recur`
+### `recur` `In Design`
 
 Use the `recur` to call the function recursively.  
 This is useful for anonymous function.  
@@ -715,9 +663,9 @@ If `recur` is the last expression, tail-call optimization will be applied.
   ```typescript
   (x: u32, acc: u32 = 1) => {
     if (x == 1) {
-      1;
+      return 1;
     } else {
-      recur(x - 1, acc * x);
+      return recur(x - 1, acc * x);
     }
   };
   ```
@@ -727,9 +675,9 @@ If `recur` is the last expression, tail-call optimization will be applied.
   ```typescript
   (x: u32) => {
     if (x == 1) {
-      1;
+      return 1;
     } else {
-      x * recur(x - 1);
+      return x * recur(x - 1);
     }
   };
   ```
@@ -737,13 +685,13 @@ If `recur` is the last expression, tail-call optimization will be applied.
 ### Custom Operators
 
 ```typescript
-let (|>) = <T, U>(x: T, f: (value: T)=> U)=> U {
+const (|>) = <T, U>(x: T, f: (value: T)=> U)=> U {
   f(x)
 }
 
-12 |> addOne; // 13
+12 |> add_one; // 13
 
-(|>)(12, addOne); // 13
+(|>)(12, add_one); // 13
 ```
 
 We can define its precedence and associativity:
@@ -759,12 +707,12 @@ infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
 REASON: Necessary for returning multiple references.
 
 ```typescript
-let vals = ()=> (i32, i32) {
-  1, 2
+const vals = ()=> (i32, i32) {
+  return 1, 2;
 }
 
-let main = ()=> {
-  let a, b = vals();
+const main = ()=> {
+  const a, b = vals();
 }
 ```
 
@@ -772,12 +720,12 @@ let main = ()=> {
 
 ```typescript
 // This function can take any type that has a `length: i32` property.
-let printLength = (x: &{ length: i32 })=> {
+const printLength = (x: *const { length: i32 })=> {
   println(x.length);
 };
 
-let main = ()=> {
-  let s = String.from("Hello, world");
+const main = ()=> {
+  const s = String.from("Hello, world");
   printLength(&s);
   // ^ This works as the compiler converts it to below from the background:
   printLength(&{ length: s.length })
@@ -792,9 +740,14 @@ The closure in **Mo** is a function that can capture ~~Linear~~ values from the 
 
 The closure type is defined as:
 
-```
-[=]<type parameters>(parameters)=> return_type { body }
-```
+- Closure that can be called once:
+  ```
+  [^]<type parameters>(parameters)=> return_type { body }
+  ```
+- Closure that can be called multiple times:
+  ```
+  [*]<type parameters>(parameters)=> return_type { body }
+  ```
 
 A closure can be defined using the following syntax:
 
@@ -804,43 +757,33 @@ A closure can be defined using the following syntax:
 
 Examples:
 
-- **&/@ closure** of Free type
+```typescript
+const test = ()=> {
+  var x = 1;
 
-  ```typescript
-  let test = ()=> {
-    var x = 1;
-
-    let increment: [@](a: i32)=> () = [{x: @x}](a: i32)=> {
-      // let {x} = increment;
-      *x = *x + a;
-    }
-    increment(1);
-    increment(2);
-    {
-      let x = *increment.x;
-      println(x); // 4
-    }
+  const increment: [*](a: i32)=> void = [{x: &x}](a: i32)=> {
+    // const {x} = increment;
+    *x = *x + a;
   }
-  ```
+  increment(1);
+  increment(2);
 
-  **NOTE:** The example above will not actually compile because according to the rule of 2nd-class reference, the closure `increment` contains the reference so it cannot be saved to a local variable.
+  // x == 4
+}
+```
 
-- **own closure** `call` that takes ownership
+```typescript
+const test = ()=> {
+  var x: Data = malloc(); // Some `Fake` Data.
 
-  ```typescript
-  let test = ()=> {
-    var x: Data = malloc();
-
-    // var increment = {x: x};
-    var increment: Closure<()=>(), {x: Data}> = [{x: x}]()=> {
-      // let {x} = increment;
-      drop(x);
-    }
-    // Generate: call(closure: ()=> ());
-    increment(); //
-    increment(); // Compiler Error: closure is already consumed.
+  var increment: [^]()=> void; = [{x: x}]()=> {
+    // const {x} = increment;
+    drop(x);
   }
-  ```
+  increment(); //
+  increment(); // Compiler Error: closure is already consumed.
+}
+```
 
 **NOTE:** We can pass normal function ()=>() to a function argument that expects a closure, but not the other way around.
 
@@ -849,13 +792,13 @@ Examples:
 The builtin `=` function is used to update a value that can be `write`, with the following signature:
 
 ```typescript
-let set! = <T: Type>(ref: @T, value: T)=> T;
+const set! = <T: Type>(ref: *T, value: T)=> T;
 
 // `=` is a syntactic sugar for `set!`
 
 x = x + 1
 // is equalvalent to
-set!(@x, x + 1)
+set!(&x, x + 1)
 // so we append `write` to the variable on the left hand side of `=`
 ```
 
@@ -865,10 +808,10 @@ Below is an example of updating a field of a linear type:
 enum Person { // Linear type.
   Person(name: String, age: i32)
 }
-var p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
+var p = Person(String.from("Alice"), 30); // p: Person. Linear type.
 
 // Update the field
-let oldName = (p.name = String.from("Bob"));
+const oldName = (p.name = String.from("Bob"));
 // oldName is the `value` moved out.
 // oldName == String.from("Alice")
 ```
@@ -880,12 +823,12 @@ let oldName = (p.name = String.from("Bob"));
 Type parameters are defined inside `<...>`
 
 ```typescript
-let id = <T: Type>(x: T)=> T {
+const id = <T: Type>(x: T)=> T {
   x
 }
 
 // or
-let id = <T>(x: T)=> T { // T will be inferred as `Type` kind
+const id = <T>(x: T)=> T { // T will be inferred as `Type` kind
   x
 }
 ```
@@ -914,73 +857,25 @@ instance Show<string> {
 
 // main.mo
 import { show, Show } from "./show.mo";
-export let show = <T, using Show<T>>(x: Array<T>)=> string {
+export const show = <T, Show<T>>(x: Array<T>)=> string {
   // ...
 }
 
 import { show, Show } from "./show.mo";
-let lessThan = <T: Type,
-  using Ord<T>, Show<T>>(x: T, y: T)=> boolean {
+const less_than = <T: Type, Ord<T>, Show<T>>(x: T, y: T)=> boolean {
   println(show(x));
-  x < y
-}
-```
-
-## 2nd-Class Reference
-
-> Mutable value semantics is a programming discipline that upholds the independence of values to support local
-> reasoning. In the discipline’s strictest form, references become second-class citizens: they are only created implicitly, at function
-> boundaries, and cannot be stored in variables or object fields. Hence, variables can never share mutable state. Unlike pure
-> functional programming, however, mutable value semantics allows part-wise in-place mutation, thereby eliminating the memory
-> traffic usually associated with functional updates of immutable data.
-
-> MVS does not
-> surface references as a first-class concept in the programming
-> model. As such, they can neither be assigned to a variable nor
-> stored in object fields, and all values form disjoint topological
-> trees rooted in the program’s variables
-
-The references in **Mo** are second-class citizens.
-
-However, unlike the [hylo language](https://www.hylo-lang.org/), we allow to define them in types. We only disable to bind them to a local variable defined in either `let` or `var` statements, but we can pass them in function arguments.
-
-We also disable to return a reference to a local value from a function.
-
-For example, the types below are allowed:
-
-```typescript
-type CustomType = {
-  x: &i32;
-}
-
-enum CustomEnum {
-  Some(value: &i32);
-}
-
-type CustomSlice = (&i32)[];
-
-let swap = (x: @i32, y: @i32)=> {
-  let temp = x;
-  x = y;
-  y = temp;
-}
-```
-
-But the following is not allowed:
-
-```typescript
-let test = ()=> {
-  var x = 1;
-  let y = @x; // Compiler Error: write reference is not allowed in a local variable.
+  return x < y;
 }
 ```
 
 ## Control Flow
 
+### if/else
+
 ```typescript
-let main = () => {
+const main = () => {
   // If no return type, it is () unit
-  let number = 3;
+  const number = 3;
 
   if (number < 5) {
     println("condition was true");
@@ -988,6 +883,32 @@ let main = () => {
     println("condition was false");
   }
 };
+```
+
+### while
+
+```typescript
+const factorial = (n: i32)=> i32 {
+  var result = 1;
+  var i = 1;
+  while (i <= n) {
+    result *= i;
+    i += 1;
+  }
+  return result;
+}
+```
+
+### for
+
+```typescript
+const factorial = (n: i32)=> i32 {
+  var result = 1;
+  for (var i = 1; i <= n; i += 1) {
+    result *= i;
+  }
+  return result;
+}
 ```
 
 ## Type synonyms
@@ -1003,7 +924,7 @@ type User: Linear = {
 
 type string = char[];
 
-let user: User = User {
+const user: User = User {
   active: true,
   username: String.from("johndoe"),
   email: String.from("test@gmail.com"),
@@ -1032,17 +953,17 @@ type Language = { language: string; year: i32 };
 Destructure the record:
 
 ```typescript
-let user: User = User {
+const user: User = User {
   name: String.from("johndoe"),
   age: 12
 }
 
 {
-  let {age} = user; // Compiler Error: `user` is consumed while `name` is not moved out.
+  const {age} = user; // Compiler Error: `user` is consumed while `name` is not moved out.
 }
 
 {
-  let {name, age} = user;
+  const {name, age} = user;
   // name: String, linear type
   // age: i32. Free type
 }
@@ -1050,7 +971,7 @@ let user: User = User {
 {
   // Rename the field with `as`
   // Specify the type with `:`
-  let {name as username, age} = user;
+  const {name as username, age} = user;
   println(username); // johndoe
   // username: String, linear type.
   // age: i32. Free type.
@@ -1073,12 +994,12 @@ enum Option<T> {
   None
 }
 
-let none: Option<i32> = None;
-let some: Option<i32> = Some(42);
+const none: Option<i32> = None;
+const some: Option<i32> = Some(42);
 
 // Access the field:
 some.value;
-let {value} = some;
+const {value} = some;
 
 enum IpAddr {
   V4(v0: u8 = 255, v1: u8 = 255, v2: u8 = 255, v3: u8 = 255),
@@ -1086,9 +1007,9 @@ enum IpAddr {
 }
 
 
-let home = V4(127, 0, 0, 1);
-let anotherHome = V4(v3 = 200);
-let loopback = V6(String.from("::1"))
+const home = V4(127, 0, 0, 1);
+const anotherHome = V4(v3 = 200);
+const loopback = V6(String.from("::1"))
 ```
 
 ### Generalized Algebraic Data Types (GADTs) `In Design`
@@ -1100,45 +1021,90 @@ enum Expr<T> {
   EqExpr(left: Expr<i32>, right: Expr<i32>): Expr<boolean>
 }
 
-let eval = <T>(expr: Expr<T>)=> T {
+const eval = <T>(expr: Expr<T>)=> T {
   // with Expr<T>;
-  if (expr is IntExpr(i)) {
-    i
-  } else if (expr is BoolExpr(b)) {
-    b
-  } else if (expr is EqExpr(left, right)) {
-    eval(left) == eval(right)
+  match(expr) {
+    case IntExpr: expr.i,
+    case BoolExpr: expr.b,
+    case EqExpr: eval(expr.left) == eval(expr.right)
   }
 }
 
-let expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
+const expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
 eval(expr1); // false
 ```
 
-### Explicit enum variant type
+## Advanced Types `In Design`
+
+### Dependent types `In Design`
+
+Dependent types are types which depend on values.
 
 ```typescript
-let x: Option = Some(1); // x: Option<i32>.Some
-                           // .Some means the variant type is Some
+type Vector<N: i32> = Array<i32, N>;
 
-let unwrap = <T>(x: Option<T>)=> T
-where x is Option<T>.Some
-{
-  x.value
+const add_vectors = <N: i32>(a: Vector<N>, b: Vector<N>)=> Vector<N> {
+  return a.map((x, i)=> x + b[i]);
 }
-unwrap(x); // 1
-unwrap(None); // Won't compile. None is not a Some variant.
+
+const v1: Vector<3> = [1, 2, 3];
+const v2: Vector<3> = [4, 5, 6];
+const result = add_vectors(v1, v2); // [5, 7, 9];
+
+// The code below will not compile
+const v3: Vector<2> = [1, 2];
+const v4: Vector<3> = [4, 5, 6];
+// const error = add_vectors(v3, v4); // Compiler Error: Vector<2> and Vector<3> are different types.
+```
+
+### Refinement types `In Design`
+
+Refinement types consists of all values of a given type which satisfy a given predicate.
+
+```typescript
+type PositiveNumber = i32 where _ > 0;
+type NonEmptyString = String where _.length > 0;
+
+const divide = (x: PositiveNumber, y: PositiveNumber)=> PositiveNumber {
+  x / y
+}
+
+const x: PositiveNumber = 10; // Valid
+const y: PositiveNumber = -10; // Compiler Error: -10 is not a PositiveNumber
+
+const result = divide(10, 2); // Valid
+```
+
+```typescript
+type NaturalNumber = i32 where _ >= 0;
+type PositiveNumber = i32 where _ > 0;
+type Equal<n: i32> = i32 where _ == n;
+type Index<T: Type, a: T[]> = NatureNumber where _ < a.length();
+type NotEmptyArray<T> = T[] where _.length() > 0;
+
+const get = <T, a: T[]>(index: Index<T, a>, array: a)=> T {
+  array[index]
+}
+
+const set = <T, a: T[]>(index: Index<T, a>, array: a, value: T)=> void {
+  array[index] = value;
+}
+
+const head = <T>(array: NotEmptyArray<T>)=> T {
+  return array[0];
+}
+
 ```
 
 ## Typeclass
 
 ```typescript
-class Summary<T, using Eq<T>> {
-  summarize: (self: T)=> String;
+class Summary<T> {
+  summarize: (self: *const T)=> String;
 };
 
-class Display<T, using Summary<T>> {
-  display: (self: T)=> String;
+class Display<T, Summary<T>> {
+  display: (self: *const T)=> String;
 };
 
 type NewsArticle = {
@@ -1149,27 +1115,26 @@ type NewsArticle = {
 };
 
 instance Summary<NewsArticle> {
-  summarize: (self: NewsArticle)=> String {
-    "${self.headline}, by ${self.author} (${self.location})"
+  summarize: (self: *const NewsArticle)=> String {
+    return "${self.headline}, by ${self.author} (${self.location})";
   }
 }
 
 // Pass in function
-let notify = (item: NewsArticle)=> () {
+const notify = (item: *const NewsArticle)=>  {
   println("Breaking news! ", summarize(item));
 }
 
-let notify = <T, using Display<T>>(
-  item: T
-)=> () {
-  println("Breaking news! ", summarize(item));
+const notify = <T, Display<T>>(
+  item: *const T
+)=>  {
+  println("Breaking news! ", summarize());
   println("Breaking news! ", display(item));
 }
 ```
 
 ## Pattern Matching
 
-Pattern matching using `is` keyword.  
 The compiler implements an exhaustive check on the pattern matching.
 
 ```typescript
@@ -1183,7 +1148,7 @@ enum Coin {
 // Reference:
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
-let valueInCents = (coin: Coin)=> u8 {
+const value_in_cents = (coin: Coin)=> u8 {
   match (coin) {
     case Penny: {
       println("Lucky penny!");
@@ -1201,12 +1166,12 @@ enum List<T> {
 }
 
 
-let ListLength = <T>(list: &List<T>)=> i32 {
+const list_length = <T>(list: &List<T>)=> i32 {
   match (list) {
     case Nil: 0,
     case Cons: {
       const {tail} = list;
-      1 + ListLength(tail)
+      1 + list_length(tail)
     }
   }
 }
@@ -1215,7 +1180,7 @@ let ListLength = <T>(list: &List<T>)=> i32 {
 ### Using Range in `case`
 
 ```typescript
-let checkInt = (x: i32)=> {
+const check_int = (x: i32)=> {
   match(x) {
     case 1:
     case 2:
@@ -1241,7 +1206,7 @@ let checkInt = (x: i32)=> {
 Can also use range:
 
 ```typescript
-let checkInt = (x: i32)=> {
+const check_int = (x: i32)=> {
   match(x) {
     case 1 .. 6: {
       println("1 to 6");
@@ -1261,23 +1226,23 @@ let checkInt = (x: i32)=> {
 ### Array
 
 ```typescript
-let v: Array<i32> = Array.new();
-let v2 = Array.from([1, 2, 3]);
-let value = v2.at(0);
+const v: Array<i32> = Array.new();
+const v2 = Array.from([1, 2, 3]);
+const value = v2.at(0);
 ```
 
 ### String
 
 ```typescript
-let s = String.new();
-let s2 = String.from("Hello World!");
+const s = String.new();
+const s2 = String.from("Hello World!");
 ```
 
 ### Map
 
 ```typescript
-let m: Map<String, i32> = Map.new();
-let m2 = Map.from([
+const m: Map<String, i32> = Map.new();
+const m2 = Map.from([
   [String.from("one"), 1],
   [String.from("two"), 2],
   [String.from("three"), 3],
@@ -1289,16 +1254,16 @@ m.set(String.from("one"), 1);
 ## Slice
 
 ```typescript
-let x: string = "Hello, world";
-let xs: i32[5] = [1, 2, 3, 4, 5];
-let emptyArray: i32[0] = [];
+const x: string = "Hello, world";
+const xs: i32[5] = [1, 2, 3, 4, 5];
+const empty_array: i32[0] = [];
 ```
 
 ## Error handling
 
 ```typescript
 type MyError = {message: char[]};
-let main = (using {throw}: Exception<MyError>)=> () {
+const main = (?throw: Exception<MyError>)=>  {
   throw({
     message: "Something went wrong",
   });
@@ -1308,18 +1273,38 @@ let main = (using {throw}: Exception<MyError>)=> () {
 ## Type casting
 
 ```typescript
-let x: i32 = 1;
-let y: f32 = x as f32;
+const x: i32 = 1;
+const y: f32 = x as f32;
+```
+
+## async/await
+
+Similar to JavaScript, **Mo** supports async/await.
+
+```typescript
+const wait_for_seconds = (seconds: u32)=> Promise<void> {
+  return Promise.new((resolve, reject)=> {
+    set_timeout(resolve, seconds * 1000);
+  });
+}
+
+const main = async ()=> {
+  println("Start");
+  await wait_for_seconds(1);
+  println("End");
+}
 ```
 
 ## Modules
 
 Similar to the ECMAScript modules, we use the `import` and `export` keywords to import and export modules. The syntax is changed and extended a bit.
 
+QUESTION:  Should we allow to `export` a linear type value?
+
 ```typescript
 import { copy } from "https://github.com/mo-lang/mo/std/fs.mo";
 
-let test = ()=> {
+const test = ()=> {
   println("Hello, world!");
 }
 
@@ -1345,7 +1330,7 @@ instance Id<i32> {
 }
 
 // Prevent name mangling.
-export "C" let x = 1;
+export "C" const x = 1;
 ```
 
 ```typescript
@@ -1382,29 +1367,6 @@ import { Id } from "./test.mo"; // Import `Id` interface from test.mo
 }
 ```
 
-## Compile time execution `In Design`
-
-`#` prefix is used to indicate compile time execution.
-
-The type comparison and value comparison cannot be used at the same time.  
-The type comparison is done at compile time, while the value comparison is done at runtime.
-
-```typescript
-let add = <T>(x: T)=> T {
-  if T == i32 { // Type comparison
-    x + 1
-  } else if T == f32 {
-    x + 1.0
-  } else {
-    x
-  }
-}
-
-let mul = (x: i32, y: i32)=> i32 { x * y }
-
-let x: i32[#mul(2, 3)] = 6;
-```
-
 ## Compilation `In Design`
 
 1. Run the `lexer` to tokenize the source code.
@@ -1430,10 +1392,10 @@ macro add("(", e: Expr, ")") {
   `((${e}) + 1)`
 }
 
-let x = 1;
-let y = add(x + 1); // 3
+const x = 1;
+const y = add(x + 1); // 3
 // The above code is equal to
-let y = ((x + 1) + 1);
+const y = ((x + 1) + 1);
 ```
 
 ```typescript
@@ -1483,3 +1445,4 @@ add(1, 2, 3); // 6
 - [High-level effect handlers in C](https://homepages.inf.ed.ac.uk/slindley/papers/libseff-draft-november2023.pdf)
 - [Exceptions in C with longjmp and setjmp](https://web.archive.org/web/20091104065428/http://www.di.unipi.it/~nids/docs/longjump_try_trow_catch.html)
 - [Continuation Passing for C](https://www.irif.fr/~jch/cpc.pdf)
+- [Refinement Types for TypeScript](https://goto.ucsd.edu/~pvekris/docs/pldi16.pdf)

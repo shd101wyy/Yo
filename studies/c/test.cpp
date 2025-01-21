@@ -17,4 +17,8 @@ int main() {
     test(y);
     test(z);
     test(m);
+
+    int arr[] = {1, 2, 3, 4, 5};
+    auto ref = &arr;
+    auto ref2 = &arr[0];
 }
