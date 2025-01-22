@@ -7,18 +7,16 @@ int test(int &x) {
     return x;
 }
 
-int main() {
-    int x = 1;
-    int &y = x;
-    auto z = y;
-    int &m = y;
-    auto t = "Hello";
-    test(x);
-    test(y);
-    test(z);
-    test(m);
+void modify(int arr[]) {
+    arr[0] = 10;
+}
 
+int main() {
+    cout << "Hello, World!" << endl;
     int arr[] = {1, 2, 3, 4, 5};
-    auto ref = &arr;
-    auto ref2 = &arr[0];
+    modify(arr);
+    cout << arr[0] << endl;
+
+    auto s = "Hello";
+    return 0;
 }

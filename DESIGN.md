@@ -186,10 +186,8 @@ A type can have the following **Kind**:
 - `i64` (64-bit signed integer)
 - `f32` (32-bit floating point)
 - `f64` (64-bit floating point)
-- `char` (Unicode character, 4 bytes)
 - `string` (UTF-8 string, immutable)
 - `usize` (pointer size. It's `u32` on 32-bit system, `u64` on 64-bit system)
-- `symbol` (unique global string, `const char*` in C)
 - `()` (unit)
 
 #### `Linear` Types.
@@ -217,7 +215,7 @@ const example = (x: i32, y: i32) => {
 ### Type inference
 
 ```typescript
-const mySymbol = "Hi"; // symbol. Free type
+const mySymbol = "Hi"; // *const u8[2,'\0']. Free type
 
 const myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
 const myString2 = myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
@@ -494,7 +492,7 @@ const identity = <T>(arg: T)=> T {
 }
 
 // Dependency injection
-const main = (?raise: (error: symbol)=> i32)=> void {
+const main = (?raise: (error: *const string)=> i32)=> void {
   const x: i32 = raise("Hello, world");
 }
 
@@ -517,7 +515,7 @@ add(1); // {y: 1}
 add(1); // {y: 2}
 // add.y == 2
 
-// Curried function `In Design` `Hard` to support`  
+// Curried function `In Design` `Hard` to support`
 const add = (x: i32)=> (y: i32)=> i32 {
   x + y
 }
@@ -732,6 +730,70 @@ const main = ()=> {
 }
 ```
 
+## Array & Slice
+
+```typescript
+var i32_array = [1, 2, 3, 4, 5]; // i32_array: i32[5]. Free type
+i32_array.length; // 5, compile-time known
+
+const i32_array_ptr = &i32_array; // i32_array_ptr: *(i32[5]). Free type
+i32_array_ptr.length; // 5, compile-time known
+i32_array_ptr[0] = 8; // automatically dereference
+// i32_array: [8, 2, 3, 4, 5]
+
+const i32_ptr = &i32_array[0]; // i32_ptr: *i32. Free type
+*i32_ptr = 9;
+// i32_array: [9, 2, 3, 4, 5]
+
+
+const i32_slice = i32_array[0:3]; // i32_slice: i32[?]. Compiler Error: Size of array i32[] is unknown at compile time.
+const i32_slice = i32_array[0:some_func_return_usize()]; // i32_slice: i32[?]. Compiler Error: Size of array i32[] is unknown at compile time.
+
+const i32_slice = &i32_array[0:3]; // i32_slice: *(i32[]). Free type. & is required here.
+i32_slice.length; // 3, runtime known
+i32_slice[0] = 10;
+// i32_array: [10, 2, 3, 4, 5]
+
+
+const set_value = (arr: *i32[], index: usize, value: i32)=> {
+  if (index < arr.length) { // arr.length is runtime known
+    arr[index] = value;
+  }
+}
+set_value(i32_array, 0, 11);
+// i32_array: [11, 2, 3, 4, 5]
+// i32_slice: [11, 2, 3]
+
+// Compiler error: Size of the array i32[] is unknown at compile time, please use `&` to coerce it to slice type &i32[]
+const set_value_2 = (arr: i32[], index: usize, value: i32)=> {
+  // ...
+}
+// This is allowed as the size of the array is known at compile time.
+const set_value_3 = (arr: i32[3], index: usize, value: i32)=> {
+  // ...
+}
+```
+
+```typescript
+type string = u8[,'\0'];
+
+const constant_str = "Hello"; // str: *const u8[5,'\0']
+                     // ['H', 'e', 'l', 'l', 'o', '\0']
+constant_str.length; // 5 (excluding '\0'), compile-time known
+
+var str = *"Hello"; // str: u8[5,'\0'], convert to mutable array
+                     // ['H', 'e', 'l', 'l', 'o', '\0']
+str.length; // 5 (excluding '\0'), compile-time known
+
+const slice_1 = &str[0:2]; // slice_1: *u8[]
+                           // ['H', 'e']
+slice_1.length; // 2, runtime known
+slice_1[0] = 'h';
+
+// str: ['h', 'e', 'l', 'l', 'o', '\0']
+// slice_1: ['h', 'e']
+```
+
 ## Closure `In Design`
 
 The closure in **Mo** is a function that can capture ~~Linear~~ values from the outer scope.  
@@ -922,7 +984,7 @@ type User: Linear = {
   age: i32;
 };
 
-type string = char[];
+type string = u8[,'\0'];
 
 const user: User = User {
   active: true,
@@ -1225,6 +1287,10 @@ const check_int = (x: i32)=> {
 
 ### Array
 
+This is the dynamic array.
+
+QUESTION: Should we name it `ArrayList` instead of `Array`?
+
 ```typescript
 const v: Array<i32> = Array.new();
 const v2 = Array.from([1, 2, 3]);
@@ -1232,6 +1298,8 @@ const value = v2.at(0);
 ```
 
 ### String
+
+UTF-8 encoded string.
 
 ```typescript
 const s = String.new();
@@ -1299,7 +1367,7 @@ const main = async ()=> {
 
 Similar to the ECMAScript modules, we use the `import` and `export` keywords to import and export modules. The syntax is changed and extended a bit.
 
-QUESTION:  Should we allow to `export` a linear type value?
+QUESTION: Should we allow to `export` a linear type value?
 
 ```typescript
 import { copy } from "https://github.com/mo-lang/mo/std/fs.mo";
