@@ -1367,7 +1367,7 @@ const safe_divide = (x: i32, y: i32,
 const handle_resume = ()=> i32 {
   // Effect handler
   const raise = control (msg: const* str)=> i32 {
-    return resume(10);
+    return resume(10); // `resume` here has the type (i32)=>i32, where the 2nd `i32` matches the return type of the parent function `handle_resume`.
   }
   return 1 + safe_divide(3, 0, raise) + 2; // 13
 }
@@ -1377,8 +1377,8 @@ const handle_abort = ()=> i32 {
   // Effect handler
   const raise = control (msg: const* str)=> i32 {
     drop(resume); // Meaning we will not resume the continuation.
-    return 10; // abort the continuation without resume
-               // its return type must match the return type of the parent function.
+    return 10; // abort the continuation without calling `resume`
+               // its return type must match the return type of the parent function. Here it's `i32` from `handle_abort`.
   }
   return 1 + safe_divide(3, 0, raise) + 2; // 10
                                            // continuation aborted.
@@ -1394,7 +1394,7 @@ const main = ()=> {
   const wait_for_seconds = control (seconds: u32)=> i32 {
     set_timeout(()=> {
       println("Done");
-      return resume(12);
+      return resume(12); // resume here has type: (i32)=> void, where `void` matches the return type of the parent function `main`
     }, seconds * 1000);
   }
 
