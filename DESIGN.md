@@ -35,12 +35,14 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Contextual parameters, aka implicit parameters](#contextual-parameters-aka-implicit-parameters)
     - [Compiletime](#compiletime)
     - [Runtime](#runtime)
+    - [Algebraic effects `In Design`](#algebraic-effects-in-design)
   - [Uniform Function Call Syntax](#uniform-function-call-syntax)
   - [`defer`](#defer)
   - [`recur` `In Design`](#recur-in-design)
   - [Custom Operators](#custom-operators)
   - [Mulitple Return Values `In Design`](#mulitple-return-values-in-design)
 - [Duck Typing `In Design`](#duck-typing-in-design)
+- [Array & Slice](#array--slice)
 - [Closure `In Design`](#closure-in-design)
 - [Mutability `To be updated`](#mutability-to-be-updated)
 - [Generic](#generic)
@@ -63,7 +65,6 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Array](#array)
   - [String](#string)
   - [Map](#map)
-- [Slice](#slice)
 - [Error handling](#error-handling)
 - [Type casting](#type-casting)
 - [async/await](#asyncawait)
@@ -186,7 +187,6 @@ A type can have the following **Kind**:
 - `i64` (64-bit signed integer)
 - `f32` (32-bit floating point)
 - `f64` (64-bit floating point)
-- `string` (UTF-8 string, immutable)
 - `usize` (pointer size. It's `u32` on 32-bit system, `u64` on 64-bit system)
 - `()` (unit)
 
@@ -233,7 +233,7 @@ const myIntSlice: int[100] = [1, 2, 3]; // Stored on stack, with size 100. Free 
 const myArray: Array<int> = Array.from([1, 2, 3]); // Stored on heap. Linear type.
 
 const mySet: Set<int> = Set.from([1, 2, 3]); // Stored on heap. Linear type.
-const myMap: Map<string, int> = Map.from([
+const myMap: Map<const* str, int> = Map.from([
   ["one", 1],
   ["two", 2],
 ]); // Stored on heap. Linear type.
@@ -492,7 +492,7 @@ const identity = <T>(arg: T)=> T {
 }
 
 // Dependency injection
-const main = (?raise: (error: *const string)=> i32)=> void {
+const main = (?raise: (error: *const str)=> i32)=> void {
   const x: i32 = raise("Hello, world");
 }
 
@@ -595,6 +595,7 @@ const main = ()=> {
               // print 4
 }
 ```
+
 
 ### Uniform Function Call Syntax
 
@@ -775,7 +776,7 @@ const set_value_3 = (arr: i32[3], index: usize, value: i32)=> {
 ```
 
 ```typescript
-type string = u8[,'\0'];
+type str = u8[,'\0'];
 
 const constant_str = "Hello"; // str: *const u8[5,'\0']
                      // ['H', 'e', 'l', 'l', 'o', '\0']
@@ -902,7 +903,7 @@ Type constraints are achieved using the implicit parameters.
 ```typescript
 // show.mo
 export class Show<T> {
-  show: (x: T)=> string;
+  show: (x: T)=> String;
 }
 
 instance Show<i32> {
@@ -911,15 +912,15 @@ instance Show<i32> {
   }
 }
 
-instance Show<string> {
-  show: (x: string)=> {
+instance Show<String> {
+  show: (x: String)=> {
     // ...
   }
 }
 
 // main.mo
 import { show, Show } from "./show.mo";
-export const show = <T, Show<T>>(x: Array<T>)=> string {
+export const show = <T, Show<T>>(x: Array<T>)=> String {
   // ...
 }
 
@@ -984,7 +985,7 @@ type User: Linear = {
   age: i32;
 };
 
-type string = u8[,'\0'];
+type str = u8[,'\0'];
 
 const user: User = User {
   active: true,
@@ -1001,15 +1002,15 @@ Extending the records
 
 ```typescript
 /*
-type Lang<l> = { language: string | l}; // Intersection types
+type Lang<l> = { language: String | l}; // Intersection types
 type Language = Lang<(year: i32)>;
 // Language is equal to
-type Language = { language: string; year: i32 };
+type Language = { language: String; year: i32 };
 */
-type Lang<l> = { language: string } & l; // Intersection types
+type Lang<l> = { language: String } & l; // Intersection types
 type Language = Lang<{ year: i32 }>;
 // Language is equal to
-type Language = { language: string; year: i32 };
+type Language = { language: String; year: i32 };
 ```
 
 Destructure the record:
@@ -1319,14 +1320,6 @@ const m2 = Map.from([
 m.set(String.from("one"), 1);
 ```
 
-## Slice
-
-```typescript
-const x: string = "Hello, world";
-const xs: i32[5] = [1, 2, 3, 4, 5];
-const empty_array: i32[0] = [];
-```
-
 ## Error handling
 
 ```typescript
@@ -1343,6 +1336,47 @@ const main = (?throw: Exception<MyError>)=>  {
 ```typescript
 const x: i32 = 1;
 const y: f32 = x as f32;
+```
+
+## Algebraic effects `In Design`
+
+We support the one-shot delimited continuation.
+
+### Effectful function
+
+Effectful function defined using `control` keyword can `resume` to continue the continuation:
+
+`resume` can only be called once (?). It's like a closure of linear type.
+
+```typescript
+const safe_divide = (x: i32, y: i32,
+  // raise is an effectful function
+  raise: control (msg: const* str)=> i32)=> {
+  if (y == 0) {
+    return raise("Division by zero");
+  }
+  return x / y;
+}
+
+// `resume`
+const handle = ()=> i32 {
+  // Effect handler
+  const raise = control (msg: const* str)=> i32 {
+    resume(10);
+  }
+  return 1 + safe_divide(3, 0, raise) + 2; // 13
+}
+
+// `abort`
+const handle2 = ()=> i32 {
+  // Effect handler
+  const raise = control (msg: const* str)=> i32 {
+    return 10; // abort the continuation without resume
+               // its return type must match the return type of the parent function.
+  }
+  return 1 + safe_divide(3, 0, raise) + 2; // 10
+                                           // continuation aborted.
+}
 ```
 
 ## async/await
