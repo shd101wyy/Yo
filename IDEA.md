@@ -20,7 +20,7 @@ compiles to:
 
 ```typescript
 const main = ()=> void {
-  const wait_for_seconds = (seconds: u32, resume: (i32)=> void)=> i32 {
+  const wait_for_seconds = (seconds: u32, resume: [^](i32)=> void)=> i32 {
     set_timeout(()=> {
       println("Done");
       return resume(12);
@@ -34,7 +34,65 @@ const main = ()=> void {
 }
 ```
 
-## Calling multiple effects
+Another example:
+
+```typescript
+const traverse = (xs: List<i32>, ?yield: control(i: i32)=> boolean)=> void {
+  match(xs) {
+    case Cons:
+      if (yield(xs.head)) {
+        return traverse(xs.tail, yield);
+      } else {
+        return;
+      }
+    case Nil:
+      return;
+  }
+}
+
+const print_elements = ()=> {
+  const ?yield = control(i: i32)=> boolean {
+    println("Yielded: " + i);
+    return resume(i <= 2);
+  }
+  print("Before traverse");
+  traverse(Cons(1, Cons(2, Cons(3, Nil))));
+  print("After traverse");
+}
+```
+
+compiles to:
+
+```typescript
+const traverse = (xs: List<i32>, ?yield: control(i: i32)=> boolean)=> void {
+  match(xs) {
+    case Cons:
+      yield(xs.head, [=](flag: boolean)=> {
+        if (flag) {
+          return traverse(xs.tail, yield);
+        } else {
+          return;
+        }
+      })
+    case Nil:
+      return;
+  }
+}
+
+const print_elements = ()=> {
+  const ?yield = (i: i32, resume: [^](boolean)=> void)=> void {
+    println("Yielded: " + i);
+    return resume(i <= 2);
+  }
+  print("Before traverse");
+  traverse(Cons(1, Cons(2, Cons(3, Nil))), yield);
+  print("After traverse");
+}
+```
+
+## Calling multiple effects simultaneously
+
+QUESTION: Should we do that this way? It seems to break the control flow.  
 
 ```typescript
 const main = ()=> i32 {
