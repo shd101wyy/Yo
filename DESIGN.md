@@ -35,7 +35,6 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Contextual parameters, aka implicit parameters](#contextual-parameters-aka-implicit-parameters)
     - [Compiletime](#compiletime)
     - [Runtime](#runtime)
-    - [Algebraic effects `In Design`](#algebraic-effects-in-design)
   - [Uniform Function Call Syntax](#uniform-function-call-syntax)
   - [`defer`](#defer)
   - [`recur` `In Design`](#recur-in-design)
@@ -50,8 +49,8 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Type constraints](#type-constraints)
 - [Control Flow](#control-flow)
   - [if/else](#ifelse)
-  - [while](#while)
-  - [for](#for)
+  - [while `Might be removed`](#while-might-be-removed)
+  - [for `Might be removed`](#for-might-be-removed)
 - [Type synonyms](#type-synonyms)
 - [Enum (Algebraic Data Types)](#enum-algebraic-data-types)
   - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
@@ -67,7 +66,9 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Map](#map)
 - [Error handling](#error-handling)
 - [Type casting](#type-casting)
-- [async/await](#asyncawait)
+- [Algebraic effects `In Design`](#algebraic-effects-in-design)
+  - [Effectful function](#effectful-function)
+- [async/await `Hard to implement`](#asyncawait-hard-to-implement)
 - [Modules](#modules)
 - [Compilation `In Design`](#compilation-in-design)
 - [Meta-programming `In Design`](#meta-programming-in-design)
@@ -596,7 +597,6 @@ const main = ()=> {
 }
 ```
 
-
 ### Uniform Function Call Syntax
 
 ```typescript
@@ -818,6 +818,8 @@ A closure can be defined using the following syntax:
 [{captures}]<type parameters>(paramters)=> return_type { body }
 ```
 
+where `[=]` means to automatically capture the variable by value, and `[&]` means to automatically capture the variable by reference.
+
 Examples:
 
 ```typescript
@@ -825,6 +827,7 @@ const test = ()=> {
   var x = 1;
 
   const increment: [*](a: i32)=> void = [{x: &x}](a: i32)=> {
+  //                                  = [&](a: i32)=> {
     // const {x} = increment;
     *x = *x + a;
   }
@@ -840,6 +843,7 @@ const test = ()=> {
   var x: Data = malloc(); // Some `Fake` Data.
 
   var increment: [^]()=> void; = [{x: x}]()=> {
+  //                           = [=]()=> {
     // const {x} = increment;
     drop(x);
   }
@@ -948,7 +952,7 @@ const main = () => {
 };
 ```
 
-### while
+### while `Might be removed`
 
 ```typescript
 const factorial = (n: i32)=> i32 {
@@ -962,7 +966,7 @@ const factorial = (n: i32)=> i32 {
 }
 ```
 
-### for
+### for `Might be removed`
 
 ```typescript
 const factorial = (n: i32)=> i32 {
@@ -1346,12 +1350,13 @@ We support the one-shot delimited continuation.
 
 Effectful function defined using `control` keyword can `resume` to continue the continuation:
 
-`resume` can only be called once (?). It's like a closure of linear type.
+`resume` must be consumed once. It's like a closure of linear type.
 
 ```typescript
 const safe_divide = (x: i32, y: i32,
   // raise is an effectful function
-  raise: control (msg: const* str)=> i32)=> {
+  raise: control (msg: const* str)=> i32
+)=> {
   if (y == 0) {
     return raise("Division by zero");
   }
@@ -1359,18 +1364,19 @@ const safe_divide = (x: i32, y: i32,
 }
 
 // `resume`
-const handle = ()=> i32 {
+const handle_resume = ()=> i32 {
   // Effect handler
   const raise = control (msg: const* str)=> i32 {
-    resume(10);
+    return resume(10);
   }
   return 1 + safe_divide(3, 0, raise) + 2; // 13
 }
 
 // `abort`
-const handle2 = ()=> i32 {
+const handle_abort = ()=> i32 {
   // Effect handler
   const raise = control (msg: const* str)=> i32 {
+    drop(resume); // Meaning we will not resume the continuation.
     return 10; // abort the continuation without resume
                // its return type must match the return type of the parent function.
   }
@@ -1379,7 +1385,27 @@ const handle2 = ()=> i32 {
 }
 ```
 
-## async/await
+```typescript
+// A `control` function cannot be defined
+// at the top level of a module or a function
+// because it doens't have a parent function whose continuation to resume.
+
+const main = ()=> {
+  const wait_for_seconds = control (seconds: u32)=> i32 {
+    set_timeout(()=> {
+      println("Done");
+      return resume(12);
+    }, seconds * 1000);
+  }
+
+  println("Before timeout");
+  const result = wait_for_seconds(1);
+  println("After timeout");
+  println(result); // 12
+}
+```
+
+## async/await `Hard to implement`
 
 Similar to JavaScript, **Mo** supports async/await.
 
