@@ -234,7 +234,7 @@ const myIntSlice: int[100] = [1, 2, 3]; // Stored on stack, with size 100. Free 
 const myArray: Array<int> = Array.from([1, 2, 3]); // Stored on heap. Linear type.
 
 const mySet: Set<int> = Set.from([1, 2, 3]); // Stored on heap. Linear type.
-const myMap: Map<const* str, int> = Map.from([
+const myMap: Map<*const str, int> = Map.from([
   ["one", 1],
   ["two", 2],
 ]); // Stored on heap. Linear type.
@@ -820,6 +820,8 @@ A closure can be defined using the following syntax:
 
 where `[=]` means to automatically capture the variable by value, and `[&]` means to automatically capture the variable by reference.
 
+QUESTION: Should we make the captures explicit?
+
 Examples:
 
 ```typescript
@@ -1360,7 +1362,7 @@ Calling an effectful function requires using `do` keyword:
 ```typescript
 const safe_divide = (x: i32, y: i32,
   // raise is an effectful function
-  raise: control (msg: const* str)=> i32
+  raise: control (msg: *const str)=> i32
 )=> {
   if (y == 0) {
     return do raise("Division by zero");
@@ -1371,7 +1373,7 @@ const safe_divide = (x: i32, y: i32,
 // `resume`
 const handle_resume = ()=> i32 {
   // Effect handler
-  const raise = control (msg: const* str)=> i32 {
+  const raise = control (msg: *const str)=> i32 {
     return resume(10); // `resume` here has the type (i32)=>i32, where the 2nd `i32` matches the return type of the parent function `handle_resume` where it's defined.
   }
   return 1 + safe_divide(3, 0, raise) + 2; // 13
@@ -1380,7 +1382,7 @@ const handle_resume = ()=> i32 {
 // `abort`
 const handle_abort = ()=> i32 {
   // Effect handler
-  const raise = control (msg: const* str)=> i32 {
+  const raise = control (msg: *const str)=> i32 {
     drop(resume); // Meaning we will not resume the continuation.
     return 10; // abort the continuation without calling `resume`
                // its return type must match the return type of the parent function. Here it's `i32` from `handle_abort`.
