@@ -68,7 +68,7 @@ We will also post a series of articles on the design and implementation of **Mo*
 - [Type casting](#type-casting)
 - [Algebraic effects `In Design`](#algebraic-effects-in-design)
   - [Effectful function](#effectful-function)
-- [async/await `Hard to implement`](#asyncawait-hard-to-implement)
+  - [Run multiple continuations](#run-multiple-continuations)
 - [Modules](#modules)
 - [Compilation `In Design`](#compilation-in-design)
 - [Meta-programming `In Design`](#meta-programming-in-design)
@@ -1352,13 +1352,18 @@ Effectful function defined using `control` keyword can `resume` to continue the 
 
 `resume` must be consumed once. It's like a closure of linear type.
 
+Calling an effectful function requires using `do` keyword:
+
+- `do` is necessary to consume the effectful function. 
+- `do` means there is a continuation which might either resume or abort.  
+
 ```typescript
 const safe_divide = (x: i32, y: i32,
   // raise is an effectful function
   raise: control (msg: const* str)=> i32
 )=> {
   if (y == 0) {
-    return raise("Division by zero");
+    return do raise("Division by zero");
   }
   return x / y;
 }
@@ -1367,7 +1372,7 @@ const safe_divide = (x: i32, y: i32,
 const handle_resume = ()=> i32 {
   // Effect handler
   const raise = control (msg: const* str)=> i32 {
-    return resume(10); // `resume` here has the type (i32)=>i32, where the 2nd `i32` matches the return type of the caller function `safe_divide`.
+    return resume(10); // `resume` here has the type (i32)=>i32, where the 2nd `i32` matches the return type of the parent function `handle_resume` where it's defined.
   }
   return 1 + safe_divide(3, 0, raise) + 2; // 13
 }
@@ -1378,47 +1383,47 @@ const handle_abort = ()=> i32 {
   const raise = control (msg: const* str)=> i32 {
     drop(resume); // Meaning we will not resume the continuation.
     return 10; // abort the continuation without calling `resume`
-               // its return type must match the return type of the caller function. Here it's `i32` from `safe_divide`.
+               // its return type must match the return type of the parent function. Here it's `i32` from `handle_abort`.
   }
-  return 1 + safe_divide(3, 0, raise) + 2; // 10 QUESTION: Is this correct?
+  return 1 + safe_divide(3, 0, raise) + 2; // 10
                                            // continuation aborted.
 }
 ```
 
 ```typescript
-// A `effect` function cannot be defined at the top level of a module or a function,
-// because it doens't have a caller function whose continuation to resume.
+// An effectful function cannot be defined at the top level of a module or a function,
+// because it doens't have a parent function whose continuation to resume.
 
 const main = ()=> {
   const wait_for_seconds = control (seconds: u32)=> i32 {
     set_timeout(()=> {
       println("Done");
-      return resume(12); // resume here has type: (i32)=> void, where `void` matches the return type of the caller function `main`
+      return resume(12); // resume here has type: (i32)=> void, where `void` matches the return type of the parent function `main`
     }, seconds * 1000);
   }
 
   println("Before timeout");
-  const result = wait_for_seconds(1);
+  const result = do wait_for_seconds(1);
   println("After timeout");
   println(result); // 12
 }
 ```
 
-## async/await `Hard to implement`
-
-Similar to JavaScript, **Mo** supports async/await.
+### Run multiple continuations
 
 ```typescript
-const wait_for_seconds = (seconds: u32)=> Promise<void> {
-  return Promise.new((resolve, reject)=> {
-    set_timeout(resolve, seconds * 1000);
-  });
-}
+const main = ()=> {
+  const wait_for_seconds = control (sec: u32)=> i32 {
+    set_timeout(()=> {
+      println("Done");
+      resume(sec);
+    }, sec * 1000);
+  }
 
-const main = async ()=> {
-  println("Start");
-  await wait_for_seconds(1);
-  println("End");
+  print("before wait");
+  const waited_1 = do wait_for_seconds(1); // 1
+  print("after wait_1");
+  const [waited_2, waited_3] = do [wait_for_seconds(2), wait_for_seconds(3)]; // [2, 3]
 }
 ```
 
