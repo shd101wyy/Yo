@@ -53,10 +53,10 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [for `Might be removed`](#for-might-be-removed)
 - [Type synonyms](#type-synonyms)
 - [Enum (Algebraic Data Types)](#enum-algebraic-data-types)
-  - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
 - [Advanced Types `In Design`](#advanced-types-in-design)
   - [Dependent types `In Design`](#dependent-types-in-design)
   - [Refinement types `In Design`](#refinement-types-in-design)
+  - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
 - [Typeclass](#typeclass)
 - [Pattern Matching](#pattern-matching)
   - [Using Range in `case`](#using-range-in-case)
@@ -66,8 +66,8 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Map](#map)
 - [Error handling](#error-handling)
 - [Type casting](#type-casting)
-- [Algebraic effects `In Design`](#algebraic-effects-in-design)
-  - [Effectful function](#effectful-function)
+- [Continuation `In Design`](#continuation-in-design)
+  - [K - Continuation](#k---continuation)
   - [Run multiple continuations](#run-multiple-continuations)
 - [Modules](#modules)
 - [Compilation `In Design`](#compilation-in-design)
@@ -1081,28 +1081,6 @@ const anotherHome = V4(v3 = 200);
 const loopback = V6(String.from("::1"))
 ```
 
-### Generalized Algebraic Data Types (GADTs) `In Design`
-
-```typescript
-enum Expr<T> {
-  IntExpr(i: i32): Expr<i32>,
-  BoolExpr(b: boolean): Expr<boolean>,
-  EqExpr(left: Expr<i32>, right: Expr<i32>): Expr<boolean>
-}
-
-const eval = <T>(expr: Expr<T>)=> T {
-  // with Expr<T>;
-  match(expr) {
-    case IntExpr: expr.i,
-    case BoolExpr: expr.b,
-    case EqExpr: eval(expr.left) == eval(expr.right)
-  }
-}
-
-const expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
-eval(expr1); // false
-```
-
 ## Advanced Types `In Design`
 
 ### Dependent types `In Design`
@@ -1162,7 +1140,28 @@ const set = <T, a: T[]>(index: Index<T, a>, array: a, value: T)=> void {
 const head = <T>(array: NotEmptyArray<T>)=> T {
   return array[0];
 }
+```
 
+### Generalized Algebraic Data Types (GADTs) `In Design`
+
+```typescript
+enum Expr<T> {
+  IntExpr(i: i32): Expr<i32>,
+  BoolExpr(b: boolean): Expr<boolean>,
+  EqExpr(left: Expr<i32>, right: Expr<i32>): Expr<boolean>
+}
+
+const eval = <T>(expr: Expr<T>)=> T {
+  // with Expr<T>;
+  match(expr) {
+    case IntExpr: expr.i,
+    case BoolExpr: expr.b,
+    case EqExpr: eval(expr.left) == eval(expr.right)
+  }
+}
+
+const expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
+eval(expr1); // false
 ```
 
 ## Typeclass
@@ -1344,63 +1343,48 @@ const x: i32 = 1;
 const y: f32 = x as f32;
 ```
 
-## Algebraic effects `In Design`
+## Continuation `In Design`
 
-We support the one-shot delimited continuation.
+**Mo** supports the one-shot delimited continuation.
 
-### Effectful function
+### K - Continuation
 
-Effectful function defined using `control` keyword can `resume` to continue the continuation:
+A function returning a value of `K` type is a continuation function.
 
-`resume` must be consumed once. It's like a closure of linear type.
+An `resume` function will be exposed to the continuation function.  
+The `resume` function must be consumed once. It's like a closure of linear type.
 
-Calling an effectful function requires using `do` keyword:
+The `do` keyword is used to take out the value from the `K`.  
+The `do` keyword can only be used in the continuation function that returns `K`.  
+The `do` keyword decides where to `resume` the continuation.
 
-- `do` is necessary to consume the effectful function. 
-- `do` means there is a continuation which might either resume or abort.  
+The `return` keyword is not allowed in the continuation function.
 
 ```typescript
-const safe_divide = (x: i32, y: i32,
-  // raise is an effectful function
-  raise: control (msg: *const str)=> i32
-)=> {
+const safe_divide = (x: i32, y: i32, raise: (msg: *const str)=> K<i32>
+)=> K<i32> {
   if (y == 0) {
-    return do raise("Division by zero");
+    resume(do raise("Division by zero"));
+  } else {
+    resume(x / y);
   }
-  return x / y;
 }
 
 // `resume`
-const handle_resume = ()=> i32 {
-  // Effect handler
-  const raise = control (msg: *const str)=> i32 {
-    return resume(10); // `resume` here has the type (i32)=>i32, where the 2nd `i32` matches the return type of the parent function `handle_resume` where it's defined.
+const handle_resume = ()=> K<i32> {
+  const raise = (msg: *const str)=> K<i32> {
+    resume(10);
   }
-  return 1 + safe_divide(3, 0, raise) + 2; // 13
-}
-
-// `abort`
-const handle_abort = ()=> i32 {
-  // Effect handler
-  const raise = control (msg: *const str)=> i32 {
-    drop(resume); // Meaning we will not resume the continuation.
-    return 10; // abort the continuation without calling `resume`
-               // its return type must match the return type of the parent function. Here it's `i32` from `handle_abort`.
-  }
-  return 1 + safe_divide(3, 0, raise) + 2; // 10
-                                           // continuation aborted.
+  return 1 + do safe_divide(3, 0, raise) + 2; // 13
 }
 ```
 
 ```typescript
-// An effectful function cannot be defined at the top level of a module or a function,
-// because it doens't have a parent function whose continuation to resume.
-
-const main = ()=> {
-  const wait_for_seconds = control (seconds: u32)=> i32 {
+const main = ()=> K<void> {
+  const wait_for_seconds = (seconds: u32)=> K<i32> {
     set_timeout(()=> {
       println("Done");
-      return resume(12); // resume here has type: (i32)=> void, where `void` matches the return type of the parent function `main`
+      resume(12);
     }, seconds * 1000);
   }
 
@@ -1414,18 +1398,25 @@ const main = ()=> {
 ### Run multiple continuations
 
 ```typescript
-const main = ()=> {
-  const wait_for_seconds = control (sec: u32)=> i32 {
+const main = ()=> K<void> {
+  const wait_for_seconds = (sec: u32)=> K<i32> {
     set_timeout(()=> {
-      println("Done");
+      println(sec);
       resume(sec);
     }, sec * 1000);
   }
 
-  print("before wait");
-  const waited_1 = do wait_for_seconds(1); // 1
-  print("after wait_1");
-  const [waited_2, waited_3] = do [wait_for_seconds(2), wait_for_seconds(3)]; // [2, 3]
+  print("before waits");
+  const wait_1 = wait_for_seconds(1); // print: 1
+  const wait_2 = wait_for_seconds(2); // print: 2
+  const wait_3 = wait_for_seconds(3); // print: 3
+  // The 3 functions are executed immediately.
+  do wait_1;
+  println("after wait 1");
+  do wait_2;
+  println("after wait 2");
+  do wait_3;
+  println("after wait 3");
 }
 ```
 
