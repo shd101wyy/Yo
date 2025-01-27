@@ -1,12 +1,12 @@
 # Language Design
 
-**Mo** 墨 🐼 is minimal, general-purpose, compiled programming language that incorporates the Linear Types.
+**Mo** 墨 🐼 is minimal, general-purpose, compiled programming language that incorporates the Linear Types and Algebraic Effects.
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
 **Mo** has a minimal syntax design that looks like TypeScript, and uses uniform call syntax (dot notation)~~, brace elison~~ to make the code more concise.
 
-**Mo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types. `In Design`
+**Mo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types `In Design`.
 
 Our goal is to be a practical language that is easy to use and easy to learn.
 
@@ -66,9 +66,9 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Map](#map)
 - [Error handling](#error-handling)
 - [Type casting](#type-casting)
-- [Continuation `In Design`](#continuation-in-design)
-  - [K - Continuation](#k---continuation)
-  - [Run multiple continuations](#run-multiple-continuations)
+- [Algebraic Effects `In Design`](#algebraic-effects-in-design)
+  - [Effectful function](#effectful-function)
+  - [Run multiple continuations `In Design`](#run-multiple-continuations-in-design)
 - [Modules](#modules)
 - [Compilation `In Design`](#compilation-in-design)
 - [Meta-programming `In Design`](#meta-programming-in-design)
@@ -1343,26 +1343,26 @@ const x: i32 = 1;
 const y: f32 = x as f32;
 ```
 
-## Continuation `In Design`
+## Algebraic Effects `In Design`
 
 **Mo** supports the one-shot delimited continuation.
 
-### K - Continuation
+### Effectful function
 
-A function returning a value of `K` type is a continuation function.
+An effectful function is defined with the `effect` keyword.
 
-An `resume` function will be exposed to the continuation function.  
-The `resume` function must be consumed once. It's like a closure of linear type.
+The continuation `k` will be exposed to the effectful function.  
+`k` is linear, and it must be consumed once.  
+Either `resume` or `abort` function can be called with the continuation `k`.
 
-The `do` keyword is used to take out the value from the `K`.  
-The `do` keyword can only be used in the continuation function that returns `K`.  
+The `do` keyword is used to call the effectful function.  
 The `do` keyword decides where to `resume` the continuation.
 
 The `return` keyword is not allowed in the continuation function.
 
 ```typescript
-const safe_divide = (x: i32, y: i32, raise: (msg: *const str)=> K<i32>
-)=> K<i32> {
+const safe_divide = (x: i32, y: i32, raise: effect (msg: *const str)=> i32
+)=> i32 {
   if (y == 0) {
     resume(do raise("Division by zero"));
   } else {
@@ -1371,17 +1371,25 @@ const safe_divide = (x: i32, y: i32, raise: (msg: *const str)=> K<i32>
 }
 
 // `resume`
-const handle_resume = ()=> K<i32> {
-  const raise = (msg: *const str)=> K<i32> {
-    resume(10);
+const handle_resume = ()=> i32 {
+  const raise = effect (msg: *const str)=> i32 {
+    resume(10, /* k */);
   }
   return 1 + do safe_divide(3, 0, raise) + 2; // 13
+}
+
+// `abort`
+const handle_abort = ()=> i32 {
+  const raise = effect (msg: *const str)=> i32 {
+    abort(10, /* k */);
+  }
+  return 1 + do safe_divide(3, 0, raise) + 2; // 10
 }
 ```
 
 ```typescript
-const main = ()=> K<void> {
-  const wait_for_seconds = (seconds: u32)=> K<i32> {
+const main = ()=> void {
+  const wait_for_seconds = effect (seconds: u32)=> i32 {
     set_timeout(()=> {
       println("Done");
       resume(12);
@@ -1395,11 +1403,11 @@ const main = ()=> K<void> {
 }
 ```
 
-### Run multiple continuations
+### Run multiple continuations `In Design`
 
 ```typescript
-const main = ()=> K<void> {
-  const wait_for_seconds = (sec: u32)=> K<i32> {
+const main = ()=> void {
+  const wait_for_seconds = effect (sec: u32)=> i32 {
     set_timeout(()=> {
       println(sec);
       resume(sec);
@@ -1407,16 +1415,12 @@ const main = ()=> K<void> {
   }
 
   print("before waits");
-  const wait_1 = wait_for_seconds(1); // print: 1
-  const wait_2 = wait_for_seconds(2); // print: 2
-  const wait_3 = wait_for_seconds(3); // print: 3
-  // The 3 functions are executed immediately.
-  do wait_1;
-  println("after wait 1");
-  do wait_2;
-  println("after wait 2");
-  do wait_3;
-  println("after wait 3");
+  const [wait1, wait2, wait3] = do [
+    wait_for_seconds(1),
+    wait_for_seconds(2),
+    wait_for_seconds(3),
+  ];
+  print("after wraits");
 }
 ```
 
