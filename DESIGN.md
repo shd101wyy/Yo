@@ -189,7 +189,6 @@ A type can have the following **Kind**:
 - `f32` (32-bit floating point)
 - `f64` (64-bit floating point)
 - `usize` (pointer size. It's `u32` on 32-bit system, `u64` on 64-bit system)
-- `()` (unit)
 
 #### `Linear` Types.
 
@@ -477,6 +476,11 @@ const add = (x: i32, y: i32)=> i32 {
   return x + y;
 }
 
+// or
+const add = (x: i32, y: i32)=> i32 {
+  x + y // The last expression is the return value.  `return` is optional.
+}
+
 // Or abbreviated form: `Not adopted yet`
 const add(x: i32, y: i32)=> i32 {
   return x + y;
@@ -510,10 +514,11 @@ const add = <T: Type, Integral<T>>(x: T, y: T)=> T {
 
 // Closure
 const add = [{y: 0}](x: i32)=> i32 {
-  y = x + y
+  y = x + y;
+  return y;
 };
-add(1); // {y: 1}
-add(1); // {y: 2}
+add(1); // 1
+add(1); // 2
 // add.y == 2
 
 // Curried function `In Design` `Hard` to support`
@@ -943,7 +948,7 @@ const less_than = <T: Type, Ord<T>, Show<T>>(x: T, y: T)=> boolean {
 
 ```typescript
 const main = () => {
-  // If no return type, it is () unit
+  // If no return type, it is `void`
   const number = 3;
 
   if (number < 5) {
