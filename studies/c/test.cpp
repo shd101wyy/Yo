@@ -18,5 +18,6 @@ int main() {
     cout << arr[0] << endl;
 
     auto s = "Hello";
+    char s2[] = "Hello";
     return 0;
 }

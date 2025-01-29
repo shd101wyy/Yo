@@ -32,6 +32,7 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Unique Pointer `In Design`](#unique-pointer-in-design)
   - [Cast Linear to Free](#cast-linear-to-free)
 - [Function Declaration](#function-declaration)
+  - [Named arguments](#named-arguments)
   - [Contextual parameters, aka implicit parameters](#contextual-parameters-aka-implicit-parameters)
     - [Compiletime](#compiletime)
     - [Runtime](#runtime)
@@ -72,6 +73,7 @@ We will also post a series of articles on the design and implementation of **Mo*
 - [Modules](#modules)
 - [Compilation `In Design`](#compilation-in-design)
 - [Meta-programming `In Design`](#meta-programming-in-design)
+  - [Macro](#macro)
 - [References](#references)
 
 <!-- /code_chunk_output -->
@@ -189,6 +191,7 @@ A type can have the following **Kind**:
 - `f32` (32-bit floating point)
 - `f64` (64-bit floating point)
 - `usize` (pointer size. It's `u32` on 32-bit system, `u64` on 64-bit system)
+- `symbol` (a unique identifier)
 
 #### `Linear` Types.
 
@@ -233,7 +236,7 @@ const myIntSlice: int[100] = [1, 2, 3]; // Stored on stack, with size 100. Free 
 const myArray: Array<int> = Array.from([1, 2, 3]); // Stored on heap. Linear type.
 
 const mySet: Set<int> = Set.from([1, 2, 3]); // Stored on heap. Linear type.
-const myMap: Map<*const str, int> = Map.from([
+const myMap: Map<*const u8[], int> = Map.from([
   ["one", 1],
   ["two", 2],
 ]); // Stored on heap. Linear type.
@@ -490,6 +493,8 @@ const add(x: i32, y: i32)=> i32 {
 const add = (x: i32 = 1, y: i32 = 2)=> i32 {
   return x + y;
 }
+add(); // 3
+add(y: 3); // 4
 
 // Generic function
 const identity = <T>(arg: T)=> T {
@@ -497,7 +502,7 @@ const identity = <T>(arg: T)=> T {
 }
 
 // Dependency injection
-const main = (?raise: (error: *const str)=> i32)=> void {
+const main = (?raise: (error: *const u8[])=> i32)=> void {
   const x: i32 = raise("Hello, world");
 }
 
@@ -508,7 +513,7 @@ const divide = (x: i32, y: NotZero)=> i32 {
 }
 
 // Type constraint
-const add = <T: Type, Integral<T>>(x: T, y: T)=> T {
+const add = <T: Type, using Integral<T>>(x: T, y: T)=> T {
   return x + y;
 }
 
@@ -520,13 +525,18 @@ const add = [{y: 0}](x: i32)=> i32 {
 add(1); // 1
 add(1); // 2
 // add.y == 2
+```
 
-// Curried function `In Design` `Hard` to support`
-const add = (x: i32)=> (y: i32)=> i32 {
-  x + y
+### Named arguments
+
+```typescript
+const add = (x: i32, y: i32)=> i32 {
+  return x + y;
 }
-const add_one = add(1);
-add_one(2); // 3
+add(y: 2, x: 1); // 3
+
+// You can also call a function without the parentheses:
+add y: 2, x: 1; // 3
 ```
 
 ### Contextual parameters, aka implicit parameters
@@ -543,8 +553,8 @@ export class Id<T> {
 };
 
 // main.mo
-import {Id, id} from "./id.mo";
-const useId = <T, Id<T>>(x: T)=> T {
+import "./id.mo", only: { Id, id };
+const useId = <T, using Id<T>>(x: T)=> T {
   id(x)
 }
 ```
@@ -666,10 +676,10 @@ If `recur` is the last expression, tail-call optimization will be applied.
 
   ```typescript
   (x: u32, acc: u32 = 1) => {
-    if (x == 1) {
-      return 1;
+    if x == 1 {
+      1
     } else {
-      return recur(x - 1, acc * x);
+      recur(x - 1, acc * x)
     }
   };
   ```
@@ -678,10 +688,10 @@ If `recur` is the last expression, tail-call optimization will be applied.
 
   ```typescript
   (x: u32) => {
-    if (x == 1) {
-      return 1;
+    if x == 1 {
+      1
     } else {
-      return x * recur(x - 1);
+      x * recur(x - 1)
     }
   };
   ```
@@ -762,7 +772,7 @@ i32_slice[0] = 10;
 
 
 const set_value = (arr: *i32[], index: usize, value: i32)=> {
-  if (index < arr.length) { // arr.length is runtime known
+  if index < arr.length { // arr.length is runtime known
     arr[index] = value;
   }
 }
@@ -783,20 +793,20 @@ const set_value_3 = (arr: i32[3], index: usize, value: i32)=> {
 ```typescript
 type str = u8[,'\0'];
 
-const constant_str = "Hello"; // str: *const u8[5,'\0']
+const constant_str = "Hello"; // constant_str: *const u8[5,'\0']
                      // ['H', 'e', 'l', 'l', 'o', '\0']
 constant_str.length; // 5 (excluding '\0'), compile-time known
 
-var str = *"Hello"; // str: u8[5,'\0'], convert to mutable array
+var mutable_str = *"Hello"; // mutable_str: u8[5,'\0'], convert to mutable array
                      // ['H', 'e', 'l', 'l', 'o', '\0']
-str.length; // 5 (excluding '\0'), compile-time known
+mutable_str.length; // 5 (excluding '\0'), compile-time known
 
-const slice_1 = &str[0:2]; // slice_1: *u8[]
+const slice_1 = &mutable_str[0:2]; // slice_1: *u8[]
                            // ['H', 'e']
 slice_1.length; // 2, runtime known
 slice_1[0] = 'h';
 
-// str: ['h', 'e', 'l', 'l', 'o', '\0']
+// mutable_str: ['h', 'e', 'l', 'l', 'o', '\0']
 // slice_1: ['h', 'e']
 ```
 
@@ -909,7 +919,7 @@ const id = <T>(x: T)=> T { // T will be inferred as `Type` kind
 
 ### Type constraints
 
-Type constraints are achieved using the implicit parameters.
+Type constraints are achieved using the `using` keyword.
 
 ```typescript
 // show.mo
@@ -930,13 +940,15 @@ instance Show<String> {
 }
 
 // main.mo
-import { show, Show } from "./show.mo";
-export const show = <T, Show<T>>(x: Array<T>)=> String {
+import "./show.mo", only: { show, Show };
+
+export const show = <T, using Show<T>>(x: Array<T>)=> String {
   // ...
 }
 
-import { show, Show } from "./show.mo";
-const less_than = <T: Type, Ord<T>, Show<T>>(x: T, y: T)=> boolean {
+import "./show.mo", only: { show, Show };
+
+const less_than = <T: Type, using Ord<T>, Show<T>>(x: T, y: T)=> boolean {
   println(show(x));
   return x < y;
 }
@@ -951,7 +963,7 @@ const main = () => {
   // If no return type, it is `void`
   const number = 3;
 
-  if (number < 5) {
+  if number < 5 {
     println("condition was true");
   } else {
     println("condition was false");
@@ -1158,7 +1170,7 @@ enum Expr<T> {
 
 const eval = <T>(expr: Expr<T>)=> T {
   // with Expr<T>;
-  match(expr) {
+  match expr {
     case IntExpr: expr.i,
     case BoolExpr: expr.b,
     case EqExpr: eval(expr.left) == eval(expr.right)
@@ -1222,7 +1234,7 @@ enum Coin {
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
 const value_in_cents = (coin: Coin)=> u8 {
-  match (coin) {
+  match coin {
     case Penny: {
       println("Lucky penny!");
       return 1;
@@ -1240,7 +1252,7 @@ enum List<T> {
 
 
 const list_length = <T>(list: &List<T>)=> i32 {
-  match (list) {
+  match list {
     case Nil: 0,
     case Cons: {
       const {tail} = list;
@@ -1254,7 +1266,7 @@ const list_length = <T>(list: &List<T>)=> i32 {
 
 ```typescript
 const check_int = (x: i32)=> {
-  match(x) {
+  match x {
     case 1:
     case 2:
     case 3:
@@ -1280,7 +1292,7 @@ Can also use range:
 
 ```typescript
 const check_int = (x: i32)=> {
-  match(x) {
+  match x {
     case 1 .. 6: {
       println("1 to 6");
     }
@@ -1366,9 +1378,9 @@ The `do` keyword decides where to `resume` the continuation.
 The `return` keyword is not allowed in the continuation function.
 
 ```typescript
-const safe_divide = (x: i32, y: i32, raise: effect (msg: *const str)=> i32
+const safe_divide = (x: i32, y: i32, raise: effect (msg: *const u8[])=> i32
 )=> i32 {
-  if (y == 0) {
+  if y == 0 {
     resume(do raise("Division by zero"));
   } else {
     resume(x / y);
@@ -1377,7 +1389,7 @@ const safe_divide = (x: i32, y: i32, raise: effect (msg: *const str)=> i32
 
 // `resume`
 const handle_resume = ()=> i32 {
-  const raise = effect (msg: *const str)=> i32 {
+  const raise = effect (msg: *const u8[])=> i32 {
     resume(10, /* k */);
   }
   return 1 + do safe_divide(3, 0, raise) + 2; // 13
@@ -1385,7 +1397,7 @@ const handle_resume = ()=> i32 {
 
 // `abort`
 const handle_abort = ()=> i32 {
-  const raise = effect (msg: *const str)=> i32 {
+  const raise = effect (msg: *const u8[])=> i32 {
     abort(10, /* k */);
   }
   return 1 + do safe_divide(3, 0, raise) + 2; // 10
@@ -1436,7 +1448,7 @@ Similar to the ECMAScript modules, we use the `import` and `export` keywords to 
 QUESTION: Should we allow to `export` a linear type value?
 
 ```typescript
-import { copy } from "https://github.com/mo-lang/mo/std/fs.mo";
+import "https://github.com/mo-lang/mo/std/fs.mo", only: { copy };
 
 const test = ()=> {
   println("Hello, world!");
@@ -1469,13 +1481,13 @@ export "C" const x = 1;
 
 ```typescript
 // There is no `default` export.
-import * from "./test.mo"; // Import everything from test.mo
-import * as Test from "./test.mo"; // Import everything from test.mo and put it in the Test namespace
+import "./test.mo"; // Import everything from test.mo
+import "./test.mo", as: Test; // Import everything from test.mo and put it in the Test namespace
 
-import { test } from "./test.mo"; // Import test function from test.mo
-import { test as test2 } from "./test.mo"; // Import test function from test.mo and rename it to test2
+import "./test.mo", only: { test }; // Import test function from test.mo
+import "./test.mo", only: { test as test2 }; // Import test function from test.mo and rename it to test2
 
-import { Option } from "./test.mo"; // Import Option enum from test.mo
+import "./test.mo", only: { Option }; // Import Option enum from test.mo
 
 /*
 // BELOW ARE IN DESIGN
@@ -1485,8 +1497,8 @@ import { Option as AnotherOption:* } from "./test.mo"; // Unwrap all variants fr
 */
 
 // All exported instances are implicitly imported.
-import { id } from "./test.mo"; // Import `id` function defined in `Id` interface from test.mo
-import { Id } from "./test.mo"; // Import `Id` interface from test.mo
+import "./test.mo", only: { id }; // Import `id` function defined in `Id` interface from test.mo
+import "./test.mo", only: { Id }; // Import `Id` interface from test.mo
 ```
 
 `mo.json` and `mo.lock`
@@ -1521,25 +1533,39 @@ Boostrapping the **Mo** compiler is not a priority at the moment. We will do it 
 
 ## Meta-programming `In Design`
 
-```typescript
-macro add("(", e: Expr, ")") {
-  `((${e}) + 1)`
-}
+`quote` is similar to the `quasiquote` in Lisp.  
+`unquote` can only be used in `quote`.  
+`unquote_splicing` can only be used in `quote` to splice the values into the AST.
 
+```typescript
 const x = 1;
-const y = add(x + 1); // 3
-// The above code is equal to
-const y = ((x + 1) + 1);
+
+const list = quote([0, unquote(x), 2]); // [0, 1, 2]
+
+const list2 = quote([0, x, 2]); // [0, [:variable, :x], 2]
+
+quote([0, unquote_splicing(list), 4]); // [0, 1, 2, 3, 4]
 ```
 
+### Macro
+
+Use the `macro` keyword to define a macro.
+
 ```typescript
-macro add("(", ...exprs: Expr[], ")") {
-  `(${exprs.join(" + ")})`
+export macro if(condition, do, else) {
+  quote {
+    match unquote(condition) {
+      case true: unquote(do),
+      default: unquote(else)
+    }
+  }
 }
 
-add(1, 2, 3); // 6
-// The above code is equal to
-(1 + 2 + 3)
+export macro unless(condition, do) {
+  quote {
+    if (!unquote(condition), do: unquote(do))
+  }
+}
 ```
 
 ## References
