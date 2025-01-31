@@ -42,6 +42,7 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Custom Operators](#custom-operators)
   - [Mulitple Return Values `In Design`](#mulitple-return-values-in-design)
 - [Duck Typing `In Design`](#duck-typing-in-design)
+- [Tuple](#tuple)
 - [Array & Slice](#array--slice)
 - [Closure `In Design`](#closure-in-design)
 - [Mutability `To be updated`](#mutability-to-be-updated)
@@ -62,7 +63,7 @@ We will also post a series of articles on the design and implementation of **Mo*
 - [Pattern Matching](#pattern-matching)
   - [Using Range in `case`](#using-range-in-case)
 - [Collections](#collections)
-  - [Array](#array)
+  - [ArrayList](#arraylist)
   - [String](#string)
   - [Map](#map)
 - [Error handling](#error-handling)
@@ -179,7 +180,7 @@ A type can have the following **Kind**:
 
 #### `Free` Types
 
-- `boolean`
+- `boolean` (true or false)
 - `u8` (8-bit unsigned integer)
 - `u16` (16-bit unsigned integer)
 - `u32` (32-bit unsigned integer)
@@ -218,25 +219,27 @@ const example = (x: i32, y: i32) => {
 ### Type inference
 
 ```typescript
-const mySymbol = "Hi"; // *const u8[2,'\0']. Free type
+const my_symbol = :hi; // symbol,. Free type
+const my_symbol_with_space = :"hi there"; // symbol,. Free type
 
-const myString: String = String.from("Hello, world"); // Stored on heap. Linear type.
-const myString2 = myString; // myString2: String. Linear type. myString is moved and consumed. myString2 now takes the ownership.
-const myString3 = myString; // Error: myString is already consumed.
-const myString4: *const String = &myString2; // myString4: *const String. Free type
-const myString5 = myString4; // myString5: &String. Free type
+const my_string: String = String.from("Hello, world"); // Stored on heap. Linear type.
+const my_string_2 = my_string; // my_string_2: String. Linear type. my_string is moved and consumed. my_string_2 now takes the ownership.
+const my_string_3 = my_string; // Error: my_string is already consumed.
+const my_string_4: *const String = &my_string_2; // my_string_4: *const String. Free type
+const my_string_5 = my_string_4; // my_string_5: &String. Free type
 
-const myInt = 1; // Stored on stack. Free type
-const myInt2 = myInt; // myInt2: i32, Free type
-const myInt3: *const i32 = &myInt; // myInt3: *const. Free type
-const myInt4 = myInt3; // myInt4: *const i32. Free type
+const my_int = 1; // Stored on stack. Free type
+const my_int_2 = my_int; // my_int_2: i32, Free type
+const my_int_3: *const i32 = &my_int; // my_int_3: *const. Free type
+const my_int_4 = my_int_3; // my_int_4: *const i32. Free type
 
-const myIntSlice: int[] = [1, 2, 3]; // Stored on stack, with size 3. Free type
-const myIntSlice: int[100] = [1, 2, 3]; // Stored on stack, with size 100. Free type
-const myArray: Array<int> = Array.from([1, 2, 3]); // Stored on heap. Linear type.
+const my_int_array: i32[3] = [1, 2, 3]; // Stored on stack, with size 3. Free type
+const my_int_array: i32[100] = [1, 2, 3]; // Stored on stack, with size 100. Free type
+const my_int_array = [1, 2, 3]; // i32[3]; Free type
+const my_array_list: ArrayList<i32> = ArrayList.from([1, 2, 3]); // Stored on heap. Linear type.
 
-const mySet: Set<int> = Set.from([1, 2, 3]); // Stored on heap. Linear type.
-const myMap: Map<*const u8[], int> = Map.from([
+const my_set: Set<i32> = Set.from([1, 2, 3]); // Stored on heap. Linear type.
+const my_map: Map<*const u8[], i32> = Map.from([
   ["one", 1],
   ["two", 2],
 ]); // Stored on heap. Linear type.
@@ -484,6 +487,12 @@ const add = (x: i32, y: i32)=> i32 {
   x + y // The last expression is the return value.  `return` is optional.
 }
 
+const last_void_expr = (x: i32, y: i32)=> void {
+  x + y;
+  // This is allowed as the last expression is `void`.
+}
+
+
 // Or abbreviated form: `Not adopted yet`
 const add(x: i32, y: i32)=> i32 {
   return x + y;
@@ -495,6 +504,7 @@ const add = (x: i32 = 1, y: i32 = 2)=> i32 {
 }
 add(); // 3
 add(y: 3); // 4
+add 2, 3; // 5
 
 // Generic function
 const identity = <T>(arg: T)=> T {
@@ -513,7 +523,7 @@ const divide = (x: i32, y: NotZero)=> i32 {
 }
 
 // Type constraint
-const add = <T: Type, using Integral<T>>(x: T, y: T)=> T {
+const add = <T: Type, use=[Integral<T>]>(x: T, y: T)=> T {
   return x + y;
 }
 
@@ -554,7 +564,7 @@ export class Id<T> {
 
 // main.mo
 import "./id.mo", only: { Id, id };
-const useId = <T, using Id<T>>(x: T)=> T {
+const useId = <T, use=[Id<T>]>(x: T)=> T {
   id(x)
 }
 ```
@@ -677,7 +687,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
   ```typescript
   (x: u32, acc: u32 = 1) => {
     if x == 1 {
-      1
+      acc
     } else {
       recur(x - 1, acc * x)
     }
@@ -734,16 +744,30 @@ const main = ()=> {
 
 ```typescript
 // This function can take any type that has a `length: i32` property.
-const printLength = (x: *const { length: i32 })=> {
+const print_length = (x: *const { length: i32 })=> {
   println(x.length);
 };
 
 const main = ()=> {
   const s = String.from("Hello, world");
-  printLength(&s);
+  print_length(&s);
   // ^ This works as the compiler converts it to below from the background:
-  printLength(&{ length: s.length })
+  print_length(&{ length: s.length })
 }
+```
+
+## Tuple
+
+Tuple is defined as a sequence of elements of different types, separated by commas and enclosed in parentheses.
+
+```typescript
+const my_unit = (); // my_unit: (). Free type
+
+const i32_tuple: (i32, i32, i32) = (1, 2, 3); // tuple: (i32, i32, i32). Free type
+
+const mixed_tuple = (1, true, "Hello"); // mixed_tuple: (i32, boolean, *const u8[6,'\0']). Free type
+
+const (a, b, c) = mixed_tuple; // a: i32, b: boolean, c: *const u8[6,'\0']. Free type
 ```
 
 ## Array & Slice
@@ -919,7 +943,7 @@ const id = <T>(x: T)=> T { // T will be inferred as `Type` kind
 
 ### Type constraints
 
-Type constraints are achieved using the `using` keyword.
+Type constraints are achieved using the `use` keyword list.
 
 ```typescript
 // show.mo
@@ -942,13 +966,13 @@ instance Show<String> {
 // main.mo
 import "./show.mo", only: { show, Show };
 
-export const show = <T, using Show<T>>(x: Array<T>)=> String {
+export const show = <T, use=[Show<T>]>(x: Array<T>)=> String {
   // ...
 }
 
 import "./show.mo", only: { show, Show };
 
-const less_than = <T: Type, using Ord<T>, Show<T>>(x: T, y: T)=> boolean {
+const less_than = <T: Type, use=[Ord<T>, Show<T>]>(x: T, y: T)=> boolean {
   println(show(x));
   return x < y;
 }
@@ -1308,15 +1332,13 @@ const check_int = (x: i32)=> {
 
 ## Collections
 
-### Array
+### ArrayList
 
 This is the dynamic array.
 
-QUESTION: Should we name it `ArrayList` instead of `Array`?
-
 ```typescript
-const v: Array<i32> = Array.new();
-const v2 = Array.from([1, 2, 3]);
+const v: ArrayList<i32> = ArrayList.new();
+const v2 = ArrayList.from([1, 2, 3]);
 const value = v2.at(0);
 ```
 
@@ -1381,9 +1403,9 @@ The `return` keyword is not allowed in the continuation function.
 const safe_divide = (x: i32, y: i32, raise: effect (msg: *const u8[])=> i32
 )=> i32 {
   if y == 0 {
-    resume(do raise("Division by zero"));
+    do raise("Division by zero")
   } else {
-    resume(x / y);
+    x / y
   }
 }
 
@@ -1392,7 +1414,7 @@ const handle_resume = ()=> i32 {
   const raise = effect (msg: *const u8[])=> i32 {
     resume(10, /* k */);
   }
-  return 1 + do safe_divide(3, 0, raise) + 2; // 13
+  return 1 + safe_divide(3, 0, raise) + 2; // 13
 }
 
 // `abort`
@@ -1552,18 +1574,34 @@ quote([0, unquote_splicing(list), 4]); // [0, 1, 2, 3, 4]
 Use the `macro` keyword to define a macro.
 
 ```typescript
-export macro if(condition, do, else) {
+export macro my_if(condition, then) {
+  quote {
+    if unquote(condition) unquote(then)
+  }
+}
+
+my_if true, {
+  println("true");
+}
+
+export macro my_if(condition, then: then_clause, else: else_clause) {
   quote {
     match unquote(condition) {
-      case true: unquote(do),
-      default: unquote(else)
+      case true: unquote(then_clause),
+      default: unquote(else_clause)
     }
   }
 }
 
+my_if true, then: {
+  println("true");
+}, else: {
+  println("false");
+}
+
 export macro unless(condition, do) {
   quote {
-    if (!unquote(condition), do: unquote(do))
+    my_if (!unquote(condition), do: unquote(do))
   }
 }
 ```
