@@ -81,7 +81,7 @@ We will also post a series of articles on the design and implementation of **Mo*
 
 ## Philosophy
 
-Just another "C", with a little bit of functional programming.  
+Static typed "Lisp" that compiles to "C".  
 Explicit is better than Implicit.  
 Strict is better than Loose.
 
@@ -139,10 +139,9 @@ Other languages that are worth mentioning that have influenced **Mo**:
 
 ## Hello World
 
-```typescript
-let main = () => {
-  println("Hello World!");
-};
+```clj
+(fn main []
+  (println "Hello World!"))
 ```
 
 ## CLI Usage
@@ -206,242 +205,253 @@ The [Austral language](https://austral-lang.org/) has a very good explanation on
 
 Like `rust`, **Mo** has two kinds of variables:
 
-```typescript
-let y = 5; // y: i32, immutable
-var x = 5; // x: i32, mutable
+```clj
+(let y 5)  ;; y :: i32, immutable
+(var x 5)  ;; x :: i32, mutable
 
-let example = (x: i32, y: i32) => {
-  x = 1; // Error: x is immutable
-  y = 2; // Error: y is immutable
-};
+(fn example [x y]
+  (set! x 1)  ;; Error: x is immutable
+  (set! y 2)) ;; Error: y is immutable
 ```
 
 ### Type inference
 
-```typescript
-let my_symbol = :hi; // symbol,. Free type
-let my_symbol_with_space = :"hi there"; // symbol,. Free type
+```clj
+(let my-symbol 'hi)  ;; my-symbol :: symbol
 
-let my_string: String = String.from("Hello, world"); // Stored on heap. Linear type.
-let my_string_2 = my_string; // my_string_2: String. Linear type. my_string is moved and consumed. my_string_2 now takes the ownership.
-let my_string_3 = my_string; // Error: my_string is already consumed.
-let my_string_4: *String = &my_string_2; // my_string_4: *String. Free type
-let my_string_5 = my_string_4; // my_string_5: &String. Free type
+(let my-string (String.from "Hello, world")) ;; my-string :: String // Stored on heap. Linear type.
+(let my-string-2 my-string)  ;; my-string-2 :: String // Linear type. my-string is moved and consumed. my-string-2 now takes the ownership.
+(let my-string-3 my-string)  ;; Error: my-string is already consumed.
+(let my-string-4 &my-string-2)  ;; my-string-4 :: *String // Free type
 
-let my_int = 1; // Stored on stack. Free type
-let my_int_2 = my_int; // my_int_2: i32, Free type
-let my_int_3: *i32 = &my_int; // my_int_3: *const. Free type
-let my_int_4 = my_int_3; // my_int_4: *i32. Free type
+(let my-int 1)  ;; my-int :: i32 // Stored on stack. Free type
+(let my-int-2 my-int)  ;; my-int-2 :: i32 // Free type
+(let my-int-3 &my-int)  ;; my-int-3 :: *i32 // Free type
+(let my-int-4 my-int-3)  ;; my-int-4 :: *i32 // Free type
 
-let my_int_array: i32[3] = [1, 2, 3]; // Stored on stack, with size 3. Free type
-let my_int_array: i32[100] = [1, 2, 3]; // Stored on stack, with size 100. Free type
-let my_int_array = [1, 2, 3]; // i32[3]; Free type
-let my_array_list: ArrayList<i32> = ArrayList.from([1, 2, 3]); // Stored on heap. Linear type.
+(let my-int-array [1 2 3])  ;; my-int-array :: i32[3] // Free type
 
-let my_set: Set<i32> = Set.from([1, 2, 3]); // Stored on heap. Linear type.
-let my_map: Map<*u8[], i32> = Map.from([
-  ["one", 1],
-  ["two", 2],
-]); // Stored on heap. Linear type.
+(::  my-int-array (Array i32 100))
+(let my-int-array [1 2 3])  ;; my-int-array :: i32[100] // Free type
 
-enum Person { // Linear type, as it contains a linear type.
-  Person(name: String, age: i32)
-}
-let p = Person(String.from("Alice"), 30); // p: Person. Linear type.
+(let my-array-list (ArrayList.from [1 2 3]))  ;; my-array-list :: (ArrayList i32) // Stored on heap. Linear type.
+
+(let my-set (Set.from [1 2 3]))  ;; my-set :: (Set i32) // Stored on heap. Linear type.
+(let my-map (Map.from [
+  ("one" 1)
+  ("two" 2)
+]))  ;; my-map :: (Map *u8[] i32) // Stored on heap. Linear type.
+
+(data Person ;; Linear type, as it contains a linear type.
+  (Person
+    String :label name
+    i32    :label age
+  ))
+(let p (Person (String.from "Alice") 30))  ;; p :: Person // Linear type.
 ```
 
 #### Uninitialized variable `In Design`
 
-```typescript
-var x: i32; // x: i32, uninitialized
+```clj
+(::  x i32)
+(var x)     ;; x :: i32, uninitialized
 
-// Compiler prevents using uninitialized variable.
-println(x); // Compiler Error: x is uninitialized.
+;; Compiler prevents using uninitialized variable.
+(println x) ;; Compiler Error: x is uninitialized.
 
-x = 1; // x: i32, initialized
+(set! x 1)     ;; x :: i32, initialized
 
-let y: i32; // y: i32, uninitialized
-y = 12; // Compiler Error: cannot assign to constant.
+(::  y i32)
+(let y)      ;; y :: i32, uninitialized
+(set! y 12)    ;; Error: cannot assign to constant.
 ```
 
 ### Transfer ownership
 
 Linear types can only be used once. When a linear type is transferred, it is consumed and cannot be used again.
 
-```typescript
-let x = String.from("Hello"); // x: String. Linear type
-let y = x; // y: String. Linear type. x is moved and consumed.
-let z = x; // Compiler Error: x is already consumed.
+```clj
+(let x (String.from "Hello"))  ;; x :: String, Linear type
+(let y x)  ;; y :: String, Linear type. x is moved and consumed.
+(let z x)  ;; Error: x is already consumed.
 ```
 
 ### immutable and mutable references
 
-```typescript
-// Immutable reference, using `*` or `^`
-{
-  let some_i = malloc(sizeof<i32>()); // i: Option<^i32> Linear type
-  let i = some_i.unwrap(); // i: ^i32. Linear type
+```clj
+;; Immutable reference, using `*` or `^`
+(let some-i (malloc (sizeof i32)))  ;; some-i :: (Option ^i32), Linear type
+(let i (unwrap some-i))  ;; i :: ^i32, Linear type
 
-  let p1: *i32 = i; // p: *i32. Free type
+(::  p1 (*mut i32))
+(let p1 i)  ;; p1 :: *mut i32, Free type
 
-  let p2: *i32 = i; // p: *i32. Free type
+(::  p2 *i32)
+(let p2 i)  ;; p2 :: *i32, Free type
 
-  let p2_2: *i32 = p2; // Compiler Error: Cannot assign a `*i32` to a `*i32`.
+(::  p2-2 *i32)
+(let p2-2 p2)  ;; Error: Cannot assign a `*const i32` to a `*i32`.
 
-  let p3 = i; // p: ^i32. Linear type, ownership is transferred.
-  free(p3);
+(::  p3 ^i32)
+(let p3 i)  ;; p3 :: ^i32, Linear type, ownership is transferred.
 
-  println(*p1); // Compile Error: The value it points to is consumed.
-}
+(free p3)
+
+(println *p1)  ;; Compile Error: The value it points to is consumed.
 ```
 
-```typescript
-{
-  var x = 1; // x: copied i32. Free type
-  let p1: *mut i32 = &x; // r: *mut i32. Free type
-  let p2: *mut i32 = &x; // p: *mut i32. Free type.
-  *p1 = 2;
-  // x == 2
-  // *p1 == 2
-  // *p2 == 2
-}
+```clj
+(var x 1)    ;; x :: i32, Free type
+
+(::  p1 (*mut i32))
+(let p1 &x)  ;; p1 :: *mut i32, Free type
+
+(::  p2 *i32)
+(let p2 &x)  ;; p2 :: *i32, Free type
+
+(set! *p1 2)
+;; x == 2
+;; *p1 == 2
+;; *p2 == 2
 ```
 
 A longer example:
 
-```typescript
-extern "C" {
-  length: (x: *String)=> i32;
-  push: (x: *String, value: String)=> ();
-  drop: (x: String)=> ();
-}
+```clj
+(extern "C" {
+  :length [*String -> i32]
+  :push   [*String *String -> ()]
+  :drop   [String -> ()]
+})
 
-let main = ()=> {
-  var x = String.from("Hello, world"); // x: String. mutable
-  let y: *String = &x; // y: *String   // mutable reference
-  let z: *String = &x; // z: *String   // immutable reference
+(fn main [] (do
+  (var x (String.from "Hello, world")) ;; x :: String, mutable
 
-  length(x);  // not allowed
-  length(y);  // allowed
-  length(z);  // allowed
-  x.length(); // allowed, implicit conversion to *const
+  (::  y (*mut String))
+  (let y &x) ;; y :: *mut String, Free type
 
-  let t = x;                           // transfer ownership
+  (::  z *String)
+  (let z &x) ;; z :: *String, Free type
 
-  length(x); // error: cannot access `x` because `x` is consumed.
-  length(y); // allowed
-  length(z); // allowed
+  (length x)  ;; not allowed
+  (length y)  ;; allowed
+  (length z)  ;; allowed
 
-  drop(t);                             // consume `t`
+  (let t x) ;; transfer ownership
 
-  length(x); // error: cannot access `x` because `x` is consumed.
-  length(y); // error: cannot access `y` because `t` is consumed.
-  length(z); // error: cannot access `z` because `t` is consumed.
-}
+  (length x)  ;; error: cannot access `x` because `x` is consumed.
+  (length y)  ;; allowed
+  (length z)  ;; allowed
+
+  (drop t) ;; consume `t`
+
+  (length x)  ;; error: cannot access `x` because `x` is consumed.
+  (length y)  ;; error: cannot access `y` because `t` is consumed.
+  (length z)  ;; error: cannot access `z` because `t` is consumed.
+))
 ```
 
 We can only dereference the free type.
 
-```typescript
-enum Person { // Linear type, as it contains a linear type.
-  Person(name: String, age: i32)
-}
-let name = String.from("Alice");
-let p = Person(name, 30); // p: Person. Linear type.
+```clj
+(data Person ;; Linear type, as it contains a linear type.
+  (Person
+    String :label name
+    i32    :label age
+  ))
+(let name (String.from "Alice"))
+(let p (Person name 30))  ;; p :: Person, Linear type
 
-{
-  let name = p.name; // name: String, Linear type. The `p` variable is consumed
-                       // when you extract a linear field from it.
-                       // NOTE: If `p` has more than one linear field, then when you destructure, you have to consume all the linear fields, otherwise it will be a compiler error.
+(do
+  (let name p.name)  ;; name :: String, Linear type. The `p` variable is consumed
+  (let age p.age)  ;; Error: `p` is consumed already.
+  )
 
-  let age = p.age; // Compiler Error: `p` is consumed already.
-}
+(do
+  (let { name :name age :age } p)
+)
 
-{
-  let { name, var age } = p;
-}
+(do
+  (let age p.age)  ;; age :: i32, Free type. The `p` variable is not consumed
+  (let name p.name)  ;; name :: String, Linear type. The `p` variable is consumed
+)
 
-{
-  var { name, age } = p;
-}
+(do
+  (let { another-name :name } p)  ;; another-name :: String, Linear type. The `p` variable is consumed
+                          ;; when you destructure a linear field from it.
+)
 
-{
-  let age = p.age; // age: i32, Free type. The `p` variable is not consumed
-                    // when you extract a free field from it.
+(do
+  (let { age :age } p)  ;; age :: i32, Free type. The `p` variable is not consumed
+                        ;; when you destructure only free fields from it.
+)
 
-  let name = p.name; // name: String, Linear type. The `p` variable is consumed
-}
+(do
+  ;; Creating references will not consume `p`:
+  (let name &p.name)  ;; name :: *String, Free type.
+  (let age &p.age)  ;; age :: *i32, Free type.
+)
 
-{
-  let { name } = p; // name: String, Linear type. The `p` variable is consumed
-                    // when you destructure any linear type values from it.
-}
+(do
+  (let p-ref &p)  ;; p-ref :: *Person, Free type.
+  (let name &p-ref.name)  ;; name :: *String, Free type.
+  (let age &p-ref.age)  ;; age :: *i32, Free type.
 
-{
-  let { age } = p;  // age: i32, Free type. The `p` variable is not consumed
-                    // when you destructure only free fields from it.
-}
+  (some-function *p-ref)  ;; Derference a reference of linear type is not allowed.
+)
 
-{
-  // Creating references will not consume `p`:
-  let name: *String = &p.name; // name: *String. Free type.
-  let age = &p.age; // age: *i32. Free type.
-}
-{
-  let p_ref = &p; // p_ref: *Person. Free type.
-  let name = &p_ref.name; // name: *String. Free type.
-  let age = &p_ref.age; // age: *i32. Free type.
-
-  some_function(*p_ref); // Derference a reference of linear type is not allowed.
-}
-{
-  var p = Person(String.from("Alice"), 30); // p: Person. Linear type.
-  let p_ref = &p; // p_ref: *Person. Free type.
-  let old_name = (p_ref.name = String.from("Bob")); // old_name: String. Linear type. Take the value out.
-  // old_name == String.from("Alice")
-}
+(do
+  (var p (Person (String.from "Alice") 30))  ;; p :: Person, Linear type.
+  (let p-ref &p)  ;; p-ref :: *Person, Free type.
+  (let old-name
+    (set! p-ref.name (String.from "Bob")))  ;; old-name :: String, Linear type. Take the value out.
+  ;; old-name == String.from "Alice"
+)
 ```
 
-```typescript
-let name = String.from("Alice");
-let p = Person(name, 30); // p: Person. Linear type.
+```clj
+(let name (String.from "Alice"))  ;; name :: String, Linear type
+(let p (Person name 30))  ;; p :: Person, Linear type
 
-let { name, age } = p; // p is consumed.
+(let { name age } p)  ;; name :: String, Linear type. The `p` variable is consumed
 
-p = Person(name, 30); // This is allowed. We restored a consumed value.
+(set! p (Person name 30))  ;; This is allowed. We restored a consumed value.
 ```
 
-```typescript
-var x = [1, 2, 3, 4, 5]; // x: i32[5]. Free type
-var y = x; // y: i32[5]. Free type. x is copied to y, not moved.
+```clj
+(var x [1 2 3 4 5])  ;; x :: i32[5], Free type
+(var y x)  ;; y :: i32[5], Free type. x is copied to y, not moved.
 
-{
-  let ref = &x; // ref: *i32[]. Free type
-  let first = ref[0]; // i32. Free type
-}
-{
-  let firstRef = &x[0]; // *i32. Free type
-  *firstRef = 10;
-}
+(do
+  (let ref &x)  ;; ref :: *i32[], Free type
+  (let first ref[0])  ;; i32, Free type
+)
+(do
+  (let first-ref &x[0])  ;; first-ref :: *i32, Free type
+  (set! *first-ref 10)
+)
 
-// x: [10, 2, 3, 4, 5]
-// y: [1, 2, 3, 4, 5]
+;; x == [10 2 3 4 5]
+;; y == [1 2 3 4 5]
 ```
 
-```typescript
-var x = [String.from("Hi"), String.from("World")];
+```clj
+(var x [
+  (String.from "Hi")
+  (String.from "World")
+])
 
-{
-  let s = x[0]; // Compiler Error: Cannot move linear type out of a slice.
-}
+(do
+  (let s x[0]) ;; Compiler Error: Cannot move linear type out of a slice.
+)
 
-{
-  let s = &x[1]; // s: *String. Free type
-  let old = (*s = String.from("Earth"));
-  // old: String. Linear type. old == String.from("World")
-}
+(do
+  (let s &x[1]) ;; s :: *String, Free type
+  (let old (set! *s (String.from "Earth")))
+  ;; old :: String, Linear type. old == String.from "World"
+)
 
-// x: [String.from("Hi"), String.from("Earth")]
+;; x == [(String.from "Hi"), (String.from "Earth")]
 ```
 
 ### Unique Pointer `In Design`
@@ -449,10 +459,10 @@ var x = [String.from("Hi"), String.from("World")];
 We use the `^` to denote the pointer, same as in Pascal.
 
 ```typescript
-let some_int_ptr = malloc(sizeof<i32>()); // int_ptr: Option<^i32>. Linear type
+const some_int_ptr = malloc(sizeof<i32>()); // int_ptr: Option<^i32>. Linear type
 match int_ptr {
   case Some: {
-    let int_ptr = some_int_ptr.value; // int_ptr: ^i32. Linear type.
+    const int_ptr = some_int_ptr.value; // int_ptr: ^i32. Linear type.
     *int_ptr = 10;
     free(int_ptr);
   }
@@ -462,95 +472,94 @@ match int_ptr {
 }
 ```
 
+```clj
+(let some-int-ptr (malloc (sizeof i32)))  ;; some-int-ptr :: (Option ^i32), Linear type
+(match some-int-ptr
+  (Some int-ptr) (do
+    ;; (let int-ptr some-int-ptr.value)  ;; int-ptr :: ^i32, Linear type
+    (set! *int-ptr 10)
+    (free int-ptr))
+
+  :default (do
+    ;; handle error
+  ))
+```
+
 ### Cast Linear to Free
 
 NOTE: This is unsafe and should be avoided.
 
-```typescript
-let x = String.from("Hi"); // x: String. Linear type
-let y = cast_to_free(x); // y: String. Free type
+```clj
+(let x (String.from "Hi"))  ;; x :: String, Linear type
+(let y (cast-to-free! x))  ;; y :: String, Free type
 ```
 
 ## Function Declaration
 
 Function parameters are immutable by default.
 
-```typescript
-// Top level function.
-// Type after `=>` is the return type. If it's not specified, it's `()`.
-let add = (x: i32, y: i32)=> i32 {
-  return x + y;
-}
+```clj
+;; Top level function.
+(:: add [i32 i32 -> i32])
+(fn add [x y] (+ x y))
 
-// or
-let add = (x: i32, y: i32)=> i32 {
-  x + y // The last expression is the return value.  `return` is optional.
-}
+(:: last-unit-expr [i32 i32 -> ()])
+(fn last-unit-expr [x y] (
+  do (+ x y)
+  ()
+))
 
-// or
-let add: (i32, i32)=> i32 = (x, y)=> x + y;
+;; Default parameter values
+(:: add [ i32 :label x :default 1
+          i32 :label y :default 2
+          -> i32])
+(fn add [x y] (+ x y))
+(add) ;; 3
+(add :y 3) ;; 4
+(add 2 3) ;; 5
 
+;; Generic function
+(:: identity (forall [T] [T -> T]))
+(fn identity [arg] arg)
 
-let last_unit_expr = (x: i32, y: i32)=> () {
-  x + y;
-  // This is allowed as the last expression is `()`.
-}
+;; Dependency injection
+(:: main [[*u8[] -> i32] :implicit true
+          -> ()])
+(fn main [?raise]
+  (?raise "Hello, world"))
 
+;; Value constraint `In Design`
+(type NotZero i32 :where (!= _ 0))
+(:: divide [i32 NotZero -> i32])
+(fn divide [x y] (/ x y))
 
-// Or abbreviated form: `Not adopted yet`
-let add(x: i32, y: i32)=> i32 {
-  return x + y;
-}
+;; Type constraints
+(:: add
+  (forall [T]
+    :require [(Integral T)]
+    [T T -> T]))
+(fn add [x y] (+ x y))
 
-// Default parameter values
-let add = (x: i32 = 1, y: i32 = 2)=> i32 {
-  return x + y;
-}
-add(); // 3
-add(y: 3); // 4
-add 2, 3; // 5
-
-// Generic function
-let identity = <T>(arg: T)=> T {
-  return arg;
-}
-
-// Dependency injection
-let main = (?raise: (error: *u8[])=> i32)=> () {
-  let x: i32 = raise("Hello, world");
-}
-
-// Value constraint `In Design`
-type NotZero = i32 where _ != 0;
-let divide = (x: i32, y: NotZero)=> i32 {
-  return x / y;
-}
-
-// Type constraint
-let add = <T: Type, require=[Integral<T>]>(x: T, y: T)=> T {
-  return x + y;
-}
-
-// Closure
-let add = [{y: 0}](x: i32)=> i32 {
-  y = x + y;
-  return y;
-};
-add(1); // 1
-add(1); // 2
-// add.y == 2
+;; Closure
+(::  add (closure* [i32 -> i32]))
+(let add (closure [{:y 0}] [x] (do
+  (set! y (+ y x))
+  y
+)))
+(add 1) ;; 1
+(add 2) ;; 3
 ```
 
 ### Named arguments
 
-```typescript
-let add = (x: i32, y: i32)=> i32 {
-  return x + y;
-}
-add(y: 2, x: 1); // 3
+```clj
+(:: add [ i32 :label x
+          i32 :label y
+          -> i32])
+(fn add [x y] (+ x y))
 
-// You can also call a function without the parentheses:
-add y: 2, x: 1; // 3
+(add :y 2 :x 1) ;; 3
+(add :x 1 :y 2) ;; 3
 ```
 
 ### Contextual parameters, aka implicit parameters
@@ -560,124 +569,107 @@ The contextual parameters are passed implicitly to the function.
 
 #### Compiletime
 
-```typescript
-// id.mo
-export class Id<T> {
-  id: (x: T)=> T;
-};
+```clj
+;; id.mo
+(class (Id T)
+  id :: [T -> T])
+(export Id)
 
-// main.mo
-import "./id.mo", only: { Id, id };
-let useId = <T, require=[Id<T>]>(x: T)=> T {
-  id(x)
-}
+;; main.mo
+(import "./id.mo" :only { Id, id })
+(:: use-id
+  (forall [T]
+    :require [(Id T)]
+    [T -> T]))
+(fn use-id [x] (id x))
 ```
 
 #### Runtime
 
-```typescript
-let add = (x: i32, ?y: i32)=> i32 {
-  return x + y;
-}
+```clj
+(:: add [ i32
+          i32 :implicit true
+          -> i32])
+(fn add [x ?y] (+ x ?y))
 
-let main = ()=> {
-  {
-    add(3); // error: missing implicit parameter y
-  }
-  {
-    let ?y = 4;
-    add(3); // ok, 7
-  }
-  {
-    let ?a = 4;
-    let ?b = 5;
-    add(3); // will pick the closest value, which is ?b, so it's 8
-  }
-  {
-    add(3, 4); // ok, 7
-  }
-  {
-    let ?y = 4;
-    let ?y = 5;
-    add(3); // ok, 8
-  }
-}
+(fn main [] (do
+  (do
+    (add 3) ;; Error: missing implicit parameter y
+  )
+  (do
+    (let ?y 4)
+    (add 3)) ;; 7
+  )
+  (do
+    (let ?a 4)
+    (let ?b 5)
+    (add 3)) ;; will pick the closest value, which is ?b, so it's 8
+  (do
+    (add 3 4)) ;; ok, 7
+  (do
+    (let ?y 4)
+    (let ?y 5)
+    (add 3)) ;; ok, 8
+)
 ```
 
 The arguments are provided in lexical scope, not dynamic scope.
 
-```typescript
-let test = (x: i32, ?id: (x: i32)=> i32) {
-  print(id(x))
-}
+```clj
+(:: test [i32
+          i32 :implicit true
+          -> i32])
+(fn test [x ?id] (println (?id x)))
 
-let ?id = (x: i32)=> x;
-let useTest = ()=> {
-  test(3); // print 3
+(:: ?id [i32 -> i32])
+(fn ?id [x] x)
 
-  let ?id = (x: i32)=> x + 1;
-  test(3); // print 4
-}
+(fn use-test [] (do
+  (test 3) ;; print 3
 
-let main = ()=> {
-  let ?id = (x: i32)=> x + 2; // This will not affect the `test` function calls in `useTest`
-  useTest();  // print 3
-              // print 4
-}
-```
+  (let ?id (fn [x] (+ x 1))
+  (test 3)) ;; print 4
+))
 
-### Uniform Function Call Syntax
-
-```typescript
-let add_one = (x: i32)=> i32 {
-  return x + 1;
-}
-
-(12).add_one(); // 13
-// is equalvalent to
-add_one(12); // 13
-
-let s = String.from("Hello, world");
-s.length(); // 12
-// is equalvalent to
-length(&s); // 12
-// We will automatically convert to reference when needed.
+(fn main [] (do
+  (let ?id (fn [x] (+ x 2))) ;; This will not affect the `test` function calls in `use-test`
+  (use-test)  ;; print 3
+              ;; print 4
+))
 ```
 
 ### `defer`
 
 `defer` will execute an expression at the end of the current scope.
 
-```typescript
-let test = ()=> {
-  let x = String.from("World!");
-  defer {
-    println(x);
-    drop(x);
-  }
+```clj
+(:: test [-> ()])
+(fn test [] (do
+  (let x (String.from "World!"))
+  (defer (do
+    (println x)
+    (drop x)))
 
-  let y = String.from("Hello, ");
-  defer {
-    println(y);
-    drop(y);
-  }
-}
+  (let y (String.from "Hello, "))
+  (defer (do
+    (println y)
+    (drop y))))
+)
 
-test(); // Hello, World!
+(test) ;; Hello, World!
 ```
 
-```typescript
-let deferExample = ()=> {
-  var a = 1;
+```clj
+(:: defer-example [-> i32])
+(fn defer-example [] (do
+  (var a 1)
 
-  {
-    defer a = 2;
-    a = 1;
-  }
+  (do
+    (defer (set! a 2))
+    (set! a 1))
 
-  println(a); // 2
-  return a;
-}
+  (println a) ;; 2
+  a))
 ```
 
 ### `recur` `In Design`
@@ -698,383 +690,190 @@ If `recur` is the last expression, tail-call optimization will be applied.
   };
   ```
 
-- Without tail-call optimization
-
-  ```typescript
-  (x: u32) => {
-    if x == 1 {
-      1
-    } else {
-      x * recur(x - 1)
-    }
-  };
+  ```clj
+  (::
+    (fn  [x acc] (do
+      (if (= x 1)
+        acc
+        (recur (- x 1) (* acc x)))))
+    [u32 u32 :default 1 -> u32])
   ```
 
-### Custom Operators
+- Without tail-call optimization
 
-```typescript
-let (|>) = <T, U>(x: T, f: (value: T)=> U)=> U {
-  f(x)
-}
-
-12 |> add_one; // 13
-
-(|>)(12, add_one); // 13
-```
-
-We can define its precedence and associativity:
-
-```typescript
-infix  40 ==  // no associativity. Eg, 3==4==5 is invalid
-infixr 80 **  // right associativity. Eg, 3 ** 4 ** 6 == 3 ** (4 ** 6)
-infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
-```
-
-### Mulitple Return Values `In Design`
-
-REASON: Necessary for returning multiple references.
-
-```typescript
-let vals = ()=> (i32, i32) {
-  return 1, 2;
-}
-
-let main = ()=> {
-  let a, b = vals();
-}
-```
-
-## Duck Typing `In Design`
-
-```typescript
-// This function can take any type that has a `length: i32` property.
-let print_length = (x: *{ length: i32 })=> {
-  println(x.length);
-};
-
-let main = ()=> {
-  let s = String.from("Hello, world");
-  print_length(&s);
-  // ^ This works as the compiler converts it to below from the background:
-  print_length(&{ length: s.length })
-}
-```
+  ```clj
+  (::
+    (fn  [x] (do
+      (if (= x 1)
+        1
+        (* x (recur (- x 1)))))
+    [u32 -> u32]))
+  ```
 
 ## Tuple
 
 Tuple is defined as a sequence of elements of different types, separated by commas and enclosed in parentheses.
 
-```typescript
-let my_unit = (); // my_unit: (). Free type
+```clj
+(let unit '()) ;; unit :: (), Free type
+(let i32-tuple '(1 2 3)) ;; i32-tuple :: (i32 i32 i32), Free type
+(let mixed-tuple '(1 true "Hello")) ;; mixed-tuple :: (i32 boolean *u8[]), Free type
+;; or
+(let mixed-tuple (Tuple 1 true "Hello"))
 
-let i32_tuple: (i32, i32, i32) = (1, 2, 3); // tuple: (i32, i32, i32). Free type
-
-let mixed_tuple = (1, true, "Hello"); // mixed_tuple: (i32, boolean, *u8[6,'\0']). Free type
-
-let (a, b, c) = mixed_tuple; // a: i32, b: boolean, c: *u8[6,'\0']. Free type
+(let (a b c) mixed-tuple) ;; a :: i32, b :: boolean, c :: *u8[], Free type
 ```
 
 ## Array & Slice
 
-```typescript
-var i32_array = [1, 2, 3, 4, 5]; // i32_array: i32[5]. Free type
-i32_array.length; // 5, compile-time known
+```clj
+(var i32-array [1 2 3 4 5])  ;; i32-array :: i32[5], Free type
+i32-array.length  ;; 5, compile-time known
 
-let i32_array_ptr = &i32_array; // i32_array_ptr: *(i32[5]). Free type
-i32_array_ptr.length; // 5, compile-time known
-i32_array_ptr[0] = 8; // automatically dereference
-// i32_array: [8, 2, 3, 4, 5]
+(let i32-array-ptr &i32-array)  ;; i32-array-ptr :: *i32[5], Free type
+i32-array-ptr.length  ;; 5, compile-time known
+(set! i32-array-ptr[0] 8)  ;; automatically dereference
+;; i32-array == [8 2 3 4 5]
 
-let i32_ptr = &i32_array[0]; // i32_ptr: *i32. Free type
-*i32_ptr = 9;
-// i32_array: [9, 2, 3, 4, 5]
+(let i32-ptr &i32-array[0])  ;; i32-ptr :: *mut i32, Free type
+(set! *i32-ptr 9)
+;; i32-array == [9 2 3 4 5]
 
+(let i32-slice i32-array[0:3])  ;; i32_slice: i32[?]. Compiler Error: Size of array i32[] is unknown at compile time.
+(let i32-slice i32-array[0:some-func-return-usize()])  ;; i32_slice: i32[?]. Compiler Error: Size of array i32[] is unknown at compile time.
 
-let i32_slice = i32_array[0:3]; // i32_slice: i32[?]. Compiler Error: Size of array i32[] is unknown at compile time.
-let i32_slice = i32_array[0:some_func_return_usize()]; // i32_slice: i32[?]. Compiler Error: Size of array i32[] is unknown at compile time.
+(let i32-slice &i32-array[0:3])  ;; i32-slice :: *i32[], Free type. & is required here.
+i32-slice.length  ;; 3, runtime known
+(set! i32-slice[0] 10)
+;; i32-array == [10 2 3 4 5]
 
-let i32_slice = &i32_array[0:3]; // i32_slice: *(i32[]). Free type. & is required here.
-i32_slice.length; // 3, runtime known
-i32_slice[0] = 10;
-// i32_array: [10, 2, 3, 4, 5]
+(:: set-value [(*mut i32[]) usize i32 -> ()])
+(fn set-value [arr index value] (do
+  (if (< index arr.length)  ;; arr.length is runtime known
+    (set! (arr index) value))))
+(set-value &i32-array 0 11)
+;; i32-array == [11 2 3 4 5]
+;; i32-slice == [11 2 3]
 
+(:: set-value-2 [i32[] usize i32 -> ()])
+;; Compiler error: Size of the array i32[] is unknown at compile time, please use `&` to coerce it to slice type &i32[]
 
-let set_value = (arr: *i32[], index: usize, value: i32)=> {
-  if index < arr.length { // arr.length is runtime known
-    arr[index] = value;
-  }
-}
-set_value(i32_array, 0, 11);
-// i32_array: [11, 2, 3, 4, 5]
-// i32_slice: [11, 2, 3]
-
-// Compiler error: Size of the array i32[] is unknown at compile time, please use `&` to coerce it to slice type &i32[]
-let set_value_2 = (arr: i32[], index: usize, value: i32)=> {
-  // ...
-}
-// This is allowed as the size of the array is known at compile time.
-let set_value_3 = (arr: i32[3], index: usize, value: i32)=> {
-  // ...
-}
+(:: set-value-3 [i32[3] usize i32 -> ()])
+;; This is allowed as the size of the array is known at compile time.
 ```
 
-```typescript
-type str = u8[,'\0'];
+```clj
+(type str u8[,'\0'])
 
-let constant_str = "Hello"; // constant_str: *u8[5,'\0']
-                     // ['H', 'e', 'l', 'l', 'o', '\0']
-constant_str.length; // 5 (excluding '\0'), compile-time known
+(let constant-str "Hello") ;; constant-str :: *const u8[5,'\0']
+                     ;; ['H', 'e', 'l', 'l', 'o', '\0']
+constant-str.length  ;; 5 (excluding '\0'), compile-time known
 
-var mutable_str = *"Hello"; // mutable_str: u8[5,'\0'], convert to mutable array
-                     // ['H', 'e', 'l', 'l', 'o', '\0']
-mutable_str.length; // 5 (excluding '\0'), compile-time known
+(var mutable-str *"Hello") ;; mutable-str :: u8[5,'\0'], convert to mutable array
+                     ;; ['H', 'e', 'l', 'l', 'o', '\0']
+mutable-str.length  ;; 5 (excluding '\0'), compile-time known
 
-let slice_1 = &mutable_str[0:2]; // slice_1: *u8[]
-                           // ['H', 'e']
-slice_1.length; // 2, runtime known
-slice_1[0] = 'h';
+(let slice-1 &mutable-str[0:2]) ;; slice-1 :: *u8[]
+                           ;; ['H', 'e']
+slice-1.length  ;; 2, runtime known
+(set! slice-1[0] 'h')
 
-// mutable_str: ['h', 'e', 'l', 'l', 'o', '\0']
-// slice_1: ['h', 'e']
+;; mutable-str: ['h', 'e', 'l', 'l', 'o', '\0']
+;; slice-1: ['h', 'e']
 ```
-
-## Closure `In Design`
-
-The closure in **Mo** is a function that can capture ~~Linear~~ values from the outer scope.  
-**Mo** only supports **explicit captures** in closures.
-**Mo** **doesn't** support references in captured values.
-
-The closure type is defined as:
-
-- Closure that can be called once:
-  ```
-  [^]<type parameters>(parameters)=> return_type { body }
-  ```
-- Closure that can be called multiple times:
-  ```
-  [*]<type parameters>(parameters)=> return_type { body }
-  ```
-
-A closure can be defined using the following syntax:
-
-```
-[{captures}]<type parameters>(paramters)=> return_type { body }
-```
-
-where `[=]` means to automatically capture the variable by value, and `[&]` means to automatically capture the variable by reference.
-
-QUESTION: Should we make the captures explicit?
-
-Examples:
-
-```typescript
-let test = ()=> {
-  var x = 1;
-
-  let increment: [*](a: i32)=> () = [{x: &x}](a: i32)=> {
-  //                                  = [&](a: i32)=> {
-    // let {x} = increment;
-    *x = *x + a;
-  }
-  increment(1);
-  increment(2);
-
-  // x == 4
-}
-```
-
-```typescript
-let test = ()=> {
-  var x: Data = malloc(); // Some `Fake` Data.
-
-  var increment: [^]()=> (); = [{x: x}]()=> {
-  //                           = [=]()=> {
-    // let {x} = increment;
-    drop(x);
-  }
-  increment(); //
-  increment(); // Compiler Error: closure is already consumed.
-}
-```
-
-**NOTE:** We can pass normal function ()=>() to a function argument that expects a closure, but not the other way around.
 
 ## Mutability `To be updated`
 
-The builtin `=` function is used to update a value that can be `write`, with the following signature:
+Same as scheme, we use `set!` to change the value of a variable.
 
-```typescript
-let set! = <T: Type>(ref: *T, value: T)=> T;
+```clj
+(let p (Person (String.from "Alice") 30))  ;; p :: Person, Linear type
 
-// `=` is a syntactic sugar for `set!`
-
-x = x + 1
-// is equalvalent to
-set!(&x, x + 1)
-// so we append `write` to the variable on the left hand side of `=`
-```
-
-Below is an example of updating a field of a linear type:
-
-```typescript
-enum Person { // Linear type.
-  Person(name: String, age: i32)
-}
-var p = Person(String.from("Alice"), 30); // p: Person. Linear type.
-
-// Update the field
-let oldName = (p.name = String.from("Bob"));
-// oldName is the `value` moved out.
-// oldName == String.from("Alice")
+;; Update the field
+(let old-name (set! p.name (String.from "Bob")))  ;; old-name :: String, Linear type
+;; old-name == String.from "Alice", the value moved out.
 ```
 
 ## Generic
 
 ### Type parameters
 
-Type parameters are defined inside `<...>`
+Use `forall` to define a generic function.
 
-```typescript
-let id = <T: Type>(x: T)=> T {
-  x
-}
-
-// or
-let id = <T>(x: T)=> T { // T will be inferred as `Type` kind
-  x
-}
+```clj
+(:: id (forall [T] [T -> T]))
+(fn id [x] x)
 ```
 
 ### Type constraints
 
 Type constraints are achieved using the `require` keyword list.
 
-```typescript
-// Type constraints
-let three_are_equal = <T: Type, require=[Eq<T>]>(x: T, y: T, z: T)=> bool {
-  x == y && y == z
-}
+```clj
+;; show.mo
+(class (Show T)
+  show :: [T -> String])
 
-let show_compare = <T: Type, require=[Show<T>, Ord<T>]>(x: T, y: T)=> String {
-  match compare(x, y) {
-    case LT: "Less than"
-    case EQ: "Equal"
-    case GT: "Greater than"
-  }
-}
+(instance (Show i32)
+  show (fn [] (do ...))
+)
 
-// Instance dependencies
-instance<A, require=[Show<A>]> Show<A[]> {
-  show: (x: A[])=> {
-    // ...
-  }
-}
-instance <A, B, require=[Show<A>, Show<B>]> Show<(A, B)> {
-  show: (x: (A, B))=> {
-    // ...
-  }
-}
-```
+(instance (Show String)
+  show (fn [] (do ...))
+)
 
+;; main.mo
+(import "./show.mo" :only { Show, show })
 
-```typescript
-// show.mo
-export class Show<T> {
-  show: (x: T)=> String;
-}
-
-instance Show<i32> {
-  show: (x: i32)=> {
-    // ...
-  }
-}
-
-instance Show<String> {
-  show: (x: String)=> {
-    // ...
-  }
-}
-
-// main.mo
-import "./show.mo", only: { show, Show };
-
-export let show = <T, require=[Show<T>]>(x: Array<T>)=> String {
-  // ...
-}
-
-import "./show.mo", only: { show, Show };
-
-let less_than = <T: Type, require=[Ord<T>, Show<T>]>(x: T, y: T)=> boolean {
-  println(show(x));
-  return x < y;
-}
+(:: show (forall [T]
+          :require [(Show T)]
+          [Array T -> String]))
+(fn show [x] (do ...))
 ```
 
 ## Control Flow
 
+### cond
+
+```clj
+(cond
+  (== x 1) (println "x is 1")
+  (== x 2) (println "x is 2")
+  :else    (println "x is not 1 or 2")
+)
+```
+
 ### if/else
 
-```typescript
-let main = () => {
-  // If no return type, it is `()`
-  let number = 3;
-
-  if number < 5 {
-    println("condition was true");
-  } else {
-    println("condition was false");
-  }
-};
-```
-
-### while `Might be removed`
-
-```typescript
-let factorial = (n: i32)=> i32 {
-  var result = 1;
-  var i = 1;
-  while (i <= n) {
-    result *= i;
-    i += 1;
-  }
-  return result;
-}
-```
-
-### for `Might be removed`
-
-```typescript
-let factorial = (n: i32)=> i32 {
-  var result = 1;
-  for (var i = 1; i <= n; i += 1) {
-    result *= i;
-  }
-  return result;
-}
+```clj
+(if (== x 1)
+  :then (println "x is 1")
+  :else (println "x is not 1"))
 ```
 
 ## Type synonyms
 
-```typescript
-// Record
-type User: Linear = {
-  active: boolean;
-  username: String;
-  email: String;
-  age: i32;
-};
+```clj
+;; Record
+(type (User :: Linear)
+  {
+    active :: boolean
+    username :: String
+    email :: String
+    age   :: i32
+  })
 
-type str = u8[,'\0'];
+(type str u8[,'\0'])
 
-let user: User = User {
-  active: true,
-  username: String.from("johndoe"),
-  email: String.from("test@gmail.com"),
-  age: 13
-};
+(let user (User {
+  :active true
+  :username (String.from "johndoe")
+  :email (String.from "test@gmail.com")
+  :age 13
+}))
 
-// Define an extern type
-type Pointer<T: Type>;
+;; Define an extern type
+(type (Pointer T))
 ```
 
 Extending the records
@@ -1095,17 +894,17 @@ type Language = { language: String; year: i32 };
 Destructure the record:
 
 ```typescript
-let user: User = User {
+const user: User = User {
   name: String.from("johndoe"),
   age: 12
 }
 
 {
-  let {age} = user; // Compiler Error: `user` is consumed while `name` is not moved out.
+  const {age} = user; // Compiler Error: `user` is consumed while `name` is not moved out.
 }
 
 {
-  let {name, age} = user;
+  const {name, age} = user;
   // name: String, linear type
   // age: i32. Free type
 }
@@ -1113,7 +912,7 @@ let user: User = User {
 {
   // Rename the field with `as`
   // Specify the type with `:`
-  let {name as username, age} = user;
+  const {name as username, age} = user;
   println(username); // johndoe
   // username: String, linear type.
   // age: i32. Free type.
@@ -1136,12 +935,12 @@ enum Option<T> {
   None
 }
 
-let none: Option<i32> = None;
-let some: Option<i32> = Some(42);
+const none: Option<i32> = None;
+const some: Option<i32> = Some(42);
 
 // Access the field:
 some.value;
-let {value} = some;
+const {value} = some;
 
 enum IpAddr {
   V4(v0: u8 = 255, v1: u8 = 255, v2: u8 = 255, v3: u8 = 255),
@@ -1149,9 +948,9 @@ enum IpAddr {
 }
 
 
-let home = V4(127, 0, 0, 1);
-let anotherHome = V4(v3 = 200);
-let loopback = V6(String.from("::1"))
+const home = V4(127, 0, 0, 1);
+const anotherHome = V4(v3 = 200);
+const loopback = V6(String.from("::1"))
 ```
 
 ## Advanced Types `In Design`
@@ -1163,18 +962,18 @@ Dependent types are types which depend on values.
 ```typescript
 type Vector<N: i32> = Array<i32, N>;
 
-let add_vectors = <N: i32>(a: Vector<N>, b: Vector<N>)=> Vector<N> {
+const add_vectors = <N: i32>(a: Vector<N>, b: Vector<N>)=> Vector<N> {
   return a.map((x, i)=> x + b[i]);
 }
 
-let v1: Vector<3> = [1, 2, 3];
-let v2: Vector<3> = [4, 5, 6];
-let result = add_vectors(v1, v2); // [5, 7, 9];
+const v1: Vector<3> = [1, 2, 3];
+const v2: Vector<3> = [4, 5, 6];
+const result = add_vectors(v1, v2); // [5, 7, 9];
 
 // The code below will not compile
-let v3: Vector<2> = [1, 2];
-let v4: Vector<3> = [4, 5, 6];
-// let error = add_vectors(v3, v4); // Compiler Error: Vector<2> and Vector<3> are different types.
+const v3: Vector<2> = [1, 2];
+const v4: Vector<3> = [4, 5, 6];
+// const error = add_vectors(v3, v4); // Compiler Error: Vector<2> and Vector<3> are different types.
 ```
 
 ### Refinement types `In Design`
@@ -1185,14 +984,14 @@ Refinement types consists of all values of a given type which satisfy a given pr
 type PositiveNumber = i32 where _ > 0;
 type NonEmptyString = String where _.length > 0;
 
-let divide = (x: PositiveNumber, y: PositiveNumber)=> PositiveNumber {
+const divide = (x: PositiveNumber, y: PositiveNumber)=> PositiveNumber {
   x / y
 }
 
-let x: PositiveNumber = 10; // Valid
-let y: PositiveNumber = -10; // Compiler Error: -10 is not a PositiveNumber
+const x: PositiveNumber = 10; // Valid
+const y: PositiveNumber = -10; // Compiler Error: -10 is not a PositiveNumber
 
-let result = divide(10, 2); // Valid
+const result = divide(10, 2); // Valid
 ```
 
 ```typescript
@@ -1202,15 +1001,15 @@ type Equal<n: i32> = i32 where _ == n;
 type Index<T: Type, a: T[]> = NatureNumber where _ < a.length();
 type NotEmptyArray<T> = T[] where _.length() > 0;
 
-let get = <T, a: T[]>(index: Index<T, a>, array: a)=> T {
+const get = <T, a: T[]>(index: Index<T, a>, array: a)=> T {
   array[index]
 }
 
-let set = <T, a: T[]>(index: Index<T, a>, array: a, value: T)=> () {
+const set = <T, a: T[]>(index: Index<T, a>, array: a, value: T)=> () {
   array[index] = value;
 }
 
-let head = <T>(array: NotEmptyArray<T>)=> T {
+const head = <T>(array: NotEmptyArray<T>)=> T {
   return array[0];
 }
 ```
@@ -1224,7 +1023,7 @@ enum Expr<T> {
   EqExpr(left: Expr<i32>, right: Expr<i32>): Expr<boolean>
 }
 
-let eval = <T>(expr: Expr<T>)=> T {
+const eval = <T>(expr: Expr<T>)=> T {
   // with Expr<T>;
   match expr {
     case IntExpr: expr.i,
@@ -1233,7 +1032,7 @@ let eval = <T>(expr: Expr<T>)=> T {
   }
 }
 
-let expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
+const expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
 eval(expr1); // false
 ```
 
@@ -1241,11 +1040,11 @@ eval(expr1); // false
 
 ```typescript
 class Summary<T> {
-  summarize: (self: *T)=> String;
+  summarize: (self: *const T)=> String;
 };
 
 class Display<T, Summary<T>> {
-  display: (self: *T)=> String;
+  display: (self: *const T)=> String;
 };
 
 type NewsArticle = {
@@ -1256,18 +1055,18 @@ type NewsArticle = {
 };
 
 instance Summary<NewsArticle> {
-  summarize: (self: *NewsArticle)=> String {
+  summarize: (self: *const NewsArticle)=> String {
     return "${self.headline}, by ${self.author} (${self.location})";
   }
 }
 
 // Pass in function
-let notify = (item: *NewsArticle)=>  {
+const notify = (item: *const NewsArticle)=>  {
   println("Breaking news! ", summarize(item));
 }
 
-let notify = <T, Display<T>>(
-  item: *T
+const notify = <T, Display<T>>(
+  item: *const T
 )=>  {
   println("Breaking news! ", summarize());
   println("Breaking news! ", display(item));
@@ -1289,7 +1088,7 @@ enum Coin {
 // Reference:
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
-let value_in_cents = (coin: Coin)=> u8 {
+const value_in_cents = (coin: Coin)=> u8 {
   match coin {
     case Penny: {
       println("Lucky penny!");
@@ -1307,11 +1106,11 @@ enum List<T> {
 }
 
 
-let list_length = <T>(list: &List<T>)=> i32 {
+const list_length = <T>(list: &List<T>)=> i32 {
   match list {
     case Nil: 0,
     case Cons: {
-      let {tail} = list;
+      const {tail} = list;
       1 + list_length(tail)
     }
   }
@@ -1321,7 +1120,7 @@ let list_length = <T>(list: &List<T>)=> i32 {
 ### Using Range in `case`
 
 ```typescript
-let check_int = (x: i32)=> {
+const check_int = (x: i32)=> {
   match x {
     case 1:
     case 2:
@@ -1347,7 +1146,7 @@ let check_int = (x: i32)=> {
 Can also use range:
 
 ```typescript
-let check_int = (x: i32)=> {
+const check_int = (x: i32)=> {
   match x {
     case 1 .. 6: {
       println("1 to 6");
@@ -1369,9 +1168,9 @@ let check_int = (x: i32)=> {
 This is the dynamic array.
 
 ```typescript
-let v: ArrayList<i32> = ArrayList.new();
-let v2 = ArrayList.from([1, 2, 3]);
-let value = v2.at(0);
+const v: ArrayList<i32> = ArrayList.new();
+const v2 = ArrayList.from([1, 2, 3]);
+const value = v2.at(0);
 ```
 
 ### String
@@ -1379,15 +1178,15 @@ let value = v2.at(0);
 UTF-8 encoded string.
 
 ```typescript
-let s = String.new();
-let s2 = String.from("Hello World!");
+const s = String.new();
+const s2 = String.from("Hello World!");
 ```
 
 ### Map
 
 ```typescript
-let m: Map<String, i32> = Map.new();
-let m2 = Map.from([
+const m: Map<String, i32> = Map.new();
+const m2 = Map.from([
   [String.from("one"), 1],
   [String.from("two"), 2],
   [String.from("three"), 3],
@@ -1400,7 +1199,7 @@ m.set(String.from("one"), 1);
 
 ```typescript
 type MyError = {message: char[]};
-let main = (?throw: Exception<MyError>)=>  {
+const main = (?throw: Exception<MyError>)=>  {
   throw({
     message: "Something went wrong",
   });
@@ -1410,8 +1209,8 @@ let main = (?throw: Exception<MyError>)=>  {
 ## Type casting
 
 ```typescript
-let x: i32 = 1;
-let y: f32 = x as f32;
+const x: i32 = 1;
+const y: f32 = x as f32;
 ```
 
 ## Algebraic Effects `In Design`
@@ -1432,7 +1231,7 @@ The `do` keyword decides where to `resume` the continuation.
 The `return` keyword is not allowed in the continuation function.
 
 ```typescript
-let safe_divide = (x: i32, y: i32, raise: effect (msg: *u8[])=> i32
+const safe_divide = (x: i32, y: i32, raise: effect (msg: *const u8[])=> i32
 )=> i32 {
   if y == 0 {
     do raise("Division by zero")
@@ -1442,16 +1241,16 @@ let safe_divide = (x: i32, y: i32, raise: effect (msg: *u8[])=> i32
 }
 
 // `resume`
-let handle_resume = ()=> i32 {
-  let raise = effect (msg: *u8[])=> i32 {
+const handle_resume = ()=> i32 {
+  const raise = effect (msg: *const u8[])=> i32 {
     resume(10, /* k */);
   }
   return 1 + safe_divide(3, 0, raise) + 2; // 13
 }
 
 // `abort`
-let handle_abort = ()=> i32 {
-  let raise = effect (msg: *u8[])=> i32 {
+const handle_abort = ()=> i32 {
+  const raise = effect (msg: *const u8[])=> i32 {
     abort(10, /* k */);
   }
   return 1 + do safe_divide(3, 0, raise) + 2; // 10
@@ -1459,8 +1258,8 @@ let handle_abort = ()=> i32 {
 ```
 
 ```typescript
-let main = ()=> () {
-  let wait_for_seconds = effect (seconds: u32)=> i32 {
+const main = ()=> () {
+  const wait_for_seconds = effect (seconds: u32)=> i32 {
     set_timeout(()=> {
       println("Done");
       resume(12);
@@ -1468,7 +1267,7 @@ let main = ()=> () {
   }
 
   println("Before timeout");
-  let result = do wait_for_seconds(1);
+  const result = do wait_for_seconds(1);
   println("After timeout");
   println(result); // 12
 }
@@ -1477,8 +1276,8 @@ let main = ()=> () {
 ### Run multiple continuations `In Design`
 
 ```typescript
-let main = ()=> () {
-  let wait_for_seconds = effect (sec: u32)=> i32 {
+const main = ()=> () {
+  const wait_for_seconds = effect (sec: u32)=> i32 {
     set_timeout(()=> {
       println(sec);
       resume(sec);
@@ -1486,7 +1285,7 @@ let main = ()=> () {
   }
 
   print("before waits");
-  let [wait1, wait2, wait3] = do [
+  const [wait1, wait2, wait3] = do [
     wait_for_seconds(1),
     wait_for_seconds(2),
     wait_for_seconds(3),
@@ -1504,7 +1303,7 @@ QUESTION: Should we allow to `export` a linear type value?
 ```typescript
 import "https://github.com/mo-lang/mo/std/fs.mo", only: { copy };
 
-let test = ()=> {
+const test = ()=> {
   println("Hello, world!");
 }
 
@@ -1530,7 +1329,7 @@ instance Id<i32> {
 }
 
 // Prevent name mangling.
-export "C" let x = 1;
+export "C" const x = 1;
 ```
 
 ```typescript
@@ -1592,11 +1391,11 @@ Boostrapping the **Mo** compiler is not a priority at the moment. We will do it 
 `unquote_splicing` can only be used in `quote` to splice the values into the AST.
 
 ```typescript
-let x = 1;
+const x = 1;
 
-let list = quote([0, unquote(x), 2]); // [0, 1, 2]
+const list = quote([0, unquote(x), 2]); // [0, 1, 2]
 
-let list2 = quote([0, x, 2]); // [0, [:variable, :x], 2]
+const list2 = quote([0, x, 2]); // [0, [:variable, :x], 2]
 
 quote([0, unquote_splicing(list), 4]); // [0, 1, 2, 3, 4]
 ```
