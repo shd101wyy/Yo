@@ -3,6 +3,7 @@
 A multi-paradigm, general-purpose, compiled programming language.
 
 - [Design](./DESIGN.md)
+- [Specification](./SPECIFICATION.md)
 - [Roadmap](./ROADMAP.md)
 - [Removals](./REMOVALS.md)
 

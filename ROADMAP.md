@@ -1,4 +1,10 @@
-# Roadmap 2024
+# Roadmap
+
+## 2025
+
+The roadmap from 2024 is now revised and updated for 2025, based on the new design in [DESIGN.md](./DESIGN.md).
+
+## 2024
 
 The order of the roadmap is not necessarily the order of implementation.  
 It is just a list of things that need to be done.

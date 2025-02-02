@@ -40,7 +40,6 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [`defer`](#defer)
   - [`recur` `In Design`](#recur-in-design)
   - [Custom Operators](#custom-operators)
-  - [Mulitple Return Values `In Design`](#mulitple-return-values-in-design)
 - [Duck Typing `In Design`](#duck-typing-in-design)
 - [Tuple](#tuple)
 - [Array & Slice](#array--slice)
@@ -62,9 +61,13 @@ We will also post a series of articles on the design and implementation of **Mo*
 - [Typeclass](#typeclass)
 - [Pattern Matching](#pattern-matching)
   - [Using Range in `case`](#using-range-in-case)
+- [Pointers](#pointers)
 - [Collections](#collections)
   - [ArrayList](#arraylist)
   - [String](#string)
+    - [C String](#c-string)
+    - [UTF-8 string literal](#utf-8-string-literal)
+    - [String (Immutable String)](#string-immutable-string)
   - [Map](#map)
 - [Error handling](#error-handling)
 - [Type casting](#type-casting)
@@ -72,6 +75,11 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Effectful function](#effectful-function)
   - [Run multiple continuations `In Design`](#run-multiple-continuations-in-design)
 - [Modules](#modules)
+- [Attributes](#attributes)
+- [C Interoperability](#c-interoperability)
+  - [To C](#to-c)
+  - [From C](#from-c)
+- [Naming Convention](#naming-convention)
 - [Compilation `In Design`](#compilation-in-design)
 - [Meta-programming `In Design`](#meta-programming-in-design)
   - [Macro](#macro)
@@ -140,9 +148,9 @@ Other languages that are worth mentioning that have influenced **Mo**:
 ## Hello World
 
 ```typescript
-let main = () => {
+function main() {
   println("Hello World!");
-};
+}
 ```
 
 ## CLI Usage
@@ -163,6 +171,9 @@ mo install package-name # Install a specific package
 mo install package-name@version # Install a specific version of a package
 mo install --global package-name # Install a package globally
 mo uninstall package-name # Uninstall a package
+
+# package-name could be
+#   github:shd101wyy/some-package@master
 
 # Run scripts
 mo run test
@@ -192,7 +203,10 @@ A type can have the following **Kind**:
 - `f32` (32-bit floating point)
 - `f64` (64-bit floating point)
 - `usize` (pointer size. It's `u32` on 32-bit system, `u64` on 64-bit system)
-- `symbol` (a unique identifier)
+- `isize` (signed pointer size. It's `i32` on 32-bit system, `i64` on 64-bit system)
+- `()` (unit type, same as the `void` in C)
+- `char` (utf-8 character)
+- ~~`symbol` (a unique identifier)~~
 
 #### `Linear` Types.
 
@@ -210,27 +224,24 @@ Like `rust`, **Mo** has two kinds of variables:
 let y = 5; // y: i32, immutable
 var x = 5; // x: i32, mutable
 
-let example = (x: i32, y: i32) => {
+function example(x: i32, y: i32) {
   x = 1; // Error: x is immutable
   y = 2; // Error: y is immutable
-};
+}
 ```
 
 ### Type inference
 
 ```typescript
-let my_symbol = :hi; // symbol,. Free type
-let my_symbol_with_space = :"hi there"; // symbol,. Free type
-
 let my_string: String = String.from("Hello, world"); // Stored on heap. Linear type.
 let my_string_2 = my_string; // my_string_2: String. Linear type. my_string is moved and consumed. my_string_2 now takes the ownership.
 let my_string_3 = my_string; // Error: my_string is already consumed.
 let my_string_4: *String = &my_string_2; // my_string_4: *String. Free type
-let my_string_5 = my_string_4; // my_string_5: &String. Free type
+let my_string_5 = my_string_4; // my_string_5: *String. Free type
 
 let my_int = 1; // Stored on stack. Free type
 let my_int_2 = my_int; // my_int_2: i32, Free type
-let my_int_3: *i32 = &my_int; // my_int_3: *const. Free type
+let my_int_3: *i32 = &my_int; // my_int_3: *i32. Free type
 let my_int_4 = my_int_3; // my_int_4: *i32. Free type
 
 let my_int_array: i32[3] = [1, 2, 3]; // Stored on stack, with size 3. Free type
@@ -247,7 +258,7 @@ let my_map: Map<*u8[], i32> = Map.from([
 enum Person { // Linear type, as it contains a linear type.
   Person(name: String, age: i32)
 }
-let p = Person(String.from("Alice"), 30); // p: Person. Linear type.
+let p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
 ```
 
 #### Uninitialized variable `In Design`
@@ -298,7 +309,7 @@ let z = x; // Compiler Error: x is already consumed.
 ```typescript
 {
   var x = 1; // x: copied i32. Free type
-  let p1: *mut i32 = &x; // r: *mut i32. Free type
+  let p1 = &x; // r: *mut i32. Free type
   let p2: *mut i32 = &x; // p: *mut i32. Free type.
   *p1 = 2;
   // x == 2
@@ -316,7 +327,7 @@ extern "C" {
   drop: (x: String)=> ();
 }
 
-let main = ()=> {
+function main() {
   var x = String.from("Hello, world"); // x: String. mutable
   let y: *String = &x; // y: *String   // mutable reference
   let z: *String = &x; // z: *String   // immutable reference
@@ -324,7 +335,7 @@ let main = ()=> {
   length(x);  // not allowed
   length(y);  // allowed
   length(z);  // allowed
-  x.length(); // allowed, implicit conversion to *const
+  x.length(); // allowed, implicit conversion to *String
 
   let t = x;                           // transfer ownership
 
@@ -347,7 +358,7 @@ enum Person { // Linear type, as it contains a linear type.
   Person(name: String, age: i32)
 }
 let name = String.from("Alice");
-let p = Person(name, 30); // p: Person. Linear type.
+let p = Person.Person(name, 30); // p: Person. Linear type.
 
 {
   let name = p.name; // name: String, Linear type. The `p` variable is consumed
@@ -478,7 +489,7 @@ Function parameters are immutable by default.
 ```typescript
 // Top level function.
 // Type after `=>` is the return type. If it's not specified, it's `()`.
-let add = (x: i32, y: i32)=> i32 {
+function add(x: i32, y: i32): i32 {
   return x + y;
 }
 
@@ -491,19 +502,14 @@ let add = (x: i32, y: i32)=> i32 {
 let add: (i32, i32)=> i32 = (x, y)=> x + y;
 
 
-let last_unit_expr = (x: i32, y: i32)=> () {
+function last_unit_expr(x: i32, y: i32) {
   x + y;
   // This is allowed as the last expression is `()`.
 }
 
 
-// Or abbreviated form: `Not adopted yet`
-let add(x: i32, y: i32)=> i32 {
-  return x + y;
-}
-
 // Default parameter values
-let add = (x: i32 = 1, y: i32 = 2)=> i32 {
+let add = (x: i32 = 1, y: i32 = 2): i32 => {
   return x + y;
 }
 add(); // 3
@@ -511,28 +517,28 @@ add(y: 3); // 4
 add 2, 3; // 5
 
 // Generic function
-let identity = <T>(arg: T)=> T {
+function identity<T>(arg: T): T {
   return arg;
 }
 
 // Dependency injection
-let main = (?raise: (error: *u8[])=> i32)=> () {
+function main(?raise: (error: *u8[])=> i32) {
   let x: i32 = raise("Hello, world");
 }
 
 // Value constraint `In Design`
 type NotZero = i32 where _ != 0;
-let divide = (x: i32, y: NotZero)=> i32 {
+function divide(x: i32, y: NotZero): i32 {
   return x / y;
 }
 
 // Type constraint
-let add = <T: Type, require=[Integral<T>]>(x: T, y: T)=> T {
+function add<T: Type Integral<T>>(x: T, y: T): T {
   return x + y;
 }
 
 // Closure
-let add = [{y: 0}](x: i32)=> i32 {
+let add = [{y: 0}](x: i32): i32 => {
   y = x + y;
   return y;
 };
@@ -544,11 +550,12 @@ add(1); // 2
 ### Named arguments
 
 ```typescript
-let add = (x: i32, y: i32)=> i32 {
+function add(x: i32, y: i32): i32 {
   return x + y;
 }
 add(y: 2, x: 1); // 3
 
+// QUESTION: Should we allow this?
 // You can also call a function without the parentheses:
 add y: 2, x: 1; // 3
 ```
@@ -567,8 +574,8 @@ export class Id<T> {
 };
 
 // main.mo
-import "./id.mo", only: { Id, id };
-let useId = <T, require=[Id<T>]>(x: T)=> T {
+import { Id, id } from "./id.mo";
+let use_id = <T with Id>(x: T): T => {
   id(x)
 }
 ```
@@ -576,11 +583,11 @@ let useId = <T, require=[Id<T>]>(x: T)=> T {
 #### Runtime
 
 ```typescript
-let add = (x: i32, ?y: i32)=> i32 {
+function add(x: i32, ?y: i32): i32 {
   return x + y;
 }
 
-let main = ()=> {
+function main() {
   {
     add(3); // error: missing implicit parameter y
   }
@@ -607,21 +614,21 @@ let main = ()=> {
 The arguments are provided in lexical scope, not dynamic scope.
 
 ```typescript
-let test = (x: i32, ?id: (x: i32)=> i32) {
+function test(x: i32, ?id: (x: i32)=> i32) {
   print(id(x))
 }
 
 let ?id = (x: i32)=> x;
-let useTest = ()=> {
+function use_test() {
   test(3); // print 3
 
   let ?id = (x: i32)=> x + 1;
   test(3); // print 4
 }
 
-let main = ()=> {
-  let ?id = (x: i32)=> x + 2; // This will not affect the `test` function calls in `useTest`
-  useTest();  // print 3
+function main() {
+  let ?id = (x: i32)=> x + 2; // This will not affect the `test` function calls in `use_test`
+  use_test();  // print 3
               // print 4
 }
 ```
@@ -629,7 +636,7 @@ let main = ()=> {
 ### Uniform Function Call Syntax
 
 ```typescript
-let add_one = (x: i32)=> i32 {
+function add_one(x: i32): i32 {
   return x + 1;
 }
 
@@ -649,7 +656,7 @@ length(&s); // 12
 `defer` will execute an expression at the end of the current scope.
 
 ```typescript
-let test = ()=> {
+function test() {
   let x = String.from("World!");
   defer {
     println(x);
@@ -667,7 +674,7 @@ test(); // Hello, World!
 ```
 
 ```typescript
-let deferExample = ()=> {
+function deferExample() {
   var a = 1;
 
   {
@@ -713,7 +720,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 ### Custom Operators
 
 ```typescript
-let (|>) = <T, U>(x: T, f: (value: T)=> U)=> U {
+function (|>) <T, U>(x: T, f: (value: T)=> U): U {
   f(x)
 }
 
@@ -730,29 +737,15 @@ infixr 80 **  // right associativity. Eg, 3 ** 4 ** 6 == 3 ** (4 ** 6)
 infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
 ```
 
-### Mulitple Return Values `In Design`
-
-REASON: Necessary for returning multiple references.
-
-```typescript
-let vals = ()=> (i32, i32) {
-  return 1, 2;
-}
-
-let main = ()=> {
-  let a, b = vals();
-}
-```
-
 ## Duck Typing `In Design`
 
 ```typescript
 // This function can take any type that has a `length: i32` property.
-let print_length = (x: *{ length: i32 })=> {
+function print_length(x: *{ length: i32 }) {
   println(x.length);
 };
 
-let main = ()=> {
+function main() {
   let s = String.from("Hello, world");
   print_length(&s);
   // ^ This works as the compiler converts it to below from the background:
@@ -778,42 +771,58 @@ let (a, b, c) = mixed_tuple; // a: i32, b: boolean, c: *u8[6,'\0']. Free type
 
 ```typescript
 var i32_array = [1, 2, 3, 4, 5]; // i32_array: i32[5]. Free type
+                                 // In C: int i32_array[5] = {1, 2, 3, 4, 5};
 i32_array.length; // 5, compile-time known
 
-let i32_array_ptr = &i32_array; // i32_array_ptr: *(i32[5]). Free type
-i32_array_ptr.length; // 5, compile-time known
+const immutabl_i32_array = [1, 2, 3, 4, 5]; // immutabl_i32_array: i32[5]. Free type
+                                            // In C: const int immutabl_i32_array[5] = {1, 2, 3, 4, 5};
+
+// Convert from array to slice using `&`
+let i32_array_ptr = &i32_array; // i32_array_ptr: i32[]. Free type
+i32_array_ptr.length; // 5, runtime known
 i32_array_ptr[0] = 8; // automatically dereference
 // i32_array: [8, 2, 3, 4, 5]
 
 let i32_ptr = &i32_array[0]; // i32_ptr: *i32. Free type
 *i32_ptr = 9;
 // i32_array: [9, 2, 3, 4, 5]
+```
 
+Slice in **Mo** is a reference to an array. It is a pointer to the first element of the array and the length of the slice calculated from the **runtime**.
 
-let i32_slice = i32_array[0:3]; // i32_slice: i32[?]. Compiler Error: Size of array i32[] is unknown at compile time.
-let i32_slice = i32_array[0:some_func_return_usize()]; // i32_slice: i32[?]. Compiler Error: Size of array i32[] is unknown at compile time.
+```typescript
+let i32_array = [1, 2, 3]; // i32_array: i32[3]. Free type
+let i32_ptr = &i32_array[0]; // i32_ptr: *i32. Free type
+let i32_slice = &i32_array; // i32_slice: i32[]. Free type
+let i32_slice = i32_array[0:some_func_return_usize()];  // i32_slice: i32[]
+                                                        // Compiler Error: The size of the slice is not known at compile time.
+                                                        //                 Please use `&` to coerce i32_array to slice type *i32[]
+let i32_slice = &i32_array[0:some_func_return_usize()]; // Okay
+let i32_slice = &i32_array[0:3]; // i32_slice: i32[]
 
-let i32_slice = &i32_array[0:3]; // i32_slice: *(i32[]). Free type. & is required here.
 i32_slice.length; // 3, runtime known
 i32_slice[0] = 10;
 // i32_array: [10, 2, 3, 4, 5]
 
 
-let set_value = (arr: *i32[], index: usize, value: i32)=> {
+function set_value(arr: &i32[], index: usize, value: i32) {
   if index < arr.length { // arr.length is runtime known
     arr[index] = value;
   }
 }
-set_value(i32_array, 0, 11);
+set_value(i32_array, 0, 11); // Compiler error: Please use `&` to coerce i32_array to slice type i32[]
+set_value(&i32_array, 0, 11); // Correct!
 // i32_array: [11, 2, 3, 4, 5]
 // i32_slice: [11, 2, 3]
 
-// Compiler error: Size of the array i32[] is unknown at compile time, please use `&` to coerce it to slice type &i32[]
-let set_value_2 = (arr: i32[], index: usize, value: i32)=> {
+
+function set_value(arr: i32[], index: usize, value: i32) { // Compiler Error: The size of the slice is not known at compile time.
+                                                           //                 Please use `&` to coerce arr to slice type *i32[]
   // ...
 }
-// This is allowed as the size of the array is known at compile time.
-let set_value_3 = (arr: i32[3], index: usize, value: i32)=> {
+
+// This is also allowed as the size of the array is known at compile time.
+function set_value_3(arr: i32[3], index: usize, value: i32) {
   // ...
 }
 ```
@@ -868,7 +877,7 @@ QUESTION: Should we make the captures explicit?
 Examples:
 
 ```typescript
-let test = ()=> {
+function test() {
   var x = 1;
 
   let increment: [*](a: i32)=> () = [{x: &x}](a: i32)=> {
@@ -884,7 +893,7 @@ let test = ()=> {
 ```
 
 ```typescript
-let test = ()=> {
+function test() {
   var x: Data = malloc(); // Some `Fake` Data.
 
   var increment: [^]()=> (); = [{x: x}]()=> {
@@ -935,28 +944,28 @@ let oldName = (p.name = String.from("Bob"));
 Type parameters are defined inside `<...>`
 
 ```typescript
-let id = <T: Type>(x: T)=> T {
-  x
+function id<T: Type>(x: T): T {
+  return x;
 }
 
 // or
-let id = <T>(x: T)=> T { // T will be inferred as `Type` kind
-  x
+function id<T>(x: T): T { // T will be inferred as `Type` kind
+  return x;
 }
 ```
 
 ### Type constraints
 
-Type constraints are achieved using the `require` keyword list.
+Type constraints are achieved using the `with` keyword.
 
 ```typescript
 // Type constraints
-let three_are_equal = <T: Type, require=[Eq<T>]>(x: T, y: T, z: T)=> bool {
+function three_are_equal<T: Type with Eq<T>>(x: T, y: T, z: T): bool {
   x == y && y == z
 }
 
-let show_compare = <T: Type, require=[Show<T>, Ord<T>]>(x: T, y: T)=> String {
-  match compare(x, y) {
+function show_compare<T: Type with (Show<T>, Ord<T>)>(x: T, y: T): String {
+  match(compare(x, y)) {
     case LT: "Less than"
     case EQ: "Equal"
     case GT: "Greater than"
@@ -964,18 +973,18 @@ let show_compare = <T: Type, require=[Show<T>, Ord<T>]>(x: T, y: T)=> String {
 }
 
 // Instance dependencies
-instance<A, require=[Show<A>]> Show<A[]> {
+instance<A with Show<A>> Show<A[]> {
   show: (x: A[])=> {
     // ...
   }
 }
-instance <A, B, require=[Show<A>, Show<B>]> Show<(A, B)> {
+instance <A with Show<A>,
+          B with (Show<B>, Show<(A, B)>)> {
   show: (x: (A, B))=> {
     // ...
   }
 }
 ```
-
 
 ```typescript
 // show.mo
@@ -996,15 +1005,15 @@ instance Show<String> {
 }
 
 // main.mo
-import "./show.mo", only: { show, Show };
+import { show, Show } from "./show.mo";
 
-export let show = <T, require=[Show<T>]>(x: Array<T>)=> String {
+export function show<T with Show<T>>(x: Array<T>): String {
   // ...
 }
 
-import "./show.mo", only: { show, Show };
+import { show, Show } from "./show.mo";
 
-let less_than = <T: Type, require=[Ord<T>, Show<T>]>(x: T, y: T)=> boolean {
+function less_than<T: Type with (Ord<T>, Show<T>)>(x: T, y: T): boolean {
   println(show(x));
   return x < y;
 }
@@ -1015,7 +1024,7 @@ let less_than = <T: Type, require=[Ord<T>, Show<T>]>(x: T, y: T)=> boolean {
 ### if/else
 
 ```typescript
-let main = () => {
+function main() {
   // If no return type, it is `()`
   let number = 3;
 
@@ -1030,7 +1039,7 @@ let main = () => {
 ### while `Might be removed`
 
 ```typescript
-let factorial = (n: i32)=> i32 {
+function factorial(n: i32): i32 {
   var result = 1;
   var i = 1;
   while (i <= n) {
@@ -1044,7 +1053,7 @@ let factorial = (n: i32)=> i32 {
 ### for `Might be removed`
 
 ```typescript
-let factorial = (n: i32)=> i32 {
+function factorial(n: i32): i32 {
   var result = 1;
   for (var i = 1; i <= n; i += 1) {
     result *= i;
@@ -1135,6 +1144,7 @@ enum Option<T> {
   Some(value: T),
   None
 }
+let {*} = Option; // The, `*` means to destructure everything.
 
 let none: Option<i32> = None;
 let some: Option<i32> = Some(42);
@@ -1149,9 +1159,9 @@ enum IpAddr {
 }
 
 
-let home = V4(127, 0, 0, 1);
-let anotherHome = V4(v3 = 200);
-let loopback = V6(String.from("::1"))
+let home = IpAddr.V4(127, 0, 0, 1);
+let anotherHome = IpAddr.V4(v3: 200);
+let loopback = IpAddr.V6(String.from("::1"))
 ```
 
 ## Advanced Types `In Design`
@@ -1163,7 +1173,7 @@ Dependent types are types which depend on values.
 ```typescript
 type Vector<N: i32> = Array<i32, N>;
 
-let add_vectors = <N: i32>(a: Vector<N>, b: Vector<N>)=> Vector<N> {
+function add_vectors<N: i32>(a: Vector<N>, b: Vector<N>): Vector<N> {
   return a.map((x, i)=> x + b[i]);
 }
 
@@ -1185,7 +1195,7 @@ Refinement types consists of all values of a given type which satisfy a given pr
 type PositiveNumber = i32 where _ > 0;
 type NonEmptyString = String where _.length > 0;
 
-let divide = (x: PositiveNumber, y: PositiveNumber)=> PositiveNumber {
+function divide(x: PositiveNumber, y: PositiveNumber): PositiveNumber {
   x / y
 }
 
@@ -1202,15 +1212,15 @@ type Equal<n: i32> = i32 where _ == n;
 type Index<T: Type, a: T[]> = NatureNumber where _ < a.length();
 type NotEmptyArray<T> = T[] where _.length() > 0;
 
-let get = <T, a: T[]>(index: Index<T, a>, array: a)=> T {
-  array[index]
+function get<T, a: T[]>(index: Index<T, a>, array: a): T {
+  return array[index];
 }
 
-let set = <T, a: T[]>(index: Index<T, a>, array: a, value: T)=> () {
-  array[index] = value;
+function set<T, a: T[]>(index: Index<T, a>, array: a, value: T) {
+  return array[index] = value;
 }
 
-let head = <T>(array: NotEmptyArray<T>)=> T {
+function head<T>(array: NotEmptyArray<T>): T {
   return array[0];
 }
 ```
@@ -1224,12 +1234,12 @@ enum Expr<T> {
   EqExpr(left: Expr<i32>, right: Expr<i32>): Expr<boolean>
 }
 
-let eval = <T>(expr: Expr<T>)=> T {
+function eval<T>(expr: Expr<T>): T {
   // with Expr<T>;
-  match expr {
-    case IntExpr: expr.i,
-    case BoolExpr: expr.b,
-    case EqExpr: eval(expr.left) == eval(expr.right)
+  match (expr) {
+    case Expr.IntExpr: expr.i,
+    case Expr.BoolExpr: expr.b,
+    case Expr.EqExpr: eval(expr.left) == eval(expr.right)
   }
 }
 
@@ -1256,19 +1266,19 @@ type NewsArticle = {
 };
 
 instance Summary<NewsArticle> {
-  summarize: (self: *NewsArticle)=> String {
+  summarize: function(self: *NewsArticle): String {
     return "${self.headline}, by ${self.author} (${self.location})";
   }
 }
 
 // Pass in function
-let notify = (item: *NewsArticle)=>  {
+function notify(item: *NewsArticle) {
   println("Breaking news! ", summarize(item));
 }
 
-let notify = <T, Display<T>>(
+function notify<T, Display<T>>(
   item: *T
-)=>  {
+) {
   println("Breaking news! ", summarize());
   println("Breaking news! ", display(item));
 }
@@ -1289,15 +1299,15 @@ enum Coin {
 // Reference:
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
-let value_in_cents = (coin: Coin)=> u8 {
+function value_in_cents(coin: Coin): u8 {
   match coin {
-    case Penny: {
+    case Coin.Penny: {
       println("Lucky penny!");
       return 1;
     },
-    case Nickel: 5,
-    case Dime: 10,
-    case Quarter: 25,
+    case Coin.Nickel: 5,
+    case Coin.Dime: 10,
+    case Coin.Quarter: 25,
   }
 }
 
@@ -1307,10 +1317,10 @@ enum List<T> {
 }
 
 
-let list_length = <T>(list: &List<T>)=> i32 {
-  match list {
-    case Nil: 0,
-    case Cons: {
+function list_length<T>(list: &List<T>): i32 {
+  match (list) {
+    case List.Nil: 0,
+    case List.Cons: {
       let {tail} = list;
       1 + list_length(tail)
     }
@@ -1321,8 +1331,8 @@ let list_length = <T>(list: &List<T>)=> i32 {
 ### Using Range in `case`
 
 ```typescript
-let check_int = (x: i32)=> {
-  match x {
+function check_int(x: i32) {
+  match (x) {
     case 1:
     case 2:
     case 3:
@@ -1347,8 +1357,8 @@ let check_int = (x: i32)=> {
 Can also use range:
 
 ```typescript
-let check_int = (x: i32)=> {
-  match x {
+function check_int(x: i32) {
+  match (x) {
     case 1 .. 6: {
       println("1 to 6");
     }
@@ -1360,6 +1370,39 @@ let check_int = (x: i32)=> {
     }
   }
 }
+```
+
+## Pointers
+
+In C, there are 4 types of pointers:
+
+- Pointer to a constant
+  `const int*`
+- Constant pointer to a constant
+  `const int* const`
+- Pointer to a non-constant
+  `int*`
+- Constant pointer to a non-constant
+  `int* const`
+
+In Mo, these 4 categories are represented as:
+
+```typescript
+// Pointer to a constant
+let constant_i32 = 12;
+var ptr_to_constant = &constant_i32; // ptr_to_constant: *i32. Free type
+
+// Constant pointer to a constant
+let constant_i32 = 12;
+let constant_ptr_to_constant = &constant_i32; // constant_ptr_to_constant: *i32. Free type
+
+// Pointer to a non-constant
+var i32 = 12;
+var ptr_to_i32 = &i32; // ptr_to_i32: *mut i32. Free type
+
+// Constant pointer to a non-constant
+var i32 = 12;
+let constant_ptr_to_i32 = &i32; // constant_ptr_to_i32: *mut i32. Free type
 ```
 
 ## Collections
@@ -1376,11 +1419,40 @@ let value = v2.at(0);
 
 ### String
 
+#### C String
+
+0 terminated string.
+
+```typescript
+let s = c"Hello"; // s: *u8
+// (const char) *const s1 = "Hello";
+```
+
+#### UTF-8 string literal
+
+This is not a 0 terminated string.
+Similar to the `str` in Rust.
+NOTE: UTF-8 is a variable-width encoding (each character can be 1 to 4 bytes long), so we cannot get the `n`th character like `s[n]`.
+
+```typescript
+let immutable_s = "Hello"; // immutable_s: *str, free type
+immutable_s.length; // 5
+
+// where it is stored in struct like
+type str = {
+  data: *u8,
+  length: usize,
+};
+```
+
+#### String (Immutable String)
+
 UTF-8 encoded string.
 
 ```typescript
 let s = String.new();
 let s2 = String.from("Hello World!");
+let s3 = s + s2; // Create a new string.
 ```
 
 ### Map
@@ -1400,7 +1472,7 @@ m.set(String.from("one"), 1);
 
 ```typescript
 type MyError = {message: char[]};
-let main = (?throw: Exception<MyError>)=>  {
+function main(?throw: Exception<MyError>) {
   throw({
     message: "Something went wrong",
   });
@@ -1420,6 +1492,8 @@ let y: f32 = x as f32;
 
 ### Effectful function
 
+QUESTION: Should we allow an effectful function to be a closure?
+
 An effectful function is defined with the `effect` keyword.
 
 The continuation `k` will be exposed to the effectful function.  
@@ -1432,8 +1506,10 @@ The `do` keyword decides where to `resume` the continuation.
 The `return` keyword is not allowed in the continuation function.
 
 ```typescript
-let safe_divide = (x: i32, y: i32, raise: effect (msg: *u8[])=> i32
-)=> i32 {
+function safe_divide( x: i32,
+                      y: i32,
+                      raise: effect (msg: *u8[])=> i32
+  ): i32 {
   if y == 0 {
     do raise("Division by zero")
   } else {
@@ -1442,16 +1518,16 @@ let safe_divide = (x: i32, y: i32, raise: effect (msg: *u8[])=> i32
 }
 
 // `resume`
-let handle_resume = ()=> i32 {
-  let raise = effect (msg: *u8[])=> i32 {
+function handle_resume(): i32 {
+  let raise = effect (msg: *u8[]): i32 => {
     resume(10, /* k */);
   }
   return 1 + safe_divide(3, 0, raise) + 2; // 13
 }
 
 // `abort`
-let handle_abort = ()=> i32 {
-  let raise = effect (msg: *u8[])=> i32 {
+function handle_abort(): i32 {
+  let raise = effect (msg: *u8[]): i32 => {
     abort(10, /* k */);
   }
   return 1 + do safe_divide(3, 0, raise) + 2; // 10
@@ -1459,8 +1535,8 @@ let handle_abort = ()=> i32 {
 ```
 
 ```typescript
-let main = ()=> () {
-  let wait_for_seconds = effect (seconds: u32)=> i32 {
+function main() {
+  let wait_for_seconds = effect (seconds: u32): i32 => {
     set_timeout(()=> {
       println("Done");
       resume(12);
@@ -1477,21 +1553,22 @@ let main = ()=> () {
 ### Run multiple continuations `In Design`
 
 ```typescript
-let main = ()=> () {
-  let wait_for_seconds = effect (sec: u32)=> i32 {
-    set_timeout(()=> {
+function main() {
+  effect wait_for_seconds(sec: u32): i32 {
+    set_timeout([=]()=> {
       println(sec);
       resume(sec);
     }, sec * 1000);
   }
 
   print("before waits");
-  let [wait1, wait2, wait3] = do [
+  let (wait1, wait2, wait3) = do (
     wait_for_seconds(1),
     wait_for_seconds(2),
     wait_for_seconds(3),
-  ];
-  print("after wraits");
+  );
+  print("after waits");
+  // Will wait for 3 seconds
 }
 ```
 
@@ -1502,9 +1579,9 @@ Similar to the ECMAScript modules, we use the `import` and `export` keywords to 
 QUESTION: Should we allow to `export` a linear type value?
 
 ```typescript
-import "https://github.com/mo-lang/mo/std/fs.mo", only: { copy };
+import { copy } from "https://github.com/mo-lang/mo/std/fs.mo"
 
-let test = ()=> {
+function test() {
   println("Hello, world!");
 }
 
@@ -1530,29 +1607,28 @@ instance Id<i32> {
 }
 
 // Prevent name mangling.
-export "C" let x = 1;
+export let x = 1;
 ```
 
 ```typescript
 // There is no `default` export.
 import "./test.mo"; // Import everything from test.mo
-import "./test.mo", as: Test; // Import everything from test.mo and put it in the Test namespace
+import * as Test from "./test.mo"; // Import everything from test.mo and put it in the Test namespace
+import { test } from "./test.mo"; // Import test function from test.mo
+import { test as test2 } from "./test.mo"; // Import test function from test.mo and rename it to test2
 
-import "./test.mo", only: { test }; // Import test function from test.mo
-import "./test.mo", only: { test as test2 }; // Import test function from test.mo and rename it to test2
-
-import "./test.mo", only: { Option }; // Import Option enum from test.mo
+import { Option } from "./test.mo"; // Import Option enum from test.mo
 
 /*
 // BELOW ARE IN DESIGN
 import { Option:{Some, None} } from "./test.mo"; // Unwrap Some and None variant from Option enum from test.mo
-import { Option:* } from "./test.mo"; // Unwrap all variants from Option enum from test.mo
-import { Option as AnotherOption:* } from "./test.mo"; // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
+import { Option:{*} } from "./test.mo"; // Unwrap all variants from Option enum from test.mo
+import { Option as AnotherOption:{*} } from "./test.mo"; // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
 */
 
 // All exported instances are implicitly imported.
-import "./test.mo", only: { id }; // Import `id` function defined in `Id` interface from test.mo
-import "./test.mo", only: { Id }; // Import `Id` interface from test.mo
+import { id } from "./test.mo"; // Import `id` function defined in `Id` interface from test.mo
+import { Id } from "./test.mo"; // Import `Id` interface from test.mo
 ```
 
 `mo.json` and `mo.lock`
@@ -1566,6 +1642,87 @@ import "./test.mo", only: { Id }; // Import `Id` interface from test.mo
   }
 }
 ```
+
+## Attributes
+
+Attributes are defined with the `@` symbol.
+
+```typescript
+@doc(`Add two numbers`)
+function add(x: i32, y: i32): i32 {
+  return x + y;
+}
+
+@derive(Eq, Ord)
+type Centimeters = i32;
+```
+
+## C Interoperability
+
+### To C
+
+```typescript
+@c_name("c_add_numbers") // Export to C with the name `c_add_numbers`
+function add_numbers(a: i32, b: i32): i32 {
+  return a + b;
+}
+
+@c_name("some_struct_t") // Export to C with the name `some_struct_t`
+type SomeStruct = {
+  @c_name("another_name") // Export to C with the name `another_name`
+  a: i32,
+
+  b: i32,
+  c: i32,
+};
+```
+
+### From C
+
+```c
+// some_c.h
+int add_numbers(int a, int b);
+
+struct some_struct_t {
+  int a;
+  int b;
+  int c;
+};
+```
+
+```typescript
+import "./some_c.h";
+
+extern "C" {
+  @c_name("add_numbers") // Import from C with the name `add_numbers`
+  my_add_numbers: (a: i32, b: i32)=> i32, // Import from C
+
+  @c_name("some_struct_t") // Import from C with the name some_struct_t
+  my_some_struct_t: {
+    @c_name("a") // Import from C with the name `a`
+    my_a: i32,
+
+    b: i32,
+    c: i32,
+  };
+}
+
+my_add_numbers(1, 2); // calling add_numbers from C
+```
+
+## Naming Convention
+
+- `PascaleCase`
+  - `class`
+  - `type`
+  - `enum` and its variants
+- `snake_case`
+  - `function`
+  - `variable`
+  - `file name`
+  - `directory name`
+- `UPPER_SNAKE_CASE`
+  - `constant`
 
 ## Compilation `In Design`
 
@@ -1602,6 +1759,8 @@ quote([0, unquote_splicing(list), 4]); // [0, 1, 2, 3, 4]
 ```
 
 ### Macro
+
+QUESTION: Should we allow `macro`? It brings a lot of complexity to the language.
 
 Use the `macro` keyword to define a macro.
 
