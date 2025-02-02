@@ -1612,7 +1612,7 @@ export let x = 1;
 
 ```typescript
 // There is no `default` export.
-import "./test.mo"; // Import everything from test.mo
+import * from "./test.mo"; // Import everything from test.mo
 import * as Test from "./test.mo"; // Import everything from test.mo and put it in the Test namespace
 import { test } from "./test.mo"; // Import test function from test.mo
 import { test as test2 } from "./test.mo"; // Import test function from test.mo and rename it to test2
@@ -1691,7 +1691,7 @@ struct some_struct_t {
 ```
 
 ```typescript
-import "./some_c.h";
+import * from "./some_c.h";
 
 extern "C" {
   @c_name("add_numbers") // Import from C with the name `add_numbers`

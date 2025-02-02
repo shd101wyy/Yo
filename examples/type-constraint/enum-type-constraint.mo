@@ -1,4 +1,4 @@
-import { Id } from "../interface/id.mo";
+import { Id } from "../classes/id.mo";
 
 enum Option<T: Type using Id<T>> {
   Some(value: T),

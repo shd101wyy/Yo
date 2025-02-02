@@ -9,12 +9,12 @@
 export * from "./builtins.mo";
 
 // interface
-export * from "./interface/arithmetic.mo";
-export * from "./interface/logic.mo";
-export * from "./interface/common.mo";
-export * from "./interface/eq.mo";
-export * from "./interface/ord.mo";
-export * from "./interface/closure.mo";
+export * from "./classes/arithmetic.mo";
+export * from "./classes/logic.mo";
+export * from "./classes/common.mo";
+export * from "./classes/eq.mo";
+export * from "./classes/ord.mo";
+export * from "./classes/closure.mo";
 
 // data
 export * from "./data/option.mo";

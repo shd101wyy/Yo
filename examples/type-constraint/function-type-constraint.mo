@@ -1,4 +1,4 @@
-import { Id } from "../interface/id.mo";
+import { Id } from "../classes/id.mo";
 
 extern {
   eGeneridId: <A using Id<A>>(x: A)=> A;
