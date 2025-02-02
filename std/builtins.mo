@@ -1,9 +1,9 @@
 // Also needs to update the src/builtins.ts file
 export extern "Mo" {
-  codegenFunction: (C: symbol = "")=> ();
-  codegenInline: (C: symbol = "")=> ();
+  codegen_function: (C: *str = "")=> ();
+  codegen_inline: (C: *str = "")=> ();
   consume: <T: Type>(value: T)=> ();
-  compileError: (message: symbol)=> ();
+  compile_error: (message: symbol)=> ();
   // @noop: <T>()=> T;
   // castToFree: <T: Type>(value: &T)=> T;
 }

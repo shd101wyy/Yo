@@ -10,7 +10,7 @@ export enum Ordering {
 }
 
 // Using Eq<T>
-export class Ord<T: Type, using Eq<T>> {
+export class Ord<T: Type with Eq<T>> {
   compare: (a: T, b: T)=> Ordering;
   (<): (a: T, b: T)=> boolean;
   (>): (a: T, b: T)=> boolean;

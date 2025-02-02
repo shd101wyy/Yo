@@ -6,8 +6,8 @@ import * from "../../interface/eq.mo";
  * logic
  */
 instance LogicalNot<boolean> {
-  (!): (a: boolean)=> boolean {
-    codegenInline(C="!$1");
+  (!): (a)=> {
+    codegen_inline(C="(!($1))");
     recur(a)
   }
 }

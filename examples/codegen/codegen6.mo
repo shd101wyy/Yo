@@ -1,11 +1,11 @@
 extern "Mo" {
-  codegenFunction: (C: string = "")=> ();
+  codegen_function: (C: string = "")=> ();
 }
 
 infixl 60 +   // Addition
 
 let add = (x: i32, y: i32)=> i32 {
-  codegenFunction(
+  codegen_function(
     C = "inline int32_t $0(int32_t $1, int32_t $2) { return $1 + $2; }
 
 "
@@ -14,7 +14,7 @@ let add = (x: i32, y: i32)=> i32 {
 }
 
 let (+) = (x: i32, y: i32)=> i32 {
-  codegenFunction(
+  codegen_function(
     C = "inline int32_t $0(int32_t $1, int32_t $2) { return $1 + $2; }
 
 "

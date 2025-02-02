@@ -1,9 +1,9 @@
 extern "Mo" {
-  codegenInline: (C: string = "")=> ();
+  codegen_inline: (C: string = "")=> ();
 }
 
 let add = (x: i32, y: i32)=> i32 {
-  codegenInline(
+  codegen_inline(
     C = "($1 + $2)"
   );
   0
