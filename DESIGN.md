@@ -89,7 +89,9 @@ We will also post a series of articles on the design and implementation of **Mo*
 
 ## Philosophy
 
-Just another "C", with a little bit of functional programming.  
+It's just "C"!  
+Extended with a little bit of functional programming.
+
 Explicit is better than Implicit.  
 Strict is better than Loose.
 
@@ -293,11 +295,9 @@ let z = x; // Compiler Error: x is already consumed.
   let some_i = malloc(sizeof<i32>()); // i: Option<^i32> Linear type
   let i = some_i.unwrap(); // i: ^i32. Linear type
 
-  let p1: *i32 = i; // p: *i32. Free type
+  let p1: *i32 = i as *i32; // p: *i32. Free type
 
   let p2: *i32 = i; // p: *i32. Free type
-
-  let p2_2: *i32 = p2; // Compiler Error: Cannot assign a `*i32` to a `*i32`.
 
   let p3 = i; // p: ^i32. Linear type, ownership is transferred.
   free(p3);
@@ -329,7 +329,7 @@ extern "C" {
 
 function main() {
   var x = String.from("Hello, world"); // x: String. mutable
-  let y: *String = &x; // y: *String   // mutable reference
+  let y: *String = &x; // y: *mut String   // mutable reference
   let z: *String = &x; // z: *String   // immutable reference
 
   length(x);  // not allowed
@@ -565,6 +565,14 @@ add y: 2, x: 1; // 3
 The contextual parameters are passed implicitly to the function.  
 **Mo** looks for the closest value that matches the contextual parameter by the **type**, not by **name**.
 
+NOTE: `implicit` should be part of the `type`.
+
+```typescript
+function some_async_func(?Async<i32>): i32 {
+  // Here we didn't give a parameter name for the implicit parameter.
+}
+```
+
 #### Compiletime
 
 ```typescript
@@ -574,7 +582,7 @@ export class Id<T> {
 };
 
 // main.mo
-import { Id, id } from "./id.mo";
+let { Id, id } = import("./id.mo");
 let use_id = <T with Id>(x: T): T => {
   id(x)
 }
@@ -589,7 +597,7 @@ function add(x: i32, ?y: i32): i32 {
 
 function main() {
   {
-    add(3); // error: missing implicit parameter y
+    add(3); // error: missing implicit parameter type i32
   }
   {
     let ?y = 4;
@@ -597,8 +605,8 @@ function main() {
   }
   {
     let ?a = 4;
-    let ?b = 5;
-    add(3); // will pick the closest value, which is ?b, so it's 8
+    ?i32 = 5; // without giving a name
+    add(3); // will pick the closest value, which is 5, so it's 8
   }
   {
     add(3, 4); // ok, 7
@@ -805,7 +813,7 @@ i32_slice[0] = 10;
 // i32_array: [10, 2, 3, 4, 5]
 
 
-function set_value(arr: &i32[], index: usize, value: i32) {
+function set_value(arr: *i32[], index: usize, value: i32) {
   if index < arr.length { // arr.length is runtime known
     arr[index] = value;
   }
@@ -861,7 +869,7 @@ The closure type is defined as:
   ```
 - Closure that can be called multiple times:
   ```
-  [*]<type parameters>(parameters)=> return_type { body }
+  [&]<type parameters>(parameters)=> return_type { body }
   ```
 
 A closure can be defined using the following syntax:
@@ -1005,13 +1013,13 @@ instance Show<String> {
 }
 
 // main.mo
-import { show, Show } from "./show.mo";
+let { show, Show } = import("./show.mo");
 
 export function show<T with Show<T>>(x: Array<T>): String {
   // ...
 }
 
-import { show, Show } from "./show.mo";
+let { show, Show } = import("./show.mo");
 
 function less_than<T: Type with (Ord<T>, Show<T>)>(x: T, y: T): boolean {
   println(show(x));
@@ -1398,11 +1406,11 @@ let constant_ptr_to_constant = &constant_i32; // constant_ptr_to_constant: *i32.
 
 // Pointer to a non-constant
 var i32 = 12;
-var ptr_to_i32 = &i32; // ptr_to_i32: *mut i32. Free type
+var ptr_to_i32 = *i32; // ptr_to_i32: *mut i32. Free type
 
 // Constant pointer to a non-constant
 var i32 = 12;
-let constant_ptr_to_i32 = &i32; // constant_ptr_to_i32: *mut i32. Free type
+let constant_ptr_to_i32 = *i32; // constant_ptr_to_i32: *mut i32. Free type
 ```
 
 ## Collections
@@ -1440,8 +1448,8 @@ immutable_s.length; // 5
 
 // where it is stored in struct like
 type str = {
-  data: *u8,
-  length: usize,
+  data: u8;
+  length: usize;
 };
 ```
 
@@ -1481,12 +1489,26 @@ function main(?throw: Exception<MyError>) {
 
 ## Type casting
 
+Use `as` to cast a value to another type.
+
 ```typescript
 let x: i32 = 1;
 let y: f32 = x as f32;
 ```
 
+### Type casting in destructuring
+
+```typescript
+let arr = [1, 2, 3];
+let [x as f32, y, z] = arr;
+
+let obj = {x: 1, y: 2, z: 3};
+let {x: new_name as f32, y, z} = obj;
+```
+
 ## Algebraic Effects `In Design`
+
+NOTE: It is too hard to implement. And it makes the type system complicated. We need to find some way to simplify the type system.
 
 **Mo** supports the one-shot delimited continuation.
 
@@ -1502,6 +1524,7 @@ Either `resume` or `abort` function can be called with the continuation `k`.
 
 The `do` keyword is used to call the effectful function.  
 The `do` keyword decides where to `resume` the continuation.
+The `do` keyword is necessary to notify the programmer that the continuation might `abort`.
 
 The `return` keyword is not allowed in the continuation function.
 
@@ -1552,6 +1575,8 @@ function main() {
 
 ### Run multiple continuations `In Design`
 
+QUESTION: This approach has the problem that if one of them abort, then how should we handle the rest of the continuations?
+
 ```typescript
 function main() {
   effect wait_for_seconds(sec: u32): i32 {
@@ -1572,14 +1597,23 @@ function main() {
 }
 ```
 
-## Modules
+## async/await `In Design`
 
-Similar to the ECMAScript modules, we use the `import` and `export` keywords to import and export modules. The syntax is changed and extended a bit.
+NOTE: Having async/await like javascript makes mo not distinguishable from javascript. We need to find some way to make mo unique. So probably we will not implement async/await. The function shouldn't be colored with the async keyword.
+
+```typescript
+async function main() {
+  let result = await fetch("https://api.example.com");
+  println(result);
+}
+```
+
+## Modules
 
 QUESTION: Should we allow to `export` a linear type value?
 
 ```typescript
-import { copy } from "https://github.com/mo-lang/mo/std/fs.mo"
+let { copy } = import("https://github.com/mo-lang/mo/std/fs.mo")
 
 function test() {
   println("Hello, world!");
@@ -1611,24 +1645,23 @@ export let x = 1;
 ```
 
 ```typescript
-// There is no `default` export.
-import * from "./test.mo"; // Import everything from test.mo
-import * as Test from "./test.mo"; // Import everything from test.mo and put it in the Test namespace
-import { test } from "./test.mo"; // Import test function from test.mo
-import { test as test2 } from "./test.mo"; // Import test function from test.mo and rename it to test2
+let {*} = import("./test.mo"); // Import everything from test.mo
+let Test = import("./test.mo"); // Import everything from test.mo and put it in the Test namespace
+let { test } = import("./test.mo"); // Import test function from test.mo
+let { test: test2 } = import("./test.mo"); // Import test function from test.mo and rename it to test2
 
-import { Option } from "./test.mo"; // Import Option enum from test.mo
+let { Option } = import("./test.mo"); // Import Option enum from test.mo
 
 /*
 // BELOW ARE IN DESIGN
-import { Option:{Some, None} } from "./test.mo"; // Unwrap Some and None variant from Option enum from test.mo
-import { Option:{*} } from "./test.mo"; // Unwrap all variants from Option enum from test.mo
-import { Option as AnotherOption:{*} } from "./test.mo"; // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
+let { Option:{Some, None} } = import("./test.mo"); // Unwrap Some and None variant from Option enum from test.mo
+let { Option:{*} } = import("./test.mo"); // Unwrap all variants from Option enum from test.mo
+let { Option as AnotherOption:{*} } = import("./test.mo"); // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
 */
 
 // All exported instances are implicitly imported.
-import { id } from "./test.mo"; // Import `id` function defined in `Id` interface from test.mo
-import { Id } from "./test.mo"; // Import `Id` interface from test.mo
+let { id } = import("./test.mo"); // Import `id` function defined in `Id` interface from test.mo
+let { Id } = import("./test.mo"); // Import `Id` class from test.mo
 ```
 
 `mo.json` and `mo.lock`
@@ -1710,7 +1743,148 @@ extern "C" {
 my_add_numbers(1, 2); // calling add_numbers from C
 ```
 
+## Origin checker
+
+### Region
+
+A region is a block of code within `{...}`.
+
+```typescript
+{
+  let x = 1;
+  let y = 2;
+}
+```
+
+When you create a reference, that reference will be valid within the region it was created.
+
+```typescript
+{
+  let x = 1;
+  { // Region R1
+    let y = &x; // *i32 &(y)
+    println(*y); // 1
+  }
+}
+```
+
+**Rule**: A reference and its owner cannot stay at the same region:
+
+```typescript
+let x = 1;
+let y = &x; // compiler error: Reference y cannot live at the same region as owner x.
+```
+
+**Rule**: In the region where the reference is created, the owner cannot be consumed:
+
+```typescript
+let x = String.from("Hello");
+{
+  let y = &x;
+  drop(x); // compiler error: x cannot be consumed as there is a reference y.
+}
+```
+
+### Origin examples
+
+```typescript
+let x = Sring.from("Hello, world");
+{// R1
+  let p = &x; // p: *String &(x); // means `p` contains a reference to origin `x`.
+}
+
+let person = Person.Person(String.from("Alice"), 30);
+{ // R2
+  let p = &person.name; // p: *String &(x);
+}
+
+let arr = [String.from("Hello"), String.from("World")];
+{ // R3
+  let p = &arr[0];            // p: *String &(x);
+  let old_str = (arr[0] = String.from("Hi")); // Cannot mutate `arr` as there is a immutable reference `p`
+}
+
+let arr = [String.from("Hello"), String.from("World")];
+{ // R4
+  let p = &arr[some_index()]; // p: *String &(x);
+  let old_str = (arr[0] = String.from("Hi")); // Cannot mutate `arr` as there is a immutable reference `p`
+}
+```
+
+```typescript
+type as_bytes = (self: *String)=> *str &(self); // This means the return value uses the `self` as the origin.
+
+function longest_str(x: *str, y: *str): *str &(*x, *y) // Means the return value has the same origin as either x or y.
+                                                                // QUESTION: Should we make it the default.
+// or
+function longest_str(x: *str &(x_origin), y: *str &(y_origin)): *str &(x_origin, y_origin)
+                                                        // Means the return value has the same origin as either x or y.
+{
+  if x.length > y.length {
+    x
+  } else {
+    y
+  }
+}
+
+var p: *str; // p: *str &();
+{
+  let str1 = String.from("Hello");
+  {
+    let str2 = String.from("World");
+    p = longest_str(str1.as_bytes(),  // *str &(str1);
+                    str2.as_bytes()   // *str &(str2);
+                    ); // p: *str &(str1, str2);
+    // Error here:
+    // str2 is not alive here, but the origin of p might be str2.
+  }
+}
+```
+
+```typescript
+// Use `out` to denote the type change of a parameter after the function call.
+function push_value(arr: *mut ArrayList<*i32> &(...arr_origin)
+                    out  *mut ArrayList<*i32> &(...arr_origin, value_origin),
+                    value: *i32 &(value_origin)):
+                    ()
+{
+  arr.push(value);
+}
+
+var arr = ArrayList.new(); // arr: ArrayList<*i32>;
+{
+  let arr_ref = &arr;      // arr_ref: *mut ArrayList<*i32> &(arr);
+
+  let value = 1;
+  let value_ref = &value;      // value_ref: *i32 &(value);
+  push_value(&arr, value_ref);
+  // arr: ArrayList<*i32> &(value);
+} // error: value is not alive here, but the origin of arr might be value.
+```
+
+```typescript
+function delete_value(arr: *mut ArrayList<*i32> &(value_origin, ...rest)
+                      out  *mut ArrayList<*i32> &(...rest),
+                      value: *i32 &(value_origin)):
+                      ()
+{
+  arr.delete(value);
+}
+var arr = ArrayList.new(); // arr: ArrayList<*i32>;
+{
+  let arr_ref = &arr;      // arr_ref: *mut ArrayList<*i32> &(arr);
+
+  let value = 1;
+  let value_ref = &value;      // value_ref: *i32 &(value);
+
+  push_value(&arr, value_ref); // arr: ArrayList<*i32> &(value);
+  delete_value(&arr, value_ref); // arr: ArrayList<*i32>;
+}
+```
+
 ## Naming Convention
+
+2 spaces for indentation.
 
 - `PascaleCase`
   - `class`

@@ -92,7 +92,7 @@ const print_elements = ()=> {
 
 ## Calling multiple effects simultaneously
 
-QUESTION: Should we do that this way? It seems to break the control flow.  
+QUESTION: Should we do that this way? It seems to break the control flow.
 
 ```typescript
 const main = ()=> i32 {

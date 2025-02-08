@@ -80,23 +80,33 @@ function counter<E: Effect*>(): [State<i32>, Console, Divergence, ...E] () {
 ```typescript
 enum Result<T, E> {
   Ok(x: T),
-  Err(e: E)
+  Error(e: E)
 }
 
-effect Async<T, E> {
-  async(initiate: (callback: (Result<T, E>) => [IO] ()) => [IO] ()): Result<T, E>
+type Exception<E, A> = effect (error: E) => A;
+
+function untry<T, E>(value: Result<T, E>, ?throw: Exception<E>): T {
+  match (value) {
+    case Ok(x): x,
+    case Error(e): do throw(e)
+  }
 }
 
-function await1<T>(initiate: (callback: (value: T)=> [IO] ())=> [IO] ()): [Async, Exception] T {
-  do await((cb)=> {
+type Async<T, E> = effect (initiate: (callback: (Result<T>)=> ()) => ()) => Result<T, E>
+
+function await1<T, E>(initiate: (callback: (T)=> ())=> (),
+                      ?await: Async<T>,
+                      ?Exception<E>): T {
+  untry(do await((cb)=> {
     initiate((value)=> {
       cb(Ok(value))
     })
-  })
+  }))
 }
 
-function await0<T>(initiate: (callback: (value: ())=> [IO] ())=> [IO] ()):
-[Async, Exception] () {
+function await0<E>(initiate: (callback: ()=> ())=> (),
+                ?Async<(), E>,
+                ?Exception<E>): () {
   await1((cb)=> {
     initiate(()=> {
       cb(())
@@ -104,66 +114,32 @@ function await0<T>(initiate: (callback: (value: ())=> [IO] ())=> [IO] ()):
   })
 }
 
-function wait(seconds: i32): [Async, Exception] () {
+function wait<E>(seconds: i32, ?Async<(), E>, ?Exception<E>) () {
   await0((cb)=> {
-    setTimeout(cb, seconds * 1000);
+    set_timeout(cb, seconds * 1000);
     ()
   })
 }
 
-function helloWorld(): [Async, Exception, Console] () {
+function hello_world<E>(?Async<()>, ?Exception<E>): () {
   println("Hello");
   wait(2);
   println("World");
 }
-
-function main() {
-  with handler Async {
-    async(initiate) {
-      initiate(resume)
-    }
-  }
-}
 ```
 
-## My Problem
+### 3.2. Implementing an asynchronous handler
 
 ```typescript
-effect GiveInt {
-  giveInt(): i32
-}
-
-function useGiveInt {
-  const giveIntHandler = handler<GiveInt>({
-    giveInt(resume) {
-      setTimeout(()=> {
-        resume(1) // resume the execution of the program
-      }, 1000);
-    }
-    0 // abort the execution of the program
-  })
-
-  const program = giveIntHandler(()=> {
-    const x = do giveInt();
-    const y = do giveInt();
-    println(x + y)
-  });
-  defer program.drop();
-
-  while (true) {
-    let completed = false;
-    switch program.run() {
-      case Abort(x): {
-        println("Aborted with " + x)
-      }
-      case Complete(x): {
-        println("Completed with " + x)
-        completed = true;
-      }
-    }
-    if (completed) {
-      break;
-    }
+function main() {
+  let ?async_handle = effect (initiate) {
+    initiate((result)=> {
+      resume(result)
+    });
   }
+  hello_world(?async_handle)
 }
 ```
+
+### 3.3 Interleaving
+

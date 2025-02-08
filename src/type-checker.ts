@@ -1705,7 +1705,7 @@ export function applyTypeArgumentsToInterface({
 }): TInterface {
   // logger.debug("- applyTypeArgumentsToInterface");
   /*
-  // NOTE: Adding the code below will cause ./examples/interface/use_id3.mo failed to parse
+  // NOTE: Adding the code below will cause ./examples/classes/use_id3.mo failed to parse
   if (
     typeArguments &&
     interface_.typeParameters.length !== typeArguments.length

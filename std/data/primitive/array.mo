@@ -1,4 +1,4 @@
-import { Drop } from "../../classes/common.mo";
+import { Drop, drop } from "../../classes/common.mo";
 
 instance<T: Type with Drop<T>, S: usize> Drop<T[S]> {
   drop(value: T[S]) {
