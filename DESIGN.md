@@ -1648,6 +1648,7 @@ NOTE: Why not use javascript like import:
 
 - To support condtional import in the future.
 - To allow import happening in the middle of the code, like inside a function.
+- for consistency with the destructuring. Like for javascript, it uses `import {x as y} from "module.ts"` but destructuring uses `let {x: y} = obj`.
 
 ```typescript
 let { copy } = import("https://github.com/mo-lang/mo/std/fs.mo")
@@ -1784,7 +1785,7 @@ my_add_numbers(1, 2); // calling add_numbers from C
 
 ### Rules
 
-- When the value is borrowed, we cannot mutate it.
+- When the value is borrowed, we cannot mutate or comsume it.
 
 ```typescript
 function main() {

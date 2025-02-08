@@ -1,9 +1,11 @@
-import { Drop, drop } from "../../classes/common.mo";
+let { Drop, drop } = import("../../classes/common.mo");
 
-instance<T: Type with Drop<T>, S: usize> Drop<T[S]> {
+instance<T: Linear with Drop<T>, S: usize> Drop<T[S]> {
   drop(value: T[S]) {
-    for (let i = 0; i < S; i++) {
-      drop(value[i]);
+    var i = 0;
+    while (i < S) {
+      drop((value as (T:Free)[S])[i]);
     }
+    consume(value);
   };
 }

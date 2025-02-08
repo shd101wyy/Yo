@@ -1,6 +1,6 @@
-import * from "../../builtins.mo";
-import * from "../../classes/logic.mo";
-import * from "../../classes/eq.mo";
+let { codegen_inline } = import("../../builtins.mo");
+let { LogicalNot } = import("../../classes/logic.mo");
+let { Eq } = import("../../classes/eq.mo");
 
 /**
  * logic
@@ -9,5 +9,19 @@ instance LogicalNot<boolean> {
   (!): (a)=> {
     codegen_inline(C="(!($1))");
     recur(a)
+  }
+}
+
+/**
+ * eq
+ */
+instance Eq<boolean> {
+  (==): (a, b)=> {
+    codegen_inline(C="(($1) == ($2))");
+    recur(a, b)
+  }
+  (!=): (a, b)=> {
+    codegen_inline(C="(($1) != ($2))");
+    recur(a, b)
   }
 }

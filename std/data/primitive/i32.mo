@@ -1,7 +1,7 @@
-import * from "../../builtins.mo";
-import * from "../../classes/arithmetic.mo";
-import * from "../../classes/logic.mo";
-import * from "../../classes/eq.mo";
+let { codegen_inline } = import("../../builtins.mo");
+let { Add, Sub, Mul, Div, Mod } = import("../../classes/arithmetic.mo");
+let { LogicalNot } = import("../../classes/logic.mo");
+let { Eq } = import("../../classes/eq.mo");
 
 /**
  * arithmetic
