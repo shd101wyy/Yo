@@ -1,10 +1,10 @@
 # Language Design
 
-**Mo** 墨 🐼 is minimal, general-purpose, compiled programming language that incorporates the Linear Types and Algebraic Effects.
+**Mo** 墨 🐼 is general-purpose, compiled programming language that incorporates the Linear Types, Reference Checker, and Algebraic Effects.
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
-**Mo** has a minimal syntax design that looks like TypeScript, and uses uniform call syntax (dot notation)~~, brace elison~~ to make the code more concise.
+**Mo** has a syntax design that looks like TypeScript, and uses uniform call syntax (dot notation)~~, brace elison~~ to make the code more concise.
 
 **Mo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types `In Design`.
 
@@ -232,6 +232,27 @@ function example(x: i32, y: i32) {
 }
 ```
 
+#### No duplicate variable declaration
+
+```typescript
+let x = 1;
+let x = 2; // Error: x is already declared
+{
+  let x = 2; // Error: x is already declared
+}
+```
+
+Below is allowed as they are in different regions:
+
+```typescript
+{
+  let x = 1;
+}
+{
+  let x = 2;
+}
+```
+
 ### Type inference
 
 ```typescript
@@ -309,8 +330,8 @@ let z = x; // Compiler Error: x is already consumed.
 ```typescript
 {
   var x = 1; // x: copied i32. Free type
-  let p1 = &x; // r: *mut i32. Free type
-  let p2: *mut i32 = &x; // p: *mut i32. Free type.
+  let p1 = &mut x; // r: *mut i32. Free type
+  let p2: *mut i32 = &mut x; // p: *mut i32. Free type.
   *p1 = 2;
   // x == 2
   // *p1 == 2
@@ -329,7 +350,7 @@ extern "C" {
 
 function main() {
   var x = String.from("Hello, world"); // x: String. mutable
-  let y: *String = &x; // y: *mut String   // mutable reference
+  let y: *mut String = &mut x; // y: *mut String   // mutable reference
   let z: *String = &x; // z: *String   // immutable reference
 
   length(x);  // not allowed
@@ -515,6 +536,17 @@ let add = (x: i32 = 1, y: i32 = 2): i32 => {
 add(); // 3
 add(y: 3); // 4
 add 2, 3; // 5
+
+// Named return values
+function exponent(base: i32, power: i32):
+  ( result: i32,
+    some_ref: *i32 &(result)) {
+  var r = 1;
+  for (let i = 0; i < power; i++) {
+    r *= base;
+  }
+  return (r, &r);
+}
 
 // Generic function
 function identity<T>(arg: T): T {
@@ -1405,12 +1437,12 @@ let constant_i32 = 12;
 let constant_ptr_to_constant = &constant_i32; // constant_ptr_to_constant: *i32. Free type
 
 // Pointer to a non-constant
-var i32 = 12;
-var ptr_to_i32 = *i32; // ptr_to_i32: *mut i32. Free type
+var i32_val = 12;
+var ptr_to_i32 = &mut i32_val; // ptr_to_i32: *mut i32. Free type
 
 // Constant pointer to a non-constant
-var i32 = 12;
-let constant_ptr_to_i32 = *i32; // constant_ptr_to_i32: *mut i32. Free type
+var i32_val = 12;
+let constant_ptr_to_i32 = &mut i32_val; // constant_ptr_to_i32: *mut i32. Free type
 ```
 
 ## Collections
@@ -1612,6 +1644,11 @@ async function main() {
 
 QUESTION: Should we allow to `export` a linear type value?
 
+NOTE: Why not use javascript like import:
+
+- To support condtional import in the future.
+- To allow import happening in the middle of the code, like inside a function.
+
 ```typescript
 let { copy } = import("https://github.com/mo-lang/mo/std/fs.mo")
 
@@ -1743,54 +1780,53 @@ extern "C" {
 my_add_numbers(1, 2); // calling add_numbers from C
 ```
 
-## Origin checker
+## Reference checker
 
-### Region
+### Rules
 
-A region is a block of code within `{...}`.
+- When the value is borrowed, we cannot mutate it.
 
 ```typescript
-{
+function main() {
   let x = 1;
-  let y = 2;
+  {
+    let y = &x; // y: *i32 &(x);
+    x = 2; // Error: x is borrowed.
+  }
+  x = 3; // OK
 }
 ```
 
-When you create a reference, that reference will be valid within the region it was created.
+- Cannot borrow as mutable more than once.
 
 ```typescript
-{
-  let x = 1;
-  { // Region R1
-    let y = &x; // *i32 &(y)
-    println(*y); // 1
+function main() {
+  var x = 1;
+  {
+    let y = &mut x; // y: *mut i32 &(x);
+    let z = &mut x; // Error: x is already borrowed as mutable.
   }
 }
 ```
 
-**Rule**: A reference and its owner cannot stay at the same region:
+- Cannot borrow as immutable and mutable at the same time.
 
 ```typescript
-let x = 1;
-let y = &x; // compiler error: Reference y cannot live at the same region as owner x.
-```
-
-**Rule**: In the region where the reference is created, the owner cannot be consumed:
-
-```typescript
-let x = String.from("Hello");
-{
-  let y = &x;
-  drop(x); // compiler error: x cannot be consumed as there is a reference y.
+function main() {
+  var x = 1;
+  {
+    let y = &x; // y: *i32 &(x);
+    let z = &mut x; // Error: x is already borrowed as immutable.
+  }
 }
 ```
 
-### Origin examples
+### Reference examples
 
 ```typescript
 let x = Sring.from("Hello, world");
 {// R1
-  let p = &x; // p: *String &(x); // means `p` contains a reference to origin `x`.
+  let p = &x; // p: *String &(x); // means `p` contains a reference to `x`.
 }
 
 let person = Person.Person(String.from("Alice"), 30);
@@ -1832,11 +1868,14 @@ var p: *str; // p: *str &();
   let str1 = String.from("Hello");
   {
     let str2 = String.from("World");
-    p = longest_str(str1.as_bytes(),  // *str &(str1);
-                    str2.as_bytes()   // *str &(str2);
-                    ); // p: *str &(str1, str2);
+    {
+      p = longest_str(str1.as_bytes(),  // *str &(str1);
+                      str2.as_bytes()   // *str &(str2);
+                      ); // p: *str &(str1, str2);
+    }
+
     // Error here:
-    // str2 is not alive here, but the origin of p might be str2.
+    // str2 is not alive here, but p contains reference to str2.
   }
 }
 ```
@@ -1872,13 +1911,13 @@ function delete_value(arr: *mut ArrayList<*i32> &(value_origin, ...rest)
 }
 var arr = ArrayList.new(); // arr: ArrayList<*i32>;
 {
-  let arr_ref = &arr;      // arr_ref: *mut ArrayList<*i32> &(arr);
+  let arr_ref = &mut arr;      // arr_ref: *mut ArrayList<*i32> &(arr);
 
   let value = 1;
   let value_ref = &value;      // value_ref: *i32 &(value);
 
-  push_value(&arr, value_ref); // arr: ArrayList<*i32> &(value);
-  delete_value(&arr, value_ref); // arr: ArrayList<*i32>;
+  push_value(arr_ref, value_ref); // arr: ArrayList<*i32> &(value);
+  delete_value(arr_ref, value_ref); // arr: ArrayList<*i32>;
 }
 ```
 
