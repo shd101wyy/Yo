@@ -2,7 +2,7 @@
 
 using namespace std;
 
-int test(int &x) {
+int test(int& x) {
     x = x + 2;
     return x;
 }
@@ -22,6 +22,6 @@ int main() {
     const char *s1 = "Hello";
     char *s2 = "Hi";
 
-    char s2[] = "Hello";
+    char s3[] = "Hello";
     return 0;
 }

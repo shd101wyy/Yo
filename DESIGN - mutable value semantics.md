@@ -1,6 +1,6 @@
 # Language Design
 
-**Mo** 墨 🐼 is general-purpose, compiled programming language that incorporates the Linear Types, Reference Checker, and Algebraic Effects.
+**Mo** 墨 🐼 is general-purpose, compiled programming language that incorporates the Linear Types, Mutable Value Semantics, and Algebraic Effects.
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
@@ -501,6 +501,75 @@ NOTE: This is unsafe and should be avoided.
 ```typescript
 let x = String.from("Hi"); // x: String. Linear type
 let y = cast_to_free(x); // y: String. Free type
+```
+
+## Mutable Value Semantics
+
+Guarantee memory safety in low-level programming language is hard.  
+Rust uses the borrow checker to ensure memory safety, but it adds complexity to the language and burden to the programmer.  
+Mutable Value Semantics in contrast is a restriction to first-class references which makes you lose some generality but gain simplicity.
+Raw pointer is a natural thing in low-level programming languages. It's unavoidable.
+The goal of the **Mo** language is to let you write workable and kinda memory-safe code without the need to use raw pointers.
+
+### Second-Class References
+
+References in **Mo** are second-class citizens.
+
+- Can't be stored in data structures or variables.
+- Can't be returned from functions.
+- Can only be created at function call sites, as a special parameter-passing mode.
+
+### Parameter passing modes
+
+- `inout`
+
+  The `inout` parameter is a reference to a value that can be read and written.
+
+  ```typescript
+  function swap(a: inout i32, b: inout i32) {
+    let temp = a;
+    a = b;
+    b = temp;
+  }
+  let x = 1;
+  let y = 2;
+  swap(x, y);
+  ```
+
+- `in`
+
+  The `in` parameter is a reference to a value that can only be read.
+
+  ```typescript
+  function print(x: in i32) {
+    println(x);
+  }
+  let x = 1;
+  print(x);
+  ```
+
+- `out`
+
+  The `out` parameter is a reference to a value that can only be written.
+
+  ```typescript
+  function init(x: out i32) {
+    x = 1;
+  }
+  let x: i32;
+  init(x);
+  ```
+
+### RAII
+
+**Mo** supports the RAII to automatically insert the `drop` function when the variable of linear type goes out of scope.
+
+```typescript
+function test() {
+  let x = String.from("World!");
+
+  // `drop(x)` will be automatically inserted here.
+}
 ```
 
 ## Function Declaration
@@ -1781,226 +1850,19 @@ extern "C" {
 my_add_numbers(1, 2); // calling add_numbers from C
 ```
 
-## Reference checker
-
-### Rules
-
-- When the value is borrowed, we cannot mutate or move (consume) it.
-
-```typescript
-function main() {
-  let x = 1;
-  {
-    let y = &x; // y: *i32 &(x);
-    x = 2; // Error: x is borrowed.
-  }
-  x = 3; // OK
-}
-```
-
-- Cannot borrow as mutable more than once.
-
-```typescript
-function main() {
-  var x = 1;
-  {
-    let y = &mut x; // y: *mut i32 &(x);
-    let z = &mut x; // Error: x is already borrowed as mutable.
-  }
-}
-```
-
-- Cannot borrow as immutable and mutable at the same time.
-
-```typescript
-function main() {
-  var x = 1;
-  {
-    let y = &x; // y: *i32 &(x);
-    let z = &mut x; // Error: x is already borrowed as immutable.
-  }
-}
-```
-
-### Reference examples
-
-```typescript
-let x = Sring.from("Hello, world");
-{// R1
-  let p = &x; // p: *String &(x); // means `p` contains a reference to `x`.
-}
-
-let person = Person.Person(String.from("Alice"), 30);
-{ // R2
-  let p = &person.name; // p: *String &(person);
-}
-
-let arr = [String.from("Hello"), String.from("World")];
-{ // R3
-  let p = &arr[0];            // p: *String &(arr);
-  let old_str = (arr[0] = String.from("Hi")); // Cannot mutate `arr` as there is a immutable reference `p`
-}
-
-let arr = [String.from("Hello"), String.from("World")];
-{ // R4
-  let p = &arr[some_index()]; // p: *String &(arr);
-  let old_str = (arr[0] = String.from("Hi")); // Cannot mutate `arr` as there is a immutable reference `p`
-}
-```
-
-```typescript
-type as_bytes = (self: *String)=> *str &(self); // This means the return value uses the `self` as the origin.
-
-function longest_str(x: *str, y: *str): *str &(*x, *y) // Means the return value has the same origin as either x or y.
-                                                       // QUESTION: Should we make it the default.
-// or
-function longest_str(x: *str &(x_origin), y: *str &(y_origin)): *str &(x_origin, y_origin)
-                                                        // Means the return value has the same origin as either x or y.
-{
-  if x.length > y.length {
-    x
-  } else {
-    y
-  }
-}
-
-var p: *str; // p: *str &();
-{
-  let str1 = String.from("Hello");
-  {
-    let str2 = String.from("World");
-    {
-      p = longest_str(str1.as_bytes(),  // *str &(str1);
-                      str2.as_bytes()   // *str &(str2);
-                      ); // p: *str &(str1, str2);
-    }
-
-    // Error here:
-    // str2 is not alive here, but p contains reference to str2.
-  }
-}
-```
-
-```typescript
-// Use `->` to denote the change of the origins after the function call.
-function push_value(arr: *mut ArrayList<*i32> &(...arr_origin) -> &(...arr_origin, value_origin),
-                    value: *i32 &(value_origin)):
-                    ()
-{
-  arr.push(value);
-}
-
-var arr = ArrayList.new(); // arr: ArrayList<*i32>;
-{
-  let arr_ref = &mut arr;      // arr_ref: *mut ArrayList<*i32> &(arr);
-
-  let value = 1;
-  let value_ref = &value;      // value_ref: *i32 &(value);
-  push_value(arr_ref, value_ref);
-  // arr: ArrayList<*i32> &(value);
-} // error: value is not alive here, but the origin of arr might be value.
-```
-
-```typescript
-function delete_value(arr: *mut ArrayList<*i32> &(value_origin, ...rest)
-                      out  *mut ArrayList<*i32> &(...rest),
-                      value: *i32 &(value_origin)):
-                      ()
-{
-  arr.delete(value);
-}
-var arr = ArrayList.new(); // arr: ArrayList<*i32>;
-{
-  let arr_ref = &mut arr;      // arr_ref: *mut ArrayList<*i32> &(arr);
-
-  let value = 1;
-  let value_ref = &value;      // value_ref: *i32 &(value);
-
-  push_value(arr_ref, value_ref); // arr: ArrayList<*i32> &(value);
-  delete_value(arr_ref, value_ref); // arr: ArrayList<*i32>;
-}
-```
-
-```typescript
-type SomeStruct = {
-  v: *i32
-};
-
-function main() {
-  let x = 0;
-  var o = SomeStruct {
-    v: &x;
-  }
-  // o: SomeStruct &(x)
-  let y = 1;
-  o.v = &y;
-  // o: SomeStruct &(x, y)
-  o: &(x, ...rest) -> &(...rest); // Remove `x` from the origins manually. // TODO: This should be automatically done by the compiler.
-  // o: SomeStruct &(y)
-}
-
-function main() {
-  let x = 0;
-  let y = 1;
-  let arr = [SomeStruct {
-    v: &x
-  }, SomeStruct {
-    v: &y
-  }];
-  // arr: SomeStruct[2] &(x, y)
-}
-```
-
-Problem
-
-```typescript
-type SomeStruct = {
-  x: *i32,
-  y: *i32
-}
-
-let x = 1;
-let y = 2;
-var v1 = SomeStruct {
-  x: &x,
-  y: &y
-}; // v1: SomeStruct &(x, y)
-var v2 = SomeStruct {
-  x: &y,
-  y: &x
-}; // v2: SomeStruct &(x, y)
-
-function return_something(v: *SomeStruct &(...rest)): *i32 &(...rest) {
-  if rand_i32() > 0 {
-    v.x
-  } else {
-    v.y
-  }
-}
-
-function swap(v1: *mut SomeStruct &(...rest_v1) -> &(...rest_v1, *v2), 
-              v2: *mut SomeStruct &(...rest_v2) -> &(...rest_v2, *v1)) {
-  v1.x = v2.y;
-  v2.y = v1.x;
-}
-swap(&mut v1, &mut v2);
-// v1: SomeStruct &(x, y, v2)
-// v2: SomeStruct &(x, y, v1)
-```
-
 ## Naming Convention
 
 2 spaces for indentation.
 
+- `snake_case`
+  - `file name`
+  - `directory name`
+  - `function`
+  - `variable`
 - `PascaleCase`
   - `class`
   - `type`
   - `enum` and its variants
-- `snake_case`
-  - `function`
-  - `variable`
-  - `file name`
-  - `directory name`
 - `UPPER_SNAKE_CASE`
   - `constant`
 

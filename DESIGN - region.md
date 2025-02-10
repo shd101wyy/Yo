@@ -1,6 +1,6 @@
 # Language Design
 
-**Mo** 墨 🐼 is general-purpose, compiled programming language that incorporates the Linear Types, Reference Checker, and Algebraic Effects.
+**Mo** 墨 🐼 is general-purpose, compiled programming language that incorporates the Linear Types, and Algebraic Effects.
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
@@ -1783,7 +1783,27 @@ my_add_numbers(1, 2); // calling add_numbers from C
 
 ## Reference checker
 
+### Labelled regions
+
+```typescript
+let x = 1;
+SOME_REGION: {
+  let ptr: *<i32, SOME_REGION> = &x;
+}
+```
+
 ### Rules
+
+- The references and its owner cannot live in the same region.
+
+```typescript
+let x = 1;
+let ptr = &x; // Error: x and ptr cannot live in the same region.
+{
+  let ptr = &x; // OK
+  // x is borrowed in this region, so it cannot be moved or mutated in this region.
+} // ptr no longer alive.
+```
 
 - When the value is borrowed, we cannot mutate or move (consume) it.
 
@@ -1825,37 +1845,34 @@ function main() {
 ### Reference examples
 
 ```typescript
+// R0
 let x = Sring.from("Hello, world");
 {// R1
-  let p = &x; // p: *String &(x); // means `p` contains a reference to `x`.
+  let p = &x; // p: *<String, R1>
 }
 
 let person = Person.Person(String.from("Alice"), 30);
 { // R2
-  let p = &person.name; // p: *String &(person);
+  let p = &person.name; // p: *<String, R2>;
 }
 
 let arr = [String.from("Hello"), String.from("World")];
 { // R3
-  let p = &arr[0];            // p: *String &(arr);
-  let old_str = (arr[0] = String.from("Hi")); // Cannot mutate `arr` as there is a immutable reference `p`
+  let p = &arr[0];            // p: *<String, R3>;
+  let old_str = (arr[0] = String.from("Hi")); // Cannot mutate `arr` as `arr` is borrowed in region R3.
 }
 
 let arr = [String.from("Hello"), String.from("World")];
 { // R4
-  let p = &arr[some_index()]; // p: *String &(arr);
-  let old_str = (arr[0] = String.from("Hi")); // Cannot mutate `arr` as there is a immutable reference `p`
+  let p = &arr[some_index()]; // p: *<String, R4>;
+  let old_str = (arr[0] = String.from("Hi")); // Cannot mutate `arr` as `arr` is borrowed in region R4.
 }
 ```
 
 ```typescript
-type as_bytes = (self: *String)=> *str &(self); // This means the return value uses the `self` as the origin.
+type as_bytes = <R: Region>(self: *<String, R>)=> *<str, R>;
 
-function longest_str(x: *str, y: *str): *str &(*x, *y) // Means the return value has the same origin as either x or y.
-                                                       // QUESTION: Should we make it the default.
-// or
-function longest_str(x: *str &(x_origin), y: *str &(y_origin)): *str &(x_origin, y_origin)
-                                                        // Means the return value has the same origin as either x or y.
+function longest_str<R1: Region, R2: Region>(x: *<str, R1>, y: *<str, R2>): *<str, min(R1, R2)> // Means returning the reference that is alive in the smallest region.
 {
   if x.length > y.length {
     x
@@ -1864,90 +1881,85 @@ function longest_str(x: *str &(x_origin), y: *str &(y_origin)): *str &(x_origin,
   }
 }
 
-var p: *str; // p: *str &();
-{
+var p: *str; // p: *<str, ?>;
+{ // R1
   let str1 = String.from("Hello");
-  {
+  { // R2
+    let str1_bytes = str1.as_bytes(); // str1_bytes: *<str, R2>;
     let str2 = String.from("World");
-    {
-      p = longest_str(str1.as_bytes(),  // *str &(str1);
-                      str2.as_bytes()   // *str &(str2);
-                      ); // p: *str &(str1, str2);
+    { // R3
+      p = longest_str(str1_bytes,       // *<str, R2>;
+                      str2.as_bytes()   // *<str, R3>;
+                      ); // p: *<str, R3>;
+      // Error here: p contains reference in R3, but R3 is no longer alive.
     }
-
-    // Error here:
-    // str2 is not alive here, but p contains reference to str2.
   }
 }
 ```
 
 ```typescript
-// Use `->` to denote the change of the origins after the function call.
-function push_value(arr: *mut ArrayList<*i32> &(...arr_origin) -> &(...arr_origin, value_origin),
-                    value: *i32 &(value_origin)):
+// Use `->` to denote the change of the types after the function call.
+function push_value(arr: *mut<ArrayList<*<i32, R0>>, R1> -> *mut<ArrayList<*<i32, min(R0, R2)>>, R1>,
+                    value: *<i32, R2>):
                     ()
 {
   arr.push(value);
 }
 
-var arr = ArrayList.new(); // arr: ArrayList<*i32>;
-{
-  let arr_ref = &mut arr;      // arr_ref: *mut ArrayList<*i32> &(arr);
+// R0
+var arr = ArrayList.new(); // arr: ArrayList<*<i32, R0>>;
+let value = 1;
+{ // R1
+  let arr_ref = &mut arr;      // arr_ref: *mut<ArrayList<*<i32, R0>>, R1>;
 
-  let value = 1;
-  let value_ref = &value;      // value_ref: *i32 &(value);
+  let value_ref = &value;      // value_ref: *<i32, R1>;
   push_value(arr_ref, value_ref);
-  // arr: ArrayList<*i32> &(value);
-} // error: value is not alive here, but the origin of arr might be value.
+  // arr: ArrayList<*<i32, R1>>;
+} // error: arr contains reference in R1, but R1 is no longer alive.
 ```
 
 ```typescript
-function delete_value(arr: *mut ArrayList<*i32> &(value_origin, ...rest)
-                      out  *mut ArrayList<*i32> &(...rest),
-                      value: *i32 &(value_origin)):
-                      ()
-{
-  arr.delete(value);
-}
-var arr = ArrayList.new(); // arr: ArrayList<*i32>;
-{
-  let arr_ref = &mut arr;      // arr_ref: *mut ArrayList<*i32> &(arr);
-
-  let value = 1;
-  let value_ref = &value;      // value_ref: *i32 &(value);
-
-  push_value(arr_ref, value_ref); // arr: ArrayList<*i32> &(value);
-  delete_value(arr_ref, value_ref); // arr: ArrayList<*i32>;
-}
-```
-
-```typescript
-type SomeStruct = {
-  v: *i32
+type SomeStruct<R1: Region, R2: Region> = {
+  v1: *<i32, R1>
+  v2: *<i32, R2>
 };
 
 function main() {
   let x = 0;
-  var o = SomeStruct {
-    v: &x;
+  { // R1
+    var o = SomeStruct {
+      v1: &x;
+      v2: &x;
+    } // o: SomeStruct<R1, R1>
+    let y = 1;
+    { // R2
+      o.v1 = &y; // o: SomeStruct<R2, R1>
+    }
   }
-  // o: SomeStruct &(x)
-  let y = 1;
-  o.v = &y;
-  // o: SomeStruct &(x, y)
-  o: &(x, ...rest) -> &(...rest); // Remove `x` from the origins manually. // TODO: This should be automatically done by the compiler.
-  // o: SomeStruct &(y)
 }
+
+```
+
+```typescript
+type SomeStruct<R: Region> = {
+  v: *<i32, R>
+};
 
 function main() {
   let x = 0;
   let y = 1;
-  let arr = [SomeStruct {
-    v: &x
-  }, SomeStruct {
-    v: &y
-  }];
-  // arr: SomeStruct[2] &(x, y)
+
+  { // R1
+    let x_ref = &x;
+    { // R2
+      let y_ref = &y;
+      let arr = [SomeStruct {
+        v: x_ref
+      }, SomeStruct {
+        v: y_ref
+      }]; // arr: SomeStruct<R2>[2]
+    }
+  }
 }
 ```
 
@@ -1978,7 +1990,7 @@ function return_something(v: *SomeStruct &(...rest)): *i32 &(...rest) {
   }
 }
 
-function swap(v1: *mut SomeStruct &(...rest_v1) -> &(...rest_v1, *v2), 
+function swap(v1: *mut SomeStruct &(...rest_v1) -> &(...rest_v1, *v2),
               v2: *mut SomeStruct &(...rest_v2) -> &(...rest_v2, *v1)) {
   v1.x = v2.y;
   v2.y = v1.x;

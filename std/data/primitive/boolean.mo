@@ -1,6 +1,7 @@
 let { codegen_inline } = import("../../builtins.mo");
 let { LogicalNot } = import("../../classes/logic.mo");
 let { Eq } = import("../../classes/eq.mo");
+let { Drop } = import("../../classes/common.mo");
 
 /**
  * logic
@@ -24,4 +25,12 @@ instance Eq<boolean> {
     codegen_inline(C="(($1) != ($2))");
     recur(a, b)
   }
+}
+
+/**
+ * drop
+ */
+@noop() // ignored by the compiler when generating C code
+instance Drop<boolean> {
+  drop(value) {}
 }

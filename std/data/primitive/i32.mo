@@ -2,6 +2,7 @@ let { codegen_inline } = import("../../builtins.mo");
 let { Add, Sub, Mul, Div, Mod } = import("../../classes/arithmetic.mo");
 let { LogicalNot } = import("../../classes/logic.mo");
 let { Eq } = import("../../classes/eq.mo");
+let { Drop } = import("../../classes/common.mo");
 
 /**
  * arithmetic
@@ -64,4 +65,12 @@ instance Eq<i32> {
     codegen_inline(C="(((int32_t)$1) != ((int32_t)$2))");
     recur(a, b)
   }
+}
+
+/**
+ * drop
+ */
+@noop() // ignored by the compiler when generating C code
+instance Drop<i32> {
+  drop(value) {}
 }
