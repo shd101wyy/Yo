@@ -30,7 +30,7 @@ instance Eq<boolean> {
 /**
  * drop
  */
-@noop() // ignored by the compiler when generating C code
 instance Drop<boolean> {
+  @noop() // ignored by the compiler when generating C code
   drop(value) {}
 }

@@ -4,6 +4,7 @@ using namespace std;
 
 int test(int& x) {
     x = x + 2;
+    auto y = x;
     return x;
 }
 

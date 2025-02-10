@@ -70,7 +70,7 @@ instance Eq<i32> {
 /**
  * drop
  */
-@noop() // ignored by the compiler when generating C code
 instance Drop<i32> {
+  @noop() // ignored by the compiler when generating C code
   drop(value) {}
 }

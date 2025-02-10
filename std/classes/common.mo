@@ -3,9 +3,9 @@ export class Drop<T: Type> {
 }
 
 export class Clone<T: Type> {
-  clone: (value: in T)=> T;
+  clone: (value: *T)=> T;
 }
 
 export class Copy<T: Type> {
-  copy: (value: in T)=> T;
+  copy: (value: *T)=> T;
 }

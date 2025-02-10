@@ -1,6 +1,6 @@
 # Language Design
 
-**Mo** 墨 🐼 is general-purpose, compiled programming language that incorporates the Linear Types, Reference Checker, and Algebraic Effects.
+**Mo** 墨 🐼 is general-purpose, compiled programming language that incorporates the Linear Types, Mutable Value Semantics, and Algebraic Effects.
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
@@ -232,6 +232,18 @@ function example(x: i32, y: i32) {
 }
 ```
 
+#### `expr` declaration
+
+We use `expr` to store an expression that is not actually calculated until it's used.  
+This feature is later discussed in the [Mutable Value Semantics](#mutable-value-semantics) section.
+
+```typescript
+let  x = 1;
+let  y = 2;
+expr z = x + y; // z: i32. Free type
+print(z); // This will actually expand to `print(x + y)`.
+```
+
 #### No duplicate variable declaration
 
 ```typescript
@@ -256,16 +268,14 @@ Below is allowed as they are in different regions:
 ### Type inference
 
 ```typescript
-let my_string: String = String.from("Hello, world"); // Stored on heap. Linear type.
-let my_string_2 = my_string; // my_string_2: String. Linear type. my_string is moved and consumed. my_string_2 now takes the ownership.
-let my_string_3 = my_string; // Error: my_string is already consumed.
-let my_string_4: *String = &my_string_2; // my_string_4: *String. Free type
-let my_string_5 = my_string_4; // my_string_5: *String. Free type
+let  my_string: String = String.from("Hello, world"); // Stored on heap. Linear type.
+let  my_string_2 = my_string; // my_string_2: String. Linear type. my_string is moved and consumed. my_string_2 now takes the ownership.
+let  my_string_3 = my_string; // Error: my_string is already consumed.
+expr my_string_4: &String = &my_string_2; // my_string_4: &String. Free type
 
-let my_int = 1; // Stored on stack. Free type
-let my_int_2 = my_int; // my_int_2: i32, Free type
-let my_int_3: *i32 = &my_int; // my_int_3: *i32. Free type
-let my_int_4 = my_int_3; // my_int_4: *i32. Free type
+let  my_int = 1; // Stored on stack. Free type
+let  my_int_2 = my_int; // my_int_2: i32, Free type
+expr my_int_3: &i32 = &my_int; // my_int_3: &i32. Free type
 
 let my_int_array: i32[3] = [1, 2, 3]; // Stored on stack, with size 3. Free type
 let my_int_array: i32[100] = [1, 2, 3]; // Stored on stack, with size 100. Free type
@@ -311,27 +321,10 @@ let z = x; // Compiler Error: x is already consumed.
 ### immutable and mutable references
 
 ```typescript
-// Immutable reference, using `*` or `^`
 {
-  let some_i = malloc(sizeof<i32>()); // i: Option<^i32> Linear type
-  let i = some_i.unwrap(); // i: ^i32. Linear type
-
-  let p1: *i32 = i as *i32; // p: *i32. Free type
-
-  let p2: *i32 = i; // p: *i32. Free type
-
-  let p3 = i; // p: ^i32. Linear type, ownership is transferred.
-  free(p3);
-
-  println(*p1); // Compile Error: The value it points to is consumed.
-}
-```
-
-```typescript
-{
-  var x = 1; // x: copied i32. Free type
-  let p1 = &mut x; // r: *mut i32. Free type
-  let p2: *mut i32 = &mut x; // p: *mut i32. Free type.
+  var  x = 1; // x: copied i32. Free type
+  expr p1 = &mut x; // r: &mut i32. Free type
+  expr p2 = &mut x; // p: &mut i32. Free type.
   *p1 = 2;
   // x == 2
   // *p1 == 2
@@ -343,26 +336,26 @@ A longer example:
 
 ```typescript
 extern "C" {
-  length: (x: *String)=> i32;
-  push: (x: *String, value: String)=> ();
+  length: (x: &String)=> i32;
+  push: (x: &String, value: String)=> ();
   drop: (x: String)=> ();
 }
 
 function main() {
   var x = String.from("Hello, world"); // x: String. mutable
-  let y: *mut String = &mut x; // y: *mut String   // mutable reference
-  let z: *String = &x; // z: *String   // immutable reference
+  expr y: &mut String = &mut x; // y: &mut String   // mutable reference
+  expr z: &String = &x; // z: &String   // immutable reference
 
-  length(x);  // not allowed
+  length(x);  // not allowed, type mismatch
   length(y);  // allowed
   length(z);  // allowed
-  x.length(); // allowed, implicit conversion to *String
+  x.length(); // allowed, implicit conversion to &String
 
   let t = x;                           // transfer ownership
 
   length(x); // error: cannot access `x` because `x` is consumed.
-  length(y); // allowed
-  length(z); // allowed
+  length(y); // error: cannot access `x` because `x` is consumed.
+  length(z); // error: cannot access `x` because `x` is consumed.
 
   drop(t);                             // consume `t`
 
@@ -416,19 +409,19 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 
 {
   // Creating references will not consume `p`:
-  let name: *String = &p.name; // name: *String. Free type.
-  let age = &p.age; // age: *i32. Free type.
+  expr name: &String = &p.name; // name: &String. Free type.
+  expr age = &p.age; // age: &i32. Free type.
 }
 {
-  let p_ref = &p; // p_ref: *Person. Free type.
-  let name = &p_ref.name; // name: *String. Free type.
-  let age = &p_ref.age; // age: *i32. Free type.
+  expr p_ref = &p;         // p_ref: &Person. Free type.
+  expr name = &p_ref.name; // name: &String. Free type.
+  expr age = &p_ref.age;   // age: &i32. Free type.
 
   some_function(*p_ref); // Derference a reference of linear type is not allowed.
 }
 {
   var p = Person(String.from("Alice"), 30); // p: Person. Linear type.
-  let p_ref = &p; // p_ref: *Person. Free type.
+  expr p_ref = &p; // p_ref: &Person. Free type.
   let old_name = (p_ref.name = String.from("Bob")); // old_name: String. Linear type. Take the value out.
   // old_name == String.from("Alice")
 }
@@ -448,11 +441,11 @@ var x = [1, 2, 3, 4, 5]; // x: i32[5]. Free type
 var y = x; // y: i32[5]. Free type. x is copied to y, not moved.
 
 {
-  let ref = &x; // ref: *i32[]. Free type
+  expr ref = &x;      // ref: &i32[]. Free type
   let first = ref[0]; // i32. Free type
 }
 {
-  let firstRef = &x[0]; // *i32. Free type
+  expr firstRef = &x[0]; // &i32. Free type
   *firstRef = 10;
 }
 
@@ -468,7 +461,7 @@ var x = [String.from("Hi"), String.from("World")];
 }
 
 {
-  let s = &x[1]; // s: *String. Free type
+  expr s = &x[1]; // s: &String. Free type
   let old = (*s = String.from("Earth"));
   // old: String. Linear type. old == String.from("World")
 }
@@ -501,6 +494,90 @@ NOTE: This is unsafe and should be avoided.
 ```typescript
 let x = String.from("Hi"); // x: String. Linear type
 let y = cast_to_free(x); // y: String. Free type
+```
+
+## Mutable Value Semantics
+
+Guarantee memory safety in low-level programming language is hard.  
+Rust uses the borrow checker to ensure memory safety, but it adds complexity to the language and burden to the programmer.  
+Mutable Value Semantics in contrast is a restriction to first-class references which makes you lose some generality but gain simplicity.
+Raw pointer is a natural thing in low-level programming languages. It's unavoidable.
+The goal of the **Mo** language is to let you write workable and kinda memory-safe code without the need to use raw pointers.
+
+### Second-Class References
+
+References in **Mo** are second-class citizens.
+
+- Can't be stored in data structures or variables.
+- ~~Can't be returned from functions.~~ Can't return the reference to local variables in function body, but can return the references that are the function arguments.
+- Can only be created at function call sites, as a special parameter-passing mode.
+
+NOTE: Why cannot store as variables:
+
+```typescript
+let x = String.from("Hello"); // x: String. Linear type
+let y = String.from("World"); // y: String. Linear type
+let l = longest_str(x.as_bytes(), y.as_bytes()); // l: &str;
+drop(x);
+drop(y);
+println(l); // Use after free
+```
+
+But can store as an `expr` which is not actually calculated until it's used:
+
+```typescript
+let  x = String.from("Hello"); // x: String. Linear type
+let  y = String.from("World"); // y: String. Linear type
+expr l = longest_str(x.as_bytes(), y.as_bytes()); // l: &str;
+        // This is not evaluated, only the expression is saved.
+drop(x);
+drop(y);
+println(l); // This will actually expand to:
+            // println(longest_str(x.as_bytes(), y.as_bytes()));
+            // and will cause a compile error as `x` and `y` are consumed.
+```
+
+### Parameter passing modes
+
+NOTE: Why not use `inout`, `in`, and `out` keywords? Because it doesn't work with slice types, which requires `&` ahead of it.
+
+- `&mut`
+
+  The `&mut` parameter is a reference to a value that can be read and written.
+
+  ```typescript
+  function swap(a: &mut i32, b: &mut i32) {
+    let temp = *a;
+    *a = *b;
+    *b = temp;
+  }
+  let x = 1;
+  let y = 2;
+  swap(&x, &y);
+  ```
+
+- `&`
+
+  The `&` parameter is a reference to a value that can only be read.
+
+  ```typescript
+  function print(x: &i32) {
+    println(x);
+  }
+  let x = 1;
+  print(&x);
+  ```
+
+### RAII
+
+**Mo** supports the RAII to automatically insert the `drop` function when the variable of linear type goes out of scope.
+
+```typescript
+function test() {
+  let x = String.from("World!");
+
+  // `drop(x)` will be automatically inserted here.
+}
 ```
 
 ## Function Declaration
@@ -540,12 +617,12 @@ add 2, 3; // 5
 // Named return values
 function exponent(base: i32, power: i32):
   ( result: i32,
-    some_ref: *i32 &(result)) {
+    some_ref: *i32) {
   var r = 1;
   for (let i = 0; i < power; i++) {
     r *= base;
   }
-  return (r, &r);
+  return (r, &r as *i32);
 }
 
 // Generic function
@@ -823,29 +900,35 @@ i32_array_ptr.length; // 5, runtime known
 i32_array_ptr[0] = 8; // automatically dereference
 // i32_array: [8, 2, 3, 4, 5]
 
-let i32_ptr = &i32_array[0]; // i32_ptr: *i32. Free type
+expr i32_ptr = &i32_array[0]; // i32_ptr: &i32. Free type
 *i32_ptr = 9;
 // i32_array: [9, 2, 3, 4, 5]
 ```
 
 Slice in **Mo** is a reference to an array. It is a pointer to the first element of the array and the length of the slice calculated from the **runtime**.
 
+QUESTION: We do we need `&` before slice?
+ANSWER:
+
+- For array of linear type, we need to convert it to a slice of free type, so it requires `&`.
+- Slices are dynamically sized, so its size is unknown at compile time. We need to use `&` to coerce the array to a slice.
+
 ```typescript
-let i32_array = [1, 2, 3]; // i32_array: i32[3]. Free type
-let i32_ptr = &i32_array[0]; // i32_ptr: *i32. Free type
-let i32_slice = &i32_array; // i32_slice: i32[]. Free type
-let i32_slice = i32_array[0:some_func_return_usize()];  // i32_slice: i32[]
+let  i32_array = [1, 2, 3]; // i32_array: i32[3]. Free type
+expr i32_ptr   = &i32_array[0]; // i32_ptr: &i32. Free type
+let  i32_slice = &i32_array; // i32_slice: i32[]. Free type
+let  i32_slice = i32_array[0:some_func_return_usize()];  // i32_slice: i32[]
                                                         // Compiler Error: The size of the slice is not known at compile time.
-                                                        //                 Please use `&` to coerce i32_array to slice type *i32[]
-let i32_slice = &i32_array[0:some_func_return_usize()]; // Okay
-let i32_slice = &i32_array[0:3]; // i32_slice: i32[]
+                                                        //                 Please use `&` to coerce i32_array to slice type &i32[]
+expr i32_slice = &i32_array[0:some_func_return_usize()]; // Okay
+expr i32_slice = &i32_array[0:3]; // i32_slice: i32[]
 
 i32_slice.length; // 3, runtime known
 i32_slice[0] = 10;
 // i32_array: [10, 2, 3, 4, 5]
 
 
-function set_value(arr: *i32[], index: usize, value: i32) {
+function set_value(arr: &i32[], index: usize, value: i32) {
   if index < arr.length { // arr.length is runtime known
     arr[index] = value;
   }
@@ -857,7 +940,7 @@ set_value(&i32_array, 0, 11); // Correct!
 
 
 function set_value(arr: i32[], index: usize, value: i32) { // Compiler Error: The size of the slice is not known at compile time.
-                                                           //                 Please use `&` to coerce arr to slice type *i32[]
+                                                           //                 Please use `&` to coerce arr to slice type &i32[]
   // ...
 }
 
@@ -1429,20 +1512,39 @@ In Mo, these 4 categories are represented as:
 
 ```typescript
 // Pointer to a constant
-let constant_i32 = 12;
-var ptr_to_constant = &constant_i32; // ptr_to_constant: *i32. Free type
+let  constant_i32 = 12;
+expr ptr_to_constant = &constant_i32; // ptr_to_constant: &i32. Free type
 
 // Constant pointer to a constant
-let constant_i32 = 12;
-let constant_ptr_to_constant = &constant_i32; // constant_ptr_to_constant: *i32. Free type
+let  constant_i32 = 12;
+expr constant_ptr_to_constant = &constant_i32; // constant_ptr_to_constant: &i32. Free type
 
 // Pointer to a non-constant
-var i32_val = 12;
-var ptr_to_i32 = &mut i32_val; // ptr_to_i32: *mut i32. Free type
+var  i32_val = 12;
+expr ptr_to_i32 = &mut i32_val; // ptr_to_i32: &mut i32. Free type
 
 // Constant pointer to a non-constant
-var i32_val = 12;
-let constant_ptr_to_i32 = &mut i32_val; // constant_ptr_to_i32: *mut i32. Free type
+var  i32_val = 12;
+expr constant_ptr_to_i32 = &mut i32_val; // constant_ptr_to_i32: &mut i32. Free type
+```
+
+### Linear pointers
+
+```typescript
+// `^` means linear pointer
+{
+  let some_i = malloc(sizeof<i32>()); // i: Option<^i32> Linear type
+  let i = some_i.unwrap(); // i: ^i32. Linear type
+
+  let p1: *i32 = i as *i32; // p: *i32. Free type
+
+  let p2: *i32 = i; // p: *i32. Free type
+
+  let p3 = i; // p: ^i32. Linear type, ownership is transferred.
+  free(p3);
+
+  println(*p1); // Compile Error: The value it points to is consumed.
+}
 ```
 
 ## Collections
@@ -1464,18 +1566,20 @@ let value = v2.at(0);
 0 terminated string.
 
 ```typescript
-let s = c"Hello"; // s: *u8
+let s = "Hello"; // s: *u8
 // (const char) *const s1 = "Hello";
 ```
 
 #### UTF-8 string literal
+
+NOTE: Should we support this or just use `String`?
 
 This is not a 0 terminated string.
 Similar to the `str` in Rust.
 NOTE: UTF-8 is a variable-width encoding (each character can be 1 to 4 bytes long), so we cannot get the `n`th character like `s[n]`.
 
 ```typescript
-let immutable_s = "Hello"; // immutable_s: *str, free type
+let immutable_s = "Hello"; // immutable_s: &str, free type
 immutable_s.length; // 5
 
 // where it is stored in struct like
@@ -1726,6 +1830,12 @@ function add(x: i32, y: i32): i32 {
 
 @derive(Eq, Ord)
 type Centimeters = i32;
+
+
+instance Drop<i32> {
+  @noop() // ignored by the compiler when generating C code
+  drop(value) {}
+}
 ```
 
 ## C Interoperability
@@ -1781,226 +1891,19 @@ extern "C" {
 my_add_numbers(1, 2); // calling add_numbers from C
 ```
 
-## Reference checker
-
-### Rules
-
-- When the value is borrowed, we cannot mutate or move (consume) it.
-
-```typescript
-function main() {
-  let x = 1;
-  {
-    let y = &x; // y: *i32 &(x);
-    x = 2; // Error: x is borrowed.
-  }
-  x = 3; // OK
-}
-```
-
-- Cannot borrow as mutable more than once.
-
-```typescript
-function main() {
-  var x = 1;
-  {
-    let y = &mut x; // y: *mut i32 &(x);
-    let z = &mut x; // Error: x is already borrowed as mutable.
-  }
-}
-```
-
-- Cannot borrow as immutable and mutable at the same time.
-
-```typescript
-function main() {
-  var x = 1;
-  {
-    let y = &x; // y: *i32 &(x);
-    let z = &mut x; // Error: x is already borrowed as immutable.
-  }
-}
-```
-
-### Reference examples
-
-```typescript
-let x = Sring.from("Hello, world");
-{// R1
-  let p = &x; // p: *String &(x); // means `p` contains a reference to `x`.
-}
-
-let person = Person.Person(String.from("Alice"), 30);
-{ // R2
-  let p = &person.name; // p: *String &(person);
-}
-
-let arr = [String.from("Hello"), String.from("World")];
-{ // R3
-  let p = &arr[0];            // p: *String &(arr);
-  let old_str = (arr[0] = String.from("Hi")); // Cannot mutate `arr` as there is a immutable reference `p`
-}
-
-let arr = [String.from("Hello"), String.from("World")];
-{ // R4
-  let p = &arr[some_index()]; // p: *String &(arr);
-  let old_str = (arr[0] = String.from("Hi")); // Cannot mutate `arr` as there is a immutable reference `p`
-}
-```
-
-```typescript
-type as_bytes = (self: *String)=> *str &(self); // This means the return value uses the `self` as the origin.
-
-function longest_str(x: *str, y: *str): *str &(*x, *y) // Means the return value has the same origin as either x or y.
-                                                       // QUESTION: Should we make it the default.
-// or
-function longest_str(x: *str &(x_origin), y: *str &(y_origin)): *str &(x_origin, y_origin)
-                                                        // Means the return value has the same origin as either x or y.
-{
-  if x.length > y.length {
-    x
-  } else {
-    y
-  }
-}
-
-var p: *str; // p: *str &();
-{
-  let str1 = String.from("Hello");
-  {
-    let str2 = String.from("World");
-    {
-      p = longest_str(str1.as_bytes(),  // *str &(str1);
-                      str2.as_bytes()   // *str &(str2);
-                      ); // p: *str &(str1, str2);
-    }
-
-    // Error here:
-    // str2 is not alive here, but p contains reference to str2.
-  }
-}
-```
-
-```typescript
-// Use `->` to denote the change of the origins after the function call.
-function push_value(arr: *mut ArrayList<*i32> &(...arr_origin) -> &(...arr_origin, value_origin),
-                    value: *i32 &(value_origin)):
-                    ()
-{
-  arr.push(value);
-}
-
-var arr = ArrayList.new(); // arr: ArrayList<*i32>;
-{
-  let arr_ref = &mut arr;      // arr_ref: *mut ArrayList<*i32> &(arr);
-
-  let value = 1;
-  let value_ref = &value;      // value_ref: *i32 &(value);
-  push_value(arr_ref, value_ref);
-  // arr: ArrayList<*i32> &(value);
-} // error: value is not alive here, but the origin of arr might be value.
-```
-
-```typescript
-function delete_value(arr: *mut ArrayList<*i32> &(value_origin, ...rest)
-                      out  *mut ArrayList<*i32> &(...rest),
-                      value: *i32 &(value_origin)):
-                      ()
-{
-  arr.delete(value);
-}
-var arr = ArrayList.new(); // arr: ArrayList<*i32>;
-{
-  let arr_ref = &mut arr;      // arr_ref: *mut ArrayList<*i32> &(arr);
-
-  let value = 1;
-  let value_ref = &value;      // value_ref: *i32 &(value);
-
-  push_value(arr_ref, value_ref); // arr: ArrayList<*i32> &(value);
-  delete_value(arr_ref, value_ref); // arr: ArrayList<*i32>;
-}
-```
-
-```typescript
-type SomeStruct = {
-  v: *i32
-};
-
-function main() {
-  let x = 0;
-  var o = SomeStruct {
-    v: &x;
-  }
-  // o: SomeStruct &(x)
-  let y = 1;
-  o.v = &y;
-  // o: SomeStruct &(x, y)
-  o: &(x, ...rest) -> &(...rest); // Remove `x` from the origins manually. // TODO: This should be automatically done by the compiler.
-  // o: SomeStruct &(y)
-}
-
-function main() {
-  let x = 0;
-  let y = 1;
-  let arr = [SomeStruct {
-    v: &x
-  }, SomeStruct {
-    v: &y
-  }];
-  // arr: SomeStruct[2] &(x, y)
-}
-```
-
-Problem
-
-```typescript
-type SomeStruct = {
-  x: *i32,
-  y: *i32
-}
-
-let x = 1;
-let y = 2;
-var v1 = SomeStruct {
-  x: &x,
-  y: &y
-}; // v1: SomeStruct &(x, y)
-var v2 = SomeStruct {
-  x: &y,
-  y: &x
-}; // v2: SomeStruct &(x, y)
-
-function return_something(v: *SomeStruct &(...rest)): *i32 &(...rest) {
-  if rand_i32() > 0 {
-    v.x
-  } else {
-    v.y
-  }
-}
-
-function swap(v1: *mut SomeStruct &(...rest_v1) -> &(...rest_v1, *v2), 
-              v2: *mut SomeStruct &(...rest_v2) -> &(...rest_v2, *v1)) {
-  v1.x = v2.y;
-  v2.y = v1.x;
-}
-swap(&mut v1, &mut v2);
-// v1: SomeStruct &(x, y, v2)
-// v2: SomeStruct &(x, y, v1)
-```
-
 ## Naming Convention
 
 2 spaces for indentation.
 
+- `snake_case`
+  - `file name`
+  - `directory name`
+  - `function`
+  - `variable`
 - `PascaleCase`
   - `class`
   - `type`
   - `enum` and its variants
-- `snake_case`
-  - `function`
-  - `variable`
-  - `file name`
-  - `directory name`
 - `UPPER_SNAKE_CASE`
   - `constant`
 
