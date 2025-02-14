@@ -25,12 +25,18 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [`Free` Types](#free-types)
     - [`Linear` Types.](#linear-types)
   - [Variable Declaration](#variable-declaration)
+    - [`expr` declaration](#expr-declaration)
+    - [No duplicate variable declaration](#no-duplicate-variable-declaration)
   - [Type inference](#type-inference)
     - [Uninitialized variable `In Design`](#uninitialized-variable-in-design)
   - [Transfer ownership](#transfer-ownership)
   - [immutable and mutable references](#immutable-and-mutable-references)
   - [Unique Pointer `In Design`](#unique-pointer-in-design)
   - [Cast Linear to Free](#cast-linear-to-free)
+- [Mutable Value Semantics](#mutable-value-semantics)
+  - [Second-Class References](#second-class-references)
+  - [Parameter passing modes](#parameter-passing-modes)
+  - [RAII](#raii)
 - [Function Declaration](#function-declaration)
   - [Named arguments](#named-arguments)
   - [Contextual parameters, aka implicit parameters](#contextual-parameters-aka-implicit-parameters)
@@ -62,19 +68,30 @@ We will also post a series of articles on the design and implementation of **Mo*
 - [Pattern Matching](#pattern-matching)
   - [Using Range in `case`](#using-range-in-case)
 - [Pointers](#pointers)
-- [Collections](#collections)
-  - [ArrayList](#arraylist)
-  - [String](#string)
-    - [C String](#c-string)
-    - [UTF-8 string literal](#utf-8-string-literal)
-    - [String (Immutable String)](#string-immutable-string)
-  - [Map](#map)
-- [Error handling](#error-handling)
+  - [Linear pointers](#linear-pointers)
+- [String](#string)
+  - [C String](#c-string)
+  - [UTF-8 string literal](#utf-8-string-literal)
+  - [String (Immutable String)](#string-immutable-string)
+- [Collections `In Design`](#collections-in-design)
+  - [ARC Collections](#arc-collections)
+    - [ArrayList](#arraylist)
+    - [Map](#map)
+  - [Linear Collections](#linear-collections)
+    - [Unique ArrayList](#unique-arraylist)
+- [Error handling `In Design`](#error-handling-in-design)
+  - [By algebraic effects](#by-algebraic-effects)
+  - [By data type](#by-data-type)
 - [Type casting](#type-casting)
+  - [Type casting in destructuring](#type-casting-in-destructuring)
 - [Algebraic Effects `In Design`](#algebraic-effects-in-design)
   - [Effectful function](#effectful-function)
   - [Run multiple continuations `In Design`](#run-multiple-continuations-in-design)
+- [async/await `In Design`](#asyncawait-in-design)
 - [Modules](#modules)
+- [Dynamic Dispatch `In Design`](#dynamic-dispatch-in-design)
+  - [`dynamic` keyword](#dynamic-keyword)
+  - [Examples](#examples)
 - [Attributes](#attributes)
 - [C Interoperability](#c-interoperability)
   - [To C](#to-c)
@@ -179,6 +196,9 @@ mo uninstall package-name # Uninstall a package
 
 # Run scripts
 mo run test
+
+# Format code
+mo fmt
 ```
 
 ## Types
@@ -505,12 +525,18 @@ Mutable Value Semantics in contrast is a restriction to first-class references w
 Raw pointer is a natural thing in low-level programming languages. It's unavoidable.
 The goal of the **Mo** language is to let you write workable and kinda memory-safe code without the need to use raw pointers.
 
+### Disadvantages
+
+- Hard to implement closure.  
+- Limit for functions that need to return a reference.  
+- Limit for data structures that need to store references.  
+
 ### Second-Class References
 
 References in **Mo** are second-class citizens.
 
 - Can't be stored in data structures or variables.
-- ~~Can't be returned from functions.~~ Can't return the reference to local variables in function body, but can return the references that are the function arguments.
+- Can't be returned from functions. ~~Can't return the reference to local variables in function body, but can return the references that are the function arguments.~~
 - Can only be created at function call sites, as a special parameter-passing mode.
 
 NOTE: Why cannot store as variables:
@@ -522,6 +548,20 @@ let l = longest_str(x.as_bytes(), y.as_bytes()); // l: &str;
 drop(x);
 drop(y);
 println(l); // Use after free
+```
+
+NOTE: Why cannot store in data structures:
+
+```typescript
+type Container = {
+  value: &str;
+}
+let x = String.from("Hello"); // x: String. Linear type
+let y = String.from("World"); // y: String. Linear type
+let c = Container { value: longest_str(x.as_bytes(), y.as_bytes()) }; // c: Container
+drop(x);
+drop(y);
+println(c.value); // Use after free
 ```
 
 But can store as an `expr` which is not actually calculated until it's used:
@@ -581,6 +621,35 @@ function test() {
 }
 ```
 
+### Callback optimization
+
+Let's assume we have a function whose last parameter is a callback that accepts a single parameter that is reference type, and that callback function is called at the very end, then we can optimize that function.
+
+```typescript
+function some_function_that_can_be_optimized(v: &String,
+  callback: (x: &String)=> () // Here we have a callback that accepts a reference type. And it's the last parameter.
+) {
+  callback(v) // This callback is the last expression.
+}
+
+let x = String.from("Hello, ");
+let y = String.from("world");
+some_function_that_can_be_optimized(&x, (v)=> {
+  println(v + y);
+});
+```
+
+This could be optimized to:
+
+```typescript
+let x = String.from("Hello, ");
+let y = String.from("world");
+{
+  let v = some_function_that_can_be_optimized(&x); // This function returns the reference.
+  println(v + y);
+}
+```
+
 ## Function Declaration
 
 Function parameters are immutable by default.
@@ -588,7 +657,9 @@ Function parameters are immutable by default.
 ```typescript
 // Top level function.
 // Type after `=>` is the return type. If it's not specified, it's `()`.
-function add(x: i32, y: i32): i32 {
+let add: (x: i32, y: i32)=> i32; // Define the function type
+println(add(3, 4)) // Function hoisting is allowed.
+add = (x, y)=> { // Actually function definition
   return x + y;
 }
 
@@ -1548,21 +1619,9 @@ expr constant_ptr_to_i32 = &mut i32_val; // constant_ptr_to_i32: Expr<&mut i32>.
 }
 ```
 
-## Collections
+## String
 
-### ArrayList
-
-This is the dynamic array.
-
-```typescript
-let v: ArrayList<i32> = ArrayList.new();
-let v2 = ArrayList.from([1, 2, 3]);
-let value = v2.at(0);
-```
-
-### String
-
-#### C String
+### C String
 
 0 terminated string.
 
@@ -1571,7 +1630,7 @@ let s = "Hello"; // s: *u8
 // (const char) *const s1 = "Hello";
 ```
 
-#### UTF-8 string literal
+### UTF-8 string literal
 
 NOTE: Should we support this or just use `String`?
 
@@ -1590,7 +1649,7 @@ type str = {
 };
 ```
 
-#### String (Immutable String)
+### String (Immutable String)
 
 UTF-8 encoded string.
 
@@ -1600,7 +1659,23 @@ let s2 = String.from("Hello World!");
 let s3 = s + s2; // Create a new string.
 ```
 
-### Map
+## Collections `In Design`
+
+### ARC Collections
+
+#### ArrayList
+
+This is the dynamic array.
+
+```typescript
+let v: ArrayList<i32> = ArrayList.new();
+let v2 = ArrayList.from([1, 2, 3]);
+let value = v2.at(0);
+```
+
+#### Map
+
+The unordered map.
 
 ```typescript
 let m: Map<String, i32> = Map.new();
@@ -1610,17 +1685,40 @@ let m2 = Map.from([
   [String.from("three"), 3],
 ]);
 
-m.set(String.from("one"), 1);
+m.set(String.from("one"), 4);
 ```
 
-## Error handling
+### Linear Collections
+
+#### Unique ArrayList
 
 ```typescript
-type MyError = {message: char[]};
+let { ArrayList } = import("std/collections/unique");
+let v: ArrayList<i32> = ArrayList.new();
+```
+
+## Error handling `In Design`
+
+### By algebraic effects
+
+```typescript
+type MyError = {message: &str};
 function main(?throw: Exception<MyError>) {
   throw({
     message: "Something went wrong",
   });
+}
+```
+
+### By data type
+
+```typescript
+function divide(x: i32, y: i32): Result<i32, &str> {
+  if y == 0 {
+    return Error("Division by zero");
+  } else {
+    return Ok(x / y);
+  }
 }
 ```
 
@@ -1817,6 +1915,97 @@ let { Id } = import("./test.mo"); // Import `Id` class from test.mo
     "std": ""
   }
 }
+```
+
+## Dynamic Dispatch `In Design`
+
+### `dynamic` keyword
+
+QUESTION: Can we omit the `dynamic` keyword?
+
+`dynamic` can be applied to `class` to make it dynamic dispatch.
+
+### Examples
+
+```typescript
+class Shape<T> {
+  area: (self: &T) => f32;
+}
+
+type Circle = {
+  radius: f32;
+}
+
+instance Shape<Circle> {
+  area(self) {
+    3.14 * self.radius * self.radius
+  }
+}
+
+type Square = {
+  side: f32;
+}
+
+instance Shape<Square> {
+  area(self) {
+    self.side * self.side
+  }
+}
+
+
+// Static dispatch
+function print_area<T with Shape<T>>(shape: &T) {
+  println(shape.area());
+}
+let circle: Circle = Circle { radius: 1.0 };
+let square: Square = Square { side: 2.0 };
+print_area(&circle);
+print_area(&square);
+
+
+// Dynamic Dispatch - Needs design.
+// NOTE: Here we use class as type, so it becomes dynamic dispatch.
+/*
+It's like in C:
+
+typedef struct {
+  float (*area)(void*);
+  void* data;
+} Shape;
+
+void print_area(Shape* shape) {
+  printf("%f\n", shape->area(shape->data));
+}
+*/
+function print_area(shape: &(dynamic Shape)) {
+  println(shape.area());
+}
+let shapes: (&(dynamic Shape))[] = [ // NOTE: We have to add `&` ahead class. It works similar to slice that requires `&` ahead.
+  &circle,
+  &square,
+]
+shapes[0].print_area();
+shapes[1].print_area();
+
+// Existentail type
+enum MyShape {
+  MyCircle(value: Circle),
+  MySquare(value: Square),
+}
+instance Shape<MyShape> {
+  area(self) {
+    match(self) {
+      case MyShape.MyCircle: self.value.area(),
+      case MyShape.MySquare: self.value.area(),
+    }
+  }
+}
+let shapes2: MyShape[] = [
+  MyShape.MyCircle(circle),
+  MyShape.MySquare(square),
+]
+shapes2[0].area();
+shapes2[1].area();
 ```
 
 ## Attributes
