@@ -5,29 +5,32 @@ infixl 60 ^   // Bitwise XOR
 infixl 70 &   // Bitwise AND
 
 export class LogicalAnd<T: Type> {
-  (&&): (a: &T, b: &T)=> boolean;
+  (&&): (a: T, b: T)=> boolean;
 }
 
 export class LogicalOr<T: Type> {
-  (||): (a: &T, b: &T)=> boolean;
+  (||): (a: T, b: T)=> boolean;
 }
 
 export class BitNot<T: Type> {
-  (~): (value: &T)=> T;
+  (~): (value: T)=> T;
 }
 
 export class LogicalNot<T: Type> {
-  (!): (value: &T)=> boolean;
+  (!): (value: T)=> boolean;
 }
 
-export class BitAnd<T: Type> {
-  (&): (a: &T, b: &T)=> T;
+export class BitAnd<Lhs, Rhs=Lhs> {
+  Output: Type;
+  (&): (a: Lhs, b: Rhs)=> Output;
 }
 
-export class BitOr<T: Type> {
-  (|): (a: &T, b: &T)=> T;
+export class BitOr<Lhs, Rhs=Lhs> {
+  Output: Type;
+  (|): (a: Lhs, b: Rhs)=> Output;
 }
 
-export class BitXor<T: Type> {
-  (^): (a: &T, b: &T)=> T;
+export class BitXor<Lhs, Rhs=Lhs> {
+  Output: Type;
+  (^): (a: Lhs, b: Rhs)=> Output;
 }

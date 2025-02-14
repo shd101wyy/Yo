@@ -7,35 +7,45 @@ let { Drop } = import("../../classes/common.mo");
 /**
  * arithmetic
  */
-instance Add<i32> {
+instance Add<i32, i32> {
+  Output: i32;
+
   (+): (a, b)=> {
     codegen_inline(C="(((int32_t)$1) + ((int32_t)$2))");
     recur(a, b)
   }
 }
 
-instance Sub<i32> {
-  (-): (a, b) => {
+instance Sub<i32, i32> {
+  Output: i32;
+
+  (-): (a, b)=> {
     codegen_inline(C="(((int32_t)$1) - ((int32_t)$2))");
     recur(a, b)
   }
 }
 
-instance Mul<i32> {
+instance Mul<i32, i32> {
+  Output: i32;
+  
   (*): (a, b)=> {
     codegen_inline(C="(((int32_t)$1) * ((int32_t)$2))");
     recur(a, b)
   }
 }
 
-instance Div<i32> {
+instance Div<i32, i32> {
+  Output: i32;
+
   (/): (a, b)=> {
     codegen_inline(C="(((int32_t)$1) / ((int32_t)$2))");
     recur(a, b)
   }
 }
 
-instance Mod<i32> {
+instance Mod<i32, i32> {
+  Output: i32;
+
   (%): (a, b)=> {
     codegen_inline(C="(((int32_t)$1) % ((int32_t)$2))");
     recur(a, b)
@@ -46,6 +56,8 @@ instance Mod<i32> {
  * logic
  */
 instance LogicalNot<i32> {
+  Output: i32;
+
   (!): (a)=> {
     codegen_inline(C="!((int32_t)$1)");
     recur(a)
@@ -72,5 +84,5 @@ instance Eq<i32> {
  */
 instance Drop<i32> {
   @noop() // ignored by the compiler when generating C code
-  drop(value) {}
+  drop: (value)=> {}
 }

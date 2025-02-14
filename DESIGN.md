@@ -37,6 +37,7 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Second-Class References](#second-class-references)
   - [Parameter passing modes](#parameter-passing-modes)
   - [RAII](#raii)
+  - [Reverse Application Operator](#reverse-application-operator)
 - [Function Declaration](#function-declaration)
   - [Named arguments](#named-arguments)
   - [Contextual parameters, aka implicit parameters](#contextual-parameters-aka-implicit-parameters)
@@ -304,9 +305,9 @@ let my_int_array = [1, 2, 3]; // i32[3]; Free type
 let my_array_list: ArrayList<i32> = ArrayList.from([1, 2, 3]); // Stored on heap. Linear type.
 
 let my_set: Set<i32> = Set.from([1, 2, 3]); // Stored on heap. Linear type.
-let my_map: Map<*u8[], i32> = Map.from([
-  ["one", 1],
-  ["two", 2],
+expr my_map: Map<&str, i32> = Map.from([
+  ("one", 1),
+  ("two", 2),
 ]); // Stored on heap. Linear type.
 
 enum Person { // Linear type, as it contains a linear type.
@@ -496,7 +497,7 @@ We use the `^` to denote the pointer, same as in Pascal.
 
 ```typescript
 let some_int_ptr = malloc(sizeof<i32>()); // int_ptr: Option<^i32>. Linear type
-match int_ptr {
+match some_int_ptr {
   case Some: {
     let int_ptr = some_int_ptr.value; // int_ptr: ^i32. Linear type.
     *int_ptr = 10;
@@ -532,6 +533,11 @@ References in **Mo** are second-class citizens.
 - Can't be stored in ~~data structures or~~ variables.
 - ~~Can't be returned from functions.~~ Can't return the reference to local variables in function body, but can return the references that are the function arguments or from the function arguments.
 - Can only be created at function call sites, as a special parameter-passing mode.
+- Path to a value never appears twice in the function arguments. Path uniqueness.
+
+  ![](./path_uniqueness.png)
+
+  In this example, `(a)` is allowed while `(b)` is not allowed.
 
 NOTE: We need to allow to store references in data structures in order to support closures.  
 NOTE: Why cannot store as variables:
@@ -539,7 +545,7 @@ NOTE: Why cannot store as variables:
 ```typescript
 let x = String.from("Hello"); // x: String. Linear type
 let y = String.from("World"); // y: String. Linear type
-let l = longest_str(x.as_bytes(), y.as_bytes()); // l: &str;
+let l = longest_str(&x, &y); // l: &String;
 drop(x);
 drop(y);
 println(l); // Use after free
@@ -555,6 +561,16 @@ let c = Container { value: longest_str(&x, &y) }; // c: Container that contains 
 drop(x);
 drop(y);
 println(c.value); // Use after free
+```
+
+```typescript
+type Container = {
+  value: &String;
+}
+
+function some_func(o: &mut Container, v: &String) {
+  o.v = v; // Not allowed. v might have shorter lifetime than o.
+}
 ```
 
 But can store as an `expr` which is not actually calculated until it's used:
@@ -585,9 +601,9 @@ NOTE: Why not use `inout`, `in`, and `out` keywords? Because it doesn't work wit
     *a = *b;
     *b = temp;
   }
-  let x = 1;
-  let y = 2;
-  swap(&x, &y);
+  var x = 1;
+  var y = 2;
+  swap(&mut x, &mut y);
   ```
 
 - `&`
@@ -647,7 +663,7 @@ add = (x, y)=> { // Actually function definition
 }
 
 // or
-let add = (x: i32, y: i32)=> i32 {
+function add(x: i32, y: i32): i32 {
   x + y // The last expression is the return value.  `return` is optional.
 }
 
@@ -655,14 +671,14 @@ let add = (x: i32, y: i32)=> i32 {
 let add: (i32, i32)=> i32 = (x, y)=> x + y;
 
 
-function last_unit_expr(x: i32, y: i32) {
+let last_unit_expr = (x: i32, y: i32)=> {
   x + y;
   // This is allowed as the last expression is `()`.
 }
 
 
 // Default parameter values
-let add = (x: i32 = 1, y: i32 = 2): i32 => {
+function add(x: i32 = 1, y: i32 = 2): i32 {
   return x + y;
 }
 add(); // 3
@@ -702,7 +718,8 @@ function add<T: Type Integral<T>>(x: T, y: T): T {
 }
 
 // Closure
-let add = [{y: 0}](x: i32): i32 => {
+let y = 0;
+let add = (x: i32)=> i32 { // Automatically convert to closure
   y = x + y;
   return y;
 };
@@ -742,12 +759,15 @@ function some_async_func(?Async<i32>): i32 {
 ```typescript
 // id.mo
 export class Id<T> {
-  id: (x: T)=> T;
+  id: (x: T)=> T = (x)=> {
+    // default implementation
+    x
+  }
 };
 
 // main.mo
 let { Id, id } = import("./id.mo");
-let use_id = <T with Id>(x: T): T => {
+function use_id<T with Id>(x: T): T {
   id(x)
 }
 ```
@@ -790,7 +810,7 @@ function test(x: i32, ?id: (x: i32)=> i32) {
   print(id(x))
 }
 
-let ?id = (x: i32)=> x;
+let ?id = (x: i32)=> {x};
 function use_test() {
   test(3); // print 3
 
@@ -808,7 +828,7 @@ function main() {
 ### Uniform Function Call Syntax
 
 ```typescript
-function add_one(x: i32): i32 {
+function add_one(x: i32) {
   return x + 1;
 }
 
@@ -824,6 +844,8 @@ length(&s); // 12
 ```
 
 ### `defer`
+
+Might be removed due to RAII.
 
 `defer` will execute an expression at the end of the current scope.
 
@@ -846,7 +868,7 @@ test(); // Hello, World!
 ```
 
 ```typescript
-function deferExample() {
+function defer_example() {
   var a = 1;
 
   {
@@ -868,7 +890,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 - With tail-call optimization
 
   ```typescript
-  (x: u32, acc: u32 = 1) => {
+  (x: u32, acc: u32 = 1)=> {
     if x == 1 {
       acc
     } else {
@@ -880,7 +902,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 - Without tail-call optimization
 
   ```typescript
-  (x: u32) => {
+  (x: u32)=> {
     if x == 1 {
       1
     } else {
@@ -892,7 +914,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 ### Custom Operators
 
 ```typescript
-function (|>) <T, U>(x: T, f: (value: T)=> U): U {
+function (|>)<T, U>(x: T, f: (value: T)=> U): U {
   f(x)
 }
 
@@ -913,7 +935,7 @@ infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
 
 ```typescript
 // This function can take any type that has a `length: i32` property.
-function print_length(x: *{ length: i32 }) {
+function print_length(x: &{ length: i32 }) {
   println(x.length);
 };
 
@@ -1146,11 +1168,11 @@ Type constraints are achieved using the `with` keyword.
 
 ```typescript
 // Type constraints
-function three_are_equal<T: Type with Eq<T>>(x: T, y: T, z: T): bool {
+function three_are_equal<T: Type with Eq<T>>(x: T, y: T, z: T): boolean {
   x == y && y == z
 }
 
-function show_compare<T: Type with Show<T> & Ord<T>>(x: T, y: T): String {
+function show_compare<T: Type with Show<T> & Ord<T>>(x: T, y: T): &str {
   match(compare(x, y)) {
     case LT: "Less than"
     case EQ: "Equal"
@@ -1452,18 +1474,18 @@ type NewsArticle = {
 };
 
 instance Summary<NewsArticle> {
-  summarize: function(self: *NewsArticle): String {
+  summarize: (self: *NewsArticle): String => {
     return "${self.headline}, by ${self.author} (${self.location})";
   }
 }
 
 // Pass in function
-function notify(item: *NewsArticle) {
+function notify(item: &NewsArticle) {
   println("Breaking news! ", summarize(item));
 }
 
-function notify<T, Display<T>>(
-  item: *T
+function notify = <T with Display<T>>(
+  item: &T
 ) {
   println("Breaking news! ", summarize());
   println("Breaking news! ", display(item));
@@ -1748,9 +1770,11 @@ The continuation `k` will be exposed to the effectful function.
 `k` is linear, and it must be consumed once.  
 Either `resume` or `abort` function can be called with the continuation `k`.
 
-The `do` keyword is used to call the effectful function.  
-The `do` keyword decides where to `resume` the continuation.
-The `do` keyword is necessary to notify the programmer that the continuation might `abort`.
+~~The `do` keyword is used to call the effectful function.~~  
+~~The `do` keyword decides where to `resume` the continuation.~~
+~~The `do` keyword is necessary to notify the programmer that the continuation might `abort`.~~
+NOTE: Let's not require the `do` keyword to call effectful function for now.
+Before, we have `do (effect1(), effect2())`, but I think this should be implemented in a library.
 
 The `return` keyword is not allowed in the continuation function.
 
@@ -1758,9 +1782,9 @@ The `return` keyword is not allowed in the continuation function.
 function safe_divide( x: i32,
                       y: i32,
                       raise: effect (msg: *u8[])=> i32
-  ): i32 {
+  ):i32 {
   if y == 0 {
-    do raise("Division by zero")
+    raise("Division by zero")
   } else {
     x / y
   }
@@ -1779,7 +1803,7 @@ function handle_abort(): i32 {
   let raise = effect (msg: *u8[]): i32 => {
     abort(10, /* k */);
   }
-  return 1 + do safe_divide(3, 0, raise) + 2; // 10
+  return 1 + safe_divide(3, 0, raise) + 2; // 10
 }
 ```
 
@@ -1793,7 +1817,7 @@ function main() {
   }
 
   println("Before timeout");
-  let result = do wait_for_seconds(1);
+  let result = wait_for_seconds(1);
   println("After timeout");
   println(result); // 12
 }
@@ -1802,6 +1826,7 @@ function main() {
 ### Run multiple continuations `In Design`
 
 QUESTION: This approach has the problem that if one of them abort, then how should we handle the rest of the continuations?
+This requires `do` keyword.
 
 ```typescript
 function main() {
@@ -1861,13 +1886,15 @@ export enum Option<T> {
 
 // Export the class
 export class Id<T> {
-  id: (x: T)=> T;
+  id: (x: T)=> T = (x)=> {
+    x
+  };
 }
 
 // Explicitly export the functions defined in the instance.
 // The implementations will be exported implicitly.
 instance Id<i32> {
-  id: (x: i32)=> i32 {
+  id: (x)=> {
     x
   }
 }
@@ -1920,7 +1947,7 @@ QUESTION: Can we omit the `dynamic` keyword?
 
 ```typescript
 class Shape<T> {
-  area: (self: &T) => f32;
+  area: (self: &T)=> f32;
 }
 
 type Circle = {
@@ -2083,10 +2110,10 @@ my_add_numbers(1, 2); // calling add_numbers from C
 2 spaces for indentation.
 
 - `snake_case`
-  - `file name`
-  - `directory name`
-  - `function`
-  - `variable`
+  - `file_name.mo`
+  - `directory_name`
+  - `function_name`
+  - `variable_name`
 - `PascaleCase`
   - `class`
   - `type`

@@ -13,38 +13,47 @@ infixl 70 >>  // Bitwise right shift
 infixr 80 **  // Exponentiation. 3 ** 4 ** 6 == 3 ** (4 ** 6)
 
 
-export class Add<T: Type> {
-  (+): (a: T, b: T)=> T;
+export class Add<Lhs, Rhs = Lhs> {
+  Output: Type = Lhs;
+  (+): (a: Lhs, b: Rhs)=> Output;
 }
 
-export class Sub<T: Type> {
-  (-): (a: T, b: T)=> T;
+export class Sub<Lhs, Rhs = Lhs> {
+  Output: Type;
+  (-): (a: Lhs, b: Rhs)=> Output;
 }
 
-export class Mul<T: Type> {
-  (*): (a: T, b: T)=> T;
+export class Mul<Lhs, Rhs = Lhs> {
+  Output: Type;
+  (*): (a: Lhs, b: Rhs)=> Output;
 }
 
-export class Div<T: Type> {
-  (/): (a: T, b: T)=> T;
+export class Div<Lhs, Rhs = Lhs> {
+  Output: Type;
+  (/): (a: Lhs, b: Rhs)=> Output;
 }
 
-export class Mod<T: Type> {
-  (%): (a: T, b: T)=> T;
+export class Mod<Lhs, Rhs = Lhs> {
+  Output: Type;
+  (%): (a: Lhs, b: Rhs)=> Output;
 }
 
-export class BitLeftShift<T: Type> {
-  (<<): (a: T, b: T)=> T;
+export class BitLeftShift<Lhs, Rhs = Lhs> {
+  Output: Type;
+  (<<): (a: Lhs, b: Rhs)=> Output;
 }
 
-export class BitRightShift<T: Type> {
-  (>>): (a: T, b: T)=> T;
+export class BitRightShift<Lhs, Rhs = Lhs> {
+  Output: Type;
+  (>>): (a: Lhs, b: Rhs)=> Output;
 }
 
-export class Exponentiation<T: Type> {
-  (**): (a: T, b: T)=> T;
+export class Exponentiation<Lhs, Rhs = Lhs> {
+  Output: Type;
+  (**): (a: Lhs, b: Rhs)=> Output;
 }
 
-export class Negate<T: Type> {
-  (-): (value: T)=> T;
+export class Negate<T> {
+  Output: Type;
+  (-): (value: T)=> Output;
 }
