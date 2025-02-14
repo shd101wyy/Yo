@@ -9,13 +9,12 @@ export enum Ordering {
   Greater
 }
 
+// FIXME:
 // Using Eq<T>
-export class Ord<T: Type with Eq<T>> {
-  compare: (a: T, b: T)=> Ordering;
-  (<): (a: T, b: T)=> boolean;
-  (>): (a: T, b: T)=> boolean;
-  (<=): (a: T, b: T)=> boolean;
-  (>=): (a: T, b: T)=> boolean;
-  max: (a: T, b: T)=> T;
-  min: (a: T, b: T)=> T;
+export class Ord<Lhs: Type, Rhs: Type = Lhs with Eq<Lhs, Rhs>> {
+  compare: (a: &Lhs, b: &Rhs)=> Ordering;
+  lt: (a: &Lhs, b: &Rhs)=> boolean;
+  gt: (a: &Lhs, b: &Rhs)=> boolean;
+  le: (a: &Lhs, b: &Rhs)=> boolean;
+  ge: (a: &Lhs, b: &Rhs)=> boolean;
 }

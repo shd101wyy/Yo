@@ -614,9 +614,9 @@ function test() {
 }
 ```
 
-### Pipe operator
+### Reverse Application Operator
 
-`<reference> |> <closure>`
+Same as the `|>` in Ocaml `val ( |> ) : 'a -> ('a -> 'b) -> 'b`.
 
 ```typescript
 function return_self(v: &String): &String {
@@ -1978,6 +1978,11 @@ let shapes: (&Shape)[] = [ // NOTE: We have to add `&` ahead class. It works sim
 ]
 shapes[0].print_area();
 shapes[1].print_area();
+
+// With multiple types
+function print_area(shape: &(Shape & Display)) {
+  println(shape.area());
+}
 
 // Existentail type
 enum MyShape {
