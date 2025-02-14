@@ -525,20 +525,15 @@ Mutable Value Semantics in contrast is a restriction to first-class references w
 Raw pointer is a natural thing in low-level programming languages. It's unavoidable.
 The goal of the **Mo** language is to let you write workable and kinda memory-safe code without the need to use raw pointers.
 
-### Disadvantages
-
-- Hard to implement closure.  
-- Limit for functions that need to return a reference.  
-- Limit for data structures that need to store references.  
-
 ### Second-Class References
 
 References in **Mo** are second-class citizens.
 
-- Can't be stored in data structures or variables.
-- Can't be returned from functions. ~~Can't return the reference to local variables in function body, but can return the references that are the function arguments.~~
+- Can't be stored in ~~data structures or~~ variables.
+- ~~Can't be returned from functions.~~ Can't return the reference to local variables in function body, but can return the references that are the function arguments or from the function arguments.
 - Can only be created at function call sites, as a special parameter-passing mode.
 
+NOTE: We need to allow to store references in data structures in order to support closures.  
 NOTE: Why cannot store as variables:
 
 ```typescript
@@ -550,15 +545,13 @@ drop(y);
 println(l); // Use after free
 ```
 
-NOTE: Why cannot store in data structures:
-
 ```typescript
 type Container = {
-  value: &str;
+  value: &String;
 }
 let x = String.from("Hello"); // x: String. Linear type
 let y = String.from("World"); // y: String. Linear type
-let c = Container { value: longest_str(x.as_bytes(), y.as_bytes()) }; // c: Container
+let c = Container { value: longest_str(&x, &y) }; // c: Container that contains &String.
 drop(x);
 drop(y);
 println(c.value); // Use after free
@@ -621,32 +614,22 @@ function test() {
 }
 ```
 
-### Callback optimization
+### Pipe operator
 
-Let's assume we have a function whose last parameter is a callback that accepts a single parameter that is reference type, and that callback function is called at the very end, then we can optimize that function.
+`<reference> |> <closure>`
 
 ```typescript
-function some_function_that_can_be_optimized(v: &String,
-  callback: (x: &String)=> () // Here we have a callback that accepts a reference type. And it's the last parameter.
-) {
-  callback(v) // This callback is the last expression.
+function return_self(v: &String): &String {
+  v
 }
-
 let x = String.from("Hello, ");
 let y = String.from("world");
-some_function_that_can_be_optimized(&x, (v)=> {
+return_self(&x) |> (v)=> {
   println(v + y);
-});
-```
+}; // Compiler can optimize this part of code.
 
-This could be optimized to:
-
-```typescript
-let x = String.from("Hello, ");
-let y = String.from("world");
-{
-  let v = some_function_that_can_be_optimized(&x); // This function returns the reference.
-  println(v + y);
+&y |> (y_ref)=> {
+  println("Used y reference here");
 }
 ```
 
@@ -1044,6 +1027,8 @@ slice_1[0] = 'h';
 
 ## Closure `In Design`
 
+NOTE: Closure is a `class`, not `type`.
+
 The closure in **Mo** is a function that can capture ~~Linear~~ values from the outer scope.  
 **Mo** only supports **explicit captures** in closures.
 **Mo** **doesn't** support references in captured values.
@@ -1052,20 +1037,25 @@ The closure type is defined as:
 
 - Closure that can be called once:
   ```
-  [^]<type parameters>(parameters)=> return_type { body }
+  ClosureOnce<<type parameters>(parameters)=> return_type>
   ```
 - Closure that can be called multiple times:
   ```
-  [&]<type parameters>(parameters)=> return_type { body }
+  Closure<<type parameters>(parameters)=> return_type>
   ```
 
 A closure can be defined using the following syntax:
 
-```
-[{captures}]<type parameters>(paramters)=> return_type { body }
-```
+- `ClosureOnce`:
 
-where `[=]` means to automatically capture the variable by value, and `[&]` means to automatically capture the variable by reference.
+  ```
+  move <type parameters>(paramters)=> return_type { body }
+  ```
+
+- `Closure` same as normal function, but will be automatically converted:
+  ```
+  <type parameters>(paramters)=> return_type { body }
+  ```
 
 QUESTION: Should we make the captures explicit?
 
@@ -1075,13 +1065,14 @@ Examples:
 function test() {
   var x = 1;
 
-  let increment: [*](a: i32)=> () = [{x: &x}](a: i32)=> {
-  //                                  = [&](a: i32)=> {
+  (a: i32)=> {
+    // :: Closure<(a: i32)=> ()>
     // let {x} = increment;
-    *x = *x + a;
+    x = x + a;
+  } |> (increment)=> {
+    increment(1);
+    increment(2);
   }
-  increment(1);
-  increment(2);
 
   // x == 4
 }
@@ -1091,8 +1082,8 @@ function test() {
 function test() {
   var x: Data = malloc(); // Some `Fake` Data.
 
-  var increment: [^]()=> (); = [{x: x}]()=> {
-  //                           = [=]()=> {
+  var increment = move ()=> {
+    // :: ClosureOnce<()=>()>
     // let {x} = increment;
     drop(x);
   }
@@ -1159,7 +1150,7 @@ function three_are_equal<T: Type with Eq<T>>(x: T, y: T, z: T): bool {
   x == y && y == z
 }
 
-function show_compare<T: Type with (Show<T>, Ord<T>)>(x: T, y: T): String {
+function show_compare<T: Type with Show<T> & Ord<T>>(x: T, y: T): String {
   match(compare(x, y)) {
     case LT: "Less than"
     case EQ: "Equal"
@@ -1174,7 +1165,7 @@ instance<A with Show<A>> Show<A[]> {
   }
 }
 instance <A with Show<A>,
-          B with (Show<B>, Show<(A, B)>)> {
+          B with Show<B> & Show<(A, B)>> {
   show: (x: (A, B))=> {
     // ...
   }
@@ -1208,7 +1199,7 @@ export function show<T with Show<T>>(x: Array<T>): String {
 
 let { show, Show } = import("./show.mo");
 
-function less_than<T: Type with (Ord<T>, Show<T>)>(x: T, y: T): boolean {
+function less_than<T: Type with Ord<T> & Show<T>>(x: T, y: T): boolean {
   println(show(x));
   return x < y;
 }
@@ -1954,6 +1945,7 @@ instance Shape<Square> {
 
 
 // Static dispatch
+// Similar to C++'s template
 function print_area<T with Shape<T>>(shape: &T) {
   println(shape.area());
 }
@@ -1977,10 +1969,10 @@ void print_area(Shape* shape) {
   printf("%f\n", shape->area(shape->data));
 }
 */
-function print_area(shape: &(dynamic Shape)) {
+function print_area(shape: &Shape) {
   println(shape.area());
 }
-let shapes: (&(dynamic Shape))[] = [ // NOTE: We have to add `&` ahead class. It works similar to slice that requires `&` ahead.
+let shapes: (&Shape)[] = [ // NOTE: We have to add `&` ahead class. It works similar to slice that requires `&` ahead.
   &circle,
   &square,
 ]
