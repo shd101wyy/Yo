@@ -4,7 +4,7 @@
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
-**Mo** has a syntax design that looks like TypeScript, and uses uniform call syntax (dot notation)~~, brace elison~~ to make the code more concise.
+**Mo** has a syntax design that looks like TypeScript~~, and uses uniform call syntax (dot notation)~~~~, brace elison~~ to make the code more concise.
 
 **Mo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types `In Design`.
 
@@ -29,6 +29,7 @@ We will also post a series of articles on the design and implementation of **Mo*
     - [No duplicate variable declaration](#no-duplicate-variable-declaration)
   - [Type inference](#type-inference)
     - [Uninitialized variable `In Design`](#uninitialized-variable-in-design)
+    - [Type bounds `In Design`](#type-bounds-in-design)
   - [Transfer ownership](#transfer-ownership)
   - [immutable and mutable references](#immutable-and-mutable-references)
   - [Unique Pointer `In Design`](#unique-pointer-in-design)
@@ -65,7 +66,7 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Dependent types `In Design`](#dependent-types-in-design)
   - [Refinement types `In Design`](#refinement-types-in-design)
   - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
-- [Typeclass](#typeclass)
+- [Trait](#trait)
 - [Pattern Matching](#pattern-matching)
   - [Using Range in `case`](#using-range-in-case)
 - [Pointers](#pointers)
@@ -89,6 +90,9 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Effectful function](#effectful-function)
   - [Run multiple continuations `In Design`](#run-multiple-continuations-in-design)
 - [async/await `In Design`](#asyncawait-in-design)
+- [CPS `In Design`](#cps-in-design)
+  - [Simplify using `do` keyword](#simplify-using-do-keyword)
+    - [Run multiple continuations with `do`](#run-multiple-continuations-with-do)
 - [Modules](#modules)
 - [Dynamic Dispatch `In Design`](#dynamic-dispatch-in-design)
   - [`dynamic` keyword](#dynamic-keyword)
@@ -332,6 +336,18 @@ x = 1; // x: i32, initialized
 let y: i32; // y: i32, uninitialized
 y = 12; // Compiler Error: cannot assign to constant.
 ```
+
+#### Type bounds `In Design`
+
+From Scala.
+
+- `:` (Colon)
+
+  - Usage: Typically used in type annotations or pattern matching.
+
+- `<:` (Upper Type Bound)
+  - Usage: Indicates that a type parameter must be a subtype of a specific type.  
+    PROBLEM: doesn't look good in the generic syntax, as we are using `<...>` for generics.
 
 ### Transfer ownership
 
@@ -773,14 +789,22 @@ function some_async_func(?Async<i32>): i32 {
 
 ```typescript
 // id.mo
-export class Id<T> {
-  id: (x: T)=> T;
+export trait Id {
+  id: (x: self)=> Self;
 };
 
+implement Id for i32 {
+  id: (x: i32)=> i32 {
+    x
+  }
+}
+
 // main.mo
-let { Id, id } = import("./id.mo");
+let { Id } = import("./id.mo");
+
+(12).id(); // 12
 let use_id = <T with Id>(x: T): T => {
-  id(x)
+  x.id();
 }
 ```
 
@@ -838,6 +862,8 @@ function main() {
 ```
 
 ### Uniform Function Call Syntax
+
+NOTE: This might be removed.
 
 ```typescript
 function add_one(x: i32): i32 {
@@ -1178,11 +1204,11 @@ Type constraints are achieved using the `with` keyword.
 
 ```typescript
 // Type constraints
-function three_are_equal<T: Type with Eq<T>>(x: T, y: T, z: T): bool {
+function three_are_equal<T: Type with Eq>(x: T, y: T, z: T): boolean {
   x == y && y == z
 }
 
-function show_compare<T: Type with Show<T> & Ord<T>>(x: T, y: T): String {
+function show_compare<T: Type with Show & Ord>(x: T, y: T): String {
   match(compare(x, y)) {
     case LT: "Less than"
     case EQ: "Equal"
@@ -1191,14 +1217,15 @@ function show_compare<T: Type with Show<T> & Ord<T>>(x: T, y: T): String {
 }
 
 // Instance dependencies
-instance<A with Show<A>> Show<A[]> {
-  show: (x: A[])=> {
+implement<A with Show> for A[] {
+  show: (self: A[])=> {
     // ...
   }
 }
-instance <A with Show<A>,
-          B with Show<B> & Show<(A, B)>> {
-  show: (x: (A, B))=> {
+implement < A with Show,
+            B with Show
+          > for (A, B) {
+  show: (&self)=> {
     // ...
   }
 }
@@ -1206,17 +1233,17 @@ instance <A with Show<A>,
 
 ```typescript
 // show.mo
-export class Show<T> {
-  show: (x: T)=> String;
+export trait Show {
+  show: (&self)=> String;
 }
 
-instance Show<i32> {
-  show: (x: i32)=> {
+implement Show for i32 {
+  show: (&self)=> {
     // ...
   }
 }
 
-instance Show<String> {
+implement Show for String {
   show: (x: String)=> {
     // ...
   }
@@ -1225,13 +1252,13 @@ instance Show<String> {
 // main.mo
 let { show, Show } = import("./show.mo");
 
-export function show<T with Show<T>>(x: Array<T>): String {
+export function show<T with Show>(x: Array<T>): String {
   // ...
 }
 
 let { show, Show } = import("./show.mo");
 
-function less_than<T: Type with Ord<T> & Show<T>>(x: T, y: T): boolean {
+function less_than<T: Type with Ord & Show>(x: T, y: T): boolean {
   println(show(x));
   return x < y;
 }
@@ -1465,15 +1492,18 @@ let expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
 eval(expr1); // false
 ```
 
-## Typeclass
+## Trait
+
+NOTE: We don't use `class` or `interface` here. Because `trait` is not a type, like in TypeScript.
+NOTE: We also need to use `rust` like trait to better support the dynamic dispatch.
 
 ```typescript
-class Summary<T> {
-  summarize: (self: *T)=> String;
+trait Summary {
+  summarize: (self: &Self)=> String;
 };
 
-class Display<T, Summary<T>> {
-  display: (self: *T)=> String;
+trait Display with Summary & SomeOtherTrait {
+  display: (self: &Self)=> String;
 };
 
 type NewsArticle = {
@@ -1483,8 +1513,8 @@ type NewsArticle = {
   content: String;
 };
 
-instance Summary<NewsArticle> {
-  summarize: function(self: *NewsArticle): String {
+implement Summary for NewsArticle {
+  summarize: function(&self): String {
     return "${self.headline}, by ${self.author} (${self.location})";
   }
 }
@@ -1977,13 +2007,13 @@ export enum Option<T> {
 }
 
 // Export the class
-export class Id<T> {
-  id: (x: T)=> T;
+export trait Id {
+  id: (self)=> Self;
 }
 
 // Explicitly export the functions defined in the instance.
 // The implementations will be exported implicitly.
-instance Id<i32> {
+implement Id for i32 {
   id: (x: i32)=> i32 {
     x
   }
@@ -2008,9 +2038,7 @@ let { Option:{*} } = import("./test.mo"); // Unwrap all variants from Option enu
 let { Option as AnotherOption:{*} } = import("./test.mo"); // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
 */
 
-// All exported instances are implicitly imported.
-let { id } = import("./test.mo"); // Import `id` function defined in `Id` interface from test.mo
-let { Id } = import("./test.mo"); // Import `Id` class from test.mo
+let { Id } = import("./test.mo"); // Import `Id` trait from test.mo
 ```
 
 `mo.json` and `mo.lock`
@@ -2036,16 +2064,16 @@ QUESTION: Can we omit the `dynamic` keyword?
 ### Examples
 
 ```typescript
-class Shape<T> {
-  area: (self: &T) => f32;
+trait Shape {
+  area: (&self)=> f32;
 }
 
 type Circle = {
   radius: f32;
 }
 
-instance Shape<Circle> {
-  area(self) {
+implement Shape for Circle {
+  area: (&self)=> {
     3.14 * self.radius * self.radius
   }
 }
@@ -2054,8 +2082,8 @@ type Square = {
   side: f32;
 }
 
-instance Shape<Square> {
-  area(self) {
+implement Shape for Square {
+  area: (&self)=> {
     self.side * self.side
   }
 }
@@ -2063,7 +2091,7 @@ instance Shape<Square> {
 
 // Static dispatch
 // Similar to C++'s template
-function print_area<T with Shape<T>>(shape: &T) {
+function print_area<T with Shape>(shape: &T) {
   println(shape.area());
 }
 let circle: Circle = Circle { radius: 1.0 };
@@ -2073,7 +2101,7 @@ print_area(&square);
 
 
 // Dynamic Dispatch - Needs design.
-// NOTE: Here we use class as type, so it becomes dynamic dispatch.
+// NOTE: Here we use trait as type, so it becomes dynamic dispatch.
 /*
 It's like in C:
 
@@ -2089,25 +2117,27 @@ void print_area(Shape* shape) {
 function print_area(shape: &Shape) {
   println(shape.area());
 }
-let shapes: (&Shape)[] = [ // NOTE: We have to add `&` ahead class. It works similar to slice that requires `&` ahead.
+
+[ // NOTE: We have to add `&` ahead class. It works similar to slice that requires `&` ahead.
   &circle,
   &square,
-]
-shapes[0].print_area();
-shapes[1].print_area();
+] as (&Shape)[] |> (shapes)=> {
+  shapes[0].print_area();
+  shapes[1].print_area();
+}
 
-// With multiple types
+// With multiple traits
 function print_area(shape: &(Shape & Display)) {
   println(shape.area());
 }
 
-// Existentail type
+// Existential type
 enum MyShape {
   MyCircle(value: Circle),
   MySquare(value: Square),
 }
-instance Shape<MyShape> {
-  area(self) {
+implement Shape for MyShape {
+  area: (&self)=> {
     match(self) {
       case MyShape.MyCircle: self.value.area(),
       case MyShape.MySquare: self.value.area(),
@@ -2136,7 +2166,7 @@ function add(x: i32, y: i32): i32 {
 type Centimeters = i32;
 
 
-instance Drop<i32> {
+implement Drop for i32 {
   @noop() // ignored by the compiler when generating C code
   drop(value) {}
 }
