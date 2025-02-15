@@ -1,6 +1,6 @@
 # Language Design
 
-**Mo** 墨 🐼 is general-purpose, compiled programming language that incorporates the Linear Types, Mutable Value Semantics, and Algebraic Effects.
+**Mo** 墨 🐼 is general-purpose, compiled programming language that incorporates the Linear Types, Mutable Value Semantics, and (Poor man's) Algebraic Effects.
 
 **Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
 
@@ -112,6 +112,9 @@ Extended with a little bit of functional programming.
 
 Explicit is better than Implicit.  
 Strict is better than Loose.
+
+QUESTION: Should be allow hidden control flow?
+QUESTION: Should we disable the RAII?
 
 ## Inspiration
 
@@ -305,9 +308,9 @@ let my_int_array = [1, 2, 3]; // i32[3]; Free type
 let my_array_list: ArrayList<i32> = ArrayList.from([1, 2, 3]); // Stored on heap. Linear type.
 
 let my_set: Set<i32> = Set.from([1, 2, 3]); // Stored on heap. Linear type.
-expr my_map: Map<&str, i32> = Map.from([
-  ("one", 1),
-  ("two", 2),
+let my_map: Map<*u8[], i32> = Map.from([
+  ["one", 1],
+  ["two", 2],
 ]); // Stored on heap. Linear type.
 
 enum Person { // Linear type, as it contains a linear type.
@@ -497,7 +500,7 @@ We use the `^` to denote the pointer, same as in Pascal.
 
 ```typescript
 let some_int_ptr = malloc(sizeof<i32>()); // int_ptr: Option<^i32>. Linear type
-match some_int_ptr {
+match int_ptr {
   case Some: {
     let int_ptr = some_int_ptr.value; // int_ptr: ^i32. Linear type.
     *int_ptr = 10;
@@ -545,7 +548,7 @@ NOTE: Why cannot store as variables:
 ```typescript
 let x = String.from("Hello"); // x: String. Linear type
 let y = String.from("World"); // y: String. Linear type
-let l = longest_str(&x, &y); // l: &String;
+let l = longest_str(x.as_bytes(), y.as_bytes()); // l: &str;
 drop(x);
 drop(y);
 println(l); // Use after free
@@ -601,9 +604,9 @@ NOTE: Why not use `inout`, `in`, and `out` keywords? Because it doesn't work wit
     *a = *b;
     *b = temp;
   }
-  var x = 1;
-  var y = 2;
-  swap(&mut x, &mut y);
+  let x = 1;
+  let y = 2;
+  swap(&x, &y);
   ```
 
 - `&`
@@ -663,7 +666,7 @@ add = (x, y)=> { // Actually function definition
 }
 
 // or
-function add(x: i32, y: i32): i32 {
+let add = (x: i32, y: i32)=> i32 {
   x + y // The last expression is the return value.  `return` is optional.
 }
 
@@ -671,19 +674,32 @@ function add(x: i32, y: i32): i32 {
 let add: (i32, i32)=> i32 = (x, y)=> x + y;
 
 
-let last_unit_expr = (x: i32, y: i32)=> {
+function last_unit_expr(x: i32, y: i32) {
   x + y;
   // This is allowed as the last expression is `()`.
 }
 
 
 // Default parameter values
-function add(x: i32 = 1, y: i32 = 2): i32 {
+let add = (x: i32 = 1, y: i32 = 2): i32 => {
   return x + y;
 }
 add(); // 3
 add(y: 3); // 4
 add 2, 3; // 5
+
+// Function argument labels, and parameter names
+let mul = (x: i32, by y: i32): i32 => {
+  x * y
+}
+mul(3, by: 4); // 12
+
+// Omitting the argument labels
+let sub = (x: i32, _ y: i32): i32 => {
+  x - y
+}
+sub(3, 4); // -1
+sub(3, y: 4); // Error: y is not a valid argument label
 
 // Named return values
 function exponent(base: i32, power: i32):
@@ -718,8 +734,7 @@ function add<T: Type Integral<T>>(x: T, y: T): T {
 }
 
 // Closure
-let y = 0;
-let add = (x: i32)=> i32 { // Automatically convert to closure
+let add = [{y: 0}](x: i32): i32 => {
   y = x + y;
   return y;
 };
@@ -759,15 +774,12 @@ function some_async_func(?Async<i32>): i32 {
 ```typescript
 // id.mo
 export class Id<T> {
-  id: (x: T)=> T = (x)=> {
-    // default implementation
-    x
-  }
+  id: (x: T)=> T;
 };
 
 // main.mo
 let { Id, id } = import("./id.mo");
-function use_id<T with Id>(x: T): T {
+let use_id = <T with Id>(x: T): T => {
   id(x)
 }
 ```
@@ -810,7 +822,7 @@ function test(x: i32, ?id: (x: i32)=> i32) {
   print(id(x))
 }
 
-let ?id = (x: i32)=> {x};
+let ?id = (x: i32)=> x;
 function use_test() {
   test(3); // print 3
 
@@ -828,7 +840,7 @@ function main() {
 ### Uniform Function Call Syntax
 
 ```typescript
-function add_one(x: i32) {
+function add_one(x: i32): i32 {
   return x + 1;
 }
 
@@ -844,8 +856,6 @@ length(&s); // 12
 ```
 
 ### `defer`
-
-Might be removed due to RAII.
 
 `defer` will execute an expression at the end of the current scope.
 
@@ -868,7 +878,7 @@ test(); // Hello, World!
 ```
 
 ```typescript
-function defer_example() {
+function deferExample() {
   var a = 1;
 
   {
@@ -890,7 +900,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 - With tail-call optimization
 
   ```typescript
-  (x: u32, acc: u32 = 1)=> {
+  (x: u32, acc: u32 = 1) => {
     if x == 1 {
       acc
     } else {
@@ -902,7 +912,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 - Without tail-call optimization
 
   ```typescript
-  (x: u32)=> {
+  (x: u32) => {
     if x == 1 {
       1
     } else {
@@ -914,7 +924,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 ### Custom Operators
 
 ```typescript
-function (|>)<T, U>(x: T, f: (value: T)=> U): U {
+function (|>) <T, U>(x: T, f: (value: T)=> U): U {
   f(x)
 }
 
@@ -935,7 +945,7 @@ infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
 
 ```typescript
 // This function can take any type that has a `length: i32` property.
-function print_length(x: &{ length: i32 }) {
+function print_length(x: *{ length: i32 }) {
   println(x.length);
 };
 
@@ -1168,11 +1178,11 @@ Type constraints are achieved using the `with` keyword.
 
 ```typescript
 // Type constraints
-function three_are_equal<T: Type with Eq<T>>(x: T, y: T, z: T): boolean {
+function three_are_equal<T: Type with Eq<T>>(x: T, y: T, z: T): bool {
   x == y && y == z
 }
 
-function show_compare<T: Type with Show<T> & Ord<T>>(x: T, y: T): &str {
+function show_compare<T: Type with Show<T> & Ord<T>>(x: T, y: T): String {
   match(compare(x, y)) {
     case LT: "Less than"
     case EQ: "Equal"
@@ -1474,18 +1484,18 @@ type NewsArticle = {
 };
 
 instance Summary<NewsArticle> {
-  summarize: (self: *NewsArticle): String => {
+  summarize: function(self: *NewsArticle): String {
     return "${self.headline}, by ${self.author} (${self.location})";
   }
 }
 
 // Pass in function
-function notify(item: &NewsArticle) {
+function notify(item: *NewsArticle) {
   println("Breaking news! ", summarize(item));
 }
 
-function notify = <T with Display<T>>(
-  item: &T
+function notify<T, Display<T>>(
+  item: *T
 ) {
   println("Breaking news! ", summarize());
   println("Breaking news! ", display(item));
@@ -1770,11 +1780,9 @@ The continuation `k` will be exposed to the effectful function.
 `k` is linear, and it must be consumed once.  
 Either `resume` or `abort` function can be called with the continuation `k`.
 
-~~The `do` keyword is used to call the effectful function.~~  
-~~The `do` keyword decides where to `resume` the continuation.~~
-~~The `do` keyword is necessary to notify the programmer that the continuation might `abort`.~~
-NOTE: Let's not require the `do` keyword to call effectful function for now.
-Before, we have `do (effect1(), effect2())`, but I think this should be implemented in a library.
+The `do` keyword is used to call the effectful function.  
+The `do` keyword decides where to `resume` the continuation.
+The `do` keyword is necessary to notify the programmer that the continuation might `abort`.
 
 The `return` keyword is not allowed in the continuation function.
 
@@ -1782,9 +1790,9 @@ The `return` keyword is not allowed in the continuation function.
 function safe_divide( x: i32,
                       y: i32,
                       raise: effect (msg: *u8[])=> i32
-  ):i32 {
+  ): i32 {
   if y == 0 {
-    raise("Division by zero")
+    do raise("Division by zero")
   } else {
     x / y
   }
@@ -1817,7 +1825,7 @@ function main() {
   }
 
   println("Before timeout");
-  let result = wait_for_seconds(1);
+  let result = do wait_for_seconds(1);
   println("After timeout");
   println(result); // 12
 }
@@ -1826,12 +1834,11 @@ function main() {
 ### Run multiple continuations `In Design`
 
 QUESTION: This approach has the problem that if one of them abort, then how should we handle the rest of the continuations?
-This requires `do` keyword.
 
 ```typescript
 function main() {
   effect wait_for_seconds(sec: u32): i32 {
-    set_timeout([=]()=> {
+    set_timeout(move ()=> {
       println(sec);
       resume(sec);
     }, sec * 1000);
@@ -1856,6 +1863,91 @@ NOTE: Having async/await like javascript makes mo not distinguishable from javas
 async function main() {
   let result = await fetch("https://api.example.com");
   println(result);
+}
+```
+
+## CPS `In Design`
+
+NOTE: I feel introducing `effect` will make the type system too complicated, and the implementation might hide many details from the programmer. So I think we might use CPS instead of `effect`.
+NOTE: And we are compiling to C, so it's better what we see from Mo can be easily translated to C.
+
+```typescript
+type K< Resume: Type,
+        Output: Type = ()
+        Function: Type with ClosureOnce<(value: Resume)=> Output>
+      > = Function;
+type Exception< Error: Type,
+                Resume: Type,
+                Output = ()
+              > = (error: Error, do resume: Resume)=> Output;
+function divide(x: i32, y: i32, do resume: K<i32>, ?raise: Exception<&str, K<i32>>) {
+  if y == 0 {
+    raise("Division by zero", do: move (value)=> { // `move` is needed to capture the `resume` function from the upper level
+      resume(value);
+    })
+  } else {
+    resume(x / y);
+  }
+}
+
+function handle_resume(do resume: K<i32>) {
+  let raise: Exception<&str, K<i32>> = (error, resume)=> {
+    println(error);
+    resume(10);
+  }
+
+  divide(3, 0, do: (value)=> {
+    resume(1 + value + 2); // 13
+  }, raise: raise);
+}
+```
+
+### Simplify using `do` keyword
+
+For function argument label that is `do`, we can use the `do` keyword there.  
+The `do` function parameter must be the `K` type and its return type needs to match the caller's return type.
+
+QUESTION: How do we handle `for` and `while` loop? `do` won't be able to work there. Should we still implement loops?
+
+```typescript
+function divide(x: i32, y: i32, do resume: K<i32>, ?raise: Exception<&str, K<i32>>) {
+  if y == 0 {
+    let value = do raise("Division by zero");
+    resume(value);
+  } else {
+    resume(x / y);
+  }
+}
+
+function handle_resume(do resume: K<i32>) {
+  let raise: Exception<&str, K<i32>> = (error, resume)=> {
+    println(error);
+    resume(10);
+  }
+
+  let value = do divide(3, 0);
+  resume(1 + value + 2); // 13
+}
+```
+
+#### Run multiple continuations with `do`
+
+```typescript
+function wait_for_seconds(sec: u32, do resume: K<i32>) {
+  set_timeout(move ()=> {
+    println(sec);
+    resume(sec);
+  }, sec * 1000);
+}
+
+function main() {
+  println("Before timeout");
+  let (wait1, wait2, wait3) = do (
+    wait_for_seconds(1),
+    wait_for_seconds(2),
+    wait_for_seconds(3),
+  );
+  println("After timeout");
 }
 ```
 
@@ -1886,15 +1978,13 @@ export enum Option<T> {
 
 // Export the class
 export class Id<T> {
-  id: (x: T)=> T = (x)=> {
-    x
-  };
+  id: (x: T)=> T;
 }
 
 // Explicitly export the functions defined in the instance.
 // The implementations will be exported implicitly.
 instance Id<i32> {
-  id: (x)=> {
+  id: (x: i32)=> i32 {
     x
   }
 }
@@ -1947,7 +2037,7 @@ QUESTION: Can we omit the `dynamic` keyword?
 
 ```typescript
 class Shape<T> {
-  area: (self: &T)=> f32;
+  area: (self: &T) => f32;
 }
 
 type Circle = {
@@ -2110,10 +2200,10 @@ my_add_numbers(1, 2); // calling add_numbers from C
 2 spaces for indentation.
 
 - `snake_case`
-  - `file_name.mo`
-  - `directory_name`
-  - `function_name`
-  - `variable_name`
+  - `file name`
+  - `directory name`
+  - `function`
+  - `variable`
 - `PascaleCase`
   - `class`
   - `type`
@@ -2137,7 +2227,8 @@ The current **Mo** compiler frontend is written in **TypeScript** as a proof of 
 
 Boostrapping the **Mo** compiler is not a priority at the moment. We will do it when it's ready.
 
-**Mo** currently compiles to C (C11). We might support compiling to LLVM IR, JavaScript, and WebAssembly in the future.
+**Mo** currently compiles to C (C11, the version that most modern compilers support).  
+We might support compiling to LLVM IR in the future.
 
 ## Meta-programming `In Design`
 
