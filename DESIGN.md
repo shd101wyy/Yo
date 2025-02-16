@@ -215,7 +215,11 @@ A type can have the following **Kind**:
 
 - Type
   - Free
+    - i32
+    - u32
+    - ...
   - Linear
+- Trait
 - Expr
 
 ### Type
@@ -261,16 +265,57 @@ function example(x: i32, y: i32) {
 }
 ```
 
+NOTE: For function parameter of linear type, it is always mutable, because the function takes the ownership already.
+
 #### `expr` declaration
 
-We use `expr` to store an expression that is not actually calculated until it's used.  
+We use `expr` to store an expression that is not actually calculated until it's used.
+An `expr` variable has to be named with `@` beforehead.  
 This feature is later discussed in the [Mutable Value Semantics](#mutable-value-semantics) section.
 
 ```typescript
 let  x = 1;
 let  y = 2;
-expr z = x + y; // z: Expr<i32>. Free type
-print(z); // This will actually expand to `print(x + y)`.
+expr @z = x + y; // z: Expr<i32>. Free type
+print(@z); // This will actually expand to `print(x + y)`.
+```
+
+##### Macro using `expr`
+
+```typescript
+expr @my_if<condition IfCond: Expr<boolean>,
+           then      Then: Expr<Output>,
+           else      Else: Expr<Output>,
+                     Output: Type,
+          >: Expr<Output> = {
+  if IfCond {
+    Then
+  } else {
+    Else
+  }
+}
+
+@my_if<true, then: 1, else: 2, /* i32 */>; // Expands to:
+if true {
+  1
+} else {
+  2
+}
+
+// NOTE: @my_if<...> and @my_if(...) are both valid and behave the same.
+```
+
+##### `expr` lexical scope
+
+```typescript
+{
+  let x = 1;
+  expr @my_x = x; // my_x: Expr<i32>. Free type
+  {
+    let x = 2;
+    println(@my_x); // 1
+  }
+}
 ```
 
 #### No duplicate variable declaration
@@ -300,11 +345,11 @@ Below is allowed as they are in different regions:
 let  my_string: String = String.from("Hello, world"); // Stored on heap. Linear type.
 let  my_string_2 = my_string; // my_string_2: String. Linear type. my_string is moved and consumed. my_string_2 now takes the ownership.
 let  my_string_3 = my_string; // Error: my_string is already consumed.
-expr my_string_4: &String = &my_string_2; // my_string_4: Expr<&String>. Free type
+expr @my_string_4: &String = &my_string_2; // my_string_4: Expr<&String>. Free type
 
 let  my_int = 1; // Stored on stack. Free type
 let  my_int_2 = my_int; // my_int_2: i32, Free type
-expr my_int_3: &i32 = &my_int; // my_int_3: Expr<&i32>. Free type
+expr @my_int_3: &i32 = &my_int; // my_int_3: Expr<&i32>. Free type
 
 let my_int_array: i32[3] = [1, 2, 3]; // Stored on stack, with size 3. Free type
 let my_int_array: i32[100] = [1, 2, 3]; // Stored on stack, with size 100. Free type
@@ -364,12 +409,12 @@ let z = x; // Compiler Error: x is already consumed.
 ```typescript
 {
   var  x = 1; // x: copied i32. Free type
-  expr p1 = &mut x; // r: Expr<&mut i32>. Free type
-  expr p2 = &mut x; // p: Expr<&mut i32>. Free type.
-  *p1 = 2;
+  expr @p1 = &mut x; // r: Expr<&mut i32>. Free type
+  expr @p2 = &mut x; // p: Expr<&mut i32>. Free type.
+  *@p1 = 2;
   // x == 2
-  // *p1 == 2
-  // *p2 == 2
+  // *@p1 == 2
+  // *@p2 == 2
 }
 ```
 
@@ -384,12 +429,12 @@ extern "C" {
 
 function main() {
   var x = String.from("Hello, world"); // x: String. mutable
-  expr y: &mut String = &mut x; // y: Expr<&mut String>   // mutable reference
-  expr z: &String = &x; // z: Expr<&String>   // immutable reference
+  expr @y: &mut String = &mut x; // y: Expr<&mut String>   // mutable reference
+  expr @z: &String = &x; // z: Expr<&String>   // immutable reference
 
   length(x);  // not allowed, type mismatch
-  length(y);  // allowed
-  length(z);  // allowed
+  length(@y);  // allowed
+  length(@z);  // allowed
   x.length(); // allowed, implicit conversion to &String
 
   let t = x;                           // transfer ownership
@@ -450,19 +495,19 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 
 {
   // Creating references will not consume `p`:
-  expr name: &String = &p.name; // name: Expr<&String>. Free type.
-  expr age = &p.age; // age: Expr<&i32>. Free type.
+  expr @name: &String = &p.name; // name: Expr<&String>. Free type.
+  expr @age = &p.age; // age: Expr<&i32>. Free type.
 }
 {
-  expr p_ref = &p;         // p_ref: Expr<&Person>. Free type.
-  expr name = &p_ref.name; // name: Expr<&String>. Free type.
-  expr age = &p_ref.age;   // age: Expr<&i32>. Free type.
+  expr @p_ref = &p;         // p_ref: Expr<&Person>. Free type.
+  expr @name = &p_ref.name; // name: Expr<&String>. Free type.
+  expr @age = &p_ref.age;   // age: Expr<&i32>. Free type.
 
   some_function(*p_ref); // Derference a reference of linear type is not allowed.
 }
 {
   var p = Person(String.from("Alice"), 30); // p: Person. Linear type.
-  expr p_ref = &p; // p_ref: Expr<&Person>. Free type.
+  expr @p_ref = &p; // p_ref: Expr<&Person>. Free type.
   let old_name = (p_ref.name = String.from("Bob")); // old_name: String. Linear type. Take the value out.
   // old_name == String.from("Alice")
 }
@@ -482,11 +527,11 @@ var x = [1, 2, 3, 4, 5]; // x: i32[5]. Free type
 var y = x; // y: i32[5]. Free type. x is copied to y, not moved.
 
 {
-  expr ref = &x;      // ref: Expr<&i32[]>. Free type
+  expr @ref = &x;      // ref: Expr<&i32[]>. Free type
   let first = ref[0]; // i32. Free type
 }
 {
-  expr firstRef = &x[0]; // Expr<&i32>. Free type
+  expr @firstRef = &x[0]; // Expr<&i32>. Free type
   *firstRef = 10;
 }
 
@@ -502,8 +547,8 @@ var x = [String.from("Hi"), String.from("World")];
 }
 
 {
-  expr s = &x[1]; // s: Expr<&String>. Free type
-  let old = (*s = String.from("Earth"));
+  expr @s = &x[1]; // s: Expr<&String>. Free type
+  let old = (*@s = String.from("Earth"));
   // old: String. Linear type. old == String.from("World")
 }
 
@@ -597,11 +642,11 @@ But can store as an `expr` which is not actually calculated until it's used:
 ```typescript
 let  x = String.from("Hello"); // x: String. Linear type
 let  y = String.from("World"); // y: String. Linear type
-expr l = longest_str(x.as_bytes(), y.as_bytes()); // l: Expr<&str>;
+expr @l = longest_str(x.as_bytes(), y.as_bytes()); // l: Expr<&str>;
         // This is not evaluated, only the expression is saved.
 drop(x);
 drop(y);
-println(l); // This will actually expand to:
+println(@l); // This will actually expand to:
             // println(longest_str(x.as_bytes(), y.as_bytes()));
             // and will cause a compile error as `x` and `y` are consumed.
 ```
@@ -1013,8 +1058,8 @@ i32_array_ptr.length; // 5, runtime known
 i32_array_ptr[0] = 8; // automatically dereference
 // i32_array: [8, 2, 3, 4, 5]
 
-expr i32_ptr = &i32_array[0]; // i32_ptr: Expr<&i32>. Free type
-*i32_ptr = 9;
+expr @i32_ptr = &i32_array[0]; // @i32_ptr: Expr<&i32>. Free type
+*@i32_ptr = 9;
 // i32_array: [9, 2, 3, 4, 5]
 ```
 
@@ -1028,13 +1073,13 @@ ANSWER:
 
 ```typescript
 let  i32_array = [1, 2, 3]; // i32_array: i32[3]. Free type
-expr i32_ptr   = &i32_array[0]; // i32_ptr: Expr<&i32>. Free type
+expr @i32_ptr   = &i32_array[0]; // @i32_ptr: Expr<&i32>. Free type
 let  i32_slice = &i32_array; // i32_slice: i32[]. Free type
 let  i32_slice = i32_array[0:some_func_return_usize()];  // i32_slice: i32[]
                                                         // Compiler Error: The size of the slice is not known at compile time.
                                                         //                 Please use `&` to coerce i32_array to slice type &i32[]
-expr i32_slice = &i32_array[0:some_func_return_usize()]; // Okay
-expr i32_slice = &i32_array[0:3]; // i32_slice: Expr<&i32[]>
+expr @i32_slice = &i32_array[0:some_func_return_usize()]; // Okay
+expr @i32_slice = &i32_array[0:3]; // i32_slice: Expr<&i32[]>
 
 i32_slice.length; // 3, runtime known
 i32_slice[0] = 10;
@@ -1521,15 +1566,37 @@ implement Summary for NewsArticle {
 }
 
 // Pass in function
-function notify(item: *NewsArticle) {
-  println("Breaking news! ", summarize(item));
+function notify(item: &NewsArticle) {
+  println("Breaking news! ", item.summarize());
 }
 
-function notify<T, Display<T>>(
-  item: *T
+function notify<T with Display>(
+  item: &T
 ) {
-  println("Breaking news! ", summarize());
-  println("Breaking news! ", display(item));
+  println("Breaking news! ", item.summarize());
+  println("Breaking news! ", item.display());
+}
+```
+
+### `without` keyword `In Design`
+
+```typescript
+trait Summary for Type with Show without Eq {
+  summarize: (self: &Self)=> String;
+};
+// This trait `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
+```
+
+### Trait alias using `expr`
+
+> From: https://doc.rust-lang.org/beta/unstable-book/language-features/trait-alias.html
+
+```typescript
+expr @Foo = Debug & Send;
+expr @Bar = Foo & Sync;
+
+function foo<T: @Foo>(v: &T) {
+  // ...
 }
 ```
 
@@ -1639,19 +1706,19 @@ In Mo, these 4 categories are represented as:
 ```typescript
 // Pointer to a constant
 let  constant_i32 = 12;
-expr ptr_to_constant = &constant_i32; // ptr_to_constant: Expr<&i32>. Free type
+expr @ptr_to_constant = &constant_i32; // @ptr_to_constant: Expr<&i32>. Free type
 
 // Constant pointer to a constant
 let  constant_i32 = 12;
-expr constant_ptr_to_constant = &constant_i32; // constant_ptr_to_constant: Expr<&i32>. Free type
+expr @constant_ptr_to_constant = &constant_i32; // @constant_ptr_to_constant: Expr<&i32>. Free type
 
 // Pointer to a non-constant
 var  i32_val = 12;
-expr ptr_to_i32 = &mut i32_val; // ptr_to_i32: Expr<&mut i32>. Free type
+expr @ptr_to_i32 = &mut i32_val; // @ptr_to_i32: Expr<&mut i32>. Free type
 
 // Constant pointer to a non-constant
 var  i32_val = 12;
-expr constant_ptr_to_i32 = &mut i32_val; // constant_ptr_to_i32: Expr<&mut i32>. Free type
+expr @constant_ptr_to_i32 = &mut i32_val; // @constant_ptr_to_i32: Expr<&mut i32>. Free type
 ```
 
 ### Linear pointers
