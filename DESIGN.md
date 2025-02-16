@@ -2,7 +2,7 @@
 
 **Mo** 墨 🐼 is general-purpose, compiled programming language that incorporates the Linear Types, Mutable Value Semantics, and (Poor man's) Algebraic Effects.
 
-**Mo** aims to be a simple to learn programming language. If you are familiar with TypeScript, you should be able to pick up **Mo** in 1 hour 😉.
+**Mo** aims to be a simple to learn programming language for C and JavaScript (TypeScript) programmers 😉.
 
 **Mo** has a syntax design that looks like TypeScript~~, and uses uniform call syntax (dot notation)~~~~, brace elison~~ to make the code more concise.
 
@@ -2057,9 +2057,8 @@ let { Id } = import("./test.mo"); // Import `Id` trait from test.mo
 
 ### `dynamic` keyword
 
-QUESTION: Can we omit the `dynamic` keyword?
-
-`dynamic` can be applied to `class` to make it dynamic dispatch.
+`dynamic` can be applied to `trait` to make it `type` for dynamic dispatch.
+`static` can be applied to `trait` to make it `type` for static dispatch.
 
 ### Examples
 
@@ -2094,6 +2093,10 @@ implement Shape for Square {
 function print_area<T with Shape>(shape: &T) {
   println(shape.area());
 }
+// or
+function print_area(shape: &(static Shape)) { // This will omit type parameter, and you canno't pass type argument to it.
+  println(shape.area());
+}
 let circle: Circle = Circle { radius: 1.0 };
 let square: Square = Square { side: 2.0 };
 print_area(&circle);
@@ -2101,7 +2104,7 @@ print_area(&square);
 
 
 // Dynamic Dispatch - Needs design.
-// NOTE: Here we use trait as type, so it becomes dynamic dispatch.
+// NOTE: Here we use (dynamic Trait) as type, so it becomes dynamic dispatch.
 /*
 It's like in C:
 
@@ -2114,20 +2117,20 @@ void print_area(Shape* shape) {
   printf("%f\n", shape->area(shape->data));
 }
 */
-function print_area(shape: &Shape) {
+function print_area(shape: &(dynamic Shape)) {
   println(shape.area());
 }
 
-[ // NOTE: We have to add `&` ahead class. It works similar to slice that requires `&` ahead.
+[ // NOTE: We have to add `&` ahead dynamic Trait as it's unsized. It works similar to slice that requires `&` ahead.
   &circle,
   &square,
-] as (&Shape)[] |> (shapes)=> {
+] as (&(dynamic Shape))[] |> (shapes)=> {
   shapes[0].print_area();
   shapes[1].print_area();
 }
 
 // With multiple traits
-function print_area(shape: &(Shape & Display)) {
+function print_area(shape: &(dynamic Shape & Display)) {
   println(shape.area());
 }
 
