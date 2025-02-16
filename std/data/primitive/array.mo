@@ -1,4 +1,4 @@
-let { Drop, drop } = import("../../classes/common.mo");
+let { Drop, drop } = @import("../../classes/common.mo");
 
 implement<T: Linear with Drop<T>, S: usize> Drop for T[S] {
   drop: (self)-> {
