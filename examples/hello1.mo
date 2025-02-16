@@ -1,7 +1,7 @@
 extern "C" {
-  println: (x: string)=> ();
+  println: (x: string)-> ();
 }
 
-let main = () => {
+let main = () -> {
   println("Hello, world!")
 }

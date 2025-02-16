@@ -6,15 +6,15 @@ type Coroutine<
   ParentCoroutineType> = {
   arguments: ArgumentsType,
   context: ContextType,
-  function: (self: Coroutine<ArgumentsType, ContextType, ResumeType, AbortType>)=> (),
+  function: (self: Coroutine<ArgumentsType, ContextType, ResumeType, AbortType>)-> (),
   step: i32,
   value: ResumeType | AbortType,
   parent: ParentCoroutineType
 }
 
 interface CoroutineInterface<CoroutineType, ResumeType, AbortType> {
-  resume: (coro: CoroutineType, value: ResumeType) => (),
-  abort: (coro: CoroutineType, value: AbortType) => (),
+  resume: (coro: CoroutineType, value: ResumeType) -> (),
+  abort: (coro: CoroutineType, value: AbortType) -> (),
 }
 
 type GetIntArguments = {
@@ -32,10 +32,10 @@ let getInt =
       GetIntContext, 
       i32, 
       AbortType, 
-      ParentCoroutineType>)=> {
+      ParentCoroutineType>)-> {
   let { arguments, context, function, step, value, parent } = self;
   match (step) {
-    _ => {
+    _ -> {
       if (arguments.x > 10) {
         println("resume\n");
         resume(parent, 10);
@@ -50,10 +50,10 @@ let getInt =
 type MyMainArguments = {}
 type MyMainContext = {}
 
-let myMain = (self: Coroutine<MyMainArguments, MyMainContext, (), i32, ParentCoroutineType>)=> {
+let myMain = (self: Coroutine<MyMainArguments, MyMainContext, (), i32, ParentCoroutineType>)-> {
   let { arguments, context, function, step, value, parent } = self;
   match (step) {
-    0 => {
+    0 -> {
       let getIntArguments: GetIntArguments = GetIntArguments { x: 12 };
       let getIntContext: GetIntContext = GetIntContext {};
       let getIntCoroutine: Coroutine<GetIntArguments, GetIntContext, i32, i32, Coroutine<MyMainArguments, MyMainContext, (), i32, ParentCoroutineType>> = Coroutine<GetIntArguments, GetIntContext, i32, i32, Coroutine<MyMainArguments, MyMainContext, (), i32, ParentCoroutineType>> {
@@ -66,18 +66,18 @@ let myMain = (self: Coroutine<MyMainArguments, MyMainContext, (), i32, ParentCor
       };
       getInt(getIntCoroutine);
     }
-    1 => {
+    1 -> {
       let value = value as i32;
       println("Done");
     }
-    -1 => {
+    -1 -> {
       let value = value as i32;
       println("Aborted");
     }
   }
 }
 
-let main = ()=> {
+let main = ()-> {
   let myMainArguments: MyMainArguments = MyMainArguments {};
   let myMainContext: MyMainContext = MyMainContext {};
   let myMainCoroutine: Coroutine<MyMainArguments, MyMainContext, (), i32, ()> = Coroutine<MyMainArguments, MyMainContext, (), i32, ()> {

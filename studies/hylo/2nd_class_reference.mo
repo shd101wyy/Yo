@@ -3,12 +3,12 @@ type Coord = {
   y: @i32;
 }
 
-let test = (c: Coord)=> {
+let test = (c: Coord)-> {
   let a = 1;
   c.x = @a; // Error: Cannot reseat a reference
 }
 
-let main = ()=> {
+let main = ()-> {
   let a = 1;
   let b = 2;
   let coord = Coord { x: @a, y: @b }; // This is not allowed
@@ -17,7 +17,7 @@ let main = ()=> {
 
 // ==================================================
 
-let test = (x: @i32, y: @i32)=> i32 {
+let test = (x: @i32, y: @i32)-> i32 {
   x = x + 1;
   y = y + 1;
   x * y
@@ -29,7 +29,7 @@ let test = (x: @i32, y: @i32)=> i32 {
 
 // Problem
 
-let test = ()=> {
+let test = ()-> {
   let x = String.from("Hi");
   let y: &String = &x;
   drop(x);

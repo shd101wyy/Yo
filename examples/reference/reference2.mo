@@ -1,23 +1,23 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()=> Data;
+  malloc: ()-> Data;
 }
 
-let useImmutableReference = (ref: &Data)=> {
+let useImmutableReference = (ref: &Data)-> {
   // let x = *ref;
 }
 
-let useMutableReference = (ref: @Data)=> {
+let useMutableReference = (ref: @Data)-> {
   let old = (*ref = malloc());
   consume(old);
 }
 
-let takeOwnership = (data: Data)=> {
+let takeOwnership = (data: Data)-> {
   consume(data);
 }
 
-let test = ()=> {
-  var x = malloc();
+let test = ()-> {
+  let mut x = malloc();
 
   // let ref1 = &x;
   // let ref2 = @x;

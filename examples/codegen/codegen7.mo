@@ -1,15 +1,15 @@
 extern "Mo" {
-  codegen_inline: (C: string = "")=> ();
+  codegen_inline: (C: string = "")-> ();
 }
 
-let add = (x: i32, y: i32)=> i32 {
+let add = (x: i32, y: i32)-> i32 {
   codegen_inline(
     C = "($1 + $2)"
   );
   0
 }
 
-let main = ()=> i32 {
+let main = ()-> i32 {
   let x = add(1, 2);
   let y = add(x, 3);
   x

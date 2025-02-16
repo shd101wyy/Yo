@@ -1,7 +1,7 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()=> Data;
-  length: (x: &Data)=> i32;
+  malloc: ()-> Data;
+  length: (x: &Data)-> i32;
 }
 
 type Coord = {
@@ -9,13 +9,13 @@ type Coord = {
   y: Data
 }
 
-let main = ()=> {
-  var coord = Coord {
+let main = ()-> {
+  let mut coord = Coord {
     x: malloc(),
     y: malloc()
   };
-  var ref = @coord;
-  var x = @ref.x;
+  let mut ref = @coord;
+  let mut x = @ref.x;
   let old = (x = malloc());
   consume(old);
   consume(coord);

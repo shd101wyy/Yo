@@ -1,7 +1,7 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()=> Data;
-  consume: (x: Data)=> ();
+  malloc: ()-> Data;
+  consume: (x: Data)-> ();
 }
 
 type Context<R:Region> = {
@@ -10,12 +10,12 @@ type Context<R:Region> = {
 }
 
 extern "C" {
-  consumeContext: <R:Region>(context: Context<R>)=> ();
+  consumeContext: <R:Region>(context: Context<R>)-> ();
 }
 
 
 // Simulation of mutable closure
-let test = ()=> {
+let test = ()-> {
   let mut x = malloc();
   let mut y = 12;
   {

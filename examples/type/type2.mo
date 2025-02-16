@@ -5,7 +5,7 @@ type Coord = {
 
 type Meter = i32;
 
-let main = ()=> {
+let main = ()-> {
   let coord = Coord {
     x: 1,
     y: 2

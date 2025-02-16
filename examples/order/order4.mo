@@ -1,15 +1,15 @@
 
 type Data: Linear;
 extern "C" {
-  malloc: ()=> Data;
-  consume: <T>(x: T)=> ();
-  length: (x: &Data)=> i32;
+  malloc: ()-> Data;
+  consume: <T>(x: T)-> ();
+  length: (x: &Data)-> i32;
 }
 
-let test = (flag: boolean)=> {
+let test = (flag: boolean)-> {
   let x = malloc();
   
-  var holder = {
+  let mut holder = {
     data: (&x)
   };
   let y = malloc();

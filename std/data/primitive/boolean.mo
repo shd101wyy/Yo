@@ -7,7 +7,7 @@ let { Drop } = import("../../classes/common.mo");
  * logic
  */
 implement LogicalNot for boolean {
-  (!): (a)=> {
+  (!): (a)-> {
     codegen_inline(C="(!($1))");
     recur(a)
   }
@@ -17,11 +17,11 @@ implement LogicalNot for boolean {
  * eq
  */
 implement Eq for boolean {
-  (==): (a, b)=> {
+  (==): (a, b)-> {
     codegen_inline(C="(($1) == ($2))");
     recur(a, b)
   }
-  (!=): (a, b)=> {
+  (!=): (a, b)-> {
     codegen_inline(C="(($1) != ($2))");
     recur(a, b)
   }

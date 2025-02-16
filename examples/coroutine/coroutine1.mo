@@ -1,14 +1,14 @@
 /*
 effect GiveInt {
-    control giveInt: (x: i32)=> i32;
+    control giveInt: (x: i32)-> i32;
 }
 
-let main = ()=> {
+let main = ()-> {
     try {
         let a = givetInt(10);
         println("Done!");
     } with GiveInt {
-        control giveInt: (x: i32)=> {
+        control giveInt: (x: i32)-> {
             if (x > 10) {
                 println("resume");
                 resume(x);
@@ -37,9 +37,9 @@ type Coroutine<
 }
 
 interface CoroutineInterface<CoroutineType, ResumeType, AbortType> {
-  func: (self: CoroutineType)=> ();
-  resume: (self: CoroutineType, value: ResumeType)=> ();
-  abort: (self: CoroutineType, value: AbortType)=> ();
+  func: (self: CoroutineType)-> ();
+  resume: (self: CoroutineType, value: ResumeType)-> ();
+  abort: (self: CoroutineType, value: AbortType)-> ();
 }
 
 type MyMainArguments = {};
@@ -65,9 +65,9 @@ type GiveIntCoroutine = Coroutine<
 >
 
 implements CoroutineInterface<MyMainCoroutine, i32, i32> {
-  func: (self: MyMainCoroutine)=> () {
+  func: (self: MyMainCoroutine)-> () {
     match (self.step) {
-      0 => {
+      0 -> {
         let arguments_ = GiveIntArguments { x: 10 };
         let context_ = GiveIntContext {};
         let coro = GiveIntCoroutine {
@@ -79,22 +79,22 @@ implements CoroutineInterface<MyMainCoroutine, i32, i32> {
         };
         func(coro)
       }
-      1 => {
+      1 -> {
         let a = self.value;
         println("Done!");
       }
-      _ => {
+      _ -> {
         println("Abort");
         self.value
       }
     }
   },
-  resume: (self: MyMainCoroutine, value: i32)=> () {
+  resume: (self: MyMainCoroutine, value: i32)-> () {
     self.value = value;
     self.step += 1;
     func(self)
   },
-  abort: (self: MyMainCoroutine, value: i32)=> () {
+  abort: (self: MyMainCoroutine, value: i32)-> () {
     self.value = value;
     self.step = -1; // Clean up
     func(self)
@@ -102,9 +102,9 @@ implements CoroutineInterface<MyMainCoroutine, i32, i32> {
 }
 
 implements CoroutineInterface<GiveIntCoroutine, i32, i32> {
-  func: (self: GiveIntCoroutine)=> () {
+  func: (self: GiveIntCoroutine)-> () {
     match (self.step) {
-      _ => {
+      _ -> {
         if (self.arguments.x > 10) {
           // Resume parent
           println("resume");
@@ -117,19 +117,19 @@ implements CoroutineInterface<GiveIntCoroutine, i32, i32> {
       }
     }
   },
-  resume: (self: GiveIntCoroutine, value: i32)=> () {
+  resume: (self: GiveIntCoroutine, value: i32)-> () {
     self.value = value
     self.step += 1
     func(self)
   },
-  abort: (self: GiveIntCoroutine, value: i32)=> () {
+  abort: (self: GiveIntCoroutine, value: i32)-> () {
     self.value = value
     self.step = -1; // Clean up
     func(self)
   },
 }
 
-let main = ()=> {
+let main = ()-> {
   let arguments = MyMainArguments {};
   let context = MyMainContext {};
   let coro = MyMainCoroutine {

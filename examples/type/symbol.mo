@@ -1,3 +1,3 @@
-let main = ()=> {
+let main = ()-> {
   let x = "Hello";
 }

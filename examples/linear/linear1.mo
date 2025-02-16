@@ -3,8 +3,8 @@ type Holder<T: Type> = {
   y: T;
 }
 
-let test = <X>(x: &X, y: &X)=> Holder<X> {
-  var holder = Holder<&X> {
+let test = <X>(x: &X, y: &X)-> Holder<X> {
+  let mut holder = Holder<&X> {
     x: x,
     y: y
   };

@@ -1,17 +1,17 @@
 
 type Data: Linear;
 extern "C" {
-  malloc: ()=> Data;
-  consume: (x: Data)=> ();
-  length: (x: &Data)=> i32;
+  malloc: ()-> Data;
+  consume: (x: Data)-> ();
+  length: (x: &Data)-> i32;
 }
 
-let main = ()=> {
-  var x = malloc();
+let main = ()-> {
+  let mut x = malloc();
   let xRef: &Data = x;
   // let xRef = &x;
   let a = &xRef;
-  var x2 = x;
-  var b = @x2;
+  let mut x2 = x;
+  let mut b = @x2;
   consume(x2);
 }

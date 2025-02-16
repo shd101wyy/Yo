@@ -1,15 +1,15 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()=> Data;
-  length: (x: &Data)=> i32;
+  malloc: ()-> Data;
+  length: (x: &Data)-> i32;
 }
 
 type MyStruct = {
   a: Option<Data>,
 }
 
-let main = ()=> {
-  var x = MyStruct {
+let main = ()-> {
+  let mut x = MyStruct {
     a: Some(malloc()),
   }
 

@@ -9,5 +9,5 @@ enum Complex<X> {
 
 // FIXME: Complex<Option<i32>> will cause error because of `>>`.  
 extern "C" {
-  test: ()=> Complex<Option<i32>>;
+  test: ()-> Complex<Option<i32>>;
 }

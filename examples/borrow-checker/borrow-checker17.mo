@@ -1,7 +1,7 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()=> Data;
-  consume: (x: Data)=> ();
+  malloc: ()-> Data;
+  consume: (x: Data)-> ();
 }
 type Person = {
   age: i32,
@@ -9,7 +9,7 @@ type Person = {
   job: Data,
 }
 
-let test = (p: Person)=> {
+let test = (p: Person)-> {
   let age = p.age;
   let {name, job} = p;
 

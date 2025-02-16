@@ -1,7 +1,7 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()=> Data;
-  length: (x: &Data)=> i32;
+  malloc: ()-> Data;
+  length: (x: &Data)-> i32;
 }
 
 type Coord = {
@@ -9,7 +9,7 @@ type Coord = {
   y: Data
 }
 
-let main = ()=> {
+let main = ()-> {
   let coord = Coord {
     x: malloc(),
     y: malloc()

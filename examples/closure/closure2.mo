@@ -1,15 +1,15 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()=> Data;
-  length: (x: &Data)=> i32;
+  malloc: ()-> Data;
+  length: (x: &Data)-> i32;
 }
 
-let main = ()=> {
-  // [&]()=> ();
+let main = ()-> {
+  // [&]()-> ();
   // The closure is Free type.
   {
-    var x = 1;
-    let closure = ()=> {
+    let mut x = 1;
+    let closure = ()-> {
       let y = x + 1;
       y
     }
@@ -17,22 +17,22 @@ let main = ()=> {
     closure(); // Can be called multiple times
   }
 
-  // [@]()=> (); 
+  // [@]()-> (); 
   // The closure is Free type.
   {
-    var x = 1;
-    var closure = ()=> {
+    let mut x = 1;
+    let mut closure = ()-> {
       x = 2;
     }
     closure();
     closure(); // Can be called multiple times
   }
 
-  // [=]()=> ();
+  // [=]()-> ();
   // The closure is Linear type.
   {
-    var x = malloc();
-    var closure = ()=> {
+    let mut x = malloc();
+    let mut closure = ()-> {
       let old = (x = malloc());
       consume(old);
       consume(x);

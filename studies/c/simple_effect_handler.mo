@@ -3,8 +3,8 @@
 type jmp_buf: Free;
 
 extern "C" {
-  setjmp: (env: jmp_buf) => i32;
-  longjmp: (env: jmp_buf, val: i32) => void;
+  setjmp: (env: jmp_buf) -> i32;
+  longjmp: (env: jmp_buf, val: i32) -> void;
 }
 
 let InitEffectOperation = 0;
@@ -22,12 +22,12 @@ let safeDivide = (
   a: i32,
   b: i32,
   parent: @EffectJmpBuf,
-  throw: (msg: symbol, buffer: @EffectJmpBuf)=> ())=> i32 {
+  throw: (msg: symbol, buffer: @EffectJmpBuf)-> ())-> i32 {
     if (b == 0) {
-      var throwEnv: jmp_buf;
-      var throwResumeResult: i32;
-      // var throwAbortResult: f64;
-      var c: i32;
+      let mut throwEnv: jmp_buf;
+      let mut throwResumeResult: i32;
+      // let mut throwAbortResult: f64;
+      let mut c: i32;
       let jmp = setjmp(throwEnv);
       if (jmp == InitEffectOperation) {
         throw("Division by zero", EffectJmpBuf {
@@ -35,8 +35,8 @@ let safeDivide = (
           value: @throwResumeResult,
           // abortValue: @throwAbortResult,
           root: match(parent.root) {
-            Some => parent.root,
-            None => parent
+            Some -> parent.root,
+            None -> parent
           }
         });
       } else if (jmp == ResumeEffectOperation) {
@@ -55,7 +55,7 @@ let safeDivide = (
 }
 
 // Effect handler
-let throw = (msg: symbol, buffer: @EffectJmpBuf)=> () {
+let throw = (msg: symbol, buffer: @EffectJmpBuf)-> () {
   // resume(1);
   (buffer.value as @i32) = 1;
   longjmp(buffer.env, InitEffectOperation);
@@ -65,11 +65,11 @@ let throw = (msg: symbol, buffer: @EffectJmpBuf)=> () {
   longjmp(buffer.env, AbortEffectOperation);
 }
 
-let main = ()=> {
-  var env: jmp_buf;
-  // var tryResumeResult: i32;
-  var tryAbortResult: f64;
-  var result: f64;
+let main = ()-> {
+  let mut env: jmp_buf;
+  // let mut tryResumeResult: i32;
+  let mut tryAbortResult: f64;
+  let mut result: f64;
 
   let jmp = setjmp(env);
   if (jmp == InitEffectOperation) {

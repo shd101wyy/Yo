@@ -1,4 +1,4 @@
-let factorial = (i: i32, acc: i32 = 1)=> i32 {
+let factorial = (i: i32, acc: i32 = 1)-> i32 {
   if (i <= 1) {
     acc
   } else {

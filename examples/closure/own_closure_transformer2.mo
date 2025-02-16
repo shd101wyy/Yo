@@ -7,18 +7,18 @@ type OwnClosureArgs = {
 }
 
 implements Closure<OwnClosureContext, OwnClosureArgs, ()> {
-  apply: (context: OwnClosureContext, args: OwnClosureArgs)=> () {
+  apply: (context: OwnClosureContext, args: OwnClosureArgs)-> () {
     context.x = context.x + args.y;
   }
 }
 
-let test = <T using Closure<T, OwnClosureArgs, ()>>(fn: T, y: i32)=> () {
+let test = <T using Closure<T, OwnClosureArgs, ()>>(fn: T, y: i32)-> () {
   apply(fn, OwnClosureArgs {y: y})
 }
 
-let main = ()=> {
-  var x = 1;
-  var func = OwnClosureContext {
+let main = ()-> {
+  let mut x = 1;
+  let mut func = OwnClosureContext {
     x: x
   };
   test(func, 2);

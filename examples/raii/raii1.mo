@@ -1,15 +1,15 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()=> Data;
+  malloc: ()-> Data;
 }
 
 implements Drop<Data> {
-  drop: (value: Data)=> {
+  drop: (value: Data)-> {
     consume(value);
   }
 }
 
-let main = ()=> {
+let main = ()-> {
   let x = malloc();
   // let y = malloc();
   // drop(y); /// <= Automatically inserted

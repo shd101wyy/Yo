@@ -1,4 +1,4 @@
-import { Id } from "../classes/id.mo";
+@import { Id } from "../classes/id.mo";
 
 enum Option<T: Type using Id<T>> {
   Some(value: T),
@@ -6,18 +6,18 @@ enum Option<T: Type using Id<T>> {
 }
 
 implements Id<i32> {
-  id: (x: i32)=> i32 {
+  id: (x: i32)-> i32 {
     x
   }
 }
 
-let test = (x: Option<i32>)=> i32 {
+let test = (x: Option<i32>)-> i32 {
   match (x) {
-    Some => {
+    Some -> {
       let {value} = x;
       value
     },
-    None => {
+    None -> {
       0
     }
   }

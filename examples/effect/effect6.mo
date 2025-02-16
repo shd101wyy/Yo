@@ -1,13 +1,13 @@
 interface GiveInt<T> {
-  giveInt: (x: T)=> [GiveInt<T>] Promise<T>;
+  giveInt: (x: T)-> [GiveInt<T>] Promise<T>;
 }
 
-let main = ()=> Promise<f64> {
+let main = ()-> Promise<f64> {
   try {
     let x = await giveInt(12);
     3.4
   } with GiveInt<i32> {
-    giveInt: (x: i32)=> [GiveInt<i32>] Promise<i32> {
+    giveInt: (x: i32)-> [GiveInt<i32>] Promise<i32> {
       let flag = x > 0;
       if (flag) {
         resume(3);

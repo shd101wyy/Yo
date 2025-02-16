@@ -1,14 +1,14 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()=> Data;
-  consume: (x: Data)=> ();
+  malloc: ()-> Data;
+  consume: (x: Data)-> ();
 }
 type Person = {
   name: Data,
   age: i32
 }
 
-let test = (person1: Person, person2: Person)=> {
+let test = (person1: Person, person2: Person)-> {
   // let {age} = person1; // error: name is not consumed
   let {age, name} = person1; // person1 is consumed here
   // let {age} = person1; // error: person1 is consumed above ^

@@ -1,8 +1,8 @@
-let (!) = (x: boolean)=> boolean {
+let (!) = (x: boolean)-> boolean {
   x
 }
 
-let test = ()=> {
+let test = ()-> {
   let x = true;
   let y = !x;
   let z = 1 + 2;

@@ -1,5 +1,5 @@
-let test = ()=> {
-  var x = 1;
+let test = ()-> {
+  let mut x = 1;
   {
     let x = 2;
   }

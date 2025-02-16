@@ -10,7 +10,7 @@ let { Drop } = import("../../classes/common.mo");
 implement Add<i32> for i32 {
   Output: i32;
 
-  (+): (a, b)=> {
+  (+): (a, b)-> {
     codegen_inline(C="(((int32_t)$1) + ((int32_t)$2))");
     recur(a, b)
   }
@@ -19,7 +19,7 @@ implement Add<i32> for i32 {
 implement Sub<i32> for i32 {
   Output: i32;
 
-  (-): (a, b)=> {
+  (-): (a, b)-> {
     codegen_inline(C="(((int32_t)$1) - ((int32_t)$2))");
     recur(a, b)
   }
@@ -28,7 +28,7 @@ implement Sub<i32> for i32 {
 implement Mul<i32> for i32 {
   Output: i32;
   
-  (*): (a, b)=> {
+  (*): (a, b)-> {
     codegen_inline(C="(((int32_t)$1) * ((int32_t)$2))");
     recur(a, b)
   }
@@ -37,7 +37,7 @@ implement Mul<i32> for i32 {
 implement Div<i32> for i32 {
   Output: i32;
 
-  (/): (a, b)=> {
+  (/): (a, b)-> {
     codegen_inline(C="(((int32_t)$1) / ((int32_t)$2))");
     recur(a, b)
   }
@@ -46,7 +46,7 @@ implement Div<i32> for i32 {
 implement Mod<i32> for i32 {
   Output: i32;
 
-  (%): (a, b)=> {
+  (%): (a, b)-> {
     codegen_inline(C="(((int32_t)$1) % ((int32_t)$2))");
     recur(a, b)
   }
@@ -58,7 +58,7 @@ implement Mod<i32> for i32 {
 implement LogicalNot for i32 {
   Output: i32;
 
-  (!): (a)=> {
+  (!): (a)-> {
     codegen_inline(C="!((int32_t)$1)");
     recur(a)
   }
@@ -69,11 +69,11 @@ implement LogicalNot for i32 {
  * eq
  */
 implement Eq for i32 {
-  (==): (a, b)=> {
+  (==): (a, b)-> {
     codegen_inline(C="(((int32_t)$1) == ((int32_t)$2))");
     recur(a, b)
   };
-  (!=): (a, b)=> {
+  (!=): (a, b)-> {
     codegen_inline(C="(((int32_t)$1) != ((int32_t)$2))");
     recur(a, b)
   }
@@ -84,5 +84,5 @@ implement Eq for i32 {
  */
 implement Drop for i32 {
   @noop() // ignored by the compiler when generating C code
-  drop: (value)=> {}
+  drop: (value)-> {}
 }

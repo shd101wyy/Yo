@@ -6,7 +6,7 @@ type AnotherCoord = Coord | {x: f32, y: f32};
 
 type Coord3D = Coord & {z: i32};
 
-let main = ()=> {
+let main = ()-> {
   let x = MyI32 12;
   let coord = Coord {x: 12, y: 13};
 }

@@ -6,28 +6,28 @@ enum Result<OkType, ErrorType=symbol> {
 }
 
 interface Exception<ResumeType, ErrorType=symbol> {
-  control throw: (s: ErrorType)=> [Self] ResumeType;
+  control throw: (s: ErrorType)-> [Self] ResumeType;
 }
 
-let try_ = <T>(action: ()=> T)=> Result<T, symbol> {
+let try_ = <T>(action: ()-> T)-> Result<T, symbol> {
   try {
     action();
   } with Exception<Result<T, symbol>> {
-    return: (x)=> {
+    return: (x)-> {
       Ok(x)
     };
-    control throw: (s)=> {
+    control throw: (s)-> {
       abort(Error(s));
     };
   }
 }
 
-let untry = <T>(result: Result<T, symbol>)=> [Exception<T, symbol>] T {
+let untry = <T>(result: Result<T, symbol>)-> [Exception<T, symbol>] T {
   match (result) {
-    Ok => {
+    Ok -> {
       result.value
     }
-    Error => {
+    Error -> {
       throw(result.error)
     }
   }
@@ -36,47 +36,47 @@ let untry = <T>(result: Result<T, symbol>)=> [Exception<T, symbol>] T {
 interface Async<OkType=(), ErrorType=symbol> {
   control await: 
     (initiate: 
-      (callback: (result: Result<OkType, ErrorType>)=> ())=> ()
-    )=> [Self] Result<OkType, ErrorType>
+      (callback: (result: Result<OkType, ErrorType>)-> ())-> ()
+    )-> [Self] Result<OkType, ErrorType>
 }
 
-let await1 = <T>(initiate: (callback: (result: T)=> ())=> ())=> [Async<T>, Exception<T>] T {
+let await1 = <T>(initiate: (callback: (result: T)-> ())-> ())-> [Async<T>, Exception<T>] T {
   untry(
-    await((cb)=> {
-      initiate((result)=> {
+    await((cb)-> {
+      initiate((result)-> {
         cb(Result.Ok(result))
       })
     })
   )
 }
 
-let await0 = (initiate: (callback: ()=> ())=> ())=> [Async<()>, Exception<()>] () {
-  await1((cb)=> {
-    initiate(()=> {
+let await0 = (initiate: (callback: ()-> ())-> ())-> [Async<()>, Exception<()>] () {
+  await1((cb)-> {
+    initiate(()-> {
       cb(())
     })
   })
 }
 
-let wait = (secs: i32)=> [Async<()>, Exception<()>] () {
-  await0((cb)=> {
-    setTimeout(()=> {
+let wait = (secs: i32)-> [Async<()>, Exception<()>] () {
+  await0((cb)-> {
+    setTimeout(()-> {
       cb()
     }, secs * 1000)
   })
 }
 
-let helloWorld = ()=> [Async<()>, Exception<(), Console>] () {
+let helloWorld = ()-> [Async<()>, Exception<(), Console>] () {
   console.log("hello");
   wait(2);
   console.log("world");
 }
 
-let main = ()=> {
+let main = ()-> {
   try {
     helloWorld();
   } with Async<()> {
-    control await: (initiate)=> {
+    control await: (initiate)-> {
       initiate(resume);
     }
   }

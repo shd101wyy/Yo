@@ -15,45 +15,45 @@ infixr 80 **  // Exponentiation. 3 ** 4 ** 6 == 3 ** (4 ** 6)
 
 export trait Add<Rhs=Self> {
   Output: Type = Self;
-  (+): (self, rhs: Rhs)=> Self.Output;
+  (+): (self, rhs: Rhs)-> Self.Output;
 }
 
 export trait Sub<Rhs=Self> {
   Output: Type = Self;
-  (-): (self, rhs: Rhs)=> Self.Output;
+  (-): (self, rhs: Rhs)-> Self.Output;
 }
 
 export trait Mul<Rhs=Self> {
   Output: Type = Self;
-  (*): (self, rhs: Rhs)=> Self.Output;
+  (*): (self, rhs: Rhs)-> Self.Output;
 }
 
 export trait Div<Rhs=Self> {
   Output: Type = Self;
-  (/): (self, rhs: Rhs)=> Self.Output;
+  (/): (self, rhs: Rhs)-> Self.Output;
 }
 
 export trait Mod<Rhs=Self> {
   Output: Type = Self;
-  (%): (self, rhs: Rhs)=> Self.Output;
+  (%): (self, rhs: Rhs)-> Self.Output;
 }
 
 export trait BitLeftShift<Rhs=Self> {
   Output: Type = Self;
-  (<<): (self, rhs: Rhs)=> Self.Output;
+  (<<): (self, rhs: Rhs)-> Self.Output;
 }
 
 export trait BitRightShift<Rhs=Self> {
   Output: Type = Self;
-  (>>): (self, rhs: Rhs)=> Self.Output;
+  (>>): (self, rhs: Rhs)-> Self.Output;
 }
 
 export trait Exponentiation<Rhs=Self> {
   Output: Type = Self;
-  (**): (self, rhs: Rhs)=> Self.Output;
+  (**): (self, rhs: Rhs)-> Self.Output;
 }
 
 export trait Negate {
   Output: Type = Self;
-  (-): (self)=> Self.Output;
+  (-): (self)-> Self.Output;
 }

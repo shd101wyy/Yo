@@ -7,16 +7,16 @@ type ReadClosureArgs = {
 }
 
 implements Closure<ReadClosureContext, ReadClosureArgs, i32> {
-  apply: (context: ReadClosureContext, args: ReadClosureArgs)=> i32 {
+  apply: (context: ReadClosureContext, args: ReadClosureArgs)-> i32 {
     *context.x + args.y
   }
 }
 
-let test = <T using Closure<T, ReadClosureArgs, i32>>(fn: T, y: i32)=> i32 {
+let test = <T using Closure<T, ReadClosureArgs, i32>>(fn: T, y: i32)-> i32 {
   apply(fn, ReadClosureArgs { y: y })
 }
 
-let main = ()=> {
+let main = ()-> {
   let x = 1;
   test(ReadClosureContext { x: &x }, 2);
 }

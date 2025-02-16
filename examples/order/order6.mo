@@ -1,13 +1,13 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()=> Data;
-  consume: <T>(x: T)=> ();
-  length: (x: &Data)=> i32;
+  malloc: ()-> Data;
+  consume: <T>(x: T)-> ();
+  length: (x: &Data)-> i32;
 
-  testOrder: (x: &Data, y: &Data)=> ();
+  testOrder: (x: &Data, y: &Data)-> ();
 }
 
-let main = ()=> {
+let main = ()-> {
   let x = malloc();
   let y = malloc();
 

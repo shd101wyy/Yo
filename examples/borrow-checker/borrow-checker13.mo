@@ -1,7 +1,7 @@
 type Data: Linear;
 extern "C" {
-  malloc: ()=> Data;
-  consume: (x: Data)=> ();
+  malloc: ()-> Data;
+  consume: (x: Data)-> ();
 }
 enum Color {
   Red,
@@ -10,16 +10,16 @@ enum Color {
 }
 
 
-let test = (color: Color)=> {
+let test = (color: Color)-> {
   let x = malloc();
   match (color) {
-    Red => {
+    Red -> {
       consume(x);
     }
-    Green => {
+    Green -> {
       consume(x);
     }
-    Blue => {
+    Blue -> {
       consume(x);
     }
   }
