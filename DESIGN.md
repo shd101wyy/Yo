@@ -267,6 +267,7 @@ function example(x: i32, y: i32) {
   y = 2; // Error: y is immutable
 }
 
+// with `mut` modifier
 function another_example(mut x: i32, y: i32) {
   x = 1; // x is mutable,
   y = 2; // Error: y is immutable
@@ -1146,7 +1147,7 @@ The closure type is defined as:
 
 - Closure that can be called once:
   ```
-  FnOnce<<type parameters>(parameters)-> return_type>
+  FnOnce<type parameters>(parameters)-> return_type
   ```
 - Closure that can be called multiple times:
   ```
@@ -1193,7 +1194,7 @@ function test() {
   var x: Data = malloc(); // Some `Fake` Data.
 
   var increment = move ()=> {
-    // :: FnOnce<()->()>
+    // :: FnOnce()->()
     // let {x} = increment;
     drop(x);
   }
@@ -1780,7 +1781,7 @@ expr @constant_ptr_to_i32 = &mut i32_val; // @constant_ptr_to_i32: Expr<&mut i32
 0 terminated string.
 
 ```typescript
-let s = "Hello"; // s: *u8
+let s = c"Hello"; // s: *u8
 // (const char) *const s1 = "Hello";
 ```
 
@@ -1892,7 +1893,8 @@ let arr = [1, 2, 3];
 let [x as f32, y, z] = arr;
 
 let obj = {x: 1, y: 2, z: 3};
-let {x: new_name as f32, y, z} = obj;
+let {x: new_name as f32, mut y, z} = obj;
+y = 3; // Allowed
 ```
 
 ## Algebraic Effects `In Design`
@@ -2003,9 +2005,10 @@ NOTE: I feel introducing `effect` will make the type system too complicated, and
 NOTE: And we are compiling to C, so it's better what we see from Mo can be easily translated to C.
 
 ```typescript
+// QUESTION: Should K and Exception be a type or a trait?
 type K< Resume: Type,
         Output: Type = ()
-        Function: Type with FnOnce<(value: Resume)-> Output>
+        Function: Type with FnOnce(value: Resume)-> Output
       > = Function;
 type Exception< Error: Type,
                 Resume: Type,
@@ -2419,6 +2422,35 @@ export macro unless(condition, do) {
     my_if (!unquote(condition), do: unquote(do))
   }
 }
+```
+
+IDEA: Use the `expr` keyword to support compiletime evaluation.
+
+```typescript
+function test() {
+  let x = 1;
+  expr @x_type = @typeof(x); // x_type: Expr<Type>
+  @if(@type_eq(@x_type, i32), then: {
+    println("x is i32");
+  }, else: {
+    println("x is not i32");
+  });
+}
+
+// compatible with C preprocessor
+@ifdef(
+  "DEBUG",
+  then: {
+    println("Debug mode");
+  },
+  else: {
+    @define("DEBUG", "true");
+    println("Release mode");
+  }
+)
+
+@getdef("DEBUG"); // "true"
+@getdef("__FILE__"); // "main.mo"
 ```
 
 ## References
