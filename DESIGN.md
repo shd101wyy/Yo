@@ -1600,6 +1600,33 @@ function foo<T: @Foo>(v: &T) {
 }
 ```
 
+### Named implementation
+
+This is useful for resolving conflicts when implementing multiple traits for the same type.
+
+```typescript
+// id.mo
+export trait Id {
+  id: (self: &Self)=> Self;
+}
+
+export let MyI32Id1 = implement Id for i32 {
+  id: (self: &i32)=> *self
+}
+
+export let MyI32Id2 = implement Id for i32 {
+  id: (self: &i32)=> *self + 1
+}
+
+// use_id.mo
+let { MyI32Id2 } = import("./id.mo");
+12.id(); // 13
+
+// another_use_id.mo
+let { Id } = import("./id.mo");
+12.id(); // Compiler Error: Ambiguous call to `id` function.
+```
+
 ## Pattern Matching
 
 The compiler implements an exhaustive check on the pattern matching.
