@@ -11,10 +11,10 @@ export enum Ordering {
 
 // FIXME:
 // Using Eq<T>
-export class Ord<Lhs: Type, Rhs: Type = Lhs with Eq<Lhs, Rhs>> {
-  compare: (a: &Lhs, b: &Rhs)=> Ordering;
-  lt: (a: &Lhs, b: &Rhs)=> boolean;
-  gt: (a: &Lhs, b: &Rhs)=> boolean;
-  le: (a: &Lhs, b: &Rhs)=> boolean;
-  ge: (a: &Lhs, b: &Rhs)=> boolean;
+export trait Ord with Eq {
+  compare: (&self, other: &Self)=> Ordering;
+  lt: (&self, other: &Self)=> boolean;
+  gt: (&self, other: &Self)=> boolean;
+  le: (&self, other: &Self)=> boolean;
+  ge: (&self, other: &Self)=> boolean;
 }

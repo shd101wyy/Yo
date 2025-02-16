@@ -1,9 +1,9 @@
 infix  40 ==  // Equality
 infix  40 !=  // Inequality
 
-export class Eq<Lhs, Rhs = Lhs> {
-  eq: (a: &Lhs, b: &Rhs)=> boolean;
-  ne: (a: &Lhs, b: &Rhs)=> boolean = (a, b)=> {
+export trait Eq<Rhs = Self> {
+  eq: (&self, b: &Rhs)=> boolean;
+  ne: (&self, b: &Rhs)=> boolean = (a, b)=> {
     !eq(a, b)
   }
 }

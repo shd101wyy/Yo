@@ -1095,22 +1095,23 @@ The closure type is defined as:
 
 - Closure that can be called once:
   ```
-  ClosureOnce<<type parameters>(parameters)=> return_type>
+  FnOnce<<type parameters>(parameters)=> return_type>
   ```
 - Closure that can be called multiple times:
   ```
-  Closure<<type parameters>(parameters)=> return_type>
+  FnMut<<type parameters>(parameters)=> return_type>
+  Fn<<type parameters>(parameters)=> return_type>
   ```
 
 A closure can be defined using the following syntax:
 
-- `ClosureOnce`:
+- `FnOnce`:
 
   ```
   move <type parameters>(paramters)=> return_type { body }
   ```
 
-- `Closure` same as normal function, but will be automatically converted:
+- `FnMut` and `Fn` are the same as normal function, but will be automatically converted:
   ```
   <type parameters>(paramters)=> return_type { body }
   ```
@@ -1124,7 +1125,7 @@ function test() {
   var x = 1;
 
   (a: i32)=> {
-    // :: Closure<(a: i32)=> ()>
+    // :: FnMut<(a: i32)=> ()>
     // let {x} = increment;
     x = x + a;
   } |> (increment)=> {
@@ -1141,7 +1142,7 @@ function test() {
   var x: Data = malloc(); // Some `Fake` Data.
 
   var increment = move ()=> {
-    // :: ClosureOnce<()=>()>
+    // :: FnOnce<()=>()>
     // let {x} = increment;
     drop(x);
   }
@@ -1498,7 +1499,7 @@ NOTE: We don't use `class` or `interface` here. Because `trait` is not a type, l
 NOTE: We also need to use `rust` like trait to better support the dynamic dispatch.
 
 ```typescript
-trait Summary {
+trait Summary for Type { // `for Type` here could be omitted.
   summarize: (self: &Self)=> String;
 };
 
@@ -1904,7 +1905,7 @@ NOTE: And we are compiling to C, so it's better what we see from Mo can be easil
 ```typescript
 type K< Resume: Type,
         Output: Type = ()
-        Function: Type with ClosureOnce<(value: Resume)=> Output>
+        Function: Type with FnOnce<(value: Resume)=> Output>
       > = Function;
 type Exception< Error: Type,
                 Resume: Type,
@@ -2058,7 +2059,8 @@ let { Id } = import("./test.mo"); // Import `Id` trait from test.mo
 ### `dynamic` keyword
 
 `dynamic` can be applied to `trait` to make it `type` for dynamic dispatch.
-`static` can be applied to `trait` to make it `type` for static dispatch.
+~~`static` can be applied to `trait` to make it `type` for static dispatch.~~
+NOTE: `static Trait` is not concrete type. So we can't pass it to type argument.
 
 ### Examples
 
@@ -2094,6 +2096,7 @@ function print_area<T with Shape>(shape: &T) {
   println(shape.area());
 }
 // or
+// NOTE: Below is not going to be implemented for now.
 function print_area(shape: &(static Shape)) { // This will omit type parameter, and you canno't pass type argument to it.
   println(shape.area());
 }
@@ -2122,8 +2125,8 @@ function print_area(shape: &(dynamic Shape)) {
 }
 
 [ // NOTE: We have to add `&` ahead dynamic Trait as it's unsized. It works similar to slice that requires `&` ahead.
-  &circle,
-  &square,
+  &(circle as dynamic Shape),
+  &(square as dynamic Shape),
 ] as (&(dynamic Shape))[] |> (shapes)=> {
   shapes[0].print_area();
   shapes[1].print_area();
