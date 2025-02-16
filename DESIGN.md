@@ -258,14 +258,20 @@ Like `rust`, **Mo** has two kinds of variables:
 ```typescript
 let y = 5; // y: i32, immutable
 var x = 5; // x: i32, mutable
+// same as in rust:
+// let mut x = 5;
+// in mo, `var` is an alias of `let mut`.
 
 function example(x: i32, y: i32) {
   x = 1; // Error: x is immutable
   y = 2; // Error: y is immutable
 }
-```
 
-NOTE: For function parameter of linear type, it is always mutable, because the function takes the ownership already.
+function another_example(mut x: i32, y: i32) {
+  x = 1; // x is mutable,
+  y = 2; // Error: y is immutable
+}
+```
 
 #### `expr` declaration
 
