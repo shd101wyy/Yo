@@ -5,7 +5,7 @@ extern "C" {
 }
 
 let main = ()-> {
-  let mut x = malloc();
+  var x = malloc();
   let oldX = (x = malloc());
   consume(x);
   consume(oldX);

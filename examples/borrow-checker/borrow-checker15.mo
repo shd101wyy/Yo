@@ -4,7 +4,7 @@ type Coord = {
 }
 
 let main = ()-> {
-  let mut p: Coord = { x: 1, y: 2 };
+  var p: Coord = { x: 1, y: 2 };
   let pRef = &!p;
   let pRef2 = &!p.y; // error: p is already borrowed
 }

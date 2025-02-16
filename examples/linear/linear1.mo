@@ -4,7 +4,7 @@ type Holder<T: Type> = {
 }
 
 let test = <X>(x: &X, y: &X)-> Holder<X> {
-  let mut holder = Holder<&X> {
+  var holder = Holder<&X> {
     x: x,
     y: y
   };

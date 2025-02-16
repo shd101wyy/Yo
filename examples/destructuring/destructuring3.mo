@@ -10,12 +10,12 @@ type Coord = {
 }
 
 let main = ()-> {
-  let mut coord = Coord {
+  var coord = Coord {
     x: malloc(),
     y: malloc()
   };
-  let mut ref = @coord;
-  let mut x = @ref.x;
+  var ref = @coord;
+  var x = @ref.x;
   let old = (x = malloc());
   consume(old);
   consume(coord);

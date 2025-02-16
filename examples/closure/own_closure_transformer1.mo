@@ -17,8 +17,8 @@ let test = (fn: [=](y: i32)-> (), y: i32)-> () {
 }
 
 let main = ()-> {
-  let mut x = 1;
-  let mut func = OwnClosureContext {
+  var x = 1;
+  var func = OwnClosureContext {
     x: x
   };
   test(func, 2);

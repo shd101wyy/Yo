@@ -1,12 +1,12 @@
 let main = ()-> i32 {
-  let mut arr = [1, 2, 3, 4, 5];
+  var arr = [1, 2, 3, 4, 5];
   {
-    let mut first = @arr[0];
+    var first = @arr[0];
     first = first + 10;
   }
   {
-    let mut ref = @arr;
-    let mut first = @ref[0];
+    var ref = @arr;
+    var first = @ref[0];
     first = first + 10;
   }
   arr[0]

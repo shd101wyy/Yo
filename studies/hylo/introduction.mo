@@ -12,8 +12,8 @@ let emphasize = (z: @String, strength: i32 = 1)-> {
 }
 
 let main = ()-> {
-  let mut x = "Hi";
-  let mut y = "World";
+  var x = "Hi";
+  var y = "World";
   emphasize(longerOf(x, y));
   println(x);
   println(y);

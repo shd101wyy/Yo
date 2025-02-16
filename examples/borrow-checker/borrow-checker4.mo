@@ -4,7 +4,7 @@ extern "C" {
 }
 
 let test = ()-> {
-  let mut x = 1;
+  var x = 1;
   {
     let ref = &!x;
     // let ref2 = ref; // allowed

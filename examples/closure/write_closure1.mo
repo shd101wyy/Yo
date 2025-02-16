@@ -3,7 +3,7 @@ let test = (fn: [@](y: i32)-> (), y: i32)-> {
 }
 
 let main = ()-> {
-  let mut x = 1;
+  var x = 1;
   test([@](y: i32)-> {
     x = x + y;
   }, 3);

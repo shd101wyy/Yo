@@ -3,9 +3,9 @@ extern "C" {
 }
 
 let test = ()-> {
-  let mut x = 1;
-  let mut y = 2;
-  let mut context = {
+  var x = 1;
+  var y = 2;
+  var context = {
     xRef: &!x,
     yRef: &!y
   }

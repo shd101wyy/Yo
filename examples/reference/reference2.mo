@@ -17,7 +17,7 @@ let takeOwnership = (data: Data)-> {
 }
 
 let test = ()-> {
-  let mut x = malloc();
+  var x = malloc();
 
   // let ref1 = &x;
   // let ref2 = @x;

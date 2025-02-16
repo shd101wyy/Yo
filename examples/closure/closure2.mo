@@ -8,7 +8,7 @@ let main = ()-> {
   // [&]()-> ();
   // The closure is Free type.
   {
-    let mut x = 1;
+    var x = 1;
     let closure = ()-> {
       let y = x + 1;
       y
@@ -20,8 +20,8 @@ let main = ()-> {
   // [@]()-> (); 
   // The closure is Free type.
   {
-    let mut x = 1;
-    let mut closure = ()-> {
+    var x = 1;
+    var closure = ()-> {
       x = 2;
     }
     closure();
@@ -31,8 +31,8 @@ let main = ()-> {
   // [=]()-> ();
   // The closure is Linear type.
   {
-    let mut x = malloc();
-    let mut closure = ()-> {
+    var x = malloc();
+    var closure = ()-> {
       let old = (x = malloc());
       consume(old);
       consume(x);

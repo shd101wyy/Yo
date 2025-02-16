@@ -5,7 +5,7 @@ extern "C" {
 }
 
 let test = ()-> {
-  let mut x = malloc();
+  var x = malloc();
   let y = &!x;
   consume(x); // Error: x is borrowed
 }

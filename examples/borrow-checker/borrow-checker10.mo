@@ -6,7 +6,7 @@ extern "C" {
 
 
 let test = ()-> {
-  let mut x = malloc();
+  var x = malloc();
   let y = (x = malloc());
 
   consume(x);

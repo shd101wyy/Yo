@@ -16,15 +16,15 @@ extern "C" {
 
 // Simulation of mutable closure
 let test = ()-> {
-  let mut x = malloc();
-  let mut y = 12;
+  var x = malloc();
+  var y = 12;
   {
-    let mut context: Context = {
+    var context: Context = {
       xRef: &!x,
       yRef: &!y
     };
     {
-      let mut contextRef = &!context;
+      var contextRef = &!context;
       let {xRef, yRef} = &!contextRef;
     }
     consumeContext(context);

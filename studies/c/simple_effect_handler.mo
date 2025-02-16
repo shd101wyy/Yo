@@ -24,10 +24,10 @@ let safeDivide = (
   parent: @EffectJmpBuf,
   throw: (msg: symbol, buffer: @EffectJmpBuf)-> ())-> i32 {
     if (b == 0) {
-      let mut throwEnv: jmp_buf;
-      let mut throwResumeResult: i32;
-      // let mut throwAbortResult: f64;
-      let mut c: i32;
+      var throwEnv: jmp_buf;
+      var throwResumeResult: i32;
+      // var throwAbortResult: f64;
+      var c: i32;
       let jmp = setjmp(throwEnv);
       if (jmp == InitEffectOperation) {
         throw("Division by zero", EffectJmpBuf {
@@ -66,10 +66,10 @@ let throw = (msg: symbol, buffer: @EffectJmpBuf)-> () {
 }
 
 let main = ()-> {
-  let mut env: jmp_buf;
-  // let mut tryResumeResult: i32;
-  let mut tryAbortResult: f64;
-  let mut result: f64;
+  var env: jmp_buf;
+  // var tryResumeResult: i32;
+  var tryAbortResult: f64;
+  var result: f64;
 
   let jmp = setjmp(env);
   if (jmp == InitEffectOperation) {

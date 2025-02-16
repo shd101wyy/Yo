@@ -1,5 +1,5 @@
 let main = ()-> {
-  let mut x = 1;
-  let mut xRef = @x;
+  var x = 1;
+  var xRef = @x;
   let a = xRef;
 }

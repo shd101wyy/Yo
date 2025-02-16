@@ -9,7 +9,7 @@ extern "C" {
 let test = (flag: boolean)-> {
   let x = malloc();
   
-  let mut holder = {
+  var holder = {
     data: (&x)
   };
   let y = malloc();

@@ -7,11 +7,11 @@ extern "C" {
 }
 
 let main = ()-> {
-  let mut x = malloc();
+  var x = malloc();
   let xRef: &Data = x;
   // let xRef = &x;
   let a = &xRef;
-  let mut x2 = x;
-  let mut b = @x2;
+  var x2 = x;
+  var b = @x2;
   consume(x2);
 }

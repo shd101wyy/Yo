@@ -16,7 +16,7 @@ let useHolderReference = (ref: @Holder)-> {
 }
 
 let test = ()-> {
-  let mut holder = Holder {
+  var holder = Holder {
     x: 1
   };
   useHolderReference(@holder);
