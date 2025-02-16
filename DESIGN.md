@@ -422,9 +422,9 @@ A longer example:
 
 ```typescript
 extern "C" {
-  length: (x: &String)=> i32;
-  push: (x: &String, value: String)=> ();
-  drop: (x: String)=> ();
+  length: (x: &String)-> i32;
+  push: (x: &String, value: String)-> ();
+  drop: (x: String)-> ();
 }
 
 function main() {
@@ -435,7 +435,7 @@ function main() {
   length(x);  // not allowed, type mismatch
   length(@y);  // allowed
   length(@z);  // allowed
-  x.length(); // allowed, implicit conversion to &String
+  x.length(); // allowed, implicit conversion to &String, uniform call syntax
 
   let t = x;                           // transfer ownership
 
@@ -708,7 +708,7 @@ return_self(&x) |> (v)=> {
   println(v + y);
 }; // Compiler can optimize this part of code.
 
-&y |> (y_ref)=> {
+&y |> (y_ref)-> {
   println("Used y reference here");
 }
 ```
@@ -719,21 +719,20 @@ Function parameters are immutable by default.
 
 ```typescript
 // Top level function.
-// Type after `=>` is the return type. If it's not specified, it's `()`.
-let add: (x: i32, y: i32)=> i32; // Define the function type
+// Type after `->` is the return type. If it's not specified, it's `()`.
+let add: (x: i32, y: i32)-> i32; // Define the function type
 println(add(3, 4)) // Function hoisting is allowed.
-add = (x, y)=> { // Actually function definition
+add = (x, y)-> { // Actually function definition
   return x + y;
 }
 
 // or
-let add = (x: i32, y: i32)=> i32 {
+let add = (x: i32, y: i32): i32 -> {
   x + y // The last expression is the return value.  `return` is optional.
 }
 
 // or
-let add: (i32, i32)=> i32 = (x, y)=> x + y;
-
+let add: (i32, i32)-> i32 = (x, y)-> x + y;
 
 function last_unit_expr(x: i32, y: i32) {
   x + y;
@@ -742,7 +741,7 @@ function last_unit_expr(x: i32, y: i32) {
 
 
 // Default parameter values
-let add = (x: i32 = 1, y: i32 = 2): i32 => {
+let add = (x: i32 = 1, y: i32 = 2): i32 -> {
   return x + y;
 }
 add(); // 3
@@ -750,13 +749,13 @@ add(y: 3); // 4
 add 2, 3; // 5
 
 // Function argument labels, and parameter names
-let mul = (x: i32, by y: i32): i32 => {
+let mul = (x: i32, by y: i32): i32 -> {
   x * y
 }
 mul(3, by: 4); // 12
 
 // Omitting the argument labels
-let sub = (x: i32, _ y: i32): i32 => {
+let sub = (x: i32, _ y: i32): i32 -> {
   x - y
 }
 sub(3, 4); // -1
@@ -779,7 +778,7 @@ function identity<T>(arg: T): T {
 }
 
 // Dependency injection
-function main(?raise: (error: *u8[])=> i32) {
+function main(?raise: (error: *u8[])-> i32) {
   let x: i32 = raise("Hello, world");
 }
 
@@ -795,7 +794,8 @@ function add<T: Type Integral<T>>(x: T, y: T): T {
 }
 
 // Closure
-let add = [{y: 0}](x: i32): i32 => {
+var y = 0;
+let add = (x: i32): i32 => {
   y = x + y;
   return y;
 };
@@ -835,20 +835,20 @@ function some_async_func(?Async<i32>): i32 {
 ```typescript
 // id.mo
 export trait Id {
-  id: (x: self)=> Self;
+  id: (x: self)-> Self;
 };
 
 implement Id for i32 {
-  id: (x: i32)=> i32 {
+  id: (x: i32)-> i32 {
     x
   }
 }
 
 // main.mo
-let { Id } = import("./id.mo");
+let { Id } = @import("./id.mo");
 
 (12).id(); // 12
-let use_id = <T with Id>(x: T): T => {
+let use_id = <T with Id>(x: T): T -> {
   x.id();
 }
 ```
@@ -887,20 +887,20 @@ function main() {
 The arguments are provided in lexical scope, not dynamic scope.
 
 ```typescript
-function test(x: i32, ?id: (x: i32)=> i32) {
+function test(x: i32, ?id: (x: i32)-> i32) {
   print(id(x))
 }
 
-let ?id = (x: i32)=> x;
+let ?id = (x: i32)-> x;
 function use_test() {
   test(3); // print 3
 
-  let ?id = (x: i32)=> x + 1;
+  let ?id = (x: i32)-> x + 1;
   test(3); // print 4
 }
 
 function main() {
-  let ?id = (x: i32)=> x + 2; // This will not affect the `test` function calls in `use_test`
+  let ?id = (x: i32)-> x + 2; // This will not affect the `test` function calls in `use_test`
   use_test();  // print 3
               // print 4
 }
@@ -971,7 +971,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 - With tail-call optimization
 
   ```typescript
-  (x: u32, acc: u32 = 1) => {
+  (x: u32, acc: u32 = 1) -> {
     if x == 1 {
       acc
     } else {
@@ -983,7 +983,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 - Without tail-call optimization
 
   ```typescript
-  (x: u32) => {
+  (x: u32) -> {
     if x == 1 {
       1
     } else {
@@ -995,7 +995,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 ### Custom Operators
 
 ```typescript
-function (|>) <T, U>(x: T, f: (value: T)=> U): U {
+function (|>) <T, U, F with FnOnce(value:T)-> U>(x: T, f: F): U {
   f(x)
 }
 
@@ -1140,12 +1140,12 @@ The closure type is defined as:
 
 - Closure that can be called once:
   ```
-  FnOnce<<type parameters>(parameters)=> return_type>
+  FnOnce<<type parameters>(parameters)-> return_type>
   ```
 - Closure that can be called multiple times:
   ```
-  FnMut<<type parameters>(parameters)=> return_type>
-  Fn<<type parameters>(parameters)=> return_type>
+  FnMut<<type parameters>(parameters)-> return_type>
+  Fn<<type parameters>(parameters)-> return_type>
   ```
 
 A closure can be defined using the following syntax:
@@ -1169,11 +1169,11 @@ Examples:
 function test() {
   var x = 1;
 
-  (a: i32)=> {
-    // :: FnMut<(a: i32)=> ()>
+  (a: i32)-> {
+    // :: FnMut<(a: i32)-> ()>
     // let {x} = increment;
     x = x + a;
-  } |> (increment)=> {
+  } |> (increment)-> {
     increment(1);
     increment(2);
   }
@@ -1187,7 +1187,7 @@ function test() {
   var x: Data = malloc(); // Some `Fake` Data.
 
   var increment = move ()=> {
-    // :: FnOnce<()=>()>
+    // :: FnOnce<()->()>
     // let {x} = increment;
     drop(x);
   }
@@ -1196,14 +1196,14 @@ function test() {
 }
 ```
 
-**NOTE:** We can pass normal function ()=>() to a function argument that expects a closure, but not the other way around.
+**NOTE:** We can pass normal function ()->() to a function argument that expects a closure, but not the other way around.
 
 ## Mutability `To be updated`
 
 The builtin `=` function is used to update a value that can be `write`, with the following signature:
 
 ```typescript
-let set! = <T: Type>(ref: *T, value: T)=> T;
+let set! = <T: Type>(ref: *T, value: T)-> T;
 
 // `=` is a syntactic sugar for `set!`
 
@@ -1264,14 +1264,14 @@ function show_compare<T: Type with Show & Ord>(x: T, y: T): String {
 
 // Instance dependencies
 implement<A with Show> for A[] {
-  show: (self: A[])=> {
+  show: (self: A[])-> {
     // ...
   }
 }
 implement < A with Show,
             B with Show
           > for (A, B) {
-  show: (&self)=> {
+  show: (&self)-> {
     // ...
   }
 }
@@ -1280,29 +1280,29 @@ implement < A with Show,
 ```typescript
 // show.mo
 export trait Show {
-  show: (&self)=> String;
+  show: (&self)-> String;
 }
 
 implement Show for i32 {
-  show: (&self)=> {
+  show: (&self)-> {
     // ...
   }
 }
 
 implement Show for String {
-  show: (x: String)=> {
+  show: (x: String)-> {
     // ...
   }
 }
 
 // main.mo
-let { show, Show } = import("./show.mo");
+let { show, Show } = @import("./show.mo");
 
 export function show<T with Show>(x: Array<T>): String {
   // ...
 }
 
-let { show, Show } = import("./show.mo");
+let { show, Show } = @import("./show.mo");
 
 function less_than<T: Type with Ord & Show>(x: T, y: T): boolean {
   println(show(x));
@@ -1465,7 +1465,7 @@ Dependent types are types which depend on values.
 type Vector<N: i32> = Array<i32, N>;
 
 function add_vectors<N: i32>(a: Vector<N>, b: Vector<N>): Vector<N> {
-  return a.map((x, i)=> x + b[i]);
+  return a.map((x, i)-> x + b[i]);
 }
 
 let v1: Vector<3> = [1, 2, 3];
@@ -1545,11 +1545,11 @@ NOTE: We also need to use `rust` like trait to better support the dynamic dispat
 
 ```typescript
 trait Summary for Type { // `for Type` here could be omitted.
-  summarize: (self: &Self)=> String;
+  summarize: (self: &Self)-> String;
 };
 
 trait Display with Summary & SomeOtherTrait {
-  display: (self: &Self)=> String;
+  display: (self: &Self)-> String;
 };
 
 type NewsArticle = {
@@ -1582,7 +1582,7 @@ function notify<T with Display>(
 
 ```typescript
 trait Summary for Type with Show without Eq {
-  summarize: (self: &Self)=> String;
+  summarize: (self: &Self)-> String;
 };
 // This trait `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
 ```
@@ -1607,23 +1607,23 @@ This is useful for resolving conflicts when implementing multiple traits for the
 ```typescript
 // id.mo
 export trait Id {
-  id: (self: &Self)=> Self;
+  id: (self: &Self)-> Self;
 }
 
 export let MyI32Id1 = implement Id for i32 {
-  id: (self: &i32)=> *self
+  id: (self: &i32)-> *self
 }
 
 export let MyI32Id2 = implement Id for i32 {
-  id: (self: &i32)=> *self + 1
+  id: (self: &i32)-> *self + 1
 }
 
 // use_id.mo
-let { MyI32Id2 } = import("./id.mo");
+let { MyI32Id2 } = @import("./id.mo");
 12.id(); // 13
 
 // another_use_id.mo
-let { Id } = import("./id.mo");
+let { Id } = @import("./id.mo");
 12.id(); // Compiler Error: Ambiguous call to `id` function.
 ```
 
@@ -1841,7 +1841,7 @@ m.set(String.from("one"), 4);
 #### Unique ArrayList
 
 ```typescript
-let { ArrayList } = import("std/collections/unique");
+let { ArrayList } = @import("std/collections/unique");
 let v: ArrayList<i32> = ArrayList.new();
 ```
 
@@ -1914,7 +1914,7 @@ The `return` keyword is not allowed in the continuation function.
 ```typescript
 function safe_divide( x: i32,
                       y: i32,
-                      raise: effect (msg: *u8[])=> i32
+                      raise: effect (msg: *u8[])-> i32
   ): i32 {
   if y == 0 {
     do raise("Division by zero")
@@ -1925,7 +1925,7 @@ function safe_divide( x: i32,
 
 // `resume`
 function handle_resume(): i32 {
-  let raise = effect (msg: *u8[]): i32 => {
+  let raise = effect (msg: *u8[]): i32 -> {
     resume(10, /* k */);
   }
   return 1 + safe_divide(3, 0, raise) + 2; // 13
@@ -1933,7 +1933,7 @@ function handle_resume(): i32 {
 
 // `abort`
 function handle_abort(): i32 {
-  let raise = effect (msg: *u8[]): i32 => {
+  let raise = effect (msg: *u8[]): i32 -> {
     abort(10, /* k */);
   }
   return 1 + safe_divide(3, 0, raise) + 2; // 10
@@ -1942,8 +1942,8 @@ function handle_abort(): i32 {
 
 ```typescript
 function main() {
-  let wait_for_seconds = effect (seconds: u32): i32 => {
-    set_timeout(()=> {
+  let wait_for_seconds = effect (seconds: u32): i32 -> {
+    set_timeout(()-> {
       println("Done");
       resume(12);
     }, seconds * 1000);
@@ -1999,12 +1999,12 @@ NOTE: And we are compiling to C, so it's better what we see from Mo can be easil
 ```typescript
 type K< Resume: Type,
         Output: Type = ()
-        Function: Type with FnOnce<(value: Resume)=> Output>
+        Function: Type with FnOnce<(value: Resume)-> Output>
       > = Function;
 type Exception< Error: Type,
                 Resume: Type,
                 Output = ()
-              > = (error: Error, do resume: Resume)=> Output;
+              > = (error: Error, do resume: Resume)-> Output;
 function divide(x: i32, y: i32, do resume: K<i32>, ?raise: Exception<&str, K<i32>>) {
   if y == 0 {
     raise("Division by zero", do: move (value)=> { // `move` is needed to capture the `resume` function from the upper level
@@ -2016,12 +2016,12 @@ function divide(x: i32, y: i32, do resume: K<i32>, ?raise: Exception<&str, K<i32
 }
 
 function handle_resume(do resume: K<i32>) {
-  let raise: Exception<&str, K<i32>> = (error, resume)=> {
+  let raise: Exception<&str, K<i32>> = (error, resume)-> {
     println(error);
     resume(10);
   }
 
-  divide(3, 0, do: (value)=> {
+  divide(3, 0, do: (value)-> {
     resume(1 + value + 2); // 13
   }, raise: raise);
 }
@@ -2045,7 +2045,7 @@ function divide(x: i32, y: i32, do resume: K<i32>, ?raise: Exception<&str, K<i32
 }
 
 function handle_resume(do resume: K<i32>) {
-  let raise: Exception<&str, K<i32>> = (error, resume)=> {
+  let raise: Exception<&str, K<i32>> = (error, resume)-> {
     println(error);
     resume(10);
   }
@@ -2087,7 +2087,7 @@ NOTE: Why not use javascript like import:
 - for consistency with the destructuring. Like for javascript, it uses `import {x as y} from "module.ts"` but destructuring uses `let {x: y} = obj`.
 
 ```typescript
-let { copy } = import("https://github.com/mo-lang/mo/std/fs.mo")
+let { copy } = @import("https://github.com/mo-lang/mo/std/fs.mo")
 
 function test() {
   println("Hello, world!");
@@ -2103,13 +2103,13 @@ export enum Option<T> {
 
 // Export the class
 export trait Id {
-  id: (self)=> Self;
+  id: (self)-> Self;
 }
 
 // Explicitly export the functions defined in the instance.
 // The implementations will be exported implicitly.
 implement Id for i32 {
-  id: (x: i32)=> i32 {
+  id: (x: i32)-> i32 {
     x
   }
 }
@@ -2119,21 +2119,21 @@ export let x = 1;
 ```
 
 ```typescript
-let {*} = import("./test.mo"); // Import everything from test.mo
-let Test = import("./test.mo"); // Import everything from test.mo and put it in the Test namespace
-let { test } = import("./test.mo"); // Import test function from test.mo
-let { test: test2 } = import("./test.mo"); // Import test function from test.mo and rename it to test2
+let {*} = @import("./test.mo"); // Import everything from test.mo
+let Test = @import("./test.mo"); // Import everything from test.mo and put it in the Test namespace
+let { test } = @import("./test.mo"); // Import test function from test.mo
+let { test: test2 } = @import("./test.mo"); // Import test function from test.mo and rename it to test2
 
-let { Option } = import("./test.mo"); // Import Option enum from test.mo
+let { Option } = @import("./test.mo"); // Import Option enum from test.mo
 
 /*
 // BELOW ARE IN DESIGN
-let { Option:{Some, None} } = import("./test.mo"); // Unwrap Some and None variant from Option enum from test.mo
-let { Option:{*} } = import("./test.mo"); // Unwrap all variants from Option enum from test.mo
-let { Option as AnotherOption:{*} } = import("./test.mo"); // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
+let { Option:{Some, None} } = @import("./test.mo"); // Unwrap Some and None variant from Option enum from test.mo
+let { Option:{*} } = @import("./test.mo"); // Unwrap all variants from Option enum from test.mo
+let { Option as AnotherOption:{*} } = @import("./test.mo"); // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
 */
 
-let { Id } = import("./test.mo"); // Import `Id` trait from test.mo
+let { Id } = @import("./test.mo"); // Import `Id` trait from test.mo
 ```
 
 `mo.json` and `mo.lock`
@@ -2160,7 +2160,7 @@ NOTE: `static Trait` is not concrete type. So we can't pass it to type argument.
 
 ```typescript
 trait Shape {
-  area: (&self)=> f32;
+  area: (&self)-> f32;
 }
 
 type Circle = {
@@ -2168,7 +2168,7 @@ type Circle = {
 }
 
 implement Shape for Circle {
-  area: (&self)=> {
+  area: (&self)-> {
     3.14 * self.radius * self.radius
   }
 }
@@ -2178,7 +2178,7 @@ type Square = {
 }
 
 implement Shape for Square {
-  area: (&self)=> {
+  area: (&self)-> {
     self.side * self.side
   }
 }
@@ -2221,7 +2221,7 @@ function print_area(shape: &(dynamic Shape)) {
 [ // NOTE: We have to add `&` ahead dynamic Trait as it's unsized. It works similar to slice that requires `&` ahead.
   &(circle as dynamic Shape),
   &(square as dynamic Shape),
-] as (&(dynamic Shape))[] |> (shapes)=> {
+] as (&(dynamic Shape))[] |> (shapes)-> {
   shapes[0].print_area();
   shapes[1].print_area();
 }
@@ -2237,7 +2237,7 @@ enum MyShape {
   MySquare(value: Square),
 }
 implement Shape for MyShape {
-  area: (&self)=> {
+  area: (&self)-> {
     match(self) {
       case MyShape.MyCircle: self.value.area(),
       case MyShape.MySquare: self.value.area(),
@@ -2310,7 +2310,7 @@ import * from "./some_c.h";
 
 extern "C" {
   @c_name("add_numbers") // Import from C with the name `add_numbers`
-  my_add_numbers: (a: i32, b: i32)=> i32, // Import from C
+  my_add_numbers: (a: i32, b: i32)-> i32, // Import from C
 
   @c_name("some_struct_t") // Import from C with the name some_struct_t
   my_some_struct_t: {
