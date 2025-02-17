@@ -1,9 +1,9 @@
-export trait Drop for Type {
-  drop: (self)-> ();
+export class Drop<Self: Type> {
+  drop: (self: Self)-> ();
 }
 
-export trait Clone for Linear { // The Clone trait can only be implemented for Linear types
-  clone: (&self)-> Self;
+export trait Clone<Self: Linear> { // The Clone trait can only be implemented for Linear types
+  clone: (self: &Self)-> Self;
 }
 
 /*

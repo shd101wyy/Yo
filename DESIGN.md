@@ -68,10 +68,12 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Dependent types `In Design`](#dependent-types-in-design)
   - [Refinement types `In Design`](#refinement-types-in-design)
   - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
-- [Trait](#trait)
+- [Type Class](#type-class)
+  - [Associated types](#associated-types)
   - [`without` keyword `In Design`](#without-keyword-in-design)
-  - [Trait alias using `expr`](#trait-alias-using-expr)
-  - [Named implementation](#named-implementation)
+  - [Type constraints alias using `expr`](#type-constraints-alias-using-expr)
+  - [Named instance `In Design`](#named-instance-in-design)
+  - [Higher Kinded Types `In Design`](#higher-kinded-types-in-design)
 - [Pattern Matching](#pattern-matching)
   - [Using Range in `case`](#using-range-in-case)
 - [Pointers](#pointers)
@@ -224,7 +226,7 @@ A type can have the following **Kind**:
     - u32
     - ...
   - Linear
-- Trait
+- Class
 - Expr
 
 ### Type
@@ -850,12 +852,12 @@ function some_async_func(?Async<i32>): i32 {
 
 ```typescript
 // id.mo
-export trait Id {
+export class Id<Self> {
   id: (self: Self)-> Self;
 };
 
-implement Id for i32 {
-  id: (x: i32)-> i32 {
+instance Id<i32> {
+  id: (x: i32): i32 -> {
     x
   }
 }
@@ -1280,14 +1282,14 @@ function show_compare<T: Type with Show & Ord>(x: T, y: T): String {
 }
 
 // Instance dependencies
-implement<A with Show> Show for A[] {
+instance<A with Show> Show<A[]> {
   show: (self: A[])-> {
     // ...
   }
 }
-implement < A with Show,
-            B with Show
-          > Show for (A, B) {
+instance< A with Show,
+          B with Show
+          > Show<(A, B)> {
   show: (self: (A, B))-> {
     // ...
   }
@@ -1296,17 +1298,17 @@ implement < A with Show,
 
 ```typescript
 // show.mo
-export trait Show {
+export class Show<Self: Type> {
   show: (self: &Self)-> String;
 }
 
-implement Show for i32 {
-  show: (self: &Self)-> {
+instance Show<i32> {
+  show: (self: &i32)-> {
     // ...
   }
 }
 
-implement Show for String {
+instance Show<String> {
   show: (self: &String)-> {
     // ...
   }
@@ -1556,17 +1558,14 @@ let expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
 eval(expr1); // false
 ```
 
-## Trait
-
-NOTE: We don't use `class` or `interface` here. Because `trait` is not a type, like in TypeScript.  
-NOTE: We also need to use `rust` like trait to better support the dynamic dispatch.
+## Type Class
 
 ```typescript
-trait Summary for Type { // `for Type` here could be omitted.
+class Summary<Self: Type> {
   summarize: (self: &Self)-> String;
 };
 
-trait Display with Summary & SomeOtherTrait {
+class Display<Self with Summary & SomeOtherClass> {
   display: (self: &Self)-> String;
 };
 
@@ -1577,8 +1576,8 @@ type NewsArticle = {
   content: String;
 };
 
-implement Summary for NewsArticle {
-  summarize: function(self: &Self): String {
+instance Summary<NewsArticle> {
+  summarize: (self: &NewsArticle): String -> {
     return "${self.headline}, by ${self.author} (${self.location})";
   }
 }
@@ -1596,16 +1595,47 @@ function notify<T with Display>(
 }
 ```
 
+### Associated types
+
+```typescript
+class Contains<Self> {
+  type A;
+  type B;
+
+  contains: (self: &Self, a: this.A, b: this.B)-> bool; 
+            // QUESTION: Do we need `this.` here?
+            // ANSWER: Yes, see the code example below.
+            // IDEA: Maybe `this.` is not necessary.
+}
+
+type Container = (i32, i32);
+
+instance Contains<Container> {
+  type A = i32;
+  type B = i32;
+
+  contains: (self: &Container, a: i32, b: i32): bool -> {
+    self.0 == a && self.1 == b
+  }
+}
+
+let my_tuple: Container = (10, 20);
+my_tuple.contains(10, 20); // true
+
+type MyI32 = Contains<Container>.A; // i32
+Contains<Container>.contains(&my_tuple, 10, 20); // true
+```
+
 ### `without` keyword `In Design`
 
 ```typescript
-trait Summary for Type with Show without Eq {
+class Summary<Self: Type with Show without Eq> {
   summarize: (self: &Self)-> String;
 };
-// This trait `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
+// This class `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
 ```
 
-### Trait alias using `expr`
+### Type constraints alias using `expr`
 
 > From: https://doc.rust-lang.org/beta/unstable-book/language-features/trait-alias.html
 
@@ -1618,31 +1648,61 @@ function foo<T with @Foo>(v: &T) {
 }
 ```
 
-### Named implementation
+### Named instance `In Design`
 
 This is useful for resolving conflicts when implementing multiple classes for the same type.
 
 ```typescript
 // id.mo
-export trait Id {
+export class Id<Self> {
   id: (self: &Self)-> Self;
 }
 
-export let MyI32Id1 = implement Id for i32 {
+// id1.mo
+export instance Id<i32> {
   id: (self: &i32)-> *self
 }
 
-export let MyI32Id2 = implement Id for i32 {
+// id2.mo
+export instance Id<i32> {
   id: (self: &i32)-> *self + 1
 }
 
 // use_id.mo
-let { MyI32Id2 } = @import("./id.mo");
+let { id } = @import("./id1.mo");
 12.id(); // 13
 
 // another_use_id.mo
-let { Id } = @import("./id.mo");
+let { id } = @import("./id.mo");
 12.id(); // Compiler Error: Ambiguous call to `id` function.
+```
+
+### Higher Kinded Types `In Design`
+
+```typescript
+// Functor
+class Functor<Wrapper: Type -> Type> {
+  map: <A, B>(f: (a: A)-> B, fa: Wrapper<A>)-> Wrapper<B>;
+}
+
+instance Functor<Maybe> {
+  map: <A, B>(f: (a: A)-> B, fa: Maybe<A>)-> Maybe<B> {
+    match (fa) {
+      case .Just: Just(f(fa.value)),
+      case .Nothing: Nothing
+    }
+  }
+}
+
+instance<A: Type> Functor<Either<A>> {
+  map: <B>(f: (a: A)-> B, fa: Either<A>)-> Either<B> {
+    match (fa) {
+      case .Left(value): Left(value),
+      case .Right(value): Right(f(value))
+    }
+  }
+}
+
 ```
 
 ## Pattern Matching
@@ -2121,14 +2181,14 @@ export enum Option<T> {
   None,
 }
 
-// Export the trait
-export trait Id {
+// Export the class.
+export class Id<Self> {
   id: (self: Self)-> Self;
 }
 
 // Explicitly export the functions defined in the instance.
 // The implementations will be exported implicitly.
-implement Id for i32 {
+instance Id<i32> {
   id: (x: i32)-> i32 {
     x
   }
@@ -2153,7 +2213,7 @@ let { Option:{*} } = @import("./test.mo"); // Unwrap all variants from Option en
 let { Option as AnotherOption:{*} } = @import("./test.mo"); // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
 */
 
-let { Id } = @import("./test.mo"); // Import `Id` trait from test.mo
+let { Id } = @import("./test.mo"); // Import `Id` class from test.mo
 ```
 
 `mo.json` and `mo.lock`
@@ -2179,7 +2239,7 @@ NOTE: `@Type(with:)` is not concrete type. So we can't pass it to type argument.
 ### Examples
 
 ```typescript
-trait Shape {
+class Shape<Self: Type> {
   area: (self: &Self)-> f32;
 }
 
@@ -2187,7 +2247,7 @@ type Circle = {
   radius: f32;
 }
 
-implement Shape for Circle {
+instance Shape<Circle> {
   area: (self: &Self)-> {
     3.14 * self.radius * self.radius
   }
@@ -2197,7 +2257,7 @@ type Square = {
   side: f32;
 }
 
-implement Shape for Square {
+instance Shape<Square> {
   area: (self)-> {
     self.side * self.side
   }
@@ -2236,7 +2296,7 @@ function print_area(shape: &(dynamic Shape)) {
   println(shape.area());
 }
 
-[ // NOTE: We have to add `&` ahead dynamic Trait as it's unsized. It works similar to slice that requires `&` ahead.
+[ // NOTE: We have to add `&` ahead dynamic Class as it's unsized. It works similar to slice that requires `&` ahead.
   &((dynamic Shape)(circle)),
   &((dynamic Shape)(square)),
 ] as (&(dynamic Shape))[] |> (shapes)-> {
@@ -2254,7 +2314,7 @@ enum MyShape {
   MyCircle(value: Circle),
   MySquare(value: Square),
 }
-implement Shape for MyShape {
+instance Shape<MyShape> {
   area: (self)-> {
     match self {
       case .MyCircle: self.value.area(),
@@ -2284,7 +2344,7 @@ function add(x: i32, y: i32): i32 {
 type Centimeters = i32;
 
 
-implement Drop for i32 {
+instance Drop<i32> {
   @noop() // ignored by the compiler when generating C code
   drop(value) {}
 }

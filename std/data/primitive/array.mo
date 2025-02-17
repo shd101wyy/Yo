@@ -1,6 +1,6 @@
 let { Drop, drop } = @import("../../classes/common.mo");
 
-implement<T: Linear with Drop<T>, S: usize> Drop for T[S] {
+instance<T: Linear with Drop<T>, S: usize> Drop<T[S]> {
   drop: (self)-> {
     var i = 0;
     while (i < S) {
