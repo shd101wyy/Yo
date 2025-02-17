@@ -1602,9 +1602,9 @@ class Contains<Self> {
   type A;
   type B;
 
-  contains: (self: &Self, a: this.A, b: this.B)-> bool; 
+  contains: (self: &Self, a: A, b: B)-> bool; 
             // QUESTION: Do we need `this.` here?
-            // ANSWER: Yes, see the code example below.
+            // ~~ANSWER: Yes, see the code example below.~~
             // IDEA: Maybe `this.` is not necessary.
 }
 

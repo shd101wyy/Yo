@@ -5,7 +5,7 @@ export trait FnOnce<
 {
   Output: Type;
   call_once: (self: Context, arguments: Arguments)
-                -> this.Output;
+                -> Output;
 }
 
 export trait FnMut<

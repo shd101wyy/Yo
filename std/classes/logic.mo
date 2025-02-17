@@ -22,15 +22,15 @@ export class LogicalNot<Self> {
 
 export class BitAnd<Lhs: Type, Rhs=Lhs> {
   Output: Type;
-  (&): (lhs: Lhs, rhs: Rhs)-> this.Output;
+  (&): (lhs: Lhs, rhs: Rhs)-> Output;
 }
 
 export class BitOr<Lhs: Type, Rhs=Lhs> {
   Output: Type;
-  (|): (lhs: Lhs, rhs: Rhs)-> this.Output;
+  (|): (lhs: Lhs, rhs: Rhs)-> Output;
 }
 
 export class BitXor<Lhs: Type, Rhs=Lhs> {
   Output: Type;
-  (^): (lhs: Lhs, b: Rhs)-> this.Output;
+  (^): (lhs: Lhs, b: Rhs)-> Output;
 }

@@ -15,45 +15,45 @@ infixr 80 **  // Exponentiation. 3 ** 4 ** 6 == 3 ** (4 ** 6)
 
 export class Add<Lhs, Rhs=Lhs> {
   Output: Type = Lhs;
-  (+): (lhs: Lhs, rhs: Rhs)-> this.Output;
+  (+): (lhs: Lhs, rhs: Rhs)-> Output;
 }
 
 export class Sub<Lhs, Rhs=Lhs> {
   Output: Type = Lhs;
-  (-): (lhs: Lhs, rhs: Rhs)-> this.Output;
+  (-): (lhs: Lhs, rhs: Rhs)-> Output;
 }
 
 export class Mul<Lhs, Rhs=Lhs> {
   Output: Type = Lhs;
-  (*): (lhs: Lhs, rhs: Rhs)-> this.Output;
+  (*): (lhs: Lhs, rhs: Rhs)-> Output;
 }
 
 export class Div<Lhs, Rhs=Lhs> {
   Output: Type = Lhs;
-  (/): (lhs: Lhs, rhs: Rhs)-> this.Output;
+  (/): (lhs: Lhs, rhs: Rhs)-> Output;
 }
 
 export class Mod<Lhs, Rhs=Lhs> {
   Output: Type = Lhs;
-  (%): (lhs: Lhs, rhs: Rhs)-> this.Output;
+  (%): (lhs: Lhs, rhs: Rhs)-> Output;
 }
 
 export class BitLeftShift<Lhs, Rhs=Lhs> {
   Output: Type = Lhs;
-  (<<): (lhs: Lhs, rhs: Rhs)-> this.Output;
+  (<<): (lhs: Lhs, rhs: Rhs)-> Output;
 }
 
 export class BitRightShift<Lhs, Rhs=Lhs> {
   Output: Type = Lhs;
-  (>>): (lhs: Lhs, rhs: Rhs)-> this.Output;
+  (>>): (lhs: Lhs, rhs: Rhs)-> Output;
 }
 
 export class Exponentiation<Lhs, Rhs=Lhs> {
   Output: Type = Lhs;
-  (**): (lhs: Lhs, rhs: Rhs)-> this.Output;
+  (**): (lhs: Lhs, rhs: Rhs)-> Output;
 }
 
 export class Negate<Self> {
   Output: Type = Self;
-  (-): (self: Self)-> this.Output;
+  (-): (self: Self)-> Output;
 }

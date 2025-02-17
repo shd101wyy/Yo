@@ -6,8 +6,6 @@ export class Eq<Lhs: Type, Rhs = Lhs> {
   ne: (lhs: &Lhs, rhs: &Rhs)-> boolean = (lhs, rhs)-> {
     !lhs.eq(rhs)
     // or
-    // !this.eq(lhs, rhs)
-    // or
     // !eq(lhs, rhs)
   }
 }
