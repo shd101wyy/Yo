@@ -219,7 +219,7 @@ A type can have the following **Kind**:
     - u32
     - ...
   - Linear
-- Class
+- Trait
 - Expr
 
 ### Type
@@ -841,11 +841,11 @@ function some_async_func(?Async<i32>): i32 {
 
 ```typescript
 // id.mo
-export class Id<Self: Type > {
-  id: (self: Self)-> Self;
+export trait Id {
+  id: (x: self)-> Self;
 };
 
-instance Id<i32> {
+implement Id for i32 {
   id: (x: i32)-> i32 {
     x
   }
@@ -1286,18 +1286,18 @@ implement < A with Show,
 
 ```typescript
 // show.mo
-export class Show<Self> {
-  show: (self: &Self)-> String;
+export trait Show {
+  show: (&self)-> String;
 }
 
-instance Show<i32> {
-  show: (self)-> {
+implement Show for i32 {
+  show: (&self)-> {
     // ...
   }
 }
 
-instance Show<String> {
-  show: (self)-> {
+implement Show for String {
+  show: (x: String)-> {
     // ...
   }
 }
@@ -1545,17 +1545,17 @@ let expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
 eval(expr1); // false
 ```
 
-## Class
+## Trait
 
 NOTE: We don't use `class` or `interface` here. Because `trait` is not a type, like in TypeScript.
 NOTE: We also need to use `rust` like trait to better support the dynamic dispatch.
 
 ```typescript
-class Summary<Self: Type> { // `for Type` here could be omitted.
+trait Summary for Type { // `for Type` here could be omitted.
   summarize: (self: &Self)-> String;
 };
 
-class Display<Self: Type with Summary & SomeOtherClass> {
+trait Display with Summary & SomeOtherTrait {
   display: (self: &Self)-> String;
 };
 
@@ -1588,13 +1588,13 @@ function notify<T with Display>(
 ### `without` keyword `In Design`
 
 ```typescript
-class Summary<Self: Type with Show without Eq> {
+trait Summary for Type with Show without Eq {
   summarize: (self: &Self)-> String;
 };
-// This class `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
+// This trait `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
 ```
 
-### Class alias using `expr`
+### Trait alias using `expr`
 
 > From: https://doc.rust-lang.org/beta/unstable-book/language-features/trait-alias.html
 
@@ -1602,26 +1602,26 @@ class Summary<Self: Type with Show without Eq> {
 expr @Foo = Debug & Send;
 expr @Bar = Foo & Sync;
 
-function foo<T with @Foo>(v: &T) {
+function foo<T: @Foo>(v: &T) {
   // ...
 }
 ```
 
-### Named instance
+### Named implementation
 
-This is useful for resolving conflicts when implementing multiple classes for the same type.
+This is useful for resolving conflicts when implementing multiple traits for the same type.
 
 ```typescript
 // id.mo
-export class Id<Self> {
+export trait Id {
   id: (self: &Self)-> Self;
 }
 
-export let MyI32Id1 = instance Id<i32> {
+export let MyI32Id1 = implement Id for i32 {
   id: (self: &i32)-> *self
 }
 
-export let MyI32Id2 = instance Id<i32> {
+export let MyI32Id2 = implement Id for i32 {
   id: (self: &i32)-> *self + 1
 }
 
@@ -2005,7 +2005,7 @@ NOTE: I feel introducing `effect` will make the type system too complicated, and
 NOTE: And we are compiling to C, so it's better what we see from Mo can be easily translated to C.
 
 ```typescript
-// QUESTION: Should K and Exception be a type or a class?
+// QUESTION: Should K and Exception be a type or a trait?
 type K< Resume: Type,
         Output: Type = ()
         Function: Type with FnOnce(value: Resume)-> Output
@@ -2111,7 +2111,7 @@ export enum Option<T> {
 }
 
 // Export the class
-export class Id<Self> {
+export trait Id {
   id: (self)-> Self;
 }
 
@@ -2142,7 +2142,7 @@ let { Option:{*} } = @import("./test.mo"); // Unwrap all variants from Option en
 let { Option as AnotherOption:{*} } = @import("./test.mo"); // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
 */
 
-let { Id } = @import("./test.mo"); // Import `Id` class from test.mo
+let { Id } = @import("./test.mo"); // Import `Id` trait from test.mo
 ```
 
 `mo.json` and `mo.lock`
@@ -2161,23 +2161,23 @@ let { Id } = @import("./test.mo"); // Import `Id` class from test.mo
 
 ### `dynamic` keyword
 
-`dynamic` can be applied to `class` to make it `type` for dynamic dispatch.
-~~`static` can be applied to `class` to make it `type` for static dispatch.~~
-NOTE: `static Class` is not concrete type. So we can't pass it to type argument.
+`dynamic` can be applied to `trait` to make it `type` for dynamic dispatch.
+~~`static` can be applied to `trait` to make it `type` for static dispatch.~~
+NOTE: `static Trait` is not concrete type. So we can't pass it to type argument.
 
 ### Examples
 
 ```typescript
-class Shape<Self> {
-  area: (self: &Self)-> f32;
+trait Shape {
+  area: (&self)-> f32;
 }
 
 type Circle = {
   radius: f32;
 }
 
-instance Shape<Circle> {
-  area: (self)-> {
+implement Shape for Circle {
+  area: (&self)-> {
     3.14 * self.radius * self.radius
   }
 }
@@ -2186,11 +2186,12 @@ type Square = {
   side: f32;
 }
 
-instance Shape<Square> {
-  area: (self)-> {
+implement Shape for Square {
+  area: (&self)-> {
     self.side * self.side
   }
 }
+
 
 // Static dispatch
 // Similar to C++'s template
@@ -2199,7 +2200,7 @@ function print_area<T with Shape>(shape: &T) {
 }
 // or
 // NOTE: Below is not going to be implemented for now.
-function print_area(shape: &(instance Shape)) { // This will omit type parameter, and you canno't pass type argument to it.
+function print_area(shape: &(static Shape)) { // This will omit type parameter, and you canno't pass type argument to it.
   println(shape.area());
 }
 let circle: Circle = Circle { radius: 1.0 };
@@ -2209,7 +2210,7 @@ print_area(&square);
 
 
 // Dynamic Dispatch - Needs design.
-// NOTE: Here we use (dynamic Class) as type, so it becomes dynamic dispatch.
+// NOTE: Here we use (dynamic Trait) as type, so it becomes dynamic dispatch.
 /*
 It's like in C:
 
@@ -2226,7 +2227,9 @@ function print_area(shape: &(dynamic Shape)) {
   println(shape.area());
 }
 
-[ // NOTE: We have to add `&` ahead dynamic Class as it's unsized. It works similar to slice that requires `&` ahead.
+
+// (dyncmaic Trait(s)) will create a value constructor.
+[ // NOTE: We have to add `&` ahead dynamic Trait as it's unsized. It works similar to slice that requires `&` ahead.
   &((dynamic Shape)(circle)),
   &((dynamic Shape)(square)),
 ] as (&(dynamic Shape))[] |> (shapes)-> {
@@ -2234,7 +2237,7 @@ function print_area(shape: &(dynamic Shape)) {
   shapes[1].print_area();
 }
 
-// With multiple classes
+// With multiple traits
 function print_area(shape: &(dynamic Shape & Display)) {
   println(shape.area());
 }

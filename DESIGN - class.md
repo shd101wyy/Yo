@@ -68,10 +68,10 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Dependent types `In Design`](#dependent-types-in-design)
   - [Refinement types `In Design`](#refinement-types-in-design)
   - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
-- [Trait](#trait)
+- [Class](#class)
   - [`without` keyword `In Design`](#without-keyword-in-design)
-  - [Trait alias using `expr`](#trait-alias-using-expr)
-  - [Named implementation](#named-implementation)
+  - [Class alias using `expr`](#class-alias-using-expr)
+  - [Named instance](#named-instance)
 - [Pattern Matching](#pattern-matching)
   - [Using Range in `case`](#using-range-in-case)
 - [Pointers](#pointers)
@@ -224,7 +224,7 @@ A type can have the following **Kind**:
     - u32
     - ...
   - Linear
-- Trait
+- Class
 - Expr
 
 ### Type
@@ -850,11 +850,11 @@ function some_async_func(?Async<i32>): i32 {
 
 ```typescript
 // id.mo
-export trait Id {
+export class Id<Self: Type > {
   id: (self: Self)-> Self;
 };
 
-implement Id for i32 {
+instance Id<i32> {
   id: (x: i32)-> i32 {
     x
   }
@@ -1296,25 +1296,24 @@ instance < A with Show,
 
 ```typescript
 // show.mo
-export trait Show {
+export class Show<Self> {
   show: (self: &Self)-> String;
 }
 
-implement Show for i32 {
-  show: (self: &Self)-> {
+instance Show<i32> {
+  show: (self)-> {
     // ...
   }
 }
 
-implement Show for String {
-  show: (self: &String)-> {
+instance Show<String> {
+  show: (self)-> {
     // ...
   }
 }
-
 
 // main.mo
-let { Show } = @import("./show.mo");
+let { show, Show } = @import("./show.mo");
 
 export function show<T with Show>(x: Array<T>): String {
   // ...
@@ -1556,17 +1555,14 @@ let expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
 eval(expr1); // false
 ```
 
-## Trait
-
-NOTE: We don't use `class` or `interface` here. Because `trait` is not a type, like in TypeScript.  
-NOTE: We also need to use `rust` like trait to better support the dynamic dispatch.
+## Class
 
 ```typescript
-trait Summary for Type { // `for Type` here could be omitted.
+class Summary<Self: Type> { // `for Type` here could be omitted.
   summarize: (self: &Self)-> String;
 };
 
-trait Display with Summary & SomeOtherTrait {
+class Display<Self: Type with Summary & SomeOtherClass> {
   display: (self: &Self)-> String;
 };
 
@@ -1577,8 +1573,8 @@ type NewsArticle = {
   content: String;
 };
 
-implement Summary for NewsArticle {
-  summarize: function(self: &Self): String {
+instance Summary<NewsArticle> {
+  summarize: (self)-> String {
     return "${self.headline}, by ${self.author} (${self.location})";
   }
 }
@@ -1599,13 +1595,13 @@ function notify<T with Display>(
 ### `without` keyword `In Design`
 
 ```typescript
-trait Summary for Type with Show without Eq {
+class Summary<Self: Type with Show without Eq> {
   summarize: (self: &Self)-> String;
 };
-// This trait `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
+// This class `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
 ```
 
-### Trait alias using `expr`
+### Class alias using `expr`
 
 > From: https://doc.rust-lang.org/beta/unstable-book/language-features/trait-alias.html
 
@@ -1618,30 +1614,32 @@ function foo<T with @Foo>(v: &T) {
 }
 ```
 
-### Named implementation
+### Named instance
 
 This is useful for resolving conflicts when implementing multiple classes for the same type.
 
 ```typescript
 // id.mo
-export trait Id {
+export class Id<Self> {
   id: (self: &Self)-> Self;
 }
 
-export let MyI32Id1 = implement Id for i32 {
+// id1.mo
+export instance Id<i32> {
   id: (self: &i32)-> *self
 }
 
-export let MyI32Id2 = implement Id for i32 {
+// id2.mo
+export instance Id<i32> {
   id: (self: &i32)-> *self + 1
 }
 
 // use_id.mo
-let { MyI32Id2 } = @import("./id.mo");
+let { id } = @import("./id1.mo");
 12.id(); // 13
 
 // another_use_id.mo
-let { Id } = @import("./id.mo");
+let { id } = @import("./id.mo");
 12.id(); // Compiler Error: Ambiguous call to `id` function.
 ```
 
@@ -2121,14 +2119,14 @@ export enum Option<T> {
   None,
 }
 
-// Export the trait
-export trait Id {
-  id: (self: Self)-> Self;
+// Export the class
+export class Id<Self> {
+  id: (self)-> Self;
 }
 
 // Explicitly export the functions defined in the instance.
 // The implementations will be exported implicitly.
-implement Id for i32 {
+instance Id<i32> {
   id: (x: i32)-> i32 {
     x
   }
@@ -2153,7 +2151,7 @@ let { Option:{*} } = @import("./test.mo"); // Unwrap all variants from Option en
 let { Option as AnotherOption:{*} } = @import("./test.mo"); // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
 */
 
-let { Id } = @import("./test.mo"); // Import `Id` trait from test.mo
+let { Id } = @import("./test.mo"); // Import `Id` class from test.mo
 ```
 
 `mo.json` and `mo.lock`
@@ -2179,7 +2177,7 @@ NOTE: `@Type(with:)` is not concrete type. So we can't pass it to type argument.
 ### Examples
 
 ```typescript
-trait Shape {
+class Shape<Self> {
   area: (self: &Self)-> f32;
 }
 
@@ -2187,8 +2185,8 @@ type Circle = {
   radius: f32;
 }
 
-implement Shape for Circle {
-  area: (self: &Self)-> {
+instance Shape<Circle> {
+  area: (self)-> {
     3.14 * self.radius * self.radius
   }
 }
@@ -2197,7 +2195,7 @@ type Square = {
   side: f32;
 }
 
-implement Shape for Square {
+instance Shape<Square> {
   area: (self)-> {
     self.side * self.side
   }
@@ -2236,7 +2234,7 @@ function print_area(shape: &(dynamic Shape)) {
   println(shape.area());
 }
 
-[ // NOTE: We have to add `&` ahead dynamic Trait as it's unsized. It works similar to slice that requires `&` ahead.
+[ // NOTE: We have to add `&` ahead dynamic Class as it's unsized. It works similar to slice that requires `&` ahead.
   &((dynamic Shape)(circle)),
   &((dynamic Shape)(square)),
 ] as (&(dynamic Shape))[] |> (shapes)-> {
