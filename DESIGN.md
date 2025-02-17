@@ -1280,14 +1280,14 @@ function show_compare<T: Type with Show & Ord>(x: T, y: T): String {
 }
 
 // Instance dependencies
-instance<A with Show> Show<A[]> {
+implement<A with Show> Show for A[] {
   show: (self: A[])-> {
     // ...
   }
 }
-instance < A with Show,
+implement < A with Show,
             B with Show
-          > show<(A, B)> {
+          > Show for (A, B) {
   show: (self: (A, B))-> {
     // ...
   }
@@ -2254,11 +2254,11 @@ enum MyShape {
   MyCircle(value: Circle),
   MySquare(value: Square),
 }
-instance Shape<MyShape> {
+implement Shape for MyShape {
   area: (self)-> {
-    match(self) {
-      case MyShape.MyCircle: self.value.area(),
-      case MyShape.MySquare: self.value.area(),
+    match self {
+      case .MyCircle: self.value.area(),
+      case .MySquare: self.value.area(),
     }
   }
 }
@@ -2284,7 +2284,7 @@ function add(x: i32, y: i32): i32 {
 type Centimeters = i32;
 
 
-instance Drop<i32> {
+implement Drop for i32 {
   @noop() // ignored by the compiler when generating C code
   drop(value) {}
 }
