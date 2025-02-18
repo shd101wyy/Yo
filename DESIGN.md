@@ -182,7 +182,7 @@ Other languages that are worth mentioning that have influenced **Mo**:
 ## Hello World
 
 ```typescript
-function main() {
+let main = ()-> {
   println("Hello World!");
 }
 ```
@@ -269,14 +269,14 @@ var x = 5; // x: i32, mutable
 // let mut x = 5;
 // in mo, `var` is an alias of `let mut`.
 
-function example(x: i32, y: i32) {
+let example = (x: i32, y: i32)-> {
   x = 1; // Error: x is immutable
   y = 2; // Error: y is immutable
 }
 
 // with `mut` modifier
-function another_example(mut x: i32, y: i32) {
-  x = 1; // x is mutable,
+let another_example = (mut x: i32, y: i32)-> {
+  x = x + 1; // x is mutable,
   y = 2; // Error: y is immutable
 }
 ```
@@ -441,7 +441,7 @@ extern "C" {
   drop: (x: String)-> ();
 }
 
-function main() {
+let main = ()-> {
   var x = String.from("Hello, world"); // x: String. mutable
   expr @y: &mut String = &mut x; // y: Expr<&mut String>   // mutable reference
   expr @z: &String = &x; // z: Expr<&String>   // immutable reference
@@ -646,7 +646,7 @@ type Container = {
   value: &String;
 }
 
-function some_func(o: &mut Container, v: &String) {
+let some_func = (o: &mut Container, v: &String)-> {
   o.v = v; // Not allowed. v might have shorter lifetime than o.
 }
 ```
@@ -674,7 +674,7 @@ NOTE: Why not use `inout`, `in`, and `out` keywords? Because it doesn't work wit
   The `&mut` parameter is a reference to a value that can be read and written.
 
   ```typescript
-  function swap(a: &mut i32, b: &mut i32) {
+  let swap = (a: &mut i32, b: &mut i32)-> {
     let temp = *a;
     *a = *b;
     *b = temp;
@@ -689,7 +689,7 @@ NOTE: Why not use `inout`, `in`, and `out` keywords? Because it doesn't work wit
   The `&` parameter is a reference to a value that can only be read.
 
   ```typescript
-  function print(x: &i32) {
+  let print = (x: &i32)-> {
     println(x);
   }
   let x = 1;
@@ -701,7 +701,7 @@ NOTE: Why not use `inout`, `in`, and `out` keywords? Because it doesn't work wit
 **Mo** supports the RAII to automatically insert the `drop` function when the variable of linear type goes out of scope.
 
 ```typescript
-function test() {
+let test = ()-> {
   let x = String.from("World!");
 
   // `drop(x)` will be automatically inserted here.
@@ -713,7 +713,7 @@ function test() {
 Same as the `|>` in Ocaml `val ( |> ) : 'a -> ('a -> 'b) -> 'b`.
 
 ```typescript
-function return_self(v: &String): &String {
+let return_self = (v: &String): &String -> {
   v
 }
 let x = String.from("Hello, ");
@@ -748,7 +748,7 @@ let add = (x: i32, y: i32): i32 -> {
 // or
 let add: (i32, i32)-> i32 = (x, y)-> x + y;
 
-function last_unit_expr(x: i32, y: i32) {
+let last_unit_expr = (x: i32, y: i32)-> {
   x + y;
   // This is allowed as the last expression is `()`.
 }
@@ -776,9 +776,9 @@ sub(3, 4); // -1
 sub(3, y: 4); // Error: y is not a valid argument label
 
 // Named return values
-function exponent(base: i32, power: i32):
+let exponent = (base: i32, power: i32):
   ( result: i32,
-    some_ref: *i32) {
+    some_ref: *i32) -> {
   var r = 1;
   for (let i = 0; i < power; i++) {
     r *= base;
@@ -787,27 +787,27 @@ function exponent(base: i32, power: i32):
 }
 
 // Generic function
-function identity<T: Type>(arg: T): T {
+let identity = <T: Type>(arg: T): T -> {
   return arg;
 }
 /// or
-function identity(arg: @Type("T")): @Type("T") {
+let identity = (arg: @Type("T")): @Type("T") -> {
   return arg;
 }
 
 // Dependency injection
-function main(?raise: (error: *u8[])-> i32) {
+let main = (?raise: (error: *u8[])-> i32)-> {
   let x: i32 = raise("Hello, world");
 }
 
 // Value constraint `In Design`
 type NotZero = i32 where _ != 0;
-function divide(x: i32, y: NotZero): i32 {
+let divide = (x: i32, y: NotZero): i32 -> {
   return x / y;
 }
 
 // Type constraint
-function add<T: Type Integral<T>>(x: T, y: T): T {
+let add = <T: Type Integral<T>>(x: T, y: T): T -> {
   return x + y;
 }
 
@@ -825,7 +825,7 @@ add(1); // 2
 ### Named arguments
 
 ```typescript
-function add(x: i32, y: i32): i32 {
+let add = (x: i32, y: i32): i32 -> {
   return x + y;
 }
 add(y: 2, x: 1); // 3
@@ -843,7 +843,7 @@ The contextual parameters are passed implicitly to the function.
 NOTE: `implicit` should be part of the `type`.
 
 ```typescript
-function some_async_func(?Async<i32>): i32 {
+let some_async_func = (?Async<i32>): i32 -> {
   // Here we didn't give a parameter name for the implicit parameter.
 }
 ```
@@ -852,13 +852,13 @@ function some_async_func(?Async<i32>): i32 {
 
 ```typescript
 // id.mo
-export class Id<Self> {
+export trait Id {
   id: (self: Self)-> Self;
 };
 
-instance Id<i32> {
-  id: (x: i32): i32 -> {
-    x
+implement Id for i32 {
+  id: (self: i32): i32 -> {
+    self
   }
 }
 
@@ -874,11 +874,11 @@ let use_id = <T with Id>(x: T): T -> {
 #### Runtime
 
 ```typescript
-function add(x: i32, ?y: i32): i32 {
+let add = (x: i32, ?y: i32): i32 -> {
   return x + y;
 }
 
-function main() {
+let main = ()-> {
   {
     add(3); // error: missing implicit parameter type i32
   }
@@ -905,19 +905,19 @@ function main() {
 The arguments are provided in lexical scope, not dynamic scope.
 
 ```typescript
-function test(x: i32, ?id: (x: i32)-> i32) {
+let test = (x: i32, ?id: (x: i32)-> i32)-> {
   print(id(x))
 }
 
 let ?id = (x: i32)-> x;
-function use_test() {
+let use_test = ()-> {
   test(3); // print 3
 
   let ?id = (x: i32)-> x + 1;
   test(3); // print 4
 }
 
-function main() {
+let main = ()-> {
   let ?id = (x: i32)-> x + 2; // This will not affect the `test` function calls in `use_test`
   use_test();  // print 3
               // print 4
@@ -929,7 +929,7 @@ function main() {
 NOTE: This might be removed.
 
 ```typescript
-function add_one(x: i32): i32 {
+let add_one = (x: i32): i32 -> {
   return x + 1;
 }
 
@@ -949,7 +949,7 @@ length(&s); // 12
 `defer` will execute an expression at the end of the current scope.
 
 ```typescript
-function test() {
+let test = ()-> {
   let x = String.from("World!");
   defer {
     println(x);
@@ -967,7 +967,7 @@ test(); // Hello, World!
 ```
 
 ```typescript
-function deferExample() {
+let deferExample = ()-> {
   var a = 1;
 
   {
@@ -1013,7 +1013,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 ### Custom Operators
 
 ```typescript
-function (|>) <T, U, F with FnOnce(value:T)-> U>(x: T, f: F): U {
+let (|>) = <T, U, F with FnOnce(value:T)-> U>(x: T, f: F): U -> {
   f(x)
 }
 
@@ -1034,11 +1034,11 @@ infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
 
 ```typescript
 // This function can take any type that has a `length: i32` property.
-function print_length(x: *{ length: i32 }) {
+let print_length = (x: *{ length: i32 })-> {
   println(x.length);
 };
 
-function main() {
+let main = ()-> {
   let s = String.from("Hello, world");
   print_length(&s);
   // ^ This works as the compiler converts it to below from the background:
@@ -1104,7 +1104,7 @@ i32_slice[0] = 10;
 // i32_array: [10, 2, 3, 4, 5]
 
 
-function set_value(arr: &i32[], index: usize, value: i32) {
+let set_value = (arr: &i32[], index: usize, value: i32)-> {
   if index < arr.length { // arr.length is runtime known
     arr[index] = value;
   }
@@ -1115,13 +1115,13 @@ set_value(&i32_array, 0, 11); // Correct!
 // i32_slice: [11, 2, 3]
 
 
-function set_value(arr: i32[], index: usize, value: i32) { // Compiler Error: The size of the slice is not known at compile time.
+let set_value = (arr: i32[], index: usize, value: i32)-> { // Compiler Error: The size of the slice is not known at compile time.
                                                            //                 Please use `&` to coerce arr to slice type &i32[]
   // ...
 }
 
 // This is also allowed as the size of the array is known at compile time.
-function set_value_3(arr: i32[3], index: usize, value: i32) {
+let set_value_3 = (arr: i32[3], index: usize, value: i32)-> {
   // ...
 }
 ```
@@ -1184,7 +1184,7 @@ QUESTION: Should we make the captures explicit?
 Examples:
 
 ```typescript
-function test() {
+let test = ()-> {
   var x = 1;
 
   (a: i32)-> {
@@ -1201,7 +1201,7 @@ function test() {
 ```
 
 ```typescript
-function test() {
+let test = ()-> {
   var x: Data = malloc(); // Some `Fake` Data.
 
   var increment = move ()=> {
@@ -1252,12 +1252,12 @@ let oldName = (p.name = String.from("Bob"));
 Type parameters are defined inside `<...>`
 
 ```typescript
-function id<T: Type>(x: T): T {
+let id = <T: Type>(x: T): T -> {
   return x;
 }
 
 // or
-function id<T>(x: T): T { // T will be inferred as `Type` kind
+let id = <T>(x: T): T -> { // T will be inferred as `Type` kind
   return x;
 }
 ```
@@ -1268,12 +1268,12 @@ Type constraints are achieved using the `with` keyword.
 
 ```typescript
 // Type constraints
-function three_are_equal<T: Type with Eq>(x: T, y: T, z: T): boolean {
+let three_are_equal = <T: Type with Eq>(x: T, y: T, z: T): boolean -> {
   x == y && y == z
 }
 // <T: Type with Eq> is equivalent to <T: Type with Eq<Self>> where `Self` is `T`
 
-function show_compare<T: Type with Show & Ord>(x: T, y: T): String {
+let show_compare = <T: Type with Show & Ord>(x: T, y: T): String -> {
   match(compare(x, y)) {
     case LT: "Less than"
     case EQ: "Equal"
@@ -1282,14 +1282,14 @@ function show_compare<T: Type with Show & Ord>(x: T, y: T): String {
 }
 
 // Instance dependencies
-instance<A with Show> Show<A[]> {
+implement<A with Show> Show for A[] {
   show: (self: A[])-> {
     // ...
   }
 }
-instance< A with Show,
-          B with Show
-          > Show<(A, B)> {
+implement< A with Show,
+           B with Show
+          > Show for (A, B) {
   show: (self: (A, B))-> {
     // ...
   }
@@ -1298,17 +1298,17 @@ instance< A with Show,
 
 ```typescript
 // show.mo
-export class Show<Self: Type> {
+export trait Show for Type {
   show: (self: &Self)-> String;
 }
 
-instance Show<i32> {
+implement Show for i32 {
   show: (self: &i32)-> {
     // ...
   }
 }
 
-instance Show<String> {
+implement Show for String {
   show: (self: &String)-> {
     // ...
   }
@@ -1318,13 +1318,13 @@ instance Show<String> {
 // main.mo
 let { Show } = @import("./show.mo");
 
-export function show<T with Show>(x: Array<T>): String {
+export let show = <T with Show>(x: Array<T>): String -> {
   // ...
 }
 
 let { show, Show } = @import("./show.mo");
 
-function less_than<T: Type with Ord & Show>(x: T, y: T): boolean {
+let less_than = <T: Type with Ord & Show>(x: T, y: T): boolean -> {
   println(show(x));
   return x < y;
 }
@@ -1335,7 +1335,7 @@ function less_than<T: Type with Ord & Show>(x: T, y: T): boolean {
 ### if/else
 
 ```typescript
-function main() {
+let main = ()-> {
   // If no return type, it is `()`
   let number = 3;
 
@@ -1350,7 +1350,7 @@ function main() {
 ### while `Might be removed`
 
 ```typescript
-function factorial(n: i32): i32 {
+let factorial = (n: i32): i32 -> {
   var result = 1;
   var i = 1;
   while (i <= n) {
@@ -1364,7 +1364,7 @@ function factorial(n: i32): i32 {
 ### for `Might be removed`
 
 ```typescript
-function factorial(n: i32): i32 {
+let factorial = (n: i32): i32 -> {
   var result = 1;
   for (var i = 1; i <= n; i += 1) {
     result *= i;
@@ -1484,7 +1484,7 @@ Dependent types are types which depend on values.
 ```typescript
 type Vector<N: i32> = Array<i32, N>;
 
-function add_vectors<N: i32>(a: Vector<N>, b: Vector<N>): Vector<N> {
+let add_vectors = <N: i32>(a: Vector<N>, b: Vector<N>): Vector<N> -> {
   return a.map((x, i)-> x + b[i]);
 }
 
@@ -1506,7 +1506,7 @@ Refinement types consists of all values of a given type which satisfy a given pr
 type PositiveNumber = i32 where _ > 0;
 type NonEmptyString = String where _.length > 0;
 
-function divide(x: PositiveNumber, y: PositiveNumber): PositiveNumber {
+let divide = (x: PositiveNumber, y: PositiveNumber): PositiveNumber -> {
   x / y
 }
 
@@ -1523,15 +1523,15 @@ type Equal<n: i32> = i32 where _ == n;
 type Index<T: Type, a: T[]> = NatureNumber where _ < a.length();
 type NotEmptyArray<T> = T[] where _.length() > 0;
 
-function get<T, a: T[]>(index: Index<T, a>, array: a): T {
+let get = <T, a: T[]>(index: Index<T, a>, array: a): T -> {
   return array[index];
 }
 
-function set<T, a: T[]>(index: Index<T, a>, array: a, value: T) {
+let set = <T, a: T[]>(index: Index<T, a>, array: a, value: T) -> {
   return array[index] = value;
 }
 
-function head<T>(array: NotEmptyArray<T>): T {
+let head = <T>(array: NotEmptyArray<T>): T -> {
   return array[0];
 }
 ```
@@ -1545,7 +1545,7 @@ enum Expr<T> {
   EqExpr(left: Expr<i32>, right: Expr<i32>): Expr<boolean>
 }
 
-function eval<T>(expr: Expr<T>): T {
+let eval = <T>(expr: Expr<T>): T -> {
   // with Expr<T>;
   match (expr) {
     case .IntExpr: expr.i,
@@ -1558,14 +1558,14 @@ let expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
 eval(expr1); // false
 ```
 
-## Type Class
+## Trait
 
 ```typescript
-class Summary<Self: Type> {
+trait Summary for Type {
   summarize: (self: &Self)-> String;
 };
 
-class Display<Self with Summary & SomeOtherClass> {
+trait Display for Type with Summary & SomeOtherClass {
   display: (self: &Self)-> String;
 };
 
@@ -1576,33 +1576,47 @@ type NewsArticle = {
   content: String;
 };
 
-instance Summary<NewsArticle> {
+implement Summary for NewsArticle {
   summarize: (self: &NewsArticle): String -> {
     return "${self.headline}, by ${self.author} (${self.location})";
   }
 }
 
 // Pass in function
-function notify(item: &NewsArticle) {
+let notify = (item: &NewsArticle)-> {
   println("Breaking news! ", item.summarize());
 }
 
-function notify<T with Display>(
+let notify = <T with Display>(
   item: &T
-) {
+)-> {
   println("Breaking news! ", item.summarize());
   println("Breaking news! ", item.display());
 }
 ```
 
+```typescript
+trait LuckyNumber for i32 {
+  say_it: (self: &Self)-> ();
+}
+
+implement LuckyNumber for 7 {
+  say_it: (self: &7): () -> {
+    println("Lucky number 7");
+  }
+}
+
+7.say_it(); // Lucky number 7
+```
+
 ### Associated types
 
 ```typescript
-class Contains<Self> {
+trait Contains for Type {
   type A;
   type B;
 
-  contains: (self: &Self, a: A, b: B)-> bool; 
+  contains: (self: &Self, a: Self.A, b: Self.B)-> boolean; 
             // QUESTION: Do we need `this.` here?
             // ~~ANSWER: Yes, see the code example below.~~
             // IDEA: Maybe `this.` is not necessary.
@@ -1610,11 +1624,11 @@ class Contains<Self> {
 
 type Container = (i32, i32);
 
-instance Contains<Container> {
+implement Contains for Container {
   type A = i32;
   type B = i32;
 
-  contains: (self: &Container, a: i32, b: i32): bool -> {
+  contains: (self: &Container, a: i32, b: i32): boolean -> {
     self.0 == a && self.1 == b
   }
 }
@@ -1629,10 +1643,10 @@ Contains<Container>.contains(&my_tuple, 10, 20); // true
 ### `without` keyword `In Design`
 
 ```typescript
-class Summary<Self: Type with Show without Eq> {
+trait Summary for Type with Show without Eq {
   summarize: (self: &Self)-> String;
 };
-// This class `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
+// This trait `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
 ```
 
 ### Type constraints alias using `expr`
@@ -1643,28 +1657,28 @@ class Summary<Self: Type with Show without Eq> {
 expr @Foo = Debug & Send;
 expr @Bar = Foo & Sync;
 
-function foo<T with @Foo>(v: &T) {
+let foo = <T with @Foo>(v: &T)-> {
   // ...
 }
 ```
 
-### Named instance `In Design`
+### Named implementation `In Design`
 
 This is useful for resolving conflicts when implementing multiple classes for the same type.
 
 ```typescript
 // id.mo
-export class Id<Self> {
+export trait Id for Type {
   id: (self: &Self)-> Self;
 }
 
 // id1.mo
-export instance Id<i32> {
+export implement Id for i32 {
   id: (self: &i32)-> *self
 }
 
 // id2.mo
-export instance Id<i32> {
+export implement Id for i32 {
   id: (self: &i32)-> *self + 1
 }
 
@@ -1681,12 +1695,12 @@ let { id } = @import("./id.mo");
 
 ```typescript
 // Functor
-class Functor<Wrapper: Type -> Type> {
-  map: <A, B>(f: (a: A)-> B, fa: Wrapper<A>)-> Wrapper<B>;
+trait Functor for Wrapper: Type -> Type {
+  map: <A, B>(fa: Wrapper<A>, f: (a: A)-> B)-> Wrapper<B>;
 }
 
-instance Functor<Maybe> {
-  map: <A, B>(f: (a: A)-> B, fa: Maybe<A>)-> Maybe<B> {
+implement Functor for Maybe {
+  map: <A, B>(fa: Maybe<A>, f: (a: A)-> B)-> Maybe<B> {
     match (fa) {
       case .Just: Just(f(fa.value)),
       case .Nothing: Nothing
@@ -1694,8 +1708,8 @@ instance Functor<Maybe> {
   }
 }
 
-instance<A: Type> Functor<Either<A>> {
-  map: <B>(f: (a: A)-> B, fa: Either<A>)-> Either<B> {
+implement<A: Type> Functor for Either<A> {
+  map: <B>( fa: Either<A>, f: (a: A)-> B)-> Either<B> {
     match (fa) {
       case .Left(value): Left(value),
       case .Right(value): Right(f(value))
@@ -1703,6 +1717,8 @@ instance<A: Type> Functor<Either<A>> {
   }
 }
 
+let some_maybe = Just(1);
+let result = some_maybe.map((x)-> x + 1); // Just(2)
 ```
 
 ## Pattern Matching
@@ -1720,7 +1736,7 @@ enum Coin {
 // Reference:
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
-function value_in_cents(coin: Coin): u8 {
+let value_in_cents = (coin: Coin): u8 -> {
   match coin {
     case .Penny: {
       println("Lucky penny!");
@@ -1738,7 +1754,7 @@ enum List<T> {
 }
 
 
-function list_length<T>(list: &List<T>): i32 {
+let list_length = <T>(list: &List<T>): i32 -> {
   match (list) {
     case .Nil: 0,
     case .Cons: {
@@ -1752,7 +1768,7 @@ function list_length<T>(list: &List<T>): i32 {
 ### Using Range in `case`
 
 ```typescript
-function check_int(x: i32) {
+let check_int = (x: i32) -> {
   match (x) {
     case 1:
     case 2:
@@ -1778,7 +1794,7 @@ function check_int(x: i32) {
 Can also use range:
 
 ```typescript
-function check_int(x: i32) {
+let check_int = (x: i32) -> {
   match (x) {
     case 1 .. 6: {
       println("1 to 6");
@@ -1929,7 +1945,7 @@ let v: ArrayList<i32> = ArrayList.new();
 
 ```typescript
 type MyError = {message: &str};
-function main(?throw: Exception<MyError>) {
+let main = (?throw: Exception<MyError>) -> {
   throw({
     message: "Something went wrong",
   });
@@ -1939,7 +1955,7 @@ function main(?throw: Exception<MyError>) {
 ### By data type
 
 ```typescript
-function divide(x: i32, y: i32): Result<i32, &str> {
+let divide = (x: i32, y: i32): Result<i32, &str> -> {
   if y == 0 {
     return Error("Division by zero");
   } else {
@@ -1991,10 +2007,11 @@ The `do` keyword is necessary to notify the programmer that the continuation mig
 The `return` keyword is not allowed in the continuation function.
 
 ```typescript
-function safe_divide( x: i32,
-                      y: i32,
-                      raise: effect (msg: *u8[])-> i32
-  ): i32 {
+let safe_divide =
+  ( x: i32,
+    y: i32,
+    raise: effect (msg: *u8[])-> i32
+  ): i32 -> {
   if y == 0 {
     do raise("Division by zero")
   } else {
@@ -2003,7 +2020,7 @@ function safe_divide( x: i32,
 }
 
 // `resume`
-function handle_resume(): i32 {
+let handle_resume = (): i32 -> {
   let raise = effect (msg: *u8[]): i32 -> {
     resume(10, /* k */);
   }
@@ -2011,7 +2028,7 @@ function handle_resume(): i32 {
 }
 
 // `abort`
-function handle_abort(): i32 {
+let handle_abort = (): i32 -> {
   let raise = effect (msg: *u8[]): i32 -> {
     abort(10, /* k */);
   }
@@ -2020,7 +2037,7 @@ function handle_abort(): i32 {
 ```
 
 ```typescript
-function main() {
+let main = () -> {
   let wait_for_seconds = effect (seconds: u32): i32 -> {
     set_timeout(()-> {
       println("Done");
@@ -2040,7 +2057,7 @@ function main() {
 QUESTION: This approach has the problem that if one of them abort, then how should we handle the rest of the continuations?
 
 ```typescript
-function main() {
+let main = ()-> {
   effect wait_for_seconds(sec: u32): i32 {
     set_timeout(move ()=> {
       println(sec);
@@ -2064,7 +2081,7 @@ function main() {
 NOTE: Having async/await like javascript makes mo not distinguishable from javascript. We need to find some way to make mo unique. So probably we will not implement async/await. The function shouldn't be colored with the async keyword.
 
 ```typescript
-async function main() {
+let main = async ()-> {
   let result = await fetch("https://api.example.com");
   println(result);
 }
@@ -2085,7 +2102,7 @@ type Exception< Error: Type,
                 Resume: Type,
                 Output = ()
               > = (error: Error, do resume: Resume)-> Output;
-function divide(x: i32, y: i32, do resume: K<i32>, ?raise: Exception<&str, K<i32>>) {
+let divide = (x: i32, y: i32, do resume: K<i32>, ?raise: Exception<&str, K<i32>>)-> {
   if y == 0 {
     raise("Division by zero", do: move (value)=> { // `move` is needed to capture the `resume` function from the upper level
       resume(value);
@@ -2095,7 +2112,7 @@ function divide(x: i32, y: i32, do resume: K<i32>, ?raise: Exception<&str, K<i32
   }
 }
 
-function handle_resume(do resume: K<i32>) {
+let handle_resume = (do resume: K<i32>)-> {
   let raise: Exception<&str, K<i32>> = (error, resume)-> {
     println(error);
     resume(10);
@@ -2115,7 +2132,7 @@ The `do` function parameter must be the `K` type and its return type needs to ma
 QUESTION: How do we handle `for` and `while` loop? `do` won't be able to work there. Should we still implement loops?
 
 ```typescript
-function divide(x: i32, y: i32, do resume: K<i32>, ?raise: Exception<&str, K<i32>>) {
+let divide = (x: i32, y: i32, do resume: K<i32>, ?raise: Exception<&str, K<i32>>)-> {
   if y == 0 {
     let value = do raise("Division by zero");
     resume(value);
@@ -2124,7 +2141,7 @@ function divide(x: i32, y: i32, do resume: K<i32>, ?raise: Exception<&str, K<i32
   }
 }
 
-function handle_resume(do resume: K<i32>) {
+let handle_resume = (do resume: K<i32>)-> {
   let raise: Exception<&str, K<i32>> = (error, resume)-> {
     println(error);
     resume(10);
@@ -2138,14 +2155,14 @@ function handle_resume(do resume: K<i32>) {
 #### Run multiple continuations with `do`
 
 ```typescript
-function wait_for_seconds(sec: u32, do resume: K<i32>) {
+let wait_for_seconds = (sec: u32, do resume: K<i32>)-> {
   set_timeout(move ()=> {
     println(sec);
     resume(sec);
   }, sec * 1000);
 }
 
-function main() {
+let main = ()-> {
   println("Before timeout");
   let (wait1, wait2, wait3) = do (
     wait_for_seconds(1),
@@ -2169,7 +2186,7 @@ NOTE: Why not use javascript like import:
 ```typescript
 let { copy } = @import("https://github.com/mo-lang/mo/std/fs.mo")
 
-function test() {
+let test = ()-> {
   println("Hello, world!");
 }
 
@@ -2181,15 +2198,15 @@ export enum Option<T> {
   None,
 }
 
-// Export the class.
-export class Id<Self> {
+// Export the trait.
+export trait Id for Self: Type {
   id: (self: Self)-> Self;
 }
 
 // Explicitly export the functions defined in the instance.
 // The implementations will be exported implicitly.
-instance Id<i32> {
-  id: (x: i32)-> i32 {
+implement Id for i32 {
+  id: (x: i32): i32 -> {
     x
   }
 }
@@ -2213,7 +2230,7 @@ let { Option:{*} } = @import("./test.mo"); // Unwrap all variants from Option en
 let { Option as AnotherOption:{*} } = @import("./test.mo"); // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
 */
 
-let { Id } = @import("./test.mo"); // Import `Id` class from test.mo
+let { Id } = @import("./test.mo"); // Import `Id` trait from test.mo
 ```
 
 `mo.json` and `mo.lock`
@@ -2239,7 +2256,7 @@ NOTE: `@Type(with:)` is not concrete type. So we can't pass it to type argument.
 ### Examples
 
 ```typescript
-class Shape<Self: Type> {
+trait Shape for Self: Type {
   area: (self: &Self)-> f32;
 }
 
@@ -2247,7 +2264,7 @@ type Circle = {
   radius: f32;
 }
 
-instance Shape<Circle> {
+implement Shape for Circle {
   area: (self: &Self)-> {
     3.14 * self.radius * self.radius
   }
@@ -2257,7 +2274,7 @@ type Square = {
   side: f32;
 }
 
-instance Shape<Square> {
+implement Shape for Square {
   area: (self)-> {
     self.side * self.side
   }
@@ -2265,12 +2282,12 @@ instance Shape<Square> {
 
 // Static dispatch
 // Similar to C++'s template
-function print_area<T with Shape>(shape: &T) {
+let print_area = <T with Shape>(shape: &T)-> {
   println(shape.area());
 }
 // or
 // NOTE: Below is not going to be implemented for now.
-function print_area(shape: &(@Type(with: Shape))) { // This will omit type parameter, and you canno't pass type argument to it.
+let print_area = (shape: &(@Type(with: Shape)))-> { // This will omit type parameter, and you canno't pass type argument to it.
   println(shape.area());
 }
 let circle: Circle = Circle { radius: 1.0 };
@@ -2292,11 +2309,11 @@ void print_area(Shape* shape) {
   printf("%f\n", shape->area(shape->data));
 }
 */
-function print_area(shape: &(dynamic Shape)) {
+let print_area = (shape: &(dynamic Shape))-> {
   println(shape.area());
 }
 
-[ // NOTE: We have to add `&` ahead dynamic Class as it's unsized. It works similar to slice that requires `&` ahead.
+[ // NOTE: We have to add `&` ahead dynamic Trait as it's unsized. It works similar to slice that requires `&` ahead.
   &((dynamic Shape)(circle)),
   &((dynamic Shape)(square)),
 ] as (&(dynamic Shape))[] |> (shapes)-> {
@@ -2305,7 +2322,7 @@ function print_area(shape: &(dynamic Shape)) {
 }
 
 // With multiple classes
-function print_area(shape: &(dynamic Shape & Display)) {
+let print_area = (shape: &(dynamic Shape & Display))-> {
   println(shape.area());
 }
 
@@ -2314,7 +2331,7 @@ enum MyShape {
   MyCircle(value: Circle),
   MySquare(value: Square),
 }
-instance Shape<MyShape> {
+implement Shape for MyShape {
   area: (self)-> {
     match self {
       case .MyCircle: self.value.area(),
@@ -2336,7 +2353,7 @@ Attributes are defined with the `@` symbol.
 
 ```typescript
 @doc(`Add two numbers`)
-function add(x: i32, y: i32): i32 {
+let add = (x: i32, y: i32): i32 -> {
   return x + y;
 }
 
@@ -2344,9 +2361,9 @@ function add(x: i32, y: i32): i32 {
 type Centimeters = i32;
 
 
-instance Drop<i32> {
+implement Drop for i32 {
   @noop() // ignored by the compiler when generating C code
-  drop(value) {}
+  drop: (value)-> {}
 }
 ```
 
@@ -2356,7 +2373,7 @@ instance Drop<i32> {
 
 ```typescript
 @c_name("c_add_numbers") // Export to C with the name `c_add_numbers`
-function add_numbers(a: i32, b: i32): i32 {
+let add_numbers = (a: i32, b: i32): i32 -> {
   return a + b;
 }
 
@@ -2496,7 +2513,7 @@ export macro unless(condition, do) {
 IDEA: Use the `expr` keyword to support compiletime evaluation.
 
 ```typescript
-function test() {
+let test = ()-> {
   let x = 1;
   expr @x_type = @typeof(x); // x_type: Expr<Type>
   @if(@type_eq(@x_type, i32), then: {
@@ -2508,18 +2525,18 @@ function test() {
 
 // compatible with C preprocessor
 @ifdef(
-  "DEBUG",
+  @DEBUG,
   then: {
     println("Debug mode");
   },
   else: {
-    @define("DEBUG", "true");
+    expr @DEBUG = true;
     println("Release mode");
   }
 )
 
-@getdef("DEBUG"); // "true"
-@getdef("__FILE__"); // "main.mo"
+@DEBUG; // "true"
+@__FILE__; // "main.mo"
 ```
 
 ## References
