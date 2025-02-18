@@ -1,4 +1,4 @@
-@import { add } from "./add"
+import { add } from "./add"
 
 let test = ()-> i32 {
   add(3, 4)

@@ -1,4 +1,4 @@
-@import { Id } from "../classes/id.mo";
+import { Id } from "../classes/id.mo";
 
 type MyType<T: Type using Id<T>> = {
   value: T

@@ -1,4 +1,4 @@
-@import { Id } from "../classes/id.mo";
+import { Id } from "../classes/id.mo";
 
 interface AnotherId<X using Id<X>> {
   anotherId: (x: X)-> X;

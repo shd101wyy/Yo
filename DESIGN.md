@@ -863,7 +863,7 @@ implement Id for i32 {
 }
 
 // main.mo
-let { Id } = @import("./id.mo");
+import { Id } = from "./id.mo";
 
 (12).id(); // 12
 let use_id = <T with Id>(x: T): T -> {
@@ -1316,13 +1316,13 @@ implement Show for String {
 
 
 // main.mo
-let { Show } = @import("./show.mo");
+import { Show } from "./show.mo";
 
 export let show = <T with Show>(x: Array<T>): String -> {
   // ...
 }
 
-let { show, Show } = @import("./show.mo");
+import { show, Show } from "./show.mo";
 
 let less_than = <T: Type with Ord & Show>(x: T, y: T): boolean -> {
   println(show(x));
@@ -1683,11 +1683,11 @@ export implement Id for i32 {
 }
 
 // use_id.mo
-let { id } = @import("./id1.mo");
+import { id } from "./id1.mo";
 12.id(); // 13
 
 // another_use_id.mo
-let { id } = @import("./id.mo");
+import { id } from "./id.mo";
 12.id(); // Compiler Error: Ambiguous call to `id` function.
 ```
 
@@ -1935,7 +1935,7 @@ m.set(String.from("one"), 4);
 #### Unique ArrayList
 
 ```typescript
-let { ArrayList } = @import("std/collections/unique");
+import { ArrayList } from "std/collections/unique";
 let v: ArrayList<i32> = ArrayList.new();
 ```
 
@@ -2177,14 +2177,14 @@ let main = ()-> {
 
 QUESTION: Should we allow to `export` a linear type value?
 
-NOTE: Why not use javascript like import:
+~~NOTE: Why not use javascript like import:~~
 
 - To support condtional import in the future.
 - To allow import happening in the middle of the code, like inside a function.
 - for consistency with the destructuring. Like for javascript, it uses `import {x as y} from "module.ts"` but destructuring uses `let {x: y} = obj`.
 
 ```typescript
-let { copy } = @import("https://github.com/mo-lang/mo/std/fs.mo")
+import { copy } from "https://github.com/mo-lang/mo/std/fs.mo"
 
 let test = ()-> {
   println("Hello, world!");
@@ -2216,21 +2216,21 @@ export let x = 1;
 ```
 
 ```typescript
-let {*} = @import("./test.mo"); // Import everything from test.mo
-let Test = @import("./test.mo"); // Import everything from test.mo and put it in the Test namespace
-let { test } = @import("./test.mo"); // Import test function from test.mo
-let { test: test2 } = @import("./test.mo"); // Import test function from test.mo and rename it to test2
+import * from "./test.mo"; // Import everything from test.mo
+import * as Test from "./test.mo"; // Import everything from test.mo and put it in the Test namespace
+import { test } from "./test.mo"; // Import test function from test.mo
+import { test as test2 } from "./test.mo"; // Import test function from test.mo and rename it to test2
 
-let { Option } = @import("./test.mo"); // Import Option enum from test.mo
+import { Option } from "./test.mo"; // Import Option enum from test.mo
 
 /*
 // BELOW ARE IN DESIGN
-let { Option:{Some, None} } = @import("./test.mo"); // Unwrap Some and None variant from Option enum from test.mo
-let { Option:{*} } = @import("./test.mo"); // Unwrap all variants from Option enum from test.mo
-let { Option as AnotherOption:{*} } = @import("./test.mo"); // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
+import { Option:{Some, None} } from "./test.mo"; // Unwrap Some and None variant from Option enum from test.mo
+import { Option:{*} } from "./test.mo"; // Unwrap all variants from Option enum from test.mo
+import { Option as AnotherOption:{*} } from "./test.mo"; // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
 */
 
-let { Id } = @import("./test.mo"); // Import `Id` trait from test.mo
+import { Id } from "./test.mo"; // Import `Id` trait from test.mo
 ```
 
 `mo.json` and `mo.lock`

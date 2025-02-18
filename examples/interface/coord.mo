@@ -1,4 +1,4 @@
-@import { Id, id } from "./id.mo"
+import { Id, id } from "./id.mo"
 
 export type Coord = {
   x: i32;

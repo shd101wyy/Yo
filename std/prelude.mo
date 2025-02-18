@@ -6,17 +6,17 @@
  */
 
 // builtins
-export let {*} = @import("./builtins.mo");
+export * from "./builtins.mo";
 
 // interface
-export let {*} = @import("./classes/arithmetic.mo");
-export let {*} = @import("./classes/logic.mo");
-export let {*} = @import("./classes/common.mo");
-export let {*} = @import("./classes/eq.mo");
-export let {*} = @import("./classes/ord.mo");
-export let {*} = @import("./classes/closure.mo");
+export * from "./classes/arithmetic.mo";
+export * from "./classes/logic.mo";
+export * from "./classes/common.mo";
+export * from "./classes/eq.mo";
+export * from "./classes/ord.mo";
+export * from "./classes/closure.mo";
 
 // data
-export let {*} = @import("./data/option.mo");
-export let {*} = @import("./data/primitive/i32.mo");
-export let {*} = @import("./data/primitive/boolean.mo");
+export * from "./data/option.mo";
+export * from "./data/primitive/i32.mo";
+export * from "./data/primitive/boolean.mo";
