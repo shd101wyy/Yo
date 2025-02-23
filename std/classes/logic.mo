@@ -22,15 +22,15 @@ export trait LogicalNot {
 
 export trait BitAnd<Rhs=Self> {
   Output: Type;
-  (&): (lhs: Self, rhs: Rhs)-> Self.Output;
+  (&): (lhs: Self, rhs: Rhs)-> this.Output;
 }
 
 export trait BitOr<Rhs=Self> {
   Output: Type;
-  (|): (lhs: Self, rhs: Rhs)-> Self.Output;
+  (|): (lhs: Self, rhs: Rhs)-> this.Output;
 }
 
 export trait BitXor<Rhs=Self> {
   Output: Type;
-  (^): (lhs: Self, b: Rhs)-> Self.Output;
+  (^): (lhs: Self, b: Rhs)-> this.Output;
 }

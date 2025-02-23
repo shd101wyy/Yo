@@ -404,9 +404,10 @@ From Scala.
 
   - Usage: Typically used in type annotations or pattern matching.
 
-- `<:` (Upper Type Bound)
+- `:>` (from F#) or `<:` (from Scala) (Upper Type Bound)
   - Usage: Indicates that a type parameter must be a subtype of a specific type.  
     PROBLEM: doesn't look good in the generic syntax, as we are using `<...>` for generics.
+    PROBLEM: This operator is hard to remember, and introduces complexity to the language.
 
 ### Transfer ownership
 
@@ -778,7 +779,7 @@ sub(3, y: 4); // Error: y is not a valid argument label
 // Named return values
 let exponent = (base: i32, power: i32):
   ( result: i32,
-    some_ref: *i32) -> {
+    some_ref: *i32)-> {
   var r = 1;
   for (let i = 0; i < power; i++) {
     r *= base;
@@ -791,7 +792,7 @@ let identity = <T: Type>(arg: T): T -> {
   return arg;
 }
 /// or
-let identity = (arg: @Type("T")): @Type("T") -> {
+let identity = (arg: @Type("T")): @Type("T")-> {
   return arg;
 }
 
@@ -989,7 +990,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 - With tail-call optimization
 
   ```typescript
-  (x: u32, acc: u32 = 1) -> {
+  (x: u32, acc: u32 = 1)-> {
     if x == 1 {
       acc
     } else {
@@ -1001,7 +1002,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 - Without tail-call optimization
 
   ```typescript
-  (x: u32) -> {
+  (x: u32)-> {
     if x == 1 {
       1
     } else {
@@ -1527,7 +1528,7 @@ let get = <T, a: T[]>(index: Index<T, a>, array: a): T -> {
   return array[index];
 }
 
-let set = <T, a: T[]>(index: Index<T, a>, array: a, value: T) -> {
+let set = <T, a: T[]>(index: Index<T, a>, array: a, value: T)-> {
   return array[index] = value;
 }
 
@@ -1601,7 +1602,7 @@ trait LuckyNumber for i32 {
 }
 
 implement LuckyNumber for 7 {
-  say_it: (self: &7): () -> {
+  say_it: (self: &7): ()-> {
     println("Lucky number 7");
   }
 }
@@ -1616,7 +1617,7 @@ trait Contains for Type {
   type A;
   type B;
 
-  contains: (self: &Self, a: Self.A, b: Self.B)-> boolean; 
+  contains: (self: &Self, a: Self.A, b: Self.B)-> boolean;
             // QUESTION: Do we need `this.` here?
             // ~~ANSWER: Yes, see the code example below.~~
             // IDEA: Maybe `this.` is not necessary.
@@ -1640,13 +1641,26 @@ type MyI32 = Contains<Container>.A; // i32
 Contains<Container>.contains(&my_tuple, 10, 20); // true
 ```
 
-### `without` keyword `In Design`
+### Without trait
+
+Use `!Trait` to exclude a trait.
 
 ```typescript
-trait Summary for Type with Show without Eq {
+trait Summary for Type with Show & !Eq {
   summarize: (self: &Self)-> String;
 };
 // This trait `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
+```
+
+### Optional trait
+
+Use `?Trait` to make a trait optional.
+
+```typescript
+trait Summary for Type with ?Show {
+  summarize: (self: &Self)-> String;
+};
+// This trait `Summary` can implement for `Type` that implements `Show` or not.
 ```
 
 ### Type constraints alias using `expr`
@@ -1695,7 +1709,7 @@ import { id } from "./id.mo";
 
 ```typescript
 // Functor
-trait Functor for Wrapper: Type -> Type {
+trait Functor for Wrapper<Type>: Type {
   map: <A, B>(fa: Wrapper<A>, f: (a: A)-> B)-> Wrapper<B>;
 }
 
@@ -1768,7 +1782,7 @@ let list_length = <T>(list: &List<T>): i32 -> {
 ### Using Range in `case`
 
 ```typescript
-let check_int = (x: i32) -> {
+let check_int = (x: i32)-> {
   match (x) {
     case 1:
     case 2:
@@ -1794,7 +1808,7 @@ let check_int = (x: i32) -> {
 Can also use range:
 
 ```typescript
-let check_int = (x: i32) -> {
+let check_int = (x: i32)-> {
   match (x) {
     case 1 .. 6: {
       println("1 to 6");
@@ -1910,7 +1924,7 @@ let s3 = s + s2; // Create a new string.
 This is the dynamic array.
 
 ```typescript
-let v: ArrayList<i32> = ArrayList.new();
+let v: ArrayList<i32, MemoryMode.Arc> = ArrayList<i32, mode: .Arc>.new();
 let v2 = ArrayList.from([1, 2, 3]);
 let value = v2.at(0);
 ```
@@ -1930,22 +1944,13 @@ let m2 = Map.from([
 m.set(String.from("one"), 4);
 ```
 
-### Linear Collections
-
-#### Unique ArrayList
-
-```typescript
-import { ArrayList } from "std/collections/unique";
-let v: ArrayList<i32> = ArrayList.new();
-```
-
 ## Error handling `In Design`
 
 ### By algebraic effects
 
 ```typescript
 type MyError = {message: &str};
-let main = (?throw: Exception<MyError>) -> {
+let main = (?throw: Exception<MyError>)-> {
   throw({
     message: "Something went wrong",
   });
@@ -2022,7 +2027,7 @@ let safe_divide =
 // `resume`
 let handle_resume = (): i32 -> {
   let raise = effect (msg: *u8[]): i32 -> {
-    resume(10, /* k */);
+    k.resume(10);
   }
   return 1 + safe_divide(3, 0, raise) + 2; // 13
 }
@@ -2037,11 +2042,11 @@ let handle_abort = (): i32 -> {
 ```
 
 ```typescript
-let main = () -> {
+let main = ()-> {
   let wait_for_seconds = effect (seconds: u32): i32 -> {
     set_timeout(()-> {
       println("Done");
-      resume(12);
+      k.resume(12);
     }, seconds * 1000);
   }
 
@@ -2058,10 +2063,10 @@ QUESTION: This approach has the problem that if one of them abort, then how shou
 
 ```typescript
 let main = ()-> {
-  effect wait_for_seconds(sec: u32): i32 {
+  let wait_for_seconds = effect (sec: u32): i32 -> {
     set_timeout(move ()=> {
       println(sec);
-      resume(sec);
+      k.resume(sec);
     }, sec * 1000);
   }
 
@@ -2074,6 +2079,35 @@ let main = ()-> {
   print("after waits");
   // Will wait for 3 seconds
 }
+```
+
+### Pure function
+
+Functions without involving calling any effectful function or impure function is called a `pure` function in **Mo**.
+
+```typescript
+let add = (x: i32, y: i32): i32 -> x + y; // add is `pure`.
+
+let use_add = ()-> {
+  add(1, 2); // Okay
+} // use_add is `pure`.
+
+let use_wait = ()-> {
+  let wait_for_seconds = effect (sec: u32): i32 -> {
+    set_timeout(move ()=> {
+      println(sec);
+      k.resume(12);
+    }, sec * 1000);
+  }
+
+  print("before wait");
+  wait_for_seconds(1);
+  print("after wait");
+} // use_wait is not `pure`.
+
+let use_use_wait = ()-> {
+  use_wait();
+} // use_use_wait is not `pure`, because it uses `use_wait` which is not pure.
 ```
 
 ## async/await `In Design`
@@ -2118,23 +2152,34 @@ let handle_resume = (do resume: K<i32>)-> {
     resume(10);
   }
 
-  divide(3, 0, do: (value)-> {
+  divide(3, 0, do: move (value)=> {
     resume(1 + value + 2); // 13
   }, raise: raise);
 }
+
+let handle_abort = (do resume: K<i32>)-> {
+  let raise: Exception<&str, K<i32>> = move (error, resume_)=> {
+    drop(resume_); // Not resume
+    println(error);
+    resume(10); // This is the `resume` from `handle_abort`.
+  }
+
+  divide(3, 0, do: move (value)=> {
+    resume(1 + value + 2);
+  }, raise: raise); // 10
+}
 ```
 
-### Simplify using `do` keyword
-
-For function argument label that is `do`, we can use the `do` keyword there.  
-The `do` function parameter must be the `K` type and its return type needs to match the caller's return type.
+### Simplify using `with <-` keyword
 
 QUESTION: How do we handle `for` and `while` loop? `do` won't be able to work there. Should we still implement loops?
+
+`with` works like `await` in javascript. Any function that takes a callback as its last argument will be able to use the `with` notation.
 
 ```typescript
 let divide = (x: i32, y: i32, do resume: K<i32>, ?raise: Exception<&str, K<i32>>)-> {
   if y == 0 {
-    let value = do raise("Division by zero");
+    with value <- raise("Division by zero");
     resume(value);
   } else {
     resume(x / y);
@@ -2147,7 +2192,7 @@ let handle_resume = (do resume: K<i32>)-> {
     resume(10);
   }
 
-  let value = do divide(3, 0);
+  with value <- divide(3, 0);
   resume(1 + value + 2); // 13
 }
 ```
@@ -2164,7 +2209,7 @@ let wait_for_seconds = (sec: u32, do resume: K<i32>)-> {
 
 let main = ()-> {
   println("Before timeout");
-  let (wait1, wait2, wait3) = do (
+  with (wait1, wait2, wait3) <- (
     wait_for_seconds(1),
     wait_for_seconds(2),
     wait_for_seconds(3),
