@@ -853,11 +853,11 @@ let some_async_func = (?Async<i32>): i32 -> {
 
 ```typescript
 // id.mo
-export trait Id {
+export class Id<Self> {
   id: (self: Self)-> Self;
 };
 
-implement Id for i32 {
+instance Id<i32> {
   id: (self: i32): i32 -> {
     self
   }
@@ -1299,17 +1299,17 @@ implement< A with Show,
 
 ```typescript
 // show.mo
-export trait Show for Type {
+export class Show<Self: Type> {
   show: (self: &Self)-> String;
 }
 
-implement Show for i32 {
+instance Show<i32> {
   show: (self: &i32)-> {
     // ...
   }
 }
 
-implement Show for String {
+instance Show<String> {
   show: (self: &String)-> {
     // ...
   }
@@ -1559,14 +1559,14 @@ let expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
 eval(expr1); // false
 ```
 
-## Trait
+## Typeclass
 
 ```typescript
-trait Summary for Type {
+class Summary for Type {
   summarize: (self: &Self)-> String;
 };
 
-trait Display for Type with Summary & SomeOtherClass {
+class Display<Self: Type with Summary & SomeOtherClass> {
   display: (self: &Self)-> String;
 };
 
@@ -1577,7 +1577,7 @@ type NewsArticle = {
   content: String;
 };
 
-implement Summary for NewsArticle {
+instance Summary<NewsArticle> {
   summarize: (self: &NewsArticle): String -> {
     return "${self.headline}, by ${self.author} (${self.location})";
   }
@@ -1597,11 +1597,11 @@ let notify = <T with Display>(
 ```
 
 ```typescript
-trait LuckyNumber for i32 {
+class LuckyNumber<i32> {
   say_it: (self: &Self)-> ();
 }
 
-implement LuckyNumber for 7 {
+instance LuckyNumber<7> {
   say_it: (self: &7): ()-> {
     println("Lucky number 7");
   }
@@ -1613,7 +1613,7 @@ implement LuckyNumber for 7 {
 ### Associated types
 
 ```typescript
-trait Contains for Type {
+class Contains<Self: Type> {
   type A;
   type B;
 
@@ -1625,7 +1625,7 @@ trait Contains for Type {
 
 type Container = (i32, i32);
 
-implement Contains for Container {
+instance Contains<Container: Type> {
   type A = i32;
   type B = i32;
 
@@ -1641,26 +1641,26 @@ type MyI32 = Contains<Container>.A; // i32
 Contains<Container>.contains(&my_tuple, 10, 20); // true
 ```
 
-### Without trait
+### Without class
 
-Use `!Trait` to exclude a trait.
+Use `!Class` to exclude a class.
 
 ```typescript
-trait Summary for Type with Show & !Eq {
+class Summary<Self: Type with Show & !Eq> {
   summarize: (self: &Self)-> String;
 };
-// This trait `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
+// This class `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
 ```
 
-### Optional trait
+### Optional class
 
-Use `?Trait` to make a trait optional.
+Use `?Class` to make a class optional.
 
 ```typescript
-trait Summary for Type with ?Show {
+class Summary<Self: Type with ?Show> {
   summarize: (self: &Self)-> String;
 };
-// This trait `Summary` can implement for `Type` that implements `Show` or not.
+// This class `Summary` can implement for `Type` that implements `Show` or not.
 ```
 
 ### Type constraints alias using `expr`
@@ -1682,17 +1682,17 @@ This is useful for resolving conflicts when implementing multiple classes for th
 
 ```typescript
 // id.mo
-export trait Id for Type {
+export class Id<Self: Type> {
   id: (self: &Self)-> Self;
 }
 
 // id1.mo
-export implement Id for i32 {
+export instance Id<i32> {
   id: (self: &i32)-> *self
 }
 
 // id2.mo
-export implement Id for i32 {
+export instance Id<i32> {
   id: (self: &i32)-> *self + 1
 }
 
@@ -1709,11 +1709,11 @@ import { id } from "./id.mo";
 
 ```typescript
 // Functor
-trait Functor for Wrapper<Type>: Type {
+class Functor<Wrapper<Type>: Type> {
   map: <A, B>(fa: Wrapper<A>, f: (a: A)-> B)-> Wrapper<B>;
 }
 
-implement Functor for Maybe {
+instance Functor<Maybe> {
   map: <A, B>(fa: Maybe<A>, f: (a: A)-> B)-> Maybe<B> {
     match (fa) {
       case .Just: Just(f(fa.value)),
@@ -1722,7 +1722,7 @@ implement Functor for Maybe {
   }
 }
 
-implement<A: Type> Functor for Either<A> {
+implement<A: Type> Functor<Either<A>> {
   map: <B>( fa: Either<A>, f: (a: A)-> B)-> Either<B> {
     match (fa) {
       case .Left(value): Left(value),
@@ -2244,13 +2244,13 @@ export enum Option<T> {
 }
 
 // Export the trait.
-export trait Id for Self: Type {
+export class Id<Self: Type> {
   id: (self: Self)-> Self;
 }
 
 // Explicitly export the functions defined in the instance.
 // The implementations will be exported implicitly.
-implement Id for i32 {
+instance Id<i32> {
   id: (x: i32): i32 -> {
     x
   }
@@ -2275,7 +2275,7 @@ import { Option:{*} } from "./test.mo"; // Unwrap all variants from Option enum 
 import { Option as AnotherOption:{*} } from "./test.mo"; // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
 */
 
-import { Id } from "./test.mo"; // Import `Id` trait from test.mo
+import { Id } from "./test.mo"; // Import `Id` class from test.mo
 ```
 
 `mo.json` and `mo.lock`
@@ -2301,7 +2301,7 @@ NOTE: `@Type(with:)` is not concrete type. So we can't pass it to type argument.
 ### Examples
 
 ```typescript
-trait Shape for Self: Type {
+class Shape<Self: Type> {
   area: (self: &Self)-> f32;
 }
 
@@ -2309,7 +2309,7 @@ type Circle = {
   radius: f32;
 }
 
-implement Shape for Circle {
+instance Shape<Circle> {
   area: (self: &Self)-> {
     3.14 * self.radius * self.radius
   }
@@ -2319,7 +2319,7 @@ type Square = {
   side: f32;
 }
 
-implement Shape for Square {
+instance Shape<Square> {
   area: (self)-> {
     self.side * self.side
   }
@@ -2358,7 +2358,7 @@ let print_area = (shape: &(dynamic Shape))-> {
   println(shape.area());
 }
 
-[ // NOTE: We have to add `&` ahead dynamic Trait as it's unsized. It works similar to slice that requires `&` ahead.
+[ // NOTE: We have to add `&` ahead dynamic Class as it's unsized. It works similar to slice that requires `&` ahead.
   &((dynamic Shape)(circle)),
   &((dynamic Shape)(square)),
 ] as (&(dynamic Shape))[] |> (shapes)-> {
@@ -2376,7 +2376,7 @@ enum MyShape {
   MyCircle(value: Circle),
   MySquare(value: Square),
 }
-implement Shape for MyShape {
+instance Shape<MyShape> {
   area: (self)-> {
     match self {
       case .MyCircle: self.value.area(),
@@ -2406,7 +2406,7 @@ let add = (x: i32, y: i32): i32 -> {
 type Centimeters = i32;
 
 
-implement Drop for i32 {
+instance Drop<i32> {
   @noop() // ignored by the compiler when generating C code
   drop: (value)-> {}
 }
