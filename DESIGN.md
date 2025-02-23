@@ -1998,6 +1998,7 @@ NOTE: It is too hard to implement. And it makes the type system complicated. We 
 ### Effectful function
 
 QUESTION: Should we allow an effectful function to be a closure?
+PROBLEM: This approach hides too many details from the programmer. And it's hard to implement to compile to C. In theory, a function that calls a effectful function will need to convert to state machine. The function that calls such a function will also need to convert to state machine. This will make the code hard to read and understand. Especially for the function that accepts a function (or closure) as an argument.  
 
 An effectful function is defined with the `effect` keyword.
 
@@ -2009,7 +2010,7 @@ The `do` keyword is used to call the effectful function.
 The `do` keyword decides where to `resume` the continuation.
 The `do` keyword is necessary to notify the programmer that the continuation might `abort`.
 
-The `return` keyword is not allowed in the continuation function.
+~~The `return` keyword is not allowed in the continuation function.~~
 
 ```typescript
 let safe_divide =
@@ -2172,7 +2173,9 @@ let handle_abort = (do resume: K<i32>)-> {
 
 ### Simplify using `with <-` keyword
 
-QUESTION: How do we handle `for` and `while` loop? `do` won't be able to work there. Should we still implement loops?
+QUESTION: How do we handle `for` and `while` loop? `<-` won't be able to work there. Should we still implement loops?
+
+PROBLEM: How to handle the rust `Pin/Unpin` problem?
 
 `with` works like `await` in javascript. Any function that takes a callback as its last argument will be able to use the `with` notation.
 
@@ -2194,6 +2197,24 @@ let handle_resume = (do resume: K<i32>)-> {
 
   with value <- divide(3, 0);
   resume(1 + value + 2); // 13
+}
+```
+
+#### Moving out the continuation
+
+```typescript
+let func = (flag: boolean, do resume: K<i32>)-> {
+  with result <-
+    if (flag) {
+      with response <- fetch("https://api.example.com");
+      with text <- response.text();
+      text
+    } else {
+      "Hello, world!"
+    };
+  // The following code is also part of the continuation.
+  println(result);
+  resume(result.length());
 }
 ```
 

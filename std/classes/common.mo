@@ -2,7 +2,7 @@ export class Drop<Self: Type> {
   drop: (self: Self)-> ();
 }
 
-export class Clone<Self: Type> {
+export class Clone<Self: Linear> {
   clone: (self: &Self)-> Self;
 }
 
