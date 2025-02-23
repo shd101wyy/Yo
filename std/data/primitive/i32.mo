@@ -7,7 +7,7 @@ import { Drop } from "../../classes/common.mo";
 /**
  * arithmetic
  */
-implement Add<i32> for i32 {
+instance Add<i32, i32> {
   Output: i32;
 
   (+): (a, b)-> {
@@ -16,7 +16,7 @@ implement Add<i32> for i32 {
   }
 }
 
-implement Sub<i32> for i32 {
+instance Sub<i32, i32> {
   Output: i32;
 
   (-): (a, b)-> {
@@ -25,7 +25,7 @@ implement Sub<i32> for i32 {
   }
 }
 
-implement Mul<i32> for i32 {
+instance Mul<i32, i32> {
   Output: i32;
   
   (*): (a, b)-> {
@@ -34,7 +34,7 @@ implement Mul<i32> for i32 {
   }
 }
 
-implement Div<i32> for i32 {
+instance Div<i32, i32> {
   Output: i32;
 
   (/): (a, b)-> {
@@ -43,7 +43,7 @@ implement Div<i32> for i32 {
   }
 }
 
-implement Mod<i32> for i32 {
+instance Mod<i32, i32> {
   Output: i32;
 
   (%): (a, b)-> {
@@ -55,7 +55,7 @@ implement Mod<i32> for i32 {
 /**
  * logic
  */
-implement LogicalNot for i32 {
+instance LogicalNot<i32> {
   Output: i32;
 
   (!): (a)-> {
@@ -68,7 +68,7 @@ implement LogicalNot for i32 {
 /**
  * eq
  */
-implement Eq for i32 {
+instance Eq<i32, i32> {
   (eq): (a, b)-> {
     codegen_inline(C="(((int32_t)*$1) == ((int32_t)*$2))");
     recur(a, b)
@@ -82,7 +82,7 @@ implement Eq for i32 {
 /**
  * drop
  */
-implement Drop for i32 {
+instance Drop<i32> {
   @noop() // ignored by the compiler when generating C code
   drop: (value)-> {}
 }

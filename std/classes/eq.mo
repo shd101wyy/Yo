@@ -1,12 +1,12 @@
 infix  40 ==  // Equality
 infix  40 !=  // Inequality
 
-export class Eq<Rhs = Self> {
-  eq: (lhs: &Self, rhs: &Rhs)-> boolean;
-  ne: (lhs: &Self, rhs: &Rhs)-> boolean = (lhs, rhs)-> {
+export class Eq<Lhs: Type, Rhs = Lhs> {
+  eq: (lhs: &Lhs, rhs: &Rhs)-> boolean;
+  ne: (lhs: &Lhs, rhs: &Rhs)-> boolean = (lhs, rhs)-> {
     !lhs.eq(rhs)
     // or
-    // !Eq<Self>.eq(lhs, rhs)
+    // !Eq<Lhs, Rhs>.eq(lhs, rhs)
   }
 }
 

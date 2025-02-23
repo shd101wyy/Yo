@@ -4,33 +4,33 @@ infixl 60 |   // Bitwise OR
 infixl 60 ^   // Bitwise XOR
 infixl 70 &   // Bitwise AND
 
-export trait LogicalAnd<Rhs=Self> {
-  (&&): (lhs: Self, rhs: Rhs)-> boolean;
+export class LogicalAnd<Lhs: Type, Rhs=Lhs> {
+  (&&): (lhs: Lhs, rhs: Rhs)-> boolean;
 }
 
-export trait LogicalOr<Rhs=Self> {
-  (||): (lhs: Self, rhs: Rhs)-> boolean;
+export class LogicalOr<Lhs: Type, Rhs=Lhs> {
+  (||): (lhs: Lhs, rhs: Rhs)-> boolean;
 }
 
-export trait BitNot {
+export class BitNot<Self: Type> {
   (~): (self: Self)-> Self;
 }
 
-export trait LogicalNot {
+export class LogicalNot<Self: Type> {
   (!): (self: Self)-> boolean;
 }
 
-export trait BitAnd<Rhs=Self> {
+export class BitAnd<Lhs: Type, Rhs=Lhs> {
   Output: Type;
-  (&): (lhs: Self, rhs: Rhs)-> this.Output;
+  (&): (lhs: Lhs, rhs: Rhs)-> this.Output;
 }
 
-export trait BitOr<Rhs=Self> {
+export class BitOr<Lhs: Type, Rhs=Lhs> {
   Output: Type;
-  (|): (lhs: Self, rhs: Rhs)-> this.Output;
+  (|): (lhs: Lhs, rhs: Rhs)-> this.Output;
 }
 
-export trait BitXor<Rhs=Self> {
+export class BitXor<Lhs: Type, Rhs=Lhs> {
   Output: Type;
-  (^): (lhs: Self, b: Rhs)-> this.Output;
+  (^): (lhs: Lhs, b: Rhs)-> this.Output;
 }

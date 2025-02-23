@@ -11,7 +11,7 @@ export enum Ordering {
 
 // FIXME:
 // Using Eq<T>
-export trait Ord for Self: Type with Eq {
+export class Ord<Self: Type with Eq> {
   compare: (self: &Self, other: &Self)-> Ordering;
   lt: (self: &Self, other: &Self)-> boolean;
   gt: (self: &Self, other: &Self)-> boolean;

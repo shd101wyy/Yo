@@ -6,7 +6,7 @@ import { Drop } from "../../classes/common.mo";
 /**
  * logic
  */
-implement LogicalNot for boolean {
+instance LogicalNot<boolean> {
   (!): (a)-> {
     codegen_inline(C="(!($1))");
     recur(a)
@@ -16,7 +16,7 @@ implement LogicalNot for boolean {
 /**
  * eq
  */
-implement Eq for boolean {
+instance Eq<boolean> {
   (==): (a, b)-> {
     codegen_inline(C="(($1) == ($2))");
     recur(a, b)
@@ -30,7 +30,7 @@ implement Eq for boolean {
 /**
  * drop
  */
-implement Drop for boolean {
+instance Drop<boolean> {
   @noop() // ignored by the compiler when generating C code
   drop: (value)-> {}
 }
