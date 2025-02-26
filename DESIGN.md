@@ -1031,6 +1031,19 @@ infixr 80 **  // right associativity. Eg, 3 ** 4 ** 6 == 3 ** (4 ** 6)
 infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
 ```
 
+### Variadic functions `In Design`
+
+```typescript
+let print = (...args)-> {
+  // @va_start(args); // Start the variadic arguments
+  let args2 = @va_copy(args); // Copy the variadic arguments
+  for (let i = 0; i < args.length; i++) {
+    printf("%d ", @va_arg(args, i32)); // Pop the variadic argument and set it to i32
+  }
+  // @va_end(args); // End the variadic arguments
+}
+```
+
 ## Duck Typing `In Design`
 
 ```typescript
@@ -2488,6 +2501,15 @@ extern "C" {
 }
 
 my_add_numbers(1, 2); // calling add_numbers from C
+```
+
+- printf
+
+```typescript
+let {*} = @import("stdio.h");
+extern "C" {
+  printf: (format: *u8, ...args)-> i32;
+}
 ```
 
 ## Naming Convention
