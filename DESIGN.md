@@ -1612,12 +1612,14 @@ instance LuckyNumber<7> {
 
 ### Associated types
 
+aka [Functional Dependencies](https://book.purescript.org/chapter6.html#functional-dependencies)
+
 ```typescript
 class Contains<Self: Type> {
-  type A;
-  type B;
+  A: Type;
+  B: Type;
 
-  contains: (self: &Self, a: Self.A, b: Self.B)-> boolean;
+  contains: (self: &Self, a: this.A, b: this.B)-> boolean;
             // QUESTION: Do we need `this.` here?
             // ~~ANSWER: Yes, see the code example below.~~
             // IDEA: Maybe `this.` is not necessary.
