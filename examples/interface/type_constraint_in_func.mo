@@ -1,5 +1,5 @@
-import { Id } from "./id.mo";
-import { Coord } from "./implement.mo";
+let { Id } = @import("./id.mo");
+let { Coord } = @import("./implement.mo");
 
 let test = <T: Type using Id<T>>(x: T)-> T {
   id(x)

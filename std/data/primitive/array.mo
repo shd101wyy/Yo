@@ -1,4 +1,4 @@
-import { Drop, drop } from "../../classes/common.mo";
+let { Drop, drop } = @import("../../classes/common.mo");
 
 instance <T: Linear with Drop<T>, S: usize> Drop<T[S]> {
   drop: (self)-> {

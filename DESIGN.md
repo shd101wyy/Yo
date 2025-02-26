@@ -864,7 +864,7 @@ instance Id<i32> {
 }
 
 // main.mo
-import { Id } = from "./id.mo";
+let { Id } = @import("./id.mo");
 
 (12).id(); // 12
 let use_id = <T with Id>(x: T): T -> {
@@ -1317,13 +1317,13 @@ instance Show<String> {
 
 
 // main.mo
-import { Show } from "./show.mo";
+let { Show } = @import("./show.mo");
 
 export let show = <T with Show>(x: Array<T>): String -> {
   // ...
 }
 
-import { show, Show } from "./show.mo";
+let { show, Show } = @import("./show.mo");
 
 let less_than = <T: Type with Ord & Show>(x: T, y: T): boolean -> {
   println(show(x));
@@ -1676,7 +1676,7 @@ let foo = <T with @Foo>(v: &T)-> {
 }
 ```
 
-### Named implementation `In Design`
+### Named instance `In Design`
 
 This is useful for resolving conflicts when implementing multiple classes for the same type.
 
@@ -1687,7 +1687,7 @@ export class Id<Self: Type> {
 }
 
 // id1.mo
-export instance Id<i32> {
+export let MyIdInstnace = instance Id<i32> {
   id: (self: &i32)-> *self
 }
 
@@ -1697,11 +1697,11 @@ export instance Id<i32> {
 }
 
 // use_id.mo
-import { id } from "./id1.mo";
+let { id } = @import("./id1.mo");
 12.id(); // 13
 
 // another_use_id.mo
-import { id } from "./id.mo";
+let { id } = @import("./id.mo");
 12.id(); // Compiler Error: Ambiguous call to `id` function.
 ```
 
@@ -2249,8 +2249,10 @@ QUESTION: Should we allow to `export` a linear type value?
 - To allow import happening in the middle of the code, like inside a function.
 - for consistency with the destructuring. Like for javascript, it uses `import {x as y} from "module.ts"` but destructuring uses `let {x: y} = obj`.
 
+`@import` is used to import a module. It's an `expr` function that accepts a comptime-known string literal.
+
 ```typescript
-import { copy } from "https://github.com/mo-lang/mo/std/fs.mo"
+let { copy } = @import("https://github.com/mo-lang/mo/std/fs.mo")
 
 let test = ()-> {
   println("Hello, world!");
@@ -2282,21 +2284,21 @@ export let x = 1;
 ```
 
 ```typescript
-import * from "./test.mo"; // Import everything from test.mo
-import * as Test from "./test.mo"; // Import everything from test.mo and put it in the Test namespace
-import { test } from "./test.mo"; // Import test function from test.mo
-import { test as test2 } from "./test.mo"; // Import test function from test.mo and rename it to test2
+let {*} = @import("./test.mo"); // Import everything from test.mo
+let Test = @import("./test.mo"); // Import everything from test.mo and put it in the Test namespace
+let { test } = @import("./test.mo"); // Import test function from test.mo
+let { test: test2 } = @import("./test.mo"); // Import test function from test.mo and rename it to test2
 
-import { Option } from "./test.mo"; // Import Option enum from test.mo
+let { Option } = @import("./test.mo"); // Import Option enum from test.mo
 
 /*
 // BELOW ARE IN DESIGN
-import { Option:{Some, None} } from "./test.mo"; // Unwrap Some and None variant from Option enum from test.mo
-import { Option:{*} } from "./test.mo"; // Unwrap all variants from Option enum from test.mo
-import { Option as AnotherOption:{*} } from "./test.mo"; // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
+let { Option:{Some, None} } = @import("./test.mo"); // Unwrap Some and None variant from Option enum from test.mo
+let { Option:{*} } = @import("./test.mo"); // Unwrap all variants from Option enum from test.mo
+let { Option:{*}, Option: AnotherOption } = @import("./test.mo"); // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
 */
 
-import { Id } from "./test.mo"; // Import `Id` class from test.mo
+let { Id } = @import("./test.mo"); // Import `Id` class from test.mo
 ```
 
 `mo.json` and `mo.lock`
@@ -2467,7 +2469,7 @@ struct some_struct_t {
 ```
 
 ```typescript
-import * from "./some_c.h";
+let {*} = @import("./some_c.h");
 
 extern "C" {
   @c_name("add_numbers") // Import from C with the name `add_numbers`

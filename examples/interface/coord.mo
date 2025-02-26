@@ -1,4 +1,4 @@
-import { Id, id } from "./id.mo"
+let { Id, id } = @import("./id.mo");
 
 export type Coord = {
   x: i32;
