@@ -927,7 +927,11 @@ let main = ()-> {
 
 ### Uniform Function Call Syntax
 
-NOTE: This might be removed.
+```typescript
+g(f(a, b), x, y);
+// can be written as
+a.f(b).g(x, y);
+```
 
 ```typescript
 let add_one = (x: i32): i32 -> {
@@ -1977,10 +1981,29 @@ let main = (?throw: Exception<MyError>)-> {
 ```typescript
 let divide = (x: i32, y: i32): Result<i32, &str> -> {
   if y == 0 {
-    return Error("Division by zero");
+    Error("Division by zero")
   } else {
-    return Ok(x / y);
+    Ok(x / y)
   }
+}
+```
+
+### The `?` postfix operator
+
+```typescript
+let use_safe_divide = (): Result<i32, &str>-> {
+  let result1 = divide(6, 2)?; // 3;
+  let result2 = divide(6, 0)?; // Error("Division by zero");
+  println(result1); // This line and below will not be executed.
+}
+```
+
+### Recovering from errors with the `??` infix operator
+
+```typescript
+let use_safe_divide = (): i32-> {
+  let result = divide(6, 0) ?? 3; // 3
+  println(result); // 3
 }
 ```
 
@@ -2013,7 +2036,7 @@ NOTE: It is too hard to implement. And it makes the type system complicated. We 
 ### Effectful function
 
 QUESTION: Should we allow an effectful function to be a closure?
-PROBLEM: This approach hides too many details from the programmer. And it's hard to implement to compile to C. In theory, a function that calls a effectful function will need to convert to state machine. The function that calls such a function will also need to convert to state machine. This will make the code hard to read and understand. Especially for the function that accepts a function (or closure) as an argument.  
+PROBLEM: This approach hides too many details from the programmer. And it's hard to implement to compile to C. In theory, a function that calls a effectful function will need to convert to state machine. The function that calls such a function will also need to convert to state machine. This will make the code hard to read and understand. Especially for the function that accepts a function (or closure) as an argument.
 
 An effectful function is defined with the `effect` keyword.
 
