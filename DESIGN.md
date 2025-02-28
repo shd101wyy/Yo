@@ -371,7 +371,7 @@ let my_int_array = [1, 2, 3]; // i32[3]; Free type
 let my_array_list: ArrayList<i32> = ArrayList.from([1, 2, 3]); // Stored on heap. Linear type.
 
 let my_set: Set<i32> = Set.from([1, 2, 3]); // Stored on heap. Linear type.
-let my_map: Map<*u8[], i32> = Map.from([
+expr my_map: Map<&str, i32> = Map.from([
   ["one", 1],
   ["two", 2],
 ]); // Stored on heap. Linear type.
@@ -797,7 +797,7 @@ let identity = (arg: @Type("T")): @Type("T")-> {
 }
 
 // Dependency injection
-let main = (?raise: (error: *u8[])-> i32)-> {
+let main = (?raise: (error: &str)-> i32)-> {
   let x: i32 = raise("Hello, world");
 }
 
@@ -1145,6 +1145,7 @@ let set_value_3 = (arr: i32[3], index: usize, value: i32)-> {
 ```
 
 ```typescript
+NOTE: The example below is wrong:
 type str = u8[,'\0'];
 
 let constant_str = "Hello"; // constant_str: *u8[5,'\0']
@@ -1155,7 +1156,7 @@ var mutable_str = *"Hello"; // mutable_str: u8[5,'\0'], convert to mutable array
                      // ['H', 'e', 'l', 'l', 'o', '\0']
 mutable_str.length; // 5 (excluding '\0'), compile-time known
 
-let slice_1 = &mutable_str[0:2]; // slice_1: *u8[]
+let slice_1 = &mutable_str[0:2]; // slice_1: &str
                            // ['H', 'e']
 slice_1.length; // 2, runtime known
 slice_1[0] = 'h';
@@ -2037,6 +2038,7 @@ NOTE: It is too hard to implement. And it makes the type system complicated. We 
 
 QUESTION: Should we allow an effectful function to be a closure?
 PROBLEM: This approach hides too many details from the programmer. And it's hard to implement to compile to C. In theory, a function that calls a effectful function will need to convert to state machine. The function that calls such a function will also need to convert to state machine. This will make the code hard to read and understand. Especially for the function that accepts a function (or closure) as an argument.
+ANSWER: Maybe that's fine ^^^ When we compile a function, we generate two versions of the function: one is the normal function, and the other is the state machine version. The normal function is used when the function is called normally. The state machine version is used when the function being effectful.
 
 An effectful function is defined with the `effect` keyword.
 
@@ -2054,7 +2056,7 @@ The `do` keyword is necessary to notify the programmer that the continuation mig
 let safe_divide =
   ( x: i32,
     y: i32,
-    raise: effect (msg: *u8[])-> i32
+    raise: effect (msg: &str)-> i32
   ): i32 -> {
   if y == 0 {
     do raise("Division by zero")
@@ -2065,7 +2067,7 @@ let safe_divide =
 
 // `resume`
 let handle_resume = (): i32 -> {
-  let raise = effect (msg: *u8[]): i32 -> {
+  let raise = effect (msg: &str): i32 -> {
     k.resume(10);
   }
   return 1 + safe_divide(3, 0, raise) + 2; // 13
@@ -2073,7 +2075,7 @@ let handle_resume = (): i32 -> {
 
 // `abort`
 let handle_abort = (): i32 -> {
-  let raise = effect (msg: *u8[]): i32 -> {
+  let raise = effect (msg: &str): i32 -> {
     abort(10, /* k */);
   }
   return 1 + safe_divide(3, 0, raise) + 2; // 10
@@ -2212,6 +2214,7 @@ let handle_abort = (do resume: K<i32>)-> {
 ### Simplify using `with <-` keyword
 
 QUESTION: How do we handle `for` and `while` loop? `<-` won't be able to work there. Should we still implement loops?
+ANSWER: Yes we should.
 
 PROBLEM: How to handle the rust `Pin/Unpin` problem?
 
@@ -2238,7 +2241,22 @@ let handle_resume = (do resume: K<i32>)-> {
 }
 ```
 
+Map an array
+
+```typescript
+let main = ()-> {
+  let array = ArrayList.from([1, 2, 3, 4]);
+  let new_array = {
+    with elem <- array.map();
+    elem * 2
+  }
+  println(new_array); // [2, 4, 6, 8]
+}
+```
+
 #### Moving out the continuation
+
+QUESTION: Should we support this?
 
 ```typescript
 let func = (flag: boolean, do resume: K<i32>)-> {
@@ -2256,7 +2274,9 @@ let func = (flag: boolean, do resume: K<i32>)-> {
 }
 ```
 
-#### Run multiple continuations with `do`
+#### Run multiple continuations with `<-`
+
+NOTE: Not going to be supported. Check the `Future` section below.
 
 ```typescript
 let wait_for_seconds = (sec: u32, do resume: K<i32>)-> {
@@ -2274,6 +2294,43 @@ let main = ()-> {
     wait_for_seconds(3),
   );
   println("After timeout");
+}
+```
+
+### `Future` and `async` block
+
+```typescript
+let wait_for_seconds = (sec: i32): Future<()> -> {
+  Future.new(move (resume)=> {
+    set_timeout(move ()=> {
+      println(sec);
+      resume();
+    }, sec * 1000);
+  })
+}
+
+// or using the `async` block
+let wait_for_seconds = (sec: i32): Future<()> -> {
+  async {
+  // or
+  // async resume {
+    // `resume` is exposed to the `async` block.
+    // `async` block will generate `Future`.
+    set_timeout(move ()=> {
+      resume(sec)
+    }, sec * 1000);
+  }
+}
+
+// or
+let wait_for_seconds = (sec: i32): Future<()> -> async {
+  set_timeout(move ()=> {
+    resume(sec)
+  }, sec * 1000)
+}
+
+let use_wait = ()-> {
+  with <- wait_for_seconds(14).await();
 }
 ```
 
