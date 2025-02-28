@@ -1494,6 +1494,50 @@ let anotherHome = IpAddr.V4(v3: 200);
 let loopback = IpAddr.V6(String.from("::1"))
 ```
 
+## C struct
+
+```typescript
+type Point = {
+  x: i32,
+  y: i32
+};
+
+let my_point: Point = Point {
+  x: 10,
+  y: 20
+}
+```
+
+Compiles to C
+
+```c
+struct Point {
+  int x;
+  int y;
+};
+```
+
+## C union
+
+```typescript
+type MyNumber = { i: i32 } | { j: f32 };
+
+let my_number: MyNumber = MyNumber { i: 10 };
+```
+
+Compiles to C
+
+```c
+union MyNumber {
+  struct {
+    int i;
+  };
+  struct {
+    float j;
+  };
+};
+```
+
 ## Advanced Types `In Design`
 
 ### Dependent types `In Design`
@@ -1580,7 +1624,7 @@ eval(expr1); // false
 ## Typeclass
 
 ```typescript
-class Summary for Type {
+class Summary<Self: Type> {
   summarize: (self: &Self)-> String;
 };
 
@@ -1628,6 +1672,30 @@ instance LuckyNumber<7> {
 7.say_it(); // Lucky number 7
 ```
 
+### Class and type with the same name
+
+```typescript
+// my_type.mo
+type MyType<T> = { value: T };
+
+class MyType<T> {
+  Self: Type = MyType<T>;
+  new: (value: T)-> this.Self;
+}
+
+instance<T> MyType<T> {
+  new: (value: T): this.Self -> {
+    MyType {
+      value: value
+    }
+  }
+}
+
+// main.mo
+let {class MyType} = @import("./my_type");
+let v = MyType<i32>.new(1); // { value: 1 }
+```
+
 ### Associated types
 
 aka [Functional Dependencies](https://book.purescript.org/chapter6.html#functional-dependencies)
@@ -1646,10 +1714,10 @@ class Contains<Self: Type> {
 type Container = (i32, i32);
 
 instance Contains<Container: Type> {
-  type A = i32;
-  type B = i32;
+  A: i32;
+  B: i32;
 
-  contains: (self: &Container, a: i32, b: i32): boolean -> {
+  contains: (self: &Container, a: this.A, b: this.B): boolean -> {
     self.0 == a && self.1 == b
   }
 }
