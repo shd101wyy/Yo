@@ -1,4 +1,4 @@
-export class FnOnce<
+export trait FnOnce<
   Context: Type,
   Arguments: Type,
 > {
@@ -8,13 +8,13 @@ export class FnOnce<
 }
 
 export trait FnMut<
-  Context: Free with FnOnce<Arguments>,
-  Arguments: Type
+  Context: Free with FnOnce<Arguments>;
+  Arguments: Type;
 >
 {
+  Output: Type = FnOnce<Arguments>.Output;
   call_mut: (self: &mut Context, arguments: Arguments)
-              -> // this.Output; 
-                FnOnce<Context, Arguments>.Output;
+              -> this.Output; 
 }
 
 export trait Fn<
@@ -22,7 +22,7 @@ export trait Fn<
   Arguments: Type
 >
 {
+  Output: Type = FnMut<Arguments>.Output;
   call: (self: &Context, arguments: Arguments)
-          -> // this.Output
-            FnMut<Arguments>.Output;
+          -> this.Output;
 }

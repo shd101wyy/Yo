@@ -13,7 +13,7 @@ infixl 70 >>  // Bitwise right shift
 infixr 80 **  // Exponentiation. 3 ** 4 ** 6 == 3 ** (4 ** 6)
 
 
-export class Add<Lhs: Type, Rhs=Lhs> {
+export trait Add<Lhs: Type, Rhs=Lhs> {
   Output: Type = Lhs;
   (+): (lhs: Lhs, rhs: Rhs)-> this.Output;
 }

@@ -4,7 +4,7 @@
 
 **Mo** aims to be a simple to learn programming language for C and JavaScript (TypeScript) programmers 😉.
 
-**Mo** has a syntax design that looks like TypeScript~~, and uses uniform call syntax (dot notation)~~~~, brace elison~~ to make the code more concise.
+**Mo** has a syntax design that looks like TypeScript~~, and uses uniform function call syntax (dot notation)~~~~, brace elison~~ to make the code more concise.
 
 **Mo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types `In Design`.
 
@@ -853,11 +853,11 @@ let some_async_func = (?Async<i32>): i32 -> {
 
 ```typescript
 // id.mo
-export class Id<Self> {
+export trait Id<Self> {
   id: (self: Self)-> Self;
 };
 
-instance Id<i32> {
+impl Id<i32> {
   id: (self: i32): i32 -> {
     self
   }
@@ -867,7 +867,7 @@ instance Id<i32> {
 let { Id } = @import("./id.mo");
 
 (12).id(); // 12
-let use_id = <T with Id>(x: T): T -> {
+let use_id = <T impl Id>(x: T): T -> {
   x.id();
 }
 ```
@@ -926,6 +926,8 @@ let main = ()-> {
 ```
 
 ### Uniform Function Call Syntax
+
+DEPRECATED: Use traits instead.
 
 ```typescript
 g(f(a, b), x, y);
@@ -1018,7 +1020,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
 ### Custom Operators
 
 ```typescript
-let (|>) = <T, U, F with FnOnce(value:T)-> U>(x: T, f: F): U -> {
+let (|>) = <T, U, F impl FnOnce(value:T)-> U>(x: T, f: F): U -> {
   f(x)
 }
 
@@ -1287,12 +1289,12 @@ Type constraints are achieved using the `with` keyword.
 
 ```typescript
 // Type constraints
-let three_are_equal = <T: Type with Eq>(x: T, y: T, z: T): boolean -> {
+let three_are_equal = <T: Type impl Eq>(x: T, y: T, z: T): boolean -> {
   x == y && y == z
 }
 // <T: Type with Eq> is equivalent to <T: Type with Eq<Self>> where `Self` is `T`
 
-let show_compare = <T: Type with Show & Ord>(x: T, y: T): String -> {
+let show_compare = <T: Type impl Show & Ord>(x: T, y: T): String -> {
   match(compare(x, y)) {
     case LT: "Less than"
     case EQ: "Equal"
@@ -1301,14 +1303,14 @@ let show_compare = <T: Type with Show & Ord>(x: T, y: T): String -> {
 }
 
 // Instance dependencies
-implement<A with Show> Show for A[] {
+impl<A impl Show> Show<A[]> {
   show: (self: A[])-> {
     // ...
   }
 }
-implement< A with Show,
-           B with Show
-          > Show for (A, B) {
+impl< A impl Show,
+      B impl Show
+    > Show<(A, B)> {
   show: (self: (A, B))-> {
     // ...
   }
@@ -1317,17 +1319,17 @@ implement< A with Show,
 
 ```typescript
 // show.mo
-export class Show<Self: Type> {
+export trait Show<Self: Type> {
   show: (self: &Self)-> String;
 }
 
-instance Show<i32> {
+impl Show<i32> {
   show: (self: &i32)-> {
     // ...
   }
 }
 
-instance Show<String> {
+impl Show<String> {
   show: (self: &String)-> {
     // ...
   }
@@ -1337,14 +1339,14 @@ instance Show<String> {
 // main.mo
 let { Show } = @import("./show.mo");
 
-export let show = <T with Show>(x: Array<T>): String -> {
+export let show = <T impl Show>(x: Array<T>): String -> {
   // ...
 }
 
-let { show, Show } = @import("./show.mo");
+let { Show } = @import("./show.mo");
 
-let less_than = <T: Type with Ord & Show>(x: T, y: T): boolean -> {
-  println(show(x));
+let less_than = <T: Type impl Ord & Show>(x: T, y: T): boolean -> {
+  println(x.show());
   return x < y;
 }
 ```
@@ -1621,14 +1623,16 @@ let expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
 eval(expr1); // false
 ```
 
-## Typeclass
+## Trait
+
+Trait works similarly to the one in Rust.
 
 ```typescript
-class Summary<Self: Type> {
+trait Summary<Self: Type> {
   summarize: (self: &Self)-> String;
 };
 
-class Display<Self: Type with Summary & SomeOtherClass> {
+impl Display<Self: Type impl Summary & SomeOtherClass> {
   display: (self: &Self)-> String;
 };
 
@@ -1639,7 +1643,7 @@ type NewsArticle = {
   content: String;
 };
 
-instance Summary<NewsArticle> {
+impl Summary<NewsArticle> {
   summarize: (self: &NewsArticle): String -> {
     return "${self.headline}, by ${self.author} (${self.location})";
   }
@@ -1650,7 +1654,7 @@ let notify = (item: &NewsArticle)-> {
   println("Breaking news! ", item.summarize());
 }
 
-let notify = <T with Display>(
+let notify = <T impl Display>(
   item: &T
 )-> {
   println("Breaking news! ", item.summarize());
@@ -1659,11 +1663,11 @@ let notify = <T with Display>(
 ```
 
 ```typescript
-class LuckyNumber<i32> {
-  say_it: (self: &Self)-> ();
+trait LuckyNumber<i32> {
+  say_it: (self: &i32)-> ();
 }
 
-instance LuckyNumber<7> {
+impl LuckyNumber<7> {
   say_it: (self: &7): ()-> {
     println("Lucky number 7");
   }
@@ -1672,19 +1676,18 @@ instance LuckyNumber<7> {
 7.say_it(); // Lucky number 7
 ```
 
-### Class and type with the same name
+### `impl` a type
+
+NOTE: `impl` a type more than once is allowed. This is how rust behaves.  
+QUESTION: Should we allow `impl` a primitive type?
 
 ```typescript
 // my_type.mo
 type MyType<T> = { value: T };
 
-class MyType<T> {
-  Self: Type = MyType<T>;
-  new: (value: T)-> this.Self;
-}
-
-instance<T> MyType<T> {
-  new: (value: T): this.Self -> {
+impl<T> MyType<T> {
+  // `this` here means `MyType<T>`.
+  new: (value: T): this -> {
     MyType {
       value: value
     }
@@ -1692,7 +1695,7 @@ instance<T> MyType<T> {
 }
 
 // main.mo
-let {class MyType} = @import("./my_type");
+let { MyType } = @import("./my_type");
 let v = MyType<i32>.new(1); // { value: 1 }
 ```
 
@@ -1701,19 +1704,21 @@ let v = MyType<i32>.new(1); // { value: 1 }
 aka [Functional Dependencies](https://book.purescript.org/chapter6.html#functional-dependencies)
 
 ```typescript
-class Contains<Self: Type> {
+trait Contains<Self: Type> {
   A: Type;
   B: Type;
 
   contains: (self: &Self, a: this.A, b: this.B)-> boolean;
             // QUESTION: Do we need `this.` here?
-            // ~~ANSWER: Yes, see the code example below.~~
-            // IDEA: Maybe `this.` is not necessary.
+            // ANSWER: Yes. Let's make it the same as typescript.
+            // `this` here means `Contains<Self>`.
+            // `this.A` means `Contains<Self>.A`.
+            // so `this.` is necessary.
 }
 
 type Container = (i32, i32);
 
-instance Contains<Container: Type> {
+impl Contains<Container: Type> {
   A: i32;
   B: i32;
 
@@ -1729,26 +1734,26 @@ type MyI32 = Contains<Container>.A; // i32
 Contains<Container>.contains(&my_tuple, 10, 20); // true
 ```
 
-### Without class
+### Without trait
 
-Use `!Class` to exclude a class.
+Use `!Trait` to exclude a trait.
 
 ```typescript
-class Summary<Self: Type with Show & !Eq> {
+trait Summary<Self: Type impl Show & !Eq> {
   summarize: (self: &Self)-> String;
 };
-// This class `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
+// This trait `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
 ```
 
 ### Optional class
 
-Use `?Class` to make a class optional.
+Use `?Trait` to make a trait optional.
 
 ```typescript
-class Summary<Self: Type with ?Show> {
+trait Summary<Self: Type impl ?Show> {
   summarize: (self: &Self)-> String;
 };
-// This class `Summary` can implement for `Type` that implements `Show` or not.
+// This trait `Summary` can implement for `Type` that implements `Show` or not.
 ```
 
 ### Type constraints alias using `expr`
@@ -1759,37 +1764,37 @@ class Summary<Self: Type with ?Show> {
 expr @Foo = Debug & Send;
 expr @Bar = Foo & Sync;
 
-let foo = <T with @Foo>(v: &T)-> {
+let foo = <T impl @Foo>(v: &T)-> {
   // ...
 }
 ```
 
-### Named instance `In Design`
+### Named impl `In Design`
 
 This is useful for resolving conflicts when implementing multiple classes for the same type.
 
 ```typescript
 // id.mo
-export class Id<Self: Type> {
+export trait Id<Self: Type> {
   id: (self: &Self)-> Self;
 }
 
 // id1.mo
-export let MyIdInstnace = instance Id<i32> {
+export let MyIdImplementation = impl Id<i32> {
   id: (self: &i32)-> *self
 }
 
 // id2.mo
-export instance Id<i32> {
+impl Id<i32> {
   id: (self: &i32)-> *self + 1
 }
 
 // use_id.mo
-let { id } = @import("./id1.mo");
-12.id(); // 13
+let { MyIdImplementation } = @import("./id1.mo");
+MyIdImplementation.id(&12); // 13
 
 // another_use_id.mo
-let { id } = @import("./id.mo");
+let { Id } = @import("./id.mo");
 12.id(); // Compiler Error: Ambiguous call to `id` function.
 ```
 
@@ -1797,11 +1802,11 @@ let { id } = @import("./id.mo");
 
 ```typescript
 // Functor
-class Functor<Wrapper<Type>: Type> {
+trait Functor<Wrapper<Type>: Type> {
   map: <A, B>(fa: Wrapper<A>, f: (a: A)-> B)-> Wrapper<B>;
 }
 
-instance Functor<Maybe> {
+impl Functor<Maybe> {
   map: <A, B>(fa: Maybe<A>, f: (a: A)-> B)-> Maybe<B> {
     match (fa) {
       case .Just: Just(f(fa.value)),
@@ -2398,6 +2403,7 @@ let wait_for_seconds = (sec: i32): Future<()> -> async {
 }
 
 let use_wait = ()-> {
+  // NOTE: Unlike JavaScript Promise, which starts executing immediately, a `Future` in Mo will only start executing when it is `await`ed.
   with <- wait_for_seconds(14).await();
 }
 ```
@@ -2430,13 +2436,13 @@ export enum Option<T> {
 }
 
 // Export the trait.
-export class Id<Self: Type> {
+export trait Id<Self: Type> {
   id: (self: Self)-> Self;
 }
 
 // Explicitly export the functions defined in the instance.
 // The implementations will be exported implicitly.
-instance Id<i32> {
+impl Id<i32> {
   id: (x: i32): i32 -> {
     x
   }
@@ -2478,16 +2484,16 @@ let { Id } = @import("./test.mo"); // Import `Id` class from test.mo
 
 ## Dynamic Dispatch `In Design`
 
-### `dynamic` keyword
+### `dyn` keyword
 
-`dynamic` can be applied to `class` to make it `type` for dynamic dispatch.
-`@Type(with:)` can be applied to `class` to make it `type` for static dispatch.
-NOTE: `@Type(with:)` is not concrete type. So we can't pass it to type argument.
+`dyn` can be applied to `trait` to make it `type` for dynamic dispatch.
+~~`@Type(with:)` can be applied to `class` to make it `type` for static dispatch.~~
+~~NOTE: `@Type(with:)` is not concrete type. So we can't pass it to type argument.~~
 
 ### Examples
 
 ```typescript
-class Shape<Self: Type> {
+trait Shape<Self: Type> {
   area: (self: &Self)-> f32;
 }
 
@@ -2495,7 +2501,7 @@ type Circle = {
   radius: f32;
 }
 
-instance Shape<Circle> {
+impl Shape<Circle> {
   area: (self: &Self)-> {
     3.14 * self.radius * self.radius
   }
@@ -2505,7 +2511,7 @@ type Square = {
   side: f32;
 }
 
-instance Shape<Square> {
+impl Shape<Square> {
   area: (self)-> {
     self.side * self.side
   }
@@ -2513,12 +2519,12 @@ instance Shape<Square> {
 
 // Static dispatch
 // Similar to C++'s template
-let print_area = <T with Shape>(shape: &T)-> {
+let print_area = <T impl Shape>(shape: &T)-> {
   println(shape.area());
 }
 // or
 // NOTE: Below is not going to be implemented for now.
-let print_area = (shape: &(@Type(with: Shape)))-> { // This will omit type parameter, and you canno't pass type argument to it.
+let print_area = (shape: &(impl Shape))-> { // This will omit type parameter, and you canno't pass type argument to it.
   println(shape.area());
 }
 let circle: Circle = Circle { radius: 1.0 };
@@ -2544,10 +2550,10 @@ let print_area = (shape: &(dynamic Shape))-> {
   println(shape.area());
 }
 
-[ // NOTE: We have to add `&` ahead dynamic Class as it's unsized. It works similar to slice that requires `&` ahead.
-  &((dynamic Shape)(circle)),
-  &((dynamic Shape)(square)),
-] as (&(dynamic Shape))[] |> (shapes)-> {
+[ // NOTE: We have to add `&` ahead dynamic Trait as it's unsized. It works similar to slice that requires `&` ahead.
+  &((dyn Shape)(circle)),
+  &((dyn Shape)(square)),
+] as (&(dyn Shape))[] |> (shapes)-> {
   shapes[0].print_area();
   shapes[1].print_area();
 }
@@ -2562,7 +2568,7 @@ enum MyShape {
   MyCircle(value: Circle),
   MySquare(value: Square),
 }
-instance Shape<MyShape> {
+impl Shape<MyShape> {
   area: (self)-> {
     match self {
       case .MyCircle: self.value.area(),
@@ -2592,7 +2598,7 @@ let add = (x: i32, y: i32): i32 -> {
 type Centimeters = i32;
 
 
-instance Drop<i32> {
+impl Drop<i32> {
   @noop() // ignored by the compiler when generating C code
   drop: (value)-> {}
 }

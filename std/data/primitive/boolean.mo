@@ -6,9 +6,9 @@ let { Drop } = @import("../../classes/common.mo");
 /**
  * logic
  */
-instance LogicalNot<boolean> {
+impl LogicalNot<boolean> {
   (!): (a)-> {
-    codegen_inline(C="(!($1))");
+    @codegen_inline(C="(!($1))");
     recur(a)
   }
 }
@@ -16,13 +16,13 @@ instance LogicalNot<boolean> {
 /**
  * eq
  */
-instance Eq<boolean> {
+impl Eq<boolean> {
   (==): (a, b)-> {
-    codegen_inline(C="(($1) == ($2))");
+    @codegen_inline(C="(($1) == ($2))");
     recur(a, b)
   }
   (!=): (a, b)-> {
-    codegen_inline(C="(($1) != ($2))");
+    @codegen_inline(C="(($1) != ($2))");
     recur(a, b)
   }
 }
@@ -30,7 +30,7 @@ instance Eq<boolean> {
 /**
  * drop
  */
-instance Drop<boolean> {
+impl Drop<boolean> {
   @noop() // ignored by the compiler when generating C code
   drop: (value)-> {}
 }
