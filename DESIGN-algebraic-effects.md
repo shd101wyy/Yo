@@ -50,7 +50,6 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [`defer`](#defer)
   - [`recur` `In Design`](#recur-in-design)
   - [Custom Operators](#custom-operators)
-  - [Variadic functions `In Design`](#variadic-functions-in-design)
 - [Duck Typing `In Design`](#duck-typing-in-design)
 - [Tuple](#tuple)
 - [Array & Slice](#array--slice)
@@ -65,19 +64,15 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [for `Might be removed`](#for-might-be-removed)
 - [Type synonyms](#type-synonyms)
 - [Enum (Algebraic Data Types)](#enum-algebraic-data-types)
-- [C struct](#c-struct)
-- [C union](#c-union)
 - [Advanced Types `In Design`](#advanced-types-in-design)
   - [Dependent types `In Design`](#dependent-types-in-design)
   - [Refinement types `In Design`](#refinement-types-in-design)
   - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
-- [Trait](#trait)
-  - [`impl` a type](#impl-a-type)
+- [Type Class](#type-class)
   - [Associated types](#associated-types)
-  - [Without trait](#without-trait)
-  - [Optional class](#optional-class)
+  - [`without` keyword `In Design`](#without-keyword-in-design)
   - [Type constraints alias using `expr`](#type-constraints-alias-using-expr)
-  - [Named impl `In Design`](#named-impl-in-design)
+  - [Named instance `In Design`](#named-instance-in-design)
   - [Higher Kinded Types `In Design`](#higher-kinded-types-in-design)
 - [Pattern Matching](#pattern-matching)
   - [Using Range in `case`](#using-range-in-case)
@@ -91,19 +86,23 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [ARC Collections](#arc-collections)
     - [ArrayList](#arraylist)
     - [Map](#map)
+  - [Linear Collections](#linear-collections)
+    - [Unique ArrayList](#unique-arraylist)
 - [Error handling `In Design`](#error-handling-in-design)
   - [By algebraic effects](#by-algebraic-effects)
   - [By data type](#by-data-type)
-  - [The `?` postfix operator](#the--postfix-operator)
-  - [Recovering from errors with the `??` infix operator](#recovering-from-errors-with-the--infix-operator)
 - [Type casting](#type-casting)
   - [Type casting in destructuring](#type-casting-in-destructuring)
-- [Callbacks and Async `In Design`](#callbacks-and-async-in-design)
-  - [Simplify using `with <-` keyword](#simplify-using-with---keyword)
-  - [`Future` and `async` block](#future-and-async-block)
+- [Algebraic Effects `In Design`](#algebraic-effects-in-design)
+  - [Effectful function](#effectful-function)
+  - [Run multiple continuations `In Design`](#run-multiple-continuations-in-design)
+- [async/await `In Design`](#asyncawait-in-design)
+- [CPS `In Design`](#cps-in-design)
+  - [Simplify using `do` keyword](#simplify-using-do-keyword)
+    - [Run multiple continuations with `do`](#run-multiple-continuations-with-do)
 - [Modules](#modules)
 - [Dynamic Dispatch `In Design`](#dynamic-dispatch-in-design)
-  - [`dyn` keyword](#dyn-keyword)
+  - [`dynamic` keyword](#dynamic-keyword)
   - [Examples](#examples)
 - [Attributes](#attributes)
 - [C Interoperability](#c-interoperability)
@@ -451,6 +450,7 @@ let main = ()-> {
   length(x);  // not allowed, type mismatch
   length(@y);  // allowed
   length(@z);  // allowed
+  x.length(); // allowed, implicit conversion to &String, uniform call syntax
 
   let t = x;                           // transfer ownership
 
@@ -484,7 +484,7 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 }
 
 {
-  let { name, mut age } = p;
+  let { name, var age } = p;
 }
 
 {
@@ -594,7 +594,7 @@ NOTE: This is unsafe and should be avoided.
 
 ```typescript
 let x = String.from("Hi"); // x: String. Linear type
-let y = @cast_to_free(x); // y: String. Free type
+let y = cast_to_free(x); // y: String. Free type
 ```
 
 ## Mutable Value Semantics
@@ -2101,7 +2101,189 @@ let {x: new_name as f32, mut y, z} = obj;
 y = 3; // Allowed
 ```
 
-## Callbacks and Async `In Design`
+## Algebraic Effects `In Design`
+
+DEPRECATED: 2025/03/01 After careful consideration, I decide not to implement algebraic effects in Mo. It makes the type system too complicated, hiding too many details. And it's hard to implement in C.
+NOTE: It is too hard to implement. And it makes the type system complicated. We need to find some way to simplify the type system.
+
+**Mo** supports the one-shot delimited continuation.
+
+### Effectful function
+
+QUESTION: Should we allow an effectful function to be a closure?
+PROBLEM: This approach hides too many details from the programmer. And it's hard to implement to compile to C. In theory, a function that calls a effectful function will need to convert to state machine. The function that calls such a function will also need to convert to state machine. This will make the code hard to read and understand. Especially for the function that accepts a function (or closure) as an argument.
+ANSWER: Maybe that's fine ^^^ When we compile a function, we generate two versions of the function: one is the normal function, and the other is the state machine version. The normal function is used when the function is called normally. The state machine version is used when the function being effectful.
+
+An effectful function is defined with the `effect` keyword.
+
+The continuation `k` will be exposed to the effectful function.  
+`k` is linear, and it must be consumed once.  
+Either `resume` or `abort` function can be called with the continuation `k`.
+
+The `do` keyword is used to call the effectful function.  
+The `do` keyword decides where to `resume` the continuation.
+The `do` keyword is necessary to notify the programmer that the continuation might `abort`.
+
+~~The `return` keyword is not allowed in the continuation function.~~
+
+```typescript
+let safe_divide =
+  ( x: i32,
+    y: i32,
+    raise: effect (msg: &str)-> i32
+  ): i32 -> {
+  if y == 0 {
+    do raise("Division by zero")
+  } else {
+    x / y
+  }
+}
+
+// `resume`
+let handle_resume = (): i32 -> {
+  let raise = effect (msg: &str): i32 -> {
+    k.resume(10);
+  }
+  return 1 + safe_divide(3, 0, raise) + 2; // 13
+}
+
+// `abort`
+let handle_abort = (): i32 -> {
+  let raise = effect (msg: &str): i32 -> {
+    abort(10, /* k */);
+  }
+  return 1 + safe_divide(3, 0, raise) + 2; // 10
+}
+```
+
+```typescript
+let main = ()-> {
+  let wait_for_seconds = effect (seconds: u32): i32 -> {
+    set_timeout(()-> {
+      println("Done");
+      k.resume(12);
+    }, seconds * 1000);
+  }
+
+  println("Before timeout");
+  let result = do wait_for_seconds(1);
+  println("After timeout");
+  println(result); // 12
+}
+```
+
+### Run multiple continuations `In Design`
+
+QUESTION: This approach has the problem that if one of them abort, then how should we handle the rest of the continuations?
+
+```typescript
+let main = ()-> {
+  let wait_for_seconds = effect (sec: u32): i32 -> {
+    set_timeout(move ()=> {
+      println(sec);
+      k.resume(sec);
+    }, sec * 1000);
+  }
+
+  print("before waits");
+  let (wait1, wait2, wait3) = do (
+    wait_for_seconds(1),
+    wait_for_seconds(2),
+    wait_for_seconds(3),
+  );
+  print("after waits");
+  // Will wait for 3 seconds
+}
+```
+
+### Pure function
+
+Functions without involving calling any effectful function or impure function is called a `pure` function in **Mo**.
+
+```typescript
+let add = (x: i32, y: i32): i32 -> x + y; // add is `pure`.
+
+let use_add = ()-> {
+  add(1, 2); // Okay
+} // use_add is `pure`.
+
+let use_wait = ()-> {
+  let wait_for_seconds = effect (sec: u32): i32 -> {
+    set_timeout(move ()=> {
+      println(sec);
+      k.resume(12);
+    }, sec * 1000);
+  }
+
+  print("before wait");
+  wait_for_seconds(1);
+  print("after wait");
+} // use_wait is not `pure`.
+
+let use_use_wait = ()-> {
+  use_wait();
+} // use_use_wait is not `pure`, because it uses `use_wait` which is not pure.
+```
+
+## async/await `In Design`
+
+NOTE: Having async/await like javascript makes mo not distinguishable from javascript. We need to find some way to make mo unique. So probably we will not implement async/await. The function shouldn't be colored with the async keyword.
+
+```typescript
+let main = async ()-> {
+  let result = await fetch("https://api.example.com");
+  println(result);
+}
+```
+
+## CPS `In Design`
+
+NOTE: I feel introducing `effect` will make the type system too complicated, and the implementation might hide many details from the programmer. So I think we might use CPS instead of `effect`.
+NOTE: And we are compiling to C, so it's better what we see from Mo can be easily translated to C.
+
+```typescript
+// QUESTION: Should K and Exception be a type or a class?
+type K< Resume: Type,
+        Output: Type = ()
+        Function: Type with FnOnce(value: Resume)-> Output
+      > = Function;
+type Exception< Error: Type,
+                Resume: Type,
+                Output = ()
+              > = (error: Error, do resume: Resume)-> Output;
+let divide = (x: i32, y: i32, do resume: K<i32>, ?raise: Exception<&str, K<i32>>)-> {
+  if y == 0 {
+    raise("Division by zero", do: move (value)=> { // `move` is needed to capture the `resume` function from the upper level
+      resume(value);
+    })
+  } else {
+    resume(x / y);
+  }
+}
+
+let handle_resume = (do resume: K<i32>)-> {
+  let raise: Exception<&str, K<i32>> = (error, resume)-> {
+    println(error);
+    resume(10);
+  }
+
+  divide(3, 0, do: move (value)=> {
+    resume(1 + value + 2); // 13
+  }, raise: raise);
+}
+
+let handle_abort = (do resume: K<i32>)-> {
+  let raise: Exception<&str, K<i32>> = move (error, resume_)=> {
+    drop(resume_); // Not resume
+    println(error);
+    resume(10); // This is the `resume` from `handle_abort`.
+  }
+
+  divide(3, 0, do: move (value)=> {
+    resume(1 + value + 2);
+  }, raise: raise); // 10
+}
+```
 
 ### Simplify using `with <-` keyword
 
@@ -2110,9 +2292,30 @@ ANSWER: Yes we should.
 
 PROBLEM: How to handle the rust `Pin/Unpin` problem?
 
-Any function that takes a callback as its last argument will be able to use the `with ... <-` notation.
+`with` works like `await` in javascript. Any function that takes a callback as its last argument will be able to use the `with` notation.
 
-For example, map an array:
+```typescript
+let divide = (x: i32, y: i32, do resume: K<i32>, ?raise: Exception<&str, K<i32>>)-> {
+  if y == 0 {
+    with value <- raise("Division by zero");
+    resume(value);
+  } else {
+    resume(x / y);
+  }
+}
+
+let handle_resume = (do resume: K<i32>)-> {
+  let raise: Exception<&str, K<i32>> = (error, resume)-> {
+    println(error);
+    resume(10);
+  }
+
+  with value <- divide(3, 0);
+  resume(1 + value + 2); // 13
+}
+```
+
+Map an array
 
 ```typescript
 let main = ()-> {
@@ -2122,6 +2325,49 @@ let main = ()-> {
     elem * 2
   }
   println(new_array); // [2, 4, 6, 8]
+}
+```
+
+#### Moving out the continuation
+
+QUESTION: Should we support this?
+
+```typescript
+let func = (flag: boolean, do resume: K<i32>)-> {
+  with result <-
+    if (flag) {
+      with response <- fetch("https://api.example.com");
+      with text <- response.text();
+      text
+    } else {
+      "Hello, world!"
+    };
+  // The following code is also part of the continuation.
+  println(result);
+  resume(result.length());
+}
+```
+
+#### Run multiple continuations with `<-`
+
+NOTE: Not going to be supported. Check the `Future` section below.
+
+```typescript
+let wait_for_seconds = (sec: u32, do resume: K<i32>)-> {
+  set_timeout(move ()=> {
+    println(sec);
+    resume(sec);
+  }, sec * 1000);
+}
+
+let main = ()-> {
+  println("Before timeout");
+  with (wait1, wait2, wait3) <- (
+    wait_for_seconds(1),
+    wait_for_seconds(2),
+    wait_for_seconds(3),
+  );
+  println("After timeout");
 }
 ```
 
