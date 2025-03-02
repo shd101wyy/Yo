@@ -928,6 +928,7 @@ let main = ()-> {
 ### Uniform Function Call Syntax
 
 DEPRECATED: Use traits instead.
+IDEA: Actually let's still keep it. For the functions define in `impl` or `trait`, we don't allow to extract them and we force to call these functions with `.`.
 
 ```typescript
 g(f(a, b), x, y);
@@ -1192,7 +1193,7 @@ A closure can be defined using the following syntax:
 - `FnOnce`:
 
   ```
-  move <type parameters>(paramters)=> return_type { body }
+  <type parameters>(paramters)=>> return_type { body }
   ```
 
 - `FnMut` and `Fn` are the same as normal function, but will be automatically converted:
@@ -1225,7 +1226,7 @@ let test = ()-> {
 let test = ()-> {
   var x: Data = malloc(); // Some `Fake` Data.
 
-  var increment = move ()=> {
+  var increment = () =>> {
     // :: FnOnce()->()
     // let {x} = increment;
     drop(x);
@@ -1632,7 +1633,7 @@ trait Summary<Self: Type> {
   summarize: (self: &Self)-> String;
 };
 
-impl Display<Self: Type impl Summary & SomeOtherClass> {
+trait Display<Self: Type impl Summary & SomeOtherClass> {
   display: (self: &Self)-> String;
 };
 
@@ -1645,7 +1646,7 @@ type NewsArticle = {
 
 impl Summary<NewsArticle> {
   summarize: (self: &NewsArticle): String -> {
-    return "${self.headline}, by ${self.author} (${self.location})";
+    String.from("${self.headline}, by ${self.author} (${self.location})");
   }
 }
 
@@ -1679,7 +1680,8 @@ impl LuckyNumber<7> {
 ### `impl` a type
 
 NOTE: `impl` a type more than once is allowed. This is how rust behaves.  
-QUESTION: Should we allow `impl` a primitive type?
+QUESTION: Should we allow `impl` a primitive type?  
+ANSWER: Yes we allow
 
 ```typescript
 // my_type.mo
@@ -1792,6 +1794,7 @@ impl Id<i32> {
 // use_id.mo
 let { MyIdImplementation } = @import("./id1.mo");
 MyIdImplementation.id(&12); // 13
+12.id() // 13, using the `id` from `MyIdImplementation`.
 
 // another_use_id.mo
 let { Id } = @import("./id.mo");
@@ -2110,9 +2113,19 @@ ANSWER: Yes we should.
 
 PROBLEM: How to handle the rust `Pin/Unpin` problem?
 
-Any function that takes a callback as its last argument will be able to use the `with ... <-` notation.
+Any function that takes a callback as its last argument will be able to use the `with ...` notation.
+
+#### with <-
 
 For example, map an array:
+
+```typescript
+let main = ()-> {
+  let array = ArrayList.from([1, 2, 3, 4]);
+  let new_array = array.map((elem)-> elem * 2);
+  println(new_array); // [2, 4, 6, 8]
+}
+```
 
 ```typescript
 let main = ()-> {
@@ -2125,41 +2138,57 @@ let main = ()-> {
 }
 ```
 
-### `Future` and `async` block
+#### with <= and <<=
+
+Use `<=` for handling passing closure for `Fn` and `FnMut`
+Use `<<=` for handling passing the closure for `FnOnce`
 
 ```typescript
-let wait_for_seconds = (sec: i32): Future<()> -> {
-  Future.new(move (resume)=> {
-    set_timeout(move ()=> {
+let some_async_func = ()-> {
+  with response <= fetch("https://api.example.com");
+  with json <= response.json();
+  println(json);
+}
+```
+
+### `K` (continuation) and `K` block
+
+NOTE: Let's not use `Future` and `async` here in case we want to support Rust like async/await which uses the state machine.
+QUESTION: We can support `K` type, but should we support `K` block?
+
+```typescript
+let wait_for_seconds = (sec: i32): K<()> -> {
+  K.new((resume)=>> {
+    set_timeout(()=>> {
       println(sec);
       resume();
     }, sec * 1000);
   })
 }
 
-// or using the `async` block
-let wait_for_seconds = (sec: i32): Future<()> -> {
-  async {
+// or using the `k` block
+let wait_for_seconds = (sec: i32): K<()> -> {
+  K {
   // or
   // async resume {
     // `resume` is exposed to the `async` block.
     // `async` block will generate `Future`.
-    set_timeout(move ()=> {
+    set_timeout(()=>> {
       resume(sec)
     }, sec * 1000);
   }
 }
 
 // or
-let wait_for_seconds = (sec: i32): Future<()> -> async {
-  set_timeout(move ()=> {
+let wait_for_seconds = (sec: i32): K<()> -> K {
+  set_timeout(()=>> {
     resume(sec)
   }, sec * 1000)
 }
 
 let use_wait = ()-> {
-  // NOTE: Unlike JavaScript Promise, which starts executing immediately, a `Future` in Mo will only start executing when it is `await`ed.
-  with <- wait_for_seconds(14).await();
+  // NOTE: Unlike JavaScript Promise, which starts executing immediately, a `K` in Mo will only start executing when it is `resumed`ed.
+  with <- wait_for_seconds(14).resume();
 }
 ```
 
@@ -2279,9 +2308,15 @@ let print_area = <T impl Shape>(shape: &T)-> {
 }
 // or
 // NOTE: Below is not going to be implemented for now.
-let print_area = (shape: &(impl Shape))-> { // This will omit type parameter, and you canno't pass type argument to it.
+let print_area = (shape: &(impl Shape))-> { // This will omit type parameter, and you cannot pass type argument to it.
   println(shape.area());
 }
+// Same as above. `_` means passing current type as type argument.
+// It could be omitted if the Trait only accepts one type argument.
+let print_area = (shape: &(impl Shape<_>))-> {
+  println(shape.area());
+}
+
 let circle: Circle = Circle { radius: 1.0 };
 let square: Square = Square { side: 2.0 };
 print_area(&circle);
