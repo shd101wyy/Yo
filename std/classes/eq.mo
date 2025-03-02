@@ -1,7 +1,7 @@
 infix  40 ==  // Equality
 infix  40 !=  // Inequality
 
-export trait Eq<Lhs: Type, Rhs = Lhs> {
+export trait Eq<Rhs = Lhs> for Lhs: Type {
   eq: (lhs: &Lhs, rhs: &Rhs)-> boolean;
   ne: (lhs: &Lhs, rhs: &Rhs)-> boolean = (lhs, rhs)-> {
     !lhs.eq(rhs)

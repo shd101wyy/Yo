@@ -7,7 +7,7 @@ let { Drop } =  @import("../../classes/common.mo");
 /**
  * arithmetic
  */
-impl Add<i32, i32> {
+impl Add<i32> for i32 {
   Output: i32;
 
   (+): (a, b)-> {
@@ -16,7 +16,7 @@ impl Add<i32, i32> {
   }
 }
 
-impl Sub<i32, i32> {
+impl Sub<i32> for i32 {
   Output: i32;
 
   (-): (a, b)-> {
@@ -25,7 +25,7 @@ impl Sub<i32, i32> {
   }
 }
 
-impl Mul<i32, i32> {
+impl Mul<i32> for i32 {
   Output: i32;
   
   (*): (a, b)-> {
@@ -34,7 +34,7 @@ impl Mul<i32, i32> {
   }
 }
 
-impl Div<i32, i32> {
+impl Div<i32> for i32 {
   Output: i32;
 
   (/): (a, b)-> {
@@ -43,7 +43,7 @@ impl Div<i32, i32> {
   }
 }
 
-impl Mod<i32, i32> {
+impl Mod<i32> for i32 {
   Output: i32;
 
   (%): (a, b)-> {
@@ -55,7 +55,7 @@ impl Mod<i32, i32> {
 /**
  * logic
  */
-impl LogicalNot<i32> {
+impl LogicalNot for i32 {
   Output: i32;
 
   (!): (a)-> {
@@ -68,7 +68,7 @@ impl LogicalNot<i32> {
 /**
  * eq
  */
-impl Eq<i32, i32> {
+impl Eq<i32> for i32 {
   (eq): (a, b)-> {
     codegen_inline(C="(((int32_t)*$1) == ((int32_t)*$2))");
     recur(a, b)
@@ -82,7 +82,7 @@ impl Eq<i32, i32> {
 /**
  * drop
  */
-impl Drop<i32> {
+impl Drop for i32 {
   @noop() // ignored by the compiler when generating C code
   drop: (value)-> {}
 }

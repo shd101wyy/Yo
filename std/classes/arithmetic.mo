@@ -13,47 +13,47 @@ infixl 70 >>  // Bitwise right shift
 infixr 80 **  // Exponentiation. 3 ** 4 ** 6 == 3 ** (4 ** 6)
 
 
-export trait Add<Lhs: Type, Rhs=Lhs> {
+export trait Add<Rhs=Lhs> for Lhs: Type {
   Output: Type = Lhs;
   (+): (lhs: Lhs, rhs: Rhs)-> this.Output;
 }
 
-export trait Sub<Lhs: Type, Rhs=Lhs> {
+export trait Sub<Rhs=Lhs> for Lhs: Type {
   Output: Type = Lhs;
   (-): (lhs: Lhs, rhs: Rhs)-> this.Output;
 }
 
-export trait Mul<Lhs: Type, Rhs=Lhs> {
+export trait Mul<Rhs=Lhs> for Lhs: Type {
   Output: Type = Lhs;
   (*): (lhs: Lhs, rhs: Rhs)-> this.Output;
 }
 
-export trait Div<Lhs: Type, Rhs=Lhs> {
+export trait Div<Rhs=Lhs> for Lhs: Type {
   Output: Type = Lhs;
   (/): (lhs: Lhs, rhs: Rhs)-> this.Output;
 }
 
-export trait Mod<Lhs: Type, Rhs=Lhs> {
+export trait Mod<Rhs=Lhs> for Lhs: Type {
   Output: Type = Lhs;
   (%): (lhs: Lhs, rhs: Rhs)-> this.Output;
 }
 
-export trait BitLeftShift<Lhs: Type, Rhs=Lhs> {
+export trait BitLeftShift<Rhs=Lhs> for Lhs: Type {
   Output: Type = Lhs;
   (<<): (lhs: Lhs, rhs: Rhs)-> this.Output;
 }
 
-export trait BitRightShift<Lhs: Type, Rhs=Lhs> {
+export trait BitRightShift<Rhs=Lhs> for Lhs: Type {
   Output: Type = Lhs;
   (>>): (lhs: Lhs, rhs: Rhs)-> this.Output;
 }
 
-export trait Exponentiation<Lhs: Type, Rhs=Lhs> {
+export trait Exponentiation<Rhs=Lhs> for Lhs: Type {
   Output: Type = Lhs;
   (**): (lhs: Lhs, rhs: Rhs)-> this.Output;
 }
 
-export trait Negate<Self: Type> {
+export trait Negate for Self: Type {
   Output: Type = Self;
   (-): (self: Self)-> this.Output;
 }

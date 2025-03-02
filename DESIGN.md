@@ -854,11 +854,11 @@ let some_async_func = (?Async<i32>): i32 -> {
 
 ```typescript
 // id.mo
-export trait Id<Self> {
+export trait Id for Self {
   id: (self: Self)-> Self;
 };
 
-impl Id<i32> {
+impl Id for i32 {
   id: (self: i32): i32 -> {
     self
   }
@@ -1305,14 +1305,14 @@ let show_compare = <T: Type impl Show & Ord>(x: T, y: T): String -> {
 }
 
 // Instance dependencies
-impl<A impl Show> Show<A[]> {
+impl<A impl Show> Show for A[] {
   show: (self: A[])-> {
     // ...
   }
 }
 impl< A impl Show,
       B impl Show
-    > Show<(A, B)> {
+    > Show for (A, B) {
   show: (self: (A, B))-> {
     // ...
   }
@@ -1321,17 +1321,17 @@ impl< A impl Show,
 
 ```typescript
 // show.mo
-export trait Show<Self: Type> {
+export trait Show for Self: Type {
   show: (self: &Self)-> String;
 }
 
-impl Show<i32> {
+impl Show for i32 {
   show: (self: &i32)-> {
     // ...
   }
 }
 
-impl Show<String> {
+impl Show for String {
   show: (self: &String)-> {
     // ...
   }
@@ -1630,11 +1630,11 @@ eval(expr1); // false
 Trait works similarly to the one in Rust.
 
 ```typescript
-trait Summary<Self: Type> {
+trait Summary for Self: Type {
   summarize: (self: &Self)-> String;
 };
 
-trait Display<Self: Type impl Summary & SomeOtherClass> {
+trait Display for Self: Type impl Summary & SomeOtherClass {
   display: (self: &Self)-> String;
 };
 
@@ -1645,7 +1645,7 @@ type NewsArticle = {
   content: String;
 };
 
-impl Summary<NewsArticle> {
+impl Summary for NewsArticle {
   summarize: (self: &NewsArticle): String -> {
     String.from("${self.headline}, by ${self.author} (${self.location})");
   }
@@ -1665,11 +1665,11 @@ let notify = <T impl Display>(
 ```
 
 ```typescript
-trait LuckyNumber<i32> {
+trait LuckyNumber for i32 {
   say_it: (self: &i32)-> ();
 }
 
-impl LuckyNumber<7> {
+impl LuckyNumber for 7 {
   say_it: (self: &7): ()-> {
     println("Lucky number 7");
   }
@@ -1707,7 +1707,7 @@ let v = MyType<i32>.new(1); // { value: 1 }
 aka [Functional Dependencies](https://book.purescript.org/chapter6.html#functional-dependencies)
 
 ```typescript
-trait Contains<Self: Type> {
+trait Contains for Self: Type {
   A: Type;
   B: Type;
 
@@ -1721,7 +1721,7 @@ trait Contains<Self: Type> {
 
 type Container = (i32, i32);
 
-impl Contains<Container: Type> {
+impl Contains for Container {
   A: i32;
   B: i32;
 
@@ -1742,7 +1742,7 @@ Contains<Container>.contains(&my_tuple, 10, 20); // true
 Use `!Trait` to exclude a trait.
 
 ```typescript
-trait Summary<Self: Type impl Show & !Eq> {
+trait Summary for Self impl Show & !Eq {
   summarize: (self: &Self)-> String;
 };
 // This trait `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
@@ -1753,7 +1753,7 @@ trait Summary<Self: Type impl Show & !Eq> {
 Use `?Trait` to make a trait optional.
 
 ```typescript
-trait Summary<Self: Type impl ?Show> {
+trait Summary for Self: Type impl ?Show {
   summarize: (self: &Self)-> String;
 };
 // This trait `Summary` can implement for `Type` that implements `Show` or not.
@@ -1778,17 +1778,17 @@ This is useful for resolving conflicts when implementing multiple classes for th
 
 ```typescript
 // id.mo
-export trait Id<Self: Type> {
+export trait Id for Self: Type {
   id: (self: &Self)-> Self;
 }
 
 // id1.mo
-export let MyIdImplementation = impl Id<i32> {
+export let MyIdImplementation = impl Id for i32 {
   id: (self: &i32)-> *self
 }
 
 // id2.mo
-impl Id<i32> {
+impl Id for i32 {
   id: (self: &i32)-> *self + 1
 }
 
@@ -1806,11 +1806,11 @@ let { Id } = @import("./id.mo");
 
 ```typescript
 // Functor
-trait Functor<Wrapper<Type>: Type> {
+trait Functor for Wrapper<Type>: Type {
   map: <A, B>(fa: Wrapper<A>, f: (a: A)-> B)-> Wrapper<B>;
 }
 
-impl Functor<Maybe> {
+impl Functor for Maybe {
   map: <A, B>(fa: Maybe<A>, f: (a: A)-> B)-> Maybe<B> {
     match (fa) {
       case .Just: Just(f(fa.value)),
@@ -2210,13 +2210,13 @@ export enum Option<T> {
 }
 
 // Export the trait.
-export trait Id<Self: Type> {
+export trait Id for Self: Type {
   id: (self: Self)-> Self;
 }
 
 // Explicitly export the functions defined in the instance.
 // The implementations will be exported implicitly.
-impl Id<i32> {
+impl Id for i32 {
   id: (x: i32): i32 -> {
     x
   }
@@ -2267,7 +2267,7 @@ let { Id } = @import("./test.mo"); // Import `Id` class from test.mo
 ### Examples
 
 ```typescript
-trait Shape<Self: Type> {
+trait Shape for Self {
   area: (self: &Self)-> f32;
 }
 
@@ -2275,8 +2275,8 @@ type Circle = {
   radius: f32;
 }
 
-impl Shape<Circle> {
-  area: (self: &Self)-> {
+impl Shape for Circle {
+  area: (self)-> {
     3.14 * self.radius * self.radius
   }
 }
@@ -2285,7 +2285,7 @@ type Square = {
   side: f32;
 }
 
-impl Shape<Square> {
+impl Shape for Square {
   area: (self)-> {
     self.side * self.side
   }
@@ -2299,11 +2299,6 @@ let print_area = <T impl Shape>(shape: &T)-> {
 // or
 // NOTE: Below is not going to be implemented for now.
 let print_area = (shape: &(impl Shape))-> { // This will omit type parameter, and you cannot pass type argument to it.
-  println(shape.area());
-}
-// Same as above. `_` means passing current type as type argument.
-// It could be omitted if the Trait only accepts one type argument.
-let print_area = (shape: &(impl Shape<_>))-> {
   println(shape.area());
 }
 
@@ -2331,8 +2326,8 @@ let print_area = (shape: &(dynamic Shape))-> {
 }
 
 [ // NOTE: We have to add `&` ahead dynamic Trait as it's unsized. It works similar to slice that requires `&` ahead.
-  &((dyn Shape)(circle)),
-  &((dyn Shape)(square)),
+  &(circle),
+  &(square),
 ] as (&(dyn Shape))[] |> (shapes)-> {
   shapes[0].print_area();
   shapes[1].print_area();
@@ -2348,7 +2343,7 @@ enum MyShape {
   MyCircle(value: Circle),
   MySquare(value: Square),
 }
-impl Shape<MyShape> {
+impl Shape for MyShape {
   area: (self)-> {
     match self {
       case .MyCircle: self.value.area(),
@@ -2378,7 +2373,7 @@ let add = (x: i32, y: i32): i32 -> {
 type Centimeters = i32;
 
 
-impl Drop<i32> {
+impl Drop for i32 {
   @noop() // ignored by the compiler when generating C code
   drop: (value)-> {}
 }

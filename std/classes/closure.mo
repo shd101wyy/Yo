@@ -1,28 +1,25 @@
 export trait FnOnce<
-  Context: Type,
   Arguments: Type,
-> {
+> for Context: Type {
   Output: Type;
   call_once: (self: Context, arguments: Arguments)
                 -> this.Output;
 }
 
 export trait FnMut<
-  Context: Free with FnOnce<Arguments>;
   Arguments: Type;
->
+> for Context: Free impl FnOnce<Arguments>
 {
-  Output: Type = FnOnce<Arguments>.Output;
+  Output: Type = (FnOnce<Arguments> for Context).Output;
   call_mut: (self: &mut Context, arguments: Arguments)
               -> this.Output; 
 }
 
 export trait Fn<
-  Context: Free with FnMut<Arguments>,
   Arguments: Type
->
+> for Context: Free impl FnMut<Arguments>,
 {
-  Output: Type = FnMut<Arguments>.Output;
+  Output: Type = (FnMut<Arguments> for Context).Output;
   call: (self: &Context, arguments: Arguments)
           -> this.Output;
 }

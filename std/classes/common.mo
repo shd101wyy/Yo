@@ -1,8 +1,8 @@
-export trait Drop<Self: Type> {
+export trait Drop for Self: Type {
   drop: (self: Self)-> ();
 }
 
-export trait Clone<Self: Linear> {
+export trait Clone for Self: Linear {
   clone: (self: &Self)-> Self;
 }
 
