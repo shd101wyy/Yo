@@ -100,7 +100,9 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Type casting in destructuring](#type-casting-in-destructuring)
 - [Callbacks and Async `In Design`](#callbacks-and-async-in-design)
   - [Simplify using `with <-` keyword](#simplify-using-with---keyword)
-  - [`Future` and `async` block](#future-and-async-block)
+    - [with <-](#with--)
+    - [with <= and <<=](#with--and-)
+  - [`K` (continuation)](#k-continuation)
 - [Modules](#modules)
 - [Dynamic Dispatch `In Design`](#dynamic-dispatch-in-design)
   - [`dyn` keyword](#dyn-keyword)
@@ -753,7 +755,6 @@ let last_unit_expr = (x: i32, y: i32)-> {
   x + y;
   // This is allowed as the last expression is `()`.
 }
-
 
 // Default parameter values
 let add = (x: i32 = 1, y: i32 = 2): i32 -> {
@@ -2151,7 +2152,7 @@ let some_async_func = ()-> {
 }
 ```
 
-### `K` (continuation) and `K` block
+### `K` (continuation)
 
 NOTE: Let's not use `Future` and `async` here in case we want to support Rust like async/await which uses the state machine.
 QUESTION: We can support `K` type, but should we support `K` block?
@@ -2166,29 +2167,18 @@ let wait_for_seconds = (sec: i32): K<()> -> {
   })
 }
 
-// or using the `k` block
-let wait_for_seconds = (sec: i32): K<()> -> {
-  K {
-  // or
-  // async resume {
-    // `resume` is exposed to the `async` block.
-    // `async` block will generate `Future`.
-    set_timeout(()=>> {
+// IDEA: Simplified syntax by calling function without parenthesis (...)
+let wait_for_seconds = (sec: i32): K<i32>->
+  K.new resume=>> // IDEA: function with 1 argument can define parameters without parenthesis.
+                   // NOTE: This is how the javascript works, 0 or more than 1 argument requires parenthesis.
+    set_timeout ()=>> {
       resume(sec)
-    }, sec * 1000);
-  }
-}
-
-// or
-let wait_for_seconds = (sec: i32): K<()> -> K {
-  set_timeout(()=>> {
-    resume(sec)
-  }, sec * 1000)
-}
+    }, sec * 1000
 
 let use_wait = ()-> {
   // NOTE: Unlike JavaScript Promise, which starts executing immediately, a `K` in Mo will only start executing when it is `resumed`ed.
-  with <- wait_for_seconds(14).resume();
+  with sec <- wait_for_seconds(14).resume();
+  println(sec);
 }
 ```
 
