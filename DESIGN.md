@@ -1385,29 +1385,80 @@ let main = ()-> {
 };
 ```
 
-### while `Might be removed`
+### while
 
 ```typescript
 let factorial = (n: i32): i32 -> {
   var result = 1;
   var i = 1;
-  while (i <= n) {
-    result *= i;
+  while i <= n {
+    result = result * i;
     i += 1;
   }
   return result;
 }
 ```
 
-### for `Might be removed`
+### for
 
 ```typescript
 let factorial = (n: i32): i32 -> {
   var result = 1;
-  for (var i = 1; i <= n; i += 1) {
-    result *= i;
+  for var i = 1; i <= n; i += 1 {
+    result = result * i;
   }
   return result;
+}
+```
+
+### do while
+
+```typescript
+let factorial = (n: i32): i32 -> {
+  var result = 1;
+  var i = 1;
+  do {
+    result = result * i;
+    i += 1;
+  } while (i <= n);
+  return result;
+}
+```
+
+#### Iterator (for...in)
+
+Same as the one in Rust.
+
+```typescript
+let arr = ArrayList.from([1, 2, 3, 4, 5]);
+for value in arr.iter() { // NOTE: arr.iter() returns a record that contains `&` reference to `arr`
+  // value here has type &i32
+  println(value);
+
+  // NOTE: Use of `arr` is prohibited here.
+}
+
+var mut_arr = ArrayList.from([1, 2, 3, 4, 5]);
+for value in mut_arr.iter_mut() {
+  // value here has type &mut i32
+  *value += 1;
+}
+```
+
+`let...of...` requires the `impl Iterator` or `impl IntoIterator` trait.
+
+```typescript
+trait Iterator for Self {
+  Item: Type;
+  next: (self: &mut Self)-> Option<this.Item>;
+}
+
+trait IntoIterator for Self {
+  Item: Type;
+  IntoIterator: Type impl Iterator<Item = this.Item>;
+
+  // IntoIterator will consume the value, while Iterator will not.
+  into_iter: (self: Self)-> this.IntoIterator;
 }
 ```
 
@@ -1575,13 +1626,13 @@ It's the same as the ADT, but all variants have no fields.
 ```typescript
 enum State {
   Working = 1,
-  Failed = 0
+  Failed = 0,
 }
 
 enum Week {
   Monday,
   Tuesday,
-  Wednesday
+  Wednesday,
 }
 let day = Week.Wednessay;
 printf("%d", day); // 2
