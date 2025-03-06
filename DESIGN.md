@@ -65,6 +65,7 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [for `Might be removed`](#for-might-be-removed)
 - [Type synonyms](#type-synonyms)
 - [Enum (Algebraic Data Types)](#enum-algebraic-data-types)
+  - [Type parameters for specific variant](#type-parameters-for-specific-variant)
 - [C struct](#c-struct)
 - [C union](#c-union)
 - [Advanced Types `In Design`](#advanced-types-in-design)
@@ -1090,6 +1091,10 @@ let i32_tuple: (i32, i32, i32) = (1, 2, 3); // tuple: (i32, i32, i32). Free type
 let mixed_tuple = (1, true, "Hello"); // mixed_tuple: (i32, boolean, *u8[6,'\0']). Free type
 
 let (a, b, c) = mixed_tuple; // a: i32, b: boolean, c: *u8[6,'\0']. Free type
+
+let a = mixed_tuple.0;
+let b = mixed_tuple.1;
+let c = mixed_tuple.2;
 ```
 
 ## Array & Slice
@@ -1508,6 +1513,17 @@ let anotherHome = IpAddr.V4(v3: 200);
 let loopback = IpAddr.V6(String.from("::1"))
 ```
 
+### Type parameters for specific variant
+
+```typescript
+enum MixedData {
+  NoForall(a: i32, b: String),
+  WithForall<T impl Show>(a: T)
+}
+
+let mixed = MixedData.WithForall(12); // mixed: MixedData.WithForall<i32>
+```
+
 ## C struct
 
 ```typescript
@@ -1550,6 +1566,25 @@ union MyNumber {
     float j;
   };
 };
+```
+
+## C enum
+
+It's the same as the ADT, but all variants have no fields.
+
+```typescript
+enum State {
+  Working = 1,
+  Failed = 0
+}
+
+enum Week {
+  Monday,
+  Tuesday,
+  Wednesday
+}
+let day = Week.Wednessay;
+printf("%d", day); // 2
 ```
 
 ## Advanced Types `In Design`
