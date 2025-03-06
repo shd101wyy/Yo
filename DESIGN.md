@@ -70,6 +70,7 @@ We will also post a series of articles on the design and implementation of **Mo*
 - [Advanced Types `In Design`](#advanced-types-in-design)
   - [Dependent types `In Design`](#dependent-types-in-design)
   - [Refinement types `In Design`](#refinement-types-in-design)
+  - [Higher Kinded Types](#higher-kinded-types)
   - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
 - [Trait](#trait)
   - [`impl` a type](#impl-a-type)
@@ -78,11 +79,13 @@ We will also post a series of articles on the design and implementation of **Mo*
   - [Optional class](#optional-class)
   - [Type constraints alias using `expr`](#type-constraints-alias-using-expr)
   - [Named impl `In Design`](#named-impl-in-design)
-  - [Higher Kinded Types `In Design`](#higher-kinded-types-in-design)
+  - [Higher Kinded Types example](#higher-kinded-types-example)
 - [Pattern Matching](#pattern-matching)
   - [Using Range in `case`](#using-range-in-case)
 - [Pointers](#pointers)
-  - [Linear pointers](#linear-pointers)
+  - [Thin pointers](#thin-pointers)
+    - [Linear pointers](#linear-pointers)
+  - [Fat pointers](#fat-pointers)
 - [String](#string)
   - [C String](#c-string)
   - [UTF-8 string literal](#utf-8-string-literal)
@@ -128,7 +131,14 @@ Explicit is better than Implicit.
 Strict is better than Loose.
 
 QUESTION: Should be allow hidden control flow?
+ANSWER: No
+
 QUESTION: Should we disable the RAII?
+ANSER: No. What's the point of having linear types if we use RAII?
+
+IDEA: Try to run the program without involving heaps. For example, us existential types instead of dynamic dispatch to avoid the heap memory allocation.
+
+IDEA: No Deref trait like in the Rust, as it is a bit implicit.
 
 ## Inspiration
 
@@ -141,7 +151,7 @@ The **Mo** language is heavily inspired by:
   - ~~Brace elision~~
   - Dot notation (Uniform Function Call Syntax)
   - ~~Perceus and reuse~~
-  - Algebraic effects
+  - ~~Algebraic effects~~
 - [Rust](https://www.rust-lang.org/)
   - ~~Borrow checker~~
   - ~~Lifetime~~
@@ -1106,7 +1116,7 @@ expr @i32_ptr = &i32_array[0]; // @i32_ptr: Expr<&i32>. Free type
 Slice in **Mo** is a reference to an array. It is a pointer to the first element of the array and the length of the slice calculated from the **runtime**.
 
 QUESTION: We do we need `&` before slice?
-ANSWER:
+ANSWER: Yes we do. Not only because the size of slice is unknown at the compile-time, when we use it in function parameter, we also need to know if its mutability by & or &mut.
 
 - For array of linear type, we need to convert it to a slice of free type, so it requires `&`.
 - Slices are dynamically sized, so its size is unknown at compile time. We need to use `&` to coerce the array to a slice.
@@ -1603,6 +1613,18 @@ let head = <T>(array: NotEmptyArray<T>): T -> {
 }
 ```
 
+### Higher Kinded Types
+
+Higher Kinded Types are types that take other types as parameters.
+
+```typescript
+enum T1<F<Type>: Type, A: Type> {
+  T1(value: F<A>)
+}
+
+type Option<T> = T1<Maybe, T>;
+```
+
 ### Generalized Algebraic Data Types (GADTs) `In Design`
 
 ```typescript
@@ -1802,7 +1824,7 @@ let { Id } = @import("./id.mo");
 12.id(); // Compiler Error: Ambiguous call to `id` function.
 ```
 
-### Higher Kinded Types `In Design`
+### Higher Kinded Types example
 
 ```typescript
 // Functor
@@ -1922,6 +1944,8 @@ let check_int = (x: i32)-> {
 
 ## Pointers
 
+### Thin pointers
+
 In C, there are 4 types of pointers:
 
 - Pointer to a constant
@@ -1953,7 +1977,7 @@ var  i32_val = 12;
 expr @constant_ptr_to_i32 = &mut i32_val; // @constant_ptr_to_i32: Expr<&mut i32>. Free type
 ```
 
-### Linear pointers
+#### Linear pointers
 
 ```typescript
 // `^` means linear pointer
@@ -1970,6 +1994,39 @@ expr @constant_ptr_to_i32 = &mut i32_val; // @constant_ptr_to_i32: Expr<&mut i32
 
   println(*p1); // Compile Error: The value it points to is consumed.
 }
+```
+
+### Fat pointers
+
+- Slice
+
+```typescript
+let arr: i32[5] = [1, 2, 3, 4, 5];
+let slice: &i32[] = &arr[1:4]; // slice: &i32[]. Free type
+```
+
+- Trait Object
+
+```typescript
+trait Animal for Self {
+  speak: (self: &Self)-> ();
+}
+
+type Dog = {};
+impl Animal for Dog {
+  speak: (self)-> {
+    println("Woof");
+  }
+}
+
+expr animal: &dyn Animal = &Dog;
+animal.speak();
+```
+
+- Dynamic sized type
+
+```typescript
+expr s: &str = "Hello, world!";
 ```
 
 ## String
@@ -2308,7 +2365,7 @@ print_area(&circle);
 print_area(&square);
 
 // Dynamic Dispatch - Needs design.
-// NOTE: Here we use (dynamic Class) as type, so it becomes dynamic dispatch.
+// NOTE: Here we use (dyn Class) as type, so it becomes dynamic dispatch.
 /*
 It's like in C:
 
@@ -2321,7 +2378,7 @@ void print_area(Shape* shape) {
   printf("%f\n", shape->area(shape->data));
 }
 */
-let print_area = (shape: &(dynamic Shape))-> {
+let print_area = (shape: &(dyn Shape))-> {
   println(shape.area());
 }
 
@@ -2334,21 +2391,25 @@ let print_area = (shape: &(dynamic Shape))-> {
 }
 
 // With multiple classes
-let print_area = (shape: &(dynamic Shape & Display))-> {
+let print_area = (shape: &(dyn Shape & Display))-> {
   println(shape.area());
 }
 
-// Existential type
+// ADT
 enum MyShape {
   MyCircle(value: Circle),
   MySquare(value: Square),
 }
+// IDEA: The trait could be automatically implemented.
+// IDEA: So when we see the definition of `MyShape` above, we could say its `.value` already implemented the `Shape` trait. So it's legit to call `my_shape.value.area()` on it.
 impl Shape for MyShape {
   area: (self)-> {
     match self {
       case .MyCircle: self.value.area(),
       case .MySquare: self.value.area(),
     }
+    // or directly:
+    // self.value.area()
   }
 }
 let shapes2: MyShape[] = [
