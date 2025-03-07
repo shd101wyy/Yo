@@ -4,7 +4,7 @@
 
 **Mo** aims to be a simple to learn programming language for C and JavaScript (TypeScript) programmers 😉.
 
-**Mo** has a syntax design that looks like TypeScript~~, and uses uniform function call syntax (dot notation)~~~~, brace elison~~ to make the code more concise.
+**Mo** has a syntax design that looks like TypeScript, and uses uniform function call syntax (dot notation)~~, brace elison~~ to make the code more concise.
 
 **Mo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types `In Design`.
 
@@ -865,12 +865,12 @@ let some_async_func = (?Async<i32>): i32 -> {
 
 ```typescript
 // id.mo
-export trait Id for Self {
+export trait Id<Self> {
   id: (self: Self)-> Self;
 };
 
-impl Id for i32 {
-  id: (self: i32): i32 -> {
+impl Id<i32> {
+  id: (self) -> {
     self
   }
 }
@@ -880,7 +880,7 @@ let { Id } = @import("./id.mo");
 
 (12).id(); // 12
 let use_id = <T impl Id>(x: T): T -> {
-  x.id();
+  x.id()
 }
 ```
 
@@ -962,6 +962,34 @@ s.length(); // 12
 // is equalvalent to
 length(&s); // 12
 // We will automatically convert to reference when needed.
+```
+
+#### Priority
+
+Record field access has higher priority than the free function and trait method.
+
+```typescript
+type S = {
+  method: ()-> () = ()-> println("Record method")
+}
+
+let method = (s: S)-> {
+  println("Free function")
+}
+
+trait SomeTrait<Self> {
+  method: (self: &Self)-> () = ()-> println("Trait method")
+}
+
+impl SomeTrait<S> {}
+
+let main = ()-> {
+  let s = S {};
+  s.method();  // Record method
+  method(s);   // Free function
+  s.method();  // Record method
+  SomeTrait<S>.method(&s); // Trait method
+}
 ```
 
 ### `defer`
@@ -1336,18 +1364,18 @@ impl< A impl Show,
 
 ```typescript
 // show.mo
-export trait Show for Self: Type {
+export trait Show<Self: Type> {
   show: (self: &Self)-> String;
 }
 
-impl Show for i32 {
-  show: (self: &i32)-> {
+impl Show<i32> {
+  show: (self)-> {
     // ...
   }
 }
 
-impl Show for String {
-  show: (self: &String)-> {
+impl Show<String> {
+  show: (self)-> {
     // ...
   }
 }
@@ -1448,14 +1476,14 @@ for value in mut_arr.iter_mut() {
 `let...of...` requires the `impl Iterator` or `impl IntoIterator` trait.
 
 ```typescript
-trait Iterator for Self {
+trait Iterator<Self> {
   Item: Type;
   next: (self: &mut Self)-> Option<this.Item>;
 }
 
-trait IntoIterator for Self {
+trait IntoIterator<Self> {
   Item: Type;
-  IntoIterator: Type impl Iterator<Item = this.Item>;
+  IntoIterator: Type impl Iterator<_, Item: this.Item>;
 
   // IntoIterator will consume the value, while Iterator will not.
   into_iter: (self: Self)-> this.IntoIterator;
@@ -1738,11 +1766,11 @@ eval(expr1); // false
 Trait works similarly to the one in Rust.
 
 ```typescript
-trait Summary for Self: Type {
+trait Summary<Self: Type> {
   summarize: (self: &Self)-> String;
 };
 
-trait Display for Self: Type impl Summary & SomeOtherClass {
+trait Display<Self: Type impl Summary & SomeOtherClass> {
   display: (self: &Self)-> String;
 };
 
@@ -1753,7 +1781,7 @@ type NewsArticle = {
   content: String;
 };
 
-impl Summary for NewsArticle {
+impl Summary<NewsArticle> {
   summarize: (self: &NewsArticle): String -> {
     String.from("${self.headline}, by ${self.author} (${self.location})");
   }
@@ -1773,11 +1801,11 @@ let notify = <T impl Display>(
 ```
 
 ```typescript
-trait LuckyNumber for i32 {
-  say_it: (self: &i32)-> ();
+trait LuckyNumber<T: i32> {
+  say_it: (self: &T)-> ();
 }
 
-impl LuckyNumber for 7 {
+impl LuckyNumber<7> {
   say_it: (self: &7): ()-> {
     println("Lucky number 7");
   }
@@ -1815,7 +1843,7 @@ let v = MyType<i32>.new(1); // { value: 1 }
 aka [Functional Dependencies](https://book.purescript.org/chapter6.html#functional-dependencies)
 
 ```typescript
-trait Contains for Self: Type {
+trait Contains<Self: Type> {
   A: Type;
   B: Type;
 
@@ -1829,7 +1857,7 @@ trait Contains for Self: Type {
 
 type Container = (i32, i32);
 
-impl Contains for Container {
+impl Contains<Container> {
   A: i32;
   B: i32;
 
@@ -1850,7 +1878,7 @@ Contains<Container>.contains(&my_tuple, 10, 20); // true
 Use `!Trait` to exclude a trait.
 
 ```typescript
-trait Summary for Self impl Show & !Eq {
+trait Summary<Self impl Show & !Eq> {
   summarize: (self: &Self)-> String;
 };
 // This trait `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
@@ -1861,7 +1889,7 @@ trait Summary for Self impl Show & !Eq {
 Use `?Trait` to make a trait optional.
 
 ```typescript
-trait Summary for Self: Type impl ?Show {
+trait Summary<Self: Type impl ?Show> {
   summarize: (self: &Self)-> String;
 };
 // This trait `Summary` can implement for `Type` that implements `Show` or not.
@@ -1886,17 +1914,17 @@ This is useful for resolving conflicts when implementing multiple classes for th
 
 ```typescript
 // id.mo
-export trait Id for Self: Type {
+export trait Id<Self: Type> {
   id: (self: &Self)-> Self;
 }
 
 // id1.mo
-export let MyIdImplementation = impl Id for i32 {
+export let MyIdImplementation = impl Id<i32> {
   id: (self: &i32)-> *self
 }
 
 // id2.mo
-impl Id for i32 {
+impl Id<i32> {
   id: (self: &i32)-> *self + 1
 }
 
@@ -1904,6 +1932,7 @@ impl Id for i32 {
 let { MyIdImplementation } = @import("./id1.mo");
 MyIdImplementation.id(&12); // 13
 12.id() // 13, using the `id` from `MyIdImplementation`.
+        // QUESTION: Should we allow this 12.id()?
 
 // another_use_id.mo
 let { Id } = @import("./id.mo");
@@ -1914,11 +1943,11 @@ let { Id } = @import("./id.mo");
 
 ```typescript
 // Functor
-trait Functor for Wrapper<Type>: Type {
+trait Functor<Wrapper<Type>: Type> {
   map: <A, B>(fa: Wrapper<A>, f: (a: A)-> B)-> Wrapper<B>;
 }
 
-impl Functor for Maybe {
+impl Functor<Maybe> {
   map: <A, B>(fa: Maybe<A>, f: (a: A)-> B)-> Maybe<B> {
     match (fa) {
       case .Just: Just(f(fa.value)),
@@ -1927,8 +1956,8 @@ impl Functor for Maybe {
   }
 }
 
-implement<A: Type> Functor<Either<A>> {
-  map: <B>( fa: Either<A>, f: (a: A)-> B)-> Either<B> {
+impl<T: Type> Functor<Either<T>> {
+  map: <A, B>( fa: Either<T, A>, f: (a: A)-> B)-> Either<T, B> {
     match (fa) {
       case .Left(value): Left(value),
       case .Right(value): Right(f(value))
@@ -2094,12 +2123,12 @@ let slice: &i32[] = &arr[1:4]; // slice: &i32[]. Free type
 - Trait Object
 
 ```typescript
-trait Animal for Self {
+trait Animal<Self> {
   speak: (self: &Self)-> ();
 }
 
 type Dog = {};
-impl Animal for Dog {
+impl Animal<Dog> {
   speak: (self)-> {
     println("Woof");
   }
@@ -2353,13 +2382,13 @@ export enum Option<T> {
 }
 
 // Export the trait.
-export trait Id for Self: Type {
+export trait Id<Self: Type> {
   id: (self: Self)-> Self;
 }
 
 // Explicitly export the functions defined in the instance.
 // The implementations will be exported implicitly.
-impl Id for i32 {
+impl Id<i32> {
   id: (x: i32): i32 -> {
     x
   }
@@ -2410,7 +2439,7 @@ let { Id } = @import("./test.mo"); // Import `Id` class from test.mo
 ### Examples
 
 ```typescript
-trait Shape for Self {
+trait Shape<Self> {
   area: (self: &Self)-> f32;
 }
 
@@ -2418,7 +2447,7 @@ type Circle = {
   radius: f32;
 }
 
-impl Shape for Circle {
+impl Shape<Circle> {
   area: (self)-> {
     3.14 * self.radius * self.radius
   }
@@ -2428,7 +2457,7 @@ type Square = {
   side: f32;
 }
 
-impl Shape for Square {
+impl Shape<Square> {
   area: (self)-> {
     self.side * self.side
   }
@@ -2488,7 +2517,7 @@ enum MyShape {
 }
 // IDEA: The trait could be automatically implemented.
 // IDEA: So when we see the definition of `MyShape` above, we could say its `.value` already implemented the `Shape` trait. So it's legit to call `my_shape.value.area()` on it.
-impl Shape for MyShape {
+impl Shape<MyShape> {
   area: (self)-> {
     match self {
       case .MyCircle: self.value.area(),
@@ -2520,7 +2549,7 @@ let add = (x: i32, y: i32): i32 -> {
 type Centimeters = i32;
 
 
-impl Drop for i32 {
+impl Drop<i32> {
   @noop() // ignored by the compiler when generating C code
   drop: (value)-> {}
 }
@@ -2638,6 +2667,30 @@ let list2 = quote([0, x, 2]); // [0, [:variable, :x], 2]
 
 quote([0, unquote_splicing(list), 4]); // [0, 1, 2, 3, 4]
 ```
+
+### Underscore
+
+1. Type inference
+
+   ```typescript
+   let x = 5; // x: i32
+   let y: _ = 5; // y: i32
+   ```
+
+2. Placeholder in generics
+
+   ```typescript
+   let v = ArrayList<i32>.from([1, 2, 3]); // v: ArrayList<i32>
+   let v2: ArrayList<_> = v.iter().map((x)=> x * 2).collect(); // v2: ArrayList<i32>
+
+   Id<_>.id(15); // Id<i32>.id(15);
+   ```
+
+3. Ignore value
+
+   ```typescript
+   let(a, _, c) = (1, 2, 3); // a: i32, c: i32
+   ```
 
 ### Macro
 
