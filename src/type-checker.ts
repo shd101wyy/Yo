@@ -207,23 +207,20 @@ export type TFunction = {
   kind: TypeKind;
   functionId: string;
   typeParameters: TTypeParameter[];
-  typeConstraints: TInterface[];
+  typeConstraints: TTrait[];
   parameterTypes: TParameterType[];
-  effects: TInterface[];
-  // hasMoreEffects: boolean;
   returnType: Type;
 
   closureCaptureMode: ClosureCaptureMode;
 
   hasNoImplementation?: boolean;
   ignoreAmbiguityCheck?: boolean;
-  isEffectOperation?: boolean;
 
   /**
-   * The id of the interface under which the function is defined
-   * Note this is not the `interfaceId` of `implements`, but the `interfaceId` of `interface`.
+   * The id of the trait under which the function is defined
+   * Note this is not the `traitId` of `impl`, but the `traitId` of `trait`.
    */
-  ownerInterfaceId?: string;
+  ownerTraitId?: string;
 
   /**
    * Right now only ()=>{} is closure
@@ -235,7 +232,7 @@ export type TFunction = {
    */
   frameLevel: number;
 
-  interfaceFunctionImplementations: TInterfaceFunction[];
+  traitFunctionImplementations: TImplementationFunction[];
 };
 
 export type TUnion = {
@@ -277,34 +274,34 @@ export type TTypeConstructor = {
   typeConstructorId: string;
   kind: TypeKind;
   typeParameters: TTypeParameter[];
-  typeConstraints: TInterface[];
+  typeConstraints: TTrait[];
   typeValue: Type;
 };
 
 /**
  * NOTE: No free variable (closure) is supported for class function
  */
-export type TInterfaceFunction = {
+export type TImplementationFunction = {
   name: string;
   func: TFunction;
   functionExpr?: FunctionExpr;
 };
 
-export type TInterface = {
-  type: "Interface";
-  interfaceName: string;
-  interfaceId: string;
+export type TTrait = {
+  type: "Trait";
+  traitName: string;
+  traitId: string;
   typeParameters: TTypeParameter[];
-  typeConstraints: TInterface[];
-  functions: TInterfaceFunction[];
+  typeConstraints: TTrait[];
+  functions: TImplementationFunction[];
 
-  // NOTE: Below are for "implements" for this interface
-  // implementations: TInterface[];
+  // NOTE: Below are for "impl" for this trait
+  // implementations: TTrait[];
 
-  // NOTE: Below are for "implements"
+  // NOTE: Below are for "impl"
   isImplementation: boolean;
-  instanceTypeParameters?: TTypeParameter[];
-  instanceTypeConstraints?: TInterface[];
+  implementationTypeParameters?: TTypeParameter[];
+  implementationTypeConstraints?: TTrait[];
 };
 
 export type TEnumVariant = {
@@ -317,7 +314,7 @@ export type TEnum = {
   enumId: string;
   enumName: string;
   typeParameters: TTypeParameter[];
-  typeConstraints: TInterface[];
+  typeConstraints: TTrait[];
   variants: TEnumVariant[];
   selectedVariantName?: string;
   kind: TypeKind;
@@ -407,7 +404,6 @@ export const TypeValues: {
   // isize: TIsize;
   usize: TUsize;
   unknown: TUnknown;
-  Promise: TTypeConstructor;
   MutableReference: TTypeConstructor;
   ImmutableReference: TTypeConstructor;
   Pointer: TTypeConstructor;
@@ -431,25 +427,6 @@ export const TypeValues: {
   // isize: { type: "isize", kind: "Free" },
   usize: { type: "usize", kind: "Free" },
   unknown: { type: "unknown", kind: "Free" },
-  Promise: {
-    type: "TypeConstructor",
-    kind: "Linear",
-    typeConstructorName: "Promise",
-    typeConstructorId: "Promise",
-    typeParameters: [
-      {
-        type: "TypeParameter",
-        typeParameterName: "PromiseType",
-        typeParameterId: "PromiseType",
-        kind: "Type",
-      },
-    ],
-    typeConstraints: [],
-    typeValue: {
-      type: "Extern",
-      kind: "Free",
-    },
-  },
   MutableReference: {
     type: "TypeConstructor",
     kind: "Free",
@@ -459,7 +436,7 @@ export const TypeValues: {
       {
         type: "TypeParameter",
         typeParameterName: "T",
-        typeParameterId: "T@",
+        typeParameterId: "T&mut",
         kind: "Type",
       },
     ],
@@ -509,10 +486,8 @@ export const TypeValues: {
   },
 };
 
-export const emptyFunctionThatHasMoreEffects: TFunction = {
-  effects: [],
+export const emptyFunction: TFunction = {
   functionId: "@emptyFunction",
-  // hasMoreEffects: true,
   frameLevel: 0,
   closureCaptureMode: "none",
   kind: "Free",
@@ -521,7 +496,7 @@ export const emptyFunctionThatHasMoreEffects: TFunction = {
   type: "Function",
   typeParameters: [],
   typeConstraints: [],
-  interfaceFunctionImplementations: [],
+  traitFunctionImplementations: [],
 };
 
 export type ParserReturn = {
@@ -935,10 +910,6 @@ export function synthesizeTypeFromTokens({
           type: "symbol",
           kind: "Free",
         };
-        break;
-      }
-      case "Promise": {
-        typeValue = TypeValues.Promise;
         break;
       }
       default: {
@@ -1455,9 +1426,9 @@ export function applyTypeArgumentsToType({
       typeConstructorId: type.typeConstructorId,
       typeParameters: newTypeParameters,
       typeConstraints: type.typeConstraints.map((typeConstraint) =>
-        applyTypeArgumentsToInterface({
+        applyTypeArgumentsToTrait({
           env,
-          interface_: typeConstraint,
+          trait: typeConstraint,
           typeParameterToTypeArgumentMap,
         })
       ),
@@ -1509,9 +1480,9 @@ export function applyTypeArgumentsToType({
       enumName: type.enumName,
       typeParameters: newTypeParameters,
       typeConstraints: type.typeConstraints.map((typeConstraint) =>
-        applyTypeArgumentsToInterface({
+        applyTypeArgumentsToTrait({
           env,
-          interface_: typeConstraint,
+          trait: typeConstraint,
           typeParameterToTypeArgumentMap,
         })
       ),
@@ -1557,9 +1528,9 @@ export function applyTypeArgumentsToType({
       ...type,
       typeParameters: newTypeParameters,
       typeConstraints: type.typeConstraints.map((typeConstraint) =>
-        applyTypeArgumentsToInterface({
+        applyTypeArgumentsToTrait({
           env,
-          interface_: typeConstraint,
+          trait: typeConstraint,
           typeParameterToTypeArgumentMap,
         })
       ),
@@ -1581,14 +1552,7 @@ export function applyTypeArgumentsToType({
         type: type.returnType,
         typeParameterToTypeArgumentMap,
       }),
-      effects: type.effects.map((effect) =>
-        applyTypeArgumentsToInterface({
-          env,
-          interface_: effect,
-          typeParameterToTypeArgumentMap,
-        })
-      ),
-      // NOTE: interfaceFunctionImplementations is not updated
+      // NOTE: traitFunctionImplementations is not updated
     };
     return newFunctionType;
   } else {
@@ -1693,27 +1657,27 @@ export function applyTypeArgumentsToType({
   }
 }
 
-export function applyTypeArgumentsToInterface({
+export function applyTypeArgumentsToTrait({
   env,
-  interface_,
+  trait,
   typeArguments,
   typeParameterToTypeArgumentMap,
 }: {
   env: Environment;
-  interface_: TInterface;
+  trait: TTrait;
   typeArguments?: Type[];
   typeParameterToTypeArgumentMap: { [key: string]: Type };
-}): TInterface {
-  // logger.debug("- applyTypeArgumentsToInterface");
+}): TTrait {
+  // logger.debug("- applyTypeArgumentsToTrait");
   /*
   // NOTE: Adding the code below will cause ./examples/classes/use_id3.mo failed to parse
   if (
     typeArguments &&
-    interface_.typeParameters.length !== typeArguments.length
+    trait.typeParameters.length !== typeArguments.length
   ) {
     throw new Error(
       `(4) Mismatched type arguments.
-Expected: <${interface_.typeParameters
+Expected: <${trait.typeParameters
         .map(
           (typeParameter) =>
             `${typeParameter.typeParameterName}: ${typeParameter.kind}`
@@ -1727,13 +1691,13 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   // set typeParameterToTypeArgumentMap
   const { typeParameters: newTypeParameters } = generateNewTypeParameters({
     env,
-    typeParameters: interface_.typeParameters,
+    typeParameters: trait.typeParameters,
     typeArguments,
     typeParameterToTypeArgumentMap,
   });
 
   // apply to each of the functions
-  const functions: TInterfaceFunction[] = interface_.functions.map(
+  const functions: TImplementationFunction[] = trait.functions.map(
     ({ name, func, functionExpr }) => ({
       name,
       func: applyTypeArgumentsToType({
@@ -1749,25 +1713,25 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
           })
         : undefined,
     })
-  ) as TInterfaceFunction[];
+  ) as TImplementationFunction[];
 
   return {
-    type: "Interface",
-    interfaceName: interface_.interfaceName,
-    interfaceId: interface_.interfaceId,
+    type: "Trait",
+    traitName: trait.traitName,
+    traitId: trait.traitId,
     typeParameters: newTypeParameters,
-    typeConstraints: interface_.typeConstraints.map((typeConstraint) =>
-      applyTypeArgumentsToInterface({
+    typeConstraints: trait.typeConstraints.map((typeConstraint) =>
+      applyTypeArgumentsToTrait({
         env,
-        interface_: typeConstraint,
+        trait: typeConstraint,
         typeArguments,
         typeParameterToTypeArgumentMap,
       })
     ),
     functions: functions,
     isImplementation: true, // type.isImplementation,
-    instanceTypeParameters: interface_.instanceTypeParameters, // QUESTION: Is this correct?
-    instanceTypeConstraints: interface_.instanceTypeConstraints, // QUESTION: Is this correct?
+    implementationTypeParameters: trait.implementationTypeParameters, // QUESTION: Is this correct?
+    implementationTypeConstraints: trait.implementationTypeConstraints, // QUESTION: Is this correct?
   };
 }
 
@@ -2477,155 +2441,6 @@ export function synthesizeTypeArgumentsFromTokens({
   return { typeArguments, index, env };
 }
 
-export function synthesizeEffectsFromTokens({
-  tokens,
-  index,
-  env,
-  parseExpression,
-}: {
-  tokens: Token[];
-  index: number;
-  env: Environment;
-  parseExpression: ParseExpression;
-}): {
-  effects: TInterface[];
-  // hasMoreEffects: boolean;
-  index: number;
-  env: Environment;
-} {
-  const effects: TInterface[] = [];
-  // let hasMoreEffects = false;
-
-  if (tokens[index].type !== TokenType.LBracket) {
-    throw formatErrorMessage({
-      token: tokens[index],
-      errorMessage: "Expected '[' in effects declaration",
-      modulePath: env.modulePath,
-      inputString: env.inputString,
-    });
-  }
-  index = index + 1;
-
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    if (!tokens[index]) {
-      throw formatErrorMessage({
-        token: tokens[index - 1],
-        errorMessage: "Expected ']'",
-        modulePath: env.modulePath,
-        inputString: env.inputString,
-      });
-    }
-    if (tokens[index].type === TokenType.RBracket) {
-      index = index + 1;
-      break;
-    }
-
-    if (tokens[index].value === "*") {
-      // hasMoreEffects = true;
-      index = index + 1;
-    } else {
-      if (tokens[index].type !== TokenType.Identifier) {
-        throw formatErrorMessage({
-          token: tokens[index],
-          errorMessage: "Expected identifier as effect name",
-          modulePath: env.modulePath,
-          inputString: env.inputString,
-        });
-      }
-      const effectName = tokens[index].value;
-      index = index + 1;
-
-      let typeArguments: Type[] = [];
-      if (tokens[index].value === "<") {
-        const {
-          typeArguments: nextTypeArguments,
-          index: nextIndex,
-          env: nextEnv,
-        } = synthesizeTypeArgumentsFromTokens({
-          tokens,
-          index,
-          env,
-          parseExpression,
-        });
-        typeArguments = nextTypeArguments;
-        index = nextIndex;
-        env = nextEnv;
-      }
-
-      // Find the effect
-      const effectValues = getEnvVariableValueByVariableName(
-        env,
-        effectName,
-        "interface"
-      );
-      if (effectValues.length === 0) {
-        throw formatErrorMessage({
-          token: tokens[index],
-          errorMessage: `Cannot find effect ${effectName}`,
-          modulePath: env.modulePath,
-          inputString: env.inputString,
-        });
-      } else if (effectValues.length > 1) {
-        throw formatErrorMessage({
-          token: tokens[index],
-          errorMessage: `Ambiguous effect ${effectName}`,
-          modulePath: env.modulePath,
-          inputString: env.inputString,
-        });
-      } else {
-        const effect = effectValues[0].interface;
-        if (!effect) {
-          throw formatErrorMessage({
-            token: tokens[index],
-            errorMessage: `Cannot find effect ${effectName}`,
-            modulePath: env.modulePath,
-            inputString: env.inputString,
-          });
-        }
-        const newEffect = applyTypeArgumentsToInterface({
-          interface_: effect,
-          env,
-          typeArguments,
-          typeParameterToTypeArgumentMap: {},
-        });
-        effects.push(newEffect);
-      }
-    }
-
-    if (tokens[index].type === TokenType.Comma) {
-      index = index + 1;
-      continue;
-    }
-  }
-
-  // Extract effect operations
-  if (effects.length > 0) {
-    effects.forEach((effect) => {
-      effect.functions.forEach(({ name, func }) => {
-        const { env: nextEnv } = addEnvVariableValue({
-          env,
-          variableValue: {
-            variableName: name,
-            type: func,
-            kind: "value",
-            isMutable: false,
-            token: emptyToken,
-          },
-        });
-        env = nextEnv;
-      });
-    });
-  }
-
-  return {
-    effects,
-    // hasMoreEffects,
-    index,
-    env,
-  };
-}
-
 export function synthesizeTypeConstraintsFromTokens({
   tokens,
   index,
@@ -2637,15 +2452,15 @@ export function synthesizeTypeConstraintsFromTokens({
   env: Environment;
   parseExpression: ParseExpression;
 }): {
-  typeConstraints: TInterface[];
+  typeConstraints: TTrait[];
   index: number;
   env: Environment;
 } {
-  const typeConstraints: TInterface[] = [];
-  if (tokens[index].type !== TokenType.Using) {
+  const typeConstraints: TTrait[] = [];
+  if (tokens[index].type !== TokenType.Impl) {
     throw formatErrorMessage({
       token: tokens[index],
-      errorMessage: "Expected 'using' before declaring type constraints.",
+      errorMessage: "Expected 'impl' before declaring type constraints.",
       modulePath: env.modulePath,
       inputString: env.inputString,
     });
@@ -2695,50 +2510,50 @@ export function synthesizeTypeConstraintsFromTokens({
       env = nextEnv;
     }
 
-    // Find the interfaces
-    const interfaceValues = getEnvVariableValueByVariableName(
+    // Find the traits
+    const traitValues = getEnvVariableValueByVariableName(
       env,
       typeConstraintName,
-      "interface"
+      "trait"
     );
-    if (interfaceValues.length === 0) {
+    if (traitValues.length === 0) {
       throw formatErrorMessage({
         token: tokens[index],
-        errorMessage: `Cannot find interface ${typeConstraintName}`,
+        errorMessage: `Cannot find trait ${typeConstraintName}`,
         modulePath: env.modulePath,
         inputString: env.inputString,
       });
-    } else if (interfaceValues.length > 1) {
+    } else if (traitValues.length > 1) {
       throw formatErrorMessage({
         token: tokens[index],
-        errorMessage: `Ambiguous interface ${interfaceValues}`,
+        errorMessage: `Ambiguous trait ${traitValues}`,
         modulePath: env.modulePath,
         inputString: env.inputString,
       });
     } else {
-      const interface_ = interfaceValues[0].interface;
-      if (!interface_) {
+      const trait = traitValues[0].trait;
+      if (!trait) {
         throw formatErrorMessage({
           token: tokens[index],
-          errorMessage: `Cannot find interface ${typeConstraintName}`,
+          errorMessage: `Cannot find trait ${typeConstraintName}`,
           modulePath: env.modulePath,
           inputString: env.inputString,
         });
       }
-      const newInterface = applyTypeArgumentsToInterface({
-        interface_: interface_,
+      const newTrait = applyTypeArgumentsToTrait({
+        trait: trait,
         env,
         typeArguments,
         typeParameterToTypeArgumentMap: {},
       });
-      typeConstraints.push(newInterface);
+      typeConstraints.push(newTrait);
 
       /*
       // Add the interface implementation function
-      for (let i = 0; i < newInterface.functions.length; i++) {
-        const interfaceFunction = newInterface.functions[i];
+      for (let i = 0; i < newTrait.functions.length; i++) {
+        const interfaceFunction = newTrait.functions[i];
         // interfaceFunction.func.hasNoImplementation = false; // Assume that the implementation exists
-        interface_.functions[i].func.interfaceFunctionImplementations.push(
+        trait.functions[i].func.traitFunctionImplementations.push(
           interfaceFunction
         );
       }
@@ -2823,7 +2638,7 @@ export function synthesizeFunctionTypeFromTokens({
   }
 
   let typeParameters: TTypeParameter[] = [];
-  let typeConstraints: TInterface[] = [];
+  let typeConstraints: TTrait[] = [];
   if (tokens[index].value === "<") {
     const {
       typeParameters: nextTypeParameters,
@@ -2911,12 +2726,10 @@ export function synthesizeFunctionTypeFromTokens({
       typeParameters,
       typeConstraints,
       returnType,
-      effects: [],
-      // hasMoreEffects,
       closureCaptureMode,
       freeVariables: undefined,
       frameLevel,
-      interfaceFunctionImplementations: [],
+      traitFunctionImplementations: [],
     };
     return {
       typeValue: functionType,
@@ -2927,27 +2740,6 @@ export function synthesizeFunctionTypeFromTokens({
 
   if (tokens[index].type === TokenType.FunctionArrow) {
     index = index + 1;
-
-    // Effects
-    let effects: TInterface[] = [];
-    // let hasMoreEffects = false;
-    if (tokens[index].type === TokenType.LBracket) {
-      const {
-        effects: nextEffects,
-        // hasMoreEffects: nextHasMoreEffects,
-        index: nextNextIndex,
-        env: nextEnv,
-      } = synthesizeEffectsFromTokens({
-        tokens,
-        index,
-        env,
-        parseExpression,
-      });
-      effects = nextEffects;
-      // hasMoreEffects = nextHasMoreEffects;
-      index = nextNextIndex;
-      env = nextEnv;
-    }
 
     let returnType: Type = TypeValues.unit;
     if (tokens[index].type !== TokenType.LCurlyBracket) {
@@ -2978,12 +2770,10 @@ export function synthesizeFunctionTypeFromTokens({
       typeParameters,
       typeConstraints,
       returnType,
-      effects,
-      // hasMoreEffects,
       closureCaptureMode,
       freeVariables: undefined,
       frameLevel,
-      interfaceFunctionImplementations: [],
+      traitFunctionImplementations: [],
     };
     return {
       typeValue: functionType,
@@ -3068,7 +2858,7 @@ export function synthesizeTypeParametersFromTokens({
   parseExpression: ParseExpression;
 }): {
   typeParameters: TTypeParameter[];
-  typeConstraints: TInterface[];
+  typeConstraints: TTrait[];
   index: number;
   env: Environment;
 } {
@@ -3083,7 +2873,7 @@ export function synthesizeTypeParametersFromTokens({
 
   index = index + 1;
   const typeParameters: TTypeParameter[] = [];
-  let typeConstraints: TInterface[] = [];
+  let typeConstraints: TTrait[] = [];
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const token = tokens[index];
@@ -3105,7 +2895,7 @@ export function synthesizeTypeParametersFromTokens({
     }
 
     // Type constraints
-    if (token.type === TokenType.Given) {
+    if (token.type === TokenType.Impl) {
       const {
         typeConstraints: nextTypeConstraints,
         index: nextIndex,
@@ -3410,9 +3200,6 @@ export function typeToString(
         .join("; ")} }`;
     }
     case "Function": {
-      const effectsString = effectsToString(type.effects, {
-        hideTypeParameterKind: true,
-      });
       return `${closureCaptureModeToString(
         type.closureCaptureMode
       )}${typeParametersToString(type.typeParameters, type.typeConstraints, {
@@ -3428,11 +3215,12 @@ export function typeToString(
                 : ""
             }`
         )
-        .join(", ")})${isFunctionImplementation ? ":" : "->"} ${
-        effectsString.length > 0 ? `${effectsString} ` : ""
-      }${typeToString(type.returnType, {
-        hideTypeParameterKind: true,
-      })}`;
+        .join(", ")})${isFunctionImplementation ? ":" : "->"} ${typeToString(
+        type.returnType,
+        {
+          hideTypeParameterKind: true,
+        }
+      )}`;
     }
     case "Union": {
       return `(${type.types
@@ -3663,8 +3451,7 @@ export function checkType(
         expectedType.parameterTypes.every((parameterType, i) =>
           checkType(parameterType.type, givenType.parameterTypes[i].type, env)
         ) &&
-        checkType(expectedType.returnType, givenType.returnType, env) &&
-        checkFunctionEffects(expectedType, givenType, env)
+        checkType(expectedType.returnType, givenType.returnType, env)
       );
     } else if (expectedTypeType === "Enum" && givenTypeType === "Enum") {
       return checkEnumExactMatchType(expectedType, givenType, env);
@@ -3693,52 +3480,9 @@ export function checkType(
   }
 }
 
-export function checkEffect(
-  expectedEffect: TInterface,
-  givenEffect: TInterface,
-  env: Environment
-): boolean {
-  if (expectedEffect.interfaceId !== givenEffect.interfaceId) {
-    return false;
-  }
-  if (
-    expectedEffect.typeParameters.length !== givenEffect.typeParameters.length
-  ) {
-    return false;
-  }
-
-  for (let i = 0; i < expectedEffect.typeParameters.length; i++) {
-    const expectedTypeParameter = expectedEffect.typeParameters[i];
-    const givenTypeParameter = givenEffect.typeParameters[i];
-    if (!checkType(expectedTypeParameter, givenTypeParameter, env)) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-export function checkFunctionEffects(
-  calleeType: TFunction,
-  callerType: TFunction,
-  env: Environment
-) {
-  /*if (calleeType.hasMoreEffects) {
-    return true;
-  } else if (callerType.hasMoreEffects) {
-    return false;
-  } else */ {
-    return calleeType.effects.every((expectedEffect) => {
-      return callerType.effects.some((givenEffect) => {
-        return checkEffect(expectedEffect, givenEffect, env);
-      });
-    });
-  }
-}
-
 export function typeParametersToString(
   typeParameters: TTypeParameter[],
-  typeConstraints: TInterface[],
+  typeConstraints: TTrait[],
   { hideTypeParameterKind }: { hideTypeParameterKind?: boolean } = {}
 ) {
   if (typeParameters.length === 0) {
@@ -3749,8 +3493,8 @@ export function typeParametersToString(
       .join(", ")}${
       typeConstraints.length > 0
         ? ` given ${typeConstraints
-            .map((interface_) =>
-              interfaceToString(interface_, { extractTypeConstructor: false })
+            .map((trait) =>
+              traitToString(trait, { extractTypeConstructor: false })
             )
             .join(", ")}`
         : ""
@@ -3771,78 +3515,19 @@ export function closureCaptureModeToString(mode: ClosureCaptureMode): string {
   }
 }
 
-export function effectToString(
-  effect: TInterface,
-  {
-    extractTypeConstructor,
-    hideTypeParameterKind,
-  }: {
-    extractTypeConstructor?: boolean | "all";
-    hideTypeParameterKind?: boolean;
-  } = {}
-): string {
-  if (extractTypeConstructor) {
-    return `${effect.isImplementation ? "" : "effect "}${
-      effect.interfaceName
-    }${typeParametersToString(effect.typeParameters, effect.typeConstraints, {
-      hideTypeParameterKind,
-    })} {
-${effect.functions
-  .map(({ func, name, functionExpr }) => {
-    return `  ${name}: ${typeToString(func, {
-      extractTypeConstructor: false,
-    })}${functionExpr ? ` ${exprToString(functionExpr.body, "  ")}` : ""}`;
-  })
-  .join(";\n")};
-}`;
-  } else {
-    return `${effect.interfaceName}${typeParametersToString(
-      effect.typeParameters,
-      effect.typeConstraints,
-      { hideTypeParameterKind }
-    )}`;
-  }
-}
-
-export function effectsToString(
-  effects: TInterface[],
-  // hasMoreEffects: boolean,
-  {
-    hideTypeParameterKind,
-    extractTypeConstructor,
-  }: { hideTypeParameterKind?: boolean; extractTypeConstructor?: boolean } = {}
-): string {
-  if (effects.length === 0 /*&& !hasMoreEffects*/) {
-    return "";
-  } else {
-    return `[${effects
-      .map((effect) =>
-        effectToString(effect, {
-          hideTypeParameterKind,
-          extractTypeConstructor,
-        })
-      )
-      .join(", ")}${
-      /*
-      hasMoreEffects ? (effects.length > 0 ? ", " : "") + `*` : ""
-      */ ""
-    }]`;
-  }
-}
-
-export function interfaceToString(
-  type: TInterface,
+export function traitToString(
+  type: TTrait,
   { extractTypeConstructor }: { extractTypeConstructor?: boolean } = {}
 ): string {
   if (extractTypeConstructor) {
     return `${
       type.isImplementation
-        ? `implements${typeParametersToString(
-            type.instanceTypeParameters ?? [],
-            type.instanceTypeConstraints ?? []
+        ? `impl${typeParametersToString(
+            type.implementationTypeParameters ?? [],
+            type.implementationTypeConstraints ?? []
           )}`
-        : "interface"
-    } ${type.interfaceName}${typeParametersToString(
+        : "trait"
+    } ${type.traitName}${typeParametersToString(
       type.typeParameters,
       type.typeConstraints,
       {
@@ -3859,7 +3544,7 @@ ${type.functions
   .join(";\n")};
 }`;
   } else {
-    return `${type.interfaceName}${typeParametersToString(
+    return `${type.traitName}${typeParametersToString(
       type.typeParameters,
       type.typeConstraints,
       {
@@ -4348,28 +4033,6 @@ function mixTypeKind(kind1: TypeKind, kind2: TypeKind): TypeKind {
     return "Linear";
   } else {
     return "Free";
-  }
-}
-
-export function typeIsFunctionTypeThatReturnsPromise(
-  type: Type
-): TTypeConstructor | null {
-  if (
-    type.type === "Function" &&
-    type.returnType.type === "TypeConstructor" &&
-    type.returnType.typeConstructorId === "Promise"
-  ) {
-    return type.returnType;
-  } else {
-    return null;
-  }
-}
-
-export function typeIsPromise(type: Type): TTypeConstructor | null {
-  if (type.type === "TypeConstructor" && type.typeConstructorId === "Promise") {
-    return type;
-  } else {
-    return null;
   }
 }
 

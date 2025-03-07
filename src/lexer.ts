@@ -474,7 +474,6 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
-            /*
             case "mut":
               tokens.push({
                 type: TokenType.Mut,
@@ -482,7 +481,6 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
-            */
             case "type":
               tokens.push({
                 type: TokenType.Type,
@@ -497,37 +495,23 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
-            case "interface":
+            case "trait":
               tokens.push({
-                type: TokenType.Interface,
+                type: TokenType.Trait,
                 value,
                 position: { line, character: i - totalCharacters },
               });
               break;
-            case "class":
+            case "impl":
               tokens.push({
-                type: TokenType.Class,
+                type: TokenType.Impl,
                 value,
                 position: { line, character: i - totalCharacters },
               });
               break;
-            case "instance":
+            case "dyn":
               tokens.push({
-                type: TokenType.Instance,
-                value,
-                position: { line, character: i - totalCharacters },
-              });
-              break;
-            case "extends":
-              tokens.push({
-                type: TokenType.Extends,
-                value,
-                position: { line, character: i - totalCharacters },
-              });
-              break;
-            case "implements":
-              tokens.push({
-                type: TokenType.Implements,
+                type: TokenType.Dyn,
                 value,
                 position: { line, character: i - totalCharacters },
               });
@@ -574,13 +558,6 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
-            case "try":
-              tokens.push({
-                type: TokenType.Try,
-                value,
-                position: { line, character: i - totalCharacters },
-              });
-              break;
             case "with":
               tokens.push({
                 type: TokenType.With,
@@ -591,20 +568,6 @@ export function tokenize(input: string): Token[] {
             case "where":
               tokens.push({
                 type: TokenType.Where,
-                value,
-                position: { line, character: i - totalCharacters },
-              });
-              break;
-            case "given":
-              tokens.push({
-                type: TokenType.Given,
-                value,
-                position: { line, character: i - totalCharacters },
-              });
-              break;
-            case "using":
-              tokens.push({
-                type: TokenType.Using,
                 value,
                 position: { line, character: i - totalCharacters },
               });
@@ -630,30 +593,9 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
-            case "effect":
-              tokens.push({
-                type: TokenType.Effect,
-                value,
-                position: { line, character: i - totalCharacters },
-              });
-              break;
             case "control":
               tokens.push({
                 type: TokenType.Control,
-                value,
-                position: { line, character: i - totalCharacters },
-              });
-              break;
-            case "async":
-              tokens.push({
-                type: TokenType.Async,
-                value,
-                position: { line, character: i - totalCharacters },
-              });
-              break;
-            case "await":
-              tokens.push({
-                type: TokenType.Await,
                 value,
                 position: { line, character: i - totalCharacters },
               });
@@ -682,34 +624,6 @@ export function tokenize(input: string): Token[] {
             case "infixr":
               tokens.push({
                 type: TokenType.Infixr,
-                value,
-                position: { line, character: i - totalCharacters },
-              });
-              break;
-            case "read":
-              tokens.push({
-                type: TokenType.Read,
-                value,
-                position: { line, character: i - totalCharacters },
-              });
-              break;
-            case "write":
-              tokens.push({
-                type: TokenType.Write,
-                value,
-                position: { line, character: i - totalCharacters },
-              });
-              break;
-            case "own":
-              tokens.push({
-                type: TokenType.Own,
-                value,
-                position: { line, character: i - totalCharacters },
-              });
-              break;
-            case "copy":
-              tokens.push({
-                type: TokenType.Copy,
                 value,
                 position: { line, character: i - totalCharacters },
               });

@@ -58,25 +58,22 @@ import {
   TEnum,
   TEnumVariant,
   TFunction,
-  TInterface,
-  TInterfaceFunction,
+  TImplementationFunction,
   TModule,
   TParameterType,
   TRecord,
   TRecordProperty,
+  TTrait,
   TTypeConstructor,
   TTypeParameter,
   Type,
   TypeKind,
   TypeValues,
-  applyTypeArgumentsToInterface,
+  applyTypeArgumentsToTrait,
   applyTypeArgumentsToType,
-  checkEffect,
-  checkFunctionEffects,
   checkType,
   convertPrimitiveToType,
-  effectsToString,
-  emptyFunctionThatHasMoreEffects,
+  emptyFunction,
   getEnumTypeKind,
   getFunctionArgumentsInOrder,
   getFunctionsOfCallerFromEnv,
@@ -90,9 +87,7 @@ import {
   synthesizeTypeParametersFromTokens,
   synthesizeTypes,
   typeContainsReference,
-  typeIsFunctionTypeThatReturnsPromise,
   typeIsMutableReference,
-  typeIsPromise,
   typeIsReference,
   typeToString,
 } from "./type-checker";
@@ -620,7 +615,7 @@ export default class Parser {
       error: Error;
     }[] = [];
     const helper = (functionName: string, functionType: TFunction) => {
-      if (!functionType.isEffectOperation && functionType.hasNoImplementation) {
+      if (functionType.hasNoImplementation) {
         failedFunctions.push({
           functionName,
           functionType,
@@ -659,9 +654,9 @@ export default class Parser {
     for (const functionType of functions) {
       helper(functionName, functionType);
 
-      if (functionType.interfaceFunctionImplementations.length > 0) {
-        for (const interfaceFunctionImplementation of functionType.interfaceFunctionImplementations) {
-          const implementFunctionType = interfaceFunctionImplementation.func;
+      if (functionType.traitFunctionImplementations.length > 0) {
+        for (const traitFunctionImplementation of functionType.traitFunctionImplementations) {
+          const implementFunctionType = traitFunctionImplementation.func;
           helper(functionName, implementFunctionType);
         }
       }
@@ -778,9 +773,9 @@ Found possible functions:
         },
         index: index + 1,
       };
-    } else if (expr.type === AstType.Interface) {
-      const interface_ = expr.interface;
-      const func = interface_.functions.find(
+    } else if (expr.type === AstType.Trait) {
+      const trait = expr.trait;
+      const func = trait.functions.find(
         (property) => property.name === token.value
       );
       if (func) {
@@ -1177,7 +1172,6 @@ ${exprToString(lhs)}
     env,
     caller,
     parserData,
-    effectOperationAbortType,
     functionName,
     isForTypeclass,
   }: {
@@ -1186,7 +1180,6 @@ ${exprToString(lhs)}
     env: Environment;
     caller: TFunction;
     parserData: ParserData;
-    effectOperationAbortType?: Type;
     functionName?: string;
     isForTypeclass?: boolean;
   }): ParserReturn {
@@ -1221,7 +1214,7 @@ ${exprToString(lhs)}
       // contains the top-level frame
       let newEnv = createTopLevelEnv(oldEnv);
 
-      // If it's for interface, we need to add another frame
+      // If it's for trait, we need to add another frame
       // that might contains the type parameters.
       if (isForTypeclass) {
         newEnv = pushEnvFrame(newEnv, oldEnv.frames[oldEnv.frames.length - 1]);
@@ -1240,8 +1233,6 @@ ${exprToString(lhs)}
       functionType = newFunctionType;
     }
 
-    const promiseReturnType =
-      typeIsFunctionTypeThatReturnsPromise(functionType);
     const newParserData: ParserData = {
       callSites: [...parserData.callSites, functionType],
       // abortType: isFunctionReturningPromise ? undefined : parserData.abortType,
@@ -1249,47 +1240,6 @@ ${exprToString(lhs)}
       //   ? undefined
       //   : parserData.abortTokenIndex,
     };
-
-    // Add "resume" and "abort" functions if the function returns promise
-    if (promiseReturnType) {
-      const resumeType = promiseReturnType.typeParameters[0].appliedType;
-      if (!resumeType) {
-        throw this.formatErrorMessage(
-          tokens[startIndex],
-          `Expected resume type`
-        );
-      }
-      const resumeFunc = this.constructResumeFunctionType(resumeType, env);
-      const { env: nextEnv } = addEnvVariableValue({
-        env,
-        variableValue: {
-          variableName: "resume",
-          type: resumeFunc,
-          kind: "value",
-          isMutable: false,
-          token: tokens[startIndex],
-        },
-      });
-      env = nextEnv;
-
-      if (effectOperationAbortType) {
-        const abortFunc = this.constructAbortFunctionType(
-          effectOperationAbortType,
-          env
-        );
-        const { env: nextEnv } = addEnvVariableValue({
-          env,
-          variableValue: {
-            variableName: "abort",
-            type: abortFunc,
-            kind: "value",
-            isMutable: false,
-            token: tokens[startIndex],
-          },
-        });
-        env = nextEnv;
-      }
-    }
 
     // Parse body
     const { expr: body, index: nextNextIndex } = this.parseBlockExpressions({
@@ -1304,10 +1254,7 @@ ${exprToString(lhs)}
 
     // Check function body return type matches
     // the function type return type
-    // NOTE: `control` effect operation can only return () type.
-    const expectedReturnType = promiseReturnType
-      ? TypeValues.unit
-      : functionType.returnType;
+    const expectedReturnType = functionType.returnType;
     if (!checkType(expectedReturnType, body.typeValue, env)) {
       throw formatErrorMessages({
         inputString: this.inputString,
@@ -1317,12 +1264,8 @@ ${exprToString(lhs)}
             token: body.token,
             errorMessage: `Mismatched return type:
               Prototype: ${typeToString(expectedReturnType)}
-              Returned : ${typeToString(body.typeValue)}${
-                promiseReturnType
-                  ? `\nPlease note function that returns a Promise requires () as its real return type.  `
-                  : ""
-              }
-              `,
+              Returned : ${typeToString(body.typeValue)}
+`,
           },
           {
             token: body.exprs[body.exprs.length - 1].token,
@@ -1369,64 +1312,6 @@ ${exprToString(lhs)}
         typeValue: functionType,
       },
     };
-  }
-
-  private constructResumeFunctionType(
-    resumeType: Type,
-    env: Environment
-  ): TFunction {
-    const func: TFunction = {
-      type: "Function",
-      kind: "Free",
-      functionId: generateVarialeValueId(env, "resume"),
-      effects: [],
-      // hasMoreEffects: false,
-      typeParameters: [],
-      typeConstraints: [],
-      returnType: TypeValues.unit,
-      parameterTypes: [
-        {
-          name: "value",
-          parameterId: generateVarialeValueId(env, "value"),
-          type: resumeType,
-          isMutable: false,
-          defaultValue: null,
-        },
-      ],
-      closureCaptureMode: "none",
-      frameLevel: 0,
-      interfaceFunctionImplementations: [],
-    };
-    return func;
-  }
-
-  private constructAbortFunctionType(
-    abortType: Type,
-    env: Environment
-  ): TFunction {
-    const func: TFunction = {
-      type: "Function",
-      kind: "Free",
-      functionId: generateVarialeValueId(env, "abort"),
-      effects: [],
-      // hasMoreEffects: false,
-      typeParameters: [],
-      typeConstraints: [],
-      returnType: TypeValues.unit,
-      parameterTypes: [
-        {
-          name: "value",
-          parameterId: generateVarialeValueId(env, "value"),
-          type: abortType,
-          isMutable: false,
-          defaultValue: null,
-        },
-      ],
-      closureCaptureMode: "none",
-      frameLevel: 0,
-      interfaceFunctionImplementations: [],
-    };
-    return func;
   }
 
   /**
@@ -1925,18 +1810,6 @@ Got:      <${functionTypeArgumentsInOrder
     index = nextIndex;
     env = nextEnv;
 
-    // Check function effects
-    if (!checkFunctionEffects(calleeTypeValue, caller, env)) {
-      // NOTE: This order matters ^^^
-      throw this.formatErrorMessage(
-        tokens[startIndex],
-        `Mismatched effects:
-  Caller: ${effectsToString(caller.effects)}
-  Callee: ${effectsToString(calleeTypeValue.effects)}
-`
-      );
-    }
-
     // save the return value to a temporary variable
     const returnType = calleeTypeValue.returnType;
     const { env: nextNextEnv, value: tempVariable } =
@@ -2236,7 +2109,7 @@ Got:      <${appliedTypeArguments
     // Check if variable is defined
     const variableValues = [
       ...getEnvVariableValueByVariableName(env, identifier, "value"),
-      ...getEnvVariableValueByVariableName(env, identifier, "interface"),
+      ...getEnvVariableValueByVariableName(env, identifier, "trait"),
       ...getEnvVariableValueByVariableName(env, identifier, "type"),
     ];
     if (variableValues.length === 0) {
@@ -2248,8 +2121,8 @@ Got:      <${appliedTypeArguments
     const matchedFunctions = variableValues.filter(
       (value) => value.type.type === "Function"
     );
-    const matchedInterfaces = variableValues.filter(
-      (value) => value.interface && value.kind === "interface"
+    const matchTraits = variableValues.filter(
+      (value) => value.trait && value.kind === "trait"
     );
     const matchedEnums = variableValues.filter(
       (value) =>
@@ -2260,26 +2133,24 @@ Got:      <${appliedTypeArguments
       (value) => value.type.type === "TypeConstructor" && value.kind === "type"
     );
 
-    // Check if it's an interface
-    if (matchedInterfaces.length > 0) {
+    // Check if it's a trait
+    if (matchTraits.length > 0) {
       // FIXME: Support this
-      if (matchedInterfaces.length > 1) {
+      if (matchTraits.length > 1) {
         throw this.formatErrorMessage(
           tokens[identifierTokenIndex],
-          `Ambiguous interfaces "${identifier}"
-Found possible interfaces:
-- ${matchedInterfaces
-            .map((interfaceValue) => typeToString(interfaceValue.type))
-            .join("\n- ")}
+          `Ambiguous traits "${identifier}"
+Found possible traits:
+- ${matchTraits.map((traitValue) => typeToString(traitValue.type)).join("\n- ")}
           `
         );
       } else {
-        const interfaceValue = matchedInterfaces[matchedInterfaces.length - 1];
-        const interface_ = interfaceValue.interface;
-        if (!interface_) {
+        const traitValue = matchTraits[matchTraits.length - 1];
+        const trait = traitValue.trait;
+        if (!trait) {
           throw this.formatErrorMessage(
             tokens[identifierTokenIndex],
-            `Expected interface, but got ${typeToString(interfaceValue.type)}`
+            `Expected trait, but got ${typeToString(traitValue.type)}`
           );
         }
         let typeArguments: Type[] = [];
@@ -2300,8 +2171,8 @@ Found possible interfaces:
         } else {
           index = index + 1;
         }
-        const newInterfaceType = applyTypeArgumentsToInterface({
-          interface_: interface_,
+        const newTraitType = applyTypeArgumentsToTrait({
+          trait: trait,
           env,
           typeArguments,
           typeParameterToTypeArgumentMap: {},
@@ -2309,9 +2180,9 @@ Found possible interfaces:
 
         return {
           expr: {
-            type: AstType.Interface,
+            type: AstType.Trait,
             typeValue: TypeValues.unit,
-            interface: newInterfaceType,
+            trait: newTraitType,
             env,
             token: tokens[identifierTokenIndex],
           },
@@ -2823,26 +2694,6 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
             parserData,
           });
         }
-        case TokenType.Try: {
-          returnValue = this.parseTryExpr({
-            tokens,
-            index,
-            env,
-            caller,
-            parserData,
-          });
-          break;
-        }
-        case TokenType.Await: {
-          returnValue = this.parseAwaitExpr({
-            tokens,
-            index,
-            env,
-            caller,
-            parserData,
-          });
-          break;
-        }
         case TokenType.Recur: {
           returnValue = this.parseRecurExpr({
             tokens,
@@ -3173,10 +3024,7 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
         error: Error;
       }[] = [];
       const helper = (functionName: string, functionType: TFunction) => {
-        if (
-          !functionType.isEffectOperation &&
-          functionType.hasNoImplementation
-        ) {
+        if (functionType.hasNoImplementation) {
           failedFunctions.push({
             functionName,
             functionType,
@@ -3284,9 +3132,9 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
         const functionType = matchedFunction.type as TFunction;
         helper(functionName, functionType);
 
-        if (functionType.interfaceFunctionImplementations.length > 0) {
-          for (const interfaceFunctionImplementation of functionType.interfaceFunctionImplementations) {
-            const implementFunctionType = interfaceFunctionImplementation.func;
+        if (functionType.traitFunctionImplementations.length > 0) {
+          for (const traitFunctionImplementation of functionType.traitFunctionImplementations) {
+            const implementFunctionType = traitFunctionImplementation.func;
             helper(functionName, implementFunctionType);
           }
         }
@@ -3406,7 +3254,7 @@ Found possible functions:
       error: Error;
     }[] = [];
     const helper = (functionName: string, functionType: TFunction) => {
-      if (!functionType.isEffectOperation && functionType.hasNoImplementation) {
+      if (functionType.hasNoImplementation) {
         failedFunctions.push({
           functionName,
           functionType,
@@ -3512,9 +3360,9 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
       const functionType = matchedFunction.type as TFunction;
       helper(functionName, functionType);
 
-      if (functionType.interfaceFunctionImplementations.length > 0) {
-        for (const interfaceFunctionImplementation of functionType.interfaceFunctionImplementations) {
-          const implementFunctionType = interfaceFunctionImplementation.func;
+      if (functionType.traitFunctionImplementations.length > 0) {
+        for (const traitFunctionImplementation of functionType.traitFunctionImplementations) {
+          const implementFunctionType = traitFunctionImplementation.func;
           helper(functionName, implementFunctionType);
         }
       }
@@ -5000,7 +4848,7 @@ ${typeToString(caseReturnType)}
       try {
         const { typeValue } = synthesizeFunctionTypeFromTokens({
           tokens,
-          index: tokens[index].type === TokenType.Async ? index + 1 : index,
+          index,
           env,
           parseExpression: this.makeParseExpression({ caller, parserData }),
           withFunctionBody: false,
@@ -5643,7 +5491,7 @@ ${typeToString(valueType)}`
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
-    let typeConstraints: TInterface[] = [];
+    let typeConstraints: TTrait[] = [];
     if (tokens[index].value === "<") {
       const {
         index: nextIndex,
@@ -5783,16 +5631,16 @@ ${typeToString(nextTypeValue)}`
 
   /**
    *
-   * interface ::= "interface" identifier typeParameters? "{" functionPrototype* "}"
-   *           ::= "interface" identifier typeParameters? "with" typeclassType "{" functionPrototype* "}"
-   * FIXME: Support `with` for interface
+   * trait ::= "trait" identifier typeParameters? "{" functionPrototype* "}"
+   *           ::= "trait" identifier typeParameters? "with" typeclassType "{" functionPrototype* "}"
+   * FIXME: Support `impl` for trait
    * FIXME: If the class has no type parameters, then all functions in the class should have default implementations.
    * @param tokens
    * @param index
    * @param env
    * @returns
    */
-  private parseInterfaceExpr({
+  private parseTraitExpr({
     tokens,
     index,
     env,
@@ -5807,10 +5655,10 @@ ${typeToString(nextTypeValue)}`
     parserData: ParserData;
     isExported?: boolean;
   }): ParserReturn {
-    if (tokens[index].type !== TokenType.Interface) {
+    if (tokens[index].type !== TokenType.Trait) {
       throw this.formatErrorMessage(
         tokens[index],
-        'Expected "interface" for declaration'
+        'Expected "trait" for declaration'
       );
     }
     const classTokenIndex = index;
@@ -5822,15 +5670,15 @@ ${typeToString(nextTypeValue)}`
         'Expected identifier for "class"'
       );
     }
-    const interfaceName = tokens[index].value;
-    const interfaceNameTokenIndex = index;
+    const traitName = tokens[index].value;
+    const traitNameTokenIndex = index;
     index = index + 1;
 
-    // interfaceName has to be UpperCamelCase
-    if (!isUpperCamelCase(interfaceName)) {
+    // traitName has to be UpperCamelCase
+    if (!isUpperCamelCase(traitName)) {
       throw this.formatErrorMessage(
         tokens[index],
-        "interface name has to be UpperCamelCase"
+        "trait name has to be UpperCamelCase"
       );
     }
 
@@ -5839,7 +5687,7 @@ ${typeToString(nextTypeValue)}`
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
-    let typeConstraints: TInterface[] = [];
+    let typeConstraints: TTrait[] = [];
     if (tokens[index].value === "<") {
       const {
         index: nextIndex,
@@ -5858,11 +5706,11 @@ ${typeToString(nextTypeValue)}`
       env = nextEnv;
     }
 
-    const interfaceId = generateVarialeValueId(env, interfaceName);
-    const fakeInterface: TInterface = {
-      type: "Interface",
-      interfaceName,
-      interfaceId,
+    const traitId = generateVarialeValueId(env, traitName);
+    const fakeTrait: TTrait = {
+      type: "Trait",
+      traitName,
+      traitId,
       functions: [],
       typeParameters,
       typeConstraints,
@@ -5871,23 +5719,23 @@ ${typeToString(nextTypeValue)}`
     const { env: nextEnv } = addEnvVariableValue({
       env,
       variableValue: {
-        variableName: interfaceName,
+        variableName: traitName,
         type: {
           type: "unknown",
           kind: "Free",
-          typeName: interfaceName,
+          typeName: traitName,
         },
-        kind: "interface",
-        interface: fakeInterface,
+        kind: "trait",
+        trait: fakeTrait,
         isExported,
-        token: tokens[interfaceNameTokenIndex],
+        token: tokens[traitNameTokenIndex],
       },
     });
     env = nextEnv;
 
     // QUESTION: Does `extends` work for typeclass?
     // Should we use `with` instead?
-    const functions: TInterfaceFunction[] = [];
+    const functions: TImplementationFunction[] = [];
     const functionNameTokens: Token[] = [];
     // Parse class body
     if (tokens[index].type !== TokenType.LCurlyBracket) {
@@ -5953,7 +5801,7 @@ ${typeToString(nextTypeValue)}`
       if (functionType.typeParameters.length > 0) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Type parameters are not allowed in 'interface' functions as it uses the type parameters defined in the class itself:
+          `Type parameters are not allowed in 'trait' functions as it uses the type parameters defined in the class itself:
 
 ${typeToString(functionType)}
 `
@@ -5962,7 +5810,7 @@ ${typeToString(functionType)}
       if (functionType.closureCaptureMode !== "none") {
         throw this.formatErrorMessage(
           tokens[index],
-          `Closure is not allowed in 'interface' functions:
+          `Closure is not allowed in 'trait' functions:
 ${typeToString(functionType)}
 `
         );
@@ -5992,14 +5840,7 @@ ${typeToString(functionType)}
       // Set special property for functionType
       functionType.hasNoImplementation = !functionExpr;
       functionType.ignoreAmbiguityCheck = true;
-      functionType.ownerInterfaceId = interfaceId;
-
-      // Check if function is effect operation
-      if (
-        functionType.effects.some((e) => checkEffect(fakeInterface, e, env))
-      ) {
-        functionType.isEffectOperation = true;
-      }
+      functionType.ownerTraitId = traitId;
 
       // Check if the function name is already defined in the class
       if (functions.some((func) => func.name === functionName)) {
@@ -6025,26 +5866,26 @@ ${typeToString(functionType)}
       }
     }
 
-    const interface_: TInterface = {
-      type: "Interface",
-      interfaceName: interfaceName,
-      interfaceId: interfaceId,
+    const trait: TTrait = {
+      type: "Trait",
+      traitName: traitName,
+      traitId: traitId,
       typeParameters,
       typeConstraints,
       functions,
       isImplementation: false,
     };
 
-    // Add interface to environment
+    // Add trait to environment
     const { env: nextNextEnv } = addEnvVariableValue({
       env,
       variableValue: {
-        variableName: interfaceName,
+        variableName: traitName,
         type: TypeValues.unit,
-        interface: interface_,
-        kind: "interface",
+        trait: trait,
+        kind: "trait",
         isExported,
-        token: tokens[interfaceNameTokenIndex],
+        token: tokens[traitNameTokenIndex],
       },
       deltaFrame: -1,
     });
@@ -6072,8 +5913,8 @@ ${typeToString(functionType)}
     env = popEnvFrame(env);
     return {
       expr: {
-        type: AstType.Interface,
-        interface: interface_,
+        type: AstType.Trait,
+        trait: trait,
         typeValue: TypeValues.unit,
         env,
         token: tokens[classTokenIndex],
@@ -6082,7 +5923,7 @@ ${typeToString(functionType)}
     };
   }
 
-  private parseImplementsExpr({
+  private parseImplExpr({
     tokens,
     index,
     env,
@@ -6095,10 +5936,10 @@ ${typeToString(functionType)}
     caller: TFunction;
     parserData: ParserData;
   }): ParserReturn {
-    if (tokens[index].type !== TokenType.Implements) {
+    if (tokens[index].type !== TokenType.Impl) {
       throw this.formatErrorMessage(
         tokens[index],
-        'Expected "implements" for interface implementation'
+        'Expected "impl" for trait implementation'
       );
     }
     const instanceTokenIndex = index;
@@ -6108,8 +5949,8 @@ ${typeToString(functionType)}
     env = pushEnvFrame(env);
 
     // Instance type parameters
-    const instanceTypeParameters: TTypeParameter[] = [];
-    const instanceTypeConstraints: TInterface[] = [];
+    const implementationTypeParameters: TTypeParameter[] = [];
+    const implementationTypeConstraints: TTrait[] = [];
     if (tokens[index].value === "<") {
       const {
         index: nextIndex,
@@ -6123,8 +5964,8 @@ ${typeToString(functionType)}
         parseExpression: this.makeParseExpression({ caller, parserData }),
       });
       index = nextIndex;
-      instanceTypeParameters.push(...tp);
-      instanceTypeConstraints.push(...tc);
+      implementationTypeParameters.push(...tp);
+      implementationTypeConstraints.push(...tc);
       env = nextEnv;
     }
 
@@ -6135,41 +5976,37 @@ ${typeToString(functionType)}
         "Expected identifier for instance"
       );
     }
-    const interfaceName = tokens[index].value;
-    // const interfaceNameTokenIndex = index;
+    const traitName = tokens[index].value;
+    // const traitNameTokenIndex = index;
     index = index + 1;
 
-    // Find the interfaces from env
-    const interfaces = getEnvVariableValueByVariableName(
-      env,
-      interfaceName,
-      "interface"
-    );
-    if (interfaces.length === 0) {
+    // Find the traits from env
+    const traits = getEnvVariableValueByVariableName(env, traitName, "trait");
+    if (traits.length === 0) {
       throw this.formatErrorMessage(
         tokens[index],
-        `Cannot find interface "${interfaceName}"`
+        `Cannot find trait "${traitName}"`
       );
-    } else if (interfaces.length > 1) {
+    } else if (traits.length > 1) {
       throw this.formatErrorMessage(
         tokens[index],
-        `Found multiple interfaces with the same name "${interfaceName}":
-- ${interfaces.map((interface_) => typeToString(interface_.type)).join("\n- ")}`
+        `Found multiple traits with the same name "${traitName}":
+- ${traits.map((trait) => typeToString(trait.type)).join("\n- ")}`
       );
     }
-    const interface1 = interfaces[0].interface;
-    if (!interface1) {
+    const trait1 = traits[0].trait;
+    if (!trait1) {
       throw this.formatErrorMessage(
         tokens[index],
-        `Cannot find interface "${interfaceName}"`
+        `Cannot find trait "${traitName}"`
       );
     }
-    const interfaceId = interface1.interfaceId;
+    const traitId = trait1.traitId;
 
-    const interface_: TInterface = {
-      ...interface1,
-      instanceTypeParameters,
-      instanceTypeConstraints,
+    const trait: TTrait = {
+      ...trait1,
+      implementationTypeParameters,
+      implementationTypeConstraints,
       isImplementation: true,
     };
 
@@ -6191,21 +6028,21 @@ ${typeToString(functionType)}
       env = nextEnv;
     }
 
-    // Apply type arguments to interface
-    const newInterface = applyTypeArgumentsToInterface({
+    // Apply type arguments to trait
+    const newTrait = applyTypeArgumentsToTrait({
       env,
-      interface_,
+      trait,
       typeArguments,
       typeParameterToTypeArgumentMap: {},
-    }) as TInterface;
+    }) as TTrait;
 
     // Parse "implements" body
-    const functions: TInterfaceFunction[] = [];
+    const functions: TImplementationFunction[] = [];
     const functionNameTokens: Token[] = [];
     if (tokens[index].type !== TokenType.LCurlyBracket) {
       throw this.formatErrorMessage(
         tokens[index],
-        "Expected '{' for interface implementation body"
+        "Expected '{' for trait implementation body"
       );
     }
     index = index + 1;
@@ -6273,9 +6110,9 @@ ${typeToString(functionType)}
       }
 
       // Add the typeParameters of the class to the functionType
-      functionType.typeParameters = newInterface.typeParameters;
-      // functionType.typeParameters = newInterface.instanceTypeParameters ?? [];
-      functionType.ownerInterfaceId = interfaceId;
+      functionType.typeParameters = newTrait.typeParameters;
+      // functionType.typeParameters = newTrait.implementationTypeParameters ?? [];
+      functionType.ownerTraitId = traitId;
       functions.push({
         name: functionName,
         func: functionType,
@@ -6292,47 +6129,45 @@ ${typeToString(functionType)}
     }
 
     // Check if all functions in class are implemented correctly
-    for (let i = 0; i < newInterface.functions.length; i++) {
-      const interfaceFunction = newInterface.functions[i];
+    for (let i = 0; i < newTrait.functions.length; i++) {
+      const traitFunction = newTrait.functions[i];
       const matchedFunctions = functions.filter(
-        (func) => func.name === interfaceFunction.name
+        (func) => func.name === traitFunction.name
       );
       if (matchedFunctions.length === 0) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Function "${interfaceFunction.name}" is not implemented:
-Expected: ${typeToString(interfaceFunction.func)}`
+          `Function "${traitFunction.name}" is not implemented:
+Expected: ${typeToString(traitFunction.func)}`
         );
       } else if (matchedFunctions.length > 1) {
         throw this.formatErrorMessage(
           tokens[index],
-          `Found multiple implementations for function "${
-            interfaceFunction.name
-          }":
+          `Found multiple implementations for function "${traitFunction.name}":
 - ${matchedFunctions.map((func) => typeToString(func.func)).join("\n- ")}`
         );
       } else {
         const matchedFunction = matchedFunctions[0];
-        if (!checkType(interfaceFunction.func, matchedFunction.func, env)) {
+        if (!checkType(traitFunction.func, matchedFunction.func, env)) {
           throw this.formatErrorMessage(
             tokens[index],
             `Mismatched function type:
-Expected: ${typeToString(interfaceFunction.func)}
+Expected: ${typeToString(traitFunction.func)}
 Got:      ${typeToString(matchedFunction.func)}`
           );
         } else {
-          // Add the interface implementation function to the matchedFunction
-          interface1.functions[i].func.interfaceFunctionImplementations.push(
+          // Add the trait implementation function to the matchedFunction
+          trait1.functions[i].func.traitFunctionImplementations.push(
             matchedFunction
           );
         }
       }
     }
-    newInterface.functions = functions;
+    newTrait.functions = functions;
 
     // Check if the type constraints are satisfied
     checkIfTypeConstraintsAreSatisfied({
-      typeConstraints: newInterface.typeConstraints,
+      typeConstraints: newTrait.typeConstraints,
       env,
       token: tokens[instanceTokenIndex],
     });
@@ -6359,12 +6194,12 @@ Got:      ${typeToString(matchedFunction.func)}`
     const { env: nextEnv } = addEnvVariableValue({
       env,
       variableValue: {
-        variableName: interfaceName,
+        variableName: traitName,
         type: TypeValues.unit,
-        interface: newInterface,
+        trait: newTrait,
         kind: "value", // NOTE: We need to set it to "value" instead of "class" because we need to use it as a value
         isExported,
-        token: tokens[interfaceNameTokenIndex],
+        token: tokens[traitNameTokenIndex],
       },
       deltaFrame: -1,
     });
@@ -6375,9 +6210,9 @@ Got:      ${typeToString(matchedFunction.func)}`
 
     return {
       expr: {
-        type: AstType.Interface,
+        type: AstType.Trait,
         typeValue: TypeValues.unit,
-        interface: newInterface,
+        trait: newTrait,
         env,
         token: tokens[instanceTokenIndex],
       },
@@ -6393,230 +6228,6 @@ Got:      ${typeToString(matchedFunction.func)}`
       }).length > 1
     );
   }
-
-  /*
-  private parseEffectExpr({
-    tokens,
-    index,
-    env,
-    caller,
-    parserData,
-    isExported,
-  }: {
-    tokens: Token[];
-    index: number;
-    env: Environment;
-    caller: TFunction;
-    parserData: ParserData;
-    isExported?: boolean;
-  }): ParserReturn {
-    if (tokens[index].type !== TokenType.Effect) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        'Expected "effect" for effect declaration'
-      );
-    }
-    const effectTokenIndex = index;
-    index = index + 1;
-
-    if (tokens[index].type !== TokenType.Identifier) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "Expected identifier for effect name"
-      );
-    }
-    const effectName = tokens[index].value;
-    const effectNameTokenIndex = index;
-    index = index + 1;
-
-    // effectName has to be UpperCamelCase
-    if (!isUpperCamelCase(effectName)) {
-      throw this.formatErrorMessage(
-        tokens[index - 1],
-        "Effect name has to be UpperCamelCase"
-      );
-    }
-
-    // NOTE: This is necessary for type parameters and recursive type alias
-    env = pushEnvFrame(env);
-
-    // Type parameters
-    let typeParameters: TTypeParameter[] = [];
-    if (tokens[index].value === "<") {
-      const {
-        index: nextIndex,
-        typeParameters: tp,
-        env: nextEnv,
-      } = synthesizeTypeParametersFromTokens({
-        tokens,
-        index,
-        env,
-      });
-      index = nextIndex;
-      typeParameters = tp;
-      env = nextEnv;
-    }
-
-    const fakeEffect: TEffect = {
-      effectName,
-      effectId: generateVarialeValueId(env, effectName),
-      operations: [],
-      type: "Effect",
-      typeParameters: typeParameters,
-    };
-    const { env: nextEnv } = addEnvVariableValue({
-      env,
-      variableValue: {
-        variableName: effectName,
-        type: {
-          type: "unknown",
-          kind: "Free",
-          permission: "own",
-          typeName: effectName,
-        },
-        effect: fakeEffect,
-        kind: "effect",
-        isExported,
-        token: tokens[effectNameTokenIndex],
-      },
-    });
-    env = nextEnv;
-
-    // Parse effect body
-    if (tokens[index].type !== TokenType.LCurlyBracket) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "Expected '{' for effect body"
-      );
-    }
-    index = index + 1;
-    const operations: TEffectOperation[] = [];
-    while (true) {
-      if (!tokens[index]) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Expected '}' for effect body"
-        );
-      }
-
-      if (tokens[index].type === TokenType.RCurlyBracket) {
-        index = index + 1;
-        break;
-      }
-
-      if (tokens[index].type !== TokenType.Identifier) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Expected identifier for effect operation"
-        );
-      }
-      const operationName = tokens[index].value;
-      const operationNameTokenIndex = index;
-      index = index + 1;
-
-      if (tokens[index].type !== TokenType.Colon) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Expected ':' for effect operation type"
-        );
-      }
-      index = index + 1;
-
-      // parse function type
-      const {
-        index: nextIndex,
-        typeValue: functionType,
-        env: nextEnv,
-      } = synthesizeFunctionTypeFromTokens({
-        tokens,
-        index,
-        env,
-        parseExpression: this.makeParseExpression({ caller, parserData }),
-        withFunctionBody: false,
-      });
-      index = nextIndex;
-      env = nextEnv;
-
-      if (functionType.typeParameters.length > 0) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Type parameters are not allowed in effect operations as it uses the type parameters defined in the effect itself`
-        );
-      }
-      if (!functionType.effects.some((e) => checkEffect(fakeEffect, e, env))) {
-        throw this.formatErrorMessage(
-          tokens[index - 1],
-          `Effect operations must use the effect "${effectName}".
-Please consider adding the effect to the function type like below:
-
-${operationName}: ${typeToString(
-            {
-              ...functionType,
-              effects: [fakeEffect, ...functionType.effects],
-            },
-            { hideTypeParameterKind: true }
-          )};
-`
-        );
-      }
-      functionType.typeParameters = typeParameters;
-
-      // Check if there is already an operation with the same name
-      if (operations.some((op) => op.name === operationName)) {
-        throw this.formatErrorMessage(
-          tokens[operationNameTokenIndex],
-          `There is already an operation with the same name "${operationName}"`
-        );
-      }
-
-      operations.push({
-        name: operationName,
-        func: functionType,
-      });
-
-      if (
-        tokens[index].type === TokenType.Semicolon ||
-        tokens[index].type === TokenType.Comma
-      ) {
-        index = index + 1;
-        continue;
-      }
-    }
-
-    // Add effect to environment
-    const effectType: TEffect = {
-      type: "Effect",
-      effectName,
-      effectId: fakeEffect.effectId,
-      operations,
-      typeParameters,
-    };
-    const { env: nextNextEnv } = addEnvVariableValue({
-      env,
-      variableValue: {
-        variableName: effectName,
-        type: TypeValues.unit,
-        effect: effectType,
-        kind: "effect",
-        isExported,
-        token: tokens[effectNameTokenIndex],
-      },
-      deltaFrame: -1,
-    });
-    env = nextNextEnv;
-    env = popEnvFrame(env);
-    return {
-      expr: {
-        type: AstType.Effect,
-        effect: effectType,
-        typeValue: TypeValues.unit,
-        env,
-        token: tokens[effectTokenIndex],
-      },
-      index,
-    };
-  }
-  */
 
   private parseEnum({
     tokens,
@@ -6669,7 +6280,7 @@ ${operationName}: ${typeToString(
 
     // Type parameters
     let typeParameters: TTypeParameter[] = [];
-    let typeConstraints: TInterface[] = [];
+    let typeConstraints: TTrait[] = [];
     if (tokens[index].value === "<") {
       const {
         index: nextIndex,
@@ -7162,422 +6773,6 @@ ${exprToString(expr)}`
   }
   */
 
-  private parseTryExpr({
-    tokens,
-    index,
-    env,
-    caller,
-    parserData,
-  }: {
-    tokens: Token[];
-    index: number;
-    env: Environment;
-    caller: TFunction;
-    parserData: ParserData;
-  }): ParserReturn {
-    if (tokens[index].type !== TokenType.Try) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        'Expected "try" for try expression'
-      );
-    }
-    const tryTokenIndex = index;
-    index = index + 1;
-    if (tokens[index].type !== TokenType.LCurlyBracket) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "Expected '{' for try expression"
-      );
-    }
-
-    const rCurlyBracketIndex = this.findTokenIndexForRBracket(tokens, index);
-    if (rCurlyBracketIndex < 0) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        "Expected '}' for try expression"
-      );
-    }
-
-    index = rCurlyBracketIndex + 1;
-    env = pushEnvFrame(env);
-    const handlers: TInterface[] = [];
-    const effectOperationStartTokenIndexes: number[] = [];
-    // const parserDataListToCheckForAbort: ParserData[] = [];
-    const withTokenIndex = index;
-    let endTryWithTokenIndex = index;
-    while (true) {
-      if (!tokens[index] || tokens[index].type !== TokenType.With) {
-        endTryWithTokenIndex = index;
-        break;
-      }
-      index = index + 1;
-
-      if (tokens[index].type !== TokenType.Identifier) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Expected identifier for effect name"
-        );
-      }
-      const effectName = tokens[index].value;
-
-      // Find the effect from env
-      const effects = getEnvVariableValueByVariableName(
-        env,
-        effectName,
-        "interface"
-      );
-      if (effects.length === 0) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Cannot find effect "${effectName}"`
-        );
-      } else if (effects.length > 1) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Found multiple effects with the same name "${effectName}"`
-        );
-      }
-      const effect = effects[0].interface;
-      if (!effect) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          `Cannot find effect "${effectName}"`
-        );
-      }
-      index = index + 1;
-
-      // Parse effect type arguments
-      let typeArguments: Type[] = [];
-      if (tokens[index].value === "<") {
-        const {
-          index: nextIndex,
-          typeArguments: nextTypeArguments,
-          env: nextEnv,
-        } = synthesizeTypeArgumentsFromTokens({
-          tokens,
-          index,
-          env,
-          parseExpression: this.makeParseExpression({ caller, parserData }),
-        });
-        index = nextIndex;
-        typeArguments = nextTypeArguments;
-        env = nextEnv;
-      }
-
-      // Apply type arguments to effect
-      const newEffect = applyTypeArgumentsToInterface({
-        env,
-        interface_: effect,
-        typeArguments,
-        typeParameterToTypeArgumentMap: {},
-      });
-
-      // Parse effect body
-      const operations: TInterfaceFunction[] = [];
-      const operationTokens: Token[] = [];
-      if (tokens[index].type !== TokenType.LCurlyBracket) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Expected '{' for effect body"
-        );
-      }
-      index = index + 1;
-      while (true) {
-        if (!tokens[index]) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Expected '}' for effect body"
-          );
-        }
-
-        if (tokens[index].type === TokenType.RCurlyBracket) {
-          index = index + 1;
-          break;
-        }
-
-        if (tokens[index].type !== TokenType.Identifier) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Expected identifier for effect operation"
-          );
-        }
-        const operationName = tokens[index].value;
-        operationTokens.push(tokens[index]);
-        index = index + 1;
-
-        if (tokens[index].type !== TokenType.Colon) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Expected ':' for effect operation type"
-          );
-        }
-        index = index + 1;
-
-        // NOTE: We only parse the function signature here.
-        // We parse its body after we finish parsing the try body.
-        // parse function signature
-        effectOperationStartTokenIndexes.push(index);
-        const { index: nextIndex, typeValue: functionType } =
-          synthesizeFunctionTypeFromTokens({
-            tokens,
-            index,
-            env,
-            parseExpression: this.makeParseExpression({ caller, parserData }),
-            withFunctionBody: false,
-          });
-        index = nextIndex;
-        operations.push({
-          name: operationName,
-          func: functionType,
-          functionExpr: undefined,
-        });
-        if (tokens[index].type !== TokenType.LCurlyBracket) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Expected '{' for effect operation body"
-          );
-        }
-        // Find the end of the function body
-        const rCurlyBracketIndex = this.findTokenIndexForRBracket(
-          tokens,
-          index
-        );
-        if (rCurlyBracketIndex < 0) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Expected '}' for effect operation body"
-          );
-        }
-        index = rCurlyBracketIndex + 1;
-
-        if (
-          tokens[index].type === TokenType.Semicolon ||
-          tokens[index].type === TokenType.Comma
-        ) {
-          index = index + 1;
-          continue;
-        }
-      }
-
-      // Check if the effect is implemented correctly
-      for (let i = 0; i < newEffect.functions.length; i++) {
-        const effectOperation = newEffect.functions[i];
-        const matchedOperations = operations.filter(
-          (operation) => operation.name === effectOperation.name
-        );
-        if (matchedOperations.length === 0) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Operation "${effectOperation.name}" is not implemented:
-Expected: ${typeToString(effectOperation.func)}`
-          );
-        } else if (matchedOperations.length > 1) {
-          throw this.formatErrorMessage(
-            tokens[index],
-            `Found multiple implementations for operation "${
-              effectOperation.name
-            }":
-- ${matchedOperations
-              .map((operation) => typeToString(operation.func))
-              .join("\n- ")}`
-          );
-        } else {
-          const matchedOperation = matchedOperations[0];
-          if (!checkType(effectOperation.func, matchedOperation.func, env)) {
-            throw this.formatErrorMessage(
-              operationTokens[i],
-              `Mismatched function type:
-Expected: ${typeToString(effectOperation.func)}
-Got:      ${typeToString(matchedOperation.func)}`
-            );
-          } else {
-            // NOTE: Line below is wrong, because for example,
-            // effectOperation.func might have effects <GiveInt, *>
-            // while matchedOperation.func might have effects <GiveInt> only.
-            //
-            // matchedOperation.func = effectOperation.func;
-          }
-        }
-      }
-
-      // Add operations to env
-      for (let i = 0; i < operations.length; i++) {
-        const operation = operations[i];
-        const { env: nextEnv } = addEnvVariableValue({
-          env,
-          variableValue: {
-            variableName: operation.name,
-            type: operation.func,
-            kind: "value",
-            token: operationTokens[i],
-          },
-        });
-        env = nextEnv;
-      }
-
-      // Add to handlers
-      handlers.push({
-        ...newEffect,
-        functions: operations,
-        // isHandler: true,
-      });
-
-      // Check if each operation effects matches the newCaller effects
-      const newCaller: TFunction = {
-        ...caller,
-        effects: [...caller.effects, ...handlers],
-      };
-      for (let i = 0; i < operations.length; i++) {
-        const operation = operations[i];
-        if (!checkFunctionEffects(operation.func, newCaller, env)) {
-          throw this.formatErrorMessage(
-            operationTokens[i],
-            `Mismatched effects:
-Expected: ${effectsToString(operation.func.effects)}
-Got:      ${effectsToString(newCaller.effects)}`
-          );
-        }
-      }
-    }
-
-    if (handlers.length === 0) {
-      throw this.formatErrorMessage(
-        tokens[withTokenIndex],
-        "Expected handlers."
-      );
-    }
-
-    // Parse the try body
-    index = tryTokenIndex + 1;
-    const newCaller: TFunction = {
-      ...caller,
-      effects: [...caller.effects, ...handlers],
-    };
-    const { expr: tryExpr, index: nextIndex } = this.parseBlockExpressions({
-      tokens,
-      index,
-      env,
-      caller: newCaller,
-      parserData,
-    });
-    index = nextIndex;
-    env = tryExpr.env;
-    const returnType = tryExpr.typeValue;
-
-    // Check if all abort types matches the returnType
-    // Parse each effect operation body
-    let it = 0;
-    for (let i = 0; i < handlers.length; i++) {
-      const operations = handlers[i].functions;
-      for (let j = 0; j < operations.length; j++) {
-        const operation = operations[j];
-        const operationTokenIndex = effectOperationStartTokenIndexes[it];
-        it = it + 1;
-
-        // Parse the anonymous function
-        const { expr: functionExpr_ } = this.parseAnonymousFunction({
-          tokens,
-          index: operationTokenIndex,
-          env,
-          caller,
-          parserData,
-          effectOperationAbortType: returnType,
-          functionName: operation.name,
-        });
-        const functionExpr = functionExpr_ as FunctionExpr;
-        operation.functionExpr = functionExpr;
-      }
-    }
-
-    return {
-      expr: {
-        type: AstType.Try,
-        body: tryExpr,
-        handlers,
-        env: popEnvFrame(env),
-        token: tokens[tryTokenIndex],
-        typeValue: returnType,
-      },
-      index: endTryWithTokenIndex,
-    };
-  }
-
-  private parseAwaitExpr({
-    tokens,
-    index,
-    env,
-    caller,
-    parserData,
-  }: {
-    tokens: Token[];
-    index: number;
-    env: Environment;
-    caller: TFunction;
-    parserData: ParserData;
-  }): ParserReturn {
-    if (tokens[index].type !== TokenType.Await) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        'Expected "await" for await expression'
-      );
-    }
-
-    // Check if the caller is a function that returns a promise
-    if (!typeIsFunctionTypeThatReturnsPromise(caller)) {
-      throw this.formatErrorMessage(
-        tokens[index],
-        `Cannot use "await" in a function that does not return a Promise:
-${typeToString(caller)}
-Please consider adding "Promise" to the return type.  
-`
-      );
-    }
-
-    const awaitTokenIndex = index;
-    index = index + 1;
-
-    const valueTokenIndex = index;
-    const { expr, index: nextIndex } = this.parsePrimary({
-      tokens,
-      index,
-      env,
-      caller,
-      parserData,
-    });
-    index = nextIndex;
-    env = expr.env;
-
-    const promiseType = typeIsPromise(expr.typeValue);
-    if (!promiseType) {
-      throw this.formatErrorMessage(
-        tokens[valueTokenIndex],
-        `Cannot await non-promise type: ${typeToString(expr.typeValue)}`
-      );
-    }
-    const valueType = promiseType.typeParameters[0]?.appliedType;
-    if (!valueType) {
-      throw this.formatErrorMessage(
-        tokens[valueTokenIndex],
-        `Cannot await promise to unknown type`
-      );
-    }
-
-    // Consumes the promise
-    const { env: nextNextEnv } = this.setVariableAsConsumed(env, expr);
-    env = nextNextEnv;
-
-    return {
-      expr: {
-        type: AstType.Await,
-        env,
-        expr,
-        token: tokens[awaitTokenIndex],
-        typeValue: valueType,
-      },
-      index,
-    };
-  }
-
   private parseRecurExpr({
     tokens,
     index,
@@ -7847,8 +7042,8 @@ Please consider adding "Promise" to the return type.
         exportExpr = expr;
         break;
       }
-      case TokenType.Interface: {
-        const { expr, index: nextIndex } = this.parseInterfaceExpr({
+      case TokenType.Trait: {
+        const { expr, index: nextIndex } = this.parseTraitExpr({
           tokens,
           index,
           env,
@@ -7864,7 +7059,7 @@ Please consider adding "Promise" to the return type.
       /*
       // Implement is implicitly exported
       case TokenType.Implement: {
-        const { expr, index: nextIndex } = this.parseImplementsExpr({
+        const { expr, index: nextIndex } = this.parseImplExpr({
           tokens,
           index,
           env,
@@ -8324,7 +7519,7 @@ Please consider adding "Promise" to the return type.
             tokens,
             index,
             env,
-            caller: emptyFunctionThatHasMoreEffects,
+            caller: emptyFunction,
             parserData: emptyParserData,
             isExported: false,
           });
@@ -8340,7 +7535,7 @@ Please consider adding "Promise" to the return type.
             tokens,
             index,
             env,
-            caller: emptyFunctionThatHasMoreEffects,
+            caller: emptyFunction,
             parserData: emptyParserData,
           });
           if (expr) {
@@ -8355,7 +7550,7 @@ Please consider adding "Promise" to the return type.
             tokens,
             index,
             env,
-            caller: emptyFunctionThatHasMoreEffects,
+            caller: emptyFunction,
             parserData: emptyParserData,
           });
           if (expr) {
@@ -8365,12 +7560,12 @@ Please consider adding "Promise" to the return type.
           env = expr.env;
           break;
         }
-        case TokenType.Interface: {
-          const { expr, index: nextIndex } = this.parseInterfaceExpr({
+        case TokenType.Trait: {
+          const { expr, index: nextIndex } = this.parseTraitExpr({
             tokens,
             index,
             env,
-            caller: emptyFunctionThatHasMoreEffects,
+            caller: emptyFunction,
             parserData: emptyParserData,
           });
           if (expr) {
@@ -8380,12 +7575,12 @@ Please consider adding "Promise" to the return type.
           env = expr.env;
           break;
         }
-        case TokenType.Implements: {
-          const { expr, index: nextIndex } = this.parseImplementsExpr({
+        case TokenType.Impl: {
+          const { expr, index: nextIndex } = this.parseImplExpr({
             tokens,
             index,
             env,
-            caller: emptyFunctionThatHasMoreEffects,
+            caller: emptyFunction,
             parserData: emptyParserData,
           });
           if (expr) {
@@ -8400,7 +7595,7 @@ Please consider adding "Promise" to the return type.
             tokens,
             index,
             env,
-            caller: emptyFunctionThatHasMoreEffects,
+            caller: emptyFunction,
             parserData: emptyParserData,
           });
           if (expr) {
@@ -8415,7 +7610,7 @@ Please consider adding "Promise" to the return type.
             tokens,
             index,
             env,
-            caller: emptyFunctionThatHasMoreEffects,
+            caller: emptyFunction,
             parserData: emptyParserData,
           });
           if (expr) {

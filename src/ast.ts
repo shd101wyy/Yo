@@ -5,15 +5,14 @@ import {
   TBoolean,
   TEnum,
   TFunction,
-  TInterface,
   TModule,
   TPrimitive,
   TPrimitiveWithValue,
+  TTrait,
   TTypeConstructor,
   TUnit,
   Type,
-  effectToString,
-  interfaceToString,
+  traitToString,
   typeParametersToString,
   typeToString,
 } from "./type-checker";
@@ -53,17 +52,14 @@ export enum AstType {
   CallEnum = "call-enum",
   CallTypeConstructor = "call-type-constructor",
 
-  // interface
-  Interface = "interface",
+  // Trait
+  Trait = "trait",
 
   // enum
   Enum = "enum",
 
   // extern
   Extern = "extern",
-
-  // effect
-  Effect = "effect",
 
   // control flow
   If = "if",
@@ -78,15 +74,9 @@ export enum AstType {
   // defer
   Defer = "defer",
 
-  // try
-  Try = "try",
-
   // export/import
   Export = "export",
   Import = "import",
-
-  // await
-  Await = "await",
 
   // recur
   Recur = "recur",
@@ -115,7 +105,7 @@ export type Expr =
   | DestructuringAssignmentExpr
   | TypeAliasExpr
   | EnumExpr
-  | InterfaceExpr
+  | TraitExpr
   // | UnaryOperatorExpr
   | IsOperatorExpr
   | VariableExpr
@@ -134,8 +124,6 @@ export type Expr =
   | DeferExpr
   | ExportExpr
   | ImportExpr
-  | TryExpr
-  | AwaitExpr
   | RecurExpr
   | InfixPrecedenceExpr
   | TypeCastExpr
@@ -330,10 +318,10 @@ export type EnumExpr = {
   token: Token;
 };
 
-export type InterfaceExpr = {
-  type: AstType.Interface;
+export type TraitExpr = {
+  type: AstType.Trait;
   typeValue: TUnit;
-  interface: TInterface;
+  trait: TTrait;
   env: Environment;
   token: Token;
 };
@@ -459,23 +447,6 @@ export type ImportExpr = {
   token: Token;
 };
 
-export type TryExpr = {
-  type: AstType.Try;
-  typeValue: Type;
-  env: Environment;
-  token: Token;
-  body: BlockExpr;
-  handlers: TInterface[];
-};
-
-export type AwaitExpr = {
-  type: AstType.Await;
-  typeValue: Type;
-  env: Environment;
-  token: Token;
-  expr: Expr;
-};
-
 export type InfixPrecedenceExpr = {
   type: AstType.Infix;
   typeValue: TUnit;
@@ -548,8 +519,8 @@ export function exprToString(expr: Expr, indentation = ""): string {
       }
       return expr.variableName;
     case AstType.PropertyAccess:
-      if (expr.expr.type === AstType.Interface) {
-        return `${interfaceToString(expr.expr.interface, {
+      if (expr.expr.type === AstType.Trait) {
+        return `${traitToString(expr.expr.trait, {
           extractTypeConstructor: false,
         })}.${expr.propertyName}`;
       }
@@ -594,8 +565,8 @@ export function exprToString(expr: Expr, indentation = ""): string {
         hideTypeParameterKind: true,
       })}`;
     }
-    case AstType.Interface:
-      return `${interfaceToString(expr.interface, {
+    case AstType.Trait:
+      return `${traitToString(expr.trait, {
         extractTypeConstructor: true,
       })}`;
     case AstType.Enum:
@@ -754,17 +725,6 @@ ${indentation}}`;
           return `  ${variable.name}: ${typeToString(variable.typeValue)};`;
         })
         .join("\n")}\n}`;
-    }
-    case AstType.Try: {
-      return `try ${exprToString(expr.body)} ${expr.handlers.map((handler) => {
-        return `with ${effectToString(handler, {
-          extractTypeConstructor: true,
-          hideTypeParameterKind: false,
-        })}`;
-      })}`;
-    }
-    case AstType.Await: {
-      return `(await ${exprToString(expr.expr)})`;
     }
     case AstType.Recur: {
       return `recur(${expr.functionArguments

@@ -9,11 +9,11 @@ import {
 } from "./operator";
 import { Token, TokenType } from "./token";
 import {
-  TInterface,
-  TInterfaceFunction,
+  TImplementationFunction,
+  TTrait,
   Type,
   checkType,
-  interfaceToString,
+  traitToString,
   typeIsReference,
   typeToString,
 } from "./type-checker";
@@ -31,7 +31,7 @@ type VariableValueKind =
   | "type" // type, enum, type or region parameter
   | "region"
   | "value" // value, function, enum variant
-  | "interface" // interface
+  | "trait" // trait
   | "module";
 
 export type ReferedVariable = {
@@ -50,7 +50,7 @@ export type VariableValue = {
 
   // different kinds of values
   type: Type;
-  interface?: TInterface;
+  trait?: TTrait;
   kind: VariableValueKind;
 
   // some flags
@@ -293,12 +293,7 @@ export function popEnvFrame(
             errorMessage: `${
               isTempVariableName(env, value.variableName) ? "Value" : "Variable"
             } is "Linear" type but is not consumed:
-${typeToString(value.type)}${
-              value.type.type === "TypeConstructor" &&
-              value.type.typeConstructorId === "Promise"
-                ? `\nPlease consider using \`await\` to consume the "Promise" value.`
-                : ""
-            }`,
+${typeToString(value.type)}`,
           };
         }),
       });
@@ -1301,64 +1296,63 @@ export function getEnvFrameLevelAndIndexForVariableValue(
   throw new Error("Failed to find the value type in env.");
 }
 
-export function getEnvInterfaceById(
+export function getEnvTraitById(
   env: Environment,
-  interfaceId: string
-): TInterface | null {
+  traitId: string
+): TTrait | null {
   for (let i = 0; i < env.frames.length; i++) {
     const frame = env.frames[i];
     for (let j = 0; j < frame.values.length; j++) {
       const value = frame.values[j];
       if (
-        value.kind === "interface" &&
-        value.interface &&
-        value.interface.interfaceId === interfaceId
+        value.kind === "trait" &&
+        value.trait &&
+        value.trait.traitId === traitId
       ) {
-        return value.interface;
+        return value.trait;
       }
     }
   }
   return null;
 }
 
-function checkIfInterfaceFunctionImplementationExistsInEnv({
-  interface_,
-  interfaceFunction,
+function checkIfTraitFunctionImplementationExistsInEnv({
+  trait,
+  traitFunction,
   env,
 }: {
-  interface_: TInterface;
-  interfaceFunction: TInterfaceFunction;
+  trait: TTrait;
+  traitFunction: TImplementationFunction;
   env: Environment;
 }): boolean {
   /*
-  const interface_ = getEnvInterfaceById(env, interfaceId);
-  if (!interface_) {
+  const trait = getEnvTraitById(env, traitId);
+  if (!trait) {
     return false;
   }
   */
-  const targetInterfaceFunction = interface_.functions.find(
-    (f) => f.name === interfaceFunction.name
+  const targetTraitFunction = trait.functions.find(
+    (f) => f.name === traitFunction.name
   );
-  if (!targetInterfaceFunction) {
+  if (!targetTraitFunction) {
     return false;
   }
-  const targetFunctionType = targetInterfaceFunction.func;
+  const targetFunctionType = targetTraitFunction.func;
 
   if (
     !targetFunctionType.hasNoImplementation &&
-    checkType(targetFunctionType, interfaceFunction.func, env)
+    checkType(targetFunctionType, traitFunction.func, env)
   ) {
     return true;
   }
 
   for (
     let i = 0;
-    i < targetFunctionType.interfaceFunctionImplementations.length;
+    i < targetFunctionType.traitFunctionImplementations.length;
     i++
   ) {
-    const implementation =
-      targetFunctionType.interfaceFunctionImplementations[i];
-    if (checkType(implementation.func, interfaceFunction.func, env)) {
+    const implementation = targetFunctionType.traitFunctionImplementations[i];
+    if (checkType(implementation.func, traitFunction.func, env)) {
       return true;
     }
   }
@@ -1372,24 +1366,24 @@ export function checkIfTypeConstraintsAreSatisfied({
   token,
 }: {
   env: Environment;
-  typeConstraints: TInterface[];
+  typeConstraints: TTrait[];
   token: Token;
 }) {
   for (let i = 0; i < typeConstraints.length; i++) {
     const typeConstraint = typeConstraints[i];
     for (let j = 0; j < typeConstraint.functions.length; j++) {
-      const interfaceFunction = typeConstraint.functions[j];
+      const traitFunction = typeConstraint.functions[j];
       // Check if the same function with the same signature exists in env
       if (
-        !checkIfInterfaceFunctionImplementationExistsInEnv({
-          interface_: typeConstraint,
-          interfaceFunction,
+        !checkIfTraitFunctionImplementationExistsInEnv({
+          trait: typeConstraint,
+          traitFunction,
           env,
         })
       ) {
         throw formatErrorMessage({
           token,
-          errorMessage: `Failed to satisfy type constraint: ${interfaceToString(
+          errorMessage: `Failed to satisfy type constraint: ${traitToString(
             typeConstraint,
             { extractTypeConstructor: false }
           )}`,
