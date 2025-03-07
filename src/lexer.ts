@@ -91,6 +91,12 @@ export function tokenize(input: string): Token[] {
           value: char,
           position: { line, character: i - totalCharacters },
         });
+      } else if (operator === "=>>") {
+        tokens.push({
+          type: TokenType.MoveFatArrow,
+          value: "=>>",
+          position: { line, character: i - totalCharacters },
+        });
       } else if (operator === "=>") {
         tokens.push({
           type: TokenType.FatArrow,

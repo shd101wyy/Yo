@@ -120,12 +120,14 @@ export default class Parser {
     loadModule,
     printTokens,
     printAst,
+    skipPrelude,
   }: {
     modulePath: string;
     stdPath: string;
     loadModule: (modulePath: string) => TModule;
     printTokens?: boolean;
     printAst?: boolean;
+    skipPrelude?: boolean;
   }) {
     logger.debug(`= parser: ${modulePath}`);
     this.modulePath = modulePath;
@@ -147,7 +149,7 @@ export default class Parser {
       console.log(`= lexer: `, this.tokens);
     }
 
-    const { ast, env } = this.parse(this.tokens);
+    const { ast, env } = this.parse(this.tokens, skipPrelude);
     this.ast = ast;
     this.env = env;
 
@@ -1451,8 +1453,8 @@ ${exprToString(lhs)}
     }
     if (
       tokens[index + 1]?.type === TokenType.RParen &&
-      tokens[index + 2]?.type !== TokenType.FatArrow /* &&
-      tokens[index + 2]?.type !== TokenType.FunctionArrow */
+      // tokens[index + 2]?.type !== TokenType.FatArrow  &&
+      tokens[index + 2]?.type !== TokenType.FunctionArrow
     ) {
       // unit type
       return {
@@ -1475,8 +1477,10 @@ ${exprToString(lhs)}
     if (
       // Anonymous function
       rParenIndex > 0 &&
-      tokens[rParenIndex + 1].type === TokenType.FatArrow /*||
-        tokens[rParenIndex + 1].type === TokenType.FunctionArrow*/
+      (tokens[rParenIndex + 1].type === TokenType.Colon ||
+        tokens[rParenIndex + 1].type === TokenType.FatArrow ||
+        tokens[rParenIndex + 1].type === TokenType.MoveFatArrow ||
+        tokens[rParenIndex + 1].type === TokenType.FunctionArrow)
     ) {
       const { expr, index: nextIndex } = this.parseAnonymousFunction({
         tokens,
@@ -8272,7 +8276,10 @@ Please consider adding "Promise" to the return type.
     }
   }
 
-  private parse(tokens: Token[]): { ast: Expr[]; env: Environment } {
+  private parse(
+    tokens: Token[],
+    skipPrelude: boolean = false
+  ): { ast: Expr[]; env: Environment } {
     let index = 0;
     const exprs: Expr[] = [];
     let env = createNewEnv({
@@ -8285,7 +8292,7 @@ Please consider adding "Promise" to the return type.
 
     // Load the std/prelude.mo
     // NOTE: .mo files inside std/ will not load prelude.mo
-    if (!this.modulePath.startsWith(`file://${this.stdPath}`)) {
+    if (!this.modulePath.startsWith(`file://${this.stdPath}`) && !skipPrelude) {
       const { env: nextEnv } = this.importModule({
         destructurings: [
           {

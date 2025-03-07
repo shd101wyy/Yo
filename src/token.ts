@@ -11,6 +11,7 @@ export enum TokenType {
   Colon = ":",
   FunctionArrow = "->",
   FatArrow = "=>",
+  MoveFatArrow = "=>>",
   /// end
   Comptime = "#",
 

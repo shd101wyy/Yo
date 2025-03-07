@@ -31,11 +31,13 @@ export class CodeGenerator {
       printAst,
       printC,
       skipCodegen,
+      skipPrelude,
     }: {
       printTokens?: boolean;
       printAst?: boolean;
       printC?: boolean;
       skipCodegen?: boolean;
+      skipPrelude?: boolean;
     } = {}
   ): TModule {
     let module = this.modules.get(modulePath);
@@ -56,6 +58,7 @@ export class CodeGenerator {
       },
       printTokens,
       printAst,
+      skipPrelude,
     });
     module = parser.generateModule();
     console.log(`= Loaded module ${modulePath}`);

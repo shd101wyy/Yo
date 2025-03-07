@@ -198,7 +198,7 @@ export type TTypeParameter = {
 
 export type ClosureCaptureMode =
   | "&" // read
-  | "@" // write
+  | "&mut" // write
   | "=" // own
   | "none"; // not closure
 
@@ -384,7 +384,7 @@ export type Type =
   | TExternType;
 
 export const ImmutableReferenceOperator = "&";
-export const MutableReferenceOperator = "@";
+export const MutableReferenceOperator = "&mut";
 export const DereferenceOperator = "*";
 
 export const TypeValues: {
@@ -609,7 +609,7 @@ export function synthesizeTypeFromTokens({
 
   // FIXME: Support && like
   // Check if it's ImmutableReference, MutableReference
-  if (tokens[index].value === "&" || tokens[index].value === "@") {
+  if (tokens[index].value === "&" || tokens[index].value === "&mut") {
     const wrapperType =
       tokens[index].value === "&"
         ? TypeValues.ImmutableReference
@@ -646,8 +646,9 @@ export function synthesizeTypeFromTokens({
   if (
     tokens[index].value === "(" &&
     tokens[index + 1].value === ")" &&
-    tokens[index + 2].type !== TokenType.FatArrow /* &&
-    tokens[index + 2].type !== TokenType.FunctionArrow */
+    // tokens[index + 2].type !== TokenType.FatArrow &&
+    // tokens[index + 2].type !== TokenType.MoveFatArrow &&
+    tokens[index + 2].type !== TokenType.FunctionArrow
   ) {
     index = index + 1;
     returnValue = {
@@ -2813,8 +2814,8 @@ export function synthesizeFunctionTypeFromTokens({
   if (isClosureCaptureMode(tokens, index)) {
     if (tokens[index + 1].value === "&") {
       closureCaptureMode = "&";
-    } else if (tokens[index + 1].value === "@") {
-      closureCaptureMode = "@";
+    } else if (tokens[index + 1].value === "&mut") {
+      closureCaptureMode = "&mut";
     } else if (tokens[index + 1].value === "=") {
       closureCaptureMode = "=";
     }
@@ -2864,10 +2865,67 @@ export function synthesizeFunctionTypeFromTokens({
   index = nextIndex;
   env = nextEnv;
 
-  if (
-    tokens[index].type === TokenType.FatArrow /* ||
-    tokens[index].type === TokenType.FunctionArrow */
-  ) {
+  // Function implementation
+  if (withFunctionBody) {
+    let returnType: Type = TypeValues.unknown;
+    if (tokens[index].type === TokenType.Colon) {
+      index += 1;
+      // Return type
+      const {
+        typeValue: nextReturnType,
+        index: nextIndex,
+        env: nextEnv,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index,
+        env,
+        parseExpression,
+      });
+      index = nextIndex;
+      env = nextEnv;
+      returnType = nextReturnType;
+    }
+
+    if (
+      tokens[index].type !== TokenType.FunctionArrow &&
+      tokens[index].type !== TokenType.FatArrow &&
+      tokens[index].type !== TokenType.MoveFatArrow
+    ) {
+      throw formatErrorMessage({
+        token: tokens[index],
+        errorMessage: "Expected '->', '=>', or '=>>' for function.",
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+      });
+    }
+    index += 1;
+
+    const functionType: TFunction = {
+      type: "Function",
+      kind: closureCaptureMode === "=" ? "Type" : "Free",
+      functionId:
+        functionName === "main" || functionName?.startsWith("@") // compiletime functions
+          ? functionName
+          : generateVarialeValueId(env, functionName ?? "anonymousFunction"),
+      parameterTypes,
+      typeParameters,
+      typeConstraints,
+      returnType,
+      effects: [],
+      // hasMoreEffects,
+      closureCaptureMode,
+      freeVariables: undefined,
+      frameLevel,
+      interfaceFunctionImplementations: [],
+    };
+    return {
+      typeValue: functionType,
+      index,
+      env,
+    };
+  }
+
+  if (tokens[index].type === TokenType.FunctionArrow) {
     index = index + 1;
 
     // Effects
@@ -3268,9 +3326,11 @@ export function typeToString(
   {
     extractTypeConstructor,
     hideTypeParameterKind,
+    isFunctionImplementation,
   }: {
     extractTypeConstructor?: boolean | "all";
     hideTypeParameterKind?: boolean;
+    isFunctionImplementation?: boolean;
   } = {}
 ): string {
   if ("tag" in type) {
@@ -3368,7 +3428,7 @@ export function typeToString(
                 : ""
             }`
         )
-        .join(", ")})=> ${
+        .join(", ")})${isFunctionImplementation ? ":" : "->"} ${
         effectsString.length > 0 ? `${effectsString} ` : ""
       }${typeToString(type.returnType, {
         hideTypeParameterKind: true,
@@ -3594,8 +3654,8 @@ export function checkType(
           givenType.closureCaptureMode === "none") ||
           (expectedType.closureCaptureMode === "=" &&
             givenType.closureCaptureMode !== "none") ||
-          (expectedType.closureCaptureMode === "@" &&
-            givenType.closureCaptureMode === "@") ||
+          (expectedType.closureCaptureMode === "&mut" &&
+            givenType.closureCaptureMode === "&mut") ||
           (expectedType.closureCaptureMode === "&" &&
             givenType.closureCaptureMode === "&")) &&
         expectedType.parameterTypes.length ===
@@ -3706,8 +3766,8 @@ export function closureCaptureModeToString(mode: ClosureCaptureMode): string {
       return "[=]";
     case "&":
       return "[&]";
-    case "@":
-      return "[@]";
+    case "&mut":
+      return "[&mut]";
   }
 }
 
@@ -4540,7 +4600,7 @@ export function typeIsImmutableReference(type: Type): boolean {
 export function isClosureCaptureMode(tokens: Token[], index: number): boolean {
   return (
     tokens[index]?.value === "[" &&
-    ["&", "@", "="].includes(tokens[index + 1]?.value) &&
+    ["&", "&mut", "="].includes(tokens[index + 1]?.value) &&
     tokens[index + 2]?.value === "]"
   );
 }

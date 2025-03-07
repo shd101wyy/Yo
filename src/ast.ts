@@ -602,9 +602,11 @@ export function exprToString(expr: Expr, indentation = ""): string {
       return `${typeToString(expr.typeValue, {
         extractTypeConstructor: true,
       })}`;
-    case AstType.Function:
-      return `${typeToString(expr.typeValue)} ${exprToString(expr.body)}`;
-
+    case AstType.Function: {
+      return `${typeToString(expr.typeValue, {
+        isFunctionImplementation: true,
+      })} -> ${exprToString(expr.body)}`;
+    }
     case AstType.CallFunction: {
       const calleeType = expr.callee.typeValue;
       if (calleeType.type !== "Function") {

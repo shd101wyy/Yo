@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
+import packageJson from "../package.json";
 import { CodeGenerator } from "./index";
 
 yargs(hideBin(process.argv))
@@ -9,9 +10,9 @@ yargs(hideBin(process.argv))
 
 mo <file> [options]              Compile a '.mo' file
 Example:
-  $ mo hello.mo -o hello
-  $ mo hello.mo -c clang -o hello
-  $ mo hello.mo -t wasm -o hello.wasm
+  $ mo hello.mo -o  hello
+  $ mo hello.mo -cc clang -o hello
+  $ mo hello.mo -t  wasm -o hello.wasm
 
 mo --help                        Show this help message  
 mo --version                     Show version number
@@ -31,7 +32,7 @@ mo run <script>                  Run a script defined in 'mo.json'
     demandOption: false,
     default: "a.out",
   })
-  .option("c", {
+  .option("cc", {
     alias: "c-compiler",
     describe: "C Compiler to use",
     type: "string",
@@ -53,6 +54,12 @@ mo run <script>                  Run a script defined in 'mo.json'
   })
   .option("print-ast", {
     describe: "Print AST generated from parser",
+    type: "boolean",
+    demandOption: false,
+    default: false,
+  })
+  .option("skip-prelude", {
+    describe: "Skip importing prelude module",
     type: "boolean",
     demandOption: false,
     default: false,
@@ -96,8 +103,9 @@ mo run <script>                  Run a script defined in 'mo.json'
         printAst: argv.printAst,
         printC: argv.printC,
         skipCodegen: argv.skipCodegen,
+        skipPrelude: argv.skipPrelude,
       });
     }
   )
   .help()
-  .version("version", "Show version number", "mo 0.0.1").argv;
+  .version("version", "Show version number", `mo ${packageJson.version}`).argv;
