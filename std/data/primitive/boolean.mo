@@ -16,7 +16,7 @@ impl LogicalNot<boolean> {
 /**
  * eq
  */
-impl Eq<boolean> {
+impl Eq<boolean, boolean> {
   (==): (a, b)-> {
     @codegen_inline(C="(($1) == ($2))");
     recur(a, b)
