@@ -34,6 +34,12 @@ Run the following command to build the project:
 $ yarn build
 ```
 
+Test some local mo program:
+
+```bash
+$ node --enable-source-maps ./out/cjs/mo-cli.cjs examples/generic/generic2.mo --print-ast --skip-codegen --skip-prelude
+```
+
 ## License
 
 [UIUC/NCSA Open Source License](./LICENSE.md)

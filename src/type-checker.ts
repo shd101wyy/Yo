@@ -254,8 +254,8 @@ export type TUnknown = {
   typeName?: string; // FIXME: This might be a expression in the future
 };
 
-export type TSlice = {
-  type: "slice";
+export type TArray = {
+  type: "array";
   kind: TypeKind;
   elementType: Type;
   size?: number;
@@ -372,7 +372,7 @@ export type Type =
   | TUnion
   | TIntersection
   | TUnknown
-  | TSlice
+  | TArray
   //  | TTuple
   | TTypeConstructor
   | TTypeParameter
@@ -962,7 +962,7 @@ export function synthesizeTypeFromTokens({
   let newTypeValue: Type = returnValue.typeValue;
   const newTypeValueKind = newTypeValue.kind;
 
-  // Check if it's slice
+  // Check if it's array
   if (nextTokenType === TokenType.LBracket) {
     let index = returnValue.index + 1;
 
@@ -989,7 +989,7 @@ export function synthesizeTypeFromTokens({
           });
         } else {
           newTypeValue = {
-            type: "slice",
+            type: "array",
             kind: newTypeValueKind,
             elementType: newTypeValue,
             size,
@@ -998,7 +998,7 @@ export function synthesizeTypeFromTokens({
         }
       } else if (token.type === TokenType.RBracket) {
         newTypeValue = {
-          type: "slice",
+          type: "array",
           kind: newTypeValueKind,
           elementType: newTypeValue,
           size: undefined,
@@ -1635,7 +1635,7 @@ export function applyTypeArgumentsToType({
           ),
         };
       }
-      case "slice": {
+      case "array": {
         return {
           ...type,
           elementType: applyTypeArgumentsToType({
@@ -1844,7 +1844,7 @@ export function applyTypeArgumentsToExpr({
             })),
           };
         }
-        case "slice": {
+        case "array": {
           return {
             ...expr,
             typeValue: applyTypeArgumentsToType({
@@ -3175,7 +3175,7 @@ function isSubtype(a: Type, b: Type): boolean {
       }
     } else if (b.type === "Intersection" || a.type === "Intersection") {
       throw new Error("Intersection type is not supported yet");
-    } else if (a.type === "slice" && b.type === "slice") {
+    } else if (a.type === "array" && b.type === "array") {
       if (a.size !== undefined && b.size !== undefined) {
         return a.size <= b.size && isSubtype(a.elementType, b.elementType);
       } else {
@@ -3317,7 +3317,7 @@ export function typeToString(
           : ""
       }`;
     }
-    case "slice": {
+    case "array": {
       return `${typeToString(type.elementType)}[${type.size ?? ""}]`.trim();
     }
     /*
@@ -4144,6 +4144,12 @@ function synthesizeTypeParameters({
 }): void {
   for (let i = 0; i < typeParameters.length; i++) {
     const typeParameter = typeParameters[i];
+    const givenTypeParameter = givenTypeParameters[i];
+    if (!givenTypeParameter) {
+      givenTypeParameters[i] = typeParameter; // QUESTION: Deepcopy?
+      continue;
+    }
+
     if (
       !typeParameter.appliedType ||
       typeParameter.appliedType.type === "unknown"
@@ -4254,10 +4260,10 @@ export function synthesizeTypes({
     expectedType.selectedVariantName = givenType.selectedVariantName;
   }
 
-  if (expectedType.type === "slice") {
+  if (expectedType.type === "array") {
     let userType = expectedType;
-    let valueType = givenType as TSlice;
-    // Assign size to the slice if it's undefined
+    let valueType = givenType as TArray;
+    // Assign size to the array if it's undefined
     // eslint-disable-next-line no-constant-condition
     while (true) {
       if (userType.size === undefined) {
@@ -4266,9 +4272,9 @@ export function synthesizeTypes({
         valueType.size = userType.size;
       }
 
-      if (userType.elementType.type === "slice") {
+      if (userType.elementType.type === "array") {
         userType = userType.elementType;
-        valueType = valueType.elementType as TSlice;
+        valueType = valueType.elementType as TArray;
       } else {
         break;
       }
@@ -4357,7 +4363,7 @@ export function typeContainsReference(type: Type): boolean {
     return type.properties.some((property) =>
       typeContainsReference(property.type)
     );
-  } else if (type.type === "slice") {
+  } else if (type.type === "array") {
     return typeContainsReference(type.elementType);
   } else if (type.type === "TypeConstructor") {
     return typeContainsReference(type.typeValue);

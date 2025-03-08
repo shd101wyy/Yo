@@ -163,9 +163,9 @@ export type RecordValueExpr = {
   token: Token;
 };
 
-export type SliceValueExpr = {
+export type ArrayValueExpr = {
   type: AstType.Value;
-  tag: "slice";
+  tag: "array";
   values: Expr[];
   typeValue: Type;
   env: Environment;
@@ -181,7 +181,7 @@ export type PrimitiveValueExpr = {
   token: Token;
 };
 
-export type ValueExpr = PrimitiveValueExpr | RecordValueExpr | SliceValueExpr;
+export type ValueExpr = PrimitiveValueExpr | RecordValueExpr | ArrayValueExpr;
 
 export type VariableExpr = {
   type: AstType.Variable;
@@ -506,7 +506,7 @@ export function exprToString(expr: Expr, indentation = ""): string {
           return `{${expr.properties
             .map(({ name, value }) => `${name}: ${exprToString(value)}`)
             .join(", ")}}`;
-        case "slice":
+        case "array":
           return `[${expr.values
             .map((expr) => exprToString(expr))
             .join(", ")}]`;
@@ -541,11 +541,11 @@ export function exprToString(expr: Expr, indentation = ""): string {
           ? `(${expr.variableName})`
           : expr.variableName
       }${
-        expr.variableType.type === "Function"
+        /*expr.variableType.type === "Function"
           ? ""
-          : `: ${typeToString(expr.variableType, {
-              hideTypeParameterKind: true,
-            })}`
+          :*/ `: ${typeToString(expr.variableType, {
+          hideTypeParameterKind: true,
+        })}`
       } = ${exprToString(expr.right)}`;
     case AstType.DestructuringAssignment: {
       const isMutable = expr.isMutable;

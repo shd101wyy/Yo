@@ -808,7 +808,7 @@ let main = (?raise: (error: &str)-> i32)-> {
 }
 
 // Value constraint `In Design`
-type NotZero = i32 where _ != 0;
+type NotZero = i32 where this != 0;
 let divide = (x: i32, y: NotZero): i32 -> {
   return x / y;
 }
@@ -828,6 +828,35 @@ add(1); // 1
 add(1); // 2
 // add.y == 2
 ```
+
+NOTE: We might support JSX like syntax, so the following code is invalid now:
+
+```typescript
+let id = <T>(x: T): T -> x;
+```
+
+You can write it to the following to indicate it's a generic function:
+
+```typescript
+// With extra ,
+let id = <T,>(x: T): T -> x;
+
+// Explicit type
+let id = <T: Type>(x: T): T -> x;
+```
+
+NOTE: Below is allowed
+
+```typescript
+let some_func: <T impl Trait1 & Trait2>(x: T)-> T = <X impl Trait1>(x: X)-> x;
+```
+
+but this is not allowed
+
+```typescript
+let some_func: <T impl Trait1>(x: T)-> T = <X impl Trait1 & Trait2>(x: X)-> x;
+```
+
 
 ### Named arguments
 
@@ -1125,6 +1154,8 @@ let c = mixed_tuple.2;
 var i32_array = [1, 2, 3, 4, 5]; // i32_array: i32[5]. Free type
                                  // In C: int i32_array[5] = {1, 2, 3, 4, 5};
 i32_array.length; // 5, compile-time known
+
+let i32_array2: i32[_] = [1, 2, 3]; // i32_array2: i32[3]
 
 const immutabl_i32_array = [1, 2, 3, 4, 5]; // immutabl_i32_array: i32[5]. Free type
                                             // In C: const int immutabl_i32_array[5] = {1, 2, 3, 4, 5};
@@ -1688,8 +1719,8 @@ let v4: Vector<3> = [4, 5, 6];
 Refinement types consists of all values of a given type which satisfy a given predicate.
 
 ```typescript
-type PositiveNumber = i32 where _ > 0;
-type NonEmptyString = String where _.length > 0;
+type PositiveNumber = i32 where this > 0;
+type NonEmptyString = String where this.length() > 0;
 
 let divide = (x: PositiveNumber, y: PositiveNumber): PositiveNumber -> {
   x / y
@@ -1702,11 +1733,11 @@ let result = divide(10, 2); // Valid
 ```
 
 ```typescript
-type NaturalNumber = i32 where _ >= 0;
-type PositiveNumber = i32 where _ > 0;
-type Equal<n: i32> = i32 where _ == n;
-type Index<T: Type, a: T[]> = NatureNumber where _ < a.length();
-type NotEmptyArray<T> = T[] where _.length() > 0;
+type NaturalNumber = i32 where this >= 0;
+type PositiveNumber = i32 where this > 0;
+type Equal<n: i32> = i32 where this == n;
+type Index<T: Type, a: T[]> = NatureNumber where this < a.length();
+type NotEmptyArray<T> = T[] where this.length() > 0;
 
 let get = <T, a: T[]>(index: Index<T, a>, array: a): T -> {
   return array[index];

@@ -149,7 +149,7 @@ export class CodeGeneratorC {
         typeString = "struct Unit";
         break;
       }
-      case "slice": {
+      case "array": {
         if (setSliceAsPointer) {
           typeString += `${this.getTypeInC(type.elementType)}*`;
         } else {
@@ -1160,7 +1160,7 @@ ${indentation}};
               expr: expr,
             });
           }
-          case "slice": {
+          case "array": {
             return this.codegenSliceValue({
               expr: expr,
             });

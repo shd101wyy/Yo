@@ -355,7 +355,7 @@ export default class Parser {
     }
   }
 
-  private parseSliceOrTupleExpr({
+  private parseArrayExpr({
     tokens,
     index,
     env,
@@ -411,14 +411,14 @@ export default class Parser {
     const elementTypes = values.map((value) => value.typeValue);
     // Check if all the element types are the same
     const firstElementType = convertPrimitiveToType(elementTypes[0]);
-    const isSlice = elementTypes.every((type) =>
+    const isArray = elementTypes.every((type) =>
       checkType(firstElementType, convertPrimitiveToType(type), env)
     );
 
     let typeValue: Type;
-    if (isSlice) {
+    if (isArray) {
       typeValue = {
-        type: "slice",
+        type: "array",
         kind: firstElementType.kind as TypeKind,
         elementType: firstElementType,
         size: values.length,
@@ -432,7 +432,7 @@ export default class Parser {
       */
       throw this.formatErrorMessage(
         tokens[index],
-        "Expected slice, but got tuple"
+        "Expected array, but got tuple"
       );
     }
 
@@ -442,7 +442,7 @@ export default class Parser {
         env,
         typeValue,
         values: values,
-        tag: "slice",
+        tag: "array",
         token: tokens[sliceTokenIndex],
       },
       index,
@@ -1095,7 +1095,7 @@ ${exprToString(lhs)}
         );
       }
 
-      if (valueType.type !== "slice") {
+      if (valueType.type !== "array") {
         throw this.formatErrorMessage(
           token,
           `Expected slice for index access, but got ${typeToString(valueType)}`
@@ -1103,7 +1103,7 @@ ${exprToString(lhs)}
       }
       valueType = valueType.elementType;
       /*
-      if (valueType.type === "slice") {
+      if (valueType.type === "array") {
         valueType = valueType.elementType;
       } else {
         // tuple
@@ -1239,34 +1239,8 @@ ${exprToString(lhs)}
       functionType = newFunctionType;
     }
 
-    /*
-    if (parserData.userDefinedVariableType) {
-      const nextFunctionType = synthesizeTypes({
-        expectedType: functionType,
-        givenType: parserData.userDefinedVariableType,
-        typeParameterToTypeArgumentMap: {},
-      });
-      if (!nextFunctionType || nextFunctionType.type !== "Function") {
-        throw this.formatErrorMessage(
-          tokens[startIndex],
-          `Mismatched function type:
-Prototype: ${typeToString(parserData.userDefinedVariableType)}
-Returned : ${typeToString(functionType)}
-`
-        );
-      } else {
-        functionType = nextFunctionType;
-      }
-    }
-    */
-    console.log("functionType: ", typeToString(functionType));
-
     const newParserData: ParserData = {
       callSites: [...parserData.callSites, functionType],
-      // abortType: isFunctionReturningPromise ? undefined : parserData.abortType,
-      // abortTokenIndex: isFunctionReturningPromise
-      //   ? undefined
-      //   : parserData.abortTokenIndex,
     };
 
     // Parse body
@@ -1279,7 +1253,6 @@ Returned : ${typeToString(functionType)}
     });
     env = body.env;
     index = nextNextIndex;
-    console.log(`body returnType: `, typeToString(body.typeValue));
 
     // Check function body return type matches
     // the function type return type
@@ -2644,7 +2617,7 @@ Got:      ${typeToString(primaryExpr.typeValue)}`
           break;
         }
         case TokenType.LBracket: {
-          returnValue = this.parseSliceOrTupleExpr({
+          returnValue = this.parseArrayExpr({
             tokens,
             index,
             env,
@@ -3625,6 +3598,9 @@ ${exprToString(expr)}`
     let nextEnv = env;
     while (true) {
       const token = tokens[index];
+      if (!token) {
+        break;
+      }
       if (!isSingleExpression && !token) {
         throw this.formatErrorMessage(token, "Expected '}' for function body");
       }
@@ -3641,7 +3617,7 @@ ${exprToString(expr)}`
         parserData,
       });
 
-      if (tokens[nextIndex].type === TokenType.Assign) {
+      if (tokens[nextIndex]?.type === TokenType.Assign) {
         const { expr: assignmentExpr, index: nextNextIndex } =
           this.parseAssignmentExpr({
             lhs: expr,

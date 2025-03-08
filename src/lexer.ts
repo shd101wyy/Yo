@@ -298,7 +298,7 @@ export function tokenize(input: string): Token[] {
           // integer
           let value = char;
 
-          while (/[0-9]/.test(input[++i])) {
+          while (/[0-9]/.test(input[++i]) && input[i]) {
             value += input[i];
           }
 
@@ -328,7 +328,7 @@ export function tokenize(input: string): Token[] {
           // identifier
           let value = char;
 
-          while (/[_a-zA-Z0-9]/.test(input[++i])) {
+          while (/[_a-zA-Z0-9]/.test(input[++i]) && input[i]) {
             value += input[i];
           }
           i--;
