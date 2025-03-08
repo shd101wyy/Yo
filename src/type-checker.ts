@@ -182,7 +182,6 @@ export type TRecord = {
 
 export type TParameterType = {
   name: string;
-  label: string;
   parameterId: string;
   isMutable: boolean;
   type: Type;
@@ -1461,7 +1460,6 @@ export function applyTypeArgumentsToType({
           const defaultValue = parameterType.defaultValue;
           const newParameterType: TParameterType = {
             name: parameterType.name,
-            label: parameterType.label,
             parameterId: parameterType.parameterId,
             isMutable: false, // QUESTION: Is this correct?
             type: applyTypeArgumentsToType({
@@ -1545,9 +1543,8 @@ export function applyTypeArgumentsToType({
         })
       ),
       parameterTypes: type.parameterTypes.map(
-        ({ name, label, parameterId, type, isMutable, defaultValue }) => ({
+        ({ name, parameterId, type, isMutable, defaultValue }) => ({
           name,
-          label,
           parameterId,
           isMutable,
           type: applyTypeArgumentsToType({
@@ -2214,12 +2211,6 @@ export function synthesizeFunctionParameterTypesFromTokens({
     }
 
     // TODO: There might be the case that only the type is specified or pattern matching
-    let labelName: string | undefined = undefined;
-    if (tokens[index].type === TokenType.Underscore) {
-      labelName = "_";
-      index = index + 1;
-    }
-
     if (tokens[index].type !== TokenType.Identifier) {
       throw formatErrorMessage({
         token: tokens[index],
@@ -2229,8 +2220,30 @@ export function synthesizeFunctionParameterTypesFromTokens({
       });
     }
     const parameterName = tokens[index].value;
-    if (!labelName) {
-      labelName = parameterName;
+
+    // Check if labelName matches the expectedFunctionType
+    if (expectedFunctionType) {
+      const expectedParameterType =
+        expectedFunctionType.parameterTypes[parameterTypes.length];
+      if (!expectedParameterType) {
+        throw formatErrorMessage({
+          token: tokens[index],
+          errorMessage: `Number of parameters mismatched. Expected ${expectedFunctionType.parameterTypes.length} parameters.`,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
+        });
+      }
+
+      if (expectedParameterType.name !== parameterName) {
+        throw formatErrorMessage({
+          token: tokens[index],
+          errorMessage: `Mismatched parameter name.
+Expected: ${expectedParameterType.name}
+Got:      ${parameterName}`,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
+        });
+      }
     }
 
     // check type
@@ -2345,7 +2358,6 @@ export function synthesizeFunctionParameterTypesFromTokens({
 
     parameterTypes.push({
       name: parameterName,
-      label: labelName,
       parameterId: "", // parameterValue.id, // NOTE: We update parameterId later
       isMutable,
       type: userDefinedParamterType,

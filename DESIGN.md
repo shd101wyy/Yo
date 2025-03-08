@@ -776,17 +776,11 @@ add(y: 3); // 4
 add 2, 3; // 5
 
 // Function argument labels, and parameter names
-let mul = (x: i32, by y: i32): i32 -> {
+let mul = (x: i32, by: i32): i32 -> {
+  let y = by;
   x * y
 }
 mul(3, by: 4); // 12
-
-// Omitting the argument labels
-let sub = (x: i32, _ y: i32): i32 -> {
-  x - y
-}
-sub(3, 4); // -1
-sub(3, y: 4); // Error: y is not a valid argument label
 
 // Named return values
 let exponent = (base: i32, power: i32):
