@@ -182,6 +182,7 @@ export type TRecord = {
 
 export type TParameterType = {
   name: string;
+  label: string;
   parameterId: string;
   isMutable: boolean;
   type: Type;
@@ -580,6 +581,14 @@ export function synthesizeTypeFromTokens({
       env,
       parseExpression,
     });
+  }
+
+  if (tokens[index].type === TokenType.Underscore) {
+    return {
+      typeValue: TypeValues.unknown,
+      index: index + 1,
+      env,
+    };
   }
 
   // FIXME: Support && like
@@ -1452,6 +1461,7 @@ export function applyTypeArgumentsToType({
           const defaultValue = parameterType.defaultValue;
           const newParameterType: TParameterType = {
             name: parameterType.name,
+            label: parameterType.label,
             parameterId: parameterType.parameterId,
             isMutable: false, // QUESTION: Is this correct?
             type: applyTypeArgumentsToType({
@@ -1535,8 +1545,9 @@ export function applyTypeArgumentsToType({
         })
       ),
       parameterTypes: type.parameterTypes.map(
-        ({ name, parameterId, type, isMutable, defaultValue }) => ({
+        ({ name, label, parameterId, type, isMutable, defaultValue }) => ({
           name,
+          label,
           parameterId,
           isMutable,
           type: applyTypeArgumentsToType({
@@ -2151,12 +2162,14 @@ export function synthesizeFunctionParameterTypesFromTokens({
   env,
   parseExpression,
   withFunctionBody,
+  expectedFunctionType,
 }: {
   tokens: Token[];
   index: number;
   env: Environment;
   parseExpression: ParseExpression;
   withFunctionBody: boolean;
+  expectedFunctionType?: TFunction;
 }): { parameterTypes: TParameterType[]; index: number; env: Environment } {
   if (tokens[index].type !== TokenType.LParen) {
     throw formatErrorMessage({
@@ -2177,8 +2190,7 @@ export function synthesizeFunctionParameterTypesFromTokens({
   const parameterDefaultValues: (Expr | null)[] = [];
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const token = tokens[index];
-    if (!token) {
+    if (!tokens[index]) {
       throw formatErrorMessage({
         token: tokens[index - 1],
         errorMessage: "Expected ')'",
@@ -2186,45 +2198,66 @@ export function synthesizeFunctionParameterTypesFromTokens({
         inputString: env.inputString,
       });
     }
-    if (token.type === TokenType.Comma) {
+    if (tokens[index].type === TokenType.Comma) {
       index = index + 1;
       continue;
     }
-    if (token.type === TokenType.RParen) {
+    if (tokens[index].type === TokenType.RParen) {
       index = index + 1;
       break;
     }
 
-    /*
-    if (token.type === TokenType.Mut) {
+    let isMutable = false;
+    if (tokens[index].type === TokenType.Mut) {
       isMutable = true;
       index = index + 1;
-      token = tokens[index];
     }
-    */
 
     // TODO: There might be the case that only the type is specified or pattern matching
-    if (token.type !== TokenType.Identifier) {
+    let labelName: string | undefined = undefined;
+    if (tokens[index].type === TokenType.Underscore) {
+      labelName = "_";
+      index = index + 1;
+    }
+
+    if (tokens[index].type !== TokenType.Identifier) {
       throw formatErrorMessage({
-        token,
+        token: tokens[index],
         errorMessage: "Expected identifier as parameter name",
         modulePath: env.modulePath,
         inputString: env.inputString,
       });
     }
-    const parameterName = token.value;
+    const parameterName = tokens[index].value;
+    if (!labelName) {
+      labelName = parameterName;
+    }
 
     // check type
     let userDefinedParamterType: Type = TypeValues.unknown;
     const parameterNameTokenIndex = index;
     if (tokens[index + 1].type !== TokenType.Colon) {
-      // index = index + 1;
-      throw formatErrorMessage({
-        token: tokens[index + 1],
-        errorMessage: "Expected ':' after parameter name",
-        modulePath: env.modulePath,
-        inputString: env.inputString,
-      });
+      if (!expectedFunctionType) {
+        throw formatErrorMessage({
+          token: tokens[index + 1],
+          errorMessage:
+            "Expected parameter type after ':' after parameter name",
+          modulePath: env.modulePath,
+          inputString: env.inputString,
+        });
+      } else {
+        userDefinedParamterType =
+          expectedFunctionType.parameterTypes[parameterTypes.length]?.type;
+        if (!userDefinedParamterType) {
+          throw formatErrorMessage({
+            token: tokens[index + 1],
+            errorMessage: `Number of parameters mismatched (1). Expected ${expectedFunctionType.parameterTypes.length} parameters.`,
+            modulePath: env.modulePath,
+            inputString: env.inputString,
+          });
+        }
+      }
+      index = index + 1;
     } else {
       index = index + 2;
       const {
@@ -2249,11 +2282,34 @@ export function synthesizeFunctionParameterTypesFromTokens({
         // We set .freeVariables to empty not undefined to show that it's a closure
         userDefinedParamterType.freeVariables = [];
       }
+
+      if (userDefinedParamterType.type === "unknown" && expectedFunctionType) {
+        userDefinedParamterType =
+          expectedFunctionType.parameterTypes[parameterTypes.length]?.type;
+        if (!userDefinedParamterType) {
+          throw formatErrorMessage({
+            token: tokens[index - 1],
+            errorMessage: `Number of parameters mismatched (2). Expected ${expectedFunctionType.parameterTypes.length} parameters.`,
+            modulePath: env.modulePath,
+            inputString: env.inputString,
+          });
+        }
+      }
     }
 
     // check parameter default value
     let defaultParameterValue: Expr | null = null;
     if (tokens[index].type === TokenType.Assign) {
+      if (!withFunctionBody) {
+        throw formatErrorMessage({
+          token: tokens[index],
+          errorMessage:
+            "A parameter initializer is only allowed in a function implementation.",
+          modulePath: env.modulePath,
+          inputString: env.inputString,
+        });
+      }
+
       const { expr, index: nextNextIndex } = parseExpression({
         tokens,
         index: index + 1,
@@ -2287,9 +2343,9 @@ export function synthesizeFunctionParameterTypesFromTokens({
       parameterDefaultValues.push(null);
     }
 
-    const isMutable = false;
     parameterTypes.push({
       name: parameterName,
+      label: labelName,
       parameterId: "", // parameterValue.id, // NOTE: We update parameterId later
       isMutable,
       type: userDefinedParamterType,
@@ -2609,6 +2665,7 @@ export function synthesizeFunctionTypeFromTokens({
   env,
   parseExpression,
   withFunctionBody,
+  expectedFunctionType,
   functionName,
 }: {
   tokens: Token[];
@@ -2616,6 +2673,7 @@ export function synthesizeFunctionTypeFromTokens({
   env: Environment;
   parseExpression: ParseExpression;
   withFunctionBody: boolean;
+  expectedFunctionType?: TFunction;
   functionName?: string;
 }): { typeValue: TFunction; index: number; env: Environment } {
   // Type parameters
@@ -2626,6 +2684,7 @@ export function synthesizeFunctionTypeFromTokens({
 
   // Check Closure capture mode
   let closureCaptureMode: ClosureCaptureMode = "none";
+  // TODO: Distinguish with => and =>>
   if (isClosureCaptureMode(tokens, index)) {
     if (tokens[index + 1].value === "&") {
       closureCaptureMode = "&";
@@ -2676,6 +2735,7 @@ export function synthesizeFunctionTypeFromTokens({
     env,
     parseExpression,
     withFunctionBody,
+    expectedFunctionType,
   });
   index = nextIndex;
   env = nextEnv;
@@ -2699,6 +2759,10 @@ export function synthesizeFunctionTypeFromTokens({
       index = nextIndex;
       env = nextEnv;
       returnType = nextReturnType;
+    }
+
+    if (returnType.type === "unknown" && expectedFunctionType) {
+      returnType = expectedFunctionType.returnType;
     }
 
     if (
@@ -2783,7 +2847,7 @@ export function synthesizeFunctionTypeFromTokens({
   } else {
     throw formatErrorMessage({
       token: tokens[index],
-      errorMessage: "Expected function return type after '->' or '=>'",
+      errorMessage: "Expected function return type after '->', '=>', or '=>>'",
       modulePath: env.modulePath,
       inputString: env.inputString,
     });
@@ -4081,6 +4145,67 @@ function synthesizeTypeParameters({
   }
 }
 
+function synthesizeFunctions({
+  expectedFunction,
+  givenFunction,
+  typeParameterToTypeArgumentMap,
+}: {
+  expectedFunction: TFunction;
+  givenFunction: TFunction;
+  typeParameterToTypeArgumentMap: { [key: string]: Type };
+}): void {
+  // Function type arguments
+  synthesizeTypeParameters({
+    typeParameters: expectedFunction.typeParameters,
+    givenTypeParameters: givenFunction.typeParameters,
+    typeParameterToTypeArgumentMap,
+  });
+  // Function parameters
+  for (let i = 0; i < expectedFunction.parameterTypes.length; i++) {
+    const expectedParameterType = expectedFunction.parameterTypes[i];
+    const givenParameterType = givenFunction.parameterTypes[i];
+    if (
+      expectedParameterType.type.type === "unknown" &&
+      givenParameterType.type
+    ) {
+      expectedParameterType.type = givenParameterType.type;
+    } else if (
+      givenParameterType.type.type === "unknown" &&
+      expectedParameterType.type
+    ) {
+      givenParameterType.type = expectedParameterType.type;
+    } else if (
+      expectedParameterType.type &&
+      givenParameterType.type &&
+      expectedParameterType.type.type !== "unknown"
+    ) {
+      synthesizeTypes({
+        expectedType: expectedParameterType.type,
+        givenType: givenParameterType.type,
+        typeParameterToTypeArgumentMap,
+      });
+    }
+  }
+  if (
+    expectedFunction.returnType.type === "unknown" &&
+    givenFunction.returnType.type !== "unknown"
+  ) {
+    expectedFunction.returnType = givenFunction.returnType;
+  } else if (
+    givenFunction.returnType.type === "unknown" &&
+    expectedFunction.returnType.type !== "unknown"
+  ) {
+    givenFunction.returnType = expectedFunction.returnType;
+  } else {
+    // Function return type
+    synthesizeTypes({
+      expectedType: expectedFunction.returnType,
+      givenType: givenFunction.returnType,
+      typeParameterToTypeArgumentMap,
+    });
+  }
+}
+
 /**
  * Synthesize types
  * @param expectedType
@@ -4168,9 +4293,9 @@ export function synthesizeTypes({
   }
 
   if (expectedType.type === "Function" && givenType.type === "Function") {
-    synthesizeTypeParameters({
-      typeParameters: expectedType.typeParameters,
-      givenTypeParameters: givenType.typeParameters,
+    synthesizeFunctions({
+      expectedFunction: expectedType,
+      givenFunction: givenType,
       typeParameterToTypeArgumentMap,
     });
     givenType.functionId = expectedType.functionId;

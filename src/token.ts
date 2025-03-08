@@ -12,8 +12,9 @@ export enum TokenType {
   FunctionArrow = "->",
   FatArrow = "=>",
   MoveFatArrow = "=>>",
+  Underscore = "_",
   /// end
-  Comptime = "#",
+  /// Comptime = "#",
 
   // parens
   LParen = "(",

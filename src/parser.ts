@@ -94,10 +94,8 @@ import {
 
 interface ParserData {
   callSites: TFunction[];
-  // resumeType?: Type;
-  // abortType?: Type;
-  // abortTokenIndex?: number;
   allowDereferenceReferenceToLinearValue?: boolean;
+  userDefinedVariableType?: Type | null;
 }
 
 export default class Parser {
@@ -1173,7 +1171,7 @@ ${exprToString(lhs)}
     caller,
     parserData,
     functionName,
-    isForTypeclass,
+    isForTrait,
   }: {
     tokens: Token[];
     index: number;
@@ -1181,7 +1179,7 @@ ${exprToString(lhs)}
     caller: TFunction;
     parserData: ParserData;
     functionName?: string;
-    isForTypeclass?: boolean;
+    isForTrait?: boolean;
   }): ParserReturn {
     const startIndex = index;
     const currentFrameLevel = getEnvCurrentFrameLevel(env);
@@ -1189,6 +1187,12 @@ ${exprToString(lhs)}
     const oldEnv = env;
     env = copyEnvironment(env, currentFrameLevel, []);
     env = pushEnvFrame(env);
+
+    const expectedFunctionType: TFunction | undefined =
+      parserData.userDefinedVariableType &&
+      parserData.userDefinedVariableType.type === "Function"
+        ? parserData.userDefinedVariableType
+        : undefined;
 
     let {
       typeValue: functionType,
@@ -1203,6 +1207,7 @@ ${exprToString(lhs)}
       parseExpression: this.makeParseExpression({ caller, parserData }),
       withFunctionBody: true,
       functionName,
+      expectedFunctionType,
     });
     env = nextEnv;
     index = nextIndex;
@@ -1216,7 +1221,7 @@ ${exprToString(lhs)}
 
       // If it's for trait, we need to add another frame
       // that might contains the type parameters.
-      if (isForTypeclass) {
+      if (isForTrait) {
         newEnv = pushEnvFrame(newEnv, oldEnv.frames[oldEnv.frames.length - 1]);
       }
       newEnv = pushEnvFrame(newEnv);
@@ -1228,10 +1233,33 @@ ${exprToString(lhs)}
           parseExpression: this.makeParseExpression({ caller, parserData }),
           withFunctionBody: true,
           functionName,
+          expectedFunctionType,
         });
       env = nextNextEnv;
       functionType = newFunctionType;
     }
+
+    /*
+    if (parserData.userDefinedVariableType) {
+      const nextFunctionType = synthesizeTypes({
+        expectedType: functionType,
+        givenType: parserData.userDefinedVariableType,
+        typeParameterToTypeArgumentMap: {},
+      });
+      if (!nextFunctionType || nextFunctionType.type !== "Function") {
+        throw this.formatErrorMessage(
+          tokens[startIndex],
+          `Mismatched function type:
+Prototype: ${typeToString(parserData.userDefinedVariableType)}
+Returned : ${typeToString(functionType)}
+`
+        );
+      } else {
+        functionType = nextFunctionType;
+      }
+    }
+    */
+    console.log("functionType: ", typeToString(functionType));
 
     const newParserData: ParserData = {
       callSites: [...parserData.callSites, functionType],
@@ -1251,6 +1279,7 @@ ${exprToString(lhs)}
     });
     env = body.env;
     index = nextNextIndex;
+    console.log(`body returnType: `, typeToString(body.typeValue));
 
     // Check function body return type matches
     // the function type return type
@@ -4759,9 +4788,15 @@ ${typeToString(caseReturnType)}
     ) {
       throw this.formatErrorMessage(tokens[index], 'Expected "let" or "var"');
     }
-    const isMutable: boolean = tokens[index].type === TokenType.Var;
+    let isMutable: boolean = tokens[index].type === TokenType.Var;
     const letTokenIndex = index;
     index = index + 1;
+
+    if (tokens[index].type === TokenType.Mut) {
+      // let mut
+      isMutable = true;
+      index = index + 1;
+    }
 
     if (tokens[index].type === TokenType.LCurlyBracket) {
       return this.parseDestructuringAssignmentExpression({
@@ -4844,6 +4879,8 @@ ${typeToString(caseReturnType)}
     index = index + 1;
 
     // Check if it's a function declaration
+    /*
+    // NOTE: User should use `recur` for recursive function calling self
     if (!userDefinedVariableType) {
       try {
         const { typeValue } = synthesizeFunctionTypeFromTokens({
@@ -4873,6 +4910,7 @@ ${typeToString(caseReturnType)}
         // Ignore the error
       }
     }
+    */
 
     if (
       userDefinedVariableType &&
@@ -4890,7 +4928,10 @@ ${typeToString(userDefinedVariableType)}`
       index,
       env,
       caller,
-      parserData,
+      parserData: {
+        ...parserData,
+        userDefinedVariableType,
+      },
     });
     if (!value) {
       throw this.formatErrorMessage(
@@ -4901,6 +4942,19 @@ ${typeToString(userDefinedVariableType)}`
     index = nextNextIndex;
     env = value.env;
     this.checkIfDereferenceReferenceToLinearValue(value);
+
+    if (
+      value.type === AstType.Function &&
+      value.typeValue.returnType.type === "unknown"
+    ) {
+      if (value.body.typeValue.type === "unknown") {
+        throw this.formatErrorMessage(
+          tokens[letTokenIndex],
+          `Cannot infer the return type of the function`
+        );
+      }
+      value.typeValue.returnType = value.body.typeValue;
+    }
 
     const variableType: Type = value.typeValue;
     let variableId: string | undefined = undefined;
@@ -4947,7 +5001,13 @@ Got:      ${typeToString(variableType)}`
       }
     }
 
-    const finalType: Type = { ...(userDefinedVariableType ?? variableType) };
+    // FIXME: We probably want to use the variableType here, for example,
+    // the default parameter value is only allowed in function implementation
+    const finalType: Type = {
+      ...(userDefinedVariableType && userDefinedVariableType.type !== "unknown"
+        ? userDefinedVariableType
+        : variableType),
+    };
 
     // Consume RHS value if necessary
     let referedVariable: ReferedVariable | undefined = undefined;
@@ -5827,7 +5887,7 @@ ${typeToString(functionType)}
             caller,
             parserData,
             functionName,
-            isForTypeclass: true,
+            isForTrait: true,
           });
         index = nextIndex;
         functionExpr = functionExpr_ as FunctionExpr;
@@ -6093,7 +6153,7 @@ implements Id<i32> {
           caller,
           parserData,
           functionName,
-          isForTypeclass: true,
+          isForTrait: true,
         });
       index = nextIndex;
       const functionExpr = functionExpr_ as FunctionExpr;

@@ -20,7 +20,7 @@ export const Operators = [
   "\\",
 ];
 
-export const SpecialOperators = ["*mut", "&mut", "*linear"];
+export const SpecialOperators = ["*mut", "&mut"];
 
 export function charIsOperator(char: string): boolean {
   return Operators.includes(char);

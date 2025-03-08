@@ -162,6 +162,7 @@ export function tokenize(input: string): Token[] {
           throw new Error(`Unexpected character ${char}`);
         }
         break;
+      /*
       case "#":
         tokens.push({
           type: TokenType.Comptime,
@@ -169,6 +170,7 @@ export function tokenize(input: string): Token[] {
           position: { line, character: i - totalCharacters },
         });
         break;
+      */
       // parens
       case "(":
         tokens.push({
@@ -332,6 +334,14 @@ export function tokenize(input: string): Token[] {
           i--;
 
           switch (value) {
+            // underscore
+            case "_":
+              tokens.push({
+                type: TokenType.Underscore,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
             // boolean
             case "true":
               tokens.push({
