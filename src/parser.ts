@@ -726,34 +726,34 @@ Found possible functions:
     }
 
     // Check if it's a valid property in the record
-    let callerType = expr.typeValue;
+    let receiverType = expr.typeValue;
 
     // It's record type
     while (true) {
       if (
-        callerType.type === "TypeConstructor" &&
-        callerType.typeValue.type === "Record"
+        receiverType.type === "TypeConstructor" &&
+        receiverType.typeValue.type === "Record"
       ) {
-        callerType = callerType.typeValue;
-      } else if (typeIsReference(callerType)) {
+        receiverType = receiverType.typeValue;
+      } else if (typeIsReference(receiverType)) {
         // We need to dereference the reference
-        callerType = (callerType as TTypeConstructor).typeParameters[0]
+        receiverType = (receiverType as TTypeConstructor).typeParameters[0]
           .appliedType!;
-        console.log("callerType: ", typeToString(callerType));
+        console.log("receiverType: ", typeToString(receiverType));
       } else {
         break;
       }
     }
 
-    if (callerType.type === "Record") {
-      const property = callerType.properties.find(
+    if (receiverType.type === "Record") {
+      const property = receiverType.properties.find(
         (property) => property.name === token.value
       );
       if (!property) {
         throw this.formatErrorMessage(
           token,
           `Cannot find property '${token.value}' in record:\n${typeToString(
-            callerType
+            receiverType
           )}`
         );
       }
@@ -794,22 +794,22 @@ Found possible functions:
         throw this.formatErrorMessage(
           token,
           `Cannot find function '${token.value}' in class:\n${typeToString(
-            callerType
+            receiverType
           )}`
         );
       }
-    } else if (callerType.type === "Enum") {
+    } else if (receiverType.type === "Enum") {
       const propertyName = token.value;
-      const selectedVariantName = callerType.selectedVariantName;
+      const selectedVariantName = receiverType.selectedVariantName;
       if (selectedVariantName && propertyName !== selectedVariantName) {
-        const variant = callerType.variants.find(
+        const variant = receiverType.variants.find(
           (variant) => variant.name === selectedVariantName
         );
         if (!variant) {
           throw this.formatErrorMessage(
             token,
             `Cannot find variant '${selectedVariantName}' in enum:\n${typeToString(
-              callerType
+              receiverType
             )}`
           );
         }
@@ -839,12 +839,12 @@ Found possible functions:
           };
         }
       } else {
-        const variant = callerType.variants.find(
+        const variant = receiverType.variants.find(
           (variant) => variant.name === token.value
         );
         if (variant) {
           const typeValue: TEnum = {
-            ...callerType,
+            ...receiverType,
             selectedVariantName: variant.name,
           };
 
@@ -889,7 +889,7 @@ Found possible functions:
           throw this.formatErrorMessage(
             token,
             `Cannot find variant '${token.value}' in enum:\n${typeToString(
-              callerType
+              receiverType
             )}`
           );
         }
@@ -898,7 +898,7 @@ Found possible functions:
 
     // Check if it's a valid function that takes
     // the `expr` as the first argument
-    callerType = expr.typeValue;
+    receiverType = expr.typeValue;
     const calleeToken = token;
     if (
       calleeToken.type === TokenType.Identifier &&
@@ -908,7 +908,7 @@ Found possible functions:
       const functionName = token.value;
       // Find the functions that takes `expr` as the first argument
       const matchedFunctions = getFunctionsOfCallerFromEnv(
-        callerType,
+        receiverType,
         functionName,
         env
       );

@@ -261,6 +261,12 @@ export type TArray = {
   size?: number;
 };
 
+export type TTuple = {
+  type: "tuple";
+  kind: TypeKind;
+  elements: Type[];
+};
+
 /*
 export type TTuple = {
   type: "tuple";
@@ -373,7 +379,7 @@ export type Type =
   | TIntersection
   | TUnknown
   | TArray
-  //  | TTuple
+  | TTuple
   | TTypeConstructor
   | TTypeParameter
   | TEnum
@@ -658,6 +664,7 @@ export function synthesizeTypeFromTokens({
     } catch (error) {
       // console.error(error);
       // This means it's not a function type
+      // It could be the case that it's a tuple type
       const {
         typeValue,
         index: nextIndex,
@@ -678,12 +685,56 @@ export function synthesizeTypeFromTokens({
           env,
         };
       } else {
-        throw formatErrorMessage({
-          token: tokens[nextIndex],
-          errorMessage: "Expected ')'",
-          modulePath: env.modulePath,
-          inputString: env.inputString,
-        });
+        // Could be the tuple
+        // Parse tuple
+        let tupleKind = typeValue.kind;
+        const tupleElements: Type[] = [typeValue];
+        let index = nextIndex;
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          if (!tokens[index]) {
+            throw formatErrorMessage({
+              token: tokens[index - 1],
+              errorMessage: "Expected ')'",
+              modulePath: env.modulePath,
+              inputString: env.inputString,
+            });
+          }
+          if (tokens[index].type === TokenType.Comma) {
+            index = index + 1;
+          }
+          if (tokens[index].type === TokenType.RParen) {
+            break;
+          }
+          const {
+            typeValue,
+            index: nextIndex,
+            env: nextEnv,
+          } = synthesizeTypeFromTokens({
+            tokens,
+            index: index,
+            env,
+            parseExpression,
+          });
+          env = nextEnv;
+          index = nextIndex;
+          tupleElements.push(typeValue);
+          if (typeValue.kind === "Type") {
+            tupleKind = "Type";
+          } else if (typeValue.kind === "Linear" && tupleKind === "Free") {
+            tupleKind = "Linear";
+          }
+        }
+
+        returnValue = {
+          typeValue: {
+            type: "tuple",
+            kind: tupleKind,
+            elements: tupleElements,
+          },
+          index: index + 1,
+          env,
+        };
       }
     }
   }
@@ -1958,8 +2009,8 @@ export function applyTypeArgumentsToExpr({
     case AstType.CallFunction: {
       return {
         ...expr,
-        callee: applyTypeArgumentsToExpr({
-          expr: expr.callee,
+        function: applyTypeArgumentsToExpr({
+          expr: expr.function,
           env,
           typeParameterToTypeArgumentMap,
         }),
@@ -3320,6 +3371,11 @@ export function typeToString(
     case "array": {
       return `${typeToString(type.elementType)}[${type.size ?? ""}]`.trim();
     }
+    case "tuple": {
+      return `(${type.elements.map((type) => typeToString(type)).join(", ")}${
+        type.elements.length === 1 ? "," : ""
+      })`;
+    }
     /*
     case "tuple": {
       return `[${type.elements.map(typeToString).join(", ")}]`;
@@ -4049,7 +4105,7 @@ export function getFunctionArgumentsInOrder(
 }
 
 export function getFunctionsOfCallerFromEnv(
-  callerType: Type,
+  receiverType: Type,
   functionName: string,
   env: Environment
 ) {
@@ -4063,7 +4119,7 @@ export function getFunctionsOfCallerFromEnv(
     if (!firstArgumentType) {
       return false;
     }
-    return checkType(firstArgumentType.type, callerType, env);
+    return checkType(firstArgumentType.type, receiverType, env);
   });
 
   // Check if there any function that matches the functionName
