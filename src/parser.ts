@@ -5556,6 +5556,7 @@ ${typeToString(valueType)}`
 
     // typeName has to be UpperCamelCase
     if (!isUpperCamelCase(typeName)) {
+      // TODO: We might remove this rule
       throw this.formatErrorMessage(
         tokens[index - 1],
         "Type name has to be UpperCamelCase"

@@ -73,6 +73,12 @@ export function tokenize(input: string): Token[] {
         });
         i = i + 1 - 1; // Only keep &
         continue;
+      } else if (operator === "...") {
+        tokens.push({
+          type: TokenType.Ellipse,
+          value: operator,
+          position: { line, character: i - totalCharacters },
+        });
       } else if (operator === ".") {
         tokens.push({
           type: TokenType.Dot,

@@ -327,6 +327,15 @@ export type TEnum = {
   kind: TypeKind;
 };
 
+export type TVariant = {
+  type: "Variant";
+  name: string;
+  typeParameters: TTypeParameter[];
+  typeConstraints: TTrait[];
+  kind: TypeKind;
+  variantType: TTuple | TRecord | null;
+};
+
 export type TExternType = {
   type: "Extern";
   kind: TypeKind;
@@ -384,6 +393,7 @@ export type Type =
   | TTypeConstructor
   | TTypeParameter
   | TEnum
+  | TVariant
   | TPrimitiveWithValue
   | TExternType;
 
@@ -567,12 +577,14 @@ export function synthesizeTypeFromTokens({
   env,
   functionName,
   parseExpression,
+  ignoreParsingUnionForVariant,
 }: {
   tokens: Token[];
   index: number;
   env: Environment;
   functionName?: string;
   parseExpression: ParseExpression;
+  ignoreParsingUnionForVariant?: boolean;
 }): { typeValue: Type; index: number; env: Environment } {
   let returnValue: {
     typeValue: Type;
@@ -882,6 +894,14 @@ export function synthesizeTypeFromTokens({
       index: index,
       env,
     };
+  } else if (tokens[index].type === TokenType.Dot) {
+    // Check if it's variant
+    returnValue = synthesizeVariantsFromTokens({
+      tokens,
+      index,
+      env,
+      parseExpression,
+    });
   } else {
     let typeValue: Type;
     switch (tokens[index].value) {
@@ -1073,7 +1093,7 @@ export function synthesizeTypeFromTokens({
     };
   }
   // Check if it's union type or intersection type
-  else if (nextTokenValue === "|") {
+  else if (nextTokenValue === "|" && !ignoreParsingUnionForVariant) {
     const index = returnValue.index + 1;
 
     const newReturnValue = synthesizeTypeFromTokens({
@@ -2475,6 +2495,157 @@ export function synthesizeRecordType(
   };
 }
 
+export function synthesizeVariantsFromTokens({
+  tokens,
+  index,
+  env,
+  parseExpression,
+}: {
+  tokens: Token[];
+  index: number;
+  env: Environment;
+  parseExpression: ParseExpression;
+}): { typeValue: Type; index: number; env: Environment } {
+  const variants: TVariant[] = [];
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (!tokens[index]) {
+      throw formatErrorMessage({
+        token: tokens[index - 1],
+        errorMessage: "Failed to parse variant(s)",
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+      });
+    }
+
+    if (tokens[index].type !== TokenType.Dot) {
+      throw formatErrorMessage({
+        token: tokens[index],
+        errorMessage: "Expected '.'",
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+      });
+    }
+    index = index + 1;
+
+    if (tokens[index].type !== TokenType.Identifier) {
+      throw formatErrorMessage({
+        token: tokens[index],
+        errorMessage: "Expected identifier for variant name",
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+      });
+    }
+    const variantName = tokens[index].value;
+    index = index + 1;
+
+    let typeParameters: TTypeParameter[] = [];
+    let typeConstraints: TTrait[] = [];
+    if (tokens[index]?.value === "<") {
+      const {
+        env: nextEnv,
+        index: nextIndex,
+        typeParameters: nextTypeParameters,
+        typeConstraints: nextTypeConstraints,
+      } = synthesizeTypeParametersFromTokens({
+        env,
+        index,
+        parseExpression,
+        tokens,
+      });
+      env = nextEnv;
+      index = nextIndex;
+      typeParameters = nextTypeParameters;
+      typeConstraints = nextTypeConstraints;
+    }
+
+    variants.push({
+      type: "Variant",
+      name: variantName,
+      typeConstraints,
+      typeParameters,
+      variantType: null,
+      kind: "Free",
+    });
+
+    if (
+      index >= tokens.length ||
+      tokens[index].type === TokenType.Semicolon ||
+      tokens[index].value === ")"
+    ) {
+      // End of the type
+      return {
+        typeValue: {
+          type: "Union",
+          kind: unifyTypeKinds(
+            variants.map((variant) => variant.variantType?.kind)
+          ),
+          types: variants,
+        },
+        index: index,
+        env,
+      };
+    } else if (tokens[index].value === "|") {
+      index = index + 1;
+    } else {
+      // Parse variant type
+      const startIndex = index;
+      const {
+        env: nextEnv,
+        typeValue: variantType,
+        index: nextIndex,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index,
+        env,
+        parseExpression,
+        ignoreParsingUnionForVariant: true,
+      });
+      env = nextEnv;
+      index = nextIndex;
+      if (variantType.type !== "Tuple" && variantType.type !== "Record") {
+        throw formatErrorMessage({
+          token: tokens[index - 1],
+          errorMessage: `Expected tuple or record type for variant type
+Got: ${typeToString(variantType)}
+${
+  tokens[startIndex].value === "(" && tokens[nextIndex - 1].value === ")"
+    ? `\nYou are trying to use a tuple with one element. Please consider adding a comma ',' after the element:
+
+  ${tokens
+    .slice(startIndex, nextIndex - 1)
+    .map((token) => token.value)
+    .join("")},)\n\n`
+    : ""
+}`,
+          modulePath: env.modulePath,
+          inputString: env.inputString,
+        });
+      }
+
+      if (tokens[index]?.value === "|") {
+        variants[variants.length - 1].variantType = variantType;
+        variants[variants.length - 1].kind = variantType.kind;
+        index = index + 1;
+        continue;
+      } else {
+        // End of type
+        return {
+          typeValue: {
+            type: "Union",
+            kind: unifyTypeKinds(
+              variants.map((variant) => variant.variantType?.kind)
+            ),
+            types: variants,
+          },
+          index,
+          env,
+        };
+      }
+    }
+  }
+}
+
 export function synthesizeTypeArgumentsFromTokens({
   tokens,
   index,
@@ -3496,6 +3667,11 @@ ${type.variants
     }
     case "Extern": {
       return "";
+    }
+    case "Variant": {
+      return `.${type.name}${
+        type.variantType ? ` ${typeToString(type.variantType)}` : ""
+      }`;
     }
     default: {
       throw new Error(`Unknown type ${JSON.stringify(type)}`);
@@ -4532,7 +4708,10 @@ export function isClosureCaptureMode(tokens: Token[], index: number): boolean {
   );
 }
 
-export function unifyTypeKinds(kinds: TypeKind[]): TypeKind {
+export function unifyTypeKinds(
+  kinds: (TypeKind | null | undefined)[]
+): TypeKind {
+  kinds = kinds.filter((kind) => !!kind) as TypeKind[];
   if (kinds.find((kind) => kind === "Type")) {
     return "Type";
   } else if (kinds.find((kind) => kind === "Linear")) {

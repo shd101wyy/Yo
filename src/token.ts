@@ -7,6 +7,9 @@ export enum TokenType {
   /// Below are not available as generator operators.
   /// they are used as a part of the syntax.
   Dot = ".",
+  // TwoDots = "..", // NOTE: This should be the operator for creating "Range".
+  // Also the "..=" is another operator.
+  Ellipse = "...",
   Assign = "=",
   Colon = ":",
   FunctionArrow = "->",
