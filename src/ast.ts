@@ -355,7 +355,7 @@ export type ExternExpr = {
 
 export type CallFunctionExpr = {
   type: AstType.CallFunction;
-  callee: Expr;
+  function: Expr;
   functionArguments: Expr[];
   typeValue: Type;
   env: Environment;
@@ -363,7 +363,7 @@ export type CallFunctionExpr = {
   isOperator?: "unary" | "binary";
   /**
    * This is the name of the temporary variable that holds
-   * the result of the callee.
+   * the result of the function.
    */
   tempVariableName: string;
 };
@@ -579,29 +579,29 @@ export function exprToString(expr: Expr, indentation = ""): string {
       })} -> ${exprToString(expr.body)}`;
     }
     case AstType.CallFunction: {
-      const calleeType = expr.callee.typeValue;
-      if (calleeType.type !== "Function") {
+      const functionType = expr.function.typeValue;
+      if (functionType.type !== "Function") {
         throw new Error(
           `Expected callee to be a function, but got ${typeToString(
-            calleeType
+            functionType
           )}`
         );
       }
       if (expr.isOperator === "unary") {
-        return `(${exprToString(expr.callee).replace(
+        return `(${exprToString(expr.function).replace(
           /^\((.+?)\)$/,
           "$1"
         )}${exprToString(expr.functionArguments[0])})`;
       } else if (expr.isOperator === "binary") {
         return `(${exprToString(expr.functionArguments[0])} ${exprToString(
-          expr.callee
+          expr.function
         ).replace(/^\((.+?)\)$/, "$1")} ${exprToString(
           expr.functionArguments[1]
         )})`;
       } else {
-        return `${exprToString(expr.callee)}${typeParametersToString(
-          calleeType.typeParameters,
-          calleeType.typeConstraints,
+        return `${exprToString(expr.function)}${typeParametersToString(
+          functionType.typeParameters,
+          functionType.typeConstraints,
           {
             hideTypeParameterKind: true,
           }

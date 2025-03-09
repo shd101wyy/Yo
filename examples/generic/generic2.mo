@@ -22,11 +22,11 @@ let use_id = ()-> {
   let d2 = 2.id2();
   let d3 = 3.id3();
 
-  // let e1 = 1.id1<i32>();
-  // let e2 = 2.id2<i32>();
-  // let e3 = 3.id3<i32>();
+  let e1 = 1.id1<i32>();
+  let e2 = 2.id2<i32>();
+  let e3 = 3.id3<i32>();
 
-  // let f1 = 1.id1<_>();
-  // let f2 = 2.id2<_>();
-  // let f3 = 3.id3<_>();
+  let f1 = 1.id1<_>();
+  let f2 = 2.id2<_>();
+  let f3 = 3.id3<_>();
 }

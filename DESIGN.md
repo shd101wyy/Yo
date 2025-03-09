@@ -227,7 +227,7 @@ mo uninstall package-name # Uninstall a package
 mo run test
 
 # Format code
-mo fmt
+mo format
 ```
 
 ## Types
@@ -396,6 +396,8 @@ type Person = // Linear type, as it contains a linear type.
 let p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
 // IDEA: If the type only has one variant, and the type name matches the variant's name, we allow to write directly:
 // let p = Person(String.from("Alice"), 30); // p: Person. Linear type.
+// Destructure it doesn't require specifying the variant name:
+// let (name, age) = p; // name: String, age: i32
 ```
 
 #### Uninitialized variable `In Design`
@@ -592,8 +594,7 @@ We use the `^` to denote the pointer, same as in Pascal.
 ```typescript
 let some_int_ptr = malloc(sizeof<i32>()); // int_ptr: Option<^i32>. Linear type
 match int_ptr {
-  case .Some: {
-    let int_ptr = some_int_ptr.value; // int_ptr: ^i32. Linear type.
+  case .Some(int_ptr): { // int_ptr: ^i32. Linear type.
     *int_ptr = 10;
     free(int_ptr);
   }
@@ -1252,16 +1253,24 @@ slice_1[0] = 'h';
 ### Range with `..`
 
 ```typescript
-// start..end
-// means
-// start <= x < end
+// The range start..end contains all values with start <= x < end. 
+// It is empty if start >= end.
 type Range = .Range {
   start: i32,
   end: i32,
 }
 
 let range = 0..5; // range: Range<i32>. Free type
+let range = Range {
+  start: 0,
+  end: 4,
+}
+
 let range2 = 0..=5; // range2: Range<i32>. Free type, including the end value
+let range2 = Range {
+  start: 0,
+  end: 5,
+}
 ```
 
 ## Closure `In Design`
@@ -1814,17 +1823,17 @@ type Option<T> = T1<Maybe, T>;
 
 ```typescript
 type Expr<T> =
-  | .IntExpr(i: i32): Expr<i32>,
-  | .BoolExpr(b: boolean): Expr<boolean>,
-  | .EqExpr(left: Expr<i32>, right: Expr<i32>): Expr<boolean>
+  | .IntExpr(i32): Expr<i32>,
+  | .BoolExpr(boolean): Expr<boolean>,
+  | .EqExpr(Expr<i32>, Expr<i32>): Expr<boolean>
 
 
 let eval = <T>(expr: Expr<T>): T -> {
   // with Expr<T>;
   match (expr) {
-    case .IntExpr: expr.i,
-    case .BoolExpr: expr.b,
-    case .EqExpr: eval(expr.left) == eval(expr.right)
+    case .IntExpr(i): i,
+    case .BoolExpr(b): b,
+    case .EqExpr(left, right): eval(left) == eval(right)
   }
 }
 
@@ -2021,7 +2030,7 @@ trait Functor<Wrapper<Type>: Type> {
 impl Functor<Maybe> {
   map: <A, B>(fa: Maybe<A>, f: (a: A)-> B)-> Maybe<B> {
     match (fa) {
-      case .Just: Just(f(fa.value)),
+      case .Just(value): Just(f(value)),
       case .Nothing: Nothing
     }
   }
@@ -2069,15 +2078,14 @@ let value_in_cents = (coin: Coin): u8 -> {
 
 type List<T> =
   | .Nil
-  | .Cons(head: T, tail: Box<List<T>>)
+  | .Cons(T, Box<List<T>>)
 
 
 
 let list_length = <T>(list: &List<T>): i32 -> {
   match (list) {
     case .Nil: 0,
-    case .Cons: {
-      let {tail} = list;
+    case .Cons(_, tail): {
       1 + list_length(tail)
     }
   }
@@ -2134,7 +2142,7 @@ let check_int = (x: i32)-> {
 
    ```typescript
    let check_int = (x: i32)-> {
-     match (x) {
+     match x {
        case 1 .. 6 if x % 2 == 0: {
          println("1 to 6 and even");
        }
@@ -2625,16 +2633,16 @@ let print_area = (shape: &(dyn Shape & Display))-> {
 
 // ADT
 type MyShape =
-  | .MyCircle(value: Circle)
-  | .MySquare(value: Square)
+  | .MyCircle(Circle)
+  | .MySquare(Square)
 
 // IDEA: The trait could be automatically implemented.
 // IDEA: So when we see the definition of `MyShape` above, we could say its `.value` already implemented the `Shape` trait. So it's legit to call `my_shape.value.area()` on it.
 impl Shape<MyShape> {
   area: (self)-> {
     match self {
-      case .MyCircle: self.value.area(),
-      case .MySquare: self.value.area(),
+      case .MyCircle(value): value.area(),
+      case .MySquare(value): value.area(),
     }
     // or directly:
     // self.value.area()

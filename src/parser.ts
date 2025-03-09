@@ -899,7 +899,12 @@ Found possible functions:
     // Check if it's a valid function that takes
     // the `expr` as the first argument
     callerType = expr.typeValue;
-    if (tokens[index + 1]?.type === TokenType.LParen) {
+    const calleeToken = token;
+    if (
+      calleeToken.type === TokenType.Identifier &&
+      (tokens[index + 1]?.type === TokenType.LParen ||
+        tokens[index + 1]?.value === "<")
+    ) {
       const functionName = token.value;
       // Find the functions that takes `expr` as the first argument
       const matchedFunctions = getFunctionsOfCallerFromEnv(
@@ -913,7 +918,7 @@ Found possible functions:
         functions: matchedFunctions.map((fv) => {
           return fv.type as TFunction;
         }),
-        calleeToken: tokens[index - 1],
+        calleeToken: calleeToken,
         env,
         tokens,
         caller,
@@ -1826,7 +1831,7 @@ Got:      <${functionTypeArgumentsInOrder
     return {
       expr: {
         type: AstType.CallFunction,
-        callee,
+        function: callee,
         functionArguments,
         typeValue: returnType,
         env,
@@ -3100,7 +3105,7 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
           parserReturns.push({
             expr: {
               type: AstType.CallFunction,
-              callee: {
+              function: {
                 type: AstType.Variable,
                 variableName: operatorString,
                 variableId: functionType.functionId,
@@ -3328,7 +3333,7 @@ Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
         parserReturns.push({
           expr: {
             type: AstType.CallFunction,
-            callee: {
+            function: {
               type: AstType.Variable,
               variableName: operatorToken.value,
               variableId: functionType.functionId,
@@ -6259,7 +6264,7 @@ Got:      ${typeToString(matchedFunction.func)}`
   hasAmbiguousFunctionCall(functionCallExprs: CallFunctionExpr[]): boolean {
     return (
       functionCallExprs.filter((expr) => {
-        const functionType = expr.callee.typeValue as TFunction;
+        const functionType = expr.function.typeValue as TFunction;
         return !functionType.ignoreAmbiguityCheck;
       }).length > 1
     );
