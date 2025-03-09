@@ -561,6 +561,20 @@ export function tokenize(input: string): Token[] {
                 position: { line, character: i - totalCharacters },
               });
               break;
+            case "NULL":
+              tokens.push({
+                type: TokenType.NULL,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
+            case "nullptr":
+              tokens.push({
+                type: TokenType.NullPtr,
+                value,
+                position: { line, character: i - totalCharacters },
+              });
+              break;
             case "undefined":
               tokens.push({
                 type: TokenType.Undefined,
@@ -599,13 +613,6 @@ export function tokenize(input: string): Token[] {
             case "defer":
               tokens.push({
                 type: TokenType.Defer,
-                value,
-                position: { line, character: i - totalCharacters },
-              });
-              break;
-            case "control":
-              tokens.push({
-                type: TokenType.Control,
                 value,
                 position: { line, character: i - totalCharacters },
               });

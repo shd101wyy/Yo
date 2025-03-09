@@ -390,10 +390,12 @@ expr my_map: Map<&str, i32> = Map.from([
   ["two", 2],
 ]); // Stored on heap. Linear type.
 
-enum Person { // Linear type, as it contains a linear type.
-  Person(name: String, age: i32)
-}
+type Person = // Linear type, as it contains a linear type.
+  .Person(name: String, age: i32)
+
 let p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
+// IDEA: If the type only has one variant, and the type name matches the variant's name, we allow to write directly:
+// let p = Person(String.from("Alice"), 30); // p: Person. Linear type.
 ```
 
 #### Uninitialized variable `In Design`
@@ -482,9 +484,9 @@ let main = ()-> {
 We can only dereference the free type.
 
 ```typescript
-enum Person { // Linear type, as it contains a linear type.
-  Person(name: String, age: i32)
-}
+type Person = // Linear type, as it contains a linear type.
+  .Person(name: String, age: i32)
+
 let name = String.from("Alice");
 let p = Person.Person(name, 30); // p: Person. Linear type.
 
@@ -497,11 +499,11 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 }
 
 {
-  let { name, mut age } = p;
+  let .Person{ name, mut age } = p;
 }
 
 {
-  var { name, age } = p;
+  var .Person { name, age } = p;
 }
 
 {
@@ -512,12 +514,12 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 }
 
 {
-  let { name } = p; // name: String, Linear type. The `p` variable is consumed
+  let .Person { name } = p; // name: String, Linear type. The `p` variable is consumed
                     // when you destructure any linear type values from it.
 }
 
 {
-  let { age } = p;  // age: i32, Free type. The `p` variable is not consumed
+  let .Person { age } = p;  // age: i32, Free type. The `p` variable is not consumed
                     // when you destructure only free fields from it.
 }
 
@@ -534,7 +536,7 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
   some_function(*p_ref); // Derference a reference of linear type is not allowed.
 }
 {
-  var p = Person(String.from("Alice"), 30); // p: Person. Linear type.
+  var p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
   expr @p_ref = &p; // p_ref: Expr<&Person>. Free type.
   let old_name = (p_ref.name = String.from("Bob")); // old_name: String. Linear type. Take the value out.
   // old_name == String.from("Alice")
@@ -543,11 +545,11 @@ let p = Person.Person(name, 30); // p: Person. Linear type.
 
 ```typescript
 let name = String.from("Alice");
-let p = Person(name, 30); // p: Person. Linear type.
+let p = Person.Person(name, 30); // p: Person. Linear type.
 
 let { name, age } = p; // p is consumed.
 
-p = Person(name, 30); // This is allowed. We restored a consumed value.
+p = Person.Person(name, 30); // This is allowed. We restored a consumed value.
 ```
 
 ```typescript
@@ -857,7 +859,6 @@ but this is not allowed
 let some_func: <T impl Trait1>(x: T)-> T = <X impl Trait1 & Trait2>(x: X)-> x;
 ```
 
-
 ### Named arguments
 
 ```typescript
@@ -1137,6 +1138,10 @@ Tuple is defined as a sequence of elements of different types, separated by comm
 ```typescript
 let my_unit = (); // my_unit: (). Free type
 
+let my_i32_tuple = (12);  // my_i32_tuple: i32
+// Needs extra comma to make it a tuple
+let my_i32_tuple = (12,); // my_i32_tuple: (i32,). Free type
+
 let i32_tuple: (i32, i32, i32) = (1, 2, 3); // tuple: (i32, i32, i32). Free type
 
 let mixed_tuple = (1, true, "Hello"); // mixed_tuple: (i32, boolean, *u8[6,'\0']). Free type
@@ -1146,6 +1151,13 @@ let (a, b, c) = mixed_tuple; // a: i32, b: boolean, c: *u8[6,'\0']. Free type
 let a = mixed_tuple.0;
 let b = mixed_tuple.1;
 let c = mixed_tuple.2;
+
+// NOTE: for tuple that has only 1 element, we need to add a comma to make it a tuple.
+type MyTuple = (i32)
+// is equivalent to
+type MyTuple = i32;
+// to make it a tuple, we need to add a comma
+type MyTuple = (i32,);
 ```
 
 ## Array & Slice
@@ -1183,11 +1195,11 @@ ANSWER: Yes we do. Not only because the size of slice is unknown at the compile-
 let  i32_array = [1, 2, 3]; // i32_array: i32[3]. Free type
 expr @i32_ptr   = &i32_array[0]; // @i32_ptr: Expr<&i32>. Free type
 let  i32_slice = &i32_array; // i32_slice: i32[]. Free type
-let  i32_slice = i32_array[0:some_func_return_usize()];  // i32_slice: i32[]
+let  i32_slice = i32_array[0..some_func_return_usize()];  // i32_slice: i32[]
                                                         // Compiler Error: The size of the slice is not known at compile time.
                                                         //                 Please use `&` to coerce i32_array to slice type &i32[]
-expr @i32_slice = &i32_array[0:some_func_return_usize()]; // Okay
-expr @i32_slice = &i32_array[0:3]; // i32_slice: Expr<&i32[]>
+expr @i32_slice = &i32_array[0..some_func_return_usize()]; // Okay
+expr @i32_slice = &i32_array[0..3]; // i32_slice: Expr<&i32[]>
 
 i32_slice.length; // 3, runtime known
 i32_slice[0] = 10;
@@ -1228,13 +1240,28 @@ var mutable_str = *"Hello"; // mutable_str: u8[5,'\0'], convert to mutable array
                      // ['H', 'e', 'l', 'l', 'o', '\0']
 mutable_str.length; // 5 (excluding '\0'), compile-time known
 
-let slice_1 = &mutable_str[0:2]; // slice_1: &str
+let slice_1 = &mutable_str[0..2]; // slice_1: &str
                            // ['H', 'e']
 slice_1.length; // 2, runtime known
 slice_1[0] = 'h';
 
 // mutable_str: ['h', 'e', 'l', 'l', 'o', '\0']
 // slice_1: ['h', 'e']
+```
+
+### Range with `..`
+
+```typescript
+// start..end
+// means
+// start <= x < end
+type Range = .Range {
+  start: i32,
+  end: i32,
+}
+
+let range = 0..5; // range: Range<i32>. Free type
+let range2 = 0..=5; // range2: Range<i32>. Free type, including the end value
 ```
 
 ## Closure `In Design`
@@ -1325,9 +1352,9 @@ set!(&x, x + 1)
 Below is an example of updating a field of a linear type:
 
 ```typescript
-enum Person { // Linear type.
-  Person(name: String, age: i32)
-}
+type Person = // Linear type.
+  .Person(name: String, age: i32)
+
 var p = Person(String.from("Alice"), 30); // p: Person. Linear type.
 
 // Update the field
@@ -1557,46 +1584,57 @@ type Language = { language: String; year: i32 };
 Destructure the record:
 
 ```typescript
-let user: User = User {
+type User = .User {
+  name: String,
+  age: i32
+}
+
+let user: User = User.User {
   name: String.from("johndoe"),
   age: 12
 }
 
 {
-  let {age} = user; // Compiler Error: `user` is consumed while `name` is not moved out.
+  let .User{age} = user; // Compiler Error: `user` is consumed while `name` is not moved out.
 }
 
 {
-  let {name, age} = user;
+  let .User{name, age} = user;
   // name: String, linear type
   // age: i32. Free type
 }
 
 {
-  // Rename the field with `as`
-  // Specify the type with `:`
-  let {name as username, age} = user;
+  // Rename the field with `:`
+  // Specify the type with `as`
+  let .User{name: username, age} = user;
   println(username); // johndoe
   // username: String, linear type.
   // age: i32. Free type.
 }
+
+{
+  // Without .User as User type only has one variant
+  let {age, name} = user;
+  // name: String, linear type
+}
 ```
 
-## Enum (Algebraic Data Types)
+## Algebraic Data Types (ADT)
 
-Enum is basically another type of Record with a hidden field `tag` that indicates the variant type.
+ADT is basically another type of Record with a hidden field `tag` that indicates the variant type.
 
 Therefore, when a value of a variant is decided, we can access the field of the value just like accessing the field of a record.
 
-There is also some optimization on the enum type. For example, if the enum has only one variant, the `tag` field will be omitted.
+There is also some optimization on the ADT. For example, if the ADT has only one variant, the `tag` field will be omitted.
 
 In addition, if there is only one variant with one field, the field type will be used directly instead of wrapping it in a record. This is like the [newtype](https://wiki.haskell.org/Newtype) in Haskell.
 
 ```typescript
-enum Option<T> {
-  Some(value: T),
-  None
-}
+type Option<T> =
+  | .Some (T), // variant name followed by tuple
+  | .None
+
 let {*} = Option; // The, `*` means to destructure everything.
 
 let none: Option<i32> = None;
@@ -1606,26 +1644,35 @@ let some: Option<i32> = Some(42);
 some.value;
 let {value} = some;
 
-enum IpAddr {
-  V4(v0: u8 = 255, v1: u8 = 255, v2: u8 = 255, v3: u8 = 255),
-  V6(v: String)
-}
+type IpAddr =
+  | .V4(u8, u8, u8, u8)
+  | .V6(String)
 
 
 let home = IpAddr.V4(127, 0, 0, 1);
-let anotherHome = IpAddr.V4(v3: 200);
 let loopback = IpAddr.V6(String.from("::1"))
+
+// Use record as variant
+type Message =
+  | .Quit
+  | .Move { x: i32, y: i32 }
+  | .Write(String)
+  | .ChangeColor { r: i32, g: i32, b: i32 }
+
+let m = Message.Write(String.from("hello"));
+let m = Message.Move { x: 3, y: 4 };
+let m = Message.ChangeColor { r: 1, g: 2, b: 3 };
 ```
 
 ### Type parameters for specific variant
 
 ```typescript
-enum MixedData {
-  NoForall(a: i32, b: String),
-  WithForall<T impl Show>(a: T)
-}
+type MixedData =
+  | .NoForall(i32, String),
+  | .WithForall<T impl Show>(a: T)
 
-let mixed = MixedData.WithForall(12); // mixed: MixedData.WithForall<i32>
+
+let mixed = MixedData.WithForall<i32>(12); // mixed: MixedData.WithForall<i32>
 ```
 
 ## C struct
@@ -1677,16 +1724,16 @@ union MyNumber {
 It's the same as the ADT, but all variants have no fields.
 
 ```typescript
-enum State {
-  Working = 1,
-  Failed = 0,
-}
+type State =
+  | .Working = 1
+  | .Failed = 0
 
-enum Week {
-  Monday,
-  Tuesday,
-  Wednesday,
-}
+
+type Week =
+  | .Monday     // 0
+  | .Tuesday    // 1
+  | .Wednesday  // 2
+
 let day = Week.Wednessay;
 printf("%d", day); // 2
 ```
@@ -1757,9 +1804,8 @@ let head = <T>(array: NotEmptyArray<T>): T -> {
 Higher Kinded Types are types that take other types as parameters.
 
 ```typescript
-enum T1<F<Type>: Type, A: Type> {
-  T1(value: F<A>)
-}
+type T1<F<Type>: Type, A: Type> =
+  .T1(value: F<A>)
 
 type Option<T> = T1<Maybe, T>;
 ```
@@ -1767,11 +1813,11 @@ type Option<T> = T1<Maybe, T>;
 ### Generalized Algebraic Data Types (GADTs) `In Design`
 
 ```typescript
-enum Expr<T> {
-  IntExpr(i: i32): Expr<i32>,
-  BoolExpr(b: boolean): Expr<boolean>,
-  EqExpr(left: Expr<i32>, right: Expr<i32>): Expr<boolean>
-}
+type Expr<T> =
+  | .IntExpr(i: i32): Expr<i32>,
+  | .BoolExpr(b: boolean): Expr<boolean>,
+  | .EqExpr(left: Expr<i32>, right: Expr<i32>): Expr<boolean>
+
 
 let eval = <T>(expr: Expr<T>): T -> {
   // with Expr<T>;
@@ -1999,12 +2045,12 @@ let result = some_maybe.map((x)-> x + 1); // Just(2)
 The compiler implements an exhaustive check on the pattern matching.
 
 ```typescript
-enum Coin {
-  Penny,
-  Nickel,
-  Dime,
-  Quarter,
-}
+type Coin =
+  | .Penny
+  | .Nickel
+  | .Dime
+  | .Quarter
+
 
 // Reference:
 // - https://doc.rust-lang.org/book/ch06-02-match.html
@@ -2021,10 +2067,10 @@ let value_in_cents = (coin: Coin): u8 -> {
   }
 }
 
-enum List<T> {
-  Nil,
-  Cons(head: T, tail: Box<List<T>>),
-}
+type List<T> =
+  | .Nil
+  | .Cons(head: T, tail: Box<List<T>>)
+
 
 
 let list_length = <T>(list: &List<T>): i32 -> {
@@ -2042,7 +2088,7 @@ let list_length = <T>(list: &List<T>): i32 -> {
 
 ```typescript
 let check_int = (x: i32)-> {
-  match (x) {
+  match x {
     case 1:
     case 2:
     case 3:
@@ -2068,7 +2114,7 @@ Can also use range:
 
 ```typescript
 let check_int = (x: i32)-> {
-  match (x) {
+  match x {
     case 1 .. 6: {
       println("1 to 6");
     }
@@ -2081,6 +2127,48 @@ let check_int = (x: i32)-> {
   }
 }
 ```
+
+## Guard
+
+1. Using `if` in `case`
+
+   ```typescript
+   let check_int = (x: i32)-> {
+     match (x) {
+       case 1 .. 6 if x % 2 == 0: {
+         println("1 to 6 and even");
+       }
+       case 1 .. 6 if x % 2 != 0: {
+         println("1 to 6 and odd");
+       }
+       case 7 .. 10: {
+         println("7 to 10");
+       }
+       default: {
+         println("Other");
+       }
+     }
+   }
+   ```
+
+2. `if let`
+
+   ```typescript
+   let maybe_some = Some(10);
+   if let Some(value) = maybe_some {
+     println(value);
+   }
+   ```
+
+3. `while let`
+
+   ```typescript
+   let mut list = Some(10);
+   while let Some(value) = list {
+     println(value);
+     list = None;
+   }
+   ```
 
 ## Pointers
 
@@ -2142,7 +2230,7 @@ expr @constant_ptr_to_i32 = &mut i32_val; // @constant_ptr_to_i32: Expr<&mut i32
 
 ```typescript
 let arr: i32[5] = [1, 2, 3, 4, 5];
-let slice: &i32[] = &arr[1:4]; // slice: &i32[]. Free type
+let slice: &i32[] = &arr[1..4]; // slice: &i32[]. Free type
 ```
 
 - Trait Object
@@ -2400,11 +2488,11 @@ let test = ()-> {
 
 export { test, copy };
 
-// Export the enum.
-export enum Option<T> {
-  Some(value: T),
-  None,
-}
+// Export the type
+export type Option<T> =
+  | .Some(value: T)
+  | .None
+
 
 // Export the trait.
 export trait Id<Self: Type> {
@@ -2429,13 +2517,13 @@ let Test = @import("./test.mo"); // Import everything from test.mo and put it in
 let { test } = @import("./test.mo"); // Import test function from test.mo
 let { test: test2 } = @import("./test.mo"); // Import test function from test.mo and rename it to test2
 
-let { Option } = @import("./test.mo"); // Import Option enum from test.mo
+let { Option } = @import("./test.mo"); // Import Option type from test.mo
 
 /*
 // BELOW ARE IN DESIGN
-let { Option:{Some, None} } = @import("./test.mo"); // Unwrap Some and None variant from Option enum from test.mo
-let { Option:{*} } = @import("./test.mo"); // Unwrap all variants from Option enum from test.mo
-let { Option:{*}, Option: AnotherOption } = @import("./test.mo"); // Unwrap all variants from Option enum, and rename 'Option' to 'AnotherOption' from test.mo
+let { Option:{Some, None} } = @import("./test.mo"); // Unwrap Some and None variant from Option type from test.mo
+let { Option:{*} } = @import("./test.mo"); // Unwrap all variants from Option type from test.mo
+let { Option:{*}, Option: AnotherOption } = @import("./test.mo"); // Unwrap all variants from Option type, and rename 'Option' to 'AnotherOption' from test.mo
 */
 
 let { Id } = @import("./test.mo"); // Import `Id` class from test.mo
@@ -2536,10 +2624,10 @@ let print_area = (shape: &(dyn Shape & Display))-> {
 }
 
 // ADT
-enum MyShape {
-  MyCircle(value: Circle),
-  MySquare(value: Square),
-}
+type MyShape =
+  | .MyCircle(value: Circle)
+  | .MySquare(value: Square)
+
 // IDEA: The trait could be automatically implemented.
 // IDEA: So when we see the definition of `MyShape` above, we could say its `.value` already implemented the `Shape` trait. So it's legit to call `my_shape.value.area()` on it.
 impl Shape<MyShape> {
@@ -2652,9 +2740,8 @@ extern "C" {
   - `function`
   - `variable`
 - `PascaleCase`
-  - `class`
-  - `type`
-  - `enum` and its variants
+  - `trait`
+  - `type` and its variants
 - `UPPER_SNAKE_CASE`
   - `constant`
 

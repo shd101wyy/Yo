@@ -1,8 +1,8 @@
-export interface Id<T: Type> {
+export trait Id<T: Type> {
   id: (x: T)-> T;
 }
 
-implements Id<()> {
+impl Id<()> {
   id: (x: ()) -> () {
     ()
   }

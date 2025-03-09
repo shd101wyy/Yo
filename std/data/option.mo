@@ -1,4 +1,3 @@
-export enum Option<T: Type>: Type {
-  None,
-  Some(value: T),
-}
+export type Option<T: Type>: Type =
+  | .None
+  | .Some(value: T)

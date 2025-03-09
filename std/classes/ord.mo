@@ -3,11 +3,11 @@ infix  40 <=  // Less than or equal to
 infix  40 >   // Greater than
 infix  40 >=  // Greater than or equal to
 
-export enum Ordering {
-  Less,
-  Equal,
-  Greater
-}
+export type Ordering =
+  | .Less,
+  | .Equal,
+  | .Greater
+
 
 // FIXME:
 // Using Eq<T>
