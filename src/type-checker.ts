@@ -252,6 +252,7 @@ export type TUnknown = {
   kind: "Free";
   typeArguments?: Type[];
   typeName?: string; // FIXME: This might be a expression in the future
+  // NOTE: `typeName` and `typeArguments` This is for recursive type alias. Check parser.ts
 };
 
 export type TArray = {
@@ -1085,7 +1086,10 @@ export function synthesizeTypeFromTokens({
 
     if (newReturnValue.typeValue.type === "Union") {
       const returnValueTypeKind = returnValue.typeValue.kind;
-      const kind = mixTypeKind(returnValueTypeKind, newReturnValueTypeKind);
+      const kind = unifyTypeKinds([
+        returnValueTypeKind,
+        newReturnValueTypeKind,
+      ]);
       returnValue = {
         typeValue: {
           type: "Union",
@@ -1097,7 +1101,10 @@ export function synthesizeTypeFromTokens({
       };
     } else {
       const returnValueTypeKind = returnValue.typeValue.kind;
-      const kind = mixTypeKind(returnValueTypeKind, newReturnValueTypeKind);
+      const kind = unifyTypeKinds([
+        returnValueTypeKind,
+        newReturnValueTypeKind,
+      ]);
       returnValue = {
         typeValue: {
           type: "Union",
@@ -1120,7 +1127,10 @@ export function synthesizeTypeFromTokens({
     const newReturnValueTypeKind = newReturnValue.typeValue.kind;
     if (newReturnValue.typeValue.type === "Intersection") {
       const returnValueTypeKind = returnValue.typeValue.kind;
-      const kind = mixTypeKind(returnValueTypeKind, newReturnValueTypeKind);
+      const kind = unifyTypeKinds([
+        returnValueTypeKind,
+        newReturnValueTypeKind,
+      ]);
       returnValue = {
         typeValue: {
           type: "Intersection",
@@ -1132,7 +1142,10 @@ export function synthesizeTypeFromTokens({
       };
     } else {
       const returnValueTypeKind = returnValue.typeValue.kind;
-      const kind = mixTypeKind(returnValueTypeKind, newReturnValueTypeKind);
+      const kind = unifyTypeKinds([
+        returnValueTypeKind,
+        newReturnValueTypeKind,
+      ]);
       returnValue = {
         typeValue: {
           type: "Intersection",
@@ -1238,11 +1251,7 @@ export function synthesizeTypeFromTokens({
 }
 
 /**
- * Please note this function will modify `typeParameterToTypeArgumentMap` and `regionParameterToRegionArgumentMap`
- * @param typeArguments
- * @param regionArguments
- * @param typeParameterToTypeArgumentMap
- * @param regionParameterToRegionArgumentMap
+ * Please note this function will modify `typeParameterToTypeArgumentMap`
  */
 function generateNewTypeParameters({
   env,
@@ -1392,14 +1401,8 @@ Got     : ${typeToString(typeArgument)}`
 }
 
 /**
- * If typeArguments or regionArguments is undefined,
- * use the typeParameterToTypeArgumentMap and regionParameterToRegionArgumentMap instead
- * @param type
- * @param typeArguments
- * @param regionArguments
- * @param typeParameterToTypeArgumentMap
- * @param regionParameterToRegionArgumentMap
- * @returns
+ * If typeArguments is undefined,
+ * use the typeParameterToTypeArgumentMap instead
  */
 export function applyTypeArgumentsToType({
   env,
@@ -1424,10 +1427,6 @@ export function applyTypeArgumentsToType({
     "  - typeArguments: ",
     typeArguments.map((type) => typeToString(type))
   );
-  logger.debug(
-    "  - regionArguments: ",
-    regionArguments.map((region) => regionToString(region))
-  );
   */
 
   if (type.type === "TypeConstructor") {
@@ -1437,12 +1436,6 @@ export function applyTypeArgumentsToType({
     logger.debug(
       "  - typeParameters: ",
       type.typeParameters.map((typeParameter) => typeToString(typeParameter))
-    );
-    logger.debug(
-      "  - regionParameters: ",
-      type.regionParameters.map((regionParameter) =>
-        regionToString(regionParameter)
-      )
     );
     */
     if (typeArguments && type.typeParameters.length !== typeArguments.length) {
@@ -1657,50 +1650,58 @@ export function applyTypeArgumentsToType({
         };
       }
       case "Union": {
+        const types = type.types.map((type) =>
+          applyTypeArgumentsToType({
+            env,
+            type,
+            typeParameterToTypeArgumentMap,
+          })
+        );
         return {
           ...type,
-          types: type.types.map((type) =>
-            applyTypeArgumentsToType({
-              env,
-              type,
-              typeParameterToTypeArgumentMap,
-            })
-          ),
+          types: types,
+          kind: unifyTypeKinds(types.map((type) => type.kind)),
         };
       }
       case "Intersection": {
+        const types = type.types.map((type) =>
+          applyTypeArgumentsToType({
+            env,
+            type,
+            typeParameterToTypeArgumentMap,
+          })
+        );
         return {
           ...type,
-          types: type.types.map((type) =>
-            applyTypeArgumentsToType({
-              env,
-              type,
-              typeParameterToTypeArgumentMap,
-            })
-          ),
+          types: types,
+          kind: unifyTypeKinds(types.map((type) => type.kind)),
         };
       }
       case "Array": {
+        const elementType = applyTypeArgumentsToType({
+          env,
+          type: type.elementType,
+          typeParameterToTypeArgumentMap,
+        });
         return {
           ...type,
-          elementType: applyTypeArgumentsToType({
-            env,
-            type: type.elementType,
-            typeParameterToTypeArgumentMap,
-          }),
+          elementType: elementType,
+          kind: elementType.kind,
         };
       }
       case "Tuple": {
+        const elements = type.elements.map((element) => {
+          return applyTypeArgumentsToType({
+            env,
+            type: element,
+            typeParameterToTypeArgumentMap,
+          });
+        });
         return {
           ...type,
           type: "Tuple",
-          elements: type.elements.map((element) => {
-            return applyTypeArgumentsToType({
-              env,
-              type: element,
-              typeParameterToTypeArgumentMap,
-            });
-          }),
+          elements: elements,
+          kind: unifyTypeKinds(elements.map((element) => element.kind)),
         };
       }
       case "unknown": {
@@ -1830,7 +1831,6 @@ Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
   // set typeParameterToTypeArgumentMap
   /*const {
     typeParameters: newTypeParameters,
-    regionParameters: newRegionParameters,
   } =*/ generateNewTypeParameters({
     env,
     typeParameters: type.typeParameters,
@@ -2560,7 +2560,21 @@ export function synthesizeTypeArgumentsFromTokens({
       env,
       parseExpression,
     });
-    typeArguments.push(typeArgument);
+
+    if (typeArgument.type === "unknown") {
+      // Create new type parameter without appliedType as the type argument
+      const id = generateVarialeValueId(env, "unknown");
+      const typeParameter: TTypeParameter = {
+        type: "TypeParameter",
+        typeParameterName: id,
+        typeParameterId: id,
+        kind: "Type", // QUESTION: What should be this?
+        appliedType: undefined,
+      };
+      typeArguments.push(typeParameter);
+    } else {
+      typeArguments.push(typeArgument);
+    }
     index = nextIndex;
     env = nextEnv;
   }
@@ -2949,6 +2963,7 @@ function getRecordTypeKind(properties: TRecordProperty[]): TypeKind {
       const propertyKind = property.type.kind;
       kind = propertyKind;
 
+      // QUESTION: What is the if here?
       if (property.type.type === "TypeParameter") {
         let appliedType = property.type.appliedType;
         if (appliedType) {
@@ -3173,6 +3188,7 @@ export function synthesizeTypeParametersFromTokens({
 }
 
 /**
+ * QUESTION: Should we support this?
  * Check if `a` is subtype of `b`.
  * For example,
  * {
@@ -3238,12 +3254,6 @@ function isSubtype(a: Type, b: Type): boolean {
         return a.size <= b.size && isSubtype(a.elementType, b.elementType);
       } else {
         return isSubtype(a.elementType, b.elementType);
-      }
-    } else if (a.type === "Tuple" && b.type === "Tuple") {
-      if (a.elements.length !== b.elements.length) {
-        return false;
-      } else {
-        return a.elements.every((aType, i) => isSubtype(aType, b.elements[i]));
       }
     } else {
       return a.type === b.type;
@@ -3600,6 +3610,8 @@ export function checkType(
       );
     } else if (expectedTypeType === "Enum" && givenTypeType === "Enum") {
       return checkEnumExactMatchType(expectedType, givenType, env);
+    } else if (expectedTypeType === "Tuple" && givenTypeType === "Tuple") {
+      return checkTupleExactMatchType(expectedType, givenType, env);
     } else {
       return isSubtype(givenType, expectedType);
     }
@@ -3823,8 +3835,22 @@ function checkEnumExactMatchType(
   return true;
 }
 
+function checkTupleExactMatchType(
+  expectedType: TTuple,
+  givenType: TTuple,
+  env: Environment
+): boolean {
+  if (expectedType.elements.length !== givenType.elements.length) {
+    return false;
+  } else {
+    return expectedType.elements.every((type, i) =>
+      checkType(type, givenType.elements[i], env)
+    );
+  }
+}
+
 /**
- * This function will modify the `typeParameterToTypeArgumentMap` and `regionParameterToRegionArgumentMap`.
+ * This function will modify the `typeParameterToTypeArgumentMap`.
  * If the check failed, it will return false.
  * @param parameterType
  * @param argumentType
@@ -4171,16 +4197,6 @@ export function getEnumTagSize(enumType: TEnum): 8 | 16 | 32 {
   }
 }
 
-function mixTypeKind(kind1: TypeKind, kind2: TypeKind): TypeKind {
-  if (kind1 === "Type" || kind2 === "Type") {
-    return "Type";
-  } else if (kind1 === "Linear" || kind2 === "Linear") {
-    return "Linear";
-  } else {
-    return "Free";
-  }
-}
-
 export function typeContainsTypeParameterThatDoesntHaveAppliedType(
   type: Type
 ): boolean {
@@ -4350,8 +4366,23 @@ export function synthesizeTypes({
     }
   }
 
-  // userDefinedVariableType = variableType;
-  // Assign region to userDefinedVariableType if it's not set
+  if (expectedType.type === "Tuple") {
+    if (givenType.type === "Tuple") {
+      if (expectedType.elements.length !== givenType.elements.length) {
+        throw new Error(
+          `Cannot synthesize types for tuple with different number of elements`
+        );
+      }
+      for (let i = 0; i < expectedType.elements.length; i++) {
+        synthesizeTypes({
+          expectedType: expectedType.elements[i],
+          givenType: givenType.elements[i],
+          typeParameterToTypeArgumentMap,
+        });
+      }
+    }
+  }
+
   if (expectedType.type === "TypeConstructor") {
     if (givenType.type === "TypeConstructor") {
       synthesizeTypeParameters({
@@ -4420,6 +4451,27 @@ export function synthesizeTypes({
         });
       }
     }
+  }
+
+  if (expectedType.type === "TypeParameter") {
+    if (
+      !expectedType.appliedType ||
+      expectedType.appliedType.type === "unknown"
+    ) {
+      expectedType.appliedType = givenType;
+    } else {
+      synthesizeTypes({
+        expectedType: expectedType.appliedType,
+        givenType,
+        typeParameterToTypeArgumentMap,
+      });
+    }
+  }
+
+  // Update expectedType kind
+  // Check examples/tuple/tuple2.mo
+  if (expectedType.kind === "Type") {
+    expectedType.kind = givenType.kind;
   }
 
   return expectedType;
