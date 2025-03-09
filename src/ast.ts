@@ -172,6 +172,15 @@ export type ArrayValueExpr = {
   token: Token;
 };
 
+export type TupleValueExpr = {
+  type: AstType.Value;
+  tag: "tuple";
+  elements: Expr[];
+  typeValue: Type;
+  env: Environment;
+  token: Token;
+};
+
 export type PrimitiveValueExpr = {
   type: AstType.Value;
   tag: "primitive";
@@ -181,7 +190,11 @@ export type PrimitiveValueExpr = {
   token: Token;
 };
 
-export type ValueExpr = PrimitiveValueExpr | RecordValueExpr | ArrayValueExpr;
+export type ValueExpr =
+  | PrimitiveValueExpr
+  | RecordValueExpr
+  | ArrayValueExpr
+  | TupleValueExpr;
 
 export type VariableExpr = {
   type: AstType.Variable;
@@ -510,6 +523,10 @@ export function exprToString(expr: Expr, indentation = ""): string {
           return `[${expr.values
             .map((expr) => exprToString(expr))
             .join(", ")}]`;
+        case "tuple":
+          return `(${expr.elements
+            .map((expr) => exprToString(expr))
+            .join(", ")}${expr.elements.length === 1 ? "," : ""})`;
         default:
           throw new Error(`Unknown value tag ${expr}`);
       }
@@ -563,7 +580,7 @@ export function exprToString(expr: Expr, indentation = ""): string {
       return `type ${typeToString(expr.typeValue, {
         extractTypeConstructor: "all",
         hideTypeParameterKind: true,
-      })}`;
+      })};`;
     }
     case AstType.Trait:
       return `${traitToString(expr.trait, {

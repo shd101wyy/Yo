@@ -255,14 +255,14 @@ export type TUnknown = {
 };
 
 export type TArray = {
-  type: "array";
+  type: "Array";
   kind: TypeKind;
   elementType: Type;
   size?: number;
 };
 
 export type TTuple = {
-  type: "tuple";
+  type: "Tuple";
   kind: TypeKind;
   elements: Type[];
 };
@@ -687,7 +687,6 @@ export function synthesizeTypeFromTokens({
       } else {
         // Could be the tuple
         // Parse tuple
-        let tupleKind = typeValue.kind;
         const tupleElements: Type[] = [typeValue];
         let index = nextIndex;
         // eslint-disable-next-line no-constant-condition
@@ -719,17 +718,12 @@ export function synthesizeTypeFromTokens({
           env = nextEnv;
           index = nextIndex;
           tupleElements.push(typeValue);
-          if (typeValue.kind === "Type") {
-            tupleKind = "Type";
-          } else if (typeValue.kind === "Linear" && tupleKind === "Free") {
-            tupleKind = "Linear";
-          }
         }
 
         returnValue = {
           typeValue: {
-            type: "tuple",
-            kind: tupleKind,
+            type: "Tuple",
+            kind: unifyTypeKinds(tupleElements.map((element) => element.kind)),
             elements: tupleElements,
           },
           index: index + 1,
@@ -1040,7 +1034,7 @@ export function synthesizeTypeFromTokens({
           });
         } else {
           newTypeValue = {
-            type: "array",
+            type: "Array",
             kind: newTypeValueKind,
             elementType: newTypeValue,
             size,
@@ -1049,7 +1043,7 @@ export function synthesizeTypeFromTokens({
         }
       } else if (token.type === TokenType.RBracket) {
         newTypeValue = {
-          type: "array",
+          type: "Array",
           kind: newTypeValueKind,
           elementType: newTypeValue,
           size: undefined,
@@ -1686,13 +1680,26 @@ export function applyTypeArgumentsToType({
           ),
         };
       }
-      case "array": {
+      case "Array": {
         return {
           ...type,
           elementType: applyTypeArgumentsToType({
             env,
             type: type.elementType,
             typeParameterToTypeArgumentMap,
+          }),
+        };
+      }
+      case "Tuple": {
+        return {
+          ...type,
+          type: "Tuple",
+          elements: type.elements.map((element) => {
+            return applyTypeArgumentsToType({
+              env,
+              type: element,
+              typeParameterToTypeArgumentMap,
+            });
           }),
         };
       }
@@ -3226,11 +3233,17 @@ function isSubtype(a: Type, b: Type): boolean {
       }
     } else if (b.type === "Intersection" || a.type === "Intersection") {
       throw new Error("Intersection type is not supported yet");
-    } else if (a.type === "array" && b.type === "array") {
+    } else if (a.type === "Array" && b.type === "Array") {
       if (a.size !== undefined && b.size !== undefined) {
         return a.size <= b.size && isSubtype(a.elementType, b.elementType);
       } else {
         return isSubtype(a.elementType, b.elementType);
+      }
+    } else if (a.type === "Tuple" && b.type === "Tuple") {
+      if (a.elements.length !== b.elements.length) {
+        return false;
+      } else {
+        return a.elements.every((aType, i) => isSubtype(aType, b.elements[i]));
       }
     } else {
       return a.type === b.type;
@@ -3368,10 +3381,10 @@ export function typeToString(
           : ""
       }`;
     }
-    case "array": {
+    case "Array": {
       return `${typeToString(type.elementType)}[${type.size ?? ""}]`.trim();
     }
-    case "tuple": {
+    case "Tuple": {
       return `(${type.elements.map((type) => typeToString(type)).join(", ")}${
         type.elements.length === 1 ? "," : ""
       })`;
@@ -4316,7 +4329,7 @@ export function synthesizeTypes({
     expectedType.selectedVariantName = givenType.selectedVariantName;
   }
 
-  if (expectedType.type === "array") {
+  if (expectedType.type === "Array") {
     let userType = expectedType;
     let valueType = givenType as TArray;
     // Assign size to the array if it's undefined
@@ -4328,7 +4341,7 @@ export function synthesizeTypes({
         valueType.size = userType.size;
       }
 
-      if (userType.elementType.type === "array") {
+      if (userType.elementType.type === "Array") {
         userType = userType.elementType;
         valueType = valueType.elementType as TArray;
       } else {
@@ -4419,7 +4432,7 @@ export function typeContainsReference(type: Type): boolean {
     return type.properties.some((property) =>
       typeContainsReference(property.type)
     );
-  } else if (type.type === "array") {
+  } else if (type.type === "Array") {
     return typeContainsReference(type.elementType);
   } else if (type.type === "TypeConstructor") {
     return typeContainsReference(type.typeValue);
@@ -4465,4 +4478,14 @@ export function isClosureCaptureMode(tokens: Token[], index: number): boolean {
     ["&", "&mut", "="].includes(tokens[index + 1]?.value) &&
     tokens[index + 2]?.value === "]"
   );
+}
+
+export function unifyTypeKinds(kinds: TypeKind[]): TypeKind {
+  if (kinds.find((kind) => kind === "Type")) {
+    return "Type";
+  } else if (kinds.find((kind) => kind === "Linear")) {
+    return "Linear";
+  } else {
+    return "Free";
+  }
 }

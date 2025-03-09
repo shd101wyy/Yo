@@ -90,6 +90,7 @@ import {
   typeIsMutableReference,
   typeIsReference,
   typeToString,
+  unifyTypeKinds,
 } from "./type-checker";
 
 interface ParserData {
@@ -418,7 +419,7 @@ export default class Parser {
     let typeValue: Type;
     if (isArray) {
       typeValue = {
-        type: "array",
+        type: "Array",
         kind: firstElementType.kind as TypeKind,
         elementType: firstElementType,
         size: values.length,
@@ -1100,7 +1101,7 @@ ${exprToString(lhs)}
         );
       }
 
-      if (valueType.type !== "array") {
+      if (valueType.type !== "Array") {
         throw this.formatErrorMessage(
           token,
           `Expected slice for index access, but got ${typeToString(valueType)}`
@@ -1395,6 +1396,7 @@ ${exprToString(lhs)}
         parserData,
       });
       let expr = returnValue.expr;
+      env = expr.env;
       const nextIndex = returnValue.index;
       if (!expr) {
         return { expr, index: nextIndex };
@@ -1406,7 +1408,7 @@ ${exprToString(lhs)}
           lhs: expr,
           tokens,
           index,
-          env: expr.env,
+          env,
           caller,
           parserData,
         });
@@ -1414,10 +1416,58 @@ ${exprToString(lhs)}
         index = nextNextIndex;
       }
 
-      if (tokens[index].type !== TokenType.RParen) {
-        throw this.formatErrorMessage(tokens[index], "Expected right paren");
+      if (tokens[index].type === TokenType.RParen) {
+        return { expr, index: index + 1 };
+      } else {
+        // Parse tuple
+        const elements: Expr[] = [expr];
+        while (true) {
+          if (!tokens[index]) {
+            throw this.formatErrorMessage(
+              tokens[index],
+              "Expected right parenthesis ')'"
+            );
+          }
+          if (tokens[index].type === TokenType.Comma) {
+            index = index + 1;
+          }
+          if (tokens[index].type === TokenType.RParen) {
+            break;
+          }
+
+          // Parse the expression
+          const returnValue = this.parseExpression({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          if (!returnValue.expr) {
+            throw this.formatErrorMessage(tokens[index], "Expected expression");
+          }
+          index = returnValue.index;
+          env = returnValue.expr.env;
+          elements.push(returnValue.expr);
+        }
+        return {
+          expr: {
+            type: AstType.Value,
+            tag: "tuple",
+            elements,
+            typeValue: {
+              type: "Tuple",
+              elements: elements.map((element) => element.typeValue),
+              kind: unifyTypeKinds(
+                elements.map((element) => element.typeValue.kind)
+              ),
+            },
+            env,
+            token: elements[elements.length - 1].token,
+          },
+          index: index + 1,
+        };
       }
-      return { expr, index: index + 1 };
     }
   }
 
