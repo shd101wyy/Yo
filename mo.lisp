@@ -230,8 +230,8 @@ NameError: name 'a' is not defined
 ))
 
 ;;; instance dependencies
-(instance 
-  (forall [a] 
+(instance
+  (forall [a]
     :require [(Show a)] 
     (Show (Array a)))
   show (fn [x] (concat "[" (join ", " (map show x)) "]"))
@@ -374,3 +374,8 @@ NameError: name 'a' is not defined
 (export x)
 ;; or
 (export (let x 12))
+
+(let 
+  (= x 1)
+  (mut (= y 2))
+  (+ x y))

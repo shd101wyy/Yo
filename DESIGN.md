@@ -132,7 +132,8 @@ We will also post a series of articles on the design and implementation of **Mo*
 
 ## Philosophy
 
-It's just "C"!  
+It's just a combination of "Lisp" and "C"!  
+Everthing is a function, even the `if`, `while`, `match`, etc.
 Extended with a little bit of functional programming.
 
 Explicit is better than Implicit.  
@@ -398,13 +399,12 @@ expr my_map: Map<&str, i32> = Map.from([
 ]); // Stored on heap. Linear type.
 
 type Person = // Linear type, as it contains a linear type.
-  .Person(name: String, age: i32)
+  .Person (String, i32)
 
 let p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
-// IDEA: If the type only has one variant, and the type name matches the variant's name, we allow to write directly:
-// let p = Person(String.from("Alice"), 30); // p: Person. Linear type.
-// Destructure it doesn't require specifying the variant name:
-// let (name, age) = p; // name: String, age: i32
+// or:
+// let p: Person = .Person(String.from("Alice"), 30); // p: Person. Linear type.
+// let .Person(name, age) = p; // name: String, age: i32
 ```
 
 #### Uninitialized variable `In Design`
@@ -494,10 +494,10 @@ We can only dereference the free type.
 
 ```typescript
 type Person = // Linear type, as it contains a linear type.
-  .Person(name: String, age: i32)
+  .Person {name: String, age: i32};
 
 let name = String.from("Alice");
-let p = Person.Person(name, 30); // p: Person. Linear type.
+let p: Person = .Person {name, age: 30}; // p: Person. Linear type.
 
 {
   let name = p.name; // name: String, Linear type. The `p` variable is consumed
@@ -600,15 +600,14 @@ We use the `^` to denote the pointer, same as in Pascal.
 
 ```typescript
 let some_int_ptr = malloc(sizeof<i32>()); // int_ptr: Option<^i32>. Linear type
-match int_ptr {
-  case .Some(int_ptr): { // int_ptr: ^i32. Linear type.
+match int_ptr,
+  .Some(int_ptr), { // int_ptr: ^i32. Linear type.
     *int_ptr = 10;
     free(int_ptr);
-  }
-  case .None: {
+  },
+  .None, {
     // handle error
   }
-}
 ```
 
 ### Cast Linear to Free
@@ -791,6 +790,8 @@ let mul = (x: i32, by: i32): i32 -> {
   x * y
 }
 mul(3, by: 4); // 12
+mul 4, by: 5;  // 20
+(mul 5, 6);    // 30
 
 // Named return values
 let exponent = (base: i32, power: i32):
@@ -897,15 +898,16 @@ let some_async_func = (?Async<i32>): i32 -> {
 
 ```typescript
 // id.mo
-export trait Id<Self> {
+let Id = trait<Self> {
   id: (self: Self)-> Self;
 };
+export Id;
 
 impl Id<i32> {
   id: (self) -> {
     self
   }
-}
+};
 
 // main.mo
 let { Id } = @import("./id.mo");
@@ -1069,25 +1071,21 @@ If `recur` is the last expression, tail-call optimization will be applied.
 - With tail-call optimization
 
   ```typescript
-  (x: u32, acc: u32 = 1)-> {
-    if x == 1 {
+  (x: u32, acc: u32 = 1)->
+    if x == 1, then:
       acc
-    } else {
+    else:
       recur(x - 1, acc * x)
-    }
-  };
   ```
 
 - Without tail-call optimization
 
   ```typescript
-  (x: u32)-> {
-    if x == 1 {
+  (x: u32)->
+    if x == 1, then:
       1
-    } else {
+    else:
       x * recur(x - 1)
-    }
-  };
   ```
 
 ### Custom Operators
@@ -1116,7 +1114,8 @@ infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
 let print = (...args)-> {
   // @va_start(args); // Start the variadic arguments
   let args2 = @va_copy(args); // Copy the variadic arguments
-  for (let i = 0; i < args.length; i++) {
+  var i = 0;
+  while i < args.length, i += 1, {
     printf("%d ", @va_arg(args, i32)); // Pop the variadic argument and set it to i32
   }
   // @va_end(args); // End the variadic arguments
@@ -1214,11 +1213,10 @@ i32_slice[0] = 10;
 // i32_array: [10, 2, 3, 4, 5]
 
 
-let set_value = (arr: &i32[], index: usize, value: i32)-> {
-  if index < arr.length { // arr.length is runtime known
+let set_value = (arr: &i32[], index: usize, value: i32)->
+  if index < arr.length,  // arr.length is runtime known
     arr[index] = value;
-  }
-}
+
 set_value(i32_array, 0, 11); // Compiler error: Please use `&` to coerce i32_array to slice type i32[]
 set_value(&i32_array, 0, 11); // Correct!
 // i32_array: [11, 2, 3, 4, 5]
@@ -1260,7 +1258,7 @@ slice_1[0] = 'h';
 ### Range with `..`
 
 ```typescript
-// The range start..end contains all values with start <= x < end. 
+// The range start..end contains all values with start <= x < end.
 // It is empty if start >= end.
 type Range = .Range {
   start: i32,
@@ -1416,14 +1414,14 @@ let show_compare = <T: Type impl Show & Ord>(x: T, y: T): String -> {
 }
 
 // Instance dependencies
-impl<A impl Show> Show for A[] {
+impl<A impl Show> Show<A[]> {
   show: (self: A[])-> {
     // ...
   }
 }
 impl< A impl Show,
       B impl Show
-    > Show for (A, B) {
+    > Show<(A, B)> {
   show: (self: (A, B))-> {
     // ...
   }
@@ -1432,9 +1430,10 @@ impl< A impl Show,
 
 ```typescript
 // show.mo
-export trait Show<Self: Type> {
+trait Show<Self: Type> {
   show: (self: &Self)-> String;
 }
+export Show;
 
 impl Show<i32> {
   show: (self)-> {
@@ -1452,9 +1451,10 @@ impl Show<String> {
 // main.mo
 let { Show } = @import("./show.mo");
 
-export let show = <T impl Show>(x: Array<T>): String -> {
+let show = <T impl Show>(x: Array<T>): String -> {
   // ...
 }
+export show;
 
 let { Show } = @import("./show.mo");
 
@@ -1468,66 +1468,64 @@ let less_than = <T: Type impl Ord & Show>(x: T, y: T): boolean -> {
 
 ### if/else
 
+`if(condition, then, else)`
+
 ```typescript
 let main = ()-> {
   // If no return type, it is `()`
   let number = 3;
 
-  if number < 5 {
+  if number < 5, then:
     println("condition was true");
-  } else {
+  else:
     println("condition was false");
-  }
+
+  if(number < 5, println("condition was true"), println("condition was false"));
 };
+```
+
+### cond
+
+```typescript
+let use_cond = (x: i32)->
+  cond x == 1, println("x is 1"),
+       x == 2, println("x is 2"),
+       else: println("x is not 1 or 2")
 ```
 
 ### while
 
-```typescript
-let factorial = (n: i32): i32 -> {
-  var result = 1;
-  var i = 1;
-  while i <= n {
-    result = result * i;
-    i += 1;
-  }
-  return result;
-}
-```
-
-### for
-
-```typescript
-let factorial = (n: i32): i32 -> {
-  var result = 1;
-  for var i = 1; i <= n; i += 1 {
-    result = result * i;
-  }
-  return result;
-}
-```
-
-### do while
+`while(condition, do: body)` or
+`while(condition, iteration, do: body)`
 
 ```typescript
 let factorial = (n: i32): i32 -> {
   var result = 1;
   var i = 1;
-  do {
+  while i <= n, do: {
     result = result * i;
     i += 1;
-  } while (i <= n);
-  return result;
+  }
+  result
+}
+
+let factorial = (n: i32): i32 -> {
+  var result = 1;
+  var i = 1;
+  while i <= n, i += 1, result = result * i
+  result
 }
 ```
 
 #### Iterator (for...in)
 
+`for(value, in: iterator, do: body)`
+
 Same as the one in Rust.
 
 ```typescript
 let arr = ArrayList.from([1, 2, 3, 4, 5]);
-for value in arr.iter() { // NOTE: arr.iter() returns a record that contains `&` reference to `arr`
+for value, in: arr.iter(), do: { // NOTE: arr.iter() returns a record that contains `&` reference to `arr`
   // value here has type &i32
   println(value);
 
@@ -1695,14 +1693,14 @@ let mixed = MixedData.WithForall<i32>(12); // mixed: MixedData.WithForall<i32>
 
 ```typescript
 type Point = {
-  x: i32,
-  y: i32
+  x: i32;
+  y: i32;
 };
 
-let my_point: Point = Point {
+let my_point: Point = {
   x: 10,
-  y: 20
-}
+  y: 20,
+};
 ```
 
 Compiles to C
@@ -1719,7 +1717,7 @@ struct Point {
 ```typescript
 type MyNumber = { i: i32 } | { j: f32 };
 
-let my_number: MyNumber = MyNumber { i: 10 };
+let my_number: MyNumber = { i: 10 };
 ```
 
 Compiles to C
@@ -1837,11 +1835,10 @@ type Expr<T> =
 
 let eval = <T>(expr: Expr<T>): T -> {
   // with Expr<T>;
-  match (expr) {
-    case .IntExpr(i): i,
-    case .BoolExpr(b): b,
-    case .EqExpr(left, right): eval(left) == eval(right)
-  }
+  match expr,
+    .IntExpr(i), i,
+    .BoolExpr(b), b,
+    .EqExpr(left, right), eval(left) == eval(right)
 }
 
 let expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
@@ -1911,7 +1908,7 @@ ANSWER: Yes we allow
 // my_type.mo
 type MyType<T> = { value: T };
 
-impl<T> MyType<T> {
+impl<T> MyType<T> = {
   // `this` here means `MyType<T>`.
   new: (value: T): this -> {
     MyType {
@@ -2001,14 +1998,16 @@ This is useful for resolving conflicts when implementing multiple classes for th
 
 ```typescript
 // id.mo
-export trait Id<Self: Type> {
+trait Id<Self: Type> {
   id: (self: &Self)-> Self;
 }
+export Id;
 
 // id1.mo
-export let MyIdImplementation = impl Id<i32> {
+let MyIdImplementation = (impl Id<i32> {
   id: (self: &i32)-> *self
-}
+})
+export MyIdImplementation;
 
 // id2.mo
 impl Id<i32> {
@@ -2043,7 +2042,7 @@ impl Functor<Maybe> {
   }
 }
 
-impl<T: Type> Functor<Either<T>> {
+impl<T: Type> Functor<Either<T>> = {
   map: <A, B>( fa: Either<T, A>, f: (a: A)-> B)-> Either<T, B> {
     match (fa) {
       case .Left(value): Left(value),
@@ -2072,15 +2071,14 @@ type Coin =
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
 let value_in_cents = (coin: Coin): u8 -> {
-  match coin {
-    case .Penny: {
+  match coin
+    .Penny, {
       println("Lucky penny!");
       return 1;
     },
-    case .Nickel: 5,
-    case .Dime: 10,
-    case .Quarter: 25,
-  }
+    .Nickel, 5,
+    .Dime, 10,
+    .Quarter, 25,
 }
 
 type List<T> =
@@ -2090,12 +2088,9 @@ type List<T> =
 
 
 let list_length = <T>(list: &List<T>): i32 -> {
-  match (list) {
-    case .Nil: 0,
-    case .Cons(_, tail): {
-      1 + list_length(tail)
-    }
-  }
+  match (list),
+    .Nil, 0,
+    .Cons(_, tail), 1 + list_length(tail)
 }
 ```
 
@@ -2103,43 +2098,10 @@ let list_length = <T>(list: &List<T>): i32 -> {
 
 ```typescript
 let check_int = (x: i32)-> {
-  match x {
-    case 1:
-    case 2:
-    case 3:
-    case 4:
-    case 5:
-    case 6: {
-      println("1 to 6");
-    }
-    case 7:
-    case 8:
-    case 9:
-    case 10: {
-      println("7 to 10");
-    }
-    default: {
-      println("Other");
-    }
-  }
-}
-```
-
-Can also use range:
-
-```typescript
-let check_int = (x: i32)-> {
-  match x {
-    case 1 .. 6: {
-      println("1 to 6");
-    }
-    case 7 .. 10: {
-      println("7 to 10");
-    }
-    default: {
-      println("Other");
-    }
-  }
+  match x,
+    1..=6, println("1 to 6:),
+    7..10, println("7 to 10"),
+    else: println("Other")
 }
 ```
 
@@ -2148,38 +2110,32 @@ let check_int = (x: i32)-> {
 1. Using `if` in `case`
 
    ```typescript
-   let check_int = (x: i32)-> {
-     match x {
-       case 1 .. 6 if x % 2 == 0: {
+   let check_int = (x: i32)->
+     match x,
+       1..6, when: x % 2 == 0, {
          println("1 to 6 and even");
-       }
-       case 1 .. 6 if x % 2 != 0: {
+       },
+       1..6, when: x % 2 != 0, {
          println("1 to 6 and odd");
-       }
-       case 7 .. 10: {
-         println("7 to 10");
-       }
-       default: {
-         println("Other");
-       }
-     }
-   }
+       },
+       7..10, println("7 to 10");
+       else: println("Other");
    ```
 
-2. `if let`
+2. `if(let, do)`
 
    ```typescript
    let maybe_some = Some(10);
-   if let Some(value) = maybe_some {
+   if let: Some(value) = maybe_some, {
      println(value);
    }
    ```
 
-3. `while let`
+3. `while(let, do)`
 
    ```typescript
    let mut list = Some(10);
-   while let Some(value) = list {
+   while let: Some(value) = list, {
      println(value);
      list = None;
    }
@@ -2358,9 +2314,9 @@ let main = (?throw: Exception<MyError>)-> {
 
 ```typescript
 let divide = (x: i32, y: i32): Result<i32, &str> -> {
-  if y == 0 {
+  if y == 0, {
     Error("Division by zero")
-  } else {
+  }, {
     Ok(x / y)
   }
 }
@@ -2432,7 +2388,7 @@ let main = ()-> {
 let main = ()-> {
   let array = ArrayList.from([1, 2, 3, 4]);
   let new_array = {
-    with elem <- array.map();
+    with elem <- array.map(), do:
     elem * 2
   }
   println(new_array); // [2, 4, 6, 8]
@@ -2446,8 +2402,8 @@ Use `<<=` for handling passing the closure for `FnOnce`
 
 ```typescript
 let some_async_func = ()-> {
-  with response <= fetch("https://api.example.com");
-  with json <= response.json();
+  with response <= fetch("https://api.example.com"), do:
+  with json <= response.json(), do:
   println(json);
 }
 ```
@@ -2477,7 +2433,7 @@ let wait_for_seconds = (sec: i32): K<i32>->
 
 let use_wait = ()-> {
   // NOTE: Unlike JavaScript Promise, which starts executing immediately, a `K` in Mo will only start executing when it is `resumed`ed.
-  with sec <- wait_for_seconds(14).resume();
+  with sec <- wait_for_seconds(14).resume(), do:
   println(sec);
 }
 ```
@@ -2504,15 +2460,16 @@ let test = ()-> {
 export { test, copy };
 
 // Export the type
-export type Option<T> =
+type Option<T> =
   | .Some(value: T)
   | .None
-
+export Option;
 
 // Export the trait.
-export trait Id<Self: Type> {
+trait Id<Self: Type> {
   id: (self: Self)-> Self;
 }
+export Id;
 
 // Explicitly export the functions defined in the instance.
 // The implementations will be exported implicitly.
@@ -2523,7 +2480,8 @@ impl Id<i32> {
 }
 
 // Prevent name mangling.
-export let x = 1;
+let x = 1;
+export x;
 ```
 
 ```typescript
@@ -2645,7 +2603,7 @@ type MyShape =
 
 // IDEA: The trait could be automatically implemented.
 // IDEA: So when we see the definition of `MyShape` above, we could say its `.value` already implemented the `Shape` trait. So it's legit to call `my_shape.value.area()` on it.
-impl Shape<MyShape> {
+impl Shape<MyShape>{
   area: (self)-> {
     match self {
       case .MyCircle(value): value.area(),
