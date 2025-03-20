@@ -133,8 +133,10 @@ We will also post a series of articles on the design and implementation of **Mo*
 ## Philosophy
 
 It's just a combination of "Lisp" and "C"!  
+Mo has no keywords!
 Everthing is a function, even the `if`, `while`, `match`, etc.
 Extended with a little bit of functional programming.
+Interpret as much as possible. Otherwise, compile!
 
 Explicit is better than Implicit.  
 Strict is better than Loose.
@@ -285,6 +287,10 @@ The [Austral language](https://austral-lang.org/) has a very good explanation on
 Like `rust`, **Mo** has two kinds of variables:
 
 ```typescript
+(mut x) := 5; // x: i32, mutable
+mut x := 5    // x: i32, mutable
+y := 5;       // y: i32, immutable
+
 let y = 5; // y: i32, immutable
 var x = 5; // x: i32, mutable
 // same as in rust:
@@ -1488,9 +1494,9 @@ let main = ()-> {
 
 ```typescript
 let use_cond = (x: i32)->
-  cond x == 1, println("x is 1"),
-       x == 2, println("x is 2"),
-       else: println("x is not 1 or 2")
+  cond x == 1 -> println("x is 1"),
+       x == 2 -> println("x is 2"),
+       true   -> println("x is not 1 or 2")
 ```
 
 ### while
@@ -2099,9 +2105,9 @@ let list_length = <T>(list: &List<T>): i32 -> {
 ```typescript
 let check_int = (x: i32)-> {
   match x,
-    1..=6, println("1 to 6:),
-    7..10, println("7 to 10"),
-    else: println("Other")
+    1..=6 -> println("1 to 6:),
+    7..10 -> println("7 to 10"),
+    println("Other")
 }
 ```
 
@@ -2126,7 +2132,7 @@ let check_int = (x: i32)-> {
 
    ```typescript
    let maybe_some = Some(10);
-   if let: Some(value) = maybe_some, {
+   if let: .Some(value) = maybe_some, {
      println(value);
    }
    ```
@@ -2135,7 +2141,7 @@ let check_int = (x: i32)-> {
 
    ```typescript
    let mut list = Some(10);
-   while let: Some(value) = list, {
+   while let: .Some(value) = list, {
      println(value);
      list = None;
    }

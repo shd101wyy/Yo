@@ -155,3 +155,153 @@ const main = ()=> {
   return result;
 }
 ```
+
+## All are functions
+
+```typescript
+// If there is no ; in {...}, then it's a record.
+
+{ expr1; expr2; } // compiles to
+begin(expr1, expr2, ());
+
+{ expr1; expr2 } // compiles to
+begin(expr1, expr2);
+
+// operator + atom is operator
+// e.g. &mut *mut
+// so (+1) is also an operator
+// . is special operator that cannot form operator with atom or other operators, but itself
+// : is special operator that cannot form operator with atom.  
+
+mut(x) := 12;
+mut (x : i32) := 13;
+mut x : i32 := 14;
+y := 15;
+
+Option := (T: Type): Type ->
+  | .Some (T)
+  | .None
+
+x : Option(i32) := .Some(i32);
+
+// Define interface
+Id := (T: Type): Interface ->
+  interface {
+    id: (T) -> T,
+  }
+
+// Define implementation
+impl Id(i32), {
+  id: (x: i32)-> x
+}
+
+forall (T : Type <: Id, U: Type <: Id),
+  impl Id((U, T)), {
+    id: (x: (U, T))-> (x.0.id(), x.1.id())
+  }
+
+use_id := (T : Type <: Id, x: T): T -> {
+  x.id();
+  Id(_).id(x);
+}
+
+x := use_id(i32, 12);
+y := use_id((i32, i32), (12, 13));
+
+biggest := (a: i32, b: i32, c: i32): i32 -> {
+  if a > b && a > c, then:
+    a,
+  else: if b > c,
+    b,
+    c
+}
+
+FnOnce := (Context: Type, Arguments: Type): Interface ->
+  interface ({
+    Output: Type,
+    call_once: (self: Context, arguments: Arguments)-> this.Output
+  })
+
+FnMut := (Context: Free, Arguments: Type <: FnOnce(Context, Arguments)): Interface ->
+  interface {
+    Output: Type = FnOnce(Context, Arguments).Output,
+    call_mut: (self: &mut Context, arguments: Arguments)-> this.Output
+  }
+
+Iterator := (Self: Type): Interface ->
+  interface ({
+    Item: Type,
+    next: (self: &mut Self)-> Option(this.Item)
+  })
+
+IntoIterator := (Self: Type): Interface -> {
+  Item := Type;
+  // |: means given
+  IntoIterator := (Type <: (Iterator(<@) |: <@ .Item == Item ));
+  into_iter := (self: Self)-> IntoIterator;
+
+  interface {
+    Item,
+    IntoIterator,
+    into_iter,
+  }
+}
+
+use_closure := forall(F <: FnOnce(<@, (i32, i32)) |: <@.Output == i32), (closure: F): i32 ->
+  closure.call_once((12, 13))
+
+defmacro my_if, (condition, then, else),
+  quasiquote if(unquote(condition), unquote(then), unquote(else))
+
+// <@ means the arg on left
+x := 12
+y := (x + <@) // 24
+
+
+// Value constraint
+NotZero := i32 |: <@ != 0
+
+// impl a type
+MyType := (T: Type)-> { value: T };
+
+forall (T: Type), impl MyType(T), {
+  this := MyType(T);
+  {
+    new: (value: T): this -> { value: value }
+  }
+}
+
+// GADT
+
+Expr := (T: Type): Type ->
+  | .IntExpr (i32,) : Expr(i32)
+  | .BoolExpr (boolean,) : Expr(boolean)
+  | .EqExpr (Expr(i32), Expr(i32)) : Expr(boolean)
+
+// Higher kinded types
+Maybe := (T: Type): Type ->
+  | .Just (T,)
+  | .Nothing
+
+Either := (A: Type, B: Type): Type ->
+  | .Left (A,)
+  | .Right (B,)
+
+Functor := (Wrapper: (T: Type)-> Type): Interface ->
+  interface {
+    map: forall(A: Type, B: Type), (fa: Wrapper(A), f: (a: A)-> B)-> Wrapper(B),
+  }
+
+impl Functor(Maybe), {
+  map: forall(A: Type, B: Type), (fa: Maybe(A), f: (a: A)-> B): Maybe(B) ->
+    match fa,
+      .Just(a) -> .Just(f(a)),
+      .Nothing -> .Nothing
+}
+
+// Comptime
+FixedArray := (T: Type, comptime N: u32): Type ->
+  | .FixedArray (T[N],)
+;
+arr := FixedArray(i32, 3).FixedArray([1, 2, 3]);
+```
