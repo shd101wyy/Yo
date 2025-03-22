@@ -4,6 +4,9 @@
 // Philosophy
 // A combination of Lisp and C.
 
+// Comment is using `//` or `/* */`
+// Mo is case-sensitive
+
 // In Mo, everything is a function:
 x :: 12; // immutable x: i32
 y := 14; // mutable   y: i32
@@ -93,20 +96,21 @@ x :: [1]; // x: [i32]
 // to make it array, add `;`
 x :: [1;]; // x: i32[1]
 
-// In Mo, type is the first class
+// In Mo, type is the first-class citizen,
+// meaning that you can assign a type to a variable, or pass it as an argument to a function.
 MyI32 :: i32; // type alias
 x : MyI32 = 12; // valid
 
 // struct, accept one parameter that is a type
 // struct : (T: Type) -> Struct
 Point :: struct [i32, i32];
-p :: Point = Point [3, 4];
+p :: Point [3, 4];
 
 Rectangle :: struct {
   width: i32,
   height: i32
 }
-r :: Rectangle = Rectangle {
+r :: Rectangle {
   width: 10,
   height: 20
 };
