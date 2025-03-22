@@ -186,6 +186,8 @@ The **Mo** language is heavily inspired by:
   - [Meta-programming (Macros)](https://hexdocs.pm/elixir/quote-and-unquote.html)
 - [Nim](https://nim-lang.org/)
   - [Custom Operators](https://nim-lang.org/docs/manual.html#lexical-analysis-operators)
+- [Io](https://iolanguage.org/)
+  - Minimal syntax and semantic
 
 Other languages that are worth mentioning that have influenced **Mo**:
 
@@ -206,7 +208,7 @@ Other languages that are worth mentioning that have influenced **Mo**:
 ## Hello World
 
 ```typescript
-let main = ()-> {
+main := ()-> {
   println("Hello World!");
 }
 ```
@@ -284,79 +286,35 @@ The [Austral language](https://austral-lang.org/) has a very good explanation on
 
 ### Variable Declaration
 
-Like `rust`, **Mo** has two kinds of variables:
+Like `rust`, **Mo** defines variables with `:=` operator.  
 
 ```typescript
 (mut x) := 5; // x: i32, mutable
 mut x := 5    // x: i32, mutable
 y := 5;       // y: i32, immutable
 
-let y = 5; // y: i32, immutable
-var x = 5; // x: i32, mutable
+// or
+(:=) x, 5     // x: i32, immutable
+
+// with explicit type declaration
+mut x : i32 = 5; // x: i32, mutable
+y : i32 = 5    ; // y: i32, immutable
+
+y := 5; // y: i32, immutable
+mut x := 5; // x: i32, mutable
 // same as in rust:
 // let mut x = 5;
 // in mo, `var` is an alias of `let mut`.
 
-let example = (x: i32, y: i32)-> {
+example := (x: i32, y: i32)-> {
   x = 1; // Error: x is immutable
   y = 2; // Error: y is immutable
 }
 
 // with `mut` modifier
-let another_example = (mut x: i32, y: i32)-> {
+another_example := (mut x: i32, y: i32)-> {
   x = x + 1; // x is mutable,
   y = 2; // Error: y is immutable
-}
-```
-
-#### `expr` declaration
-
-We use `expr` to store an expression that is not actually calculated until it's used.
-An `expr` variable has to be named with `@` beforehead.  
-This feature is later discussed in the [Mutable Value Semantics](#mutable-value-semantics) section.
-
-```typescript
-let  x = 1;
-let  y = 2;
-expr @z = x + y; // z: Expr<i32>. Free type
-print(@z); // This will actually expand to `print(x + y)`.
-```
-
-##### Macro using `expr`
-
-```typescript
-expr @my_if<condition IfCond: Expr<boolean>,
-           then      Then: Expr<Output>,
-           else      Else: Expr<Output>,
-                     Output: Type,
-          >: Expr<Output> = {
-  if IfCond {
-    Then
-  } else {
-    Else
-  }
-}
-
-@my_if<true, then: 1, else: 2, /* i32 */>; // Expands to:
-if true {
-  1
-} else {
-  2
-}
-
-// NOTE: @my_if<...> and @my_if(...) are both valid and behave the same.
-```
-
-##### `expr` lexical scope
-
-```typescript
-{
-  let x = 1;
-  expr @my_x = x; // my_x: Expr<i32>. Free type
-  {
-    let x = 2;
-    println(@my_x); // 1
-  }
 }
 ```
 
@@ -384,46 +342,45 @@ Below is allowed as they are in different regions:
 ### Type inference
 
 ```typescript
-let  my_string: String = String.from("Hello, world"); // Stored on heap. Linear type.
-let  my_string_2 = my_string; // my_string_2: String. Linear type. my_string is moved and consumed. my_string_2 now takes the ownership.
-let  my_string_3 = my_string; // Error: my_string is already consumed.
-expr @my_string_4: &String = &my_string_2; // my_string_4: Expr<&String>. Free type
+my_string: String := String.from("Hello, world"); // Stored on heap. Linear type.
+my_string_2 := my_string; // my_string_2: String. Linear type. my_string is moved and consumed. my_string_2 now takes the ownership.
+my_string_3 := my_string; // Error: my_string is already consumed.
+&my_string_2; // my_string_4: &String, Free type
 
-let  my_int = 1; // Stored on stack. Free type
-let  my_int_2 = my_int; // my_int_2: i32, Free type
-expr @my_int_3: &i32 = &my_int; // my_int_3: Expr<&i32>. Free type
+my_int := 1; // Stored on stack. Free type
+my_int_2 := my_int; // my_int_2: i32, Free type
 
-let my_int_array: i32[3] = [1, 2, 3]; // Stored on stack, with size 3. Free type
-let my_int_array: i32[100] = [1, 2, 3]; // Stored on stack, with size 100. Free type
-let my_int_array = [1, 2, 3]; // i32[3]; Free type
-let my_array_list: ArrayList<i32> = ArrayList.from([1, 2, 3]); // Stored on heap. Linear type.
+my_int_array: i32[3] := [1, 2, 3]; // Stored on stack, with size 3. Free type
+my_int_array: i32[100] := [1, 2, 3]; // Stored on stack, with size 100. Free type
+my_int_array := [1, 2, 3]; // i32[3]; Free type
+my_array_list: ArrayList<i32> := ArrayList.from([1, 2, 3]); // Stored on heap. Linear type.
 
-let my_set: Set<i32> = Set.from([1, 2, 3]); // Stored on heap. Linear type.
-expr my_map: Map<&str, i32> = Map.from([
+my_set: Set<i32> := Set.from([1, 2, 3]); // Stored on heap. Linear type.
+Map.from([
   ["one", 1],
   ["two", 2],
 ]); // Stored on heap. Linear type.
 
-type Person = // Linear type, as it contains a linear type.
-  .Person (String, i32)
+Person := // Linear type, as it contains a linear type.
+  | .Person (String, i32)
 
-let p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
+p := Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
 // or:
-// let p: Person = .Person(String.from("Alice"), 30); // p: Person. Linear type.
-// let .Person(name, age) = p; // name: String, age: i32
+p: Person := .Person(String.from("Alice"), 30); // p: Person. Linear type.
+.Person(name, age) := p; // name: String, age: i32
 ```
 
 #### Uninitialized variable `In Design`
 
 ```typescript
-var x: i32; // x: i32, uninitialized
+mut x : i32; // x: i32, uninitialized
 
 // Compiler prevents using uninitialized variable.
 println(x); // Compiler Error: x is uninitialized.
 
 x = 1; // x: i32, initialized
 
-let y: i32; // y: i32, uninitialized
+y : i32; // y: i32, uninitialized
 y = 12; // Compiler Error: cannot assign to constant.
 ```
 
@@ -445,96 +402,94 @@ From Scala.
 Linear types can only be used once. When a linear type is transferred, it is consumed and cannot be used again.
 
 ```typescript
-let x = String.from("Hello"); // x: String. Linear type
-let y = x; // y: String. Linear type. x is moved and consumed.
-let z = x; // Compiler Error: x is already consumed.
+x := String.from("Hello"); // x: String. Linear type
+y := x; // y: String. Linear type. x is moved and consumed.
+z := x; // Compiler Error: x is already consumed.
 ```
 
 ### immutable and mutable references
 
 ```typescript
 {
-  var  x = 1; // x: copied i32. Free type
-  expr @p1 = &mut x; // r: Expr<&mut i32>. Free type
-  expr @p2 = &mut x; // p: Expr<&mut i32>. Free type.
-  *@p1 = 2;
+  mut x := 1; // x: copied i32. Free type
+  p1 := as(&mut x, *mut i32); // r: *mut i32. Free type
+  p2 := as(&mut x, *mut i32); // p: Expr<&mut i32>. Free type.
+  *p1 = 2;
   // x == 2
-  // *@p1 == 2
-  // *@p2 == 2
+  // *p1 == 2
+  // *p2 == 2
 }
 ```
 
 A longer example:
 
 ```typescript
-extern "C" {
+extern "C", {
   length: (x: &String)-> i32;
   push: (x: &String, value: String)-> ();
   drop: (x: String)-> ();
 }
 
-let main = ()-> {
-  var x = String.from("Hello, world"); // x: String. mutable
-  expr @y: &mut String = &mut x; // y: Expr<&mut String>   // mutable reference
-  expr @z: &String = &x; // z: Expr<&String>   // immutable reference
+main := ()-> {
+  mut x := String.from("Hello, world"); // x: String. mutable
 
   length(x);  // not allowed, type mismatch
-  length(@y);  // allowed
-  length(@z);  // allowed
+  length(&x);  // allowed
+  length(&mut x);  // allowed
 
   let t = x;                           // transfer ownership
 
   length(x); // error: cannot access `x` because `x` is consumed.
-  length(y); // error: cannot access `x` because `x` is consumed.
-  length(z); // error: cannot access `x` because `x` is consumed.
+  length(&x); // error: cannot access `x` because `x` is consumed.
+  length(&mut x); // error: cannot access `x` because `x` is consumed.
 
   drop(t);                             // consume `t`
 
   length(x); // error: cannot access `x` because `x` is consumed.
-  length(y); // error: cannot access `y` because `t` is consumed.
-  length(z); // error: cannot access `z` because `t` is consumed.
+  length(&x); // error: cannot access `y` because `t` is consumed.
+  length(&mut x); // error: cannot access `z` because `t` is consumed.
 }
 ```
 
 We can only dereference the free type.
 
 ```typescript
-type Person = // Linear type, as it contains a linear type.
+Person := // Linear type, as it contains a linear type.
   .Person {name: String, age: i32};
 
-let name = String.from("Alice");
-let p: Person = .Person {name, age: 30}; // p: Person. Linear type.
+name := String.from("Alice");
+p : Person = .Person {name, age: 30}; // p: Person. Linear type.
 
 {
-  let name = p.name; // name: String, Linear type. The `p` variable is consumed
+  name := p.name; // name: String, Linear type. The `p` variable is consumed
                        // when you extract a linear field from it.
                        // NOTE: If `p` has more than one linear field, then when you destructure, you have to consume all the linear fields, otherwise it will be a compiler error.
 
-  let age = p.age; // Compiler Error: `p` is consumed already.
+  age := p.age; // Compiler Error: `p` is consumed already.
 }
 
 {
-  let .Person{ name, mut age } = p;
+  .Person{ name, mut age } := p;
 }
 
 {
-  var .Person { name, age } = p;
+  .Person{ name, age } := p;
 }
 
 {
-  let age = p.age; // age: i32, Free type. The `p` variable is not consumed
+  age := p.age; // age: i32, Free type. The `p` variable is not consumed
                     // when you extract a free field from it.
 
-  let name = p.name; // name: String, Linear type. The `p` variable is consumed
+  name := p.name; // name: String, Linear type. The `p` variable is consumed
 }
 
 {
-  let .Person { name } = p; // name: String, Linear type. The `p` variable is consumed
+  .Person{ name } := p; // name: String, Linear type. The `p` variable is consumed
                     // when you destructure any linear type values from it.
 }
 
 {
-  let .Person { age } = p;  // age: i32, Free type. The `p` variable is not consumed
+  .Person { age } := p;  // age: i32, Free type. The `p` variable is not consumed
                     // when you destructure only free fields from it.
 }
 
@@ -551,49 +506,41 @@ let p: Person = .Person {name, age: 30}; // p: Person. Linear type.
   some_function(*p_ref); // Derference a reference of linear type is not allowed.
 }
 {
-  var p = Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
+  mut p := Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
   expr @p_ref = &p; // p_ref: Expr<&Person>. Free type.
-  let old_name = (p_ref.name = String.from("Bob")); // old_name: String. Linear type. Take the value out.
+  old_name := (p_ref.name = String.from("Bob")); // old_name: String. Linear type. Take the value out.
   // old_name == String.from("Alice")
 }
 ```
 
 ```typescript
-let name = String.from("Alice");
-let p = Person.Person(name, 30); // p: Person. Linear type.
+name := String.from("Alice");
+p := Person.Person(name, 30); // p: Person. Linear type.
 
-let { name, age } = p; // p is consumed.
+{ name, age } := p; // p is consumed.
 
 p = Person.Person(name, 30); // This is allowed. We restored a consumed value.
 ```
 
 ```typescript
-var x = [1, 2, 3, 4, 5]; // x: i32[5]. Free type
-var y = x; // y: i32[5]. Free type. x is copied to y, not moved.
-
-{
-  expr @ref = &x;      // ref: Expr<&i32[]>. Free type
-  let first = ref[0]; // i32. Free type
-}
-{
-  expr @firstRef = &x[0]; // Expr<&i32>. Free type
-  *firstRef = 10;
-}
+mut x := [1, 2, 3, 4, 5]; // x: i32[5]. Free type
+mut y := x; // y: i32[5]. Free type. x is copied to y, not moved.
+x[0] = 10;
 
 // x: [10, 2, 3, 4, 5]
 // y: [1, 2, 3, 4, 5]
 ```
 
 ```typescript
-var x = [String.from("Hi"), String.from("World")];
+mut x := [String.from("Hi"), String.from("World")];
 
 {
-  let s = x[0]; // Compiler Error: Cannot move linear type out of a slice.
+  s := x[0]; // Compiler Error: Cannot move linear type out of a slice.
 }
 
 {
   expr @s = &x[1]; // s: Expr<&String>. Free type
-  let old = (*@s = String.from("Earth"));
+  old := (x[1] = String.from("Earth"));
   // old: String. Linear type. old == String.from("World")
 }
 
@@ -605,13 +552,13 @@ var x = [String.from("Hi"), String.from("World")];
 We use the `^` to denote the pointer, same as in Pascal.
 
 ```typescript
-let some_int_ptr = malloc(sizeof<i32>()); // int_ptr: Option<^i32>. Linear type
+some_int_ptr := malloc(sizeof(i32)); // int_ptr: Option<^i32>. Linear type
 match int_ptr,
-  .Some(int_ptr), { // int_ptr: ^i32. Linear type.
+  .Some(int_ptr) -> { // int_ptr: ^i32. Linear type.
     *int_ptr = 10;
     free(int_ptr);
   },
-  .None, {
+  .None -> {
     // handle error
   }
 ```
@@ -621,8 +568,8 @@ match int_ptr,
 NOTE: This is unsafe and should be avoided.
 
 ```typescript
-let x = String.from("Hi"); // x: String. Linear type
-let y = @cast_to_free(x); // y: String. Free type
+x := String.from("Hi"); // x: String. Linear type
+y := cast_to_free(x); // y: String. Free type
 ```
 
 ## Mutable Value Semantics
@@ -650,32 +597,34 @@ NOTE: We need to allow to store references in data structures in order to suppor
 NOTE: Why cannot store as variables:
 
 ```typescript
-let x = String.from("Hello"); // x: String. Linear type
-let y = String.from("World"); // y: String. Linear type
-let l = longest_str(x.as_bytes(), y.as_bytes()); // l: &str;
+x := String.from("Hello"); // x: String. Linear type
+y := String.from("World"); // y: String. Linear type
+l := longest_str(x.as_bytes(), y.as_bytes()); // l: &str;
 drop(x);
 drop(y);
 println(l); // Use after free
 ```
 
 ```typescript
-type Container = {
-  value: &String;
-}
-let x = String.from("Hello"); // x: String. Linear type
-let y = String.from("World"); // y: String. Linear type
-let c = Container { value: longest_str(&x, &y) }; // c: Container that contains &String.
+Container := 
+  | .Container {
+      value: &String
+    }
+
+x := String.from("Hello"); // x: String. Linear type
+y := String.from("World"); // y: String. Linear type
+c := Container.Container { value: longest_str(&x, &y) }; // c: Container that contains &String.
 drop(x);
 drop(y);
 println(c.value); // Use after free
 ```
 
 ```typescript
-type Container = {
+Container := .Container {
   value: &String;
 }
 
-let some_func = (o: &mut Container, v: &String)-> {
+some_func := (o: &mut Container, v: &String)-> {
   o.v = v; // Not allowed. v might have shorter lifetime than o.
 }
 ```
@@ -703,14 +652,14 @@ NOTE: Why not use `inout`, `in`, and `out` keywords? Because it doesn't work wit
   The `&mut` parameter is a reference to a value that can be read and written.
 
   ```typescript
-  let swap = (a: &mut i32, b: &mut i32)-> {
-    let temp = *a;
+  swap := (a: &mut i32, b: &mut i32)-> {
+    temp := *a;
     *a = *b;
     *b = temp;
   }
-  let x = 1;
-  let y = 2;
-  swap(&x, &y);
+  mut x := 1;
+  mut y := 2;
+  swap(&mut x, &mut y);
   ```
 
 - `&`
@@ -718,10 +667,10 @@ NOTE: Why not use `inout`, `in`, and `out` keywords? Because it doesn't work wit
   The `&` parameter is a reference to a value that can only be read.
 
   ```typescript
-  let print = (x: &i32)-> {
+  print := (x: &i32)-> {
     println(x);
   }
-  let x = 1;
+  x := 1;
   print(&x);
   ```
 
@@ -730,8 +679,8 @@ NOTE: Why not use `inout`, `in`, and `out` keywords? Because it doesn't work wit
 **Mo** supports the RAII to automatically insert the `drop` function when the variable of linear type goes out of scope.
 
 ```typescript
-let test = ()-> {
-  let x = String.from("World!");
+test := ()-> {
+  x := String.from("World!");
 
   // `drop(x)` will be automatically inserted here.
 }
@@ -742,11 +691,10 @@ let test = ()-> {
 Same as the `|>` in Ocaml `val ( |> ) : 'a -> ('a -> 'b) -> 'b`.
 
 ```typescript
-let return_self = (v: &String): &String -> {
-  v
-}
-let x = String.from("Hello, ");
-let y = String.from("world");
+return_self := (v: &String): &String -> v;
+
+x := String.from("Hello, ");
+y := String.from("world");
 return_self(&x) |> (v)=> {
   println(v + y);
 }; // Compiler can optimize this part of code.
@@ -763,27 +711,27 @@ Function parameters are immutable by default.
 ```typescript
 // Top level function.
 // Type after `->` is the return type. If it's not specified, it's `()`.
-let add: (x: i32, y: i32)-> i32; // Define the function type
+add : (x: i32, y: i32)-> i32; // Define the function type
 println(add(3, 4)) // Function hoisting is allowed.
 add = (x, y)-> { // Actually function definition
   return x + y;
 }
 
 // or
-let add = (x: i32, y: i32): i32 -> {
+add := (x: i32, y: i32): i32 -> {
   x + y // The last expression is the return value.  `return` is optional.
 }
 
 // or
-let add: (i32, i32)-> i32 = (x, y)-> x + y;
+add : (i32, i32)-> i32 = (x, y)-> x + y;
 
-let last_unit_expr = (x: i32, y: i32)-> {
+last_unit_expr := (x: i32, y: i32)-> {
   x + y;
   // This is allowed as the last expression is `()`.
 }
 
 // Default parameter values
-let add = (x: i32 = 1, y: i32 = 2): i32 -> {
+add := (x: i32 = 1, y: i32 = 2): i32 -> {
   return x + y;
 }
 add(); // 3
@@ -791,8 +739,8 @@ add(y: 3); // 4
 add 2, 3; // 5
 
 // Function argument labels, and parameter names
-let mul = (x: i32, by: i32): i32 -> {
-  let y = by;
+mul := (x: i32, by: i32): i32 -> {
+  y := by;
   x * y
 }
 mul(3, by: 4); // 12
@@ -800,44 +748,42 @@ mul 4, by: 5;  // 20
 (mul 5, 6);    // 30
 
 // Named return values
-let exponent = (base: i32, power: i32):
+exponent := (base: i32, power: i32):
   ( result: i32,
     some_ref: *i32)-> {
-  var r = 1;
-  for (let i = 0; i < power; i++) {
+  mut r := 1;
+  mut i := 0;
+  while i < power, i += 1, {
     r *= base;
   }
   return (r, &r as *i32);
 }
 
 // Generic function
-let identity = <T: Type>(arg: T): T -> {
-  return arg;
-}
-/// or
-let identity = (arg: @Type("T")): @Type("T")-> {
-  return arg;
-}
+identity := (T: Type, arg: T): T -> arg;
+/// or using forall
+identity_with_for_all := forall(T: Type), (arg: T): T -> arg;
+
+x := identity(i32, 12); // x: i32
+y := identity_with_for_all(13); // y: i32
 
 // Dependency injection
-let main = (?raise: (error: &str)-> i32)-> {
+main := (?raise: (error: &str)-> i32)-> {
   let x: i32 = raise("Hello, world");
 }
 
 // Value constraint `In Design`
-type NotZero = i32 where this != 0;
-let divide = (x: i32, y: NotZero): i32 -> {
-  return x / y;
-}
+NotZero := i32 |: <@ != 0;
+divide := (x: i32, y: NotZero): i32 -> x / y;
 
 // Type constraint
-let add = <T: Type Integral<T>>(x: T, y: T): T -> {
+add := forall(T : Type <: Integral), (x: T, y: T): T -> {
   return x + y;
 }
 
 // Closure
-var y = 0;
-let add = (x: i32): i32 => {
+mut y := 0;
+add := (x: i32): i32 => {
   y = x + y;
   return y;
 };
@@ -846,38 +792,24 @@ add(1); // 2
 // add.y == 2
 ```
 
-NOTE: We might support JSX like syntax, so the following code is invalid now:
-
-```typescript
-let id = <T>(x: T): T -> x;
-```
-
-You can write it to the following to indicate it's a generic function:
-
-```typescript
-// With extra ,
-let id = <T,>(x: T): T -> x;
-
-// Explicit type
-let id = <T: Type>(x: T): T -> x;
-```
-
 NOTE: Below is allowed
 
 ```typescript
-let some_func: <T impl Trait1 & Trait2>(x: T)-> T = <X impl Trait1>(x: X)-> x;
+some_func:  forall(T <: Trait1 & Trait2), (x: T)-> T = 
+            forall(X <: Trait1), (x: X)-> x;
 ```
 
 but this is not allowed
 
 ```typescript
-let some_func: <T impl Trait1>(x: T)-> T = <X impl Trait1 & Trait2>(x: X)-> x;
+some_func: forall(T <: Trait1), (x: T)-> T = 
+           forall(X <: Trait1 & Trait2), (x: X)-> x;
 ```
 
 ### Named arguments
 
 ```typescript
-let add = (x: i32, y: i32): i32 -> {
+add := (x: i32, y: i32): i32 -> {
   return x + y;
 }
 add(y: 2, x: 1); // 3
@@ -989,7 +921,7 @@ a.f(b).g(x, y);
 ```
 
 ```typescript
-let add_one = (x: i32): i32 -> {
+add_one := (x: i32): i32 -> {
   return x + 1;
 }
 
@@ -997,7 +929,7 @@ let add_one = (x: i32): i32 -> {
 // is equalvalent to
 add_one(12); // 13
 
-let s = String.from("Hello, world");
+s := String.from("Hello, world");
 s.length(); // 12
 // is equalvalent to
 length(&s); // 12
@@ -1009,26 +941,26 @@ length(&s); // 12
 Record field access has higher priority than the free function and trait method.
 
 ```typescript
-type S = {
+S := {
   method: ()-> () = ()-> println("Record method")
 }
 
-let method = (s: S)-> {
-  println("Free function")
+method := (s: S)-> {
+  println("Free function");
 }
 
-trait SomeTrait<Self> {
+SomeInterface := (Self: Type)-> interface {
   method: (self: &Self)-> () = ()-> println("Trait method")
 }
 
-impl SomeTrait<S> {}
+impl SomeInterface(S), {}
 
-let main = ()-> {
-  let s = S {};
+main := ()-> {
+  s : S = {};
   s.method();  // Record method
   method(s);   // Free function
   s.method();  // Record method
-  SomeTrait<S>.method(&s); // Trait method
+  SomeInterface(S).method(&s); // Interface method
 }
 ```
 
@@ -1037,14 +969,14 @@ let main = ()-> {
 `defer` will execute an expression at the end of the current scope.
 
 ```typescript
-let test = ()-> {
-  let x = String.from("World!");
+test := ()-> {
+  x := String.from("World!");
   defer {
     println(x);
     drop(x);
   }
 
-  let y = String.from("Hello, ");
+  y := String.from("Hello, ");
   defer {
     println(y);
     drop(y);
@@ -1055,8 +987,8 @@ test(); // Hello, World!
 ```
 
 ```typescript
-let deferExample = ()-> {
-  var a = 1;
+deferExample := ()-> {
+  mut a := 1;
 
   {
     defer a = 2;
@@ -1117,10 +1049,10 @@ infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
 ### Variadic functions `In Design`
 
 ```typescript
-let print = (...args)-> {
+print := (...args)-> {
   // @va_start(args); // Start the variadic arguments
-  let args2 = @va_copy(args); // Copy the variadic arguments
-  var i = 0;
+  args2 := @va_copy(args); // Copy the variadic arguments
+  mut i := 0;
   while i < args.length, i += 1, {
     printf("%d ", @va_arg(args, i32)); // Pop the variadic argument and set it to i32
   }
@@ -1132,12 +1064,12 @@ let print = (...args)-> {
 
 ```typescript
 // This function can take any type that has a `length: i32` property.
-let print_length = (x: *{ length: i32 })-> {
+print_length := (x: *{ length: i32 })-> {
   println(x.length);
 };
 
-let main = ()-> {
-  let s = String.from("Hello, world");
+main := ()-> {
+  s := String.from("Hello, world");
   print_length(&s);
   // ^ This works as the compiler converts it to below from the background:
   print_length(&{ length: s.length })
@@ -1149,44 +1081,44 @@ let main = ()-> {
 Tuple is defined as a sequence of elements of different types, separated by commas and enclosed in parentheses.
 
 ```typescript
-let my_unit = (); // my_unit: (). Free type
+my_unit := (); // my_unit: (). Free type
 
-let my_i32_tuple = (12);  // my_i32_tuple: i32
+my_i32_tuple := (12);  // my_i32_tuple: i32
 // Needs extra comma to make it a tuple
-let my_i32_tuple = (12,); // my_i32_tuple: (i32,). Free type
+my_i32_tuple := (12,); // my_i32_tuple: (i32,). Free type
 
-let i32_tuple: (i32, i32, i32) = (1, 2, 3); // tuple: (i32, i32, i32). Free type
+i32_tuple: (i32, i32, i32) = (1, 2, 3); // tuple: (i32, i32, i32). Free type
 
-let mixed_tuple = (1, true, "Hello"); // mixed_tuple: (i32, boolean, *u8[6,'\0']). Free type
+mixed_tuple := (1, true, "Hello"); // mixed_tuple: (i32, boolean, *u8[6,'\0']). Free type
 
-let (a, b, c) = mixed_tuple; // a: i32, b: boolean, c: *u8[6,'\0']. Free type
+(a, b, c) := mixed_tuple; // a: i32, b: boolean, c: *u8[6,'\0']. Free type
 
-let a = mixed_tuple.0;
-let b = mixed_tuple.1;
-let c = mixed_tuple.2;
+a := mixed_tuple.0;
+b := mixed_tuple.1;
+c := mixed_tuple.2;
 
 // NOTE: for tuple that has only 1 element, we need to add a comma to make it a tuple.
-type MyTuple = (i32)
+MyTuple := (i32)
 // is equivalent to
-type MyTuple = i32;
+MyTuple := i32;
 // to make it a tuple, we need to add a comma
-type MyTuple = (i32,);
+MyTuple := (i32,);
 ```
 
 ## Array & Slice
 
 ```typescript
-var i32_array = [1, 2, 3, 4, 5]; // i32_array: i32[5]. Free type
+mut i32_array := [1, 2, 3, 4, 5]; // i32_array: i32[5]. Free type
                                  // In C: int i32_array[5] = {1, 2, 3, 4, 5};
 i32_array.length; // 5, compile-time known
 
-let i32_array2: i32[_] = [1, 2, 3]; // i32_array2: i32[3]
+i32_array2 : i32[_] = [1, 2, 3]; // i32_array2: i32[3]
 
-const immutabl_i32_array = [1, 2, 3, 4, 5]; // immutabl_i32_array: i32[5]. Free type
+immutabl_i32_array := [1, 2, 3, 4, 5]; // immutabl_i32_array: i32[5]. Free type
                                             // In C: const int immutabl_i32_array[5] = {1, 2, 3, 4, 5};
 
 // Convert from array to slice using `&`
-let i32_array_ptr = &i32_array; // i32_array_ptr: i32[]. Free type
+i32_array_ptr := &i32_array; // i32_array_ptr: i32[]. Free type
 i32_array_ptr.length; // 5, runtime known
 i32_array_ptr[0] = 8; // automatically dereference
 // i32_array: [8, 2, 3, 4, 5]
@@ -1205,10 +1137,10 @@ ANSWER: Yes we do. Not only because the size of slice is unknown at the compile-
 - Slices are dynamically sized, so its size is unknown at compile time. We need to use `&` to coerce the array to a slice.
 
 ```typescript
-let  i32_array = [1, 2, 3]; // i32_array: i32[3]. Free type
+i32_array := [1, 2, 3]; // i32_array: i32[3]. Free type
 expr @i32_ptr   = &i32_array[0]; // @i32_ptr: Expr<&i32>. Free type
-let  i32_slice = &i32_array; // i32_slice: i32[]. Free type
-let  i32_slice = i32_array[0..some_func_return_usize()];  // i32_slice: i32[]
+i32_slice := &i32_array; // i32_slice: i32[]. Free type
+i32_slice := i32_array[0..some_func_return_usize()];  // i32_slice: i32[]
                                                         // Compiler Error: The size of the slice is not known at compile time.
                                                         //                 Please use `&` to coerce i32_array to slice type &i32[]
 expr @i32_slice = &i32_array[0..some_func_return_usize()]; // Okay
@@ -1219,7 +1151,7 @@ i32_slice[0] = 10;
 // i32_array: [10, 2, 3, 4, 5]
 
 
-let set_value = (arr: &i32[], index: usize, value: i32)->
+set_value := (arr: &i32[], index: usize, value: i32)->
   if index < arr.length,  // arr.length is runtime known
     arr[index] = value;
 
@@ -1229,30 +1161,30 @@ set_value(&i32_array, 0, 11); // Correct!
 // i32_slice: [11, 2, 3]
 
 
-let set_value = (arr: i32[], index: usize, value: i32)-> { // Compiler Error: The size of the slice is not known at compile time.
+set_value := (arr: i32[], index: usize, value: i32)-> { // Compiler Error: The size of the slice is not known at compile time.
                                                            //                 Please use `&` to coerce arr to slice type &i32[]
   // ...
 }
 
 // This is also allowed as the size of the array is known at compile time.
-let set_value_3 = (arr: i32[3], index: usize, value: i32)-> {
+set_value_3 := (arr: i32[3], index: usize, value: i32)-> {
   // ...
 }
 ```
 
 ```typescript
 NOTE: The example below is wrong:
-type str = u8[,'\0'];
+str := u8[,'\0'];
 
-let constant_str = "Hello"; // constant_str: *u8[5,'\0']
+constant_str := "Hello"; // constant_str: *u8[5,'\0']
                      // ['H', 'e', 'l', 'l', 'o', '\0']
 constant_str.length; // 5 (excluding '\0'), compile-time known
 
-var mutable_str = *"Hello"; // mutable_str: u8[5,'\0'], convert to mutable array
+mut mutable_str := *"Hello"; // mutable_str: u8[5,'\0'], convert to mutable array
                      // ['H', 'e', 'l', 'l', 'o', '\0']
 mutable_str.length; // 5 (excluding '\0'), compile-time known
 
-let slice_1 = &mutable_str[0..2]; // slice_1: &str
+slice_1 := &mutable_str[0..2]; // slice_1: &str
                            // ['H', 'e']
 slice_1.length; // 2, runtime known
 slice_1[0] = 'h';
@@ -1266,19 +1198,19 @@ slice_1[0] = 'h';
 ```typescript
 // The range start..end contains all values with start <= x < end.
 // It is empty if start >= end.
-type Range = .Range {
+Range := .Range {
   start: i32,
   end: i32,
 }
 
-let range = 0..5; // range: Range<i32>. Free type
-let range = Range {
+range := 0..5; // range: Range. Free type
+let range = Range.Range {
   start: 0,
   end: 4,
 }
 
 let range2 = 0..=5; // range2: Range<i32>. Free type, including the end value
-let range2 = Range {
+let range2 = Range.Range {
   start: 0,
   end: 5,
 }
