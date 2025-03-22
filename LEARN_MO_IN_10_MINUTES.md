@@ -224,12 +224,15 @@ do {
 }
 
 // Module
-// Module is a block of expressions. The very last expression is the return value.
+// Module is a block of expressions.
+// The very last expression is the return value.
 
 // arith.mo
 add :: (x: i32, y: i32): i32 -> x + y;
 sub :: (x: i32, y: i32): i32 -> x - y;
 { add, sub } // export add and sub
+// is equivalent to
+// { add: add, sub: sub }
 
 // main.mo
 { add, sub } :: import("./arith.mo");
@@ -248,14 +251,16 @@ s2 :: s;  // error: s is consumed
 // - Type 1
 // - Type (0)
 // - Free | Linear
-// - Struct | Union | Enum | Interface | i32 | f64 | ...
+// - Struct | Union | Enum | atom | i32 | f64 | ...
+
+// Interface is not a type here!
 
 // Reference and Pointer
 // Mo use &, &mut to for immutable reference and mutable reference
 // Mo use *, *mut to for immutable pointer and mutable pointer
 x := 1;
 y := 2;
-swap :: (a: &mut i32, b: &mut i32) => {
+swap :: (a: &mut i32, b: &mut i32) -> {
   tmp := *a;
   *a = *b;
   *b = tmp;
@@ -318,7 +323,7 @@ match x,
 if :: macro (condition: Expr, then: Expr, else: Expr): Expr ->
   quasiquote(
     cond  unquote(condition) -> unquote(then),
-          unquote(else)
+          true -> unquote(else)
   );
 
 if x == 1, then: std.println("x is 1"), else: std.println("x is not 1");
