@@ -69,8 +69,8 @@ person :: {
 };
 // is equavalent to call `record`
 person :: record(
-  name, "John",
-  age, 30
+  name : "John",
+  age : 30
 );
 
 // tuple is defined using [...]
