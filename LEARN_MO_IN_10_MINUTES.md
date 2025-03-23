@@ -334,14 +334,14 @@ cond  x == 1 -> std.println("x is 1"),
 // Grammar
 Expr :: struct {
   func: atom, // | Expr
-  args: ArrayList(Expr)
+  args: List(Expr)
 };
 // `quote` function
 e :: quote(add(1, 2));
 // =>
 e :: Expr {
   func: quote(add),
-  args: ArrayList(Expr)(1, 2)
+  args: List(Expr)(1, 2)
 }
 
 // Architecture
