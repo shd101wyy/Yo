@@ -366,7 +366,7 @@ Atom ::
 Expr ::
   | .Atom Atom
   | .FuncCall {
-    func: Expr,
+    func: Box(Expr),
     args: List(Expr)
   }
 
