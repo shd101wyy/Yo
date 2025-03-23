@@ -537,7 +537,7 @@ plus5(10);  // => 15
 ops :: [quote(add); quote(sub); quote(mul)];
 generate_math :: quasiquote(
   {
-    quote_splice(
+    unquote_splicing(
       ops.map((op) ->
         quasiquote(
           std.println(unquote(op) <> " result: " <>
