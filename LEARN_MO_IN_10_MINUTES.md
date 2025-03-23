@@ -534,7 +534,7 @@ plus5 :: eval(create_adder(5));
 plus5(10);  // => 15
 
 // Generate a sequence of operations
-ops :: ["add"; "sub"; "mul"];
+ops :: [quote(add); quote(sub); quote(mul)];
 generate_math :: quasiquote(
   {
     quote_splice(
