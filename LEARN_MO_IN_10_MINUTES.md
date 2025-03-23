@@ -198,11 +198,11 @@ Id(i32).id(13); // 13
 Id(_).id(13); // 13. Use `_` as a placeholder for type
 
 // impl a type
-Cm :: struct i32;
+Cm :: .Cm(i32);
 impl Cm, {
   M: (x: Cm): i32 -> x / 100,
 }
-x :: Cm = Cm 200;
+x :: Cm = 200.Cm();
 x.M(); // 2
 // or
 Cm.M(x); // 2
