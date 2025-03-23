@@ -73,6 +73,12 @@ user2 :: create_user(role: "admin", name: "Bob", age: 30);  // explicit values
 // '.' will move the receiver to the first argument
 3.add(4); // is equivalent to add(3, 4)
 
+// Define a custom operator
+(+++) :: (x: i32, y: i32): i32 -> x + y;
+// define the precedence and associativity
+infixl((+++), 6); // left associative, precedence 6
+3 +++ 4; // 7
+
 // block using {...} with ";" as separator
 result :: {
   x := 3; // block requires to have ";" inside; otherwise we treat it as a record.
@@ -103,48 +109,36 @@ empty_record :: {};  // This is a record
 // To create an empty block, you need at least one semicolon
 empty_block :: {;}   // This is a block (with no statements)
 
-// tuple is defined using (...) with special semantics to distinguish from function calls
-unit :: (); // empty tuple
-one_element :: (1,); // tuple with one element
-                     // NOTE: the comma is required to show it's a tuple
-pair :: (1, 2); // tuple with two elements
-// is equivalent to call `tuple`
-unit :: tuple();
-one_element :: tuple(1); // tuple with one element
-pair :: tuple(1, 2);
+// tuple is defined using [...] with "," as separator
+unit :: []; // empty tuple
+one_element :: [1]; // tuple with one element
+pair :: [1, 2]; // tuple with two elements
+// is equivalent to call `Tuple`
+unit : Tuple() : Tuple();
+one_element : Tuple(i32) : Tuple(1); // tuple with one element
+pair : Tuple(i32, i32) : Tuple(1, 2);
 first :: pair.0; // 1
 second :: pair.1; // 2
 
-// To disambiguate between function calls and tuples as arguments:
-
-// Option 1: Use special notation for tuple literals in function arguments
-take_tuple :: (t: (i32, i32)): i32 -> t.0 + t.1;
-take_tuple tuple(1, 2);  // explicitly using tuple constructor
-// or with a specialized syntax
-take_tuple #(1, 2);  // using '#' prefix to denote a tuple literal
-
-// Option 2: Use the type system to disambiguate
-take_tuple :: (t: (i32, i32)): i32 -> t.0 + t.1;
-take_tuple((1, 2): (i32, i32));  // explicitly type-annotating the tuple
-
-// array is defined using [...] with "," as separator (now that tuples use parentheses)
-arr :: [1, 2, 3]; // Array(i32, 3)
+// array is defined using [...] with ";" as separator (now that tuples use parentheses)
+arr :: [1; 2; 3]; // Array(i32, 3)
 // Array: (Type, comptime usize)-> Type
 // is equivalent to call `array`
-arr :: array(1, 2, 3);
-first :: arr[0]; // 1
-rest_slice :: &arr[1..3]; // &Slice(i32), where '..' is the range operator.
+arr :: Array(1, 2, 3);
+first :: arr(0); // get value, 1
+arr(1) = 6; // set value
+rest_slice :: &arr(1..3); // &Slice(i32), where '..' is the range operator.
 
-// Single element array syntax is now simpler
-x :: [1]; // x: Array(i32, 1)
+// Single element array requires extra ";"
+x :: [1;]; // x: Array(i32, 1)
 
 // In Mo, type is the first-class citizen,
 // meaning that you can assign a type to a variable, or pass it as an argument to a function.
 MyI32 :: i32; // type alias
 x : MyI32 = 12; // valid
 
-MyPoint :: (i32, i32); // tuple type
-p : MyPoint = (3, 4); // valid
+MyPoint :: [i32, i32]; // tuple type
+p : MyPoint = [3, 4]; // valid
 
 // Define type variant with `.` operator ahead
 Point :: .Point(i32, i32);
@@ -168,7 +162,7 @@ c :: Color.Red;
 // C like union can also be defined using '|'
 Result :: .Result (
   | { int: i64, }
-  | { float: f65, }
+  | { float: f64, }
   | { bool: boolean }
 ); // The parentheses are necessary to avoid ambiguity
 
@@ -307,7 +301,7 @@ add(3, 4); // 7
 // Type in Mo can be either Linear or Free
 // Linear means it must be used exactly once
 // For example, String is a linear type
-s :: String = String.from("Hello");
+s : String = String.from("Hello");
 s.drop(); // drop the string. s is consumed and can't be used anymore.
 s2 :: s;  // error: s is consumed
 
@@ -347,8 +341,8 @@ x_ref :: &mut x; // error: can't store reference in variable
 
 // malloc
 // There is no null pointer in Mo.
-// ^Type is a pointer type which is Linear.
-ptr : Option(^i32) : malloc(sizeof(i32)); // allocate memory for i32
+// ^Type or ^mut(Type) is a pointer type which is Linear.
+ptr : Option(^mut i32) : malloc(sizeof(i32)); // allocate memory for i32
 match ptr,
   .Some(p) -> {
     *p = 42; // dereference the pointer
@@ -447,12 +441,10 @@ Identifier ::= (Letter | '_') (Letter | Digit | '_')*
 Letter     ::= 'a'..'z' | 'A'..'Z'
 Digit      ::= '0'..'9'
 
-// Operators can be standard or custom
-Operator   ::= StandardOp | CustomOp
-StandardOp ::= '+' | '-' | '*' | '/' | '%' | '=' | '==' | '!=' | '<' | '>' | '<=' | '>='
-             | '::' | ':=' | ':' | '&' | '&mut' | '*' | '*mut' | '.' | '->' | '=>' | '=>>'
-CustomOp   ::= OperatorChar+
+// Operators
+Operator   ::= OperatorChar+
 OperatorChar ::= '!' | '#' | '$' | '%' | '&' | '*' | '+' | '-' | '.' | '/' | ':' | '<' | '=' | '>' | '?' | '@' | '\\' | '^' | '|' | '~'
+// Note: '*mut', '&mut', and '^mut' are special operators for pointers and references
 
 // Function Call (the primary construct)
 FunctionCall ::= Expression "(" [Expression ("," Expression)*] ")"  // func(arg1, arg2)
@@ -470,7 +462,7 @@ Expr ::
     | .String string
     | .Char char
   )
-  | .FuncCall { func: Box(Expr), args: List(Expr) }
+  | .FuncCall { func: Box(Expr), args: ExprList }
 
 // Everything else is just function calls
 // For example, a variable declaration like:
@@ -480,8 +472,8 @@ Expr ::
 // Similarly:
 // - match(x, arm1, arm2, ...)
 // - impl(type, methods)
-// - ::(x, 12)
-// - :=(y, 14)
+// - (::)(x, 12)
+// - (:=)(y, 14)
 // - if(cond, then_expr, else_expr)
 // - for(range, body)
 // - while(cond, body)
@@ -492,16 +484,17 @@ Expr ::
 // Note: In Mo, like in Lisp, operators and identifiers are both symbols
 // For example, '+', '::', and 'add' are all symbols
 
-// `quote` function
+// `quote` function to quote an expression
 e :: quote(add(1, 2));
 // =>
 e :: Expr.FuncCall {
-  func: Expr.Atom(.Symbol("add")),
-  args: List([
+  func: Box(.Atom(.Symbol(quote(add)))),
+  args: (
     Expr.Atom(.I32(1)),
     Expr.Atom(.I32(2))
-  ])
+  )
 }
+e.to_string(); // "add(1, 2)"
 
 // More metaprogramming examples
 // `quasiquote` allows creating code templates with holes
@@ -511,24 +504,24 @@ y := 10;
 template :: quasiquote(add(unquote(x), unquote(y)));
 // =>
 template :: Expr.FuncCall {
-  func: Expr.Atom(.Symbol("add")),
-  args: List([
+  func: Box(.Atom(.Symbol(quote(add)))),
+  args: (
     Expr.Atom(.I32(5)),  // x was evaluated to 5
     Expr.Atom(.I32(10))  // y was evaluated to 10
-  ])
+  )
 }
 
-// `quote_splice` (unquote-splicing) splices a list into the surrounding list
-args :: quote([1, 2, 3]);
-call :: quasiquote(sum(quote_splice(args)));
+// `unquote_splicing` splices a list into the surrounding list
+args : ExprList : (1, 2, 3); // NOTE: (...) is ExprList, not Tuple!
+call :: quasiquote(sum(unquote_splicing(args)));
 // =>
 call :: Expr.FuncCall {
-  func: .Atom(.Symbol("sum")),
-  args: List([
+  func: Box(.Atom(.Symbol(quote(sum)))),
+  args: (
     .Atom(.I32(1)),
     .Atom(.I32(2)),
     .Atom(.I32(3))
-  ])
+  )
 }
 
 // Combining these for more complex metaprogramming
@@ -541,7 +534,7 @@ plus5 :: eval(create_adder(5));
 plus5(10);  // => 15
 
 // Generate a sequence of operations
-ops :: ["add", "sub", "mul"];
+ops :: ["add"; "sub"; "mul"];
 generate_math :: quasiquote(
   {
     quote_splice(
@@ -592,9 +585,9 @@ Matrix :: (T: Type, comptime ROWS: usize, comptime COLS: usize): Type ->
 
 // Create a 3x3 matrix of integers
 mat : Matrix(i32, 3, 3) = [
-  [1, 2, 3],
-  [4, 5, 6],
-  [7, 8, 9]
+  [1; 2; 3];
+  [4; 5; 6];
+  [7; 8; 9]
 ];
 
 // Compile-time if statements
