@@ -129,6 +129,7 @@ take_tuple((1, 2): (i32, i32));  // explicitly type-annotating the tuple
 
 // array is defined using [...] with "," as separator (now that tuples use parentheses)
 arr :: [1, 2, 3]; // Array(i32, 3)
+// Array: (Type, comptime usize)-> Type
 // is equivalent to call `array`
 arr :: array(1, 2, 3);
 first :: arr[0]; // 1
@@ -570,4 +571,36 @@ generate_math :: quasiquote(
 extern "C", {
   printf: (format: *char, ...) -> i32;
 }
+
+// Compile-time Execution
+// Mo performs as much computation at compile time as possible
+// The `comptime` keyword explicitly marks expressions for compile-time evaluation
+
+// Compile-time constants
+PI :: comptime 3.14159265358979323846;
+
+// Compile-time function execution
+factorial :: (n: i32): i32 ->
+  if n <= 1, then: 1, else: n * recur(n - 1);
+
+// This will be computed during compilation
+FACTORIAL_10 :: comptime factorial(10);  // = 3628800
+
+// Type-level computation using comptime
+Matrix :: (T: Type, comptime ROWS: usize, comptime COLS: usize): Type ->
+  Array(Array(T, COLS), ROWS);
+
+// Create a 3x3 matrix of integers
+mat : Matrix(i32, 3, 3) = [
+  [1, 2, 3],
+  [4, 5, 6],
+  [7, 8, 9]
+];
+
+// Compile-time if statements
+DEBUG_MODE :: if is_comptime(), true, false;
+debug_print :: (msg: String) ->
+  if comptime DEBUG_MODE,  // Decided at compile time, dead code eliminated
+    then: std.println(msg),
+    else: ();
 ```
