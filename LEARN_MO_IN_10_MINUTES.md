@@ -1,6 +1,6 @@
 # Learn Mo in 10 Minutes
 
-```typescript
+```rust
 // Philosophy
 // A combination of Lisp and C.
 
@@ -101,53 +101,74 @@ x :: [1;]; // x: i32[1]
 MyI32 :: i32; // type alias
 x : MyI32 = 12; // valid
 
-// struct, accept one parameter that is a type
-// struct : (T: Type) -> Struct
-Point :: struct [i32, i32];
-p :: Point [3, 4];
+// Define type variant with `.` operator ahead
+Point :: .Point(i32, i32);
+// is equavalent to:
+Point :: ((.)(Point))(i32, i32)
+// You can use `.` to access the variant
+p :: Point.Point(3, 4);
+// or omit `.Variant` if the type only has one variant and the variant name is the same as the type name
+p :: Point 3, 4;
+// or declare its type first
+p : Point : .Point 3, 4;
 
-Rectangle :: struct {
-  width: i32,
-  height: i32
-}
-r :: Rectangle {
-  width: 10,
-  height: 20
-};
+// Define multiple variants
+Color ::
+  | .Red // = 0
+  | .Green
+  | .Blue;
+c :: Color.Red;
 
-// union, accept a record of types
-// union : (T: Record) -> Union
-Result :: union {
-  int: i64,
-  float: f65,
-  bool: boolean
-}
+
+// C like union can also be defined using '|'
+Result :: .Result (
+  | { int: i64, }
+  | { float: f65, }
+  | { bool: boolean }
+); // The parentheses are necessary to avoid ambiguity
+
 result :: Result { int: 12 };
 result.float = 3.14;
 
-// enum & tagged enum
-// enum : (T: Record) -> Enum
-Color :: enum {
-  Red, // = 0
-  Green,
-  Blue
-};
-c :: Color.Red;
-
-Shape :: enum {
-  Circle: [i32],
-  Rectangle: {width: i32, height: i32}
-};
-s :: Shape.Circle [5];
+// A more complicated example
+Shape ::
+  | .Circle i32
+  | .Rectangle {width: i32, height: i32}
+s :: Shape.Circle 5;
 s :: Shape.Rectangle {width: 10, height: 20};
 
 // type as function parameter
 Option :: (T: Type): Type ->
-  enum {
-    Some: T,
-    None
-  }
+  | .Some T
+  | .None
+
 x :: Option(i32).Some(12);
+
+// generalized algebraic data types (GADT)
+// By default, all variants return the same type.
+Point :: .Point(i32, i32);
+// is equavalent to:
+Point :: .Point : (i32, i32) -> Point;
+// You can also specify the return type for each variant
+// to make it a GADT
+MyExpr :: (T: Type): Type ->
+  | .IntExpr : (i32) -> MyExpr(i32)
+  | .BoolExpr : (boolean) -> MyExpr(boolean)
+  | .EqExpr : (MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean)
+my_eval :: (T: Type, expr: MyExpr(T)): T ->
+  match expr,
+    .IntExpr(i) -> i,
+    .BoolExpr(b) -> b,
+    .EqExpr(a, b) -> my_eval(a) == my_eval(b);
+
+// higher kinded types
+// are types that take other types as parameter
+T1 :: (F: (Type) -> Type, A: Type) ->
+  .T1 F(A)
+// Assume we have the `Maybe` type,
+// then we can define `Option` like below
+Option :: (T: Type) -> T1(Maybe, T)
+
 
 // interface
 Id :: (T: Type)->
@@ -332,15 +353,25 @@ cond  x == 1 -> std.println("x is 1"),
       true   -> std.println("x is not 1")
 
 // Grammar
-Expr :: struct {
-  func: atom, // | Expr
-  args: List(Expr)
-};
+Atom ::
+  | .Symbol symbol
+  | .Boolean boolean
+  | .I32 i32
+  | .F64 f64
+  // String: string,
+
+Expr ::
+  | .Atom Atom
+  | .FuncCall {
+    func: Expr,
+    args: List(Expr)
+  }
+
 // `quote` function
 e :: quote(add(1, 2));
 // =>
-e :: Expr {
-  func: quote(add),
+e :: Expr.FuncCall {
+  func: .Atom(.Symbol(quote(add))),
   args: List(Expr)(1, 2)
 }
 
@@ -356,5 +387,4 @@ e :: Expr {
 extern "C", {
   printf: (format: *char, ...) -> i32;
 }
-
 ```
