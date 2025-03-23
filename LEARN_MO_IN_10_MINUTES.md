@@ -117,8 +117,9 @@ pair :: [1, 2]; // tuple with two elements
 unit : Tuple() : Tuple();
 one_element : Tuple(i32) : Tuple(1); // tuple with one element
 pair : Tuple(i32, i32) : Tuple(1, 2);
-first :: pair.0; // 1
-second :: pair.1; // 2
+first :: pair(0); // 1
+second :: pair(1); // 2
+pair(0) = 3; // [3, 2]
 
 // array is defined using [...] with ";" as separator (now that tuples use parentheses)
 arr :: [1; 2; 3]; // Array(i32, 3)
