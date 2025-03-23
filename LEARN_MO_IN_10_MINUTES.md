@@ -101,6 +101,9 @@ x :: [1;]; // x: i32[1]
 MyI32 :: i32; // type alias
 x : MyI32 = 12; // valid
 
+MyPoint :: [i32, i32]; // tuple type
+p : MyPoint = [3, 4]; // valid
+
 // Define type variant with `.` operator ahead
 Point :: .Point(i32, i32);
 // is equavalent to:
