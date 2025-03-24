@@ -28,28 +28,28 @@ y : i32 = 14; // mutable   y: i32
 (=)((:)(y, i32), 14);
 
 // define a function
-add :: (x: i32, y: i32): i32 ->
+add :: fn(x: i32, y: i32): i32 ->
   x + y;
 // or define its type first
-add : (x: i32, y: i32)-> i32;
-add : (x: i32, y: i32): i32 -> x + y;
+add : (fn(x: i32, y: i32)-> i32);
+add : (fn(x: i32, y: i32): i32 -> x + y);
 // the same as
-add : (x: i32, y: i32)-> i32
-    : (x: i32, y: i32): i32 -> x + y;
+add : (fn(x: i32, y: i32)-> i32)
+    : (fn(x: i32, y: i32): i32 -> x + y);
 
 // Type inference for function return values
 // The return type can be inferred when obvious
-add_inferred :: (x: i32, y: i32) ->  // Return type inferred as i32
+add_inferred :: fn(x: i32, y: i32) ->  // Return type inferred as i32
   x + y;
 
 // Type inference works with complex expressions too
-get_value :: (condition: boolean) ->  // Return type inferred as Option(i32)
+get_value :: fn(condition: boolean) ->  // Return type inferred as Option(i32)
   if condition,
     then: Option(i32).Some(42),
     else: Option(i32).None;
 
 // Named parameters in function declarations with default values
-create_user :: (name: String, age: i32 = 18, role: String = "user"): User ->
+create_user :: fn(name: String, age: i32 = 18, role: String = "user"): User ->
   User {
     name: name,
     age: age,
@@ -74,7 +74,7 @@ user2 :: create_user(role: "admin", name: "Bob", age: 30);  // explicit values
 3.add(4); // is equivalent to add(3, 4)
 
 // Define a custom operator
-(+++) :: (x: i32, y: i32): i32 -> x + y;
+(+++) :: fn(x: i32, y: i32): i32 -> x + y;
 // define the precedence and associativity
 infixl((+++), 6); // left associative, precedence 6
 3 +++ 4; // 7
@@ -117,13 +117,12 @@ pair :: [1, 2]; // tuple with two elements
 unit : Tuple() : Tuple();
 one_element : Tuple(i32) : Tuple(1); // tuple with one element
 pair : Tuple(i32, i32) : Tuple(1, 2);
-first :: pair(0); // 1
-second :: pair(1); // 2
-pair(0) = 3; // [3, 2]
+first :: pair.0; // 1
+second :: pair.1; // 2
 
 // array is defined using [...] with ";" as separator (now that tuples use parentheses)
 arr :: [1; 2; 3]; // Array(i32, 3)
-// Array: (Type, comptime usize)-> Type
+// Array: fn(Type, comptime usize)-> Type
 // is equivalent to call `array`
 arr :: Array(1, 2, 3);
 first :: arr(0); // get value, 1
@@ -178,7 +177,7 @@ s :: Shape.Circle 5;
 s :: Shape.Rectangle {width: 10, height: 20};
 
 // type as function parameter
-Option :: (T: Type): Type ->
+Option :: fn(T: Type): Type ->
   | .Some T
   | .None
 
@@ -188,14 +187,14 @@ x :: Option(i32).Some(12);
 // By default, all variants return the same type.
 Point :: .Point(i32, i32);
 // is equavalent to:
-Point :: .Point : (i32, i32) -> Point;
+Point :: (.Point : (fn(i32, i32) -> Point));
 // You can also specify the return type for each variant
 // to make it a GADT
-MyExpr :: (T: Type): Type ->
-  | .IntExpr : (i32) -> MyExpr(i32)
-  | .BoolExpr : (boolean) -> MyExpr(boolean)
-  | .EqExpr : (MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean)
-my_eval :: (T: Type, expr: MyExpr(T)): T ->
+MyExpr :: fn(T: Type): Type ->
+  | .IntExpr : fn(i32) -> MyExpr(i32)
+  | .BoolExpr : fn(boolean) -> MyExpr(boolean)
+  | .EqExpr : fn(MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean)
+my_eval :: fn(T: Type, expr: MyExpr(T)): T ->
   match expr,
     .IntExpr(i) -> i,
     .BoolExpr(b) -> b,
@@ -203,27 +202,27 @@ my_eval :: (T: Type, expr: MyExpr(T)): T ->
 
 // higher kinded types
 // are types that take other types as parameter
-T1 :: (F: (Type) -> Type, A: Type) ->
+T1 :: fn(F: (Type) -> Type, A: Type) ->
   .T1 F(A)
 // Assume we have the `Maybe` type,
 // then we can define `Option` like below
-Option :: (T: Type) -> T1(Maybe, T)
+Option :: fn(T: Type) -> T1(Maybe, T)
 
 
 // interface
-Id :: (T: Type)->
+Id :: fn(T: Type)->
   interface {
     id: (x: T)-> T,
   }
 
 // impl interface
 impl Id(i32), {
-  id: (x: i32): i32 -> x
+  id: fn(x: i32): i32 -> x
 }
 
 // impl interface with generic type
 forall ((T : Type) <: Show(T)), impl Show((T)), {
-  show: (x: (T)): String ->
+  show: fn(x: (T)): String ->
     "(" + x.0.show() + ")"
 }
 show (3); // "(3)"
@@ -237,7 +236,7 @@ Id(_).id(13); // 13. Use `_` as a placeholder for type
 // impl a type
 Cm :: .Cm(i32);
 impl Cm, {
-  M: (x: Cm): i32 -> x / 100,
+  M: fn(x: Cm): i32 -> x / 100,
 }
 x :: Cm = 200.Cm();
 x.M(); // 2
@@ -246,11 +245,11 @@ Cm.M(x); // 2
 
 // `forall` can be used to define generics
 // e.g. without `forall` it also works:
-id :: (T: Type, x: T): T -> x;
+id :: fn(T: Type, x: T): T -> x;
 // but when you call it, you need to specify the type:
 id(i32, 12); // 12
 // e.g. with `forall`:
-id :: forall (T: Type), (x: T): T -> x;
+id :: forall (T: Type), fn(x: T): T -> x;
 // then you can call it without specifying the type:
 id(12); // 12
 
@@ -262,8 +261,8 @@ add_x :: (y: i32): i32 =>  // => means closure that captures the environment and
 // => will generate either FnMut, or Fn instance.
 
 s := String.from("Hello");
-use_x :: (f: (x: String)-> unit) =>> f(s); // =>> means closure that takes ownership
-use_x((s)-> std.println(s)); // "Hello"
+use_x :: fn(f: fn(x: String)-> unit) =>> f(s); // =>> means closure that takes ownership
+use_x(fn(s)-> std.println(s)); // "Hello"
 
 
 // do notation macro
@@ -289,8 +288,8 @@ do {
 // The very last expression is the return value.
 
 // arith.mo
-add :: (x: i32, y: i32): i32 -> x + y;
-sub :: (x: i32, y: i32): i32 -> x - y;
+add :: fn(x: i32, y: i32): i32 -> x + y;
+sub :: fn(x: i32, y: i32): i32 -> x - y;
 { add, sub } // export add and sub
 // is equivalent to
 // { add: add, sub: sub }
@@ -321,7 +320,7 @@ s2 :: s;  // error: s is consumed
 // Mo use *, *mut to for immutable pointer and mutable pointer
 x := 1;
 y := 2;
-swap :: (a: &mut i32, b: &mut i32) -> {
+swap :: fn(a: &mut i32, b: &mut i32) -> {
   tmp := *a;
   *a = *b;
   *b = tmp;
@@ -359,7 +358,7 @@ cond  x == 1 -> std.println("x is 1"),
       true   -> std.println("x is not 1 or 2")
 
 /// while
-factorial :: (x: i32): i32 -> {
+factorial :: fn(x: i32): i32 -> {
   result := 1;
   while x > 1, do: {
     result *= x;
@@ -368,7 +367,7 @@ factorial :: (x: i32): i32 -> {
   result
 }
 //// or
-factorial :: (x: i32): i32 -> {
+factorial :: fn(x: i32): i32 -> {
   result := 1;
   while x > 1,  // condition
         x -= 1, // step
@@ -380,19 +379,19 @@ factorial :: (x: i32): i32 -> {
 
 // Recursion using recur
 // recur is used to call the current function recursively
-factorial_rec :: (x: i32): i32 ->
+factorial_rec :: fn(x: i32): i32 ->
   if x <= 1,
     then: 1,
     else: x * recur(x - 1);  // recur calls factorial_rec recursively
 
 // recur can also be used with named arguments
-fibonacci :: (n: i32): i32 ->
+fibonacci :: fn(n: i32): i32 ->
   if n <= 1,
     then: n,
     else: recur(n: n - 1) + recur(n: n - 2);
 
 // Tail recursion for better performance
-factorial_tail :: (x: i32, acc: i32 = 1): i32 ->
+factorial_tail :: fn(x: i32, acc: i32 = 1): i32 ->
   if x <= 1,
     then: acc,
     else: recur(x: x - 1, acc: x * acc);  // tail-recursive call
@@ -526,7 +525,7 @@ call :: Expr.FuncCall {
 }
 
 // Combining these for more complex metaprogramming
-create_adder :: (n: i32): Expr ->
+create_adder :: fn(n: i32): Expr ->
   quasiquote(
     (x: i32): i32 -> x + unquote(n)
   );
@@ -563,7 +562,7 @@ generate_math :: quasiquote(
 {*} = import("stdio.h");
 
 extern "C", {
-  printf: (format: *char, ...) -> i32;
+  printf: (fn(format: *char, ...) -> i32);
 }
 
 // Compile-time Execution
@@ -574,14 +573,14 @@ extern "C", {
 PI :: comptime 3.14159265358979323846;
 
 // Compile-time function execution
-factorial :: (n: i32): i32 ->
+factorial :: fn(n: i32): i32 ->
   if n <= 1, then: 1, else: n * recur(n - 1);
 
 // This will be computed during compilation
 FACTORIAL_10 :: comptime factorial(10);  // = 3628800
 
 // Type-level computation using comptime
-Matrix :: (T: Type, comptime ROWS: usize, comptime COLS: usize): Type ->
+Matrix :: fn(T: Type, comptime ROWS: usize, comptime COLS: usize): Type ->
   Array(Array(T, COLS), ROWS);
 
 // Create a 3x3 matrix of integers
@@ -593,7 +592,7 @@ mat : Matrix(i32, 3, 3) = [
 
 // Compile-time if statements
 DEBUG_MODE :: if is_comptime(), true, false;
-debug_print :: (msg: String) ->
+debug_print :: fn(msg: String) ->
   if comptime DEBUG_MODE,  // Decided at compile time, dead code eliminated
     then: std.println(msg),
     else: ();
