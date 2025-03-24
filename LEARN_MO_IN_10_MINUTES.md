@@ -49,7 +49,7 @@ get_value :: fn(condition: boolean) ->  // Return type inferred as Option(i32)
     else: Option(i32).None;
 
 // Named parameters in function declarations with default values
-create_user :: fn(name: String, age: i32 = 18, role: String = "user"): User ->
+create_user :: fn(name: String, age: i32 = 18, role: String = String.from("user")): User ->
   User {
     name: name,
     age: age,
@@ -109,36 +109,30 @@ empty_record :: {};  // This is a record
 // To create an empty block, you need at least one semicolon
 empty_block :: {;}   // This is a block (with no statements)
 
-// tuple is defined using [...] with "," as separator
-unit :: []; // empty tuple
-one_element :: [1]; // tuple with one element
-pair :: [1, 2]; // tuple with two elements
-// is equivalent to call `Tuple`
-unit : Tuple() : Tuple();
-one_element : Tuple(i32) : Tuple(1); // tuple with one element
-pair : Tuple(i32, i32) : Tuple(1, 2);
-first :: pair.0; // 1
-second :: pair.1; // 2
+// tuple is defined using (...) with "," as separator
+unit :: (); // empty tuple
+one_element :: (1,); // tuple with one element requires extra "," at the end. Otherwise, it's considered a parenthesized expression.
+pair :: (1, 2); // tuple with two elements
+first :: pair(0); // 1
+second :: pair(1); // 2
 
-// array is defined using [...] with ";" as separator (now that tuples use parentheses)
-arr :: [1; 2; 3]; // Array(i32, 3)
+// array is defined using [...] with "," as separator.
+arr :: [1, 2, 3]; // Array(i32, 3)
 // Array: fn(Type, comptime usize)-> Type
 // is equivalent to call `array`
-arr :: Array(1, 2, 3);
+arr :: array(1, 2, 3);
 first :: arr(0); // get value, 1
 arr(1) = 6; // set value
 rest_slice :: &arr(1..3); // &Slice(i32), where '..' is the range operator.
 
-// Single element array requires extra ";"
-x :: [1;]; // x: Array(i32, 1)
 
 // In Mo, type is the first-class citizen,
 // meaning that you can assign a type to a variable, or pass it as an argument to a function.
 MyI32 :: i32; // type alias
 x : MyI32 = 12; // valid
 
-MyPoint :: [i32, i32]; // tuple type
-p : MyPoint = [3, 4]; // valid
+MyPoint :: (i32, i32); // tuple type
+p : MyPoint = (3, 4); // valid
 
 // Define type variant with `.` operator ahead
 Point :: .Point(i32, i32);
@@ -223,9 +217,9 @@ impl Id(i32), {
 // impl interface with generic type
 forall ((T : Type) <: Show(T)), impl Show((T)), {
   show: fn(x: (T)): String ->
-    "(" + x.0.show() + ")"
+    "(" + x(0).show() + ")"
 }
-show (3); // "(3)"
+show((3,)); // "(3)"
 
 // Call a function defined in interface
 (13).id(); // 13
@@ -304,6 +298,9 @@ add(3, 4); // 7
 s : String = String.from("Hello");
 s.drop(); // drop the string. s is consumed and can't be used anymore.
 s2 :: s;  // error: s is consumed
+
+// RAII (Resource Acquisition Is Initialization)
+// Mo automatically insert `drop` function for linear types
 
 // Type universe
 // - ...
@@ -512,7 +509,7 @@ template :: Expr.FuncCall {
 }
 
 // `unquote_splicing` splices a list into the surrounding list
-args : ExprList : (1, 2, 3); // NOTE: (...) is ExprList, not Tuple!
+args : ExprList : (1, 2, 3); // NOTE: Tuple can be converted to ExprList
 call :: quasiquote(sum(unquote_splicing(args)));
 // =>
 call :: Expr.FuncCall {
@@ -534,7 +531,7 @@ plus5 :: eval(create_adder(5));
 plus5(10);  // => 15
 
 // Generate a sequence of operations
-ops :: [quote(add); quote(sub); quote(mul)];
+ops :: [quote(add), quote(sub), quote(mul)];
 generate_math :: quasiquote(
   {
     unquote_splicing(
@@ -585,9 +582,9 @@ Matrix :: fn(T: Type, comptime ROWS: usize, comptime COLS: usize): Type ->
 
 // Create a 3x3 matrix of integers
 mat : Matrix(i32, 3, 3) = [
-  [1; 2; 3];
-  [4; 5; 6];
-  [7; 8; 9]
+  [1, 2, 3],
+  [4, 5, 6],
+  [7, 8, 9]
 ];
 
 // Compile-time if statements
