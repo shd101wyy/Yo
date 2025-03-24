@@ -116,6 +116,15 @@ pair :: (1, 2); // tuple with two elements
 first :: pair(0); // 1
 second :: pair(1); // 2
 
+// there might be ambiguity for the function that accepts tuple as its first argument
+some_func :: fn(x: (i32, i32)): i32 -> x(0) + x(1);
+// then
+some_func(1, 2); // error: expected 1 argument, got 2
+// and
+some_func (1, 2); // error: expected 1 argument, got 2
+// to fix this, we can add `.` before the tuple
+some_func $ (1, 2); // 3 // $ is used to separate the function name and its arguments
+
 // array is defined using [...] with "," as separator.
 arr :: [1, 2, 3]; // Array(i32, 3)
 // Array: fn(Type, comptime usize)-> Type
@@ -321,16 +330,28 @@ modify :: (x: i32): i32 -> {
 // Interface is not a type here!
 
 // Reference and Pointer
-// Mo use &, &mut to for immutable reference and mutable reference
-// Mo use *, *mut to for immutable pointer and mutable pointer
+// Mo uses *, *mut to for immutable pointer and mutable pointer
+// Mo uses Ref, MutRef for immutable reference and mutable reference
 x := 1;
 y := 2;
-swap :: fn(a: &mut i32, b: &mut i32) -> {
+swap :: forall(R: Region), fn(a: MutRef(i32, R), b: MutRef(i32, R)) -> {
   tmp := *a;
   *a = *b;
   *b = tmp;
 };
-swap(&mut x, &mut y);
+mutref R1, (x, y)-> { // mutref accepts a tuple of symbols
+  // R1 is a region name
+  // x: MutRef(i32, R1)
+  // y: MutRef(i32, R1)
+  swap(x, y);
+}
+// or
+ref $ (mut(x), mut(y))-> {
+  // Assume current region name is SomeRegion
+  // Here x: MutRef(i32, SomeRegion)
+  //      y: MutRef(i32, SomeRegion)
+  swap(x, y);
+}
 
 // Mo automatically deference when accessing the field of a reference
 p :: Point 3, 4;
@@ -341,6 +362,7 @@ p_ref.1; // 4
 // To create * and *mut pointer, use `as` function to case reference to pointer:
 x_ptr := &x `as` *i32;
 
+// NOTE: This might be deprecated
 // Mutable value semantics
 // References in Mo are second-class citizens.
 // - Can't be stored in variables.
