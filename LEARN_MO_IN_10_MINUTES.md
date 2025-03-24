@@ -408,7 +408,7 @@ factorial_tail :: fn(x: i32, acc: i32 = 1): i32 ->
     else: recur(x: x - 1, acc: x * acc);  // tail-recursive call
 
 /// for
-for x, in: 0..=10, do: std.println(x);
+for 0..=10, (x)-> std.println(x); // NOTE: The last argument is **NOT** a function
 
 // Pattern matching
 match x,
