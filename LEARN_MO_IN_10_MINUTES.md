@@ -7,7 +7,7 @@
 // Comment is using `//` or `/* */`
 // Mo is case-sensitive
 
-// In Mo, everything is a function:
+// In Mo, everything is a function (or macro):
 x :: 12; // immutable x: i32
 y := 14; // mutable   y: i32
 
@@ -31,8 +31,8 @@ y : i32 = 14; // mutable   y: i32
 add :: fn(x: i32, y: i32): i32 ->
   x + y;
 // or define its type first
-add : (fn(x: i32, y: i32)-> i32);
-add : (fn(x: i32, y: i32): i32 -> x + y);
+add : (fn(x: i32, y: i32)-> i32); // function type is written as fn(args...)-> return_type
+add : (fn(x: i32, y: i32): i32 -> x + y); // function implementation is written as fn(args...): return_type -> body
 // the same as
 add : (fn(x: i32, y: i32)-> i32)
     : (fn(x: i32, y: i32): i32 -> x + y);
@@ -249,6 +249,8 @@ id(12); // 12
 
 // closure
 // FnOnce, FnMut, Fn are interfaces
+// IDEA: Use FnLinear and FnFree instead of FnOnce, FnMut, Fn
+//       FnLinear uses =>> operator, while FnFree uses => operator
 x := 12;
 add_x :: (y: i32): i32 =>  // => means closure that captures the environment and doesn't take ownership
   x + y;
@@ -299,8 +301,14 @@ s : String = String.from("Hello");
 s.drop(); // drop the string. s is consumed and can't be used anymore.
 s2 :: s;  // error: s is consumed
 
+// All function parameters are immutable for Free types, and mutable for Linear types
+modify :: (x: i32): i32 -> {
+  x += 1; // error: x is immutable
+  x
+}
+
 // RAII (Resource Acquisition Is Initialization)
-// Mo automatically insert `drop` function for linear types
+// Mo automatically insert `drop` function for Linear types that are not used anymore and implement `drop` function.
 
 // Type universe
 // - ...
@@ -323,6 +331,12 @@ swap :: fn(a: &mut i32, b: &mut i32) -> {
   *b = tmp;
 };
 swap(&mut x, &mut y);
+
+// Mo automatically deference when accessing the field of a reference
+p :: Point 3, 4;
+p_ref :: &p;
+p_ref.0; // 3
+p_ref.1; // 4
 
 // To create * and *mut pointer, use `as` function to case reference to pointer:
 x_ptr := &x `as` *i32;
