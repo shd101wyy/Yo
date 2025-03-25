@@ -8,48 +8,48 @@
 // Mo is case-sensitive
 
 // In Mo, everything is a function (or macro):
-x :: 12; // immutable x: i32
-y := 14; // mutable   y: i32
+x := 12; // immutable x: i32
+mut(y) := 14; // mutable   y: i32
 
 // can be written as:
 
-(::)(x, 12);
-(:=)(y, 14);
+(:=)(x, 12);
+(:=)(mut(y), 14);
 
 
 // or without type inference
 
-x : i32 : 12; // immutable x: i32
-y : i32 = 14; // mutable   y: i32
+x : i32 = 12; // immutable x: i32
+mut(y) : i32 = 14; // mutable   y: i32
 
 // can be written as:
 
 (:)((:)(x, i32), 12);
-(=)((:)(y, i32), 14);
+(=)((:)(mut(y), i32), 14);
 
 // define a function
-add :: fn(x: i32, y: i32): i32 ->
+add := fn(x: i32, y: i32): i32 ->
   x + y;
 // or define its type first
 add : (fn(x: i32, y: i32)-> i32); // function type is written as fn(args...)-> return_type
-add : (fn(x: i32, y: i32): i32 -> x + y); // function implementation is written as fn(args...): return_type -> body
+add = (fn(x: i32, y: i32): i32 -> x + y); // function implementation is written as fn(args...): return_type -> body
 // the same as
 add : (fn(x: i32, y: i32)-> i32)
-    : (fn(x: i32, y: i32): i32 -> x + y);
+    = (fn(x: i32, y: i32): i32 -> x + y);
 
 // Type inference for function return values
 // The return type can be inferred when obvious
-add_inferred :: fn(x: i32, y: i32) ->  // Return type inferred as i32
+add_inferred := fn(x: i32, y: i32) ->  // Return type inferred as i32
   x + y;
 
 // Type inference works with complex expressions too
-get_value :: fn(condition: boolean) ->  // Return type inferred as Option(i32)
+get_value := fn(condition: boolean) ->  // Return type inferred as Option(i32)
   if condition,
     then: Option(i32).Some(42),
     else: Option(i32).None;
 
 // Named parameters in function declarations with default values
-create_user :: fn(name: String, age: i32 = 18, role: String = String.from("user")): User ->
+create_user := fn(name: String, age: i32 = 18, role: String = String.from("user")): User ->
   User {
     name: name,
     age: age,
@@ -64,8 +64,8 @@ add 3, 4;
 add 3, y: 5;
 add y: 5, x: 4;
 // Call with named parameters in any order, omitting those with defaults
-user1 :: create_user(name: "Alice");  // age=18, role="user" (defaults)
-user2 :: create_user(role: "admin", name: "Bob", age: 30);  // explicit values
+user1 := create_user(name: "Alice");  // age=18, role="user" (defaults)
+user2 := create_user(role: "admin", name: "Bob", age: 30);  // explicit values
 // or use `add` as an infix operator
 3 `add` 4;
 
@@ -74,19 +74,30 @@ user2 :: create_user(role: "admin", name: "Bob", age: 30);  // explicit values
 3.add(4); // is equivalent to add(3, 4)
 
 // Define a custom operator
-(+++) :: fn(x: i32, y: i32): i32 -> x + y;
+(+++) := fn(x: i32, y: i32): i32 -> x + y;
 // define the precedence and associativity
 infixl((+++), 6); // left associative, precedence 6
 3 +++ 4; // 7
 
+// All function parameters are immutable by default
+modify := (x: i32): i32 -> {
+  x += 1; // error: x is immutable
+  x
+}
+// To make the function parameter mutable, use `mut`
+modify := (mut(x):i32): i32 -> {
+  x += 1; // OK
+  x
+}
+
 // block using {...} with ";" as separator
-result :: {
+result := {
   x := 3; // block requires to have ";" inside; otherwise we treat it as a record.
   y := 4;
   add x, y // the last expression without ";" becomes the return value
 }; // result is 7
 // is equavalent to call `begin`
-result :: begin(
+result := begin(
   x := 3,
   y := 4,
   add x, y
@@ -94,30 +105,30 @@ result :: begin(
 
 // record is defined using {...} with "," as separator instead of ";"
 // Like the one in JavaScript
-person :: {
+person := {
   name: "John",
   age: 30
 };
 // is equavalent to call `record`
-person :: record(
+person := record(
   name : "John",
   age : 30
 );
 
 // Empty braces {} are considered a record, not a block
-empty_record :: {};  // This is a record
+empty_record := {};  // This is a record
 // To create an empty block, you need at least one semicolon
-empty_block :: {;}   // This is a block (with no statements)
+empty_block := {;}   // This is a block (with no statements)
 
 // tuple is defined using (...) with "," as separator
-unit :: (); // empty tuple
-one_element :: (1,); // tuple with one element requires extra "," at the end. Otherwise, it's considered a parenthesized expression.
-pair :: (1, 2); // tuple with two elements
-first :: pair(0); // 1
-second :: pair(1); // 2
+unit := (); // empty tuple
+one_element := (1,); // tuple with one element requires extra "," at the end. Otherwise, it's considered a parenthesized expression.
+pair := (1, 2); // tuple with two elements
+first := pair(0); // 1
+second := pair(1); // 2
 
 // there might be ambiguity for the function that accepts tuple as its first argument
-some_func :: fn(x: (i32, i32)): i32 -> x(0) + x(1);
+some_func := fn(x: (i32, i32)): i32 -> x(0) + x(1);
 // then
 some_func(1, 2); // error: expected 1 argument, got 2
 // and
@@ -126,78 +137,79 @@ some_func (1, 2); // error: expected 1 argument, got 2
 some_func $ (1, 2); // 3 // $ is used to separate the function name and its arguments
 
 // array is defined using [...] with "," as separator.
-arr :: [1, 2, 3]; // Array(i32, 3)
+arr := [1, 2, 3]; // Array(i32, 3)
 // Array: fn(Type, comptime usize)-> Type
 // is equivalent to call `array`
-arr :: array(1, 2, 3);
-first :: arr(0); // get value, 1
+arr := array(1, 2, 3);
+first := arr(0); // get value, 1
 arr(1) = 6; // set value
-rest_slice :: &arr(1..3); // &Slice(i32), where '..' is the range operator.
+rest_slice := &arr(1..3); // &Slice(i32), where '..' is the range operator.
 
 
 // In Mo, type is the first-class citizen,
 // meaning that you can assign a type to a variable, or pass it as an argument to a function.
-MyI32 :: i32; // type alias
+MyI32 := i32; // type alias
 x : MyI32 = 12; // valid
 
-MyPoint :: (i32, i32); // tuple type
+MyPoint := (i32, i32); // tuple type
 p : MyPoint = (3, 4); // valid
 
 // Define type variant with `.` operator ahead
-Point :: .Point(i32, i32);
+// `.` is a special operator that acceps only a symbol after it.
+Point := .Point(i32, i32);
 // is equavalent to:
-Point :: ((.)(Point))(i32, i32)
+Point := ((.)(Point))(i32, i32)
 // You can use `.` to access the variant
-p :: Point.Point(3, 4);
+p := Point.Point(3, 4);
 // or omit `.Variant` if the type only has one variant and the variant name is the same as the type name
-p :: Point 3, 4;
+p := Point 3, 4;
 // or declare its type first
-p : Point : .Point 3, 4;
+p : Point = .Point 3, 4;
 
 // Define multiple variants
-Color ::
+Color :=
   | .Red // = 0
   | .Green
   | .Blue;
-c :: Color.Red;
+c := Color.Red;
 
 
 // C like union can also be defined using '|'
-Result :: .Result (
+Result := .Result (
   | { int: i64, }
   | { float: f64, }
   | { bool: boolean }
 ); // The parentheses are necessary to avoid ambiguity
 
-result :: Result { int: 12 };
+result := Result { int: 12 };
 result.float = 3.14;
 
 // A more complicated example
-Shape ::
+Shape :=
   | .Circle i32
   | .Rectangle {width: i32, height: i32}
-s :: Shape.Circle 5;
-s :: Shape.Rectangle {width: 10, height: 20};
+s := Shape.Circle 5;
+s := Shape.Rectangle {width: 10, height: 20};
 
 // type as function parameter
-Option :: fn(T: Type): Type ->
+Option := fn(T: Type): Type ->
   | .Some T
   | .None
 
-x :: Option(i32).Some(12);
+x := Option(i32).Some(12);
 
 // generalized algebraic data types (GADT)
 // By default, all variants return the same type.
-Point :: .Point(i32, i32);
+Point := .Point(i32, i32);
 // is equavalent to:
-Point :: (.Point : (fn(i32, i32) -> Point));
+Point := (.Point : (fn(i32, i32) -> Point));
 // You can also specify the return type for each variant
 // to make it a GADT
-MyExpr :: fn(T: Type): Type ->
+MyExpr := fn(T: Type): Type ->
   | .IntExpr : fn(i32) -> MyExpr(i32)
   | .BoolExpr : fn(boolean) -> MyExpr(boolean)
   | .EqExpr : fn(MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean)
-my_eval :: fn(T: Type, expr: MyExpr(T)): T ->
+my_eval := fn(T: Type, expr: MyExpr(T)): T ->
   match expr,
     .IntExpr(i) -> i,
     .BoolExpr(b) -> b,
@@ -205,15 +217,15 @@ my_eval :: fn(T: Type, expr: MyExpr(T)): T ->
 
 // higher kinded types
 // are types that take other types as parameter
-T1 :: fn(F: (Type) -> Type, A: Type) ->
+T1 := fn(F: (Type) -> Type, A: Type) ->
   .T1 F(A)
 // Assume we have the `Maybe` type,
 // then we can define `Option` like below
-Option :: fn(T: Type) -> T1(Maybe, T)
+Option := fn(T: Type) -> T1(Maybe, T)
 
 
 // interface
-Id :: fn(T: Type)->
+Id := fn(T: Type)->
   interface {
     id: (x: T)-> T,
   }
@@ -224,7 +236,7 @@ impl Id(i32), {
 }
 
 // impl interface with generic type
-forall ((T : Type) <: Show(T)), impl Show((T)), {
+forall $ ((T : Type) <: Show(T)) => impl Show((T)), {
   show: fn(x: (T)): String ->
     "(" + x(0).show() + ")"
 }
@@ -237,22 +249,22 @@ Id(i32).id(13); // 13
 Id(_).id(13); // 13. Use `_` as a placeholder for type
 
 // impl a type
-Cm :: .Cm(i32);
+Cm := .Cm(i32);
 impl Cm, {
   M: fn(x: Cm): i32 -> x / 100,
 }
-x :: Cm = 200.Cm();
+x : Cm = 200.Cm();
 x.M(); // 2
 // or
 Cm.M(x); // 2
 
 // `forall` can be used to define generics
 // e.g. without `forall` it also works:
-id :: fn(T: Type, x: T): T -> x;
+id := fn(T: Type, x: T): T -> x;
 // but when you call it, you need to specify the type:
 id(i32, 12); // 12
 // e.g. with `forall`:
-id :: forall (T: Type), fn(x: T): T -> x;
+id := forall $ (T: Type) => fn(x: T): T -> x;
 // then you can call it without specifying the type:
 id(12); // 12
 
@@ -261,12 +273,12 @@ id(12); // 12
 // IDEA: Use FnLinear and FnFree instead of FnOnce, FnMut, Fn
 //       FnLinear uses =>> operator, while FnFree uses => operator
 x := 12;
-add_x :: (y: i32): i32 =>  // => means closure that captures the environment and doesn't take ownership
+add_x := (y: i32): i32 =>  // => means closure that captures the environment and doesn't take ownership
   x + y;
 // => will generate either FnMut, or Fn instance.
 
 s := String.from("Hello");
-use_x :: fn(f: fn(x: String)-> unit) =>> f(s); // =>> means closure that takes ownership
+use_x := fn(f: fn(x: String)-> unit) =>> f(s); // =>> means closure that takes ownership
 use_x(fn(s)-> std.println(s)); // "Hello"
 
 
@@ -293,14 +305,14 @@ do {
 // The very last expression is the return value.
 
 // arith.mo
-add :: fn(x: i32, y: i32): i32 -> x + y;
-sub :: fn(x: i32, y: i32): i32 -> x - y;
+add := fn(x: i32, y: i32): i32 -> x + y;
+sub := fn(x: i32, y: i32): i32 -> x - y;
 { add, sub } // export add and sub
 // is equivalent to
 // { add: add, sub: sub }
 
 // main.mo
-{ add, sub } :: import("./arith.mo");
+{ add, sub } := import("./arith.mo");
 add(3, 4); // 7
 
 // Type in Mo can be either Linear or Free
@@ -308,13 +320,9 @@ add(3, 4); // 7
 // For example, String is a linear type
 s : String = String.from("Hello");
 s.drop(); // drop the string. s is consumed and can't be used anymore.
-s2 :: s;  // error: s is consumed
+s2 := s;  // error: s is consumed
 
-// All function parameters are immutable for Free types, and mutable for Linear types
-modify :: (x: i32): i32 -> {
-  x += 1; // error: x is immutable
-  x
-}
+
 
 // RAII (Resource Acquisition Is Initialization)
 // Mo automatically insert `drop` function for Linear types that are not used anymore and implement `drop` function.
@@ -334,12 +342,12 @@ modify :: (x: i32): i32 -> {
 // Mo uses Ref, MutRef for immutable reference and mutable reference
 x := 1;
 y := 2;
-swap :: forall(R: Region), fn(a: MutRef(i32, R), b: MutRef(i32, R)) -> {
+swap := forall $ (R: Region) => fn(a: MutRef(i32, R), b: MutRef(i32, R)) -> {
   tmp := *a;
   *a = *b;
   *b = tmp;
 };
-mutref R1, (x, y)-> { // mutref accepts a tuple of symbols
+ref R1, (mut(x), mut(y))-> { // mutref accepts a tuple of symbols
   // R1 is a region name
   // x: MutRef(i32, R1)
   // y: MutRef(i32, R1)
@@ -354,10 +362,10 @@ ref $ (mut(x), mut(y))-> {
 }
 
 // Mo automatically deference when accessing the field of a reference
-p :: Point 3, 4;
-p_ref :: &p;
-p_ref.0; // 3
-p_ref.1; // 4
+p := Point 3, 4;
+p_ref := &p;
+p_ref(0); // 3
+p_ref(1); // 4
 
 // To create * and *mut pointer, use `as` function to case reference to pointer:
 x_ptr := &x `as` *i32;
@@ -370,7 +378,7 @@ x_ptr := &x `as` *i32;
 // - Can only be created at function call sites, as a special parameter-passing mode.
 // - Path to a value never appears twice in the function arguments. Path uniqueness.
 x := 12;
-x_ref :: &mut x; // error: can't store reference in variable
+x_ref := &mut x; // error: can't store reference in variable
 
 // malloc
 // There is no null pointer in Mo.
@@ -391,7 +399,7 @@ cond  x == 1 -> std.println("x is 1"),
       true   -> std.println("x is not 1 or 2")
 
 /// while
-factorial :: fn(x: i32): i32 -> {
+factorial := fn(x: i32): i32 -> {
   result := 1;
   while x > 1, do: {
     result *= x;
@@ -400,7 +408,7 @@ factorial :: fn(x: i32): i32 -> {
   result
 }
 //// or
-factorial :: fn(x: i32): i32 -> {
+factorial := fn(x: i32): i32 -> {
   result := 1;
   while x > 1,  // condition
         x -= 1, // step
@@ -412,19 +420,19 @@ factorial :: fn(x: i32): i32 -> {
 
 // Recursion using recur
 // recur is used to call the current function recursively
-factorial_rec :: fn(x: i32): i32 ->
+factorial_rec := fn(x: i32): i32 ->
   if x <= 1,
     then: 1,
     else: x * recur(x - 1);  // recur calls factorial_rec recursively
 
 // recur can also be used with named arguments
-fibonacci :: fn(n: i32): i32 ->
+fibonacci := fn(n: i32): i32 ->
   if n <= 1,
     then: n,
     else: recur(n: n - 1) + recur(n: n - 2);
 
 // Tail recursion for better performance
-factorial_tail :: fn(x: i32, acc: i32 = 1): i32 ->
+factorial_tail := fn(x: i32, acc: i32 = 1): i32 ->
   if x <= 1,
     then: acc,
     else: recur(x: x - 1, acc: x * acc);  // tail-recursive call
@@ -444,7 +452,7 @@ match x,
   .None -> std.println("x is None")
 
 // Macro definition
-if :: macro (condition: Expr, then: Expr, else: Expr): Expr ->
+if := macro (condition: Expr, then: Expr, else: Expr): Expr ->
   quasiquote(
     cond  unquote(condition) -> unquote(then),
           true -> unquote(else)
@@ -486,7 +494,7 @@ FunctionCall ::= Expression "(" [Expression ("," Expression)*] ")"  // func(arg1
                | PrefixOperator Expression  // !arg
 
 // AST Representation
-Expr ::
+Expr :=
   | .Atom(
     | .Symbol symbol
     | .Boolean boolean
@@ -499,14 +507,13 @@ Expr ::
 
 // Everything else is just function calls
 // For example, a variable declaration like:
-//   x :: 12
-// is just a function call to "::" with arguments "x" and "12"
+//   x := 12
+// is just a function call to ":=" with arguments "x" and "12"
 //
 // Similarly:
 // - match(x, arm1, arm2, ...)
 // - impl(type, methods)
-// - (::)(x, 12)
-// - (:=)(y, 14)
+// - (:=)(x, 14)
 // - if(cond, then_expr, else_expr)
 // - for(range, body)
 // - while(cond, body)
@@ -515,12 +522,12 @@ Expr ::
 // All are function calls, just with specialized notation in some cases
 
 // Note: In Mo, like in Lisp, operators and identifiers are both symbols
-// For example, '+', '::', and 'add' are all symbols
+// For example, '+', ':=', and 'add' are all symbols
 
 // `quote` function to quote an expression
-e :: quote(add(1, 2));
+e := quote(add(1, 2));
 // =>
-e :: Expr.FuncCall {
+e := Expr.FuncCall {
   func: Box(.Atom(.Symbol(quote(add)))),
   args: (
     Expr.Atom(.I32(1)),
@@ -534,9 +541,9 @@ e.to_string(); // "add(1, 2)"
 // `unquote` evaluates expressions inside quasiquoted expressions
 x := 5;
 y := 10;
-template :: quasiquote(add(unquote(x), unquote(y)));
+template := quasiquote(add(unquote(x), unquote(y)));
 // =>
-template :: Expr.FuncCall {
+template := Expr.FuncCall {
   func: Box(.Atom(.Symbol(quote(add)))),
   args: (
     Expr.Atom(.I32(5)),  // x was evaluated to 5
@@ -546,9 +553,9 @@ template :: Expr.FuncCall {
 
 // `unquote_splicing` splices a list into the surrounding list
 args : ExprList : (1, 2, 3); // NOTE: Tuple can be converted to ExprList
-call :: quasiquote(sum(unquote_splicing(args)));
+call := quasiquote(sum(unquote_splicing(args)));
 // =>
-call :: Expr.FuncCall {
+call := Expr.FuncCall {
   func: Box(.Atom(.Symbol(quote(sum)))),
   args: (
     .Atom(.I32(1)),
@@ -558,17 +565,17 @@ call :: Expr.FuncCall {
 }
 
 // Combining these for more complex metaprogramming
-create_adder :: fn(n: i32): Expr ->
+create_adder := fn(n: i32): Expr ->
   quasiquote(
     (x: i32): i32 -> x + unquote(n)
   );
 
-plus5 :: eval(create_adder(5));
+plus5 := eval(create_adder(5));
 plus5(10);  // => 15
 
 // Generate a sequence of operations
-ops :: [quote(add), quote(sub), quote(mul)];
-generate_math :: quasiquote(
+ops := [quote(add), quote(sub), quote(mul)];
+generate_math := quasiquote(
   {
     unquote_splicing(
       ops.map((op) ->
@@ -603,17 +610,17 @@ extern "C", {
 // The `comptime` keyword explicitly marks expressions for compile-time evaluation
 
 // Compile-time constants
-PI :: comptime 3.14159265358979323846;
+PI := comptime 3.14159265358979323846;
 
 // Compile-time function execution
-factorial :: fn(n: i32): i32 ->
+factorial := fn(n: i32): i32 ->
   if n <= 1, then: 1, else: n * recur(n - 1);
 
 // This will be computed during compilation
-FACTORIAL_10 :: comptime factorial(10);  // = 3628800
+FACTORIAL_10 := comptime factorial(10);  // = 3628800
 
 // Type-level computation using comptime
-Matrix :: fn(T: Type, comptime ROWS: usize, comptime COLS: usize): Type ->
+Matrix := fn(T: Type, comptime ROWS: usize, comptime COLS: usize): Type ->
   Array(Array(T, COLS), ROWS);
 
 // Create a 3x3 matrix of integers
@@ -624,8 +631,8 @@ mat : Matrix(i32, 3, 3) = [
 ];
 
 // Compile-time if statements
-DEBUG_MODE :: if is_comptime(), true, false;
-debug_print :: fn(msg: String) ->
+DEBUG_MODE := if is_comptime(), true, false;
+debug_print := fn(msg: String) ->
   if comptime DEBUG_MODE,  // Decided at compile time, dead code eliminated
     then: std.println(msg),
     else: ();
