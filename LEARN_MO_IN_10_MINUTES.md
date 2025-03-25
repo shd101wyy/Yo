@@ -93,12 +93,12 @@ infixl((+++), 6); // left associative, precedence 6
 3 +++ 4; // 7
 
 // All function parameters are immutable by default
-modify := (x: i32): i32 -> {
+modify := fn(x: i32): i32 -> {
   x += 1; // error: x is immutable
   x
 }
 // To make the function parameter mutable, use `mut`
-modify := (mut(x):i32): i32 -> {
+modify := fn(mut(x):i32): i32 -> {
   x += 1; // OK
   x
 }
