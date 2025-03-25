@@ -137,8 +137,6 @@ empty_block := {;}   // This is a block (with no statements)
 unit := (); // empty tuple
 one_element := (1,); // tuple with one element requires extra "," at the end. Otherwise, it's considered a parenthesized expression.
 pair := (1, 2); // tuple with two elements
-first := pair(0); // 1
-second := pair(1); // 2
 
 // there might be ambiguity for the function that accepts tuple as its first argument
 some_func := fn(x: (i32, i32)): i32 -> x(0) + x(1);
@@ -154,11 +152,7 @@ arr := [1, 2, 3]; // Array(i32, 3)
 // Array: fn(Type, comptime usize)-> Type
 // is equivalent to call `array`
 arr := array(1, 2, 3);
-
 mut(arr) := [1, 2, 3]; // mutable array
-first := arr(0); // get value, 1
-arr(1) = 6; // set value
-rest_slice := &arr(1..3); // MutRef(Slice(i32), SomeRegion), where '..' is the range operator.
 
 // In Mo, type is the first-class citizen,
 // meaning that you can assign a type to a variable, or pass it as an argument to a function.
@@ -353,38 +347,31 @@ s2 := s;  // error: s is consumed
 
 // Reference and Pointer
 // Mo uses *, *mut to for immutable pointer and mutable pointer
-// Mo uses &, &mut for immutable reference and mutable reference
-x := 1;
-y := 2;
-swap := fn(a: &mut(i32), b: &mut(i32)) -> {
+// Mo uses Ref, MutRef for immutable reference and mutable reference
+mut(x) := 1;
+mut(y) := 2;
+swap := forall $ (R: Region) -> fn(a: MutRef(i32, Region), b: MutRef(i32, Region)) -> {
   tmp := *a;
   *a = *b;
   *b = tmp;
 };
-swap(&mut(x), &mut(y));
-
-// Mo automatically deference when accessing the field of a reference
-p := Point 3, 4;
-p_ptr := &p;
-p_ptr(0); // 3
-p_ptr(1); // 4
-
-// To create * and *mut pointer, use `as` function to cast reference to pointer:
-x_ptr := &x `as` *i32;
-
-// Mutable value semantics
-// References in Mo are second-class citizens.
-// - Can't be stored in variables.
-// - Can't return the reference to local variables in function body, but can return the references that are the function arguments or from the function arguments.
-// - Can only be created at function call sites, as a special parameter-passing mode.
-// - Path to a value never appears twice in the function arguments. Path uniqueness.
-x := 12;
-x_ptr := &mut x; // error: can't store reference in variable
+// create mutable reference using `ref` function
+ref MyRegion, (mut(x), mut(y))-> {
+  // type of x changes from i32 to MutRef(i32, MyRegion)
+  // type of y changes from i32 to MutRef(i32, MyRegion)
+  swap(x, y);
+}
+// or without specifying the region name
+ref $ (mut(x), mut(y))-> {
+  // type of x changes from i32 to MutRef(i32, SomeRegion)
+  // type of y changes from i32 to MutRef(i32, SomeRegion)
+  swap(x, y);
+}
 
 // malloc
 // There is no null pointer in Mo.
 // ^Type or ^mut(Type) is a pointer type which is Linear.
-ptr : Option(^mut i32) : malloc(sizeof(i32)); // allocate memory for i32
+ptr : Option(^mut(i32)) : malloc(sizeof(i32)); // allocate memory for i32
 match ptr,
   .Some(p) -> {
     *p = 42; // dereference the pointer
