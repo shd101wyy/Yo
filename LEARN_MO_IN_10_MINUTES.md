@@ -141,10 +141,11 @@ arr := [1, 2, 3]; // Array(i32, 3)
 // Array: fn(Type, comptime usize)-> Type
 // is equivalent to call `array`
 arr := array(1, 2, 3);
+
+mut(arr) := [1, 2, 3]; // mutable array
 first := arr(0); // get value, 1
 arr(1) = 6; // set value
-rest_slice := &arr(1..3); // *Slice(i32), where '..' is the range operator.
-
+rest_slice := &arr(1..3); // MutRef(Slice(i32), SomeRegion), where '..' is the range operator.
 
 // In Mo, type is the first-class citizen,
 // meaning that you can assign a type to a variable, or pass it as an argument to a function.
@@ -236,8 +237,8 @@ impl Id(i32), {
 }
 
 // impl interface with generic type
-forall $ ((T : Type) <: Show(T)) => impl Show((T)), {
-  show: fn(x: (T)): String ->
+forall $ ((T : Type) <: Show(T)) => impl Show((T,)), {
+  show: fn(x: (T,)): String ->
     "(" + x(0).show() + ")"
 }
 show((3,)); // "(3)"
@@ -339,32 +340,15 @@ s2 := s;  // error: s is consumed
 
 // Reference and Pointer
 // Mo uses *, *mut to for immutable pointer and mutable pointer
-// Mo uses Ref, MutRef for immutable reference and mutable reference
+// Mo uses &, &mut for immutable reference and mutable reference
 x := 1;
 y := 2;
-swap := forall $ (R: Region) => fn(a: MutRef(i32, R), b: MutRef(i32, R)) -> {
+swap := fn(a: &mut(i32), b: &mut(i32)) -> {
   tmp := *a;
   *a = *b;
   *b = tmp;
 };
-// Use `ref` to create a reference
-ref R1, (mut(x), mut(y))-> {
-  // R1 is a region name
-  // x: MutRef(i32, R1)
-  // y: MutRef(i32, R1)
-  swap(x, y);
-}
-// or without region name
-ref $ (mut(x), mut(y))-> {
-  // Assume current region name is SomeRegion
-  // Here x: MutRef(i32, SomeRegion)
-  //      y: MutRef(i32, SomeRegion)
-  swap(x, y);
-}
-
-// You can declare one region lives longer than another by using the < or > operator
-// For example, if you have a region R1 that lives longer than R2, you can write:
-R1 > R2;
+swap(&mut(x), &mut(y));
 
 // Mo automatically deference when accessing the field of a reference
 p := Point 3, 4;
@@ -375,7 +359,6 @@ p_ptr(1); // 4
 // To create * and *mut pointer, use `as` function to cast reference to pointer:
 x_ptr := &x `as` *i32;
 
-// NOTE: This might be deprecated
 // Mutable value semantics
 // References in Mo are second-class citizens.
 // - Can't be stored in variables.
@@ -516,7 +499,6 @@ Digit      ::= '0'..'9'
 // Operators
 Operator   ::= OperatorChar+
 OperatorChar ::= '!' | '#' | '$' | '%' | '&' | '*' | '+' | '-' | '.' | '/' | ':' | '<' | '=' | '>' | '?' | '@' | '\\' | '^' | '|' | '~'
-// Note: '*mut', '&mut', and '^mut' are special operators for pointers and references
 
 // Function Call (the primary construct)
 FunctionCall ::= Expression "(" [Expression ("," Expression)*] ")"  // func(arg1, arg2)
