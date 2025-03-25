@@ -16,11 +16,12 @@ mut(y) := 14; // mutable   y: i32
 (:=)(x, 12);
 (:=)(mut(y), 14);
 
+// (:=) function is used to initialize a variable with a value
+// (=) function is used to update a mutable variable with a new value
+// or with type inference
 
-// or without type inference
-
-x : i32 = 12; // immutable x: i32
-mut(y) : i32 = 14; // mutable   y: i32
+x : i32 := 12; // immutable x: i32
+mut(y) : i32 := 14; // mutable   y: i32
 
 // can be written as:
 
@@ -32,10 +33,10 @@ add := fn(x: i32, y: i32): i32 ->
   x + y;
 // or define its type first
 add : (fn(x: i32, y: i32)-> i32); // function type is written as fn(args...)-> return_type
-add = (fn(x: i32, y: i32): i32 -> x + y); // function implementation is written as fn(args...): return_type -> body
+add := (fn(x: i32, y: i32): i32 -> x + y); // function implementation is written as fn(args...): return_type -> body
 // the same as
-add : (fn(x: i32, y: i32)-> i32)
-    = (fn(x: i32, y: i32): i32 -> x + y);
+add :  (fn(x: i32, y: i32)-> i32)
+    := (fn(x: i32, y: i32): i32 -> x + y);
 
 // Type inference for function return values
 // The return type can be inferred when obvious
@@ -49,7 +50,10 @@ get_value := fn(condition: boolean) ->  // Return type inferred as Option(i32)
     else: Option(i32).None;
 
 // Named parameters in function declarations with default values
-create_user := fn(name: String, age: i32 = 18, role: String = String.from("user")): User ->
+create_user := fn(name: String, 
+                  age: i32 = 18, 
+                  role: String = String.from("user")
+                ): User ->
   User {
     name: name,
     age: age,
@@ -150,10 +154,10 @@ rest_slice := &arr(1..3); // MutRef(Slice(i32), SomeRegion), where '..' is the r
 // In Mo, type is the first-class citizen,
 // meaning that you can assign a type to a variable, or pass it as an argument to a function.
 MyI32 := i32; // type alias
-x : MyI32 = 12; // valid
+x : MyI32 := 12; // valid
 
 MyPoint := (i32, i32); // tuple type
-p : MyPoint = (3, 4); // valid
+p : MyPoint := (3, 4); // valid
 
 // Define type variant with `.` operator ahead
 // `.` is a special operator that acceps only a symbol after it.
@@ -165,7 +169,7 @@ p := Point.Point(3, 4);
 // or omit `.Variant` if the type only has one variant and the variant name is the same as the type name
 p := Point 3, 4;
 // or declare its type first
-p : Point = .Point 3, 4;
+p : Point := .Point 3, 4;
 
 // Define multiple variants
 Color :=
@@ -254,7 +258,7 @@ Cm := .Cm(i32);
 impl Cm, {
   M: fn(x: Cm): i32 -> x / 100,
 }
-x : Cm = 200.Cm();
+x : Cm := 200.Cm();
 x.M(); // 2
 // or
 Cm.M(x); // 2
@@ -319,7 +323,7 @@ add(3, 4); // 7
 // Type in Mo can be either Linear or Free
 // Linear means it must be used exactly once
 // For example, String is a linear type
-s : String = String.from("Hello");
+s : String := String.from("Hello");
 s.drop(); // drop the string. s is consumed and can't be used anymore.
 s2 := s;  // error: s is consumed
 
@@ -612,7 +616,7 @@ generate_math := quasiquote(
 // * Compiler - Code Generation, to `C` only now
 
 // C FFI
-{*} = import("stdio.h");
+{*} := import("stdio.h");
 
 extern "C", {
   printf: (fn(format: *char, ...) -> i32);
@@ -641,7 +645,7 @@ Matrix := fn(T: Type, comptime(ROWS): usize, comptime(COLS): usize): Type ->
 // ^ Removing parentheses around ROWS makes it consistent with COLS
 
 // Create a 3x3 matrix of integers
-mat : Matrix(i32, 3, 3) = [
+mat : Matrix(i32, 3, 3) := [
   [1, 2, 3],
   [4, 5, 6],
   [7, 8, 9]
