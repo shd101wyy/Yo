@@ -244,7 +244,7 @@ impl Id(i32), {
 }
 
 // impl interface with generic type
-forall $ ((T : Type) <: Show(T)) => impl Show((T,)), {
+forall $ ((T : Type) <: Show(T)) -> impl Show((T,)), {
   show: fn(x: (T,)): String ->
     "(" + x(0).show() + ")"
 }
@@ -272,7 +272,7 @@ id := fn(T: Type, x: T): T -> x;
 // but when you call it, you need to specify the type:
 id(i32, 12); // 12
 // e.g. with `forall`:
-id := forall $ (T: Type) => fn(x: T): T -> x;
+id := forall $ (T: Type) -> fn(x: T): T -> x;
 // then you can call it without specifying the type:
 id(12); // 12
 
@@ -350,11 +350,11 @@ s2 := s;  // error: s is consumed
 // Mo uses Ref, MutRef for immutable reference and mutable reference
 mut(x) := 1;
 mut(y) := 2;
-swap := forall $ (R: Region) -> fn(a: MutRef(i32, Region), b: MutRef(i32, Region)) -> {
+swap := forall $ ((R: Region) -> (fn(a: MutRef(i32, R), b: MutRef(i32, R)) -> {
   tmp := *a;
   *a = *b;
   *b = tmp;
-};
+}));
 // create mutable reference using `ref` function
 ref MyRegion, (mut(x), mut(y))-> {
   // type of x changes from i32 to MutRef(i32, MyRegion)
@@ -362,11 +362,13 @@ ref MyRegion, (mut(x), mut(y))-> {
   swap(x, y);
 }
 // or without specifying the region name
-ref $ (mut(x), mut(y))-> {
+ref $ ((mut(x), mut(y))-> {
   // type of x changes from i32 to MutRef(i32, SomeRegion)
   // type of y changes from i32 to MutRef(i32, SomeRegion)
   swap(x, y);
-}
+})
+// Mo doesn' support implicitly converting MutRef to Ref
+// they are regarded as different types.  
 
 // malloc
 // There is no null pointer in Mo.
