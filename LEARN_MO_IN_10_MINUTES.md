@@ -134,7 +134,7 @@ some_func(1, 2); // error: expected 1 argument, got 2
 // and
 some_func (1, 2); // error: expected 1 argument, got 2
 // to fix this, we can add `.` before the tuple
-some_func $ (1, 2); // 3 // $ is used to separate the function name and its arguments
+some_func $ (1, 2); // 3 // $ is used to separate the function name and its argument. The same how it works in Haskell.  
 
 // array is defined using [...] with "," as separator.
 arr := [1, 2, 3]; // Array(i32, 3)
@@ -143,7 +143,7 @@ arr := [1, 2, 3]; // Array(i32, 3)
 arr := array(1, 2, 3);
 first := arr(0); // get value, 1
 arr(1) = 6; // set value
-rest_slice := &arr(1..3); // &Slice(i32), where '..' is the range operator.
+rest_slice := &arr(1..3); // *Slice(i32), where '..' is the range operator.
 
 
 // In Mo, type is the first-class citizen,
@@ -347,13 +347,14 @@ swap := forall $ (R: Region) => fn(a: MutRef(i32, R), b: MutRef(i32, R)) -> {
   *a = *b;
   *b = tmp;
 };
-ref R1, (mut(x), mut(y))-> { // mutref accepts a tuple of symbols
+// Use `ref` to create a reference
+ref R1, (mut(x), mut(y))-> {
   // R1 is a region name
   // x: MutRef(i32, R1)
   // y: MutRef(i32, R1)
   swap(x, y);
 }
-// or
+// or without region name
 ref $ (mut(x), mut(y))-> {
   // Assume current region name is SomeRegion
   // Here x: MutRef(i32, SomeRegion)
@@ -361,13 +362,17 @@ ref $ (mut(x), mut(y))-> {
   swap(x, y);
 }
 
+// You can declare one region lives longer than another by using the < or > operator
+// For example, if you have a region R1 that lives longer than R2, you can write:
+R1 > R2;
+
 // Mo automatically deference when accessing the field of a reference
 p := Point 3, 4;
-p_ref := &p;
-p_ref(0); // 3
-p_ref(1); // 4
+p_ptr := &p;
+p_ptr(0); // 3
+p_ptr(1); // 4
 
-// To create * and *mut pointer, use `as` function to case reference to pointer:
+// To create * and *mut pointer, use `as` function to cast reference to pointer:
 x_ptr := &x `as` *i32;
 
 // NOTE: This might be deprecated
@@ -378,7 +383,7 @@ x_ptr := &x `as` *i32;
 // - Can only be created at function call sites, as a special parameter-passing mode.
 // - Path to a value never appears twice in the function arguments. Path uniqueness.
 x := 12;
-x_ref := &mut x; // error: can't store reference in variable
+x_ptr := &mut x; // error: can't store reference in variable
 
 // malloc
 // There is no null pointer in Mo.
@@ -607,21 +612,25 @@ extern "C", {
 
 // Compile-time Execution
 // Mo performs as much computation at compile time as possible
-// The `comptime` keyword explicitly marks expressions for compile-time evaluation
+// The `comptime` function explicitly marks expressions for compile-time evaluation
 
 // Compile-time constants
-PI := comptime 3.14159265358979323846;
+PI := comptime(3.14159265358979323846);
 
 // Compile-time function execution
+// Consider making the syntax more explicit:
 factorial := fn(n: i32): i32 ->
   if n <= 1, then: 1, else: n * recur(n - 1);
 
 // This will be computed during compilation
-FACTORIAL_10 := comptime factorial(10);  // = 3628800
+FACTORIAL_10 := comptime factorial(10);  // More consistent syntax without parentheses
+                                         // Also consider a distinct naming convention for compile-time constants like ALL_CAPS
 
 // Type-level computation using comptime
-Matrix := fn(T: Type, comptime ROWS: usize, comptime COLS: usize): Type ->
+// Consider more intuitive syntax for type parameters:
+Matrix := fn(T: Type, comptime(ROWS): usize, comptime(COLS): usize): Type ->
   Array(Array(T, COLS), ROWS);
+// ^ Removing parentheses around ROWS makes it consistent with COLS
 
 // Create a 3x3 matrix of integers
 mat : Matrix(i32, 3, 3) = [
@@ -631,9 +640,10 @@ mat : Matrix(i32, 3, 3) = [
 ];
 
 // Compile-time if statements
-DEBUG_MODE := if is_comptime(), true, false;
+// Consider a dedicated compile-time condition syntax:
+DEBUG_MODE := comptime if debug_build(), true, false;
 debug_print := fn(msg: String) ->
-  if comptime DEBUG_MODE,  // Decided at compile time, dead code eliminated
+  comptime if DEBUG_MODE,  // More consistent with other uses of comptime
     then: std.println(msg),
     else: ();
 ```
