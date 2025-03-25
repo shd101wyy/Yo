@@ -134,7 +134,7 @@ some_func(1, 2); // error: expected 1 argument, got 2
 // and
 some_func (1, 2); // error: expected 1 argument, got 2
 // to fix this, we can add `.` before the tuple
-some_func $ (1, 2); // 3 // $ is used to separate the function name and its argument. The same how it works in Haskell.  
+some_func $ (1, 2); // 3 // $ is used to separate the function name and its argument. The same how it works in Haskell.
 
 // array is defined using [...] with "," as separator.
 arr := [1, 2, 3]; // Array(i32, 3)
@@ -455,6 +455,32 @@ x := Option(i32).Some(12);
 match x,
   .Some(y) -> std.println("x is Some with value " + y),
   .None -> std.println("x is None")
+
+// Error Handling
+// Mo uses the Result type for operations that may fail
+// Similar to Rust, Result is a union type with Ok and Err variants
+
+// Define the Result type as a generic type
+Result := fn(T: Type, E: Type): Type ->
+  | .Ok T
+  | .Err E;
+
+// Define a standard error type
+DivisionError :=
+  | .DivideByZero
+  | .Overflow;
+
+// Example: Safe division function that returns a Result
+safe_div := fn(a: i32, b: i32): Result(i32, DivisionError) ->
+  if b == 0,
+    then: Result(i32, DivisionError).Err(.DivideByZero),
+    else: Result(i32, DivisionError).Ok(a / b);
+
+// Pattern matching for error handling
+division_result := safe_div(10, 2);
+match division_result,
+  .Ok(value) -> std.println("Result: " + value.to_string()),
+  .Err(.DivideByZero) -> std.println("Error: Cannot divide by zero");
 
 // Macro definition
 if := macro (condition: Expr, then: Expr, else: Expr): Expr ->
