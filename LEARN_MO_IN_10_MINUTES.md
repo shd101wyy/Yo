@@ -18,30 +18,39 @@ mut(y) := 14; // mutable   y: i32
 
 // (:=) function is used to initialize a variable with a value
 // (=) function is used to update a mutable variable with a new value
+// (:) function is used to denote a type
 // or with type inference
 
-x : i32 := 12; // immutable x: i32
-mut(y) : i32 := 14; // mutable   y: i32
+(x : i32) := 12; // immutable x: i32
+(mut(y) : i32) := 14; // mutable   y: i32
 
 // can be written as:
 
 (:)((:)(x, i32), 12);
 (=)((:)(mut(y), i32), 14);
 
+// There is no arithmetic precedence in Mo
+// Every infix operator takes two arguments on its left and right
+// so the expression below is invalid
+3 + 4 * 5;
+// needs to be written as
+3 + (4 * 5);
+// or you can use ; to separate the expressions
+3 + 4; * 5; // but apparently this is not what we meant :)
+
 // define a function
-add := fn(x: i32, y: i32): i32 ->
-  x + y;
+add := (fn(x: i32, y: i32) : i32) -> (x + y);
 // or define its type first
 add : (fn(x: i32, y: i32)-> i32); // function type is written as fn(args...)-> return_type
-add := (fn(x: i32, y: i32): i32 -> x + y); // function implementation is written as fn(args...): return_type -> body
+add := ((fn(x: i32, y: i32): i32) -> (x + y)); // function implementation is written as fn(args...): return_type -> body
 // the same as
 add :  (fn(x: i32, y: i32)-> i32)
-    := (fn(x: i32, y: i32): i32 -> x + y);
+    := ((fn(x: i32, y: i32) : i32) -> (x + y));
 
 // Type inference for function return values
 // The return type can be inferred when obvious
 add_inferred := fn(x: i32, y: i32) ->  // Return type inferred as i32
-  x + y;
+  (x + y);
 
 // Type inference works with complex expressions too
 get_value := fn(condition: boolean) ->  // Return type inferred as Option(i32)
@@ -50,8 +59,8 @@ get_value := fn(condition: boolean) ->  // Return type inferred as Option(i32)
     else: Option(i32).None;
 
 // Named parameters in function declarations with default values
-create_user := fn(name: String, 
-                  age: i32 = 18, 
+create_user := fn(name: String,
+                  age: i32 = 18,
                   role: String = String.from("user")
                 ): User ->
   User {
@@ -386,8 +395,8 @@ free(ptr); // free the memory
 
 // Control flow
 /// cond
-cond  x == 1 -> std.println("x is 1"),
-      x == 2 -> std.println("x is 2"),
+cond  (x == 1) -> std.println("x is 1"),
+      (x == 2) -> std.println("x is 2"),
       true   -> std.println("x is not 1 or 2")
 
 /// while
