@@ -32,11 +32,13 @@ mut(y) := 14; // mutable   y: i32
 // There is no arithmetic precedence in Mo
 // Every infix operator takes two arguments on its left and right
 // so the expression below is invalid
-3 + 4 * 5;
+3 + 4 + 5;
 // needs to be written as
-3 + (4 * 5);
+3 + (4 + 5);
+// or
+(3 + 4) + 5;
 // or you can use ; to separate the expressions
-3 + 4; * 5; // but apparently this is not what we meant :)
+3 + 4; + 5; // but apparently this is not what we meant :)
 
 // define a function
 add := (fn(x: i32, y: i32) : i32) -> (x + y);
