@@ -355,14 +355,14 @@ swap := forall $ ((R: Region) -> (fn(a: MutRef(i32, R), b: MutRef(i32, R)) -> {
   *a = *b;
   *b = tmp;
 }));
-// create mutable reference using `ref` function
-ref MyRegion, (mut(x), mut(y))-> {
+// create mutable reference using `borrow` function
+borrow MyRegion, (mut(x), mut(y))-> {
   // type of x changes from i32 to MutRef(i32, MyRegion)
   // type of y changes from i32 to MutRef(i32, MyRegion)
   swap(x, y);
 }
 // or without specifying the region name
-ref $ ((mut(x), mut(y))-> {
+borrow $ ((mut(x), mut(y))-> {
   // type of x changes from i32 to MutRef(i32, SomeRegion)
   // type of y changes from i32 to MutRef(i32, SomeRegion)
   swap(x, y);
