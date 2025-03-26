@@ -32,13 +32,31 @@ mut(y) := 14; // mutable   y: i32
 // There is no arithmetic precedence in Mo
 // Every infix operator takes two arguments on its left and right
 // so the expression below is invalid
-3 + 4 + 5;
+3 + 4 - 5;
 // needs to be written as
-3 + (4 + 5);
+3 + (4 - 5);
 // or
-(3 + 4) + 5;
+(3 + 4) - 5;
 // or you can use ; to separate the expressions
-3 + 4; + 5; // but apparently this is not what we meant :)
+3 + 4; - 5; // but apparently this is not what we meant :)
+// same for
+3 + 4 + 5; // needs to be written as
+(3 + 4) + 5;
+// or
+(+) 3, 4, 5
+
+
+// IDEA: Let's don't allow this below as it might be confusing
+// {
+//  However, below is valid
+//  3 + 4 + 5; // as they all use the same operator, so they are treated as:
+//  (3 + 4) + 5; // with left associativity
+//  // There are some case that are tend to be using the right associativity
+//  2 ** 3 ** 4; // will be evaluated as
+//  (2 ** 3) ** 4; // which is wrong
+//  // To fix this, we can use parentheses
+//  2 ** (3 ** 4); // 2 ^ (3 ^ 4)
+// }
 
 // define a function
 add := (fn(x: i32, y: i32) : i32) -> (x + y);
@@ -177,10 +195,10 @@ p := Point 3, 4;
 p : Point := .Point 3, 4;
 
 // Define multiple variants
-Color :=
-  | .Red // = 0
-  | .Green
-  | .Blue;
+Color := 
+  (|) .Red, // = 0
+      .Green,
+      .Blue;
 c := Color.Red;
 
 
@@ -370,7 +388,7 @@ borrow $ ((mut(x), mut(y))-> {
   swap(x, y);
 })
 // Mo doesn' support implicitly converting MutRef to Ref
-// they are regarded as different types.  
+// they are regarded as different types.
 
 // malloc
 // There is no null pointer in Mo.
