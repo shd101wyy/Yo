@@ -1,23 +1,6 @@
 export enum TokenType {
-  Eof = "eof",
-
   // operators
   Operator = "operator",
-
-  /// Below are not available as generator operators.
-  /// they are used as a part of the syntax.
-  Dot = ".",
-  // TwoDots = "..", // NOTE: This should be the operator for creating "Range".
-  // Also the "..=" is another operator.
-  Ellipse = "...",
-  Assign = "=",
-  Colon = ":",
-  FunctionArrow = "->",
-  FatArrow = "=>",
-  MoveFatArrow = "=>>",
-  Underscore = "_",
-  /// end
-  /// Comptime = "#",
 
   // parens
   LParen = "(",
@@ -27,12 +10,10 @@ export enum TokenType {
   LCurlyBracket = "{",
   RCurlyBracket = "}",
 
-  // comparison
-  Is = "is",
-
   // string
-  Char = "char",
-  String = "string",
+  Char = "char", // 'a'
+  String = "string", // "abc"
+  InfixIdentifier = "infix_identifier", // `add`
 
   // primary
   Identifier = "identifier",
@@ -40,79 +21,20 @@ export enum TokenType {
   Float = "float",
   Boolean = "boolean",
 
-  // keywords
-  If = "if",
-  Else = "else",
-  For = "for",
-  While = "while",
-  Case = "case",
-  Default = "default",
-  Return = "return",
-  Break = "break",
-  Continue = "continue",
-  //// Fallthrough = "fallthrough",
-  Do = "do",
-  Type = "type",
-  Trait = "trait",
-  Impl = "impl",
-  Dyn = "dyn",
-  Match = "match",
-  Import = "import",
-  Export = "export",
-  From = "from",
-  Move = "move",
-  With = "with",
-  As = "as",
-  Const = "const",
-  Var = "var",
-  Let = "let",
-  Mut = "mut",
-  Defer = "defer",
-  Recur = "recur",
-  Infix = "infix",
-  Infixl = "infixl",
-  Infixr = "infixr",
-  Where = "where",
-
-  /**
-   * A list of available C functions can be found at:
-   * https://libc.llvm.org/index.html
-   */
-  Extern = "extern",
-  Inline = "inline",
-
-  // reserved
-  Null = "null",
-  NULL = "NULL",
-  NullPtr = "nullptr",
-  Undefined = "undefined",
-  Struct = "struct",
-  Union = "union",
-  Override = "override",
-  Declare = "declare",
-  Enum = "enum",
-  //// Control = "control",
-  //// Closure = "closure",
-  //// Switch = "switch",
-  //// Function = "function",
-  //// Class = "class",
-  //// Instance = "instance",
-  //// Extends = "extends",
-  //// Effect = "effect",
-  //// Handler = "handler",
-  //// Implements = "implements",
-  //// Try = "try",
-  //// Symbol = "symbol",
-
   // punctuation
   Semicolon = ";",
   Comma = ",",
+
+  // comment
+  SingleLineComment = "single_line_comment",
+  MultiLineComment = "multi_line_comment",
 }
 
 export interface Token {
   type: TokenType;
   value: string;
   position: {
+    // The start position of the token in the input string
     /**
      * A zero-based line value.
      */
@@ -122,5 +44,45 @@ export interface Token {
      */
     character: number;
   };
-  infixPrecedence?: number;
 }
+
+export const Operators = [
+  "=",
+  "+",
+  "-",
+  "*",
+  "/",
+  "<",
+  ">",
+  "@",
+  "$",
+  "~",
+  "&",
+  "%",
+  "|",
+  "!",
+  "?",
+  "^",
+  ".",
+  ":",
+  "\\",
+  "#",
+];
+
+export function charIsOperator(char: string): boolean {
+  return Operators.includes(char);
+}
+
+export function stringIsOperator(str: string): boolean {
+  let isOperator = true;
+  for (let i = 0; i < str.length; i++) {
+    if (!charIsOperator(str[i])) {
+      isOperator = false;
+      break;
+    }
+  }
+  return isOperator;
+}
+
+export const IdentifierRegex =
+  /^[_a-zA-Z\xA0-\uFFFF][_a-zA-Z0-9\xA0-\uFFFF]*[!?]?$/;

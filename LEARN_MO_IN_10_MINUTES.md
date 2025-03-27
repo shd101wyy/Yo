@@ -168,6 +168,8 @@ some_func(1, 2); // error: expected 1 argument, got 2
 some_func (1, 2); // error: expected 1 argument, got 2
 // to fix this, we can add `.` before the tuple
 some_func .(1, 2); // 3, '.' before '(' indicates that it's a tuple
+// or call it like
+some_func((1, 2)); // 3
 
 // array is defined using [...] with "," as separator.
 arr := [1, 2, 3]; // Array(i32, 3)
