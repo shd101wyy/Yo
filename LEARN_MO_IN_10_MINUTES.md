@@ -111,8 +111,6 @@ user2 := create_user(role: "admin", name: "Bob", age: 30);  // explicit values
 
 // Define a custom operator
 (+++) := fn(x: i32, y: i32): i32 -> x + y;
-// define the precedence and associativity
-infixl((+++), 6); // left associative, precedence 6
 3 +++ 4; // 7
 
 // All function parameters are immutable by default
@@ -159,6 +157,8 @@ empty_block := {;}   // This is a block (with no statements)
 // tuple is defined using (...) with "," as separator
 unit := (); // empty tuple
 one_element := (1,); // tuple with one element requires extra "," at the end. Otherwise, it's considered a parenthesized expression.
+// or you can put a `.` ahead '(' to indicate that it's a tuple
+one_element := .(1); // tuple with one element
 pair := (1, 2); // tuple with two elements
 
 // there might be ambiguity for the function that accepts tuple as its first argument
@@ -168,7 +168,7 @@ some_func(1, 2); // error: expected 1 argument, got 2
 // and
 some_func (1, 2); // error: expected 1 argument, got 2
 // to fix this, we can add `.` before the tuple
-some_func $ (1, 2); // 3 // $ is used to separate the function name and its argument. The same how it works in Haskell.
+some_func .(1, 2); // 3, '.' before '(' indicates that it's a tuple
 
 // array is defined using [...] with "," as separator.
 arr := [1, 2, 3]; // Array(i32, 3)
@@ -353,11 +353,11 @@ swap(&mut(x), &mut(y));
 // Rule 1.0
 // - Reference or data structure containing reference can only appear in the call site, or the return value (last expression) of the block.
 // - Can't return the reference to local variables in the block.
-// - Path to a value never appears twice in the function arguments. Path uniqueness, to guarantee One Reference Only (ORO).  
+// - Path to a value never appears twice in the function arguments. Path uniqueness, to guarantee One Reference Only (ORO).
 //    - If a function returns a reference, then we need to continue checking it
-//      eg: f1(f2(ref1), ref2); 
+//      eg: f1(f2(ref1), ref2);
 //          if f2 returns another reference, then we need to check the paths of ref1 and ref2.
-//          if f2 doesn't return a reference, then we don't need to check the paths of ref1 and ref2.  
+//          if f2 doesn't return a reference, then we don't need to check the paths of ref1 and ref2.
 
 x := 12;
 x_ref := &mut x; // error: Reference and its owner can't live in the same scope.
