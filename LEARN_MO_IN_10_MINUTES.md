@@ -18,7 +18,6 @@ mut(y) := 14; // mutable   y: i32
 // (:=) function is used to initialize a variable with a value
 // (=) function is used to update a mutable variable with a new value
 // (:) function is used to denote a type
-// or with type inference
 
 (x : i32) := 12; // immutable x: i32
 (mut(y) : i32) := 14; // mutable   y: i32
@@ -39,25 +38,25 @@ mut(y) := 14; // mutable   y: i32
 // or you can use ; to separate the expressions
 3 + 4; - 5; // but apparently this is not what we meant :)
 // same for
-3 + 4 + 5; // needs to be written as
+3 + 4 + 5;
+// needs to be written as
 (3 + 4) + 5;
 // or
 (+) 3, 4, 5
 // or
-(+ 3, 4, 5) // Like in Lisp! But with commas
+(+ 3, 4, 5) // Like in Lisp! But with commas separating the arguments
 
-
-// IDEA: Let's don't allow this below as it might be confusing
-// {
-//  However, below is valid
-//  3 + 4 + 5; // as they all use the same operator, so they are treated as:
-//  (3 + 4) + 5; // with left associativity
-//  // There are some case that are tend to be using the right associativity
-//  2 ** 3 ** 4; // will be evaluated as
-//  (2 ** 3) ** 4; // which is wrong
-//  // To fix this, we can use parentheses
-//  2 ** (3 ** 4); // 2 ^ (3 ^ 4)
-// }
+// Why no precedence?
+// Because it makes the language easier to parse and understand
+// and it's consistent with the rest of the language
+// It's explicit!
+// Let's consider the following example:
+2 ** 3 ** 4
+// Should it be evaluated as
+(2 ** 3) ** 4
+// or as
+2 ** (3 ** 4)
+// It's hard to tell! So let's make it explicit
 
 // define a function
 add := (fn(x: i32, y: i32) : i32) -> (x + y);
@@ -321,8 +320,7 @@ s : String := String.from("Hello");
 s.drop(); // drop the string. s is consumed and can't be used anymore.
 s2 := s;  // error: s is consumed
 
-
-
+// QUESTION: Should we have the RAII?
 // RAII (Resource Acquisition Is Initialization)
 // Mo automatically insert `drop` function for Linear types that are not used anymore and implement `drop` function.
 
