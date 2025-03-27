@@ -44,6 +44,8 @@ mut(y) := 14; // mutable   y: i32
 (3 + 4) + 5;
 // or
 (+) 3, 4, 5
+// or
+(+ 3, 4, 5) // Like in Lisp! But with commas
 
 
 // IDEA: Let's don't allow this below as it might be confusing
@@ -66,6 +68,8 @@ add := ((fn(x: i32, y: i32): i32) -> (x + y)); // function implementation is wri
 // the same as
 add :  (fn(x: i32, y: i32)-> i32)
     := ((fn(x: i32, y: i32) : i32) -> (x + y));
+// Or
+fn add(x: i32, y: i32):i32, x + y;
 
 // Type inference for function return values
 // The return type can be inferred when obvious
@@ -195,7 +199,7 @@ p := Point 3, 4;
 p : Point := .Point 3, 4;
 
 // Define multiple variants
-Color := 
+Color :=
   (|) .Red, // = 0
       .Green,
       .Blue;
@@ -296,38 +300,6 @@ id := forall $ (T: Type) -> fn(x: T): T -> x;
 // then you can call it without specifying the type:
 id(12); // 12
 
-// closure
-// FnOnce, FnMut, Fn are interfaces
-// IDEA: Use FnLinear and FnFree instead of FnOnce, FnMut, Fn
-//       FnLinear uses =>> operator, while FnFree uses => operator
-x := 12;
-add_x := (y: i32): i32 =>  // => means closure that captures the environment and doesn't take ownership
-  x + y;
-// => will generate either FnMut, or Fn instance.
-
-s := String.from("Hello");
-use_x := fn(f: fn(x: String)-> unit) =>> f(s); // =>> means closure that takes ownership
-use_x(fn(s)-> std.println(s)); // "Hello"
-
-
-// do notation macro
-// allows us to use `<-`, `<=`, `<<=` inside a block
-do {
-  response <<= fetch("https://api.example.com");
-  std.println(response);
-  json <<= response.json();
-  std.println(json);
-}
-// is equavalent to
-{
-  fetch("https://api.example.com", (response) =>> {
-    std.println(response);
-    response.json((json) =>> {
-      std.println(json);
-    });
-  })
-}
-
 // Module
 // Module is a block of expressions.
 // The very last expression is the return value.
@@ -367,28 +339,81 @@ s2 := s;  // error: s is consumed
 
 // Reference and Pointer
 // Mo uses *, *mut to for immutable pointer and mutable pointer
-// Mo uses Ref, MutRef for immutable reference and mutable reference
+// Mo uses &, &mut for immutable reference and mutable reference
 mut(x) := 1;
 mut(y) := 2;
-swap := forall $ ((R: Region) -> (fn(a: MutRef(i32, R), b: MutRef(i32, R)) -> {
+swap := (fn(a: &mut(i32), b: &mut(i32)) -> {
   tmp := *a;
   *a = *b;
   *b = tmp;
-}));
-// create mutable reference using `borrow` function
-borrow MyRegion, (mut(x), mut(y))-> {
-  // type of x changes from i32 to MutRef(i32, MyRegion)
-  // type of y changes from i32 to MutRef(i32, MyRegion)
-  swap(x, y);
+});
+swap(&mut(x), &mut(y));
+
+// Mutable value semantics
+// References in Mo are second-class citizens.
+// Rule 1.0
+// - Reference or data structure containing reference can only appear in the call site, or the return value (last expression) of the block.
+// - Can't return the reference to local variables in the block.
+// - Path to a value never appears twice in the function arguments. Path uniqueness.
+
+x := 12;
+x_ref := &mut x; // error: Reference and its owner can't live in the same scope.
+// You can use the `use` function to use the reference value in a new scope
+use &mut(x), x_ref -> {
+  // `x` is not allowed to be used here
+  *x_ref = 13;
 }
-// or without specifying the region name
-borrow $ ((mut(x), mut(y))-> {
-  // type of x changes from i32 to MutRef(i32, SomeRegion)
-  // type of y changes from i32 to MutRef(i32, SomeRegion)
-  swap(x, y);
-})
-// Mo doesn' support implicitly converting MutRef to Ref
-// they are regarded as different types.
+
+// Iterator
+to_iter := (forall $ ((T: Type) ->
+  (fn(arr: &Array(T)) -> {
+    return Iter {
+      data: arr, // allow to assign reference in this case
+      index: 0
+    };
+  })))
+arr := ["Hello".to_string(), "world".to_string(), "!".to_string()];
+use arr.iter_mute(), iter-> {
+  // arr is not allowed to be used here
+  // iter: Iter(&mut(String))
+  use iter.next(), v -> {
+    // iter is not allowed to be used here
+    // v: Option(&mut(String))
+    // ...
+  }
+}
+
+
+// closure
+// FnOnce, FnMut, Fn are interfaces
+// like the ones in Rust
+x := 12;
+use &mut(x), x-> {
+  use ((fn(y: i32):i32) =>  // => means closure that captures the environment and doesn't take ownership
+    x + y;
+  // => will generate either FnMut, or Fn instance.
+  ), closure -> {
+    closure(1); // 13
+  }
+}
+
+// do notation macro
+// allows us to use `<-`, `<=`, `<<=` inside a block
+do {
+  response <<= fetch("https://api.example.com");
+  std.println(response);
+  json <<= response.json();
+  std.println(json);
+}
+// is equavalent to
+{
+  fetch("https://api.example.com", (response) =>> {
+    std.println(response);
+    response.json((json) =>> {
+      std.println(json);
+    });
+  })
+}
 
 // malloc
 // There is no null pointer in Mo.
