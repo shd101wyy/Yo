@@ -38,6 +38,8 @@
         { "include": "#async-await" },
         { "include": "#infix-precedence" },
         { "include": "#strings" },
+        { "include": "#chars"},
+        { "include": "#infix-identifiers" },
         { "include": "#builtin-types" }
       ]
     },
@@ -66,17 +68,13 @@
       "patterns": [
         {
           "name": "keyword.control.mo",
-          "match": "\\b(&mut|\\*mut)\\b"
-        },
-        {
-          "name": "keyword.control.mo",
           "match": "[=+\\-\\*/<>@$~&%|!?^.:\\\\]+"
         }
       ]
     },
     "type-declaration": {
       "name": "storage.type.mo",
-      "match": "\\b(type|enum|trait|impl|dyn|static|expr)\\b"
+      "match": "\\b(type|fn|enum|trait|impl|dyn|static|expr)\\b"
     },
     "type-kind": {
       "name": "entity.name.type",
@@ -92,7 +90,7 @@
     },
     "condition": {
       "name": "keyword.control.mo",
-      "match": "\\b(if|else|switch|case|default|match)\\b"
+      "match": "\\b(if|then|else|switch|case|default|match)\\b"
     },
     "clause": {
       "name": "keyword.control.mo",
@@ -127,9 +125,31 @@
         }
       ]
     },
+    "chars": {
+      "name": "string.quoted.single.mo",
+      "begin": "'",
+      "end": "'",
+      "patterns": [
+        {
+          "name": "constant.character.escape.mo",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "infix-identifiers": {
+      "name": "entity.name.function.mo",
+      "begin": "`",
+      "end": "`",
+      "patterns": [
+        {
+          "name": "constant.character.escape.mo",
+          "match": "\\\\."
+        }
+      ]
+    },
     "builtin-types": {
       "name": "support.type.mo",
-      "match": "\\b(usze|u8|i8|u16|i16|u32|i32|u64|i64|f16|f32|f64|boolean|char|symbol|any|voidptr|void|null|true|false)\\b"
+      "match": "\\b(usize|isize|u8|i8|u16|i16|u32|i32|u64|i64|f16|f32|f64|boolean|char|symbol|any|voidptr|void|null|true|false)\\b"
     }
   },
   "scopeName": "source.mo"
