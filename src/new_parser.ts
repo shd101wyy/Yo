@@ -22,6 +22,13 @@ type ParserReturn = {
   index: number;
 };
 
+enum BuiltinCollections {
+  Array = "array",
+  Tuple = "tuple",
+  Record = "record",
+  Begin = "begin",
+}
+
 export default class Parser {
   private inputString: string;
   private modulePath: string;
@@ -52,43 +59,18 @@ export default class Parser {
     });
   }
 
-  private findTokenIndexForRBracket(tokens: Token[], index: number): number {
-    let endBracketType = TokenType.RParen;
-    const startBracketType = tokens[index].type;
-    if (startBracketType === TokenType.LCurlyBracket) {
-      endBracketType = TokenType.RCurlyBracket;
-    } else if (startBracketType === TokenType.LParen) {
-      endBracketType = TokenType.RParen;
-    } else if (startBracketType === TokenType.LBracket) {
-      endBracketType = TokenType.RBracket;
-    } else {
-      throw this.formatErrorMessage(tokens[index], "Expected '{', '(' or '['");
-    }
-    index = index + 1;
-    let count = 1;
-    let endIndex = -1;
-    while (true) {
-      if (!tokens[index]) {
-        throw this.formatErrorMessage(
-          tokens[index - 1],
-          `Expected '${endBracketType}'`
-        );
-      }
-
-      if (tokens[index].type === endBracketType) {
-        count = count - 1;
-        if (count === 0) {
-          endIndex = index;
-          break;
-        }
-      } else if (tokens[index].type === startBracketType) {
-        count = count + 1;
-      }
-
+  private skipWhitespace(tokens: Token[], index: number): number {
+    while (tokens[index] && tokens[index].type === TokenType.Whitespace) {
       index = index + 1;
     }
+    return index;
+  }
 
-    return endIndex;
+  private skipWhitespaceBackward(tokens: Token[], index: number): number {
+    while (tokens[index] && tokens[index].type === TokenType.Whitespace) {
+      index = index - 1;
+    }
+    return index;
   }
 
   private parseParenExpr({
@@ -110,7 +92,7 @@ export default class Parser {
             type: "Atom",
             token: {
               type: TokenType.Identifier,
-              value: "tuple",
+              value: BuiltinCollections.Tuple,
             },
           },
           args: [],
@@ -163,7 +145,7 @@ export default class Parser {
             type: "Atom",
             token: {
               type: TokenType.Identifier,
-              value: "tuple",
+              value: BuiltinCollections.Tuple,
             },
           },
           args,
@@ -217,7 +199,7 @@ export default class Parser {
             type: "Atom",
             token: {
               type: TokenType.Identifier,
-              value: "array",
+              value: BuiltinCollections.Array,
             },
           },
           args,
@@ -274,35 +256,24 @@ export default class Parser {
         if (separator === ";") {
           // begin block,
           // lets check if the forwarded token is a semicolon
-          let j = index - 1;
-          while (true) {
-            if (!tokens[j]) {
-              throw this.formatErrorMessage(
-                tokens[index - 1],
-                "Expected ; to end the begin block"
-              );
-            }
-            if (tokens[j].type === TokenType.Whitespace) {
-              j = j - 1;
-            } else {
-              if (tokens[j].type !== TokenType.Semicolon) {
-                break;
-              } else {
-                // Push unit
-                args.push({
-                  type: "FuncCall",
-                  func: {
-                    type: "Atom",
-                    token: {
-                      type: TokenType.Identifier,
-                      value: "tuple",
-                    },
-                  },
-                  args: [],
-                });
-              }
-              break;
-            }
+          const lastNonWhiteSpaceToken =
+            tokens[this.skipWhitespaceBackward(tokens, index - 1)];
+          if (
+            lastNonWhiteSpaceToken &&
+            lastNonWhiteSpaceToken.type === TokenType.Semicolon
+          ) {
+            // Push unit
+            args.push({
+              type: "FuncCall",
+              func: {
+                type: "Atom",
+                token: {
+                  type: TokenType.Identifier,
+                  value: BuiltinCollections.Tuple,
+                },
+              },
+              args: [],
+            });
           }
         }
 
@@ -327,8 +298,8 @@ export default class Parser {
             type: TokenType.Identifier,
             value:
               separator === ";"
-                ? "begin" // begin block
-                : "record", // record
+                ? BuiltinCollections.Begin // begin block
+                : BuiltinCollections.Record, // record
           },
         },
         args,
@@ -344,7 +315,11 @@ export default class Parser {
     tokens: Token[];
     index: number;
   }): ParserReturn {
+    index = this.skipWhitespace(tokens, index);
     const token = tokens[index];
+    if (!token) {
+      throw this.formatErrorMessage(token, "Unexpected end of input");
+    }
     let returnValue: ParserReturn | null = null;
 
     switch (token.type) {
@@ -407,21 +382,12 @@ export default class Parser {
     tokens: Token[];
     index: number;
   }): ParserReturn {
-    let token = tokens[index];
-    if (!token) {
-      return {
-        expr: primaryExpr,
-        index,
-      };
-    }
+    const nextIndex = this.skipWhitespace(tokens, index);
+    const hasWhitespace = nextIndex !== index;
+    index = nextIndex;
 
-    let hasWhitespace = false;
-    if (token.type === TokenType.Whitespace) {
-      hasWhitespace = true;
-      index = index + 1;
-      token = tokens[index];
-    }
-    if (!token) {
+    const token = tokens[nextIndex];
+    if (!token || token.type === TokenType.Semicolon) {
       return {
         expr: primaryExpr,
         index,
@@ -443,6 +409,28 @@ export default class Parser {
             token,
           },
           args: [primaryExpr, expr],
+        },
+        tokens,
+        index: nextIndex,
+      });
+    } else if (
+      token.type === TokenType.Operator ||
+      token.type === TokenType.InfixIdentifier
+    ) {
+      // Infix operator like
+      // 3 + 4
+      const { expr: rhs, index: nextIndex } = this.parsePrimary({
+        tokens,
+        index: index + 1,
+      });
+      return this.parsePrimaryEnd({
+        primaryExpr: {
+          type: "FuncCall",
+          func: {
+            type: "Atom",
+            token,
+          },
+          args: [primaryExpr, rhs],
         },
         tokens,
         index: nextIndex,
@@ -475,15 +463,10 @@ export default class Parser {
         tokens,
         index: returnValue.index,
       });
-    } else if (token.type === TokenType.Semicolon) {
-      return {
-        expr: primaryExpr,
-        index: index + 1,
-      };
     } else {
       throw this.formatErrorMessage(
         token,
-        "Expected ( for function call, or ; to end the expression"
+        "Expected . or operator or ( for function call"
       );
     }
   }
@@ -546,64 +529,6 @@ export default class Parser {
     }
   }
 
-  private parseBinaryOp({
-    lhs,
-    tokens,
-    index,
-  }: {
-    lhs: Expr;
-    tokens: Token[];
-    index: number;
-  }): ParserReturn {
-    let token = tokens[index];
-    if (!token) {
-      return {
-        expr: lhs,
-        index,
-      };
-    }
-
-    if (token.type === TokenType.Whitespace) {
-      index = index + 1;
-      token = tokens[index];
-    }
-    if (!token) {
-      return {
-        expr: lhs,
-        index,
-      };
-    }
-
-    if (
-      token.type === TokenType.Operator ||
-      token.type === TokenType.InfixIdentifier
-    ) {
-      const { expr: rhs, index: nextIndex } = this.parsePrimary({
-        tokens,
-        index: index + 1,
-      });
-      return this.parseBinaryOp({
-        lhs: {
-          type: "FuncCall",
-          func: {
-            type: "Atom",
-            token,
-          },
-          args: [lhs, rhs],
-        },
-        tokens,
-        index: nextIndex,
-      });
-    } else if (token.type === TokenType.Semicolon) {
-      return {
-        expr: lhs,
-        index,
-      };
-    } else {
-      throw this.formatErrorMessage(token, `Expected operator or ;`);
-    }
-  }
-
   private parseExpression({
     tokens,
     index,
@@ -611,26 +536,76 @@ export default class Parser {
     tokens: Token[];
     index: number;
   }): ParserReturn {
-    const { expr, index: nextIndex } = this.parsePrimary({
+    index = this.skipWhitespace(tokens, index);
+    return this.parsePrimary({
       tokens,
       index,
     });
-    return this.parseBinaryOp({
-      lhs: expr,
-      tokens,
-      index: nextIndex,
-    });
+  }
+
+  private exprToString(expr: Expr): string {
+    switch (expr.type) {
+      case "Atom": {
+        return expr.token.value;
+      }
+      case "FuncCall": {
+        if (
+          expr.func.type === "Atom" &&
+          expr.func.token.type === TokenType.Operator
+        ) {
+          if (expr.args.length === 1) {
+            return `${expr.func.token.value}(${this.exprToString(
+              expr.args[0]
+            )})`;
+          } else if (expr.args.length === 2) {
+            return `(${this.exprToString(expr.args[0])} ${
+              expr.func.token.value
+            } ${this.exprToString(expr.args[1])})`;
+          }
+        }
+        if (
+          expr.func.type === "Atom" &&
+          expr.func.token.type === TokenType.Identifier &&
+          expr.func.token.value === BuiltinCollections.Tuple
+        ) {
+          if (expr.args.length === 1) {
+            return `(${this.exprToString(expr.args[0])},)`;
+          }
+          return `(${expr.args
+            .map((arg) => {
+              return this.exprToString(arg);
+            })
+            .join(", ")
+            .trim()})`;
+        }
+
+        const func = this.exprToString(expr.func);
+        const args = expr.args
+          .map((arg) => {
+            return this.exprToString(arg);
+          })
+          .join(", ")
+          .trim();
+        return `${func}(${args})`;
+      }
+    }
+  }
+
+  public programToString() {
+    const printed = this.program
+      .map((expr) => {
+        return this.exprToString(expr);
+      })
+      .join(";\n");
+    return printed;
   }
 
   private parse(tokens: Token[]) {
     let index = 0;
     const exprs: Expr[] = [];
     // eslint-disable-next-line no-constant-condition
-    while (true) {
+    while (index < tokens.length) {
       const token = tokens[index];
-      if (!token) {
-        break;
-      }
       // Top level expression
       switch (token.type) {
         case TokenType.Whitespace:
@@ -643,13 +618,37 @@ export default class Parser {
         }
       }
 
+      if (index >= tokens.length) {
+        break;
+      }
+
       const { expr, index: nextIndex } = this.parseExpression({
         tokens,
         index,
       });
-
       exprs.push(expr);
       index = nextIndex;
+    }
+
+    // Check if the last token is a semicolon
+    const lastNonWhiteSpaceToken =
+      tokens[this.skipWhitespaceBackward(tokens, tokens.length - 1)];
+    if (
+      lastNonWhiteSpaceToken &&
+      lastNonWhiteSpaceToken.type === TokenType.Semicolon
+    ) {
+      // Add unit
+      exprs.push({
+        type: "FuncCall",
+        func: {
+          type: "Atom",
+          token: {
+            type: TokenType.Identifier,
+            value: BuiltinCollections.Tuple,
+          },
+        },
+        args: [],
+      });
     }
 
     this.program = exprs;
