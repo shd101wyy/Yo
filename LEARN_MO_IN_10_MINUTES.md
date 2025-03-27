@@ -156,8 +156,6 @@ empty_block := {;}   // This is a block (with no statements)
 // tuple is defined using (...) with "," as separator
 unit := (); // empty tuple
 one_element := (1,); // tuple with one element requires extra "," at the end. Otherwise, it's considered a parenthesized expression.
-// or you can put a `.` ahead '(' to indicate that it's a tuple
-one_element := .(1); // tuple with one element
 pair := (1, 2); // tuple with two elements
 
 // there might be ambiguity for the function that accepts tuple as its first argument
@@ -165,10 +163,9 @@ some_func := fn(x: (i32, i32)): i32 -> x(0) + x(1);
 // then
 some_func(1, 2); // error: expected 1 argument, got 2
 // and
-some_func (1, 2); // error: expected 1 argument, got 2
-// to fix this, we can add `.` before the tuple
-some_func .(1, 2); // 3, '.' before '(' indicates that it's a tuple
-// or call it like
+some_func (1, 2); // Works! The whitespace is necessary here to avoid ambiguity
+                  // 3
+// or call it like without whitespace between the function and '('
 some_func((1, 2)); // 3
 
 // array is defined using [...] with "," as separator.

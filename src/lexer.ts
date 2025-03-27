@@ -39,13 +39,32 @@ export function tokenize(input: string): Token[] {
     switch (char) {
       case " ":
       case "\t":
-        // ignore whitespace
-        break;
       case "\n":
-        line++; // reset the line number
-        totalCharacters = i + 1; // reset the character number
+      case "r": {
+        let whitespaces = "";
+        let j = i;
+        const currentLine = line;
+        while (
+          input[j] === " " ||
+          input[j] === "\t" ||
+          input[j] === "\n" ||
+          input[j] === "\r"
+        ) {
+          whitespaces += input[j];
+          if (input[j] === "\n") {
+            line++; // reset the line number
+            totalCharacters = j + 1; // reset the character number
+          }
+          j = j + 1;
+        }
+        tokens.push({
+          type: TokenType.Whitespace,
+          value: whitespaces,
+          position: { line: currentLine, character: characterColumn },
+        });
+        i = j - 1;
         break;
-
+      }
       // comments
       case "/":
         if (input[i + 1] === "/") {

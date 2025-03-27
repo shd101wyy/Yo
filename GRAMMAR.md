@@ -4,8 +4,8 @@
 
 ;; Core Syntax
 Program ::= [Expression (";" Expression)*] ";"?
-Expression ::= 
-  | Atom 
+Expression ::=
+  | Atom
   | FunctionCall
   | ArrayLiteral
   | TupleLiteral
@@ -13,7 +13,7 @@ Expression ::=
   | RecordLiteral
   | "(" Expression ")"  // Parentheses for grouping
 
-;; Atoms (leaf nodes)
+;; Atoms - The smallest unit of expression
 Atom ::= Symbol | Literal
 
 ;; Literals
@@ -43,12 +43,12 @@ ArrayLiteral ::= "[" [Expression ("," Expression)*] "]"
 
 ;; Tuple Literal - uses parentheses with comma-separated expressions
 ;; For single-element tuples, a trailing comma is required to distinguish from grouping
-TupleLiteral ::= "(" Expression "," [Expression ("," Expression)*] ")"
+TupleLiteral ::= "(" Expression "," [Expression ("," Expression)*] ")"  ;; Multi-element tuple with comma
                | "(" ")"  ;; Empty tuple
 
 ;; Block Expression - uses curly braces with semicolon-separated expressions
-;; Each expression must be followed by a semicolon, except for the last one (which is optional)
-BlockExpression ::= "{" [Expression (";" Expression)*] ";"? "}"
+;; Must have at least one semicolon to distinguish from RecordLiteral
+BlockExpression ::= "{" Expression ";" [Expression (";" Expression)*] ";"? "}"  ;; At least one expression followed by a semicolon
                   | "{" ";" "}"  ;; Empty block with just a semicolon
 
 ;; Record Literal - uses curly braces with comma-separated expressions
@@ -56,9 +56,13 @@ BlockExpression ::= "{" [Expression (";" Expression)*] ";"? "}"
 RecordLiteral ::= "{" [Expression ("," Expression)*] ","? "}"  ;; Optional trailing comma
                 | "{" "}"  ;; Empty record
 
+;; Whitespace token
+Whitespace ::= ' ' | '\t' | '\n' | '\r'
+
 ;; Function Call (the primary construct)
-FunctionCall ::= Expression "(" [Expression ("," Expression)*] ")"  // func(arg1, arg2)
-               | Expression Expression ("," Expression)*  // func arg1, arg2, ...
-               | Expression Operator Expression  // arg1 + arg2
-               | Expression InfixIdentifier Expression  // arg1 `add` arg2
+;; Note: Space between function name and parentheses affects parsing
+FunctionCall ::= Expression Whitespace* "(" [Expression ("," Expression)*] ")"  ;; No space: Regular function call - func(arg1, arg2)
+               | Expression Whitespace+ Expression ("," Expression)*            ;; Space-separated args - func arg1, arg2
+               | Expression Operator Expression                                ;; Infix operator - arg1 + arg2
+               | Expression InfixIdentifier Expression                         ;; Infix function - arg1 `add` arg2
 ```

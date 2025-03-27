@@ -28,6 +28,10 @@ export enum TokenType {
   // comment
   SingleLineComment = "single_line_comment",
   MultiLineComment = "multi_line_comment",
+
+  // whitespace
+  // ' ' | '\t' | '\n' | '\r'
+  Whitespace = "whitespace",
 }
 
 export interface Token {
