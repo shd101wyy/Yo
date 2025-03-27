@@ -12,7 +12,6 @@ x := 12; // immutable x: i32
 mut(y) := 14; // mutable   y: i32
 
 // can be written as:
-
 (:=)(x, 12);
 (:=)(mut(y), 14);
 
@@ -354,7 +353,11 @@ swap(&mut(x), &mut(y));
 // Rule 1.0
 // - Reference or data structure containing reference can only appear in the call site, or the return value (last expression) of the block.
 // - Can't return the reference to local variables in the block.
-// - Path to a value never appears twice in the function arguments. Path uniqueness.
+// - Path to a value never appears twice in the function arguments. Path uniqueness, to guarantee One Reference Only (ORO).  
+//    - If a function returns a reference, then we need to continue checking it
+//      eg: f1(f2(ref1), ref2); 
+//          if f2 returns another reference, then we need to check the paths of ref1 and ref2.
+//          if f2 doesn't return a reference, then we don't need to check the paths of ref1 and ref2.  
 
 x := 12;
 x_ref := &mut x; // error: Reference and its owner can't live in the same scope.
@@ -365,15 +368,15 @@ use &mut(x), x_ref -> {
 }
 
 // Iterator
-to_iter := (forall $ ((T: Type) ->
-  (fn(arr: &Array(T)) -> {
+to_iter_mut := (forall $ ((T: Type) ->
+  (fn(arr: &mut(Array(T))) -> {
     return Iter {
-      data: arr, // allow to assign reference in this case
+      data: arr, // allow to assign reference in this case because it's the last expression
       index: 0
     };
   })))
 arr := ["Hello".to_string(), "world".to_string(), "!".to_string()];
-use arr.iter_mute(), iter-> {
+use arr.to_iter_mut(), iter-> {
   // arr is not allowed to be used here
   // iter: Iter(&mut(String))
   use iter.next(), v -> {
@@ -389,13 +392,16 @@ use arr.iter_mute(), iter-> {
 // like the ones in Rust
 x := 12;
 use &mut(x), x-> {
-  use ((fn(y: i32):i32) =>  // => means closure that captures the environment and doesn't take ownership
-    x + y;
-  // => will generate either FnMut, or Fn instance.
-  ), closure -> {
-    closure(1); // 13
+  // x: &mut(i32)
+  use ((fn(y: i32):i32) =>  // => means closure that captures the outside environment.
+    *x = *x + y;
+  // =>
+  ), closure -> { // in this case, closure is FnMut
+    closure(1); // x: 13
+    closure(2); // x: 15
   }
 }
+// x: 15
 
 // do notation macro
 // allows us to use `<-`, `<=`, `<<=` inside a block
