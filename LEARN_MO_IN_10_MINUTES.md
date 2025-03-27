@@ -530,34 +530,6 @@ if x == 1, then: std.println("x is 1"), else: std.println("x is not 1");
 cond  x == 1 -> std.println("x is 1"),
       true   -> std.println("x is not 1")
 
-// Grammar
-// Since everything in Mo is a function, the grammar is much simpler
-
-// Core Syntax
-Program  ::= Expression*
-Expression ::= Atom | FunctionCall
-
-// Atoms (leaf nodes)
-Atom ::= Symbol | Literal
-
-// Literals
-Literal ::= BooleanLiteral | NumberLiteral | StringLiteral | CharLiteral
-Symbol  ::= Identifier | Operator
-
-// Identifier and Operator definitions
-Identifier ::= (Letter | '_') (Letter | Digit | '_')*
-Letter     ::= 'a'..'z' | 'A'..'Z'
-Digit      ::= '0'..'9'
-
-// Operators
-Operator   ::= OperatorChar+
-OperatorChar ::= '!' | '#' | '$' | '%' | '&' | '*' | '+' | '-' | '.' | '/' | ':' | '<' | '=' | '>' | '?' | '@' | '\\' | '^' | '|' | '~'
-
-// Function Call (the primary construct)
-FunctionCall ::= Expression "(" [Expression ("," Expression)*] ")"  // func(arg1, arg2)
-               | Expression Expression ("," Expression)*  // func arg1, arg2, ...
-               | Expression InfixOperator Expression  // arg1 + arg2
-               | PrefixOperator Expression  // !arg
 
 // AST Representation
 Expr :=

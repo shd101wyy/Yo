@@ -6,4 +6,3 @@ fn factorial(x: i32): i32,
 x := 'a'
 y := "Ha";
 (z : usize) := (3 `add` 4);
-

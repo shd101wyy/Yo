@@ -4,7 +4,7 @@ A multi-paradigm, general-purpose, compiled programming language.
 
 - [Learn Mo in 10 Minutes](./LEARN_MO_IN_10_MINUTES.md)
 - [Design](./DESIGN.md)
-- [Specification](./SPECIFICATION.md)
+- [Grammar](./GRAMMAR.md)
 - [Roadmap](./ROADMAP.md)
 - [Removals](./REMOVALS.md)
 
