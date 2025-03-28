@@ -5,8 +5,8 @@
 ;; Core Syntax
 Program ::= [Expression (";" Expression)*] ";"?
 Expression ::=
-  | Atom
   | FunctionCall
+  | Atom
   | ArrayLiteral
   | TupleLiteral
   | BlockExpression
