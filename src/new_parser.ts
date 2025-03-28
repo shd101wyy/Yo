@@ -459,6 +459,7 @@ export default class Parser {
       };
       // Check chaining
       while (
+        tokens[index] &&
         tokens[index].type === TokenType.Operator &&
         tokens[index].value === "."
       ) {

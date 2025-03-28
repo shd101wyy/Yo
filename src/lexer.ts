@@ -45,7 +45,7 @@ export function tokenize(input: string): Token[] {
       case " ":
       case "\t":
       case "\n":
-      case "r": {
+      case "\r": {
         let whitespaces = "";
         let j = i;
         const currentLine = line;
