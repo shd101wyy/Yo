@@ -1,3 +1,4 @@
+import { MoLexerError } from "./error";
 import { charIsOperator, IdentifierRegex, Token, TokenType } from "./token";
 
 /**
@@ -108,7 +109,10 @@ export function tokenize(input: string): Token[] {
               line++;
             }
             if (j >= input.length - 1) {
-              throw new Error("Unterminated multi-line comment");
+              throw new MoLexerError({
+                message: "Unterminated multi-line comment",
+                characterIndex: input.length - 1,
+              });
             }
             if (input[j] === "*" && input[j + 1] === "/") {
               comment += "*/";
@@ -129,7 +133,10 @@ export function tokenize(input: string): Token[] {
           });
           i = j + 1;
         } else {
-          throw new Error(`Unexpected character ${char}`);
+          throw new MoLexerError({
+            message: `Unexpected character ${char}`,
+            characterIndex: i + 1,
+          });
         }
         break;
       // parens
@@ -227,7 +234,7 @@ export function tokenize(input: string): Token[] {
         if (value.length === 1 || (value.length === 2 && value[0] === "\\")) {
           tokens.push({
             type: TokenType.Char,
-            value,
+            value: `'${value}'`,
             position: {
               row: line,
               column: characterColumn,
@@ -235,7 +242,10 @@ export function tokenize(input: string): Token[] {
             },
           });
         } else {
-          throw new Error(`Invalid char ${value}`);
+          throw new MoLexerError({
+            message: `Invalid char '${value}', expected char to have length 1.`,
+            characterIndex: i,
+          });
         }
 
         break;
@@ -261,7 +271,7 @@ export function tokenize(input: string): Token[] {
 
         tokens.push({
           type: TokenType.String,
-          value: stringValue,
+          value: `"${stringValue}"`,
           position: {
             row: line,
             column: characterColumn,
@@ -341,6 +351,7 @@ export function tokenize(input: string): Token[] {
         } else if (/[_a-zA-Z\xA0-\uFFFF]/.test(char)) {
           // identifier
           let value = char;
+          const startIndex = i;
           i = i + 1;
 
           while (/[_a-zA-Z0-9\xA0-\uFFFF]/.test(input[i]) && input[i]) {
@@ -388,10 +399,16 @@ export function tokenize(input: string): Token[] {
                 break;
             }
           } else {
-            throw new Error(`Invalid identifier ${value}`);
+            throw new MoLexerError({
+              message: `Invalid identifier ${value}`,
+              characterIndex: startIndex,
+            });
           }
         } else {
-          throw new Error(`Unexpected character ${char}`);
+          throw new MoLexerError({
+            message: `Unexpected character ${char}`,
+            characterIndex: i,
+          });
         }
 
         break;

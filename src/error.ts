@@ -1,5 +1,45 @@
 import { Token } from "./token";
 
+export class MoLexerError {
+  public characterIndex: number;
+  public message: string;
+
+  constructor({
+    characterIndex,
+    message,
+  }: {
+    characterIndex: number;
+    message: string;
+  }) {
+    this.characterIndex = characterIndex;
+    this.message = message;
+  }
+}
+
+export class MoParserError {
+  public modulePath: string;
+  public inputString: string;
+  public token: Token;
+  public message;
+
+  constructor({
+    modulePath,
+    inputString,
+    token,
+    message,
+  }: {
+    modulePath: string;
+    inputString: string;
+    token: Token;
+    message: string;
+  }) {
+    this.modulePath = modulePath;
+    this.inputString = inputString;
+    this.token = token;
+    this.message = message;
+  }
+}
+
 export function getLineAtToken({
   modulePath,
   inputString,
@@ -20,6 +60,25 @@ ${lineString}
 ${" ".repeat(column + Math.floor(token.value.length / 2))}^`;
 }
 
+export function getLineAtPosition({
+  modulePath,
+  inputString,
+  position,
+}: {
+  modulePath: string;
+  inputString: string;
+  position: { row: number; column: number };
+}): string {
+  const { row, column } = position;
+
+  const lines = inputString.split("\n");
+  const lineString = lines[row];
+  return `${modulePath}:${row + 1}:${column + 1}:
+  
+${lineString}
+${" ".repeat(column)}^`;
+}
+
 export function formatErrorMessage({
   modulePath,
   inputString,
@@ -32,12 +91,16 @@ export function formatErrorMessage({
   token: Token;
   errorMessage: string;
   cause?: Error;
-}): Error {
+}): MoParserError {
   const errorMessages = `${errorMessage}
 ${getLineAtToken({ modulePath, inputString, token })}`;
-  return new Error(
-    errorMessages + (cause?.message ? "\n" + cause.message : "")
-  );
+
+  return new MoParserError({
+    modulePath,
+    inputString,
+    token,
+    message: errorMessages + (cause?.message ? "\n" + cause.message : ""),
+  });
 }
 
 export function formatErrorMessages({
@@ -52,18 +115,23 @@ export function formatErrorMessages({
   errorMessage?: string;
   tokenAndErrorList: { token: Token; errorMessage: string }[];
   cause?: Error;
-}): Error {
+}): MoParserError {
   const errorMessages = tokenAndErrorList
     .map(({ token, errorMessage }) => {
       return `${errorMessage}
 ${getLineAtToken({ modulePath, inputString, token })}`;
     })
     .join("\n\n");
-  return new Error(
-    (errorMessage ? errorMessage + "\n" : "") +
+
+  return new MoParserError({
+    modulePath,
+    inputString,
+    token: tokenAndErrorList[0]?.token,
+    message:
+      (errorMessage ? errorMessage + "\n" : "") +
       errorMessages +
-      (cause?.message ? "\n" + cause.message : "")
-  );
+      (cause?.message ? "\n" + cause.message : ""),
+  });
 }
 
 export function formatWarningMessages({
