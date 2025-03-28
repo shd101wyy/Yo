@@ -28,6 +28,7 @@ mut(y) := 14; // mutable   y: i32
 (=)((:)(mut(y), i32), 14);
 
 // There is no arithmetic precedence in Mo
+// Except for the "." operator which has the highest precedence
 // Every infix operator takes two arguments on its left and right
 // so the expression below is invalid
 3 + 4 - 5;
@@ -101,12 +102,12 @@ add y: 5, x: 4;
 // Call with named parameters in any order, omitting those with defaults
 user1 := create_user(name: "Alice");  // age=18, role="user" (defaults)
 user2 := create_user(role: "admin", name: "Bob", age: 30);  // explicit values
-// or use `add` as an infix operator
-3 `add` 4;
 
-// uniform function call syntax
+// Mo also supports uniform function call syntax
 // '.' will move the receiver to the first argument
 3.add(4); // is equivalent to add(3, 4)
+// You can also write it as
+3 .add 4; //
 
 // Define a custom operator
 (+++) := fn(x: i32, y: i32): i32 -> x + y;
@@ -449,6 +450,10 @@ match ptr,
   },
   .None -> std.println("Memory allocation failed");
 free(ptr); // free the memory
+
+// cast reference to pointer using `as` function
+x := 12;
+ptr := &mut(x) .as *mut(i32);
 
 // Control flow
 /// cond

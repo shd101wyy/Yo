@@ -413,10 +413,7 @@ export default class Parser {
         tokens,
         index: nextIndex,
       });
-    } else if (
-      token.type === TokenType.Operator ||
-      token.type === TokenType.InfixIdentifier
-    ) {
+    } else if (token.type === TokenType.Operator) {
       // Infix operator like
       // 3 + 4
       const { expr: rhs, index: nextIndex } = this.parsePrimary({

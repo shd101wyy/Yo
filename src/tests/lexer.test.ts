@@ -112,9 +112,6 @@ describe("Lexer Tests", () => {
     expect(tokenValues).toContain("true");
     expect(tokenValues).toContain("false");
 
-    // Check for infix identifier
-    expect(tokenTypes).toContain(TokenType.InfixIdentifier);
-    expect(tokenValues).toContain("plus");
 
     // Check for identifiers with ! and ?
     expect(tokenValues).toContain("x!");

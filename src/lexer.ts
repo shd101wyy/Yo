@@ -271,35 +271,6 @@ export function tokenize(input: string): Token[] {
 
         break;
       }
-      // infix identifier
-      case "`": {
-        let value = "";
-
-        for (let j = i + 1; j < input.length; j++) {
-          if (input[j] === "`") {
-            i = j;
-            break;
-          }
-          value += input[j];
-        }
-
-        // Validate if it's a valid identifier using IdentifierRegex
-        if (IdentifierRegex.test(value)) {
-          tokens.push({
-            type: TokenType.InfixIdentifier,
-            value,
-            position: {
-              row: line,
-              column: characterColumn,
-              character: characterIndex,
-            },
-          });
-        } else {
-          throw new Error(`Invalid infix identifier ${value}`);
-        }
-
-        break;
-      }
       // other
       case ",":
         tokens.push({

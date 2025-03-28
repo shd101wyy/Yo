@@ -32,7 +32,6 @@ Symbol  ::= Identifier | Operator
 Identifier ::= (Letter | '_') (Letter | Digit | '_')* ('!' | '?')?
 Letter     ::= 'a'..'z' | 'A'..'Z'
 Digit      ::= '0'..'9'
-InfixIdentifier ::= '`' Identifier '`'
 
 ;; Operators
 Operator   ::= OperatorChar+
@@ -64,5 +63,4 @@ Whitespace ::= ' ' | '\t' | '\n' | '\r'
 FunctionCall ::= Expression Whitespace* "(" [Expression ("," Expression)*] ")"  ;; No space: Regular function call - func(arg1, arg2)
                | Expression Whitespace+ Expression ("," Expression)*            ;; Space-separated args - func arg1, arg2
                | Expression Operator Expression                                ;; Infix operator - arg1 + arg2
-               | Expression InfixIdentifier Expression                         ;; Infix function - arg1 `add` arg2
 ```

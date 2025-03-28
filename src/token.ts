@@ -13,7 +13,7 @@ export enum TokenType {
   // string
   Char = "char", // 'a'
   String = "string", // "abc"
-  InfixIdentifier = "infix_identifier", // `add`
+  // IDEA: ` backtick reserved for quasiquote?
 
   // primary
   Identifier = "identifier",
