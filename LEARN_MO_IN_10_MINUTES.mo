@@ -1,6 +1,4 @@
-# Learn Mo in 10 Minutes
-
-```rust
+// # Learn Mo in 10 Minutes
 // Philosophy
 // A combination of Lisp and C.
 
@@ -31,15 +29,21 @@ mut(y) := 14; // mutable   y: i32
 // Except for the "." operator which has the highest precedence
 // Every infix operator takes two arguments on its left and right
 // so the expression below is invalid
-3 + 4 - 5;
+//
+//   3 + 4 - 5;
+//
 // needs to be written as
+//
 3 + (4 - 5);
+//
 // or
 (3 + 4) - 5;
 // or you can use ; to separate the expressions
 3 + 4; - 5; // but apparently this is not what we meant :)
 // same for
-3 + 4 + 5;
+//
+//   3 + 4 + 5;
+//
 // needs to be written as
 (3 + 4) + 5;
 // or
@@ -52,7 +56,9 @@ mut(y) := 14; // mutable   y: i32
 // and it's consistent with the rest of the language
 // It's explicit!
 // Let's consider the following example:
-2 ** 3 ** 4;
+//
+//   2 ** 3 ** 4;
+//
 // Should it be evaluated as
 (2 ** 3) ** 4;
 // or as
@@ -62,7 +68,7 @@ mut(y) := 14; // mutable   y: i32
 // define a function
 fn add(x: i32, y: i32):i32, x + y;
 // or with anonymous function
-add := (fn(x: i32, y: i32) : i32) -> (x + y);
+add := ((fn(x: i32, y: i32) : i32) -> (x + y));
 // or define its type first
 add : (fn(x: i32, y: i32)-> i32); // function type is written as fn(args...)-> return_type
 add := ((fn(x: i32, y: i32): i32) -> (x + y)); // function implementation is written as fn(args...): return_type -> body
@@ -190,62 +196,73 @@ MyI32 := i32; // type alias
 MyPoint := (i32, i32); // tuple type
 (p : MyPoint) := (3, 4); // valid
 
-// Define type variant with `.` operator ahead
-// `.` is a special operator that acceps only a symbol after it.
-Point := .Point(i32, i32);
-// is equavalent to:
-Point := ((.)(Point))(i32, i32)
-// You can use `.` to access the variant
-p := Point.Point(3, 4);
-// or omit `.Variant` if the type only has one variant and the variant name is the same as the type name
-p := Point 3, 4;
-// or declare its type first
-(p : Point) := .Point 3, 4;
+// "struct" works similarly in C (and rust). 
+// It accepts one type as its argument
+// and it can be used to define a new type
+Point := struct (i32, i32);
+p := Point (3, 4);
 
-// Define multiple variants
-Color :=
-  | (.Red), // = 0
-    (.Green),
-    (.Blue);
-c := Color.Red;
+Point := struct {x: i32, y: i32};
+p := Point {x: 3, y: 4};
+
+Cm := struct i32;
+x := Cm 200;
+
+// "enum" works similarly in Rust.
+// It is tagged union type.
+// it follows by a record of variants:
+Color := enum {
+  Red, // = 0
+  Green,
+  Blue
+}
+// each variant can have one type as its argument
+Animal := enum {
+  Dog (String, f64),
+  Cat { name: String, weight: f64 }
+};
+a := Animal.Dog("Buddy", 12.5);
+// or
+(b : Animal) := .Cat { name: "Whiskers", weight: 8.5 };
 
 
-// C like union can also be defined using '|'
-Result := .Result (
-  | { int: i64, },
-    { float: f64, },
-    { bool: boolean }
-); // The parentheses are necessary to avoid ambiguity
-
+// "union" is also quite the same
+// but it can only accept record as its argument
+Result := union {
+  int: i64,
+  float: f64,
+  bool: boolean
+};
 result := Result { int: 12 };
 result.float = 3.14;
 
 // A more complicated example
-Shape :=
-  | (.Circle i32),
-    (.Rectangle {width: i32, height: i32});
+Shape := enum {
+  Circle i32,
+  Rectangle {width: i32, height: i32}
+}
 s := Shape.Circle 5;
 s := Shape.Rectangle {width: 10, height: 20};
 
 // type as function parameter
 fn Option(T: Type): Type,
-  | (.Some T),
-    (.None);
+  enum {
+    Some(T),
+    None
+  };
 
 x := Option(i32).Some(12);
 
 // generalized algebraic data types (GADT)
 // By default, all variants return the same type.
-Point := .Point(i32, i32);
-// is equavalent to:
-Point := (.Point : (fn(i32, i32) -> Point));
 // You can also specify the return type for each variant
 // to make it a GADT
 fn MyExpr(T: Type): Type,
-  | (.IntExpr : (fn(i32) -> MyExpr(i32))),
-    (.BoolExpr : (fn(boolean) -> MyExpr(boolean))),
-    (.EqExpr : (fn(MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean)))
-;
+  enum {
+    IntExpr: (fn(i32) -> MyExpr(i32)),
+    BoolExpr: (fn(boolean) -> MyExpr(boolean)),
+    EqExpr: (fn(MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean))
+  };
 fn my_eval(T: Type, expr: MyExpr(T)): T,
   match expr,
     .IntExpr(i) -> i,
@@ -255,8 +272,7 @@ fn my_eval(T: Type, expr: MyExpr(T)): T,
 
 // higher kinded types
 // are types that take other types as parameter
-fn T1(F: (fn(Type) -> Type), A: Type),
-  .T1 F(A)
+fn T1(F: (fn(Type) -> Type), A: Type), F(A)
 ;
 // Assume we have the `Maybe` type,
 // then we can define `Option` like below
@@ -308,7 +324,7 @@ fn id(T: Type, x: T):T, {
 // but when you call it, you need to specify the type:
 id(i32, 12); // 12
 // e.g. with `forall`:
-id := forall $ (T: Type) -> fn(x: T): T -> x;
+id := forall (T: Type), ((fn(x: T): T) -> x);
 // then you can call it without specifying the type:
 id(12); // 12
 
@@ -539,13 +555,16 @@ match x,
 
 // Define the Result type as a generic type
 fn Result(T: Type, E: Type): Type,
-  | (.Ok T),
-    (.Err E);
+  enum {
+    Ok(T),
+    Err(E)
+  };
 
 // Define a standard error type
-DivisionError :=
-  | (.DivideByZero),
-    (.Overflow);
+DivisionError := enum {
+  DivideByZero,
+  Overflow
+};
 
 // Example: Safe division function that returns a Result
 fn safe_div(a: i32, b: i32): Result(i32, DivisionError),
@@ -573,16 +592,17 @@ cond  (x == 1) -> std.println("x is 1"),
 
 
 // AST Representation
-Expr :=
-  | (.Atom
-      | (.Symbol symbol)
-        (.Boolean boolean),
-        (.I32 i32),
-        (.F64 f64),
-        (.String string),
-        (.Char cha)
-    ),
-    (.FuncCall { func: Box(Expr), args: ExprList })
+Expr := enum {
+  Atom(enum {
+    Symbol(String),
+    Boolean(boolean),
+    I32(i32),
+    F64(f64),
+    String(String),
+    Char(char)
+  }),
+  FuncCall { func: Box(Expr), args: ExprList }
+};
 
 // Everything else is just function calls
 // For example, a variable declaration like:
@@ -720,4 +740,3 @@ fn debug_print(msg: String),
   comptime if DEBUG_MODE,  // More consistent with other uses of comptime
     then: std.println(msg),
     else: ();
-```
