@@ -43,20 +43,20 @@ mut(y) := 14; // mutable   y: i32
 // needs to be written as
 (3 + 4) + 5;
 // or
-(+) 3, 4, 5
+(+) 3, 4, 5;
 // or
-(+ 3, 4, 5) // Like in Lisp! But with commas separating the arguments
+(+ 3, 4, 5); // Like in Lisp! But with commas separating the arguments
 
 // Why no precedence?
 // Because it makes the language easier to parse and understand
 // and it's consistent with the rest of the language
 // It's explicit!
 // Let's consider the following example:
-2 ** 3 ** 4
+2 ** 3 ** 4;
 // Should it be evaluated as
-(2 ** 3) ** 4
+(2 ** 3) ** 4;
 // or as
-2 ** (3 ** 4)
+2 ** (3 ** 4);
 // It's hard to tell! So let's make it explicit
 
 // define a function
@@ -65,21 +65,22 @@ add := (fn(x: i32, y: i32) : i32) -> (x + y);
 add : (fn(x: i32, y: i32)-> i32); // function type is written as fn(args...)-> return_type
 add := ((fn(x: i32, y: i32): i32) -> (x + y)); // function implementation is written as fn(args...): return_type -> body
 // the same as
-add :  (fn(x: i32, y: i32)-> i32)
+(add :  (fn(x: i32, y: i32)-> i32))
     := ((fn(x: i32, y: i32) : i32) -> (x + y));
 // Or
 fn add(x: i32, y: i32):i32, x + y;
 
 // Type inference for function return values
 // The return type can be inferred when obvious
-add_inferred := fn(x: i32, y: i32) ->  // Return type inferred as i32
-  (x + y);
+add_inferred := (fn(x: i32, y: i32) ->  // Return type inferred as i32
+  (x + y));
 
 // Type inference works with complex expressions too
-get_value := fn(condition: boolean) ->  // Return type inferred as Option(i32)
+get_value := (fn(condition: boolean) ->  // Return type inferred as Option(i32)
   if condition,
     then: Option(i32).Some(42),
-    else: Option(i32).None;
+    else: Option(i32).None
+);
 
 // Named parameters in function declarations with default values
 create_user := fn(name: String,

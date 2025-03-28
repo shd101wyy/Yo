@@ -1,7 +1,7 @@
 /* eslint-disable no-constant-condition */
 import { formatErrorMessage } from "./error";
 import { tokenize } from "./lexer";
-import { Token, TokenType } from "./token";
+import { findMatchingBracketTokenIndex, Token, TokenType } from "./token";
 
 type Expr =
   | {
@@ -92,7 +92,8 @@ export default class Parser {
       tokens[startIndex] &&
       tokens[startIndex].type === TokenType.LParen &&
       tokens[endIndex] &&
-      tokens[endIndex].type === TokenType.RParen
+      tokens[endIndex].type === TokenType.RParen &&
+      findMatchingBracketTokenIndex(tokens, startIndex) === endIndex
     );
   }
 
