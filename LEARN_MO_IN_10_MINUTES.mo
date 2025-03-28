@@ -208,6 +208,12 @@ p := Point {x: 3, y: 4};
 Cm := struct i32;
 x := Cm 200;
 
+// Or use the anonymous struct liternal like in zig
+// Note the '.' before '{':
+(p : Point) := .{x: 3, y: 4};
+// another example of using the anonymous struct here:
+(p : struct { a: i32, b: boolean }) := .{ a: 3, b: true };
+
 // "enum" works similarly in Rust.
 // It is tagged union type.
 // it follows by a record of variants:
@@ -222,7 +228,7 @@ Animal := enum {
   Cat { name: String, weight: f64 }
 };
 a := Animal.Dog("Buddy", 12.5);
-// or
+// or use the anonymous enum liternal:
 (b : Animal) := .Cat { name: "Whiskers", weight: 8.5 };
 
 
@@ -235,6 +241,9 @@ Result := union {
 };
 result := Result { int: 12 };
 result.float = 3.14;
+// or use the anonymous union liternal:
+(result : Result) := .{ int: 12 };
+(result : union { a: i32, b: f64 }) := .{ a: 3 };
 
 // A more complicated example
 Shape := enum {
