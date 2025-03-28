@@ -428,12 +428,21 @@ export default class Parser {
     }
 
     // NOTE: "." is the special case here which has the highest operator precedence
-    if (token.type === TokenType.Operator && token.value === ".") {
+    // .Person
+    // Person.Person
+    const primaryExprIsDotOperator =
+      primaryExpr.type === "Atom" &&
+      primaryExpr.token.type === TokenType.Operator &&
+      primaryExpr.token.value === ".";
+    if (
+      primaryExprIsDotOperator ||
+      (token.type === TokenType.Operator && token.value === ".")
+    ) {
       // Field access like
       // obj.field
       const { expr, index: nextIndex } = this.parsePrimary({
         tokens,
-        index: index + 1,
+        index: primaryExprIsDotOperator ? index : index + 1,
       });
       index = nextIndex;
       let returnValue: ParserReturn = {
@@ -441,10 +450,10 @@ export default class Parser {
           type: "FuncCall",
           func: {
             type: "Atom",
-            token,
+            token: primaryExprIsDotOperator ? primaryExpr.token : token,
           },
-          args: [primaryExpr, expr],
-          isInfix: true,
+          args: primaryExprIsDotOperator ? [expr] : [primaryExpr, expr],
+          isInfix: primaryExprIsDotOperator ? false : true,
         },
         index,
       };
@@ -511,8 +520,8 @@ ${this.exprToString(primaryExpr)} ${token.value} (${this.exprToString(rhs)})
         );
       }
 
-      return {
-        expr: {
+      return this.parsePrimaryEnd({
+        primaryExpr: {
           type: "FuncCall",
           func: {
             type: "Atom",
@@ -521,8 +530,9 @@ ${this.exprToString(primaryExpr)} ${token.value} (${this.exprToString(rhs)})
           args: [primaryExpr, rhs],
           isInfix: true,
         },
+        tokens,
         index: nextIndex,
-      };
+      });
     } else if (!hasWhitespace) {
       if (token.type === TokenType.LParen) {
         // Function call like
@@ -533,14 +543,25 @@ ${this.exprToString(primaryExpr)} ${token.value} (${this.exprToString(rhs)})
           index: index + 1,
           hasWhitespace: false,
         });
-        return {
-          expr: returnValue.expr,
+        return this.parsePrimaryEnd({
+          primaryExpr: returnValue.expr,
+          tokens,
           index: returnValue.index,
-        };
+        });
       } else {
         throw this.formatErrorMessage(
           token,
-          "Expected '(' or extra space ' ' for function call"
+          `Ambiguous function call ${this.exprToString(primaryExpr)}${
+            token.value
+          } 
+Please use parentheses to clarify:
+
+${this.exprToString(primaryExpr)}(${token.value}, ...)
+
+// or 
+
+(${this.exprToString(primaryExpr)} ${token.value}, ...)
+`
         );
       }
     } else {
@@ -568,10 +589,11 @@ ${this.exprToString(returnValue.expr)}`
       }
         */
 
-      return {
-        expr: returnValue.expr,
+      return this.parsePrimaryEnd({
+        primaryExpr: returnValue.expr,
+        tokens,
         index: returnValue.index,
-      };
+      });
     }
   }
 
@@ -592,6 +614,18 @@ ${this.exprToString(returnValue.expr)}`
   }): ParserReturn {
     // Parse arguments
     const args: Expr[] = [];
+    index = this.skipWhitespace(tokens, index);
+
+    if (!hasWhitespace && tokens[index]?.type === TokenType.RParen) {
+      return {
+        expr: {
+          type: "FuncCall",
+          func,
+          args,
+        },
+        index: index + 1,
+      };
+    }
 
     while (true) {
       const { expr, index: nextIndex } = this.parseExpression({
@@ -601,10 +635,11 @@ ${this.exprToString(returnValue.expr)}`
       args.push(expr);
       index = nextIndex;
       const token = tokens[index];
-      if (token.type === TokenType.Comma) {
+      if (token?.type === TokenType.Comma) {
         // Continue parsing arguments
         index = index + 1;
       } else if (
+        !token ||
         token.type === TokenType.Semicolon ||
         token.type === TokenType.RBracket ||
         token.type === TokenType.RCurlyBracket
@@ -682,22 +717,28 @@ or ) to end the function call`
           expr.func.token.type === TokenType.Operator
         ) {
           if (expr.args.length === 1) {
-            printed = `${expr.func.token.value}(${this.exprToString(
-              expr.args[0]
-            )})`;
+            if (expr.func.token.value === ".") {
+              printed = `${expr.func.token.value}${this.exprToString(
+                expr.args[0]
+              )}`;
+            } else {
+              printed = `${expr.func.token.value}(${this.exprToString(
+                expr.args[0]
+              )})`;
+            }
             break;
           } else if (expr.args.length === 2 && expr.isInfix) {
             let lhs = this.exprToString(expr.args[0]);
             let rhs = this.exprToString(expr.args[1]);
+            lhs = this.exprIsInfixOperatorFunctionCall(expr.args[0])
+              ? `(${lhs})`
+              : lhs;
+            rhs = this.exprIsInfixOperatorFunctionCall(expr.args[1])
+              ? `(${rhs})`
+              : rhs;
             if (expr.func.token.value === ".") {
               printed = `${lhs}.${rhs}`;
             } else {
-              lhs = this.exprIsInfixOperatorFunctionCall(expr.args[0])
-                ? `(${lhs})`
-                : lhs;
-              rhs = this.exprIsInfixOperatorFunctionCall(expr.args[1])
-                ? `(${rhs})`
-                : rhs;
               printed = `${lhs} ${expr.func.token.value} ${rhs}`;
             }
             break;

@@ -1,2 +1,9 @@
+(1 + 2).length();
+x := &(x);
+x := (& x);
 
-x := & true, false;
+(p : Person) := .Person;
+(p:Person) := Person.Person;
+
+p := .Point (3, 4);
+p := .Point(3, 4);
