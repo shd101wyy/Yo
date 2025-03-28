@@ -347,17 +347,37 @@ swap(&mut(x), &mut(y));
 
 // Mutable value semantics
 // References in Mo are second-class citizens.
-// Rule 1.0
-// - Reference or data structure containing reference can only appear in the call site, or the return value (last expression) of the block.
-// - Can't return the reference to local variables in the block.
-// - Path to a value never appears twice in the function arguments. Path uniqueness, to guarantee One Reference Only (ORO).
+// Rule 1.0, let's say fucntion parameter is not local variable, then:
+// - 1) Reference to local variable can only happen in the call site.
+//   - 1.1) It cannot be stored in a variable or data structure.
+//   - 1.2) It cannot be returned from the block.
+// - 2) Function parameter of mutable reference is required to live shorter than the function parameter of immutable reference.
+// - 3) Path to a value never appears twice in the function arguments. Path uniqueness, to guarantee One Reference Only (ORO).
 //    - If a function returns a reference, then we need to continue checking it
 //      eg: f1(f2(ref1), ref2);
-//          if f2 returns another reference, then we need to check the paths of ref1 and ref2.
+//          if f2 returns another reference (this reference will be sure to contain ref1), then we need to check the paths of ref1 and ref2.
 //          if f2 doesn't return a reference, then we don't need to check the paths of ref1 and ref2.
 
 x := 12;
-x_ref := &mut x; // error: Reference and its owner can't live in the same scope.
+x_ref := &mut x; // error: Violate the Rule 1.1
+
+y := {
+  x := 12;
+  &x // error: Violate the Rule 1.2
+}
+
+fn(some_ref: &mut(i32)) -> {
+  x := some_ref; // Allowed! As some_ref is not a local variable
+  x // return a reference here is Allowed! As it's from the function parameter.
+}
+
+fn(container: &mut(Container), some_ref: &(i32)) -> {
+  container.x = some_ref; // Allowed!
+                          // According to Rule 2
+                          // container lives shorter than some_ref
+}
+
+
 // You can use the `use` function to use the reference value in a new scope
 use &mut(x), x_ref -> {
   // `x` is not allowed to be used here

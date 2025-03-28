@@ -10,14 +10,14 @@ export function getLineAtToken({
   token: Token;
 }): string {
   const { position } = token;
-  const { character, line } = position;
+  const { row, column } = position;
 
   const lines = inputString.split("\n");
-  const lineString = lines[line];
-  return `${modulePath}:${line + 1}:${character + 1}:
+  const lineString = lines[row];
+  return `${modulePath}:${row + 1}:${column + 1}:
   
 ${lineString}
-${" ".repeat(character + Math.floor(token.value.length / 2))}^`;
+${" ".repeat(column + Math.floor(token.value.length / 2))}^`;
 }
 
 export function formatErrorMessage({

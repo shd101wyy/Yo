@@ -40,11 +40,15 @@ export interface Token {
   position: {
     // The start position of the token in the input string
     /**
-     * A zero-based line value.
+     * A zero-based row value.
      */
-    line: number;
+    row: number;
     /**
-     * A zero-based character value
+     * A zero-based column value.
+     */
+    column: number;
+    /**
+     * A zero-based character index.
      */
     character: number;
   };

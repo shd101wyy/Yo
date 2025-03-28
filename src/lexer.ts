@@ -12,6 +12,7 @@ export function tokenize(input: string): Token[] {
   for (let i = 0; i < input.length; i++) {
     const char = input[i];
     const characterColumn = i - totalCharacters;
+    const characterIndex = i;
 
     // Check operators
     let operator: string = "";
@@ -30,7 +31,11 @@ export function tokenize(input: string): Token[] {
       tokens.push({
         type: TokenType.Operator,
         value: operator,
-        position: { line, character: characterColumn },
+        position: {
+          row: line,
+          column: characterColumn,
+          character: characterIndex,
+        },
       });
       i = j - 1;
       continue;
@@ -60,7 +65,11 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.Whitespace,
           value: whitespaces,
-          position: { line: currentLine, character: characterColumn },
+          position: {
+            row: currentLine,
+            column: characterColumn,
+            character: characterIndex,
+          },
         });
         i = j - 1;
         break;
@@ -79,7 +88,11 @@ export function tokenize(input: string): Token[] {
           tokens.push({
             type: TokenType.SingleLineComment,
             value: comment,
-            position: { line, character: characterColumn },
+            position: {
+              row: line,
+              column: characterColumn,
+              character: characterIndex,
+            },
           });
           i = j - 1;
         } else if (input[i + 1] === "*") {
@@ -108,7 +121,11 @@ export function tokenize(input: string): Token[] {
           tokens.push({
             type: TokenType.MultiLineComment,
             value: comment,
-            position: { line: currentLine, character: characterColumn },
+            position: {
+              row: currentLine,
+              column: characterColumn,
+              character: characterIndex,
+            },
           });
           i = j + 1;
         } else {
@@ -120,7 +137,11 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.LParen,
           value: char,
-          position: { line, character: characterColumn },
+          position: {
+            row: line,
+            column: characterColumn,
+            character: characterIndex,
+          },
         });
         break;
 
@@ -128,7 +149,11 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.RParen,
           value: char,
-          position: { line, character: characterColumn },
+          position: {
+            row: line,
+            column: characterColumn,
+            character: characterIndex,
+          },
         });
         break;
 
@@ -136,7 +161,11 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.LBracket,
           value: char,
-          position: { line, character: characterColumn },
+          position: {
+            row: line,
+            column: characterColumn,
+            character: characterIndex,
+          },
         });
         break;
 
@@ -144,7 +173,11 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.RBracket,
           value: char,
-          position: { line, character: characterColumn },
+          position: {
+            row: line,
+            column: characterColumn,
+            character: characterIndex,
+          },
         });
         break;
 
@@ -152,7 +185,11 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.LCurlyBracket,
           value: char,
-          position: { line, character: characterColumn },
+          position: {
+            row: line,
+            column: characterColumn,
+            character: characterIndex,
+          },
         });
         break;
 
@@ -160,7 +197,11 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.RCurlyBracket,
           value: char,
-          position: { line, character: characterColumn },
+          position: {
+            row: line,
+            column: characterColumn,
+            character: characterIndex,
+          },
         });
         break;
       // char
@@ -187,7 +228,11 @@ export function tokenize(input: string): Token[] {
           tokens.push({
             type: TokenType.Char,
             value,
-            position: { line, character: characterColumn },
+            position: {
+              row: line,
+              column: characterColumn,
+              character: characterIndex,
+            },
           });
         } else {
           throw new Error(`Invalid char ${value}`);
@@ -217,7 +262,11 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.String,
           value: stringValue,
-          position: { line, character: characterColumn },
+          position: {
+            row: line,
+            column: characterColumn,
+            character: characterIndex,
+          },
         });
 
         break;
@@ -239,7 +288,11 @@ export function tokenize(input: string): Token[] {
           tokens.push({
             type: TokenType.InfixIdentifier,
             value,
-            position: { line, character: characterColumn },
+            position: {
+              row: line,
+              column: characterColumn,
+              character: characterIndex,
+            },
           });
         } else {
           throw new Error(`Invalid infix identifier ${value}`);
@@ -252,14 +305,22 @@ export function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.Comma,
           value: char,
-          position: { line, character: characterColumn },
+          position: {
+            row: line,
+            column: characterColumn,
+            character: characterIndex,
+          },
         });
         break;
       case ";":
         tokens.push({
           type: TokenType.Semicolon,
           value: char,
-          position: { line, character: characterColumn },
+          position: {
+            row: line,
+            column: characterColumn,
+            character: characterIndex,
+          },
         });
         break;
 
@@ -287,14 +348,22 @@ export function tokenize(input: string): Token[] {
             tokens.push({
               type: TokenType.Float,
               value,
-              position: { line, character: characterColumn },
+              position: {
+                row: line,
+                column: characterColumn,
+                character: characterIndex,
+              },
             });
             i = i - 1;
           } else {
             tokens.push({
               type: TokenType.Integer,
               value,
-              position: { line, character: characterColumn },
+              position: {
+                row: line,
+                column: characterColumn,
+                character: characterIndex,
+              },
             });
             i = i - 1;
           }
@@ -327,7 +396,11 @@ export function tokenize(input: string): Token[] {
                 tokens.push({
                   type: TokenType.Boolean,
                   value,
-                  position: { line, character: characterColumn },
+                  position: {
+                    row: line,
+                    column: characterColumn,
+                    character: characterIndex,
+                  },
                 });
                 break;
               // identifier
@@ -335,7 +408,11 @@ export function tokenize(input: string): Token[] {
                 tokens.push({
                   type: TokenType.Identifier,
                   value,
-                  position: { line, character: characterColumn },
+                  position: {
+                    row: line,
+                    column: characterColumn,
+                    character: characterIndex,
+                  },
                 });
                 break;
             }
