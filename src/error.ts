@@ -55,7 +55,6 @@ export function getLineAtToken({
   const lines = inputString.split("\n");
   const lineString = lines[row];
   return `${modulePath}:${row + 1}:${column + 1}:
-  
 ${lineString}
 ${" ".repeat(column + Math.floor(token.value.length / 2))}^`;
 }
@@ -92,7 +91,8 @@ export function formatErrorMessage({
   errorMessage: string;
   cause?: Error;
 }): MoParserError {
-  const errorMessages = `${errorMessage}
+  const errorMessages = `${errorMessage.trim()}
+
 ${getLineAtToken({ modulePath, inputString, token })}`;
 
   return new MoParserError({

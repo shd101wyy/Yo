@@ -1,0 +1,7766 @@
+/* eslint-disable no-constant-condition */
+/**
+ * Construct an AST parser from a grammar.
+ */
+
+import * as fs from "fs";
+import * as path from "path";
+import {
+  AstType,
+  BlockExpr,
+  CallFunctionExpr,
+  Destructuring,
+  Expr,
+  ExternVariable,
+  FunctionExpr,
+  IfCase,
+  LetAssignmentExpr,
+  MatchCase,
+  exprToString,
+} from "./ast";
+import {
+  Environment,
+  ReferedVariable,
+  VariableValue,
+  addEnvFreeVariable,
+  addEnvOperatorPrecedence,
+  addEnvVariableValue,
+  checkIfTypeConstraintsAreSatisfied,
+  copyEnvironment,
+  createNewEnv,
+  createTopLevelEnv,
+  decrementVariableReferenceCount,
+  emptyToken,
+  generateNewTempVariableName,
+  generateVarialeValueId,
+  getEnvCurrentFrameLevel,
+  getEnvInfixOperatorPrecedence,
+  getEnvVariableValueByVariableName,
+  increaseEnvVariableReferenceCount,
+  mergeAndCheckEnv,
+  popEnvFrame,
+  pushEnvFrame,
+  setEnvVariableAsConsumed,
+  updateExistingVariableValue,
+} from "./env";
+import { formatErrorMessage, formatErrorMessages } from "./error";
+import { tokenize } from "./lexer";
+import * as logger from "./logger";
+import { isUpperCamelCase } from "./naming-checker";
+import { OperatorPrecedence, stringIsOperator } from "./operator";
+import { Token, TokenType } from "./token";
+import {
+  DereferenceOperator,
+  ImmutableReferenceOperator,
+  MutableReferenceOperator,
+  ParseExpression,
+  ParserReturn,
+  TEnum,
+  TEnumVariant,
+  TFunction,
+  TImplementationFunction,
+  TModule,
+  TParameterType,
+  TRecord,
+  TRecordProperty,
+  TTrait,
+  TTypeConstructor,
+  TTypeParameter,
+  Type,
+  TypeKind,
+  TypeValues,
+  applyTypeArgumentsToTrait,
+  applyTypeArgumentsToType,
+  checkType,
+  convertPrimitiveToType,
+  emptyFunction,
+  getEnumTypeKind,
+  getFunctionArgumentsInOrder,
+  getFunctionsOfCallerFromEnv,
+  isClosureCaptureMode,
+  parseTypeKind,
+  synthesizeFunctionParameterTypesFromTokens,
+  synthesizeFunctionTypeFromTokens,
+  synthesizeRecordType,
+  synthesizeTypeArgumentsFromTokens,
+  synthesizeTypeFromTokens,
+  synthesizeTypeParametersFromTokens,
+  synthesizeTypes,
+  typeContainsReference,
+  typeIsMutableReference,
+  typeIsReference,
+  typeToString,
+  unifyTypeKinds,
+} from "./type-checker";
+
+interface ParserData {
+  callSites: TFunction[];
+  allowDereferenceReferenceToLinearValue?: boolean;
+  userDefinedVariableType?: Type | null;
+}
+
+export default class Parser {
+  private modulePath: string;
+  private stdPath: string;
+  private inputString: string;
+  private tokens: Token[];
+  private ast: Expr[];
+  private env: Environment;
+  private loadModule: (modulePath: string) => TModule;
+
+  constructor({
+    modulePath,
+    stdPath,
+    loadModule,
+    printTokens,
+    printAst,
+    skipPrelude,
+  }: {
+    modulePath: string;
+    stdPath: string;
+    loadModule: (modulePath: string) => TModule;
+    printTokens?: boolean;
+    printAst?: boolean;
+    skipPrelude?: boolean;
+  }) {
+    logger.debug(`= parser: ${modulePath}`);
+    this.modulePath = modulePath;
+    this.stdPath = stdPath;
+
+    if (!this.modulePath.match(/^file:\/\//)) {
+      throw new Error(
+        `Invalid file protocol: ${this.modulePath}. Only file:// is supported for now.  `
+      );
+    }
+
+    this.loadModule = loadModule;
+    this.inputString = fs.readFileSync(
+      modulePath.replace(/^file:\/\//, ""), // NOTE: We only support local file for now
+      "utf-8"
+    );
+    this.tokens = tokenize(this.inputString);
+    if (printTokens) {
+      console.log(`= lexer: `, this.tokens);
+    }
+
+    const { ast, env } = this.parse(this.tokens, skipPrelude);
+    this.ast = ast;
+    this.env = env;
+
+    if (printAst) {
+      console.log("\n= parser: ");
+      this.ast.map((expr) => console.log(exprToString(expr)));
+      console.log("\n= parser end\n");
+    }
+  }
+
+  private formatErrorMessage(token: Token, errorMessage: string) {
+    return formatErrorMessage({
+      token,
+      errorMessage,
+      modulePath: this.modulePath,
+      inputString: this.inputString,
+    });
+  }
+
+  private parseNumberExpr({
+    tokens,
+    index,
+    env,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+  }): ParserReturn {
+    const token = tokens[index];
+    if (token.type === TokenType.Integer) {
+      if (
+        tokens[index + 1]?.type === TokenType.As &&
+        tokens[index + 2]?.type === TokenType.Const
+      ) {
+        return {
+          expr: {
+            type: AstType.Value,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "i32",
+              kind: "Free",
+              value: token.value,
+              tag: "primitive",
+            },
+            env,
+            token: tokens[index],
+          },
+          index: index + 3,
+        };
+      } else {
+        return {
+          expr: {
+            type: AstType.Value,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "i32",
+              kind: "Free",
+            },
+            env,
+            token: tokens[index],
+          },
+          index: index + 1,
+        };
+      }
+    } else if (token.type === TokenType.Float) {
+      if (
+        tokens[index + 1]?.type === TokenType.As &&
+        tokens[index + 2]?.type === TokenType.Const
+      ) {
+        return {
+          expr: {
+            type: AstType.Value,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "f64",
+              kind: "Free",
+              value: token.value,
+              tag: "primitive",
+            },
+            env,
+            token: tokens[index],
+          },
+          index: index + 3,
+        };
+      } else {
+        return {
+          expr: {
+            type: AstType.Value,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "f64",
+              kind: "Free",
+            },
+            env,
+            token: tokens[index],
+          },
+          index: index + 1,
+        };
+      }
+    } else {
+      throw this.formatErrorMessage(token, "Expected number");
+    }
+  }
+
+  private parseCharactorExpr({
+    tokens,
+    index,
+    env,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+  }): ParserReturn {
+    const token = tokens[index];
+    if (token.type === TokenType.Char) {
+      if (
+        tokens[index + 1]?.type === TokenType.As &&
+        tokens[index + 2]?.type === TokenType.Const
+      ) {
+        return {
+          expr: {
+            type: AstType.Value,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "char",
+              kind: "Free",
+              value: token.value,
+              tag: "primitive",
+            },
+            env,
+            token: tokens[index],
+          },
+          index: index + 3,
+        };
+      } else {
+        return {
+          expr: {
+            type: AstType.Value,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "char",
+              kind: "Free",
+            },
+            env,
+            token: tokens[index],
+          },
+          index: index + 1,
+        };
+      }
+    } else {
+      throw this.formatErrorMessage(token, "Expected charactor");
+    }
+  }
+
+  private parseBooleanExpr({
+    tokens,
+    index,
+    env,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+  }): ParserReturn {
+    const token = tokens[index];
+    if (token.type === TokenType.Boolean) {
+      if (
+        tokens[index + 1]?.type === TokenType.As &&
+        tokens[index + 2]?.type === TokenType.Const
+      ) {
+        return {
+          expr: {
+            type: AstType.Value,
+            env,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "boolean",
+              kind: "Free",
+              value: token.value,
+              tag: "primitive",
+            },
+            token: tokens[index],
+          },
+          index: index + 3,
+        };
+      } else {
+        return {
+          expr: {
+            type: AstType.Value,
+            env,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "boolean",
+              kind: "Free",
+            },
+            token: tokens[index],
+          },
+          index: index + 1,
+        };
+      }
+    } else {
+      throw this.formatErrorMessage(token, "Expected boolean");
+    }
+  }
+
+  private parseArrayExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    const token = tokens[index];
+    if (token.type !== TokenType.LBracket) {
+      throw this.formatErrorMessage(token, "Expected '[' for slice");
+    }
+    const sliceTokenIndex = index;
+    index = index + 1;
+    const values: Expr[] = [];
+    while (true) {
+      const token = tokens[index];
+      if (!token) {
+        throw this.formatErrorMessage(token, "Expected ']' for slice");
+      }
+      if (token.type === TokenType.RBracket) {
+        index = index + 1;
+        break;
+      } else {
+        const { expr, index: nextIndex } = this.parseExpression({
+          tokens,
+          index,
+          env,
+          caller,
+          parserData,
+        });
+        if (!expr) {
+          return { expr, index: nextIndex };
+        }
+        values.push(expr);
+        index = nextIndex;
+        env = expr.env;
+
+        // Consume the value
+        const { env: nextEnv } = this.setVariableAsConsumed(env, expr);
+        env = nextEnv;
+
+        if (tokens[index].type === TokenType.Comma) {
+          index = index + 1;
+        }
+      }
+    }
+
+    const elementTypes = values.map((value) => value.typeValue);
+    // Check if all the element types are the same
+    const firstElementType = convertPrimitiveToType(elementTypes[0]);
+    const isArray = elementTypes.every((type) =>
+      checkType(firstElementType, convertPrimitiveToType(type), env)
+    );
+
+    let typeValue: Type;
+    if (isArray) {
+      typeValue = {
+        type: "Array",
+        kind: firstElementType.kind as TypeKind,
+        elementType: firstElementType,
+        size: values.length,
+      };
+    } else {
+      /*
+      typeValue = {
+        type: "tuple",
+        elements: elementTypes,
+      };
+      */
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected array, but got tuple"
+      );
+    }
+
+    return {
+      expr: {
+        type: AstType.Value,
+        env,
+        typeValue,
+        values: values,
+        tag: "array",
+        token: tokens[sliceTokenIndex],
+      },
+      index,
+    };
+  }
+
+  // TODO: Implement curly bracket expression
+  // it could be either the RecordExpr or BlockExpr
+  private parseCurlyBracketExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    try {
+      return this.parseRecordExpr({ tokens, index, env, caller, parserData });
+    } catch (error) {
+      logger.debug(error);
+      return this.parseBlockExpressions({
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+    }
+  }
+
+  private parseRecordExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.LCurlyBracket || !tokens[index + 1]) {
+      throw this.formatErrorMessage(tokens[index], "Expected '{' for record");
+    }
+    const recordTokenIndex = index;
+    index = index + 1;
+    if (tokens[index].type === TokenType.RCurlyBracket) {
+      return {
+        expr: {
+          type: AstType.Value,
+          tag: "record",
+          typeValue: {
+            type: "Record",
+            kind: "Free",
+            properties: [],
+          },
+          env,
+          properties: [],
+          token: tokens[recordTokenIndex],
+        },
+        index: index + 1,
+      };
+    } else if (
+      tokens[index].type === TokenType.Identifier &&
+      tokens[index + 1].type === TokenType.Colon
+    ) {
+      const properties: { name: string; value: Expr }[] = [];
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const token = tokens[index];
+        if (!token) {
+          throw this.formatErrorMessage(token, "Expected '}' for record");
+        }
+        if (token.type === TokenType.RCurlyBracket) {
+          index = index + 1;
+          break;
+        }
+        if (token.type !== TokenType.Identifier) {
+          throw this.formatErrorMessage(
+            token,
+            "Expected identifier for record property name"
+          );
+        }
+        const propertyName = token.value;
+        if (tokens[index + 1].type !== TokenType.Colon) {
+          throw this.formatErrorMessage(
+            tokens[index + 1],
+            "Expected ':' for record property"
+          );
+        }
+        index = index + 2;
+        const { expr, index: nextIndex } = this.parseExpression({
+          tokens,
+          index,
+          env,
+          caller,
+          parserData,
+        });
+        if (!expr) {
+          return { expr, index: nextIndex };
+        }
+        properties.push({ name: propertyName, value: expr });
+        index = nextIndex;
+        env = expr.env;
+
+        // Consume the value if necessary
+        const { env: nextEnv } = this.setVariableAsConsumed(env, expr);
+        env = nextEnv;
+
+        if (tokens[index].type === TokenType.Comma) {
+          index = index + 1;
+        }
+      }
+
+      return {
+        expr: {
+          type: AstType.Value,
+          tag: "record",
+          typeValue: synthesizeRecordType(properties),
+          env,
+          properties,
+          token: tokens[recordTokenIndex],
+        },
+        index,
+      };
+    } else {
+      throw this.formatErrorMessage(tokens[index], "Expected invalid record");
+    }
+  }
+
+  private tryCallFunctions({
+    functions,
+    env,
+    tokens,
+    caller,
+    parserData,
+    calleeToken,
+    leftParenTokenIndex,
+    firstArgument,
+  }: {
+    functions: TFunction[];
+    env: Environment;
+    tokens: Token[];
+    caller: TFunction;
+    parserData: ParserData;
+    calleeToken: Token;
+    functionName?: string;
+    leftParenTokenIndex: number;
+    firstArgument?: Expr;
+  }): ParserReturn {
+    const functionName = calleeToken.value;
+    // Try all functions to see if there is a match
+    const parserReturns: ParserReturn[] = [];
+    const parsedFunctions: {
+      functionName: string;
+      functionType: TFunction;
+    }[] = [];
+    const failedFunctions: {
+      functionName: string;
+      functionType: TFunction;
+      error: Error;
+    }[] = [];
+    const helper = (functionName: string, functionType: TFunction) => {
+      if (functionType.hasNoImplementation) {
+        failedFunctions.push({
+          functionName,
+          functionType,
+          error: new Error("No implementation found"),
+        });
+        return;
+      }
+      try {
+        parserReturns.push(
+          this.parseCallFunctionExpr({
+            callee: {
+              type: AstType.Variable,
+              variableName: functionName,
+              variableId: functionType.functionId,
+              frameLevel: functionType.frameLevel,
+              typeValue: functionType,
+              env,
+              isMutable: false,
+              token: calleeToken,
+            },
+            tokens,
+            index: leftParenTokenIndex,
+            env,
+            caller,
+            parserData,
+            firstArgument,
+          })
+        );
+        parsedFunctions.push({ functionName, functionType });
+      } catch (error) {
+        // console.error(error);
+        // Ignore the error
+        failedFunctions.push({ functionName, functionType, error });
+      }
+    };
+    for (const functionType of functions) {
+      helper(functionName, functionType);
+
+      if (functionType.traitFunctionImplementations.length > 0) {
+        for (const traitFunctionImplementation of functionType.traitFunctionImplementations) {
+          const implementFunctionType = traitFunctionImplementation.func;
+          helper(functionName, implementFunctionType);
+        }
+      }
+    }
+
+    if (parserReturns.length === 0) {
+      throw this.formatErrorMessage(
+        calleeToken,
+        `Cannot find function '${calleeToken.value}'
+${
+  failedFunctions.length > 0
+    ? `Below are the possible ${failedFunctions.length} function(s):`
+    : ""
+}
+${failedFunctions
+  .map(
+    (func) => `- ${func.functionName}: ${typeToString(func.functionType)}
+${func.error}`
+  )
+  .join("\n")}
+        `.trim()
+      );
+    } else if (
+      this.hasAmbiguousFunctionCall(
+        parserReturns.map((p) => p.expr as CallFunctionExpr)
+      )
+    ) {
+      throw this.formatErrorMessage(
+        calleeToken,
+        `Ambiguous function "${calleeToken.value}"
+Found possible functions:
+- ${parsedFunctions
+          .map(
+            (func) => `${func.functionName}: ${typeToString(func.functionType)}`
+          )
+          .join("\n- ")}`.trim()
+      );
+    } else {
+      // FIXME: Might need to check `isFreeVariable` here as well
+      return parserReturns[parserReturns.length - 1];
+    }
+  }
+
+  private parsePropertyAccessExpr({
+    expr,
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    expr: Expr;
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.Dot) {
+      throw this.formatErrorMessage(tokens[index], "Expected '.'");
+    }
+    const dotTokenIndex = index;
+
+    // parse properties
+    index = index + 1;
+    const token = tokens[index];
+    if (!token) {
+      throw this.formatErrorMessage(token, "Expected property name");
+    }
+
+    // Check if it's a valid property in the record
+    let receiverType = expr.typeValue;
+
+    // It's record type
+    while (true) {
+      if (
+        receiverType.type === "TypeConstructor" &&
+        receiverType.typeValue.type === "Record"
+      ) {
+        receiverType = receiverType.typeValue;
+      } else if (typeIsReference(receiverType)) {
+        // We need to dereference the reference
+        receiverType = (receiverType as TTypeConstructor).typeParameters[0]
+          .appliedType!;
+        console.log("receiverType: ", typeToString(receiverType));
+      } else {
+        break;
+      }
+    }
+
+    if (receiverType.type === "Record") {
+      const property = receiverType.properties.find(
+        (property) => property.name === token.value
+      );
+      if (!property) {
+        throw this.formatErrorMessage(
+          token,
+          `Cannot find property '${token.value}' in record:\n${typeToString(
+            receiverType
+          )}`
+        );
+      }
+      const returnType: Type = property.type;
+
+      return {
+        expr: {
+          type: AstType.PropertyAccess,
+          expr: expr,
+          propertyName: property.name,
+          typeValue: returnType,
+          isMutable: "isMutable" in expr ? expr.isMutable : false,
+          env,
+          token: tokens[dotTokenIndex],
+        },
+        index: index + 1,
+      };
+    } else if (expr.type === AstType.Trait) {
+      const trait = expr.trait;
+      const func = trait.functions.find(
+        (property) => property.name === token.value
+      );
+      if (func) {
+        // Return the function
+        return {
+          expr: {
+            type: AstType.PropertyAccess,
+            expr: expr,
+            propertyName: func.name,
+            typeValue: func.func,
+            isMutable: false,
+            env,
+            token: tokens[dotTokenIndex],
+          },
+          index: index + 1,
+        };
+      } else {
+        throw this.formatErrorMessage(
+          token,
+          `Cannot find function '${token.value}' in class:\n${typeToString(
+            receiverType
+          )}`
+        );
+      }
+    } else if (receiverType.type === "Enum") {
+      const propertyName = token.value;
+      const selectedVariantName = receiverType.selectedVariantName;
+      if (selectedVariantName && propertyName !== selectedVariantName) {
+        const variant = receiverType.variants.find(
+          (variant) => variant.name === selectedVariantName
+        );
+        if (!variant) {
+          throw this.formatErrorMessage(
+            token,
+            `Cannot find variant '${selectedVariantName}' in enum:\n${typeToString(
+              receiverType
+            )}`
+          );
+        }
+
+        // Check if propertyName in variant.parameterTypes
+        const parameterType = variant.parameterTypes.find(
+          (parameterType) => parameterType.name === propertyName
+        );
+        if (!parameterType) {
+          throw this.formatErrorMessage(
+            token,
+            `Cannot find property '${propertyName}' in enum variant '${selectedVariantName}'`
+          );
+        } else {
+          const isMutable = "isMutable" in expr ? expr.isMutable : false;
+          return {
+            expr: {
+              type: AstType.PropertyAccess,
+              expr: expr,
+              propertyName: propertyName,
+              typeValue: parameterType.type,
+              isMutable,
+              env,
+              token: tokens[dotTokenIndex],
+            },
+            index: index + 1,
+          };
+        }
+      } else {
+        const variant = receiverType.variants.find(
+          (variant) => variant.name === token.value
+        );
+        if (variant) {
+          const typeValue: TEnum = {
+            ...receiverType,
+            selectedVariantName: variant.name,
+          };
+
+          if (variant.parameterTypes.length === 0) {
+            // Save the return value to a temp variable
+            const { env: nextEnv, value: tempVariable } =
+              this.generateTempVariableForHoldingValue({
+                env,
+                token: tokens[dotTokenIndex],
+                valueType: typeValue,
+              });
+            env = nextEnv;
+
+            return {
+              expr: {
+                type: AstType.CallEnum,
+                env,
+                typeValue: {
+                  ...typeValue,
+                },
+                variantArguments: [],
+                token: tokens[dotTokenIndex],
+                tempVariableName: tempVariable.variableName,
+              },
+              index: index + 1,
+            };
+          } else {
+            return {
+              expr: {
+                type: AstType.PropertyAccess,
+                expr: expr,
+                propertyName: variant.name,
+                typeValue: typeValue,
+                isMutable: false,
+                env,
+                token: tokens[dotTokenIndex],
+              },
+              index: index + 1,
+            };
+          }
+        } else {
+          throw this.formatErrorMessage(
+            token,
+            `Cannot find variant '${token.value}' in enum:\n${typeToString(
+              receiverType
+            )}`
+          );
+        }
+      }
+    }
+
+    // Check if it's a valid function that takes
+    // the `expr` as the first argument
+    receiverType = expr.typeValue;
+    const calleeToken = token;
+    if (
+      calleeToken.type === TokenType.Identifier &&
+      (tokens[index + 1]?.type === TokenType.LParen ||
+        tokens[index + 1]?.value === "<")
+    ) {
+      const functionName = token.value;
+      // Find the functions that takes `expr` as the first argument
+      const matchedFunctions = getFunctionsOfCallerFromEnv(
+        receiverType,
+        functionName,
+        env
+      );
+
+      // Try all functions to see if there is a match
+      return this.tryCallFunctions({
+        functions: matchedFunctions.map((fv) => {
+          return fv.type as TFunction;
+        }),
+        calleeToken: calleeToken,
+        env,
+        tokens,
+        caller,
+        parserData,
+        leftParenTokenIndex: index + 1,
+        firstArgument: expr,
+      });
+    } else {
+      throw this.formatErrorMessage(
+        token,
+        `Expected property name, but got "${token.value}"`
+      );
+    }
+  }
+
+  private parseAssignmentExpr({
+    lhs,
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    lhs: Expr;
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.Assign) {
+      throw this.formatErrorMessage(tokens[index], "Expected '='");
+    }
+    const lhsTokenIndex = index - 1;
+    index = index + 1;
+    // const rhsTokenIndex = index;
+    const { expr: rhs, index: nextIndex } = this.parseExpression({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    if (!rhs) {
+      throw this.formatErrorMessage(tokens[index], "Expected expression");
+    }
+    index = nextIndex;
+    env = rhs.env;
+
+    // Check if the type of rhs matches the type of lhs
+    if (!checkType({ ...lhs.typeValue }, { ...rhs.typeValue }, env)) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Mismatched types:
+LHS: ${typeToString(lhs.typeValue)}
+${exprToString(lhs)}
+
+RHS: ${typeToString(rhs.typeValue)}
+${exprToString(rhs)}
+`
+      );
+    }
+
+    let isMutable = false; // TODO: Check if it's mutable.
+    if (
+      lhs.type === AstType.Variable ||
+      lhs.type === AstType.IndexAccess ||
+      lhs.type === AstType.PropertyAccess
+    ) {
+      isMutable = lhs.isMutable;
+    } else if (
+      // Dereference a mutable reference
+      this.checkIfDereferenceMutableReference(lhs)
+    ) {
+      isMutable = true;
+    }
+
+    if (!isMutable) {
+      throw this.formatErrorMessage(
+        tokens[lhsTokenIndex],
+        `Expected mutable left-hand side for assignment:
+${exprToString(lhs)}
+`
+      );
+    }
+
+    const resetConsumedVariable = false;
+    /*
+    if (lhs.type !== AstType.Dereference) {
+      // NOTE: We don't need to check a dereference to an mutable reference
+      // Check if lhs can be created as mutable reference
+      const { resetConsumedVariable: reset, env: nextEnv } =
+        this.trySettingVariableAsReference({
+          env,
+          expr: lhs,
+          isMutableReference: true,
+          isForAssignment: true,
+        });
+      resetConsumedVariable = !!reset;
+      env = nextEnv;
+    }
+    */
+
+    // Consume RHS value if necessary
+    const { env: nextNextEnv /*referedVariable: nextReferedVariable*/ } =
+      this.setVariableAsConsumed(env, rhs);
+    env = nextNextEnv;
+
+    // Generate temp variable for holding the old value of lhs
+    const valueType = resetConsumedVariable ? TypeValues.unit : rhs.typeValue;
+    const { env: nextNextNextEnv, value: tempVariable } =
+      this.generateTempVariableForHoldingValue({
+        env,
+        token: tokens[lhsTokenIndex],
+        valueType,
+      });
+    env = nextNextNextEnv;
+
+    return {
+      expr: {
+        type: AstType.Assignment,
+        left: lhs,
+        right: rhs,
+        env,
+        typeValue: valueType,
+        token: tokens[lhsTokenIndex],
+        tempVariableName: tempVariable.variableName,
+      },
+      index,
+    };
+  }
+
+  private parseIndexAccessExpr({
+    expr,
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    expr: Expr;
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.LBracket) {
+      throw this.formatErrorMessage(tokens[index], "Expected '['");
+    }
+    const bracketTokenIndex = index;
+    const indexes: Expr[] = [];
+    let valueType = expr.typeValue;
+    index = index + 1;
+    while (true) {
+      const token = tokens[index];
+      if (!token) {
+        throw this.formatErrorMessage(token, "Expected ']'");
+      }
+      const { expr, index: nextIndex } = this.parseExpression({
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+      if (!expr) {
+        throw this.formatErrorMessage(token, "Expected expression");
+      }
+      indexes.push(expr);
+      index = nextIndex;
+      env = expr.env;
+
+      const indexType = expr.typeValue;
+      if (!checkType(TypeValues.i32, indexType, env)) {
+        throw this.formatErrorMessage(
+          token,
+          `Expected i32 for index, but got ${typeToString(indexType)}`
+        );
+      }
+
+      if (valueType.type !== "Array") {
+        throw this.formatErrorMessage(
+          token,
+          `Expected slice for index access, but got ${typeToString(valueType)}`
+        );
+      }
+      valueType = valueType.elementType;
+      /*
+      if (valueType.type === "array") {
+        valueType = valueType.elementType;
+      } else {
+        // tuple
+        if ("tag" in indexType && indexType.tag === "primitive") {
+          const indexValue = parseInt(indexType.value, 10);
+          if (indexValue >= valueType.elements.length) {
+            throw this.formatErrorMessage(
+              token,
+              `Index out of range: ${indexValue}`
+            );
+          }
+          valueType = valueType.elements[indexValue];
+        } else {
+          // union of all types
+          throw this.formatErrorMessage(
+            token,
+            `Not implemented: tuple index access with non-constant index`
+          );
+        }
+      }
+      */
+
+      if (tokens[index].type === TokenType.RBracket) {
+        index = index + 1;
+        if (tokens[index].type === TokenType.LBracket) {
+          index = index + 1;
+        } else {
+          break;
+        }
+      } else {
+        throw this.formatErrorMessage(token, "Expected ']'");
+      }
+    }
+
+    return {
+      expr: {
+        type: AstType.IndexAccess,
+        expr,
+        indexes,
+        typeValue: valueType,
+        isMutable: "isMutable" in expr ? expr.isMutable : false,
+        env,
+        token: tokens[bracketTokenIndex],
+      },
+      index,
+    };
+  }
+
+  private makeParseExpression({
+    caller,
+    parserData,
+  }: {
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParseExpression {
+    return ({ tokens, index, env }) => {
+      return this.parseExpression({ tokens, index, env, caller, parserData });
+    };
+  }
+
+  private parseAnonymousFunction({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+    functionName,
+    isForTrait,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+    functionName?: string;
+    isForTrait?: boolean;
+  }): ParserReturn {
+    const startIndex = index;
+    const currentFrameLevel = getEnvCurrentFrameLevel(env);
+    // parse function
+    const oldEnv = env;
+    env = copyEnvironment(env, currentFrameLevel, []);
+    env = pushEnvFrame(env);
+
+    const expectedFunctionType: TFunction | undefined =
+      parserData.userDefinedVariableType &&
+      parserData.userDefinedVariableType.type === "Function"
+        ? parserData.userDefinedVariableType
+        : undefined;
+
+    let {
+      typeValue: functionType,
+      // eslint-disable-next-line prefer-const
+      env: nextEnv,
+      // eslint-disable-next-line prefer-const
+      index: nextIndex,
+    } = synthesizeFunctionTypeFromTokens({
+      tokens,
+      index,
+      env,
+      parseExpression: this.makeParseExpression({ caller, parserData }),
+      withFunctionBody: true,
+      functionName,
+      expectedFunctionType,
+    });
+    env = nextEnv;
+    index = nextIndex;
+
+    // NOTE: If it's top-level function, we need to set the env to the top-level frame
+    if (functionType.closureCaptureMode === "none") {
+      // Not a closure
+      // Parse the type again with new env that only
+      // contains the top-level frame
+      let newEnv = createTopLevelEnv(oldEnv);
+
+      // If it's for trait, we need to add another frame
+      // that might contains the type parameters.
+      if (isForTrait) {
+        newEnv = pushEnvFrame(newEnv, oldEnv.frames[oldEnv.frames.length - 1]);
+      }
+      newEnv = pushEnvFrame(newEnv);
+      const { typeValue: newFunctionType, env: nextNextEnv } =
+        synthesizeFunctionTypeFromTokens({
+          tokens,
+          index: startIndex,
+          env: newEnv,
+          parseExpression: this.makeParseExpression({ caller, parserData }),
+          withFunctionBody: true,
+          functionName,
+          expectedFunctionType,
+        });
+      env = nextNextEnv;
+      functionType = newFunctionType;
+    }
+
+    const newParserData: ParserData = {
+      callSites: [...parserData.callSites, functionType],
+    };
+
+    // Parse body
+    const { expr: body, index: nextNextIndex } = this.parseBlockExpressions({
+      tokens,
+      index,
+      env: env, // FIXME: For top-level function, it should only be able to access the top level frame.
+      caller: functionType,
+      parserData: newParserData,
+    });
+    env = body.env;
+    index = nextNextIndex;
+
+    // Check function body return type matches
+    // the function type return type
+    const expectedReturnType = functionType.returnType;
+    if (!checkType(expectedReturnType, body.typeValue, env)) {
+      throw formatErrorMessages({
+        inputString: this.inputString,
+        modulePath: this.modulePath,
+        tokenAndErrorList: [
+          {
+            token: body.token,
+            errorMessage: `Mismatched return type:
+              Prototype: ${typeToString(expectedReturnType)}
+              Returned : ${typeToString(body.typeValue)}
+`,
+          },
+          {
+            token: body.exprs[body.exprs.length - 1].token,
+            errorMessage: `Returned value:`,
+          },
+        ],
+      });
+    }
+    functionType.freeVariables = env.freeVariables;
+
+    // Check if the last expression of body is `recur`
+    const lastExpr = body.exprs[body.exprs.length - 1];
+    if (lastExpr && lastExpr.type === AstType.Recur) {
+      lastExpr.isLastExpr = true;
+    } else if (
+      lastExpr &&
+      (lastExpr.type === AstType.If || lastExpr.type === AstType.Match)
+    ) {
+      const cases = lastExpr.cases;
+      // Check if any of the cases has `recur` in the last expression.
+      for (const case_ of cases) {
+        const caseBody = case_.body;
+        const caseLastExpr = caseBody.exprs[caseBody.exprs.length - 1];
+        if (caseLastExpr && caseLastExpr.type === AstType.Recur) {
+          caseLastExpr.isLastExpr = true;
+        }
+      }
+    }
+
+    return {
+      index,
+      expr: {
+        type: AstType.Function,
+        body,
+        env: copyEnvironment(
+          functionType.closureCaptureMode !== "none"
+            ? popEnvFrame(env)
+            : oldEnv,
+          oldEnv.functionDeclarationFrameLevel,
+          oldEnv.freeVariables
+        ),
+        frameLevel: currentFrameLevel,
+        token: tokens[startIndex],
+        typeValue: functionType,
+      },
+    };
+  }
+
+  /**
+   * parenexpr ::= "(" expr ")"
+   * @param tokens
+   * @param index
+   * @returns
+   */
+  private parseParenExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.LParen) {
+      throw this.formatErrorMessage(tokens[index], "Expected left paren");
+    }
+    if (
+      tokens[index + 1]?.type === TokenType.RParen &&
+      // tokens[index + 2]?.type !== TokenType.FatArrow  &&
+      tokens[index + 2]?.type !== TokenType.FunctionArrow
+    ) {
+      // unit type
+      return {
+        expr: {
+          type: AstType.Value,
+          tag: "primitive",
+          value: "()",
+          typeValue: {
+            type: "()",
+            kind: "Free",
+          },
+          env,
+          token: tokens[index],
+        },
+        index: index + 2,
+      };
+    }
+
+    const rParenIndex = this.findTokenIndexForRBracket(tokens, index);
+    if (
+      // Anonymous function
+      rParenIndex > 0 &&
+      (tokens[rParenIndex + 1].type === TokenType.Colon ||
+        tokens[rParenIndex + 1].type === TokenType.FatArrow ||
+        tokens[rParenIndex + 1].type === TokenType.MoveFatArrow ||
+        tokens[rParenIndex + 1].type === TokenType.FunctionArrow)
+    ) {
+      const { expr, index: nextIndex } = this.parseAnonymousFunction({
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+      if (expr) {
+        return { expr, index: nextIndex };
+      } else {
+        throw new Error("Failed to parse as anonymouse function");
+      }
+    } else {
+      const returnValue = this.parseExpression({
+        tokens,
+        index: index + 1,
+        env,
+        caller,
+        parserData,
+      });
+      let expr = returnValue.expr;
+      env = expr.env;
+      const nextIndex = returnValue.index;
+      if (!expr) {
+        return { expr, index: nextIndex };
+      }
+      index = nextIndex;
+
+      if (tokens[index].type === TokenType.Assign) {
+        const { expr: rhs, index: nextNextIndex } = this.parseAssignmentExpr({
+          lhs: expr,
+          tokens,
+          index,
+          env,
+          caller,
+          parserData,
+        });
+        expr = rhs;
+        index = nextNextIndex;
+      }
+
+      if (tokens[index].type === TokenType.RParen) {
+        return { expr, index: index + 1 };
+      } else {
+        // Parse tuple
+        const elements: Expr[] = [expr];
+        while (true) {
+          if (!tokens[index]) {
+            throw this.formatErrorMessage(
+              tokens[index],
+              "Expected right parenthesis ')'"
+            );
+          }
+          if (tokens[index].type === TokenType.Comma) {
+            index = index + 1;
+          }
+          if (tokens[index].type === TokenType.RParen) {
+            break;
+          }
+
+          // Parse the expression
+          const returnValue = this.parseExpression({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          if (!returnValue.expr) {
+            throw this.formatErrorMessage(tokens[index], "Expected expression");
+          }
+          index = returnValue.index;
+          env = returnValue.expr.env;
+          elements.push(returnValue.expr);
+        }
+        return {
+          expr: {
+            type: AstType.Value,
+            tag: "tuple",
+            elements,
+            typeValue: {
+              type: "Tuple",
+              elements: elements.map((element) => element.typeValue),
+              kind: unifyTypeKinds(
+                elements.map((element) => element.typeValue.kind)
+              ),
+            },
+            env,
+            token: elements[elements.length - 1].token,
+          },
+          index: index + 1,
+        };
+      }
+    }
+  }
+
+  private parseFunctionCallArguments({
+    /**
+     * Function being called
+     */
+    calleeType,
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+    /**
+     * The first argument being passed to the function
+     */
+    firstArgument,
+  }: {
+    calleeType: TFunction;
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+    firstArgument?: Expr;
+  }): {
+    index: number;
+    typeArguments: Type[];
+    functionArguments: Expr[];
+    calleeTypeValue: TFunction;
+    env: Environment;
+  } {
+    let calleeTypeValue = calleeType;
+
+    // type arguments
+    let typeArguments: Type[] = [];
+    if (tokens[index]?.value === "<") {
+      const {
+        typeArguments: nextTypeArguments,
+        index: nextIndex,
+        env: nextEnv,
+      } = synthesizeTypeArgumentsFromTokens({
+        tokens,
+        index: index,
+        env,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
+      });
+      typeArguments = nextTypeArguments;
+      index = nextIndex;
+      env = nextEnv;
+    }
+
+    const functionArguments: Expr[] = [];
+    if (firstArgument) {
+      functionArguments.push(firstArgument);
+    }
+
+    let parsedNormalArguments = false;
+    while (true) {
+      // Try parsing as anonymous function
+      try {
+        /*
+        // FIXME: We disabled this for now
+        const { expr, index: nextIndex } = this.parseAnonymousFunction({
+          tokens,
+          index,
+          env,
+          caller,
+          parserData,
+        });
+        if (expr) {
+          functionArguments.push(expr);
+          index = nextIndex;
+          continue;
+        } else {
+          throw new Error("Failed to parse as anonymouse function");
+        }
+        */
+        throw new Error("Failed to parse as anonymouse function");
+      } catch (error) {
+        // Ignore the error
+        // This means we failed to parse it as anonymouse function
+        // Try parse as block expression
+        try {
+          /*
+          // FIXME: We disabled the trailing lambda for now
+          if (tokens[index].type !== TokenType.LCurlyBracket) {
+            throw new Error("Expected left curly bracket");
+          }
+
+          // Insert "(", ")", "=>" tokens to make it a valid function
+          const newTokens: Token[] = [
+            ...tokens.slice(0, index),
+            {
+              type: TokenType.LParen,
+              value: "(",
+              position: tokens[index].position,
+            },
+            {
+              type: TokenType.RParen,
+              value: ")",
+              position: tokens[index].position,
+            },
+            {
+              type: TokenType.FatArrow,
+              value: "=>",
+              position: tokens[index].position,
+            },
+            ...tokens.slice(index),
+          ];
+          const diffSize = newTokens.length - tokens.length;
+          const { expr, index: nextIndex } = this.parseAnonymousFunction({
+            tokens: newTokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          if (expr) {
+            // FIXME: Convert block expression to anonymous function with 0 parameters
+            functionArguments.push(expr);
+            index = nextIndex - diffSize; // Remove "(", ")", "=>"
+            continue;
+          } else {
+            throw new Error("Failed to parse as block expression");
+          }
+          */
+          throw new Error("Failed to parse as trailing lambda");
+        } catch (error) {
+          if (parsedNormalArguments) {
+            break;
+          }
+          // Ignore the error
+          // This means we failed to parse it as block expression
+          // NOTE: This is not right for trailing lambda
+          if (tokens[index]?.type !== TokenType.LParen) {
+            // throw this.formatErrorMessage(tokens[index], "Expected left paren");
+            break;
+          }
+          index = index + 1;
+
+          if (tokens[index]?.type === TokenType.RParen) {
+            index = index + 1;
+            parsedNormalArguments = true;
+            continue;
+          }
+
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            // Check if it's keyword argument
+            if (
+              tokens[index].type === TokenType.Identifier &&
+              tokens[index + 1].type === TokenType.Assign
+            ) {
+              const variableName = tokens[index].value;
+              const { expr: defaultParameterValueExpr, index: nextIndex } =
+                this.parseExpression({
+                  tokens,
+                  index: index + 2,
+                  env,
+                  caller,
+                  parserData,
+                });
+              env = defaultParameterValueExpr.env;
+
+              if (!defaultParameterValueExpr) {
+                throw this.formatErrorMessage(
+                  tokens[index],
+                  "Expected expression for default parameter value"
+                );
+              }
+
+              const parameterAssignmentExpr: LetAssignmentExpr = {
+                type: AstType.LetAssignment,
+                variableName: variableName,
+                variableId: "", // FIXME: Is this correct?
+                isMutable: false, // NOTE: This is not used.
+                right: defaultParameterValueExpr,
+                typeValue: TypeValues.unit,
+                variableType: defaultParameterValueExpr.typeValue,
+                frameLevel: getEnvCurrentFrameLevel(env),
+                env,
+                token: tokens[index],
+              };
+              functionArguments.push(parameterAssignmentExpr);
+              index = nextIndex;
+            } else {
+              const { expr, index: nextIndex } = this.parseExpression({
+                tokens,
+                index,
+                env,
+                caller,
+                parserData,
+              });
+              env = expr.env;
+
+              if (!expr) {
+                throw this.formatErrorMessage(
+                  tokens[index],
+                  "Expected expression for function argument"
+                );
+              }
+              functionArguments.push(expr);
+              index = nextIndex;
+            }
+
+            if (tokens[index].type === TokenType.RParen) {
+              index = index + 1;
+              break;
+            }
+
+            if (tokens[index].type !== TokenType.Comma) {
+              throw this.formatErrorMessage(
+                tokens[index],
+                `Expected comma, but got ${tokens[index].value}`
+              );
+            }
+            index = index + 1;
+          }
+          parsedNormalArguments = true;
+        }
+      }
+    }
+
+    // logger.debug(JSON.stringify(calleeTypeValue));
+    const {
+      functionArguments: functionArgumentsInOrder,
+      functionTypeArguments: functionTypeArgumentsInOrder,
+    } = getFunctionArgumentsInOrder(
+      calleeTypeValue,
+      calleeTypeValue.parameterTypes,
+      functionArguments,
+      typeArguments,
+      env
+    );
+
+    if (!functionArgumentsInOrder) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Mismatched function arguments.
+Expected: (${calleeTypeValue.parameterTypes
+          .map(
+            (parameter) =>
+              (parameter.name ? `${parameter.name}: ` : "") +
+              typeToString(parameter.type, { hideTypeParameterKind: true })
+          )
+          .join(", ")})
+Got:      (${functionArguments
+          .map((arg) => {
+            return typeToString(arg.typeValue, { hideTypeParameterKind: true });
+          })
+          .join(", ")})`
+      );
+    }
+    if (!functionTypeArgumentsInOrder) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Mismatched type arguments.
+Expected: <${calleeTypeValue.typeParameters
+          .map((typeParameter) => `${typeToString(typeParameter)}`)
+          .join(", ")}>
+Got:      <${typeArguments.map((type) => typeToString(type)).join(", ")}>`
+      );
+    }
+
+    // Check if typeArguments matches
+    // and apply typeArguments to callee.typeValue
+    const typeParameters = calleeTypeValue.typeParameters;
+    if (typeParameters.length !== functionTypeArgumentsInOrder.length) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Mismatched type arguments.
+Expected: <${typeParameters
+          .map((typeParameter) => `${typeToString(typeParameter)}`)
+          .join(", ")}>
+Got:      <${functionTypeArgumentsInOrder
+          .map((type) => typeToString(type))
+          .join(", ")}>`
+      );
+    } else {
+      const typeValue_ = applyTypeArgumentsToType({
+        env,
+        type: calleeTypeValue,
+        typeArguments: functionTypeArgumentsInOrder,
+        typeParameterToTypeArgumentMap: {},
+      }) as TFunction;
+
+      if (typeValue_.type !== "Function") {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected function for call expression"
+        );
+      } else {
+        calleeTypeValue = typeValue_;
+      }
+    }
+
+    // Check if the type constraints are satisfied
+    checkIfTypeConstraintsAreSatisfied({
+      env,
+      typeConstraints: calleeTypeValue.typeConstraints,
+      token: tokens[index],
+    });
+
+    // Check the order of the arguments
+    env = this.checkFunctionArgumentsOrderAndConsumeOwnLinearValues({
+      calleeType,
+      functionArgumentsInOrder,
+      env,
+    });
+
+    return {
+      index,
+      typeArguments: functionTypeArgumentsInOrder,
+      functionArguments: functionArgumentsInOrder,
+      calleeTypeValue,
+      env,
+    };
+  }
+
+  private generateTempVariableForHoldingValue({
+    env,
+    valueType,
+    token,
+    referedVariable,
+    deltaFrame,
+  }: {
+    env: Environment;
+    valueType: Type;
+    token: Token;
+    referedVariable?: ReferedVariable;
+    deltaFrame?: number;
+  }): {
+    env: Environment;
+    value: VariableValue;
+  } {
+    const tempVariableName = generateNewTempVariableName(env);
+    const { env: nextEnv, value } = addEnvVariableValue({
+      env,
+      variableValue: {
+        variableName: tempVariableName,
+        type: valueType,
+        kind: "value",
+        isMutable: false,
+        token,
+        referedVariable,
+      },
+      deltaFrame: deltaFrame ?? 0,
+    });
+
+    return {
+      value,
+      env: nextEnv,
+    };
+  }
+
+  private parseCallFunctionExpr({
+    callee,
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+    firstArgument,
+  }: {
+    callee: Expr;
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+    firstArgument?: Expr;
+  }): ParserReturn {
+    const startIndex = index;
+    const calleeType = callee.typeValue;
+    if (calleeType.type !== "Function") {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected function for call expression"
+      );
+    }
+
+    const {
+      index: nextIndex,
+      env: nextEnv,
+      functionArguments,
+      calleeTypeValue,
+    } = this.parseFunctionCallArguments({
+      calleeType: calleeType,
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+      firstArgument,
+    });
+    index = nextIndex;
+    env = nextEnv;
+
+    // save the return value to a temporary variable
+    const returnType = calleeTypeValue.returnType;
+    const { env: nextNextEnv, value: tempVariable } =
+      this.generateTempVariableForHoldingValue({
+        env,
+        token: tokens[startIndex],
+        valueType: returnType,
+      });
+    env = nextNextEnv;
+
+    callee.typeValue = calleeTypeValue;
+    return {
+      expr: {
+        type: AstType.CallFunction,
+        function: callee,
+        functionArguments,
+        typeValue: returnType,
+        env,
+        token: tokens[startIndex],
+        tempVariableName: tempVariable.variableName,
+      },
+      index,
+    };
+  }
+
+  private parseCallEnumExpr({
+    callee,
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    callee: Expr;
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    const startIndex = index;
+    const calleeTypeValue = callee.typeValue;
+    if (calleeTypeValue.type !== "Enum") {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected enum for call expression"
+      );
+    }
+    const selectedVariantName = calleeTypeValue.selectedVariantName;
+    if (selectedVariantName === undefined) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected enum variant for call expression"
+      );
+    }
+
+    const selectedVariant = calleeTypeValue.variants.find(
+      (variant) => variant.name === selectedVariantName
+    );
+    if (!selectedVariant) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Cannot find enum variant ${selectedVariantName}`
+      );
+    }
+
+    if (tokens[index].type !== TokenType.LParen) {
+      throw this.formatErrorMessage(tokens[index], "Expected left paren");
+    }
+
+    const appliedTypeArguments: Type[] = calleeTypeValue.typeParameters.map(
+      (typeParameter) => typeParameter.appliedType ?? TypeValues.unknown
+    );
+
+    const variantArguments: Expr[] = [];
+    index = index + 1;
+    while (true) {
+      const token = tokens[index];
+      if (!token) {
+        throw this.formatErrorMessage(token, "Expected ')'");
+      }
+      if (token.type === TokenType.RParen) {
+        index = index + 1;
+        break;
+      } else {
+        const { expr, index: nextIndex } = this.parseExpression({
+          tokens,
+          index,
+          env,
+          caller,
+          parserData,
+        });
+        if (!expr) {
+          throw this.formatErrorMessage(token, "Expected expression");
+        }
+        variantArguments.push(expr);
+        index = nextIndex;
+        env = expr.env;
+
+        if (tokens[index].type === TokenType.Comma) {
+          index = index + 1;
+        }
+      }
+    }
+
+    const {
+      functionArguments: variantArgumentsInOrder,
+      functionTypeArguments: variantTypeArgumentsInOrder,
+    } = getFunctionArgumentsInOrder(
+      calleeTypeValue,
+      selectedVariant.parameterTypes,
+      variantArguments,
+      appliedTypeArguments,
+      env
+    );
+
+    if (!variantArgumentsInOrder) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Mismatched function arguments.
+Expected: (${selectedVariant.parameterTypes
+          .map(
+            (parameter) =>
+              (parameter.name ? `${parameter.name}: ` : "") +
+              typeToString(parameter.type, { hideTypeParameterKind: true })
+          )
+          .join(", ")})
+Got:      (${variantArguments
+          .map((arg) => {
+            return typeToString(arg.typeValue, { hideTypeParameterKind: true });
+          })
+          .join(", ")})`
+      );
+    }
+
+    if (!variantTypeArgumentsInOrder) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Mismatched type arguments.
+Expected: <${calleeTypeValue.typeParameters
+          .map((typeParameter) => `${typeToString(typeParameter)}`)
+          .join(", ")}>
+Got:      <${appliedTypeArguments
+          .map((type) => typeToString(type))
+          .join(", ")}>`
+      );
+    }
+
+    const enumType: TEnum = applyTypeArgumentsToType({
+      env,
+      type: { ...calleeTypeValue },
+      typeArguments: variantTypeArgumentsInOrder,
+      typeParameterToTypeArgumentMap: {},
+    }) as TEnum;
+
+    env = this.checkFunctionArgumentsOrderAndConsumeOwnLinearValues({
+      calleeType: enumType,
+      env,
+      functionArgumentsInOrder: variantArgumentsInOrder,
+    });
+
+    // Save the return value to a temporary variable
+    const { env: nextNextEnv, value: tempVariable } =
+      this.generateTempVariableForHoldingValue({
+        env,
+        token: tokens[startIndex],
+        valueType: enumType,
+      });
+    env = nextNextEnv;
+
+    return {
+      expr: {
+        type: AstType.CallEnum,
+        variantArguments: variantArgumentsInOrder as Expr[],
+        typeValue: enumType,
+        env,
+        token: tokens[startIndex],
+        tempVariableName: tempVariable.variableName,
+      },
+      index,
+    };
+  }
+
+  /*
+  // NOTE: Let's use `match` for now
+  private parseIsOperatorExpr(
+    enumExpr: Expr,
+    tokens: Token[],
+    index: number,
+    env: Environment,
+    caller: TFunction
+  ): ParserReturn {
+    if (enumExpr.typeValue.type !== "Enum") {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected enum for "is" comparison'
+      );
+    }
+    if (tokens[index].type !== TokenType.Is) {
+      throw this.formatErrorMessage(tokens[index], "Expected 'is' keyword");
+    }
+    const isTokenIndex = index;
+    index = index + 1;
+
+    const { expr: targetEnumExpr, index: nextIndex } = this.parseExpression(
+      tokens,
+      index,
+      env,
+      caller
+    );
+    if (!targetEnumExpr) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected expression for enum"
+      );
+    }
+    index = nextIndex;
+    if (targetEnumExpr.typeValue.type !== "Enum") {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected enum for "is" comparison'
+      );
+    }
+    const targetEnumType = targetEnumExpr.typeValue;
+    const targetSelectedVariantName = targetEnumType.selectedVariantName;
+    if (!targetSelectedVariantName) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected enum variant for enum"
+      );
+    }
+
+    if (enumExpr.typeValue.enumName !== targetEnumType.enumName) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Expected enum ${typeToString(
+          enumExpr.typeValue
+        )}, but got ${typeToString(targetEnumType)}`
+      );
+    }
+
+    if (
+      targetEnumType.typeParameters.every(
+        (typeParameter) => !typeParameter.appliedType
+      )
+    ) {
+      targetEnumType.typeParameters = enumExpr.typeValue.typeParameters;
+    }
+
+    return {
+      expr: {
+        type: AstType.IsOperator,
+        left: enumExpr,
+        right: targetEnumType,
+        typeValue: TypeValues.boolean,
+        env,
+        token: tokens[isTokenIndex],
+      },
+      index,
+    };
+  }
+  */
+
+  /**
+   * identifierexpr
+   *   ::= identifier
+   *   ::= identifier "(" expression* ")" # Call
+   * @param tokens
+   * @param index
+   */
+  private parseIdentifierExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    let identifierTokenIndex = index;
+    let identifier = tokens[index].value;
+
+    if (
+      tokens[index].type === TokenType.LParen &&
+      tokens[index + 1]?.type === TokenType.Operator &&
+      tokens[index + 2]?.type === TokenType.RParen
+    ) {
+      identifierTokenIndex = index + 1;
+      identifier = tokens[index + 1].value;
+      index = index + 2;
+    }
+
+    // Check if variable is defined
+    const variableValues = [
+      ...getEnvVariableValueByVariableName(env, identifier, "value"),
+      ...getEnvVariableValueByVariableName(env, identifier, "trait"),
+      ...getEnvVariableValueByVariableName(env, identifier, "type"),
+    ];
+    if (variableValues.length === 0) {
+      throw this.formatErrorMessage(
+        tokens[identifierTokenIndex],
+        `Unbounded variable \`${identifier}\``
+      );
+    }
+    const matchedFunctions = variableValues.filter(
+      (value) => value.type.type === "Function"
+    );
+    const matchTraits = variableValues.filter(
+      (value) => value.trait && value.kind === "trait"
+    );
+    const matchedEnums = variableValues.filter(
+      (value) =>
+        value.type.type === "Enum" &&
+        (value.kind === "type" || value.kind === "value")
+    );
+    const matchedTypeConstructors = variableValues.filter(
+      (value) => value.type.type === "TypeConstructor" && value.kind === "type"
+    );
+
+    // Check if it's a trait
+    if (matchTraits.length > 0) {
+      // FIXME: Support this
+      if (matchTraits.length > 1) {
+        throw this.formatErrorMessage(
+          tokens[identifierTokenIndex],
+          `Ambiguous traits "${identifier}"
+Found possible traits:
+- ${matchTraits.map((traitValue) => typeToString(traitValue.type)).join("\n- ")}
+          `
+        );
+      } else {
+        const traitValue = matchTraits[matchTraits.length - 1];
+        const trait = traitValue.trait;
+        if (!trait) {
+          throw this.formatErrorMessage(
+            tokens[identifierTokenIndex],
+            `Expected trait, but got ${typeToString(traitValue.type)}`
+          );
+        }
+        let typeArguments: Type[] = [];
+        if (tokens[index + 1]?.value === "<") {
+          const {
+            typeArguments: nextTypeArguments,
+            index: nextIndex,
+            env: nextEnv,
+          } = synthesizeTypeArgumentsFromTokens({
+            tokens,
+            index: index + 1,
+            env,
+            parseExpression: this.makeParseExpression({ caller, parserData }),
+          });
+          typeArguments = nextTypeArguments;
+          index = nextIndex;
+          env = nextEnv;
+        } else {
+          index = index + 1;
+        }
+        const newTraitType = applyTypeArgumentsToTrait({
+          trait: trait,
+          env,
+          typeArguments,
+          typeParameterToTypeArgumentMap: {},
+        });
+
+        return {
+          expr: {
+            type: AstType.Trait,
+            typeValue: TypeValues.unit,
+            trait: newTraitType,
+            env,
+            token: tokens[identifierTokenIndex],
+          },
+          index,
+        };
+      }
+    }
+
+    // Check if it's an enum
+    if (matchedEnums.length > 0) {
+      /*
+      if (matchedEnums.length > 1) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Ambiguous enum "${identifier}"
+Found possible enums:
+- ${matchedEnums.map((enumType) => typeToString(enumType.type)).join("\n- ")}
+          `
+        );
+      } else {
+      */
+      const enumValue = matchedEnums[matchedEnums.length - 1];
+      const enumType = enumValue.type as TEnum;
+      let typeArguments: Type[] = [];
+      const enumTokenIndex = index;
+      if (tokens[index + 1]?.value === "<") {
+        const {
+          typeArguments: nextTypeArguments,
+          index: nextIndex,
+          env: nextEnv,
+        } = synthesizeTypeArgumentsFromTokens({
+          tokens,
+          index: index + 1,
+          env,
+          parseExpression: this.makeParseExpression({ caller, parserData }),
+        });
+        typeArguments = nextTypeArguments;
+        index = nextIndex;
+        env = nextEnv;
+      } else {
+        index = index + 1;
+      }
+
+      const newEnumType = applyTypeArgumentsToType({
+        env,
+        type: enumType,
+        typeArguments,
+        typeParameterToTypeArgumentMap: {},
+      });
+
+      return {
+        expr: {
+          type: AstType.Variable,
+          variableName: identifier,
+          variableId: enumValue.id,
+          env,
+          typeValue: newEnumType,
+          frameLevel: enumValue.frameLevel,
+          isMutable: false,
+          token: tokens[enumTokenIndex],
+        },
+        index,
+      };
+      // }
+    }
+
+    // Check if it's type constructor
+    if (matchedTypeConstructors.length > 0) {
+      const typeConstructor =
+        matchedTypeConstructors[matchedTypeConstructors.length - 1];
+      const typeConstructorType = typeConstructor.type as TTypeConstructor;
+      let typeArguments: Type[] = [];
+      const typeConstructorTokenIndex = index;
+      if (tokens[index + 1]?.value === "<") {
+        const {
+          typeArguments: nextTypeArguments,
+          index: nextIndex,
+          env: nextEnv,
+        } = synthesizeTypeArgumentsFromTokens({
+          tokens,
+          index: index + 1,
+          env,
+          parseExpression: this.makeParseExpression({ caller, parserData }),
+        });
+        typeArguments = nextTypeArguments;
+        index = nextIndex;
+        env = nextEnv;
+      } else {
+        index = index + 1;
+      }
+
+      const newTypeConstructorType = applyTypeArgumentsToType({
+        env,
+        type: typeConstructorType,
+        typeArguments,
+        typeParameterToTypeArgumentMap: {},
+      }) as TTypeConstructor;
+
+      // Parse next expressions as primary
+      const { expr: primaryExpr, index: nextIndex } = this.parsePrimary({
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+      env = primaryExpr.env;
+      index = nextIndex;
+
+      // Check if the types match
+      if (
+        !checkType(newTypeConstructorType.typeValue, primaryExpr.typeValue, env)
+      ) {
+        throw this.formatErrorMessage(
+          tokens[typeConstructorTokenIndex],
+          `Mismatched types.
+Expected: ${typeToString(newTypeConstructorType)}
+Got:      ${typeToString(primaryExpr.typeValue)}`
+        );
+      }
+
+      const { env: nextNextEnv, value: tempVariable } =
+        this.generateTempVariableForHoldingValue({
+          env,
+          token: tokens[typeConstructorTokenIndex],
+          valueType: newTypeConstructorType,
+        });
+      env = nextNextEnv;
+      return {
+        expr: {
+          type: AstType.CallTypeConstructor,
+          typeValue: newTypeConstructorType,
+          env,
+          expr: primaryExpr,
+          tempVariableName: tempVariable.variableName,
+          token: tokens[typeConstructorTokenIndex],
+        },
+        index,
+      };
+    }
+
+    // Check if it's a function
+    // - test(1) Normal function call
+    // - test { 12 } Trailing lambda
+    // - test { 12 } { 13 } Trailing lambdas
+    // - test (x)=> { x + 1 } Trailing lambda
+    if (
+      tokens[index + 1]?.type === TokenType.LParen ||
+      tokens[index + 1]?.type === TokenType.LCurlyBracket ||
+      tokens[index + 1]?.value === "<"
+    ) {
+      // Try all matchedFunctions to see if there is a match
+      return this.tryCallFunctions({
+        functions: matchedFunctions.map((fv) => {
+          return fv.type as TFunction;
+        }),
+        calleeToken: tokens[identifierTokenIndex],
+        caller,
+        env,
+        parserData,
+        tokens,
+        leftParenTokenIndex: index + 1,
+        firstArgument: undefined,
+      });
+    }
+
+    // Normal variable
+    const variableValues_ = getEnvVariableValueByVariableName(
+      env,
+      identifier,
+      "value"
+    );
+    if (variableValues_.length === 0) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Unbounded variable \`${identifier}\``
+      );
+    }
+
+    /*
+    // Remove consumed variables
+    const notConsumedVariableValues = variableValues_.filter(
+      (value) => !value.consumedAtToken
+    );
+    if (notConsumedVariableValues.length === 0) {
+      throw formatErrorMessages({
+        inputString: this.inputString,
+        modulePath: this.modulePath,
+        errorMessage: `Cannot use the variable \`${identifier}\`.`,
+        tokenAndErrorList: variableValues_.map((value) => ({
+          token: value.consumedAtToken!,
+          errorMessage: `The Linear value defined before \`${identifier}\` was consumed here:`,
+        })),
+      });
+    }
+
+    const variableValue =
+      notConsumedVariableValues[notConsumedVariableValues.length - 1];
+    */
+
+    const variableValue = variableValues_[variableValues_.length - 1];
+    const typeValue = variableValue.type;
+
+    // NOTE: We automatically dereference the variable if it's a reference
+    // We return the variable it refered to
+    /*
+    if (typeValue.permission === "read" || typeValue.permission === "write") {
+      typeValue = {
+        ...typeValue,
+        permission: "own",
+      };
+    }
+    */
+
+    const isFreeVariable =
+      variableValue.frameLevel <= env.functionDeclarationFrameLevel;
+
+    // Add free variables to env
+    if (isFreeVariable) {
+      env = addEnvFreeVariable(env, variableValue);
+    }
+
+    return {
+      expr: {
+        type: AstType.Variable,
+        variableName: identifier,
+        variableId: variableValue.id,
+        typeValue,
+        frameLevel: variableValue.frameLevel,
+        isMutable: !!variableValue.isMutable,
+        env,
+        token: tokens[identifierTokenIndex],
+        // isFreeVariable,
+      },
+      index: index + 1,
+    };
+  }
+
+  private parseSymbolValue({
+    tokens,
+    index,
+    env,
+  }: {
+    tokens;
+    index;
+    env;
+  }): ParserReturn {
+    const token = tokens[index];
+    if (token.type === TokenType.String) {
+      if (
+        tokens[index + 1]?.type === TokenType.As &&
+        tokens[index + 2]?.type === TokenType.Const
+      ) {
+        return {
+          expr: {
+            type: AstType.Value,
+            env,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "symbol",
+              kind: "Free",
+              value: token.value,
+              tag: "primitive",
+            },
+            token: tokens[index],
+          },
+          index: index + 3,
+        };
+      } else {
+        return {
+          expr: {
+            type: AstType.Value,
+            env,
+            tag: "primitive",
+            value: token.value,
+            typeValue: {
+              type: "symbol",
+              kind: "Free",
+            },
+            token: tokens[index],
+          },
+          index: index + 1,
+        };
+      }
+    } else {
+      throw this.formatErrorMessage(token, 'Expected "..."');
+    }
+  }
+
+  private parseSymbolExpr({
+    tokens,
+    index,
+    env,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.String) {
+      throw this.formatErrorMessage(tokens[index], 'Expected "..."');
+    }
+    return this.parseSymbolValue({ tokens, index, env });
+  }
+
+  /**
+   * primary
+   *   ::= identifierexpr
+   *   ::= numberexpr
+   *   ::= parenexpr
+   *   ::= ifexpr
+   * @param tokens
+   * @param index
+   */
+  private parsePrimary({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    const token = tokens[index];
+    let returnValue: ParserReturn | null = null;
+
+    if (token.value === "<" || isClosureCaptureMode(tokens, index)) {
+      returnValue = this.parseAnonymousFunction({
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+    } /* else if (
+      token.value === "&" || // immutable reference
+      token.value === "&!" // mutable reference
+    ) {
+      returnValue = this.parseReferenceExpr({
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+    } else if (token.value.startsWith("*")) {
+      // Split tokens if necessary
+      if (token.value.length > 1) {
+        tokens.splice(
+          index,
+          1,
+          {
+            type: TokenType.Operator,
+            value: "*",
+            position: token.position,
+          },
+          {
+            type: TokenType.Operator,
+            value: token.value.slice(1),
+            position: token.position,
+          }
+        );
+      }
+
+      returnValue = this.parseDereferenceExpr({
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+    } */ else if (
+      token.type === TokenType.Identifier ||
+      (tokens[index].type === TokenType.LParen &&
+        tokens[index + 1]?.type === TokenType.Operator &&
+        tokens[index + 2]?.type === TokenType.RParen)
+    ) {
+      returnValue = this.parseIdentifierExpr({
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+    } else {
+      switch (token.type) {
+        case TokenType.String: {
+          returnValue = this.parseSymbolExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        case TokenType.Integer:
+        case TokenType.Float: {
+          returnValue = this.parseNumberExpr({ tokens, index, env });
+          break;
+        }
+        case TokenType.Char: {
+          returnValue = this.parseCharactorExpr({ tokens, index, env });
+          break;
+        }
+        /*
+        case TokenType.String: {
+          returnValue = this.parseStringExpr({ tokens, index, env });
+          break;
+        }
+        */
+        case TokenType.Boolean: {
+          returnValue = this.parseBooleanExpr({ tokens, index, env });
+          break;
+        }
+        case TokenType.Operator: {
+          returnValue = this.parseUnaryOperatorExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        case TokenType.LBracket: {
+          returnValue = this.parseArrayExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        case TokenType.LParen: {
+          returnValue = this.parseParenExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        case TokenType.LCurlyBracket: {
+          returnValue = this.parseCurlyBracketExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        case TokenType.If: {
+          returnValue = this.parseIfExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        case TokenType.Match: {
+          returnValue = this.parseMatchExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        case TokenType.Let:
+        case TokenType.Var: {
+          return this.parseLetAssignment({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+        }
+        case TokenType.Semicolon: {
+          return {
+            expr: {
+              type: AstType.Ignore,
+              typeValue: TypeValues.unit,
+              env,
+              token,
+            },
+            index: index + 1,
+          };
+        }
+        case TokenType.Defer: {
+          return this.parseDeferExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+        }
+        case TokenType.Recur: {
+          returnValue = this.parseRecurExpr({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+          });
+          break;
+        }
+        default: {
+          throw this.formatErrorMessage(
+            token,
+            `Unknown token: ${JSON.stringify(token)}`
+          );
+        }
+      }
+    }
+
+    returnValue = this.parsePrimaryEnd({
+      primaryExpr: returnValue.expr,
+      tokens,
+      index: returnValue.index,
+      env: returnValue.expr.env,
+      caller,
+      parserData,
+    });
+
+    return returnValue;
+  }
+
+  private parsePrimaryEnd({
+    primaryExpr,
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    primaryExpr: Expr;
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    const token = tokens[index];
+    if (!token) {
+      return {
+        expr: primaryExpr,
+        index,
+      };
+    } else if (token.type === TokenType.Dot) {
+      // parsePropertyAccessExpr
+      const returnValue = this.parsePropertyAccessExpr({
+        expr: primaryExpr,
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+      return this.parsePrimaryEnd({
+        primaryExpr: returnValue.expr,
+        tokens,
+        index: returnValue.index,
+        env: returnValue.expr.env,
+        caller,
+        parserData,
+      });
+    } else if (token.type === TokenType.LBracket) {
+      // parseIndexAccessExpr
+      const returnValue = this.parseIndexAccessExpr({
+        expr: primaryExpr,
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+      return this.parsePrimaryEnd({
+        primaryExpr: returnValue.expr,
+        tokens,
+        index: returnValue.index,
+        env: returnValue.expr.env,
+        caller,
+        parserData,
+      });
+    } else if (
+      primaryExpr.typeValue.type === "Function" &&
+      (token.type === TokenType.LParen || token.value === "<")
+    ) {
+      const returnValue = this.tryCallFunctions({
+        functions: [primaryExpr.typeValue],
+        calleeToken: tokens[index - 1],
+        caller,
+        env,
+        leftParenTokenIndex: index,
+        parserData,
+        tokens,
+      });
+      return this.parsePrimaryEnd({
+        primaryExpr: returnValue.expr,
+        tokens,
+        index: returnValue.index,
+        env: returnValue.expr.env,
+        caller,
+        parserData,
+      });
+    } else if (
+      primaryExpr.typeValue.type === "Enum" &&
+      token.type === TokenType.LParen
+    ) {
+      // parseCallEnumExpr
+      const returnValue = this.parseCallEnumExpr({
+        callee: primaryExpr,
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+      return this.parsePrimaryEnd({
+        primaryExpr: returnValue.expr,
+        tokens,
+        index: returnValue.index,
+        env: returnValue.expr.env,
+        caller,
+        parserData,
+      });
+    } else if (tokens[index].type === TokenType.As) {
+      const typeTokenIndex = index + 1;
+      const {
+        env: nextEnv,
+        index: nextIndex,
+        typeValue: castedType,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index: typeTokenIndex,
+        env,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
+      });
+      index = nextIndex;
+      env = nextEnv;
+      return {
+        expr: {
+          type: AstType.TypeCast,
+          env,
+          expr: primaryExpr,
+          token: tokens[typeTokenIndex],
+          typeValue: castedType,
+        },
+        index,
+      };
+    } /* else if (
+      primaryExpr.typeValue.type === "Enum" &&
+      token.type === TokenType.Is
+    ) {
+      // parseIsOperatorExpr
+      const returnValue = this.parseIsOperatorExpr(
+        primaryExpr,
+        tokens,
+        index,
+        env,
+        caller
+      );
+      return this.parsePrimaryEnd(
+        returnValue.expr,
+        tokens,
+        returnValue.index,
+        returnValue.expr.env,
+        caller
+      );
+    }*/ else {
+      return {
+        expr: primaryExpr,
+        index,
+      };
+    }
+  }
+
+  private parseDeferExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+    applyEnv,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+    applyEnv?: boolean;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.Defer) {
+      throw this.formatErrorMessage(tokens[index], "Expected 'defer'");
+    }
+    const deferTokenIndex = index;
+    index = index + 1;
+
+    const { expr: nextExpr, index: nextIndex } = this.parseBlockExpressions({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+
+    return {
+      expr: {
+        type: AstType.Defer,
+        expr: nextExpr,
+        typeValue: TypeValues.unit,
+        env: applyEnv ? nextExpr.env : env,
+        token: tokens[deferTokenIndex],
+      },
+      index: nextIndex,
+    };
+  }
+
+  private parseBinOpRHS({
+    tokens,
+    exprPrecedence,
+    LHS,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    exprPrecedence: number;
+    LHS: Expr;
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    // if it's binop, find its precedence
+    while (true) {
+      const token = tokens[index];
+
+      // Not an operator
+      if (!token || !stringIsOperator(token.value)) {
+        return { expr: LHS, index };
+      }
+
+      const operatorString: string = token.value;
+      const operatorPrecendence = getEnvInfixOperatorPrecedence(
+        env,
+        operatorString
+      );
+      if (!operatorPrecendence) {
+        // operator not found
+        return { expr: LHS, index };
+      } else if (operatorPrecendence.precedence < exprPrecedence) {
+        // If this is a binop that binds at least as tightly as the current binop,
+        // consume it, otherwise we are done.
+        return { expr: LHS, index };
+      }
+
+      // Okay, we know this is a binop
+      const binaryOperatorToken = token;
+      index = index + 1; // eat binop
+
+      // eslint-disable-next-line prefer-const
+      let {
+        expr: RHS,
+        // eslint-disable-next-line prefer-const
+        index: nextIndex,
+        // eslint-disable-next-line prefer-const
+      } = this.parsePrimary({ tokens, index, env, caller, parserData });
+      env = RHS.env;
+      if (!RHS) {
+        return { expr: RHS, index: nextIndex };
+      }
+
+      // If BinOp binds less tightly with RHS than the operator after RHS, let
+      // the pending operator take RHS as its LHS.
+      const nextToken = tokens[nextIndex];
+      const nextOperatorString = nextToken.value;
+      const nextOperatorPrecedence: OperatorPrecedence | undefined =
+        stringIsOperator(nextOperatorString)
+          ? getEnvInfixOperatorPrecedence(env, nextOperatorString)
+          : undefined;
+
+      if (
+        nextOperatorPrecedence &&
+        operatorPrecendence.precedence < nextOperatorPrecedence.precedence
+      ) {
+        const { expr, index: nextNextIndex } = this.parseBinOpRHS({
+          tokens,
+          exprPrecedence: operatorPrecendence.precedence + 1,
+          LHS: RHS,
+          index: nextIndex,
+          env,
+          caller,
+          parserData,
+        });
+        if (!expr) {
+          return { expr, index: nextNextIndex };
+        }
+        RHS = expr;
+        index = nextNextIndex;
+      } else {
+        index = nextIndex;
+      }
+
+      // Find the infix function
+      const variableValues = getEnvVariableValueByVariableName(
+        env,
+        operatorString,
+        "value"
+      );
+      const matchedFunctions = variableValues.filter(
+        (value) => value.type.type === "Function"
+      );
+      // Try all matchedFunctions to see if there is a match
+      const parserReturns: ParserReturn[] = [];
+      const parsedFunctions: {
+        functionName: string;
+        functionType: TFunction;
+      }[] = [];
+      const failedFunctions: {
+        functionName: string;
+        functionType: TFunction;
+        error: Error;
+      }[] = [];
+      const helper = (functionName: string, functionType: TFunction) => {
+        if (functionType.hasNoImplementation) {
+          failedFunctions.push({
+            functionName,
+            functionType,
+            error: new Error("No implementation found"),
+          });
+          return;
+        }
+
+        try {
+          const { functionArguments, functionTypeArguments } =
+            getFunctionArgumentsInOrder(
+              functionType,
+              functionType.parameterTypes,
+              [LHS, RHS],
+              [],
+              env
+            );
+          if (!functionArguments) {
+            throw this.formatErrorMessage(
+              binaryOperatorToken,
+              `Mismatched function arguments.
+Expected: (${functionType.parameterTypes
+                .map(
+                  (parameter) =>
+                    (parameter.name ? `${parameter.name}: ` : "") +
+                    typeToString(parameter.type, {
+                      hideTypeParameterKind: true,
+                    })
+                )
+                .join(", ")})
+Got:      (${[LHS, RHS]
+                .map((arg) => {
+                  return typeToString(arg.typeValue, {
+                    hideTypeParameterKind: true,
+                  });
+                })
+                .join(", ")})`
+            );
+          }
+          if (!functionTypeArguments) {
+            throw this.formatErrorMessage(
+              binaryOperatorToken,
+              `Mismatched type arguments.
+Expected: <${functionType.typeParameters
+                .map((typeParameter) => `${typeToString(typeParameter)}`)
+                .join(", ")}>
+Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
+            );
+          }
+
+          const newFunctionType = applyTypeArgumentsToType({
+            env,
+            type: { ...functionType },
+            typeArguments: functionTypeArguments,
+            typeParameterToTypeArgumentMap: {},
+          }) as TFunction;
+          // save the return value to a temporary variable
+          const returnType = newFunctionType.returnType;
+          env = this.checkFunctionArgumentsOrderAndConsumeOwnLinearValues({
+            calleeType: newFunctionType,
+            functionArgumentsInOrder: functionArguments,
+            env,
+          });
+          const { env: nextNextEnv, value: tempVariable } =
+            this.generateTempVariableForHoldingValue({
+              env,
+              token: binaryOperatorToken,
+              valueType: returnType,
+            });
+
+          parserReturns.push({
+            expr: {
+              type: AstType.CallFunction,
+              function: {
+                type: AstType.Variable,
+                variableName: operatorString,
+                variableId: functionType.functionId,
+                frameLevel: functionType.frameLevel,
+                typeValue: newFunctionType,
+                env,
+                isMutable: false,
+                token: binaryOperatorToken,
+              },
+              functionArguments: functionArguments, // [LHS, RHS],
+              typeValue: newFunctionType.returnType,
+              env: nextNextEnv,
+              token: binaryOperatorToken,
+              tempVariableName: tempVariable.variableName,
+            },
+            index,
+          });
+          parsedFunctions.push({
+            functionName,
+            functionType,
+          });
+        } catch (error) {
+          // console.error(error);
+          // Ignore the error
+          failedFunctions.push({ functionName, functionType, error });
+        }
+      };
+
+      for (const matchedFunction of matchedFunctions) {
+        const functionName = matchedFunction.variableName;
+        const functionType = matchedFunction.type as TFunction;
+        helper(functionName, functionType);
+
+        if (functionType.traitFunctionImplementations.length > 0) {
+          for (const traitFunctionImplementation of functionType.traitFunctionImplementations) {
+            const implementFunctionType = traitFunctionImplementation.func;
+            helper(functionName, implementFunctionType);
+          }
+        }
+      }
+
+      if (parserReturns.length === 0) {
+        throw this.formatErrorMessage(
+          binaryOperatorToken,
+          `Cannot find function '${operatorString}' as binary operator
+${failedFunctions.length > 0 ? `Below are the possible functions:` : ""}
+${failedFunctions
+  .map(
+    (func) => `- ${func.functionName}: ${typeToString(func.functionType)}
+  ${func.error}`
+  )
+  .join("\n")}
+          `.trim()
+        );
+      } else if (
+        this.hasAmbiguousFunctionCall(
+          parserReturns.map((p) => p.expr as CallFunctionExpr)
+        )
+      ) {
+        throw this.formatErrorMessage(
+          binaryOperatorToken,
+          `Ambiguous function "${operatorString}"
+Found possible functions:
+- ${parsedFunctions
+            .map(
+              (func) =>
+                `${func.functionName}: ${typeToString(func.functionType)}`
+            )
+            .join("\n- ")}`.trim()
+        );
+      } else {
+        LHS = parserReturns[0].expr;
+        if (LHS.type === AstType.CallFunction) {
+          LHS = {
+            ...LHS,
+            isOperator: "binary",
+          };
+        }
+      }
+    }
+  }
+
+  private parseUnaryOperatorExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    const operatorToken = tokens[index];
+    if (tokens[index].type !== TokenType.Operator) {
+      throw this.formatErrorMessage(tokens[index], "Expected operator");
+    }
+    index = index + 1;
+
+    // Immutable reference and Mutable reference
+    if (
+      operatorToken.value === ImmutableReferenceOperator ||
+      operatorToken.value === MutableReferenceOperator
+    ) {
+      return this.parseReferenceExpr({
+        tokens,
+        env,
+        caller,
+        index: index - 1,
+        parserData,
+      });
+    }
+
+    if (operatorToken.value === DereferenceOperator) {
+      return this.parseDereferenceExpr({
+        tokens,
+        env,
+        caller,
+        index: index - 1,
+        parserData,
+      });
+    }
+
+    // Parse argument
+    const { expr, index: nextIndex } = this.parsePrimary({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    env = expr.env;
+    index = nextIndex;
+
+    // Find the unary function
+    const variableValues = getEnvVariableValueByVariableName(
+      env,
+      operatorToken.value,
+      "value"
+    );
+    const matchedFunctions = variableValues.filter(
+      (value) => value.type.type === "Function"
+    );
+    // Try all matchedFunctions to see if there is a match
+    const parserReturns: ParserReturn[] = [];
+    const parsedFunctions: { functionName: string; functionType: TFunction }[] =
+      [];
+    const failedFunctions: {
+      functionName: string;
+      functionType: TFunction;
+      error: Error;
+    }[] = [];
+    const helper = (functionName: string, functionType: TFunction) => {
+      if (functionType.hasNoImplementation) {
+        failedFunctions.push({
+          functionName,
+          functionType,
+          error: new Error("No implementation found"),
+        });
+        return;
+      }
+      try {
+        const { functionArguments, functionTypeArguments } =
+          getFunctionArgumentsInOrder(
+            functionType,
+            functionType.parameterTypes,
+            [expr],
+            [],
+            env
+          );
+        if (!functionArguments) {
+          throw this.formatErrorMessage(
+            operatorToken,
+            `Mismatched function arguments.
+Expected: (${functionType.parameterTypes
+              .map(
+                (parameter) =>
+                  (parameter.name ? `${parameter.name}: ` : "") +
+                  typeToString(parameter.type, {
+                    hideTypeParameterKind: true,
+                  })
+              )
+              .join(", ")})
+Got:      (${[expr]
+              .map((arg) => {
+                return typeToString(arg.typeValue, {
+                  hideTypeParameterKind: true,
+                });
+              })
+              .join(", ")})`
+          );
+        }
+        if (!functionTypeArguments) {
+          throw this.formatErrorMessage(
+            operatorToken,
+            `Mismatched type arguments.
+Expected: <${functionType.typeParameters
+              .map((typeParameter) => `${typeToString(typeParameter)}`)
+              .join(", ")}>
+Got:      <${[].map((type) => typeToString(type)).join(", ")}>`
+          );
+        }
+
+        const newFunctionType = applyTypeArgumentsToType({
+          env,
+          type: { ...functionType },
+          typeArguments: functionTypeArguments,
+          typeParameterToTypeArgumentMap: {},
+        }) as TFunction;
+        // save the return value to a temporary variable
+        const returnType = newFunctionType.returnType;
+        env = this.checkFunctionArgumentsOrderAndConsumeOwnLinearValues({
+          calleeType: newFunctionType,
+          functionArgumentsInOrder: functionArguments,
+          env,
+        });
+        const { env: nextNextEnv, value: tempVariable } =
+          this.generateTempVariableForHoldingValue({
+            env,
+            token: operatorToken,
+            valueType: returnType,
+          });
+        parserReturns.push({
+          expr: {
+            type: AstType.CallFunction,
+            function: {
+              type: AstType.Variable,
+              variableName: operatorToken.value,
+              variableId: functionType.functionId,
+              frameLevel: functionType.frameLevel,
+              typeValue: newFunctionType,
+              env,
+              isMutable: false,
+              token: operatorToken,
+            },
+            functionArguments: functionArguments, // [expr],
+            typeValue: newFunctionType.returnType,
+            env: nextNextEnv,
+            token: operatorToken,
+            tempVariableName: tempVariable.variableName,
+          },
+          index,
+        });
+        parsedFunctions.push({
+          functionName,
+          functionType,
+        });
+      } catch (error) {
+        // console.error(error);
+        // Ignore the error
+        failedFunctions.push({ functionName, functionType, error });
+      }
+    };
+
+    for (const matchedFunction of matchedFunctions) {
+      const functionName = matchedFunction.variableName;
+      const functionType = matchedFunction.type as TFunction;
+      helper(functionName, functionType);
+
+      if (functionType.traitFunctionImplementations.length > 0) {
+        for (const traitFunctionImplementation of functionType.traitFunctionImplementations) {
+          const implementFunctionType = traitFunctionImplementation.func;
+          helper(functionName, implementFunctionType);
+        }
+      }
+    }
+
+    if (parserReturns.length === 0) {
+      throw this.formatErrorMessage(
+        operatorToken,
+        `Cannot find function '${operatorToken.value}' as unary operator
+${failedFunctions.length > 0 ? `Below are the possible functions:` : ""}
+${failedFunctions
+  .map(
+    (func) => `- ${func.functionName}: ${typeToString(func.functionType)}
+  ${func.error}`
+  )
+  .join("\n")}
+          `.trim()
+      );
+    } else if (
+      this.hasAmbiguousFunctionCall(
+        parserReturns.map((p) => p.expr as CallFunctionExpr)
+      )
+    ) {
+      throw this.formatErrorMessage(
+        operatorToken,
+        `Ambiguous function "${operatorToken.value}"
+Found possible functions:
+- ${parsedFunctions
+          .map(
+            (func) => `${func.functionName}: ${typeToString(func.functionType)}`
+          )
+          .join("\n- ")}`.trim()
+      );
+    } else {
+      const ret = parserReturns[0];
+      const callFunctionExpr: CallFunctionExpr = ret.expr as CallFunctionExpr;
+      return {
+        expr: {
+          ...callFunctionExpr,
+          isOperator: "unary",
+        },
+        index: ret.index,
+      };
+    }
+  }
+
+  private parseReferenceExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (
+      tokens[index].value !== ImmutableReferenceOperator &&
+      tokens[index].value !== MutableReferenceOperator
+    ) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Expected ${ImmutableReferenceOperator} for immutable reference or ${MutableReferenceOperator} mutable reference`
+      );
+    }
+    const referenceOperatorToken = tokens[index];
+    const referenceKind: "immutable" | "mutable" =
+      tokens[index].value === ImmutableReferenceOperator
+        ? "immutable"
+        : "mutable";
+    index = index + 1;
+
+    // Parse argument
+    const { expr, index: nextIndex } = this.parsePrimary({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    env = expr.env;
+    index = nextIndex;
+    const isMutable = "isMutable" in expr ? expr.isMutable : false;
+
+    if (!isMutable && referenceKind === "mutable") {
+      throw this.formatErrorMessage(
+        referenceOperatorToken,
+        `Cannot create mutable reference to immutable value:
+${exprToString(expr)}`
+      );
+    }
+
+    const referenceType = applyTypeArgumentsToType({
+      env,
+      type:
+        referenceKind === "immutable"
+          ? TypeValues.ImmutableReference
+          : TypeValues.MutableReference,
+      typeArguments: [expr.typeValue],
+      typeParameterToTypeArgumentMap: {},
+    });
+
+    return {
+      expr: {
+        type: AstType.Reference,
+        typeValue: referenceType,
+        env,
+        expr,
+        isMutableReference: referenceKind === "mutable",
+        token: referenceOperatorToken,
+      },
+      index,
+    };
+  }
+
+  private parseDereferenceExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].value !== DereferenceOperator) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Expected ${DereferenceOperator} for dereference`
+      );
+    }
+    const dereferenceOperatorToken = tokens[index];
+    index = index + 1;
+
+    // Parse argument
+    const { expr, index: nextIndex } = this.parsePrimary({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    env = expr.env;
+    index = nextIndex;
+
+    if (!typeIsReference(expr.typeValue)) {
+      throw this.formatErrorMessage(
+        dereferenceOperatorToken,
+        `Cannot dereference non-reference value:
+${exprToString(expr)}: ${typeToString(expr.typeValue)}`
+      );
+    }
+
+    const dereferencedType = (expr.typeValue as TTypeConstructor)
+      .typeParameters[0].appliedType;
+    if (!dereferencedType) {
+      throw this.formatErrorMessage(
+        dereferenceOperatorToken,
+        `Cannot dereference non-reference value (2):
+${exprToString(expr)}: ${typeToString(expr.typeValue)}`
+      );
+    }
+    return {
+      expr: {
+        type: AstType.Dereference,
+        typeValue: dereferencedType,
+        env,
+        expr,
+        token: dereferenceOperatorToken,
+      },
+      index,
+    };
+  }
+
+  /**
+   * If it's dereference, check if it's dereferencing a reference to Linear value.
+   * If yes, then throw an error.
+   * @param expr
+   */
+  private checkIfDereferenceReferenceToLinearValue(expr: Expr) {
+    if (
+      expr.type === AstType.Dereference &&
+      (expr.typeValue.kind === "Linear" || expr.typeValue.kind === "Type")
+    ) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Cannot dereference a reference to Linear value:
+${exprToString(expr)}`
+      );
+    }
+  }
+
+  private checkIfDereferenceMutableReference(expr: Expr): boolean {
+    return (
+      expr.type === AstType.Dereference &&
+      typeIsMutableReference(expr.expr.typeValue)
+    );
+  }
+
+  private parseBlockExpressions({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+    tempVariableName,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+    tempVariableName?: string;
+  }): { index: number; expr: BlockExpr } {
+    let exprs: Expr[] = [];
+    let isSingleExpression = false;
+    const blockTokenIndex = index;
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      isSingleExpression = true;
+    } else {
+      index = index + 1;
+    }
+
+    env = pushEnvFrame(env);
+    let nextEnv = env;
+    while (true) {
+      const token = tokens[index];
+      if (!token) {
+        break;
+      }
+      if (!isSingleExpression && !token) {
+        throw this.formatErrorMessage(token, "Expected '}' for function body");
+      }
+      if (!isSingleExpression && token.type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+
+      const { expr, index: nextIndex } = this.parseExpression({
+        tokens,
+        index,
+        env: nextEnv,
+        caller,
+        parserData,
+      });
+
+      if (tokens[nextIndex]?.type === TokenType.Assign) {
+        const { expr: assignmentExpr, index: nextNextIndex } =
+          this.parseAssignmentExpr({
+            lhs: expr,
+            tokens,
+            index: nextIndex,
+            env: expr.env,
+            caller,
+            parserData,
+          });
+        exprs.push(assignmentExpr);
+        nextEnv = assignmentExpr.env;
+        index = nextNextIndex;
+      } else {
+        exprs.push(expr);
+        nextEnv = expr.env;
+        index = nextIndex;
+      }
+
+      if (isSingleExpression) {
+        break;
+      }
+    }
+
+    const lastExpr: Expr | null = exprs[exprs.length - 1] ?? null;
+    if (!isSingleExpression) {
+      exprs = exprs.filter((expr) => expr.type !== AstType.Ignore);
+      if (
+        !lastExpr ||
+        tokens[index - 2].type ===
+          TokenType.Semicolon /*&& !isSingleExpression */
+      ) {
+        exprs.push({
+          type: AstType.Value,
+          tag: "primitive",
+          value: "()",
+          typeValue: { type: "()", kind: "Free" },
+          env: nextEnv,
+          token: tokens[index - 1],
+        });
+      }
+    }
+
+    // NOTE: Needs to put this before `env.popFrame` to get `returnType`.
+    const returnExpr = exprs[exprs.length - 1];
+    const returnType = returnExpr.typeValue;
+    const { env: nextNextEnv, referedVariable } = this.setVariableAsConsumed(
+      nextEnv,
+      returnExpr
+    );
+
+    if (
+      referedVariable &&
+      referedVariable.frameLevel === env.frames.length - 1
+    ) {
+      throw this.formatErrorMessage(
+        returnExpr.token,
+        "Cannot return a reference defined in the block body."
+      );
+    }
+    env = nextNextEnv;
+
+    // Run the deferred expressions
+    for (let i = exprs.length - 1; i >= 0; i--) {
+      const expr = exprs[i];
+      if (expr.type === AstType.Defer) {
+        // evaluate the defer again.
+        const { expr: deferExpr } = this.parseDeferExpr({
+          tokens,
+          index: tokens.findIndex((token) => token === expr.token),
+          caller,
+          env,
+          parserData,
+          applyEnv: true,
+        });
+        env = deferExpr.env;
+      }
+    }
+
+    if (!tempVariableName) {
+      // save the return value to a temporary variable
+      const { env: nextNextNextEnv, value } =
+        this.generateTempVariableForHoldingValue({
+          env,
+          token: tokens[blockTokenIndex],
+          valueType: returnType,
+          deltaFrame: -1,
+          referedVariable,
+        });
+      env = nextNextNextEnv;
+      tempVariableName = value.variableName;
+      // console.log("block: value", value);
+      // console.log("here: ", value.order, value.variableName, referedVariable);
+    } else {
+      // console.log("block: ", tempVariableName, referedVariable);
+      // FIXME:
+      /*
+      if (referedVariable) {
+        const tempVariableValues = getEnvVariableValueByVariableName(
+          env,
+          tempVariableName
+        );
+        const tempVariableValue = tempVariableValues[0];
+        if (tempVariableValue) {
+          // console.log("block tempVariableValue: ", tempVariableValue);
+          if (
+            !tempVariableValue.referedVariable ||
+            tempVariableValue.order < referedVariable.order
+          ) {
+            const newTempVariableValue: VariableValue = {
+              ...tempVariableValue,
+              referedVariable,
+              order: referedVariable.order,
+            };
+            env = updateExistingVariableValue(
+              env,
+              tempVariableValue,
+              newTempVariableValue
+            );
+          }
+        }
+      }
+      */
+    }
+
+    // Disallow the "own"ed return value to contain
+    // "read" or "write" fields.
+    if (typeContainsReference(returnType)) {
+      throw this.formatErrorMessage(
+        returnExpr.token,
+        `Cannot return a value that contains reference.`
+      );
+    }
+
+    env = popEnvFrame(env);
+    return {
+      index,
+      expr: {
+        type: AstType.Block,
+        exprs,
+        env,
+        typeValue: returnType,
+        token: tokens[blockTokenIndex],
+        tempVariableName,
+      },
+    };
+  }
+
+  private setVariableAsConsumed(
+    env: Environment,
+    expr: Expr
+  ): { env: Environment; referedVariable?: ReferedVariable } {
+    // FIXME:
+    if (expr.type === AstType.PropertyAccess) {
+      {
+        // If it's accessing a linear type,
+        // then we throw error showing that
+        // dot access is not allowed for linear types.
+        if (
+          expr.typeValue.kind === "Type" ||
+          expr.typeValue.kind === "Linear"
+        ) {
+          throw this.formatErrorMessage(
+            expr.token,
+            `Cannot access "${expr.typeValue.kind}" value "${
+              expr.propertyName
+            }" with dot access.
+
+Please consider using "&" or "@" instead. For example:
+
+  let ref = &${exprToString(expr)}
+
+Or consider using destructuring instead, which will consume the RHS. For example:
+
+  let { ${expr.propertyName} } = ${exprToString(expr.expr)}
+`
+          );
+        } else {
+          try {
+            // It's accessing a Free type, so no need to consume.
+            // But we need to check if the variable is consumed.
+            this.trySettingVariableAsReference({
+              env,
+              expr,
+              isMutableReference: false,
+              isForAssignment: false,
+            });
+          } catch (error) {
+            throw formatErrorMessage({
+              modulePath: this.modulePath,
+              inputString: this.inputString,
+              token: expr.token,
+              errorMessage: `Cannot access the property below because "${exprToString(
+                expr.expr
+              )}" is already consumed:
+${exprToString(expr)}`,
+              cause: error,
+            });
+          }
+        }
+        return { env, referedVariable: undefined };
+      }
+    } else if (expr.type === AstType.IndexAccess) {
+      if (expr.typeValue.kind === "Type" || expr.typeValue.kind === "Linear") {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Cannot access "${expr.typeValue.kind}" value of "${exprToString(
+            expr.expr
+          )}" with index access.
+Please consider using "&" or "@" instead. For example:
+
+let ref = (&${exprToString(expr)})
+`
+        );
+      } else {
+        try {
+          // It's accessing a Free type, so no need to consume.
+          // But we need to check if the variable is consumed.
+          this.trySettingVariableAsReference({
+            env,
+            expr,
+            isMutableReference: false,
+            isForAssignment: false,
+          });
+        } catch (error) {
+          throw formatErrorMessage({
+            modulePath: this.modulePath,
+            inputString: this.inputString,
+            token: expr.token,
+            errorMessage: `Cannot access the value below because "${exprToString(
+              expr.expr
+            )}" is already consumed:
+${exprToString(expr)}`,
+            cause: error,
+          });
+        }
+      }
+    }
+
+    try {
+      switch (expr.type) {
+        case AstType.Variable: {
+          return setEnvVariableAsConsumed({
+            env,
+            variableName: expr.variableName,
+            consumedAtToken: expr.token,
+          });
+        }
+        // Below are all the expressions that have `tempVariableName`.
+        // case AstType.ReadWrite: // NOTE: No need to consume for "read"/"write" expression.
+        case AstType.CallFunction:
+        case AstType.CallEnum:
+        case AstType.CallTypeConstructor:
+        case AstType.If:
+        case AstType.Match:
+        case AstType.Assignment:
+        case AstType.Block: {
+          return setEnvVariableAsConsumed({
+            env,
+            variableName: expr.tempVariableName,
+            consumedAtToken: expr.token,
+          });
+        }
+        default: {
+          return { env, referedVariable: undefined };
+        }
+      }
+    } catch (error) {
+      throw formatErrorMessage({
+        modulePath: this.modulePath,
+        inputString: this.inputString,
+        token: expr.token,
+        errorMessage: `Cannot consume value: ${exprToString(expr)}`,
+        cause: error,
+      });
+    }
+  }
+
+  /*
+  private getVariableLifetimeOrder({
+    expr,
+    env,
+  }: {
+    expr: Expr;
+    env: Environment;
+  }): number {
+    if (
+      expr.type === AstType.PropertyAccess ||
+      expr.type === AstType.IndexAccess ||
+      expr.type === AstType.ReadWrite ||
+      expr.type === AstType.ImplicitDereference
+    ) {
+      return this.getVariableLifetimeOrder({ env, expr: expr.expr });
+    } else if (expr.type === AstType.Variable) {
+      return getEnvVariableLifetimeOrder(env, expr.variableName);
+    } else if (expr.type === AstType.Value) {
+      return 0; // global?
+    } else if (expr.type === AstType.CallFunction) {
+      return getEnvVariableLifetimeOrder(env, expr.tempVariableName);
+    } else {
+      throw new Error(
+        "getVariableLifetimeOrder to be implemented:\n" + exprToString(expr)
+      );
+    }
+  }
+  */
+
+  private checkFunctionArgumentsOrderAndConsumeOwnLinearValues({
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    calleeType,
+    functionArgumentsInOrder,
+    env,
+  }: {
+    calleeType: TFunction | TEnum;
+    functionArgumentsInOrder: Expr[];
+    env: Environment;
+  }): Environment {
+    // FIXME: Add lifetime constraint from the calleeType
+    for (let i = 0; i < functionArgumentsInOrder.length; i++) {
+      const functionArgument = functionArgumentsInOrder[i];
+
+      // Check if any argument is dereferencing a reference to linear value
+      this.checkIfDereferenceReferenceToLinearValue(functionArgument);
+
+      const { env: nextEnv } = this.setVariableAsConsumed(
+        env,
+        functionArgument
+      );
+      env = nextEnv;
+    }
+    return env;
+
+    /*
+    // Check the order of the arguments
+    const functionArgumentOrders = functionArgumentsInOrder.map((arg) =>
+      this.getVariableLifetimeOrder({ env, expr: arg })
+    );
+    // console.log("functionArgumentOrders: ", functionArgumentOrders);
+
+    let parameterTypes: TParameterType[] = [];
+    if (calleeType.type === "Function") {
+      parameterTypes = calleeType.parameterTypes;
+    } else {
+      if (!calleeType.selectedVariantName) {
+        throw new Error("Expected enum variant name");
+      } else {
+        const variant = calleeType.variants.find(
+          (variant) => variant.name === calleeType.selectedVariantName
+        );
+        if (!variant) {
+          throw new Error("Expected variant");
+        }
+        parameterTypes = variant.parameterTypes;
+      }
+    }
+
+    const functionParameterOrders = parameterTypes.map(
+      (parameter) => parameter.order.assigned ?? parameter.order.default
+    );
+    // console.log("functionParameterOrders: ", functionParameterOrders);
+
+    const orderMap: { [key: number]: number | undefined } = {};
+    const functionArgumentMap: { [key: number]: Expr } = {};
+    const functionParameterMap: { [key: number]: TParameterType } = {};
+    for (let i = 0; i < functionArgumentsInOrder.length; i++) {
+      const functionArgumentOrder = functionArgumentOrders[i];
+      const functionParameterOrder = functionParameterOrders[i];
+      const functionParameter = parameterTypes[i];
+      const functionArgument = functionArgumentsInOrder[i];
+      if (functionParameter.type.permission === "own") {
+        // Ignore the lifetime order check
+        orderMap[functionParameterOrder] = undefined;
+      } else {
+        orderMap[functionParameterOrder] = functionArgumentOrder;
+      }
+      functionArgumentMap[functionParameterOrder] = functionArgument;
+      functionParameterMap[functionParameterOrder] = functionParameter;
+    }
+
+    // Check if the order is increasing
+    let previousOrder = 0;
+    const functionArgumentsToConsume: Expr[] = [];
+    for (let i = 0; i < functionArgumentsInOrder.length; i++) {
+      const functionArgumentOrder = orderMap[i + 1];
+      const functionParameter = functionParameterMap[i + 1];
+      const functionArgument = functionArgumentMap[i + 1];
+      if (functionArgumentOrder === undefined) {
+        // Set argument as consumed if necessary
+        if (functionArgument && functionParameter) {
+          if (functionParameter.type.permission === "own") {
+            functionArgumentsToConsume.push(functionArgument);
+          }
+        }
+
+        continue;
+      } else if (
+        functionArgumentOrder < previousOrder
+        // We allow ==
+      ) {
+        throw this.formatErrorMessage(
+          functionArgument.token,
+          `Wrong lifetime order of function arguments:
+Expected: ${typeToString(calleeType)}
+Got     : (${functionArgumentsInOrder
+            .map(
+              (arg, index) =>
+                exprToString(arg) + ` @${functionArgumentOrders[index]}`
+            )
+            .join(", ")}) 
+`
+        );
+      } else {
+        previousOrder = functionArgumentOrder;
+      }
+    }
+
+    for (let i = functionArgumentsToConsume.length - 1; i >= 0; i--) {
+      const functionArgument = functionArgumentsToConsume[i];
+      const { env: nextEnv } = this.setVariableAsConsumed(
+        env,
+        functionArgument
+      );
+      env = nextEnv;
+    }
+
+    return env;
+    */
+  }
+
+  private trySettingVariableAsReference({
+    env,
+    expr,
+    isMutableReference,
+    isForAssignment,
+  }: {
+    env: Environment;
+    expr: Expr;
+    isMutableReference: boolean;
+    isForAssignment: boolean;
+  }): { resetConsumedVariable?: boolean; env: Environment } {
+    env = pushEnvFrame(env);
+    // Set the reference
+    const {
+      env: nextEnv,
+      referedVariable,
+      resetConsumedVariable,
+    } = this.increaseVariableReferenceCount({
+      env,
+      expr: expr,
+      isMutableReference,
+      isForAssignment,
+    });
+    env = nextEnv;
+    // Unset the reference
+    env = decrementVariableReferenceCount({
+      env,
+      referedVariable,
+    });
+    env = popEnvFrame(env);
+
+    return {
+      resetConsumedVariable,
+      env,
+    };
+  }
+
+  private increaseVariableReferenceCount({
+    env,
+    expr,
+    isMutableReference,
+    isForAssignment,
+  }: {
+    env: Environment;
+    expr: Expr;
+    isMutableReference: boolean;
+    isForAssignment?: boolean;
+  }): {
+    env: Environment;
+    referedVariable: ReferedVariable;
+    resetConsumedVariable?: boolean;
+  } {
+    try {
+      switch (expr.type) {
+        case AstType.Variable: {
+          return increaseEnvVariableReferenceCount({
+            env,
+            variableName: expr.variableName,
+            isMutableReference,
+            token: expr.token,
+            isForAssignment,
+          });
+        }
+        case AstType.PropertyAccess:
+        case AstType.IndexAccess: {
+          const v = expr.expr;
+          if (v.type !== AstType.Variable) {
+            throw new Error("Expected variable");
+          } else {
+            return this.increaseVariableReferenceCount({
+              env,
+              expr: v,
+              isMutableReference,
+              isForAssignment,
+            });
+          }
+        }
+        default: {
+          throw new Error("Expected variable");
+        }
+      }
+    } catch (error) {
+      throw formatErrorMessage({
+        modulePath: this.modulePath,
+        inputString: this.inputString,
+        token: expr.token,
+        errorMessage: `Failed to create ${
+          isMutableReference ? "mutable reference" : "immutable reference"
+        } for:
+${exprToString(expr)}\n`,
+        cause: error,
+      });
+    }
+  }
+
+  private parseExternExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+    isExported,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+    isExported?: boolean;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.Extern) {
+      throw this.formatErrorMessage(tokens[index], "Expected extern");
+    }
+    const externTokenIndex = index;
+    index = index + 1;
+
+    // TODO: Specify the language, like "C" or "JavaScript"
+    let language: "c" | "mo" = "c";
+    if (
+      tokens[index].type === TokenType.String &&
+      tokens[index].value.match(/^(c|mo)$/i)
+    ) {
+      language = tokens[index].value.toLowerCase() as "c" | "mo";
+      index = index + 1;
+    }
+
+    const variables: ExternVariable[] = [];
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for extern block"
+      );
+    }
+    index = index + 1;
+    while (true) {
+      if (!tokens[index]) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected '}' for extern block"
+        );
+      }
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+
+      let variableName: string | undefined = undefined;
+      const variableNameTokenIndex = index;
+      if (language === "c" && tokens[index].type === TokenType.Identifier) {
+        variableName = tokens[index].value;
+        index = index + 1;
+      } else if (language === "mo") {
+        if (tokens[index].type === TokenType.Identifier) {
+          variableName = `${tokens[index].value}`;
+          index = index + 1;
+        } else {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Expected identifier for extern variable name for language "mo", but got ${JSON.stringify(
+              tokens[index]
+            )}`
+          );
+        }
+      } else {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Expected identifier for extern variable name, but got ${JSON.stringify(
+            tokens[index]
+          )}`
+        );
+      }
+
+      if (tokens[index].type !== TokenType.Colon) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected ':' for extern variable type"
+        );
+      }
+      index = index + 1;
+
+      const {
+        typeValue,
+        index: nextIndex,
+        env: nextEnv,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index,
+        env,
+        functionName: variableName,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
+      });
+      index = nextIndex;
+      env = nextEnv;
+
+      variables.push({
+        name: variableName,
+        typeValue,
+      });
+
+      // Add variable to env
+      const { env: nextNextEnv } = addEnvVariableValue({
+        env,
+        variableValue: {
+          variableName,
+          type: typeValue,
+          isMutable: false,
+          kind: "value",
+          isExported,
+          token: tokens[variableNameTokenIndex],
+        },
+      });
+      env = nextNextEnv;
+
+      if (
+        tokens[index].type === TokenType.Semicolon ||
+        tokens[index].type === TokenType.Comma
+      ) {
+        index = index + 1;
+      }
+    }
+
+    return {
+      expr: {
+        type: AstType.Extern,
+        language,
+        variables,
+        typeValue: TypeValues.unit,
+        env,
+        token: tokens[externTokenIndex],
+      },
+      index,
+    };
+  }
+
+  private parseIfExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.If) {
+      throw this.formatErrorMessage(tokens[index], "Expected if");
+    }
+    const ifTokenIndex = index;
+    index = index + 1;
+
+    // Generate temp variable for holding the return value
+    const { env: nextEnv, value: tempVariable } =
+      this.generateTempVariableForHoldingValue({
+        env,
+        token: tokens[ifTokenIndex],
+        valueType: TypeValues.unit,
+      });
+    env = nextEnv;
+    const tempVariableName = tempVariable.variableName;
+
+    const cases: IfCase[] = [];
+    while (true) {
+      if (tokens[index].type !== TokenType.LParen) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected '(' for 'if' expression"
+        );
+      }
+      // Parse condition
+      const { expr: conditionExpr, index: nextIndex } = this.parseExpression({
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+      });
+      index = nextIndex;
+
+      // Parse body
+      const { expr: bodyExpr, index: nextNextIndex } =
+        this.parseBlockExpressions({
+          tokens,
+          index,
+          env: conditionExpr.env,
+          caller,
+          parserData,
+          tempVariableName,
+        });
+      index = nextNextIndex;
+
+      cases.push({
+        condition: conditionExpr,
+        body: bodyExpr,
+      });
+
+      if (tokens[index].type === TokenType.Else) {
+        index = index + 1;
+
+        if (tokens[index].type === TokenType.If) {
+          index += 1;
+          continue;
+        } else {
+          // Last else
+          // Parse body
+          const { expr: bodyExpr, index: nextNextIndex } =
+            this.parseBlockExpressions({
+              tokens,
+              index,
+              env: conditionExpr.env,
+              caller,
+              parserData,
+              tempVariableName,
+            });
+          index = nextNextIndex;
+
+          cases.push({
+            condition: undefined,
+            body: bodyExpr,
+          });
+          break;
+        }
+      } else {
+        break;
+      }
+    }
+
+    if (cases.length === 0) {
+      throw this.formatErrorMessage(
+        tokens[ifTokenIndex],
+        "Expected if expression body"
+      );
+    }
+
+    const expectedReturnType =
+      cases.length === 1 ? TypeValues.unit : cases[0].body.typeValue;
+
+    // Check if all cases have the same return type
+    const returnTypes = cases.map((case_) => case_.body.typeValue);
+    const hasDifferentReturnTypes = returnTypes.some(
+      (returnType) => !checkType(expectedReturnType, returnType, env)
+    );
+    if (hasDifferentReturnTypes) {
+      throw this.formatErrorMessage(
+        tokens[ifTokenIndex],
+        `Mismatched return types:
+Expected: ${typeToString(expectedReturnType)}
+Found:    
+- ${returnTypes.map((returnType) => typeToString(returnType)).join("\n- ")}
+`
+      );
+    }
+
+    // Update the tempVariable type
+    env = updateExistingVariableValue(env, tempVariable, {
+      ...tempVariable,
+      type: expectedReturnType,
+    });
+
+    // Merge and check all environments
+    env = mergeAndCheckEnv(env, cases, tempVariableName);
+
+    return {
+      expr: {
+        type: AstType.If,
+        cases,
+        typeValue: expectedReturnType,
+        env,
+        token: tokens[ifTokenIndex],
+        tempVariableName,
+      },
+      index,
+    };
+  }
+
+  private parseMatchExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.Match) {
+      throw this.formatErrorMessage(tokens[index], "Expected match");
+    }
+    const matchTokenIndex = index;
+    index = index + 1;
+
+    const variableTokenIndex = index;
+    if (tokens[index].type !== TokenType.LParen) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '(' for 'match' expression"
+      );
+    }
+    const { expr: matchedEnum, index: nextIndex } = this.parsePrimary({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    index = nextIndex;
+    if (matchedEnum.type !== AstType.Variable) {
+      throw this.formatErrorMessage(
+        tokens[variableTokenIndex],
+        "Only variable can be matched right now. For example, `match x { ... }`, but not `match x.a.b { ... }` "
+      );
+    }
+
+    if (matchedEnum.typeValue.type !== "Enum") {
+      throw this.formatErrorMessage(
+        tokens[index - 1],
+        `Expected enum, but got ${typeToString(matchedEnum.typeValue)}`
+      );
+    }
+
+    // Generate temp variable for holding the return value
+    const { env: nextEnv, value: tempVariable } =
+      this.generateTempVariableForHoldingValue({
+        env,
+        token: tokens[matchTokenIndex],
+        valueType: TypeValues.unit,
+      });
+    env = nextEnv;
+    const tempVariableName = tempVariable.variableName;
+
+    const cases: MatchCase[] = [];
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for match expression"
+      );
+    }
+    index = index + 1;
+    while (true) {
+      if (!tokens[index]) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected '}' for match expression"
+        );
+      }
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+
+      if (tokens[index].value !== TokenType.Default) {
+        if (tokens[index].type !== TokenType.Case) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected 'case' for case"
+          );
+        }
+        index = index + 1;
+
+        // parse case
+        const { expr: caseExpr, index: nextIndex } = this.parsePrimary({
+          tokens,
+          index,
+          env,
+          caller,
+          parserData,
+        });
+        index = nextIndex;
+        const caseExprType = caseExpr.typeValue;
+        if (caseExprType.type !== "Enum" || !caseExprType.selectedVariantName) {
+          throw this.formatErrorMessage(
+            tokens[index - 1],
+            `Expected enum with selected variant, but got ${exprToString(
+              caseExpr
+            )}`
+          );
+        }
+
+        /*
+        // Check if the enum type matches
+        if (!checkType(matchedEnum.typeValue, caseExprType, env)) {
+          throw this.formatErrorMessage(
+            tokens[index - 1],
+            `Mismatched types between matched enum and case enum:
+${typeToString(matchedEnum.typeValue)}
+${typeToString(caseExprType)}
+`
+          );
+        }
+        */
+
+        const variantName = caseExprType.selectedVariantName;
+
+        const newEnv = this.setSelectedVariantName({
+          enumExpr: matchedEnum,
+          variantName,
+          env,
+        });
+
+        if (tokens[index].type !== TokenType.Colon) {
+          throw this.formatErrorMessage(tokens[index], "Expected ':' for case");
+        }
+        index = index + 1;
+
+        // parse body
+        const { expr: blockExpr, index: nextNextIndex } =
+          this.parseBlockExpressions({
+            tokens,
+            index,
+            env: newEnv,
+            caller,
+            parserData,
+            tempVariableName,
+          });
+        index = nextNextIndex;
+        cases.push({
+          case: caseExpr,
+          body: blockExpr,
+          variantName,
+        });
+      } else {
+        // Default case
+        index = index + 1;
+
+        if (tokens[index].type !== TokenType.Colon) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected ':' for default case"
+          );
+        }
+        index = index + 1;
+
+        // parse body
+        const { expr: blockExpr, index: nextIndex } =
+          this.parseBlockExpressions({
+            tokens,
+            index,
+            env,
+            caller,
+            parserData,
+            tempVariableName,
+          });
+        index = nextIndex;
+        cases.push({
+          case: undefined,
+          variantName: "*", // "*" means default
+          body: blockExpr,
+        });
+      }
+
+      if (
+        tokens[index].type === TokenType.Semicolon ||
+        tokens[index].type === TokenType.Comma
+      ) {
+        index = index + 1;
+        continue;
+      }
+    }
+
+    // Exhausive check
+    // Make sure all variants are covered, unless there is a default case
+    const hasDefault = cases.some((case_) => case_.variantName === "*");
+    if (!hasDefault) {
+      const matchedEnumType = matchedEnum.typeValue;
+      const matchedEnumTypeVariants = matchedEnumType.variants.map(
+        (variant) => variant.name
+      );
+      const caseVariants = cases.map((case_) => case_.variantName);
+      const uncoveredVariants = matchedEnumTypeVariants.filter(
+        (variant) => !caseVariants.includes(variant)
+      );
+      if (uncoveredVariants.length > 0) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Not all variants are covered. Missing variants:
+${uncoveredVariants.join(", ")}
+`
+        );
+      }
+    } else {
+      // Make sure default is the last case
+      const defaultCaseIndex = cases.findIndex(
+        (case_) => case_.variantName === "*"
+      );
+      if (defaultCaseIndex !== cases.length - 1) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Default case must be the last case`
+        );
+      }
+    }
+
+    // Check each cases body returnValue type matches
+    if (cases.length === 0) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected at least one case"
+      );
+    }
+    const returnType = cases[0].body.typeValue;
+    for (let i = 1; i < cases.length; i++) {
+      const caseReturnType = cases[i].body.typeValue;
+      if (!checkType(returnType, caseReturnType, env)) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Mismatched types between cases:
+${typeToString(returnType)}
+${typeToString(caseReturnType)}
+`
+        );
+      }
+    }
+
+    // Update the tempVariable type
+    env = updateExistingVariableValue(env, tempVariable, {
+      ...tempVariable,
+      type: returnType,
+    });
+
+    // Merge and check all environments
+    env = mergeAndCheckEnv(env, cases, tempVariableName);
+
+    return {
+      expr: {
+        type: AstType.Match,
+        matchedEnum,
+        cases,
+        typeValue: returnType,
+        env,
+        token: tokens[matchTokenIndex],
+        tempVariableName,
+      },
+      index,
+    };
+  }
+
+  private setSelectedVariantName({
+    enumExpr,
+    variantName,
+    env,
+  }: {
+    enumExpr: Expr;
+    variantName: string;
+    env: Environment;
+  }): Environment {
+    if (enumExpr.typeValue.type !== "Enum") {
+      throw new Error(
+        `Expected enum, but got ${typeToString(enumExpr.typeValue)}`
+      );
+    }
+    // FIXME: Support reference of enum.
+    const enumType: TEnum = enumExpr.typeValue;
+
+    // Check if variantName exists
+    const matchedVariant = enumType.variants.find(
+      (variant) => variant.name === variantName
+    );
+    if (!matchedVariant) {
+      throw new Error(`Unknown variant "${variantName}"`);
+    }
+
+    switch (enumExpr.type) {
+      case AstType.Variable: {
+        const variableName = enumExpr.variableName;
+        const values = getEnvVariableValueByVariableName(env, variableName);
+        if (values.length === 0) {
+          throw new Error(`Unknown variable "${variableName}"`);
+        }
+        const value = values[values.length - 1];
+        if (value.type.type !== "Enum") {
+          throw new Error(`Expected enum, but got ${typeToString(value.type)}`);
+        } // FIXME: Support reference of enum.
+        const enumType: TEnum = value.type;
+        const newEnumType: TEnum = {
+          ...enumType,
+          selectedVariantName: variantName,
+        };
+        const newVariableValue: VariableValue = {
+          ...value,
+          type: newEnumType,
+        };
+
+        return updateExistingVariableValue(env, value, newVariableValue);
+      }
+      default: {
+        break;
+      }
+    }
+
+    return env;
+  }
+
+  private parseLetAssignment({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+    isExported,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+    isExported?: boolean;
+  }): ParserReturn {
+    if (
+      tokens[index].type !== TokenType.Let &&
+      tokens[index].type !== TokenType.Var
+    ) {
+      throw this.formatErrorMessage(tokens[index], 'Expected "let" or "var"');
+    }
+    let isMutable: boolean = tokens[index].type === TokenType.Var;
+    const letTokenIndex = index;
+    index = index + 1;
+
+    if (tokens[index].type === TokenType.Mut) {
+      // let mut
+      isMutable = true;
+      index = index + 1;
+    }
+
+    if (tokens[index].type === TokenType.LCurlyBracket) {
+      return this.parseDestructuringAssignmentExpression({
+        tokens,
+        index,
+        env,
+        caller,
+        parserData,
+        isMutable,
+      });
+    }
+
+    let variableNameTokenIndex = index;
+    let variableName: string | undefined = undefined;
+    let operatorPrecedence: OperatorPrecedence | undefined = undefined;
+    if (tokens[index].type === TokenType.Identifier) {
+      variableName = tokens[index].value;
+      index = index + 1;
+    } else if (tokens[index].type === TokenType.LParen) {
+      if (
+        tokens[index + 1].type === TokenType.Operator &&
+        tokens[index + 2].type === TokenType.RParen
+      ) {
+        variableNameTokenIndex = index + 1;
+        variableName = tokens[index + 1].value;
+        operatorPrecedence = getEnvInfixOperatorPrecedence(env, variableName);
+        index = index + 3;
+      } else {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected operator like (++) for let assignment"
+        );
+      }
+    } else {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected identifier for let assignment"
+      );
+    }
+
+    const userDefinedVariableTypeTokenIndex = index;
+    let userDefinedVariableType: Type | null = null;
+    if (tokens[index].type === TokenType.Colon) {
+      index = index + 1;
+      const {
+        typeValue,
+        index: nextIndex,
+        env: nextEnv,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index,
+        env,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
+      });
+      userDefinedVariableType = typeValue;
+      index = nextIndex;
+      env = nextEnv;
+
+      const { env: nextNextEnv } = addEnvVariableValue({
+        env,
+        variableValue: {
+          variableName,
+          type: userDefinedVariableType,
+          kind: "value",
+          isMutable,
+          isExported,
+          isUninitialized: true,
+          token: tokens[variableNameTokenIndex],
+        },
+      });
+      env = nextNextEnv;
+    }
+
+    if (tokens[index].type !== TokenType.Assign) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '=' for const assignment"
+      );
+    }
+    index = index + 1;
+
+    // Check if it's a function declaration
+    /*
+    // NOTE: User should use `recur` for recursive function calling self
+    if (!userDefinedVariableType) {
+      try {
+        const { typeValue } = synthesizeFunctionTypeFromTokens({
+          tokens,
+          index,
+          env,
+          parseExpression: this.makeParseExpression({ caller, parserData }),
+          withFunctionBody: false,
+          functionName: variableName,
+        });
+        userDefinedVariableType = typeValue;
+        const { env: nextEnv } = addEnvVariableValue({
+          env,
+          variableValue: {
+            variableName,
+            type: userDefinedVariableType,
+            kind: "value",
+            isMutable,
+            isExported,
+            isUninitialized: true,
+            token: tokens[variableNameTokenIndex],
+          },
+        });
+        env = nextEnv;
+      } catch (error) {
+        // console.error(error);
+        // Ignore the error
+      }
+    }
+    */
+
+    if (
+      userDefinedVariableType &&
+      typeContainsReference(userDefinedVariableType)
+    ) {
+      throw this.formatErrorMessage(
+        tokens[userDefinedVariableTypeTokenIndex],
+        `References are not allowed in let/var assignment:
+${typeToString(userDefinedVariableType)}`
+      );
+    }
+
+    const { expr: value, index: nextNextIndex } = this.parseExpression({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData: {
+        ...parserData,
+        userDefinedVariableType,
+      },
+    });
+    if (!value) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected expression for const assignment"
+      );
+    }
+    index = nextNextIndex;
+    env = value.env;
+    this.checkIfDereferenceReferenceToLinearValue(value);
+
+    if (
+      value.type === AstType.Function &&
+      value.typeValue.returnType.type === "unknown"
+    ) {
+      if (value.body.typeValue.type === "unknown") {
+        throw this.formatErrorMessage(
+          tokens[letTokenIndex],
+          `Cannot infer the return type of the function`
+        );
+      }
+      value.typeValue.returnType = value.body.typeValue;
+    }
+
+    const variableType: Type = value.typeValue;
+    let variableId: string | undefined = undefined;
+    // Check if type matches
+    if (userDefinedVariableType !== null) {
+      const nextUserDefinedType = synthesizeTypes({
+        expectedType: userDefinedVariableType,
+        givenType: variableType,
+        typeParameterToTypeArgumentMap: {},
+      });
+      if (!nextUserDefinedType) {
+        throw this.formatErrorMessage(
+          tokens[userDefinedVariableTypeTokenIndex],
+          `Mismatched types:
+Expected: ${typeToString(userDefinedVariableType, {
+            extractTypeConstructor: "all",
+          })}
+Got:      ${typeToString(variableType)}`
+        );
+      }
+
+      userDefinedVariableType = nextUserDefinedType;
+      // variableType = nextGivenType;
+
+      if (
+        userDefinedVariableType.type === "Function" &&
+        variableType.type === "Function"
+      ) {
+        variableType.functionId = userDefinedVariableType.functionId;
+        variableId = userDefinedVariableType.functionId;
+      }
+
+      // Check if the type matches
+      const typeMatches = checkType(userDefinedVariableType, variableType, env);
+      if (!typeMatches) {
+        throw this.formatErrorMessage(
+          tokens[userDefinedVariableTypeTokenIndex],
+          `Mismatched types:
+Expected: ${typeToString(userDefinedVariableType, {
+            extractTypeConstructor: "all",
+          })}
+Got:      ${typeToString(variableType)}`
+        );
+      }
+    }
+
+    // FIXME: We probably want to use the variableType here, for example,
+    // the default parameter value is only allowed in function implementation
+    const finalType: Type = {
+      ...(userDefinedVariableType && userDefinedVariableType.type !== "unknown"
+        ? userDefinedVariableType
+        : variableType),
+    };
+
+    // Consume RHS value if necessary
+    let referedVariable: ReferedVariable | undefined = undefined;
+    const { env: nextNextEnv, referedVariable: nextReferedVariable } =
+      this.setVariableAsConsumed(env, value);
+    env = nextNextEnv;
+    referedVariable = nextReferedVariable;
+
+    /*
+    if (isMutable) {
+      // Check if RHS is mutable
+      if (
+        ("isMutable" in value && !value.isMutable) ||
+        value.typeValue.permission === "read"
+      ) {
+        throw this.formatErrorMessage(
+          tokens[letTokenIndex],
+          `Cannot assign an immutable value to a mutable variable:
+${exprToString(value)}`
+        );
+      }
+    }
+    */
+
+    // Add variable to env
+    const { env: nextEnv, value: variableValue } = addEnvVariableValue({
+      env,
+      variableValue: {
+        variableName,
+        type: finalType,
+        kind: "value",
+        isMutable,
+        isExported,
+        isUninitialized: false,
+        operatorPrecedence,
+        token: tokens[variableNameTokenIndex],
+        referedVariable,
+      },
+      preventDuplicate: true,
+      variableId,
+    });
+    env = nextEnv;
+    // console.log("let= valueType: ", valueType);
+
+    if (typeContainsReference(finalType)) {
+      throw this.formatErrorMessage(
+        tokens[letTokenIndex],
+        `References are not allowed in let/var assignment:
+${typeToString(finalType)}`
+      );
+    }
+
+    return {
+      expr: {
+        type: AstType.LetAssignment,
+        variableName,
+        variableId: variableValue.id,
+        isMutable,
+        variableType: finalType,
+        right: value,
+        typeValue: TypeValues.unit,
+        frameLevel: getEnvCurrentFrameLevel(env),
+        env,
+        token: tokens[letTokenIndex],
+      },
+      index,
+    };
+  }
+
+  private destructureFields({
+    fields,
+    destructurings,
+    value,
+    env,
+  }: {
+    fields: TRecordProperty[] | TParameterType[];
+    destructurings: Destructuring[];
+    value: Expr;
+    env: Environment;
+  }): Environment {
+    const hasLinearField = fields.some(
+      (p) => p.type.kind === "Linear" || p.type.kind === "Type"
+    );
+    if (hasLinearField) {
+      // Consumes the value
+      const { env: nextEnv } = this.setVariableAsConsumed(env, value);
+      env = nextEnv;
+    }
+
+    const destructuredLinearFields: string[] = [];
+    // Check if the type of `value` matches the type of destructurings
+    for (let i = 0; i < destructurings.length; i++) {
+      const { name, asName, isMutable } = destructurings[i];
+      const property = fields.find((p) => p.name === name);
+      if (!property) {
+        throw this.formatErrorMessage(
+          destructurings[i].token,
+          `Cannot find the property \`${name}\`:`
+        );
+      }
+      const propertyType = property.type;
+
+      if (
+        "isMutable" in value &&
+        !value.isMutable &&
+        isMutable &&
+        propertyType.kind !== "Free"
+      ) {
+        throw formatErrorMessages({
+          modulePath: this.modulePath,
+          inputString: this.inputString,
+          tokenAndErrorList: [
+            {
+              token: destructurings[i].token,
+              errorMessage: `Cannot destructure an immutable value with mutable field "${name}"`,
+            },
+            {
+              token: value.token,
+              errorMessage: `Immutable value is defined here:`,
+            },
+          ],
+        });
+      }
+
+      /*
+      if (
+        (propertyType.kind === "Linear" || propertyType.kind === "Type") &&
+        (propertyType.permission === "read" ||
+          propertyType.permission === "write")
+      ) {
+        // We failed to dereference a reference to a linear field
+        throw formatErrorMessages({
+          modulePath: this.modulePath,
+          inputString: this.inputString,
+          tokenAndErrorList: [
+            {
+              token: destructurings[i].token,
+              errorMessage: `Cannot destructure a reference to a linear field "${name}"`,
+            },
+            {
+              token: value.token,
+              errorMessage: `Failed to destructure the value here:`,
+            },
+          ],
+        });
+      }
+      */
+
+      // We disallow destructuring
+      if (typeIsReference(propertyType)) {
+        throw formatErrorMessages({
+          modulePath: this.modulePath,
+          inputString: this.inputString,
+          tokenAndErrorList: [
+            {
+              token: destructurings[i].token,
+              errorMessage: `Cannot destructure field "${name}" that is a reference:
+  ${typeToString(propertyType)}`,
+            },
+          ],
+        });
+      }
+
+      // Add variable to env
+      const { env: nextEnv } = addEnvVariableValue({
+        env,
+        variableValue: {
+          variableName: asName ?? name,
+          type: { ...propertyType },
+          kind: "value",
+          isMutable: isMutable,
+          token: destructurings[i].token,
+        },
+        preventDuplicate: true,
+      });
+      env = nextEnv;
+
+      if (propertyType.kind === "Linear" || propertyType.kind === "Type") {
+        destructuredLinearFields.push(name);
+      }
+    }
+
+    // Check if all linear fields are destructured
+    if (destructuredLinearFields.length > 0) {
+      for (const property of fields) {
+        if (
+          (property.type.kind === "Linear" || property.type.kind === "Type") &&
+          !destructuredLinearFields.includes(property.name)
+        ) {
+          throw this.formatErrorMessage(
+            destructurings[0].token,
+            `The Linear field "${property.name}" needs to be destructured
+  because the following Linear fields are destructured:
+  ${destructuredLinearFields.map((x) => `"${x}"`).join(", ")}`
+          );
+        }
+      }
+    } else {
+      // Check if all linear fields are consumed
+      const linearFields = fields.filter(
+        (p) => p.type.kind === "Linear" || p.type.kind === "Type"
+      );
+      if (linearFields.length > 0) {
+        throw this.formatErrorMessage(
+          destructurings[0].token,
+          `The following Linear fields need to be destructured:
+${linearFields.map((x) => `"${x.name}"`).join(", ")}`
+        );
+      }
+    }
+
+    return env;
+  }
+
+  private destructureRecordType({
+    env,
+    destructurings,
+    value,
+    recordType,
+  }: {
+    env: Environment;
+    destructurings: Destructuring[];
+    value: Expr;
+    recordType: TRecord;
+  }): Environment {
+    return this.destructureFields({
+      fields: recordType.properties,
+      destructurings,
+      value,
+      env,
+    });
+  }
+
+  private destructureEnumType({
+    env,
+    destructurings,
+    value,
+    enumType,
+  }: {
+    env: Environment;
+    destructurings: Destructuring[];
+    value: Expr;
+    enumType: TEnum;
+  }): Environment {
+    if (!enumType.selectedVariantName) {
+      throw this.formatErrorMessage(
+        value.token,
+        `Cannot destructure the following enum because no variant is selected:
+${typeToString(enumType)}`
+      );
+    }
+    const variant = enumType.variants.find(
+      (v) => v.name === enumType.selectedVariantName
+    );
+    if (!variant) {
+      throw this.formatErrorMessage(
+        value.token,
+        `Cannot find the variant "${
+          enumType.selectedVariantName
+        }" in the following type:
+${typeToString(enumType)}`
+      );
+    }
+
+    return this.destructureFields({
+      fields: variant.parameterTypes,
+      destructurings,
+      value,
+      env,
+    });
+  }
+
+  private destructureValue({
+    destructurings,
+    value,
+    env,
+    tokens,
+    index,
+    isMutable,
+    curlyBracketTokenIndex,
+  }: {
+    destructurings: Destructuring[];
+    value: Expr;
+    env: Environment;
+    tokens: Token[];
+    index: number;
+    isMutable: boolean;
+    curlyBracketTokenIndex: number;
+    isReference?: "&" | "&!";
+  }): ParserReturn {
+    /*
+    // NOTE: We disable destructuring from "read" and "write" for now.
+    if (
+      value.typeValue.permission === "read" ||
+      value.typeValue.permission === "write"
+    ) {
+      throw this.formatErrorMessage(
+        value.token,
+        `Cannot destructuring from "read" or "write" value:`
+      );
+    }
+    */
+
+    const valueType = value.typeValue;
+    switch (valueType.type) {
+      case "Record": {
+        env = this.destructureRecordType({
+          env,
+          destructurings,
+          value,
+          recordType: valueType,
+        });
+        break;
+      }
+      case "TypeConstructor": {
+        /*
+        if (typeIsReferenceOrMutableReference(valueType)) {
+          env = this.increaseVariableReferenceCount({
+            env,
+            expr: value,
+            isMutableReference: true,
+            isForAssignment: true,
+          }).env;
+          
+        }*/
+
+        if (valueType.typeValue.type !== "Record") {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Cannot destructure the following type:
+  ${typeToString(valueType)}`
+          );
+        }
+        env = this.destructureRecordType({
+          env,
+          destructurings,
+          value,
+          recordType: valueType.typeValue,
+        });
+        break;
+      }
+      case "Enum": {
+        env = this.destructureEnumType({
+          env,
+          destructurings,
+          value,
+          enumType: valueType,
+        });
+        break;
+      }
+      default: {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Cannot destructuring from the following type:
+${typeToString(valueType)}`
+        );
+      }
+    }
+
+    return {
+      expr: {
+        type: AstType.DestructuringAssignment,
+        left: destructurings,
+        right: value,
+        isMutable,
+        env,
+        typeValue: TypeValues.unit,
+        token: tokens[curlyBracketTokenIndex],
+      },
+      index,
+    };
+  }
+
+  private parseDestructuringAssignmentExpression({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+    isMutable,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+    isMutable: boolean;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for destructuring assignment"
+      );
+    }
+    const curlyBracketTokenIndex = index;
+    index = index + 1;
+
+    const destructurings: Destructuring[] = [];
+    while (true) {
+      if (!tokens[index]) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected '}' for destructuring assignment"
+        );
+      }
+
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+
+      let isMutable_ = isMutable;
+      if (tokens[index].type === TokenType.Var) {
+        isMutable_ = true;
+        index = index + 1;
+      }
+
+      if (tokens[index].type !== TokenType.Identifier) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected identifier for the field."
+        );
+      }
+      const name = tokens[index].value;
+      let nameToken = tokens[index];
+      index = index + 1;
+
+      let asName: string | undefined = undefined;
+      if (tokens[index].type === TokenType.As) {
+        index = index + 1;
+        if (tokens[index].type !== TokenType.Identifier) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected identifier for new name of the field."
+          );
+        }
+        asName = tokens[index].value;
+        nameToken = tokens[index];
+        index = index + 1;
+      }
+
+      destructurings.push({
+        name,
+        asName,
+        isMutable: isMutable_,
+        token: nameToken,
+      });
+
+      if (tokens[index].type === TokenType.Comma) {
+        index = index + 1;
+      }
+    }
+
+    if (tokens[index].type !== TokenType.Assign) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '=' for destructuring assignment"
+      );
+    }
+    index = index + 1;
+
+    const { expr: value, index: nextIndex } = this.parseExpression({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    index = nextIndex;
+
+    return this.destructureValue({
+      destructurings,
+      value,
+      env,
+      tokens,
+      index,
+      curlyBracketTokenIndex,
+      isMutable,
+    });
+  }
+
+  private parseTypeAlias({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+    isExported,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+    isExported?: boolean;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.Type) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "type" for type alias'
+      );
+    }
+    const typeTokenIndex = index;
+    index = index + 1;
+
+    if (tokens[index].type !== TokenType.Identifier) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected identifier for type alias"
+      );
+    }
+    const typeName = tokens[index].value;
+    const typeNameTokenIndex = index;
+    index = index + 1;
+
+    // typeName has to be UpperCamelCase
+    if (!isUpperCamelCase(typeName)) {
+      // TODO: We might remove this rule
+      throw this.formatErrorMessage(
+        tokens[index - 1],
+        "Type name has to be UpperCamelCase"
+      );
+    }
+
+    // NOTE: This is necessary for type parameters and recursive type alias
+    env = pushEnvFrame(env);
+    const { env: nextEnv } = addEnvVariableValue({
+      env,
+      variableValue: {
+        variableName: typeName,
+        type: {
+          type: "unknown",
+          kind: "Free",
+          typeName,
+        },
+        kind: "type",
+        isExported,
+        token: tokens[typeNameTokenIndex],
+      },
+    });
+    env = nextEnv;
+
+    // Type parameters
+    let typeParameters: TTypeParameter[] = [];
+    let typeConstraints: TTrait[] = [];
+    if (tokens[index].value === "<") {
+      const {
+        index: nextIndex,
+        typeParameters: tp,
+        typeConstraints: tc,
+        env: nextEnv,
+      } = synthesizeTypeParametersFromTokens({
+        tokens,
+        index,
+        env,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
+      });
+      index = nextIndex;
+      typeParameters = tp;
+      typeConstraints = tc;
+      env = nextEnv;
+    }
+
+    // Parse userDefinedKind
+    let userDefinedKind: TypeKind | undefined = undefined;
+    const userDefinedKindTokenIndex = index + 1;
+    if (tokens[index].type === TokenType.Colon) {
+      index = index + 1;
+      userDefinedKind = parseTypeKind(tokens[index]);
+      if (!userDefinedKind) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected 'Type', 'Linear' or 'Free'"
+        );
+      }
+      index = index + 1;
+    }
+
+    // Type value
+    let kind: TypeKind | undefined = undefined;
+    let typeValue: Type = {
+      type: "Extern",
+      kind: "Free",
+    };
+    if (tokens[index].type === TokenType.Assign) {
+      index = index + 1;
+
+      const {
+        index: nextIndex,
+        typeValue: nextTypeValue,
+        env: nextEnv,
+      } = synthesizeTypeFromTokens({
+        tokens,
+        index,
+        env,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
+      });
+
+      // Check if userDefinedKind is valid:
+      kind = nextTypeValue.kind;
+      if (
+        userDefinedKind &&
+        userDefinedKind === "Free" &&
+        (kind === "Linear" || kind === "Type")
+      ) {
+        throw this.formatErrorMessage(
+          tokens[userDefinedKindTokenIndex],
+          `Cannot set ${typeName} as 'Free' because below is '${kind}':
+${typeToString(nextTypeValue)}`
+        );
+      } else if (
+        userDefinedKind &&
+        userDefinedKind === "Linear" &&
+        kind === "Type"
+      ) {
+        throw this.formatErrorMessage(
+          tokens[userDefinedKindTokenIndex],
+          `Cannot set ${typeName} as 'Linear' because it contains '${kind}' data.`
+        );
+      } else if (userDefinedKind === "Type" && kind === "Linear") {
+        throw this.formatErrorMessage(
+          tokens[userDefinedKindTokenIndex],
+          `Cannot set ${typeName} as 'Type' because below is 'Linear':
+${typeToString(nextTypeValue)}`
+        );
+      } else {
+        kind = userDefinedKind ? userDefinedKind : kind;
+      }
+
+      index = nextIndex;
+      env = nextEnv;
+      typeValue = nextTypeValue;
+    } else {
+      if (!userDefinedKind) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected kind for type alias"
+        );
+      }
+      kind = userDefinedKind;
+      typeValue = {
+        type: "Extern",
+        kind,
+      };
+    }
+
+    const typeConstructor: TTypeConstructor = {
+      type: "TypeConstructor",
+      kind,
+      typeConstructorName: typeName,
+      typeConstructorId: generateVarialeValueId(env, typeName),
+      typeParameters,
+      typeConstraints,
+      typeValue,
+    };
+
+    const { env: nextNextEnv } = addEnvVariableValue({
+      env,
+      variableValue: {
+        variableName: typeName,
+        type: typeConstructor,
+        kind: "type",
+        isExported,
+        token: tokens[typeNameTokenIndex],
+      },
+      deltaFrame: -1,
+    });
+    env = nextNextEnv;
+
+    env = popEnvFrame(env);
+    return {
+      expr: {
+        type: AstType.TypeAlias,
+        typeName,
+        typeValue: typeConstructor,
+        env,
+        token: tokens[typeTokenIndex],
+      },
+      index,
+    };
+  }
+
+  /**
+   *
+   * trait ::= "trait" identifier typeParameters? "{" functionPrototype* "}"
+   *           ::= "trait" identifier typeParameters? "with" typeclassType "{" functionPrototype* "}"
+   * FIXME: Support `impl` for trait
+   * FIXME: If the class has no type parameters, then all functions in the class should have default implementations.
+   * @param tokens
+   * @param index
+   * @param env
+   * @returns
+   */
+  private parseTraitExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+    isExported,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+    isExported?: boolean;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.Trait) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "trait" for declaration'
+      );
+    }
+    const classTokenIndex = index;
+    index = index + 1;
+
+    if (tokens[index].type !== TokenType.Identifier) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected identifier for "class"'
+      );
+    }
+    const traitName = tokens[index].value;
+    const traitNameTokenIndex = index;
+    index = index + 1;
+
+    // traitName has to be UpperCamelCase
+    if (!isUpperCamelCase(traitName)) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "trait name has to be UpperCamelCase"
+      );
+    }
+
+    // NOTE: This is necessary for type parameters and recursive type alias
+    env = pushEnvFrame(env);
+
+    // Type parameters
+    let typeParameters: TTypeParameter[] = [];
+    let typeConstraints: TTrait[] = [];
+    if (tokens[index].value === "<") {
+      const {
+        index: nextIndex,
+        typeParameters: tp,
+        typeConstraints: tc,
+        env: nextEnv,
+      } = synthesizeTypeParametersFromTokens({
+        tokens,
+        index,
+        env,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
+      });
+      index = nextIndex;
+      typeParameters = tp;
+      typeConstraints = tc;
+      env = nextEnv;
+    }
+
+    const traitId = generateVarialeValueId(env, traitName);
+    const fakeTrait: TTrait = {
+      type: "Trait",
+      traitName,
+      traitId,
+      functions: [],
+      typeParameters,
+      typeConstraints,
+      isImplementation: false,
+    };
+    const { env: nextEnv } = addEnvVariableValue({
+      env,
+      variableValue: {
+        variableName: traitName,
+        type: {
+          type: "unknown",
+          kind: "Free",
+          typeName: traitName,
+        },
+        kind: "trait",
+        trait: fakeTrait,
+        isExported,
+        token: tokens[traitNameTokenIndex],
+      },
+    });
+    env = nextEnv;
+
+    // QUESTION: Does `extends` work for typeclass?
+    // Should we use `with` instead?
+    const functions: TImplementationFunction[] = [];
+    const functionNameTokens: Token[] = [];
+    // Parse class body
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for \"class\" body"
+      );
+    }
+    index = index + 1;
+    while (true) {
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+
+      let functionNameTokenIndex = index;
+      let functionName = tokens[index].value;
+      let functionTypeTokenIndex = index + 2;
+      if (
+        tokens[index].type === TokenType.Identifier &&
+        tokens[index + 1].type === TokenType.Colon
+      ) {
+        // already set
+      } else if (
+        tokens[index].type === TokenType.LParen &&
+        tokens[index + 1].type === TokenType.Operator &&
+        tokens[index + 2].type === TokenType.RParen &&
+        tokens[index + 3].type === TokenType.Colon
+      ) {
+        functionNameTokenIndex = index + 1;
+        functionName = tokens[index + 1].value;
+        functionTypeTokenIndex = index + 4;
+      } else {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Please define functions in "class" like below:
+    
+    class Show<T> {
+      show: (x: T)-> string;
+    }
+              `
+        );
+      }
+      functionNameTokens.push(tokens[functionNameTokenIndex]);
+
+      // Parse function type
+      let functionType: TFunction | undefined = undefined;
+      const {
+        env: nextEnv,
+        index: nextIndex,
+        typeValue: nextFunctionType,
+      } = synthesizeFunctionTypeFromTokens({
+        tokens,
+        index: functionTypeTokenIndex,
+        env,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
+        withFunctionBody: false,
+      });
+      index = nextIndex;
+      env = nextEnv;
+      functionType = nextFunctionType;
+
+      if (functionType.typeParameters.length > 0) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Type parameters are not allowed in 'trait' functions as it uses the type parameters defined in the class itself:
+
+${typeToString(functionType)}
+`
+        );
+      }
+      if (functionType.closureCaptureMode !== "none") {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Closure is not allowed in 'trait' functions:
+${typeToString(functionType)}
+`
+        );
+      }
+
+      let functionExpr: FunctionExpr | undefined = undefined;
+      if (tokens[index].type === TokenType.LCurlyBracket) {
+        // There is a function body
+        const { expr: functionExpr_, index: nextIndex } =
+          this.parseAnonymousFunction({
+            tokens,
+            index: functionTypeTokenIndex,
+            env,
+            caller,
+            parserData,
+            functionName,
+            isForTrait: true,
+          });
+        index = nextIndex;
+        functionExpr = functionExpr_ as FunctionExpr;
+        functionType = functionExpr.typeValue; // NOTE: <= This is necessary
+      }
+
+      // Add the typeParameters of the class to the functionType
+      functionType.typeParameters = typeParameters;
+
+      // Set special property for functionType
+      functionType.hasNoImplementation = !functionExpr;
+      functionType.ignoreAmbiguityCheck = true;
+      functionType.ownerTraitId = traitId;
+
+      // Check if the function name is already defined in the class
+      if (functions.some((func) => func.name === functionName)) {
+        throw this.formatErrorMessage(
+          tokens[functionNameTokenIndex],
+          `Function "${functionName}" is already defined in the class`
+        );
+      }
+
+      // functionType.typeParameters = typeParameters; // NOTE: This is wrong
+      functions.push({
+        name: functionName,
+        func: functionType,
+        functionExpr,
+      });
+
+      if (
+        tokens[index].type === TokenType.Semicolon ||
+        tokens[index].type === TokenType.Comma
+      ) {
+        index = index + 1;
+        continue;
+      }
+    }
+
+    const trait: TTrait = {
+      type: "Trait",
+      traitName: traitName,
+      traitId: traitId,
+      typeParameters,
+      typeConstraints,
+      functions,
+      isImplementation: false,
+    };
+
+    // Add trait to environment
+    const { env: nextNextEnv } = addEnvVariableValue({
+      env,
+      variableValue: {
+        variableName: traitName,
+        type: TypeValues.unit,
+        trait: trait,
+        kind: "trait",
+        isExported,
+        token: tokens[traitNameTokenIndex],
+      },
+      deltaFrame: -1,
+    });
+    env = nextNextEnv;
+
+    // add functions to env
+    for (let i = 0; i < functions.length; i++) {
+      const func = functions[i];
+      // if (func.functionExpr) {
+      const { env: nextEnv } = addEnvVariableValue({
+        env,
+        variableValue: {
+          variableName: func.name,
+          type: func.func,
+          kind: "value",
+          isExported,
+          token: functionNameTokens[i],
+        },
+        deltaFrame: -1,
+      });
+      env = nextEnv;
+      // }
+    }
+
+    env = popEnvFrame(env);
+    return {
+      expr: {
+        type: AstType.Trait,
+        trait: trait,
+        typeValue: TypeValues.unit,
+        env,
+        token: tokens[classTokenIndex],
+      },
+      index,
+    };
+  }
+
+  private parseImplExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.Impl) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "impl" for trait implementation'
+      );
+    }
+    const instanceTokenIndex = index;
+    index = index + 1;
+
+    // NOTE: This is necessary for type parameters:
+    env = pushEnvFrame(env);
+
+    // Instance type parameters
+    const implementationTypeParameters: TTypeParameter[] = [];
+    const implementationTypeConstraints: TTrait[] = [];
+    if (tokens[index].value === "<") {
+      const {
+        index: nextIndex,
+        typeParameters: tp,
+        typeConstraints: tc,
+        env: nextEnv,
+      } = synthesizeTypeParametersFromTokens({
+        tokens,
+        index,
+        env,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
+      });
+      index = nextIndex;
+      implementationTypeParameters.push(...tp);
+      implementationTypeConstraints.push(...tc);
+      env = nextEnv;
+    }
+
+    if (tokens[index].type !== TokenType.Identifier) {
+      // FIXME: Allow module access
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected identifier for instance"
+      );
+    }
+    const traitName = tokens[index].value;
+    // const traitNameTokenIndex = index;
+    index = index + 1;
+
+    // Find the traits from env
+    const traits = getEnvVariableValueByVariableName(env, traitName, "trait");
+    if (traits.length === 0) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Cannot find trait "${traitName}"`
+      );
+    } else if (traits.length > 1) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Found multiple traits with the same name "${traitName}":
+- ${traits.map((trait) => typeToString(trait.type)).join("\n- ")}`
+      );
+    }
+    const trait1 = traits[0].trait;
+    if (!trait1) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        `Cannot find trait "${traitName}"`
+      );
+    }
+    const traitId = trait1.traitId;
+
+    const trait: TTrait = {
+      ...trait1,
+      implementationTypeParameters,
+      implementationTypeConstraints,
+      isImplementation: true,
+    };
+
+    // Parse class type arguments
+    let typeArguments: Type[] = [];
+    if (tokens[index].value === "<") {
+      const {
+        index: nextIndex,
+        typeArguments: nextTypeArguments,
+        env: nextEnv,
+      } = synthesizeTypeArgumentsFromTokens({
+        tokens,
+        index,
+        env,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
+      });
+      index = nextIndex;
+      typeArguments = nextTypeArguments;
+      env = nextEnv;
+    }
+
+    // Apply type arguments to trait
+    const newTrait = applyTypeArgumentsToTrait({
+      env,
+      trait,
+      typeArguments,
+      typeParameterToTypeArgumentMap: {},
+    }) as TTrait;
+
+    // Parse "implements" body
+    const functions: TImplementationFunction[] = [];
+    const functionNameTokens: Token[] = [];
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for trait implementation body"
+      );
+    }
+    index = index + 1;
+    while (true) {
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+
+      let functionNameTokenIndex = index;
+      let functionName = tokens[index].value;
+      let functionTypeTokenIndex = index + 2;
+      if (
+        tokens[index].type === TokenType.Identifier &&
+        tokens[index + 1].type === TokenType.Colon
+      ) {
+        // already set
+      } else if (
+        tokens[index].type === TokenType.LParen &&
+        tokens[index + 1].type === TokenType.Operator &&
+        tokens[index + 2].type === TokenType.RParen &&
+        tokens[index + 3].type === TokenType.Colon
+      ) {
+        functionNameTokenIndex = index + 1;
+        functionName = tokens[index + 1].value;
+        functionTypeTokenIndex = index + 4;
+      } else {
+        throw this.formatErrorMessage(
+          tokens[functionNameTokenIndex],
+          `Please define functions in "implements" like below:
+
+implements Id<i32> {
+  id: (x: i32)-> i32 {
+    // ...
+  };
+}
+          `
+        );
+      }
+      functionNameTokens.push(tokens[functionNameTokenIndex]);
+
+      // Parse the function
+      const { expr: functionExpr_, index: nextIndex } =
+        this.parseAnonymousFunction({
+          tokens,
+          index: functionTypeTokenIndex,
+          env,
+          caller,
+          parserData,
+          functionName,
+          isForTrait: true,
+        });
+      index = nextIndex;
+      const functionExpr = functionExpr_ as FunctionExpr;
+      const functionType = functionExpr.typeValue;
+
+      if (functionType.typeParameters.length > 0) {
+        throw this.formatErrorMessage(
+          functionExpr.token,
+          `Type parameters are not allowed in 'implements' functions as it uses the type parameters defined in the class itself:
+
+${typeToString(functionType)}
+`
+        );
+      }
+
+      // Add the typeParameters of the class to the functionType
+      functionType.typeParameters = newTrait.typeParameters;
+      // functionType.typeParameters = newTrait.implementationTypeParameters ?? [];
+      functionType.ownerTraitId = traitId;
+      functions.push({
+        name: functionName,
+        func: functionType,
+        functionExpr,
+      });
+
+      if (
+        tokens[index].type === TokenType.Semicolon ||
+        tokens[index].type === TokenType.Comma
+      ) {
+        index = index + 1;
+        continue;
+      }
+    }
+
+    // Check if all functions in class are implemented correctly
+    for (let i = 0; i < newTrait.functions.length; i++) {
+      const traitFunction = newTrait.functions[i];
+      const matchedFunctions = functions.filter(
+        (func) => func.name === traitFunction.name
+      );
+      if (matchedFunctions.length === 0) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Function "${traitFunction.name}" is not implemented:
+Expected: ${typeToString(traitFunction.func)}`
+        );
+      } else if (matchedFunctions.length > 1) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Found multiple implementations for function "${traitFunction.name}":
+- ${matchedFunctions.map((func) => typeToString(func.func)).join("\n- ")}`
+        );
+      } else {
+        const matchedFunction = matchedFunctions[0];
+        if (!checkType(traitFunction.func, matchedFunction.func, env)) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            `Mismatched function type:
+Expected: ${typeToString(traitFunction.func)}
+Got:      ${typeToString(matchedFunction.func)}`
+          );
+        } else {
+          // Add the trait implementation function to the matchedFunction
+          trait1.functions[i].func.traitFunctionImplementations.push(
+            matchedFunction
+          );
+        }
+      }
+    }
+    newTrait.functions = functions;
+
+    // Check if the type constraints are satisfied
+    checkIfTypeConstraintsAreSatisfied({
+      typeConstraints: newTrait.typeConstraints,
+      env,
+      token: tokens[instanceTokenIndex],
+    });
+
+    // Add each function to env
+    /*
+    for (let i = 0; i < functions.length; i++) {
+      const func = functions[i];
+      const { env: nextEnv } = addEnvVariableValue({
+        env,
+        variableValue: {
+          variableName: func.name,
+          type: func.func,
+          kind: "value",
+          isExported,
+          token: functionNameTokens[i],
+        },
+        deltaFrame: -1,
+      });
+      env = nextEnv;
+    }
+
+    // Add instance to environment
+    const { env: nextEnv } = addEnvVariableValue({
+      env,
+      variableValue: {
+        variableName: traitName,
+        type: TypeValues.unit,
+        trait: newTrait,
+        kind: "value", // NOTE: We need to set it to "value" instead of "class" because we need to use it as a value
+        isExported,
+        token: tokens[traitNameTokenIndex],
+      },
+      deltaFrame: -1,
+    });
+    env = nextEnv;
+    */
+
+    env = popEnvFrame(env);
+
+    return {
+      expr: {
+        type: AstType.Trait,
+        typeValue: TypeValues.unit,
+        trait: newTrait,
+        env,
+        token: tokens[instanceTokenIndex],
+      },
+      index,
+    };
+  }
+
+  hasAmbiguousFunctionCall(functionCallExprs: CallFunctionExpr[]): boolean {
+    return (
+      functionCallExprs.filter((expr) => {
+        const functionType = expr.function.typeValue as TFunction;
+        return !functionType.ignoreAmbiguityCheck;
+      }).length > 1
+    );
+  }
+
+  private parseEnum({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+    isExported,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+    isExported?: boolean;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.Enum) {
+      throw this.formatErrorMessage(tokens[index], 'Expected "enum"');
+    }
+    const enumTokenIndex = index;
+    index = index + 1;
+
+    if (tokens[index].type !== TokenType.Identifier) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected identifier for enum"
+      );
+    }
+    const enumName = tokens[index].value;
+    const enumNameTokenIndex = index;
+    index = index + 1;
+
+    // NOTE: This is necessary for type parameters and recursive type alias
+    env = pushEnvFrame(env);
+    const { env: nextEnv } = addEnvVariableValue({
+      env,
+      variableValue: {
+        variableName: enumName,
+        type: {
+          type: "unknown",
+          kind: "Free",
+          typeName: enumName,
+        },
+        kind: "type",
+        isExported,
+        token: tokens[enumNameTokenIndex],
+      },
+    });
+    env = nextEnv;
+
+    // Type parameters
+    let typeParameters: TTypeParameter[] = [];
+    let typeConstraints: TTrait[] = [];
+    if (tokens[index].value === "<") {
+      const {
+        index: nextIndex,
+        typeParameters: tp,
+        typeConstraints: tc,
+        env: nextEnv,
+      } = synthesizeTypeParametersFromTokens({
+        tokens,
+        index,
+        env,
+        parseExpression: this.makeParseExpression({ caller, parserData }),
+      });
+      index = nextIndex;
+      typeParameters = tp;
+      typeConstraints = tc;
+      env = nextEnv;
+    }
+
+    // Parse userDefinedKind
+    let userDefinedKind: TypeKind | undefined = undefined;
+    const userDefinedKindTokenIndex = index + 1;
+    if (tokens[index].type === TokenType.Colon) {
+      index = index + 1;
+      userDefinedKind = parseTypeKind(tokens[index]);
+      if (!userDefinedKind) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected 'Type', 'Linear' or 'Free'"
+        );
+      }
+      index = index + 1;
+    }
+
+    // Parse enum body
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for enum body"
+      );
+    }
+    index = index + 1;
+    const enumVariants: TEnumVariant[] = [];
+    const enumVariantTokenIndexes: number[] = [];
+    while (true) {
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+
+      if (tokens[index].type !== TokenType.Identifier) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected identifier for enum value"
+        );
+      }
+      const enumVariantName = tokens[index].value;
+      enumVariantTokenIndexes.push(index);
+      index = index + 1;
+
+      // enumVariantName has to be UpperCamelCase
+      if (!isUpperCamelCase(enumVariantName)) {
+        throw this.formatErrorMessage(
+          tokens[index - 1],
+          "Enum variant name has to be UpperCamelCase"
+        );
+      }
+
+      // Parameter types
+      let parameterTypes: TParameterType[] = [];
+      if (tokens[index].type === TokenType.LParen) {
+        const {
+          index: nextIndex,
+          parameterTypes: pt,
+          env: nextEnv,
+        } = synthesizeFunctionParameterTypesFromTokens({
+          tokens,
+          index,
+          env,
+          parseExpression: this.makeParseExpression({ caller, parserData }),
+          withFunctionBody: false,
+        });
+        index = nextIndex;
+        parameterTypes = pt;
+        env = nextEnv;
+      }
+
+      enumVariants.push({
+        name: enumVariantName,
+        parameterTypes,
+      });
+
+      if (
+        tokens[index].type === TokenType.Semicolon ||
+        tokens[index].type === TokenType.Comma
+      ) {
+        index = index + 1;
+        continue;
+      }
+    }
+
+    if (enumVariants.length === 0) {
+      throw this.formatErrorMessage(
+        tokens[enumTokenIndex + 1],
+        "Enum must have at least one variant"
+      );
+    }
+
+    // Check if userDefinedKind is valid:
+    let kind = getEnumTypeKind(enumVariants);
+    if (
+      userDefinedKind &&
+      userDefinedKind === "Free" &&
+      (kind === "Linear" || kind === "Type")
+    ) {
+      throw this.formatErrorMessage(
+        tokens[userDefinedKindTokenIndex],
+        `Cannot set ${enumName} as 'Free' because its variants contain '${kind}' data.`
+      );
+    } else if (
+      userDefinedKind &&
+      userDefinedKind === "Linear" &&
+      kind === "Type"
+    ) {
+      throw this.formatErrorMessage(
+        tokens[userDefinedKindTokenIndex],
+        `Cannot mix 'Linear' type and '${kind}' type`
+      );
+    } else if (
+      userDefinedKind &&
+      userDefinedKind === "Type" &&
+      kind === "Linear"
+    ) {
+      throw this.formatErrorMessage(
+        tokens[userDefinedKindTokenIndex],
+        `Cannot set ${enumName} as 'Type' because its variants contain 'Linear' data.`
+      );
+    } else {
+      kind = userDefinedKind ? userDefinedKind : kind;
+    }
+
+    const enumType: TEnum = {
+      type: "Enum",
+      kind,
+      enumId: generateVarialeValueId(env, enumName),
+      enumName,
+      typeParameters,
+      typeConstraints,
+      variants: enumVariants,
+      selectedVariantName:
+        enumVariants.length === 1 ? enumVariants[0].name : undefined,
+    };
+
+    // Add to environment
+    const { env: nextNextEnv } = addEnvVariableValue({
+      env,
+      variableValue: {
+        variableName: enumName,
+        type: enumType,
+        kind: "type",
+        isExported,
+        token: tokens[enumNameTokenIndex],
+      },
+      deltaFrame: -1,
+    });
+    env = nextNextEnv;
+    env = popEnvFrame(env);
+
+    // Add enum variants to environment
+    for (let i = 0; i < enumType.variants.length; i++) {
+      const variant = enumType.variants[i];
+      const newEnumType: TEnum = {
+        ...enumType,
+        selectedVariantName: variant.name,
+      };
+      const { env: nextEnv } = addEnvVariableValue({
+        env,
+        variableValue: {
+          variableName: variant.name,
+          type: newEnumType,
+          kind: "value",
+          isExported,
+          // isExported: false, // We use special syntax to access enum variants
+          // eg: import { Option { Some, None } } from "std/option"
+          token: tokens[enumVariantTokenIndexes[i]],
+        },
+      });
+      env = nextEnv;
+    }
+
+    return {
+      expr: {
+        type: AstType.Enum,
+        enumName,
+        typeValue: enumType,
+        env,
+        token: tokens[enumTokenIndex],
+      },
+      index,
+    };
+  }
+
+  /*
+  private parseReferenceExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].value !== "&" && tokens[index].value !== "&!") {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '&' or '&!' for reference expression"
+      );
+    }
+    const referenceTokenIndex = index;
+    const isMutableReference = tokens[index].value === "&!";
+    index = index + 1;
+
+    const valueTokenIndex = index;
+    const { expr, index: nextIndex } = this.parsePrimary({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    index = nextIndex;
+    env = expr.env;
+
+    switch (expr.type) {
+      case AstType.Variable: {
+        const variableName = expr.variableName;
+        const variableType = expr.typeValue;
+        if (
+          !expr.isMutable &&
+          typeIsReferenceOrMutableReference(expr.typeValue) !== "&!" &&
+          isMutableReference
+        ) {
+          throw this.formatErrorMessage(
+            tokens[valueTokenIndex],
+            `Cannot create mutable reference to immutable variable "${variableName}"`
+          );
+        }
+
+        const { env: nextEnv, referedVariable } =
+          this.increaseVariableReferenceCount({
+            env,
+            expr,
+            isMutableReference,
+          });
+        env = nextEnv;
+
+        // save the reference value to a temporary variable
+        const referenceType: TTypeConstructor = {
+          ...(isMutableReference
+            ? TypeValues.MutableReference
+            : TypeValues.Reference),
+          typeParameters: [
+            {
+              type: "TypeParameter",
+              kind: "Type",
+              permission: "own",
+              name: "T",
+              appliedType: variableType,
+            },
+          ],
+          regionParameters: [
+            {
+              type: "RegionParameter",
+              kind: "Region",
+              name: "R",
+              appliedRegion: {
+                type: "Region",
+                kind: "Region",
+                regionId: getEnvCurrentRegionId(env),
+              },
+            },
+          ],
+        };
+        const { value: tempVariable, env: nextNextEnv } =
+          this.generateTempVariableForHoldingValue({
+            env,
+            token: tokens[referenceTokenIndex],
+            valueType: referenceType,
+            referedVariable,
+          });
+        env = nextNextEnv;
+
+        return {
+          expr: {
+            type: AstType.Reference,
+            expr,
+            isMutableReference: isMutableReference,
+            typeValue: referenceType,
+            env,
+            token: tokens[referenceTokenIndex],
+            tempVariableName: tempVariable.variableName,
+          },
+          index,
+        };
+      }
+      case AstType.PropertyAccess:
+      case AstType.IndexAccess: {
+        console.log("-here: ", typeToString(expr.typeValue));
+        if (
+          !expr.isMutable &&
+          typeIsReferenceOrMutableReference(expr.typeValue) !== "&!" &&
+          isMutableReference
+        ) {
+          throw this.formatErrorMessage(
+            tokens[valueTokenIndex],
+            `Cannot create mutable reference to immutable value "${exprToString(
+              expr
+            )}"`
+          );
+        }
+
+        const { env: nextEnv, referedVariable } =
+          this.increaseVariableReferenceCount({
+            env,
+            expr,
+            isMutableReference,
+          });
+        env = nextEnv;
+
+        // save the reference value to a temporary variable
+        const appliedTypeValue = expr.typeValue;
+        const referenceType: TTypeConstructor = {
+          ...(isMutableReference
+            ? TypeValues.MutableReference
+            : TypeValues.Reference),
+          typeParameters: [
+            {
+              type: "TypeParameter",
+              kind: "Type",
+              permission: "own",
+              name: "T",
+              appliedType: appliedTypeValue,
+            },
+          ],
+          regionParameters: [
+            {
+              type: "RegionParameter",
+              kind: "Region",
+              name: "R",
+              appliedRegion: {
+                type: "Region",
+                kind: "Region",
+                regionId: getEnvCurrentRegionId(env),
+              },
+            },
+          ],
+        };
+
+        const { value: tempVariable, env: nextNextEnv } =
+          this.generateTempVariableForHoldingValue({
+            env,
+            token: tokens[referenceTokenIndex],
+            valueType: referenceType,
+            referedVariable,
+          });
+        env = nextNextEnv;
+
+        return {
+          expr: {
+            type: AstType.Reference,
+            expr,
+            isMutableReference: isMutableReference,
+            typeValue: referenceType,
+            env,
+            token: tokens[referenceTokenIndex],
+            tempVariableName: tempVariable.variableName,
+          },
+          index,
+        };
+      }
+      default: {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Unable to create reference for:
+${exprToString(expr)}`
+        );
+      }
+    }
+  }
+
+  private parseDereferenceExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].value !== "*") {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '*' for dereference expression"
+      );
+    }
+    const dereferenceTokenIndex = index;
+    index = index + 1;
+
+    const valueTokenIndex = index;
+    const { expr, index: nextIndex } = this.parsePrimary({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    index = nextIndex;
+    env = expr.env;
+
+    if (!typeIsReferenceOrMutableReference(expr.typeValue)) {
+      throw this.formatErrorMessage(
+        tokens[valueTokenIndex],
+        `Cannot dereference non-reference type: ${typeToString(
+          expr.typeValue
+        )}\n${exprToString(expr)}`
+      );
+    }
+    const referenceTypeValue = expr.typeValue as TTypeConstructor;
+    const referenceAppliedType =
+      referenceTypeValue.typeParameters[0]?.appliedType;
+    if (!referenceAppliedType) {
+      throw this.formatErrorMessage(
+        tokens[valueTokenIndex],
+        `Cannot dereference reference to unknown type`
+      );
+    }
+
+    // Next token is =. This expression is for assignment
+    if (tokens[index].type === TokenType.Assign) {
+      if (referenceTypeValue.name !== "&!") {
+        throw this.formatErrorMessage(
+          tokens[valueTokenIndex],
+          `Cannot update value to an immutable reference.`
+        );
+      }
+    } else if (
+      (referenceAppliedType.kind === "Linear" ||
+        referenceAppliedType.kind === "Type") &&
+      !typeIsReferenceOrMutableReference(referenceAppliedType)
+    ) {
+      throw this.formatErrorMessage(
+        tokens[valueTokenIndex],
+        `Cannot dereference Linear type: ${typeToString(
+          referenceAppliedType
+        )}\n${exprToString(expr)}`
+      );
+    }
+
+    switch (expr.type) {
+      case AstType.Variable:
+      case AstType.Reference:
+      case AstType.Dereference:
+      case AstType.PropertyAccess: {
+        return {
+          expr: {
+            type: AstType.Dereference,
+            expr,
+            typeValue: referenceAppliedType,
+            env,
+            token: tokens[dereferenceTokenIndex],
+          },
+          index,
+        };
+      }
+      default: {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Unable to dereference:
+${exprToString(expr)}`
+        );
+      }
+    }
+  }
+  */
+
+  private parseRecurExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.Recur) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "recur" for recur expression'
+      );
+    }
+    const recurTokenIndex = index;
+    index = index + 1;
+
+    if (tokens[index].type !== TokenType.LParen) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '(' for recur expression arguments"
+      );
+    }
+
+    const {
+      index: nextIndex,
+      env: nextEnv,
+      functionArguments,
+      calleeTypeValue,
+    } = this.parseFunctionCallArguments({
+      calleeType: caller,
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    index = nextIndex;
+    env = nextEnv;
+
+    return {
+      expr: {
+        type: AstType.Recur,
+        env,
+        functionArguments,
+        token: tokens[recurTokenIndex],
+        typeValue: calleeTypeValue.returnType,
+      },
+      index,
+    };
+  }
+
+  private parseInfixPrecedenceExpr({
+    tokens,
+    index,
+    env,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+  }): ParserReturn {
+    if (
+      tokens[index].type !== TokenType.Infix &&
+      tokens[index].type !== TokenType.Infixl &&
+      tokens[index].type !== TokenType.Infixr
+    ) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected 'infix', 'infixl', or 'infixr' operator"
+      );
+    }
+    const infixToken = tokens[index];
+    index = index + 1;
+
+    if (tokens[index].type !== TokenType.Integer) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected positive integer for infix operator precedence"
+      );
+    }
+    const precedence = parseInt(tokens[index].value);
+    if (isNaN(precedence) || precedence <= 0) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected positive integer for infix operator precedence"
+      );
+    }
+
+    index = index + 1;
+    if (tokens[index].type !== TokenType.Operator) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected operator for infix operator"
+      );
+    }
+    const operator = tokens[index].value;
+    index = index + 1;
+
+    const associativity = infixToken.value as "infix" | "infixl" | "infixr";
+    const nextEnv = addEnvOperatorPrecedence(
+      env,
+      operator,
+      associativity,
+      precedence
+    );
+    return {
+      expr: {
+        type: AstType.Infix,
+        associativity,
+        operator,
+        precedence,
+        env: nextEnv,
+        token: infixToken,
+        typeValue: TypeValues.unit,
+      },
+      index,
+    };
+  }
+
+  private parseImportAndExportDestructurings({
+    tokens,
+    index,
+  }: {
+    tokens: Token[];
+    index: number;
+  }): { destructurings: Destructuring[]; index: number } {
+    const destructurings: Destructuring[] = [];
+    if (tokens[index].value === "*") {
+      destructurings.push({
+        name: "*",
+        asName: undefined,
+        isMutable: false,
+        token: tokens[index],
+      });
+      index = index + 1;
+      return {
+        destructurings,
+        index,
+      };
+    }
+
+    if (tokens[index].type !== TokenType.LCurlyBracket) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected '{' for import. Qualified import is not implemented yet"
+      );
+    }
+    index = index + 1;
+    while (true) {
+      if (!tokens[index]) {
+        throw this.formatErrorMessage(tokens[index], "Expected '}' for import");
+      }
+
+      if (tokens[index].type === TokenType.RCurlyBracket) {
+        index = index + 1;
+        break;
+      }
+
+      if (
+        tokens[index].type !== TokenType.Identifier &&
+        tokens[index].value !== "*"
+      ) {
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Expected identifier for import"
+        );
+      }
+      const nameToken = tokens[index];
+      const name = nameToken.value;
+      index = index + 1;
+
+      let asName: string | undefined = undefined;
+      if (tokens[index].type === TokenType.As) {
+        index = index + 1;
+        if (tokens[index].type !== TokenType.Identifier) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            'Expected identifier for "as"'
+          );
+        }
+        asName = tokens[index].value;
+        index = index + 1;
+      }
+
+      destructurings.push({ name, asName, isMutable: false, token: nameToken });
+
+      if (tokens[index].type === TokenType.Comma) {
+        index = index + 1;
+      }
+    }
+
+    return {
+      destructurings,
+      index,
+    };
+  }
+
+  private parseExportExpr({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.Export) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "export" for export statement'
+      );
+    }
+    const exportTokenIndex = index;
+    index = index + 1;
+
+    const token = tokens[index];
+    let exportExpr: Expr | undefined = undefined;
+    switch (token.type) {
+      case TokenType.Let: {
+        const { expr, index: nextIndex } = this.parseLetAssignment({
+          tokens,
+          index,
+          env,
+          caller,
+          parserData,
+          isExported: true,
+        });
+        index = nextIndex;
+        env = expr.env;
+        exportExpr = expr;
+        break;
+      }
+      case TokenType.Extern: {
+        const { expr, index: nextIndex } = this.parseExternExpr({
+          tokens,
+          index,
+          env,
+          caller,
+          parserData,
+          isExported: true,
+        });
+        index = nextIndex;
+        env = expr.env;
+        exportExpr = expr;
+        break;
+      }
+      case TokenType.Type: {
+        const { expr, index: nextIndex } = this.parseTypeAlias({
+          tokens,
+          index,
+          env,
+          caller,
+          parserData,
+          isExported: true,
+        });
+        index = nextIndex;
+        env = expr.env;
+        exportExpr = expr;
+        break;
+      }
+      case TokenType.Trait: {
+        const { expr, index: nextIndex } = this.parseTraitExpr({
+          tokens,
+          index,
+          env,
+          caller,
+          parserData,
+          isExported: true,
+        });
+        index = nextIndex;
+        env = expr.env;
+        exportExpr = expr;
+        break;
+      }
+      /*
+      // Implement is implicitly exported
+      case TokenType.Implement: {
+        const { expr, index: nextIndex } = this.parseImplExpr({
+          tokens,
+          index,
+          env,
+          caller,
+          parserData,
+          isExported: true,
+        });
+        index = nextIndex;
+        env = expr.env;
+        exportExpr = expr;
+        break;
+      }
+      */
+      case TokenType.Enum: {
+        const { expr, index: nextIndex } = this.parseEnum({
+          tokens,
+          index,
+          env,
+          caller,
+          parserData,
+          isExported: true,
+        });
+        index = nextIndex;
+        env = expr.env;
+        exportExpr = expr;
+        break;
+      }
+      case TokenType.LCurlyBracket:
+      case TokenType.Operator: {
+        if (token.type === TokenType.Operator && token.value !== "*") {
+          throw this.formatErrorMessage(token, "Invalid export statement");
+        }
+
+        // export * from "module.mo";
+        const { destructurings, index: nextIndex } =
+          this.parseImportAndExportDestructurings({
+            tokens,
+            index,
+          });
+        index = nextIndex;
+
+        if (tokens[index].type !== TokenType.From) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            'Expected "from" for import'
+          );
+        }
+        index = index + 1;
+
+        if (tokens[index].type !== TokenType.String) {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Expected string literal for the module path to import"
+          );
+        }
+        const modulePath = tokens[index].value;
+        const moduleTokenIndex = index;
+        index = index + 1;
+
+        const qualifiedName: string | undefined = undefined;
+        const { env: nextEnv, module } = this.importModule({
+          env,
+          modulePath,
+          qualifiedName,
+          destructurings,
+          importToken: tokens[exportTokenIndex],
+          moduleToken: tokens[moduleTokenIndex],
+          isExported: true,
+        });
+
+        return {
+          expr: {
+            type: AstType.Export,
+            expr: {
+              type: AstType.Import,
+              modulePath,
+              module,
+              destructurings,
+              qualifiedName,
+              typeValue: TypeValues.unit,
+              env: nextEnv,
+              token: tokens[exportTokenIndex],
+            },
+            typeValue: TypeValues.unit,
+            env: nextEnv,
+            token: tokens[exportTokenIndex],
+          },
+          index,
+        };
+      }
+      default: {
+        throw this.formatErrorMessage(
+          tokens[index],
+          `Invalid export statement`
+        );
+      }
+    }
+
+    if (!exportExpr) {
+      throw this.formatErrorMessage(tokens[index], `Invalid export statement`);
+    }
+
+    return {
+      expr: {
+        type: AstType.Export,
+        expr: exportExpr,
+        typeValue: TypeValues.unit,
+        env,
+        token: tokens[exportTokenIndex],
+      },
+      index,
+    };
+  }
+
+  private importModule({
+    env,
+    modulePath,
+    qualifiedName,
+    destructurings,
+    importToken,
+    moduleToken,
+    isExported,
+  }: {
+    env: Environment;
+    modulePath: string;
+    qualifiedName?: string;
+    destructurings: Destructuring[];
+    importToken?: Token;
+    moduleToken?: Token;
+    isExported?: boolean;
+  }): { module: TModule; env: Environment } {
+    if (modulePath.startsWith("std/")) {
+      // std library
+      modulePath = path.relative(
+        path.dirname(this.modulePath.replace(/^file:\/\//, "")),
+        path.resolve(this.stdPath, modulePath.replace("std/", "./"))
+      );
+    }
+
+    if (!modulePath.startsWith(".")) {
+      throw new Error("Only local relative path is supported for now");
+    }
+    // FIXME: Support other protocol like https://
+    let moduleAbsolutePath =
+      "file://" +
+      path.resolve(
+        path.dirname(this.modulePath.replace(/^file:\/\//, "")),
+        modulePath
+      );
+    const extname = path.extname(moduleAbsolutePath);
+    if (!extname) {
+      moduleAbsolutePath = moduleAbsolutePath + ".mo";
+    } else if (extname !== ".mo") {
+      throw new Error("Only .mo file is supported for now");
+    }
+    let module: TModule | undefined = undefined;
+    try {
+      module = this.loadModule(moduleAbsolutePath);
+    } catch (error) {
+      throw formatErrorMessage({
+        token: moduleToken ?? emptyToken,
+        errorMessage: `Failed to load module "${moduleAbsolutePath}".`,
+        inputString: this.inputString,
+        modulePath: this.modulePath,
+        cause: error,
+      });
+    }
+
+    // Check destructurings
+    if (destructurings.some((d) => d.name === "*")) {
+      // Import everything
+      if (destructurings.length > 1) {
+        throw this.formatErrorMessage(
+          destructurings[0].token ?? emptyToken,
+          "Cannot import everything with other variables"
+        );
+      }
+      if (qualifiedName) {
+        throw this.formatErrorMessage(
+          importToken ?? emptyToken,
+          "Cannot import everything with qualified name"
+        );
+      }
+      if (destructurings[0].asName) {
+        throw this.formatErrorMessage(
+          destructurings[0].token ?? emptyToken,
+          'Cannot import everything with "as"'
+        );
+      }
+
+      // Import values
+      const moduleFrame = module.env.frames[0];
+      for (const value of moduleFrame.values) {
+        if (value.isExported) {
+          const { env: nextEnv } = addEnvVariableValue({
+            env,
+            variableValue: { ...value, isExported: !!isExported },
+          });
+          env = nextEnv;
+        }
+      }
+
+      // Set infix precedence
+      for (const operatorKey in module.env.operatorPrecedenceMap) {
+        const operatorPrecedence =
+          module.env.operatorPrecedenceMap[operatorKey];
+        env = addEnvOperatorPrecedence(
+          env,
+          operatorPrecedence.operator,
+          operatorPrecedence.associativity,
+          operatorPrecedence.precedence
+        );
+      }
+    } else {
+      for (const destructuring of destructurings) {
+        const variableName = destructuring.name;
+        const values = getEnvVariableValueByVariableName(
+          module.env,
+          variableName
+        );
+        let importedCount = 0;
+        for (const value of values) {
+          if (value.isExported) {
+            importedCount += 1;
+            const { env: nextEnv } = addEnvVariableValue({
+              env,
+              variableValue: {
+                ...value,
+                variableName: destructuring.asName ?? variableName,
+                isExported: !!isExported,
+              },
+            });
+            env = nextEnv;
+          }
+        }
+        if (importedCount === 0) {
+          throw this.formatErrorMessage(
+            destructuring.token ?? emptyToken,
+            `Cannot find exported variable "${variableName}" in module "${modulePath}"`
+          );
+        }
+      }
+
+      // Set infix precedence
+      for (const operatorKey in module.env.operatorPrecedenceMap) {
+        const operatorPrecedence =
+          module.env.operatorPrecedenceMap[operatorKey];
+        env = addEnvOperatorPrecedence(
+          env,
+          operatorPrecedence.operator,
+          operatorPrecedence.associativity,
+          operatorPrecedence.precedence
+        );
+      }
+    }
+
+    return {
+      module,
+      env,
+    };
+  }
+
+  private parseImportExpr({
+    tokens,
+    index,
+    env,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+  }): ParserReturn {
+    if (tokens[index].type !== TokenType.Import) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "import" for import statement'
+      );
+    }
+    const importTokenIndex = index;
+    index = index + 1;
+
+    const qualifiedName: string | undefined = undefined;
+
+    const { destructurings, index: nextIndex } =
+      this.parseImportAndExportDestructurings({
+        tokens,
+        index,
+      });
+    index = nextIndex;
+
+    if (tokens[index].type !== TokenType.From) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        'Expected "from" for import'
+      );
+    }
+    index = index + 1;
+
+    if (tokens[index].type !== TokenType.String) {
+      throw this.formatErrorMessage(
+        tokens[index],
+        "Expected string literal for the module path to import"
+      );
+    }
+    const modulePath = tokens[index].value;
+    const moduleTokenIndex = index;
+    index = index + 1;
+
+    const { env: nextEnv, module } = this.importModule({
+      env,
+      modulePath,
+      qualifiedName,
+      destructurings,
+      importToken: tokens[importTokenIndex],
+      moduleToken: tokens[moduleTokenIndex],
+    });
+
+    return {
+      expr: {
+        type: AstType.Import,
+        modulePath,
+        module,
+        destructurings,
+        qualifiedName,
+        typeValue: TypeValues.unit,
+        env: nextEnv,
+        token: tokens[importTokenIndex],
+      },
+      index,
+    };
+  }
+
+  private findTokenIndexForRBracket(tokens: Token[], index: number): number {
+    let endBracketType = TokenType.RParen;
+    const startBracketType = tokens[index].type;
+    if (startBracketType === TokenType.LCurlyBracket) {
+      endBracketType = TokenType.RCurlyBracket;
+    } else if (startBracketType === TokenType.LParen) {
+      endBracketType = TokenType.RParen;
+    } else if (startBracketType === TokenType.LBracket) {
+      endBracketType = TokenType.RBracket;
+    } else {
+      throw this.formatErrorMessage(tokens[index], "Expected '{', '(' or '['");
+    }
+    index = index + 1;
+    let count = 1;
+    let endIndex = -1;
+    while (true) {
+      if (!tokens[index]) {
+        throw this.formatErrorMessage(
+          tokens[index - 1],
+          `Expected '${endBracketType}'`
+        );
+      }
+
+      if (tokens[index].type === endBracketType) {
+        count = count - 1;
+        if (count === 0) {
+          endIndex = index;
+          break;
+        }
+      } else if (tokens[index].type === startBracketType) {
+        count = count + 1;
+      }
+
+      index = index + 1;
+    }
+
+    return endIndex;
+  }
+
+  /**
+   * expression
+   *  ::= primary binoprhs
+   * @param tokens
+   * @param index
+   */
+  private parseExpression({
+    tokens,
+    index,
+    env,
+    caller,
+    parserData,
+  }: {
+    tokens: Token[];
+    index: number;
+    env: Environment;
+    caller: TFunction;
+    parserData: ParserData;
+  }): ParserReturn {
+    const { expr, index: nextIndex } = this.parsePrimary({
+      tokens,
+      index,
+      env,
+      caller,
+      parserData,
+    });
+    if (!expr || expr.type === AstType.Ignore) {
+      return { expr, index: nextIndex };
+    } else {
+      return this.parseBinOpRHS({
+        tokens,
+        exprPrecedence: 0,
+        LHS: expr,
+        index: nextIndex,
+        env: expr.env,
+        caller,
+        parserData,
+      });
+    }
+  }
+
+  private parse(
+    tokens: Token[],
+    skipPrelude: boolean = false
+  ): { ast: Expr[]; env: Environment } {
+    let index = 0;
+    const exprs: Expr[] = [];
+    let env = createNewEnv({
+      modulePath: this.modulePath,
+      inputString: this.inputString,
+    });
+    const emptyParserData: ParserData = {
+      callSites: [],
+    };
+
+    // Load the std/prelude.mo
+    // NOTE: .mo files inside std/ will not load prelude.mo
+    if (!this.modulePath.startsWith(`file://${this.stdPath}`) && !skipPrelude) {
+      const { env: nextEnv } = this.importModule({
+        destructurings: [
+          {
+            name: "*",
+            isMutable: false,
+            token: emptyToken,
+          },
+        ],
+        env,
+        modulePath: "std/prelude",
+      });
+      env = nextEnv;
+    }
+
+    while (true) {
+      const token = tokens[index];
+      if (!token) {
+        break;
+      }
+      // Top level expression
+      switch (token.type) {
+        case TokenType.Semicolon: {
+          // ignore top-level semicolons.
+          index = index + 1;
+          break;
+        }
+        case TokenType.Let: {
+          const { expr, index: nextIndex } = this.parseLetAssignment({
+            tokens,
+            index,
+            env,
+            caller: emptyFunction,
+            parserData: emptyParserData,
+            isExported: false,
+          });
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = expr.env;
+          break;
+        }
+        case TokenType.Extern: {
+          const { expr, index: nextIndex } = this.parseExternExpr({
+            tokens,
+            index,
+            env,
+            caller: emptyFunction,
+            parserData: emptyParserData,
+          });
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = expr.env;
+          break;
+        }
+        case TokenType.Type: {
+          const { expr, index: nextIndex } = this.parseTypeAlias({
+            tokens,
+            index,
+            env,
+            caller: emptyFunction,
+            parserData: emptyParserData,
+          });
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = expr.env;
+          break;
+        }
+        case TokenType.Trait: {
+          const { expr, index: nextIndex } = this.parseTraitExpr({
+            tokens,
+            index,
+            env,
+            caller: emptyFunction,
+            parserData: emptyParserData,
+          });
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = expr.env;
+          break;
+        }
+        case TokenType.Impl: {
+          const { expr, index: nextIndex } = this.parseImplExpr({
+            tokens,
+            index,
+            env,
+            caller: emptyFunction,
+            parserData: emptyParserData,
+          });
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = expr.env;
+          break;
+        }
+        case TokenType.Enum: {
+          const { expr, index: nextIndex } = this.parseEnum({
+            tokens,
+            index,
+            env,
+            caller: emptyFunction,
+            parserData: emptyParserData,
+          });
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = expr.env;
+          break;
+        }
+        case TokenType.Export: {
+          const { expr, index: nextIndex } = this.parseExportExpr({
+            tokens,
+            index,
+            env,
+            caller: emptyFunction,
+            parserData: emptyParserData,
+          });
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = expr.env;
+          break;
+        }
+        case TokenType.Import: {
+          const { expr, index: nextIndex } = this.parseImportExpr({
+            tokens,
+            index,
+            env,
+          });
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = expr.env;
+          break;
+        }
+        case TokenType.Infix:
+        case TokenType.Infixl:
+        case TokenType.Infixr: {
+          const { expr, index: nextIndex } = this.parseInfixPrecedenceExpr({
+            tokens,
+            index,
+            env,
+          });
+          if (expr) {
+            exprs.push(expr);
+          }
+          index = nextIndex;
+          env = expr.env;
+          break;
+        }
+        default: {
+          throw this.formatErrorMessage(
+            tokens[index],
+            "Invalid top-level expression"
+          );
+        }
+      }
+    }
+    const retExprs = exprs.filter((expr) => expr.type !== AstType.Ignore);
+    return {
+      ast: retExprs,
+      env,
+    };
+  }
+
+  public generateModule(): TModule {
+    return {
+      type: "Module",
+      ast: this.ast,
+      env: this.env,
+      modulePath: this.modulePath,
+    };
+  }
+}

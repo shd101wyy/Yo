@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import Parser from "../new_parser";
+import Parser from "../parser";
 
 describe("Parser Tests", () => {
   beforeAll(() => {

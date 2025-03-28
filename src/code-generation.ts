@@ -1,5 +1,5 @@
 import * as path from "path";
-import Parser from "./parser";
+import Parser from "./old_parser";
 import { CodeGeneratorC } from "./targets/codegen-c";
 import { TModule } from "./type-checker";
 

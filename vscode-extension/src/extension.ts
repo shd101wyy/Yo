@@ -5,7 +5,7 @@ import * as vscode from "vscode";
 // This assumes your extension can access the Mo project code
 import { MoLexerError, MoParserError } from "@mo/error";
 import { tokenize } from "@mo/lexer";
-import Parser from "@mo/new_parser";
+import Parser from "@mo/parser";
 
 export function activate(context: vscode.ExtensionContext) {
   // Create a diagnostic collection for Mo language errors
