@@ -1,6 +1,4 @@
-import { Environment } from "./env";
-import { stringIsOperator } from "./operator";
-import { Token } from "./token";
+import { Token } from "../token";
 import {
   TBoolean,
   TEnum,
@@ -15,7 +13,9 @@ import {
   traitToString,
   typeParametersToString,
   typeToString,
-} from "./type-checker";
+} from "../type-checker";
+import { Environment } from "./env";
+import { stringIsOperator } from "./operator";
 
 export enum AstType {
   // values

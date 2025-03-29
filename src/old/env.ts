@@ -1,13 +1,6 @@
 import { createHash } from "crypto";
-import { IfCase, MatchCase } from "./ast";
-import { formatErrorMessage, formatErrorMessages } from "./error";
-import {
-  OperatorPrecedence,
-  Operators,
-  charIsOperator,
-  stringIsOperator,
-} from "./operator";
-import { Token, TokenType } from "./token";
+import { formatErrorMessage, formatErrorMessages } from "../error";
+import { Token, TokenType } from "../token";
 import {
   TImplementationFunction,
   TTrait,
@@ -16,7 +9,14 @@ import {
   traitToString,
   typeIsReference,
   typeToString,
-} from "./type-checker";
+} from "../type-checker";
+import { IfCase, MatchCase } from "./ast";
+import {
+  OperatorPrecedence,
+  Operators,
+  charIsOperator,
+  stringIsOperator,
+} from "./operator";
 
 export const emptyToken: Token = {
   position: {

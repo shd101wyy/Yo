@@ -5,11 +5,11 @@ import { findMatchingBracketTokenIndex, Token, TokenType } from "./token";
 
 type Expr =
   | {
-      type: "Atom";
+      tag: "Atom";
       token: Token;
     }
   | {
-      type: "FuncCall";
+      tag: "FuncCall";
       func: Expr;
       args: Expr[];
       isInfix?: boolean;
@@ -112,9 +112,9 @@ export default class Parser {
       // unit type
       return {
         expr: {
-          type: "FuncCall",
+          tag: "FuncCall",
           func: {
-            type: "Atom",
+            tag: "Atom",
             token: {
               type: TokenType.Identifier,
               value: BuiltinCollections.Tuple,
@@ -166,9 +166,9 @@ export default class Parser {
 
       return {
         expr: {
-          type: "FuncCall",
+          tag: "FuncCall",
           func: {
-            type: "Atom",
+            tag: "Atom",
             token: {
               type: TokenType.Identifier,
               value: BuiltinCollections.Tuple,
@@ -222,9 +222,9 @@ export default class Parser {
 
       return {
         expr: {
-          type: "FuncCall",
+          tag: "FuncCall",
           func: {
-            type: "Atom",
+            tag: "Atom",
             token: {
               type: TokenType.Identifier,
               value: BuiltinCollections.Array,
@@ -295,9 +295,9 @@ export default class Parser {
           ) {
             // Push unit
             args.push({
-              type: "FuncCall",
+              tag: "FuncCall",
               func: {
-                type: "Atom",
+                tag: "Atom",
                 token: {
                   type: TokenType.Identifier,
                   value: BuiltinCollections.Tuple,
@@ -323,9 +323,9 @@ export default class Parser {
 
     return {
       expr: {
-        type: "FuncCall",
+        tag: "FuncCall",
         func: {
-          type: "Atom",
+          tag: "Atom",
           token: {
             type: TokenType.Identifier,
             value:
@@ -365,7 +365,7 @@ export default class Parser {
       case TokenType.Char: {
         returnValue = {
           expr: {
-            type: "Atom",
+            tag: "Atom",
             token,
           },
           index: index + 1,
@@ -433,7 +433,7 @@ export default class Parser {
     // .Person
     // Person.Person
     const primaryExprIsDotOperator =
-      primaryExpr.type === "Atom" &&
+      primaryExpr.tag === "Atom" &&
       primaryExpr.token.type === TokenType.Operator &&
       primaryExpr.token.value === ".";
     if (
@@ -449,9 +449,9 @@ export default class Parser {
       index = nextIndex;
       let returnValue: ParserReturn = {
         expr: {
-          type: "FuncCall",
+          tag: "FuncCall",
           func: {
-            type: "Atom",
+            tag: "Atom",
             token: primaryExprIsDotOperator ? primaryExpr.token : token,
           },
           args: primaryExprIsDotOperator ? [expr] : [primaryExpr, expr],
@@ -471,9 +471,9 @@ export default class Parser {
         });
         returnValue = {
           expr: {
-            type: "FuncCall",
+            tag: "FuncCall",
             func: {
-              type: "Atom",
+              tag: "Atom",
               token,
             },
             args: [returnValue.expr, expr],
@@ -507,9 +507,9 @@ export default class Parser {
 
       // Check if the RHS is already an operator expression (meaning we have chained operators)
       if (
-        rhs.type === "FuncCall" &&
+        rhs.tag === "FuncCall" &&
         rhs.isInfix &&
-        rhs.func.type === "Atom" &&
+        rhs.func.tag === "Atom" &&
         rhs.func.token.type === TokenType.Operator &&
         rhs.func.token.value !== "." && // Allow dot operator to chain
         !this.isParenthesizedExpression(tokens, startIndex, nextIndex - 1) // Check if the RHS is already parenthesized
@@ -531,9 +531,9 @@ ${this.exprToString(primaryExpr)} ${token.value} (${this.exprToString(rhs)})
 
       return this.parsePrimaryEnd({
         primaryExpr: {
-          type: "FuncCall",
+          tag: "FuncCall",
           func: {
-            type: "Atom",
+            tag: "Atom",
             token,
           },
           args: [primaryExpr, rhs],
@@ -626,7 +626,7 @@ ${this.exprToString(returnValue.expr)}`
     if (!hasWhitespace && tokens[index]?.type === TokenType.RParen) {
       return {
         expr: {
-          type: "FuncCall",
+          tag: "FuncCall",
           func,
           args,
         },
@@ -653,7 +653,7 @@ ${this.exprToString(returnValue.expr)}`
       ) {
         return {
           expr: {
-            type: "FuncCall",
+            tag: "FuncCall",
             func,
             args,
           },
@@ -662,7 +662,7 @@ ${this.exprToString(returnValue.expr)}`
       } else if (token.type === TokenType.RParen) {
         return {
           expr: {
-            type: "FuncCall",
+            tag: "FuncCall",
             func,
             args,
           },
@@ -703,9 +703,9 @@ or ) to end the function call`
 
   private exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
     return !!(
-      expr.type === "FuncCall" &&
+      expr.tag === "FuncCall" &&
       expr.isInfix &&
-      expr.func.type === "Atom" &&
+      expr.func.tag === "Atom" &&
       expr.func.token.type === TokenType.Operator &&
       expr.args.length === 2
     );
@@ -713,14 +713,14 @@ or ) to end the function call`
 
   private exprToString(expr: Expr): string {
     let printed = "";
-    switch (expr.type) {
+    switch (expr.tag) {
       case "Atom": {
         printed = expr.token.value;
         break;
       }
       case "FuncCall": {
         if (
-          expr.func.type === "Atom" &&
+          expr.func.tag === "Atom" &&
           expr.func.token.type === TokenType.Operator
         ) {
           if (expr.args.length === 1) {
@@ -752,7 +752,7 @@ or ) to end the function call`
           }
         }
         if (
-          expr.func.type === "Atom" &&
+          expr.func.tag === "Atom" &&
           expr.func.token.type === TokenType.Identifier &&
           expr.func.token.value === BuiltinCollections.Tuple
         ) {
@@ -832,9 +832,9 @@ or ) to end the function call`
     ) {
       // Add unit
       exprs.push({
-        type: "FuncCall",
+        tag: "FuncCall",
         func: {
-          type: "Atom",
+          tag: "Atom",
           token: {
             type: TokenType.Identifier,
             value: BuiltinCollections.Tuple,

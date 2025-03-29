@@ -1,5 +1,8 @@
 // Types
 
+import { formatErrorMessage } from "./error";
+import * as logger from "./logger";
+import { isUpperCamelCase } from "./naming-checker";
 import {
   AssignmentExpr,
   AstType,
@@ -14,7 +17,7 @@ import {
   RecurExpr,
   ReferenceExpr,
   exprToString,
-} from "./ast";
+} from "./old/ast";
 import {
   Environment,
   VariableValue,
@@ -26,10 +29,7 @@ import {
   getEnvVariableValueByVariableName,
   popEnvFrame,
   pushEnvFrame,
-} from "./env";
-import { formatErrorMessage } from "./error";
-import * as logger from "./logger";
-import { isUpperCamelCase } from "./naming-checker";
+} from "./old/env";
 import { stringIsOperator } from "./operator";
 import { Token, TokenType } from "./token";
 

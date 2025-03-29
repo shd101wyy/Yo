@@ -5,6 +5,10 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { formatErrorMessage, formatErrorMessages } from "./error";
+import { tokenize } from "./lexer";
+import * as logger from "./logger";
+import { isUpperCamelCase } from "./naming-checker";
 import {
   AstType,
   BlockExpr,
@@ -17,7 +21,7 @@ import {
   LetAssignmentExpr,
   MatchCase,
   exprToString,
-} from "./ast";
+} from "./old/ast";
 import {
   Environment,
   ReferedVariable,
@@ -42,11 +46,7 @@ import {
   pushEnvFrame,
   setEnvVariableAsConsumed,
   updateExistingVariableValue,
-} from "./env";
-import { formatErrorMessage, formatErrorMessages } from "./error";
-import { tokenize } from "./lexer";
-import * as logger from "./logger";
-import { isUpperCamelCase } from "./naming-checker";
+} from "./old/env";
 import { OperatorPrecedence, stringIsOperator } from "./operator";
 import { Token, TokenType } from "./token";
 import {

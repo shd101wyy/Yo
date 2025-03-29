@@ -1,4 +1,6 @@
 import { createHash } from "crypto";
+import { Emitter } from "../emitter";
+import * as logger from "../logger";
 import {
   AssignmentExpr,
   AstType,
@@ -17,10 +19,8 @@ import {
   RecordValueExpr,
   SliceValueExpr,
   exprToString,
-} from "../ast";
-import { Emitter } from "../emitter";
-import { generateModuleId } from "../env";
-import * as logger from "../logger";
+} from "../old/ast";
+import { generateModuleId } from "../old/env";
 import {
   Region,
   TEnum,
