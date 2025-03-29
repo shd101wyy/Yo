@@ -1,0 +1,15 @@
+Ordering := enum {
+  Less,
+  Equal,
+  Greater
+};
+
+fn Ord((Self : Type) <: Eq), interface {
+  compare: (fn(self: &(Self), other: &(Self)) -> Ordering),
+  lt: (fn(self: &(Self), other: &(Self)) -> boolean),
+  gt: (fn(self: &(Self), other: &(Self)) -> boolean),
+  le: (fn(self: &(Self), other: &(Self)) -> boolean),
+  ge: (fn(self: &(Self), other: &(Self)) -> boolean)
+};
+
+{ Ordering, Ord }

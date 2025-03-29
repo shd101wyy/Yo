@@ -1,12 +1,13 @@
-let { Drop, drop } = @import("../../classes/common.mo");
+{ Drop, drop } := import "../../interfaces/common.mo";
 
-impl<T: Linear impl Drop, S: usize> Drop<T[S]> {
-  drop: (self)-> {
-    var i = 0;
-    while (i < S) {
-      (self as (T:Free)[S])[i].drop();
-      i = i + 1;
-    }
-    @consume(self);
+forall ((T : Linear) <: Drop, comptime(S): usize),
+  impl Drop(Array(T, S)), {
+    drop: (fn(self) -> {
+      mut(i) := 0;
+      while i < S, {
+        as_free(self)(i).drop();
+        i = (i + 1);
+      }
+      consume(self);
+    })
   };
-}

@@ -369,9 +369,10 @@ s2 := s;  // error: s is consumed
 // - ...
 // - Type 2
 // - Type 1
-// - Type (0)
-// - Free | Linear
-// - Union | symbol | boolean | i32 | f64 | ...
+// - Free | Linear | Type (or Type(0))
+// - Struct | Union | Enum | symbol | boolean | i32 | f64 | 
+//    1 | 2 | 3 | 4 | ...
+//    ^ Singleton Type
 
 // Interface is not a type here!
 

@@ -1,1 +1,2 @@
-export type cstring = *u8;
+cstring := *(u8);
+{ cstring }

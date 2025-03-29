@@ -1,36 +1,35 @@
-let { codegen_inline } = @import("../../builtins.mo");
-let { LogicalNot } = @import("../../classes/logic.mo");
-let { Eq } = @import("../../classes/eq.mo");
-let { Drop } = @import("../../classes/common.mo");
+// let { codegen_inline } = @import("../../builtins.mo");
+{ LogicalNot } := import "../../classes/logic.mo";
+{ Eq } := import "../../classes/eq.mo";
+{ Drop } := import "../../classes/common.mo";
 
 /**
  * logic
  */
-impl LogicalNot<boolean> {
-  (!): (a)-> {
-    @codegen_inline(C="(!($1))");
+impl LogicalNot(boolean), {
+  (!): (fn(a)-> {
+    codegen_inline(C="(!($1))");
     recur(a)
-  }
-}
+  })
+};
 
 /**
  * eq
  */
-impl Eq<boolean, boolean> {
-  (==): (a, b)-> {
-    @codegen_inline(C="(($1) == ($2))");
+impl Eq(boolean, boolean), {
+  (==): (fn(a, b)-> {
+    codegen_inline(C="(($1) == ($2))");
     recur(a, b)
-  }
-  (!=): (a, b)-> {
-    @codegen_inline(C="(($1) != ($2))");
+  }),
+  (!=): (fn(a, b)-> {
+    codegen_inline(C="(($1) != ($2))");
     recur(a, b)
-  }
-}
+  })
+};
 
 /**
  * drop
  */
-impl Drop<boolean> {
-  @noop() // ignored by the compiler when generating C code
-  drop: (value)-> {}
-}
+impl Drop(boolean), {
+  drop: noop()
+};
