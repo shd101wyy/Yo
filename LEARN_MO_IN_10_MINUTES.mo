@@ -730,7 +730,7 @@ extern "C", {
 // The `const` function explicitly marks expressions for compile-time evaluation
 
 // Compile-time constants
-PI := const(3.14159265358979323846);
+PI := const(3.14159265358979323846); // (PI : 3.14159265358979323846)
 
 // Compile-time function execution
 // Consider making the syntax more explicit:

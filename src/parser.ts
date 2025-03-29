@@ -11,36 +11,44 @@ export enum ExprTag {
   FuncCall = "FuncCall",
 }
 
-export type Expr =
-  | {
-      // Parser stage
-      tag: ExprTag.Atom;
-      token: Token;
+export type AtomExpr = {
+  // Parser stage
+  tag: ExprTag.Atom;
+  token: Token;
 
-      // Evaluator stage
-      type?: Type;
-      env?: Environment;
-      value?: Value;
-    }
-  | {
-      // Parser stage
-      tag: ExprTag.FuncCall;
-      func: Expr;
-      args: Expr[];
-      isInfix?: boolean;
-      token: Token;
+  // Evaluator stage
+  type?: Type;
+  env?: Environment;
+  value?: Value;
+};
 
-      // Evaluator stage
-      type?: Type;
-      env?: Environment;
-      value?: Value;
-    };
+export type FuncCallExpr = {
+  // Parser stage
+  tag: ExprTag.FuncCall;
+  func: Expr;
+  args: Expr[];
+  isInfix?: boolean;
+  token: Token;
 
-export function exprIsFunctionCallOf(expr: Expr, funcName: string): boolean {
+  // Evaluator stage
+  type?: Type;
+  env?: Environment;
+  value?: Value;
+};
+
+export type Expr = AtomExpr | FuncCallExpr;
+
+export function exprIsFunctionCall(expr: Expr): expr is FuncCallExpr {
+  return expr.tag === ExprTag.FuncCall;
+}
+export function exprIsAtom(expr: Expr): expr is AtomExpr {
+  return expr.tag === ExprTag.Atom;
+}
+
+export function exprIsFunctionCallOf(expr: Expr, funcName: string) {
   return (
     expr.tag === ExprTag.FuncCall &&
     expr.func.tag === ExprTag.Atom &&
-    expr.func.token.type === TokenType.Identifier &&
     expr.func.token.value === funcName
   );
 }
@@ -50,7 +58,7 @@ type ParserReturn = {
   index: number;
 };
 
-enum BuiltinCollections {
+export enum BuiltinCollections {
   Array = "array",
   Tuple = "tuple",
   Record = "record",

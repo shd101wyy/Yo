@@ -140,7 +140,7 @@ export function addVariableToEnv({
   deltaFrame?: number;
   preventDuplicate?: boolean;
   variableId?: string;
-}): { env: Environment; value: Variable } {
+}): { env: Environment; variable: Variable } {
   const frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
   const frame = env.frames[frameLevel];
   const id = isTempVariableName(env, variable.name)
@@ -162,7 +162,7 @@ export function addVariableToEnv({
     modulePath: env.modulePath,
     inputString: env.inputString,
   };
-  return { env: newEnv, value: newVariable };
+  return { env: newEnv, variable: newVariable };
 }
 
 function addVariableToFrame({
