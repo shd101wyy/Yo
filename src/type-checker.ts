@@ -43,7 +43,7 @@ export enum TypeTag {
   Function = "Function",
 
   // Value
-  Value = "Value",
+  Literal = "Literal",
 }
 
 export interface Type {
@@ -61,8 +61,8 @@ export interface Type {
   size?: number;
 }
 
-export interface Value extends Type {
-  tag: TypeTag.Value;
+export interface Literal extends Type {
+  tag: TypeTag.Literal;
   /**
    * The value of the singleton type.
    * This is also used to represent the value of a variable.
@@ -74,26 +74,6 @@ export interface Value extends Type {
   type: Type;
 }
 
-export interface Variable {
-  /**
-   * The name of the variable.
-   */
-  name: string;
-  /**
-   * The type of the variable.
-   */
-  type: Type;
-  /**
-   * The value of the variable.
-   * Could be not defined if the variable is not initialized.
-   */
-  value?: Type;
-  /**
-   * If the variable is mutable.
-   */
-  isMutable?: boolean;
-}
-
 export interface FunctionParam {
   name?: string;
   type: Type;
@@ -101,9 +81,9 @@ export interface FunctionParam {
    * The default value for this parameter.
    * Can be either a concrete Value or a Type (for type parameters).
    */
-  defaultValue?: Type;
+  // defaultValue?: Type;
   isMutable?: boolean;
-  isComptime?: boolean;
+  isCompileTimeKnown?: boolean;
 }
 
 export function isPrimitiveType(type: Type): boolean {
@@ -437,7 +417,7 @@ export const ArrayFunction: FunctionType = createFunctionType(
     const elementType = args[0];
     const lengthArg = args[1];
     let length = 0;
-    if (isValue(lengthArg) && lengthArg.type === TUsize) {
+    if (isLiteral(lengthArg) && lengthArg.type === TUsize) {
       length = lengthArg.value as number;
     } else {
       throw new Error(`Expected length to be a usize value.`);
@@ -695,8 +675,8 @@ export function isFunctionType(type: Type): type is FunctionType {
   return type.tag === TypeTag.Function;
 }
 
-export function isValue(type: Type): type is Value {
-  return type.tag === TypeTag.Value;
+export function isLiteral(type: Type): type is Literal {
+  return type.tag === TypeTag.Literal;
 }
 
 // Helper function for checking if a type is undefined

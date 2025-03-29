@@ -183,7 +183,7 @@ some_func((1, 2)); // 3
 
 // array is defined using [...] with "," as separator.
 arr := [1, 2, 3]; // Array(i32, 3)
-// Array: fn(Type, comptime usize)-> Type
+// Array: fn(Type, const(usize))-> Type
 // is equivalent to call `array`
 arr := array(1, 2, 3);
 mut(arr) := [1, 2, 3]; // mutable array
@@ -727,10 +727,10 @@ extern "C", {
 
 // Compile-time Execution
 // Mo performs as much computation at compile time as possible
-// The `comptime` function explicitly marks expressions for compile-time evaluation
+// The `const` function explicitly marks expressions for compile-time evaluation
 
 // Compile-time constants
-PI := comptime(3.14159265358979323846);
+PI := const(3.14159265358979323846);
 
 // Compile-time function execution
 // Consider making the syntax more explicit:
@@ -738,12 +738,12 @@ fn factorial(n: i32): i32,
   if n <= 1, then: 1, else: (n * recur(n - 1));
 
 // This will be computed during compilation
-FACTORIAL_10 := comptime factorial(10);  // More consistent syntax without parentheses
+FACTORIAL_10 := const factorial(10);  // More consistent syntax without parentheses
                                          // Also consider a distinct naming convention for compile-time constants like ALL_CAPS
 
-// Type-level computation using comptime
+// Type-level computation using const
 // Consider more intuitive syntax for type parameters:
-fn Matrix(T: Type, comptime(ROWS): usize, comptime(COLS): usize): Type,
+fn Matrix(T: Type, ROWS: const(usize), COLS: const(usize)): Type,
   Array(Array(T, COLS), ROWS);
 // ^ Removing parentheses around ROWS makes it consistent with COLS
 
@@ -756,8 +756,8 @@ fn Matrix(T: Type, comptime(ROWS): usize, comptime(COLS): usize): Type,
 
 // Compile-time if statements
 // Consider a dedicated compile-time condition syntax:
-DEBUG_MODE := comptime if debug_build(), true, false;
+DEBUG_MODE := const if debug_build(), true, false;
 fn debug_print(msg: String),
-  comptime if DEBUG_MODE,  // More consistent with other uses of comptime
+  const if DEBUG_MODE,  // More consistent with other uses of comptime
     then: std.println(msg),
     else: ();

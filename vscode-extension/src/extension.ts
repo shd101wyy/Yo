@@ -4,8 +4,7 @@ import * as vscode from "vscode";
 // Import the parser and lexer from Mo project
 // This assumes your extension can access the Mo project code
 import { MoLexerError, MoParserError } from "@mo/error";
-import { tokenize } from "@mo/lexer";
-import Parser from "@mo/parser";
+import Evaluator from "@mo/evaluator";
 
 export function activate(context: vscode.ExtensionContext) {
   // Create a diagnostic collection for Mo language errors
@@ -27,11 +26,8 @@ export function activate(context: vscode.ExtensionContext) {
     const filePath = document.uri.fsPath;
 
     try {
-      // First try to tokenize
-      tokenize(text);
-
-      // Then try to parse
-      new Parser({
+      // Then try to ~~parse~~ evaluate:
+      new Evaluator({
         modulePath: filePath,
         inputString: text,
       });

@@ -1,24 +1,49 @@
 /* eslint-disable no-constant-condition */
+import { Environment } from "./env";
 import { formatErrorMessage } from "./error";
 import { tokenize } from "./lexer";
 import { findMatchingBracketTokenIndex, Token, TokenType } from "./token";
+import { Type } from "./type-checker";
+import { Value } from "./value";
 
 export enum ExprTag {
   Atom = "Atom",
   FuncCall = "FuncCall",
 }
 
-type Expr =
+export type Expr =
   | {
+      // Parser stage
       tag: ExprTag.Atom;
       token: Token;
+
+      // Evaluator stage
+      type?: Type;
+      env?: Environment;
+      value?: Value;
     }
   | {
+      // Parser stage
       tag: ExprTag.FuncCall;
       func: Expr;
       args: Expr[];
       isInfix?: boolean;
+      token: Token;
+
+      // Evaluator stage
+      type?: Type;
+      env?: Environment;
+      value?: Value;
     };
+
+export function exprIsFunctionCallOf(expr: Expr, funcName: string): boolean {
+  return (
+    expr.tag === ExprTag.FuncCall &&
+    expr.func.tag === ExprTag.Atom &&
+    expr.func.token.type === TokenType.Identifier &&
+    expr.func.token.value === funcName
+  );
+}
 
 type ParserReturn = {
   expr: Expr;
@@ -127,6 +152,7 @@ export default class Parser {
             },
           },
           args: [],
+          token: tokens[index],
         },
         index: index + 2,
       };
@@ -181,6 +207,7 @@ export default class Parser {
             },
           },
           args,
+          token: tokens[startIndex],
         },
         index: index + 1,
       };
@@ -237,6 +264,7 @@ export default class Parser {
             },
           },
           args,
+          token: tokens[startIndex],
         },
         index: index + 1,
       };
@@ -298,18 +326,20 @@ export default class Parser {
             lastNonWhiteSpaceToken &&
             lastNonWhiteSpaceToken.type === TokenType.Semicolon
           ) {
+            const token: Token = {
+              type: TokenType.Identifier,
+              value: BuiltinCollections.Tuple,
+              position: lastNonWhiteSpaceToken.position,
+            };
             // Push unit
             args.push({
               tag: ExprTag.FuncCall,
               func: {
                 tag: ExprTag.Atom,
-                token: {
-                  type: TokenType.Identifier,
-                  value: BuiltinCollections.Tuple,
-                  position: lastNonWhiteSpaceToken.position,
-                },
+                token,
               },
               args: [],
+              token,
             });
           }
         }
@@ -341,6 +371,7 @@ export default class Parser {
           },
         },
         args,
+        token: tokens[startIndex],
       },
       index: index + 1,
     };
@@ -461,6 +492,7 @@ export default class Parser {
           },
           args: primaryExprIsDotOperator ? [expr] : [primaryExpr, expr],
           isInfix: primaryExprIsDotOperator ? false : true,
+          token: primaryExprIsDotOperator ? primaryExpr.token : token,
         },
         index,
       };
@@ -483,6 +515,7 @@ export default class Parser {
             },
             args: [returnValue.expr, expr],
             isInfix: true,
+            token,
           },
           index: nextIndex,
         };
@@ -543,6 +576,7 @@ ${this.exprToString(primaryExpr)} ${token.value} (${this.exprToString(rhs)})
           },
           args: [primaryExpr, rhs],
           isInfix: true,
+          token,
         },
         tokens,
         index: nextIndex,
@@ -634,6 +668,7 @@ ${this.exprToString(returnValue.expr)}`
           tag: ExprTag.FuncCall,
           func,
           args,
+          token: func.token,
         },
         index: index + 1,
       };
@@ -661,6 +696,7 @@ ${this.exprToString(returnValue.expr)}`
             tag: ExprTag.FuncCall,
             func,
             args,
+            token: func.token,
           },
           index: index,
         };
@@ -670,6 +706,7 @@ ${this.exprToString(returnValue.expr)}`
             tag: ExprTag.FuncCall,
             func,
             args,
+            token: func.token,
           },
           index: hasWhitespace ? index : index + 1,
         };
@@ -716,7 +753,7 @@ or ) to end the function call`
     );
   }
 
-  private exprToString(expr: Expr): string {
+  public exprToString(expr: Expr): string {
     let printed = "";
     switch (expr.tag) {
       case "Atom": {
@@ -835,21 +872,27 @@ or ) to end the function call`
       lastNonWhiteSpaceToken &&
       lastNonWhiteSpaceToken.type === TokenType.Semicolon
     ) {
+      const token: Token = {
+        type: TokenType.Identifier,
+        value: BuiltinCollections.Tuple,
+        position: lastNonWhiteSpaceToken.position,
+      };
       // Add unit
       exprs.push({
         tag: ExprTag.FuncCall,
         func: {
           tag: ExprTag.Atom,
-          token: {
-            type: TokenType.Identifier,
-            value: BuiltinCollections.Tuple,
-            position: lastNonWhiteSpaceToken.position,
-          },
+          token,
         },
         args: [],
+        token,
       });
     }
 
     this.program = exprs;
+  }
+
+  public getProgram() {
+    return this.program;
   }
 }
