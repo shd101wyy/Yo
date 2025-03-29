@@ -170,7 +170,7 @@ pair := (1, 2); // tuple with two elements
 
 // there might be ambiguity for the function that accepts tuple as its first argument
 fn some_func(x: (i32, i32)):i32, {
-  return x(0) + x(1);
+  return x.0 + x.1;
 };
 
 // then
@@ -374,6 +374,16 @@ s2 := s;  // error: s is consumed
 //    1 | 2 | 3 | 4 | ...
 //    ^ Singleton Type
 
+// Below is an example of define a singleton type
+singleton_list : [1, 2, 3];
+singleton_list = [1, 2, 3]; // The only legal value of this type
+
+fail_list : [1, 2, 3];
+fail_list = [2, 3, 4]; // Type error: expected [1, 2, 3], got [2, 3, 4]
+
+Array7 := Array(7, 3);
+(arr: Array7) := [7, 7, 7]; // Correct!
+
 // Interface is not a type here!
 
 // Reference and Pointer
@@ -388,13 +398,14 @@ swap := (fn(a: &!(i32), b: &!(i32)) -> {
 });
 swap(&!(x), &!(y));
 
-// Mutable value semantics
-// References in Mo are second-class citizens.
+// One-Reference-Only (ORO) rules:
 // Rule 1.0, let's say fucntion parameter is not local variable, then:
 // - 1) Reference to local variable can only happen in the call site.
 //   - 1.1) It cannot be stored in a variable or data structure.
 //   - 1.2) It cannot be returned from the block.
 // - 2) Function parameter of mutable reference is required to live shorter than the function parameter of immutable reference.
+//   - 2.1 Function parameters of multiple mutable reference needs to be declared in the order of their lifetime.
+//         eg: fn f1(x: &!(i32), y: &!(i32)) // Here 'x' is required to live shorter than or equal to 'y'
 // - 3) Path to a value never appears twice in the function arguments. Path uniqueness, to guarantee One Reference Only (ORO).
 //    - If a function returns a reference, then we need to continue checking it
 //      eg: f1(f2(ref1), ref2);

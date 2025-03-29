@@ -3,13 +3,18 @@ import { formatErrorMessage } from "./error";
 import { tokenize } from "./lexer";
 import { findMatchingBracketTokenIndex, Token, TokenType } from "./token";
 
+export enum ExprTag {
+  Atom = "Atom",
+  FuncCall = "FuncCall",
+}
+
 type Expr =
   | {
-      tag: "Atom";
+      tag: ExprTag.Atom;
       token: Token;
     }
   | {
-      tag: "FuncCall";
+      tag: ExprTag.FuncCall;
       func: Expr;
       args: Expr[];
       isInfix?: boolean;
@@ -112,9 +117,9 @@ export default class Parser {
       // unit type
       return {
         expr: {
-          tag: "FuncCall",
+          tag: ExprTag.FuncCall,
           func: {
-            tag: "Atom",
+            tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
               value: BuiltinCollections.Tuple,
@@ -166,9 +171,9 @@ export default class Parser {
 
       return {
         expr: {
-          tag: "FuncCall",
+          tag: ExprTag.FuncCall,
           func: {
-            tag: "Atom",
+            tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
               value: BuiltinCollections.Tuple,
@@ -222,9 +227,9 @@ export default class Parser {
 
       return {
         expr: {
-          tag: "FuncCall",
+          tag: ExprTag.FuncCall,
           func: {
-            tag: "Atom",
+            tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
               value: BuiltinCollections.Array,
@@ -295,9 +300,9 @@ export default class Parser {
           ) {
             // Push unit
             args.push({
-              tag: "FuncCall",
+              tag: ExprTag.FuncCall,
               func: {
-                tag: "Atom",
+                tag: ExprTag.Atom,
                 token: {
                   type: TokenType.Identifier,
                   value: BuiltinCollections.Tuple,
@@ -323,9 +328,9 @@ export default class Parser {
 
     return {
       expr: {
-        tag: "FuncCall",
+        tag: ExprTag.FuncCall,
         func: {
-          tag: "Atom",
+          tag: ExprTag.Atom,
           token: {
             type: TokenType.Identifier,
             value:
@@ -365,7 +370,7 @@ export default class Parser {
       case TokenType.Char: {
         returnValue = {
           expr: {
-            tag: "Atom",
+            tag: ExprTag.Atom,
             token,
           },
           index: index + 1,
@@ -449,9 +454,9 @@ export default class Parser {
       index = nextIndex;
       let returnValue: ParserReturn = {
         expr: {
-          tag: "FuncCall",
+          tag: ExprTag.FuncCall,
           func: {
-            tag: "Atom",
+            tag: ExprTag.Atom,
             token: primaryExprIsDotOperator ? primaryExpr.token : token,
           },
           args: primaryExprIsDotOperator ? [expr] : [primaryExpr, expr],
@@ -471,9 +476,9 @@ export default class Parser {
         });
         returnValue = {
           expr: {
-            tag: "FuncCall",
+            tag: ExprTag.FuncCall,
             func: {
-              tag: "Atom",
+              tag: ExprTag.Atom,
               token,
             },
             args: [returnValue.expr, expr],
@@ -531,9 +536,9 @@ ${this.exprToString(primaryExpr)} ${token.value} (${this.exprToString(rhs)})
 
       return this.parsePrimaryEnd({
         primaryExpr: {
-          tag: "FuncCall",
+          tag: ExprTag.FuncCall,
           func: {
-            tag: "Atom",
+            tag: ExprTag.Atom,
             token,
           },
           args: [primaryExpr, rhs],
@@ -626,7 +631,7 @@ ${this.exprToString(returnValue.expr)}`
     if (!hasWhitespace && tokens[index]?.type === TokenType.RParen) {
       return {
         expr: {
-          tag: "FuncCall",
+          tag: ExprTag.FuncCall,
           func,
           args,
         },
@@ -653,7 +658,7 @@ ${this.exprToString(returnValue.expr)}`
       ) {
         return {
           expr: {
-            tag: "FuncCall",
+            tag: ExprTag.FuncCall,
             func,
             args,
           },
@@ -662,7 +667,7 @@ ${this.exprToString(returnValue.expr)}`
       } else if (token.type === TokenType.RParen) {
         return {
           expr: {
-            tag: "FuncCall",
+            tag: ExprTag.FuncCall,
             func,
             args,
           },
@@ -832,9 +837,9 @@ or ) to end the function call`
     ) {
       // Add unit
       exprs.push({
-        tag: "FuncCall",
+        tag: ExprTag.FuncCall,
         func: {
-          tag: "Atom",
+          tag: ExprTag.Atom,
           token: {
             type: TokenType.Identifier,
             value: BuiltinCollections.Tuple,
