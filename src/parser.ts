@@ -437,6 +437,17 @@ export default class Parser {
         });
         break;
       }
+      case TokenType.Dot: {
+        // The rest will be parsed in parsePrimaryEnd
+        returnValue = {
+          expr: {
+            tag: ExprTag.Atom,
+            token,
+          },
+          index: index + 1,
+        };
+        break;
+      }
       default: {
         throw this.formatErrorMessage(token, `Unexpected token: ${token.type}`);
       }
@@ -477,12 +488,10 @@ export default class Parser {
     // .Person
     // Person.Person
     const primaryExprIsDotOperator =
-      primaryExpr.tag === "Atom" &&
-      primaryExpr.token.type === TokenType.Operator &&
-      primaryExpr.token.value === ".";
+      primaryExpr.tag === "Atom" && primaryExpr.token.type === TokenType.Dot;
     if (
       primaryExprIsDotOperator ||
-      (token.type === TokenType.Operator && token.value === ".")
+      (token.type === TokenType.Dot && !hasWhitespace)
     ) {
       // Field access like
       // obj.field
@@ -505,11 +514,7 @@ export default class Parser {
         index,
       };
       // Check chaining
-      while (
-        tokens[index] &&
-        tokens[index].type === TokenType.Operator &&
-        tokens[index].value === "."
-      ) {
+      while (tokens[index] && tokens[index].type === TokenType.Dot) {
         const { expr, index: nextIndex } = this.parsePrimary({
           tokens,
           index: index + 1,
@@ -556,8 +561,7 @@ export default class Parser {
         rhs.tag === "FuncCall" &&
         rhs.isInfix &&
         rhs.func.tag === "Atom" &&
-        rhs.func.token.type === TokenType.Operator &&
-        rhs.func.token.value !== "." && // Allow dot operator to chain
+        rhs.func.token.type !== TokenType.Dot && // Allow dot operator to chain
         !this.isParenthesizedExpression(tokens, startIndex, nextIndex - 1) // Check if the RHS is already parenthesized
       ) {
         throw this.formatErrorMessage(
@@ -771,7 +775,8 @@ or ) to end the function call`
       case "FuncCall": {
         if (
           expr.func.tag === "Atom" &&
-          expr.func.token.type === TokenType.Operator
+          (expr.func.token.type === TokenType.Operator ||
+            expr.func.token.type === TokenType.Dot)
         ) {
           if (expr.args.length === 1) {
             if (expr.func.token.value === ".") {

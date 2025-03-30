@@ -30,7 +30,7 @@ export function tokenize(input: string): Token[] {
       !operator.startsWith("/*")
     ) {
       tokens.push({
-        type: TokenType.Operator,
+        type: operator === "." ? TokenType.Dot : TokenType.Operator,
         value: operator,
         position: {
           row: line,

@@ -26,7 +26,9 @@ mut(y) := 14; // mutable   y: i32
 (=)((:)(mut(y), i32), 14);
 
 // There is no arithmetic precedence in Mo
-// Except for the "." operator which has the highest precedence
+// Except for the "." is not taking as a operator, but it has the highest precedence.
+// "." has its own parsing rules, for example a.b + c.d is parsed as (. a b) + (. c d)
+
 // Every infix operator takes two arguments on its left and right
 // so the expression below is invalid
 //
@@ -196,69 +198,72 @@ MyI32 := i32; // type alias
 MyPoint := (i32, i32); // tuple type
 (p : MyPoint) := (3, 4); // valid
 
-// "struct" works similarly in C (and rust). 
-// It accepts one type as its argument
-// and it can be used to define a new type
-Point := struct (i32, i32);
-p := Point (3, 4);
+// In Mo, a variant can be defined with `.` ahead,
+// Each variant can accept one type.
+// like the ".Point" variant below:
+// IDEA: Why not use `struct`, `enum`, and `union` like the one in rust and zig?
+// ANSWER: The `|` operator could handle them all. 
+//         Besides, using `struct` sometimes causes confusion if using it in enum variant:
+//         Should I use {...} record directly or struct {...} there?
+Point := .Point (i32, i32);
+p := Point.Point (3, 4);
+// If the variant matches the type, you can omit the .Variant
+p := Point (3, 4); // valid
 
-Point := struct {x: i32, y: i32};
+Point := .Point {x: i32, y: i32};
 p := Point {x: 3, y: 4};
 
-Cm := struct i32;
+Cm := .Cm i32;
 x := Cm 200;
 
-// Or use the anonymous struct liternal like in zig
+// Or use the anonymous record liternal like in zig
 // Note the '.' before '{':
-(p : Point) := .{x: 3, y: 4};
-// another example of using the anonymous struct here:
-(p : struct { a: i32, b: boolean }) := .{ a: 3, b: true };
+(p : Point) := .Point {x: 3, y: 4};
+// another example of using the anonymous record here:
+(p : { a: i32, b: boolean }) := .{ a: 3, b: true };
 
-// "enum" works similarly in Rust.
-// It is tagged union type.
-// it follows by a record of variants:
-Color := enum {
-  Red, // = 0
-  Green,
-  Blue
-}
+// A type can have numerous variants
+Color := 
+  | .Red, // = 0
+    .Green,
+    .Blue
+
 // each variant can have one type as its argument
-Animal := enum {
-  Dog (String, f64),
-  Cat { name: String, weight: f64 }
-};
-a := Animal.Dog("Buddy", 12.5);
-// or use the anonymous enum liternal:
+Animal := 
+  | (.Dog (String, f64)),
+    (.Cat { name: String, weight: f64 })
+;
+a := Animal.Dog ("Buddy", 12.5);
+// or use the anonymous variant liternal:
 (b : Animal) := .Cat { name: "Whiskers", weight: 8.5 };
 
 
-// "union" is also quite the same
+// C like "union" can also be defined using '|'
 // but it can only accept record as its argument
-Result := union {
-  int: i64,
-  float: f64,
-  bool: boolean
-};
+Result := .Result(
+  | { int: i64 },
+    { float: f64 },
+    { bool: boolean }
+);
 result := Result { int: 12 };
 result.float = 3.14;
 // or use the anonymous union liternal:
 (result : Result) := .{ int: 12 };
-(result : union { a: i32, b: f64 }) := .{ a: 3 };
+(result : ({ a: i32 } | { b: f64 })) := .{ a: 3 };
 
 // A more complicated example
-Shape := enum {
-  Circle i32,
-  Rectangle {width: i32, height: i32}
-}
+Shape :=
+  | (.Circle i32),
+    (.Rectangle {width: i32, height: i32})
+;
 s := Shape.Circle 5;
 s := Shape.Rectangle {width: 10, height: 20};
 
 // type as function parameter
 fn Option(T: Type): Type,
-  enum {
-    Some(T),
-    None
-  };
+  | .Some(T),
+    .None
+;
 
 x := Option(i32).Some(12);
 
@@ -267,11 +272,10 @@ x := Option(i32).Some(12);
 // You can also specify the return type for each variant
 // to make it a GADT
 fn MyExpr(T: Type): Type,
-  enum {
-    IntExpr: (fn(i32) -> MyExpr(i32)),
-    BoolExpr: (fn(boolean) -> MyExpr(boolean)),
-    EqExpr: (fn(MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean))
-  };
+  | .IntExpr: (fn(i32) -> MyExpr(i32)),
+    .BoolExpr: (fn(boolean) -> MyExpr(boolean)),
+    .EqExpr: (fn(MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean))
+  ;
 fn my_eval(T: Type, expr: MyExpr(T)): T,
   match expr,
     .IntExpr(i) -> i,
@@ -370,8 +374,9 @@ s2 := s;  // error: s is consumed
 // - Type 2
 // - Type 1
 // - Free | Linear | Type (or Type(0))
-// - Struct | Union | Enum | symbol | boolean | i32 | f64 | 
-//    1 | 2 | 3 | 4 | ...
+// - symbol | boolean | i32 | f64 | 
+//   Union | Intersection | Variant |
+//   1 | 2 | 3 | 4 | ...
 //    ^ Singleton Type
 
 // Below is an example of define a singleton type
@@ -576,16 +581,15 @@ match x,
 
 // Define the Result type as a generic type
 fn Result(T: Type, E: Type): Type,
-  enum {
-    Ok(T),
-    Err(E)
-  };
+  | .Ok(T),
+    .Err(E)
+;
 
 // Define a standard error type
-DivisionError := enum {
-  DivideByZero,
-  Overflow
-};
+DivisionError := 
+  | .DivideByZero,
+    .Overflow
+;
 
 // Example: Safe division function that returns a Result
 fn safe_div(a: i32, b: i32): Result(i32, DivisionError),
@@ -600,11 +604,12 @@ match division_result,
   .Err(.DivideByZero) -> std.println("Error: Cannot divide by zero");
 
 // Macro definition
-if := ((macro(condition: Expr, then: Expr, else: Expr): Expr) ->
+// all of its parameters and return type are comp(Expr)
+// NOTE: Unlike fn, you cannot define anonymous macro:
+macro if(condition, then, else),
   quasiquote(
     cond  unquote(condition) -> unquote(then),
-          true -> unquote(else)
-  ));
+          true -> unquote(else));
 
 if x == 1, then: std.println("x is 1"), else: std.println("x is not 1");
 // will be expanded to
@@ -613,17 +618,20 @@ cond  (x == 1) -> std.println("x is 1"),
 
 
 // AST Representation
-Expr := enum {
-  Atom(enum {
-    Symbol(String),
-    Boolean(boolean),
-    I32(i32),
-    F64(f64),
-    String(String),
-    Char(char)
-  }),
-  FuncCall { func: Box(Expr), args: ExprList }
-};
+Expr :=
+  | .Atom(
+    | .Symbol(symbol),
+      .Boolean(boolean),
+      .I32(i32),
+      .F64(f64),
+      .String(String),
+      .Char(char)
+    ),
+    .FuncCall { 
+      .func: Box(Expr),
+      .args: List(Expr)
+    }
+;
 
 // Everything else is just function calls
 // For example, a variable declaration like:
@@ -644,12 +652,12 @@ Expr := enum {
 // Note: In Mo, like in Lisp, operators and identifiers are both symbols
 // For example, '+', ':=', and 'add' are all symbols
 
-// `quote` function to quote an expression
+// `quote` function to quote an expression, return comp(Expr)
 e := quote(add(1, 2));
 // =>
 e := Expr.FuncCall {
-  func: Box(.Atom(.Symbol(quote(add)))),
-  args: (
+  func: Box(.Atom(.Symbol(symbol(add)))),
+  args: list(
     Expr.Atom(.I32(1)),
     Expr.Atom(.I32(2))
   )
@@ -659,28 +667,34 @@ e.to_string(); // "add(1, 2)"
 // More metaprogramming examples
 // `quasiquote` allows creating code templates with holes
 // `unquote` evaluates expressions inside quasiquoted expressions
-x := 5;
-y := 10;
+x := quote(5);
+y := quote(10);
 template := quasiquote(add(unquote(x), unquote(y)));
 // =>
 template := Expr.FuncCall {
-  func: Box(.Atom(.Symbol(quote(add)))),
-  args: (
+  func: Box(.Atom(.Symbol(symbol(add)))),
+  args: list(
     Expr.Atom(.I32(5)),  // x was evaluated to 5
     Expr.Atom(.I32(10))  // y was evaluated to 10
   )
 };
 
 // `unquote_splicing` splices a list into the surrounding list
-(args : ExprList) := (1, 2, 3); // NOTE: Tuple can be converted to ExprList
-call := quasiquote(sum(unquote_splicing(args)));
+x := 2;
+(args : comp(Expr)) := (quote (1, x, 3)); // quote returns a comp(Expr) type value representing the AST.
+call := quasiquote(sum(unquote_splicing(args), 4, 5));
+// or with ... operator
+call := quasiquote(sum(...(args), 4, 5));
+
 // =>
-call := Expr.FuncCall {
-  func: Box(.Atom(.Symbol(quote(sum)))),
-  args: (
+(call : comp(Expr)) := .FuncCall {
+  func: Box(.Atom(.Symbol(symbol(sum)))),
+  args: list(
     .Atom(.I32(1)),
-    .Atom(.I32(2)),
-    .Atom(.I32(3))
+    .Atom(.Symbol(symbol(x))),
+    .Atom(.I32(3)),
+    .Atom(.I32(4)),
+    .Atom(.I32(5))
   )
 }
 
@@ -722,7 +736,7 @@ generate_math := quasiquote(
 {*} := import("stdio.h");
 
 extern "C", {
-  printf: (fn(format: *(char), ...) -> i32);
+  printf: (fn(format: *(char), ...(args)) -> i32);
 }
 
 // Compile-time Execution
@@ -764,7 +778,8 @@ fn Matrix(T: Type, ROWS: comp(usize), COLS: comp(usize)): Type,
 ];
 
 // Compile-time evaluation of an expression
-x := comp {
+// QUESTION: If this necessary?
+x := compeval {
   // All functions calls in this block must be executable at compile-time
   a := 3;
   b := 4;

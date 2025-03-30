@@ -1,6 +1,7 @@
 export enum TokenType {
   // operators
   Operator = "operator",
+  Dot = ".", // Dot itself is used special
 
   // parens
   LParen = "(",

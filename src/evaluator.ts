@@ -11,7 +11,7 @@ import Parser, {
   FuncCallExpr,
 } from "./parser";
 import { Token, TokenType } from "./token";
-import { createTupleType, TI32, TUnit, TypeTag } from "./type-checker";
+import { createTupleType, TI32, TUnit, Type, TypeTag } from "./type-checker";
 import { Value } from "./value";
 
 /**
@@ -140,6 +140,7 @@ export default class Evaluator {
     // Check if the lhs is type annotation
     // x : i32
     let isMutable = false;
+    let userDefinedType: Type | undefined = undefined;
     if (exprIsFunctionCallOf(lhs, ":")) {
       throw this.formatErrorMessage(
         lhs.token,
