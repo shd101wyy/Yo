@@ -183,7 +183,7 @@ some_func((1, 2)); // 3
 
 // array is defined using [...] with "," as separator.
 arr := [1, 2, 3]; // Array(i32, 3)
-// Array: fn(Type, const(usize))-> Type
+// Array: fn(Type, comp(usize))-> Type
 // is equivalent to call `array`
 arr := array(1, 2, 3);
 mut(arr) := [1, 2, 3]; // mutable array
@@ -727,25 +727,34 @@ extern "C", {
 
 // Compile-time Execution
 // Mo performs as much computation at compile time as possible
-// The `const` function explicitly marks expressions for compile-time evaluation
+// The `comp` keyword is used to indicate compile-time values
 
-// Compile-time constants
-PI := const(3.14159265358979323846); // (PI : 3.14159265358979323846)
+// Compile-time 
+PI := 3.14159265358979323846; // PI : comp(f64);
 
 // Compile-time function execution
-// Consider making the syntax more explicit:
-fn factorial(n: i32): i32,
+// If the function has all parameters and return type as `comp`, it then can be executed at compile-time.
+// It also requires all the function calls in its body to be executable at compile-time.  
+fn factorial(n: comp(i32)): comp(i32),
   if n <= 1, then: 1, else: (n * recur(n - 1));
 
 // This will be computed during compilation
-FACTORIAL_10 := const factorial(10);  // More consistent syntax without parentheses
-                                         // Also consider a distinct naming convention for compile-time constants like ALL_CAPS
+x := 10; // x : comp(i32)
+FACTORIAL_10 := factorial(10);  // FACTORIAL_10 : comp(i32)
 
-// Type-level computation using const
-// Consider more intuitive syntax for type parameters:
-fn Matrix(T: Type, ROWS: const(usize), COLS: const(usize)): Type,
+// You can cast a comp(T) type to T type
+// But not the other way around
+x := 10; // x : comp(i32)
+(y : i32) := x; // y : i32, this is a cast from comp(i32) to i32
+// This is not allowed
+(z : comp(i32)) := y; // error: cannot cast i32 to comp(i32)
+
+// Type-level computation using comp
+// A function that returns a type is called a type function.  
+// The type function requires all its parameters to be `comp`.  
+// All parameters of Type (Free or Linear) are `comp` by default so you don't need to specify it explicitly.
+fn Matrix(T: Type, ROWS: comp(usize), COLS: comp(usize)): Type,
   Array(Array(T, COLS), ROWS);
-// ^ Removing parentheses around ROWS makes it consistent with COLS
 
 // Create a 3x3 matrix of integers
 (mat : Matrix(i32, 3, 3)) := [
@@ -754,10 +763,10 @@ fn Matrix(T: Type, ROWS: const(usize), COLS: const(usize)): Type,
   [7, 8, 9]
 ];
 
-// Compile-time if statements
-// Consider a dedicated compile-time condition syntax:
-DEBUG_MODE := const if debug_build(), true, false;
-fn debug_print(msg: String),
-  const if DEBUG_MODE,  // More consistent with other uses of comptime
-    then: std.println(msg),
-    else: ();
+// Compile-time evaluation of an expression
+x := comp {
+  // All functions calls in this block must be executable at compile-time
+  a := 3;
+  b := 4;
+  a + b
+}; // x is of type comp(i32)
