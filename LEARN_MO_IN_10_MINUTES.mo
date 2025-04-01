@@ -6,8 +6,8 @@
 // Mo is case-sensitive
 
 // In Mo, everything is a function (or macro):
-x := 12; // immutable x: i32
-mut(y) := 14; // mutable   y: i32
+x := 12; // immutable x: comptime(i32)
+mut(y) := 14; // mutable   mut(y): comptime(i32)
 
 // can be written as:
 (:=)(x, 12);
@@ -22,8 +22,8 @@ mut(y) := 14; // mutable   y: i32
 
 // can be written as:
 
-(:)((:)(x, i32), 12);
-(=)((:)(mut(y), i32), 14);
+(:=)((:)(x, i32), 12);
+(:=)((:)(mut(y), i32), 14);
 
 // There is no arithmetic precedence in Mo
 // Except for the "." is not taking as a operator, but it has the highest precedence.
@@ -185,7 +185,7 @@ some_func((1, 2)); // 3
 
 // array is defined using [...] with "," as separator.
 arr := [1, 2, 3]; // Array(i32, 3)
-// Array: fn(Type, comp(usize))-> Type
+// Array: fn(Type, comptime(usize))-> Type
 // is equivalent to call `array`
 arr := array(1, 2, 3);
 mut(arr) := [1, 2, 3]; // mutable array
@@ -306,7 +306,7 @@ impl Id(i32), {
 // impl interface with generic type
 forall ((T : Type) <: Show(T)), impl Show((T,)), {
   show: ((fn(x: (T,)): String) -> {
-    return ("(" + x(0).show()) + ")";
+    return ("(" + x.0.show()) + ")";
   })
 }
 show((3,)); // "(3,)"
@@ -512,7 +512,7 @@ free(ptr); // free the memory
 
 // cast reference to pointer using `as` function
 x := 12;
-ptr := &!(x) .as *!(i32);
+ptr := &!(x).as *!(i32);
 
 // Control flow
 /// cond
@@ -604,8 +604,9 @@ match division_result,
   .Err(.DivideByZero) -> std.println("Error: Cannot divide by zero");
 
 // Macro definition
-// all of its parameters and return type are comp(Expr)
+// all of its parameters and return type are Expr
 // NOTE: Unlike fn, you cannot define anonymous macro:
+// The `unquote` function is only allowed to be used inside the `quasiquote` function.  
 macro if(condition, then, else),
   quasiquote(
     cond  unquote(condition) -> unquote(then),
@@ -652,7 +653,7 @@ Expr :=
 // Note: In Mo, like in Lisp, operators and identifiers are both symbols
 // For example, '+', ':=', and 'add' are all symbols
 
-// `quote` function to quote an expression, return comp(Expr)
+// `quote` function to quote an expression, return Expr
 e := quote(add(1, 2));
 // =>
 e := Expr.FuncCall {
@@ -681,13 +682,13 @@ template := Expr.FuncCall {
 
 // `unquote_splicing` splices a list into the surrounding list
 x := 2;
-(args : comp(Expr)) := (quote (1, x, 3)); // quote returns a comp(Expr) type value representing the AST.
+(args : Expr) := (quote (1, x, 3)); // quote returns a Expr type value representing the AST.
 call := quasiquote(sum(unquote_splicing(args), 4, 5));
 // or with ... operator
 call := quasiquote(sum(...(args), 4, 5));
 
 // =>
-(call : comp(Expr)) := .FuncCall {
+(call : Expr) := .FuncCall {
   func: Box(.Atom(.Symbol(symbol(sum)))),
   args: list(
     .Atom(.I32(1)),
@@ -740,34 +741,53 @@ extern "C", {
 }
 
 // Compile-time Execution
-// Mo performs as much computation at compile time as possible
-// The `comp` keyword is used to indicate compile-time values
+// Unlike the "comptime" in Zig which is a modifier to the variabel binding, 
+// the "comptime" in Mo applies to the type.
+PI := 3.14159265358979323846; // PI : comptime(f64);
 
-// Compile-time 
-PI := 3.14159265358979323846; // PI : comp(f64);
-
+// A function returning Type or comptime(Type) can only be executed at compile time
 // Compile-time function execution
-// If the function has all parameters and return type as `comp`, it then can be executed at compile-time.
-// It also requires all the function calls in its body to be executable at compile-time.  
-fn factorial(n: comp(i32)): comp(i32),
+fn factorial(n: comptime(i32)): comptime(i32),
   if n <= 1, then: 1, else: (n * recur(n - 1));
 
 // This will be computed during compilation
-x := 10; // x : comp(i32)
-FACTORIAL_10 := factorial(10);  // FACTORIAL_10 : comp(i32)
+x := 10; // x : comptime(i32);
+FACTORIAL_10 := factorial(10);  // FACTORIAL_10 : comptime(i32)
 
-// You can cast a comp(T) type to T type
-// But not the other way around
-x := 10; // x : comp(i32)
-(y : i32) := x; // y : i32, this is a cast from comp(i32) to i32
+x := 10; // x : comptime(i32)
+(y : i32) := x; // y : i32, this is a cast from comptime(i32) to i32
 // This is not allowed
-(z : comp(i32)) := y; // error: cannot cast i32 to comp(i32)
+(z : comptime(i32)) := y; // error: cannot cast i32 to comptime(i32)
 
-// Type-level computation using comp
+// Below is another example
+fn max(T: Type, a: T, b: T):T, {
+  cond // implicit compile-time evaluate the condition if it's known at the compile-time, and skip the branch not taken.
+    (T == boolean) -> a.or b,
+    (a > b) -> a,
+    true -> b
+};
+max(boolean, false, true); // compiles to:
+fn max(a: boolean, b: boolean): boolean, {
+  {
+    return a.or b;
+  }
+};
+
+arr := [1, 2, 3]; // arr: comptime(Array(i32, 3)); comptime immutable
+
+mut(arr) := [1, 2, 3]; // mut(arr): comptime(Array(i32, 3)); comptime mutable
+arr(0) := 10; // OK, happens at compile time
+
+(arr: Array(i32, 3)) := [1, 2, 3]; // arr: Array(i32, 3); runtime immutable
+mut(arr) := [1, 2, 3]; // mut(arr): Array(i32, 3); runtime mutable
+mut(arr) := [read_input(), 2, 3]; // mut(arr): Array(i32, 3); runtime mutable
+
+
+// Type-level computation using comptime
 // A function that returns a type is called a type function.  
-// The type function requires all its parameters to be `comp`.  
-// All parameters of Type (Free or Linear) are `comp` by default so you don't need to specify it explicitly.
-fn Matrix(T: Type, ROWS: comp(usize), COLS: comp(usize)): Type,
+// The type function requires all its parameters to be `comptime`.  
+// All parameters of Type (Free or Linear) are `comptime` by default so you don't need to specify it explicitly.
+fn Matrix(T: Type, ROWS: comptime(usize), COLS: comptime(usize)): Type,
   Array(Array(T, COLS), ROWS);
 
 // Create a 3x3 matrix of integers
@@ -777,11 +797,10 @@ fn Matrix(T: Type, ROWS: comp(usize), COLS: comp(usize)): Type,
   [7, 8, 9]
 ];
 
-// Compile-time evaluation of an expression
-// QUESTION: If this necessary?
+// Force compile-time evaluation a block
+// No runtime type is allowed in the block
 x := compeval {
-  // All functions calls in this block must be executable at compile-time
-  a := 3;
-  b := 4;
-  a + b
-}; // x is of type comp(i32)
+  y := 10;
+  z := 20;
+  y + z
+};
