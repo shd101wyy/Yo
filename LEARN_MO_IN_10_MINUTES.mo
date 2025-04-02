@@ -5,9 +5,9 @@
 // Comment is using `//` or `/* */`
 // Mo is case-sensitive
 
-// In Mo, everything is a function (or macro):
-x := 12; // immutable x: comptime(i32)
-mut(y) := 14; // mutable   mut(y): comptime(i32)
+// In Mo, everything is a function:
+x := 12; // immutable x: compt(i32)
+mut(y) := 14; // mutable   mut(y): compt(i32)
 
 // can be written as:
 (:=)(x, 12);
@@ -185,7 +185,7 @@ some_func((1, 2)); // 3
 
 // array is defined using [...] with "," as separator.
 arr := [1, 2, 3]; // Array(i32, 3)
-// Array: fn(Type, comptime(usize))-> Type
+// Array: fn(Type, compt(usize))-> Type
 // is equivalent to call `array`
 arr := array(1, 2, 3);
 mut(arr) := [1, 2, 3]; // mutable array
@@ -480,7 +480,7 @@ use &!(x), x-> {
 }
 // x: 15
 
-// do notation macro
+// do notation
 // allows us to use `<-`, `<=`, `<<=` inside a block
 do {
   response <<= fetch("https://api.example.com");
@@ -603,11 +603,14 @@ match division_result,
   .Ok(value) -> std.println("Result: " + value.to_string()),
   .Err(.DivideByZero) -> std.println("Error: Cannot divide by zero");
 
-// Macro definition
-// all of its parameters and return type are Expr
-// NOTE: Unlike fn, you cannot define anonymous macro:
+// Macro function definition
+// all of its parameters and return type are compt(Expr)
 // The `unquote` function is only allowed to be used inside the `quasiquote` function.  
-macro if(condition, then, else),
+// And if the return value is declared with `unquote`, then it's a macro function.  
+fn if(quote(condition): compt(Expr), 
+      quote(then): compt(Expr), 
+      quote(else): compt(Expr))
+    : (unqoute(_): compt(Expr)),
   quasiquote(
     cond  unquote(condition) -> unquote(then),
           true -> unquote(else));
@@ -741,23 +744,23 @@ extern "C", {
 }
 
 // Compile-time Execution
-// Unlike the "comptime" in Zig which is a modifier to the variabel binding, 
-// the "comptime" in Mo applies to the type.
-PI := 3.14159265358979323846; // PI : comptime(f64);
+// Unlike the "compt" in Zig which is a modifier to the variabel binding, 
+// the "compt" in Mo applies to the type.
+PI := 3.14159265358979323846; // PI : compt(f64);
 
-// A function returning Type or comptime(Type) can only be executed at compile time
+// A function returning Type or compt(Type) can only be executed at compile time
 // Compile-time function execution
-fn factorial(n: comptime(i32)): comptime(i32),
+fn factorial(n: compt(i32)): compt(i32),
   if n <= 1, then: 1, else: (n * recur(n - 1));
 
 // This will be computed during compilation
-x := 10; // x : comptime(i32);
-FACTORIAL_10 := factorial(10);  // FACTORIAL_10 : comptime(i32)
+x := 10; // x : compt(i32);
+FACTORIAL_10 := factorial(10);  // FACTORIAL_10 : compt(i32)
 
-x := 10; // x : comptime(i32)
-(y : i32) := x; // y : i32, this is a cast from comptime(i32) to i32
+x := 10; // x : compt(i32)
+(y : i32) := x; // y : i32, this is a cast from compt(i32) to i32
 // This is not allowed
-(z : comptime(i32)) := y; // error: cannot cast i32 to comptime(i32)
+(z : compt(i32)) := y; // error: cannot cast i32 to compt(i32)
 
 // Below is another example
 fn max(T: Type, a: T, b: T):T, {
@@ -773,9 +776,9 @@ fn max(a: boolean, b: boolean): boolean, {
   }
 };
 
-arr := [1, 2, 3]; // arr: comptime(Array(i32, 3)); comptime immutable
+arr := [1, 2, 3]; // arr: compt(Array(i32, 3)); compt immutable
 
-mut(arr) := [1, 2, 3]; // mut(arr): comptime(Array(i32, 3)); comptime mutable
+mut(arr) := [1, 2, 3]; // mut(arr): compt(Array(i32, 3)); compt mutable
 arr(0) := 10; // OK, happens at compile time
 
 (arr: Array(i32, 3)) := [1, 2, 3]; // arr: Array(i32, 3); runtime immutable
@@ -783,11 +786,11 @@ mut(arr) := [1, 2, 3]; // mut(arr): Array(i32, 3); runtime mutable
 mut(arr) := [read_input(), 2, 3]; // mut(arr): Array(i32, 3); runtime mutable
 
 
-// Type-level computation using comptime
+// Type-level computation using compt
 // A function that returns a type is called a type function.  
-// The type function requires all its parameters to be `comptime`.  
-// All parameters of Type (Free or Linear) are `comptime` by default so you don't need to specify it explicitly.
-fn Matrix(T: Type, ROWS: comptime(usize), COLS: comptime(usize)): Type,
+// The type function requires all its parameters to be `compt`.  
+// All parameters of Type (Free or Linear) are `compt` by default so you don't need to specify it explicitly.
+fn Matrix(T: Type, ROWS: compt(usize), COLS: compt(usize)): Type,
   Array(Array(T, COLS), ROWS);
 
 // Create a 3x3 matrix of integers
@@ -796,11 +799,3 @@ fn Matrix(T: Type, ROWS: comptime(usize), COLS: comptime(usize)): Type,
   [4, 5, 6],
   [7, 8, 9]
 ];
-
-// Force compile-time evaluation a block
-// No runtime type is allowed in the block
-x := compeval {
-  y := 10;
-  z := 20;
-  y + z
-};
