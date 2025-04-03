@@ -224,8 +224,9 @@ Color := enum {
   Green,
   Blue
 };
+color := Color.Red; // color is of type Color
 
-// eunm can also define the tagged union
+// enum can also define the tagged union
 // each variant can have one type as its argument
 Animal := enum {
   Dog((String, f64)),
@@ -235,6 +236,8 @@ a := Animal.Dog ("Buddy", 12.5);
 // or use the anonymous variant liternal:
 (b : Animal) := .Cat { name: "Whiskers", weight: 8.5 };
 
+// Or use the anonymous enum literal:
+(color: enum {Red,Green,Blue}) := .Red;
 
 // union
 // but it can only accept record as its argument
