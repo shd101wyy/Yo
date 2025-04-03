@@ -72,10 +72,10 @@ fn add(x: i32, y: i32):i32, x + y;
 // or with anonymous function
 add := ((fn(x: i32, y: i32) : i32) -> (x + y));
 // or define its type first
-add : (fn(x: i32, y: i32)-> i32); // function type is written as fn(args...)-> return_type
+add : ((x: i32, y: i32)-> i32); // function type is written as (args...)-> return_type
 add := ((fn(x: i32, y: i32): i32) -> (x + y)); // function implementation is written as fn(args...): return_type -> body
 // the same as
-(add :  (fn(x: i32, y: i32)-> i32))
+(add :  ((x: i32, y: i32)-> i32))
      := ((fn(x: i32, y: i32) : i32) -> (x + y));
 
 // Type inference for function return values
@@ -185,7 +185,7 @@ some_func((1, 2)); // 3
 
 // array is defined using [...] with "," as separator.
 arr := [1, 2, 3]; // Array(i32, 3)
-// Array: fn(Type, compt(usize))-> Type
+// Array: (Type, compt(usize))-> Type
 // is equivalent to call `array`
 arr := array(1, 2, 3);
 mut(arr) := [1, 2, 3]; // mutable array
@@ -237,7 +237,7 @@ a := Animal.Dog ("Buddy", 12.5);
 (b : Animal) := .Cat { name: "Whiskers", weight: 8.5 };
 
 // Or use the anonymous enum literal:
-(color: enum {Red,Green,Blue}) := .Red;
+(color: enum { Red, Green, Blue}) := .Red;
 
 // union
 // but it can only accept record as its argument
@@ -275,20 +275,20 @@ x := Option(i32).Some(12);
 // to make it a GADT
 fn MyExpr(T: Type): Type,
   enum {
-    IntExpr: (fn(i32) -> MyExpr(i32)),
-    BoolExpr: (fn(boolean) -> MyExpr(boolean)),
-    EqExpr: (fn(MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean))
+    IntExpr: ((i32) -> MyExpr(i32)),
+    BoolExpr: ((boolean) -> MyExpr(boolean)),
+    EqExpr: (((MyExpr(i32), MyExpr(i32))) -> MyExpr(boolean))
   };
 fn my_eval(T: Type, expr: MyExpr(T)): T,
   match expr,
     .IntExpr(i) -> i,
     .BoolExpr(b) -> b,
-    .EqExpr(a, b) -> (my_eval(a) == my_eval(b))
+    .EqExpr (a, b) -> (my_eval(a) == my_eval(b))
 ;
 
 // higher kinded types
 // are types that take other types as parameter
-fn T1(F: (fn(Type) -> Type), A: Type), F(A)
+fn T1(F: ((Type) -> Type), A: Type), F(A)
 ;
 // Assume we have the `Maybe` type,
 // then we can define `Option` like below
@@ -298,7 +298,7 @@ fn Option(T: Type), T1(Maybe, T);
 // interface
 fn Id(T: Type),
   interface {
-    id: (fn(x: T)-> T),
+    id: ((x: T)-> T),
   };
 
 // impl interface
@@ -399,11 +399,11 @@ Array7 := Array(7, 3);
 // Mo uses &, &! for immutable reference and mutable reference
 mut(x) := 1;
 mut(y) := 2;
-swap := (fn(a: &!(i32), b: &!(i32)) -> {
+fn swap(a: &!(i32), b: &!(i32)) -> {
   tmp := *(a);
   *(a) = *(b);
   *(b) = tmp;
-});
+};
 swap(&!(x), &!(y));
 
 // One-Reference-Only (ORO) rules:
@@ -723,7 +723,7 @@ ops := [quote(add), quote(sub), quote(mul)];
 generate_math := quasiquote(
   {
     unquote_splicing(
-      ops.map((op) ->
+      ops.map(fn(op)->
         quasiquote(
           std.println((unquote(op) <> " result: ") <>
             to_string(unquote(Expr.Atom(.Symbol(op)))(10, 5)))

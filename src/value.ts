@@ -1,7 +1,12 @@
-import { Expr } from "./parser";
-import { Interface, Type, TypeTag } from "./type-checker";
+import { Expr } from "./expr";
+import { Type, TypeTag } from "./type-checker";
 
 export type Value =
+  | {
+      tag: TypeTag.Free | TypeTag.Linear | TypeTag.Type;
+      type: Type;
+      value: Type;
+    }
   | {
       tag:
         | TypeTag.U8
@@ -63,9 +68,10 @@ export type Value =
       type: Type;
       frameLevel: number;
       body: Expr;
-    }
-  | {
+    };
+/* | {
       tag: "Interface";
       type: Interface;
       implementations: Record<string, Value>;
-    };
+    }
+      */

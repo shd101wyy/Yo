@@ -1,6 +1,6 @@
 import { addVariableToEnv, createNewEnv, Environment } from "./env";
 import { formatErrorMessage } from "./error";
-import Parser, {
+import {
   AtomExpr,
   BuiltinCollections,
   Expr,
@@ -8,10 +8,21 @@ import Parser, {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   ExprTag,
+  exprToString,
   FuncCallExpr,
-} from "./parser";
+} from "./expr";
+import Parser from "./parser";
 import { Token, TokenType } from "./token";
-import { createTupleType, TI32, TUnit, Type, TypeTag } from "./type-checker";
+import {
+  createTupleType,
+  TFree,
+  TI32,
+  TLinear,
+  TType,
+  TUnit,
+  typeOfType,
+  TypeTag,
+} from "./type-checker";
 import { Value } from "./value";
 
 /**
@@ -140,7 +151,7 @@ export default class Evaluator {
     // Check if the lhs is type annotation
     // x : i32
     let isMutable = false;
-    let userDefinedType: Type | undefined = undefined;
+    // const userDefinedType: Type | undefined = undefined;
     if (exprIsFunctionCallOf(lhs, ":")) {
       throw this.formatErrorMessage(
         lhs.token,
@@ -195,6 +206,120 @@ export default class Evaluator {
     }
   }
 
+  private evaluateExtern({
+    expr,
+    env,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, "extern")) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected extern, got ${expr.tag}`
+      );
+    }
+    const record = expr.args[0];
+    if (
+      !exprIsFunctionCall(record) ||
+      !exprIsFunctionCallOf(record, "record")
+    ) {
+      throw this.formatErrorMessage(
+        record.token,
+        `Expected record, got:\n${exprToString(record)}`
+      );
+    }
+    const declarations = record.args;
+    for (const declaration of declarations) {
+      if (
+        !exprIsFunctionCall(declaration) ||
+        !exprIsFunctionCallOf(declaration, ":", 2)
+      ) {
+        throw this.formatErrorMessage(
+          declaration.token,
+          `Expected type annotation, got:\n${exprToString(declaration)}`
+        );
+      }
+      const nameExpr = declaration.args[0];
+      const typeExpr = declaration.args[1];
+      if (!exprIsAtom(nameExpr)) {
+        throw this.formatErrorMessage(
+          declaration.token,
+          `Expected identifier, got:\n${exprToString(nameExpr)}`
+        );
+      }
+      const name = declaration.args[0].token.value;
+      const nextExpr = this.evaluateExpression({
+        expr: typeExpr,
+        env,
+      });
+      env = nextExpr.env || env;
+      const typeValue = nextExpr.value;
+      if (!typeValue) {
+        throw this.formatErrorMessage(
+          typeExpr.token,
+          `Expected type, got:\n${exprToString(typeExpr)}`
+        );
+      }
+      // Add the variable to the env
+      const { env: nextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name,
+          token: nameExpr.token,
+          type: typeValue.type,
+          isMutable: false,
+          isNotInitialized: true,
+          value: typeValue,
+        },
+      });
+      env = nextEnv;
+      expr.env = env;
+    }
+
+    expr.type = TUnit;
+    return expr;
+  }
+
+  private evaluateIdentifier({
+    expr, //    env,
+  }: {
+    expr: AtomExpr;
+    env: Environment;
+  }): AtomExpr {
+    const identifier = expr.token.value;
+    if (identifier === TypeTag.Free) {
+      expr.value = {
+        tag: TypeTag.Free,
+        value: TFree,
+        type: typeOfType(TFree),
+      };
+      expr.type = expr.value.type;
+      return expr;
+    } else if (identifier === TypeTag.Linear) {
+      expr.value = {
+        tag: TypeTag.Linear,
+        value: TLinear,
+        type: typeOfType(TLinear),
+      };
+      expr.type = expr.value.type;
+      return expr;
+    } else if (identifier === TypeTag.Type) {
+      expr.value = {
+        tag: TypeTag.Type,
+        value: TType,
+        type: typeOfType(TType),
+      };
+      expr.type = expr.value.type;
+      return expr;
+    } else {
+      throw this.formatErrorMessage(
+        expr.token,
+        `'evaluateIdentifier' Not implemented for identifier: ${identifier}`
+      );
+    }
+  }
+
   private evaluateExpression({
     expr,
     env,
@@ -204,19 +329,20 @@ export default class Evaluator {
   }): Expr {
     if (exprIsAtom(expr)) {
       switch (expr.token.type) {
+        case TokenType.Identifier: {
+          return this.evaluateIdentifier({
+            expr,
+            env,
+          });
+        }
         case TokenType.Integer: {
-          const nextExpr = this.evaluateIntegerLiteral(expr);
-          if (nextExpr.env) {
-            env = nextExpr.env;
-          }
-          return nextExpr;
+          return this.evaluateIntegerLiteral(expr);
         }
         default: {
           throw this.formatErrorMessage(
             expr.token,
-            `(1) Evaluating expression ${this.parser.exprToString(
-              expr
-            )} is not implemented`
+            `(1) Evaluating the expression below is not implemented:
+${exprToString(expr)}`
           );
         }
       }
@@ -224,12 +350,17 @@ export default class Evaluator {
       if (exprIsFunctionCallOf(expr, ":=")) {
         // Variable assignment
         return this.evaluateInitializationAssignment({ expr, env });
+      } else if (exprIsFunctionCallOf(expr, "extern")) {
+        // extern
+        return this.evaluateExtern({ expr, env });
       } else if (exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
+        // tuple
         return this.evaluateTuple({ expr, env });
       } else {
         throw this.formatErrorMessage(
           expr.token,
-          `(2) Evaluating expression ${expr.tag} is not implemented`
+          `(2) Evaluating the expression below is not implemented:
+${exprToString(expr)}`
         );
       }
     }
@@ -243,9 +374,7 @@ export default class Evaluator {
     for (let i = 0; i < this.program.length; i++) {
       const expr = this.program[i];
       const nextExpr = this.evaluateExpression({ expr, env });
-      if (nextExpr.env) {
-        env = nextExpr.env;
-      }
+      env = nextExpr.env || env;
     }
   }
 }

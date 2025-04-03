@@ -18,7 +18,7 @@ export interface Variable {
    */
   type: Type;
   /**
-   * The value of the variable.
+   * This is compile-time only value of the variable.
    * Could be not defined if the variable is not initialized.
    */
   value?: Value;

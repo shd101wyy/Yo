@@ -1,69 +1,13 @@
 /* eslint-disable no-constant-condition */
-import { Environment } from "./env";
 import { formatErrorMessage } from "./error";
+import { BuiltinCollections, Expr, ExprTag, exprToString } from "./expr";
 import { tokenize } from "./lexer";
 import { findMatchingBracketTokenIndex, Token, TokenType } from "./token";
-import { Type } from "./type-checker";
-import { Value } from "./value";
-
-export enum ExprTag {
-  Atom = "Atom",
-  FuncCall = "FuncCall",
-}
-
-export type AtomExpr = {
-  // Parser stage
-  tag: ExprTag.Atom;
-  token: Token;
-
-  // Evaluator stage
-  type?: Type;
-  env?: Environment;
-  value?: Value;
-};
-
-export type FuncCallExpr = {
-  // Parser stage
-  tag: ExprTag.FuncCall;
-  func: Expr;
-  args: Expr[];
-  isInfix?: boolean;
-  token: Token;
-
-  // Evaluator stage
-  type?: Type;
-  env?: Environment;
-  value?: Value;
-};
-
-export type Expr = AtomExpr | FuncCallExpr;
-
-export function exprIsFunctionCall(expr: Expr): expr is FuncCallExpr {
-  return expr.tag === ExprTag.FuncCall;
-}
-export function exprIsAtom(expr: Expr): expr is AtomExpr {
-  return expr.tag === ExprTag.Atom;
-}
-
-export function exprIsFunctionCallOf(expr: Expr, funcName: string) {
-  return (
-    expr.tag === ExprTag.FuncCall &&
-    expr.func.tag === ExprTag.Atom &&
-    expr.func.token.value === funcName
-  );
-}
 
 type ParserReturn = {
   expr: Expr;
   index: number;
 };
-
-export enum BuiltinCollections {
-  Array = "array",
-  Tuple = "tuple",
-  Record = "record",
-  Begin = "begin",
-}
 
 export default class Parser {
   private inputString: string;
@@ -569,11 +513,11 @@ export default class Parser {
           `Ambiguous operator precedence. 
 Please use parentheses to clarify:
 
-${this.exprToString(primaryExpr)} ${token.value} (${this.exprToString(rhs)})
+${exprToString(primaryExpr)} ${token.value} (${exprToString(rhs)})
 // or
-(${this.exprToString(primaryExpr)} ${token.value} ${this.exprToString(
+(${exprToString(primaryExpr)} ${token.value} ${exprToString(
             rhs.args[0]
-          )}) ${this.exprToString(rhs.func)} ${this.exprToString(rhs.args[1])} 
+          )}) ${exprToString(rhs.func)} ${exprToString(rhs.args[1])} 
 
 `
         );
@@ -611,14 +555,12 @@ ${this.exprToString(primaryExpr)} ${token.value} (${this.exprToString(rhs)})
       } else {
         throw this.formatErrorMessage(
           token,
-          `Ambiguous function call ${this.exprToString(primaryExpr)}${
-            token.value
-          } 
+          `Ambiguous function call ${exprToString(primaryExpr)}${token.value} 
 Please use parentheses to clarify:
 
-${this.exprToString(primaryExpr)}(${token.value}, ...)
+${exprToString(primaryExpr)}(${token.value}, ...)
 // or 
-(${this.exprToString(primaryExpr)} ${token.value}, ...)
+(${exprToString(primaryExpr)} ${token.value}, ...)
 `
         );
       }
@@ -642,7 +584,7 @@ ${this.exprToString(primaryExpr)}(${token.value}, ...)
           `Ambiguous operator function call ${primaryExpr.token.value}.
 Please use parentheses to clarify:
           
-${this.exprToString(returnValue.expr)}`
+${exprToString(returnValue.expr)}`
         );
       }
         */
@@ -755,94 +697,10 @@ or ) to end the function call`
     });
   }
 
-  private exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
-    return !!(
-      expr.tag === "FuncCall" &&
-      expr.isInfix &&
-      expr.func.tag === "Atom" &&
-      expr.func.token.type === TokenType.Operator &&
-      expr.args.length === 2
-    );
-  }
-
-  public exprToString(expr: Expr): string {
-    let printed = "";
-    switch (expr.tag) {
-      case "Atom": {
-        printed = expr.token.value;
-        break;
-      }
-      case "FuncCall": {
-        if (
-          expr.func.tag === "Atom" &&
-          (expr.func.token.type === TokenType.Operator ||
-            expr.func.token.type === TokenType.Dot)
-        ) {
-          if (expr.args.length === 1) {
-            if (expr.func.token.value === ".") {
-              printed = `${expr.func.token.value}${this.exprToString(
-                expr.args[0]
-              )}`;
-            } else {
-              printed = `${expr.func.token.value}(${this.exprToString(
-                expr.args[0]
-              )})`;
-            }
-            break;
-          } else if (expr.args.length === 2 && expr.isInfix) {
-            let lhs = this.exprToString(expr.args[0]);
-            let rhs = this.exprToString(expr.args[1]);
-            lhs = this.exprIsInfixOperatorFunctionCall(expr.args[0])
-              ? `(${lhs})`
-              : lhs;
-            rhs = this.exprIsInfixOperatorFunctionCall(expr.args[1])
-              ? `(${rhs})`
-              : rhs;
-            if (expr.func.token.value === ".") {
-              printed = `${lhs}.${rhs}`;
-            } else {
-              printed = `${lhs} ${expr.func.token.value} ${rhs}`;
-            }
-            break;
-          }
-        }
-        if (
-          expr.func.tag === "Atom" &&
-          expr.func.token.type === TokenType.Identifier &&
-          expr.func.token.value === BuiltinCollections.Tuple
-        ) {
-          if (expr.args.length === 1) {
-            printed = `(${this.exprToString(expr.args[0])},)`;
-          } else {
-            printed = `(${expr.args
-              .map((arg) => {
-                return this.exprToString(arg);
-              })
-              .join(", ")
-              .trim()})`;
-          }
-          break;
-        }
-
-        const func = this.exprToString(expr.func);
-        const args = expr.args
-          .map((arg) => {
-            return this.exprToString(arg);
-          })
-          .join(", ")
-          .trim();
-        printed = `${func}(${args})`;
-        break;
-      }
-    }
-
-    return printed;
-  }
-
   public programToString() {
     const printed = this.program
       .map((expr) => {
-        return this.exprToString(expr);
+        return exprToString(expr);
       })
       .join(";\n");
     return printed;
