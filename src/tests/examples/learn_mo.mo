@@ -1,7 +1,6 @@
-X.add Y;
-Point := .Point (i32, i32);
-Color := 
-  | .Red, // = 0
-    .Green,
-    .Blue;
-ptr := &!(x).as *!(i32);
+extern {
+  i32: Free,
+};
+// (x : i32) := 12;
+// MyI32 := i32;
+// (a : MyI32) := 16;

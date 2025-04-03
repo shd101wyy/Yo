@@ -198,72 +198,71 @@ MyI32 := i32; // type alias
 MyPoint := (i32, i32); // tuple type
 (p : MyPoint) := (3, 4); // valid
 
-// In Mo, a variant can be defined with `.` ahead,
-// Each variant can accept one type.
-// like the ".Point" variant below:
-// IDEA: Why not use `struct`, `enum`, and `union` like the one in rust and zig?
-// ANSWER: The `|` operator could handle them all. 
-//         Besides, using `struct` sometimes causes confusion if using it in enum variant:
-//         Should I use {...} record directly or struct {...} there?
-Point := .Point (i32, i32);
-p := Point.Point (3, 4);
-// If the variant matches the type, you can omit the .Variant
-p := Point (3, 4); // valid
+// struct
+// accepts on type as argument:
+Point  := struct (i32, i32);
+p := Point (3, 4);
 
-Point := .Point {x: i32, y: i32};
+Point := struct {x: i32, y: i32};
 p := Point {x: 3, y: 4};
 
-Cm := .Cm i32;
+Cm := struct i32;
 x := Cm 200;
 
 // Or use the anonymous record liternal like in zig
+// QUESTION: Do we need '.' before '{'?
+// ANSWER: Yes, to distinguish it from a record.
 // Note the '.' before '{':
-(p : Point) := .Point {x: 3, y: 4};
+(p : Point) := .{x: 3, y: 4};
 // another example of using the anonymous record here:
-(p : { a: i32, b: boolean }) := .{ a: 3, b: true };
+// this doesn't need '.' before '{':
+(p : { a: i32, b: boolean }) := { a: 3, b: true };
 
-// A type can have numerous variants
-Color := 
-  | .Red, // = 0
-    .Green,
-    .Blue
+// enum
+Color := enum {
+  Red, // = 0
+  Green,
+  Blue
+};
 
+// eunm can also define the tagged union
 // each variant can have one type as its argument
-Animal := 
-  | (.Dog (String, f64)),
-    (.Cat { name: String, weight: f64 })
-;
+Animal := enum {
+  Dog((String, f64)),
+  Cat({ name: String, weight: f64 })
+};
 a := Animal.Dog ("Buddy", 12.5);
 // or use the anonymous variant liternal:
 (b : Animal) := .Cat { name: "Whiskers", weight: 8.5 };
 
 
-// C like "union" can also be defined using '|'
+// union
 // but it can only accept record as its argument
-Result := .Result(
-  | { int: i64 },
-    { float: f64 },
-    { bool: boolean }
-);
+Result := union { 
+  int: i64,
+  float: f64,
+  bool: boolean
+};
 result := Result { int: 12 };
 result.float = 3.14;
 // or use the anonymous union liternal:
 (result : Result) := .{ int: 12 };
-(result : ({ a: i32 } | { b: f64 })) := .{ a: 3 };
+(result : (union { a: i32, b: f64 })) := .{ a: 3 };
 
 // A more complicated example
-Shape :=
-  | (.Circle i32),
-    (.Rectangle {width: i32, height: i32})
-;
+Shape := enum {
+  Circle(i32),
+  Rectangle({width: i32, height: i32})
+};
 s := Shape.Circle 5;
 s := Shape.Rectangle {width: 10, height: 20};
 
 // type as function parameter
 fn Option(T: Type): Type,
-  | .Some(T),
-    .None
-;
+  enum {
+    Some(T),
+    None
+  };
 
 x := Option(i32).Some(12);
 
@@ -272,10 +271,11 @@ x := Option(i32).Some(12);
 // You can also specify the return type for each variant
 // to make it a GADT
 fn MyExpr(T: Type): Type,
-  | .IntExpr: (fn(i32) -> MyExpr(i32)),
-    .BoolExpr: (fn(boolean) -> MyExpr(boolean)),
-    .EqExpr: (fn(MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean))
-  ;
+  enum {
+    IntExpr: (fn(i32) -> MyExpr(i32)),
+    BoolExpr: (fn(boolean) -> MyExpr(boolean)),
+    EqExpr: (fn(MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean))
+  };
 fn my_eval(T: Type, expr: MyExpr(T)): T,
   match expr,
     .IntExpr(i) -> i,
@@ -581,15 +581,17 @@ match x,
 
 // Define the Result type as a generic type
 fn Result(T: Type, E: Type): Type,
-  | .Ok(T),
-    .Err(E)
-;
+  enum {
+    Ok(T),
+    Err(E)
+  };
 
 // Define a standard error type
 DivisionError := 
-  | .DivideByZero,
-    .Overflow
-;
+  enum {
+    DivideByZero,
+    Overflow
+  };
 
 // Example: Safe division function that returns a Result
 fn safe_div(a: i32, b: i32): Result(i32, DivisionError),
@@ -623,19 +625,21 @@ cond  (x == 1) -> std.println("x is 1"),
 
 // AST Representation
 Expr :=
-  | .Atom(
-    | .Symbol(symbol),
-      .Boolean(boolean),
-      .I32(i32),
-      .F64(f64),
-      .String(String),
-      .Char(char)
-    ),
-    .FuncCall { 
-      .func: Box(Expr),
-      .args: List(Expr)
-    }
-;
+  enum {
+    Atom(
+      enum {
+        Symbol(symbol),
+        Boolean(boolean),
+        I32(i32),
+        F64(f64),
+        String(String),
+        Char(char)
+      }),
+    FuncCall({ 
+      func: Box(Expr),
+      args: List(Expr)
+    })
+  };
 
 // Everything else is just function calls
 // For example, a variable declaration like:
