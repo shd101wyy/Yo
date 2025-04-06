@@ -207,7 +207,7 @@ Other languages that are worth mentioning that have influenced **Mo**:
 
 ## Hello World
 
-```typescript
+```rust
 main := ()-> {
   println("Hello World!");
 }
@@ -252,8 +252,7 @@ A type can have the following **Kind**:
     - u32
     - ...
   - Linear
-- Class
-- Expr
+- Interface
 
 ### Type
 
@@ -286,63 +285,58 @@ The [Austral language](https://austral-lang.org/) has a very good explanation on
 
 ### Variable Declaration
 
-Like `rust`, **Mo** defines variables with `:=` operator.  
+Like `rust`, **Mo** defines variables with `:=` operator.
 
-```typescript
-(mut x) := 5; // x: i32, mutable
-mut x := 5    // x: i32, mutable
-y := 5;       // y: i32, immutable
+```rust
+               // compt here means compile-time known
+mut(x) := 5;   // x: compt(i32), mutable
+mut(x) := 5    // x: compt(i32), mutable
+y := 5;        // y: compt(i32), immutable
 
 // or
-(:=) x, 5     // x: i32, immutable
+(:=) x, 5     // x: compt(i32), immutable
 
 // with explicit type declaration
-mut x : i32 = 5; // x: i32, mutable
-y : i32 = 5    ; // y: i32, immutable
+(mut(x) : i32) := 5; // x: i32, mutable
+(y : i32) := 5    ; // y: i32, immutable
 
-y := 5; // y: i32, immutable
-mut x := 5; // x: i32, mutable
-// same as in rust:
-// let mut x = 5;
-// in mo, `var` is an alias of `let mut`.
-
-example := (x: i32, y: i32)-> {
+defn example(x: i32, y: i32), {
   x = 1; // Error: x is immutable
   y = 2; // Error: y is immutable
 }
 
 // with `mut` modifier
-another_example := (mut x: i32, y: i32)-> {
+defn another_example(mut(x): i32, y: i32), {
   x = x + 1; // x is mutable,
   y = 2; // Error: y is immutable
 }
 ```
 
-#### No duplicate variable declaration
+#### No variable shadowing
 
-```typescript
-let x = 1;
-let x = 2; // Error: x is already declared
+```rust
+x := 1;
+x := 2; // Error: x is already declared
 {
-  let x = 2; // Error: x is already declared
+  x := 2; // Error: x is already declared
 }
 ```
 
 Below is allowed as they are in different regions:
 
-```typescript
+```rust
 {
-  let x = 1;
+  x := 1;
 }
 {
-  let x = 2;
+  x := 2;
 }
 ```
 
 ### Type inference
 
-```typescript
-my_string: String := String.from("Hello, world"); // Stored on heap. Linear type.
+```rust
+(my_string: String) := String.from("Hello, world"); // Stored on heap. Linear type.
 my_string_2 := my_string; // my_string_2: String. Linear type. my_string is moved and consumed. my_string_2 now takes the ownership.
 my_string_3 := my_string; // Error: my_string is already consumed.
 &my_string_2; // my_string_4: &String, Free type
@@ -350,35 +344,35 @@ my_string_3 := my_string; // Error: my_string is already consumed.
 my_int := 1; // Stored on stack. Free type
 my_int_2 := my_int; // my_int_2: i32, Free type
 
-my_int_array: i32[3] := [1, 2, 3]; // Stored on stack, with size 3. Free type
-my_int_array: i32[100] := [1, 2, 3]; // Stored on stack, with size 100. Free type
-my_int_array := [1, 2, 3]; // i32[3]; Free type
-my_array_list: ArrayList<i32> := ArrayList.from([1, 2, 3]); // Stored on heap. Linear type.
+(my_int_array: Array(i32, 3)) := [1, 2, 3]; // Stored on stack, with size 3. Free type
+(my_int_array: Array(i32, 100)) := [1, 2, 3]; // Stored on stack, with size 100. Free type
+my_int_array := [1, 2, 3]; // Array(compt(i32), 3); Free type
+(my_array_list: ArrayList(i32)) := ArrayList.from([1, 2, 3]); // Stored on heap. Linear type.
 
-my_set: Set<i32> := Set.from([1, 2, 3]); // Stored on heap. Linear type.
+(my_set: Set(i32)) := Set.from([1, 2, 3]); // Stored on heap. Linear type.
 Map.from([
   ["one", 1],
   ["two", 2],
 ]); // Stored on heap. Linear type.
 
 Person := // Linear type, as it contains a linear type.
-  | .Person (String, i32)
+  struct (String, i32)
 
-p := Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
+p := Person (String.from("Alice"), 30); // p: Person. Linear type.
 // or:
-p: Person := .Person(String.from("Alice"), 30); // p: Person. Linear type.
-.Person(name, age) := p; // name: String, age: i32
+p: Person := .(String.from("Alice"), 30); // p: Person. Linear type.
+(Person (name, age)) := p; // name: String, age: i32
 ```
 
 #### Uninitialized variable `In Design`
 
-```typescript
-mut x : i32; // x: i32, uninitialized
+```rust
+mut(x) : i32; // mut(x): i32, uninitialized
 
 // Compiler prevents using uninitialized variable.
 println(x); // Compiler Error: x is uninitialized.
 
-x = 1; // x: i32, initialized
+x := 1; // x: i32, initialized
 
 y : i32; // y: i32, uninitialized
 y = 12; // Compiler Error: cannot assign to constant.
@@ -401,7 +395,7 @@ From Scala.
 
 Linear types can only be used once. When a linear type is transferred, it is consumed and cannot be used again.
 
-```typescript
+```rust
 x := String.from("Hello"); // x: String. Linear type
 y := x; // y: String. Linear type. x is moved and consumed.
 z := x; // Compiler Error: x is already consumed.
@@ -409,11 +403,11 @@ z := x; // Compiler Error: x is already consumed.
 
 ### immutable and mutable references
 
-```typescript
+```rust
 {
-  mut x := 1; // x: copied i32. Free type
-  p1 := as(&mut x, *mut i32); // r: *mut i32. Free type
-  p2 := as(&mut x, *mut i32); // p: Expr<&mut i32>. Free type.
+  mut(x) := 1; // x: copied i32. Free type
+  p1 := &!(x).as(*!(i32)); // p1: *!(i32). Free type
+  p2 := &!(x).as(*!(i32)); // p2: *!(i32). Free type.
   *p1 = 2;
   // x == 2
   // *p1 == 2
@@ -423,42 +417,42 @@ z := x; // Compiler Error: x is already consumed.
 
 A longer example:
 
-```typescript
+```rust
 extern "C", {
-  length: (x: &String)-> i32;
-  push: (x: &String, value: String)-> ();
-  drop: (x: String)-> ();
+  length: ((x: &(String))-> i32);
+  push: ((x: &String, value: String)-> ());
+  drop: ((x: String)-> ());
 }
 
-main := ()-> {
-  mut x := String.from("Hello, world"); // x: String. mutable
+defn main(), {
+  mut(x) := String.from("Hello, world"); // x: String. mutable
 
   length(x);  // not allowed, type mismatch
-  length(&x);  // allowed
-  length(&mut x);  // allowed
+  length(&(x));  // allowed
+  length(&!(x));  // allowed
 
-  let t = x;                           // transfer ownership
+  t := x;                           // transfer ownership
 
   length(x); // error: cannot access `x` because `x` is consumed.
   length(&x); // error: cannot access `x` because `x` is consumed.
-  length(&mut x); // error: cannot access `x` because `x` is consumed.
+  length(&!(x)); // error: cannot access `x` because `x` is consumed.
 
   drop(t);                             // consume `t`
 
   length(x); // error: cannot access `x` because `x` is consumed.
-  length(&x); // error: cannot access `y` because `t` is consumed.
-  length(&mut x); // error: cannot access `z` because `t` is consumed.
+  length(&(x)); // error: cannot access `y` because `t` is consumed.
+  length(&!(x)); // error: cannot access `z` because `t` is consumed.
 }
 ```
 
 We can only dereference the free type.
 
-```typescript
+```rust
 Person := // Linear type, as it contains a linear type.
-  .Person {name: String, age: i32};
+  struct {name: String, age: i32};
 
 name := String.from("Alice");
-p : Person = .Person {name, age: 30}; // p: Person. Linear type.
+p := Person {name, age: 30}; // p: Person. Linear type.
 
 {
   name := p.name; // name: String, Linear type. The `p` variable is consumed
@@ -469,11 +463,11 @@ p : Person = .Person {name, age: 30}; // p: Person. Linear type.
 }
 
 {
-  .Person{ name, mut age } := p;
+  Person { name, mut(age) } := p;
 }
 
 {
-  .Person{ name, age } := p;
+  Person { name, age } := p;
 }
 
 {
@@ -484,63 +478,52 @@ p : Person = .Person {name, age: 30}; // p: Person. Linear type.
 }
 
 {
-  .Person{ name } := p; // name: String, Linear type. The `p` variable is consumed
+  Person { name } := p; // name: String, Linear type. The `p` variable is consumed
                     // when you destructure any linear type values from it.
 }
 
 {
-  .Person { age } := p;  // age: i32, Free type. The `p` variable is not consumed
+  Person { age } := p;  // age: i32, Free type. The `p` variable is not consumed
                     // when you destructure only free fields from it.
 }
 
 {
-  // Creating references will not consume `p`:
-  expr @name: &String = &p.name; // name: Expr<&String>. Free type.
-  expr @age = &p.age; // age: Expr<&i32>. Free type.
-}
-{
-  expr @p_ref = &p;         // p_ref: Expr<&Person>. Free type.
-  expr @name = &p_ref.name; // name: Expr<&String>. Free type.
-  expr @age = &p_ref.age;   // age: Expr<&i32>. Free type.
-
-  some_function(*p_ref); // Derference a reference of linear type is not allowed.
-}
-{
-  mut p := Person.Person(String.from("Alice"), 30); // p: Person. Linear type.
-  expr @p_ref = &p; // p_ref: Expr<&Person>. Free type.
-  old_name := (p_ref.name = String.from("Bob")); // old_name: String. Linear type. Take the value out.
-  // old_name == String.from("Alice")
+  mut(p) := Person { name: String.from("Alice"), age: 30 }; // p: Person. Linear type.
+  use &!(p), p_ref -> {
+    old_name := (p_ref.name = String.from("Bob")); // old_name: String. Linear type. Take the value out.
+    // old_name == String.from("Alice")
+  }
 }
 ```
 
-```typescript
+```rust
 name := String.from("Alice");
-p := Person.Person(name, 30); // p: Person. Linear type.
+p := Person {name, age: 30}; // p: Person. Linear type.
 
-{ name, age } := p; // p is consumed.
+{ name, age } := p; // p is consumed and become uninitialized.
 
-p = Person.Person(name, 30); // This is allowed. We restored a consumed value.
+// QUESTION: Should we allow this? Should we use := or =
+p := Person {name, age: 30}; // This is allowed. We restored a consumed value.
 ```
 
-```typescript
-mut x := [1, 2, 3, 4, 5]; // x: i32[5]. Free type
-mut y := x; // y: i32[5]. Free type. x is copied to y, not moved.
-x[0] = 10;
+```rust
+mut(x) := [1, 2, 3, 4, 5]; // x: Array(compt(i32), 5). Free type
+mut(y) := x; // y: Array(compt(i32), 5). Free type. x is copied to y, not moved.
+x(0) = 10;
 
 // x: [10, 2, 3, 4, 5]
 // y: [1, 2, 3, 4, 5]
 ```
 
-```typescript
-mut x := [String.from("Hi"), String.from("World")];
+```rust
+mut(x) := [String.from("Hi"), String.from("World")];
 
 {
-  s := x[0]; // Compiler Error: Cannot move linear type out of a slice.
+  s := x(0); // Compiler Error: Cannot move linear type out of a slice.
 }
 
 {
-  expr @s = &x[1]; // s: Expr<&String>. Free type
-  old := (x[1] = String.from("Earth"));
+  old := (x(1) = String.from("Earth"));
   // old: String. Linear type. old == String.from("World")
 }
 
@@ -551,11 +534,11 @@ mut x := [String.from("Hi"), String.from("World")];
 
 We use the `^` to denote the pointer, same as in Pascal.
 
-```typescript
+```rust
 some_int_ptr := malloc(sizeof(i32)); // int_ptr: Option<^i32>. Linear type
-match int_ptr,
+match some_int_ptr,
   .Some(int_ptr) -> { // int_ptr: ^i32. Linear type.
-    *int_ptr = 10;
+    *(int_ptr) = 10;
     free(int_ptr);
   },
   .None -> {
@@ -567,7 +550,7 @@ match int_ptr,
 
 NOTE: This is unsafe and should be avoided.
 
-```typescript
+```rust
 x := String.from("Hi"); // x: String. Linear type
 y := cast_to_free(x); // y: String. Free type
 ```
@@ -596,7 +579,7 @@ References in **Mo** are second-class citizens.
 NOTE: We need to allow to store references in data structures in order to support closures.  
 NOTE: Why cannot store as variables:
 
-```typescript
+```rust
 x := String.from("Hello"); // x: String. Linear type
 y := String.from("World"); // y: String. Linear type
 l := longest_str(x.as_bytes(), y.as_bytes()); // l: &str;
@@ -605,101 +588,89 @@ drop(y);
 println(l); // Use after free
 ```
 
-```typescript
-Container := 
-  | .Container {
-      value: &String
-    }
+```rust
+Container :=
+  struct {
+    value: &(String)
+  };
 
 x := String.from("Hello"); // x: String. Linear type
 y := String.from("World"); // y: String. Linear type
-c := Container.Container { value: longest_str(&x, &y) }; // c: Container that contains &String.
+c := Container.Container { value: longest_str(&(x), &(y)) }; // c: Container that contains &String.
 drop(x);
 drop(y);
 println(c.value); // Use after free
 ```
 
-```typescript
-Container := .Container {
-  value: &String;
-}
+```rust
+Container :=
+  struct {
+    value: &(String);
+  }
 
-some_func := (o: &mut Container, v: &String)-> {
+some_func := (o: &!(Container), v: &(String))-> {
   o.v = v; // Not allowed. v might have shorter lifetime than o.
 }
-```
-
-But can store as an `expr` which is not actually calculated until it's used:
-
-```typescript
-let  x = String.from("Hello"); // x: String. Linear type
-let  y = String.from("World"); // y: String. Linear type
-expr @l = longest_str(x.as_bytes(), y.as_bytes()); // l: Expr<&str>;
-        // This is not evaluated, only the expression is saved.
-drop(x);
-drop(y);
-println(@l); // This will actually expand to:
-            // println(longest_str(x.as_bytes(), y.as_bytes()));
-            // and will cause a compile error as `x` and `y` are consumed.
 ```
 
 ### Parameter passing modes
 
 NOTE: Why not use `inout`, `in`, and `out` keywords? Because it doesn't work with slice types, which requires `&` ahead of it.
 
-- `&mut`
+- `&!`
 
-  The `&mut` parameter is a reference to a value that can be read and written.
+  The `&!` parameter is a reference to a value that can be read and written.
 
-  ```typescript
-  swap := (a: &mut i32, b: &mut i32)-> {
+  ```rust
+  defn swap(a: &!(i32), b: &!(i32)), {
     temp := *a;
     *a = *b;
     *b = temp;
   }
-  mut x := 1;
-  mut y := 2;
-  swap(&mut x, &mut y);
+  mut(x) := 1;
+  mut(y) := 2;
+  swap(&!(x), &!(y));
   ```
 
 - `&`
 
   The `&` parameter is a reference to a value that can only be read.
 
-  ```typescript
-  print := (x: &i32)-> {
+  ```rust
+  defn print(x: &(i32)), {
     println(x);
   }
   x := 1;
-  print(&x);
+  print(&(x));
   ```
 
 ### RAII
 
+**Might not be supported**
+
 **Mo** supports the RAII to automatically insert the `drop` function when the variable of linear type goes out of scope.
 
-```typescript
-test := ()-> {
+```rust
+defn test(), {
   x := String.from("World!");
 
   // `drop(x)` will be automatically inserted here.
 }
 ```
 
-### Reverse Application Operator
+### `use` statement
 
-Same as the `|>` in Ocaml `val ( |> ) : 'a -> ('a -> 'b) -> 'b`.
 
-```typescript
-return_self := (v: &String): &String -> v;
+```rust
+defn return_self(v: &(String)): &(String), v;
 
 x := String.from("Hello, ");
 y := String.from("world");
-return_self(&x) |> (v)=> {
+use return_self(&(x)), v -> {
   println(v + y);
 }; // Compiler can optimize this part of code.
 
-&y |> (y_ref)-> {
+use &(y), y_ref-> {
   println("Used y reference here");
 }
 ```
@@ -708,108 +679,121 @@ return_self(&x) |> (v)=> {
 
 Function parameters are immutable by default.
 
-```typescript
+```rust
 // Top level function.
+defn add(x: i32, y: i32):i32, // function name and type
+  x + y // body
+;
+
 // Type after `->` is the return type. If it's not specified, it's `()`.
 add : (x: i32, y: i32)-> i32; // Define the function type
 println(add(3, 4)) // Function hoisting is allowed.
-add = (x, y)-> { // Actually function definition
+add := (fn(x, y)-> { // Actually function definition
   return x + y;
-}
+});
 
 // or
-add := (x: i32, y: i32): i32 -> {
-  x + y // The last expression is the return value.  `return` is optional.
-}
+add := ((fn(x: i32, y: i32): i32) -> {
+  return x + y; // The last expression is the return value.  `return` is optional.
+});
 
 // or
-add : (i32, i32)-> i32 = (x, y)-> x + y;
+(add : (i32, i32)-> i32) = (fn(x, y)-> x + y);
 
-last_unit_expr := (x: i32, y: i32)-> {
+last_unit_expr := (fn(x: i32, y: i32)-> {
   x + y;
   // This is allowed as the last expression is `()`.
-}
+});
 
 // Default parameter values
-add := (x: i32 = 1, y: i32 = 2): i32 -> {
+add := ((fn((x:i32) = 1, (y:i32) = 2): i32) -> {
   return x + y;
-}
+});
 add(); // 3
 add(y: 3); // 4
 add 2, 3; // 5
 
 // Function argument labels, and parameter names
-mul := (x: i32, by: i32): i32 -> {
+defn mul(x: i32, by: i32):i32, {
   y := by;
   x * y
-}
+};
 mul(3, by: 4); // 12
 mul 4, by: 5;  // 20
 (mul 5, 6);    // 30
 
 // Named return values
-exponent := (base: i32, power: i32):
+defn exponent(base: i32, power: i32):
   ( result: i32,
-    some_ref: *i32)-> {
-  mut r := 1;
-  mut i := 0;
+    some_ref: *i32),
+{
+  mut(r) := 1;
+  mut(i) := 0;
   while i < power, i += 1, {
     r *= base;
   }
-  return (r, &r as *i32);
-}
+  return (r, &(r).as(*(i32)));
+};
 
 // Generic function
-identity := (T: Type, arg: T): T -> arg;
+defn identity(T: Type, arg: T): T,
+  arg;
 /// or using forall
-identity_with_for_all := forall(T: Type), (arg: T): T -> arg;
+forall (T: Type),
+  defn identity_with_for_all(arg: T): T, 
+    arg;
 
 x := identity(i32, 12); // x: i32
 y := identity_with_for_all(13); // y: i32
 
 // Dependency injection
-main := (?raise: (error: &str)-> i32)-> {
-  let x: i32 = raise("Hello, world");
+main := (?(raise): (error: &(str))-> i32)-> {
+  (x:i32) := raise("Hello, world");
 }
 
 // Value constraint `In Design`
 NotZero := i32 |: <@ != 0;
-divide := (x: i32, y: NotZero): i32 -> x / y;
+defn divide(x: i32, y: NotZero): i32,
+  x / y;
 
 // Type constraint
-add := forall(T : Type <: Integral), (x: T, y: T): T -> {
-  return x + y;
-}
+forall ((T: Type) <: Integral), 
+  defn add(x: T, y: T): T, {
+    return x + y;
+  };
 
 // Closure
-mut y := 0;
-add := (x: i32): i32 => {
-  y = x + y;
-  return y;
-};
-add(1); // 1
-add(1); // 2
-// add.y == 2
+mut(y) := 0;
+use &!(y), y_ref -> {
+  add := ((fn(x: i32): i32)=> {
+    *(y_ref) = x + *(y_ref);
+    return *(y_ref);
+  });
+  add(1); // 1
+  add(1); // 2
+}
+
+// y == 2
 ```
 
 NOTE: Below is allowed
 
-```typescript
-some_func:  forall(T <: Trait1 & Trait2), (x: T)-> T = 
-            forall(X <: Trait1), (x: X)-> x;
+```rust
+some_func:  forall (T <: (Trait1 & Trait2)), (x: T)-> T =
+            forall (X <: Trait1), fn(x: X)-> x;
 ```
 
 but this is not allowed
 
-```typescript
-some_func: forall(T <: Trait1), (x: T)-> T = 
-           forall(X <: Trait1 & Trait2), (x: X)-> x;
+```rust
+some_func: forall (T <: Trait1), (x: T)-> T =
+           forall (X <: (Trait1 & Trait2)), fn(x: X)-> x;
 ```
 
 ### Named arguments
 
-```typescript
-add := (x: i32, y: i32): i32 -> {
+```rust
+defn add(x: i32, y: i32): i32, {
   return x + y;
 }
 add(y: 2, x: 1); // 3
@@ -826,62 +810,64 @@ The contextual parameters are passed implicitly to the function.
 
 NOTE: `implicit` should be part of the `type`.
 
-```typescript
-let some_async_func = (?Async<i32>): i32 -> {
+```rust
+defn some_async_func(?(_): Async(i32)): i32, {
   // Here we didn't give a parameter name for the implicit parameter.
 }
 ```
 
 #### Compiletime
 
-```typescript
+```rust
 // id.mo
-let Id = trait<Self> {
-  id: (self: Self)-> Self;
-};
-export Id;
+defn Id(Self: Type), 
+  interface {
+    id: ((self: Self)-> Self)
+  };
 
-impl Id<i32> {
-  id: (self) -> {
-    self
-  }
+impl Id(i32), {
+  id: (fn(self) -> {
+    return self;
+  })
 };
+
+{ Id } // Export Id
 
 // main.mo
-let { Id } = @import("./id.mo");
+{ Id } := import "./id.mo";
 
 (12).id(); // 12
-let use_id = <T impl Id>(x: T): T -> {
-  x.id()
+use_id := forall ((T: Type) <: Id), (fn(x: T): T)-> {
+  return x.id();
 }
 ```
 
 #### Runtime
 
-```typescript
-let add = (x: i32, ?y: i32): i32 -> {
+```rust
+defn add(x: i32, ?(y): i32): i32, {
   return x + y;
 }
 
-let main = ()-> {
+defn main(), {
   {
     add(3); // error: missing implicit parameter type i32
   }
   {
-    let ?y = 4;
+    ?(y) := 4;
     add(3); // ok, 7
   }
   {
-    let ?a = 4;
-    ?i32 = 5; // without giving a name
+    ?(a) := 4;
+    (?(_): i32) = 5; // without giving a name
     add(3); // will pick the closest value, which is 5, so it's 8
   }
   {
     add(3, 4); // ok, 7
   }
   {
-    let ?y = 4;
-    let ?y = 5;
+    ?(y) := 4;
+    ?(y) := 5;
     add(3); // ok, 8
   }
 }
@@ -889,23 +875,23 @@ let main = ()-> {
 
 The arguments are provided in lexical scope, not dynamic scope.
 
-```typescript
-let test = (x: i32, ?id: (x: i32)-> i32)-> {
+```rust
+defn test(x: i32, ?(id): ((x: i32)-> i32)), {
   print(id(x))
 }
 
-let ?id = (x: i32)-> x;
-let use_test = ()-> {
+?(id) := (fn(x: i32)-> x);
+defn use_test(), {
   test(3); // print 3
 
-  let ?id = (x: i32)-> x + 1;
+  ?(id) := (fn(x: i32)-> x + 1);
   test(3); // print 4
 }
 
-let main = ()-> {
-  let ?id = (x: i32)-> x + 2; // This will not affect the `test` function calls in `use_test`
-  use_test();  // print 3
-              // print 4
+defn main(), {
+  ?(id) := (fn(x: i32)-> x + 2); // This will not affect the `test` function calls in `use_test`
+  use_test();   // print 3
+                // print 4
 }
 ```
 
@@ -914,14 +900,14 @@ let main = ()-> {
 DEPRECATED: Use traits instead.
 IDEA: Actually let's still keep it. For the functions define in `impl` or `trait`, we don't allow to extract them and we force to call these functions with `.`.
 
-```typescript
+```rust
 g(f(a, b), x, y);
 // can be written as
 a.f(b).g(x, y);
 ```
 
-```typescript
-add_one := (x: i32): i32 -> {
+```rust
+defn add_one(x: i32): i32, {
   return x + 1;
 }
 
@@ -932,7 +918,7 @@ add_one(12); // 13
 s := String.from("Hello, world");
 s.length(); // 12
 // is equalvalent to
-length(&s); // 12
+length(&(s)); // 12
 // We will automatically convert to reference when needed.
 ```
 
@@ -940,27 +926,30 @@ length(&s); // 12
 
 Record field access has higher priority than the free function and trait method.
 
-```typescript
+```rust
 S := {
-  method: ()-> () = ()-> println("Record method")
+  (method: (()-> ())) = 
+    (fn()-> println("Record method"))
 }
 
-method := (s: S)-> {
+method := (fn(s: S)-> {
   println("Free function");
-}
+})
 
-SomeInterface := (Self: Type)-> interface {
-  method: (self: &Self)-> () = ()-> println("Trait method")
-}
+SomeInterface := fn(Self: Type)-> 
+  interface {
+    (method: (self: &(Self))-> ()) = 
+      fn()-> println("Trait method")
+  }
 
 impl SomeInterface(S), {}
 
-main := ()-> {
-  s : S = {};
+fn main(), {
+  (s : S) := {};
   s.method();  // Record method
   method(s);   // Free function
   s.method();  // Record method
-  SomeInterface(S).method(&s); // Interface method
+  SomeInterface(S).method(&(s)); // Interface method
 }
 ```
 
@@ -968,27 +957,27 @@ main := ()-> {
 
 `defer` will execute an expression at the end of the current scope.
 
-```typescript
-test := ()-> {
+```rust
+defn test(), {
   x := String.from("World!");
   defer {
     println(x);
     drop(x);
-  }
+  };
 
   y := String.from("Hello, ");
   defer {
     println(y);
     drop(y);
-  }
+  };
 }
 
 test(); // Hello, World!
 ```
 
-```typescript
-deferExample := ()-> {
-  mut a := 1;
+```rust
+defn defer_example(), {
+  mut(a) := 1;
 
   {
     defer a = 2;
@@ -1008,8 +997,8 @@ If `recur` is the last expression, tail-call optimization will be applied.
 
 - With tail-call optimization
 
-  ```typescript
-  (x: u32, acc: u32 = 1)->
+  ```rust
+  fn(x: u32, acc: u32 = 1)->
     if x == 1, then:
       acc
     else:
@@ -1018,8 +1007,8 @@ If `recur` is the last expression, tail-call optimization will be applied.
 
 - Without tail-call optimization
 
-  ```typescript
-  (x: u32)->
+  ```rust
+  fn(x: u32)->
     if x == 1, then:
       1
     else:
@@ -1028,31 +1017,25 @@ If `recur` is the last expression, tail-call optimization will be applied.
 
 ### Custom Operators
 
-```typescript
-let (|>) = <T, U, F impl FnOnce(value:T)-> U>(x: T, f: F): U -> {
-  f(x)
+```rust
+(|>) := forall (T: Type, U: Type, (F: Type) <: (FnOnce(value:T)-> U)), (fn(x: T, f: F): U)-> {
+  return f(x);
 }
 
 12 |> add_one; // 13
 
 (|>)(12, add_one); // 13
-```
 
-We can define its precedence and associativity:
-
-```typescript
-infix  40 ==  // no associativity. Eg, 3==4==5 is invalid
-infixr 80 **  // right associativity. Eg, 3 ** 4 ** 6 == 3 ** (4 ** 6)
-infixl 60 +   // left associativity. Eg, 3 + 4 + 6 == (3 + 4) + 6
+((|>) 12, add_one) ; // 13
 ```
 
 ### Variadic functions `In Design`
 
-```typescript
-print := (...args)-> {
+```rust
+defn print(...(args)), {
   // @va_start(args); // Start the variadic arguments
   args2 := @va_copy(args); // Copy the variadic arguments
-  mut i := 0;
+  mut(i) := 0;
   while i < args.length, i += 1, {
     printf("%d ", @va_arg(args, i32)); // Pop the variadic argument and set it to i32
   }
@@ -1062,17 +1045,17 @@ print := (...args)-> {
 
 ## Duck Typing `In Design`
 
-```typescript
+```rust
 // This function can take any type that has a `length: i32` property.
-print_length := (x: *{ length: i32 })-> {
+defn print_length(x: *({ length: i32 })), {
   println(x.length);
 };
 
-main := ()-> {
+defn main(), {
   s := String.from("Hello, world");
-  print_length(&s);
+  print_length(&(s));
   // ^ This works as the compiler converts it to below from the background:
-  print_length(&{ length: s.length })
+  print_length(&({ length: s.length }))
 }
 ```
 
@@ -1080,14 +1063,14 @@ main := ()-> {
 
 Tuple is defined as a sequence of elements of different types, separated by commas and enclosed in parentheses.
 
-```typescript
+```rust
 my_unit := (); // my_unit: (). Free type
 
 my_i32_tuple := (12);  // my_i32_tuple: i32
 // Needs extra comma to make it a tuple
 my_i32_tuple := (12,); // my_i32_tuple: (i32,). Free type
 
-i32_tuple: (i32, i32, i32) = (1, 2, 3); // tuple: (i32, i32, i32). Free type
+(i32_tuple: (i32, i32, i32)) = (1, 2, 3); // tuple: (i32, i32, i32). Free type
 
 mixed_tuple := (1, true, "Hello"); // mixed_tuple: (i32, boolean, *u8[6,'\0']). Free type
 
@@ -1107,24 +1090,25 @@ MyTuple := (i32,);
 
 ## Array & Slice
 
-```typescript
-mut i32_array := [1, 2, 3, 4, 5]; // i32_array: i32[5]. Free type
+```rust
+mut(i32_array) := [1, 2, 3, 4, 5]; // mut(i32_array): Array(compt(i32), 5). Free type
                                  // In C: int i32_array[5] = {1, 2, 3, 4, 5};
 i32_array.length; // 5, compile-time known
 
-i32_array2 : i32[_] = [1, 2, 3]; // i32_array2: i32[3]
+(i32_array2 : Array(i32, _)) = [1, 2, 3]; // i32_array2: Array(i32, 3)
 
 immutabl_i32_array := [1, 2, 3, 4, 5]; // immutabl_i32_array: i32[5]. Free type
                                             // In C: const int immutabl_i32_array[5] = {1, 2, 3, 4, 5};
 
 // Convert from array to slice using `&`
-i32_array_ptr := &i32_array; // i32_array_ptr: i32[]. Free type
+i32_array_ptr := &(i32_array); // i32_array_ptr: Slice(i32). Free type
 i32_array_ptr.length; // 5, runtime known
-i32_array_ptr[0] = 8; // automatically dereference
+i32_array_ptr(0) = 8; // automatically dereference
 // i32_array: [8, 2, 3, 4, 5]
 
-expr @i32_ptr = &i32_array[0]; // @i32_ptr: Expr<&i32>. Free type
-*@i32_ptr = 9;
+use &!(i32_array(0)), ptr -> {
+  *(ptr) = 9;
+}l
 // i32_array: [9, 2, 3, 4, 5]
 ```
 
@@ -1136,81 +1120,57 @@ ANSWER: Yes we do. Not only because the size of slice is unknown at the compile-
 - For array of linear type, we need to convert it to a slice of free type, so it requires `&`.
 - Slices are dynamically sized, so its size is unknown at compile time. We need to use `&` to coerce the array to a slice.
 
-```typescript
-i32_array := [1, 2, 3]; // i32_array: i32[3]. Free type
-expr @i32_ptr   = &i32_array[0]; // @i32_ptr: Expr<&i32>. Free type
-i32_slice := &i32_array; // i32_slice: i32[]. Free type
-i32_slice := i32_array[0..some_func_return_usize()];  // i32_slice: i32[]
+```rust
+(i32_array : Array(i32, _)) := [1, 2, 3]; // i32_array: Array(i32, 3). Free type
+i32_slice := &(i32_array); // i32_slice: &Slice(i32). Free type
+i32_slice := i32_array(0..some_func_return_usize());  // i32_slice: i32[]
                                                         // Compiler Error: The size of the slice is not known at compile time.
-                                                        //                 Please use `&` to coerce i32_array to slice type &i32[]
-expr @i32_slice = &i32_array[0..some_func_return_usize()]; // Okay
-expr @i32_slice = &i32_array[0..3]; // i32_slice: Expr<&i32[]>
-
+                                                        //                 Please use `&` to coerce i32_array to slice type &(Slice(i32))
+i32_slice := &(i32_array(0..some_func_return_usize()));
 i32_slice.length; // 3, runtime known
-i32_slice[0] = 10;
+i32_slice(0) = 10;
 // i32_array: [10, 2, 3, 4, 5]
 
 
-set_value := (arr: &i32[], index: usize, value: i32)->
+defn set_value(arr: &!(Slice(i32)), index: usize, value: i32),
   if index < arr.length,  // arr.length is runtime known
-    arr[index] = value;
+    arr(index) = value;
 
 set_value(i32_array, 0, 11); // Compiler error: Please use `&` to coerce i32_array to slice type i32[]
-set_value(&i32_array, 0, 11); // Correct!
+set_value(&!(i32_array), 0, 11); // Correct!
 // i32_array: [11, 2, 3, 4, 5]
 // i32_slice: [11, 2, 3]
 
 
-set_value := (arr: i32[], index: usize, value: i32)-> { // Compiler Error: The size of the slice is not known at compile time.
+set_value := fn(arr: Slice(i32), index: usize, value: i32)-> { // Compiler Error: The size of the slice is not known at compile time.
                                                            //                 Please use `&` to coerce arr to slice type &i32[]
   // ...
 }
 
 // This is also allowed as the size of the array is known at compile time.
-set_value_3 := (arr: i32[3], index: usize, value: i32)-> {
+set_value_3 := fn(arr: Array(i32, 3), index: usize, value: i32)-> {
   // ...
 }
 ```
 
-```typescript
-NOTE: The example below is wrong:
-str := u8[,'\0'];
-
-constant_str := "Hello"; // constant_str: *u8[5,'\0']
-                     // ['H', 'e', 'l', 'l', 'o', '\0']
-constant_str.length; // 5 (excluding '\0'), compile-time known
-
-mut mutable_str := *"Hello"; // mutable_str: u8[5,'\0'], convert to mutable array
-                     // ['H', 'e', 'l', 'l', 'o', '\0']
-mutable_str.length; // 5 (excluding '\0'), compile-time known
-
-slice_1 := &mutable_str[0..2]; // slice_1: &str
-                           // ['H', 'e']
-slice_1.length; // 2, runtime known
-slice_1[0] = 'h';
-
-// mutable_str: ['h', 'e', 'l', 'l', 'o', '\0']
-// slice_1: ['h', 'e']
-```
-
 ### Range with `..`
 
-```typescript
+```rust
 // The range start..end contains all values with start <= x < end.
 // It is empty if start >= end.
-Range := .Range {
+Range := struct {
   start: i32,
   end: i32,
 }
 
-range := 0..5; // range: Range. Free type
-let range = Range.Range {
+range := (0 .. 5); // range: Range. Free type
+range := Range {
   start: 0,
   end: 4,
-}
+};
 
-let range2 = 0..=5; // range2: Range<i32>. Free type, including the end value
-let range2 = Range.Range {
+range2 := (0 ..= 5); // range2: Range<i32>. Free type, including the end value
+range2 := Range {
   start: 0,
   end: 5,
 }
@@ -1253,7 +1213,7 @@ QUESTION: Should we make the captures explicit?
 
 Examples:
 
-```typescript
+```rust
 let test = ()-> {
   var x = 1;
 
@@ -1270,7 +1230,7 @@ let test = ()-> {
 }
 ```
 
-```typescript
+```rust
 let test = ()-> {
   var x: Data = malloc(); // Some `Fake` Data.
 
@@ -1286,120 +1246,90 @@ let test = ()-> {
 
 **NOTE:** We can pass normal function ()->() to a function argument that expects a closure, but not the other way around.
 
-## Mutability `To be updated`
-
-The builtin `=` function is used to update a value that can be `write`, with the following signature:
-
-```typescript
-let set! = <T: Type>(ref: *T, value: T)-> T;
-
-// `=` is a syntactic sugar for `set!`
-
-x = x + 1
-// is equalvalent to
-set!(&x, x + 1)
-// so we append `write` to the variable on the left hand side of `=`
-```
-
-Below is an example of updating a field of a linear type:
-
-```typescript
-type Person = // Linear type.
-  .Person(name: String, age: i32)
-
-var p = Person(String.from("Alice"), 30); // p: Person. Linear type.
-
-// Update the field
-let oldName = (p.name = String.from("Bob"));
-// oldName is the `value` moved out.
-// oldName == String.from("Alice")
-```
-
 ## Generic
 
 ### Type parameters
 
-Type parameters are defined inside `<...>`
+Type is first-class citenzen in Mo
 
-```typescript
-let id = <T: Type>(x: T): T -> {
-  return x;
-}
-
-// or
-let id = <T>(x: T): T -> { // T will be inferred as `Type` kind
+```rust
+defn id(T: Type, x: T): T, {
   return x;
 }
 ```
 
 ### Type constraints
 
-Type constraints are achieved using the `with` keyword.
+Type constraints are achieved using the `<:` operator.
 
-```typescript
+```rust
 // Type constraints
-let three_are_equal = <T: Type impl Eq>(x: T, y: T, z: T): boolean -> {
-  x == y && y == z
-}
-// <T: Type with Eq> is equivalent to <T: Type with Eq<Self>> where `Self` is `T`
+defn three_are_equal((T: Type) <: Eq, x: T, y: T, z: T): boolean, {
+  return (x == y) && (y == z);
+};
+// (T: Type) <: Eq is equivalent to (T: Type) <: Eq(T)
 
-let show_compare = <T: Type impl Show & Ord>(x: T, y: T): String -> {
-  match(compare(x, y)) {
-    case LT: "Less than"
-    case EQ: "Equal"
-    case GT: "Greater than"
-  }
-}
+defn show_compare((T: Type) <: (Show & Ord), x: T, y: T): String,
+  match compare(x, y),
+    .LT -> "Less than",
+    .EQ -> "Equal",
+    .GT -> "Greater than"
+;
 
 // Instance dependencies
-impl<A impl Show> Show<A[]> {
-  show: (self: A[])-> {
-    // ...
-  }
-}
-impl< A impl Show,
-      B impl Show
-    > Show<(A, B)> {
-  show: (self: (A, B))-> {
-    // ...
-  }
-}
+forall ((A: Type) <: Show, size: compt(usize)), 
+  impl Show(Array(A, size)), {
+    show: (fn(self)-> {
+      // ...
+    })
+  };
+
+forall ((A: Type) <: Show,
+        (B: Type) <: Show),
+  impl Show((A, B)), {
+    show: (fn(self)-> {
+
+    })
+  };
 ```
 
-```typescript
+```rust
 // show.mo
-trait Show<Self: Type> {
-  show: (self: &Self)-> String;
-}
-export Show;
+defn Show(Self: Type): Interface, 
+  interface {
+    show: ((self: &(Self))-> String)
+  };
 
-impl Show<i32> {
-  show: (self)-> {
+impl Show(i32), {
+  show: (fn(self)-> {
     // ...
-  }
-}
+  })
+};
 
-impl Show<String> {
-  show: (self)-> {
+impl Show(String), {
+  show: (fn(self)-> {
     // ...
-  }
-}
+  })
+};
+
+{ Show } // export Show
 
 
 // main.mo
-let { Show } = @import("./show.mo");
+{ Show } := import "./show.mo";
 
-let show = <T impl Show>(x: Array<T>): String -> {
+forall ((T: Type) <: Show, size: compt(usize)), defn show(x: Array(T, size)): String, {
   // ...
-}
-export show;
+};
+{ show } // export show
 
-let { Show } = @import("./show.mo");
 
-let less_than = <T: Type impl Ord & Show>(x: T, y: T): boolean -> {
-  println(x.show());
-  return x < y;
-}
+{ Show } = import "./show.mo";
+forall ((T: Type) <: (Ord & Show)), 
+  defn less_than(x: T, y: T): boolean, {
+    println(x.show());
+    return x < y;
+  };
 ```
 
 ## Control Flow
@@ -1408,15 +1338,17 @@ let less_than = <T: Type impl Ord & Show>(x: T, y: T): boolean -> {
 
 `if(condition, then, else)`
 
-```typescript
-let main = ()-> {
+```rust
+defn main(), {
   // If no return type, it is `()`
-  let number = 3;
+  number := 3;
 
-  if number < 5, then:
+  if number < 5, then: {
     println("condition was true");
-  else:
+  },
+  else: {
     println("condition was false");
+  };
 
   if(number < 5, println("condition was true"), println("condition was false"));
 };
@@ -1424,8 +1356,8 @@ let main = ()-> {
 
 ### cond
 
-```typescript
-let use_cond = (x: i32)->
+```rust
+defn use_cond(x: i32),
   cond x == 1 -> println("x is 1"),
        x == 2 -> println("x is 2"),
        true   -> println("x is not 1 or 2")
@@ -1436,122 +1368,119 @@ let use_cond = (x: i32)->
 `while(condition, do: body)` or
 `while(condition, iteration, do: body)`
 
-```typescript
-let factorial = (n: i32): i32 -> {
-  var result = 1;
-  var i = 1;
+```rust
+defn factorial(n: i32): i32, {
+  mut(result) := 1;
+  mut(i) := 1;
   while i <= n, do: {
     result = result * i;
     i += 1;
-  }
+  };
   result
-}
+};
 
-let factorial = (n: i32): i32 -> {
-  var result = 1;
-  var i = 1;
-  while i <= n, i += 1, result = result * i
+defn factorial(n: i32): i32, {
+  mut(result) := 1;
+  mut(i) := 1;
+  while i <= n, i += 1, result = result * i;
   result
 }
 ```
 
 #### Iterator (for...in)
 
-`for(value, in: iterator, do: body)`
 
-Same as the one in Rust.
-
-```typescript
-let arr = ArrayList.from([1, 2, 3, 4, 5]);
-for value, in: arr.iter(), do: { // NOTE: arr.iter() returns a record that contains `&` reference to `arr`
+```rust
+arr := ArrayList.from([1, 2, 3, 4, 5]);
+for arr.iter(), (value)-> { // NOTE: arr.iter() returns a record that contains `&` reference to `arr`
   // value here has type &i32
   println(value);
 
   // NOTE: Use of `arr` is prohibited here.
-}
+};
 
-var mut_arr = ArrayList.from([1, 2, 3, 4, 5]);
-for value in mut_arr.iter_mut() {
+mut(mut_arr) = ArrayList.from([1, 2, 3, 4, 5]);
+for mut_arr.iter_mut(), (value)-> {
   // value here has type &mut i32
   *value += 1;
-}
+};
 ```
 
 `let...of...` requires the `impl Iterator` or `impl IntoIterator` trait.
 
-```typescript
-trait Iterator<Self> {
-  Item: Type;
-  next: (self: &mut Self)-> Option<this.Item>;
-}
+```rust
+defn Iterator(Self: Type): Interface, 
+  interface {
+    Item: Type;
+    next: (self: &!(Self))-> Option(this.Item);
+  };
 
-trait IntoIterator<Self> {
-  Item: Type;
-  IntoIterator: Type impl Iterator<_, Item: this.Item>;
+defn IntoIterator(Self: Type): Interface,
+  interface {
+    Item: Type;
+    (IntoIterator: Type) <: Iterator(_, Item: this.Item);
+    // QUESTION: Should we group it as?
+    // IntoIterator: (Type <: Iterator(_, Item: this.Item))
 
-  // IntoIterator will consume the value, while Iterator will not.
-  into_iter: (self: Self)-> this.IntoIterator;
-}
+    // IntoIterator will consume the value, while Iterator will not.
+    into_iter: ((self: Self)-> this.IntoIterator);
+  };
 ```
 
 ## Type synonyms
 
-```typescript
+```rust
 // Record
-type User: Linear = {
+(User: Linear) = {
   active: boolean;
   username: String;
   email: String;
   age: i32;
 };
 
-type str = u8[,'\0'];
-
-let user: User = User {
+(user: User) := {
   active: true,
   username: String.from("johndoe"),
   email: String.from("test@gmail.com"),
   age: 13
 };
-
-// Define an extern type
-type Pointer<T: Type>;
 ```
 
 Extending the records
 
-```typescript
+```rust
 /*
 type Lang<l> = { language: String | l}; // Intersection types
 type Language = Lang<(year: i32)>;
 // Language is equal to
 type Language = { language: String; year: i32 };
 */
-type Lang<l> = { language: String } & l; // Intersection types
-type Language = Lang<{ year: i32 }>;
+defn Lang(T: Type): Type, 
+  { language: String } & T; // Intersection types
+Language := Lang({year: i32});
 // Language is equal to
-type Language = { language: String; year: i32 };
+Language := { language: String; year: i32 };
 ```
 
 Destructure the record:
 
-```typescript
-type User = .User {
+```rust
+User := struct {
   name: String,
   age: i32
 }
 
-let user: User = User.User {
+(user: User) := User {
   name: String.from("johndoe"),
   age: 12
 }
 
 {
-  let .User{age} = user; // Compiler Error: `user` is consumed while `name` is not moved out.
+  User {age} := user; // Compiler Error: `user` is consumed while `name` is not moved out.
 }
 
 {
-  let .User{name, age} = user;
+  User {name, age} := user;
   // name: String, linear type
   // age: i32. Free type
 }
@@ -1559,16 +1488,10 @@ let user: User = User.User {
 {
   // Rename the field with `:`
   // Specify the type with `as`
-  let .User{name: username, age} = user;
+  User{name: username, age} := user;
   println(username); // johndoe
   // username: String, linear type.
   // age: i32. Free type.
-}
-
-{
-  // Without .User as User type only has one variant
-  let {age, name} = user;
-  // name: String, linear type
 }
 ```
 
@@ -1582,63 +1505,76 @@ There is also some optimization on the ADT. For example, if the ADT has only one
 
 In addition, if there is only one variant with one field, the field type will be used directly instead of wrapping it in a record. This is like the [newtype](https://wiki.haskell.org/Newtype) in Haskell.
 
-```typescript
-type Option<T> =
-  | .Some (T), // variant name followed by tuple
-  | .None
+```rust
+defn Option(T: Type): Type,
+  enum {
+    Some(T),
+    None
+  };
 
-let {*} = Option; // The, `*` means to destructure everything.
+(none: Option(i32)) = .None;
+(some: Option(i32)) = .Some(42);
 
-let none: Option<i32> = None;
-let some: Option<i32> = Some(42);
+IpAddr :=
+  enum {
+    V4((u8, u8, u8, u8)),
+    V6(String)
+  };
 
-// Access the field:
-some.value;
-let {value} = some;
-
-type IpAddr =
-  | .V4(u8, u8, u8, u8)
-  | .V6(String)
-
-
-let home = IpAddr.V4(127, 0, 0, 1);
-let loopback = IpAddr.V6(String.from("::1"))
+home := IpAddr.V4 (127, 0, 0, 1);
+loopback := IpAddr.V6 String.from("::1");
 
 // Use record as variant
-type Message =
-  | .Quit
-  | .Move { x: i32, y: i32 }
-  | .Write(String)
-  | .ChangeColor { r: i32, g: i32, b: i32 }
+Message := 
+  enum {
+    Quit,
+    Move({ x: i32, y: i32 }),
+    Write(String),
+    ChangeColor({ r: i32, g: i32, b: i32 })
+  };
 
-let m = Message.Write(String.from("hello"));
-let m = Message.Move { x: 3, y: 4 };
-let m = Message.ChangeColor { r: 1, g: 2, b: 3 };
+m := Message.Write(String.from("hello"));
+m := Message.Move { x: 3, y: 4 };
+m := Message.ChangeColor { r: 1, g: 2, b: 3 };
 ```
 
 ### Type parameters for specific variant
 
-```typescript
+```rust
 type MixedData =
   | .NoForall(i32, String),
   | .WithForall<T impl Show>(a: T)
 
+MixedData :=
+  enum {
+    NoForAll((i32, String)),
+    WithForall: (forall ((T: Type) <: Show), 
+                  (a: T)-> MixedData)
+  };
 
-let mixed = MixedData.WithForall<i32>(12); // mixed: MixedData.WithForall<i32>
+
+let mixed = MixedData.WithForall(12); // mixed: MixedData.WithForall<i32>
 ```
 
 ## C struct
 
-```typescript
-type Point = {
+```rust
+Point := struct {
   x: i32;
   y: i32;
 };
 
-let my_point: Point = {
+(my_point: Point) := Point {
   x: 10,
-  y: 20,
+  y: 20
 };
+
+// Or use anonymous struct literal
+(my_point: Point) := .{
+  x: 10,
+  y: 20
+};
+
 ```
 
 Compiles to C
@@ -1652,22 +1588,21 @@ struct Point {
 
 ## C union
 
-```typescript
-type MyNumber = { i: i32 } | { j: f32 };
-
-let my_number: MyNumber = { i: 10 };
+```rust
+MyNumber := union {
+  i: i32,
+  j: f32
+};
+(my_number: MyNumber) := .{ i: 10 };
+my_number.j = 1.2;
 ```
 
 Compiles to C
 
 ```c
 union MyNumber {
-  struct {
-    int i;
-  };
-  struct {
-    float j;
-  };
+  int i;
+  float j;
 };
 ```
 
@@ -1675,18 +1610,19 @@ union MyNumber {
 
 It's the same as the ADT, but all variants have no fields.
 
-```typescript
-type State =
-  | .Working = 1
-  | .Failed = 0
+```rust
+State := enum {
+  Working = 1,
+  Failed = 0
+};
 
+Week := enum {
+  Monday, // 0
+  Tuesday, // 1
+  Wednesay // 2
+};
 
-type Week =
-  | .Monday     // 0
-  | .Tuesday    // 1
-  | .Wednesday  // 2
-
-let day = Week.Wednessay;
+day := Week.Wednessay;
 printf("%d", day); // 2
 ```
 
@@ -1696,42 +1632,42 @@ printf("%d", day); // 2
 
 Dependent types are types which depend on values.
 
-```typescript
-type Vector<N: i32> = Array<i32, N>;
+```rust
+defn Vector(N: compt(i32)): Type,
+  Array(i32, N);
 
-let add_vectors = <N: i32>(a: Vector<N>, b: Vector<N>): Vector<N> -> {
-  return a.map((x, i)-> x + b[i]);
-}
+forall (N: compt(i32)),
+  defn add_vectors(a: Vector(N), b: Vector(N)): Vector(N),
+    a.map(fn(x, i)-> (x + b(i)));
 
-let v1: Vector<3> = [1, 2, 3];
-let v2: Vector<3> = [4, 5, 6];
-let result = add_vectors(v1, v2); // [5, 7, 9];
+(v1: Vector(3)) := [1, 2, 3];
+(v2: Vector(3)) := [4, 5, 6];
+result := add_vectors(v1, v2); // [5, 7, 9];
 
 // The code below will not compile
-let v3: Vector<2> = [1, 2];
-let v4: Vector<3> = [4, 5, 6];
-// let error = add_vectors(v3, v4); // Compiler Error: Vector<2> and Vector<3> are different types.
+(v3: Vector(2)) := [1, 2];
+(v4: Vector(3)) := [4, 5, 6];
+// error := add_vectors(v3, v4); // Compiler Error: Vector<2> and Vector<3> are different types.
 ```
 
 ### Refinement types `In Design`
 
 Refinement types consists of all values of a given type which satisfy a given predicate.
 
-```typescript
-type PositiveNumber = i32 where this > 0;
-type NonEmptyString = String where this.length() > 0;
+```rust
+PositiveNumber := (compt(i32) |: @ > 0);
+NonEmptyString := (compt(String) |: @.length() > 0);
 
-let divide = (x: PositiveNumber, y: PositiveNumber): PositiveNumber -> {
-  x / y
-}
+defn divide(x: PositiveNumber, y: PositiveNumber): PositiveNumber,
+  x / y;
 
-let x: PositiveNumber = 10; // Valid
-let y: PositiveNumber = -10; // Compiler Error: -10 is not a PositiveNumber
+(x: PositiveNumber) := 10; // Valid
+(y: PositiveNumber) := -10; // Compiler Error: -10 is not a PositiveNumber
 
-let result = divide(10, 2); // Valid
+result := divide(10, 2); // Valid
 ```
 
-```typescript
+```rust
 type NaturalNumber = i32 where this >= 0;
 type PositiveNumber = i32 where this > 0;
 type Equal<n: i32> = i32 where this == n;
@@ -1755,83 +1691,87 @@ let head = <T>(array: NotEmptyArray<T>): T -> {
 
 Higher Kinded Types are types that take other types as parameters.
 
-```typescript
-type T1<F<Type>: Type, A: Type> =
-  .T1(value: F<A>)
+```rust
+defn T1(F: (Type)-> Type, A: Type): Type,
+  F(A);
 
-type Option<T> = T1<Maybe, T>;
+defn Option(T: Type): Type,
+  T1(Maybe, T);
 ```
 
 ### Generalized Algebraic Data Types (GADTs) `In Design`
 
-```typescript
-type Expr<T> =
-  | .IntExpr(i32): Expr<i32>,
-  | .BoolExpr(boolean): Expr<boolean>,
-  | .EqExpr(Expr<i32>, Expr<i32>): Expr<boolean>
+```rust
+defn MyExpr(T: Type): Type,
+  enum {
+    IntExpr: ((i32)-> MyExpr(i32)),
+    BoolExpr: ((boolean)-> MyExpr(boolean)),
+    EqExpr: ((Expr(i32), Expr(i32)) -> Expr(boolean))
+  };
 
+forall (T: Type),
+  defn eval(expr: MyExpr(T)): T,
+    match expr,
+      .IntExpr(i) -> i,
+      .BoolExpr(b) -> b,
+      .EqExpr((left, right)) -> eval(left) == eval(right)
+;
 
-let eval = <T>(expr: Expr<T>): T -> {
-  // with Expr<T>;
-  match expr,
-    .IntExpr(i), i,
-    .BoolExpr(b), b,
-    .EqExpr(left, right), eval(left) == eval(right)
-}
-
-let expr1 : Expr<boolean> = EqExpr(IntExpr(1), IntExpr(2));
+(expr1 : MyExpr(boolean)) := .EqExpr(.IntExpr(1), .IntExpr(2));
 eval(expr1); // false
 ```
 
-## Trait
+## Interface
 
-Trait works similarly to the one in Rust.
+Interface works similarly to the Trait in Rust.
 
-```typescript
-trait Summary<Self: Type> {
-  summarize: (self: &Self)-> String;
-};
+```rust
+defn Summary(Self: Type): Interface, 
+  interface {
+    summarize: ((self: &(Self))-> String)
+  };
 
-trait Display<Self: Type impl Summary & SomeOtherClass> {
-  display: (self: &Self)-> String;
-};
+defn Display((Self: Type) <: (Summary & SomeOtherClass)): Interface,
+  interface {
+    display: ((self: &(Self))-> String)
+  };
 
-type NewsArticle = {
+NewsArticle := {
   headline: String;
   location: String;
   author: String;
   content: String;
 };
 
-impl Summary<NewsArticle> {
-  summarize: (self: &NewsArticle): String -> {
+impl Summary(NewsArticle) {
+  summarize: (fn(self) -> {
     String.from("${self.headline}, by ${self.author} (${self.location})");
-  }
-}
+  })
+};
 
 // Pass in function
-let notify = (item: &NewsArticle)-> {
+defn notify(item: &(NewsArticle)), {
   println("Breaking news! ", item.summarize());
-}
+};
 
-let notify = <T impl Display>(
-  item: &T
-)-> {
-  println("Breaking news! ", item.summarize());
-  println("Breaking news! ", item.display());
-}
+forall ((T: Type) <: Display),
+  defn notify(item: &(T)), {
+    println("Breaking news! ", item.summarize());
+    println("Breaking news! ", item.display());
+  };
 ```
 
-```typescript
-trait LuckyNumber<T: i32> {
-  say_it: (self: &T)-> ();
-}
+```rust
+defn LuckyNumber(T: compt(i32)),
+  interface {
+    say_it: ((self: &(T))-> ())
+  };
 
-impl LuckyNumber<7> {
-  say_it: (self: &7): ()-> {
+impl LuckyNumber(7), {
+  say_it: (fn(self)-> {
     println("Lucky number 7");
-  }
-}
+  })
+};
 
 7.say_it(); // Lucky number 7
 ```
@@ -1842,241 +1782,238 @@ NOTE: `impl` a type more than once is allowed. This is how rust behaves.
 QUESTION: Should we allow `impl` a primitive type?  
 ANSWER: Yes we allow
 
-```typescript
+```rust
 // my_type.mo
-type MyType<T> = { value: T };
+defn MyType(T: Type): Type,
+  struct { value: T };
 
-impl<T> MyType<T> = {
-  // `this` here means `MyType<T>`.
-  new: (value: T): this -> {
-    MyType {
-      value: value
-    }
-  }
-}
+forall (T: Type), 
+  impl MyType(T), {
+    // `this` here means `MyType<T>`.
+    new: ((fn(value: T): this)-> {
+      return MyType {
+        value
+      };
+    })
+  };
 
 // main.mo
-let { MyType } = @import("./my_type");
-let v = MyType<i32>.new(1); // { value: 1 }
+{ MyType } := import("./my_type");
+v := MyType(i32).new(1); // MyType { value: 1 }
 ```
 
 ### Associated types
 
 aka [Functional Dependencies](https://book.purescript.org/chapter6.html#functional-dependencies)
 
-```typescript
-trait Contains<Self: Type> {
-  A: Type;
-  B: Type;
+```rust
+defn Contains(Self: Type): Interface,
+  interface {
+    A: Type,
+    B: Type,
 
-  contains: (self: &Self, a: this.A, b: this.B)-> boolean;
+    contains: ((self: &Self, a: this.A, b: this.B)-> boolean);
             // QUESTION: Do we need `this.` here?
             // ANSWER: Yes. Let's make it the same as typescript.
             // `this` here means `Contains<Self>`.
             // `this.A` means `Contains<Self>.A`.
             // so `this.` is necessary.
-}
+  };
 
-type Container = (i32, i32);
+Container := (i32, i32);
 
-impl Contains<Container> {
+impl Contains(Container), {
   A: i32;
   B: i32;
 
-  contains: (self: &Container, a: this.A, b: this.B): boolean -> {
+  contains: ((fn(self: &(Container), a: this.A, b: this.B): boolean) -> {
     self.0 == a && self.1 == b
-  }
+  })
 }
 
-let my_tuple: Container = (10, 20);
+my_tuple: Container = (10, 20);
 my_tuple.contains(10, 20); // true
 
-type MyI32 = Contains<Container>.A; // i32
-Contains<Container>.contains(&my_tuple, 10, 20); // true
+MyI32 = Contains(Container).A; // i32
+Contains(Container).contains(&(my_tuple), 10, 20); // true
 ```
 
-### Without trait
+### Without interface
 
-Use `!Trait` to exclude a trait.
+Use `!(Interface)` to exclude an interface.
 
-```typescript
-trait Summary<Self impl Show & !Eq> {
-  summarize: (self: &Self)-> String;
-};
+```rust
+defn Summary((Self: Type) <: (Show & !(Eq))),
+  interface {
+    summarize: ((self: &(Self))-> String);
+  };
 // This trait `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
 ```
 
-### Optional class
+### Optional interface
 
-Use `?Trait` to make a trait optional.
+Use `?(Interface)` to make a trait optional.
 
-```typescript
-trait Summary<Self: Type impl ?Show> {
-  summarize: (self: &Self)-> String;
-};
+```rust
+defn Summary((Self: Type) <: ?(Show)),
+  interface {
+    summarize: ((self: &(Self))-> String);
+  };
 // This trait `Summary` can implement for `Type` that implements `Show` or not.
-```
-
-### Type constraints alias using `expr`
-
-> From: https://doc.rust-lang.org/beta/unstable-book/language-features/trait-alias.html
-
-```typescript
-expr @Foo = Debug & Send;
-expr @Bar = Foo & Sync;
-
-let foo = <T impl @Foo>(v: &T)-> {
-  // ...
-}
 ```
 
 ### Named impl `In Design`
 
 This is useful for resolving conflicts when implementing multiple classes for the same type.
 
-```typescript
+```rust
 // id.mo
-trait Id<Self: Type> {
-  id: (self: &Self)-> Self;
-}
-export Id;
+defn Id(Self: Type), 
+  interface {
+    id: ((self: &(Self))-> Self)
+  };
+
+{ Id }
 
 // id1.mo
-let MyIdImplementation = (impl Id<i32> {
-  id: (self: &i32)-> *self
-})
-export MyIdImplementation;
+MyIdImplementation := impl Id(i32), {
+  id: (fn(self: &(i32)) -> *(self))
+};
+{ MyIdImplementation }
 
 // id2.mo
-impl Id<i32> {
-  id: (self: &i32)-> *self + 1
-}
+impl Id(i32), {
+  id: (fn(self: &(i32)) -> (*(self) + 1))
+};
 
 // use_id.mo
-let { MyIdImplementation } = @import("./id1.mo");
-MyIdImplementation.id(&12); // 13
+{ MyIdImplementation } := import("./id1.mo");
+MyIdImplementation.id(&(12)); // 13
 12.id() // 13, using the `id` from `MyIdImplementation`.
         // QUESTION: Should we allow this 12.id()?
 
 // another_use_id.mo
-let { Id } = @import("./id.mo");
+{ Id } := import("./id.mo");
 12.id(); // Compiler Error: Ambiguous call to `id` function.
 ```
 
 ### Higher Kinded Types example
 
-```typescript
+```rust
 // Functor
-trait Functor<Wrapper<Type>: Type> {
-  map: <A, B>(fa: Wrapper<A>, f: (a: A)-> B)-> Wrapper<B>;
-}
+defn Functor(Wrapper: ((Type)-> Type)): Interface,
+  interface {
+    map: (forall 
+            (A: Type, B: Type), 
+            (fa: Wrapper(A), f: ((a: A)-> B))
+              -> Wrapper(B))
+  };
 
-impl Functor<Maybe> {
-  map: <A, B>(fa: Maybe<A>, f: (a: A)-> B)-> Maybe<B> {
-    match (fa) {
-      case .Just(value): Just(f(value)),
-      case .Nothing: Nothing
-    }
-  }
-}
+impl Functor(Maybe), {
+  map: (forall 
+        (A: Type, B: Type),
+        (fn(fa: Maybe(A), f: ((a: A)-> B)): Maybe(B)) -> 
+          match fa,
+            .Just(value) -> .Just(f(value)),
+            .Nothing     -> .Nothing)
+};
 
-impl<T: Type> Functor<Either<T>> = {
-  map: <A, B>( fa: Either<T, A>, f: (a: A)-> B)-> Either<T, B> {
-    match (fa) {
-      case .Left(value): Left(value),
-      case .Right(value): Right(f(value))
-    }
-  }
-}
+forall (T: Type), impl Functor(Either(T)), {
+  map: (forall
+        (A: Type, B: Type),
+        (fn(fa: Either(T, A), f: ((a: A)-> B)): Either(T, B)) ->
+          match fa,
+            .Left(value) -> .Left(value),
+            .Right(value) -> .Right(f(value)))
+};
 
-let some_maybe = Just(1);
-let result = some_maybe.map((x)-> x + 1); // Just(2)
+
+some_maybe := Just(1);
+result := some_maybe.map((x)-> x + 1); // Just(2)
 ```
 
 ## Pattern Matching
 
 The compiler implements an exhaustive check on the pattern matching.
 
-```typescript
-type Coin =
-  | .Penny
-  | .Nickel
-  | .Dime
-  | .Quarter
-
+```rust
+Coin := enum {
+  Penny,
+  Nickel,
+  Dime,
+  Quarter
+};
 
 // Reference:
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
-let value_in_cents = (coin: Coin): u8 -> {
-  match coin
-    .Penny, {
+defn value_in_cents(coin: Coin): u8,
+  match coin,
+    .Penny -> {
       println("Lucky penny!");
       return 1;
     },
-    .Nickel, 5,
-    .Dime, 10,
-    .Quarter, 25,
-}
+    .Nickel -> 5,
+    .Dime -> 10,
+    .Quarter -> 25;
 
-type List<T> =
-  | .Nil
-  | .Cons(T, Box<List<T>>)
+defn List(T: Type),
+  enum {
+    Nil,
+    Cons((T, Box(List(T))))
+  };
 
-
-
-let list_length = <T>(list: &List<T>): i32 -> {
-  match (list),
-    .Nil, 0,
-    .Cons(_, tail), 1 + list_length(tail)
-}
+forall (T, Type),
+  defn list_length(list: &(List(T))):i32,
+    match (list),
+      .Nil -> 0,
+      .Cons(_, tail) -> 1 + list_length(tail)
 ```
 
 ### Using Range in `case`
 
-```typescript
-let check_int = (x: i32)-> {
+```rust
+defn check_int(x: i32),
   match x,
-    1..=6 -> println("1 to 6:),
-    7..10 -> println("7 to 10"),
-    println("Other")
-}
+    (1..=6) -> println("1 to 6:"),
+    (7..10) -> println("7 to 10"),
+    _ -> println("Other");
 ```
 
 ## Guard
 
-1. Using `if` in `case`
+1. Using `|:` which means `given` for guard
 
-   ```typescript
-   let check_int = (x: i32)->
+   ```rust
+   defn check_int = (x: i32)->
      match x,
-       1..6, when: x % 2 == 0, {
+       ((1..6) |: ((x % 2) == 0))-> {
          println("1 to 6 and even");
        },
-       1..6, when: x % 2 != 0, {
+       ((1..6) |: ((x % 2) != 0))-> {
          println("1 to 6 and odd");
        },
-       7..10, println("7 to 10");
-       else: println("Other");
+       (7..10) -> println("7 to 10");
+       _ -> println("Other");
    ```
 
-2. `if(let, do)`
+2. `iflet(let, do)`
 
-   ```typescript
-   let maybe_some = Some(10);
-   if let: .Some(value) = maybe_some, {
+   ```rust
+   maybe_some := Some(10);
+   iflet (.Some(value) = maybe_some), {
      println(value);
-   }
+   };
    ```
 
-3. `while(let, do)`
+3. `whilelet(let, do)`
 
-   ```typescript
-   let mut list = Some(10);
-   while let: .Some(value) = list, {
+   ```rust
+   mut(list) = Some(10);
+   whilelet (.Some(value) = list), {
      println(value);
      list = None;
-   }
+   };
    ```
 
 ## Pointers
@@ -2096,40 +2033,37 @@ In C, there are 4 types of pointers:
 
 In Mo, these 4 categories are represented as:
 
-```typescript
+```rust
 // Pointer to a constant
-let  constant_i32 = 12;
-expr @ptr_to_constant = &constant_i32; // @ptr_to_constant: Expr<&i32>. Free type
+constant_i32 := 12;
+mut(ptr_to_constant) := &(constant_i32); // mut(ptr_to_constant): &(i32)
 
 // Constant pointer to a constant
-let  constant_i32 = 12;
-expr @constant_ptr_to_constant = &constant_i32; // @constant_ptr_to_constant: Expr<&i32>. Free type
+constant_i32 := 12;
+constant_ptr_to_constant := &(constant_i32); // constant_ptr_to_constant: &(i32)
 
 // Pointer to a non-constant
-var  i32_val = 12;
-expr @ptr_to_i32 = &mut i32_val; // @ptr_to_i32: Expr<&mut i32>. Free type
+mut(i32_val) := 12;
+mut(ptr_to_i32) := &!(i32_val); // mut(ptr_to_i32): &!(i32)
+
 
 // Constant pointer to a non-constant
-var  i32_val = 12;
-expr @constant_ptr_to_i32 = &mut i32_val; // @constant_ptr_to_i32: Expr<&mut i32>. Free type
+mut(i32_val) := 12;
+constant_ptr_to_i32 := &!(i32_val); // ptr_to_i32: &!(i32)
 ```
 
 #### Linear pointers
 
-```typescript
+```rust
 // `^` means linear pointer
 {
-  let some_i = malloc(sizeof<i32>()); // i: Option<^i32> Linear type
-  let i = some_i.unwrap(); // i: ^i32. Linear type
+  some_i := malloc(sizeof(i32)); // i: Option(^!(i32));
+  i := some_i.unwrap(); // i: ^!(i32); Linear type
 
-  let p1: *i32 = i as *i32; // p: *i32. Free type
+  p := i; // p: ^!(i32). Linear type, ownership is transferred.
+  free(p);
 
-  let p2: *i32 = i; // p: *i32. Free type
-
-  let p3 = i; // p: ^i32. Linear type, ownership is transferred.
-  free(p3);
-
-  println(*p1); // Compile Error: The value it points to is consumed.
+  println(*(i)); // Compile Error: The value it points to is consumed.
 }
 ```
 
@@ -2137,33 +2071,33 @@ expr @constant_ptr_to_i32 = &mut i32_val; // @constant_ptr_to_i32: Expr<&mut i32
 
 - Slice
 
-```typescript
-let arr: i32[5] = [1, 2, 3, 4, 5];
-let slice: &i32[] = &arr[1..4]; // slice: &i32[]. Free type
+```rust
+(arr: Array(i32, 5)) := [1, 2, 3, 4, 5];
+(slice: &(Slice(i32))) := &(arr(1..4)); // slice: &(Slice(i32)). Free type
 ```
 
-- Trait Object
+- Interface Object
 
-```typescript
-trait Animal<Self> {
-  speak: (self: &Self)-> ();
-}
+```rust
+defn Animal(Self: Type): Interface,
+  interface {
+    speak: ((self: &(Self))-> ())
+  };
 
-type Dog = {};
-impl Animal<Dog> {
-  speak: (self)-> {
-    println("Woof");
-  }
-}
-
-expr animal: &dyn Animal = &Dog;
+Dog := struct {};
+impl Animal(Dog), {
+  speak: (fn(self)-> {
+    println("woof");
+  })
+};
+(animal: &(dyn(Animal))) := &(Dog);
 animal.speak();
 ```
 
 - Dynamic sized type
 
-```typescript
-expr s: &str = "Hello, world!";
+```rust
+(s: &(str)) := "Hello, world!";
 ```
 
 ## String
@@ -2172,8 +2106,8 @@ expr s: &str = "Hello, world!";
 
 0 terminated string.
 
-```typescript
-let s = c"Hello"; // s: *u8
+```rust
+s = "Hello".to_cstring(); // s: *u8
 // (const char) *const s1 = "Hello";
 ```
 
@@ -2185,12 +2119,12 @@ This is not a 0 terminated string.
 Similar to the `str` in Rust.
 NOTE: UTF-8 is a variable-width encoding (each character can be 1 to 4 bytes long), so we cannot get the `n`th character like `s[n]`.
 
-```typescript
-let immutable_s = "Hello"; // immutable_s: &str, free type
+```rust
+immutable_s := "Hello"; // immutable_s: &str, free type
 immutable_s.length; // 5
 
 // where it is stored in struct like
-type str = {
+str = struct {
   data: u8;
   length: usize;
 };
@@ -2200,10 +2134,10 @@ type str = {
 
 UTF-8 encoded string.
 
-```typescript
-let s = String.new();
-let s2 = String.from("Hello World!");
-let s3 = s + s2; // Create a new string.
+```rust
+s := String.new();
+s2 := String.from("Hello World!");
+s3 := s + s2; // Create a new string.
 ```
 
 ## Collections `In Design`
@@ -2214,22 +2148,22 @@ let s3 = s + s2; // Create a new string.
 
 This is the dynamic array.
 
-```typescript
-let v: ArrayList<i32, MemoryMode.Arc> = ArrayList<i32, mode: .Arc>.new();
-let v2 = ArrayList.from([1, 2, 3]);
-let value = v2.at(0);
+```rust
+(v: ArrayList(i32, .Arc)) := ArrayList(i32, .Arc).new();
+v2 := ArrayList.from([1, 2, 3]);
+value := v2.at(0);
 ```
 
 #### Map
 
 The unordered map.
 
-```typescript
-let m: Map<String, i32> = Map.new();
-let m2 = Map.from([
-  [String.from("one"), 1],
-  [String.from("two"), 2],
-  [String.from("three"), 3],
+```rust
+(m: Map(String, i32)) = Map.new();
+m2 := Map.from([
+  (String.from("one"), 1),
+  (String.from("two"), 2),
+  (String.from("three"), 3),
 ]);
 
 m.set(String.from("one"), 4);
@@ -2239,63 +2173,64 @@ m.set(String.from("one"), 4);
 
 ### By algebraic effects
 
-```typescript
-type MyError = {message: &str};
-let main = (?throw: Exception<MyError>)-> {
+```rust
+MyError := {
+  message: &(str)
+};
+
+defn main(?(throw): Exception(MyError)), {
   throw({
-    message: "Something went wrong",
+    messaeg: "Something went wrong"
   });
-}
+};
 ```
 
 ### By data type
 
-```typescript
-let divide = (x: i32, y: i32): Result<i32, &str> -> {
-  if y == 0, {
-    Error("Division by zero")
-  }, {
-    Ok(x / y)
-  }
-}
+```rust
+defn divide(x: i32, y: i32): Result(i32, &(str)),
+  if y == 0,
+  then: .Error("Division by zero"),
+  else: .Ok(x / y);
 ```
 
-### The `?` postfix operator
+### The `try` function
 
-```typescript
-let use_safe_divide = (): Result<i32, &str>-> {
-  let result1 = divide(6, 2)?; // 3;
-  let result2 = divide(6, 0)?; // Error("Division by zero");
-  println(result1); // This line and below will not be executed.
-}
+```rust
+defn use_safe_divide(): Result(i32, &(str)), {
+  result1 := try divide(6, 2); // 3
+  result2 := try divide(6, 0); // Error("Division by zero")
+  println(result1); // This line and below will not be executed.  
+};
 ```
 
 ### Recovering from errors with the `??` infix operator
 
-```typescript
-let use_safe_divide = (): i32-> {
-  let result = divide(6, 0) ?? 3; // 3
+```rust
+defn use_safe_divide(): i32, {
+  result := (divide(6, 0) ?? 3 ); // 3
   println(result); // 3
-}
+  return result;
+};
 ```
 
 ## Type casting
 
-Use `as` to cast a value to another type.
+Use `as` function to cast a value to another type.
 
-```typescript
-let x: i32 = 1;
-let y: f32 = x as f32;
+```rust
+(x: i32) := 1;
+(y: f32) := x.as(f32);
 ```
 
 ### Type casting in destructuring
 
-```typescript
-let arr = [1, 2, 3];
-let [x as f32, y, z] = arr;
+```rust
+arr := [1, 2, 3];
+[as(x, f32), y, z] = arr;
 
-let obj = {x: 1, y: 2, z: 3};
-let {x: new_name as f32, mut y, z} = obj;
+obj := {x: 1, y: 2, z: 3};
+{as(x: new_name, f32), mut(y), z} := obj;
 y = 3; // Allowed
 ```
 
@@ -2314,21 +2249,21 @@ Any function that takes a callback as its last argument will be able to use the 
 
 For example, map an array:
 
-```typescript
-let main = ()-> {
-  let array = ArrayList.from([1, 2, 3, 4]);
-  let new_array = array.map((elem)-> elem * 2);
+```rust
+defn main(), {
+  array := ArrayList.from([1, 2, 3, 4]);
+  new_array := array.map(fn(elem)-> (elem * 2));
   println(new_array); // [2, 4, 6, 8]
-}
+};
 ```
 
-```typescript
-let main = ()-> {
-  let array = ArrayList.from([1, 2, 3, 4]);
-  let new_array = {
-    with elem <- array.map(), do:
-    elem * 2
-  }
+```rust
+defn main(), {
+  array := ArrayList.from([1, 2, 3, 4]);
+  new_array := do {
+    elem <- array.map();
+    return elem * 2;
+  };
   println(new_array); // [2, 4, 6, 8]
 }
 ```
@@ -2338,12 +2273,12 @@ let main = ()-> {
 Use `<=` for handling passing closure for `Fn` and `FnMut`
 Use `<<=` for handling passing the closure for `FnOnce`
 
-```typescript
-let some_async_func = ()-> {
-  with response <= fetch("https://api.example.com"), do:
-  with json <= response.json(), do:
+```rust
+defn some_async_func(), do {
+  response <= fetch("https://api.example.com");
+  json <= response.json();
   println(json);
-}
+};
 ```
 
 ### `K` (continuation)
@@ -2351,27 +2286,19 @@ let some_async_func = ()-> {
 NOTE: Let's not use `Future` and `async` here in case we want to support Rust like async/await which uses the state machine.
 QUESTION: We can support `K` type, but should we support `K` block?
 
-```typescript
-let wait_for_seconds = (sec: i32): K<()> -> {
-  K.new((resume)=>> {
-    set_timeout(()=>> {
+```rust
+defn wait_for_seconds(sec: i32): K(()), {
+  K.new(fn(resume)=>> {
+    set_timeout(fn()=>> {
       println(sec);
       resume();
     }, sec * 1000);
-  })
+  });
 }
 
-// IDEA: Simplified syntax by calling function without parenthesis (...)
-let wait_for_seconds = (sec: i32): K<i32>->
-  K.new resume=>> // IDEA: function with 1 argument can define parameters without parenthesis.
-                   // NOTE: This is how the javascript works, 0 or more than 1 argument requires parenthesis.
-    set_timeout ()=>> {
-      resume(sec)
-    }, sec * 1000
-
-let use_wait = ()-> {
+defn use_wait(), do {
   // NOTE: Unlike JavaScript Promise, which starts executing immediately, a `K` in Mo will only start executing when it is `resumed`ed.
-  with sec <- wait_for_seconds(14).resume(), do:
+  sec <- wait_for_seconds(14).resume();
   println(sec);
 }
 ```
@@ -2386,58 +2313,51 @@ QUESTION: Should we allow to `export` a linear type value?
 - To allow import happening in the middle of the code, like inside a function.
 - for consistency with the destructuring. Like for javascript, it uses `import {x as y} from "module.ts"` but destructuring uses `let {x: y} = obj`.
 
-`@import` is used to import a module. It's an `expr` function that accepts a comptime-known string literal.
+```rust
+// module1.mo
+{ copy } := import "https://github.com/mo-lang/mo/std/fs.mo";
 
-```typescript
-let { copy } = @import("https://github.com/mo-lang/mo/std/fs.mo")
-
-let test = ()-> {
+defn test(), {
   println("Hello, world!");
-}
+};
 
-export { test, copy };
+{ test, copy } // The last expression of the module will be exported.
 
+// module2.mo
 // Export the type
-type Option<T> =
-  | .Some(value: T)
-  | .None
-export Option;
+defn Option(T: Type): Type,
+  enum {
+    Some(T),
+    None
+  };
+{ Option }
 
-// Export the trait.
-trait Id<Self: Type> {
-  id: (self: Self)-> Self;
-}
-export Id;
+// module3.mo
+// Export the interface.
+defn Id(Self: Type): Interface,
+  interface {
+    id: ((self: Self)-> Self);
+  };
 
 // Explicitly export the functions defined in the instance.
 // The implementations will be exported implicitly.
-impl Id<i32> {
-  id: (x: i32): i32 -> {
-    x
-  }
-}
+impl Id(i32), {
+  id: (fn(x) -> x)
+};
 
-// Prevent name mangling.
-let x = 1;
-export x;
+{ id }
 ```
 
-```typescript
-let {*} = @import("./test.mo"); // Import everything from test.mo
-let Test = @import("./test.mo"); // Import everything from test.mo and put it in the Test namespace
-let { test } = @import("./test.mo"); // Import test function from test.mo
-let { test: test2 } = @import("./test.mo"); // Import test function from test.mo and rename it to test2
+```rust
 
-let { Option } = @import("./test.mo"); // Import Option type from test.mo
+{*} := import("./test.mo"); // Import everything from test.mo
+Test := import("./test.mo"); // Import everything from test.mo and put it in the Test namespace
+{ test } := import("./test.mo"); // Import test function from test.mo
+{ test: test2 } := import("./test.mo"); // Import test function from test.mo and rename it to test2
 
-/*
-// BELOW ARE IN DESIGN
-let { Option:{Some, None} } = @import("./test.mo"); // Unwrap Some and None variant from Option type from test.mo
-let { Option:{*} } = @import("./test.mo"); // Unwrap all variants from Option type from test.mo
-let { Option:{*}, Option: AnotherOption } = @import("./test.mo"); // Unwrap all variants from Option type, and rename 'Option' to 'AnotherOption' from test.mo
-*/
+{ Option } := import("./test.mo"); // Import Option type from test.mo
 
-let { Id } = @import("./test.mo"); // Import `Id` class from test.mo
+{ Id } := import("./test.mo"); // Import `Id` class from test.mo
 ```
 
 `mo.json` and `mo.lock`
@@ -2462,46 +2382,46 @@ let { Id } = @import("./test.mo"); // Import `Id` class from test.mo
 
 ### Examples
 
-```typescript
-trait Shape<Self> {
-  area: (self: &Self)-> f32;
-}
+```rust
+defn Shape(Self: Type): Interface,
+  interface {
+    area: ((self: &(Self))-> f32)
+  };
 
-type Circle = {
-  radius: f32;
-}
+Circle = struct {
+  radius: f32
+};
+impl Shape(Circle), {
+  area: 
+    (fn(self)-> 
+      3.14 * self.radius * self.radius
+    )
+};
 
-impl Shape<Circle> {
-  area: (self)-> {
-    3.14 * self.radius * self.radius
-  }
-}
-
-type Square = {
+Square := struct {
   side: f32;
-}
-
-impl Shape<Square> {
-  area: (self)-> {
-    self.side * self.side
-  }
-}
+};
+impl Shape(Square), {
+  area:
+    (fn(self) ->
+      self.side * self.side  
+    )
+};
 
 // Static dispatch
 // Similar to C++'s template
-let print_area = <T impl Shape>(shape: &T)-> {
-  println(shape.area());
-}
+forall ((T: Type) <: Shape),
+  defn print_area(shape: &(T)),
+    println(shape.area());
 // or
 // NOTE: Below is not going to be implemented for now.
-let print_area = (shape: &(impl Shape))-> { // This will omit type parameter, and you cannot pass type argument to it.
-  println(shape.area());
-}
+defn print_area(shape: &(impl(Shape))), // This will omit type parameter, and you cannot pass type argument to it.
+  printl(shape.area());
 
-let circle: Circle = Circle { radius: 1.0 };
-let square: Square = Square { side: 2.0 };
-print_area(&circle);
-print_area(&square);
+(circle: Circle) := Circle { radius: 1.0 };
+(square: Square) := Square { side: 2.0 };
+print_area(&(circle));
+print_area(&(square));
 
 // Dynamic Dispatch - Needs design.
 // NOTE: Here we use (dyn Class) as type, so it becomes dynamic dispatch.
@@ -2517,63 +2437,60 @@ void print_area(Shape* shape) {
   printf("%f\n", shape->area(shape->data));
 }
 */
-let print_area = (shape: &(dyn Shape))-> {
+defn print_area(shape: &(dyn(Shape))),
   println(shape.area());
-}
 
 [ // NOTE: We have to add `&` ahead dynamic Trait as it's unsized. It works similar to slice that requires `&` ahead.
   &(circle),
   &(square),
-] as (&(dyn Shape))[] |> (shapes)-> {
+].as((&(Slice(dyn(Shape))))) |> (fn(shapes)-> {
   shapes[0].print_area();
   shapes[1].print_area();
-}
+});
 
 // With multiple classes
-let print_area = (shape: &(dyn Shape & Display))-> {
+defn print_area(shape: &(dyn(Shape & Display))),
   println(shape.area());
-}
 
 // ADT
-type MyShape =
-  | .MyCircle(Circle)
-  | .MySquare(Square)
+MyShape := enum {
+  MyCircle(Circle),
+  MySquare(Square)
+};
 
 // IDEA: The trait could be automatically implemented.
 // IDEA: So when we see the definition of `MyShape` above, we could say its `.value` already implemented the `Shape` trait. So it's legit to call `my_shape.value.area()` on it.
-impl Shape<MyShape>{
-  area: (self)-> {
-    match self {
-      case .MyCircle(value): value.area(),
-      case .MySquare(value): value.area(),
-    }
+impl Shape(MyShape), {
+  area: (fn(self)-> {
+    match self,
+      .MyCircle(value) -> value.area(),
+      .MySquare(value) -> value.area(),
     // or directly:
     // self.value.area()
-  }
+  })
 }
-let shapes2: MyShape[] = [
+(shapes2: Array(MyShape, 2)) := [
   MyShape.MyCircle(circle),
   MyShape.MySquare(square),
 ]
-shapes2[0].area();
-shapes2[1].area();
+shapes2(0).area();
+shapes2(1).area();
 ```
 
 ## Attributes
 
 Attributes are defined with the `@` symbol.
 
-```typescript
-@doc(`Add two numbers`)
-let add = (x: i32, y: i32): i32 -> {
-  return x + y;
-}
+```rust
+@doc("Add two numbers");
+defn add(x: i32, y: i32): i32,
+  x + y;
 
 @derive(Eq, Ord)
-type Centimeters = i32;
+Centimeters := i32;
 
 
-impl Drop<i32> {
+impl Drop(i32), {
   @noop() // ignored by the compiler when generating C code
   drop: (value)-> {}
 }
@@ -2583,14 +2500,14 @@ impl Drop<i32> {
 
 ### To C
 
-```typescript
+```rust
 @c_name("c_add_numbers") // Export to C with the name `c_add_numbers`
-let add_numbers = (a: i32, b: i32): i32 -> {
+defn add_numbers(a: i32, b: i32): i32, {
   return a + b;
 }
 
 @c_name("some_struct_t") // Export to C with the name `some_struct_t`
-type SomeStruct = {
+SomeStruct := struct {
   @c_name("another_name") // Export to C with the name `another_name`
   a: i32,
 
@@ -2612,12 +2529,12 @@ struct some_struct_t {
 };
 ```
 
-```typescript
-let {*} = @import("./some_c.h");
+```rust
+{*} := import("./some_c.h");
 
 extern "C" {
   @c_name("add_numbers") // Import from C with the name `add_numbers`
-  my_add_numbers: (a: i32, b: i32)-> i32, // Import from C
+  my_add_numbers: ((a: i32, b: i32)-> i32), // Import from C
 
   @c_name("some_struct_t") // Import from C with the name some_struct_t
   my_some_struct_t: {
@@ -2626,7 +2543,7 @@ extern "C" {
 
     b: i32,
     c: i32,
-  };
+  }
 }
 
 my_add_numbers(1, 2); // calling add_numbers from C
@@ -2634,11 +2551,11 @@ my_add_numbers(1, 2); // calling add_numbers from C
 
 - printf
 
-```typescript
-let {*} = @import("stdio.h");
+```rust
+{*} := import("stdio.h");
 extern "C" {
-  printf: (format: *u8, ...args)-> i32;
-}
+  printf: ((format: *u8, ...args)-> i32)
+};
 ```
 
 ## Naming Convention
@@ -2681,12 +2598,12 @@ We might support compiling to LLVM IR in the future.
 `unquote` can only be used in `quote`.  
 `unquote_splicing` can only be used in `quote` to splice the values into the AST.
 
-```typescript
-let x = 1;
+```rust
+x := 1;
 
-let list = quote([0, unquote(x), 2]); // [0, 1, 2]
+list := quote([0, unquote(x), 2]); // [0, 1, 2]
 
-let list2 = quote([0, x, 2]); // [0, [:variable, :x], 2]
+list2 = quote([0, x, 2]); // [0, [:variable, :x], 2]
 
 quote([0, unquote_splicing(list), 4]); // [0, 1, 2, 3, 4]
 ```
@@ -2695,24 +2612,24 @@ quote([0, unquote_splicing(list), 4]); // [0, 1, 2, 3, 4]
 
 1. Type inference
 
-   ```typescript
-   let x = 5; // x: i32
-   let y: _ = 5; // y: i32
+   ```rust
+   x := 5; // x: compt(i32)
+   (y: _) := 5; // y: compt(i32)
    ```
 
 2. Placeholder in generics
 
-   ```typescript
-   let v = ArrayList<i32>.from([1, 2, 3]); // v: ArrayList<i32>
-   let v2: ArrayList<_> = v.iter().map((x)=> x * 2).collect(); // v2: ArrayList<i32>
+   ```rust
+   v := ArrayList(i32).from([1, 2, 3]); // v: ArrayList<i32>
+   (v2: ArrayList(_)) := v.iter().map(fn(x)=> (x * 2)).collect(); // v2: ArrayList<i32>
 
-   Id<_>.id(15); // Id<i32>.id(15);
+   Id(_).id(15); // Id<i32>.id(15);
    ```
 
 3. Ignore value
 
-   ```typescript
-   let(a, _, c) = (1, 2, 3); // a: i32, c: i32
+   ```rust
+   (a, _, c) := (1, 2, 3); // a: i32, c: i32
    ```
 
 ### Macro
@@ -2721,25 +2638,22 @@ QUESTION: Should we allow `macro`? It brings a lot of complexity to the language
 
 Use the `macro` keyword to define a macro.
 
-```typescript
-export macro my_if(condition, then) {
+```rust
+defn my_if(quote(condition), quote(then)),
   quote {
-    if unquote(condition) unquote(then)
-  }
-}
+    if unquote(condition), unquote(then)
+  };
 
 my_if true, {
   println("true");
-}
+};
 
-export macro my_if(condition, then: then_clause, else: else_clause) {
+defn my_if(quote(condition), quote(then), quote(else)),
   quote {
-    match unquote(condition) {
-      case true: unquote(then_clause),
-      default: unquote(else_clause)
-    }
-  }
-}
+    match unquote(condition),
+      true -> unqoute(then),
+      _ -> unquote(else)
+  };
 
 my_if true, then: {
   println("true");
@@ -2747,42 +2661,11 @@ my_if true, then: {
   println("false");
 }
 
-export macro unless(condition, do) {
+defn unless(quote(condition), quote(do)),
   quote {
-    my_if (!unquote(condition), do: unquote(do))
+    my_if(!(unquote(condition)), do: unquote(do))
   }
-}
 ```
-
-IDEA: Use the `expr` keyword to support compiletime evaluation.
-
-```typescript
-let test = ()-> {
-  let x = 1;
-  expr @x_type = @typeof(x); // x_type: Expr<Type>
-  @if(@type_eq(@x_type, i32), then: {
-    println("x is i32");
-  }, else: {
-    println("x is not i32");
-  });
-}
-
-// compatible with C preprocessor
-@ifdef(
-  @DEBUG,
-  then: {
-    println("Debug mode");
-  },
-  else: {
-    expr @DEBUG = true;
-    println("Release mode");
-  }
-)
-
-@DEBUG; // "true"
-@__FILE__; // "main.mo"
-```
-
 ## References
 
 - [Ocaml Locality](https://blog.janestreet.com/oxidizing-ocaml-locality/)
