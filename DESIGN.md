@@ -660,7 +660,6 @@ defn test(), {
 
 ### `use` statement
 
-
 ```rust
 defn return_self(v: &(String)): &(String), v;
 
@@ -740,7 +739,7 @@ defn identity(T: Type, arg: T): T,
   arg;
 /// or using forall
 forall (T: Type),
-  defn identity_with_for_all(arg: T): T, 
+  defn identity_with_for_all(arg: T): T,
     arg;
 
 x := identity(i32, 12); // x: i32
@@ -757,7 +756,7 @@ defn divide(x: i32, y: NotZero): i32,
   x / y;
 
 // Type constraint
-forall ((T: Type) <: Integral), 
+forall ((T: Type) <: Integral),
   defn add(x: T, y: T): T, {
     return x + y;
   };
@@ -820,7 +819,7 @@ defn some_async_func(?(_): Async(i32)): i32, {
 
 ```rust
 // id.mo
-defn Id(Self: Type), 
+defn Id(Self: Type),
   interface {
     id: ((self: Self)-> Self)
   };
@@ -928,7 +927,7 @@ Record field access has higher priority than the free function and trait method.
 
 ```rust
 S := {
-  (method: (()-> ())) = 
+  (method: (()-> ())) =
     (fn()-> println("Record method"))
 }
 
@@ -936,9 +935,9 @@ method := (fn(s: S)-> {
   println("Free function");
 })
 
-SomeInterface := fn(Self: Type)-> 
+SomeInterface := fn(Self: Type)->
   interface {
-    (method: (self: &(Self))-> ()) = 
+    (method: (self: &(Self))-> ()) =
       fn()-> println("Trait method")
   }
 
@@ -1097,7 +1096,7 @@ i32_array.length; // 5, compile-time known
 
 (i32_array2 : Array(i32, _)) = [1, 2, 3]; // i32_array2: Array(i32, 3)
 
-immutabl_i32_array := [1, 2, 3, 4, 5]; // immutabl_i32_array: i32[5]. Free type
+immutabl_i32_array := [1, 2, 3, 4, 5]; // immutabl_i32_array: Array(i32, 5). Free type
                                             // In C: const int immutabl_i32_array[5] = {1, 2, 3, 4, 5};
 
 // Convert from array to slice using `&`
@@ -1214,31 +1213,26 @@ QUESTION: Should we make the captures explicit?
 Examples:
 
 ```rust
-let test = ()-> {
-  var x = 1;
+defn test(), {
+  mut(x) := 1;
 
-  (a: i32)-> {
-    // :: FnMut<(a: i32)-> ()>
-    // let {x} = increment;
-    x = x + a;
-  } |> (increment)-> {
+  use fn(a: i32)=> {
+    *(x) = *(x) + a;
+  }, (increment)-> {
     increment(1);
     increment(2);
-  }
-
+  };
   // x == 4
-}
+};
 ```
 
 ```rust
-let test = ()-> {
-  var x: Data = malloc(); // Some `Fake` Data.
+defn test(), {
+  (x: Data) := malloc(); // Some `Fake` Data.
 
-  var increment = () =>> {
-    // :: FnOnce()->()
-    // let {x} = increment;
+  increment := (fn() => {
     drop(x);
-  }
+  });
   increment(); //
   increment(); // Compiler Error: closure is already consumed.
 }
@@ -1277,7 +1271,7 @@ defn show_compare((T: Type) <: (Show & Ord), x: T, y: T): String,
 ;
 
 // Instance dependencies
-forall ((A: Type) <: Show, size: compt(usize)), 
+forall ((A: Type) <: Show, size: compt(usize)),
   impl Show(Array(A, size)), {
     show: (fn(self)-> {
       // ...
@@ -1295,7 +1289,7 @@ forall ((A: Type) <: Show,
 
 ```rust
 // show.mo
-defn Show(Self: Type): Interface, 
+defn Show(Self: Type): Interface,
   interface {
     show: ((self: &(Self))-> String)
   };
@@ -1325,7 +1319,7 @@ forall ((T: Type) <: Show, size: compt(usize)), defn show(x: Array(T, size)): St
 
 
 { Show } = import "./show.mo";
-forall ((T: Type) <: (Ord & Show)), 
+forall ((T: Type) <: (Ord & Show)),
   defn less_than(x: T, y: T): boolean, {
     println(x.show());
     return x < y;
@@ -1389,7 +1383,6 @@ defn factorial(n: i32): i32, {
 
 #### Iterator (for...in)
 
-
 ```rust
 arr := ArrayList.from([1, 2, 3, 4, 5]);
 for arr.iter(), (value)-> { // NOTE: arr.iter() returns a record that contains `&` reference to `arr`
@@ -1409,7 +1402,7 @@ for mut_arr.iter_mut(), (value)-> {
 `let...of...` requires the `impl Iterator` or `impl IntoIterator` trait.
 
 ```rust
-defn Iterator(Self: Type): Interface, 
+defn Iterator(Self: Type): Interface,
   interface {
     Item: Type;
     next: (self: &!(Self))-> Option(this.Item);
@@ -1455,7 +1448,7 @@ type Language = Lang<(year: i32)>;
 // Language is equal to
 type Language = { language: String; year: i32 };
 */
-defn Lang(T: Type): Type, 
+defn Lang(T: Type): Type,
   { language: String } & T; // Intersection types
 Language := Lang({year: i32});
 // Language is equal to
@@ -1525,7 +1518,7 @@ home := IpAddr.V4 (127, 0, 0, 1);
 loopback := IpAddr.V6 String.from("::1");
 
 // Use record as variant
-Message := 
+Message :=
   enum {
     Quit,
     Move({ x: i32, y: i32 }),
@@ -1541,19 +1534,15 @@ m := Message.ChangeColor { r: 1, g: 2, b: 3 };
 ### Type parameters for specific variant
 
 ```rust
-type MixedData =
-  | .NoForall(i32, String),
-  | .WithForall<T impl Show>(a: T)
-
 MixedData :=
   enum {
-    NoForAll((i32, String)),
-    WithForall: (forall ((T: Type) <: Show), 
+    NoForall((i32, String)),
+    WithForall: (forall ((T: Type) <: Show),
                   (a: T)-> MixedData)
   };
 
 
-let mixed = MixedData.WithForall(12); // mixed: MixedData.WithForall<i32>
+mixed := MixedData.WithForall(12); // mixed: MixedData.WithForall(i32)
 ```
 
 ## C struct
@@ -1668,23 +1657,26 @@ result := divide(10, 2); // Valid
 ```
 
 ```rust
-type NaturalNumber = i32 where this >= 0;
-type PositiveNumber = i32 where this > 0;
-type Equal<n: i32> = i32 where this == n;
-type Index<T: Type, a: T[]> = NatureNumber where this < a.length();
-type NotEmptyArray<T> = T[] where this.length() > 0;
+NaturalNumber := (i32 |: @ >= 0);
+PositiveNumber := (i32 |: @ > 0);
+forall (n: i32),
+  Equal := (i32 |: @ == n);
+forall (T: Type, a: Array(T, _)),
+  Index := NaturalNumber |: @ < a.length();
+forall (T: Type),
+  NotEmptyArray := Array(T, _) |: @.length() > 0;
 
-let get = <T, a: T[]>(index: Index<T, a>, array: a): T -> {
-  return array[index];
-}
+forall (T: Type, a: Array(T, _)),
+  defn get(index: Index(T, a), array: a): T,
+    array(index);
 
-let set = <T, a: T[]>(index: Index<T, a>, array: a, value: T)-> {
-  return array[index] = value;
-}
+forall (T: Type, a: Array(T, _)),
+  defn set(index: Index(T, a), array: a, value: T): a,
+    array(index) = value;
 
-let head = <T>(array: NotEmptyArray<T>): T -> {
-  return array[0];
-}
+forall (T: Type),
+  defn head(array: NotEmptyArray(T)): T,
+    array(0);
 ```
 
 ### Higher Kinded Types
@@ -1726,7 +1718,7 @@ eval(expr1); // false
 Interface works similarly to the Trait in Rust.
 
 ```rust
-defn Summary(Self: Type): Interface, 
+defn Summary(Self: Type): Interface,
   interface {
     summarize: ((self: &(Self))-> String)
   };
@@ -1787,7 +1779,7 @@ ANSWER: Yes we allow
 defn MyType(T: Type): Type,
   struct { value: T };
 
-forall (T: Type), 
+forall (T: Type),
   impl MyType(T), {
     // `this` here means `MyType<T>`.
     new: ((fn(value: T): this)-> {
@@ -1868,7 +1860,7 @@ This is useful for resolving conflicts when implementing multiple classes for th
 
 ```rust
 // id.mo
-defn Id(Self: Type), 
+defn Id(Self: Type),
   interface {
     id: ((self: &(Self))-> Self)
   };
@@ -1903,16 +1895,16 @@ MyIdImplementation.id(&(12)); // 13
 // Functor
 defn Functor(Wrapper: ((Type)-> Type)): Interface,
   interface {
-    map: (forall 
-            (A: Type, B: Type), 
+    map: (forall
+            (A: Type, B: Type),
             (fa: Wrapper(A), f: ((a: A)-> B))
               -> Wrapper(B))
   };
 
 impl Functor(Maybe), {
-  map: (forall 
+  map: (forall
         (A: Type, B: Type),
-        (fn(fa: Maybe(A), f: ((a: A)-> B)): Maybe(B)) -> 
+        (fn(fa: Maybe(A), f: ((a: A)-> B)): Maybe(B)) ->
           match fa,
             .Just(value) -> .Just(f(value)),
             .Nothing     -> .Nothing)
@@ -1981,6 +1973,8 @@ defn check_int(x: i32),
 ```
 
 ## Guard
+
+QUESTION: Should we use `|-` operator instead to represent the `assert` meaning?
 
 1. Using `|:` which means `given` for guard
 
@@ -2197,10 +2191,10 @@ defn divide(x: i32, y: i32): Result(i32, &(str)),
 ### The `try` function
 
 ```rust
-defn use_safe_divide(): Result(i32, &(str)), {
-  result1 := try divide(6, 2); // 3
-  result2 := try divide(6, 0); // Error("Division by zero")
-  println(result1); // This line and below will not be executed.  
+defn use_safe_divide(): Result(i32, &(str)), do {
+  result1 <- try divide(6, 2); // 3
+  result2 <- try divide(6, 0); // Error("Division by zero")
+  println(result1); // This line and below will not be executed.
 };
 ```
 
@@ -2392,8 +2386,8 @@ Circle = struct {
   radius: f32
 };
 impl Shape(Circle), {
-  area: 
-    (fn(self)-> 
+  area:
+    (fn(self)->
       3.14 * self.radius * self.radius
     )
 };
@@ -2404,7 +2398,7 @@ Square := struct {
 impl Shape(Square), {
   area:
     (fn(self) ->
-      self.side * self.side  
+      self.side * self.side
     )
 };
 
@@ -2444,8 +2438,8 @@ defn print_area(shape: &(dyn(Shape))),
   &(circle),
   &(square),
 ].as((&(Slice(dyn(Shape))))) |> (fn(shapes)-> {
-  shapes[0].print_area();
-  shapes[1].print_area();
+  shapes(0).print_area();
+  shapes(1).print_area();
 });
 
 // With multiple classes
@@ -2501,12 +2495,12 @@ impl Drop(i32), {
 ### To C
 
 ```rust
-@c_name("c_add_numbers") // Export to C with the name `c_add_numbers`
+@c_name("c_add_numbers") <| // Export to C with the name `c_add_numbers`
 defn add_numbers(a: i32, b: i32): i32, {
   return a + b;
 }
 
-@c_name("some_struct_t") // Export to C with the name `some_struct_t`
+@c_name("some_struct_t") <| // Export to C with the name `some_struct_t`
 SomeStruct := struct {
   @c_name("another_name") // Export to C with the name `another_name`
   a: i32,
@@ -2533,17 +2527,17 @@ struct some_struct_t {
 {*} := import("./some_c.h");
 
 extern "C" {
-  @c_name("add_numbers") // Import from C with the name `add_numbers`
-  my_add_numbers: ((a: i32, b: i32)-> i32), // Import from C
+  @c_name("add_numbers") <| // Import from C with the name `add_numbers`
+  (my_add_numbers: ((a: i32, b: i32)-> i32)), // Import from C
 
-  @c_name("some_struct_t") // Import from C with the name some_struct_t
-  my_some_struct_t: {
-    @c_name("a") // Import from C with the name `a`
+  @c_name("some_struct_t") <| // Import from C with the name some_struct_t
+  (my_some_struct_t: {
+    @c_name("a") <| // Import from C with the name `a`
     my_a: i32,
 
     b: i32,
     c: i32,
-  }
+  })
 }
 
 my_add_numbers(1, 2); // calling add_numbers from C
@@ -2598,14 +2592,17 @@ We might support compiling to LLVM IR in the future.
 `unquote` can only be used in `quote`.  
 `unquote_splicing` can only be used in `quote` to splice the values into the AST.
 
+- `:` : `quote`
+- `$` : `unquote`
+
 ```rust
-x := 1;
+x := 2;
 
-list := quote([0, unquote(x), 2]); // [0, 1, 2]
+list := :((1, $(x), 3)); // tuple (1, 2, 3)
 
-list2 = quote([0, x, 2]); // [0, [:variable, :x], 2]
+list2 = :((1, x, 3)); // tuple (1, :(x), 3)
 
-quote([0, unquote_splicing(list), 4]); // [0, 1, 2, 3, 4]
+:((0, ...($(list.args)), 4)); // tuple (0, 1, 2, 3, 4)
 ```
 
 ### Underscore
@@ -2634,38 +2631,47 @@ quote([0, unquote_splicing(list), 4]); // [0, 1, 2, 3, 4]
 
 ### Macro
 
-QUESTION: Should we allow `macro`? It brings a lot of complexity to the language.
+QUESTION: Should we just use `quote` instead of `quasiquote`?
 
 Use the `macro` keyword to define a macro.
 
+- `:` : `quote`
+- ~~`::` : `quasiquote`~~
+- `$` : `unquote`
+- ~~`...$` : `unquote_splicing`~~
+
+`unquote` and `unquote_splicing` can only be used in `quote`.
+
 ```rust
 defn my_if(quote(condition), quote(then)),
-  quote {
+  quote
     if unquote(condition), unquote(then)
-  };
+  ;
 
 my_if true, {
   println("true");
 };
 
 defn my_if(quote(condition), quote(then), quote(else)),
-  quote {
+  quote
     match unquote(condition),
       true -> unqoute(then),
       _ -> unquote(else)
-  };
+  ;
 
 my_if true, then: {
   println("true");
 }, else: {
   println("false");
-}
+};
 
 defn unless(quote(condition), quote(do)),
-  quote {
+  quote
     my_if(!(unquote(condition)), do: unquote(do))
-  }
+  ;
+
 ```
+
 ## References
 
 - [Ocaml Locality](https://blog.janestreet.com/oxidizing-ocaml-locality/)

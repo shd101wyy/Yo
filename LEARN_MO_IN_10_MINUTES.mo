@@ -610,13 +610,13 @@ match division_result,
 
 // Macro function definition
 // all of its parameters and return type are compt(Expr)
-// The `unquote` function is only allowed to be used inside the `quasiquote` function.  
+// The `unquote` function is only allowed to be used inside the `quote` function.  
 // And if the return value is declared with `unquote`, then it's a macro function.  
 defn if(quote(condition): compt(Expr), 
       quote(then): compt(Expr), 
       quote(else): compt(Expr))
     : (unqoute(_): compt(Expr)),
-  quasiquote(
+  quote(
     cond  unquote(condition) -> unquote(then),
           true -> unquote(else));
 
@@ -676,11 +676,11 @@ e := Expr.FuncCall {
 e.to_string(); // "add(1, 2)"
 
 // More metaprogramming examples
-// `quasiquote` allows creating code templates with holes
-// `unquote` evaluates expressions inside quasiquoted expressions
+// `quote` allows creating code templates with holes
+// `unquote` evaluates expressions inside quoted expressions
 x := quote(5);
 y := quote(10);
-template := quasiquote(add(unquote(x), unquote(y)));
+template := quote(add(unquote(x), unquote(y)));
 // =>
 template := Expr.FuncCall {
   func: Box(.Atom(.Symbol(symbol(add)))),
@@ -692,10 +692,10 @@ template := Expr.FuncCall {
 
 // `unquote_splicing` splices a list into the surrounding list
 x := 2;
-(args : Expr) := (quote (1, x, 3)); // quote returns a Expr type value representing the AST.
-call := quasiquote(sum(unquote_splicing(args), 4, 5));
+(arg_tuple : Expr) := (quote (1, x, 3)); // quote returns a Expr type value representing the AST.
+call := quote(sum(unquote_splicing(arg_tuple.args), 4, 5));
 // or with ... operator
-call := quasiquote(sum(...(args), 4, 5));
+call := quote(sum(...(unquote(arg_tuple.args)), 4, 5));
 
 // =>
 (call : Expr) := .FuncCall {
@@ -711,11 +711,11 @@ call := quasiquote(sum(...(args), 4, 5));
 
 // Generate a sequence of operations
 ops := [quote(add), quote(sub), quote(mul)];
-generate_math := quasiquote(
+generate_math := quote(
   {
     unquote_splicing(
       ops.map(fn(op)->
-        quasiquote(
+        quote(
           std.println((unquote(op) <> " result: ") <>
             to_string(unquote(Expr.Atom(.Symbol(op)))(10, 5)))
         )
