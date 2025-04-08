@@ -14,16 +14,28 @@ import {
 import Parser from "./parser";
 import { Token, TokenType } from "./token";
 import {
+  createFunctionType,
   createTupleType,
+  FunctionParameter,
+  TBoolean,
   TFree,
+  TI16,
   TI32,
+  TI64,
+  TI8,
+  TIsize,
   TLinear,
   TType,
+  TU16,
+  TU32,
+  TU64,
+  TU8,
   TUnit,
+  TUsize,
+  Type,
   typeOfType,
   TypeTag,
 } from "./type-checker";
-import { Value } from "./value";
 
 /**
  * This class is responsible for:
@@ -54,6 +66,11 @@ export default class Evaluator {
     this.evaluateProgram();
   }
 
+  // Add a public method to get the program
+  public getProgram(): Expr[] {
+    return this.program;
+  }
+
   private formatErrorMessage(token: Token, errorMessage: string) {
     return formatErrorMessage({
       token,
@@ -64,6 +81,7 @@ export default class Evaluator {
   }
 
   private evaluateIntegerLiteral(expr: AtomExpr): AtomExpr {
+    /*
     if (expr.token.type === TokenType.Integer) {
       const integerValue = parseInt(expr.token.value, 10);
       const value: Value = {
@@ -80,6 +98,12 @@ export default class Evaluator {
         `Expected integer literal, got ${expr.tag}`
       );
     }
+    */
+
+    throw this.formatErrorMessage(
+      expr.token,
+      `Expected integer literal, got ${expr.tag}`
+    );
   }
 
   private evaluateTuple({
@@ -255,7 +279,7 @@ export default class Evaluator {
       });
       env = nextExpr.env || env;
       const typeValue = nextExpr.value;
-      if (!typeValue) {
+      if (!typeValue || typeValue.tag !== TypeTag.Type) {
         throw this.formatErrorMessage(
           typeExpr.token,
           `Expected type, got:\n${exprToString(typeExpr)}`
@@ -267,12 +291,13 @@ export default class Evaluator {
         variable: {
           name,
           token: nameExpr.token,
-          type: typeValue.type,
+          type: typeValue.value,
           isMutable: false,
           isNotInitialized: true,
-          value: typeValue,
         },
       });
+
+      nameExpr.type = typeValue.value;
       env = nextEnv;
       expr.env = env;
     }
@@ -288,36 +313,330 @@ export default class Evaluator {
     env: Environment;
   }): AtomExpr {
     const identifier = expr.token.value;
+    // Free
     if (identifier === TypeTag.Free) {
       expr.value = {
-        tag: TypeTag.Free,
-        value: TFree,
+        tag: TypeTag.Type,
         type: typeOfType(TFree),
+        value: TFree,
       };
-      expr.type = expr.value.type;
+      expr.type = typeOfType(TFree);
       return expr;
-    } else if (identifier === TypeTag.Linear) {
-      expr.value = {
-        tag: TypeTag.Linear,
-        value: TLinear,
-        type: typeOfType(TLinear),
-      };
-      expr.type = expr.value.type;
-      return expr;
-    } else if (identifier === TypeTag.Type) {
+    }
+    // Linear
+    else if (identifier === TypeTag.Linear) {
       expr.value = {
         tag: TypeTag.Type,
-        value: TType,
-        type: typeOfType(TType),
+        type: typeOfType(TLinear),
+        value: TLinear,
       };
-      expr.type = expr.value.type;
+      expr.type = typeOfType(TLinear);
       return expr;
-    } else {
+    }
+    // Type
+    else if (identifier === TypeTag.Type) {
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(TType),
+        value: TType,
+      };
+      expr.type = typeOfType(TType);
+      return expr;
+    }
+    // boolean
+    else if (identifier === TypeTag.Boolean) {
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(TBoolean),
+        value: TBoolean,
+      };
+      expr.type = typeOfType(TBoolean);
+      return expr;
+    }
+    // usize
+    else if (identifier === TypeTag.Usize) {
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(TUsize),
+        value: TUsize,
+      };
+      expr.type = typeOfType(TUsize);
+      return expr;
+    }
+    // isize
+    else if (identifier === TypeTag.Isize) {
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(TIsize),
+        value: TIsize,
+      };
+      expr.type = typeOfType(TIsize);
+      return expr;
+    }
+    // u8
+    else if (identifier === TypeTag.U8) {
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(TU8),
+        value: TU8,
+      };
+      expr.type = typeOfType(TU8);
+      return expr;
+    }
+    // i8
+    else if (identifier === TypeTag.I8) {
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(TI8),
+        value: TI8,
+      };
+      expr.type = typeOfType(TI8);
+      return expr;
+    }
+    // u16
+    else if (identifier === TypeTag.U16) {
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(TU16),
+        value: TU16,
+      };
+      expr.type = typeOfType(TU16);
+      return expr;
+    }
+    // i16
+    else if (identifier === TypeTag.I16) {
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(TI16),
+        value: TI16,
+      };
+      expr.type = typeOfType(TI16);
+      return expr;
+    }
+    // u32
+    else if (identifier === TypeTag.U32) {
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(TU32),
+        value: TU32,
+      };
+      expr.type = typeOfType(TU32);
+      return expr;
+    }
+    // i32
+    else if (identifier === TypeTag.I32) {
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(TI32),
+        value: TI32,
+      };
+      expr.type = typeOfType(TI32);
+      return expr;
+    }
+    // u64
+    else if (identifier === TypeTag.U64) {
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(TU64),
+        value: TU64,
+      };
+      expr.type = typeOfType(TU64);
+      return expr;
+    }
+    // i64
+    else if (identifier === TypeTag.I64) {
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(TI64),
+        value: TI64,
+      };
+      expr.type = typeOfType(TI64);
+      return expr;
+    }
+    // error
+    else {
       throw this.formatErrorMessage(
         expr.token,
         `'evaluateIdentifier' Not implemented for identifier: ${identifier}`
       );
     }
+  }
+
+  private evaluateFunctionType({
+    expr,
+    env,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, "->", 2)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected -> for function type, got:\n${exprToString(expr)}`
+      );
+    }
+
+    const argListExpr = expr.args[0];
+    const returnTypeExpr = expr.args[1];
+
+    // Evaluate the return type expression
+    const evaluatedReturnType = this.evaluateExpression({
+      expr: returnTypeExpr,
+      env,
+    });
+
+    // Check that the return type is indeed a type
+    if (
+      !evaluatedReturnType.value ||
+      evaluatedReturnType.value.tag !== TypeTag.Type
+    ) {
+      throw this.formatErrorMessage(
+        returnTypeExpr.token,
+        `Expected a type for function return type, got:\n${exprToString(
+          returnTypeExpr
+        )}`
+      );
+    }
+
+    const returnType = evaluatedReturnType.value.value;
+
+    // Handle different forms of parameter lists
+    const functionParameters: FunctionParameter[] = [];
+
+    if (
+      exprIsFunctionCall(argListExpr) &&
+      exprIsFunctionCallOf(argListExpr, BuiltinCollections.Tuple)
+    ) {
+      // Handle tuple-style parameter list: (param1: Type1, param2: Type2)
+      const argList = argListExpr.args;
+
+      for (let i = 0; i < argList.length; i++) {
+        const arg = argList[i];
+        let paramName: string | undefined = undefined;
+        let paramType: Type | undefined = undefined;
+        let isMutable = false;
+        let paramNameExpr: Expr | undefined = undefined;
+
+        if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, ":", 2)) {
+          // Parameter with name and type: paramName: Type
+          paramNameExpr = arg.args[0];
+          const paramTypeExpr = arg.args[1];
+
+          // Check if the parameter is mutable (mut(paramName): Type)
+          if (
+            exprIsFunctionCall(paramNameExpr) &&
+            exprIsFunctionCallOf(paramNameExpr, "mut", 1)
+          ) {
+            isMutable = true;
+            paramNameExpr = paramNameExpr.args[0];
+          }
+
+          // Extract parameter name
+          if (!exprIsAtom(paramNameExpr)) {
+            throw this.formatErrorMessage(
+              paramNameExpr.token,
+              `Expected identifier for parameter name, got:\n${exprToString(
+                paramNameExpr
+              )}`
+            );
+          }
+          paramName = paramNameExpr.token.value;
+
+          // Evaluate the parameter type
+          const evaluatedParamType = this.evaluateExpression({
+            expr: paramTypeExpr,
+            env,
+          });
+
+          if (
+            !evaluatedParamType.value ||
+            evaluatedParamType.value.tag !== TypeTag.Type
+          ) {
+            throw this.formatErrorMessage(
+              paramTypeExpr.token,
+              `Expected a type for parameter type, got:\n${exprToString(
+                paramTypeExpr
+              )}`
+            );
+          }
+
+          paramType = evaluatedParamType.value.value;
+        } else {
+          // Just a type without a name, evaluate it directly
+          const evaluatedType = this.evaluateExpression({
+            expr: arg,
+            env,
+          });
+
+          if (
+            !evaluatedType.value ||
+            evaluatedType.value.tag !== TypeTag.Type
+          ) {
+            throw this.formatErrorMessage(
+              arg.token,
+              `Expected a type for parameter, got:\n${exprToString(arg)}`
+            );
+          }
+
+          paramType = evaluatedType.value.value;
+        }
+
+        if (!paramType) {
+          throw this.formatErrorMessage(
+            arg.token,
+            `Could not determine parameter type for parameter ${i + 1}`
+          );
+        }
+
+        const functionParameter: FunctionParameter = {
+          name: paramName,
+          type: paramType,
+          isMutable,
+        };
+
+        functionParameters.push(functionParameter);
+
+        // Add functionParameter to the environment
+        if (paramName) {
+          const { env: nextEnv } = addVariableToEnv({
+            env,
+            variable: {
+              name: paramName,
+              token: arg.token,
+              type: paramType,
+              isMutable,
+              isNotInitialized: true,
+            },
+          });
+          env = nextEnv;
+        }
+
+        // Update the tokens
+        if (paramNameExpr) {
+          paramNameExpr.type = paramType;
+        }
+      }
+    } else {
+      throw this.formatErrorMessage(
+        argListExpr.token,
+        `Expected (...) for function parameters, got:\n${exprToString(
+          argListExpr
+        )}`
+      );
+    }
+
+    // Create the function type
+    const functionType = createFunctionType(functionParameters, returnType);
+
+    // Set the type and value of the expression
+    expr.type = typeOfType(functionType);
+    expr.value = {
+      tag: TypeTag.Type,
+      type: typeOfType(functionType),
+      value: functionType,
+    };
+
+    return expr;
   }
 
   private evaluateExpression({
@@ -347,9 +666,12 @@ ${exprToString(expr)}`
         }
       }
     } else {
-      if (exprIsFunctionCallOf(expr, ":=")) {
+      if (exprIsFunctionCallOf(expr, ":=", 2)) {
         // Variable assignment
         return this.evaluateInitializationAssignment({ expr, env });
+      } else if (exprIsFunctionCallOf(expr, "->", 2)) {
+        // Function type
+        return this.evaluateFunctionType({ expr, env });
       } else if (exprIsFunctionCallOf(expr, "extern")) {
         // extern
         return this.evaluateExtern({ expr, env });

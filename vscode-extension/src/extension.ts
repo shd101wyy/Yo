@@ -5,12 +5,23 @@ import * as vscode from "vscode";
 // This assumes your extension can access the Mo project code
 import { MoLexerError, MoParserError } from "@mo/error";
 import Evaluator from "@mo/evaluator";
+import { Expr, exprIsAtom, exprToString } from "@mo/expr";
+import { tokenize } from "@mo/lexer";
+import { stringIsOperator, TokenType } from "@mo/token";
+import { typeOfType, typeToString } from "@mo/type-checker";
+import { valueToString } from "@mo/value";
 
 export function activate(context: vscode.ExtensionContext) {
   // Create a diagnostic collection for Mo language errors
   const diagnosticCollection =
     vscode.languages.createDiagnosticCollection("mo");
   context.subscriptions.push(diagnosticCollection);
+
+  // Map to store evaluated expressions by file path
+  const evaluatedFiles = new Map<
+    string,
+    { exprs: Expr[]; evaluator: Evaluator }
+  >();
 
   // Function to analyze Mo file and show diagnostics
   const analyzeMoFile = async (document: vscode.TextDocument) => {
@@ -26,10 +37,19 @@ export function activate(context: vscode.ExtensionContext) {
     const filePath = document.uri.fsPath;
 
     try {
-      // Then try to ~~parse~~ evaluate:
-      new Evaluator({
+      // Clear any previous evaluation for this file
+      evaluatedFiles.delete(filePath);
+
+      // Then try to evaluate:
+      const evaluator = new Evaluator({
         modulePath: filePath,
         inputString: text,
+      });
+
+      // Store the evaluated expressions for hover provider to use
+      evaluatedFiles.set(filePath, {
+        exprs: evaluator.getProgram(),
+        evaluator,
       });
 
       // If we get here, there were no errors
@@ -93,6 +113,120 @@ export function activate(context: vscode.ExtensionContext) {
       diagnosticCollection.set(document.uri, diagnostics);
     }
   };
+
+  // Register hover provider for Mo language
+  const hoverProvider = vscode.languages.registerHoverProvider("mo", {
+    provideHover(document, position) {
+      const filePath = document.uri.fsPath;
+      const fileData = evaluatedFiles.get(filePath);
+
+      if (!fileData) {
+        return null; // No evaluated data for this file
+      }
+
+      // NOTE: The code below will ignore operators like +, -, etc.
+      // Get the word at the current position
+      // const range = document.getWordRangeAtPosition(position);
+      // if (!range) {
+      //   return null;
+      // }
+
+      // Get the text of the document and tokenize it
+      const text = document.getText();
+      const tokens = tokenize(text);
+
+      // Find the token at the current position
+      const line = position.line;
+      const character = position.character;
+      const tokenAtPosition = tokens.find((token) => {
+        return (
+          token.position.row === line &&
+          character >= token.position.column &&
+          character < token.position.column + token.value.length &&
+          token.type !== TokenType.Whitespace &&
+          token.type !== TokenType.SingleLineComment &&
+          token.type !== TokenType.MultiLineComment
+        );
+      });
+
+      if (!tokenAtPosition) {
+        return null;
+      }
+
+      // Find an expression with matching token
+      let foundExpr: Expr | null = null;
+
+      // Recursive function to search through expressions
+      const findExprWithToken = (expr: Expr) => {
+        if (
+          exprIsAtom(expr) &&
+          expr.token.value === tokenAtPosition.value &&
+          expr.token.position.row === tokenAtPosition.position.row &&
+          expr.token.position.column === tokenAtPosition.position.column
+        ) {
+          foundExpr = expr;
+          return;
+        }
+
+        if (expr.tag === "FuncCall") {
+          findExprWithToken(expr.func);
+          for (const arg of expr.args) {
+            findExprWithToken(arg);
+          }
+        }
+      };
+
+      // Search through all expressions
+      for (const expr of fileData.exprs) {
+        findExprWithToken(expr);
+        if (foundExpr) break;
+      }
+
+      if (foundExpr) {
+        const expr: Expr = foundExpr as Expr;
+
+        // Create a MarkdownString for the hover content
+        const markdownContent = new vscode.MarkdownString();
+        markdownContent.supportHtml = true;
+        markdownContent.isTrusted = true; // Enable trusted content for richer formatting
+
+        // Get the token text for the expression
+        // const tokenText = tokenAtPosition.value;
+        let tokenText = exprToString(expr);
+        if (stringIsOperator(tokenText)) {
+          // Wrap operators in parentheses
+          tokenText = `(${tokenText})`;
+        }
+
+        // Start with the token name in code format
+        markdownContent.appendMarkdown(`\`\`\`\n${tokenText}`);
+
+        // Add type if available
+        if (expr.type) {
+          const typeString = typeToString(expr.type);
+          markdownContent.appendMarkdown(`\n: ${typeString}`);
+          markdownContent.appendMarkdown(
+            `\n  : ${typeToString(typeOfType(expr.type))}`
+          );
+        }
+
+        // Add value if available
+        if (expr.value) {
+          const valueString = valueToString(expr.value);
+          markdownContent.appendMarkdown(`\n:= ${valueString}`);
+        }
+
+        // Close the code block
+        markdownContent.appendMarkdown("\n```");
+
+        return new vscode.Hover(markdownContent);
+      }
+
+      return null;
+    },
+  });
+
+  context.subscriptions.push(hoverProvider);
 
   // Register event handlers
 

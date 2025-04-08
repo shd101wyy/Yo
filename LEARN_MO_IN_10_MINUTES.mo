@@ -665,6 +665,8 @@ Expr :=
 
 // `quote` function to quote an expression, return Expr
 e := quote(add(1, 2));
+// or use `:` operator for `quote, and `$` operator for `unquote`
+e := :(add(1, 2));
 // =>
 e := Expr.FuncCall {
   func: Box(.Atom(.Symbol(symbol(add)))),

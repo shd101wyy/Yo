@@ -9,6 +9,7 @@ export function getPtrSize(): number {
 export enum TypeTag {
   // Primitive types
   Unit = "()",
+
   Boolean = "boolean",
   Char = "char",
   Usize = "usize",
@@ -26,7 +27,7 @@ export enum TypeTag {
   F64 = "f64",
 
   // Add Undefined type
-  Undefined = "Undefined",
+  // Undefined = "Undefined",
 
   // Type universes
   Free = "Free",
@@ -59,6 +60,11 @@ export interface Type {
    * If not specified, the size is unknown.
    */
   size?: number;
+
+  /**
+   * Whether the value of the type is compile-time known or not.
+   */
+  isCompileTimeKnown?: boolean;
 }
 
 export interface Literal extends Type {
@@ -74,7 +80,7 @@ export interface Literal extends Type {
   type: Type;
 }
 
-export interface FunctionParam {
+export interface FunctionParameter {
   name?: string;
   type: Type;
   /**
@@ -83,7 +89,7 @@ export interface FunctionParam {
    */
   // defaultValue?: Type;
   isMutable?: boolean;
-  isCompileTimeKnown?: boolean;
+  // isCompileTimeKnown?: boolean;
 }
 
 export function isPrimitiveType(type: Type): boolean {
@@ -103,16 +109,16 @@ export function isPrimitiveType(type: Type): boolean {
     type.tag === TypeTag.I64 ||
     type.tag === TypeTag.F16 ||
     type.tag === TypeTag.F32 ||
-    type.tag === TypeTag.F64 ||
-    type.tag === TypeTag.Undefined // Add undefined as a primitive type
+    type.tag === TypeTag.F64 // ||
+    // type.tag === TypeTag.Undefined // Add undefined as a primitive type
   );
 }
 
 // Add missing kind field to all Type constants
-export const TUndefined: Type = {
-  tag: TypeTag.Undefined,
-  size: 0, // Undefined has no runtime size
-};
+// export const TUndefined: Type = {
+//   tag: TypeTag.Undefined,
+//   size: 0, // Undefined has no runtime size
+// };
 
 export const TFree: TTypeHierarchy = {
   tag: TypeTag.Free,
@@ -135,12 +141,6 @@ export const TType: TTypeHierarchy = {
 export interface TTypeHierarchy extends Type {
   level: number;
 }
-
-// Update the primitive type constants to include kind
-export const TUnit: Type = {
-  tag: TypeTag.Unit,
-  size: 0,
-};
 
 export const TBoolean: Type = {
   tag: TypeTag.Boolean,
@@ -208,6 +208,12 @@ export const TF64: Type = {
   size: 8,
 };
 
+// Update the primitive type constants to include kind
+export const TUnit: Type = {
+  tag: TypeTag.Unit,
+  size: 0,
+};
+
 // Extended Type interface for compound types
 export interface ArrayType extends Type {
   tag: TypeTag.Array;
@@ -249,7 +255,7 @@ export interface UnionType extends Type {
 
 export interface FunctionType extends Type {
   tag: TypeTag.Function;
-  params: FunctionParam[];
+  params: FunctionParameter[];
   returnType: Type;
 
   typeFunctionImplementation?: (args: Type[]) => Type;
@@ -271,6 +277,7 @@ export function createTypeHierarchy(level: number): TTypeHierarchy {
 }
 
 // Type constructor functions (need to be updated to include kind)
+/*
 export function createArrayType(elementType: Type, length: number): ArrayType {
   if (elementType.size === undefined) {
     throw new Error(`Cannot create array type: element type size is undefined`);
@@ -283,6 +290,7 @@ export function createArrayType(elementType: Type, length: number): ArrayType {
     length,
   };
 }
+*/
 
 export function createTupleType(elementTypes: Type[]): TupleType {
   let totalSize = 0;
@@ -386,7 +394,7 @@ export function createUnionType(memberTypes: Map<string, Type>): UnionType {
 }
 
 export function createFunctionType(
-  params: FunctionParam[],
+  params: FunctionParameter[],
   returnType: Type,
   typeFunctionImplementation?: (args: Type[]) => Type
 ): FunctionType {
@@ -407,6 +415,7 @@ export function createInterfaceType(memberTypes: Map<string, Type>): Interface {
 }
 
 // Example: Array type function - now using regular FunctionType
+/*
 export const ArrayFunction: FunctionType = createFunctionType(
   [
     { name: "T", type: TType },
@@ -425,6 +434,7 @@ export const ArrayFunction: FunctionType = createFunctionType(
     return createArrayType(elementType, length);
   }
 );
+*/
 
 // Example: Option type function
 export const OptionFunction: FunctionType = createFunctionType(
@@ -520,9 +530,9 @@ function determineTypeUniverse(types: Type[]): Type {
 
 // Update typeOfType function
 export function typeOfType(t: Type): Type {
-  if (t.tag === TypeTag.Undefined) {
+  /*if (t.tag === TypeTag.Undefined) {
     return TFree; // Undefined is in the free type universe
-  } else if (isPrimitiveType(t)) {
+  } else */ if (isPrimitiveType(t)) {
     return TFree;
   } else if (t === TFree || t === TLinear || t === TType) {
     return createTypeHierarchy((t as TTypeHierarchy).level + 1);
@@ -560,6 +570,7 @@ export function typeOfType(t: Type): Type {
 // Update the areTypesCompatible function for StructType
 export function areTypesCompatible(source: Type, target: Type): boolean {
   // Undefined is only compatible with itself
+  /*
   if (source.tag === TypeTag.Undefined) {
     return target.tag === TypeTag.Undefined;
   }
@@ -567,6 +578,7 @@ export function areTypesCompatible(source: Type, target: Type): boolean {
   if (target.tag === TypeTag.Undefined) {
     return false; // Nothing is compatible with undefined except undefined itself
   }
+    */
 
   if (source.tag === target.tag) {
     // For primitive types and simple matches
@@ -679,7 +691,152 @@ export function isLiteral(type: Type): type is Literal {
   return type.tag === TypeTag.Literal;
 }
 
+/*
 // Helper function for checking if a type is undefined
 export function isUndefinedType(type: Type): boolean {
   return type.tag === TypeTag.Undefined;
+}
+*/
+
+/**
+ * Convert a Type object to a human-readable string representation
+ */
+export function typeToString(type: Type): string {
+  if (!type) {
+    return "unknown";
+  }
+
+  switch (type.tag) {
+    // Primitive types
+    case TypeTag.Unit: {
+      return "()";
+    }
+    case TypeTag.Boolean: {
+      return "boolean";
+    }
+    case TypeTag.Char: {
+      return "char";
+    }
+    case TypeTag.Usize: {
+      return "usize";
+    }
+    case TypeTag.Isize: {
+      return "isize";
+    }
+    case TypeTag.U8: {
+      return "u8";
+    }
+    case TypeTag.I8: {
+      return "i8";
+    }
+    case TypeTag.U16: {
+      return "u16";
+    }
+    case TypeTag.I16: {
+      return "i16";
+    }
+    case TypeTag.U32: {
+      return "u32";
+    }
+    case TypeTag.I32: {
+      return "i32";
+    }
+    case TypeTag.U64: {
+      return "u64";
+    }
+    case TypeTag.I64: {
+      return "i64";
+    }
+    case TypeTag.F16: {
+      return "f16";
+    }
+    case TypeTag.F32: {
+      return "f32";
+    }
+    case TypeTag.F64: {
+      return "f64";
+    }
+
+    // Type universes
+    case TypeTag.Free: {
+      return "Free";
+    }
+    case TypeTag.Linear: {
+      return "Linear";
+    }
+    case TypeTag.Type: {
+      if ("level" in type && typeof type.level === "number" && type.level > 0) {
+        return `Type(${type.level})`;
+      }
+      return "Type";
+    }
+
+    // Complex types
+    case TypeTag.Array: {
+      return `[${typeToString((type as ArrayType).elementType)}; ${
+        (type as ArrayType).length
+      }]`;
+    }
+
+    case TypeTag.Tuple: {
+      if ((type as TupleType).elementTypes.length === 0) {
+        return "()";
+      }
+      return `(${(type as TupleType).elementTypes
+        .map(typeToString)
+        .join(", ")})`;
+    }
+
+    case TypeTag.Record: {
+      const fields = Array.from((type as RecordType).fields.entries());
+      return `{ ${fields
+        .map(([name, fieldType]) => `${name}: ${typeToString(fieldType)}`)
+        .join(", ")} }`;
+    }
+
+    case TypeTag.Struct: {
+      return typeToString((type as StructType).baseType);
+    }
+
+    case TypeTag.Enum: {
+      const variants = (type as EnumType).variants;
+      return `enum { ${variants
+        .map((variant) =>
+          variant.type
+            ? `${variant.name}(${typeToString(variant.type)})`
+            : variant.name
+        )
+        .join(", ")} }`;
+    }
+
+    case TypeTag.Union: {
+      const memberTypes = Array.from((type as UnionType).memberTypes.entries());
+      return `union { ${memberTypes
+        .map(([name, memberType]) => `${name}: ${typeToString(memberType)}`)
+        .join(", ")} }`;
+    }
+
+    case TypeTag.Function: {
+      const func = type as FunctionType;
+      const params = func.params
+        .map((param) =>
+          param.name
+            ? `${
+                param.isMutable ? `mut(${param.name})` : `${param.name}`
+              }: ${typeToString(param.type)}`
+            : (param.isMutable ? `mut(_):` : "") + typeToString(param.type)
+        )
+        .join(", ");
+      return `(${params}) -> ${typeToString(func.returnType)}`;
+    }
+
+    case TypeTag.Literal: {
+      const literal = type as Literal;
+      return `${literal.value}:${typeToString(literal.type)}`;
+    }
+
+    default: {
+      return `${type.tag}`;
+    }
+  }
 }

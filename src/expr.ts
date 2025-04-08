@@ -46,6 +46,10 @@ export function exprIsAtom(expr: Expr): expr is AtomExpr {
   return expr.tag === ExprTag.Atom;
 }
 
+export function exprIsAtomAndOperator(expr: Expr): boolean {
+  return expr.tag === ExprTag.Atom && expr.token.type === TokenType.Operator;
+}
+
 export function exprIsFunctionCallOf(
   expr: Expr,
   funcName: string,
@@ -99,12 +103,16 @@ export function exprToString(expr: Expr): string {
         } else if (expr.args.length === 2 && expr.isInfix) {
           let lhs = exprToString(expr.args[0]);
           let rhs = exprToString(expr.args[1]);
-          lhs = exprIsInfixOperatorFunctionCall(expr.args[0])
-            ? `(${lhs})`
-            : lhs;
-          rhs = exprIsInfixOperatorFunctionCall(expr.args[1])
-            ? `(${rhs})`
-            : rhs;
+          lhs =
+            exprIsInfixOperatorFunctionCall(expr.args[0]) ||
+            exprIsAtomAndOperator(expr.args[0])
+              ? `(${lhs})`
+              : lhs;
+          rhs =
+            exprIsInfixOperatorFunctionCall(expr.args[1]) ||
+            exprIsAtomAndOperator(expr.args[1])
+              ? `(${rhs})`
+              : rhs;
           if (expr.func.token.value === ".") {
             printed = `${lhs}.${rhs}`;
           } else {

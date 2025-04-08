@@ -1,10 +1,36 @@
 import { Expr } from "./expr";
-import { Type, TypeTag } from "./type-checker";
+import {
+  ArrayType,
+  EnumType,
+  FunctionType,
+  RecordType,
+  StructType,
+  TupleType,
+  Type,
+  TypeTag,
+  UnionType,
+  typeToString,
+} from "./type-checker";
 
 export type Value =
   | {
-      tag: TypeTag.Free | TypeTag.Linear | TypeTag.Type;
+      /**
+       * This is for value such as
+       *    MyI32 := i32
+       *
+       * i32 is the value, where:
+       *    .type = Free
+       *    .value = i32
+       */
+      tag: TypeTag.Type;
+      /**
+       * Type of the .value
+       */
       type: Type;
+
+      /**
+       * Such as TFree, TLinear, TType, TI32, TBoolean, TStruct, etc.
+       */
       value: Type;
     }
   | {
@@ -35,37 +61,37 @@ export type Value =
     }
   | {
       tag: TypeTag.Array;
-      type: Type;
+      type: ArrayType;
       value: Value[];
     }
   | {
       tag: TypeTag.Tuple;
-      type: Type;
+      type: TupleType;
       value: Value[];
     }
   | {
       tag: TypeTag.Record;
-      type: Type;
+      type: RecordType;
       value: Record<string, Value>;
     }
   | {
       tag: TypeTag.Struct;
-      type: Type;
+      type: StructType;
       value: Value;
     }
   | {
       tag: TypeTag.Enum;
-      type: Type;
+      type: EnumType;
       value: Value;
     }
   | {
       tag: TypeTag.Union;
-      type: Type;
+      type: UnionType;
       value: Record<string, Value>;
     }
   | {
       tag: TypeTag.Function;
-      type: Type;
+      type: FunctionType;
       frameLevel: number;
       body: Expr;
     };
@@ -75,3 +101,76 @@ export type Value =
       implementations: Record<string, Value>;
     }
       */
+
+/**
+ * Convert a Value object to a human-readable string representation
+ */
+export function valueToString(value: Value): string {
+  if (!value) {
+    return "undefined";
+  }
+
+  switch (value.tag) {
+    case TypeTag.Type: {
+      return typeToString(value.value);
+    }
+    case TypeTag.U8:
+    case TypeTag.I8:
+    case TypeTag.U16:
+    case TypeTag.I16:
+    case TypeTag.U32:
+    case TypeTag.I32:
+    case TypeTag.U64:
+    case TypeTag.I64:
+    case TypeTag.F16:
+    case TypeTag.F32:
+    case TypeTag.F64: {
+      return value.value.toString();
+    }
+    case TypeTag.Boolean: {
+      return value.value.toString();
+    }
+    case TypeTag.Char: {
+      return `'${value.value}'`;
+    }
+    case TypeTag.Array: {
+      return `[${value.value.map(valueToString).join(", ")}]`;
+    }
+    case TypeTag.Tuple: {
+      if (value.value.length === 0) {
+        return "()";
+      }
+      return `(${value.value.map(valueToString).join(", ")})`;
+    }
+    case TypeTag.Record: {
+      const entries = Object.entries(value.value);
+      if (entries.length === 0) {
+        return "{}";
+      }
+      return `{ ${entries
+        .map(([key, val]) => `${key}: ${valueToString(val)}`)
+        .join(", ")} }`;
+    }
+    case TypeTag.Struct: {
+      return valueToString(value.value);
+    }
+    case TypeTag.Enum: {
+      return valueToString(value.value);
+    }
+    case TypeTag.Union: {
+      const entries = Object.entries(value.value);
+      if (entries.length === 0) {
+        return "{}";
+      }
+      return `{ ${entries
+        .map(([key, val]) => `${key}: ${valueToString(val)}`)
+        .join(", ")} }`;
+    }
+    case TypeTag.Function: {
+      return `<function>`;
+    }
+    default: {
+      return `<unknown>`;
+    }
+  }
+}
