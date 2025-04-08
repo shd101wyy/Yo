@@ -1,4 +1,9 @@
-import { addVariableToEnv, createNewEnv, Environment } from "./env";
+import {
+  addVariableToEnv,
+  createNewEnv,
+  Environment,
+  getVariableFromEnv,
+} from "./env";
 import { formatErrorMessage } from "./error";
 import {
   AtomExpr,
@@ -334,7 +339,8 @@ export default class Evaluator {
   }
 
   private evaluateIdentifier({
-    expr, //    env,
+    expr,
+    env,
   }: {
     expr: AtomExpr;
     env: Environment;
@@ -500,12 +506,27 @@ export default class Evaluator {
       expr.type = typeOfType(TF64);
       return expr;
     }
-    // error
+    // variable
     else {
-      throw this.formatErrorMessage(
-        expr.token,
-        `'evaluateIdentifier' Not implemented for identifier: ${identifier}`
-      );
+      const variables = getVariableFromEnv(env, identifier);
+      if (!variables.length) {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Variable ${identifier} not found`
+        );
+      } else {
+        const variable = variables[variables.length - 1];
+        if (variable.isNotInitialized) {
+          throw this.formatErrorMessage(
+            expr.token,
+            `Variable ${identifier} not initialized`
+          );
+        }
+        expr.value = variable.value;
+        expr.type = variable.type;
+        expr.env = env;
+        return expr;
+      }
     }
   }
 
