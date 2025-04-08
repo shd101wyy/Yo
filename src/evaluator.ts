@@ -14,10 +14,13 @@ import {
 import Parser from "./parser";
 import { Token, TokenType } from "./token";
 import {
+  areTypesCompatible,
   createFunctionType,
   createTupleType,
   FunctionParameter,
   TBoolean,
+  TF32,
+  TF64,
   TFree,
   TI16,
   TI32,
@@ -35,7 +38,9 @@ import {
   Type,
   typeOfType,
   TypeTag,
+  typeToString,
 } from "./type-checker";
+import { Value } from "./value";
 
 /**
  * This class is responsible for:
@@ -81,16 +86,15 @@ export default class Evaluator {
   }
 
   private evaluateIntegerLiteral(expr: AtomExpr): AtomExpr {
-    /*
     if (expr.token.type === TokenType.Integer) {
       const integerValue = parseInt(expr.token.value, 10);
       const value: Value = {
         tag: TypeTag.I32,
-        type: TI32,
+        type: { ...TI32, isCompileTimeKnown: true },
         value: integerValue,
       };
       expr.value = value;
-      expr.type = TI32;
+      expr.type = value.type;
       return expr;
     } else {
       throw this.formatErrorMessage(
@@ -98,12 +102,6 @@ export default class Evaluator {
         `Expected integer literal, got ${expr.tag}`
       );
     }
-    */
-
-    throw this.formatErrorMessage(
-      expr.token,
-      `Expected integer literal, got ${expr.tag}`
-    );
   }
 
   private evaluateTuple({
@@ -176,11 +174,26 @@ export default class Evaluator {
     // x : i32
     let isMutable = false;
     // const userDefinedType: Type | undefined = undefined;
-    if (exprIsFunctionCallOf(lhs, ":")) {
-      throw this.formatErrorMessage(
-        lhs.token,
-        `Type annotation is not implemented`
-      );
+    if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ":", 2)) {
+      const typeExpr = lhs.args[1];
+      lhs = lhs.args[0];
+
+      // Parse the type expression
+      const evaluatedType = this.evaluateExpression({
+        expr: typeExpr,
+        env,
+      });
+      if (evaluatedType.env) {
+        env = evaluatedType.env;
+      }
+      const typeValue = evaluatedType.value;
+      if (!typeValue || typeValue.tag !== TypeTag.Type) {
+        throw this.formatErrorMessage(
+          typeExpr.token,
+          `Expected type for lhs, got ${exprToString(typeExpr)}`
+        );
+      }
+      lhs.type = typeValue.value;
     }
     if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, "mut")) {
       isMutable = true;
@@ -202,17 +215,30 @@ export default class Evaluator {
         );
       }
       // Set the variable type
-      lhs.type = rhsType;
+      if (!lhs.type) {
+        // user didn't specify the type
+        lhs.type = rhsType;
+      } else {
+        // Check if the type is compatible
+        if (!areTypesCompatible(lhs.type, rhsType)) {
+          throw this.formatErrorMessage(
+            lhs.token,
+            `Incompatible types:
+- Defined: ${typeToString(lhs.type)}
+- Given  : ${typeToString(rhsType)}`
+          );
+        }
+      }
       // Set the variable value
       lhs.value = rhs.value;
-      // TODO: Add variable to env
-      // TODO: Attach the updated env to expr
+      // Add variable to env
+      // Attach the updated env to expr
       const { env: nextEnv } = addVariableToEnv({
         env,
         variable: {
           name: lhs.token.value,
           token: lhs.token,
-          type: rhsType,
+          type: lhs.type,
           isMutable,
           isNotInitialized: false,
           value: lhs.value,
@@ -220,6 +246,7 @@ export default class Evaluator {
       });
       env = nextEnv;
       expr.env = env;
+      lhs.env = env;
       expr.type = TUnit;
       return expr;
     } else {
@@ -451,6 +478,26 @@ export default class Evaluator {
         value: TI64,
       };
       expr.type = typeOfType(TI64);
+      return expr;
+    }
+    // f32
+    else if (identifier === TypeTag.F32) {
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(TF32),
+        value: TF32,
+      };
+      expr.type = typeOfType(TF32);
+      return expr;
+    }
+    // f64
+    else if (identifier === TypeTag.F64) {
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(TF64),
+        value: TF64,
+      };
+      expr.type = typeOfType(TF64);
       return expr;
     }
     // error

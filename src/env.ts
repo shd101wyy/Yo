@@ -23,7 +23,10 @@ export interface Variable {
    */
   value?: Value;
   /**
-   * If the variable is mutable.
+   * Whether the variabel is mutable or not.
+   * Eg:
+   * mut(x) := 1;
+   * The token `x` has `isMutable` set to true.
    */
   isMutable?: boolean;
   /**
@@ -221,10 +224,19 @@ export function getVariableFromFrame(
   variableName: string
 ): Variable[] {
   return frame.variables.filter((variable) => {
-    variable.name === variableName;
+    return variable.name === variableName;
   });
 }
 
+/**
+ * This function will search for the variable in all frames of the env.
+ * It will return all variables with the same name.
+ * [...old, latest] = getVariableFromEnv(env, variableName);
+ * The latest variable will be the last one in the array.
+ * @param env
+ * @param variableName
+ * @returns
+ */
 export function getVariableFromEnv(
   env: Environment,
   variableName: string

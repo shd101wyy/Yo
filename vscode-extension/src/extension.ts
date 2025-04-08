@@ -3,9 +3,10 @@ import * as vscode from "vscode";
 
 // Import the parser and lexer from Mo project
 // This assumes your extension can access the Mo project code
+import { getVariableFromEnv } from "@mo/env";
 import { MoLexerError, MoParserError } from "@mo/error";
 import Evaluator from "@mo/evaluator";
-import { Expr, exprIsAtom, exprToString } from "@mo/expr";
+import { AtomExpr, Expr, exprIsAtom, exprToString } from "@mo/expr";
 import { tokenize } from "@mo/lexer";
 import { stringIsOperator, TokenType } from "@mo/token";
 import { typeOfType, typeToString } from "@mo/type-checker";
@@ -182,8 +183,8 @@ export function activate(context: vscode.ExtensionContext) {
         if (foundExpr) break;
       }
 
-      if (foundExpr) {
-        const expr: Expr = foundExpr as Expr;
+      if (foundExpr && exprIsAtom(foundExpr)) {
+        const expr: AtomExpr = foundExpr as AtomExpr;
 
         // Create a MarkdownString for the hover content
         const markdownContent = new vscode.MarkdownString();
@@ -196,6 +197,18 @@ export function activate(context: vscode.ExtensionContext) {
         if (stringIsOperator(tokenText)) {
           // Wrap operators in parentheses
           tokenText = `(${tokenText})`;
+        }
+
+        // Get variable from the env
+        if (expr.env) {
+          const variables = getVariableFromEnv(expr.env, expr.token.value);
+          if (
+            variables &&
+            variables.length > 0 &&
+            variables[variables.length - 1].isMutable
+          ) {
+            tokenText = `mut(${tokenText})`;
+          }
         }
 
         // Start with the token name in code format
