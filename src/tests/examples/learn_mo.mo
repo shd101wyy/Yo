@@ -1,6 +1,7 @@
 extern {
   SomeType: Type,
   SomeFree: Free,
+  SomeLinear: Linear,
   MyI32: i32,
   (---): i32,
   // (): Free,

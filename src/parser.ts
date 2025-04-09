@@ -766,4 +766,7 @@ or ) to end the function call`
   public getProgram() {
     return this.program;
   }
+  public getTokens() {
+    return this.tokens;
+  }
 }

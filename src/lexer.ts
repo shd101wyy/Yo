@@ -371,32 +371,38 @@ export function tokenize(input: string): Token[] {
 
           // Check if the identifier is valid using IdentifierRegex
           if (IdentifierRegex.test(value)) {
-            switch (value) {
-              // boolean
-              case "true":
-              case "false":
-                tokens.push({
-                  type: TokenType.Boolean,
-                  value,
-                  position: {
-                    row: line,
-                    column: characterColumn,
-                    character: characterIndex,
-                  },
-                });
-                break;
-              // identifier
-              default:
-                tokens.push({
-                  type: TokenType.Identifier,
-                  value,
-                  position: {
-                    row: line,
-                    column: characterColumn,
-                    character: characterIndex,
-                  },
-                });
-                break;
+            if (tokens.length > 0 && tokens[tokens.length - 1].value === "@") {
+              // Merge with previous token '@'
+              tokens[tokens.length - 1].value += value;
+              tokens[tokens.length - 1].type = TokenType.Identifier;
+            } else {
+              switch (value) {
+                // boolean
+                case "true":
+                case "false":
+                  tokens.push({
+                    type: TokenType.Boolean,
+                    value,
+                    position: {
+                      row: line,
+                      column: characterColumn,
+                      character: characterIndex,
+                    },
+                  });
+                  break;
+                // identifier
+                default:
+                  tokens.push({
+                    type: TokenType.Identifier,
+                    value,
+                    position: {
+                      row: line,
+                      column: characterColumn,
+                      character: characterIndex,
+                    },
+                  });
+                  break;
+              }
             }
           } else {
             throw new MoLexerError({

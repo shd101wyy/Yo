@@ -7,7 +7,6 @@ import { getVariableFromEnv } from "@mo/env";
 import { MoLexerError, MoParserError } from "@mo/error";
 import Evaluator from "@mo/evaluator";
 import { AtomExpr, Expr, exprIsAtom, exprToString } from "@mo/expr";
-import { tokenize } from "@mo/lexer";
 import { stringIsOperator, TokenType } from "@mo/token";
 import { typeOfType, typeToString } from "@mo/type-checker";
 import { valueToString } from "@mo/value";
@@ -133,8 +132,8 @@ export function activate(context: vscode.ExtensionContext) {
       // }
 
       // Get the text of the document and tokenize it
-      const text = document.getText();
-      const tokens = tokenize(text);
+      // const text = document.getText();
+      const tokens = fileData.evaluator.getTokens(); //  tokenize(text);
 
       // Find the token at the current position
       const line = position.line;

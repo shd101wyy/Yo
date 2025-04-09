@@ -57,6 +57,7 @@ export default class Evaluator {
   private modulePath: string;
   private parser: Parser;
   private program: Expr[];
+  private tokens: Token[];
 
   constructor({
     modulePath,
@@ -71,6 +72,7 @@ export default class Evaluator {
     // Parse the module
     this.parser = new Parser({ modulePath, inputString });
     this.program = this.parser.getProgram();
+    this.tokens = this.parser.getTokens();
 
     // Evaluate the program
     this.evaluateProgram();
@@ -79,6 +81,11 @@ export default class Evaluator {
   // Add a public method to get the program
   public getProgram(): Expr[] {
     return this.program;
+  }
+
+  // Add a public method to get the tokens
+  public getTokens(): Token[] {
+    return this.tokens;
   }
 
   private formatErrorMessage(token: Token, errorMessage: string) {
