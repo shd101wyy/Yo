@@ -1,4 +1,4 @@
-// FIXME: We need to determine the ptr size based on the target architecture.
+// FIXME: We need to determine the ptr size based on the givenType architecture.
 export function getPtrSize(): number {
   return 8;
 }
@@ -568,45 +568,54 @@ export function typeOfType(t: Type): Type {
 }
 
 // Update the areTypesCompatible function for StructType
-export function areTypesCompatible(source: Type, target: Type): boolean {
+export function areTypesCompatible(
+  expectedType: Type,
+  givenType: Type
+): boolean {
   // Undefined is only compatible with itself
   /*
-  if (source.tag === TypeTag.Undefined) {
-    return target.tag === TypeTag.Undefined;
+  if (expectedType.tag === TypeTag.Undefined) {
+    return givenType.tag === TypeTag.Undefined;
   }
 
-  if (target.tag === TypeTag.Undefined) {
+  if (givenType.tag === TypeTag.Undefined) {
     return false; // Nothing is compatible with undefined except undefined itself
   }
     */
 
-  if (source.tag === target.tag) {
+  if (expectedType.tag === givenType.tag) {
     // For primitive types and simple matches
     return true;
   }
 
-  if (isArrayType(source) && isArrayType(target)) {
+  if (isArrayType(expectedType) && isArrayType(givenType)) {
     // Arrays must have same length and compatible element types
     return (
-      source.length === target.length &&
-      areTypesCompatible(source.elementType, target.elementType)
+      expectedType.length === givenType.length &&
+      areTypesCompatible(expectedType.elementType, givenType.elementType)
     );
   }
 
-  if (isTupleType(source) && isTupleType(target)) {
-    if (source.elementTypes.length !== target.elementTypes.length) return false;
+  if (isTupleType(expectedType) && isTupleType(givenType)) {
+    if (expectedType.elementTypes.length !== givenType.elementTypes.length)
+      return false;
 
-    for (let i = 0; i < source.elementTypes.length; i++) {
-      if (!areTypesCompatible(source.elementTypes[i], target.elementTypes[i])) {
+    for (let i = 0; i < expectedType.elementTypes.length; i++) {
+      if (
+        !areTypesCompatible(
+          expectedType.elementTypes[i],
+          givenType.elementTypes[i]
+        )
+      ) {
         return false;
       }
     }
     return true;
   }
 
-  if (isRecordType(source) && isRecordType(target)) {
-    for (const [fieldName, fieldType] of target.fields) {
-      const sourceField = source.fields.get(fieldName);
+  if (isRecordType(expectedType) && isRecordType(givenType)) {
+    for (const [fieldName, fieldType] of givenType.fields) {
+      const sourceField = expectedType.fields.get(fieldName);
       if (!sourceField || !areTypesCompatible(sourceField, fieldType)) {
         return false;
       }
@@ -614,18 +623,19 @@ export function areTypesCompatible(source: Type, target: Type): boolean {
     return true;
   }
 
-  if (isStructType(source) && isStructType(target)) {
+  if (isStructType(expectedType) && isStructType(givenType)) {
     // For structs, base types must be compatible
-    return areTypesCompatible(source.baseType, target.baseType);
+    return areTypesCompatible(expectedType.baseType, givenType.baseType);
   }
 
-  if (isEnumType(source) && isEnumType(target)) {
+  if (isEnumType(expectedType) && isEnumType(givenType)) {
     // For enums, variants must match
-    if (source.variants.length !== target.variants.length) return false;
+    if (expectedType.variants.length !== givenType.variants.length)
+      return false;
 
-    for (let i = 0; i < source.variants.length; i++) {
-      const sourceVariant = source.variants[i];
-      const targetVariant = target.variants[i];
+    for (let i = 0; i < expectedType.variants.length; i++) {
+      const sourceVariant = expectedType.variants[i];
+      const targetVariant = givenType.variants[i];
 
       if (sourceVariant.name !== targetVariant.name) return false;
 
@@ -643,16 +653,21 @@ export function areTypesCompatible(source: Type, target: Type): boolean {
     return true;
   }
 
-  if (isFunctionType(source) && isFunctionType(target)) {
-    if (source.params.length !== target.params.length) return false;
+  if (isFunctionType(expectedType) && isFunctionType(givenType)) {
+    if (expectedType.params.length !== givenType.params.length) return false;
 
-    for (let i = 0; i < source.params.length; i++) {
-      if (!areTypesCompatible(target.params[i].type, source.params[i].type)) {
+    for (let i = 0; i < expectedType.params.length; i++) {
+      if (
+        !areTypesCompatible(
+          givenType.params[i].type,
+          expectedType.params[i].type
+        )
+      ) {
         return false;
       }
     }
 
-    return areTypesCompatible(source.returnType, target.returnType);
+    return areTypesCompatible(expectedType.returnType, givenType.returnType);
   }
 
   return false;

@@ -2,7 +2,7 @@ import {
   addVariableToEnv,
   createNewEnv,
   Environment,
-  getVariableFromEnv,
+  getVariablesFromEnv,
 } from "./env";
 import { formatErrorMessage } from "./error";
 import {
@@ -17,12 +17,13 @@ import {
   FuncCallExpr,
 } from "./expr";
 import Parser from "./parser";
-import { Token, TokenType } from "./token";
+import { stringIsOperator, Token, TokenType } from "./token";
 import {
   areTypesCompatible,
   createFunctionType,
   createTupleType,
   FunctionParameter,
+  isFunctionType,
   TBoolean,
   TF32,
   TF64,
@@ -112,6 +113,25 @@ export default class Evaluator {
       throw this.formatErrorMessage(
         expr.token,
         `Expected integer literal, got ${expr.tag}`
+      );
+    }
+  }
+
+  private evaluateBooleanLiteral(expr: AtomExpr): AtomExpr {
+    if (expr.token.type === TokenType.Boolean) {
+      const booleanValue = expr.token.value === "true";
+      const value: Value = {
+        tag: TypeTag.Boolean,
+        type: { ...TBoolean, isCompileTimeKnown: true },
+        value: booleanValue,
+      };
+      expr.value = value;
+      expr.type = value.type;
+      return expr;
+    } else {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected boolean literal, got ${expr.tag}`
       );
     }
   }
@@ -332,7 +352,7 @@ export default class Evaluator {
           token: nameExpr.token,
           type: typeValue.value,
           isMutable: false,
-          isNotInitialized: true,
+          isNotInitialized: false,
         },
       });
 
@@ -515,7 +535,7 @@ export default class Evaluator {
     }
     // variable
     else {
-      const variables = getVariableFromEnv(env, identifier);
+      const variables = getVariablesFromEnv(env, identifier);
       if (!variables.length) {
         throw this.formatErrorMessage(
           expr.token,
@@ -535,6 +555,148 @@ export default class Evaluator {
         return expr;
       }
     }
+  }
+
+  private evaluateFunctionParameters({
+    expr,
+    env,
+  }: {
+    expr: Expr;
+    env: Environment;
+  }): { functionParameters: FunctionParameter[]; env: Environment } {
+    // Handle different forms of parameter lists
+    const functionParameters: FunctionParameter[] = [];
+    const argListExpr = expr;
+    let argList: Expr[] = [];
+    if (
+      exprIsFunctionCall(argListExpr) &&
+      exprIsFunctionCallOf(argListExpr, BuiltinCollections.Tuple)
+    ) {
+      // Handle tuple-style parameter list: (param1: Type1, param2: Type2)
+      argList = argListExpr.args;
+    } else if (
+      exprIsAtom(argListExpr) ||
+      (exprIsFunctionCall(argListExpr) &&
+        exprIsFunctionCallOf(argListExpr, ":"))
+    ) {
+      argList = [argListExpr];
+    } else {
+      throw this.formatErrorMessage(
+        argListExpr.token,
+        `Expected tuple for function parameters, got:\n${exprToString(
+          argListExpr
+        )}`
+      );
+    }
+
+    for (let i = 0; i < argList.length; i++) {
+      const arg = argList[i];
+      let paramName: string | undefined = undefined;
+      let paramType: Type | undefined = undefined;
+      let isMutable = false;
+      let paramNameExpr: Expr | undefined = undefined;
+
+      if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, ":", 2)) {
+        // Parameter with name and type: paramName: Type
+        paramNameExpr = arg.args[0];
+        const paramTypeExpr = arg.args[1];
+
+        // Check if the parameter is mutable (mut(paramName): Type)
+        if (
+          exprIsFunctionCall(paramNameExpr) &&
+          exprIsFunctionCallOf(paramNameExpr, "mut", 1)
+        ) {
+          isMutable = true;
+          paramNameExpr = paramNameExpr.args[0];
+        }
+
+        // Extract parameter name
+        if (!exprIsAtom(paramNameExpr)) {
+          throw this.formatErrorMessage(
+            paramNameExpr.token,
+            `Expected identifier for parameter name, got:\n${exprToString(
+              paramNameExpr
+            )}`
+          );
+        }
+        paramName = paramNameExpr.token.value;
+
+        // Evaluate the parameter type
+        const evaluatedParamType = this.evaluateExpression({
+          expr: paramTypeExpr,
+          env,
+        });
+
+        if (
+          !evaluatedParamType.value ||
+          evaluatedParamType.value.tag !== TypeTag.Type
+        ) {
+          throw this.formatErrorMessage(
+            paramTypeExpr.token,
+            `Expected a type for parameter type, got:\n${exprToString(
+              paramTypeExpr
+            )}`
+          );
+        }
+
+        paramType = evaluatedParamType.value.value;
+      } else {
+        // Just a type without a name, evaluate it directly
+        const evaluatedType = this.evaluateExpression({
+          expr: arg,
+          env,
+        });
+
+        if (!evaluatedType.value || evaluatedType.value.tag !== TypeTag.Type) {
+          throw this.formatErrorMessage(
+            arg.token,
+            `Expected a type for parameter, got:\n${exprToString(arg)}`
+          );
+        }
+
+        paramType = evaluatedType.value.value;
+      }
+
+      if (!paramType) {
+        throw this.formatErrorMessage(
+          arg.token,
+          `Could not determine parameter type for parameter ${i + 1}`
+        );
+      }
+
+      const functionParameter: FunctionParameter = {
+        name: paramName,
+        type: paramType,
+        isMutable,
+      };
+
+      functionParameters.push(functionParameter);
+
+      // Add functionParameter to the environment
+      if (paramName) {
+        const { env: nextEnv } = addVariableToEnv({
+          env,
+          variable: {
+            name: paramName,
+            token: arg.token,
+            type: paramType,
+            isMutable,
+            isNotInitialized: false,
+          },
+        });
+        env = nextEnv;
+      }
+
+      // Update the tokens
+      if (paramNameExpr) {
+        paramNameExpr.type = paramType;
+      }
+    }
+
+    return {
+      functionParameters,
+      env,
+    };
   }
 
   private evaluateFunctionType({
@@ -576,129 +738,12 @@ export default class Evaluator {
     const returnType = evaluatedReturnType.value.value;
 
     // Handle different forms of parameter lists
-    const functionParameters: FunctionParameter[] = [];
-
-    if (
-      exprIsFunctionCall(argListExpr) &&
-      exprIsFunctionCallOf(argListExpr, BuiltinCollections.Tuple)
-    ) {
-      // Handle tuple-style parameter list: (param1: Type1, param2: Type2)
-      const argList = argListExpr.args;
-
-      for (let i = 0; i < argList.length; i++) {
-        const arg = argList[i];
-        let paramName: string | undefined = undefined;
-        let paramType: Type | undefined = undefined;
-        let isMutable = false;
-        let paramNameExpr: Expr | undefined = undefined;
-
-        if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, ":", 2)) {
-          // Parameter with name and type: paramName: Type
-          paramNameExpr = arg.args[0];
-          const paramTypeExpr = arg.args[1];
-
-          // Check if the parameter is mutable (mut(paramName): Type)
-          if (
-            exprIsFunctionCall(paramNameExpr) &&
-            exprIsFunctionCallOf(paramNameExpr, "mut", 1)
-          ) {
-            isMutable = true;
-            paramNameExpr = paramNameExpr.args[0];
-          }
-
-          // Extract parameter name
-          if (!exprIsAtom(paramNameExpr)) {
-            throw this.formatErrorMessage(
-              paramNameExpr.token,
-              `Expected identifier for parameter name, got:\n${exprToString(
-                paramNameExpr
-              )}`
-            );
-          }
-          paramName = paramNameExpr.token.value;
-
-          // Evaluate the parameter type
-          const evaluatedParamType = this.evaluateExpression({
-            expr: paramTypeExpr,
-            env,
-          });
-
-          if (
-            !evaluatedParamType.value ||
-            evaluatedParamType.value.tag !== TypeTag.Type
-          ) {
-            throw this.formatErrorMessage(
-              paramTypeExpr.token,
-              `Expected a type for parameter type, got:\n${exprToString(
-                paramTypeExpr
-              )}`
-            );
-          }
-
-          paramType = evaluatedParamType.value.value;
-        } else {
-          // Just a type without a name, evaluate it directly
-          const evaluatedType = this.evaluateExpression({
-            expr: arg,
-            env,
-          });
-
-          if (
-            !evaluatedType.value ||
-            evaluatedType.value.tag !== TypeTag.Type
-          ) {
-            throw this.formatErrorMessage(
-              arg.token,
-              `Expected a type for parameter, got:\n${exprToString(arg)}`
-            );
-          }
-
-          paramType = evaluatedType.value.value;
-        }
-
-        if (!paramType) {
-          throw this.formatErrorMessage(
-            arg.token,
-            `Could not determine parameter type for parameter ${i + 1}`
-          );
-        }
-
-        const functionParameter: FunctionParameter = {
-          name: paramName,
-          type: paramType,
-          isMutable,
-        };
-
-        functionParameters.push(functionParameter);
-
-        // Add functionParameter to the environment
-        if (paramName) {
-          const { env: nextEnv } = addVariableToEnv({
-            env,
-            variable: {
-              name: paramName,
-              token: arg.token,
-              type: paramType,
-              isMutable,
-              isNotInitialized: true,
-            },
-          });
-          env = nextEnv;
-        }
-
-        // Update the tokens
-        if (paramNameExpr) {
-          paramNameExpr.type = paramType;
-        }
-      }
-    } else {
-      throw this.formatErrorMessage(
-        argListExpr.token,
-        `Expected (...) for function parameters, got:\n${exprToString(
-          argListExpr
-        )}`
-      );
-    }
+    const { functionParameters, env: nextEnv } =
+      this.evaluateFunctionParameters({
+        expr: argListExpr,
+        env,
+      });
+    env = nextEnv;
 
     // Create the function type
     const functionType = createFunctionType(functionParameters, returnType);
@@ -710,6 +755,97 @@ export default class Evaluator {
       type: typeOfType(functionType),
       value: functionType,
     };
+
+    return expr;
+  }
+
+  private evaluateFunctionCall({
+    expr,
+    env,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+  }): FuncCallExpr {
+    const func = expr.func;
+    const args = expr.args;
+
+    if (exprIsFunctionCall(func)) {
+      throw this.formatErrorMessage(
+        func.token,
+        `Function calls inside function calls are not implemented yet`
+      );
+    }
+    const functionName = func.token.value;
+    const functionVariables = getVariablesFromEnv(env, functionName);
+    const evaluatedArgs = args.map((arg) => {
+      const evaluatedArg = this.evaluateExpression({ expr: arg, env });
+      if (evaluatedArg.env) {
+        env = evaluatedArg.env;
+      }
+      return evaluatedArg;
+    });
+
+    // Find the functions whose parameters match the arguments
+    const functionVariablesWithMatchingTypes = functionVariables.filter(
+      (variable) => {
+        const functionType = variable.type;
+        if (!isFunctionType(functionType)) {
+          return false;
+        }
+        const parameterTypes = functionType.params.map((param) => param.type);
+        return (
+          parameterTypes.length === evaluatedArgs.length &&
+          parameterTypes.every((paramType, index) => {
+            const argType = evaluatedArgs[index].type;
+            if (!argType) {
+              throw this.formatErrorMessage(
+                evaluatedArgs[index].token,
+                `Expected type for argument, got ${evaluatedArgs[index].tag}`
+              );
+            }
+            return areTypesCompatible(paramType, argType);
+          })
+        );
+      }
+    );
+
+    if (functionVariablesWithMatchingTypes.length === 0) {
+      throw this.formatErrorMessage(
+        func.token,
+        `No matching function found for ${functionName} with arguments:\n${exprToString(
+          expr
+        )}`
+      );
+    }
+    if (functionVariablesWithMatchingTypes.length > 1) {
+      throw this.formatErrorMessage(
+        func.token,
+        `Ambiguous function call for ${functionName} with arguments:
+${exprToString(expr)}
+
+Found ${functionVariablesWithMatchingTypes.length} matching functions:
+${functionVariablesWithMatchingTypes
+  .map(
+    (variable) =>
+      `${
+        stringIsOperator(variable.name) ? `(${variable.name})` : variable.name
+      }: ${typeToString(variable.type)}`
+  )
+  .join("\n")}
+`
+      );
+    }
+
+    const functionToCall = functionVariablesWithMatchingTypes[0];
+    const functionType = functionToCall.type;
+    if (!isFunctionType(functionType)) {
+      throw this.formatErrorMessage(
+        func.token,
+        `Expected function type, got ${typeToString(functionType)}`
+      );
+    }
+    const functionReturnType = functionType.returnType;
+    expr.type = functionReturnType;
 
     return expr;
   }
@@ -731,6 +867,9 @@ export default class Evaluator {
         }
         case TokenType.Integer: {
           return this.evaluateIntegerLiteral(expr);
+        }
+        case TokenType.Boolean: {
+          return this.evaluateBooleanLiteral(expr);
         }
         default: {
           throw this.formatErrorMessage(
@@ -754,11 +893,8 @@ ${exprToString(expr)}`
         // tuple
         return this.evaluateTuple({ expr, env });
       } else {
-        throw this.formatErrorMessage(
-          expr.token,
-          `(2) Evaluating the expression below is not implemented:
-${exprToString(expr)}`
-        );
+        // Function call
+        return this.evaluateFunctionCall({ expr, env });
       }
     }
   }

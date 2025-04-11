@@ -406,15 +406,12 @@ defn swap(a: &!(i32), b: &!(i32)) -> {
 };
 swap(&!(x), &!(y));
 
-// One-Reference-Only (ORO) rules:
+// Mutable Value Semantics rules:
 // Rule 1.0, let's say fucntion parameter is not local variable, then:
-// - 1) Reference to local variable can only happen in the call site.
+// - 1) Reference can only happen in the call site.
 //   - 1.1) It cannot be stored in a variable or data structure.
-//   - 1.2) It cannot be returned from the block.
-// - 2) Function parameter of mutable reference is required to live shorter than the function parameter of immutable reference.
-//   - 2.1 Function parameters of multiple mutable reference needs to be declared in the order of their lifetime.
-//         eg: defn f1(x: &!(i32), y: &!(i32)) // Here 'x' is required to live shorter than or equal to 'y'
-// - 3) Path to a value never appears twice in the function arguments. Path uniqueness, to guarantee One Reference Only (ORO).
+//   - 1.2) Reference to local variable cannot be returned from the block.
+// - 2) Path to a value never appears twice in the function arguments. Path uniqueness, to guarantee One Reference Only (ORO).
 //    - If a function returns a reference, then we need to continue checking it
 //      eg: f1(f2(ref1), ref2);
 //          if f2 returns another reference (this reference will be sure to contain ref1), then we need to check the paths of ref1 and ref2.
@@ -429,14 +426,16 @@ y := {
 }
 
 fn(some_ref: &!(i32)) -> {
-  x := some_ref; // Allowed! As some_ref is not a local variable
-  x // return a reference here is Allowed! As it's from the function parameter.
+  x := some_ref;      // Not allowed! Violate the Rule 1.1
+  return some_ref;    // Allowed
+  // or
+  return { value: some_ref }; // Allowed
 }
 
 fn(container: &!(Container), some_ref: &(i32)) -> {
-  container.x = some_ref; // Allowed!
-                          // According to Rule 2
-                          // container lives shorter than some_ref
+  container.x = some_ref; // Not allowed!
+                          // Why? Because it is hard to compare the lifetime of container and some_ref.
+                          // container might live longer than some_ref.
 }
 
 

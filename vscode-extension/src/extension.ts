@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 
 // Import the parser and lexer from Mo project
 // This assumes your extension can access the Mo project code
-import { getVariableFromEnv } from "@mo/env";
+import { getVariablesFromEnv } from "@mo/env";
 import { MoLexerError, MoParserError } from "@mo/error";
 import Evaluator from "@mo/evaluator";
 import { AtomExpr, Expr, exprIsAtom, exprToString } from "@mo/expr";
@@ -18,10 +18,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(diagnosticCollection);
 
   // Map to store evaluated expressions by file path
-  const evaluatedFiles = new Map<
-    string,
-    { exprs: Expr[]; evaluator: Evaluator }
-  >();
+  const evaluatedFiles = new Map<string, { evaluator: Evaluator }>();
 
   // Function to analyze Mo file and show diagnostics
   const analyzeMoFile = async (document: vscode.TextDocument) => {
@@ -35,23 +32,17 @@ export function activate(context: vscode.ExtensionContext) {
 
     const text = document.getText();
     const filePath = document.uri.fsPath;
+    let evaluator: Evaluator | null = null;
 
     try {
       // Clear any previous evaluation for this file
       evaluatedFiles.delete(filePath);
 
       // Then try to evaluate:
-      const evaluator = new Evaluator({
+      evaluator = new Evaluator({
         modulePath: filePath,
         inputString: text,
       });
-
-      // Store the evaluated expressions for hover provider to use
-      evaluatedFiles.set(filePath, {
-        exprs: evaluator.getProgram(),
-        evaluator,
-      });
-
       // If we get here, there were no errors
     } catch (error) {
       const diagnostics: vscode.Diagnostic[] = [];
@@ -112,6 +103,13 @@ export function activate(context: vscode.ExtensionContext) {
       // Set the diagnostics for the file
       diagnosticCollection.set(document.uri, diagnostics);
     }
+
+    if (evaluator) {
+      // Store the evaluated expressions for hover provider to use
+      evaluatedFiles.set(filePath, {
+        evaluator,
+      });
+    }
   };
 
   // Register hover provider for Mo language
@@ -133,7 +131,8 @@ export function activate(context: vscode.ExtensionContext) {
 
       // Get the text of the document and tokenize it
       // const text = document.getText();
-      const tokens = fileData.evaluator.getTokens(); //  tokenize(text);
+      const exprs = fileData.evaluator.getProgram();
+      const tokens = fileData.evaluator.getTokens();
 
       // Find the token at the current position
       const line = position.line;
@@ -177,7 +176,7 @@ export function activate(context: vscode.ExtensionContext) {
       };
 
       // Search through all expressions
-      for (const expr of fileData.exprs) {
+      for (const expr of exprs) {
         findExprWithToken(expr);
         if (foundExpr) break;
       }
@@ -200,7 +199,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Get variable from the env
         if (expr.env) {
-          const variables = getVariableFromEnv(expr.env, expr.token.value);
+          const variables = getVariablesFromEnv(expr.env, expr.token.value);
           if (
             variables &&
             variables.length > 0 &&

@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { formatErrorMessages } from "./error";
 import { charIsOperator, Operators, Token } from "./token";
-import { Type } from "./type-checker";
+import { isFunctionType, Type } from "./type-checker";
 import { Value } from "./value";
 
 export interface Variable {
@@ -181,45 +181,68 @@ function addVariableToFrame({
 }): Frame {
   // Check if there is already a value with the same variableName
   // but is uninitialized
-  const existingVariableIndex = frame.variables.findIndex(
+  const existingUninitializedVariableIndex = frame.variables.findIndex(
     (value_) => value_.name === variable.name && value_.isNotInitialized
   );
-  if (existingVariableIndex > -1) {
+  if (existingUninitializedVariableIndex > -1) {
     const newVariables = frame.variables.slice();
-    newVariables[existingVariableIndex] = variable;
+    newVariables[existingUninitializedVariableIndex] = variable;
     return {
       variables: newVariables,
     };
-  } else {
-    if (preventDuplicate) {
-      const existingVariable = frame.variables.find(
-        (value) => value.name === variable.name
-      );
-      if (existingVariable) {
-        throw formatErrorMessages({
-          modulePath: env.modulePath,
-          inputString: env.inputString,
-          tokenAndErrorList: [
-            {
-              token: variable.token,
-              errorMessage: `Failed to define variable "${variable.name}":`,
-            },
-            {
-              token: existingVariable.token,
-              errorMessage: `Variable "${existingVariable.name}" is already defined here:`,
-            },
-          ],
-        });
-      }
-    }
-
-    return {
-      variables: [...frame.variables, variable],
-    };
   }
+
+  // Prevent the function overloading
+  if (isFunctionType(variable.type)) {
+    const existingFunctionVariable = frame.variables.find(
+      (value) => value.name === variable.name && isFunctionType(value.type)
+    );
+    if (existingFunctionVariable) {
+      throw formatErrorMessages({
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+        tokenAndErrorList: [
+          {
+            token: variable.token,
+            errorMessage: `Failed to define function "${variable.name}":`,
+          },
+          {
+            token: existingFunctionVariable.token,
+            errorMessage: `Function "${existingFunctionVariable.name}" is already defined here:`,
+          },
+        ],
+      });
+    }
+  }
+
+  if (preventDuplicate) {
+    const existingVariable = frame.variables.find(
+      (value) => value.name === variable.name
+    );
+    if (existingVariable) {
+      throw formatErrorMessages({
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+        tokenAndErrorList: [
+          {
+            token: variable.token,
+            errorMessage: `Failed to define variable "${variable.name}":`,
+          },
+          {
+            token: existingVariable.token,
+            errorMessage: `Variable "${existingVariable.name}" is already defined here:`,
+          },
+        ],
+      });
+    }
+  }
+
+  return {
+    variables: [...frame.variables, variable],
+  };
 }
 
-export function getVariableFromFrame(
+export function getVariablesFromFrame(
   frame: Frame,
   variableName: string
 ): Variable[] {
@@ -231,20 +254,20 @@ export function getVariableFromFrame(
 /**
  * This function will search for the variable in all frames of the env.
  * It will return all variables with the same name.
- * [...old, latest] = getVariableFromEnv(env, variableName);
+ * [...old, latest] = getVariablesFromEnv(env, variableName);
  * The latest variable will be the last one in the array.
  * @param env
  * @param variableName
  * @returns
  */
-export function getVariableFromEnv(
+export function getVariablesFromEnv(
   env: Environment,
   variableName: string
 ): Variable[] {
   const variables: Variable[] = [];
   for (let i = 0; i < env.frames.length; i++) {
     const frame = env.frames[i];
-    const variablesInFrame = getVariableFromFrame(frame, variableName);
+    const variablesInFrame = getVariablesFromFrame(frame, variableName);
     variables.push(...variablesInFrame);
   }
   return variables;
