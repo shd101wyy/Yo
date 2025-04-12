@@ -166,9 +166,13 @@ empty_record := {};  // This is a record
 empty_block := {;}   // This is a block (with no statements)
 
 // tuple is defined using (...) with "," as separator
-unit := (); // empty tuple
 one_element := (1,); // tuple with one element requires extra "," at the end. Otherwise, it's considered a parenthesized expression.
+                      // The "." ahead of the tuple is necessary to distinguish it from a type.
 pair := (1, 2); // tuple with two elements
+
+MyTuple := type (i32, f32);
+(my_tuple : MyTuple) := (1, 2.0); // tuple with two elements
+my_tuple := (1, 2.0);
 
 // there might be ambiguity for the function that accepts tuple as its first argument
 defn some_func(x: (i32, i32)):i32, {
@@ -178,10 +182,10 @@ defn some_func(x: (i32, i32)):i32, {
 // then
 some_func(1, 2); // error: expected 1 argument, got 2
 // and
-some_func (1, 2); // Works! The whitespace is necessary here to avoid ambiguity
+some_func .(1, 2); // Works! The whitespace is necessary here to avoid ambiguity
                   // 3
 // or call it like without whitespace between the function and '('
-some_func((1, 2)); // 3
+some_func(.(1, 2)); // 3
 
 // array is defined using [...] with "," as separator.
 arr := [1, 2, 3]; // Array(i32, 3)
@@ -198,74 +202,81 @@ MyI32 := i32; // type alias
 MyPoint := (i32, i32); // tuple type
 (p : MyPoint) := (3, 4); // valid
 
-// struct
-// accepts on type as argument:
-Point  := struct (i32, i32);
-p := Point (3, 4);
+// In Mo, a variant can be defined with `.` ahead,
+// Each variant can accept one type.
+// like the ".Point" variant below:
+// IDEA: Why not use `struct`, `enum`, and `union` like the one in rust and zig?
+// ANSWER: The `|` operator could handle them all. 
+//         Besides, using `struct` sometimes causes confusion if using it in enum variant:
+//         Should I use {...} record directly or struct {...} there?
+Point  := type 
+  .Point (i32, i32);
+p := Point.Point (3, 4);
+// If the type only has one variant, you can omit the .Variant
+p := Point (3, 4); // valid
 
-Point := struct {x: i32, y: i32};
+Point := type
+  .Point {x: i32, y: i32};
 p := Point {x: 3, y: 4};
 
-Cm := struct i32;
+Cm := type
+  .Cm i32;
 x := Cm 200;
 
+// Anonymous variant
+(p: .Point (i32, i32)) := .Point (3, 4);
 // Or use the anonymous record liternal like in zig
-// QUESTION: Do we need '.' before '{'?
-// ANSWER: Yes, to distinguish it from a record.
-// Note the '.' before '{':
-(p : Point) := .{x: 3, y: 4};
+(p : Point) := .Point {x: 3, y: 4};
 // another example of using the anonymous record here:
-// this doesn't need '.' before '{':
 (p : { a: i32, b: boolean }) := { a: 3, b: true };
 
-// enum
-Color := enum {
-  Red, // = 0
-  Green,
-  Blue
-};
+// ADT (tagged union)
+Color := type (| 
+    .Red, // = 0
+    .Green,
+    .Blue);
 color := Color.Red; // color is of type Color
 
-// enum can also define the tagged union
 // each variant can have one type as its argument
-Animal := enum {
-  Dog((String, f64)),
-  Cat({ name: String, weight: f64 })
-};
+Animal := type (|
+  .Dog((String, f64)),
+  .Cat({ name: String, weight: f64 })
+);
 a := Animal.Dog ("Buddy", 12.5);
 // or use the anonymous variant liternal:
 (b : Animal) := .Cat { name: "Whiskers", weight: 8.5 };
 
-// Or use the anonymous enum literal:
-(color: enum { Red, Green, Blue}) := .Red;
+// Or use the anonymous tagged union literal:
+(color: (| .Red, .Green, .Blue)) := .Red;
 
 // union
 // but it can only accept record as its argument
-Result := union { 
-  int: i64,
-  float: f64,
-  bool: boolean
-};
-result := Result { int: 12 };
+Result := type .Result 
+(| 
+  { int: i64 },
+  { float: f64 }
+  { bool: boolean }
+);
+result := Result.Result { int: 12 };
 result.float = 3.14;
 // or use the anonymous union liternal:
-(result : Result) := .{ int: 12 };
-(result : (union { a: i32, b: f64 })) := .{ a: 3 };
+(result : Result) := .Result { int: 12 };
+(result : (| { a: i32}, {b: f64 })) := { a: 3 };
 
 // A more complicated example
-Shape := enum {
-  Circle(i32),
-  Rectangle({width: i32, height: i32})
-};
+Shape := type (|
+  .Circle(i32),
+  .Rectangle({width: i32, height: i32})
+);
 s := Shape.Circle 5;
 s := Shape.Rectangle {width: 10, height: 20};
 
 // type as function parameter
 defn Option(T: Type): Type,
-  enum {
-    Some(T),
-    None
-  };
+  type (|
+    .Some(T),
+    .None
+  );
 
 x := Option(i32).Some(12);
 
@@ -274,11 +285,11 @@ x := Option(i32).Some(12);
 // You can also specify the return type for each variant
 // to make it a GADT
 defn MyExpr(T: Type): Type,
-  enum {
-    IntExpr: ((i32) -> MyExpr(i32)),
-    BoolExpr: ((boolean) -> MyExpr(boolean)),
-    EqExpr: (((MyExpr(i32), MyExpr(i32))) -> MyExpr(boolean))
-  };
+  type (|
+    .IntExpr: ((i32) -> MyExpr(i32)),
+    .BoolExpr: ((boolean) -> MyExpr(boolean)),
+    .EqExpr: (((MyExpr(i32), MyExpr(i32))) -> MyExpr(boolean))
+  );
 defn my_eval(T: Type, expr: MyExpr(T)): T,
   match expr,
     .IntExpr(i) -> i,
@@ -296,7 +307,7 @@ defn Option(T: Type), T1(Maybe, T);
 
 
 // interface
-defn Id(T: Type),
+defn Id(T: Type): Interface,
   interface {
     id: ((x: T)-> T),
   };
@@ -583,17 +594,17 @@ match x,
 
 // Define the Result type as a generic type
 defn Result(T: Type, E: Type): Type,
-  enum {
-    Ok(T),
-    Err(E)
-  };
+  type (|
+    .Ok(T),
+    .Err(E)
+  );
 
 // Define a standard error type
 DivisionError := 
-  enum {
-    DivideByZero,
-    Overflow
-  };
+  type (|
+    .DivideByZero,
+    .Overflow
+  );
 
 // Example: Safe division function that returns a Result
 defn safe_div(a: i32, b: i32): Result(i32, DivisionError),
@@ -627,21 +638,20 @@ cond  (x == 1) -> std.println("x is 1"),
 
 // AST Representation
 Expr :=
-  enum {
-    Atom(
-      enum {
-        Symbol(symbol),
-        Boolean(boolean),
-        I32(i32),
-        F64(f64),
-        String(String),
-        Char(char)
-      }),
-    FuncCall({ 
+  type (|
+    .Atom(
+      | .Symbol(symbol),
+        .Boolean(boolean),
+        .I32(i32),
+        .F64(f64),
+        .String(String),
+        .Char(char)
+      ),
+    .FuncCall({ 
       func: Box(Expr),
       args: List(Expr)
     })
-  };
+  );
 
 // Everything else is just function calls
 // For example, a variable declaration like:

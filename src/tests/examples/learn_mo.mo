@@ -25,6 +25,12 @@ defn factorial(x: i32): i32,
   cond 
     (x == 0) -> 1, 
     true     -> (factorial(x - 1) * x);
+
+Point := struct {
+  x: i32,
+  y: i32,
+};
+p := Point {x: 1, y: 2};
 */
 
 // MyI32 := i32;

@@ -356,12 +356,12 @@ Map.from([
 ]); // Stored on heap. Linear type.
 
 Person := // Linear type, as it contains a linear type.
-  struct (String, i32)
+  type .Person((String, i32))
 
-p := Person (String.from("Alice"), 30); // p: Person. Linear type.
+p := Person.Person (String.from("Alice"), 30); // p: Person. Linear type.
 // or:
-p: Person := .(String.from("Alice"), 30); // p: Person. Linear type.
-(Person (name, age)) := p; // name: String, age: i32
+p: Person := .Person (String.from("Alice"), 30); // p: Person. Linear type.
+(Person.Person (name, age)) := p; // name: String, age: i32
 ```
 
 #### Uninitialized variable `In Design`
@@ -449,7 +449,7 @@ We can only dereference the free type.
 
 ```rust
 Person := // Linear type, as it contains a linear type.
-  struct {name: String, age: i32};
+  type .Person {name: String, age: i32};
 
 name := String.from("Alice");
 p := Person {name, age: 30}; // p: Person. Linear type.
@@ -590,7 +590,7 @@ println(l); // Use after free
 
 ```rust
 Container :=
-  struct {
+  type .Container {
     value: &(String)
   };
 
@@ -604,7 +604,7 @@ println(c.value); // Use after free
 
 ```rust
 Container :=
-  struct {
+  type .Container {
     value: &(String);
   }
 
@@ -1157,7 +1157,7 @@ set_value_3 := fn(arr: Array(i32, 3), index: usize, value: i32)-> {
 ```rust
 // The range start..end contains all values with start <= x < end.
 // It is empty if start >= end.
-Range := struct {
+Range := type .Range {
   start: i32,
   end: i32,
 }
@@ -1458,7 +1458,7 @@ Language := { language: String; year: i32 };
 Destructure the record:
 
 ```rust
-User := struct {
+User := type .User {
   name: String,
   age: i32
 }
@@ -1500,31 +1500,30 @@ In addition, if there is only one variant with one field, the field type will be
 
 ```rust
 defn Option(T: Type): Type,
-  enum {
-    Some(T),
-    None
-  };
+  type (|
+    .Some(T),
+    .None);
 
 (none: Option(i32)) = .None;
 (some: Option(i32)) = .Some(42);
 
 IpAddr :=
-  enum {
-    V4((u8, u8, u8, u8)),
-    V6(String)
-  };
+  type (|
+    .V4((u8, u8, u8, u8)),
+    .V6(String)
+  );
 
 home := IpAddr.V4 (127, 0, 0, 1);
 loopback := IpAddr.V6 String.from("::1");
 
 // Use record as variant
 Message :=
-  enum {
-    Quit,
-    Move({ x: i32, y: i32 }),
-    Write(String),
-    ChangeColor({ r: i32, g: i32, b: i32 })
-  };
+  type (|
+    .Quit,
+    .Move({ x: i32, y: i32 }),
+    .Write(String),
+    .ChangeColor({ r: i32, g: i32, b: i32 })
+  );
 
 m := Message.Write(String.from("hello"));
 m := Message.Move { x: 3, y: 4 };
@@ -1535,11 +1534,11 @@ m := Message.ChangeColor { r: 1, g: 2, b: 3 };
 
 ```rust
 MixedData :=
-  enum {
-    NoForall((i32, String)),
-    WithForall: (forall ((T: Type) <: Show),
+  type (|
+    .NoForall((i32, String)),
+    .WithForall: (forall ((T: Type) <: Show),
                   (a: T)-> MixedData)
-  };
+  );
 
 
 mixed := MixedData.WithForall(12); // mixed: MixedData.WithForall(i32)
@@ -1548,18 +1547,17 @@ mixed := MixedData.WithForall(12); // mixed: MixedData.WithForall(i32)
 ## C struct
 
 ```rust
-Point := struct {
+Point := type .Point {
   x: i32;
   y: i32;
 };
 
-(my_point: Point) := Point {
+my_point := Point.Point {
   x: 10,
   y: 20
 };
-
-// Or use anonymous struct literal
-(my_point: Point) := .{
+// Or
+(my_point: Point) := .Point {
   x: 10,
   y: 20
 };
@@ -1578,11 +1576,10 @@ struct Point {
 ## C union
 
 ```rust
-MyNumber := union {
-  i: i32,
-  j: f32
-};
-(my_number: MyNumber) := .{ i: 10 };
+MyNumber := type (|
+  { i: i32 },
+  { j: f32 });
+(my_number: MyNumber) := { i: 10 };
 my_number.j = 1.2;
 ```
 
@@ -1600,16 +1597,16 @@ union MyNumber {
 It's the same as the ADT, but all variants have no fields.
 
 ```rust
-State := enum {
+State := type (|
   Working = 1,
   Failed = 0
-};
+);
 
-Week := enum {
+Week := type (|
   Monday, // 0
   Tuesday, // 1
   Wednesay // 2
-};
+);
 
 day := Week.Wednessay;
 printf("%d", day); // 2
@@ -1695,11 +1692,11 @@ defn Option(T: Type): Type,
 
 ```rust
 defn MyExpr(T: Type): Type,
-  enum {
-    IntExpr: ((i32)-> MyExpr(i32)),
-    BoolExpr: ((boolean)-> MyExpr(boolean)),
-    EqExpr: ((Expr(i32), Expr(i32)) -> Expr(boolean))
-  };
+  type (|
+    .IntExpr: ((i32)-> MyExpr(i32)),
+    .BoolExpr: ((boolean)-> MyExpr(boolean)),
+    .EqExpr: ((Expr(i32), Expr(i32)) -> Expr(boolean))
+  );
 
 forall (T: Type),
   defn eval(expr: MyExpr(T)): T,
@@ -1777,7 +1774,7 @@ ANSWER: Yes we allow
 ```rust
 // my_type.mo
 defn MyType(T: Type): Type,
-  struct { value: T };
+  type .MyType { value: T };
 
 forall (T: Type),
   impl MyType(T), {
@@ -1929,12 +1926,12 @@ result := some_maybe.map((x)-> x + 1); // Just(2)
 The compiler implements an exhaustive check on the pattern matching.
 
 ```rust
-Coin := enum {
+Coin := type (|
   Penny,
   Nickel,
   Dime,
   Quarter
-};
+);
 
 // Reference:
 // - https://doc.rust-lang.org/book/ch06-02-match.html
@@ -1950,10 +1947,10 @@ defn value_in_cents(coin: Coin): u8,
     .Quarter -> 25;
 
 defn List(T: Type),
-  enum {
-    Nil,
-    Cons((T, Box(List(T))))
-  };
+  type (|
+    .Nil,
+    .Cons((T, Box(List(T))))
+  );
 
 forall (T, Type),
   defn list_length(list: &(List(T))):i32,
@@ -2078,7 +2075,7 @@ defn Animal(Self: Type): Interface,
     speak: ((self: &(Self))-> ())
   };
 
-Dog := struct {};
+Dog := type {};
 impl Animal(Dog), {
   speak: (fn(self)-> {
     println("woof");
@@ -2118,7 +2115,7 @@ immutable_s := "Hello"; // immutable_s: &str, free type
 immutable_s.length; // 5
 
 // where it is stored in struct like
-str = struct {
+str = type {
   data: u8;
   length: usize;
 };
@@ -2320,10 +2317,10 @@ defn test(), {
 // module2.mo
 // Export the type
 defn Option(T: Type): Type,
-  enum {
-    Some(T),
-    None
-  };
+  type (|
+    .Some(T),
+    .None
+  );
 { Option }
 
 // module3.mo
@@ -2382,7 +2379,7 @@ defn Shape(Self: Type): Interface,
     area: ((self: &(Self))-> f32)
   };
 
-Circle = struct {
+Circle = type .Circle {
   radius: f32
 };
 impl Shape(Circle), {
@@ -2392,7 +2389,7 @@ impl Shape(Circle), {
     )
 };
 
-Square := struct {
+Square := type .Square {
   side: f32;
 };
 impl Shape(Square), {
@@ -2447,10 +2444,10 @@ defn print_area(shape: &(dyn(Shape & Display))),
   println(shape.area());
 
 // ADT
-MyShape := enum {
-  MyCircle(Circle),
-  MySquare(Square)
-};
+MyShape := type (|
+  .MyCircle(Circle),
+  .MySquare(Square)
+);
 
 // IDEA: The trait could be automatically implemented.
 // IDEA: So when we see the definition of `MyShape` above, we could say its `.value` already implemented the `Shape` trait. So it's legit to call `my_shape.value.area()` on it.
@@ -2501,7 +2498,7 @@ defn add_numbers(a: i32, b: i32): i32, {
 }
 
 @c_name("some_struct_t") <| // Export to C with the name `some_struct_t`
-SomeStruct := struct {
+SomeStruct := type .SomeStruct {
   @c_name("another_name") // Export to C with the name `another_name`
   a: i32,
 
