@@ -74,7 +74,7 @@ export type Value =
   | {
       tag: TypeTag.Variant;
       type: VariantType;
-      value: Value;
+      elements: Value[];
     }
   | {
       tag: TypeTag.Union;

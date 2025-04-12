@@ -46,6 +46,7 @@ import {
   typeOfType,
   TypeTag,
   typeToString,
+  VariantType,
 } from "./type-checker";
 import { Value } from "./value";
 
@@ -171,6 +172,15 @@ export default class Evaluator {
       lhsExpr = expr.args[0];
 
       if (exprIsFunctionCall(lhsExpr) && exprIsFunctionCallOf(lhsExpr, "mut")) {
+        if (!context.isEvaluatingType) {
+          throw this.formatErrorMessage(
+            lhsExpr.token,
+            `Expected "mut" to be used in type context, got ${exprToString(
+              lhsExpr
+            )}`
+          );
+        }
+
         isMutable = true;
         if (lhsExpr.args.length !== 1) {
           throw this.formatErrorMessage(
@@ -206,7 +216,7 @@ export default class Evaluator {
       if (!typeValue || typeValue.tag !== TypeTag.Type) {
         throw this.formatErrorMessage(
           rhsExpr.token,
-          `Expected type for tuple element, got ${exprToString(rhsExpr)}`
+          `(1) Expected type for tuple element, got ${exprToString(rhsExpr)}`
         );
       }
       elementType = typeValue.value;
@@ -219,7 +229,7 @@ export default class Evaluator {
       if (!elementType) {
         throw this.formatErrorMessage(
           rhsExpr.token,
-          `Expected type for tuple element, got ${exprToString(rhsExpr)}`
+          `(2) Expected type for tuple element, got ${exprToString(rhsExpr)}`
         );
       }
 
@@ -294,6 +304,22 @@ export default class Evaluator {
         env,
         context,
       });
+
+      // Check if there is duplicate labels
+      if (type.label) {
+        const duplicateLabel = tupleElements.find(
+          (element) => element.label === type.label
+        );
+        if (duplicateLabel) {
+          throw this.formatErrorMessage(
+            exprIsFunctionCall(arg)
+              ? arg.args[0]?.token ?? arg.token
+              : arg.token,
+            `Duplicate label "${type.label}" in tuple`
+          );
+        }
+      }
+
       tupleElements.push(type);
       tupleValues.push(value);
       env = nextEnv;
@@ -955,20 +981,154 @@ export default class Evaluator {
     return expr;
   }
 
-  private evaluateFunctionCall({
+  private evaluateVariant({
     expr,
-    env,
+    // env,
+    context,
   }: {
     expr: FuncCallExpr;
     env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!context.isEvaluatingType) {
+      throw this.formatErrorMessage(expr.token, "Not implemented");
+    }
+    if (!exprIsFunctionCallOf(expr, ".", 1)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected variant with 1 argument, got:\n${exprToString(expr)}`
+      );
+    }
+    const variantExpr = expr.args[0];
+    if (exprIsAtom(variantExpr)) {
+      if (!this.isValidVariableName(variantExpr)) {
+        throw this.formatErrorMessage(
+          variantExpr.token,
+          `Expected identifier for variant, got:\n${exprToString(variantExpr)}`
+        );
+      }
+      const variantName = variantExpr.token.value;
+      const variantType: VariantType = {
+        tag: TypeTag.Variant,
+        name: variantName,
+      };
+      expr.type = typeOfType(variantType);
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(variantType),
+        value: variantType,
+      };
+      return expr;
+    }
+    throw this.formatErrorMessage(
+      expr.token,
+      `Expected identifier for variant, got:\n${exprToString(expr)}`
+    );
+  }
+
+  private applyArgumentsToVariant({
+    variantExpr,
+    args,
+    env,
+    context,
+  }: {
+    variantExpr: FuncCallExpr;
+    args: Expr[];
+    env: Environment;
+    context: EvaluatorContext;
+  }): Environment {
+    const tupleElements: TupleElement[] = [];
+    const tupleValues: (Value | undefined)[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      const {
+        type,
+        value,
+        env: nextEnv,
+      } = this.evaluateTupleElement({
+        expr: arg,
+        env: env,
+        context,
+      });
+      env = nextEnv;
+
+      // Check if there is duplicate labels
+      if (type.label) {
+        const duplicateLabel = tupleElements.find(
+          (element) => element.label === type.label
+        );
+        if (duplicateLabel) {
+          throw this.formatErrorMessage(
+            arg.token,
+            `Duplicate label "${type.label}" in variant`
+          );
+        }
+      }
+
+      tupleElements.push(type);
+      tupleValues.push(value);
+    }
+    const tupleType: TupleType = createTupleType(tupleElements);
+    const variantType: VariantType = {
+      tag: TypeTag.Variant,
+      name: variantExpr.args[0].token.value,
+      params: tupleType,
+    };
+    if (context.isEvaluatingType) {
+      variantExpr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(variantType),
+        value: variantType,
+      };
+      variantExpr.type = typeOfType(variantType);
+      variantExpr.env = env;
+    } else {
+      variantExpr.type = variantType;
+      variantExpr.value = tupleValues.some((v) => v === undefined)
+        ? undefined
+        : {
+            tag: TypeTag.Variant,
+            type: variantType,
+            elements: tupleValues as Value[],
+          };
+      variantExpr.env = env;
+    }
+    return env;
+  }
+
+  private evaluateFunctionCall({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
   }): FuncCallExpr {
     const func = expr.func;
     const args = expr.args;
 
     if (exprIsFunctionCall(func)) {
+      if (exprIsFunctionCallOf(func, ".")) {
+        // Variant
+        const variantExpr = this.evaluateVariant({ expr: func, env, context });
+        // Apply arguments to the variant
+        const nextEnv = this.applyArgumentsToVariant({
+          variantExpr,
+          args,
+          env,
+          context,
+        });
+        expr.type = variantExpr.type;
+        expr.value = variantExpr.value;
+        expr.env = nextEnv;
+        return expr;
+      }
+
       throw this.formatErrorMessage(
         func.token,
-        `Function calls inside function calls are not implemented yet`
+        `Function calls inside function calls are not implemented yet:
+${exprToString(func)}`
       );
     }
     const functionName = func.token.value;
@@ -1105,9 +1265,12 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, "type")) {
         // type Expr
         return this.evaluateTypeExpression({ expr, env });
+      } else if (exprIsFunctionCallOf(expr, ".", 1)) {
+        // variant
+        return this.evaluateVariant({ expr, env, context });
       } else {
         // Function call
-        return this.evaluateFunctionCall({ expr, env });
+        return this.evaluateFunctionCall({ expr, env, context });
       }
     }
   }

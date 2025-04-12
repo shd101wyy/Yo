@@ -234,7 +234,7 @@ export interface VariantType {
    * Without `.` prefix
    */
   name: string;
-  type?: Type; // Optional associated type
+  params?: TupleType; // Optional associated type
   // TODO: return type? For GADT
 }
 
@@ -376,6 +376,7 @@ export const ArrayFunction: FunctionType = createFunctionType(
 */
 
 // Example: Option type function
+/*
 export const OptionFunction: FunctionType = createFunctionType(
   { tag: TypeTag.Tuple, elements: [{ label: "T", type: TType }] },
   TType, // Return type is Type
@@ -392,6 +393,7 @@ export const OptionFunction: FunctionType = createFunctionType(
     };
   }
 );
+*/
 
 // Helper function to check if a function returns a type
 export function isTypeReturningFunction(func: FunctionType): boolean {
@@ -488,7 +490,7 @@ export function typeOfType(t: Type): Type {
     return determineTypeUniverse(Array.from(t.types));
   } else if (isVariantType(t)) {
     // For variants, check the associated type if present
-    return t.type ? typeOfType(t.type) : TFree;
+    return t.params ? typeOfType(t.params) : TFree;
   } else {
     throw new Error(`Unknown type tag: ${t.tag}`);
   }
@@ -588,12 +590,12 @@ export function areTypesCompatible(
       return false;
     }
 
-    if (expectedType.type && givenType.type) {
-      return areTypesCompatible(expectedType.type, givenType.type);
+    if (expectedType.params && givenType.params) {
+      return areTypesCompatible(expectedType.params, givenType.params);
     }
     if (
-      (expectedType.type && !givenType.type) ||
-      (!expectedType.type && givenType.type)
+      (expectedType.params && !givenType.params) ||
+      (!expectedType.params && givenType.params)
     ) {
       return false;
     }
@@ -767,8 +769,8 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Variant: {
       const variant = type as VariantType;
-      return variant.type
-        ? `.${variant.name}(${typeToString(variant.type)})`
+      return variant.params
+        ? `.${variant.name}${typeToString(variant.params)}`
         : `.${variant.name}`;
     }
 
