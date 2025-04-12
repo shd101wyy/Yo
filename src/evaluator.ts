@@ -48,6 +48,10 @@ import {
 } from "./type-checker";
 import { Value } from "./value";
 
+interface EvaluatorContext {
+  isEvaluatingType?: boolean;
+}
+
 /**
  * This class is responsible for:
  * - Type checking the program
@@ -139,16 +143,74 @@ export default class Evaluator {
   private evaluateTuple({
     expr,
     env,
+    context,
   }: {
     expr: FuncCallExpr;
     env: Environment;
+    context: EvaluatorContext;
   }): FuncCallExpr {
-    if (exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected tuple, got ${expr.tag}`
+      );
+    }
+
+    if (expr.args.length === 0) {
+      // Unit
+      if (context.isEvaluatingType) {
+        expr.value = {
+          tag: TypeTag.Type,
+          type: typeOfType(TUnit),
+          value: TUnit,
+        };
+        expr.type = typeOfType(TUnit);
+        return expr;
+      } else {
+        expr.value = {
+          tag: TypeTag.Unit,
+          type: TUnit,
+        };
+        expr.type = TUnit;
+        return expr;
+      }
+    }
+
+    if (context.isEvaluatingType) {
       const args = expr.args.map((arg) =>
-        this.evaluateExpression({ expr: arg, env })
+        this.evaluateExpression({
+          expr: arg,
+          env,
+          context: {
+            isEvaluatingType: true,
+          },
+        })
       );
       expr.args = args;
-      expr.type = createTupleType(
+      const tupleType = createTupleType(
+        args.map((arg) => {
+          if (!arg.value || arg.value.tag !== TypeTag.Type) {
+            throw this.formatErrorMessage(
+              arg.token,
+              `Expected type for tuple element, got ${arg.tag}`
+            );
+          }
+          return arg.value.value;
+        })
+      );
+      expr.type = typeOfType(tupleType);
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(tupleType),
+        value: tupleType,
+      };
+      return expr;
+    } else {
+      const args = expr.args.map((arg) =>
+        this.evaluateExpression({ expr: arg, env, context })
+      );
+      expr.args = args;
+      const tupleType = createTupleType(
         args.map((arg) => {
           if (!arg.type) {
             throw this.formatErrorMessage(
@@ -159,14 +221,97 @@ export default class Evaluator {
           return arg.type;
         })
       );
-      // TODO: Create value
+      expr.type = tupleType;
+      expr.value = args.some((arg) => !arg.value)
+        ? undefined
+        : {
+            tag: TypeTag.Tuple,
+            type: tupleType,
+            value: args.map((arg) => arg.value as Value),
+          };
       return expr;
-    } else {
+    }
+  }
+
+  private evaluateRecord({
+    expr,
+  } // env,
+  // context,
+  : {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, BuiltinCollections.Record)) {
       throw this.formatErrorMessage(
         expr.token,
-        `Expected tuple, got ${expr.tag}`
+        `Expected record, got ${expr.tag}`
       );
     }
+    throw this.formatErrorMessage(
+      expr.token,
+      `Record evaluation is not implemented yet`
+    );
+
+    /*
+    if (context.isEvaluatingType) {
+      // Evaluating the record type
+      const args = expr.args.map((arg) =>
+        this.evaluateExpression({
+          expr: arg,
+          env,
+          context: {
+            isEvaluatingType: true,
+          },
+        })
+      );
+      expr.args = args;
+      const recordType = createRecordType(
+        args.map((arg) => {
+          if (!arg.value || arg.value.tag !== TypeTag.Type) {
+            throw this.formatErrorMessage(
+              arg.token,
+              `Expected type for record field, got ${arg.tag}`
+            );
+          }
+          return arg.value.value;
+        })
+      );
+      expr.type = typeOfType(recordType);
+      expr.value = {
+        tag: TypeTag.Type,
+        type: typeOfType(recordType),
+        value: recordType,
+      };
+      return expr;
+    } else {
+      // Evaluating the record value
+      const args = expr.args.map((arg) =>
+        this.evaluateExpression({ expr: arg, env, context })
+      );
+      expr.args = args;
+      const recordType = createRecordType(
+        args.map((arg) => {
+          if (!arg.type) {
+            throw this.formatErrorMessage(
+              arg.token,
+              `Expected type for record field, got ${arg.tag}`
+            );
+          }
+          return arg.type;
+        })
+      );
+      expr.type = recordType;
+      expr.value = args.some((arg) => !arg.value)
+        ? undefined
+        : {
+            tag: TypeTag.Record,
+            type: recordType,
+            value: args.map((arg) => arg.value as Value),
+          };
+      return expr;
+    }
+    */
   }
 
   private isValidVariableName(expr: Expr): boolean {
@@ -189,7 +334,13 @@ export default class Evaluator {
     const rhs = expr.args[1];
 
     // Evaluate the rhs expression
-    const nextExpr = this.evaluateExpression({ expr: rhs, env });
+    const nextExpr = this.evaluateExpression({
+      expr: rhs,
+      env,
+      context: {
+        isEvaluatingType: false,
+      },
+    });
     if (nextExpr.env) {
       env = nextExpr.env;
     }
@@ -214,6 +365,9 @@ export default class Evaluator {
       const evaluatedType = this.evaluateExpression({
         expr: typeExpr,
         env,
+        context: {
+          isEvaluatingType: true,
+        },
       });
       if (evaluatedType.env) {
         env = evaluatedType.env;
@@ -222,7 +376,7 @@ export default class Evaluator {
       if (!typeValue || typeValue.tag !== TypeTag.Type) {
         throw this.formatErrorMessage(
           typeExpr.token,
-          `Expected type for lhs, got ${exprToString(typeExpr)}`
+          `Expected type for lhs, got value: ${exprToString(typeExpr)}`
         );
       }
       lhs.type = typeValue.value;
@@ -246,6 +400,7 @@ export default class Evaluator {
           `Invalid assignment to ${lhs.token.value}, expected identifier or operator`
         );
       }
+
       // Set the variable type
       if (!lhs.type) {
         // user didn't specify the type
@@ -332,12 +487,13 @@ export default class Evaluator {
         );
       }
       const name = declaration.args[0].token.value;
-      const nextExpr = this.evaluateExpression({
+      const evaluatedTypeExpr = this.evaluateExpression({
         expr: typeExpr,
         env,
+        context: { isEvaluatingType: true },
       });
-      env = nextExpr.env || env;
-      const typeValue = nextExpr.value;
+      env = evaluatedTypeExpr.env || env;
+      const typeValue = evaluatedTypeExpr.value;
       if (!typeValue || typeValue.tag !== TypeTag.Type) {
         throw this.formatErrorMessage(
           typeExpr.token,
@@ -625,6 +781,7 @@ export default class Evaluator {
         const evaluatedParamType = this.evaluateExpression({
           expr: paramTypeExpr,
           env,
+          context: { isEvaluatingType: true },
         });
 
         if (
@@ -645,6 +802,7 @@ export default class Evaluator {
         const evaluatedType = this.evaluateExpression({
           expr: arg,
           env,
+          context: { isEvaluatingType: true },
         });
 
         if (!evaluatedType.value || evaluatedType.value.tag !== TypeTag.Type) {
@@ -705,6 +863,7 @@ export default class Evaluator {
   }: {
     expr: FuncCallExpr;
     env: Environment;
+    context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, "->", 2)) {
       throw this.formatErrorMessage(
@@ -720,6 +879,7 @@ export default class Evaluator {
     const evaluatedReturnType = this.evaluateExpression({
       expr: returnTypeExpr,
       env,
+      context: { isEvaluatingType: true },
     });
 
     // Check that the return type is indeed a type
@@ -759,6 +919,41 @@ export default class Evaluator {
     return expr;
   }
 
+  private evaluateTypeExpression({
+    expr,
+    env,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, "type", 1)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected type with 1 argument, got:\n${exprToString(expr)}`
+      );
+    }
+
+    const typeExpr = expr.args[0];
+    const evaluatedType = this.evaluateExpression({
+      expr: typeExpr,
+      env,
+      context: { isEvaluatingType: true },
+    });
+    if (evaluatedType.env) {
+      env = evaluatedType.env;
+    }
+    const typeValue = evaluatedType.value;
+    if (!typeValue || typeValue.tag !== TypeTag.Type) {
+      throw this.formatErrorMessage(
+        typeExpr.token,
+        `Expected a type for type expression, got:\n${exprToString(typeExpr)}`
+      );
+    }
+    expr.type = typeValue.type;
+    expr.value = typeValue;
+    return expr;
+  }
+
   private evaluateFunctionCall({
     expr,
     env,
@@ -778,7 +973,13 @@ export default class Evaluator {
     const functionName = func.token.value;
     const functionVariables = getVariablesFromEnv(env, functionName);
     const evaluatedArgs = args.map((arg) => {
-      const evaluatedArg = this.evaluateExpression({ expr: arg, env });
+      const evaluatedArg = this.evaluateExpression({
+        expr: arg,
+        env,
+        context: {
+          isEvaluatingType: false,
+        },
+      });
       if (evaluatedArg.env) {
         env = evaluatedArg.env;
       }
@@ -853,9 +1054,11 @@ ${functionVariablesWithMatchingTypes
   private evaluateExpression({
     expr,
     env,
+    context,
   }: {
     expr: Expr;
     env: Environment;
+    context: EvaluatorContext;
   }): Expr {
     if (exprIsAtom(expr)) {
       switch (expr.token.type) {
@@ -885,13 +1088,23 @@ ${exprToString(expr)}`
         return this.evaluateInitializationAssignment({ expr, env });
       } else if (exprIsFunctionCallOf(expr, "->", 2)) {
         // Function type
-        return this.evaluateFunctionType({ expr, env });
+        return this.evaluateFunctionType({
+          expr,
+          env,
+          context: { isEvaluatingType: true },
+        });
       } else if (exprIsFunctionCallOf(expr, "extern")) {
         // extern
         return this.evaluateExtern({ expr, env });
       } else if (exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
         // tuple
-        return this.evaluateTuple({ expr, env });
+        return this.evaluateTuple({ expr, env, context });
+      } else if (exprIsFunctionCallOf(expr, BuiltinCollections.Record)) {
+        // record
+        return this.evaluateRecord({ expr, env, context });
+      } else if (exprIsFunctionCallOf(expr, "type")) {
+        // type Expr
+        return this.evaluateTypeExpression({ expr, env });
       } else {
         // Function call
         return this.evaluateFunctionCall({ expr, env });
@@ -906,7 +1119,13 @@ ${exprToString(expr)}`
     });
     for (let i = 0; i < this.program.length; i++) {
       const expr = this.program[i];
-      const nextExpr = this.evaluateExpression({ expr, env });
+      const nextExpr = this.evaluateExpression({
+        expr,
+        env,
+        context: {
+          isEvaluatingType: false,
+        },
+      });
       env = nextExpr.env || env;
     }
   }

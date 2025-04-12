@@ -12,10 +12,24 @@ extern {
   // TODO: Prevent the function overloading
   // (+): ((lhs: i32, rhs: i32)-> f32)
 };
-mut(x) := 12;
-mut(y) := 14;
-z := ((x + y) * 4);
+// mut(x) := 12;
+// mut(y) := 14;
+// z := ((x + y) * 4);
+MyI32 := i32;
+(x: MyI32) := 14;
 x := true;
+(x: boolean) := false;
+y := x;
+
+some_unit := ();
+MyUnitType := type ();
+MyPointType := type (i32, i32);
+MyPointType2 := (i32, i32);
+point1 := (1, 2);
+(point2: (i32, i32)) := (1, 3);
+(point3: MyPointType) := (1, 4);
+
+MyRecordType := type {x: i32, y: i32};
 
 /*
 defn add(x: i32, y: i32): i32,

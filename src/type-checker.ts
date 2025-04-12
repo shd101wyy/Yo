@@ -583,9 +583,8 @@ export function areTypesCompatible(
   }
     */
 
-  if (expectedType.tag === givenType.tag) {
-    // For primitive types and simple matches
-    return true;
+  if (isPrimitiveType(expectedType) && isPrimitiveType(givenType)) {
+    return expectedType.tag === givenType.tag;
   }
 
   if (isArrayType(expectedType) && isArrayType(givenType)) {
@@ -597,8 +596,9 @@ export function areTypesCompatible(
   }
 
   if (isTupleType(expectedType) && isTupleType(givenType)) {
-    if (expectedType.elementTypes.length !== givenType.elementTypes.length)
+    if (expectedType.elementTypes.length !== givenType.elementTypes.length) {
       return false;
+    }
 
     for (let i = 0; i < expectedType.elementTypes.length; i++) {
       if (

@@ -68,7 +68,8 @@ mut(y) := 14; // mutable   mut(y): compt(i32)
 // It's hard to tell! So let's make it explicit
 
 // define a function
-defn add(x: i32, y: i32):i32, x + y;
+defn add(x: i32, y: i32):i32, 
+  x + y;
 // or with anonymous function defined with `fn` and `->`
 add := ((fn(x: i32, y: i32) : i32) -> (x + y));
 // or define its type first
@@ -96,11 +97,11 @@ defn create_user
     (age: i32) = 18,
     (role: String) = String.from("user")
   ): User,
-  User {
+  User
     name: name,
     age: age,
     role: role
-  };
+  ;
 
 // call a function
 add(3, 4);
@@ -147,32 +148,49 @@ result := begin(
   y := 4,
   add x, y
 );
+empty_block := {}   // This is an empty block that returns unit.  
 
-// record is defined using {...} with "," as separator instead of ";"
-// Like the one in JavaScript
-person := {
+// There is no record in Mo, instead there is only the named tuple.
+// All tuples in Mo are named tuples.
+// Like the one in JavaScript.
+person := (
   name: "John",
   age: 30
-};
-// is equavalent to call `record`
-person := record(
-  name : "John",
-  age : 30
 );
 
-// Empty braces {} are considered a record, not a block
-empty_record := {};  // This is a record
-// To create an empty block, you need at least one semicolon
-empty_block := {;}   // This is a block (with no statements)
 
 // tuple is defined using (...) with "," as separator
 one_element := (1,); // tuple with one element requires extra "," at the end. Otherwise, it's considered a parenthesized expression.
                       // The "." ahead of the tuple is necessary to distinguish it from a type.
 pair := (1, 2); // tuple with two elements
-
 MyTuple := type (i32, f32);
 (my_tuple : MyTuple) := (1, 2.0); // tuple with two elements
 my_tuple := (1, 2.0);
+
+NamedTuple := type (x: i32, y: i32);
+(named_tuple : NamedTuple) := (x: 1, y: 2); // tuple with named elements
+// or different order
+(named_tuple : NamedTuple) := (y: 2, x: 1); // tuple with named elements
+// or without name
+(named_tuple : NamedTuple) := (1, 2); // tuple with unnamed elements
+// access fields using "."
+// by field name
+named_tuple.x; // 1
+// or by index
+named_tuple.0; // 1
+
+x := 1;
+y := 2;
+named_tuple := (.x, .y); // is equivalent to (x: x, y: y);
+
+// destructure
+(a, b) := named_tuple; // a: 1, b: 2
+// or destructure with name
+(.y, .x) := named_tuple; // y: 2, x: 1
+// or destructurep part of the tuple
+(.x) := named_tuple; // x: 1
+// or rename the field
+(.x: a) := named_tuple; // a: 1
 
 // there might be ambiguity for the function that accepts tuple as its first argument
 defn some_func(x: (i32, i32)):i32, {
@@ -196,10 +214,10 @@ mut(arr) := [1, 2, 3]; // mutable array
 
 // In Mo, type is the first-class citizen,
 // meaning that you can assign a type to a variable, or pass it as an argument to a function.
-MyI32 := i32; // type alias
+MyI32 := type i32; // type alias
 (x : MyI32) := 12; // valid
 
-MyPoint := (i32, i32); // tuple type
+MyPoint := type (i32, i32); // tuple type
 (p : MyPoint) := (3, 4); // valid
 
 // In Mo, a variant can be defined with `.` ahead,
@@ -209,26 +227,25 @@ MyPoint := (i32, i32); // tuple type
 // ANSWER: The `|` operator could handle them all. 
 //         Besides, using `struct` sometimes causes confusion if using it in enum variant:
 //         Should I use {...} record directly or struct {...} there?
-Point  := type 
-  .Point (i32, i32);
-p := Point.Point (3, 4);
+Point  := type
+  .Point(i32, i32); // NOTE: There is no space between `.Point` and `(`
+p := Point.Point 3, 4;
 // If the type only has one variant, you can omit the .Variant
-p := Point (3, 4); // valid
+p := Point 3, 4; // valid
 
 Point := type
-  .Point {x: i32, y: i32};
-p := Point {x: 3, y: 4};
+  .Point(x: i32, y: i32);
+p := Point(x: 3, y: 4);
 
 Cm := type
   .Cm i32;
 x := Cm 200;
 
 // Anonymous variant
-(p: .Point (i32, i32)) := .Point (3, 4);
-// Or use the anonymous record liternal like in zig
-(p : Point) := .Point {x: 3, y: 4};
+(p: .Point(i32, i32)) := .Point(3, 4);
+(p : Point) := .Point(x: 3, y: 4);
 // another example of using the anonymous record here:
-(p : { a: i32, b: boolean }) := { a: 3, b: true };
+(p : ( a: i32, b: boolean )) := ( a: 3, b: true );
 
 // ADT (tagged union)
 Color := type (| 
@@ -239,12 +256,12 @@ color := Color.Red; // color is of type Color
 
 // each variant can have one type as its argument
 Animal := type (|
-  .Dog((String, f64)),
-  .Cat({ name: String, weight: f64 })
+  .Dog(String, f64),
+  .Cat(name: String, weight: f64 )
 );
-a := Animal.Dog ("Buddy", 12.5);
+a := Animal.Dog "Buddy", 12.5;
 // or use the anonymous variant liternal:
-(b : Animal) := .Cat { name: "Whiskers", weight: 8.5 };
+(b : Animal) := .Cat name: "Whiskers", weight: 8.5;
 
 // Or use the anonymous tagged union literal:
 (color: (| .Red, .Green, .Blue)) := .Red;
@@ -253,23 +270,23 @@ a := Animal.Dog ("Buddy", 12.5);
 // but it can only accept record as its argument
 Result := type .Result 
 (| 
-  { int: i64 },
-  { float: f64 }
-  { bool: boolean }
+  ( int: i64 ),
+  ( float: f64 ),
+  ( bool: boolean )
 );
-result := Result.Result { int: 12 };
+result := Result(int: 12);
 result.float = 3.14;
 // or use the anonymous union liternal:
-(result : Result) := .Result { int: 12 };
-(result : (| { a: i32}, {b: f64 })) := { a: 3 };
+(result : Result) := .Result(int: 12);
+(result : (| ( a: i32), (b: f64 ))) := ( a: 3 );
 
 // A more complicated example
 Shape := type (|
   .Circle(i32),
-  .Rectangle({width: i32, height: i32})
+  .Rectangle(width: i32, height: i32)
 );
 s := Shape.Circle 5;
-s := Shape.Rectangle {width: 10, height: 20};
+s := Shape.Rectangle width: 10, height: 20;
 
 // type as function parameter
 defn Option(T: Type): Type,
@@ -288,13 +305,13 @@ defn MyExpr(T: Type): Type,
   type (|
     .IntExpr: ((i32) -> MyExpr(i32)),
     .BoolExpr: ((boolean) -> MyExpr(boolean)),
-    .EqExpr: (((MyExpr(i32), MyExpr(i32))) -> MyExpr(boolean))
+    .EqExpr: ((MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean))
   );
 defn my_eval(T: Type, expr: MyExpr(T)): T,
   match expr,
     .IntExpr(i) -> i,
     .BoolExpr(b) -> b,
-    .EqExpr (a, b) -> (my_eval(a) == my_eval(b))
+    .EqExpr(a, b) -> (my_eval(a) == my_eval(b))
 ;
 
 // higher kinded types
@@ -308,21 +325,21 @@ defn Option(T: Type), T1(Maybe, T);
 
 // interface
 defn Id(T: Type): Interface,
-  interface {
-    id: ((x: T)-> T),
-  };
+  interface
+    id: ((x: T)-> T)
+;
 
 // impl interface
-impl Id(i32), {
+impl Id(i32), (
   id: ((fn(x: i32): i32)-> x)
-}
+);
 
 // impl interface with generic type
-forall ((T : Type) <: Show(T)), impl Show((T,)), {
+forall (T : (Type <: Show)), impl Show((T,)), (
   show: ((fn(x: (T,)): String) -> {
     return ("(" + x.0.show()) + ")";
   })
-}
+);
 show((3,)); // "(3,)"
 
 // Call a function defined in interface
@@ -333,11 +350,10 @@ Id(_).id(13); // 13. Use `_` as a placeholder for type
 
 // impl a type
 Cm := (.Cm i32);
-impl Cm, {
+impl Cm,
   M: ((fn(x: Cm): i32) -> {
     return x / 100;
-  })
-};
+  });
 (x : Cm) := 200.Cm();
 x.M(); // 2
 // or
@@ -364,12 +380,12 @@ defn add(x: i32, y: i32): i32,
   x + y;
 defn sub (x: i32, y: i32): i32,
   x - y;
-{ add, sub } // export add and sub
+( .add, .sub ) // export add and sub
 // is equivalent to
-// { add: add, sub: sub }
+// ( add: add, sub: sub )
 
 // main.mo
-{ add, sub } := import("./arith.mo");
+( .add, .sub ) := import("./arith.mo");
 add(3, 4); // 7
 
 // Type in Mo can be either Linear or Free
@@ -440,7 +456,7 @@ fn(some_ref: &!(i32)) -> {
   x := some_ref;      // Not allowed! Violate the Rule 1.1
   return some_ref;    // Allowed
   // or
-  return { value: some_ref }; // Allowed
+  return ( value: some_ref ); // Allowed
 }
 
 fn(container: &!(Container), some_ref: &(i32)) -> {
@@ -459,10 +475,10 @@ use &!(x), x_ref -> {
 // Iterator
 to_iter_mut := (forall (T: Type),
   (fn(arr: &!(Array(T))) -> {
-    return Iter {
+    return Iter
       data: arr, // allow to assign reference in this case because it's the last expression
       index: 0
-    };
+    ;
   }));
 
 arr := ["Hello".to_string(), "world".to_string(), "!".to_string()];
@@ -647,11 +663,10 @@ Expr :=
         .String(String),
         .Char(char)
       ),
-    .FuncCall({ 
+    .FuncCall(
       func: Box(Expr),
       args: List(Expr)
-    })
-  );
+    ));
 
 // Everything else is just function calls
 // For example, a variable declaration like:
@@ -677,13 +692,12 @@ e := quote(add(1, 2));
 // or use `:` operator for `quote, and `$` operator for `unquote`
 e := :(add(1, 2));
 // =>
-e := Expr.FuncCall {
+e := Expr.FuncCall(
   func: Box(.Atom(.Symbol(symbol(add)))),
   args: list(
     Expr.Atom(.I32(1)),
     Expr.Atom(.I32(2))
-  )
-}
+  ));
 e.to_string(); // "add(1, 2)"
 
 // More metaprogramming examples
@@ -693,13 +707,12 @@ x := quote(5);
 y := quote(10);
 template := quote(add(unquote(x), unquote(y)));
 // =>
-template := Expr.FuncCall {
+template := Expr.FuncCall(
   func: Box(.Atom(.Symbol(symbol(add)))),
   args: list(
     Expr.Atom(.I32(5)),  // x was evaluated to 5
     Expr.Atom(.I32(10))  // y was evaluated to 10
-  )
-};
+  ));
 
 // `unquote_splicing` splices a list into the surrounding list
 x := 2;
@@ -709,7 +722,7 @@ call := quote(sum(unquote_splicing(arg_tuple.args), 4, 5));
 call := quote(sum(...(unquote(arg_tuple.args)), 4, 5));
 
 // =>
-(call : Expr) := .FuncCall {
+(call : Expr) := .FuncCall
   func: Box(.Atom(.Symbol(symbol(sum)))),
   args: list(
     .Atom(.I32(1)),
@@ -718,7 +731,6 @@ call := quote(sum(...(unquote(arg_tuple.args)), 4, 5));
     .Atom(.I32(4)),
     .Atom(.I32(5))
   )
-}
 
 // Generate a sequence of operations
 ops := [quote(add), quote(sub), quote(mul)];
@@ -746,11 +758,10 @@ generate_math := quote(
 // * Compiler - Code Generation, to `C` only now
 
 // C FFI
-{*} := import("stdio.h");
+(*) := import("stdio.h");
 
-extern "C", {
+extern "C",
   printf: ((format: *(char), ...(args)) -> i32);
-}
 
 // Compile-time Execution
 // Unlike the "compt" in Zig which is a modifier to the variabel binding, 
@@ -772,12 +783,11 @@ x := 10; // x : compt(i32)
 (z : compt(i32)) := y; // error: cannot cast i32 to compt(i32)
 
 // Below is another example
-defn max(T: Type, a: T, b: T):T, {
+defn max(T: Type, a: T, b: T):T,
   cond // implicit compile-time evaluate the condition if it's known at the compile-time, and skip the branch not taken.
     (T == boolean) -> a.or b,
     (a > b) -> a,
-    true -> b
-};
+    true -> b;
 max(boolean, false, true); // compiles to:
 defn max(a: boolean, b: boolean): boolean, {
   {

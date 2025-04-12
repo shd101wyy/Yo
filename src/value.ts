@@ -50,6 +50,10 @@ export type Value =
       value: number;
     }
   | {
+      tag: TypeTag.Unit;
+      type: Type;
+    }
+  | {
       tag: TypeTag.Boolean;
       type: Type;
       value: boolean;
@@ -168,6 +172,9 @@ export function valueToString(value: Value): string {
     }
     case TypeTag.Function: {
       return `<function>`;
+    }
+    case TypeTag.Unit: {
+      return `()`;
     }
     default: {
       return `<unknown>`;
