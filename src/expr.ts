@@ -66,7 +66,7 @@ export function exprIsFunctionCallOf(
 export enum BuiltinCollections {
   Array = "array",
   Tuple = "tuple",
-  Record = "record",
+  // Record = "record",
   Begin = "begin",
 }
 

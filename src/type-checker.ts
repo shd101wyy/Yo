@@ -1,3 +1,5 @@
+import { Expr } from "./expr";
+
 // FIXME: We need to determine the ptr size based on the givenType architecture.
 export function getPtrSize(): number {
   return 8;
@@ -35,11 +37,9 @@ export enum TypeTag {
   Type = "Type",
 
   // Complex types
+  Variant = "Variant",
   Array = "Array",
   Tuple = "Tuple",
-  Record = "Record",
-  Struct = "Struct",
-  Enum = "Enum",
   Union = "Union",
   Function = "Function",
 
@@ -78,18 +78,6 @@ export interface Literal extends Type {
    * The type of the value.
    */
   type: Type;
-}
-
-export interface FunctionParameter {
-  name?: string;
-  type: Type;
-  /**
-   * The default value for this parameter.
-   * Can be either a concrete Value or a Type (for type parameters).
-   */
-  // defaultValue?: Type;
-  isMutable?: boolean;
-  // isCompileTimeKnown?: boolean;
 }
 
 export function isPrimitiveType(type: Type): boolean {
@@ -221,41 +209,43 @@ export interface ArrayType extends Type {
   length: number; // Fixed length is required
 }
 
+export interface TupleElement {
+  type: Type;
+  label?: string;
+
+  /**
+   * This is only used for Functions
+   */
+  isMutable?: boolean;
+  /**
+   * This is only used for Functions
+   */
+  defaultValue?: Expr;
+}
+
 export interface TupleType extends Type {
   tag: TypeTag.Tuple;
-  elementTypes: Type[];
+  elements: TupleElement[];
 }
 
-export interface RecordType extends Type {
-  tag: TypeTag.Record;
-  fields: Map<string, Type>;
-}
-
-// Update StructType interface to remove structName
-export interface StructType extends Type {
-  tag: TypeTag.Struct;
-  baseType: Type; // The underlying type being wrapped
-}
-
-export interface EnumVariant {
+export interface VariantType {
+  tag: TypeTag.Variant;
+  /**
+   * Without `.` prefix
+   */
   name: string;
   type?: Type; // Optional associated type
   // TODO: return type? For GADT
 }
 
-export interface EnumType extends Type {
-  tag: TypeTag.Enum;
-  variants: EnumVariant[];
-}
-
 export interface UnionType extends Type {
   tag: TypeTag.Union;
-  memberTypes: Map<string, Type>;
+  types: Type[];
 }
 
 export interface FunctionType extends Type {
   tag: TypeTag.Function;
-  params: FunctionParameter[];
+  params: TupleType;
   returnType: Type;
 
   typeFunctionImplementation?: (args: Type[]) => Type;
@@ -265,7 +255,7 @@ export interface FunctionType extends Type {
 // It is just a collection of types
 export interface Interface {
   tag: "Interface"; // Using Type as the tag for interfaces
-  memberTypes: Map<string, Type>; // Renamed from members to memberTypes for consistency
+  members: TupleType;
 }
 
 export function createTypeHierarchy(level: number): TTypeHierarchy {
@@ -292,109 +282,58 @@ export function createArrayType(elementType: Type, length: number): ArrayType {
 }
 */
 
-export function createTupleType(elementTypes: Type[]): TupleType {
+export function createTupleType(elements: TupleElement[]): TupleType {
   let totalSize = 0;
-  for (let i = 0; i < elementTypes.length; i++) {
-    const type = elementTypes[i];
-    if (type.size === undefined) {
+  for (let i = 0; i < elements.length; i++) {
+    const element = elements[i];
+    if (element.type.size === undefined) {
       throw new Error(
         `Cannot create tuple type: element at index ${i} has undefined size`
       );
     }
-    totalSize += type.size;
+    totalSize += element.type.size;
   }
 
   return {
     tag: TypeTag.Tuple,
     size: totalSize,
-    elementTypes,
+    elements,
   };
 }
 
-export function createRecordType(fields: Map<string, Type>): RecordType {
+export function createUnionType(types: Type[]): UnionType {
   let totalSize = 0;
-  for (const [fieldName, type] of fields.entries()) {
+  for (let i = 0; i < types.length; i++) {
+    const type = types[i];
     if (type.size === undefined) {
       throw new Error(
-        `Cannot create record type: field '${fieldName}' has undefined size`
+        `Cannot create union type: type at index ${i} has undefined size`
       );
     }
     totalSize += type.size;
   }
 
-  return {
-    tag: TypeTag.Record,
-    size: totalSize,
-    fields,
-  };
-}
-
-// Update createStructType function to remove structName parameter
-export function createStructType(baseType: Type): StructType {
-  if (baseType.size === undefined) {
-    throw new Error(`Cannot create struct type: base type size is undefined`);
-  }
-
-  return {
-    tag: TypeTag.Struct,
-    size: baseType.size,
-    baseType,
-  };
-}
-
-export function createEnumType(variants: EnumVariant[]): EnumType {
-  let maxSize = 0;
-  let hasVariantWithSize = false;
-
-  for (const variant of variants) {
-    if (variant.type) {
-      if (variant.type.size === undefined) {
+  // Check if one type is variant, then it requires all types to be variant
+  const isVariant = types.some((type) => type.tag === TypeTag.Variant);
+  if (isVariant) {
+    for (const type of types) {
+      if (type.tag !== TypeTag.Variant) {
         throw new Error(
-          `Cannot create enum type: variant '${variant.name}' has undefined size`
+          `Cannot create union type that contains both variant and non-variant types`
         );
       }
-      maxSize = Math.max(maxSize, variant.type.size);
-      hasVariantWithSize = true;
     }
-  }
-
-  // If no variants have associated types, we need at least space for the tag
-  if (!hasVariantWithSize) {
-    maxSize = 1; // At minimum, need 1 byte for the discriminant
-  }
-
-  return {
-    tag: TypeTag.Enum,
-    size: maxSize,
-    variants,
-  };
-}
-
-export function createUnionType(memberTypes: Map<string, Type>): UnionType {
-  if (memberTypes.size === 0) {
-    throw new Error("Cannot create union type: no member types provided");
-  }
-
-  let maxSize = 0;
-
-  for (const [typeName, type] of memberTypes.entries()) {
-    if (type.size === undefined) {
-      throw new Error(
-        `Cannot create union type: member '${typeName}' has undefined size`
-      );
-    }
-    maxSize = Math.max(maxSize, type.size);
   }
 
   return {
     tag: TypeTag.Union,
-    size: maxSize,
-    memberTypes,
+    size: totalSize,
+    types,
   };
 }
 
 export function createFunctionType(
-  params: FunctionParameter[],
+  params: TupleType,
   returnType: Type,
   typeFunctionImplementation?: (args: Type[]) => Type
 ): FunctionType {
@@ -407,10 +346,10 @@ export function createFunctionType(
   };
 }
 
-export function createInterfaceType(memberTypes: Map<string, Type>): Interface {
+export function createInterfaceType(members: TupleType): Interface {
   return {
     tag: "Interface",
-    memberTypes, // Updated to use the renamed field
+    members, // Updated to use the renamed field
   };
 }
 
@@ -438,18 +377,18 @@ export const ArrayFunction: FunctionType = createFunctionType(
 
 // Example: Option type function
 export const OptionFunction: FunctionType = createFunctionType(
-  [{ name: "T", type: TType }],
+  { tag: TypeTag.Tuple, elements: [{ label: "T", type: TType }] },
   TType, // Return type is Type
-  (args: Type[]): EnumType => {
+  (args: Type[]): UnionType => {
     const innerType = args[0];
-    const variants: EnumVariant[] = [
-      { name: "Some", type: innerType },
-      { name: "None" },
+    const variants: VariantType[] = [
+      { tag: TypeTag.Variant, name: "Some", type: innerType },
+      { tag: TypeTag.Variant, name: "None" },
     ];
     return {
-      tag: TypeTag.Enum,
+      tag: TypeTag.Union,
       size: undefined,
-      variants,
+      types: variants,
     };
   }
 );
@@ -468,9 +407,9 @@ export function isTypeReturningFunction(func: FunctionType): boolean {
 // Replace applyTypeFunction with a more general function
 export function applyTypeFunction(func: FunctionType, args: Type[]): Type {
   // Validate arguments
-  if (args.length !== func.params.length) {
+  if (args.length !== func.params.elements.length) {
     throw new Error(
-      `Expected ${func.params.length} arguments, got ${args.length}`
+      `Expected ${func.params.elements.length} arguments, got ${args.length}`
     );
   }
 
@@ -543,25 +482,13 @@ export function typeOfType(t: Type): Type {
     return typeOfType(t.elementType);
   } else if (isTupleType(t)) {
     // For tuples, check all element types
-    return determineTypeUniverse(t.elementTypes);
-  } else if (isRecordType(t)) {
-    // For records, check all field types
-    return determineTypeUniverse(Array.from(t.fields.values()));
-  } else if (isStructType(t)) {
-    // For structs, check the base type
-    return typeOfType(t.baseType);
-  } else if (isEnumType(t)) {
-    // For enums, check all variant types
-    const typesToCheck: Type[] = [];
-    for (const variant of t.variants) {
-      if (variant.type) {
-        typesToCheck.push(variant.type);
-      }
-    }
-    return determineTypeUniverse(typesToCheck);
+    return determineTypeUniverse(t.elements.map((element) => element.type));
   } else if (isUnionType(t)) {
     // For unions, check all member types
-    return determineTypeUniverse(Array.from(t.memberTypes.values()));
+    return determineTypeUniverse(Array.from(t.types));
+  } else if (isVariantType(t)) {
+    // For variants, check the associated type if present
+    return t.type ? typeOfType(t.type) : TFree;
   } else {
     throw new Error(`Unknown type tag: ${t.tag}`);
   }
@@ -596,71 +523,111 @@ export function areTypesCompatible(
   }
 
   if (isTupleType(expectedType) && isTupleType(givenType)) {
-    if (expectedType.elementTypes.length !== givenType.elementTypes.length) {
+    if (givenType.elements.length > expectedType.elements.length) {
       return false;
     }
 
-    for (let i = 0; i < expectedType.elementTypes.length; i++) {
+    const checkedTupleElements: Set<TupleElement> = new Set();
+    for (let i = 0; i < expectedType.elements.length; i++) {
+      let expectedTypeElement: TupleElement | undefined =
+        expectedType.elements[i];
+      const givenTypeElement = givenType.elements[i];
+
+      if (!givenTypeElement) {
+        if (checkedTupleElements.has(expectedTypeElement)) {
+          return false; // Already checked this element
+        }
+        // Needs to check the defaultValue if no givenTypeElement
+        if (expectedTypeElement.defaultValue) {
+          continue;
+        } else {
+          return false;
+        }
+      }
+
+      if (!givenTypeElement.label) {
+        if (checkedTupleElements.has(expectedTypeElement)) {
+          return false; // Already checked this element
+        }
+        if (
+          !areTypesCompatible(expectedTypeElement.type, givenTypeElement.type)
+        ) {
+          return false;
+        } else {
+          checkedTupleElements.add(expectedTypeElement);
+          continue;
+        }
+      }
+
+      // Find the matching label in the expectedType
+      expectedTypeElement = expectedType.elements.find(
+        (element) => element.label === givenTypeElement.label
+      );
+      if (!expectedTypeElement) {
+        return false;
+      }
+
+      if (checkedTupleElements.has(expectedTypeElement)) {
+        return false; // Already checked this element
+      }
       if (
         !areTypesCompatible(
-          expectedType.elementTypes[i],
-          givenType.elementTypes[i]
+          expectedType.elements[i].type,
+          givenType.elements[i].type
         )
       ) {
         return false;
       }
+      checkedTupleElements.add(expectedTypeElement);
     }
     return true;
   }
 
-  if (isRecordType(expectedType) && isRecordType(givenType)) {
-    for (const [fieldName, fieldType] of givenType.fields) {
-      const sourceField = expectedType.fields.get(fieldName);
-      if (!sourceField || !areTypesCompatible(sourceField, fieldType)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  if (isStructType(expectedType) && isStructType(givenType)) {
-    // For structs, base types must be compatible
-    return areTypesCompatible(expectedType.baseType, givenType.baseType);
-  }
-
-  if (isEnumType(expectedType) && isEnumType(givenType)) {
-    // For enums, variants must match
-    if (expectedType.variants.length !== givenType.variants.length)
+  if (isVariantType(expectedType) && isVariantType(givenType)) {
+    if (expectedType.name !== givenType.name) {
       return false;
+    }
 
-    for (let i = 0; i < expectedType.variants.length; i++) {
-      const sourceVariant = expectedType.variants[i];
-      const targetVariant = givenType.variants[i];
+    if (expectedType.type && givenType.type) {
+      return areTypesCompatible(expectedType.type, givenType.type);
+    }
+    if (
+      (expectedType.type && !givenType.type) ||
+      (!expectedType.type && givenType.type)
+    ) {
+      return false;
+    }
+    return true;
+  }
 
-      if (sourceVariant.name !== targetVariant.name) return false;
-
-      // Compare associated types if present
-      if (sourceVariant.type && targetVariant.type) {
-        if (!areTypesCompatible(sourceVariant.type, targetVariant.type)) {
-          return false;
-        }
-      } else if (sourceVariant.type !== targetVariant.type) {
-        // One has a type and the other doesn't
+  if (isUnionType(expectedType) && isUnionType(givenType)) {
+    if (expectedType.types.length !== givenType.types.length) {
+      return false;
+    }
+    // This is not ordered
+    for (let i = 0; i < expectedType.types.length; i++) {
+      const expectedMemberType = expectedType.types[i];
+      const foundMatch = givenType.types.some((givenMemberType) =>
+        areTypesCompatible(expectedMemberType, givenMemberType)
+      );
+      if (!foundMatch) {
         return false;
       }
     }
-
     return true;
   }
 
   if (isFunctionType(expectedType) && isFunctionType(givenType)) {
-    if (expectedType.params.length !== givenType.params.length) return false;
+    if (
+      expectedType.params.elements.length !== givenType.params.elements.length
+    )
+      return false;
 
-    for (let i = 0; i < expectedType.params.length; i++) {
+    for (let i = 0; i < expectedType.params.elements.length; i++) {
       if (
         !areTypesCompatible(
-          givenType.params[i].type,
-          expectedType.params[i].type
+          givenType.params.elements[i].type,
+          expectedType.params.elements[i].type
         )
       ) {
         return false;
@@ -682,20 +649,12 @@ export function isTupleType(type: Type): type is TupleType {
   return type.tag === TypeTag.Tuple;
 }
 
-export function isRecordType(type: Type): type is RecordType {
-  return type.tag === TypeTag.Record;
-}
-
-export function isStructType(type: Type): type is StructType {
-  return type.tag === TypeTag.Struct;
-}
-
-export function isEnumType(type: Type): type is EnumType {
-  return type.tag === TypeTag.Enum;
-}
-
 export function isUnionType(type: Type): type is UnionType {
   return type.tag === TypeTag.Union;
+}
+
+export function isVariantType(type: Type): type is VariantType {
+  return type.tag === TypeTag.Variant;
 }
 
 export function isFunctionType(type: Type): type is FunctionType {
@@ -794,50 +753,39 @@ export function typeToString(type: Type): string {
     }
 
     case TypeTag.Tuple: {
-      if ((type as TupleType).elementTypes.length === 0) {
+      if ((type as TupleType).elements.length === 0) {
         return "()";
       }
-      return `(${(type as TupleType).elementTypes
-        .map(typeToString)
+      return `(${(type as TupleType).elements
+        .map((element) => {
+          return `${element.label ? `${element.label}: ` : ""}${typeToString(
+            element.type
+          )}`;
+        })
         .join(", ")})`;
     }
 
-    case TypeTag.Record: {
-      const fields = Array.from((type as RecordType).fields.entries());
-      return `{ ${fields
-        .map(([name, fieldType]) => `${name}: ${typeToString(fieldType)}`)
-        .join(", ")} }`;
-    }
-
-    case TypeTag.Struct: {
-      return typeToString((type as StructType).baseType);
-    }
-
-    case TypeTag.Enum: {
-      const variants = (type as EnumType).variants;
-      return `enum { ${variants
-        .map((variant) =>
-          variant.type
-            ? `${variant.name}(${typeToString(variant.type)})`
-            : variant.name
-        )
-        .join(", ")} }`;
+    case TypeTag.Variant: {
+      const variant = type as VariantType;
+      return variant.type
+        ? `.${variant.name}(${typeToString(variant.type)})`
+        : `.${variant.name}`;
     }
 
     case TypeTag.Union: {
-      const memberTypes = Array.from((type as UnionType).memberTypes.entries());
-      return `union { ${memberTypes
-        .map(([name, memberType]) => `${name}: ${typeToString(memberType)}`)
-        .join(", ")} }`;
+      const memberTypes = (type as UnionType).types;
+      return `(| ${memberTypes
+        .map((memberType) => `${typeToString(memberType)}`)
+        .join(", ")})`;
     }
 
     case TypeTag.Function: {
       const func = type as FunctionType;
-      const params = func.params
+      const params = func.params.elements
         .map((param) =>
-          param.name
+          param.label
             ? `${
-                param.isMutable ? `mut(${param.name})` : `${param.name}`
+                param.isMutable ? `mut(${param.label})` : `${param.label}`
               }: ${typeToString(param.type)}`
             : (param.isMutable ? `mut(_):` : "") + typeToString(param.type)
         )

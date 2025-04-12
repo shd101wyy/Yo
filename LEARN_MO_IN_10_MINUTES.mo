@@ -92,8 +92,8 @@ get_value := (fn(condition: boolean) ->  // Return type inferred as Option(i32)
 );
 
 // Named parameters in function declarations with default values
-defn create_user
-  ( name: String,
+defn create_user( 
+    name: String,
     (age: i32) = 18,
     (role: String) = String.from("user")
   ): User,
@@ -181,7 +181,7 @@ named_tuple.0; // 1
 
 x := 1;
 y := 2;
-named_tuple := (.x, .y); // is equivalent to (x: x, y: y);
+named_tuple := (x: x, y: y);
 
 // destructure
 (a, b) := named_tuple; // a: 1, b: 2
@@ -380,7 +380,7 @@ defn add(x: i32, y: i32): i32,
   x + y;
 defn sub (x: i32, y: i32): i32,
   x - y;
-( .add, .sub ) // export add and sub
+( add: add, sub: sub ) // export add and sub
 // is equivalent to
 // ( add: add, sub: sub )
 

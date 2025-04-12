@@ -1,4 +1,4 @@
-extern {
+extern
   SomeType: Type,
   SomeFree: Free,
   SomeLinear: Linear,
@@ -8,10 +8,11 @@ extern {
   (+): ((lhs: i32, rhs: i32)-> i32),
   (-): ((lhs: i32, rhs: i32)-> i32),
   (*): ((lhs: i32, rhs: i32)-> i32),
-  (/): ((lhs: i32, rhs: i32)-> i32),
+  (/): ((lhs: i32, rhs: i32)-> i32)
   // TODO: Prevent the function overloading
   // (+): ((lhs: i32, rhs: i32)-> f32)
-};
+;
+
 // mut(x) := 12;
 // mut(y) := 14;
 // z := ((x + y) * 4);
@@ -29,7 +30,9 @@ point1 := (1, 2);
 (point2: (i32, i32)) := (1, 3);
 (point3: MyPointType) := (1, 4);
 
-MyRecordType := type {x: i32, y: i32};
+MyRecordType := type (x: i32, y: i32, boolean);
+(r : MyRecordType) := (y: 0, x: 12, true);
+
 
 /*
 defn add(x: i32, y: i32): i32,

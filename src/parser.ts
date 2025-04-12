@@ -237,7 +237,6 @@ export default class Parser {
         "Expected left curly bracket"
       );
     }
-    let separator: ";" | "," | undefined = undefined;
     const args: Expr[] = [];
     index = index + 1;
     while (true) {
@@ -249,53 +248,15 @@ export default class Parser {
         );
       }
       if (tokens[index].type === TokenType.Comma) {
-        if (separator === ";") {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Cannot mix , and ; in begin block"
-          );
-        }
-        separator = ",";
-        index = index + 1;
+        throw this.formatErrorMessage(
+          tokens[index],
+          "Cannot use , as separator in {...}"
+        );
       } else if (tokens[index].type === TokenType.Semicolon) {
-        if (separator === ",") {
-          throw this.formatErrorMessage(
-            tokens[index],
-            "Cannot mix , and ; in record"
-          );
-        }
-        separator = ";";
         index = index + 1;
       }
       index = this.skipWhitespace(tokens, index);
       if (tokens[index].type === TokenType.RCurlyBracket) {
-        if (separator === ";") {
-          // begin block,
-          // lets check if the forwarded token is a semicolon
-          const lastNonWhiteSpaceToken =
-            tokens[this.skipWhitespaceBackward(tokens, index - 1)];
-          if (
-            lastNonWhiteSpaceToken &&
-            lastNonWhiteSpaceToken.type === TokenType.Semicolon
-          ) {
-            const token: Token = {
-              type: TokenType.Identifier,
-              value: BuiltinCollections.Tuple,
-              position: lastNonWhiteSpaceToken.position,
-            };
-            // Push unit
-            args.push({
-              tag: ExprTag.FuncCall,
-              func: {
-                tag: ExprTag.Atom,
-                token,
-              },
-              args: [],
-              token,
-            });
-          }
-        }
-
         break;
       }
 
@@ -315,10 +276,7 @@ export default class Parser {
           tag: ExprTag.Atom,
           token: {
             type: TokenType.Identifier,
-            value:
-              separator === ";"
-                ? BuiltinCollections.Begin // begin block
-                : BuiltinCollections.Record, // record
+            value: BuiltinCollections.Begin, // begin block
             position: tokens[startIndex].position,
           },
         },

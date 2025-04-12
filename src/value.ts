@@ -1,14 +1,12 @@
 import { Expr } from "./expr";
 import {
   ArrayType,
-  EnumType,
   FunctionType,
-  RecordType,
-  StructType,
   TupleType,
   Type,
   TypeTag,
   UnionType,
+  VariantType,
   typeToString,
 } from "./type-checker";
 
@@ -71,27 +69,17 @@ export type Value =
   | {
       tag: TypeTag.Tuple;
       type: TupleType;
-      value: Value[];
+      elements: Value[];
     }
   | {
-      tag: TypeTag.Record;
-      type: RecordType;
-      value: Record<string, Value>;
-    }
-  | {
-      tag: TypeTag.Struct;
-      type: StructType;
-      value: Value;
-    }
-  | {
-      tag: TypeTag.Enum;
-      type: EnumType;
+      tag: TypeTag.Variant;
+      type: VariantType;
       value: Value;
     }
   | {
       tag: TypeTag.Union;
       type: UnionType;
-      value: Record<string, Value>;
+      value: Value;
     }
   | {
       tag: TypeTag.Function;
@@ -141,34 +129,16 @@ export function valueToString(value: Value): string {
       return `[${value.value.map(valueToString).join(", ")}]`;
     }
     case TypeTag.Tuple: {
-      if (value.value.length === 0) {
+      if (value.elements.length === 0) {
         return "()";
       }
-      return `(${value.value.map(valueToString).join(", ")})`;
+      return `(${value.elements.map(valueToString).join(", ")})`;
     }
-    case TypeTag.Record: {
-      const entries = Object.entries(value.value);
-      if (entries.length === 0) {
-        return "{}";
-      }
-      return `{ ${entries
-        .map(([key, val]) => `${key}: ${valueToString(val)}`)
-        .join(", ")} }`;
-    }
-    case TypeTag.Struct: {
-      return valueToString(value.value);
-    }
-    case TypeTag.Enum: {
-      return valueToString(value.value);
+    case TypeTag.Variant: {
+      return `.${value.type.name}(${valueToString(value.value)})`;
     }
     case TypeTag.Union: {
-      const entries = Object.entries(value.value);
-      if (entries.length === 0) {
-        return "{}";
-      }
-      return `{ ${entries
-        .map(([key, val]) => `${key}: ${valueToString(val)}`)
-        .join(", ")} }`;
+      return `(${valueToString(value.value)})`;
     }
     case TypeTag.Function: {
       return `<function>`;
