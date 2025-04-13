@@ -8,13 +8,8 @@ import { MoLexerError, MoParserError } from "@mo/error";
 import Evaluator from "@mo/evaluator";
 import { AtomExpr, Expr, exprIsAtom, exprToString } from "@mo/expr";
 import { stringIsOperator, TokenType } from "@mo/token";
-import {
-  getSizeString,
-  typeOfType,
-  TypeTag,
-  typeToString,
-} from "@mo/type-checker";
-import { valueToString } from "@mo/value";
+import { getSizeString, typeOfType, typeToString } from "@mo/type-checker";
+import { ValueTag, valueToString } from "@mo/value";
 
 export function activate(context: vscode.ExtensionContext) {
   // Create a diagnostic collection for Mo language errors
@@ -199,7 +194,7 @@ export function activate(context: vscode.ExtensionContext) {
         let tokenText = exprToString(expr);
         if (stringIsOperator(tokenText)) {
           // Wrap operators in parentheses
-          tokenText = `(${tokenText})`;
+          tokenText = `(\`${tokenText}\`)`;
         }
 
         // Get variable from the env
@@ -220,14 +215,9 @@ export function activate(context: vscode.ExtensionContext) {
         // Add type if available
         if (expr.type) {
           const typeString = typeToString(expr.type);
-          if (expr.type.size) {
-            // If the type has a size, add it
-            markdownContent.appendMarkdown(
-              `\n: ${typeString} (${getSizeString(expr.type)})`
-            );
-          } else {
-            markdownContent.appendMarkdown(`\n: ${typeString}`);
-          }
+          markdownContent.appendMarkdown(
+            `\n: ${typeString} (${getSizeString(expr.type)})`
+          );
           markdownContent.appendMarkdown(
             `\n  : ${typeToString(typeOfType(expr.type))}`
           );
@@ -236,7 +226,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Add value if available
         if (expr.value) {
           const valueString = valueToString(expr.value);
-          if (expr.value.tag === TypeTag.Type && expr.value.value.size) {
+          if (expr.value.tag === ValueTag.Type) {
             markdownContent.appendMarkdown(
               `\n:= ${valueString} (${getSizeString(expr.value.value)})`
             );

@@ -32,18 +32,16 @@ import {
   isEnumType,
   isFunctionType,
   isStructType,
+  SomeType,
   StructType,
   TBoolean,
   TF32,
   TF64,
-  TFree,
   TI16,
   TI32,
   TI64,
   TI8,
   TIsize,
-  TLinear,
-  TType,
   TU16,
   TU32,
   TU64,
@@ -57,7 +55,7 @@ import {
   TypeTag,
   typeToString,
 } from "./type-checker";
-import { createTypeValue, isTypeValue, Value } from "./value";
+import { createTypeValue, isTypeValue, Value, ValueTag } from "./value";
 
 interface EvaluatorContext {
   isEvaluatingType?: boolean;
@@ -117,7 +115,7 @@ export default class Evaluator {
     if (expr.token.type === TokenType.Integer) {
       const integerValue = parseInt(expr.token.value, 10);
       const value: Value = {
-        tag: TypeTag.I32,
+        tag: ValueTag.I32,
         type: { ...TI32, isCompileTimeKnown: true },
         value: integerValue,
       };
@@ -136,7 +134,7 @@ export default class Evaluator {
     if (expr.token.type === TokenType.Boolean) {
       const booleanValue = expr.token.value === "true";
       const value: Value = {
-        tag: TypeTag.Boolean,
+        tag: ValueTag.Boolean,
         type: { ...TBoolean, isCompileTimeKnown: true },
         value: booleanValue,
       };
@@ -176,6 +174,8 @@ export default class Evaluator {
     let lhsExpr: Expr | undefined = undefined;
     let rhsExpr: Expr = expr;
     let elementType: Type | undefined = undefined;
+
+    // Parse the lhs expr
     if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, ":")) {
       rhsExpr = expr.args[1];
       lhsExpr = expr.args[0];
@@ -246,6 +246,16 @@ export default class Evaluator {
         lhsExpr.type = lhsExpr.type || evaluatedRhs.type;
       }
     }
+
+    let value: Value | undefined = undefined;
+    if (!context.isEvaluatingType) {
+      // Evaluating value.
+      value = evaluatedRhs.value;
+    } else {
+      // Evaluating type.
+      value = evaluatedRhs.value;
+    }
+
     if (lhsExpr) {
       lhsExpr.env = env;
       lhsExpr.value = evaluatedRhs.value;
@@ -259,7 +269,7 @@ export default class Evaluator {
         isMutable,
         defaultValue: undefined,
       },
-      value: evaluatedRhs.value,
+      value: value,
       env,
     };
   }
@@ -284,7 +294,7 @@ export default class Evaluator {
       // Unit
       if (context.isEvaluatingType) {
         expr.value = {
-          tag: TypeTag.Type,
+          tag: ValueTag.Type,
           type: typeOfType(TUnit),
           value: TUnit,
         };
@@ -292,7 +302,7 @@ export default class Evaluator {
         return expr;
       } else {
         expr.value = {
-          tag: TypeTag.Unit,
+          tag: ValueTag.Unit,
           type: TUnit,
         };
         expr.type = TUnit;
@@ -388,7 +398,7 @@ export default class Evaluator {
     let value: Value | undefined = undefined;
     if (context.isEvaluatingType) {
       value = {
-        tag: TypeTag.Type,
+        tag: ValueTag.Type,
         type: typeOfType(tupleType),
         value: tupleType,
       };
@@ -396,7 +406,7 @@ export default class Evaluator {
       value = tupleValues.some((v) => v === undefined)
         ? undefined
         : {
-            tag: TypeTag.Tuple,
+            tag: ValueTag.Tuple,
             type: tupleType,
             elements: tupleValues as Value[],
           };
@@ -467,7 +477,7 @@ export default class Evaluator {
         env = evaluatedType.env;
       }
       const typeValue = evaluatedType.value;
-      if (!typeValue || typeValue.tag !== TypeTag.Type) {
+      if (!typeValue || typeValue.tag !== ValueTag.Type) {
         throw this.formatErrorMessage(
           typeExpr.token,
           `Expected type for lhs, got value: ${exprToString(typeExpr)}`
@@ -551,57 +561,16 @@ export default class Evaluator {
         `Expected extern, got ${expr.tag}`
       );
     }
-    const declarations = expr.args;
-    for (const declaration of declarations) {
-      if (
-        !exprIsFunctionCall(declaration) ||
-        !exprIsFunctionCallOf(declaration, ":", 2)
-      ) {
-        throw this.formatErrorMessage(
-          declaration.token,
-          `Expected type annotation, got:\n${exprToString(declaration)}`
-        );
-      }
-      const nameExpr = declaration.args[0];
-      const typeExpr = declaration.args[1];
-      if (!exprIsAtom(nameExpr)) {
-        throw this.formatErrorMessage(
-          declaration.token,
-          `Expected identifier, got:\n${exprToString(nameExpr)}`
-        );
-      }
-      const name = declaration.args[0].token.value;
-      const evaluatedTypeExpr = this.evaluateExpression({
-        expr: typeExpr,
-        env,
-        context: { isEvaluatingType: true },
-      });
-      env = evaluatedTypeExpr.env || env;
-      const typeValue = evaluatedTypeExpr.value;
-      if (!typeValue || typeValue.tag !== TypeTag.Type) {
-        throw this.formatErrorMessage(
-          typeExpr.token,
-          `Expected type, got:\n${exprToString(typeExpr)}`
-        );
-      }
-      // Add the variable to the env
-      const { env: nextEnv } = addVariableToEnv({
-        env,
-        variable: {
-          name,
-          token: nameExpr.token,
-          type: typeValue.value,
-          isMutable: false,
-          isNotInitialized: false,
-        },
-      });
-
-      nameExpr.type = typeValue.value;
-      env = nextEnv;
-      expr.env = env;
-    }
-
+    const { env: nextEnv } = this.evaluateTupleElements({
+      args: expr.args,
+      env,
+      context: {
+        isEvaluatingType: true,
+      },
+    });
+    env = nextEnv;
     expr.type = TUnit;
+    expr.env = env;
     return expr;
   }
 
@@ -615,38 +584,53 @@ export default class Evaluator {
     const identifier = expr.token.value;
     // Free
     if (identifier === TypeTag.Free) {
-      expr.value = {
-        tag: TypeTag.Type,
-        type: typeOfType(TFree),
-        value: TFree,
+      const someType: SomeType = {
+        tag: TypeTag.SomeType,
+        parentType: TypeTag.Free,
+        size: undefined,
       };
-      expr.type = typeOfType(TFree);
+      expr.value = {
+        tag: ValueTag.Type,
+        type: typeOfType(someType),
+        value: someType,
+      };
+      expr.type = typeOfType(someType);
       return expr;
     }
     // Linear
     else if (identifier === TypeTag.Linear) {
-      expr.value = {
-        tag: TypeTag.Type,
-        type: typeOfType(TLinear),
-        value: TLinear,
+      const someType: SomeType = {
+        tag: TypeTag.SomeType,
+        parentType: TypeTag.Linear,
+        size: undefined,
       };
-      expr.type = typeOfType(TLinear);
+      expr.value = {
+        tag: ValueTag.Type,
+        type: typeOfType(someType),
+        value: someType,
+      };
+      expr.type = typeOfType(someType);
       return expr;
     }
     // Type
     else if (identifier === TypeTag.Type) {
-      expr.value = {
-        tag: TypeTag.Type,
-        type: typeOfType(TType),
-        value: TType,
+      const someType: SomeType = {
+        tag: TypeTag.SomeType,
+        parentType: TypeTag.Type,
+        size: undefined,
       };
-      expr.type = typeOfType(TType);
+      expr.value = {
+        tag: ValueTag.Type,
+        type: typeOfType(someType),
+        value: someType,
+      };
+      expr.type = typeOfType(someType);
       return expr;
     }
     // boolean
     else if (identifier === TypeTag.Boolean) {
       expr.value = {
-        tag: TypeTag.Type,
+        tag: ValueTag.Type,
         type: typeOfType(TBoolean),
         value: TBoolean,
       };
@@ -656,7 +640,7 @@ export default class Evaluator {
     // usize
     else if (identifier === TypeTag.Usize) {
       expr.value = {
-        tag: TypeTag.Type,
+        tag: ValueTag.Type,
         type: typeOfType(TUsize),
         value: TUsize,
       };
@@ -666,7 +650,7 @@ export default class Evaluator {
     // isize
     else if (identifier === TypeTag.Isize) {
       expr.value = {
-        tag: TypeTag.Type,
+        tag: ValueTag.Type,
         type: typeOfType(TIsize),
         value: TIsize,
       };
@@ -676,7 +660,7 @@ export default class Evaluator {
     // u8
     else if (identifier === TypeTag.U8) {
       expr.value = {
-        tag: TypeTag.Type,
+        tag: ValueTag.Type,
         type: typeOfType(TU8),
         value: TU8,
       };
@@ -686,7 +670,7 @@ export default class Evaluator {
     // i8
     else if (identifier === TypeTag.I8) {
       expr.value = {
-        tag: TypeTag.Type,
+        tag: ValueTag.Type,
         type: typeOfType(TI8),
         value: TI8,
       };
@@ -696,7 +680,7 @@ export default class Evaluator {
     // u16
     else if (identifier === TypeTag.U16) {
       expr.value = {
-        tag: TypeTag.Type,
+        tag: ValueTag.Type,
         type: typeOfType(TU16),
         value: TU16,
       };
@@ -706,7 +690,7 @@ export default class Evaluator {
     // i16
     else if (identifier === TypeTag.I16) {
       expr.value = {
-        tag: TypeTag.Type,
+        tag: ValueTag.Type,
         type: typeOfType(TI16),
         value: TI16,
       };
@@ -716,7 +700,7 @@ export default class Evaluator {
     // u32
     else if (identifier === TypeTag.U32) {
       expr.value = {
-        tag: TypeTag.Type,
+        tag: ValueTag.Type,
         type: typeOfType(TU32),
         value: TU32,
       };
@@ -726,7 +710,7 @@ export default class Evaluator {
     // i32
     else if (identifier === TypeTag.I32) {
       expr.value = {
-        tag: TypeTag.Type,
+        tag: ValueTag.Type,
         type: typeOfType(TI32),
         value: TI32,
       };
@@ -736,7 +720,7 @@ export default class Evaluator {
     // u64
     else if (identifier === TypeTag.U64) {
       expr.value = {
-        tag: TypeTag.Type,
+        tag: ValueTag.Type,
         type: typeOfType(TU64),
         value: TU64,
       };
@@ -746,7 +730,7 @@ export default class Evaluator {
     // i64
     else if (identifier === TypeTag.I64) {
       expr.value = {
-        tag: TypeTag.Type,
+        tag: ValueTag.Type,
         type: typeOfType(TI64),
         value: TI64,
       };
@@ -756,7 +740,7 @@ export default class Evaluator {
     // f32
     else if (identifier === TypeTag.F32) {
       expr.value = {
-        tag: TypeTag.Type,
+        tag: ValueTag.Type,
         type: typeOfType(TF32),
         value: TF32,
       };
@@ -766,7 +750,7 @@ export default class Evaluator {
     // f64
     else if (identifier === TypeTag.F64) {
       expr.value = {
-        tag: TypeTag.Type,
+        tag: ValueTag.Type,
         type: typeOfType(TF64),
         value: TF64,
       };
@@ -877,7 +861,7 @@ export default class Evaluator {
     // Set the type and value of the expression
     expr.type = typeOfType(functionType);
     expr.value = {
-      tag: TypeTag.Type,
+      tag: ValueTag.Type,
       type: typeOfType(functionType),
       value: functionType,
     };
@@ -909,7 +893,7 @@ export default class Evaluator {
       env = evaluatedType.env;
     }
     const typeValue = evaluatedType.value;
-    if (!typeValue || typeValue.tag !== TypeTag.Type) {
+    if (!typeValue || !isTypeValue(typeValue)) {
       throw this.formatErrorMessage(
         typeExpr.token,
         `Expected a type for type expression, got:\n${exprToString(typeExpr)}`
@@ -953,7 +937,7 @@ export default class Evaluator {
     const structType: StructType = createStructType(tupleType.elements);
     expr.type = typeOfType(structType);
     expr.value = {
-      tag: TypeTag.Type,
+      tag: ValueTag.Type,
       type: typeOfType(structType),
       value: structType,
     };
@@ -1544,7 +1528,7 @@ ${exprToString(expr)}`
     if (exprs.length === 0) {
       expr.type = TUnit;
       expr.value = {
-        tag: TypeTag.Unit,
+        tag: ValueTag.Unit,
         type: TUnit,
       };
       return expr;

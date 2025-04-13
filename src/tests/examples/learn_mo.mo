@@ -3,6 +3,7 @@ extern
   SomeFree: Free,
   SomeLinear: Linear,
   AnotherI32: i32,
+  // mock_malloc: ((T: Type)-> T),
   // (---): i32,
   (+): ((lhs: i32, rhs: i32)-> i32),
   (-): ((lhs: i32, rhs: i32)-> i32),
@@ -12,7 +13,11 @@ extern
   // (+): ((lhs: i32, rhs: i32)-> f32)
 ;
 
-// SomeT := type (i32, y: SomeLinear);
+SomeT := type (i32, y: SomeLinear);
+
+// SomeType
+// OneType := (Type <: Show);
+
 
 mut(x) := 12;
 mut(y) := 14;

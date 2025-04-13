@@ -48,6 +48,9 @@ export enum TypeTag {
   Union = "Union",
   Function = "Function",
 
+  // Some Type
+  SomeType = "SomeType",
+
   // Value
   Literal = "Literal",
 }
@@ -72,7 +75,7 @@ export interface Type {
   isCompileTimeKnown?: boolean;
 }
 
-export interface Literal extends Type {
+export interface LiteralType extends Type {
   tag: TypeTag.Literal;
   /**
    * The value of the singleton type.
@@ -113,6 +116,10 @@ export function isPrimitiveType(type: Type): boolean {
 //   size: 0, // Undefined has no runtime size
 // };
 
+export interface TTypeHierarchy extends Type {
+  level: number;
+}
+
 export const TFree: TTypeHierarchy = {
   tag: TypeTag.Free,
   size: 0, // Types themselves don't have runtime size
@@ -131,8 +138,17 @@ export const TType: TTypeHierarchy = {
   level: 0,
 };
 
-export interface TTypeHierarchy extends Type {
-  level: number;
+export interface SomeType extends Type {
+  tag: TypeTag.SomeType;
+
+  parentType: TypeTag.Free | TypeTag.Linear | TypeTag.Type;
+
+  /**
+   * size is unknown for SomeType
+   */
+  size: undefined;
+
+  // TODO: Implemented interfaces
 }
 
 export const TBoolean: Type = {
@@ -311,15 +327,14 @@ export function createArrayType(elementType: Type, length: number): ArrayType {
 */
 
 export function createTupleType(elements: TupleElement[]): TupleType {
-  let totalSize = 0;
+  let totalSize: undefined | number = 0;
   for (let i = 0; i < elements.length; i++) {
     const element = elements[i];
     if (element.type.size === undefined) {
-      throw new Error(
-        `Cannot create tuple type: element at index ${i} has undefined size`
-      );
+      totalSize = undefined;
+    } else if (typeof totalSize === "number") {
+      totalSize += element.type.size;
     }
-    totalSize += element.type.size;
   }
 
   return {
@@ -330,15 +345,14 @@ export function createTupleType(elements: TupleElement[]): TupleType {
 }
 
 export function createStructType(members: TupleElement[]): StructType {
-  let totalSize = 0;
+  let totalSize: undefined | number = 0;
   for (let i = 0; i < members.length; i++) {
     const member = members[i];
     if (member.type.size === undefined) {
-      throw new Error(
-        `Cannot create struct type: member at index ${i} has undefined size`
-      );
+      totalSize = undefined;
+    } else if (typeof totalSize === "number") {
+      totalSize += member.type.size;
     }
-    totalSize += member.type.size;
   }
 
   return {
@@ -349,7 +363,7 @@ export function createStructType(members: TupleElement[]): StructType {
 }
 
 export function createEnumType(variants: EnumVariant[]): EnumType {
-  let totalSize = 0;
+  let totalSize: undefined | number = 0;
   for (let i = 0; i < variants.length; i++) {
     const variant = variants[i];
     let variantSize = 0;
@@ -357,22 +371,26 @@ export function createEnumType(variants: EnumVariant[]): EnumType {
       for (let j = 0; j < variant.params.length; j++) {
         const param = variant.params[j];
         if (param.type.size === undefined) {
-          throw new Error(
-            `Cannot create enum type: variant at index ${i} has undefined size`
-          );
+          totalSize = undefined;
+        } else if (typeof totalSize === "number") {
+          variantSize += param.type.size;
         }
-        variantSize += param.type.size;
       }
     }
-    totalSize = Math.max(totalSize, variantSize);
+    if (typeof totalSize === "number") {
+      totalSize = Math.max(totalSize, variantSize);
+    }
   }
 
   // Get the tagSize in bits
-  const tagSize = totalSize > 0 ? Math.ceil(Math.log2(variants.length)) * 8 : 0;
+  const tagSize =
+    typeof totalSize === "number" && totalSize > 0
+      ? Math.ceil(Math.log2(variants.length)) * 8
+      : 0;
 
   return {
     tag: TypeTag.Enum,
-    size: totalSize + tagSize,
+    size: typeof totalSize === "number" ? totalSize + tagSize : undefined,
     variants,
     tagSize,
   };
@@ -565,6 +583,16 @@ export function typeOfType(t: Type): Type {
   } else if (isUnionType(t)) {
     // For unions, check all member types
     return determineTypeUniverse(t.members.map((element) => element.type));
+  } else if (isSomeType(t)) {
+    if (t.parentType === TypeTag.Linear) {
+      return TLinear;
+    } else if (t.parentType === TypeTag.Free) {
+      return TFree;
+    } else if (t.parentType === TypeTag.Type) {
+      return TType;
+    } else {
+      throw new Error(`Unknown type universe for SomeType: ${t.parentType}`);
+    }
   } else {
     throw new Error(`Unknown type tag: ${t.tag}`);
   }
@@ -692,8 +720,12 @@ export function isFunctionType(type: Type): type is FunctionType {
   return type.tag === TypeTag.Function;
 }
 
-export function isLiteral(type: Type): type is Literal {
+export function isLiteralType(type: Type): type is LiteralType {
   return type.tag === TypeTag.Literal;
+}
+
+export function isSomeType(type: Type): type is SomeType {
+  return type.tag === TypeTag.SomeType;
 }
 
 /*
@@ -853,8 +885,15 @@ export function typeToString(type: Type): string {
     }
 
     case TypeTag.Literal: {
-      const literal = type as Literal;
+      const literal = type as LiteralType;
       return `${literal.value}:${typeToString(literal.type)}`;
+    }
+
+    case TypeTag.SomeType: {
+      const someType = type as SomeType;
+      const parentType = someType.parentType;
+      // TODO: Display the interfaces implemented
+      return `some(${parentType})`;
     }
 
     default: {

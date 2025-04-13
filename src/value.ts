@@ -6,9 +6,30 @@ import {
   TupleType,
   Type,
   typeOfType,
-  TypeTag,
   typeToString,
 } from "./type-checker";
+
+export enum ValueTag {
+  Type = "Type",
+  U8 = "U8",
+  I8 = "I8",
+  U16 = "U16",
+  I16 = "I16",
+  U32 = "U32",
+  I32 = "I32",
+  U64 = "U64",
+  I64 = "I64",
+  F16 = "F16",
+  F32 = "F32",
+  F64 = "F64",
+  Unit = "Unit",
+  Boolean = "Boolean",
+  Char = "Char",
+  Array = "Array",
+  Tuple = "Tuple",
+  Struct = "Struct",
+  Function = "Function",
+}
 
 export type TypeValue = {
   /**
@@ -19,7 +40,7 @@ export type TypeValue = {
    *    .type = Free
    *    .value = i32
    */
-  tag: TypeTag.Type;
+  tag: ValueTag.Type;
   /**
    * Type of the .value
    */
@@ -33,58 +54,58 @@ export type TypeValue = {
 
 export type NumberValue = {
   tag:
-    | TypeTag.U8
-    | TypeTag.I8
-    | TypeTag.U16
-    | TypeTag.I16
-    | TypeTag.U32
-    | TypeTag.I32
-    | TypeTag.U64
-    | TypeTag.I64
-    | TypeTag.F16
-    | TypeTag.F32
-    | TypeTag.F64;
+    | ValueTag.U8
+    | ValueTag.I8
+    | ValueTag.U16
+    | ValueTag.I16
+    | ValueTag.U32
+    | ValueTag.I32
+    | ValueTag.U64
+    | ValueTag.I64
+    | ValueTag.F16
+    | ValueTag.F32
+    | ValueTag.F64;
   type: Type;
   value: number;
 };
 
 export type UnitValue = {
-  tag: TypeTag.Unit;
+  tag: ValueTag.Unit;
   type: Type;
 };
 
 export type BooleanValue = {
-  tag: TypeTag.Boolean;
+  tag: ValueTag.Boolean;
   type: Type;
   value: boolean;
 };
 
 export type CharValue = {
-  tag: TypeTag.Char;
+  tag: ValueTag.Char;
   type: Type;
   value: string;
 };
 
 export type ArrayValue = {
-  tag: TypeTag.Array;
+  tag: ValueTag.Array;
   type: ArrayType;
   value: Value[];
 };
 
 export type TupleValue = {
-  tag: TypeTag.Tuple;
+  tag: ValueTag.Tuple;
   type: TupleType;
   elements: Value[];
 };
 
 export type StructValue = {
-  tag: TypeTag.Struct;
+  tag: ValueTag.Struct;
   type: StructType;
   members: Value[];
 };
 
 export type FunctionValue = {
-  tag: TypeTag.Function;
+  tag: ValueTag.Function;
   type: FunctionType;
   frameLevel: number;
   body: Expr;
@@ -130,38 +151,38 @@ export function valueToString(value: Value): string {
   }
 
   switch (value.tag) {
-    case TypeTag.Type: {
+    case ValueTag.Type: {
       return typeToString(value.value);
     }
-    case TypeTag.U8:
-    case TypeTag.I8:
-    case TypeTag.U16:
-    case TypeTag.I16:
-    case TypeTag.U32:
-    case TypeTag.I32:
-    case TypeTag.U64:
-    case TypeTag.I64:
-    case TypeTag.F16:
-    case TypeTag.F32:
-    case TypeTag.F64: {
+    case ValueTag.U8:
+    case ValueTag.I8:
+    case ValueTag.U16:
+    case ValueTag.I16:
+    case ValueTag.U32:
+    case ValueTag.I32:
+    case ValueTag.U64:
+    case ValueTag.I64:
+    case ValueTag.F16:
+    case ValueTag.F32:
+    case ValueTag.F64: {
       return value.value.toString();
     }
-    case TypeTag.Boolean: {
+    case ValueTag.Boolean: {
       return value.value.toString();
     }
-    case TypeTag.Char: {
+    case ValueTag.Char: {
       return `'${value.value}'`;
     }
-    case TypeTag.Array: {
+    case ValueTag.Array: {
       return `[${value.value.map(valueToString).join(", ")}]`;
     }
-    case TypeTag.Tuple: {
+    case ValueTag.Tuple: {
       if (value.elements.length === 0) {
         return "()";
       }
       return `(${value.elements.map(valueToString).join(", ")})`;
     }
-    case TypeTag.Struct: {
+    case ValueTag.Struct: {
       return `_(${value.members
         .map((member) => {
           return `${valueToString(member)}`;
@@ -181,10 +202,10 @@ export function valueToString(value: Value): string {
       return `${value.variantName}(${valueToString(value.value)})`;
     }
     */
-    case TypeTag.Function: {
+    case ValueTag.Function: {
       return `<function>`;
     }
-    case TypeTag.Unit: {
+    case ValueTag.Unit: {
       return `()`;
     }
     default: {
@@ -194,12 +215,12 @@ export function valueToString(value: Value): string {
 }
 
 export function isTypeValue(value: Value): value is TypeValue {
-  return value.tag === TypeTag.Type;
+  return value.tag === ValueTag.Type;
 }
 
 export function createTypeValue(value: Type): TypeValue {
   return {
-    tag: TypeTag.Type,
+    tag: ValueTag.Type,
     type: typeOfType(value),
     value,
   };

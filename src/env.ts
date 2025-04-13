@@ -1,8 +1,14 @@
 import { createHash } from "crypto";
 import { formatErrorMessages } from "./error";
 import { charIsOperator, Operators, Token } from "./token";
-import { isFunctionType, Type, TypeTag, typeToString } from "./type-checker";
-import { isTypeValue, Value } from "./value";
+import {
+  isFunctionType,
+  isSomeType,
+  Type,
+  TypeTag,
+  typeToString,
+} from "./type-checker";
+import { createTypeValue, isTypeValue, Value } from "./value";
 
 export type ReferedVariable = {
   frameLevel: number;
@@ -220,6 +226,26 @@ function addVariableToFrame({
   variable: Variable;
   preventDuplicate?: boolean;
 }): Frame {
+  // Check if the variable has type of SomeType
+  if (isSomeType(variable.type)) {
+    if (variable.value) {
+      /*
+      throw formatErrorMessages({
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+        tokenAndErrorList: [
+          {
+            token: variable.token,
+            errorMessage: `Failed to define variable "${variable.name}" for SomeType:`,
+          },
+        ],
+      });
+      */
+    } else {
+      variable.value = createTypeValue(variable.type);
+    }
+  }
+
   // Check if there is already a value with the same variableName
   // but is uninitialized
   const existingUninitializedVariableIndex = frame.variables.findIndex(
