@@ -5,6 +5,7 @@ import {
   StructType,
   TupleType,
   Type,
+  typeOfType,
   TypeTag,
   typeToString,
 } from "./type-checker";
@@ -194,4 +195,12 @@ export function valueToString(value: Value): string {
 
 export function isTypeValue(value: Value): value is TypeValue {
   return value.tag === TypeTag.Type;
+}
+
+export function createTypeValue(value: Type): TypeValue {
+  return {
+    tag: TypeTag.Type,
+    type: typeOfType(value),
+    value,
+  };
 }

@@ -223,7 +223,7 @@ export function activate(context: vscode.ExtensionContext) {
           if (expr.type.size) {
             // If the type has a size, add it
             markdownContent.appendMarkdown(
-              `\n: ${typeString} (${getSizeString(expr.type.size)})`
+              `\n: ${typeString} (${getSizeString(expr.type)})`
             );
           } else {
             markdownContent.appendMarkdown(`\n: ${typeString}`);
@@ -238,7 +238,7 @@ export function activate(context: vscode.ExtensionContext) {
           const valueString = valueToString(expr.value);
           if (expr.value.tag === TypeTag.Type && expr.value.value.size) {
             markdownContent.appendMarkdown(
-              `\n:= ${valueString} (${getSizeString(expr.value.value.size)})`
+              `\n:= ${valueString} (${getSizeString(expr.value.value)})`
             );
           } else {
             markdownContent.appendMarkdown(`\n:= ${valueString}`);

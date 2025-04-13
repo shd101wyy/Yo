@@ -21,9 +21,12 @@ import { Token, TokenType } from "./token";
 import {
   areParametersAndArgumentsCompatible,
   areTypesCompatible,
+  createEnumType,
   createFunctionType,
   createStructType,
   createTupleType,
+  EnumType,
+  EnumVariant,
   isFunctionType,
   isStructType,
   StructType,
@@ -51,7 +54,7 @@ import {
   TypeTag,
   typeToString,
 } from "./type-checker";
-import { isTypeValue, Value } from "./value";
+import { createTypeValue, isTypeValue, Value } from "./value";
 
 interface EvaluatorContext {
   isEvaluatingType?: boolean;
@@ -1046,6 +1049,81 @@ export default class Evaluator {
     return expr;
   }
 
+  private evaluateEnum({
+    expr,
+    env,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, "enum")) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected enum, got:\n${exprToString(expr)}`
+      );
+    }
+
+    // Evaluate the variants
+    const variants: EnumVariant[] = [];
+    for (let i = 0; i < expr.args.length; i++) {
+      const enumArg = expr.args[i];
+
+      if (exprIsAtom(enumArg)) {
+        const variantName = enumArg.token.value;
+        if (!this.isValidVariableName(enumArg)) {
+          throw this.formatErrorMessage(
+            enumArg.token,
+            `Expected identifier for enum variant, got:\n${exprToString(
+              enumArg
+            )}`
+          );
+        }
+        variants.push({
+          name: variantName,
+        });
+      } else {
+        if (exprIsFunctionCallOf(enumArg, ":")) {
+          throw this.formatErrorMessage(
+            enumArg.token,
+            `Enum variant with : is not implemented yet`
+          );
+        }
+        if (!this.isValidVariableName(enumArg.func)) {
+          throw this.formatErrorMessage(
+            enumArg.func.token,
+            `Expected identifier for enum variant, got:\n${exprToString(
+              enumArg.func
+            )}`
+          );
+        }
+        const variantName = enumArg.func.token.value;
+        const { type: tupleType } = this.evaluateTupleElements({
+          args: enumArg.args,
+          env,
+          context: {
+            isEvaluatingType: true,
+          },
+        });
+        variants.push({
+          name: variantName,
+          params: tupleType.elements,
+        });
+      }
+    }
+
+    const enumType: EnumType = createEnumType(variants);
+    expr.type = typeOfType(enumType);
+    expr.value = createTypeValue(enumType);
+    expr.env = env;
+
+    // Append more information to "enum" token.
+    expr.func.type = expr.type;
+    expr.func.value = expr.value;
+    expr.func.env = env;
+
+    return expr;
+  }
+
   /*
   private evaluateVariant({
     expr,
@@ -1345,10 +1423,14 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, "struct")) {
         // struct
         return this.evaluateStruct({ expr, env });
-      } /* else if (exprIsFunctionCallOf(expr, ".", 1)) {
+      } else if (exprIsFunctionCallOf(expr, "enum")) {
+        // enum
+        return this.evaluateEnum({ expr, env });
+      } else {
+        /* else if (exprIsFunctionCallOf(expr, ".", 1)) {
         // variant
         return this.evaluateVariant({ expr, env, context });
-      } */ else {
+      } */
         // Function call
         return this.evaluateFunctionCall({ expr, env, context });
       }

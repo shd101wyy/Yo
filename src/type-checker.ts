@@ -250,6 +250,11 @@ export interface EnumVariant {
 export interface EnumType extends Type {
   tag: TypeTag.Enum;
   variants: EnumVariant[];
+
+  /**
+   * The size of the tag in bits.
+   */
+  tagSize: number;
 }
 
 export interface UnionType extends Type {
@@ -331,6 +336,36 @@ export function createStructType(members: TupleElement[]): StructType {
     tag: TypeTag.Struct,
     size: totalSize,
     members,
+  };
+}
+
+export function createEnumType(variants: EnumVariant[]): EnumType {
+  let totalSize = 0;
+  for (let i = 0; i < variants.length; i++) {
+    const variant = variants[i];
+    let variantSize = 0;
+    if (variant.params) {
+      for (let j = 0; j < variant.params.length; j++) {
+        const param = variant.params[j];
+        if (param.type.size === undefined) {
+          throw new Error(
+            `Cannot create enum type: variant at index ${i} has undefined size`
+          );
+        }
+        variantSize += param.type.size;
+      }
+    }
+    totalSize = Math.max(totalSize, variantSize);
+  }
+
+  // Get the tagSize in bits
+  const tagSize = Math.ceil(Math.log2(variants.length)) * 8;
+
+  return {
+    tag: TypeTag.Enum,
+    size: totalSize + tagSize,
+    variants,
+    tagSize,
   };
 }
 
@@ -768,7 +803,15 @@ export function typeToString(type: Type): string {
       return `enum(${enumType.variants
         .map((variant) => {
           return `${variant.name}${
-            variant.params ? `(${variant.params})` : ""
+            variant.params
+              ? `(${variant.params
+                  .map((param) => {
+                    return `${
+                      param.label ? `${param.label}: ` : ""
+                    }${typeToString(param.type)}`;
+                  })
+                  .join(", ")})`
+              : ""
           }`;
         })
         .join(", ")})`;
@@ -814,11 +857,21 @@ export function typeToString(type: Type): string {
 /**
  * @param size - The size in bits
  */
-export function getSizeString(size?: number): string {
+export function getSizeString(type: Type): string {
+  const size = type.size;
   if (size === undefined) {
     return "unknown";
   } else if (size % 8 === 0) {
     const byteSize = size / 8;
+
+    if (isEnumType(type)) {
+      return `${byteSize} bytes (tag ${
+        type.tagSize % 8 == 0
+          ? `${type.tagSize / 8} bytes`
+          : `${type.tagSize} bits`
+      })`;
+    }
+
     return `${byteSize} bytes`;
   } else {
     return `${size} bits`;

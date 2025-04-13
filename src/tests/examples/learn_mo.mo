@@ -47,9 +47,9 @@ anony := (struct(i32))(17);
 
 
 // enum
-// Color := enum Red, Green, Blue;
+Color := enum Red, Green, Blue;
 // color := Color.Red;
-// Shape := enum Circle(radius: i32), Square(width: i32, height: i32);
+Shape := enum Circle(radius: i32), Square(width: i32, height: i32);
 // shape1 := Shape.Circle(10);
 // shape2 := Shape.Square(10, 20);
 
