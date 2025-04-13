@@ -300,17 +300,32 @@ export default class Evaluator {
       }
     }
 
+    if (context.isEvaluatingType) {
+      env = pushEnvFrame(env);
+    }
     const {
       type: tupleType,
       value: tupleValue,
       env: nextEnv,
     } = this.evaluateTupleElements({ args: expr.args, env, context });
+    env = nextEnv;
+    if (context.isEvaluatingType) {
+      env = popEnvFrame(env);
+    }
+
     expr.value = tupleValue;
     expr.type = context.isEvaluatingType ? typeOfType(tupleType) : tupleType;
-    expr.env = nextEnv;
+    expr.env = env;
     return expr;
   }
 
+  /**
+   * Please note this function will add args to env if
+   * context.isEvaluatingType is true.
+   * You need to push the env frame before calling this function.
+   * You need to pop the env frame after calling this function.
+   * @returns
+   */
   private evaluateTupleElements({
     args,
     env,
@@ -352,6 +367,21 @@ export default class Evaluator {
       tupleElements.push(type);
       tupleValues.push(value);
       env = nextEnv;
+
+      // Add the variable to the env
+      if (context.isEvaluatingType && type.label) {
+        const { env: nextEnv } = addVariableToEnv({
+          env,
+          variable: {
+            name: type.label,
+            token: arg.token,
+            type: type.type,
+            isMutable: type.isMutable,
+            isNotInitialized: false, // Set as initialized
+          },
+        });
+        env = nextEnv;
+      }
     }
 
     const tupleType: TupleType = createTupleType(tupleElements);
@@ -767,15 +797,25 @@ export default class Evaluator {
     }
   }
 
-  private evaluateFunctionParameters({
+  private evaluateFunctionType({
     expr,
     env,
   }: {
-    expr: Expr;
+    expr: FuncCallExpr;
     env: Environment;
-  }): { functionParameters: TupleElement[]; env: Environment } {
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, "->", 2)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected -> for function type, got:\n${exprToString(expr)}`
+      );
+    }
+
+    const argListExpr = expr.args[0];
+    const returnTypeExpr = expr.args[1];
+
     // Handle different forms of parameter lists
-    const argListExpr = expr;
     let argList: Expr[] = [];
     if (
       exprIsFunctionCall(argListExpr) &&
@@ -798,6 +838,8 @@ export default class Evaluator {
       );
     }
 
+    // Evaluate the parameter list
+    env = pushEnvFrame(env);
     const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
       args: argList,
       env,
@@ -806,142 +848,7 @@ export default class Evaluator {
       },
     });
     const functionParameters = tupleType.elements;
-    return {
-      functionParameters,
-      env: nextEnv,
-    };
-
-    /*
-    for (let i = 0; i < argList.length; i++) {
-      const arg = argList[i];
-      let paramName: string | undefined = undefined;
-      let paramType: Type | undefined = undefined;
-      let isMutable = false;
-      let paramNameExpr: Expr | undefined = undefined;
-
-      if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, ":", 2)) {
-        // Parameter with name and type: paramName: Type
-        paramNameExpr = arg.args[0];
-        const paramTypeExpr = arg.args[1];
-
-        // Check if the parameter is mutable (mut(paramName): Type)
-        if (
-          exprIsFunctionCall(paramNameExpr) &&
-          exprIsFunctionCallOf(paramNameExpr, "mut", 1)
-        ) {
-          isMutable = true;
-          paramNameExpr = paramNameExpr.args[0];
-        }
-
-        // Extract parameter name
-        if (!exprIsAtom(paramNameExpr)) {
-          throw this.formatErrorMessage(
-            paramNameExpr.token,
-            `Expected identifier for parameter name, got:\n${exprToString(
-              paramNameExpr
-            )}`
-          );
-        }
-        paramName = paramNameExpr.token.value;
-
-        // Evaluate the parameter type
-        const evaluatedParamType = this.evaluateExpression({
-          expr: paramTypeExpr,
-          env,
-          context: { isEvaluatingType: true },
-        });
-
-        if (
-          !evaluatedParamType.value ||
-          evaluatedParamType.value.tag !== TypeTag.Type
-        ) {
-          throw this.formatErrorMessage(
-            paramTypeExpr.token,
-            `Expected a type for parameter type, got:\n${exprToString(
-              paramTypeExpr
-            )}`
-          );
-        }
-
-        paramType = evaluatedParamType.value.value;
-      } else {
-        // Just a type without a name, evaluate it directly
-        const evaluatedType = this.evaluateExpression({
-          expr: arg,
-          env,
-          context: { isEvaluatingType: true },
-        });
-
-        if (!evaluatedType.value || evaluatedType.value.tag !== TypeTag.Type) {
-          throw this.formatErrorMessage(
-            arg.token,
-            `Expected a type for parameter, got:\n${exprToString(arg)}`
-          );
-        }
-
-        paramType = evaluatedType.value.value;
-      }
-
-      if (!paramType) {
-        throw this.formatErrorMessage(
-          arg.token,
-          `Could not determine parameter type for parameter ${i + 1}`
-        );
-      }
-
-      const tupleElement: TupleElement = {
-        label: paramName,
-        type: paramType,
-        isMutable,
-      };
-
-      functionParameters.push(tupleElement);
-
-      // Add functionParameter to the environment
-      if (paramName) {
-        const { env: nextEnv } = addVariableToEnv({
-          env,
-          variable: {
-            name: paramName,
-            token: arg.token,
-            type: paramType,
-            isMutable,
-            isNotInitialized: false,
-          },
-        });
-        env = nextEnv;
-      }
-
-      // Update the tokens
-      if (paramNameExpr) {
-        paramNameExpr.type = paramType;
-      }
-    }
-
-    return {
-      functionParameters,
-      env,
-    };
-    */
-  }
-
-  private evaluateFunctionType({
-    expr,
-    env,
-  }: {
-    expr: FuncCallExpr;
-    env: Environment;
-    context: EvaluatorContext;
-  }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, "->", 2)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected -> for function type, got:\n${exprToString(expr)}`
-      );
-    }
-
-    const argListExpr = expr.args[0];
-    const returnTypeExpr = expr.args[1];
+    env = nextEnv;
 
     // Evaluate the return type expression
     const evaluatedReturnType = this.evaluateExpression({
@@ -951,10 +858,7 @@ export default class Evaluator {
     });
 
     // Check that the return type is indeed a type
-    if (
-      !evaluatedReturnType.value ||
-      evaluatedReturnType.value.tag !== TypeTag.Type
-    ) {
+    if (!evaluatedReturnType.value || !isTypeValue(evaluatedReturnType.value)) {
       throw this.formatErrorMessage(
         returnTypeExpr.token,
         `Expected a type for function return type, got:\n${exprToString(
@@ -962,19 +866,13 @@ export default class Evaluator {
         )}`
       );
     }
-
     const returnType = evaluatedReturnType.value.value;
-
-    // Handle different forms of parameter lists
-    const { functionParameters, env: nextEnv } =
-      this.evaluateFunctionParameters({
-        expr: argListExpr,
-        env,
-      });
-    env = nextEnv;
 
     // Create the function type
     const functionType = createFunctionType(functionParameters, returnType);
+
+    // Pop the environment frame
+    env = popEnvFrame(env);
 
     // Set the type and value of the expression
     expr.type = typeOfType(functionType);
@@ -1041,6 +939,7 @@ export default class Evaluator {
       );
     }
 
+    env = pushEnvFrame(env);
     const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
       args: expr.args,
       env,
@@ -1048,6 +947,8 @@ export default class Evaluator {
         isEvaluatingType: true,
       },
     });
+    env = nextEnv;
+    env = popEnvFrame(env);
 
     const structType: StructType = createStructType(tupleType.elements);
     expr.type = typeOfType(structType);
@@ -1056,12 +957,12 @@ export default class Evaluator {
       type: typeOfType(structType),
       value: structType,
     };
-    expr.env = nextEnv;
+    expr.env = env;
 
     // Append more information to "struct" token.
     expr.func.type = expr.type;
     expr.func.value = expr.value;
-    expr.func.env = nextEnv;
+    expr.func.env = env;
 
     return expr;
   }
@@ -1114,13 +1015,18 @@ export default class Evaluator {
           );
         }
         const variantName = enumArg.func.token.value;
-        const { type: tupleType } = this.evaluateTupleElements({
+
+        env = pushEnvFrame(env);
+        const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
           args: enumArg.args,
           env,
           context: {
             isEvaluatingType: true,
           },
         });
+        env = nextEnv;
+        env = popEnvFrame(env);
+
         variants.push({
           name: variantName,
           params: tupleType.elements,
@@ -1543,6 +1449,16 @@ ${exprToString(expr)}`
       );
     }
 
+    // Parse the function parameters
+    env = pushEnvFrame(env);
+    const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
+      args: functionParameterExprList,
+      env,
+      context: { isEvaluatingType: true },
+    });
+    env = nextEnv;
+    const functionParameters = tupleType.elements;
+
     // Parse the function return type
     const evaluatedReturnTypeExpr = this.evaluateExpression({
       expr: functionReturnTypeExpr,
@@ -1560,16 +1476,8 @@ ${exprToString(expr)}`
     }
     const returnType = returnTypeValue.value;
 
-    // Parse the function parameters
-    const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
-      args: functionParameterExprList,
-      env,
-      context: { isEvaluatingType: true },
-    });
-    env = nextEnv;
-    const functionParameters = tupleType.elements;
-    const functionType = createFunctionType(functionParameters, returnType);
     /// Add functionType to the functionNameExpr
+    const functionType = createFunctionType(functionParameters, returnType);
     functionNameExpr.type = functionType;
     /// Add function with name to env;
     const { env: nextNextEnv } = addVariableToEnv({
@@ -1581,27 +1489,9 @@ ${exprToString(expr)}`
         isMutable: false,
         isNotInitialized: false,
       },
+      deltaFrame: -1,
     });
     env = nextNextEnv;
-
-    /// Add function parameters to env new frame
-    env = pushEnvFrame(env);
-    for (let i = 0; i < functionParameters.length; i++) {
-      const functionParameter = functionParameters[i];
-      if (functionParameter.label) {
-        const { env: nextEnv } = addVariableToEnv({
-          env,
-          variable: {
-            name: functionParameter.label,
-            token: functionParameterExprList[i].token,
-            type: functionParameter.type,
-            isMutable: functionParameter.isMutable,
-            isNotInitialized: false,
-          },
-        });
-        env = nextEnv;
-      }
-    }
 
     // Parse the function body
     const evaluatedFunctionBody = this.evaluateExpression({

@@ -71,6 +71,9 @@ defn add2(x: i32, y: i32): i32, {
 };
 call_fn := add2(4, 5);
 
+defn identity(T: Type, x: T): T,
+  x;
+
 /*
 defn factorial(x: i32): i32,
   cond 
