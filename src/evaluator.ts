@@ -220,7 +220,7 @@ export default class Evaluator {
     if (context.isEvaluatingType) {
       // Expected the evaluatedRhs to be a type
       const typeValue = evaluatedRhs.value;
-      if (!typeValue || typeValue.tag !== TypeTag.Type) {
+      if (!typeValue || !isTypeValue(typeValue)) {
         throw this.formatErrorMessage(
           rhsExpr.token,
           `(1) Expected type for tuple element, got ${exprToString(rhsExpr)}`

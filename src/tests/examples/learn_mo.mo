@@ -2,6 +2,7 @@ extern
   SomeType: Type,
   SomeFree: Free,
   SomeLinear: Linear,
+  AnotherI32: i32,
   // (---): i32,
   (+): ((lhs: i32, rhs: i32)-> i32),
   (-): ((lhs: i32, rhs: i32)-> i32),
@@ -10,6 +11,7 @@ extern
   // TODO: Prevent the function overloading
   // (+): ((lhs: i32, rhs: i32)-> f32)
 ;
+
 // SomeT := type (i32, y: SomeLinear);
 
 mut(x) := 12;

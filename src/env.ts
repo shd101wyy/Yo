@@ -144,6 +144,31 @@ export function addVariableToEnv({
   preventDuplicate?: boolean;
   variableId?: string;
 }): { env: Environment; variable: Variable } {
+  // Prevent the function overloading
+  if (isFunctionType(variable.type)) {
+    const existingFunctionVariables = getVariablesFromEnv(
+      env,
+      variable.name,
+      (variable) => isFunctionType(variable.type)
+    );
+    if (existingFunctionVariables.length > 0) {
+      throw formatErrorMessages({
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+        tokenAndErrorList: [
+          {
+            token: variable.token,
+            errorMessage: `Failed to define function "${variable.name}":`,
+          },
+          {
+            token: existingFunctionVariables[0].token,
+            errorMessage: `Function "${existingFunctionVariables[0].name}" is already defined here:`,
+          },
+        ],
+      });
+    }
+  }
+
   const frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
   const frame = env.frames[frameLevel];
   const id = isTempVariableName(env, variable.name)
@@ -192,29 +217,6 @@ function addVariableToFrame({
     };
   }
 
-  // Prevent the function overloading
-  if (isFunctionType(variable.type)) {
-    const existingFunctionVariable = frame.variables.find(
-      (value) => value.name === variable.name && isFunctionType(value.type)
-    );
-    if (existingFunctionVariable) {
-      throw formatErrorMessages({
-        modulePath: env.modulePath,
-        inputString: env.inputString,
-        tokenAndErrorList: [
-          {
-            token: variable.token,
-            errorMessage: `Failed to define function "${variable.name}":`,
-          },
-          {
-            token: existingFunctionVariable.token,
-            errorMessage: `Function "${existingFunctionVariable.name}" is already defined here:`,
-          },
-        ],
-      });
-    }
-  }
-
   if (preventDuplicate) {
     const existingVariable = frame.variables.find(
       (value) => value.name === variable.name
@@ -244,11 +246,18 @@ function addVariableToFrame({
 
 export function getVariablesFromFrame(
   frame: Frame,
-  variableName: string
+  variableName: string,
+  variableFilter?: (variable: Variable) => boolean
 ): Variable[] {
-  return frame.variables.filter((variable) => {
+  const variables = frame.variables.filter((variable) => {
     return variable.name === variableName;
   });
+
+  if (variableFilter) {
+    return variables.filter(variableFilter);
+  } else {
+    return variables;
+  }
 }
 
 /**
@@ -262,13 +271,22 @@ export function getVariablesFromFrame(
  */
 export function getVariablesFromEnv(
   env: Environment,
-  variableName: string
+  variableName: string,
+  variableFilter?: (variable: Variable) => boolean
 ): Variable[] {
   const variables: Variable[] = [];
   for (let i = 0; i < env.frames.length; i++) {
     const frame = env.frames[i];
-    const variablesInFrame = getVariablesFromFrame(frame, variableName);
+    const variablesInFrame = getVariablesFromFrame(
+      frame,
+      variableName,
+      variableFilter
+    );
     variables.push(...variablesInFrame);
+  }
+
+  if (variableFilter) {
+    return variables.filter(variableFilter);
   }
   return variables;
 }
