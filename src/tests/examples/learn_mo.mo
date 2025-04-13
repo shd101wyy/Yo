@@ -41,22 +41,22 @@ r3 := (x: 0, y: 12, true);
 // struct
 Point := struct(x:i32, y:i32);
 AnotherPoint := Point;
+AnotherAnotherPoint := struct(a:i32, b:i32);
 (p: Point) := Point(1, 2);
 (p: AnotherPoint) := Point(y: 1, x: 2);
+/// (p3: AnotherAnotherPoint) := p;
 anony := (struct(i32))(17);
 
-
 // enum
+EmptyVariant := enum Empty;
+empty := EmptyVariant.Empty;
 Color := enum Red, Green, Blue;
-// color := Color.Red;
+color := Color.Red;
 Shape := enum Circle(radius: i32), Square(width: i32, height: i32);
-// shape1 := Shape.Circle(10);
-// shape2 := Shape.Square(10, 20);
-
-// (empty: EmptyVariant) := .Empty;
-// empty := EmptyVariant.Empty;
-
-// Point := type .Point(x: i32, y: i32);
+shape1 := (Shape.Circle)(10);
+shape2 := Shape.Square(height: 10, width: 20);
+shape2 := Shape.Circle(10);
+anony := (enum Red, Green, Blue).Blue;
 
 /*
 defn add(x: i32, y: i32): i32,

@@ -27,6 +27,7 @@ import {
   createTupleType,
   EnumType,
   EnumVariant,
+  isEnumType,
   isFunctionType,
   isStructType,
   StructType,
@@ -1124,6 +1125,92 @@ export default class Evaluator {
     return expr;
   }
 
+  private evaluatePropertyAccess({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, ".")) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "." for property access, got:\n${exprToString(expr)}`
+      );
+    }
+
+    if (exprIsFunctionCallOf(expr, ".", 1)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Inferred variant is not implemented yet, got:\n${exprToString(expr)}`
+      );
+    }
+
+    if (!exprIsFunctionCallOf(expr, ".", 2)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "." with 2 arguments, got:\n${exprToString(expr)}`
+      );
+    }
+
+    const objectExpr = expr.args[0];
+    const propertyExpr = expr.args[1];
+
+    // Evaluate object
+    const evaluatedObject = this.evaluateExpression({
+      expr: objectExpr,
+      env,
+      context,
+    });
+    if (evaluatedObject.env) {
+      env = evaluatedObject.env;
+    }
+
+    // We only support enum for now
+    if (evaluatedObject.value && isTypeValue(evaluatedObject.value)) {
+      const typeValue = evaluatedObject.value;
+      if (isEnumType(typeValue.value)) {
+        // Expect propertyExpr to be a symbol atom
+        if (!exprIsAtom(propertyExpr)) {
+          throw this.formatErrorMessage(
+            propertyExpr.token,
+            `Expected identifier for enum variant, got:\n${exprToString(
+              propertyExpr
+            )}`
+          );
+        }
+        const variantName = propertyExpr.token.value;
+        // Check if variantName is a valid enum variant
+        const enumType = typeValue.value;
+        const variant = enumType.variants.find(
+          (variant) => variant.name === variantName
+        );
+        if (!variant) {
+          throw this.formatErrorMessage(
+            propertyExpr.token,
+            `Enum variant "${variantName}" not found in enum`
+          );
+        }
+        const newEnumType: EnumType = {
+          ...enumType,
+          selectedVariantName: variantName,
+        };
+        expr.type = typeOfType(newEnumType);
+        expr.value = createTypeValue(newEnumType);
+        expr.env = env;
+
+        return expr;
+      }
+    }
+
+    throw this.formatErrorMessage(
+      expr.token,
+      `Property access not implemented, got:\n${exprToString(expr)}`
+    );
+  }
+
   /*
   private evaluateVariant({
     expr,
@@ -1316,6 +1403,21 @@ export default class Evaluator {
             value.value.members,
             evaluatedArgs
           );
+        } else if (value && isTypeValue(value) && isEnumType(value.value)) {
+          const enumType = value.value;
+          const selectedVariant = enumType.variants.find(
+            (variant) => variant.name === enumType.selectedVariantName
+          );
+          if (!selectedVariant) {
+            throw this.formatErrorMessage(
+              expr.token,
+              `Enum variant not selected for enum type`
+            );
+          }
+          return areParametersAndArgumentsCompatible(
+            selectedVariant.params || [],
+            evaluatedArgs
+          );
         } else {
           // TODO: Support Union and Enum
           return false;
@@ -1350,14 +1452,16 @@ ${functionsWithMatchingTypes
       const functionType = functionToCall.type;
       const functionReturnType = functionType.returnType;
       expr.type = functionReturnType;
-
       return expr;
     } else {
       const value = functionToCall.value;
       if (value && isTypeValue(value) && isStructType(value.value)) {
         const structType = value.value;
         expr.type = structType;
-
+        return expr;
+      } else if (value && isTypeValue(value) && isEnumType(value.value)) {
+        const enumType = value.value;
+        expr.type = enumType;
         return expr;
       }
     }
@@ -1426,6 +1530,9 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, "enum")) {
         // enum
         return this.evaluateEnum({ expr, env });
+      } else if (exprIsFunctionCallOf(expr, ".")) {
+        // property access
+        return this.evaluatePropertyAccess({ expr, env, context });
       } else {
         /* else if (exprIsFunctionCallOf(expr, ".", 1)) {
         // variant

@@ -249,12 +249,21 @@ export interface EnumVariant {
 
 export interface EnumType extends Type {
   tag: TypeTag.Enum;
+
+  /**
+   * The variants of the enum.
+   */
   variants: EnumVariant[];
 
   /**
    * The size of the tag in bits.
    */
   tagSize: number;
+
+  /**
+   * The name of the selected variant.
+   */
+  selectedVariantName?: string;
 }
 
 export interface UnionType extends Type {
@@ -359,7 +368,7 @@ export function createEnumType(variants: EnumVariant[]): EnumType {
   }
 
   // Get the tagSize in bits
-  const tagSize = Math.ceil(Math.log2(variants.length)) * 8;
+  const tagSize = totalSize > 0 ? Math.ceil(Math.log2(variants.length)) * 8 : 0;
 
   return {
     tag: TypeTag.Enum,
