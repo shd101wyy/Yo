@@ -220,79 +220,81 @@ MyI32 := type i32; // type alias
 MyPoint := type (i32, i32); // tuple type
 (p : MyPoint) := (3, 4); // valid
 
-// In Mo, a variant can be defined with `.` ahead,
-// Each variant can accept one type.
-// like the ".Point" variant below:
-// IDEA: Why not use `struct`, `enum`, and `union` like the one in rust and zig?
-// ANSWER: The `|` operator could handle them all. 
-//         Besides, using `struct` sometimes causes confusion if using it in enum variant:
-//         Should I use {...} record directly or struct {...} there?
-Point  := type
-  .Point(i32, i32); // NOTE: There is no space between `.Point` and `(`
-p := Point.Point 3, 4;
-// If the type only has one variant, you can omit the .Variant
-p := Point 3, 4; // valid
+// In Mo, you can define a struct like below:
+Point  := struct(i32, i32);
+p := Point 3, 4;
 
-Point := type
-  .Point(x: i32, y: i32);
+Point := struct(x: i32, y: i32);
 p := Point(x: 3, y: 4);
+// destructure:
+Point(a, b) := p; // a: 3, b: 4
+_(.y) := p;       // y: 4
 
-Cm := type
-  .Cm i32;
+Cm := struct i32;
 x := Cm 200;
 
-// Anonymous variant
-(p: .Point(i32, i32)) := .Point(3, 4);
-(p : Point) := .Point(x: 3, y: 4);
-// another example of using the anonymous record here:
+// Anonymous struct
+// "_" here means to be a placeholder for the type that could be inferred later
+(p: struct(i32, i32)) := _(3, 4);
+(p : Point) := _(x: 3, y: 4);
+
+// another example of using the anonymous tuple here:
 (p : ( a: i32, b: boolean )) := ( a: 3, b: true );
+(p : ( a: i32, b: boolean )) := ( b: true, a: 3 ); // Error: Type mismatch
+// because (b: true, a: 3) on the RHS has type:
+// (b: boolean, a: i32) which doesn't really match 
+// (a: i32, b: boolean) on the LHS.
+// The order of the fields matters!
+// In this case, we need to use the struct:
+(p: struct(a: i32, b: boolean)) := _(b: true, a: 3); // Valid!
+// _(b: true, a: 3) will re-order the fields to match the struct type
 
 // ADT (tagged union)
-Color := type (| 
-    .Red, // = 0
-    .Green,
-    .Blue);
+Color := 
+  enum
+    Red, // = 0
+    Green,
+    Blue;
 color := Color.Red; // color is of type Color
 
 // each variant can have one type as its argument
-Animal := type (|
-  .Dog(String, f64),
-  .Cat(name: String, weight: f64 )
-);
+Animal :=
+  enum
+    Dog(String, f64),
+    Cat(name: String, weight: f64);
 a := Animal.Dog "Buddy", 12.5;
 // or use the anonymous variant liternal:
 (b : Animal) := .Cat name: "Whiskers", weight: 8.5;
 
 // Or use the anonymous tagged union literal:
-(color: (| .Red, .Green, .Blue)) := .Red;
+(color: (enum Red, Green, Blue)) := .Red;
 
 // union
-// but it can only accept record as its argument
-Result := type .Result 
-(| 
-  ( int: i64 ),
-  ( float: f64 ),
-  ( bool: boolean )
-);
-result := Result(int: 12);
+Result := 
+  union 
+    int: i64,
+    float: f64,
+    bool: boolean;
+
+result := Result(int:12);
 result.float = 3.14;
 // or use the anonymous union liternal:
-(result : Result) := .Result(int: 12);
-(result : (| ( a: i32), (b: f64 ))) := ( a: 3 );
+(result : Result) := _( int: 12 );
+(result : (union a: i32, b: f64 )) := _( a: 3 );
 
 // A more complicated example
-Shape := type (|
-  .Circle(i32),
-  .Rectangle(width: i32, height: i32)
-);
+Shape := 
+  enum
+    Circle(i32),
+    Rectangle(width: i32, height: i32);
 s := Shape.Circle 5;
 s := Shape.Rectangle width: 10, height: 20;
 
 // type as function parameter
 defn Option(T: Type): Type,
-  type (|
-    .Some(T),
-    .None
+  enum(
+    Some(T),
+    None
   );
 
 x := Option(i32).Some(12);
@@ -302,11 +304,11 @@ x := Option(i32).Some(12);
 // You can also specify the return type for each variant
 // to make it a GADT
 defn MyExpr(T: Type): Type,
-  type (|
-    .IntExpr: ((i32) -> MyExpr(i32)),
-    .BoolExpr: ((boolean) -> MyExpr(boolean)),
-    .EqExpr: ((MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean))
-  );
+  enum
+    IntExpr: ((i32) -> MyExpr(i32)),
+    BoolExpr: ((boolean) -> MyExpr(boolean)),
+    EqExpr: ((MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean))
+  ;
 defn my_eval(T: Type, expr: MyExpr(T)): T,
   match expr,
     .IntExpr(i) -> i,
@@ -349,9 +351,9 @@ Id(i32).id(13); // 13
 Id(_).id(13); // 13. Use `_` as a placeholder for type
 
 // impl a type
-Cm := (.Cm i32);
+Cm := struct(i32);
 impl Cm,
-  M: ((fn(x: Cm): i32) -> {
+  M: ((fn(Cm(x): Cm): i32) -> {
     return x / 100;
   });
 (x : Cm) := 200.Cm();
@@ -610,17 +612,15 @@ match x,
 
 // Define the Result type as a generic type
 defn Result(T: Type, E: Type): Type,
-  type (|
-    .Ok(T),
-    .Err(E)
-  );
+  enum
+    Ok(T),
+    Err(E);
 
 // Define a standard error type
 DivisionError := 
-  type (|
-    .DivideByZero,
-    .Overflow
-  );
+  enum
+    DivideByZero,
+    Overflow;
 
 // Example: Safe division function that returns a Result
 defn safe_div(a: i32, b: i32): Result(i32, DivisionError),
@@ -639,7 +639,7 @@ match division_result,
 // The `unquote` function is only allowed to be used inside the `quote` function.  
 // And if the return value is declared with `unquote`, then it's a macro function.  
 defn if(quote(condition): compt(Expr), 
-      quote(then): compt(Expr), 
+      quote(then): compt(Expr),
       quote(else): compt(Expr))
     : (unqoute(_): compt(Expr)),
   quote(
@@ -654,16 +654,17 @@ cond  (x == 1) -> std.println("x is 1"),
 
 // AST Representation
 Expr :=
-  type (|
-    .Atom(
-      | .Symbol(symbol),
-        .Boolean(boolean),
-        .I32(i32),
-        .F64(f64),
-        .String(String),
-        .Char(char)
-      ),
-    .FuncCall(
+  enum(
+    Atom(
+      enum(
+        Symbol(symbol),
+        Boolean(boolean),
+        I32(i32),
+        F64(f64),
+        String(String),
+        Char(char)
+      )),
+    FuncCall(
       func: Box(Expr),
       args: List(Expr)
     ));
