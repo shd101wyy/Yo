@@ -17,13 +17,15 @@ import {
   FuncCallExpr,
 } from "./expr";
 import Parser from "./parser";
-import { stringIsOperator, Token, TokenType } from "./token";
+import { Token, TokenType } from "./token";
 import {
+  areParametersAndArgumentsCompatible,
   areTypesCompatible,
   createFunctionType,
   createStructType,
   createTupleType,
   isFunctionType,
+  isStructType,
   StructType,
   TBoolean,
   TF32,
@@ -49,7 +51,7 @@ import {
   TypeTag,
   typeToString,
 } from "./type-checker";
-import { Value } from "./value";
+import { isTypeValue, Value } from "./value";
 
 interface EvaluatorContext {
   isEvaluatingType?: boolean;
@@ -1174,112 +1176,119 @@ export default class Evaluator {
     const func = expr.func;
     const args = expr.args;
 
-    if (exprIsFunctionCall(func)) {
-      /*
-      if (exprIsFunctionCallOf(func, ".")) {
-        // Variant
-        const variantExpr = this.evaluateVariant({ expr: func, env, context });
-        // Apply arguments to the variant
-        const nextEnv = this.applyArgumentsToVariant({
-          variantExpr,
-          args,
-          env,
-          context,
-        });
-        expr.type = variantExpr.type;
-        expr.value = variantExpr.value;
-        expr.env = nextEnv;
-        return expr;
-      }
-        */
+    let functions: { type: Type; value?: Value }[] = [];
 
-      throw this.formatErrorMessage(
-        func.token,
-        `Function calls inside function calls are not implemented yet:
-${exprToString(func)}`
-      );
-    }
-    const functionName = func.token.value;
-    const functionVariables = getVariablesFromEnv(env, functionName);
-    const evaluatedArgs = args.map((arg) => {
-      const evaluatedArg = this.evaluateExpression({
-        expr: arg,
+    if (exprIsFunctionCall(func)) {
+      const functionToCall = this.evaluateExpression({
+        expr: func,
         env,
         context: {
           isEvaluatingType: false,
         },
       });
-      if (evaluatedArg.env) {
-        env = evaluatedArg.env;
+      if (!functionToCall.type) {
+        throw this.formatErrorMessage(
+          func.token,
+          `Expected type for function call, got ${func.tag}`
+        );
       }
-      return evaluatedArg;
+      functions = [
+        {
+          type: functionToCall.type,
+          value: functionToCall.value,
+        },
+      ];
+    } else {
+      const functionName = func.token.value;
+      /**
+       * functionVariables might be of FunctionType, StructType, UnionType, and EnumVariant
+       */
+      const functionVariables = getVariablesFromEnv(env, functionName);
+      functions = functionVariables.map((variable) => ({
+        type: variable.type,
+        value: variable.value,
+      }));
+    }
+
+    const {
+      type: tupleType,
+      // value: tupleValue,
+      env: nextEnv,
+    } = this.evaluateTupleElements({
+      args,
+      env,
+      context: {
+        isEvaluatingType: false,
+      },
     });
+    env = nextEnv;
+    const evaluatedArgs = tupleType.elements;
 
     // Find the functions whose parameters match the arguments
-    const functionVariablesWithMatchingTypes = functionVariables.filter(
-      (variable) => {
-        const functionType = variable.type;
-        if (!isFunctionType(functionType)) {
+    const functionsWithMatchingTypes = functions.filter((variable) => {
+      if (isFunctionType(variable.type)) {
+        return areParametersAndArgumentsCompatible(
+          variable.type.params,
+          evaluatedArgs
+        );
+      } else {
+        const value = variable.value;
+        if (value && isTypeValue(value) && isStructType(value.value)) {
+          return areParametersAndArgumentsCompatible(
+            value.value.members,
+            evaluatedArgs
+          );
+        } else {
+          // TODO: Support Union and Enum
           return false;
         }
-        const parameterTypes = functionType.params.map(
-          (element) => element.type
-        );
-        return (
-          parameterTypes.length === evaluatedArgs.length &&
-          parameterTypes.every((paramType, index) => {
-            const argType = evaluatedArgs[index].type;
-            if (!argType) {
-              throw this.formatErrorMessage(
-                evaluatedArgs[index].token,
-                `Expected type for argument, got ${evaluatedArgs[index].tag}`
-              );
-            }
-            return areTypesCompatible(paramType, argType);
-          })
-        );
       }
-    );
+    });
 
-    if (functionVariablesWithMatchingTypes.length === 0) {
+    if (functionsWithMatchingTypes.length === 0) {
       throw this.formatErrorMessage(
         func.token,
-        `No matching function found for ${functionName} with arguments:\n${exprToString(
-          expr
-        )}`
+        `No matching call found with arguments:
+${exprToString(expr)}`
       );
     }
-    if (functionVariablesWithMatchingTypes.length > 1) {
+    if (functionsWithMatchingTypes.length > 1) {
       throw this.formatErrorMessage(
         func.token,
-        `Ambiguous function call for ${functionName} with arguments:
+        `Ambiguous call with arguments:
 ${exprToString(expr)}
 
-Found ${functionVariablesWithMatchingTypes.length} matching functions:
-${functionVariablesWithMatchingTypes
-  .map(
-    (variable) =>
-      `${
-        stringIsOperator(variable.name) ? `(${variable.name})` : variable.name
-      }: ${typeToString(variable.type)}`
-  )
+Found ${functionsWithMatchingTypes.length} matching calls:
+${functionsWithMatchingTypes
+  .map((func) => `${typeToString(func.type)}`)
   .join("\n")}
 `
       );
     }
 
-    const functionToCall = functionVariablesWithMatchingTypes[0];
-    const functionType = functionToCall.type;
-    if (!isFunctionType(functionType)) {
-      throw this.formatErrorMessage(
-        func.token,
-        `Expected function type, got ${typeToString(functionType)}`
-      );
-    }
-    const functionReturnType = functionType.returnType;
-    expr.type = functionReturnType;
+    const functionToCall = functionsWithMatchingTypes[0];
 
-    return expr;
+    if (functionToCall.type && isFunctionType(functionToCall.type)) {
+      const functionType = functionToCall.type;
+      const functionReturnType = functionType.returnType;
+      expr.type = functionReturnType;
+
+      return expr;
+    } else {
+      const value = functionToCall.value;
+      if (value && isTypeValue(value) && isStructType(value.value)) {
+        const structType = value.value;
+        expr.type = structType;
+
+        return expr;
+      }
+    }
+
+    throw this.formatErrorMessage(
+      expr.token,
+      `Function call is not implemented yet:
+${exprToString(expr)}`
+    );
   }
 
   private evaluateExpression({

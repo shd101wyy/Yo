@@ -576,68 +576,6 @@ export function areTypesCompatible(
       }
     }
     return true;
-
-    /*
-    // NOTE: The code below is actually useful for checking function call parameters and arguments
-    if (givenType.elements.length > expectedType.elements.length) {
-      return false;
-    }
-
-    const checkedTupleElements: Set<TupleElement> = new Set();
-    for (let i = 0; i < expectedType.elements.length; i++) {
-      let expectedTypeElement: TupleElement | undefined =
-        expectedType.elements[i];
-      const givenTypeElement = givenType.elements[i];
-
-      if (!givenTypeElement) {
-        if (checkedTupleElements.has(expectedTypeElement)) {
-          return false; // Already checked this element
-        }
-        // Needs to check the defaultValue if no givenTypeElement
-        if (expectedTypeElement.defaultValue) {
-          continue;
-        } else {
-          return false;
-        }
-      }
-
-      if (!givenTypeElement.label) {
-        if (checkedTupleElements.has(expectedTypeElement)) {
-          return false; // Already checked this element
-        }
-        if (
-          !areTypesCompatible(expectedTypeElement.type, givenTypeElement.type)
-        ) {
-          return false;
-        } else {
-          checkedTupleElements.add(expectedTypeElement);
-          continue;
-        }
-      }
-
-      // Find the matching label in the expectedType
-      expectedTypeElement = expectedType.elements.find(
-        (element) => element.label === givenTypeElement.label
-      );
-      if (!expectedTypeElement) {
-        return false;
-      }
-
-      if (checkedTupleElements.has(expectedTypeElement)) {
-        return false; // Already checked this element
-      }
-      if (
-        !areTypesCompatible(
-          expectedType.elements[i].type,
-          givenType.elements[i].type
-        )
-      ) {
-        return false;
-      }
-      checkedTupleElements.add(expectedTypeElement);
-    }
-    return true;
-    */
   }
 
   if (isStructType(expectedType) && isStructType(givenType)) {
@@ -885,4 +823,58 @@ export function getSizeString(size?: number): string {
   } else {
     return `${size} bits`;
   }
+}
+
+export function areParametersAndArgumentsCompatible(
+  params: TupleElement[],
+  args: TupleElement[]
+): boolean {
+  if (args.length > params.length) {
+    return false;
+  }
+
+  const checkedTupleElements: Set<TupleElement> = new Set();
+  for (let i = 0; i < params.length; i++) {
+    let param: TupleElement | undefined = params[i];
+    const arg = args[i];
+
+    if (!arg) {
+      if (checkedTupleElements.has(param)) {
+        return false; // Already checked this element
+      }
+      // Needs to check the defaultValue if no arg
+      if (param.defaultValue) {
+        continue;
+      } else {
+        return false;
+      }
+    }
+
+    if (!arg.label) {
+      if (checkedTupleElements.has(param)) {
+        return false; // Already checked this element
+      }
+      if (!areTypesCompatible(param.type, arg.type)) {
+        return false;
+      } else {
+        checkedTupleElements.add(param);
+        continue;
+      }
+    }
+
+    // Find the matching label in the expectedType
+    param = params.find((element) => element.label === arg.label);
+    if (!param) {
+      return false;
+    }
+
+    if (checkedTupleElements.has(param)) {
+      return false; // Already checked this element
+    }
+    if (!areTypesCompatible(param.type, arg.type)) {
+      return false;
+    }
+    checkedTupleElements.add(param);
+  }
+  return true;
 }

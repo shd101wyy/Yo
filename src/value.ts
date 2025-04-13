@@ -9,72 +9,95 @@ import {
   typeToString,
 } from "./type-checker";
 
-export type Value =
-  | {
-      /**
-       * This is for value such as
-       *    MyI32 := i32
-       *
-       * i32 is the value, where:
-       *    .type = Free
-       *    .value = i32
-       */
-      tag: TypeTag.Type;
-      /**
-       * Type of the .value
-       */
-      type: Type;
+export type TypeValue = {
+  /**
+   * This is for value such as
+   *    MyI32 := i32
+   *
+   * i32 is the value, where:
+   *    .type = Free
+   *    .value = i32
+   */
+  tag: TypeTag.Type;
+  /**
+   * Type of the .value
+   */
+  type: Type;
 
-      /**
-       * Such as TFree, TLinear, TType, TI32, TBoolean, TStruct, etc.
-       */
-      value: Type;
-    }
-  | {
-      tag:
-        | TypeTag.U8
-        | TypeTag.I8
-        | TypeTag.U16
-        | TypeTag.I16
-        | TypeTag.U32
-        | TypeTag.I32
-        | TypeTag.U64
-        | TypeTag.I64
-        | TypeTag.F16
-        | TypeTag.F32
-        | TypeTag.F64;
-      type: Type;
-      value: number;
-    }
-  | {
-      tag: TypeTag.Unit;
-      type: Type;
-    }
-  | {
-      tag: TypeTag.Boolean;
-      type: Type;
-      value: boolean;
-    }
-  | {
-      tag: TypeTag.Char;
-      type: Type;
-      value: string;
-    }
-  | {
-      tag: TypeTag.Array;
-      type: ArrayType;
-      value: Value[];
-    }
-  | {
-      tag: TypeTag.Tuple;
-      type: TupleType;
-      elements: Value[];
-    }
-  | {
-      tag: TypeTag.Struct;
-      type: StructType;
-      members: Value[];
-    }
+  /**
+   * Such as TFree, TLinear, TType, TI32, TBoolean, TStruct, etc.
+   */
+  value: Type;
+};
+
+export type NumberValue = {
+  tag:
+    | TypeTag.U8
+    | TypeTag.I8
+    | TypeTag.U16
+    | TypeTag.I16
+    | TypeTag.U32
+    | TypeTag.I32
+    | TypeTag.U64
+    | TypeTag.I64
+    | TypeTag.F16
+    | TypeTag.F32
+    | TypeTag.F64;
+  type: Type;
+  value: number;
+};
+
+export type UnitValue = {
+  tag: TypeTag.Unit;
+  type: Type;
+};
+
+export type BooleanValue = {
+  tag: TypeTag.Boolean;
+  type: Type;
+  value: boolean;
+};
+
+export type CharValue = {
+  tag: TypeTag.Char;
+  type: Type;
+  value: string;
+};
+
+export type ArrayValue = {
+  tag: TypeTag.Array;
+  type: ArrayType;
+  value: Value[];
+};
+
+export type TupleValue = {
+  tag: TypeTag.Tuple;
+  type: TupleType;
+  elements: Value[];
+};
+
+export type StructValue = {
+  tag: TypeTag.Struct;
+  type: StructType;
+  members: Value[];
+};
+
+export type FunctionValue = {
+  tag: TypeTag.Function;
+  type: FunctionType;
+  frameLevel: number;
+  body: Expr;
+};
+
+export type Value =
+  | TypeValue
+  | NumberValue
+  | UnitValue
+  | BooleanValue
+  | CharValue
+  | ArrayValue
+  | TupleValue
+  | StructValue
   /*
   | {
       tag: TypeTag.Enum;
@@ -89,12 +112,7 @@ export type Value =
       value: Value;
     }
   | */
-  | {
-      tag: TypeTag.Function;
-      type: FunctionType;
-      frameLevel: number;
-      body: Expr;
-    };
+  | FunctionValue;
 /* | {
       tag: "Interface";
       type: Interface;
@@ -172,4 +190,8 @@ export function valueToString(value: Value): string {
       return `<unknown>`;
     }
   }
+}
+
+export function isTypeValue(value: Value): value is TypeValue {
+  return value.tag === TypeTag.Type;
 }

@@ -40,6 +40,18 @@ r3 := (x: 0, y: 12, true);
 
 // struct
 Point := struct(x:i32, y:i32);
+AnotherPoint := Point;
+(p: Point) := Point(1, 2);
+(p: AnotherPoint) := Point(y: 1, x: 2);
+anony := (struct(i32))(17);
+
+
+// enum
+// Color := enum Red, Green, Blue;
+// color := Color.Red;
+// Shape := enum Circle(radius: i32), Square(width: i32, height: i32);
+// shape1 := Shape.Circle(10);
+// shape2 := Shape.Square(10, 20);
 
 // (empty: EmptyVariant) := .Empty;
 // empty := EmptyVariant.Empty;
