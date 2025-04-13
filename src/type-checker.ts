@@ -1,6 +1,9 @@
 import { Expr } from "./expr";
 
 // FIXME: We need to determine the ptr size based on the givenType architecture.
+/**
+ * @returns The size of a pointer in bytes.
+ */
 export function getPtrSize(): number {
   return 8;
 }
@@ -37,9 +40,11 @@ export enum TypeTag {
   Type = "Type",
 
   // Complex types
-  Variant = "Variant",
+  // Variant = "Variant",
   Array = "Array",
   Tuple = "Tuple",
+  Struct = "Struct",
+  Enum = "Enum",
   Union = "Union",
   Function = "Function",
 
@@ -54,7 +59,7 @@ export interface Type {
   tag: TypeTag;
 
   /**
-   * The size of the type in bytes.
+   * The size of the type in bits, not bytes.
    * For example, a 32-bit integer has a size of 4 bytes.
    * A 64-bit integer has a size of 8 bytes.
    * If not specified, the size is unknown.
@@ -132,7 +137,7 @@ export interface TTypeHierarchy extends Type {
 
 export const TBoolean: Type = {
   tag: TypeTag.Boolean,
-  size: 1,
+  size: 8,
 };
 
 /**
@@ -140,60 +145,60 @@ export const TBoolean: Type = {
  */
 export const TChar: Type = {
   tag: TypeTag.Char,
-  size: 4,
+  size: 4 * 8,
 };
 
 export const TUsize: Type = {
   tag: TypeTag.Usize,
-  size: getPtrSize(),
+  size: getPtrSize() * 8,
 };
 export const TIsize: Type = {
   tag: TypeTag.Isize,
-  size: getPtrSize(),
+  size: getPtrSize() * 8,
 };
 export const TU8: Type = {
   tag: TypeTag.U8,
-  size: 1,
+  size: 1 * 8,
 };
 export const TU16: Type = {
   tag: TypeTag.U16,
-  size: 2,
+  size: 2 * 8,
 };
 export const TU32: Type = {
   tag: TypeTag.U32,
-  size: 4,
+  size: 4 * 8,
 };
 export const TU64: Type = {
   tag: TypeTag.U64,
-  size: 8,
+  size: 8 * 8,
 };
 export const TI8: Type = {
   tag: TypeTag.I8,
-  size: 1,
+  size: 1 * 8,
 };
 export const TI16: Type = {
   tag: TypeTag.I16,
-  size: 2,
+  size: 2 * 8,
 };
 export const TI32: Type = {
   tag: TypeTag.I32,
-  size: 4,
+  size: 4 * 8,
 };
 export const TI64: Type = {
   tag: TypeTag.I64,
-  size: 8,
+  size: 8 * 8,
 };
 export const TF16: Type = {
   tag: TypeTag.F16,
-  size: 2,
+  size: 2 * 8,
 };
 export const TF32: Type = {
   tag: TypeTag.F32,
-  size: 4,
+  size: 4 * 8,
 };
 export const TF64: Type = {
   tag: TypeTag.F64,
-  size: 8,
+  size: 8 * 8,
 };
 
 // Update the primitive type constants to include kind
@@ -228,24 +233,33 @@ export interface TupleType extends Type {
   elements: TupleElement[];
 }
 
-export interface VariantType {
-  tag: TypeTag.Variant;
+export interface StructType extends Type {
+  tag: TypeTag.Struct;
+  members: TupleElement[];
+}
+
+export interface EnumVariant {
   /**
    * Without `.` prefix
    */
   name: string;
-  params?: TupleType; // Optional associated type
+  params?: TupleElement[]; // Changed from TupleElement[] to TupleType for consistency
   // TODO: return type? For GADT
+}
+
+export interface EnumType extends Type {
+  tag: TypeTag.Enum;
+  variants: EnumVariant[];
 }
 
 export interface UnionType extends Type {
   tag: TypeTag.Union;
-  types: Type[];
+  members: TupleElement[];
 }
 
 export interface FunctionType extends Type {
   tag: TypeTag.Function;
-  params: TupleType;
+  params: TupleElement[]; // Changed from TupleElement[] to TupleType for consistency
   returnType: Type;
 
   typeFunctionImplementation?: (args: Type[]) => Type;
@@ -255,7 +269,7 @@ export interface FunctionType extends Type {
 // It is just a collection of types
 export interface Interface {
   tag: "Interface"; // Using Type as the tag for interfaces
-  members: TupleType;
+  members: TupleElement[];
 }
 
 export function createTypeHierarchy(level: number): TTypeHierarchy {
@@ -301,52 +315,59 @@ export function createTupleType(elements: TupleElement[]): TupleType {
   };
 }
 
-export function createUnionType(types: Type[]): UnionType {
+export function createStructType(members: TupleElement[]): StructType {
   let totalSize = 0;
-  for (let i = 0; i < types.length; i++) {
-    const type = types[i];
+  for (let i = 0; i < members.length; i++) {
+    const member = members[i];
+    if (member.type.size === undefined) {
+      throw new Error(
+        `Cannot create struct type: member at index ${i} has undefined size`
+      );
+    }
+    totalSize += member.type.size;
+  }
+
+  return {
+    tag: TypeTag.Struct,
+    size: totalSize,
+    members,
+  };
+}
+
+export function createUnionType(members: TupleElement[]): UnionType {
+  let maxSize = 0;
+  for (let i = 0; i < members.length; i++) {
+    const type = members[i].type;
     if (type.size === undefined) {
       throw new Error(
         `Cannot create union type: type at index ${i} has undefined size`
       );
     }
-    totalSize += type.size;
-  }
-
-  // Check if one type is variant, then it requires all types to be variant
-  const isVariant = types.some((type) => type.tag === TypeTag.Variant);
-  if (isVariant) {
-    for (const type of types) {
-      if (type.tag !== TypeTag.Variant) {
-        throw new Error(
-          `Cannot create union type that contains both variant and non-variant types`
-        );
-      }
-    }
+    maxSize = Math.max(maxSize, type.size);
   }
 
   return {
     tag: TypeTag.Union,
-    size: totalSize,
-    types,
+    size: maxSize, // Changed from totalSize to maxSize as unions use the size of largest variant
+    members,
   };
 }
 
 export function createFunctionType(
-  params: TupleType,
+  params: TupleElement[],
   returnType: Type,
   typeFunctionImplementation?: (args: Type[]) => Type
 ): FunctionType {
   return {
     tag: TypeTag.Function,
-    size: getPtrSize(),
-    params,
+    size: getPtrSize() * 8,
+    params: params, // Wrap params in a TupleType
     returnType,
     typeFunctionImplementation,
   };
 }
 
-export function createInterfaceType(members: TupleType): Interface {
+export function createInterfaceType(members: TupleElement[]): Interface {
   return {
     tag: "Interface",
     members, // Updated to use the renamed field
@@ -382,7 +403,7 @@ export const OptionFunction: FunctionType = createFunctionType(
   TType, // Return type is Type
   (args: Type[]): UnionType => {
     const innerType = args[0];
-    const variants: VariantType[] = [
+    const variants: EnumVariant[] = [
       { tag: TypeTag.Variant, name: "Some", type: innerType },
       { tag: TypeTag.Variant, name: "None" },
     ];
@@ -409,9 +430,9 @@ export function isTypeReturningFunction(func: FunctionType): boolean {
 // Replace applyTypeFunction with a more general function
 export function applyTypeFunction(func: FunctionType, args: Type[]): Type {
   // Validate arguments
-  if (args.length !== func.params.elements.length) {
+  if (args.length !== func.params.length) {
     throw new Error(
-      `Expected ${func.params.elements.length} arguments, got ${args.length}`
+      `Expected ${func.params.length} arguments, got ${args.length}`
     );
   }
 
@@ -485,12 +506,21 @@ export function typeOfType(t: Type): Type {
   } else if (isTupleType(t)) {
     // For tuples, check all element types
     return determineTypeUniverse(t.elements.map((element) => element.type));
+  } else if (isStructType(t)) {
+    // For structs, check all member types
+    return determineTypeUniverse(t.members.map((element) => element.type));
+  } else if (isEnumType(t)) {
+    // For enums, check all variant
+    const types: Type[] = [];
+    for (const variant of t.variants) {
+      if (variant.params) {
+        types.push(...variant.params.map((param) => param.type));
+      }
+    }
+    return determineTypeUniverse(types);
   } else if (isUnionType(t)) {
     // For unions, check all member types
-    return determineTypeUniverse(Array.from(t.types));
-  } else if (isVariantType(t)) {
-    // For variants, check the associated type if present
-    return t.params ? typeOfType(t.params) : TFree;
+    return determineTypeUniverse(t.members.map((element) => element.type));
   } else {
     throw new Error(`Unknown type tag: ${t.tag}`);
   }
@@ -525,6 +555,30 @@ export function areTypesCompatible(
   }
 
   if (isTupleType(expectedType) && isTupleType(givenType)) {
+    if (expectedType.elements.length !== expectedType.elements.length) {
+      return false;
+    }
+    for (let i = 0; i < expectedType.elements.length; i++) {
+      const expectedTypeElement = expectedType.elements[i];
+      const givenTypeElement = givenType.elements[i];
+
+      if (
+        !areTypesCompatible(expectedTypeElement.type, givenTypeElement.type)
+      ) {
+        return false;
+      }
+
+      // NOTE: Tuple is ordered. To be unordered, use Struct
+      if (expectedTypeElement.label && givenTypeElement.label) {
+        if (expectedTypeElement.label !== givenTypeElement.label) {
+          return false;
+        }
+      }
+    }
+    return true;
+
+    /*
+    // NOTE: The code below is actually useful for checking function call parameters and arguments
     if (givenType.elements.length > expectedType.elements.length) {
       return false;
     }
@@ -583,53 +637,40 @@ export function areTypesCompatible(
       checkedTupleElements.add(expectedTypeElement);
     }
     return true;
+    */
   }
 
-  if (isVariantType(expectedType) && isVariantType(givenType)) {
-    if (expectedType.name !== givenType.name) {
+  if (isStructType(expectedType) && isStructType(givenType)) {
+    // Structs must have same members and compatible types
+    if (expectedType.members.length !== givenType.members.length) {
       return false;
     }
+    for (let i = 0; i < expectedType.members.length; i++) {
+      const expectedMember = expectedType.members[i];
+      const givenMember = givenType.members[i];
 
-    if (expectedType.params && givenType.params) {
-      return areTypesCompatible(expectedType.params, givenType.params);
-    }
-    if (
-      (expectedType.params && !givenType.params) ||
-      (!expectedType.params && givenType.params)
-    ) {
-      return false;
-    }
-    return true;
-  }
-
-  if (isUnionType(expectedType) && isUnionType(givenType)) {
-    if (expectedType.types.length !== givenType.types.length) {
-      return false;
-    }
-    // This is not ordered
-    for (let i = 0; i < expectedType.types.length; i++) {
-      const expectedMemberType = expectedType.types[i];
-      const foundMatch = givenType.types.some((givenMemberType) =>
-        areTypesCompatible(expectedMemberType, givenMemberType)
-      );
-      if (!foundMatch) {
+      if (
+        !areTypesCompatible(expectedMember.type, givenMember.type) ||
+        expectedMember.label !== givenMember.label
+      ) {
         return false;
       }
     }
     return true;
   }
 
-  if (isFunctionType(expectedType) && isFunctionType(givenType)) {
-    if (
-      expectedType.params.elements.length !== givenType.params.elements.length
-    )
-      return false;
+  // TODO: enum
 
-    for (let i = 0; i < expectedType.params.elements.length; i++) {
+  // TODO: union
+
+  if (isFunctionType(expectedType) && isFunctionType(givenType)) {
+    if (expectedType.params.length !== givenType.params.length) return false;
+
+    for (let i = 0; i < expectedType.params.length; i++) {
       if (
         !areTypesCompatible(
-          givenType.params.elements[i].type,
-          expectedType.params.elements[i].type
+          givenType.params[i].type,
+          expectedType.params[i].type
         )
       ) {
         return false;
@@ -655,8 +696,14 @@ export function isUnionType(type: Type): type is UnionType {
   return type.tag === TypeTag.Union;
 }
 
-export function isVariantType(type: Type): type is VariantType {
-  return type.tag === TypeTag.Variant;
+// Add isEnumType guard function
+export function isEnumType(type: Type): type is EnumType {
+  return type.tag === TypeTag.Enum;
+}
+
+// Add isStructType guard function
+export function isStructType(type: Type): type is StructType {
+  return type.tag === TypeTag.Struct;
 }
 
 export function isFunctionType(type: Type): type is FunctionType {
@@ -767,23 +814,43 @@ export function typeToString(type: Type): string {
         .join(", ")})`;
     }
 
-    case TypeTag.Variant: {
-      const variant = type as VariantType;
-      return variant.params
-        ? `.${variant.name}${typeToString(variant.params)}`
-        : `.${variant.name}`;
+    case TypeTag.Struct: {
+      const struct = type as StructType;
+      return `struct(${struct.members
+        .map((member) => {
+          return `${member.label ? `${member.label}: ` : ""}${typeToString(
+            member.type
+          )}`;
+        })
+        .join(", ")})`;
+    }
+
+    case TypeTag.Enum: {
+      const enumType = type as EnumType;
+      return `enum(${enumType.variants
+        .map((variant) => {
+          return `${variant.name}${
+            variant.params ? `(${variant.params})` : ""
+          }`;
+        })
+        .join(", ")})`;
     }
 
     case TypeTag.Union: {
-      const memberTypes = (type as UnionType).types;
-      return `(| ${memberTypes
-        .map((memberType) => `${typeToString(memberType)}`)
+      const members = (type as UnionType).members;
+      return `union(${members
+        .map(
+          (member) =>
+            `${member.label ? `${member.label}:` : ""}${typeToString(
+              member.type
+            )}`
+        )
         .join(", ")})`;
     }
 
     case TypeTag.Function: {
       const func = type as FunctionType;
-      const params = func.params.elements
+      const params = func.params
         .map((param) =>
           param.label
             ? `${
@@ -803,5 +870,19 @@ export function typeToString(type: Type): string {
     default: {
       return `${type.tag}`;
     }
+  }
+}
+
+/**
+ * @param size - The size in bits
+ */
+export function getSizeString(size?: number): string {
+  if (size === undefined) {
+    return "unknown";
+  } else if (size % 8 === 0) {
+    const byteSize = size / 8;
+    return `${byteSize} bytes`;
+  } else {
+    return `${size} bits`;
   }
 }

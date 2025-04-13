@@ -21,8 +21,10 @@ import { stringIsOperator, Token, TokenType } from "./token";
 import {
   areTypesCompatible,
   createFunctionType,
+  createStructType,
   createTupleType,
   isFunctionType,
+  StructType,
   TBoolean,
   TF32,
   TF64,
@@ -46,7 +48,6 @@ import {
   typeOfType,
   TypeTag,
   typeToString,
-  VariantType,
 } from "./type-checker";
 import { Value } from "./value";
 
@@ -291,10 +292,30 @@ export default class Evaluator {
       }
     }
 
+    const {
+      type: tupleType,
+      value: tupleValue,
+      env: nextEnv,
+    } = this.evaluateTupleElements({ args: expr.args, env, context });
+    expr.value = tupleValue;
+    expr.type = context.isEvaluatingType ? typeOfType(tupleType) : tupleType;
+    expr.env = nextEnv;
+    return expr;
+  }
+
+  private evaluateTupleElements({
+    args,
+    env,
+    context,
+  }: {
+    args: Expr[];
+    env: Environment;
+    context: EvaluatorContext;
+  }): { type: TupleType; value: Value | undefined; env: Environment } {
     const tupleElements: TupleElement[] = [];
     const tupleValues: (Value | undefined)[] = [];
-    for (let i = 0; i < expr.args.length; i++) {
-      const arg = expr.args[i];
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
       const {
         type,
         value,
@@ -326,26 +347,27 @@ export default class Evaluator {
     }
 
     const tupleType: TupleType = createTupleType(tupleElements);
+    let value: Value | undefined = undefined;
     if (context.isEvaluatingType) {
-      expr.value = {
+      value = {
         tag: TypeTag.Type,
         type: typeOfType(tupleType),
         value: tupleType,
       };
-      expr.type = typeOfType(tupleType);
-      expr.env = env;
     } else {
-      expr.value = tupleValues.some((v) => v === undefined)
+      value = tupleValues.some((v) => v === undefined)
         ? undefined
         : {
             tag: TypeTag.Tuple,
             type: tupleType,
             elements: tupleValues as Value[],
           };
-      expr.type = tupleType;
-      expr.env = env;
     }
-    return expr;
+    return {
+      type: tupleType,
+      value,
+      env,
+    };
   }
 
   private isValidVariableName(expr: Expr): boolean {
@@ -929,11 +951,8 @@ export default class Evaluator {
       });
     env = nextEnv;
 
-    // Create the tuple type for parameters
-    const paramsTupleType = createTupleType(functionParameters);
-
     // Create the function type
-    const functionType = createFunctionType(paramsTupleType, returnType);
+    const functionType = createFunctionType(functionParameters, returnType);
 
     // Set the type and value of the expression
     expr.type = typeOfType(functionType);
@@ -978,9 +997,54 @@ export default class Evaluator {
     }
     expr.type = typeValue.type;
     expr.value = typeValue;
+
+    // Add information to the `type` token
+    expr.func.type = expr.type;
+    expr.func.value = expr.value;
+
     return expr;
   }
 
+  private evaluateStruct({
+    expr,
+    env,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, "struct")) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected struct, got:\n${exprToString(expr)}`
+      );
+    }
+
+    const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
+      args: expr.args,
+      env,
+      context: {
+        isEvaluatingType: true,
+      },
+    });
+
+    const structType: StructType = createStructType(tupleType.elements);
+    expr.type = typeOfType(structType);
+    expr.value = {
+      tag: TypeTag.Type,
+      type: typeOfType(structType),
+      value: structType,
+    };
+    expr.env = nextEnv;
+
+    // Append more information to "struct" token.
+    expr.func.type = expr.type;
+    expr.func.value = expr.value;
+    expr.func.env = nextEnv;
+
+    return expr;
+  }
+
+  /*
   private evaluateVariant({
     expr,
     // env,
@@ -1025,7 +1089,9 @@ export default class Evaluator {
       `Expected identifier for variant, got:\n${exprToString(expr)}`
     );
   }
+  */
 
+  /*
   private applyArgumentsToVariant({
     variantExpr,
     args,
@@ -1095,11 +1161,11 @@ export default class Evaluator {
     }
     return env;
   }
+  */
 
   private evaluateFunctionCall({
     expr,
-    env,
-    context,
+    env, // context,
   }: {
     expr: FuncCallExpr;
     env: Environment;
@@ -1109,6 +1175,7 @@ export default class Evaluator {
     const args = expr.args;
 
     if (exprIsFunctionCall(func)) {
+      /*
       if (exprIsFunctionCallOf(func, ".")) {
         // Variant
         const variantExpr = this.evaluateVariant({ expr: func, env, context });
@@ -1124,6 +1191,7 @@ export default class Evaluator {
         expr.env = nextEnv;
         return expr;
       }
+        */
 
       throw this.formatErrorMessage(
         func.token,
@@ -1154,7 +1222,7 @@ ${exprToString(func)}`
         if (!isFunctionType(functionType)) {
           return false;
         }
-        const parameterTypes = functionType.params.elements.map(
+        const parameterTypes = functionType.params.map(
           (element) => element.type
         );
         return (
@@ -1265,10 +1333,13 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, "type")) {
         // type Expr
         return this.evaluateTypeExpression({ expr, env });
-      } else if (exprIsFunctionCallOf(expr, ".", 1)) {
+      } else if (exprIsFunctionCallOf(expr, "struct")) {
+        // struct
+        return this.evaluateStruct({ expr, env });
+      } /* else if (exprIsFunctionCallOf(expr, ".", 1)) {
         // variant
         return this.evaluateVariant({ expr, env, context });
-      } else {
+      } */ else {
         // Function call
         return this.evaluateFunctionCall({ expr, env, context });
       }

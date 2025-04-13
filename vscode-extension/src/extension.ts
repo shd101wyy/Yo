@@ -8,7 +8,12 @@ import { MoLexerError, MoParserError } from "@mo/error";
 import Evaluator from "@mo/evaluator";
 import { AtomExpr, Expr, exprIsAtom, exprToString } from "@mo/expr";
 import { stringIsOperator, TokenType } from "@mo/token";
-import { typeOfType, typeToString } from "@mo/type-checker";
+import {
+  getSizeString,
+  typeOfType,
+  TypeTag,
+  typeToString,
+} from "@mo/type-checker";
 import { valueToString } from "@mo/value";
 
 export function activate(context: vscode.ExtensionContext) {
@@ -215,7 +220,14 @@ export function activate(context: vscode.ExtensionContext) {
         // Add type if available
         if (expr.type) {
           const typeString = typeToString(expr.type);
-          markdownContent.appendMarkdown(`\n: ${typeString}`);
+          if (expr.type.size) {
+            // If the type has a size, add it
+            markdownContent.appendMarkdown(
+              `\n: ${typeString} (${getSizeString(expr.type.size)})`
+            );
+          } else {
+            markdownContent.appendMarkdown(`\n: ${typeString}`);
+          }
           markdownContent.appendMarkdown(
             `\n  : ${typeToString(typeOfType(expr.type))}`
           );
@@ -224,7 +236,13 @@ export function activate(context: vscode.ExtensionContext) {
         // Add value if available
         if (expr.value) {
           const valueString = valueToString(expr.value);
-          markdownContent.appendMarkdown(`\n:= ${valueString}`);
+          if (expr.value.tag === TypeTag.Type && expr.value.value.size) {
+            markdownContent.appendMarkdown(
+              `\n:= ${valueString} (${getSizeString(expr.value.value.size)})`
+            );
+          } else {
+            markdownContent.appendMarkdown(`\n:= ${valueString}`);
+          }
         }
 
         // Close the code block

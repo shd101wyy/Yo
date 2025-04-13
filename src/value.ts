@@ -2,11 +2,10 @@ import { Expr } from "./expr";
 import {
   ArrayType,
   FunctionType,
+  StructType,
   TupleType,
   Type,
   TypeTag,
-  UnionType,
-  VariantType,
   typeToString,
 } from "./type-checker";
 
@@ -72,15 +71,24 @@ export type Value =
       elements: Value[];
     }
   | {
-      tag: TypeTag.Variant;
-      type: VariantType;
+      tag: TypeTag.Struct;
+      type: StructType;
+      members: Value[];
+    }
+  /*
+  | {
+      tag: TypeTag.Enum;
+      variantName: string;
+      type: EnumVariant;
       elements: Value[];
     }
   | {
       tag: TypeTag.Union;
       type: UnionType;
+      variantName: string;
       value: Value;
     }
+  | */
   | {
       tag: TypeTag.Function;
       type: FunctionType;
@@ -134,12 +142,26 @@ export function valueToString(value: Value): string {
       }
       return `(${value.elements.map(valueToString).join(", ")})`;
     }
-    case TypeTag.Variant: {
-      return `.${value.type.name}(${valueToString(value.value)})`;
+    case TypeTag.Struct: {
+      return `_(${value.members
+        .map((member) => {
+          return `${valueToString(member)}`;
+        })
+        .join(", ")})`;
+    }
+    /*
+    case TypeTag.Enum: {
+      if (value.elements.length === 0) {
+        return `.${value.variantName}`;
+      }
+      return `.${value.variantName}(${value.elements
+        .map(valueToString)
+        .join(", ")})`;
     }
     case TypeTag.Union: {
-      return `(${valueToString(value.value)})`;
+      return `${value.variantName}(${valueToString(value.value)})`;
     }
+    */
     case TypeTag.Function: {
       return `<function>`;
     }

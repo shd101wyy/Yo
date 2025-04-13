@@ -10,7 +10,7 @@ extern
   // TODO: Prevent the function overloading
   // (+): ((lhs: i32, rhs: i32)-> f32)
 ;
-SomeT := type (i32, y: SomeLinear);
+// SomeT := type (i32, y: SomeLinear);
 
 mut(x) := 12;
 mut(y) := 14;
@@ -32,18 +32,14 @@ point1 := (1, 2);
 (point3: MyPointType) := (1, 4);
 
 MyRecordType := type (x: i32, y: i32, boolean);
-(r : MyRecordType) := (y: 0, x: 12, true);
+// (r : MyRecordType) := (y: 0, x: 12, true);
 (r2 : MyRecordType) := (0, 12, true);
 r3 := (x: 0, y: 12, true);
 // error: Duplicate labels
 // some_tuple := (x:12, x:13,);
 
-// Variants
-EmptyVariant := type .Empty;
-Cm := type .Cm(x: i32);
-Point := type .Point(x: i32, y: i32);
-
-// Point := type(.Point(x: i32, y: i32));
+// struct
+Point := struct(x:i32, y:i32);
 
 // (empty: EmptyVariant) := .Empty;
 // empty := EmptyVariant.Empty;
