@@ -3,7 +3,8 @@ import { formatErrorMessages } from "./error";
 import { charIsOperator, Operators, Token } from "./token";
 import {
   isFunctionType,
-  isSomeType,
+  isTypeHierarchyType,
+  SomeType,
   Type,
   TypeTag,
   typeToString,
@@ -227,8 +228,8 @@ function addVariableToFrame({
   preventDuplicate?: boolean;
 }): Frame {
   // Check if the variable has type of SomeType
-  if (isSomeType(variable.type)) {
-    if (variable.value) {
+  if (isTypeHierarchyType(variable.type)) {
+    if (variable.value || variable.type.level > 0) {
       /*
       throw formatErrorMessages({
         modulePath: env.modulePath,
@@ -242,7 +243,12 @@ function addVariableToFrame({
       });
       */
     } else {
-      variable.value = createTypeValue(variable.type);
+      const someType: SomeType = {
+        tag: TypeTag.SomeType,
+        parentType: variable.type,
+        size: undefined,
+      };
+      variable.value = createTypeValue(someType);
     }
   }
 

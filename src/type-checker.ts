@@ -117,7 +117,10 @@ export function isPrimitiveType(type: Type): boolean {
 // };
 
 export interface TTypeHierarchy extends Type {
+  tag: TypeTag.Free | TypeTag.Linear | TypeTag.Type;
   level: number;
+
+  // TODO: Implemented interfaces
 }
 
 export const TFree: TTypeHierarchy = {
@@ -138,11 +141,19 @@ export const TType: TTypeHierarchy = {
   level: 0,
 };
 
+/**
+ * SomeType is a type that is not known.
+ *
+ * MyType: (Type <: Display)
+ * - type: (Type <: Display)
+ * - value: SomeType(Type <: Display)
+ *
+ * The value here is the SomeType itself.
+ */
 export interface SomeType extends Type {
   tag: TypeTag.SomeType;
 
-  parentType: TypeTag.Free | TypeTag.Linear | TypeTag.Type;
-
+  parentType: TTypeHierarchy;
   /**
    * size is unknown for SomeType
    */
@@ -519,28 +530,27 @@ export function applyTypeFunction(func: FunctionType, args: Type[]): Type {
 // Helper function to determine the type universe of a list of types
 function determineTypeUniverse(types: Type[]): Type {
   let hasLinear = false;
+  let meetTypeTag = false;
+  let maxTypeLevel = 0;
 
   for (const type of types) {
-    // Check if it's any type universe directly
-    if (type === TType || (type.tag === TypeTag.Type && "level" in type)) {
-      return TType; // If any field is Type, the whole thing is Type
-    } else if (type === TLinear) {
-      hasLinear = true;
-    } else if (type === TFree) {
-      // Free doesn't affect anything unless all types are free
-      continue;
-    } else {
-      // For non-universe types, recursively check their type
-      const typeOfSubType = typeOfType(type);
-      if (
-        typeOfSubType === TType ||
-        (typeOfSubType.tag === TypeTag.Type && "level" in typeOfSubType)
-      ) {
-        return TType;
-      } else if (typeOfSubType === TLinear) {
+    // For non-universe types, recursively check their type
+    const typeOfSubType = typeOfType(type);
+    if (isTypeHierarchyType(typeOfSubType)) {
+      maxTypeLevel = Math.max(maxTypeLevel, typeOfSubType.level);
+      if (typeOfSubType.tag === TypeTag.Linear) {
         hasLinear = true;
+      } else if (typeOfSubType.tag === TypeTag.Type) {
+        meetTypeTag = true;
       }
     }
+  }
+
+  if (maxTypeLevel > 0) {
+    return createTypeHierarchy(maxTypeLevel);
+  }
+  if (meetTypeTag) {
+    return TType;
   }
 
   // If we found any linear but no type, return linear
@@ -558,7 +568,7 @@ export function typeOfType(t: Type): Type {
     return TFree; // Undefined is in the free type universe
   } else */ if (isPrimitiveType(t)) {
     return TFree;
-  } else if (t === TFree || t === TLinear || t === TType) {
+  } else if (isTypeHierarchyType(t)) {
     return createTypeHierarchy((t as TTypeHierarchy).level + 1);
   } else if (t.tag === TypeTag.Function) {
     return TFree;
@@ -584,15 +594,7 @@ export function typeOfType(t: Type): Type {
     // For unions, check all member types
     return determineTypeUniverse(t.members.map((element) => element.type));
   } else if (isSomeType(t)) {
-    if (t.parentType === TypeTag.Linear) {
-      return TLinear;
-    } else if (t.parentType === TypeTag.Free) {
-      return TFree;
-    } else if (t.parentType === TypeTag.Type) {
-      return TType;
-    } else {
-      throw new Error(`Unknown type universe for SomeType: ${t.parentType}`);
-    }
+    return t.parentType;
   } else {
     throw new Error(`Unknown type tag: ${t.tag}`);
   }
@@ -722,6 +724,14 @@ export function isFunctionType(type: Type): type is FunctionType {
 
 export function isLiteralType(type: Type): type is LiteralType {
   return type.tag === TypeTag.Literal;
+}
+
+export function isTypeHierarchyType(type: Type): type is TTypeHierarchy {
+  return (
+    type.tag === TypeTag.Free ||
+    type.tag === TypeTag.Linear ||
+    type.tag === TypeTag.Type
+  );
 }
 
 export function isSomeType(type: Type): type is SomeType {
@@ -893,7 +903,7 @@ export function typeToString(type: Type): string {
       const someType = type as SomeType;
       const parentType = someType.parentType;
       // TODO: Display the interfaces implemented
-      return `some(${parentType})`;
+      return `∀(${parentType.tag})`;
     }
 
     default: {

@@ -32,16 +32,18 @@ import {
   isEnumType,
   isFunctionType,
   isStructType,
-  SomeType,
   StructType,
   TBoolean,
   TF32,
   TF64,
+  TFree,
   TI16,
   TI32,
   TI64,
   TI8,
   TIsize,
+  TLinear,
+  TType,
   TU16,
   TU32,
   TU64,
@@ -253,12 +255,12 @@ export default class Evaluator {
       value = evaluatedRhs.value;
     } else {
       // Evaluating type.
-      value = evaluatedRhs.value;
+      value = undefined; // NOTE: This is necessary
     }
 
     if (lhsExpr) {
       lhsExpr.env = env;
-      lhsExpr.value = evaluatedRhs.value;
+      lhsExpr.value = value;
     }
     expr.env = env;
 
@@ -539,6 +541,7 @@ export default class Evaluator {
       expr.env = env;
       lhs.env = env;
       expr.type = TUnit;
+
       return expr;
     } else {
       throw this.formatErrorMessage(
@@ -584,47 +587,32 @@ export default class Evaluator {
     const identifier = expr.token.value;
     // Free
     if (identifier === TypeTag.Free) {
-      const someType: SomeType = {
-        tag: TypeTag.SomeType,
-        parentType: TypeTag.Free,
-        size: undefined,
-      };
       expr.value = {
         tag: ValueTag.Type,
-        type: typeOfType(someType),
-        value: someType,
+        type: typeOfType(TFree),
+        value: TFree,
       };
-      expr.type = typeOfType(someType);
+      expr.type = typeOfType(TFree);
       return expr;
     }
     // Linear
     else if (identifier === TypeTag.Linear) {
-      const someType: SomeType = {
-        tag: TypeTag.SomeType,
-        parentType: TypeTag.Linear,
-        size: undefined,
-      };
       expr.value = {
         tag: ValueTag.Type,
-        type: typeOfType(someType),
-        value: someType,
+        type: typeOfType(TLinear),
+        value: TLinear,
       };
-      expr.type = typeOfType(someType);
+      expr.type = typeOfType(TLinear);
       return expr;
     }
     // Type
     else if (identifier === TypeTag.Type) {
-      const someType: SomeType = {
-        tag: TypeTag.SomeType,
-        parentType: TypeTag.Type,
-        size: undefined,
-      };
       expr.value = {
         tag: ValueTag.Type,
-        type: typeOfType(someType),
-        value: someType,
+        type: typeOfType(TType),
+        value: TType,
       };
-      expr.type = typeOfType(someType);
+      expr.type = typeOfType(TType);
       return expr;
     }
     // boolean
