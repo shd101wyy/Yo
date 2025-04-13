@@ -60,10 +60,12 @@ shape2 := Shape.Square(height: 10, width: 20);
 shape2 := Shape.Circle(10);
 anony := (enum Red, Green, Blue).Blue;
 
-/*
+// defn
 defn add(x: i32, y: i32): i32,
   x + y;
+call_fn := add(y: 3, x: 4);
 
+/*
 defn factorial(x: i32): i32,
   cond 
     (x == 0) -> 1, 

@@ -1,8 +1,18 @@
 import { createHash } from "crypto";
 import { formatErrorMessages } from "./error";
 import { charIsOperator, Operators, Token } from "./token";
-import { isFunctionType, Type } from "./type-checker";
-import { Value } from "./value";
+import { isFunctionType, Type, TypeTag, typeToString } from "./type-checker";
+import { isTypeValue, Value } from "./value";
+
+export type ReferedVariable = {
+  frameLevel: number;
+  variableName: string;
+  isMutableReference: boolean;
+  /**
+   * token where the reference is created
+   */
+  token: Token;
+};
 
 export interface Variable {
   /**
@@ -37,6 +47,12 @@ export interface Variable {
    * Check linear type consumption.
    */
   consumedAtToken?: Token;
+
+  /* This is only used for temp variable, check the
+   * tempVariableName of the ReferenceExpr of AstType.Reference
+   */
+  referedVariable?: ReferedVariable;
+
   /**
    * frameLevel is the level of the frame where the value is defined.
    * It's zero-based.
@@ -158,7 +174,7 @@ export function addVariableToEnv({
         tokenAndErrorList: [
           {
             token: variable.token,
-            errorMessage: `Failed to define function "${variable.name}":`,
+            errorMessage: `Failed to define function "${variable.name}" as overloading is not allowed:`,
           },
           {
             token: existingFunctionVariables[0].token,
@@ -289,4 +305,120 @@ export function getVariablesFromEnv(
     return variables.filter(variableFilter);
   }
   return variables;
+}
+
+export function pushEnvFrame(
+  env: Environment,
+  frame: Frame = {
+    variables: [],
+  }
+): Environment {
+  return {
+    functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
+    freeVariables: env.freeVariables,
+    frames: [...env.frames, frame],
+    modulePath: env.modulePath,
+    inputString: env.inputString,
+  };
+}
+
+export function popEnvFrame(
+  env: Environment,
+  /* Check synthesizeFunctionTypeFromTokens function in type-checker.ts
+   * when withFunctionBody is false, we push fake frame for holding the parameters.
+   * In this case, when we pop the frame, we need to **ignoreCheck**
+   */
+  ignoreCheck = false
+): Environment {
+  if (!ignoreCheck) {
+    const frameToPop = env.frames[env.frames.length - 1];
+    // Check if there is any value in the frame that is not consumed or uninitialized
+    const unconsumedLinearVariables = frameToPop.variables.filter(
+      (variable) =>
+        (!variable.value || !isTypeValue(variable.value)) &&
+        (variable.type.tag === TypeTag.Linear ||
+          variable.type.tag === TypeTag.Free) &&
+        !variable.consumedAtToken
+    );
+    /*
+    const unusedFreeValues = frameToPop.values.filter(
+      (value) =>
+        value.kind === "value" &&
+        value.type.kind === "Free" &&
+        !value.consumedAtToken &&
+        !isTempVariableName(env, value.variableName)
+    );
+    */
+
+    const notInitializedVariables = frameToPop.variables.filter(
+      (variable) => variable.isNotInitialized
+    );
+    if (unconsumedLinearVariables.length > 0) {
+      throw formatErrorMessages({
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+        tokenAndErrorList: unconsumedLinearVariables.map((variable) => {
+          return {
+            token: variable.token,
+            errorMessage: `${
+              isTempVariableName(env, variable.name) ? "Value" : "Variable"
+            } is "Linear" type but is not consumed:
+${typeToString(variable.type)}`,
+          };
+        }),
+      });
+    } else if (notInitializedVariables.length > 0) {
+      throw formatErrorMessages({
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+        tokenAndErrorList: notInitializedVariables.map((value) => {
+          return {
+            token: value.token,
+            errorMessage: `Variable is not initialized.`,
+          };
+        }),
+      });
+    } /* else if (unusedFreeValues.length > 0) {
+      console.warn(
+        formatWarningMessages({
+          modulePath: env.modulePath,
+          inputString: env.inputString,
+          tokenAndWarningList: unusedFreeValues.map((value) => {
+            return {
+              token: value.token,
+              warningMessage: `Variable "${value.variableName}" is not used.`,
+            };
+          }),
+        })
+      );
+    }*/
+  }
+
+  /*
+  TODO: Restore the block of the code below
+  const topFrame = env.frames[env.frames.length - 1];
+  const references = topFrame.variables.filter((value) =>
+    typeIsReference(value.type)
+  );
+  if (references.length) {
+    for (let i = 0; i < references.length; i++) {
+      const referedVariable = references[i].referedVariable;
+      if (referedVariable) {
+        // decrement the reference count
+        env = decrementVariableReferenceCount({
+          env,
+          referedVariable,
+        });
+      }
+    }
+  }
+  */
+
+  return {
+    functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
+    freeVariables: env.freeVariables,
+    frames: env.frames.slice(0, -1),
+    modulePath: env.modulePath,
+    inputString: env.inputString,
+  };
 }
