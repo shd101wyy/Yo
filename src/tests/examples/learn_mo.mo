@@ -65,6 +65,12 @@ defn add(x: i32, y: i32): i32,
   x + y;
 call_fn := add(y: 3, x: 4);
 
+defn add2(x: i32, y: i32): i32, {
+  z := (x + y);
+  z * 14
+};
+call_fn := add2(4, 5);
+
 /*
 defn factorial(x: i32): i32,
   cond 

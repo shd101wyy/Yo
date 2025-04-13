@@ -257,6 +257,31 @@ export default class Parser {
       }
       index = this.skipWhitespace(tokens, index);
       if (tokens[index].type === TokenType.RCurlyBracket) {
+        // begin block,
+        // lets check if the forwarded token is a semicolon
+        const lastNonWhiteSpaceToken =
+          tokens[this.skipWhitespaceBackward(tokens, index - 1)];
+        if (
+          lastNonWhiteSpaceToken &&
+          (lastNonWhiteSpaceToken.type === TokenType.Semicolon ||
+            lastNonWhiteSpaceToken.type === TokenType.LCurlyBracket)
+        ) {
+          const token: Token = {
+            type: TokenType.Identifier,
+            value: BuiltinCollections.Tuple,
+            position: lastNonWhiteSpaceToken.position,
+          };
+          // Push unit
+          args.push({
+            tag: ExprTag.FuncCall,
+            func: {
+              tag: ExprTag.Atom,
+              token,
+            },
+            args: [],
+            token,
+          });
+        }
         break;
       }
 

@@ -1468,6 +1468,7 @@ ${functionsWithMatchingTypes
       const functionType = functionToCall.type;
       const functionReturnType = functionType.returnType;
       expr.type = functionReturnType;
+      func.type = functionToCall.type;
       return expr;
     } else {
       const value = functionToCall.value;
@@ -1612,11 +1613,75 @@ ${exprToString(expr)}`
       env = evaluatedFunctionBody.env;
     }
 
-    /// Pop the env frame
+    // Check if the function body type matches the function return type
+    if (evaluatedFunctionBody.type) {
+      if (!areTypesCompatible(returnType, evaluatedFunctionBody.type)) {
+        throw this.formatErrorMessage(
+          functionReturnTypeExpr.token,
+          `Incompatible function return type:
+- Expected: ${typeToString(returnType)}
+- Given  : ${typeToString(evaluatedFunctionBody.type)}`
+        );
+      }
+    }
+
+    // Pop the env frame
     env = popEnvFrame(env);
 
     // Set the function type and value
     expr.type = functionType;
+    expr.env = env;
+    return expr;
+  }
+
+  private evaluateBeginExpression({
+    expr,
+    env,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, "begin")) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "begin", got:\n${exprToString(expr)}`
+      );
+    }
+    const exprs = expr.args;
+
+    // Empty begin
+    // return unit
+    if (exprs.length === 0) {
+      expr.type = TUnit;
+      expr.value = {
+        tag: TypeTag.Unit,
+        type: TUnit,
+      };
+      return expr;
+    }
+
+    // Push a new environment frame
+    env = pushEnvFrame(env);
+
+    // Evaluate expressions
+    for (let i = 0; i < exprs.length; i++) {
+      const evaluatedExpr = this.evaluateExpression({
+        expr: exprs[i],
+        env,
+        context: {
+          isEvaluatingType: false,
+        },
+      });
+      if (evaluatedExpr.env) {
+        env = evaluatedExpr.env;
+      }
+    }
+    const lastExpr = exprs[exprs.length - 1];
+    expr.type = lastExpr.type;
+    expr.value = lastExpr.value;
+
+    // Pop the environment frame
+    env = popEnvFrame(env);
     expr.env = env;
     return expr;
   }
@@ -1684,6 +1749,9 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, "defn")) {
         // defn
         return this.evaluateDefnExpression({ expr, env });
+      } else if (exprIsFunctionCallOf(expr, "begin")) {
+        // begin
+        return this.evaluateBeginExpression({ expr, env });
       } else {
         /* else if (exprIsFunctionCallOf(expr, ".", 1)) {
         // variant
