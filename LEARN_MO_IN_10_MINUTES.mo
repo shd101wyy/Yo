@@ -337,11 +337,12 @@ impl Id(i32), (
 );
 
 // impl interface with generic type
-forall (T : (Type <: Show)), impl Show((T,)), (
-  show: ((fn(x: (T,)): String) -> {
-    return ("(" + x.0.show()) + ")";
-  })
-);
+forall(T : (Type <: Show)) -> 
+  impl Show((T,)), (
+    show: ((fn(x: (T,)): String) -> {
+      return ("(" + x.0.show()) + ")";
+    })
+  );
 show((3,)); // "(3,)"
 
 // Call a function defined in interface
@@ -369,7 +370,7 @@ defn id(T: Type, x: T):T, {
 // but when you call it, you need to specify the type:
 id(i32, 12); // 12
 // e.g. with `forall`:
-id := forall (T: Type), ((fn(x: T): T) -> x);
+id := (forall(T: Type) -> ((fn(x: T): T) -> x));
 // then you can call it without specifying the type:
 id(12); // 12
 
@@ -475,7 +476,7 @@ use &!(x), x_ref -> {
 }
 
 // Iterator
-to_iter_mut := (forall (T: Type),
+to_iter_mut := (forall(T: Type) ->
   (fn(arr: &!(Array(T))) -> {
     return Iter
       data: arr, // allow to assign reference in this case because it's the last expression

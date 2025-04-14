@@ -216,6 +216,7 @@ export function addVariableToEnv({
   return { env: newEnv, variable: newVariable };
 }
 
+let someIdIndex = 0;
 function addVariableToFrame({
   env,
   frame,
@@ -245,6 +246,8 @@ function addVariableToFrame({
     } else {
       const someType: SomeType = {
         tag: TypeTag.SomeType,
+        typeId: `sometype_${someIdIndex++}`,
+        name: variable.name,
         parentType: variable.type,
         size: undefined,
       };

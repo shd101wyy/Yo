@@ -153,6 +153,21 @@ export const TType: TTypeHierarchy = {
 export interface SomeType extends Type {
   tag: TypeTag.SomeType;
 
+  /**
+   * The name of the SomeType.
+   * eg: T: Type
+   * T is the name of the SomeType.
+   */
+  name: string;
+
+  /**
+   * The unique identifier for this SomeType.
+   */
+  typeId: string;
+
+  /**
+   * The parent type of the SomeType.
+   */
   parentType: TTypeHierarchy;
   /**
    * size is unknown for SomeType
@@ -692,6 +707,11 @@ export function areTypesCompatible(
     return areTypesCompatible(expectedType.returnType, givenType.returnType);
   }
 
+  if (isSomeType(expectedType) && isSomeType(givenType)) {
+    // TODO: Check subtype
+    return expectedType.typeId === givenType.typeId;
+  }
+
   return false;
 }
 
@@ -901,9 +921,10 @@ export function typeToString(type: Type): string {
 
     case TypeTag.SomeType: {
       const someType = type as SomeType;
-      const parentType = someType.parentType;
+      // const parentType = someType.parentType;
       // TODO: Display the interfaces implemented
-      return `∀(${parentType.tag})`;
+      return someType.name;
+      // return `some(${parentType.tag})`;
     }
 
     default: {
@@ -934,58 +955,4 @@ export function getSizeString(type: Type): string {
   } else {
     return `${size} bits`;
   }
-}
-
-export function areParametersAndArgumentsCompatible(
-  params: TupleElement[],
-  args: TupleElement[]
-): boolean {
-  if (args.length > params.length) {
-    return false;
-  }
-
-  const checkedTupleElements: Set<TupleElement> = new Set();
-  for (let i = 0; i < params.length; i++) {
-    let param: TupleElement | undefined = params[i];
-    const arg = args[i];
-
-    if (!arg) {
-      if (checkedTupleElements.has(param)) {
-        return false; // Already checked this element
-      }
-      // Needs to check the defaultValue if no arg
-      if (param.defaultValue) {
-        continue;
-      } else {
-        return false;
-      }
-    }
-
-    if (!arg.label) {
-      if (checkedTupleElements.has(param)) {
-        return false; // Already checked this element
-      }
-      if (!areTypesCompatible(param.type, arg.type)) {
-        return false;
-      } else {
-        checkedTupleElements.add(param);
-        continue;
-      }
-    }
-
-    // Find the matching label in the expectedType
-    param = params.find((element) => element.label === arg.label);
-    if (!param) {
-      return false;
-    }
-
-    if (checkedTupleElements.has(param)) {
-      return false; // Already checked this element
-    }
-    if (!areTypesCompatible(param.type, arg.type)) {
-      return false;
-    }
-    checkedTupleElements.add(param);
-  }
-  return true;
 }

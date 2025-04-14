@@ -21,7 +21,6 @@ import {
 import Parser from "./parser";
 import { Token, TokenType } from "./token";
 import {
-  areParametersAndArgumentsCompatible,
   areTypesCompatible,
   createEnumType,
   createFunctionType,
@@ -31,7 +30,9 @@ import {
   EnumVariant,
   isEnumType,
   isFunctionType,
+  isSomeType,
   isStructType,
+  isTypeHierarchyType,
   StructType,
   TBoolean,
   TF32,
@@ -57,7 +58,14 @@ import {
   TypeTag,
   typeToString,
 } from "./type-checker";
-import { createTypeValue, isTypeValue, Value, ValueTag } from "./value";
+import {
+  createTypeValue,
+  isTypeValue,
+  TupleValue,
+  TypeValue,
+  Value,
+  ValueTag,
+} from "./value";
 
 interface EvaluatorContext {
   isEvaluatingType?: boolean;
@@ -346,7 +354,11 @@ export default class Evaluator {
     args: Expr[];
     env: Environment;
     context: EvaluatorContext;
-  }): { type: TupleType; value: Value | undefined; env: Environment } {
+  }): {
+    type: TupleType;
+    value: TupleValue | TypeValue | undefined;
+    env: Environment;
+  } {
     const tupleElements: TupleElement[] = [];
     const tupleValues: (Value | undefined)[] = [];
     for (let i = 0; i < args.length; i++) {
@@ -1224,6 +1236,113 @@ export default class Evaluator {
   }
   */
 
+  private areParametersAndArgumentsCompatible(
+    paramTypes: TupleElement[],
+    argTypes: TupleElement[],
+    argValues: TupleValue,
+    argExprs: Expr[],
+    env: Environment
+  ): boolean {
+    if (argTypes.length > paramTypes.length) {
+      return false;
+    }
+
+    env = pushEnvFrame(env);
+    const checkedTupleElements: Set<TupleElement> = new Set();
+    for (let i = 0; i < paramTypes.length; i++) {
+      let paramType: TupleElement | undefined = paramTypes[i];
+      const argType = argTypes[i];
+      const argValue = argValues.elements[i];
+      const argExpr = argExprs[i];
+
+      /*
+      // TODO: Implement this support for the defaultValue:
+      // Check the defaultValue
+      if (!argType) {
+        if (checkedTupleElements.has(paramType)) {
+          return false; // Already checked this element
+        }
+        // Needs to check the defaultValue if no arg
+        if (paramType.defaultValue) {
+          continue;
+        } else {
+          return false;
+        }
+      }
+      */
+      if (!argType) {
+        return false;
+      }
+
+      if (argType.label) {
+        // Find the matching label in the expectedType
+        paramType = paramTypes.find(
+          (element) => element.label === argType.label
+        );
+        if (!paramType) {
+          return false;
+        }
+      }
+
+      if (checkedTupleElements.has(paramType)) {
+        return false; // Already checked this element
+        // We cannot have duplicate labels
+      }
+
+      // Pass a type to parameter
+      // eg: T: Type
+      if (isTypeHierarchyType(paramType.type) && paramType.type.level === 0) {
+        // Check if the type is a subtype of the given type
+        // TODO: Check interfaces
+        if (!isTypeHierarchyType(argType.type) || argType.type.level !== 0) {
+          return false;
+        }
+        if (paramType.label) {
+          // Add the arg to the environment
+          const { env: nextEnv } = addVariableToEnv({
+            env,
+            variable: {
+              name: paramType.label,
+              type: argType.type,
+              isMutable: paramType.isMutable,
+              token: argExpr.token,
+              isNotInitialized: false,
+              value: argValue,
+            },
+          });
+          env = nextEnv;
+          console.log("added param: ", paramType.label);
+        }
+      }
+
+      // Meet SomeType,
+      // eg: x: T
+      // here T should already be added to env by the if condition above ^^^
+      else if (isSomeType(paramType.type)) {
+        const someTypeName = paramType.type.name;
+        // Get the SomeType value from the environment
+        const variables = getVariablesFromEnv(env, someTypeName, (variable) => {
+          return !!variable.value && variable.value.tag === ValueTag.Type;
+        });
+        if (!variables.length) {
+          return false;
+        }
+        const someTypeValue = variables[variables.length - 1]
+          .value as TypeValue;
+        if (!areTypesCompatible(someTypeValue.value, argType.type)) {
+          return false;
+        }
+      }
+
+      // Compare the types
+      else if (!areTypesCompatible(paramType.type, argType.type)) {
+        return false;
+      }
+      checkedTupleElements.add(paramType);
+    }
+    return true;
+  }
+
   private evaluateFunctionCall({
     expr,
     env, // context,
@@ -1271,7 +1390,7 @@ export default class Evaluator {
 
     const {
       type: tupleType,
-      // value: tupleValue,
+      value: tupleValue,
       env: nextEnv,
     } = this.evaluateTupleElements({
       args,
@@ -1281,21 +1400,28 @@ export default class Evaluator {
       },
     });
     env = nextEnv;
-    const evaluatedArgs = tupleType.elements;
+    const evaluatedArgTypes = tupleType.elements;
+    const evaluatedArgValues: TupleValue = tupleValue as TupleValue;
 
     // Find the functions whose parameters match the arguments
     const functionsWithMatchingTypes = functions.filter((variable) => {
       if (isFunctionType(variable.type)) {
-        return areParametersAndArgumentsCompatible(
+        return this.areParametersAndArgumentsCompatible(
           variable.type.params,
-          evaluatedArgs
+          evaluatedArgTypes,
+          evaluatedArgValues,
+          args,
+          env
         );
       } else {
         const value = variable.value;
         if (value && isTypeValue(value) && isStructType(value.value)) {
-          return areParametersAndArgumentsCompatible(
+          return this.areParametersAndArgumentsCompatible(
             value.value.members,
-            evaluatedArgs
+            evaluatedArgTypes,
+            evaluatedArgValues,
+            args,
+            env
           );
         } else if (value && isTypeValue(value) && isEnumType(value.value)) {
           const enumType = value.value;
@@ -1308,9 +1434,12 @@ export default class Evaluator {
               `Enum variant not selected for enum type`
             );
           }
-          return areParametersAndArgumentsCompatible(
+          return this.areParametersAndArgumentsCompatible(
             selectedVariant.params || [],
-            evaluatedArgs
+            evaluatedArgTypes,
+            evaluatedArgValues,
+            args,
+            env
           );
         } else {
           // TODO: Support Union and Enum
