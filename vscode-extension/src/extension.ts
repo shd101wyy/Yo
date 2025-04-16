@@ -194,7 +194,7 @@ export function activate(context: vscode.ExtensionContext) {
         let tokenText = exprToString(expr);
         if (stringIsOperator(tokenText)) {
           // Wrap operators in parentheses
-          tokenText = `(\`${tokenText}\`)`;
+          tokenText = `(${tokenText})`;
         }
 
         // Get variable from the env

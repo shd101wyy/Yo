@@ -644,7 +644,7 @@ export function areTypesCompatible(
   }
 
   if (isTupleType(expectedType) && isTupleType(givenType)) {
-    if (expectedType.elements.length !== expectedType.elements.length) {
+    if (expectedType.elements.length !== givenType.elements.length) {
       return false;
     }
     for (let i = 0; i < expectedType.elements.length; i++) {
@@ -712,6 +712,14 @@ export function areTypesCompatible(
     return expectedType.typeId === givenType.typeId;
   }
 
+  if (isTypeHierarchyType(expectedType) && isTypeHierarchyType(givenType)) {
+    // Check if the given type is a subtype of the expected type
+    return (
+      givenType.level === expectedType.level &&
+      (givenType.tag === expectedType.tag || expectedType.tag === TypeTag.Type)
+    );
+  }
+
   return false;
 }
 
@@ -740,6 +748,15 @@ export function isStructType(type: Type): type is StructType {
 
 export function isFunctionType(type: Type): type is FunctionType {
   return type.tag === TypeTag.Function;
+}
+
+export function isFunctionTypeAndIsTypeFunction(
+  type: Type
+): type is FunctionType {
+  return (
+    type.tag === TypeTag.Function &&
+    isTypeHierarchyType((type as FunctionType).returnType)
+  );
 }
 
 export function isLiteralType(type: Type): type is LiteralType {
@@ -855,7 +872,7 @@ export function typeToString(type: Type): string {
             element.type
           )}`;
         })
-        .join(", ")})`;
+        .join(", ")}${(type as TupleType).elements.length === 1 ? "," : ""})`;
     }
 
     case TypeTag.Struct: {
@@ -933,6 +950,13 @@ export function typeToString(type: Type): string {
   }
 }
 
+function addPluralSuffix(unit: string, value: number): string {
+  if (value === 1) {
+    return unit;
+  } else {
+    return `${unit}s`;
+  }
+}
 /**
  * @param size - The size in bits
  */
@@ -944,15 +968,15 @@ export function getSizeString(type: Type): string {
     const byteSize = size / 8;
 
     if (isEnumType(type)) {
-      return `${byteSize} bytes (tag ${
+      return `${byteSize} ${addPluralSuffix("byte", byteSize)} (tag ${
         type.tagSize % 8 == 0
-          ? `${type.tagSize / 8} bytes`
-          : `${type.tagSize} bits`
+          ? `${type.tagSize / 8} ${addPluralSuffix("byte", type.tagSize / 8)}`
+          : `${type.tagSize} ${addPluralSuffix("bit", type.tagSize)}`
       })`;
     }
 
-    return `${byteSize} bytes`;
+    return `${byteSize} ${addPluralSuffix("byte", byteSize)}`;
   } else {
-    return `${size} bits`;
+    return `${size} ${addPluralSuffix("bit", size)}`;
   }
 }

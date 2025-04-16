@@ -28,8 +28,10 @@ import {
   createTupleType,
   EnumType,
   EnumVariant,
+  FunctionType,
   isEnumType,
   isFunctionType,
+  isFunctionTypeAndIsTypeFunction,
   isSomeType,
   isStructType,
   isTypeHierarchyType,
@@ -60,6 +62,8 @@ import {
 } from "./type-checker";
 import {
   createTypeValue,
+  FunctionValue,
+  isFunctionValue,
   isTypeValue,
   TupleValue,
   TypeValue,
@@ -491,7 +495,7 @@ export default class Evaluator {
         env = evaluatedType.env;
       }
       const typeValue = evaluatedType.value;
-      if (!typeValue || typeValue.tag !== ValueTag.Type) {
+      if (!typeValue || !isTypeValue(typeValue)) {
         throw this.formatErrorMessage(
           typeExpr.token,
           `Expected type for lhs, got value: ${exprToString(typeExpr)}`
@@ -901,10 +905,12 @@ export default class Evaluator {
     }
     expr.type = typeValue.type;
     expr.value = typeValue;
+    expr.env = env;
 
     // Add information to the `type` token
     expr.func.type = expr.type;
     expr.func.value = expr.value;
+    expr.func.env = env;
 
     return expr;
   }
@@ -1242,7 +1248,7 @@ export default class Evaluator {
     argValues: TupleValue,
     argExprs: Expr[],
     env: Environment
-  ): boolean {
+  ): Environment | false {
     if (argTypes.length > paramTypes.length) {
       return false;
     }
@@ -1311,7 +1317,7 @@ export default class Evaluator {
             },
           });
           env = nextEnv;
-          console.log("added param: ", paramType.label);
+          // console.log("added param: ", paramType.label);
         }
       }
 
@@ -1340,7 +1346,7 @@ export default class Evaluator {
       }
       checkedTupleElements.add(paramType);
     }
-    return true;
+    return env;
   }
 
   private evaluateFunctionCall({
@@ -1474,7 +1480,33 @@ ${functionsWithMatchingTypes
     if (functionToCall.type && isFunctionType(functionToCall.type)) {
       const functionType = functionToCall.type;
       const functionReturnType = functionType.returnType;
-      expr.type = functionReturnType;
+
+      // It is type function
+      if (isFunctionTypeAndIsTypeFunction(functionType)) {
+        const functionValue = functionToCall.value;
+        if (!isFunctionValue(functionValue)) {
+          throw this.formatErrorMessage(
+            expr.token,
+            `Function value is not defined`
+          );
+        }
+
+        const { value: returnValue, env: nextEnv } =
+          this.evaluateTypeFunctionCall({
+            functionCallExpr: expr,
+            functionType,
+            functionValue,
+            argTypes: evaluatedArgTypes,
+            argValues: evaluatedArgValues,
+            argExprs: args,
+            env,
+          });
+        env = nextEnv;
+        expr.value = returnValue;
+        expr.type = typeOfType(returnValue.type);
+      } else {
+        expr.type = functionReturnType;
+      }
       func.type = functionToCall.type;
       return expr;
     } else {
@@ -1497,6 +1529,73 @@ ${exprToString(expr)}`
     );
   }
 
+  private evaluateTypeFunctionCall({
+    functionCallExpr,
+    functionType,
+    functionValue,
+    argTypes,
+    argValues,
+    argExprs,
+    env,
+  }: {
+    functionCallExpr: Expr;
+    functionType: FunctionType;
+    functionValue: FunctionValue;
+    argTypes: TupleElement[];
+    argValues: TupleValue;
+    argExprs: Expr[];
+    env: Environment;
+  }): { value: TypeValue; env: Environment } {
+    // This will push a new frame to the env and
+    // add the parameters to the env
+    const nextEnv = this.areParametersAndArgumentsCompatible(
+      functionType.params,
+      argTypes,
+      argValues,
+      argExprs,
+      env
+    );
+    if (!nextEnv) {
+      throw this.formatErrorMessage(
+        functionCallExpr.token,
+        `Incompatible types for function call:
+Expected: ${typeToString(functionType)}`
+      );
+    }
+    env = nextEnv;
+
+    // Evaluate functionValue.body with the new env
+    const functionBodyExpr = functionValue.body;
+    const evaluatedFunctionBody = this.evaluateExpression({
+      expr: functionBodyExpr,
+      env,
+      context: { isEvaluatingType: false },
+    });
+    if (!evaluatedFunctionBody.env) {
+      throw this.formatErrorMessage(
+        functionCallExpr.token,
+        `Function body is not evaluated correctly`
+      );
+    }
+
+    // Get the return type value
+    const returnValue = evaluatedFunctionBody.value;
+    if (!returnValue || !isTypeValue(returnValue)) {
+      throw this.formatErrorMessage(
+        functionCallExpr.token,
+        `Function body is not evaluated correctly. Expected to return a type.`
+      );
+    }
+
+    // Restore the environment frames
+    env = popEnvFrame(evaluatedFunctionBody.env);
+
+    return {
+      value: returnValue,
+      env,
+    };
+  }
+
   private evaluateDefnExpression({
     expr,
     env,
@@ -1504,10 +1603,10 @@ ${exprToString(expr)}`
     expr: FuncCallExpr;
     env: Environment;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, "defn", 2)) {
+    if (!exprIsFunctionCallOf(expr, "def", 2)) {
       throw this.formatErrorMessage(
         expr.token,
-        `Expected "defn" with 2 arguments, got:\n${exprToString(expr)}`
+        `Expected "def" with 2 arguments, got:\n${exprToString(expr)}`
       );
     }
 
@@ -1589,6 +1688,12 @@ ${exprToString(expr)}`
         type: functionType,
         isMutable: false,
         isNotInitialized: false,
+        value: {
+          tag: ValueTag.Function,
+          type: functionType,
+          body: functionBodyExpr,
+          frameLevel: env.frames.length - 1,
+        },
       },
       deltaFrame: -1,
     });
@@ -1737,8 +1842,8 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, ".")) {
         // property access
         return this.evaluatePropertyAccess({ expr, env, context });
-      } else if (exprIsFunctionCallOf(expr, "defn")) {
-        // defn
+      } else if (exprIsFunctionCallOf(expr, "def")) {
+        // def
         return this.evaluateDefnExpression({ expr, env });
       } else if (exprIsFunctionCallOf(expr, "begin")) {
         // begin

@@ -180,7 +180,9 @@ export function valueToString(value: Value): string {
       if (value.elements.length === 0) {
         return "()";
       }
-      return `(${value.elements.map(valueToString).join(", ")})`;
+      return `(${value.elements.map(valueToString).join(", ")}${
+        value.elements.length === 1 ? "," : ""
+      })`;
     }
     case ValueTag.Struct: {
       return `_(${value.members
@@ -214,8 +216,12 @@ export function valueToString(value: Value): string {
   }
 }
 
-export function isTypeValue(value: Value): value is TypeValue {
-  return value.tag === ValueTag.Type;
+export function isTypeValue(value?: Value): value is TypeValue {
+  return value?.tag === ValueTag.Type;
+}
+
+export function isFunctionValue(value?: Value): value is FunctionValue {
+  return value?.tag === ValueTag.Function;
 }
 
 export function createTypeValue(value: Type): TypeValue {

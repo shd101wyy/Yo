@@ -68,7 +68,7 @@ mut(y) := 14; // mutable   mut(y): compt(i32)
 // It's hard to tell! So let's make it explicit
 
 // define a function
-defn add(x: i32, y: i32):i32, 
+def add(x: i32, y: i32):i32, 
   x + y;
 // or with anonymous function defined with `fn` and `->`
 add := ((fn(x: i32, y: i32) : i32) -> (x + y));
@@ -92,7 +92,7 @@ get_value := (fn(condition: boolean) ->  // Return type inferred as Option(i32)
 );
 
 // Named parameters in function declarations with default values
-defn create_user( 
+def create_user( 
     name: String,
     (age: i32) = 18,
     (role: String) = String.from("user")
@@ -121,17 +121,17 @@ user2 := create_user(role: "admin", name: "Bob", age: 30);  // explicit values
 3 .add 4; //
 
 // Define a custom operator
-defn (+++)(x: i32, y: i32):i32,
+def (+++)(x: i32, y: i32):i32,
   x + y;
 3 +++ 4; // 7
 
 // All function parameters are immutable by default
-defn modify(x: i32):i32, {
+def modify(x: i32):i32, {
   x += 1; // error: x is immutable
   x
 }
 // To make the function parameter mutable, use `mut`
-defn modify(mut(x):i32):i32, {
+def modify(mut(x):i32):i32, {
   x += 1; // OK
   x
 }
@@ -193,7 +193,7 @@ named_tuple := (x: x, y: y);
 (.x: a) := named_tuple; // a: 1
 
 // there might be ambiguity for the function that accepts tuple as its first argument
-defn some_func(x: (i32, i32)):i32, {
+def some_func(x: (i32, i32)):i32, {
   return x.0 + x.1;
 };
 
@@ -291,7 +291,7 @@ s := Shape.Circle 5;
 s := Shape.Rectangle width: 10, height: 20;
 
 // type as function parameter
-defn Option(T: Type): Type,
+def Option(T: Type): Type,
   enum(
     Some(T),
     None
@@ -303,13 +303,13 @@ x := Option(i32).Some(12);
 // By default, all variants return the same type.
 // You can also specify the return type for each variant
 // to make it a GADT
-defn MyExpr(T: Type): Type,
+def MyExpr(T: Type): Type,
   enum
     IntExpr: ((i32) -> MyExpr(i32)),
     BoolExpr: ((boolean) -> MyExpr(boolean)),
     EqExpr: ((MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean))
   ;
-defn my_eval(T: Type, expr: MyExpr(T)): T,
+def my_eval(T: Type, expr: MyExpr(T)): T,
   match expr,
     .IntExpr(i) -> i,
     .BoolExpr(b) -> b,
@@ -318,15 +318,15 @@ defn my_eval(T: Type, expr: MyExpr(T)): T,
 
 // higher kinded types
 // are types that take other types as parameter
-defn T1(F: ((Type) -> Type), A: Type), F(A)
+def T1(F: ((Type) -> Type), A: Type), F(A)
 ;
 // Assume we have the `Maybe` type,
 // then we can define `Option` like below
-defn Option(T: Type), T1(Maybe, T);
+def Option(T: Type), T1(Maybe, T);
 
 
 // interface
-defn Id(T: Type): Interface,
+def Id(T: Type): Interface,
   interface
     id: ((x: T)-> T)
 ;
@@ -364,7 +364,7 @@ Cm.M(x); // 2
 
 // `forall` can be used to define generics
 // e.g. without `forall` it also works:
-defn id(T: Type, x: T):T, {
+def id(T: Type, x: T):T, {
   return x;
 };
 // but when you call it, you need to specify the type:
@@ -379,9 +379,9 @@ id(12); // 12
 // The very last expression is the return value.
 
 // arith.mo
-defn add(x: i32, y: i32): i32,
+def add(x: i32, y: i32): i32,
   x + y;
-defn sub (x: i32, y: i32): i32,
+def sub (x: i32, y: i32): i32,
   x - y;
 ( add: add, sub: sub ) // export add and sub
 // is equivalent to
@@ -429,7 +429,7 @@ Array7 := Array(7, 3);
 // Mo uses &, &! for immutable reference and mutable reference
 mut(x) := 1;
 mut(y) := 2;
-defn swap(a: &!(i32), b: &!(i32)) -> {
+def swap(a: &!(i32), b: &!(i32)) -> {
   tmp := *(a);
   *(a) = *(b);
   *(b) = tmp;
@@ -554,7 +554,7 @@ cond  (x == 1) -> std.println("x is 1"),
 
 /// while
 /// while
-defn factorial(mut(x): i32): i32, {
+def factorial(mut(x): i32): i32, {
   result := 1;
   while x > 1, do: {
     result *= x;
@@ -564,7 +564,7 @@ defn factorial(mut(x): i32): i32, {
 };
 
 //// or
-defn factorial(mut(x): i32): i32, {
+def factorial(mut(x): i32): i32, {
   result := 1;
   while x > 1,  // condition
         x -= 1, // step
@@ -576,19 +576,19 @@ defn factorial(mut(x): i32): i32, {
 
 // Recursion using recur
 // recur is used to call the current function recursively
-defn factorial_rec(x: i32): i32,
+def factorial_rec(x: i32): i32,
   if x <= 1,
     then: 1,
     else: (x * recur(x - 1));  // recur calls factorial_rec recursively
 
 // recur can also be used with named arguments
-defn fibonacci(n: i32): i32,
+def fibonacci(n: i32): i32,
   if n <= 1,
     then: n,
     else: (recur(n - 1) + recur(n - 2));
 
 // Tail recursion for better performance
-defn factorial_tail(x: i32, (acc: i32) = 1): i32,
+def factorial_tail(x: i32, (acc: i32) = 1): i32,
   if x <= 1,
     then: acc,
     else: recur(x - 1, x * acc);  // tail-recursive call
@@ -612,7 +612,7 @@ match x,
 // Similar to Rust, Result is a union type with Ok and Err variants
 
 // Define the Result type as a generic type
-defn Result(T: Type, E: Type): Type,
+def Result(T: Type, E: Type): Type,
   enum
     Ok(T),
     Err(E);
@@ -624,7 +624,7 @@ DivisionError :=
     Overflow;
 
 // Example: Safe division function that returns a Result
-defn safe_div(a: i32, b: i32): Result(i32, DivisionError),
+def safe_div(a: i32, b: i32): Result(i32, DivisionError),
   if b == 0,
     then: Result(i32, DivisionError).Err(.DivideByZero),
     else: Result(i32, DivisionError).Ok(a / b);
@@ -639,7 +639,7 @@ match division_result,
 // all of its parameters and return type are compt(Expr)
 // The `unquote` function is only allowed to be used inside the `quote` function.  
 // And if the return value is declared with `unquote`, then it's a macro function.  
-defn if(quote(condition): compt(Expr), 
+def if(quote(condition): compt(Expr), 
       quote(then): compt(Expr),
       quote(else): compt(Expr))
     : (unqoute(_): compt(Expr)),
@@ -772,7 +772,7 @@ PI := 3.14159265358979323846; // PI : compt(f64);
 
 // A function returning Type or compt(Type) can only be executed at compile time
 // Compile-time function execution
-defn factorial(n: compt(i32)): compt(i32),
+def factorial(n: compt(i32)): compt(i32),
   if n <= 1, then: 1, else: (n * recur(n - 1));
 
 // This will be computed during compilation
@@ -785,13 +785,13 @@ x := 10; // x : compt(i32)
 (z : compt(i32)) := y; // error: cannot cast i32 to compt(i32)
 
 // Below is another example
-defn max(T: Type, a: T, b: T):T,
+def max(T: Type, a: T, b: T):T,
   cond // implicit compile-time evaluate the condition if it's known at the compile-time, and skip the branch not taken.
     (T == boolean) -> a.or b,
     (a > b) -> a,
     true -> b;
 max(boolean, false, true); // compiles to:
-defn max(a: boolean, b: boolean): boolean, {
+def max(a: boolean, b: boolean): boolean, {
   {
     return a.or b;
   }
@@ -811,7 +811,7 @@ mut(arr) := [read_input(), 2, 3]; // mut(arr): Array(i32, 3); runtime mutable
 // A function that returns a type is called a type function.  
 // The type function requires all its parameters to be `compt`.  
 // All parameters of Type (Free or Linear) are `compt` by default so you don't need to specify it explicitly.
-defn Matrix(T: Type, ROWS: compt(usize), COLS: compt(usize)): Type,
+def Matrix(T: Type, ROWS: compt(usize), COLS: compt(usize)): Type,
   Array(Array(T, COLS), ROWS);
 
 // Create a 3x3 matrix of integers
