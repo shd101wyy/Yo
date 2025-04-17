@@ -32,7 +32,6 @@ import {
   isEnumType,
   isFunctionType,
   isFunctionTypeAndIsTypeFunction,
-  isSomeType,
   isStructType,
   isTypeHierarchyType,
   StructType,
@@ -69,6 +68,7 @@ import {
   TypeValue,
   Value,
   ValueTag,
+  VUnknown,
 } from "./value";
 
 interface EvaluatorContext {
@@ -182,7 +182,7 @@ export default class Evaluator {
     expr: Expr;
     env: Environment;
     context: EvaluatorContext;
-  }): { type: TupleElement; value: Value | undefined; env: Environment } {
+  }): { type: TupleElement; value: Value; env: Environment } {
     let label: string | undefined = undefined;
     let isMutable: boolean = false;
     let lhsExpr: Expr | undefined = undefined;
@@ -261,13 +261,13 @@ export default class Evaluator {
       }
     }
 
-    let value: Value | undefined = undefined;
+    let value: Value = VUnknown;
     if (!context.isEvaluatingType) {
       // Evaluating value.
-      value = evaluatedRhs.value;
+      value = evaluatedRhs.value ?? VUnknown;
     } else {
       // Evaluating type.
-      value = undefined; // NOTE: This is necessary
+      value = VUnknown; // NOTE: This is necessary
     }
 
     if (lhsExpr) {
@@ -275,11 +275,11 @@ export default class Evaluator {
       lhsExpr.value = value;
     }
     expr.env = env;
-
     return {
       type: {
         label,
         type: elementType,
+        expr,
         isMutable,
         defaultValue: undefined,
       },
@@ -364,7 +364,7 @@ export default class Evaluator {
     env: Environment;
   } {
     const tupleElements: TupleElement[] = [];
-    const tupleValues: (Value | undefined)[] = [];
+    const tupleValues: Value[] = [];
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
       const {
@@ -421,13 +421,11 @@ export default class Evaluator {
         value: tupleType,
       };
     } else {
-      value = tupleValues.some((v) => v === undefined)
-        ? undefined
-        : {
-            tag: ValueTag.Tuple,
-            type: tupleType,
-            elements: tupleValues as Value[],
-          };
+      value = {
+        tag: ValueTag.Tuple,
+        type: tupleType,
+        elements: tupleValues,
+      };
     }
     return {
       type: tupleType,
@@ -529,7 +527,7 @@ export default class Evaluator {
         lhs.type = rhsType;
       } else {
         // Check if the type is compatible
-        if (!areTypesCompatible(lhs.type, rhsType)) {
+        if (!areTypesCompatible(lhs.type, rhsType, env)) {
           throw this.formatErrorMessage(
             lhs.token,
             `Incompatible types:
@@ -857,7 +855,13 @@ export default class Evaluator {
     const returnType = evaluatedReturnType.value.value;
 
     // Create the function type
-    const functionType = createFunctionType(functionParameters, returnType);
+    const functionType = createFunctionType({
+      params: functionParameters,
+      return_: {
+        expr: returnTypeExpr,
+        type: returnType,
+      },
+    });
 
     // Pop the environment frame
     env = popEnvFrame(env);
@@ -1245,7 +1249,7 @@ export default class Evaluator {
   private areParametersAndArgumentsCompatible(
     paramTypes: TupleElement[],
     argTypes: TupleElement[],
-    argValues: TupleValue,
+    argValues: TupleValue | undefined,
     argExprs: Expr[],
     env: Environment
   ): Environment | false {
@@ -1258,7 +1262,7 @@ export default class Evaluator {
     for (let i = 0; i < paramTypes.length; i++) {
       let paramType: TupleElement | undefined = paramTypes[i];
       const argType = argTypes[i];
-      const argValue = argValues.elements[i];
+      const argValue = argValues?.elements[i];
       const argExpr = argExprs[i];
 
       /*
@@ -1317,31 +1321,11 @@ export default class Evaluator {
             },
           });
           env = nextEnv;
-          // console.log("added param: ", paramType.label);
-        }
-      }
-
-      // Meet SomeType,
-      // eg: x: T
-      // here T should already be added to env by the if condition above ^^^
-      else if (isSomeType(paramType.type)) {
-        const someTypeName = paramType.type.name;
-        // Get the SomeType value from the environment
-        const variables = getVariablesFromEnv(env, someTypeName, (variable) => {
-          return !!variable.value && variable.value.tag === ValueTag.Type;
-        });
-        if (!variables.length) {
-          return false;
-        }
-        const someTypeValue = variables[variables.length - 1]
-          .value as TypeValue;
-        if (!areTypesCompatible(someTypeValue.value, argType.type)) {
-          return false;
         }
       }
 
       // Compare the types
-      else if (!areTypesCompatible(paramType.type, argType.type)) {
+      else if (!areTypesCompatible(paramType.type, argType.type, env)) {
         return false;
       }
       checkedTupleElements.add(paramType);
@@ -1407,7 +1391,7 @@ export default class Evaluator {
     });
     env = nextEnv;
     const evaluatedArgTypes = tupleType.elements;
-    const evaluatedArgValues: TupleValue = tupleValue as TupleValue;
+    const evaluatedArgValues = tupleValue as TupleValue | undefined;
 
     // Find the functions whose parameters match the arguments
     const functionsWithMatchingTypes = functions.filter((variable) => {
@@ -1479,7 +1463,6 @@ ${functionsWithMatchingTypes
 
     if (functionToCall.type && isFunctionType(functionToCall.type)) {
       const functionType = functionToCall.type;
-      const functionReturnType = functionType.returnType;
 
       // It is type function
       if (isFunctionTypeAndIsTypeFunction(functionType)) {
@@ -1505,7 +1488,21 @@ ${functionsWithMatchingTypes
         expr.value = returnValue;
         expr.type = typeOfType(returnValue.type);
       } else {
-        expr.type = functionReturnType;
+        // It's
+        // - Runtime function
+        // - Comptime function
+        const { returnType, env: nextEnv } =
+          this.evaluateFunctionCallReturnType({
+            functionCallExpr: expr,
+            functionType,
+            argTypes: evaluatedArgTypes,
+            argValues: evaluatedArgValues,
+            argExprs: args,
+            env,
+          });
+        env = nextEnv;
+        expr.type = returnType;
+        // TODO: expr.value should be available for comptime function.
       }
       func.type = functionToCall.type;
       return expr;
@@ -1542,7 +1539,7 @@ ${exprToString(expr)}`
     functionType: FunctionType;
     functionValue: FunctionValue;
     argTypes: TupleElement[];
-    argValues: TupleValue;
+    argValues: TupleValue | undefined;
     argExprs: Expr[];
     env: Environment;
   }): { value: TypeValue; env: Environment } {
@@ -1596,7 +1593,76 @@ Expected: ${typeToString(functionType)}`
     };
   }
 
-  private evaluateDefnExpression({
+  private evaluateFunctionCallReturnType({
+    functionCallExpr,
+    functionType,
+    argTypes,
+    argValues,
+    argExprs,
+    env,
+  }: {
+    functionCallExpr: Expr;
+    functionType: FunctionType;
+    argTypes: TupleElement[];
+    argValues: TupleValue | undefined;
+    argExprs: Expr[];
+    env: Environment;
+  }): { returnType: Type; env: Environment } {
+    // This will push a new frame to the env and
+    // add the parameters to the env
+    const nextEnv = this.areParametersAndArgumentsCompatible(
+      functionType.params,
+      argTypes,
+      argValues,
+      argExprs,
+      env
+    );
+    if (!nextEnv) {
+      throw this.formatErrorMessage(
+        functionCallExpr.token,
+        `Incompatible types for function call:
+Expected: ${typeToString(functionType)}`
+      );
+    }
+    env = nextEnv;
+
+    // Evaluate the function return expr again
+    const evaluatedFunctionReturnExpr = this.evaluateExpression({
+      expr: functionType.return.expr,
+      env,
+      context: { isEvaluatingType: true },
+    });
+    /*
+    if (!evaluatedFunctionReturnExpr.env) {
+      throw this.formatErrorMessage(
+        functionCallExpr.token,
+        `Function body is not evaluated correctly`
+      );
+    } else {
+      env = evaluatedFunctionReturnExpr.env; 
+    }
+    */
+
+    // Get the return type
+    const functionReturnTypeValue = evaluatedFunctionReturnExpr.value;
+    if (!isTypeValue(functionReturnTypeValue)) {
+      throw this.formatErrorMessage(
+        functionCallExpr.token,
+        `Function body is not evaluated correctly. Expected to return a type.`
+      );
+    }
+    const functionReturnType = functionReturnTypeValue.value;
+
+    // Restore the environment frames
+    env = popEnvFrame(env);
+
+    return {
+      returnType: functionReturnType,
+      env,
+    };
+  }
+
+  private evaluateDefExpression({
     expr,
     env,
   }: {
@@ -1677,7 +1743,13 @@ Expected: ${typeToString(functionType)}`
     const returnType = returnTypeValue.value;
 
     /// Add functionType to the functionNameExpr
-    const functionType = createFunctionType(functionParameters, returnType);
+    const functionType = createFunctionType({
+      params: functionParameters,
+      return_: {
+        expr: functionReturnTypeExpr,
+        type: returnType,
+      },
+    });
     functionNameExpr.type = functionType;
     /// Add function with name to env;
     const { env: nextNextEnv } = addVariableToEnv({
@@ -1711,7 +1783,7 @@ Expected: ${typeToString(functionType)}`
 
     // Check if the function body type matches the function return type
     if (evaluatedFunctionBody.type) {
-      if (!areTypesCompatible(returnType, evaluatedFunctionBody.type)) {
+      if (!areTypesCompatible(returnType, evaluatedFunctionBody.type, env)) {
         throw this.formatErrorMessage(
           functionReturnTypeExpr.token,
           `Incompatible function return type:
@@ -1844,7 +1916,7 @@ ${exprToString(expr)}`
         return this.evaluatePropertyAccess({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, "def")) {
         // def
-        return this.evaluateDefnExpression({ expr, env });
+        return this.evaluateDefExpression({ expr, env });
       } else if (exprIsFunctionCallOf(expr, "begin")) {
         // begin
         return this.evaluateBeginExpression({ expr, env });

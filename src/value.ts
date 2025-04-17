@@ -29,6 +29,7 @@ export enum ValueTag {
   Tuple = "Tuple",
   Struct = "Struct",
   Function = "Function",
+  Unknown = "Unknown",
 }
 
 export type TypeValue = {
@@ -111,6 +112,10 @@ export type FunctionValue = {
   body: Expr;
 };
 
+export type UnknownValue = {
+  tag: ValueTag.Unknown;
+};
+
 export type Value =
   | TypeValue
   | NumberValue
@@ -134,7 +139,8 @@ export type Value =
       value: Value;
     }
   | */
-  | FunctionValue;
+  | FunctionValue
+  | UnknownValue;
 /* | {
       tag: "Interface";
       type: Interface;
@@ -224,6 +230,10 @@ export function isFunctionValue(value?: Value): value is FunctionValue {
   return value?.tag === ValueTag.Function;
 }
 
+export function isUnknownValue(value?: Value): value is UnknownValue {
+  return value?.tag === ValueTag.Unknown;
+}
+
 export function createTypeValue(value: Type): TypeValue {
   return {
     tag: ValueTag.Type,
@@ -231,3 +241,7 @@ export function createTypeValue(value: Type): TypeValue {
     value,
   };
 }
+
+export const VUnknown: UnknownValue = {
+  tag: ValueTag.Unknown,
+};

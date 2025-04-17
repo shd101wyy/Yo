@@ -1,4 +1,6 @@
+import { Environment, getVariablesFromEnv } from "./env";
 import { Expr } from "./expr";
+import { isTypeValue, TypeValue } from "./value";
 
 // FIXME: We need to determine the ptr size based on the givenType architecture.
 /**
@@ -257,13 +259,30 @@ export interface ArrayType extends Type {
 }
 
 export interface TupleElement {
+  /**
+   * The type of the element.
+   * eg: i32
+   * i32 is the type of the element.
+   */
   type: Type;
+
+  /**
+   * label of the element,
+   * eg: x: i32
+   * x is the label of the element.
+   */
   label?: string;
+
+  /**
+   * The expression of the element.
+   */
+  expr: Expr;
 
   /**
    * This is only used for Functions
    */
   isMutable?: boolean;
+
   /**
    * This is only used for Functions
    */
@@ -313,11 +332,22 @@ export interface UnionType extends Type {
   members: TupleElement[];
 }
 
+export interface FunctionReturn {
+  /**
+   * The expression of the function return.
+   */
+  expr: Expr;
+
+  /**
+   * The type of the function return.
+   */
+  type: Type;
+}
+
 export interface FunctionType extends Type {
   tag: TypeTag.Function;
   params: TupleElement[]; // Changed from TupleElement[] to TupleType for consistency
-  returnType: Type;
-
+  return: FunctionReturn;
   typeFunctionImplementation?: (args: Type[]) => Type;
 }
 
@@ -441,16 +471,20 @@ export function createUnionType(members: TupleElement[]): UnionType {
   };
 }
 
-export function createFunctionType(
-  params: TupleElement[],
-  returnType: Type,
-  typeFunctionImplementation?: (args: Type[]) => Type
-): FunctionType {
+export function createFunctionType({
+  params,
+  return_,
+  typeFunctionImplementation,
+}: {
+  params: TupleElement[];
+  return_: FunctionReturn;
+  typeFunctionImplementation?: (args: Type[]) => Type;
+}): FunctionType {
   return {
     tag: TypeTag.Function,
     size: getPtrSize() * 8,
     params: params, // Wrap params in a TupleType
-    returnType,
+    return: return_,
     typeFunctionImplementation,
   };
 }
@@ -502,18 +536,7 @@ export const OptionFunction: FunctionType = createFunctionType(
     };
   }
 );
-*/
 
-// Helper function to check if a function returns a type
-export function isTypeReturningFunction(func: FunctionType): boolean {
-  // Check if the return type is Type or any higher type universe level
-  return (
-    func.returnType === TType ||
-    (func.returnType.tag === TypeTag.Type &&
-      "level" in func.returnType &&
-      (func.returnType as TTypeHierarchy).level >= 0)
-  );
-}
 
 // Replace applyTypeFunction with a more general function
 export function applyTypeFunction(func: FunctionType, args: Type[]): Type {
@@ -541,6 +564,7 @@ export function applyTypeFunction(func: FunctionType, args: Type[]): Type {
 
   throw new Error("Function has no implementation that returns a Type");
 }
+  */
 
 // Helper function to determine the type universe of a list of types
 function determineTypeUniverse(types: Type[]): Type {
@@ -615,10 +639,38 @@ export function typeOfType(t: Type): Type {
   }
 }
 
+export function getValueOfSomeTypeFromEnv(
+  env: Environment,
+  someType: SomeType
+): Type | undefined {
+  let someTypeValue: TypeValue | undefined = undefined;
+  do {
+    const variables = getVariablesFromEnv(env, someType.name, (variable) => {
+      return isTypeValue(variable.value);
+    });
+    if (!variables.length) {
+      return undefined;
+    }
+    someTypeValue = variables[variables.length - 1].value as TypeValue;
+
+    // This if condition is used to prevent the infinite loop
+    if (someTypeValue.value === someType) {
+      return someType; // Returned itself actually
+    }
+    if (isSomeType(someTypeValue.value)) {
+      someType = someTypeValue.value;
+    } else {
+      break;
+    }
+  } while (isSomeType(someType));
+  return someTypeValue.value;
+}
+
 // Update the areTypesCompatible function for StructType
 export function areTypesCompatible(
   expectedType: Type,
-  givenType: Type
+  givenType: Type,
+  env: Environment
 ): boolean {
   // Undefined is only compatible with itself
   /*
@@ -639,7 +691,7 @@ export function areTypesCompatible(
     // Arrays must have same length and compatible element types
     return (
       expectedType.length === givenType.length &&
-      areTypesCompatible(expectedType.elementType, givenType.elementType)
+      areTypesCompatible(expectedType.elementType, givenType.elementType, env)
     );
   }
 
@@ -652,7 +704,11 @@ export function areTypesCompatible(
       const givenTypeElement = givenType.elements[i];
 
       if (
-        !areTypesCompatible(expectedTypeElement.type, givenTypeElement.type)
+        !areTypesCompatible(
+          expectedTypeElement.type,
+          givenTypeElement.type,
+          env
+        )
       ) {
         return false;
       }
@@ -677,7 +733,7 @@ export function areTypesCompatible(
       const givenMember = givenType.members[i];
 
       if (
-        !areTypesCompatible(expectedMember.type, givenMember.type) ||
+        !areTypesCompatible(expectedMember.type, givenMember.type, env) ||
         expectedMember.label !== givenMember.label
       ) {
         return false;
@@ -697,19 +753,19 @@ export function areTypesCompatible(
       if (
         !areTypesCompatible(
           givenType.params[i].type,
-          expectedType.params[i].type
+          expectedType.params[i].type,
+          env
         )
       ) {
         return false;
       }
     }
 
-    return areTypesCompatible(expectedType.returnType, givenType.returnType);
-  }
-
-  if (isSomeType(expectedType) && isSomeType(givenType)) {
-    // TODO: Check subtype
-    return expectedType.typeId === givenType.typeId;
+    return areTypesCompatible(
+      expectedType.return.type,
+      givenType.return.type,
+      env
+    );
   }
 
   if (isTypeHierarchyType(expectedType) && isTypeHierarchyType(givenType)) {
@@ -718,6 +774,31 @@ export function areTypesCompatible(
       givenType.level === expectedType.level &&
       (givenType.tag === expectedType.tag || expectedType.tag === TypeTag.Type)
     );
+  }
+
+  // Meet SomeType,
+  // eg: x: T
+  // here T should already be added to env by the if condition above ^^^
+  if (isSomeType(expectedType)) {
+    if (isSomeType(givenType)) {
+      const expectedType_ = getValueOfSomeTypeFromEnv(env, expectedType);
+      const givenType_ = getValueOfSomeTypeFromEnv(env, givenType);
+      if (!expectedType_ || !givenType_) {
+        return false;
+      }
+      if (isSomeType(expectedType_) && isSomeType(givenType_)) {
+        return expectedType_.typeId === givenType_.typeId;
+      } else {
+        // QUESTION: Is this correct?
+        return false;
+      }
+    } else {
+      const expectedType_ = getValueOfSomeTypeFromEnv(env, expectedType);
+      if (!expectedType_) {
+        return false;
+      }
+      return areTypesCompatible(expectedType_, givenType, env);
+    }
   }
 
   return false;
@@ -755,7 +836,7 @@ export function isFunctionTypeAndIsTypeFunction(
 ): type is FunctionType {
   return (
     type.tag === TypeTag.Function &&
-    isTypeHierarchyType((type as FunctionType).returnType)
+    isTypeHierarchyType((type as FunctionType).return.type)
   );
 }
 
@@ -928,7 +1009,7 @@ export function typeToString(type: Type): string {
             : (param.isMutable ? `mut(_):` : "") + typeToString(param.type)
         )
         .join(", ");
-      return `(${params}) -> ${typeToString(func.returnType)}`;
+      return `(${params}) -> ${typeToString(func.return.type)}`;
     }
 
     case TypeTag.Literal: {
