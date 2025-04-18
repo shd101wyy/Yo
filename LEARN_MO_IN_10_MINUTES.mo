@@ -214,8 +214,10 @@ mut(arr) := [1, 2, 3]; // mutable array
 
 // In Mo, type is the first-class citizen,
 // meaning that you can assign a type to a variable, or pass it as an argument to a function.
-MyI32 := type i32; // type alias
+MyI32 := i32; // type alias
 (x : MyI32) := 12; // valid
+(y: i32) := x; // valid
+
 
 MyPoint := type (i32, i32); // tuple type
 (p : MyPoint) := (3, 4); // valid
@@ -232,6 +234,15 @@ _(.y) := p;       // y: 4
 
 Cm := struct i32;
 x := Cm 200;
+
+// In Mo, struct/enum/union are nominal types.
+// This means that two types with the same structure are not the same type.
+// For example, the following two types are different:
+Point1 := struct(i32, i32);
+Point2 := struct(i32, i32);
+Point1 == Point2; // false
+p1 := Point1 3, 4;
+(p2: Point2) := p1; // error: type mismatch
 
 // Anonymous struct
 // "_" here means to be a placeholder for the type that could be inferred later
@@ -810,6 +821,7 @@ mut(arr) := [read_input(), 2, 3]; // mut(arr): Array(i32, 3); runtime mutable
 // Type-level computation using compt
 // A function that returns a type is called a type function.  
 // The type function requires all its parameters to be `compt`.  
+// The type function is pure, which means it will be cached once executed.
 // All parameters of Type (Free or Linear) are `compt` by default so you don't need to specify it explicitly.
 def Matrix(T: Type, ROWS: compt(usize), COLS: compt(usize)): Type,
   Array(Array(T, COLS), ROWS);

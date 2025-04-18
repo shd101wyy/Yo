@@ -1,5 +1,6 @@
 extern
   // identity: ((T: Type, x: T) -> T)
+  SomeLinear: Linear,
   return_value_of_type: ((X: Type)-> X)
 ;
 
@@ -17,13 +18,12 @@ def NestedFunction(T: Type): T, {
   a := return_value_of_type(T);
   x := identity2(T, return_value_of_type(T));
   x := identity2(T, a);
-  // T = Some(Type)
-  // Y = T,
-  // compare Y, T
+  y := identity2(i32, 12);
   x
   // a
 };
 x := NestedFunction(i32);
+y := NestedFunction(SomeLinear);
 
 /*
 (x: SomeType(i32)) := 42;
