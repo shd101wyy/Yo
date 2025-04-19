@@ -13,8 +13,13 @@ Shape := enum
 (c: Shape) := Shape.Circle(3);
 (c: Shape) := .Rectangle(3, 4);
 
+def color_identity(color: Color): Color,
+  color;
+c := color_identity(Color.Red);
+c := color_identity(.Red);
+
 NestedEnum := enum
   Level1(
     enum Level2(i32)
   );
-(c: NestedEnum) := NestedEnum.Level1.Level2(3);
+(n : NestedEnum) := .Level1(.Level2(3));

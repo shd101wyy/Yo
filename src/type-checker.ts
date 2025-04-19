@@ -56,6 +56,11 @@ export enum TypeTag {
 
   // Value
   Literal = "Literal",
+
+  // Placeholder
+  // This is only used as an intermediate type
+  // which should be synthesized to a real type
+  Placeholder = "Placeholder",
 }
 
 export interface Type {
@@ -254,6 +259,14 @@ export const TF64: Type = {
 export const TUnit: Type = {
   tag: TypeTag.Unit,
   size: 0,
+};
+
+export interface PlaceholderType extends Type {
+  tag: TypeTag.Placeholder;
+}
+
+export const TPlaceholder: PlaceholderType = {
+  tag: TypeTag.Placeholder,
 };
 
 // Extended Type interface for compound types
@@ -892,6 +905,10 @@ export function isEnumType(type: Type): type is EnumType {
 // Add isStructType guard function
 export function isStructType(type: Type): type is StructType {
   return type.tag === TypeTag.Struct;
+}
+
+export function isPlaceholderType(type: Type): type is PlaceholderType {
+  return type.tag === TypeTag.Placeholder;
 }
 
 export function isFunctionType(type: Type): type is FunctionType {
