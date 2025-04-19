@@ -443,6 +443,172 @@ export default class Evaluator {
     );
   }
 
+  /**
+   * Synthesize the expression and type, such as:
+   * - (p: Point) := _(3, 4);   // here _ becomes Point
+   * - (p: Color) := .Red;      // here (.) becomes (Color.)
+   * - (p: Shape) := .Circle(3) // here (.) becomes (Shape.)
+   */
+  private synthesizeExprAndType({
+    expr,
+    type,
+    env,
+  }: {
+    expr: Expr;
+    type: Type;
+    env: Environment;
+  }): { expr: Expr; type: Type; env: Environment } {
+    /*
+    console.log(`Synthesize expr and type:
+expr: ${exprToString(expr)}
+type: ${typeToString(type)}`);
+    */
+
+    // Handle the _ case
+    if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, "_")) {
+      // Check if type is a struct type
+      if (isStructType(type)) {
+        const funcCallExpr = this.evaluateFunctionCall({
+          expr,
+          env,
+          givenFunc: {
+            type: typeOfType(type),
+            value: createTypeValue(type),
+          },
+        });
+
+        if (!funcCallExpr.type || !funcCallExpr.env) {
+          throw this.formatErrorMessage(
+            expr.token,
+            `Failed to evaluate expr and type for struct:\n${exprToString(
+              expr
+            )}`
+          );
+        }
+
+        return {
+          expr: funcCallExpr,
+          type: funcCallExpr.type,
+          env: funcCallExpr.env,
+        };
+      } else {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Cannot use _ with type ${typeToString(
+            type
+          )}. Only supported with struct types.`
+        );
+      }
+    }
+    // Handle the . case for enum variant
+    else if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, ".", 1)) {
+      // Check if type is an enum type
+      if (isEnumType(type)) {
+        const variantNameExpr = expr.args[0];
+        if (!exprIsAtom(variantNameExpr)) {
+          throw this.formatErrorMessage(
+            expr.token,
+            `Expected identifier for enum variant, got ${exprToString(
+              variantNameExpr
+            )}`
+          );
+        }
+        const variantName = variantNameExpr.token.value;
+        const variant = type.variants.find(
+          (variant) => variant.name === variantName
+        );
+        if (!variant) {
+          throw this.formatErrorMessage(
+            expr.token,
+            `Enum variant ${variantName} not found in ${typeToString(type)}`
+          );
+        }
+
+        const newEnumType = { ...type, selectedVariantName: variantName };
+        expr.type = newEnumType;
+        // TODO: comptime value
+
+        return {
+          expr: expr,
+          type: newEnumType,
+          env: env,
+        };
+      } else {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Cannot use . with type ${typeToString(
+            type
+          )}. Only supported with enum types.`
+        );
+      }
+    }
+    // Handle the . case for enum variant call
+    else if (
+      exprIsFunctionCall(expr) &&
+      exprIsFunctionCall(expr.func) &&
+      exprIsFunctionCallOf(expr.func, ".", 1)
+    ) {
+      if (isEnumType(type)) {
+        const variantExpr = expr.func;
+        const variantNameExpr = variantExpr.args[0];
+        if (!exprIsAtom(variantNameExpr)) {
+          throw this.formatErrorMessage(
+            expr.token,
+            `Expected identifier for enum variant, got ${exprToString(
+              variantNameExpr
+            )}`
+          );
+        }
+        const variantName = variantNameExpr.token.value;
+        const variant = type.variants.find(
+          (variant) => variant.name === variantName
+        );
+        if (!variant) {
+          throw this.formatErrorMessage(
+            expr.token,
+            `Enum variant ${variantName} not found in ${typeToString(type)}`
+          );
+        }
+
+        const newEnumType = { ...type, selectedVariantName: variantName };
+        const funcCallExpr = this.evaluateFunctionCall({
+          expr,
+          env,
+          givenFunc: {
+            type: typeOfType(newEnumType),
+            value: createTypeValue(newEnumType),
+          },
+        });
+        if (!funcCallExpr.type || !funcCallExpr.env) {
+          throw this.formatErrorMessage(
+            expr.token,
+            `Failed to evaluate expr and type for enum variant:\n${exprToString(
+              expr
+            )}`
+          );
+        }
+
+        return {
+          expr: funcCallExpr,
+          type: funcCallExpr.type,
+          env: funcCallExpr.env,
+        };
+      } else {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Cannot use . with type ${typeToString(
+            type
+          )}. Only supported with enum types.`
+        );
+      }
+    } else {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Failed to synthesize the type and expr: ${exprToString(expr)}`
+      );
+    }
+  }
+
   private evaluateInitializationAssignment({
     expr,
     env,
@@ -452,7 +618,7 @@ export default class Evaluator {
   }): FuncCallExpr {
     // const isReAssignment = exprIsFunctionCallOf(expr, "=");
     let lhs = expr.args[0];
-    const rhs = expr.args[1];
+    let rhs = expr.args[1];
 
     // Evaluate the rhs expression
     const nextExpr = this.evaluateExpression({
@@ -464,14 +630,6 @@ export default class Evaluator {
     });
     if (nextExpr.env) {
       env = nextExpr.env;
-    }
-
-    const rhsType = rhs.type;
-    if (!rhsType) {
-      throw this.formatErrorMessage(
-        rhs.token,
-        `Expected type for rhs, got ${rhs.tag}`
-      );
     }
 
     // Check if the lhs is type annotation
@@ -532,10 +690,34 @@ export default class Evaluator {
       }
 
       // Set the variable type
+      let rhsType = rhs.type;
       if (!lhs.type) {
+        if (!rhsType) {
+          throw this.formatErrorMessage(
+            rhs.token,
+            `Expected type for right-hand side, got ${exprToString(rhs)}`
+          );
+        }
         // user didn't specify the type
         lhs.type = rhsType;
       } else {
+        // If !rhsType, then check if rhs is a function call of _
+        if (!rhsType) {
+          // Infer the type
+          const {
+            expr: nextRhs,
+            type: nextRhsType,
+            env: nextEnv,
+          } = this.synthesizeExprAndType({
+            expr: rhs,
+            type: lhs.type,
+            env: env,
+          });
+          rhs = nextRhs;
+          rhsType = nextRhsType;
+          env = nextEnv;
+        }
+
         // Check if the type is compatible
         if (!areTypesCompatible(lhs.type, rhsType, env)) {
           throw this.formatErrorMessage(
@@ -1178,10 +1360,23 @@ export default class Evaluator {
     }
 
     if (exprIsFunctionCallOf(expr, ".", 1)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Inferred variant is not implemented yet, got:\n${exprToString(expr)}`
-      );
+      // Expect the argument to be an identifier
+      const arg = expr.args[0];
+      if (!exprIsAtom(arg) && !this.isValidVariableName(arg)) {
+        throw this.formatErrorMessage(
+          arg.token,
+          `Expected identifier for enum variant access, got:\n${exprToString(
+            arg
+          )}`
+        );
+      }
+
+      // Inferred enum variant
+      // Skip the evaluation
+      // Set expr.type and expr.value later
+      expr.type = undefined;
+      expr.value = undefined;
+      return expr;
     }
 
     if (!exprIsFunctionCallOf(expr, ".", 2)) {
@@ -1233,9 +1428,25 @@ export default class Evaluator {
           ...enumType,
           selectedVariantName: variantName,
         };
-        expr.type = newEnumType;
-        // FIXME: Support expr.value for comptime evaluation.
-        // expr.value = createTypeValue(newEnumType);
+
+        /**
+         * This is for case like
+         * Color := enum Red, Green, Blue;
+         * r := Color.Red;
+         */
+        if (!variant.params) {
+          expr.type = newEnumType;
+          // FIXME: Support expr.value for comptime evaluation.
+          // expr.value = createEnumValue()
+        } else {
+          /**
+           * This is for case like
+           * Shape := enum Circle(i32), Square(i32, i32);
+           * c := Shape.Circle(3);
+           */
+          expr.value = createTypeValue(newEnumType);
+          expr.type = expr.value.type;
+        }
         expr.env = env;
         return expr;
       }
@@ -1456,17 +1667,29 @@ export default class Evaluator {
   private evaluateFunctionCall({
     expr,
     env, // context,
+    givenFunc,
   }: {
     expr: FuncCallExpr;
     env: Environment;
-    context: EvaluatorContext;
+    givenFunc?: { type: Type; value: TypeValue };
+    // context: EvaluatorContext;
   }): FuncCallExpr {
     const func = expr.func;
     const args = expr.args;
 
     let functions: { type: Type; value?: Value }[] = [];
+    if (givenFunc) {
+      functions = [givenFunc];
+    } else if (exprIsFunctionCall(func)) {
+      // Check .Circle(3) like function for inferred enum variant call
+      if (exprIsFunctionCall(func) && exprIsFunctionCallOf(func, ".", 1)) {
+        // Skip the evaluation
+        // Set expr.type and expr.value later
+        expr.type = undefined;
+        expr.value = undefined;
+        return expr;
+      }
 
-    if (exprIsFunctionCall(func)) {
       const functionToCall = this.evaluateExpression({
         expr: func,
         env,
@@ -1477,7 +1700,7 @@ export default class Evaluator {
       if (!functionToCall.type) {
         throw this.formatErrorMessage(
           func.token,
-          `Expected type for function call, got ${func.tag}`
+          `Expected type for function call, got ${exprToString(functionToCall)}`
         );
       }
       functions = [
@@ -1488,14 +1711,24 @@ export default class Evaluator {
       ];
     } else {
       const functionName = func.token.value;
-      /**
-       * functionVariables might be of FunctionType, StructType, UnionType, and EnumVariant
-       */
-      const functionVariables = getVariablesFromEnv(env, functionName);
-      functions = functionVariables.map((variable) => ({
-        type: variable.type,
-        value: variable.value,
-      }));
+
+      // Check _ function
+      if (functionName === "_") {
+        // Skip the evaluation
+        // Set expr.type and expr.value later
+        expr.type = undefined;
+        expr.value = undefined;
+        return expr;
+      } else {
+        /**
+         * functionVariables might be of FunctionType, StructType, UnionType, and EnumVariant
+         */
+        const functionVariables = getVariablesFromEnv(env, functionName);
+        functions = functionVariables.map((variable) => ({
+          type: variable.type,
+          value: variable.value,
+        }));
+      }
     }
 
     const {
@@ -1525,7 +1758,7 @@ export default class Evaluator {
         );
       } else {
         const value = func.value;
-        // anonymous struct value
+        // struct value
         if (isTypeValue(value) && isStructType(value.value)) {
           return this.areParametersAndArgumentsCompatible(
             value.value.members,
@@ -1534,7 +1767,9 @@ export default class Evaluator {
             args,
             env
           );
-        } else if (isTypeValue(value) && isEnumType(value.value)) {
+        }
+        // enum value
+        else if (isTypeValue(value) && isEnumType(value.value)) {
           const enumType = value.value;
           const selectedVariant = enumType.variants.find(
             (variant) => variant.name === enumType.selectedVariantName
@@ -1553,30 +1788,7 @@ export default class Evaluator {
             env
           );
         }
-
-        // enum
-        if (isEnumType(func.type)) {
-          const enumType = func.type;
-          const selectedVariant = enumType.variants.find(
-            (variant) => variant.name === enumType.selectedVariantName
-          );
-          if (!selectedVariant) {
-            throw this.formatErrorMessage(
-              expr.token,
-              `Enum variant not selected for enum type`
-            );
-          }
-          return this.areParametersAndArgumentsCompatible(
-            selectedVariant.params || [],
-            evaluatedArgTypes,
-            evaluatedArgValues,
-            args,
-            env
-          );
-        } else {
-          // TODO: Support Union and Enum
-          return false;
-        }
+        return false;
       }
     });
 
@@ -1629,6 +1841,10 @@ ${functionsWithMatchingTypes
         env = nextEnv;
         expr.value = returnValue;
         expr.type = typeOfType(returnValue.type);
+
+        // Attach necessary info to the func
+        func.type = functionToCall.type;
+        func.value = functionToCall.value;
       } else {
         // It's
         // - Runtime function
@@ -1645,27 +1861,36 @@ ${functionsWithMatchingTypes
         env = nextEnv;
         expr.type = returnType;
         // TODO: expr.value should be available for comptime function.
+
+        // Attach necessary info to the func
+        func.type = functionToCall.type;
+        func.value = functionToCall.value;
       }
-      func.type = functionToCall.type;
-      return expr;
-    }
-    // enum
-    else if (isEnumType(functionToCall.type)) {
-      const enumType = functionToCall.type;
-      expr.type = enumType;
       return expr;
     } else {
       const value = functionToCall.value;
-      // anonymous struct value
+      // struct value
       if (isTypeValue(value) && isStructType(value.value)) {
+        // console.log("struct value");
         const structType = value.value;
         expr.type = structType;
+        expr.env = env;
+
+        // Attach necessary info to the func
+        func.type = value.type;
+        func.value = value;
         return expr;
       }
-      // anonymous enum value
+      // enum value
       else if (isTypeValue(value) && isEnumType(value.value)) {
+        // console.log("enum value");
         const enumType = value.value;
         expr.type = enumType;
+        expr.env = env;
+
+        // Attach necessary info to the func
+        func.type = value.type;
+        func.value = value;
         return expr;
       }
     }
@@ -2080,7 +2305,7 @@ ${exprToString(expr)}`
         return this.evaluateVariant({ expr, env, context });
       } */
         // Function call
-        return this.evaluateFunctionCall({ expr, env, context });
+        return this.evaluateFunctionCall({ expr, env });
       }
     }
   }
