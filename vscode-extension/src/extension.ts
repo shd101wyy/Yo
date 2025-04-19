@@ -224,15 +224,13 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         // Add value if available
-        if (expr.value) {
-          const valueString = valueToString(expr.value);
-          if (expr.value.tag === ValueTag.Type) {
-            markdownContent.appendMarkdown(
-              `\n:= ${valueString} (${getSizeString(expr.value.value)})`
-            );
-          } else {
-            markdownContent.appendMarkdown(`\n:= ${valueString}`);
-          }
+        const valueString = valueToString(expr.value);
+        if (expr.value?.tag === ValueTag.Type) {
+          markdownContent.appendMarkdown(
+            `\n:= ${valueString} (${getSizeString(expr.value.value)})`
+          );
+        } else {
+          markdownContent.appendMarkdown(`\n:= ${valueString}`);
         }
 
         // Close the code block

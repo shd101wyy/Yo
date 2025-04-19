@@ -1,5 +1,6 @@
 import { Environment, getVariablesFromEnv } from "./env";
 import { Expr } from "./expr";
+import { randomId } from "./utils";
 import { isTypeValue, TypeValue } from "./value";
 
 // FIXME: We need to determine the ptr size based on the givenType architecture.
@@ -295,11 +296,31 @@ export interface TupleElement {
 
 export interface TupleType extends Type {
   tag: TypeTag.Tuple;
+  /**
+   * The elements of the tuple.
+   */
   elements: TupleElement[];
 }
 
 export interface StructType extends Type {
   tag: TypeTag.Struct;
+
+  /**
+   * The unique identifier for this struct.
+   */
+  typeId: string;
+
+  /**
+   * The name of the struct.
+   * eg:
+   *   Point := struct(i32, i32);
+   * Point is the name of the struct.
+   */
+  typeName?: string;
+
+  /**
+   * The members of the struct.
+   */
   members: TupleElement[];
 }
 
@@ -314,6 +335,19 @@ export interface EnumVariant {
 
 export interface EnumType extends Type {
   tag: TypeTag.Enum;
+
+  /**
+   * The unique identifier for this struct.
+   */
+  typeId: string;
+
+  /**
+   * The name of the struct.
+   * eg:
+   *   Point := struct(i32, i32);
+   * Point is the name of the struct.
+   */
+  typeName?: string;
 
   /**
    * The variants of the enum.
@@ -404,7 +438,10 @@ export function createTupleType(elements: TupleElement[]): TupleType {
   };
 }
 
-export function createStructType(members: TupleElement[]): StructType {
+export function createStructType(
+  members: TupleElement[],
+  typeId?: string
+): StructType {
   let totalSize: undefined | number = 0;
   for (let i = 0; i < members.length; i++) {
     const member = members[i];
@@ -419,10 +456,14 @@ export function createStructType(members: TupleElement[]): StructType {
     tag: TypeTag.Struct,
     size: totalSize,
     members,
+    typeId: typeId ?? `struct_${randomId()}`,
   };
 }
 
-export function createEnumType(variants: EnumVariant[]): EnumType {
+export function createEnumType(
+  variants: EnumVariant[],
+  typeId?: string
+): EnumType {
   let totalSize: undefined | number = 0;
   for (let i = 0; i < variants.length; i++) {
     const variant = variants[i];
@@ -453,6 +494,7 @@ export function createEnumType(variants: EnumVariant[]): EnumType {
     size: typeof totalSize === "number" ? totalSize + tagSize : undefined,
     variants,
     tagSize,
+    typeId: typeId ?? `enum_${randomId()}`,
   };
 }
 
@@ -729,9 +771,13 @@ export function areTypesCompatible(
 
   if (isStructType(expectedType) && isStructType(givenType)) {
     // Structs must have same members and compatible types
-    if (expectedType.members.length !== givenType.members.length) {
+    if (
+      expectedType.members.length !== givenType.members.length ||
+      expectedType.typeId !== givenType.typeId
+    ) {
       return false;
     }
+    // QUESTION: In theory comparing the typeId is enough
     for (let i = 0; i < expectedType.members.length; i++) {
       const expectedMember = expectedType.members[i];
       const givenMember = givenType.members[i];
@@ -744,6 +790,23 @@ export function areTypesCompatible(
       }
     }
     return true;
+  }
+
+  if (isEnumType(expectedType) && isEnumType(givenType)) {
+    if (expectedType.typeId !== givenType.typeId) {
+      return false;
+    }
+    if (
+      expectedType.selectedVariantName &&
+      givenType.selectedVariantName &&
+      expectedType.selectedVariantName !== givenType.selectedVariantName
+    ) {
+      return false;
+    } else if (!expectedType.selectedVariantName) {
+      return true;
+    } else {
+      return false;
+    }
   }
 
   // TODO: enum
@@ -962,7 +1025,10 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Struct: {
       const struct = type as StructType;
-      return `struct(${struct.members
+
+      return `${
+        struct.typeName ? `(${struct.typeName}) ` : ""
+      }struct(${struct.members
         .map((member) => {
           return `${member.label ? `${member.label}: ` : ""}${typeToString(
             member.type
@@ -973,7 +1039,9 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Enum: {
       const enumType = type as EnumType;
-      return `enum(${enumType.variants
+      return `${
+        enumType.typeName ? `(${enumType.typeName}) ` : ""
+      }enum(${enumType.variants
         .map((variant) => {
           return `${variant.name}${
             variant.params

@@ -504,6 +504,15 @@ export default class Evaluator {
     }
     if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, "mut")) {
       isMutable = true;
+
+      // If rhs is type value, then it cannot be mutable
+      if (isTypeValue(rhs.value)) {
+        throw this.formatErrorMessage(
+          lhs.token,
+          `Unexpected mut for type value: ${exprToString(rhs)}`
+        );
+      }
+
       // Check if the lhs is a variable
       if (lhs.args.length !== 1) {
         throw this.formatErrorMessage(
@@ -537,6 +546,16 @@ export default class Evaluator {
           );
         }
       }
+
+      // Add .typeName info if necessary
+      if (
+        isTypeValue(rhs.value) &&
+        (isStructType(rhs.value.value) || isEnumType(rhs.value.value)) &&
+        !rhs.value.value.typeName
+      ) {
+        rhs.value.value.typeName = lhs.token.value;
+      }
+
       // Set the variable value
       lhs.value = rhs.value;
       // Add variable to env
@@ -1186,7 +1205,7 @@ export default class Evaluator {
     }
 
     // We only support enum for now
-    if (evaluatedObject.value && isTypeValue(evaluatedObject.value)) {
+    if (isTypeValue(evaluatedObject.value)) {
       const typeValue = evaluatedObject.value;
       if (isEnumType(typeValue.value)) {
         // Expect propertyExpr to be a symbol atom
@@ -1214,10 +1233,10 @@ export default class Evaluator {
           ...enumType,
           selectedVariantName: variantName,
         };
-        expr.type = typeOfType(newEnumType);
-        expr.value = createTypeValue(newEnumType);
+        expr.type = newEnumType;
+        // FIXME: Support expr.value for comptime evaluation.
+        // expr.value = createTypeValue(newEnumType);
         expr.env = env;
-
         return expr;
       }
     }
@@ -1495,18 +1514,19 @@ export default class Evaluator {
     const evaluatedArgValues = tupleValue as TupleValue | undefined;
 
     // Find the functions whose parameters match the arguments
-    const functionsWithMatchingTypes = functions.filter((variable) => {
-      if (isFunctionType(variable.type)) {
+    const functionsWithMatchingTypes = functions.filter((func) => {
+      if (isFunctionType(func.type)) {
         return this.areParametersAndArgumentsCompatible(
-          variable.type.params,
+          func.type.params,
           evaluatedArgTypes,
           evaluatedArgValues,
           args,
           env
         );
       } else {
-        const value = variable.value;
-        if (value && isTypeValue(value) && isStructType(value.value)) {
+        const value = func.value;
+        // anonymous struct value
+        if (isTypeValue(value) && isStructType(value.value)) {
           return this.areParametersAndArgumentsCompatible(
             value.value.members,
             evaluatedArgTypes,
@@ -1514,8 +1534,29 @@ export default class Evaluator {
             args,
             env
           );
-        } else if (value && isTypeValue(value) && isEnumType(value.value)) {
+        } else if (isTypeValue(value) && isEnumType(value.value)) {
           const enumType = value.value;
+          const selectedVariant = enumType.variants.find(
+            (variant) => variant.name === enumType.selectedVariantName
+          );
+          if (!selectedVariant) {
+            throw this.formatErrorMessage(
+              expr.token,
+              `Enum variant not selected for enum type`
+            );
+          }
+          return this.areParametersAndArgumentsCompatible(
+            selectedVariant.params || [],
+            evaluatedArgTypes,
+            evaluatedArgValues,
+            args,
+            env
+          );
+        }
+
+        // enum
+        if (isEnumType(func.type)) {
+          const enumType = func.type;
           const selectedVariant = enumType.variants.find(
             (variant) => variant.name === enumType.selectedVariantName
           );
@@ -1562,7 +1603,7 @@ ${functionsWithMatchingTypes
 
     const functionToCall = functionsWithMatchingTypes[0];
 
-    if (functionToCall.type && isFunctionType(functionToCall.type)) {
+    if (isFunctionType(functionToCall.type)) {
       const functionType = functionToCall.type;
 
       // It is type function
@@ -1607,13 +1648,22 @@ ${functionsWithMatchingTypes
       }
       func.type = functionToCall.type;
       return expr;
+    }
+    // enum
+    else if (isEnumType(functionToCall.type)) {
+      const enumType = functionToCall.type;
+      expr.type = enumType;
+      return expr;
     } else {
       const value = functionToCall.value;
-      if (value && isTypeValue(value) && isStructType(value.value)) {
+      // anonymous struct value
+      if (isTypeValue(value) && isStructType(value.value)) {
         const structType = value.value;
         expr.type = structType;
         return expr;
-      } else if (value && isTypeValue(value) && isEnumType(value.value)) {
+      }
+      // anonymous enum value
+      else if (isTypeValue(value) && isEnumType(value.value)) {
         const enumType = value.value;
         expr.type = enumType;
         return expr;

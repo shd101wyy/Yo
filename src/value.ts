@@ -151,9 +151,9 @@ export type Value =
 /**
  * Convert a Value object to a human-readable string representation
  */
-export function valueToString(value: Value): string {
+export function valueToString(value?: Value): string {
   if (!value) {
-    return "undefined";
+    return "<unknown>";
   }
 
   switch (value.tag) {
@@ -215,6 +215,9 @@ export function valueToString(value: Value): string {
     }
     case ValueTag.Unit: {
       return `()`;
+    }
+    case ValueTag.Unknown: {
+      return `<unknown>`;
     }
     default: {
       return `<unknown>`;
