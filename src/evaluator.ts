@@ -29,6 +29,7 @@ import {
   EnumType,
   EnumVariant,
   FunctionType,
+  isBooleanType,
   isEnumType,
   isFunctionType,
   isFunctionTypeAndIsTypeFunction,
@@ -588,6 +589,106 @@ export default class Evaluator {
     env = nextEnv;
     expr.type = TUnit;
     expr.env = env;
+    return expr;
+  }
+
+  private evaluateCond({
+    expr,
+    env,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, "cond")) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected cond, got ${expr.tag}`
+      );
+    }
+
+    const statements = expr.args;
+    if (statements.length === 0) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected at least one statement in cond, got ${statements.length}`
+      );
+    }
+
+    // Evaluate each statement
+    // condition -> value.
+    // expect each value to be the same type.
+    let valueType: Type | undefined = undefined;
+    for (let i = 0; i < statements.length; i++) {
+      const statement = statements[i];
+      if (
+        !exprIsFunctionCall(statement) ||
+        !exprIsFunctionCallOf(statement, "->", 2)
+      ) {
+        throw this.formatErrorMessage(
+          statement.token,
+          `Expected -> for cond statement, got ${statement.tag}`
+        );
+      }
+      const condExpr = statement.args[0];
+      const valueExpr = statement.args[1];
+
+      // Expect condExpr to be a boolean
+      const evaluatedCond = this.evaluateExpression({
+        expr: condExpr,
+        env,
+        context: {
+          isEvaluatingType: false,
+        },
+      });
+
+      // TODO: Check comptime value if exists
+      if (evaluatedCond.env) {
+        env = evaluatedCond.env;
+      }
+      if (!evaluatedCond.type || !isBooleanType(evaluatedCond.type)) {
+        throw this.formatErrorMessage(
+          condExpr.token,
+          `Expected boolean for cond statement, got ${exprToString(condExpr)}`
+        );
+      }
+
+      // Evaluate the valueExpr
+      const evaluatedValue = this.evaluateExpression({
+        expr: valueExpr,
+        env,
+        context: {
+          isEvaluatingType: false,
+        },
+      });
+
+      // QUESTION: Should we update the env here?
+      // if (evaluatedValue.env) {
+      //   env = evaluatedValue.env;
+      //}
+      if (!evaluatedValue.type) {
+        throw this.formatErrorMessage(
+          valueExpr.token,
+          `Expected type for cond statement, got ${exprToString(valueExpr)}`
+        );
+      }
+      if (!valueType) {
+        valueType = evaluatedValue.type;
+      } else {
+        // Check if the type is compatible
+        if (!areTypesCompatible(valueType, evaluatedValue.type, env)) {
+          throw this.formatErrorMessage(
+            valueExpr.token,
+            `Incompatible types:
+- Defined: ${typeToString(valueType)}
+- Given  : ${typeToString(evaluatedValue.type)}`
+          );
+        }
+      }
+    }
+
+    expr.type = valueType;
+    // TODO: set .value
+    expr.value = VUnknown;
     return expr;
   }
 
@@ -1899,6 +2000,9 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, "extern")) {
         // extern
         return this.evaluateExtern({ expr, env });
+      } else if (exprIsFunctionCallOf(expr, "cond")) {
+        // cond
+        return this.evaluateCond({ expr, env });
       } else if (exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
         // tuple
         return this.evaluateTuple({ expr, env, context });

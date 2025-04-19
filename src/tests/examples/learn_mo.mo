@@ -65,22 +65,22 @@ shape2 := Shape.Square(height: 10, width: 20);
 shape2 := Shape.Circle(10);
 anony := (enum Red, Green, Blue).Blue;
 
-// defn
-defn add(x: i32, y: i32): i32,
+// def
+def add(x: i32, y: i32): i32,
   x + y;
 call_fn := add(y: 3, x: 4);
 
-defn add2(x: i32, y: i32): i32, {
+def add2(x: i32, y: i32): i32, {
   z := (x + y);
   z * 14
 };
 call_fn := add2(4, 5);
 
-defn identity(T: Type, x: T): T,
+def identity(T: Type, x: T): T,
   x;
 
 /*
-defn factorial(x: i32): i32,
+def factorial(x: i32): i32,
   cond 
     (x == 0) -> 1, 
     true     -> (factorial(x - 1) * x);
@@ -95,7 +95,7 @@ p := Point {x: 1, y: 2};
 // MyI32 := i32;
 // (a : MyI32) := 16;
 /*
-defn add(x: i32, y: i32): i32,
+def add(x: i32, y: i32): i32,
   x + y;
 result := add(3, 4);
 */

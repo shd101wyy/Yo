@@ -112,6 +112,10 @@ export function isPrimitiveType(type: Type): boolean {
   );
 }
 
+export function isBooleanType(type: Type): boolean {
+  return type.tag === TypeTag.Boolean;
+}
+
 // Add missing kind field to all Type constants
 // export const TUndefined: Type = {
 //   tag: TypeTag.Undefined,
