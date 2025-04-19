@@ -35,6 +35,7 @@ import {
   isFunctionTypeAndIsTypeFunction,
   isPlaceholderType,
   isStructType,
+  isTupleType,
   isTypeHierarchyType,
   StructType,
   TBoolean,
@@ -1383,22 +1384,21 @@ type: ${typeToString(type)}`);
       );
     }
 
-    const objectExpr = expr.args[0];
+    let objectExpr = expr.args[0];
     const propertyExpr = expr.args[1];
 
     // Evaluate object
-    const evaluatedObject = this.evaluateExpression({
+    objectExpr = this.evaluateExpression({
       expr: objectExpr,
       env,
       context,
     });
-    if (evaluatedObject.env) {
-      env = evaluatedObject.env;
+    if (objectExpr.env) {
+      env = objectExpr.env;
     }
 
-    // We only support enum for now
-    if (isTypeValue(evaluatedObject.value)) {
-      const typeValue = evaluatedObject.value;
+    if (isTypeValue(objectExpr.value)) {
+      const typeValue = objectExpr.value;
       if (isEnumType(typeValue.value)) {
         // Expect propertyExpr to be a symbol atom
         if (!exprIsAtom(propertyExpr)) {
@@ -1446,6 +1446,72 @@ type: ${typeToString(type)}`);
         }
         expr.env = env;
         return expr;
+      }
+    }
+
+    if (isTupleType(objectExpr.type) || isStructType(objectExpr.type)) {
+      let elements: TupleElement[] = [];
+      if (isTupleType(objectExpr.type)) {
+        elements = objectExpr.type.elements;
+      } else if (isStructType(objectExpr.type)) {
+        elements = objectExpr.type.members;
+      }
+      // Check if it's accessing the tuple element by
+      // - number index: point.0
+      // - label name:   point.x
+      if (!exprIsAtom(propertyExpr)) {
+        throw this.formatErrorMessage(
+          propertyExpr.token,
+          `Expected atom for property, got:\n${exprToString(propertyExpr)}`
+        );
+      }
+      if (propertyExpr.token.type === TokenType.Integer) {
+        const index = parseInt(propertyExpr.token.value, 10);
+        if (isNaN(index)) {
+          throw this.formatErrorMessage(
+            propertyExpr.token,
+            `Expected integer for tuple index, got:\n${exprToString(
+              propertyExpr
+            )}`
+          );
+        }
+        if (index < 0 || index >= elements.length) {
+          throw this.formatErrorMessage(
+            propertyExpr.token,
+            `Index out of bounds: ${index} for accessing element in:\n${typeToString(
+              objectExpr.type
+            )}`
+          );
+        }
+        const tupleElement = elements[index];
+        expr.type = tupleElement.type;
+        // TODO: Support comptime value
+        // expr.value = ...
+        return expr;
+      } else if (propertyExpr.token.type === TokenType.Identifier) {
+        const label = propertyExpr.token.value;
+        const tupleElement = elements.find(
+          (element) => element.label === label
+        );
+        if (!tupleElement) {
+          throw this.formatErrorMessage(
+            propertyExpr.token,
+            `Element with label "${label}" not found in:\n${typeToString(
+              objectExpr.type
+            )}`
+          );
+        }
+        expr.type = tupleElement.type;
+        // TODO: Support comptime value
+        // expr.value = ...
+        return expr;
+      } else {
+        throw this.formatErrorMessage(
+          propertyExpr.token,
+          `Expected either integer or identifier for property, got:\n${exprToString(
+            propertyExpr
+          )}`
+        );
       }
     }
 

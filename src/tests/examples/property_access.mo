@@ -1,0 +1,8 @@
+x := (a: 12, b: true);
+a := x.a;
+b := x.1;
+
+Named := struct(x: i32, y: boolean);
+p := Named(1, false);
+x := p.x;
+y := p.1;

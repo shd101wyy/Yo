@@ -3,6 +3,7 @@ Point2 := struct(i32, i32);
 
 x := Point1(3, 4);
 y := Point2(5, 6);
+// (z: Point1) := (3, 4); // error: type mismatch
 
 Point3 := Point1;
 

@@ -885,59 +885,59 @@ export function areTypesCompatible(
 }
 
 // Add or fix type guard functions
-export function isArrayType(type: Type): type is ArrayType {
-  return type.tag === TypeTag.Array;
+export function isArrayType(type?: Type): type is ArrayType {
+  return type?.tag === TypeTag.Array;
 }
 
-export function isTupleType(type: Type): type is TupleType {
-  return type.tag === TypeTag.Tuple;
+export function isTupleType(type?: Type): type is TupleType {
+  return type?.tag === TypeTag.Tuple;
 }
 
-export function isUnionType(type: Type): type is UnionType {
-  return type.tag === TypeTag.Union;
+export function isUnionType(type?: Type): type is UnionType {
+  return type?.tag === TypeTag.Union;
 }
 
 // Add isEnumType guard function
-export function isEnumType(type: Type): type is EnumType {
-  return type.tag === TypeTag.Enum;
+export function isEnumType(type?: Type): type is EnumType {
+  return type?.tag === TypeTag.Enum;
 }
 
 // Add isStructType guard function
-export function isStructType(type: Type): type is StructType {
-  return type.tag === TypeTag.Struct;
+export function isStructType(type?: Type): type is StructType {
+  return type?.tag === TypeTag.Struct;
 }
 
-export function isPlaceholderType(type: Type): type is PlaceholderType {
-  return type.tag === TypeTag.Placeholder;
+export function isPlaceholderType(type?: Type): type is PlaceholderType {
+  return type?.tag === TypeTag.Placeholder;
 }
 
-export function isFunctionType(type: Type): type is FunctionType {
-  return type.tag === TypeTag.Function;
+export function isFunctionType(type?: Type): type is FunctionType {
+  return type?.tag === TypeTag.Function;
 }
 
 export function isFunctionTypeAndIsTypeFunction(
-  type: Type
+  type?: Type
 ): type is FunctionType {
   return (
-    type.tag === TypeTag.Function &&
+    type?.tag === TypeTag.Function &&
     isTypeHierarchyType((type as FunctionType).return.type)
   );
 }
 
-export function isLiteralType(type: Type): type is LiteralType {
-  return type.tag === TypeTag.Literal;
+export function isLiteralType(type?: Type): type is LiteralType {
+  return type?.tag === TypeTag.Literal;
 }
 
-export function isTypeHierarchyType(type: Type): type is TTypeHierarchy {
+export function isTypeHierarchyType(type?: Type): type is TTypeHierarchy {
   return (
-    type.tag === TypeTag.Free ||
-    type.tag === TypeTag.Linear ||
-    type.tag === TypeTag.Type
+    type?.tag === TypeTag.Free ||
+    type?.tag === TypeTag.Linear ||
+    type?.tag === TypeTag.Type
   );
 }
 
-export function isSomeType(type: Type): type is SomeType {
-  return type.tag === TypeTag.SomeType;
+export function isSomeType(type?: Type): type is SomeType {
+  return type?.tag === TypeTag.SomeType;
 }
 
 /*
