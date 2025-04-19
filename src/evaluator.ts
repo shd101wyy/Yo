@@ -551,12 +551,13 @@ type: ${typeToString(type)}`);
         const variantNameExpr = variantExpr.args[0];
         if (!exprIsAtom(variantNameExpr)) {
           throw this.formatErrorMessage(
-            expr.token,
+            variantExpr.token,
             `Expected identifier for enum variant, got ${exprToString(
               variantNameExpr
             )}`
           );
         }
+
         const variantName = variantNameExpr.token.value;
         const variant = type.variants.find(
           (variant) => variant.name === variantName
@@ -1308,6 +1309,269 @@ type: ${typeToString(type)}`);
     expr.type = valueType;
     // TODO: set .value
     expr.value = VUnknown;
+    return expr;
+  }
+
+  private evaluateMatch({
+    expr,
+    env,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, "match")) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected match, got ${expr.tag}`
+      );
+    }
+
+    const args = expr.args;
+    if (args.length < 2) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected at least 2 arguments for match, got ${args.length}`
+      );
+    }
+
+    // Evaluate the value to be matched
+    const valueExpr = args[0];
+    const evaluatedValue = this.evaluateExpression({
+      expr: valueExpr,
+      env,
+      context: {
+        isEvaluatingType: false,
+      },
+    });
+
+    if (evaluatedValue.env) {
+      env = evaluatedValue.env;
+    }
+
+    // Check if the value is an enum type
+    if (!evaluatedValue.type || !isEnumType(evaluatedValue.type)) {
+      throw this.formatErrorMessage(
+        valueExpr.token,
+        `Expected enum type for match expression, got ${
+          evaluatedValue.type
+            ? typeToString(evaluatedValue.type)
+            : "unknown type"
+        }`
+      );
+    }
+
+    const enumType = evaluatedValue.type;
+    const patterns = args.slice(1);
+    let resultType: Type | undefined = undefined;
+
+    // Process each pattern
+    for (let i = 0; i < patterns.length; i++) {
+      const pattern = patterns[i];
+
+      // Check if the pattern is a valid match arm
+      if (
+        !exprIsFunctionCall(pattern) ||
+        !exprIsFunctionCallOf(pattern, "->", 2)
+      ) {
+        throw this.formatErrorMessage(
+          pattern.token,
+          `Expected -> for match pattern, got ${exprToString(pattern)}`
+        );
+      }
+
+      const patternExpr = pattern.args[0];
+      const resultExpr = pattern.args[1];
+
+      // Check if the pattern is a valid enum variant
+      if (
+        exprIsFunctionCall(patternExpr) &&
+        exprIsFunctionCallOf(patternExpr, ".", 1)
+      ) {
+        // For patterns like .Red
+        const variantNameExpr = patternExpr.args[0];
+        if (!exprIsAtom(variantNameExpr)) {
+          throw this.formatErrorMessage(
+            patternExpr.token,
+            `Expected identifier for enum variant, got ${exprToString(
+              variantNameExpr
+            )}`
+          );
+        }
+
+        const variantName = variantNameExpr.token.value;
+        // Check if variant exists in enum
+        const variant = enumType.variants.find((v) => v.name === variantName);
+        if (!variant) {
+          throw this.formatErrorMessage(
+            patternExpr.token,
+            `Enum variant "${variantName}" not found in ${typeToString(
+              enumType
+            )}`
+          );
+        }
+
+        // Evaluate the result expression
+        const tempEnv = pushEnvFrame(env);
+        const evaluatedResult = this.evaluateExpression({
+          expr: resultExpr,
+          env: tempEnv,
+          context: {
+            isEvaluatingType: false,
+          },
+        });
+        // We don't update the original env here since each pattern has its own scope
+
+        if (!evaluatedResult.type) {
+          throw this.formatErrorMessage(
+            resultExpr.token,
+            `Expected type for match result expression, got ${exprToString(
+              resultExpr
+            )}`
+          );
+        }
+
+        // Set or verify the result type consistency
+        if (!resultType) {
+          resultType = evaluatedResult.type;
+        } else if (!areTypesCompatible(resultType, evaluatedResult.type, env)) {
+          throw this.formatErrorMessage(
+            resultExpr.token,
+            `Incompatible types in match arms:
+- Previous: ${typeToString(resultType)}
+- Current: ${typeToString(evaluatedResult.type)}`
+          );
+        }
+      }
+      // For patterns with destructuring like Shape.Circle(r)
+      else if (
+        exprIsFunctionCall(patternExpr) &&
+        exprIsFunctionCall(patternExpr.func) &&
+        exprIsFunctionCallOf(patternExpr.func, ".", 1)
+      ) {
+        const variantExpr = patternExpr.func;
+        const variantNameExpr = variantExpr.args[0];
+        if (!exprIsAtom(variantNameExpr)) {
+          throw this.formatErrorMessage(
+            variantExpr.token,
+            `Expected identifier for enum variant, got ${exprToString(
+              variantNameExpr
+            )}`
+          );
+        }
+
+        const variantName = variantNameExpr.token.value;
+        // Check if variant exists in enum
+        const variant = enumType.variants.find((v) => v.name === variantName);
+        if (!variant) {
+          throw this.formatErrorMessage(
+            patternExpr.token,
+            `Enum variant "${variantName}" not found in ${typeToString(
+              enumType
+            )}`
+          );
+        }
+
+        if (!variant.params) {
+          throw this.formatErrorMessage(
+            patternExpr.token,
+            `Enum variant "${variantName}" does not have parameters but got pattern with parameters`
+          );
+        }
+
+        // Push a new environment frame for this pattern
+        const patternEnv = pushEnvFrame(env);
+
+        // Check if the pattern arguments match the variant parameters
+        const patternParams = patternExpr.args;
+        if (patternParams.length > variant.params.length) {
+          throw this.formatErrorMessage(
+            patternExpr.token,
+            `Too many parameters in pattern. Expected ${variant.params.length}, got ${patternParams.length}`
+          );
+        }
+
+        // Add each parameter to environment as local variable
+        for (let j = 0; j < patternParams.length; j++) {
+          const param = patternParams[j];
+          const variantParam = variant.params[j];
+
+          if (!exprIsAtom(param) || !this.isValidVariableName(param)) {
+            throw this.formatErrorMessage(
+              param.token,
+              `Expected identifier for parameter, got ${exprToString(param)}`
+            );
+          }
+
+          // Assign the proper type from the variant parameter to this variable
+          param.type = variantParam.type;
+
+          const { env: updatedEnv } = addVariableToEnv({
+            env: patternEnv,
+            variable: {
+              name: param.token.value,
+              token: param.token,
+              type: variantParam.type,
+              isMutable: false,
+              isNotInitialized: false,
+            },
+          });
+
+          // Update our local environment
+          Object.assign(patternEnv, updatedEnv);
+        }
+
+        // Evaluate the result expression in the pattern's environment
+        const evaluatedResult = this.evaluateExpression({
+          expr: resultExpr,
+          env: patternEnv,
+          context: {
+            isEvaluatingType: false,
+          },
+        });
+
+        if (!evaluatedResult.type) {
+          throw this.formatErrorMessage(
+            resultExpr.token,
+            `Expected type for match result expression, got ${exprToString(
+              resultExpr
+            )}`
+          );
+        }
+
+        // Set or verify the result type consistency
+        if (!resultType) {
+          resultType = evaluatedResult.type;
+        } else if (!areTypesCompatible(resultType, evaluatedResult.type, env)) {
+          throw this.formatErrorMessage(
+            resultExpr.token,
+            `Incompatible types in match arms:
+- Previous: ${typeToString(resultType)}
+- Current: ${typeToString(evaluatedResult.type)}`
+          );
+        }
+      } else {
+        throw this.formatErrorMessage(
+          patternExpr.token,
+          `Invalid pattern in match expression: ${exprToString(patternExpr)}
+Please use .variantName or .variantName(args) for destructuring enum variants.`
+        );
+      }
+    }
+
+    if (!resultType) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Could not determine result type for match expression`
+      );
+    }
+
+    // Set the type and value of the match expression
+    expr.type = resultType;
+    // For compile-time evaluation, we'd determine which arm matches and set the value
+    // For now, just set it to unknown
+    expr.value = VUnknown;
+    expr.env = env;
+
     return expr;
   }
 
@@ -2799,6 +3063,9 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, "cond")) {
         // cond
         return this.evaluateCond({ expr, env });
+      } else if (exprIsFunctionCallOf(expr, "match")) {
+        // match
+        return this.evaluateMatch({ expr, env });
       } else if (exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
         // tuple
         return this.evaluateTuple({ expr, env, context });
