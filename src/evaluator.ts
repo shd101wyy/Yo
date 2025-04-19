@@ -14,7 +14,6 @@ import {
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  ExprTag,
   exprToString,
   FuncCallExpr,
 } from "./expr";
@@ -67,6 +66,7 @@ import {
   createTypeValue,
   FunctionValue,
   isFunctionValue,
+  isTupleValue,
   isTypeValue,
   TupleValue,
   TypeValue,
@@ -518,7 +518,7 @@ type: ${typeToString(type)}`);
         if (!variant) {
           throw this.formatErrorMessage(
             expr.token,
-            `Enum variant ${variantName} not found in ${typeToString(type)}`
+            `Enum variant "${variantName}" not found in ${typeToString(type)}`
           );
         }
 
@@ -564,7 +564,7 @@ type: ${typeToString(type)}`);
         if (!variant) {
           throw this.formatErrorMessage(
             expr.token,
-            `Enum variant ${variantName} not found in ${typeToString(type)}`
+            `Enum variant "${variantName}" not found in ${typeToString(type)}`
           );
         }
 
@@ -607,6 +607,224 @@ type: ${typeToString(type)}`);
     }
   }
 
+  /**
+   * rhs should be already evaluated
+   */
+  private evaluateDestructuringAssignment({
+    lhs,
+    rhs,
+    env,
+  }: {
+    lhs: Expr;
+    rhs: Expr;
+    env: Environment;
+  }): Environment {
+    const rhsType = rhs.type;
+    if (!rhsType) {
+      throw this.formatErrorMessage(
+        rhs.token,
+        `Expected type for right-hand side, got ${exprToString(rhs)}`
+      );
+    }
+
+    // Destructuring tuple
+    if (isTupleType(rhsType)) {
+      // Handle tuple pattern destructuring
+      if (
+        exprIsFunctionCall(lhs) &&
+        exprIsFunctionCallOf(lhs, BuiltinCollections.Tuple)
+      ) {
+        const lhsElements = lhs.args;
+        const rhsElements = rhsType.elements;
+        const rhsValue = rhs.value;
+
+        // Check if we have enough elements
+        if (lhsElements.length > rhsElements.length) {
+          throw this.formatErrorMessage(
+            lhs.token,
+            `Too many elements in destructuring pattern. Expected at most ${rhsElements.length}, got ${lhsElements.length}`
+          );
+        }
+
+        // Process each lhs element
+        for (let i = 0; i < lhsElements.length; i++) {
+          const lhsElement = lhsElements[i];
+
+          let variableName: string;
+          let variableToken: Token;
+          let rhsElement: TupleElement;
+          let elementIndex: number = i;
+          let labelExpr: Expr | undefined = undefined;
+          let renameExpr: Expr | undefined = undefined;
+
+          // Handle renaming pattern like (.a: u, .b: v) := x
+          if (
+            exprIsFunctionCall(lhsElement) &&
+            exprIsFunctionCallOf(lhsElement, ":", 2)
+          ) {
+            const leftSide = lhsElement.args[0];
+            const rightSide = lhsElement.args[1];
+            renameExpr = rightSide;
+
+            // The left side should be a label access (.a)
+            if (
+              !exprIsFunctionCall(leftSide) ||
+              !exprIsFunctionCallOf(leftSide, ".", 1)
+            ) {
+              throw this.formatErrorMessage(
+                leftSide.token,
+                `Expected label access (.label) for renaming in destructuring pattern, got ${exprToString(
+                  leftSide
+                )}`
+              );
+            }
+
+            labelExpr = leftSide.args[0];
+            if (
+              !exprIsAtom(labelExpr) ||
+              !this.isValidVariableName(labelExpr)
+            ) {
+              throw this.formatErrorMessage(
+                labelExpr.token,
+                `Expected identifier for label in destructuring pattern, got ${exprToString(
+                  labelExpr
+                )}`
+              );
+            }
+
+            // The right side should be a variable name (the new name)
+            if (
+              !exprIsAtom(rightSide) ||
+              !this.isValidVariableName(rightSide)
+            ) {
+              throw this.formatErrorMessage(
+                rightSide.token,
+                `Expected identifier for new variable name in destructuring pattern, got ${exprToString(
+                  rightSide
+                )}`
+              );
+            }
+
+            const label = labelExpr.token.value;
+            // Find the element with matching label in the rhs tuple
+            const matchingElement = rhsElements.findIndex(
+              (element) => element.label === label
+            );
+
+            if (matchingElement === -1) {
+              throw this.formatErrorMessage(
+                lhsElement.token,
+                `Label "${label}" not found in the tuple being destructured`
+              );
+            }
+
+            elementIndex = matchingElement;
+            rhsElement = rhsElements[elementIndex];
+            variableName = rightSide.token.value;
+            variableToken = rightSide.token;
+          }
+          // Handle label-based destructuring like (.a, .b) := x
+          else if (
+            exprIsFunctionCall(lhsElement) &&
+            exprIsFunctionCallOf(lhsElement, ".", 1)
+          ) {
+            labelExpr = lhsElement.args[0];
+            if (
+              !exprIsAtom(labelExpr) ||
+              !this.isValidVariableName(labelExpr)
+            ) {
+              throw this.formatErrorMessage(
+                labelExpr.token,
+                `Expected identifier for label in destructuring pattern, got ${exprToString(
+                  labelExpr
+                )}`
+              );
+            }
+
+            const label = labelExpr.token.value;
+            // Find the element with matching label in the rhs tuple
+            const matchingElement = rhsElements.findIndex(
+              (element) => element.label === label
+            );
+
+            if (matchingElement === -1) {
+              throw this.formatErrorMessage(
+                lhsElement.token,
+                `Label "${label}" not found in the tuple being destructured`
+              );
+            }
+
+            elementIndex = matchingElement;
+            rhsElement = rhsElements[elementIndex];
+            variableName = label;
+            variableToken = labelExpr.token;
+          }
+          // Handle simple variable destructuring (positional)
+          else if (
+            exprIsAtom(lhsElement) &&
+            this.isValidVariableName(lhsElement)
+          ) {
+            variableName = lhsElement.token.value;
+            variableToken = lhsElement.token;
+            rhsElement = rhsElements[i];
+          } else {
+            throw this.formatErrorMessage(
+              lhsElement.token,
+              `Unsupported destructuring pattern: ${exprToString(lhsElement)}`
+            );
+          }
+
+          // Get the value if available
+          let elementValue: Value | undefined = undefined;
+          if (isTupleValue(rhsValue)) {
+            elementValue = rhsValue.elements[elementIndex];
+          }
+
+          // Add the variable to the environment
+          const { env: nextEnv } = addVariableToEnv({
+            env,
+            variable: {
+              name: variableName,
+              token: variableToken,
+              type: rhsElement.type,
+              isMutable: false,
+              isNotInitialized: !elementValue,
+              value: elementValue,
+            },
+          });
+
+          env = nextEnv;
+
+          // Set the type and value on the lhs element for completeness
+          lhsElement.type = rhsElement.type;
+          lhsElement.value = elementValue;
+          lhsElement.env = env;
+          if (labelExpr) {
+            labelExpr.type = rhsElement.type;
+            if (!renameExpr) {
+              labelExpr.value = elementValue;
+            }
+            labelExpr.env = env;
+          }
+          if (renameExpr) {
+            renameExpr.type = rhsElement.type;
+            renameExpr.value = elementValue;
+            renameExpr.env = env;
+          }
+        }
+
+        return env;
+      }
+    }
+
+    throw this.formatErrorMessage(
+      lhs.token,
+      `Destructuring assignment not supported for this pattern: ${exprToString(
+        lhs
+      )}`
+    );
+  }
+
   private evaluateInitializationAssignment({
     expr,
     env,
@@ -619,15 +837,15 @@ type: ${typeToString(type)}`);
     let rhs = expr.args[1];
 
     // Evaluate the rhs expression
-    const nextExpr = this.evaluateExpression({
+    rhs = this.evaluateExpression({
       expr: rhs,
       env,
       context: {
         isEvaluatingType: false,
       },
     });
-    if (nextExpr.env) {
-      env = nextExpr.env;
+    if (rhs.env) {
+      env = rhs.env;
     }
 
     // Check if the lhs is type annotation
@@ -679,7 +897,7 @@ type: ${typeToString(type)}`);
       lhs = lhs.args[0];
     }
 
-    if (lhs.tag === ExprTag.Atom) {
+    if (exprIsAtom(lhs)) {
       if (!this.isValidVariableName(lhs)) {
         throw this.formatErrorMessage(
           lhs.token,
@@ -758,10 +976,22 @@ type: ${typeToString(type)}`);
 
       return expr;
     } else {
-      throw this.formatErrorMessage(
-        lhs.token,
-        `Expected identifier or operator, got ${lhs.tag}`
-      );
+      // Evaluate the destructuring assignment
+      if (!rhs.type) {
+        throw this.formatErrorMessage(
+          rhs.token,
+          `Expected type for right-hand side, got ${exprToString(rhs)}`
+        );
+      }
+
+      env = this.evaluateDestructuringAssignment({
+        lhs,
+        rhs,
+        env,
+      });
+      expr.type = TUnit;
+      expr.env = env;
+      return expr;
     }
   }
 
@@ -1065,14 +1295,14 @@ type: ${typeToString(type)}`);
       if (!variables.length) {
         throw this.formatErrorMessage(
           expr.token,
-          `Variable ${identifier} not found`
+          `Variable "${identifier}" not found`
         );
       } else {
         const variable = variables[variables.length - 1];
         if (variable.isNotInitialized) {
           throw this.formatErrorMessage(
             expr.token,
-            `Variable ${identifier} not initialized`
+            `Variable "${identifier}" not initialized`
           );
         }
         expr.value = variable.value;
@@ -1085,7 +1315,7 @@ type: ${typeToString(type)}`);
 
   private evaluateFunctionType({
     expr,
-    env,
+    env, // context,
   }: {
     expr: FuncCallExpr;
     env: Environment;

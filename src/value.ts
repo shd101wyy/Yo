@@ -237,6 +237,10 @@ export function isUnknownValue(value?: Value): value is UnknownValue {
   return value?.tag === ValueTag.Unknown;
 }
 
+export function isTupleValue(value?: Value): value is TupleValue {
+  return value?.tag === ValueTag.Tuple;
+}
+
 export function createTypeValue(value: Type): TypeValue {
   return {
     tag: ValueTag.Type,

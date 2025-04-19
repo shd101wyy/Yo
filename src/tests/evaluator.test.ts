@@ -4,7 +4,7 @@ import Evaluator from "../evaluator";
 
 describe("Evaluator Tests", () => {
   beforeAll(() => {
-    const testFileName = "ufs.mo";
+    const testFileName = "destructuring_tuple.mo";
     const inputString = fs.readFileSync(
       path.join(__dirname, `examples/${testFileName}`),
       "utf-8"
