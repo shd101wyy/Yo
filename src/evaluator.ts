@@ -1459,66 +1459,58 @@ type: ${typeToString(type)}`);
       // Check if it's accessing the tuple element by
       // - number index: point.0
       // - label name:   point.x
-      if (!exprIsAtom(propertyExpr)) {
-        throw this.formatErrorMessage(
-          propertyExpr.token,
-          `Expected atom for property, got:\n${exprToString(propertyExpr)}`
-        );
-      }
-      if (propertyExpr.token.type === TokenType.Integer) {
-        const index = parseInt(propertyExpr.token.value, 10);
-        if (isNaN(index)) {
-          throw this.formatErrorMessage(
-            propertyExpr.token,
-            `Expected integer for tuple index, got:\n${exprToString(
-              propertyExpr
-            )}`
+      if (exprIsAtom(propertyExpr)) {
+        if (propertyExpr.token.type === TokenType.Integer) {
+          const index = parseInt(propertyExpr.token.value, 10);
+          if (isNaN(index)) {
+            throw this.formatErrorMessage(
+              propertyExpr.token,
+              `Expected integer for tuple index, got:\n${exprToString(
+                propertyExpr
+              )}`
+            );
+          }
+          if (index < 0 || index >= elements.length) {
+            throw this.formatErrorMessage(
+              propertyExpr.token,
+              `Index out of bounds: ${index} for accessing element in:\n${typeToString(
+                objectExpr.type
+              )}`
+            );
+          }
+          const tupleElement = elements[index];
+          expr.type = tupleElement.type;
+          // TODO: Support comptime value
+          // expr.value = ...
+          return expr;
+        } else if (this.isValidVariableName(propertyExpr)) {
+          const label = propertyExpr.token.value;
+          const tupleElement = elements.find(
+            (element) => element.label === label
           );
+          if (!tupleElement) {
+            throw this.formatErrorMessage(
+              propertyExpr.token,
+              `Element with label "${label}" not found in:\n${typeToString(
+                objectExpr.type
+              )}`
+            );
+          }
+          expr.type = tupleElement.type;
+          // TODO: Support comptime value
+          // expr.value = ...
+          return expr;
         }
-        if (index < 0 || index >= elements.length) {
-          throw this.formatErrorMessage(
-            propertyExpr.token,
-            `Index out of bounds: ${index} for accessing element in:\n${typeToString(
-              objectExpr.type
-            )}`
-          );
-        }
-        const tupleElement = elements[index];
-        expr.type = tupleElement.type;
-        // TODO: Support comptime value
-        // expr.value = ...
-        return expr;
-      } else if (propertyExpr.token.type === TokenType.Identifier) {
-        const label = propertyExpr.token.value;
-        const tupleElement = elements.find(
-          (element) => element.label === label
-        );
-        if (!tupleElement) {
-          throw this.formatErrorMessage(
-            propertyExpr.token,
-            `Element with label "${label}" not found in:\n${typeToString(
-              objectExpr.type
-            )}`
-          );
-        }
-        expr.type = tupleElement.type;
-        // TODO: Support comptime value
-        // expr.value = ...
-        return expr;
-      } else {
-        throw this.formatErrorMessage(
-          propertyExpr.token,
-          `Expected either integer or identifier for property, got:\n${exprToString(
-            propertyExpr
-          )}`
-        );
       }
     }
 
-    throw this.formatErrorMessage(
-      expr.token,
-      `Property access not implemented, got:\n${exprToString(expr)}`
-    );
+    // TODO: Evaluate the interface method call
+
+    // Since we fail to evaluate the property access
+    // it could be a uniform function call.
+    expr.type = undefined;
+    expr.value = undefined;
+    return expr;
   }
 
   /*
@@ -1764,7 +1756,7 @@ type: ${typeToString(type)}`);
     // context: EvaluatorContext;
   }): FuncCallExpr {
     const func = expr.func;
-    const args = expr.args;
+    let args = expr.args;
 
     let functions: { type: Type; value?: Value }[] = [];
     if (givenFunc) {
@@ -1779,13 +1771,31 @@ type: ${typeToString(type)}`);
         return expr;
       }
 
-      const functionToCall = this.evaluateExpression({
+      let functionToCall = this.evaluateExpression({
         expr: func,
         env,
         context: {
           isEvaluatingType: false,
         },
       });
+
+      // Check if . property access for uniform function call
+      if (
+        !functionToCall.type &&
+        exprIsFunctionCall(functionToCall) &&
+        exprIsFunctionCallOf(functionToCall, ".", 2)
+      ) {
+        const callerArg = functionToCall.args[0];
+        functionToCall = this.evaluateExpression({
+          expr: functionToCall.args[1],
+          env,
+          context: {
+            isEvaluatingType: false,
+          },
+        });
+        args = [callerArg, ...args];
+      }
+
       if (!functionToCall.type) {
         throw this.formatErrorMessage(
           func.token,
