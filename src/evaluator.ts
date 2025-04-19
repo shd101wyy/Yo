@@ -627,8 +627,198 @@ type: ${typeToString(type)}`);
       );
     }
 
+    // Handle struct destructuring
+    if (isStructType(rhsType) && exprIsFunctionCall(lhs)) {
+      const structTypeName = lhs.func.token.value;
+      const lhsElements = lhs.args;
+      const rhsMembers = rhsType.members;
+      const rhsValue = rhs.value;
+
+      // Verify the struct type name matches if specified
+      if (
+        rhsType.typeName &&
+        structTypeName !== "_" &&
+        structTypeName !== rhsType.typeName
+      ) {
+        throw this.formatErrorMessage(
+          lhs.func.token,
+          `Expected struct of type ${rhsType.typeName}, got ${structTypeName}`
+        );
+      }
+
+      // Check if we have enough elements
+      if (lhsElements.length > rhsMembers.length) {
+        throw this.formatErrorMessage(
+          lhs.token,
+          `Too many elements in destructuring pattern. Expected at most ${rhsMembers.length}, got ${lhsElements.length}`
+        );
+      }
+
+      // Process each lhs element
+      for (let i = 0; i < lhsElements.length; i++) {
+        const lhsElement = lhsElements[i];
+        let rhsMember: TupleElement;
+        let elementIndex: number = i;
+        let variableName: string;
+        let variableToken: Token;
+        let labelExpr: Expr | undefined = undefined;
+        let renameExpr: Expr | undefined = undefined;
+
+        // Handle renaming pattern like Named(.x: a, .y: b) := p
+        if (
+          exprIsFunctionCall(lhsElement) &&
+          exprIsFunctionCallOf(lhsElement, ":", 2)
+        ) {
+          const leftSide = lhsElement.args[0];
+          const rightSide = lhsElement.args[1];
+          renameExpr = rightSide;
+
+          // The left side should be a label access (.a)
+          if (
+            !exprIsFunctionCall(leftSide) ||
+            !exprIsFunctionCallOf(leftSide, ".", 1)
+          ) {
+            throw this.formatErrorMessage(
+              leftSide.token,
+              `Expected label access (.label) for renaming in destructuring pattern, got ${exprToString(
+                leftSide
+              )}`
+            );
+          }
+
+          labelExpr = leftSide.args[0];
+          if (!exprIsAtom(labelExpr) || !this.isValidVariableName(labelExpr)) {
+            throw this.formatErrorMessage(
+              labelExpr.token,
+              `Expected identifier for label in destructuring pattern, got ${exprToString(
+                labelExpr
+              )}`
+            );
+          }
+
+          // The right side should be a variable name (the new name)
+          if (!exprIsAtom(rightSide) || !this.isValidVariableName(rightSide)) {
+            throw this.formatErrorMessage(
+              rightSide.token,
+              `Expected identifier for new variable name in destructuring pattern, got ${exprToString(
+                rightSide
+              )}`
+            );
+          }
+
+          const label = labelExpr.token.value;
+          // Find the member with matching label in the struct
+          const matchingMemberIndex = rhsMembers.findIndex(
+            (member) => member.label === label
+          );
+
+          if (matchingMemberIndex === -1) {
+            throw this.formatErrorMessage(
+              lhsElement.token,
+              `Label "${label}" not found in the struct being destructured`
+            );
+          }
+
+          elementIndex = matchingMemberIndex;
+          rhsMember = rhsMembers[elementIndex];
+          variableName = rightSide.token.value;
+          variableToken = rightSide.token;
+        }
+        // Handle label-based destructuring like Named(.x, .y) := p
+        else if (
+          exprIsFunctionCall(lhsElement) &&
+          exprIsFunctionCallOf(lhsElement, ".", 1)
+        ) {
+          labelExpr = lhsElement.args[0];
+          if (!exprIsAtom(labelExpr) || !this.isValidVariableName(labelExpr)) {
+            throw this.formatErrorMessage(
+              labelExpr.token,
+              `Expected identifier for label in destructuring pattern, got ${exprToString(
+                labelExpr
+              )}`
+            );
+          }
+
+          const label = labelExpr.token.value;
+          // Find the member with matching label in the struct
+          const matchingMemberIndex = rhsMembers.findIndex(
+            (member) => member.label === label
+          );
+
+          if (matchingMemberIndex === -1) {
+            throw this.formatErrorMessage(
+              lhsElement.token,
+              `Label "${label}" not found in the struct being destructured`
+            );
+          }
+
+          elementIndex = matchingMemberIndex;
+          rhsMember = rhsMembers[elementIndex];
+          variableName = label;
+          variableToken = labelExpr.token;
+        }
+        // Handle positional destructuring
+        else if (
+          exprIsAtom(lhsElement) &&
+          this.isValidVariableName(lhsElement)
+        ) {
+          variableName = lhsElement.token.value;
+          variableToken = lhsElement.token;
+          rhsMember = rhsMembers[i];
+        } else {
+          throw this.formatErrorMessage(
+            lhsElement.token,
+            `Unsupported destructuring pattern for struct: ${exprToString(
+              lhsElement
+            )}`
+          );
+        }
+
+        // Get the value if available
+        let elementValue: Value | undefined = undefined;
+        if (isTupleValue(rhsValue)) {
+          elementValue = rhsValue.elements[elementIndex];
+        }
+
+        // Add the variable to the environment
+        const { env: nextEnv } = addVariableToEnv({
+          env,
+          variable: {
+            name: variableName,
+            token: variableToken,
+            type: rhsMember.type,
+            isMutable: false,
+            isNotInitialized: false,
+            value: elementValue,
+          },
+        });
+
+        env = nextEnv;
+
+        // Set the type and value on the lhs element for completeness
+        lhsElement.type = rhsMember.type;
+        lhsElement.value = elementValue;
+        lhsElement.env = env;
+
+        if (labelExpr) {
+          labelExpr.type = rhsMember.type;
+          if (!renameExpr) {
+            labelExpr.value = elementValue;
+          }
+          labelExpr.env = env;
+        }
+
+        if (renameExpr) {
+          renameExpr.type = rhsMember.type;
+          renameExpr.value = elementValue;
+          renameExpr.env = env;
+        }
+      }
+
+      return env;
+    }
     // Destructuring tuple
-    if (isTupleType(rhsType)) {
+    else if (isTupleType(rhsType)) {
       // Handle tuple pattern destructuring
       if (
         exprIsFunctionCall(lhs) &&
@@ -788,7 +978,7 @@ type: ${typeToString(type)}`);
               token: variableToken,
               type: rhsElement.type,
               isMutable: false,
-              isNotInitialized: !elementValue,
+              isNotInitialized: false,
               value: elementValue,
             },
           });

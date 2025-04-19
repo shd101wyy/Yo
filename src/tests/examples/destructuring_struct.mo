@@ -1,15 +1,16 @@
 // Struct destructuring
-Point := struct(x: i32, y: i32);
-p := Point(1, 2);
+Named := struct(x: i32, y: boolean);
+p := Named(1, false);
 
 // Destructuring by position
-Point(x, y) := p;
+Named(m, n) := p;
 
 // Destructuring by label
-Point(.x, .y) := p;
+// Named(.x, .y) := p;
 
 // Renaming
-Point(.x: a, .y: b) := p;
+Named(.x: a, .y: b) := p;
+i := a;
 
 // Inferred struct
 _(x, y) := p;
