@@ -665,7 +665,7 @@ type: ${typeToString(type)}`);
         let labelExpr: Expr | undefined = undefined;
         let renameExpr: Expr | undefined = undefined;
 
-        // Handle renaming pattern like Named(.x: a, .y: b) := p
+        // Handle renaming pattern like Named(x: a, y: b) := p
         if (
           exprIsFunctionCall(lhsElement) &&
           exprIsFunctionCallOf(lhsElement, ":", 2)
@@ -674,29 +674,17 @@ type: ${typeToString(type)}`);
           const rightSide = lhsElement.args[1];
           renameExpr = rightSide;
 
-          // The left side should be a label access (.a)
-          if (
-            !exprIsFunctionCall(leftSide) ||
-            !exprIsFunctionCallOf(leftSide, ".", 1)
-          ) {
+          // The left side should be an identifier
+          if (!exprIsAtom(leftSide) || !this.isValidVariableName(leftSide)) {
             throw this.formatErrorMessage(
               leftSide.token,
-              `Expected label access (.label) for renaming in destructuring pattern, got ${exprToString(
+              `Expected identifier for label in destructuring pattern, got ${exprToString(
                 leftSide
               )}`
             );
           }
 
-          labelExpr = leftSide.args[0];
-          if (!exprIsAtom(labelExpr) || !this.isValidVariableName(labelExpr)) {
-            throw this.formatErrorMessage(
-              labelExpr.token,
-              `Expected identifier for label in destructuring pattern, got ${exprToString(
-                labelExpr
-              )}`
-            );
-          }
-
+          labelExpr = leftSide;
           // The right side should be a variable name (the new name)
           if (!exprIsAtom(rightSide) || !this.isValidVariableName(rightSide)) {
             throw this.formatErrorMessage(
@@ -848,7 +836,7 @@ type: ${typeToString(type)}`);
           let labelExpr: Expr | undefined = undefined;
           let renameExpr: Expr | undefined = undefined;
 
-          // Handle renaming pattern like (.a: u, .b: v) := x
+          // Handle renaming pattern like (a: u, b: v) := x
           if (
             exprIsFunctionCall(lhsElement) &&
             exprIsFunctionCallOf(lhsElement, ":", 2)
@@ -857,31 +845,17 @@ type: ${typeToString(type)}`);
             const rightSide = lhsElement.args[1];
             renameExpr = rightSide;
 
-            // The left side should be a label access (.a)
-            if (
-              !exprIsFunctionCall(leftSide) ||
-              !exprIsFunctionCallOf(leftSide, ".", 1)
-            ) {
+            // The left side should be an identifier (a)
+            if (!exprIsAtom(leftSide) || !this.isValidVariableName(leftSide)) {
               throw this.formatErrorMessage(
                 leftSide.token,
-                `Expected label access (.label) for renaming in destructuring pattern, got ${exprToString(
+                `Expected identifier for label in destructuring pattern, got ${exprToString(
                   leftSide
                 )}`
               );
             }
 
-            labelExpr = leftSide.args[0];
-            if (
-              !exprIsAtom(labelExpr) ||
-              !this.isValidVariableName(labelExpr)
-            ) {
-              throw this.formatErrorMessage(
-                labelExpr.token,
-                `Expected identifier for label in destructuring pattern, got ${exprToString(
-                  labelExpr
-                )}`
-              );
-            }
+            labelExpr = leftSide;
 
             // The right side should be a variable name (the new name)
             if (
@@ -1299,8 +1273,8 @@ type: ${typeToString(type)}`);
           throw this.formatErrorMessage(
             valueExpr.token,
             `Incompatible types:
-- Defined: ${typeToString(valueType)}
-- Given  : ${typeToString(evaluatedValue.type)}`
+- Previous: ${typeToString(valueType)}
+- Current : ${typeToString(evaluatedValue.type)}`
           );
         }
       }
@@ -1438,7 +1412,7 @@ type: ${typeToString(type)}`);
             resultExpr.token,
             `Incompatible types in match arms:
 - Previous: ${typeToString(resultType)}
-- Current: ${typeToString(evaluatedResult.type)}`
+- Current : ${typeToString(evaluatedResult.type)}`
           );
         }
       }

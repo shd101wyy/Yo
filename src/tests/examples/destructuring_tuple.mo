@@ -8,7 +8,7 @@ x := (a: 1, b: true);
 (.a, .b) := x; // a == 1, b == true
 
 // Renaming
-(.a: u, .b: v) := x; // u == 1, v == true
+(a: u, b: v) := x; // u == 1, v == true
 
 // i := a;
 i := u;
