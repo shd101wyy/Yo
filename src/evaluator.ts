@@ -815,69 +815,6 @@ export default class Evaluator {
         continue;
       }
 
-      // Handle nested struct destructuring pattern like (a, SomeStruct(x, y)) or (a, _(x, y))
-      else if (
-        exprIsFunctionCall(lhsElement) &&
-        ((exprIsAtom(lhsElement.func) &&
-          this.isValidVariableName(lhsElement)) ||
-          exprIsFunctionCallOf(lhsElement.func, "_"))
-      ) {
-        const structNameExpr = lhsElement.func;
-        const structNameValue = exprIsAtom(structNameExpr)
-          ? structNameExpr.token.value
-          : "_";
-
-        // Get the right-hand side value at this position
-        rhsMember = rhsMembers[elementIndex];
-        const nestedRhsType = rhsMember.type;
-
-        // Get the nested value
-        let nestedValue: Value | undefined = undefined;
-        if (isTupleValue(rhsValue)) {
-          nestedValue = rhsValue.elements[elementIndex];
-        }
-
-        // Ensure the member we're destructuring is a struct
-        if (!isStructType(nestedRhsType)) {
-          throw this.formatErrorMessage(
-            lhsElement.token,
-            `Expected struct for struct destructuring, got ${typeToString(
-              nestedRhsType
-            )}`
-          );
-        }
-
-        // For named struct, verify the struct type name matches
-        if (
-          structNameValue !== "_" &&
-          nestedRhsType.typeName &&
-          structNameValue !== nestedRhsType.typeName
-        ) {
-          throw this.formatErrorMessage(
-            lhsElement.func.token,
-            `Expected struct of type ${nestedRhsType.typeName}, got ${structNameValue}`
-          );
-        }
-
-        // Recursively process nested destructuring
-        env = this.handleMemberDestructuring({
-          lhsFunc: lhsElement.func,
-          lhsElements: lhsElement.args,
-          rhsMembers: nestedRhsType.members,
-          rhsValue: nestedValue as TupleValue | undefined,
-          rhsType: nestedRhsType,
-          lhs: lhsElement,
-          env,
-        });
-
-        // Set type and value on the lhs element
-        lhsElement.type = nestedRhsType;
-        lhsElement.value = nestedValue;
-        lhsElement.env = env;
-
-        // Skip to next element since we've already processed this one
-        continue;
-      }
       // Handle labeled nested destructuring pattern like (c: (x, y))
       else if (
         exprIsFunctionCall(lhsElement) &&
@@ -967,6 +904,47 @@ export default class Evaluator {
           // Skip to next element since we've already processed this one
           continue;
         }
+
+        // Check if the right side is a struct for nested destructuring (c: _(x, y))
+        else if (
+          exprIsFunctionCall(rightSide) &&
+          exprIsFunctionCallOf(rightSide, "_")
+        ) {
+          if (!isStructType(nestedRhsType)) {
+            throw this.formatErrorMessage(
+              lhsElement.token,
+              `Expected struct for nested destructuring, got ${typeToString(
+                nestedRhsType
+              )}`
+            );
+          }
+
+          // Recursively process nested destructuring
+          const nestedMembers = nestedRhsType.members;
+          env = this.handleMemberDestructuring({
+            lhsFunc: rightSide.func,
+            lhsElements: rightSide.args,
+            rhsMembers: nestedMembers,
+            rhsValue: nestedValue as TupleValue | undefined,
+            rhsType: nestedRhsType,
+            lhs: rightSide,
+            env,
+          });
+
+          // Set type and value on expressions
+          rightSide.type = nestedRhsType;
+          rightSide.value = nestedValue;
+          rightSide.env = env;
+
+          labelExpr.type = nestedRhsType;
+          lhsElement.type = nestedRhsType;
+          lhsElement.value = nestedValue;
+          lhsElement.env = env;
+
+          // Skip to next element since we've already processed this one
+          continue;
+        }
+
         // Variable rename case like (a: m)
         else if (exprIsAtom(rightSide) && this.isValidVariableName(rightSide)) {
           renameExpr = rightSide;
@@ -1018,6 +996,81 @@ export default class Evaluator {
         rhsMember = rhsMembers[elementIndex];
         variableName = label;
         variableToken = labelExpr.token;
+      }
+
+      // Handle nested struct destructuring pattern like (a, SomeStruct(x, y)) or (a, _(x, y))
+      else if (
+        exprIsFunctionCall(lhsElement) /* &&
+        ((exprIsAtom(lhsElement.func) &&
+          this.isValidVariableName(lhsElement.func) &&
+          lhsElement.func.token.value !== ":") ||
+          exprIsFunctionCallOf(lhsElement.func, "_"))
+        */
+      ) {
+        if (!exprIsFunctionCallOf(lhsElement, "_")) {
+          throw this.formatErrorMessage(
+            lhsElement.token,
+            `Expected "_" for struct destructuring, got ${exprToString(
+              lhsElement
+            )}`
+          );
+        }
+
+        const structNameExpr = lhsElement.func;
+        const structNameValue = exprIsAtom(structNameExpr)
+          ? structNameExpr.token.value
+          : "_";
+
+        // Get the right-hand side value at this position
+        rhsMember = rhsMembers[elementIndex];
+        const nestedRhsType = rhsMember.type;
+
+        // Get the nested value
+        let nestedValue: Value | undefined = undefined;
+        if (isTupleValue(rhsValue)) {
+          nestedValue = rhsValue.elements[elementIndex];
+        }
+
+        // Ensure the member we're destructuring is a struct
+        if (!isStructType(nestedRhsType)) {
+          throw this.formatErrorMessage(
+            lhsElement.token,
+            `Expected struct for struct destructuring, got ${typeToString(
+              nestedRhsType
+            )}`
+          );
+        }
+
+        // For named struct, verify the struct type name matches
+        if (
+          structNameValue !== "_" &&
+          nestedRhsType.typeName &&
+          structNameValue !== nestedRhsType.typeName
+        ) {
+          throw this.formatErrorMessage(
+            lhsElement.func.token,
+            `Expected struct of type ${nestedRhsType.typeName}, got ${structNameValue}`
+          );
+        }
+
+        // Recursively process nested destructuring
+        env = this.handleMemberDestructuring({
+          lhsFunc: lhsElement.func,
+          lhsElements: lhsElement.args,
+          rhsMembers: nestedRhsType.members,
+          rhsValue: nestedValue as TupleValue | undefined,
+          rhsType: nestedRhsType,
+          lhs: lhsElement,
+          env,
+        });
+
+        // Set type and value on the lhs element
+        lhsElement.type = nestedRhsType;
+        lhsElement.value = nestedValue;
+        lhsElement.env = env;
+
+        // Skip to next element since we've already processed this one
+        continue;
       }
 
       // Handle positional destructuring

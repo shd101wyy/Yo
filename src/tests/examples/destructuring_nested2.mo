@@ -1,16 +1,9 @@
-d := (a: 1, b: true, c: (x: 2, y: false));
-
-// Destructuring by position
-(m, n, (x, y)) := d;
-
-// Destructuring by label
-(c: (.y, .x), a: m, .b) := d;
-
 // Different types of data structures
-SomeStruct := struct(
+Complex := type (struct(
   x: i32,
   y: boolean 
-);
+),);
+SomeStruct := Complex.0;
 
 d := (a: 1, b: SomeStruct(2, false));
 
@@ -18,4 +11,6 @@ d := (a: 1, b: SomeStruct(2, false));
 (a, _(x, y)) := d;
 /// or
 (a, _(x, y)) := d;
-
+/// or
+// (a, Complex.0(x, y)) := d; // This is not supported
+(b: _(x, y), a: another_a) := d;
