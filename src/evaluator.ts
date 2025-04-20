@@ -64,6 +64,7 @@ import {
 } from "./type-checker";
 import { randomId } from "./utils";
 import {
+  areValuesEqual,
   createTypeValue,
   FunctionValue,
   isFunctionValue,
@@ -81,6 +82,12 @@ interface EvaluatorContext {
   isEvaluatingType?: boolean;
 }
 
+interface CalledTypeFunctionCache {
+  funcId: string;
+  argValues: TupleValue;
+  typeValue: TypeValue;
+}
+
 /**
  * This class is responsible for:
  * - Type checking the program
@@ -92,6 +99,9 @@ export default class Evaluator {
   private parser: Parser;
   private program: Expr[];
   private tokens: Token[];
+
+  private calledTypeFunctionsMap: Map<string, CalledTypeFunctionCache[]> =
+    new Map();
 
   constructor({
     modulePath,
@@ -2909,7 +2919,24 @@ Expected: ${typeToString(functionType)}`
         `Type function call is not evaluated correctly`
       );
     }
-    // console.log(valueToString(argValues));
+
+    // Check if it's in calledTypeFunctions
+    const funcId = functionValue.funcId;
+    const calledTypeFunctions = this.calledTypeFunctionsMap.get(funcId);
+    if (calledTypeFunctions) {
+      // Check if the function is already called.
+      const calledTypeFunction = calledTypeFunctions.find((cache) => {
+        return areValuesEqual(cache.argValues, argValues, env);
+      });
+      if (calledTypeFunction) {
+        // Find the cache
+        env = popEnvFrame(env);
+        return {
+          env,
+          value: calledTypeFunction.typeValue,
+        };
+      }
+    }
 
     // Evaluate functionValue.body with the new env
     const functionBodyExpr = functionValue.body;
@@ -2945,6 +2972,14 @@ Expected: ${typeToString(functionType)}`
 
     // Restore the environment frames
     env = popEnvFrame(evaluatedFunctionBody.env);
+
+    // Cache the function call
+    const caches = (calledTypeFunctions ?? []).concat({
+      funcId,
+      argValues,
+      typeValue: returnValue,
+    });
+    this.calledTypeFunctionsMap.set(funcId, caches);
 
     return {
       value: returnValue,

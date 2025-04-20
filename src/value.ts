@@ -1,5 +1,7 @@
+import { Environment } from "./env";
 import { Expr } from "./expr";
 import {
+  areTypesCompatible,
   ArrayType,
   FunctionType,
   StructType,
@@ -110,11 +112,16 @@ export type FunctionValue = {
   type: FunctionType;
   frameLevel: number;
   body: Expr;
+
+  /**
+   * The function name, if available
+   */
   funcName?: string;
 
   /**
    * The unique identifier of the function
    */
+  // TODO: Let's make it mandatory for now
   funcId: string;
 };
 
@@ -258,3 +265,91 @@ export function createTypeValue(value: Type): TypeValue {
 export const VUnknown: UnknownValue = {
   tag: ValueTag.Unknown,
 };
+
+export function areValuesEqual(
+  value1: Value | undefined,
+  value2: Value | undefined,
+  env: Environment
+): boolean {
+  if (value1 === value2) {
+    return true;
+  }
+
+  if (!value1 || !value2) {
+    return false;
+  }
+
+  if (value1.tag !== value2.tag) {
+    return false;
+  }
+
+  if (value1.tag === ValueTag.Type) {
+    return areTypesCompatible(value1.value, (value2 as TypeValue).value, env);
+  } else if (
+    value1.tag === ValueTag.U8 ||
+    value1.tag === ValueTag.I8 ||
+    value1.tag === ValueTag.U16 ||
+    value1.tag === ValueTag.I16 ||
+    value1.tag === ValueTag.U32 ||
+    value1.tag === ValueTag.I32 ||
+    value1.tag === ValueTag.U64 ||
+    value1.tag === ValueTag.I64 ||
+    value1.tag === ValueTag.F16 ||
+    value1.tag === ValueTag.F32 ||
+    value1.tag === ValueTag.F64
+  ) {
+    return value1.value === (value2 as NumberValue).value;
+  } else if (value1.tag === ValueTag.Boolean) {
+    return value1.value === (value2 as BooleanValue).value;
+  } else if (value1.tag === ValueTag.Char) {
+    return value1.value === (value2 as CharValue).value;
+  } else if (value1.tag === ValueTag.Array) {
+    if (value1.value.length !== (value2 as ArrayValue).value.length) {
+      return false;
+    }
+    for (let i = 0; i < value1.value.length; i++) {
+      if (
+        !areValuesEqual(value1.value[i], (value2 as ArrayValue).value[i], env)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  } else if (value1.tag === ValueTag.Tuple) {
+    if (value1.elements.length !== (value2 as TupleValue).elements.length) {
+      return false;
+    }
+    for (let i = 0; i < value1.elements.length; i++) {
+      if (
+        !areValuesEqual(
+          value1.elements[i],
+          (value2 as TupleValue).elements[i],
+          env
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
+  } else if (value1.tag === ValueTag.Struct) {
+    if (value1.members.length !== (value2 as StructValue).members.length) {
+      return false;
+    }
+    for (let i = 0; i < value1.members.length; i++) {
+      if (
+        !areValuesEqual(
+          value1.members[i],
+          (value2 as StructValue).members[i],
+          env
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
+  } else {
+    throw new Error(`areValuesEqual: Unsupported value: 
+${valueToString(value1)}
+${valueToString(value2)}`);
+  }
+}
