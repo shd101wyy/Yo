@@ -110,6 +110,12 @@ export type FunctionValue = {
   type: FunctionType;
   frameLevel: number;
   body: Expr;
+  funcName?: string;
+
+  /**
+   * The unique identifier of the function
+   */
+  funcId: string;
 };
 
 export type UnknownValue = {

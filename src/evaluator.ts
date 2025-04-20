@@ -62,6 +62,7 @@ import {
   TypeTag,
   typeToString,
 } from "./type-checker";
+import { randomId } from "./utils";
 import {
   createTypeValue,
   FunctionValue,
@@ -72,6 +73,7 @@ import {
   TypeValue,
   Value,
   ValueTag,
+  valueToString,
   VUnknown,
 } from "./value";
 
@@ -634,10 +636,15 @@ export default class Evaluator {
           )}. Only supported with enum types.`
         );
       }
-    } else if (expr.type && !isPlaceholderType(expr.type) && type) {
-      // If both expr and type are already set, return them
-      // No need to synthesize again
-      return { expr, type, env };
+    }
+    // If both expr and type are already set, return them
+    // No need to synthesize again
+    else if (expr.type && !isPlaceholderType(expr.type) && type) {
+      return {
+        expr,
+        type: expr.type, // NOTE: Here we should return the type of expr, not `type`
+        env,
+      };
     } else {
       throw this.formatErrorMessage(
         expr.token,
@@ -1229,6 +1236,7 @@ export default class Evaluator {
           });
           rhs = nextRhs;
           rhsType = nextRhsType;
+          // as it is actually lhs.type if not synthesized.
           env = nextEnv;
         } catch (e) {
           throw this.formatErrorMessage(
@@ -2894,6 +2902,15 @@ Expected: ${typeToString(functionType)}`
     }
     env = nextEnv;
 
+    // For type function, argValues cannot be undefined
+    if (!argValues) {
+      throw this.formatErrorMessage(
+        functionCallExpr.token,
+        `Type function call is not evaluated correctly`
+      );
+    }
+    // console.log(valueToString(argValues));
+
     // Evaluate functionValue.body with the new env
     const functionBodyExpr = functionValue.body;
     const evaluatedFunctionBody = this.evaluateExpression({
@@ -2915,6 +2932,15 @@ Expected: ${typeToString(functionType)}`
         functionCallExpr.token,
         `Function body is not evaluated correctly. Expected to return a type.`
       );
+    }
+    const returnType = returnValue.value;
+    if (
+      isStructType(returnType) &&
+      !returnType.typeName &&
+      functionValue.funcName
+    ) {
+      returnType.typeName =
+        functionValue.funcName + `${valueToString(argValues)}`;
     }
 
     // Restore the environment frames
@@ -3099,6 +3125,8 @@ Expected: ${typeToString(functionType)}`
           type: functionType,
           body: functionBodyExpr,
           frameLevel: env.frames.length - 1,
+          funcName: functionNameExpr.token.value,
+          funcId: `fn_${randomId()}`,
         },
       },
       deltaFrame: -1,

@@ -790,6 +790,15 @@ export function areTypesCompatible(
     ) {
       return false;
     }
+
+    if (
+      expectedType.typeId &&
+      givenType.typeId &&
+      expectedType.typeId === givenType.typeId
+    ) {
+      return true;
+    }
+
     // QUESTION: In theory comparing the typeId is enough
     for (let i = 0; i < expectedType.members.length; i++) {
       const expectedMember = expectedType.members[i];
@@ -1043,9 +1052,9 @@ export function typeToString(type: Type): string {
     case TypeTag.Struct: {
       const struct = type as StructType;
 
-      return `${
-        struct.typeName ? `(${struct.typeName}) ` : ""
-      }struct(${struct.members
+      return `${struct.typeName ? `(${struct.typeName}) ` : ""}${
+        struct.typeName ? "struct" : struct.typeId
+      }(${struct.members
         .map((member) => {
           return `${member.label ? `${member.label}: ` : ""}${typeToString(
             member.type
