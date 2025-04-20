@@ -68,7 +68,7 @@ mut(y) := 14; // mutable   mut(y): compt(i32)
 // It's hard to tell! So let's make it explicit
 
 // define a function
-def add(x: i32, y: i32):i32, 
+def add(x: i32, y: i32):i32,
   x + y;
 // or with anonymous function defined with `fn` and `->`
 add := ((fn(x: i32, y: i32) : i32) -> (x + y));

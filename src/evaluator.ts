@@ -456,11 +456,9 @@ export default class Evaluator {
     type: Type;
     env: Environment;
   }): { expr: Expr; type: Type; env: Environment } {
-    /*
     console.log(`Synthesize expr and type:
 expr: ${exprToString(expr)}
 type: ${typeToString(type)}`);
-    */
 
     // Handle the _ case
     if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, "_")) {
@@ -624,145 +622,369 @@ type: ${typeToString(type)}`);
     if (!rhsType) {
       throw this.formatErrorMessage(
         rhs.token,
-        `Expected type for right-hand side, got ${exprToString(rhs)}`
+        `(1) Expected type for right-hand side, got ${exprToString(rhs)}`
       );
     }
 
     // Handle struct destructuring
     if (isStructType(rhsType) && exprIsFunctionCall(lhs)) {
-      const structTypeName = lhs.func.token.value;
-      const lhsElements = lhs.args;
-      const rhsMembers = rhsType.members;
-      const rhsValue = rhs.value;
+      return this.handleMemberDestructuring({
+        lhsFunc: lhs.func,
+        lhsElements: lhs.args,
+        rhsMembers: rhsType.members,
+        rhsValue: rhs.value,
+        rhsType,
+        lhs,
+        env,
+      });
+    }
+    // Handle tuple destructuring
+    else if (
+      isTupleType(rhsType) &&
+      exprIsFunctionCall(lhs) &&
+      exprIsFunctionCallOf(lhs, BuiltinCollections.Tuple)
+    ) {
+      return this.handleMemberDestructuring({
+        lhsFunc: lhs.func,
+        lhsElements: lhs.args,
+        rhsMembers: rhsType.elements,
+        rhsValue: rhs.value,
+        rhsType,
+        lhs,
+        env,
+      });
+    }
 
-      // Verify the struct type name matches if specified
+    throw this.formatErrorMessage(
+      lhs.token,
+      `Destructuring assignment not supported for this pattern: ${exprToString(
+        lhs
+      )}`
+    );
+  }
+
+  // Modified to handle member destructuring directly
+  private handleMemberDestructuring({
+    lhsFunc,
+    lhsElements,
+    rhsMembers,
+    rhsValue,
+    rhsType,
+    lhs,
+    env,
+  }: {
+    lhsFunc: Expr;
+    lhsElements: Expr[];
+    rhsMembers: TupleElement[];
+    rhsValue: Value | undefined;
+    rhsType: Type;
+    lhs: Expr;
+    env: Environment;
+  }): Environment {
+    const isStruct = isStructType(rhsType);
+    const structTypeName = isStruct ? lhsFunc.token.value : undefined;
+
+    // Verify the struct type name matches if specified
+    if (
+      isStructType(rhsType) &&
+      rhsType.typeName &&
+      structTypeName !== "_" &&
+      structTypeName !== rhsType.typeName
+    ) {
+      throw this.formatErrorMessage(
+        lhsFunc.token,
+        `Expected struct of type ${rhsType.typeName}, got ${structTypeName}`
+      );
+    }
+
+    // Check if we have enough elements
+    if (lhsElements.length > rhsMembers.length) {
+      throw this.formatErrorMessage(
+        lhs.token,
+        `Too many elements in destructuring pattern. Expected at most ${rhsMembers.length}, got ${lhsElements.length}`
+      );
+    }
+
+    // Process each lhs element
+    for (let i = 0; i < lhsElements.length; i++) {
+      const lhsElement = lhsElements[i];
+      let elementIndex: number = i;
+      // Initialize rhsMember here, before any conditional branches
+      let rhsMember = rhsMembers[elementIndex];
+      let variableName: string | undefined;
+      let variableToken: Token | undefined;
+      let labelExpr: Expr | undefined = undefined;
+      let renameExpr: Expr | undefined = undefined;
+
+      // Handle nested tuple destructuring pattern like (a, b, (x, y))
       if (
-        rhsType.typeName &&
-        structTypeName !== "_" &&
-        structTypeName !== rhsType.typeName
+        exprIsFunctionCall(lhsElement) &&
+        exprIsFunctionCallOf(lhsElement, BuiltinCollections.Tuple)
       ) {
-        throw this.formatErrorMessage(
-          lhs.func.token,
-          `Expected struct of type ${rhsType.typeName}, got ${structTypeName}`
-        );
-      }
+        rhsMember = rhsMembers[elementIndex];
+        const nestedRhsType = rhsMember.type;
 
-      // Check if we have enough elements
-      if (lhsElements.length > rhsMembers.length) {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Too many elements in destructuring pattern. Expected at most ${rhsMembers.length}, got ${lhsElements.length}`
-        );
-      }
-
-      // Process each lhs element
-      for (let i = 0; i < lhsElements.length; i++) {
-        const lhsElement = lhsElements[i];
-        let rhsMember: TupleElement;
-        let elementIndex: number = i;
-        let variableName: string;
-        let variableToken: Token;
-        let labelExpr: Expr | undefined = undefined;
-        let renameExpr: Expr | undefined = undefined;
-
-        // Handle renaming pattern like Named(x: a, y: b) := p
-        if (
-          exprIsFunctionCall(lhsElement) &&
-          exprIsFunctionCallOf(lhsElement, ":", 2)
-        ) {
-          const leftSide = lhsElement.args[0];
-          const rightSide = lhsElement.args[1];
-          renameExpr = rightSide;
-
-          // The left side should be an identifier
-          if (!exprIsAtom(leftSide) || !this.isValidVariableName(leftSide)) {
-            throw this.formatErrorMessage(
-              leftSide.token,
-              `Expected identifier for label in destructuring pattern, got ${exprToString(
-                leftSide
-              )}`
-            );
-          }
-
-          labelExpr = leftSide;
-          // The right side should be a variable name (the new name)
-          if (!exprIsAtom(rightSide) || !this.isValidVariableName(rightSide)) {
-            throw this.formatErrorMessage(
-              rightSide.token,
-              `Expected identifier for new variable name in destructuring pattern, got ${exprToString(
-                rightSide
-              )}`
-            );
-          }
-
-          const label = labelExpr.token.value;
-          // Find the member with matching label in the struct
-          const matchingMemberIndex = rhsMembers.findIndex(
-            (member) => member.label === label
-          );
-
-          if (matchingMemberIndex === -1) {
-            throw this.formatErrorMessage(
-              lhsElement.token,
-              `Label "${label}" not found in the struct being destructured`
-            );
-          }
-
-          elementIndex = matchingMemberIndex;
-          rhsMember = rhsMembers[elementIndex];
-          variableName = rightSide.token.value;
-          variableToken = rightSide.token;
+        // Get the nested value
+        let nestedValue: Value | undefined = undefined;
+        if (isTupleValue(rhsValue)) {
+          nestedValue = rhsValue.elements[elementIndex];
         }
-        // Handle label-based destructuring like Named(.x, .y) := p
-        else if (
-          exprIsFunctionCall(lhsElement) &&
-          exprIsFunctionCallOf(lhsElement, ".", 1)
-        ) {
-          labelExpr = lhsElement.args[0];
-          if (!exprIsAtom(labelExpr) || !this.isValidVariableName(labelExpr)) {
-            throw this.formatErrorMessage(
-              labelExpr.token,
-              `Expected identifier for label in destructuring pattern, got ${exprToString(
-                labelExpr
-              )}`
-            );
-          }
 
-          const label = labelExpr.token.value;
-          // Find the member with matching label in the struct
-          const matchingMemberIndex = rhsMembers.findIndex(
-            (member) => member.label === label
-          );
-
-          if (matchingMemberIndex === -1) {
-            throw this.formatErrorMessage(
-              lhsElement.token,
-              `Label "${label}" not found in the struct being destructured`
-            );
-          }
-
-          elementIndex = matchingMemberIndex;
-          rhsMember = rhsMembers[elementIndex];
-          variableName = label;
-          variableToken = labelExpr.token;
-        }
-        // Handle positional destructuring
-        else if (
-          exprIsAtom(lhsElement) &&
-          this.isValidVariableName(lhsElement)
-        ) {
-          variableName = lhsElement.token.value;
-          variableToken = lhsElement.token;
-          rhsMember = rhsMembers[i];
-        } else {
+        // Ensure the member we're destructuring is a tuple or struct
+        if (!isTupleType(nestedRhsType) && !isStructType(nestedRhsType)) {
           throw this.formatErrorMessage(
             lhsElement.token,
-            `Unsupported destructuring pattern for struct: ${exprToString(
-              lhsElement
+            `Expected tuple or struct for nested destructuring, got ${typeToString(
+              nestedRhsType
             )}`
           );
         }
 
+        // Get the nested members
+        const nestedMembers = isTupleType(nestedRhsType)
+          ? nestedRhsType.elements
+          : (nestedRhsType as StructType).members;
+
+        // Recursively process nested destructuring
+        env = this.handleMemberDestructuring({
+          lhsFunc: lhsElement.func,
+          lhsElements: lhsElement.args,
+          rhsMembers: nestedMembers,
+          rhsValue: nestedValue as TupleValue | undefined,
+          rhsType: nestedRhsType,
+          lhs: lhsElement,
+          env,
+        });
+
+        // Set type and value on the lhs element
+        lhsElement.type = nestedRhsType;
+        lhsElement.value = nestedValue;
+        lhsElement.env = env;
+
+        // Skip to next element since we've already processed this one
+        continue;
+      }
+
+      // Handle nested struct destructuring pattern like (a, SomeStruct(x, y)) or (a, _(x, y))
+      else if (
+        exprIsFunctionCall(lhsElement) &&
+        ((exprIsAtom(lhsElement.func) &&
+          this.isValidVariableName(lhsElement)) ||
+          exprIsFunctionCallOf(lhsElement.func, "_"))
+      ) {
+        const structNameExpr = lhsElement.func;
+        const structNameValue = exprIsAtom(structNameExpr)
+          ? structNameExpr.token.value
+          : "_";
+
+        // Get the right-hand side value at this position
+        rhsMember = rhsMembers[elementIndex];
+        const nestedRhsType = rhsMember.type;
+
+        // Get the nested value
+        let nestedValue: Value | undefined = undefined;
+        if (isTupleValue(rhsValue)) {
+          nestedValue = rhsValue.elements[elementIndex];
+        }
+
+        // Ensure the member we're destructuring is a struct
+        if (!isStructType(nestedRhsType)) {
+          throw this.formatErrorMessage(
+            lhsElement.token,
+            `Expected struct for struct destructuring, got ${typeToString(
+              nestedRhsType
+            )}`
+          );
+        }
+
+        // For named struct, verify the struct type name matches
+        if (
+          structNameValue !== "_" &&
+          nestedRhsType.typeName &&
+          structNameValue !== nestedRhsType.typeName
+        ) {
+          throw this.formatErrorMessage(
+            lhsElement.func.token,
+            `Expected struct of type ${nestedRhsType.typeName}, got ${structNameValue}`
+          );
+        }
+
+        // Recursively process nested destructuring
+        env = this.handleMemberDestructuring({
+          lhsFunc: lhsElement.func,
+          lhsElements: lhsElement.args,
+          rhsMembers: nestedRhsType.members,
+          rhsValue: nestedValue as TupleValue | undefined,
+          rhsType: nestedRhsType,
+          lhs: lhsElement,
+          env,
+        });
+
+        // Set type and value on the lhs element
+        lhsElement.type = nestedRhsType;
+        lhsElement.value = nestedValue;
+        lhsElement.env = env;
+
+        // Skip to next element since we've already processed this one
+        continue;
+      }
+      // Handle labeled nested destructuring pattern like (c: (x, y))
+      else if (
+        exprIsFunctionCall(lhsElement) &&
+        exprIsFunctionCallOf(lhsElement, ":", 2)
+      ) {
+        const leftSide = lhsElement.args[0]; // The label (c)
+        const rightSide = lhsElement.args[1]; // Could be (x, y) or could be a variable
+
+        // The left side should be an identifier
+        if (!exprIsAtom(leftSide) || !this.isValidVariableName(leftSide)) {
+          throw this.formatErrorMessage(
+            leftSide.token,
+            `Expected identifier for label in destructuring pattern, got ${exprToString(
+              leftSide
+            )}`
+          );
+        }
+
+        labelExpr = leftSide;
+        const label = labelExpr.token.value;
+
+        // Find the member with matching label
+        const matchingMemberIndex = rhsMembers.findIndex(
+          (member) => member.label === label
+        );
+
+        if (matchingMemberIndex === -1) {
+          throw this.formatErrorMessage(
+            lhsElement.token,
+            `Label "${label}" not found in the ${
+              isStruct ? "struct" : "tuple"
+            } being destructured`
+          );
+        }
+
+        elementIndex = matchingMemberIndex;
+        rhsMember = rhsMembers[elementIndex];
+        const nestedRhsType = rhsMember.type;
+
+        // Get the nested value
+        let nestedValue: Value | undefined = undefined;
+        if (isTupleValue(rhsValue)) {
+          nestedValue = rhsValue.elements[elementIndex];
+        }
+
+        // Check if the right side is a tuple for nested destructuring (c: (x, y))
+        if (
+          exprIsFunctionCall(rightSide) &&
+          exprIsFunctionCallOf(rightSide, BuiltinCollections.Tuple)
+        ) {
+          // Ensure the member we're destructuring is a tuple or struct
+          if (!isTupleType(nestedRhsType) && !isStructType(nestedRhsType)) {
+            throw this.formatErrorMessage(
+              lhsElement.token,
+              `Expected tuple or struct for nested destructuring, got ${typeToString(
+                nestedRhsType
+              )}`
+            );
+          }
+
+          // Get the nested members
+          const nestedMembers = isTupleType(nestedRhsType)
+            ? nestedRhsType.elements
+            : (nestedRhsType as StructType).members;
+
+          // Recursively process nested destructuring
+          env = this.handleMemberDestructuring({
+            lhsFunc: rightSide.func,
+            lhsElements: rightSide.args,
+            rhsMembers: nestedMembers,
+            rhsValue: nestedValue as TupleValue | undefined,
+            rhsType: nestedRhsType,
+            lhs: rightSide,
+            env,
+          });
+
+          // Set type and value on expressions
+          rightSide.type = nestedRhsType;
+          rightSide.value = nestedValue;
+          rightSide.env = env;
+
+          labelExpr.type = nestedRhsType;
+          lhsElement.type = nestedRhsType;
+          lhsElement.value = nestedValue;
+          lhsElement.env = env;
+
+          // Skip to next element since we've already processed this one
+          continue;
+        }
+        // Variable rename case like (a: m)
+        else if (exprIsAtom(rightSide) && this.isValidVariableName(rightSide)) {
+          renameExpr = rightSide;
+          variableName = rightSide.token.value;
+          variableToken = rightSide.token;
+        }
+        // Other patterns that don't match previous conditions
+        else {
+          throw this.formatErrorMessage(
+            rightSide.token,
+            `Expected tuple or variable name for destructuring pattern, got ${exprToString(
+              rightSide
+            )}`
+          );
+        }
+      }
+
+      // Handle label-based destructuring like Named(.x, .y) := p or (.a, .b) := x
+      else if (
+        exprIsFunctionCall(lhsElement) &&
+        exprIsFunctionCallOf(lhsElement, ".", 1)
+      ) {
+        labelExpr = lhsElement.args[0];
+        if (!exprIsAtom(labelExpr) || !this.isValidVariableName(labelExpr)) {
+          throw this.formatErrorMessage(
+            labelExpr.token,
+            `Expected identifier for label in destructuring pattern, got ${exprToString(
+              labelExpr
+            )}`
+          );
+        }
+
+        const label = labelExpr.token.value;
+        // Find the member with matching label
+        const matchingMemberIndex = rhsMembers.findIndex(
+          (member) => member.label === label
+        );
+
+        if (matchingMemberIndex === -1) {
+          throw this.formatErrorMessage(
+            lhsElement.token,
+            `Label "${label}" not found in the ${
+              isStruct ? "struct" : "tuple"
+            } being destructured`
+          );
+        }
+
+        elementIndex = matchingMemberIndex;
+        rhsMember = rhsMembers[elementIndex];
+        variableName = label;
+        variableToken = labelExpr.token;
+      }
+
+      // Handle positional destructuring
+      else if (exprIsAtom(lhsElement) && this.isValidVariableName(lhsElement)) {
+        variableName = lhsElement.token.value;
+        variableToken = lhsElement.token;
+      } else {
+        throw this.formatErrorMessage(
+          lhsElement.token,
+          `Unsupported destructuring pattern for ${
+            isStruct ? "struct" : "tuple"
+          }: ${exprToString(lhsElement)}`
+        );
+      }
+
+      // After determining variableName and variableToken, add to environment
+      if (variableName && variableToken) {
         // Get the value if available
         let elementValue: Value | undefined = undefined;
         if (isTupleValue(rhsValue)) {
@@ -803,191 +1025,9 @@ type: ${typeToString(type)}`);
           renameExpr.env = env;
         }
       }
-
-      return env;
-    }
-    // Destructuring tuple
-    else if (isTupleType(rhsType)) {
-      // Handle tuple pattern destructuring
-      if (
-        exprIsFunctionCall(lhs) &&
-        exprIsFunctionCallOf(lhs, BuiltinCollections.Tuple)
-      ) {
-        const lhsElements = lhs.args;
-        const rhsElements = rhsType.elements;
-        const rhsValue = rhs.value;
-
-        // Check if we have enough elements
-        if (lhsElements.length > rhsElements.length) {
-          throw this.formatErrorMessage(
-            lhs.token,
-            `Too many elements in destructuring pattern. Expected at most ${rhsElements.length}, got ${lhsElements.length}`
-          );
-        }
-
-        // Process each lhs element
-        for (let i = 0; i < lhsElements.length; i++) {
-          const lhsElement = lhsElements[i];
-
-          let variableName: string;
-          let variableToken: Token;
-          let rhsElement: TupleElement;
-          let elementIndex: number = i;
-          let labelExpr: Expr | undefined = undefined;
-          let renameExpr: Expr | undefined = undefined;
-
-          // Handle renaming pattern like (a: u, b: v) := x
-          if (
-            exprIsFunctionCall(lhsElement) &&
-            exprIsFunctionCallOf(lhsElement, ":", 2)
-          ) {
-            const leftSide = lhsElement.args[0];
-            const rightSide = lhsElement.args[1];
-            renameExpr = rightSide;
-
-            // The left side should be an identifier (a)
-            if (!exprIsAtom(leftSide) || !this.isValidVariableName(leftSide)) {
-              throw this.formatErrorMessage(
-                leftSide.token,
-                `Expected identifier for label in destructuring pattern, got ${exprToString(
-                  leftSide
-                )}`
-              );
-            }
-
-            labelExpr = leftSide;
-
-            // The right side should be a variable name (the new name)
-            if (
-              !exprIsAtom(rightSide) ||
-              !this.isValidVariableName(rightSide)
-            ) {
-              throw this.formatErrorMessage(
-                rightSide.token,
-                `Expected identifier for new variable name in destructuring pattern, got ${exprToString(
-                  rightSide
-                )}`
-              );
-            }
-
-            const label = labelExpr.token.value;
-            // Find the element with matching label in the rhs tuple
-            const matchingElement = rhsElements.findIndex(
-              (element) => element.label === label
-            );
-
-            if (matchingElement === -1) {
-              throw this.formatErrorMessage(
-                lhsElement.token,
-                `Label "${label}" not found in the tuple being destructured`
-              );
-            }
-
-            elementIndex = matchingElement;
-            rhsElement = rhsElements[elementIndex];
-            variableName = rightSide.token.value;
-            variableToken = rightSide.token;
-          }
-          // Handle label-based destructuring like (.a, .b) := x
-          else if (
-            exprIsFunctionCall(lhsElement) &&
-            exprIsFunctionCallOf(lhsElement, ".", 1)
-          ) {
-            labelExpr = lhsElement.args[0];
-            if (
-              !exprIsAtom(labelExpr) ||
-              !this.isValidVariableName(labelExpr)
-            ) {
-              throw this.formatErrorMessage(
-                labelExpr.token,
-                `Expected identifier for label in destructuring pattern, got ${exprToString(
-                  labelExpr
-                )}`
-              );
-            }
-
-            const label = labelExpr.token.value;
-            // Find the element with matching label in the rhs tuple
-            const matchingElement = rhsElements.findIndex(
-              (element) => element.label === label
-            );
-
-            if (matchingElement === -1) {
-              throw this.formatErrorMessage(
-                lhsElement.token,
-                `Label "${label}" not found in the tuple being destructured`
-              );
-            }
-
-            elementIndex = matchingElement;
-            rhsElement = rhsElements[elementIndex];
-            variableName = label;
-            variableToken = labelExpr.token;
-          }
-          // Handle simple variable destructuring (positional)
-          else if (
-            exprIsAtom(lhsElement) &&
-            this.isValidVariableName(lhsElement)
-          ) {
-            variableName = lhsElement.token.value;
-            variableToken = lhsElement.token;
-            rhsElement = rhsElements[i];
-          } else {
-            throw this.formatErrorMessage(
-              lhsElement.token,
-              `Unsupported destructuring pattern: ${exprToString(lhsElement)}`
-            );
-          }
-
-          // Get the value if available
-          let elementValue: Value | undefined = undefined;
-          if (isTupleValue(rhsValue)) {
-            elementValue = rhsValue.elements[elementIndex];
-          }
-
-          // Add the variable to the environment
-          const { env: nextEnv } = addVariableToEnv({
-            env,
-            variable: {
-              name: variableName,
-              token: variableToken,
-              type: rhsElement.type,
-              isMutable: false,
-              isNotInitialized: false,
-              value: elementValue,
-            },
-          });
-
-          env = nextEnv;
-
-          // Set the type and value on the lhs element for completeness
-          lhsElement.type = rhsElement.type;
-          lhsElement.value = elementValue;
-          lhsElement.env = env;
-          if (labelExpr) {
-            labelExpr.type = rhsElement.type;
-            if (!renameExpr) {
-              labelExpr.value = elementValue;
-            }
-            labelExpr.env = env;
-          }
-          if (renameExpr) {
-            renameExpr.type = rhsElement.type;
-            renameExpr.value = elementValue;
-            renameExpr.env = env;
-          }
-        }
-
-        return env;
-      }
     }
 
-    throw this.formatErrorMessage(
-      lhs.token,
-      `Destructuring assignment not supported for this pattern: ${exprToString(
-        lhs
-      )}`
-    );
+    return env;
   }
 
   private evaluateInitializationAssignment({
@@ -1076,7 +1116,7 @@ type: ${typeToString(type)}`);
         if (!rhsType) {
           throw this.formatErrorMessage(
             rhs.token,
-            `Expected type for right-hand side, got ${exprToString(rhs)}`
+            `(2) Expected type for right-hand side, got ${exprToString(rhs)}`
           );
         }
         // user didn't specify the type
@@ -1145,7 +1185,7 @@ type: ${typeToString(type)}`);
       if (!rhs.type) {
         throw this.formatErrorMessage(
           rhs.token,
-          `Expected type for right-hand side, got ${exprToString(rhs)}`
+          `(3) Expected type for right-hand side, got ${exprToString(rhs)}`
         );
       }
 
@@ -2104,6 +2144,60 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         }
         expr.env = env;
         return expr;
+      } else if (
+        isTupleType(typeValue.value) ||
+        isStructType(typeValue.value)
+      ) {
+        let elements: TupleElement[] = [];
+        if (isTupleType(typeValue.value)) {
+          elements = typeValue.value.elements;
+        } else if (isStructType(typeValue.value)) {
+          elements = typeValue.value.members;
+        }
+        // Check if it's accessing the tuple element by
+        // - number index: point.0
+        // - label name:   point.x
+        if (exprIsAtom(propertyExpr)) {
+          if (propertyExpr.token.type === TokenType.Integer) {
+            const index = parseInt(propertyExpr.token.value, 10);
+            if (isNaN(index)) {
+              throw this.formatErrorMessage(
+                propertyExpr.token,
+                `Expected integer for tuple index, got:\n${exprToString(
+                  propertyExpr
+                )}`
+              );
+            }
+            if (index < 0 || index >= elements.length) {
+              throw this.formatErrorMessage(
+                propertyExpr.token,
+                `Index out of bounds: ${index} for accessing element in:\n${typeToString(
+                  typeValue.value
+                )}`
+              );
+            }
+            const tupleElement = elements[index];
+            expr.value = createTypeValue(tupleElement.type);
+            expr.type = expr.value.type;
+            return expr;
+          } else if (this.isValidVariableName(propertyExpr)) {
+            const label = propertyExpr.token.value;
+            const tupleElement = elements.find(
+              (element) => element.label === label
+            );
+            if (!tupleElement) {
+              throw this.formatErrorMessage(
+                propertyExpr.token,
+                `Element with label "${label}" not found in:\n${typeToString(
+                  typeValue.value
+                )}`
+              );
+            }
+            expr.value = createTypeValue(tupleElement.type);
+            expr.type = expr.value.type;
+            return expr;
+          }
+        }
       }
     }
 

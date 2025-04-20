@@ -9,10 +9,10 @@ Named(m, n) := p;
 // Named(.x, .y) := p;
 
 // Renaming
-Named(.x: a, .y: b) := p;
+Named(x: a, y: b) := p;
 i := a;
 
 // Inferred struct
 _(x, y) := p;
 _(.x, .y) := p;
-_(.x: a, .y: b) := p;
+_(x: a, y: b) := p;
