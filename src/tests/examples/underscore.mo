@@ -20,6 +20,7 @@ c := color_identity(.Red);
 
 NestedEnum := enum
   Level1(
-    enum Level2(i32)
+    x: enum Level2(i32)
   );
+n := NestedEnum.Level1(.Level2(3));
 (n : NestedEnum) := .Level1(.Level2(3));

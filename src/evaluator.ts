@@ -446,6 +446,7 @@ export default class Evaluator {
    * - (p: Point) := _(3, 4);   // here _ becomes Point
    * - (p: Color) := .Red;      // here (.) becomes (Color.)
    * - (p: Shape) := .Circle(3) // here (.) becomes (Shape.)
+   * - (c: Complex) := (_(3, true),) // here (_) becomes struct in tuple
    */
   private synthesizeExprAndType({
     expr,
@@ -456,12 +457,61 @@ export default class Evaluator {
     type: Type;
     env: Environment;
   }): { expr: Expr; type: Type; env: Environment } {
-    console.log(`Synthesize expr and type:
-expr: ${exprToString(expr)}
-type: ${typeToString(type)}`);
+    if (expr.type && type) {
+      // If both expr and type are already set, return them
+      // No need to synthesize again
+      return { expr, type, env };
+    }
 
+    // Handle tuples (including tuples with placeholders)
+    if (
+      isTupleType(type) &&
+      exprIsFunctionCall(expr) &&
+      exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)
+    ) {
+      if (type.elements.length !== expr.args.length) {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Tuple size mismatch: expected ${type.elements.length} elements, got ${expr.args.length}`
+        );
+      }
+
+      // Recursively synthesize each tuple element
+      for (let i = 0; i < type.elements.length; i++) {
+        const elementType = type.elements[i].type;
+        const elementExpr = expr.args[i];
+
+        // Check if the element is a placeholder or needs further synthesis
+        if (
+          (exprIsFunctionCall(elementExpr) &&
+            exprIsFunctionCallOf(elementExpr, "_")) ||
+          (exprIsFunctionCall(elementExpr) &&
+            exprIsFunctionCallOf(elementExpr, BuiltinCollections.Tuple) &&
+            elementExpr.args.some(
+              (arg) => exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "_")
+            ))
+        ) {
+          const {
+            expr: synthesizedExpr,
+            // type: synthesizedType,
+            env: nextEnv,
+          } = this.synthesizeExprAndType({
+            expr: elementExpr,
+            type: elementType,
+            env,
+          });
+
+          expr.args[i] = synthesizedExpr;
+          env = nextEnv;
+        }
+      }
+
+      // The entire tuple is now synthesized
+      expr.type = type;
+      return { expr, type, env };
+    }
     // Handle the _ case
-    if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, "_")) {
+    else if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, "_")) {
       // Check if type is a struct type
       if (isStructType(type)) {
         const funcCallExpr = this.evaluateFunctionCall({
@@ -1122,8 +1172,8 @@ type: ${typeToString(type)}`);
         // user didn't specify the type
         lhs.type = rhsType;
       } else {
-        // If !rhsType, then check if rhs is a function call of _
-        if (!rhsType) {
+        // If !rhsType, then check if rhs is a function call of _ or a tuple containing _
+        try {
           // Infer the type
           const {
             expr: nextRhs,
@@ -1137,6 +1187,13 @@ type: ${typeToString(type)}`);
           rhs = nextRhs;
           rhsType = nextRhsType;
           env = nextEnv;
+        } catch (e) {
+          throw this.formatErrorMessage(
+            rhs.token,
+            `Failed to synthesize type for expression: ${exprToString(
+              rhs
+            )}\n${e}`
+          );
         }
 
         // Check if the type is compatible
@@ -2448,15 +2505,20 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       let argType = argElement.type;
       if (isPlaceholderType(argType)) {
         // Synthesize the type
-        const { type: nextArgType, env: nextEnv } = this.synthesizeExprAndType({
-          expr: argExpr,
-          type: paramElement.type,
-          env,
-        });
-        env = nextEnv;
-        argType = nextArgType;
-        if (updateArgType) {
-          argElement.type = nextArgType;
+        try {
+          const { type: nextArgType, env: nextEnv } =
+            this.synthesizeExprAndType({
+              expr: argExpr,
+              type: paramElement.type,
+              env,
+            });
+          env = nextEnv;
+          argType = nextArgType;
+          if (updateArgType) {
+            argElement.type = nextArgType;
+          }
+        } catch (e) {
+          return false; // If synthesis fails, the types are not compatible
         }
       }
 
