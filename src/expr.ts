@@ -114,7 +114,7 @@ export function exprToString(expr: Expr): string {
               ? `(${rhs})`
               : rhs;
           if (expr.func.token.value === ".") {
-            printed = `${lhs}.${rhs}`;
+            printed = `(${lhs}.${rhs})`;
           } else {
             printed = `${lhs} ${expr.func.token.value} ${rhs}`;
           }

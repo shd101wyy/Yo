@@ -308,6 +308,7 @@ export function tokenize(input: string): Token[] {
       // primary & keywords
       default:
         if (/[0-9]/.test(char)) {
+          const startIndex = i;
           // integer
           let value = char;
           i = i + 1;
@@ -317,7 +318,11 @@ export function tokenize(input: string): Token[] {
             i = i + 1;
           }
 
-          if (input[i] === "." && (input[i + 1] ?? "").match(/[0-9]/)) {
+          if (
+            input[i] === "." &&
+            input[startIndex - 1] !== "." && // NOTE: For parsing case like x.0.0
+            (input[i + 1] ?? "").match(/[0-9]/)
+          ) {
             value += input[i];
             i = i + 1;
 

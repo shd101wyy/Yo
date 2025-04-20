@@ -457,12 +457,6 @@ export default class Evaluator {
     type: Type;
     env: Environment;
   }): { expr: Expr; type: Type; env: Environment } {
-    if (expr.type && type) {
-      // If both expr and type are already set, return them
-      // No need to synthesize again
-      return { expr, type, env };
-    }
-
     // Handle tuples (including tuples with placeholders)
     if (
       isTupleType(type) &&
@@ -481,29 +475,17 @@ export default class Evaluator {
         const elementType = type.elements[i].type;
         const elementExpr = expr.args[i];
 
-        // Check if the element is a placeholder or needs further synthesis
-        if (
-          (exprIsFunctionCall(elementExpr) &&
-            exprIsFunctionCallOf(elementExpr, "_")) ||
-          (exprIsFunctionCall(elementExpr) &&
-            exprIsFunctionCallOf(elementExpr, BuiltinCollections.Tuple) &&
-            elementExpr.args.some(
-              (arg) => exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "_")
-            ))
-        ) {
-          const {
-            expr: synthesizedExpr,
-            // type: synthesizedType,
-            env: nextEnv,
-          } = this.synthesizeExprAndType({
-            expr: elementExpr,
-            type: elementType,
-            env,
-          });
+        const {
+          // expr: synthesizedExpr,
+          // type: synthesizedType,
+          env: nextEnv,
+        } = this.synthesizeExprAndType({
+          expr: elementExpr,
+          type: elementType,
+          env,
+        });
 
-          expr.args[i] = synthesizedExpr;
-          env = nextEnv;
-        }
+        env = nextEnv;
       }
 
       // The entire tuple is now synthesized
@@ -531,6 +513,10 @@ export default class Evaluator {
             )}`
           );
         }
+
+        // Attach information to the "_"
+        // expr.func.value = createTypeValue(type);
+        // expr.func.type = typeOfType(type);
 
         return {
           expr: funcCallExpr,
@@ -648,6 +634,10 @@ export default class Evaluator {
           )}. Only supported with enum types.`
         );
       }
+    } else if (expr.type && !isPlaceholderType(expr.type) && type) {
+      // If both expr and type are already set, return them
+      // No need to synthesize again
+      return { expr, type, env };
     } else {
       throw this.formatErrorMessage(
         expr.token,
