@@ -6,26 +6,30 @@
 // Mo is case-sensitive
 
 // In Mo, everything is a function:
-x := true; // variable, x: boolean, immutable
-y :: 14;   // constant, y: const_int
+x := true;
+y :: 14;
 
 // can be written as:
 (:=)(x, true);
 (::)(y, 14);
 
-// (:=) function is used to initialize a variable with a value
-// (=) function is used to update a mutable variable with a new value, also initialize a variable/constant with a value
 // (:) function is used to denote a type
-// (::) function is used to denote a constant. The constant in Mo is compile-time known, immutable.
-// variable in Mo is runtime, while the constant in Mo is compile-time known.
+// (=) function is used to update a mutable variable with a new value, or initialize a variable with a value
+// (::) function is used to denote a comptime variable with type inferred
+// (:=) function is used to denote a runtime variable with type inferred
 
-(const(x) : const_int) = 12;  // constant   x: i32, immutable.
-(mut(y) : i32) = 14;          // variable   y: i32, mutable.
-(z : i32) = 16;               // variable   z: i32, immutable.
+x : i32;        // Define a runtime immutable variable
+mut(x) : i32;   // Define a runtime mutable variable
+compt(x) : i32; // Define a compile-time immutable variable
+compt(mut(x));  // Define a compile-time mutable variable
+
+(compt(x) : compt_int) = 12;  // compt(x): i32, immutable.
+(mut(y) : i32) = 14;          // mut(y): i32, mutable.
+(z : i32) = 16;               // z: i32, immutable.
 
 // can be written as:
 
-(=)((:)(const(x), const_int), 12);
+(=)((:)(compt(x), compt_int), 12);
 (=)((:)(mut(y), i32), 14);
 (=)((:)(z, i32), 16);
 
@@ -33,7 +37,7 @@ y :: 14;   // constant, y: const_int
 
 x :: 12;
 mut(y) := 14;
-z := 16;
+z := 16; // This will give error, as compt_int type cannot be assigned to runtime variable.  
 
 
 // There is no arithmetic precedence in Mo
@@ -89,7 +93,7 @@ def add(x: i32, y: i32):i32,
 // or with anonymous function defined with `fn` and `->`
 add :: ((fn(x: i32, y: i32) : i32) -> (x + y));
 // or with the function type first, then the function implementation:
-const(add) : ((x: i32, y: i32)-> i32);          // function type is written as (args...)-> return_type
+compt(add) : ((x: i32, y: i32)-> i32);          // function type is written as (args...)-> return_type
 add = ((fn(x: i32, y: i32) : i32) -> (x + y));  // function implementation is written as fn(args...): return_type -> body
 
 // If no function type is given, the the function implementation needs to define explicit function type
@@ -176,7 +180,7 @@ one_element := (1,); // tuple with one element requires extra "," at the end. Ot
                       // The "." ahead of the tuple is necessary to distinguish it from a type.
 pair := (1, 2); // tuple with two elements
 MyTuple :: type (i32, f32);
-(my_tuple : MyTuple) := (1, 2.0); // tuple with two elements
+(my_tuple : MyTuple) = (1, 2.0); // tuple with two elements
 my_tuple := (1, 2.0);
 
 NamedTuple :: type (x: i32, y: i32);
@@ -221,7 +225,7 @@ some_func((1, 2)); // 3
 
 // array is defined using [...] with "," as separator.
 arr := [1, 2, 3]; // Array(i32, 3)
-// Array: (Type, const(_): usize)-> Type
+// Array: (Type, compt(_): usize)-> Type
 // is equivalent to call `array`
 arr := array(1, 2, 3);
 arr := [1, 2, 3]; // mutable array
@@ -317,6 +321,14 @@ s := Shape.Rectangle width: 10, height: 20;
 
 // type as function parameter
 def Option(T: Type): Type,
+  // `T: Type` here will automatically be added the `compt` qualifier
+  // and same for the return `Type`
+  enum(
+    Some(T),
+    None
+  );
+// So it's equivalent to:
+def Option(compt(T): Type): (compt(_): Type),
   enum(
     Some(T),
     None
@@ -343,12 +355,13 @@ def my_eval(T: Type, expr: MyExpr(T)): T,
 
 // higher kinded types
 // are types that take other types as parameter
-def T1(F: ((Type) -> Type), A: Type), F(A)
+def T1(F: ((Type) -> Type), A: Type): Type,
+  F(A)
 ;
 // Assume we have the `Maybe` type,
 // then we can define `Option` like below
-def Option(T: Type), T1(Maybe, T);
-
+def Option(T: Type): Type, 
+  T1(Maybe, T);
 
 // interface
 def Id(T: Type): Interface,
@@ -419,7 +432,7 @@ add(3, 4); // 7
 // Type in Mo can be either Linear or Free
 // Linear means it must be used exactly once
 // For example, String is a linear type
-(s : String) := String.from("Hello");
+(s : String) = String.from("Hello");
 s.drop(); // drop the string. s is consumed and can't be used anymore.
 s2 := s;  // error: s is consumed
 
@@ -445,7 +458,7 @@ fail_list : [1, 2, 3];
 fail_list = [2, 3, 4]; // Type error: expected [1, 2, 3], got [2, 3, 4]
 
 Array7 := Array(7, 3);
-(arr: Array7) := [7, 7, 7]; // Correct!
+(arr: Array7) = [7, 7, 7]; // Correct!
 
 // Interface is not a type here!
 
@@ -501,7 +514,7 @@ use &!(x), x_ref -> {
 }
 
 // Iterator
-to_iter_mut := (forall(T: Type) ->
+to_iter_mut :: (forall(T: Type) ->
   (fn(arr: &!(Array(T))) -> {
     return Iter
       data: arr, // allow to assign reference in this case because it's the last expression
@@ -558,7 +571,7 @@ do {
 // malloc
 // There is no null pointer in Mo.
 // ^Type or ^!(Type) is a pointer type which is Linear.
-(ptr : Option(^!(i32))) := malloc(sizeof(i32)); // allocate memory for i32
+(ptr : Option(^!(i32))) = malloc(sizeof(i32)); // allocate memory for i32
 match ptr,
   .Some(p) -> {
     *(p) = 42; // dereference the pointer
@@ -580,7 +593,7 @@ cond  (x == 1) -> std.println("x is 1"),
 /// while
 def factorial(x: i32): i32, {
   mut(x) := x; // Convert immutable variable to mutable
-  result := 1;
+  mut(result) := 1;
   while x > 1, do: {
     result *= x;
     x -= 1;
@@ -591,7 +604,7 @@ def factorial(x: i32): i32, {
 //// or
 def factorial(x: i32): i32, {
   mut(x) := x;
-  result := 1;
+  mut(result) := 1;
   while x > 1,  // condition
         x -= 1, // step
   do: { // body
@@ -744,13 +757,13 @@ template := Expr.FuncCall(
 
 // `unquote_splicing` splices a list into the surrounding list
 x := 2;
-(arg_tuple : Expr) := (quote (1, x, 3)); // quote returns a Expr type value representing the AST.
+(arg_tuple : Expr) = (quote (1, x, 3)); // quote returns a Expr type value representing the AST.
 call := quote(sum(unquote_splicing(arg_tuple.args), 4, 5));
 // or with ... operator
 call := quote(sum(...(unquote(arg_tuple.args)), 4, 5));
 
 // =>
-(call : Expr) := .FuncCall
+(call : Expr) = .FuncCall
   func: Box(.Atom(.Symbol(symbol(sum)))),
   args: list(
     .Atom(.I32(1)),
@@ -794,19 +807,19 @@ extern "C",
 // Compile-time Execution
 PI :: 3.14159265358979323846; // PI : const_float;
 
-// A function returning Type or (const(_): Type) can only be executed at compile time
+// A function returning Type or (compt(_): Type) can only be executed at compile time
 // Compile-time function execution
-def factorial(const(n): const_int): (const(_): const_int),
+def factorial(compt(n): compt_int): (compt(_): compt_int),
   if n <= 1, then: 1, else: (n * recur(n - 1));
 
 // This will be computed during compilation
-x :: 10; // x : const_int;
-FACTORIAL_10 :: factorial(10);  // FACTORIAL_10 : const_int
+x :: 10; // x : compt_int;
+FACTORIAL_10 :: factorial(10);  // FACTORIAL_10 : compt_int
 
-x :: 10; // x : const_int
-(y : i32) = x; // y : i32, this is a cast from const_int to i32
+x :: 10; // x : compt_int
+(y : i32) = x; // y : i32, this is a cast from compt_int to i32
 // This is not allowed
-(z : const_int) = y; // error: cannot cast i32 to const_int for variable
+(z : compt_int) = y; // error: cannot cast i32 to compt_int for variable
 
 // Below is another example
 def max(T: Type, a: T, b: T): T,
@@ -821,7 +834,7 @@ def max(a: boolean, b: boolean): boolean, {
   }
 };
 
-arr :: [1, 2, 3]; // const(arr): Array(i32, 3); const
+arr :: [1, 2, 3]; // compt(arr): Array(i32, 3);
 arr(0) = 10; // Not allowed, arr is immutable
 
 (arr: Array(i32, 3)) = [1, 2, 3]; // arr: Array(i32, 3); runtime mutable
@@ -829,16 +842,16 @@ arr := [1, 2, 3]; // arr: Array(i32, 3); runtime mutable
 arr := [read_input(), 2, 3]; // arr: Array(i32, 3); runtime mutable
 
 
-// Type-level computation using `const`
+// Type-level computation using `compt`
 // A function that returns a type is called a type function.  
-// The type function requires all its parameters to be `const`.  
+// The type function requires all its parameters to be `compt`.  
 // The type function is pure, which means it will be cached once executed.
-// All parameters of Type (Free or Linear) are `const` by default so you don't need to specify it explicitly.
-def Matrix(T: Type, const(ROWS): usize, const(COLS): usize): Type,
+// All parameters of Type (Free or Linear) are `compt` by default so you don't need to specify it explicitly.
+def Matrix(T: Type, compt(ROWS): usize, compt(COLS): usize): Type,
   Array(Array(T, COLS), ROWS);
 
 // Create a 3x3 matrix of integers
-(mat : Matrix(i32, 3, 3)) := [
+(mat : Matrix(i32, 3, 3)) = [
   [1, 2, 3],
   [4, 5, 6],
   [7, 8, 9]

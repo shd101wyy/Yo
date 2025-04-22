@@ -4,7 +4,7 @@ import Parser from "../parser";
 
 describe("Parser Tests", () => {
   beforeAll(() => {
-    const testFileName = "struct_in_tuple_2.mo";
+    const testFileName = "bindings.mo";
     const inputString = fs.readFileSync(
       path.join(__dirname, `examples/${testFileName}`),
       "utf-8"
