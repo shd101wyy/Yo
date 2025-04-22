@@ -37,3 +37,6 @@ x :: 12;
 // Compile-time mutable variable
 mut(x) :: 12;
 x = 13;
+
+compt(x) : Type;
+x :: struct(i32, i32);

@@ -277,6 +277,14 @@ export default class Evaluator {
         lhsExpr.type = elementType;
       }
     } else {
+      if (evaluatedRhs.value && isTypeValue(evaluatedRhs.value)) {
+        throw this.formatErrorMessage(
+          rhsExpr.token,
+          `Cannot store a type value in tuple while not in "type" context: 
+${exprToString(rhsExpr)}`
+        );
+      }
+
       // Expected the evaluatedRhs to be a value
       elementType = evaluatedRhs.type;
       if (!elementType) {
