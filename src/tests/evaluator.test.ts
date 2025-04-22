@@ -4,7 +4,7 @@ import Evaluator from "../evaluator";
 
 describe("Evaluator Tests", () => {
   beforeAll(() => {
-    const testFileName = "type_fn.mo";
+    const testFileName = "anonymous_fn.mo";
     const inputString = fs.readFileSync(
       path.join(__dirname, `examples/${testFileName}`),
       "utf-8"

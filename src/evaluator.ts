@@ -79,7 +79,20 @@ import {
 } from "./value";
 
 interface EvaluatorContext {
-  isEvaluatingType?: boolean;
+  /**
+   * Check if it's evaluating expr as type
+   */
+  isEvaluatingExprAsType?: boolean;
+
+  /**
+   *
+   */
+  expectedType?: Type;
+
+  /**
+   * This is used for calling the `recur` function.
+   */
+  isEvaluatingFunctionBodyOfType?: FunctionType;
 }
 
 interface CalledTypeFunctionCache {
@@ -211,7 +224,7 @@ export default class Evaluator {
       lhsExpr = expr.args[0];
 
       if (exprIsFunctionCall(lhsExpr) && exprIsFunctionCallOf(lhsExpr, "mut")) {
-        if (!context.isEvaluatingType) {
+        if (!context.isEvaluatingExprAsType) {
           throw this.formatErrorMessage(
             lhsExpr.token,
             `Expected "mut" to be used in type context, got ${exprToString(
@@ -249,7 +262,7 @@ export default class Evaluator {
     if (evaluatedRhs.env) {
       env = evaluatedRhs.env;
     }
-    if (context.isEvaluatingType) {
+    if (context.isEvaluatingExprAsType) {
       // Expected the evaluatedRhs to be a type
       const typeValue = evaluatedRhs.value;
       if (!typeValue || !isTypeValue(typeValue)) {
@@ -273,7 +286,7 @@ export default class Evaluator {
     }
 
     let value: Value = VUnknown;
-    if (!context.isEvaluatingType) {
+    if (!context.isEvaluatingExprAsType) {
       // Evaluating value.
       value = evaluatedRhs.value ?? VUnknown;
     } else {
@@ -317,7 +330,7 @@ export default class Evaluator {
 
     if (expr.args.length === 0) {
       // Unit
-      if (context.isEvaluatingType) {
+      if (context.isEvaluatingExprAsType) {
         expr.value = {
           tag: ValueTag.Type,
           type: typeOfType(TUnit),
@@ -335,7 +348,7 @@ export default class Evaluator {
       }
     }
 
-    if (context.isEvaluatingType) {
+    if (context.isEvaluatingExprAsType) {
       env = pushEnvFrame(env);
     }
     const {
@@ -344,19 +357,21 @@ export default class Evaluator {
       env: nextEnv,
     } = this.evaluateTupleElements({ args: expr.args, env, context });
     env = nextEnv;
-    if (context.isEvaluatingType) {
+    if (context.isEvaluatingExprAsType) {
       env = popEnvFrame(env);
     }
 
     expr.value = tupleValue;
-    expr.type = context.isEvaluatingType ? typeOfType(tupleType) : tupleType;
+    expr.type = context.isEvaluatingExprAsType
+      ? typeOfType(tupleType)
+      : tupleType;
     expr.env = env;
     return expr;
   }
 
   /**
    * Please note this function will add args to env if
-   * context.isEvaluatingType is true.
+   * context.isEvaluatingExprAsType is true.
    * You need to push the env frame before calling this function.
    * You need to pop the env frame after calling this function.
    * @returns
@@ -408,7 +423,7 @@ export default class Evaluator {
       env = nextEnv;
 
       // Add the variable to the env
-      if (context.isEvaluatingType && type.label) {
+      if (context.isEvaluatingExprAsType && type.label) {
         const { env: nextEnv } = addVariableToEnv({
           env,
           variable: {
@@ -425,7 +440,7 @@ export default class Evaluator {
 
     const tupleType: TupleType = createTupleType(tupleElements);
     let value: Value | undefined = undefined;
-    if (context.isEvaluatingType) {
+    if (context.isEvaluatingExprAsType) {
       value = {
         tag: ValueTag.Type,
         type: typeOfType(tupleType),
@@ -464,10 +479,12 @@ export default class Evaluator {
     expr,
     type,
     env,
+    context,
   }: {
     expr: Expr;
     type: Type;
     env: Environment;
+    context: EvaluatorContext;
   }): { expr: Expr; type: Type; env: Environment } {
     // Handle tuples (including tuples with placeholders)
     if (
@@ -495,6 +512,7 @@ export default class Evaluator {
           expr: elementExpr,
           type: elementType,
           env,
+          context,
         });
 
         env = nextEnv;
@@ -515,6 +533,7 @@ export default class Evaluator {
             type: typeOfType(type),
             value: createTypeValue(type),
           },
+          context,
         });
 
         if (!funcCallExpr.type || !funcCallExpr.env) {
@@ -623,6 +642,7 @@ export default class Evaluator {
             type: typeOfType(newEnumType),
             value: createTypeValue(newEnumType),
           },
+          context,
         });
         if (!funcCallExpr.type || !funcCallExpr.env) {
           throw this.formatErrorMessage(
@@ -670,10 +690,12 @@ export default class Evaluator {
     lhs,
     rhs,
     env,
+    context,
   }: {
     lhs: Expr;
     rhs: Expr;
     env: Environment;
+    context: EvaluatorContext;
   }): Environment {
     const rhsType = rhs.type;
     if (!rhsType) {
@@ -693,6 +715,7 @@ export default class Evaluator {
         rhsType,
         lhs,
         env,
+        context,
       });
     }
     // Handle tuple destructuring
@@ -709,6 +732,7 @@ export default class Evaluator {
         rhsType,
         lhs,
         env,
+        context,
       });
     }
 
@@ -729,6 +753,7 @@ export default class Evaluator {
     rhsType,
     lhs,
     env,
+    context,
   }: {
     lhsFunc: Expr;
     lhsElements: Expr[];
@@ -737,6 +762,7 @@ export default class Evaluator {
     rhsType: Type;
     lhs: Expr;
     env: Environment;
+    context: EvaluatorContext;
   }): Environment {
     const isStruct = isStructType(rhsType);
     const structTypeName = isStruct ? lhsFunc.token.value : undefined;
@@ -811,6 +837,7 @@ export default class Evaluator {
           rhsType: nestedRhsType,
           lhs: lhsElement,
           env,
+          context,
         });
 
         // Set type and value on the lhs element
@@ -896,6 +923,7 @@ export default class Evaluator {
             rhsType: nestedRhsType,
             lhs: rightSide,
             env,
+            context,
           });
 
           // Set type and value on expressions
@@ -936,6 +964,7 @@ export default class Evaluator {
             rhsType: nestedRhsType,
             lhs: rightSide,
             env,
+            context,
           });
 
           // Set type and value on expressions
@@ -1069,6 +1098,7 @@ export default class Evaluator {
           rhsType: nestedRhsType,
           lhs: lhsElement,
           env,
+          context,
         });
 
         // Set type and value on the lhs element
@@ -1143,25 +1173,15 @@ export default class Evaluator {
   private evaluateInitializationAssignment({
     expr,
     env,
+    context,
   }: {
     expr: FuncCallExpr;
     env: Environment;
+    context: EvaluatorContext;
   }): FuncCallExpr {
     // const isReAssignment = exprIsFunctionCallOf(expr, "=");
     let lhs = expr.args[0];
     let rhs = expr.args[1];
-
-    // Evaluate the rhs expression
-    rhs = this.evaluateExpression({
-      expr: rhs,
-      env,
-      context: {
-        isEvaluatingType: false,
-      },
-    });
-    if (rhs.env) {
-      env = rhs.env;
-    }
 
     // Check if the lhs is type annotation
     // x : i32
@@ -1175,9 +1195,7 @@ export default class Evaluator {
       const evaluatedType = this.evaluateExpression({
         expr: typeExpr,
         env,
-        context: {
-          isEvaluatingType: true,
-        },
+        context: { ...context, isEvaluatingExprAsType: true },
       });
       if (evaluatedType.env) {
         env = evaluatedType.env;
@@ -1191,6 +1209,21 @@ export default class Evaluator {
       }
       lhs.type = typeValue.value;
     }
+
+    // Evaluate the rhs expression
+    rhs = this.evaluateExpression({
+      expr: rhs,
+      env,
+      context: {
+        ...context,
+        isEvaluatingExprAsType: false,
+        expectedType: lhs.type,
+      },
+    });
+    if (rhs.env) {
+      env = rhs.env;
+    }
+
     if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, "mut")) {
       isMutable = true;
 
@@ -1243,6 +1276,7 @@ export default class Evaluator {
             expr: rhs,
             type: lhs.type,
             env: env,
+            context,
           });
           rhs = nextRhs;
           rhsType = nextRhsType;
@@ -1311,6 +1345,7 @@ export default class Evaluator {
         lhs,
         rhs,
         env,
+        context,
       });
       expr.type = TUnit;
       expr.env = env;
@@ -1321,9 +1356,11 @@ export default class Evaluator {
   private evaluateExtern({
     expr,
     env,
+    context,
   }: {
     expr: FuncCallExpr;
     env: Environment;
+    context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, "extern")) {
       throw this.formatErrorMessage(
@@ -1335,7 +1372,8 @@ export default class Evaluator {
       args: expr.args,
       env,
       context: {
-        isEvaluatingType: true,
+        ...context,
+        isEvaluatingExprAsType: true,
       },
     });
     env = nextEnv;
@@ -1347,9 +1385,11 @@ export default class Evaluator {
   private evaluateCond({
     expr,
     env,
+    context,
   }: {
     expr: FuncCallExpr;
     env: Environment;
+    context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, "cond")) {
       throw this.formatErrorMessage(
@@ -1389,7 +1429,8 @@ export default class Evaluator {
         expr: condExpr,
         env,
         context: {
-          isEvaluatingType: false,
+          ...context,
+          isEvaluatingExprAsType: false,
         },
       });
 
@@ -1409,7 +1450,8 @@ export default class Evaluator {
         expr: valueExpr,
         env,
         context: {
-          isEvaluatingType: false,
+          ...context,
+          isEvaluatingExprAsType: false,
         },
       });
 
@@ -1447,9 +1489,11 @@ export default class Evaluator {
   private evaluateMatch({
     expr,
     env,
+    context,
   }: {
     expr: FuncCallExpr;
     env: Environment;
+    context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, "match")) {
       throw this.formatErrorMessage(
@@ -1472,7 +1516,8 @@ export default class Evaluator {
       expr: valueExpr,
       env,
       context: {
-        isEvaluatingType: false,
+        ...context,
+        isEvaluatingExprAsType: false,
       },
     });
 
@@ -1548,7 +1593,8 @@ export default class Evaluator {
           expr: resultExpr,
           env: tempEnv,
           context: {
-            isEvaluatingType: false,
+            ...context,
+            isEvaluatingExprAsType: false,
           },
         });
         // We don't update the original env here since each pattern has its own scope
@@ -1657,7 +1703,8 @@ export default class Evaluator {
           expr: resultExpr,
           env: patternEnv,
           context: {
-            isEvaluatingType: false,
+            ...context,
+            isEvaluatingExprAsType: false,
           },
         });
 
@@ -1709,10 +1756,11 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
 
   private evaluateIdentifier({
     expr,
-    env,
+    env, // context,
   }: {
     expr: AtomExpr;
     env: Environment;
+    context: EvaluatorContext;
   }): AtomExpr {
     const identifier = expr.token.value;
     // Free
@@ -1899,9 +1947,213 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
   }
 
+  private evaluateAnonymousFunctionImplementation({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    console.log(
+      "evaluateAnonymousFunctionImplementation: ",
+      exprToString(expr)
+    );
+    const expectedFunctionType = context.expectedType;
+    if (expectedFunctionType && !isFunctionType(expectedFunctionType)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected a function type, got ${typeToString(expectedFunctionType)}`
+      );
+    }
+
+    if (!exprIsFunctionCallOf(expr, "->", 2)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected -> for anonymous function, got:\n${exprToString(expr)}`
+      );
+    }
+    let functionDeclarationExpr = expr.args[0];
+    const functionBodyExpr = expr.args[1];
+    let returnTypeExpr: Expr | undefined = undefined;
+
+    // Check if fnDeclarationExpr is in format of fn(x:i32): i32
+    // That declares the function return type;
+    let returnType: Type | undefined = undefined;
+    if (
+      exprIsFunctionCall(functionDeclarationExpr) &&
+      exprIsFunctionCallOf(functionDeclarationExpr, ":", 2)
+    ) {
+      // Get the "i32" part
+      returnTypeExpr = functionDeclarationExpr.args[1];
+
+      // Get the "fn(x:i32)" part
+      functionDeclarationExpr = functionDeclarationExpr.args[0];
+    }
+
+    if (
+      !exprIsFunctionCall(functionDeclarationExpr) ||
+      !exprIsFunctionCallOf(functionDeclarationExpr, "fn")
+    ) {
+      throw this.formatErrorMessage(
+        functionDeclarationExpr.token,
+        `Expected "fn" for anonymous function, got:\n${exprToString(
+          functionDeclarationExpr
+        )}`
+      );
+    }
+
+    // FIXME:
+    // Evaluate the parameter list
+    env = pushEnvFrame(env);
+    let functionParameters: TupleElement[] = [];
+    if (expectedFunctionType) {
+      // TODO: Evaluate the anonymous function parameter list
+      // with the expectedFunctionType.params
+    } else {
+      const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
+        args: functionDeclarationExpr.args,
+        env,
+        context: {
+          ...context,
+          isEvaluatingExprAsType: true,
+        },
+      });
+      functionParameters = tupleType.elements;
+      env = nextEnv;
+    }
+
+    // Evaluate the return type expression
+    if (returnTypeExpr) {
+      const functionReturnValue = this.evaluateExpression({
+        expr: returnTypeExpr,
+        env,
+        context: {
+          ...context,
+          isEvaluatingExprAsType: true,
+        },
+      }).value;
+      if (!functionReturnValue || !isTypeValue(functionReturnValue)) {
+        throw this.formatErrorMessage(
+          functionDeclarationExpr.token,
+          `Expected a type for function return type, got:\n${exprToString(
+            functionDeclarationExpr
+          )}`
+        );
+      } else {
+        returnType = functionReturnValue.value;
+      }
+    }
+
+    // FIXME: Compare the expectedFunctionType and anonymous function type.
+    let functionType: FunctionType;
+    if (expectedFunctionType) {
+      functionType = expectedFunctionType;
+    } else {
+      if (!returnTypeExpr || !returnType) {
+        throw this.formatErrorMessage(
+          functionDeclarationExpr.token,
+          `Expected a function return type, got:\n${exprToString(
+            functionDeclarationExpr
+          )}`
+        );
+      }
+      functionType = createFunctionType({
+        params: functionParameters ?? [], // FIXME: functionParameters,
+        return_: {
+          expr: returnTypeExpr,
+          type: returnType,
+        },
+      });
+    }
+
+    // Evaluate the function body
+    const evaluatedBody = this.evaluateExpression({
+      expr: functionBodyExpr,
+      env,
+      context: {
+        ...context,
+        isEvaluatingExprAsType: false,
+        isEvaluatingFunctionBodyOfType: functionType,
+      },
+    });
+
+    // Check if the return type is compatible
+    const evaluatedBodyReturnType = evaluatedBody.type;
+    if (
+      evaluatedBodyReturnType &&
+      !areTypesCompatible(
+        functionType.return.type,
+        evaluatedBodyReturnType,
+        env
+      )
+    ) {
+      throw this.formatErrorMessage(
+        functionBodyExpr.token,
+        `Incompatible return type:
+- Expected: ${typeToString(functionType.return.type)}
+- Got     : ${typeToString(evaluatedBodyReturnType)}`
+      );
+    }
+
+    if (evaluatedBody.env) {
+      env = evaluatedBody.env;
+    }
+    // Restore the env frame
+    env = popEnvFrame(env);
+
+    // Set the type and value of the expression
+    expr.type = functionType;
+    expr.value = {
+      tag: ValueTag.Function,
+      type: functionType,
+      body: functionBodyExpr,
+      frameLevel: env.frames.length - 1,
+      funcId: `fn_${randomId()}`,
+    };
+    expr.env = env;
+    return expr;
+  }
+
+  private evaluateRecur({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    const isEvaluatingFunctionBodyOfType =
+      context.isEvaluatingFunctionBodyOfType;
+    if (!isEvaluatingFunctionBodyOfType) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected a function type for recur, got:\n${exprToString(expr)}`
+      );
+    }
+    if (!exprIsFunctionCallOf(expr, "recur")) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected recur, got:\n${exprToString(expr)}`
+      );
+    }
+    return this.evaluateFunctionCall({
+      expr,
+      env,
+      givenFunc: {
+        type: isEvaluatingFunctionBodyOfType,
+        value: createTypeValue(isEvaluatingFunctionBodyOfType),
+      },
+      context,
+    });
+  }
+
   private evaluateFunctionType({
     expr,
-    env, // context,
+    env,
+    context,
   }: {
     expr: FuncCallExpr;
     env: Environment;
@@ -1946,7 +2198,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       args: argList,
       env,
       context: {
-        isEvaluatingType: true,
+        ...context,
+        isEvaluatingExprAsType: true,
       },
     });
     const functionParameters = tupleType.elements;
@@ -1956,7 +2209,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     const evaluatedReturnType = this.evaluateExpression({
       expr: returnTypeExpr,
       env,
-      context: { isEvaluatingType: true },
+      context: { ...context, isEvaluatingExprAsType: true },
     });
 
     // Check that the return type is indeed a type
@@ -1996,9 +2249,11 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
   private evaluateTypeExpression({
     expr,
     env,
+    context,
   }: {
     expr: FuncCallExpr;
     env: Environment;
+    context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, "type", 1)) {
       throw this.formatErrorMessage(
@@ -2011,7 +2266,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     const evaluatedType = this.evaluateExpression({
       expr: typeExpr,
       env,
-      context: { isEvaluatingType: true },
+      context: { ...context, isEvaluatingExprAsType: true },
     });
     if (evaluatedType.env) {
       env = evaluatedType.env;
@@ -2038,9 +2293,11 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
   private evaluateStruct({
     expr,
     env,
+    context,
   }: {
     expr: FuncCallExpr;
     env: Environment;
+    context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, "struct")) {
       throw this.formatErrorMessage(
@@ -2053,9 +2310,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
       args: expr.args,
       env,
-      context: {
-        isEvaluatingType: true,
-      },
+      context: { ...context, isEvaluatingExprAsType: true },
     });
     env = nextEnv;
     env = popEnvFrame(env);
@@ -2080,9 +2335,11 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
   private evaluateEnum({
     expr,
     env,
+    context,
   }: {
     expr: FuncCallExpr;
     env: Environment;
+    context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, "enum")) {
       throw this.formatErrorMessage(
@@ -2131,7 +2388,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           args: enumArg.args,
           env,
           context: {
-            isEvaluatingType: true,
+            ...context,
+            isEvaluatingExprAsType: true,
           },
         });
         env = nextEnv;
@@ -2393,7 +2651,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!context.isEvaluatingType) {
+    if (!context.isEvaluatingExprAsType) {
       throw this.formatErrorMessage(expr.token, "Not implemented");
     }
     if (!exprIsFunctionCallOf(expr, ".", 1)) {
@@ -2479,7 +2737,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       name: variantExpr.args[0].token.value,
       params: tupleType,
     };
-    if (context.isEvaluatingType) {
+    if (context.isEvaluatingExprAsType) {
       variantExpr.value = {
         tag: TypeTag.Type,
         type: typeOfType(variantType),
@@ -2508,6 +2766,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     argValues,
     argExprs,
     env,
+    context,
     updateArgType,
   }: {
     paramElements: TupleElement[];
@@ -2515,6 +2774,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     argValues: TupleValue | undefined;
     argExprs: Expr[];
     env: Environment;
+    context: EvaluatorContext;
     updateArgType?: boolean;
   }): Environment | false {
     if (argElements.length > paramElements.length) {
@@ -2572,6 +2832,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
               expr: argExpr,
               type: paramElement.type,
               env,
+              context,
             });
           env = nextEnv;
           argType = nextArgType;
@@ -2622,13 +2883,14 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
 
   private evaluateFunctionCall({
     expr,
-    env, // context,
+    env,
+    context,
     givenFunc,
   }: {
     expr: FuncCallExpr;
     env: Environment;
     givenFunc?: { type: Type; value: TypeValue };
-    // context: EvaluatorContext;
+    context: EvaluatorContext;
   }): FuncCallExpr {
     const func = expr.func;
     let args = expr.args;
@@ -2650,7 +2912,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         expr: func,
         env,
         context: {
-          isEvaluatingType: false,
+          ...context,
+          isEvaluatingExprAsType: false,
         },
       });
 
@@ -2665,7 +2928,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           expr: functionToCall.args[1],
           env,
           context: {
-            isEvaluatingType: false,
+            ...context,
+            isEvaluatingExprAsType: false,
           },
         });
         args = [callerArg, ...args];
@@ -2713,7 +2977,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       args,
       env,
       context: {
-        isEvaluatingType: false,
+        ...context,
+        isEvaluatingExprAsType: false,
       },
     });
     env = nextEnv;
@@ -2729,6 +2994,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           argValues: evaluatedArgValues,
           argExprs: args,
           env,
+          context,
         });
       } else {
         const value = func.value;
@@ -2740,6 +3006,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
             argValues: evaluatedArgValues,
             argExprs: args,
             env,
+            context,
           });
         }
         // enum value
@@ -2760,6 +3027,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
             argValues: evaluatedArgValues,
             argExprs: args,
             env,
+            context,
           });
         }
         return false;
@@ -2811,6 +3079,7 @@ ${functionsWithMatchingTypes
             argValues: evaluatedArgValues,
             argExprs: args,
             env,
+            context,
           });
         env = nextEnv;
         expr.value = returnValue;
@@ -2831,6 +3100,7 @@ ${functionsWithMatchingTypes
             argValues: evaluatedArgValues,
             argExprs: args,
             env,
+            context,
           });
         env = nextEnv;
         expr.type = returnType;
@@ -2884,6 +3154,7 @@ ${exprToString(expr)}`
     argValues,
     argExprs,
     env,
+    context,
   }: {
     functionCallExpr: Expr;
     functionType: FunctionType;
@@ -2892,6 +3163,7 @@ ${exprToString(expr)}`
     argValues: TupleValue | undefined;
     argExprs: Expr[];
     env: Environment;
+    context: EvaluatorContext;
   }): { value: TypeValue; env: Environment } {
     // This will push a new frame to the env and
     // add the parameters to the env
@@ -2902,6 +3174,7 @@ ${exprToString(expr)}`
       argExprs: argExprs,
       env,
       updateArgType: true,
+      context,
     });
     if (!nextEnv) {
       throw this.formatErrorMessage(
@@ -2943,7 +3216,7 @@ Expected: ${typeToString(functionType)}`
     const evaluatedFunctionBody = this.evaluateExpression({
       expr: functionBodyExpr,
       env,
-      context: { isEvaluatingType: false },
+      context: { ...context, isEvaluatingExprAsType: false },
     });
     if (!evaluatedFunctionBody.env) {
       throw this.formatErrorMessage(
@@ -2994,6 +3267,7 @@ Expected: ${typeToString(functionType)}`
     argValues,
     argExprs,
     env,
+    context,
   }: {
     functionCallExpr: Expr;
     functionType: FunctionType;
@@ -3001,6 +3275,7 @@ Expected: ${typeToString(functionType)}`
     argValues: TupleValue | undefined;
     argExprs: Expr[];
     env: Environment;
+    context: EvaluatorContext;
   }): { returnType: Type; env: Environment } {
     // This will push a new frame to the env and
     // add the parameters to the env
@@ -3011,6 +3286,7 @@ Expected: ${typeToString(functionType)}`
       argExprs,
       env,
       updateArgType: true,
+      context,
     });
     if (!nextEnv) {
       throw this.formatErrorMessage(
@@ -3025,7 +3301,7 @@ Expected: ${typeToString(functionType)}`
     const evaluatedFunctionReturnExpr = this.evaluateExpression({
       expr: functionType.return.expr,
       env,
-      context: { isEvaluatingType: true },
+      context: { ...context, isEvaluatingExprAsType: true },
     });
     /*
     if (!evaluatedFunctionReturnExpr.env) {
@@ -3046,13 +3322,13 @@ Expected: ${typeToString(functionType)}`
         `Function body is not evaluated correctly. Expected to return a type.`
       );
     }
-    const functionReturnType = functionReturnTypeValue.value;
+    const returnType = functionReturnTypeValue.value;
 
     // Restore the environment frames
     env = popEnvFrame(env);
 
     return {
-      returnType: functionReturnType,
+      returnType: returnType,
       env,
     };
   }
@@ -3060,9 +3336,11 @@ Expected: ${typeToString(functionType)}`
   private evaluateDefExpression({
     expr,
     env,
+    context,
   }: {
     expr: FuncCallExpr;
     env: Environment;
+    context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, "def", 2)) {
       throw this.formatErrorMessage(
@@ -3115,7 +3393,7 @@ Expected: ${typeToString(functionType)}`
     const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
       args: functionParameterExprList,
       env,
-      context: { isEvaluatingType: true },
+      context: { ...context, isEvaluatingExprAsType: true },
     });
     env = nextEnv;
     const functionParameters = tupleType.elements;
@@ -3124,7 +3402,7 @@ Expected: ${typeToString(functionType)}`
     const evaluatedReturnTypeExpr = this.evaluateExpression({
       expr: functionReturnTypeExpr,
       env,
-      context: { isEvaluatingType: true },
+      context: { ...context, isEvaluatingExprAsType: true },
     });
     const returnTypeValue = evaluatedReturnTypeExpr.value;
     if (!returnTypeValue || !isTypeValue(returnTypeValue)) {
@@ -3172,7 +3450,7 @@ Expected: ${typeToString(functionType)}`
     const evaluatedFunctionBody = this.evaluateExpression({
       expr: functionBodyExpr,
       env,
-      context: { isEvaluatingType: false },
+      context: { ...context, isEvaluatingExprAsType: false },
     });
     if (evaluatedFunctionBody.env) {
       env = evaluatedFunctionBody.env;
@@ -3202,9 +3480,11 @@ Expected: ${typeToString(functionType)}`
   private evaluateBeginExpression({
     expr,
     env,
+    context,
   }: {
     expr: FuncCallExpr;
     env: Environment;
+    context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, "begin")) {
       throw this.formatErrorMessage(
@@ -3234,7 +3514,8 @@ Expected: ${typeToString(functionType)}`
         expr: exprs[i],
         env,
         context: {
-          isEvaluatingType: false,
+          ...context,
+          isEvaluatingExprAsType: false,
         },
       });
       if (evaluatedExpr.env) {
@@ -3266,6 +3547,7 @@ Expected: ${typeToString(functionType)}`
           return this.evaluateIdentifier({
             expr,
             env,
+            context,
           });
         }
         case TokenType.Integer: {
@@ -3285,51 +3567,72 @@ ${exprToString(expr)}`
     } else {
       if (exprIsFunctionCallOf(expr, ":=", 2)) {
         // Variable assignment
-        return this.evaluateInitializationAssignment({ expr, env });
+        return this.evaluateInitializationAssignment({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, "->", 2)) {
+        // Function implementation
+        if (
+          // (fn(x: i32) -> x)
+          (exprIsFunctionCall(expr.args[0]) &&
+            exprIsFunctionCallOf(expr.args[0], "fn")) ||
+          // ((fn(x:i32):i32)-> x)
+          (exprIsFunctionCall(expr.args[0]) &&
+            exprIsFunctionCallOf(expr.args[0], ":", 2) &&
+            exprIsFunctionCall(expr.args[0].args[0]) &&
+            exprIsFunctionCallOf(expr.args[0].args[0], "fn"))
+        ) {
+          return this.evaluateAnonymousFunctionImplementation({
+            expr,
+            env,
+            context: { ...context, isEvaluatingExprAsType: false },
+          });
+        }
+
         // Function type
         return this.evaluateFunctionType({
           expr,
           env,
-          context: { isEvaluatingType: true },
+          context: { ...context, isEvaluatingExprAsType: true },
         });
+      } else if (exprIsFunctionCallOf(expr, "recur")) {
+        // recur
+        return this.evaluateRecur({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, "extern")) {
         // extern
-        return this.evaluateExtern({ expr, env });
+        return this.evaluateExtern({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, "cond")) {
         // cond
-        return this.evaluateCond({ expr, env });
+        return this.evaluateCond({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, "match")) {
         // match
-        return this.evaluateMatch({ expr, env });
+        return this.evaluateMatch({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
         // tuple
         return this.evaluateTuple({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, "type")) {
         // type Expr
-        return this.evaluateTypeExpression({ expr, env });
+        return this.evaluateTypeExpression({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, "struct")) {
         // struct
-        return this.evaluateStruct({ expr, env });
+        return this.evaluateStruct({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, "enum")) {
         // enum
-        return this.evaluateEnum({ expr, env });
+        return this.evaluateEnum({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, ".")) {
         // property access
         return this.evaluatePropertyAccess({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, "def")) {
         // def
-        return this.evaluateDefExpression({ expr, env });
+        return this.evaluateDefExpression({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, "begin")) {
         // begin
-        return this.evaluateBeginExpression({ expr, env });
+        return this.evaluateBeginExpression({ expr, env, context });
       } else {
         /* else if (exprIsFunctionCallOf(expr, ".", 1)) {
         // variant
         return this.evaluateVariant({ expr, env, context });
       } */
         // Function call
-        return this.evaluateFunctionCall({ expr, env });
+        return this.evaluateFunctionCall({ expr, env, context });
       }
     }
   }
@@ -3345,7 +3648,7 @@ ${exprToString(expr)}`
         expr,
         env,
         context: {
-          isEvaluatingType: false,
+          isEvaluatingExprAsType: false,
         },
       });
       env = nextExpr.env || env;
