@@ -15,8 +15,8 @@ y :: 14;
 
 // (:) function is used to denote a type
 // (=) function is used to update a mutable variable with a new value, or initialize a variable with a value
-// (::) function is used to denote a comptime variable with type inferred
 // (:=) function is used to denote a runtime variable with type inferred
+// (::) function is used to denote a comptime variable with type inferred
 
 x : i32;        // Define a runtime immutable variable
 mut(x) : i32;   // Define a runtime mutable variable

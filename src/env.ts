@@ -47,6 +47,12 @@ export interface Variable {
    */
   isMutable?: boolean;
   /**
+   * Whether the variable is compile-time only or not.
+   * Eg:
+   * x :: 1;
+   */
+  isCompileTimeOnly?: boolean;
+  /**
    * If the variable is initialized.
    */
   isNotInitialized?: boolean;
@@ -453,6 +459,26 @@ ${typeToString(variable.type)}`,
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
     freeVariables: env.freeVariables,
     frames: env.frames.slice(0, -1),
+    modulePath: env.modulePath,
+    inputString: env.inputString,
+  };
+}
+
+export function updateExistingVariable(
+  env: Environment,
+  oldVariable: Variable,
+  newVariable: Variable
+): Environment {
+  const frames: Frame[] = env.frames.map((frame) => {
+    const variables = frame.variables.map((variable) =>
+      variable === oldVariable ? newVariable : variable
+    );
+    return { ...frame, variables };
+  });
+  return {
+    functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
+    freeVariables: env.freeVariables,
+    frames,
     modulePath: env.modulePath,
     inputString: env.inputString,
   };

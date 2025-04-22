@@ -80,7 +80,7 @@ export interface Type {
   /**
    * Whether the value of the type is compile-time known or not.
    */
-  isCompileTimeKnown?: boolean;
+  isCompileTimeOnly?: boolean;
 }
 
 export interface LiteralType extends Type {

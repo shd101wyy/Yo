@@ -5,6 +5,7 @@ import {
   getVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
+  updateExistingVariable,
 } from "./env";
 import { formatErrorMessage } from "./error";
 import {
@@ -53,7 +54,6 @@ import {
   TU32,
   TU64,
   TU8,
-  TUnit,
   TupleElement,
   TupleType,
   TUsize,
@@ -75,6 +75,7 @@ import {
   Value,
   ValueTag,
   valueToString,
+  VUnit,
   VUnknown,
 } from "./value";
 
@@ -159,7 +160,7 @@ export default class Evaluator {
       const integerValue = parseInt(expr.token.value, 10);
       const value: Value = {
         tag: ValueTag.I32,
-        type: { ...TI32, isCompileTimeKnown: true },
+        type: { ...TI32, isCompileTimeOnly: true },
         value: integerValue,
       };
       expr.value = value;
@@ -178,7 +179,7 @@ export default class Evaluator {
       const booleanValue = expr.token.value === "true";
       const value: Value = {
         tag: ValueTag.Boolean,
-        type: { ...TBoolean, isCompileTimeKnown: true },
+        type: { ...TBoolean, isCompileTimeOnly: true },
         value: booleanValue,
       };
       expr.value = value;
@@ -331,19 +332,12 @@ export default class Evaluator {
     if (expr.args.length === 0) {
       // Unit
       if (context.isEvaluatingExprAsType) {
-        expr.value = {
-          tag: ValueTag.Type,
-          type: typeOfType(TUnit),
-          value: TUnit,
-        };
-        expr.type = typeOfType(TUnit);
+        expr.value = VUnit;
+        expr.type = VUnit.type;
         return expr;
       } else {
-        expr.value = {
-          tag: ValueTag.Unit,
-          type: TUnit,
-        };
-        expr.type = TUnit;
+        expr.value = VUnit;
+        expr.type = VUnit.type;
         return expr;
       }
     }
@@ -430,7 +424,7 @@ export default class Evaluator {
             name: type.label,
             token: arg.token,
             type: type.type,
-            isMutable: type.isMutable,
+            isMutable: !!type.isMutable,
             isNotInitialized: false, // Set as initialized
           },
         });
@@ -1170,6 +1164,108 @@ export default class Evaluator {
     return env;
   }
 
+  private evaluateBinding({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): { expr: FuncCallExpr; variableExpr: Expr; variableName: string } {
+    if (!exprIsFunctionCallOf(expr, ":", 2)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected ":" for variable binding.`
+      );
+    }
+    let lhs = expr.args[0];
+    const rhs = expr.args[1];
+
+    // Evaluate the rhs expression
+    const evaluatedRhs = this.evaluateExpression({
+      expr: rhs,
+      env,
+      context: {
+        ...context,
+        isEvaluatingExprAsType: true,
+      },
+    });
+    if (evaluatedRhs.env) {
+      env = evaluatedRhs.env;
+    }
+    if (!isTypeValue(evaluatedRhs.value)) {
+      throw this.formatErrorMessage(
+        rhs.token,
+        `Expected type for rhs, got ${exprToString(rhs)}`
+      );
+    }
+    const typeValue = evaluatedRhs.value;
+    const userDefinedType = typeValue.value;
+
+    // Evaluate the lhs expression
+    let isCompileTimeOnly = false;
+    let isMutable = false;
+    if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, "compt")) {
+      isCompileTimeOnly = true;
+      if (lhs.args.length !== 1) {
+        throw this.formatErrorMessage(
+          lhs.token,
+          `Expected one argument for compt, got ${lhs.args.length}`
+        );
+      }
+      lhs = lhs.args[0];
+    }
+    if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, "mut")) {
+      isMutable = true;
+      if (lhs.args.length !== 1) {
+        throw this.formatErrorMessage(
+          lhs.token,
+          `Expected one argument for mut, got ${lhs.args.length}`
+        );
+      }
+      lhs = lhs.args[0];
+    }
+    if (!this.isValidVariableName(lhs)) {
+      throw this.formatErrorMessage(
+        lhs.token,
+        `Invalid binding to ${lhs.token.value}, expected identifier or operator`
+      );
+    }
+
+    if (isTypeHierarchyType(userDefinedType) && !isCompileTimeOnly) {
+      throw this.formatErrorMessage(
+        lhs.token,
+        `Expected "compt" to for compile-time known type value binding.`
+      );
+    }
+
+    const variableName = lhs.token.value;
+    // Add the variable to the env
+    const { env: nextEnv } = addVariableToEnv({
+      env,
+      variable: {
+        name: variableName,
+        token: lhs.token,
+        type: userDefinedType,
+        isMutable,
+        isNotInitialized: true,
+        value: VUnknown,
+        isCompileTimeOnly,
+      },
+    });
+    env = nextEnv;
+
+    // Attach the user defined type to the lhs
+    lhs.type = userDefinedType;
+    lhs.env = env;
+
+    expr.env = env;
+    expr.value = VUnit;
+    expr.type = VUnit.type;
+    return { expr, variableExpr: lhs, variableName };
+  }
+
   private evaluateInitializationAssignment({
     expr,
     env,
@@ -1179,36 +1275,20 @@ export default class Evaluator {
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    // const isReAssignment = exprIsFunctionCallOf(expr, "=");
+    if (
+      !exprIsFunctionCallOf(expr, ":=", 2) &&
+      !exprIsFunctionCallOf(expr, "::", 2)
+    ) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected ":=" or "::" for initialization assignment.`
+      );
+    }
+    const isCompileTimeOnly = exprIsFunctionCallOf(expr, "::");
+    let isMutable = false;
+
     let lhs = expr.args[0];
     let rhs = expr.args[1];
-
-    // Check if the lhs is type annotation
-    // x : i32
-    let isMutable = false;
-    // const userDefinedType: Type | undefined = undefined;
-    if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ":", 2)) {
-      const typeExpr = lhs.args[1];
-      lhs = lhs.args[0];
-
-      // Parse the type expression
-      const evaluatedType = this.evaluateExpression({
-        expr: typeExpr,
-        env,
-        context: { ...context, isEvaluatingExprAsType: true },
-      });
-      if (evaluatedType.env) {
-        env = evaluatedType.env;
-      }
-      const typeValue = evaluatedType.value;
-      if (!typeValue || !isTypeValue(typeValue)) {
-        throw this.formatErrorMessage(
-          typeExpr.token,
-          `Expected type for lhs, got value: ${exprToString(typeExpr)}`
-        );
-      }
-      lhs.type = typeValue.value;
-    }
 
     // Evaluate the rhs expression
     rhs = this.evaluateExpression({
@@ -1226,15 +1306,6 @@ export default class Evaluator {
 
     if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, "mut")) {
       isMutable = true;
-
-      // If rhs is type value, then it cannot be mutable
-      if (isTypeValue(rhs.value)) {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Unexpected mut for type value: ${exprToString(rhs)}`
-        );
-      }
-
       // Check if the lhs is a variable
       if (lhs.args.length !== 1) {
         throw this.formatErrorMessage(
@@ -1243,6 +1314,22 @@ export default class Evaluator {
         );
       }
       lhs = lhs.args[0];
+    }
+
+    // If rhs is type value, then it cannot be mutable
+    if (isTypeValue(rhs.value) && isMutable) {
+      throw this.formatErrorMessage(
+        lhs.token,
+        `Unexpected "mut" for type value:
+${exprToString(rhs)}`
+      );
+    }
+    if (isTypeValue(rhs.value) && !isCompileTimeOnly) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Unexpected "::" instead of ":=" for type value assignment:
+${exprToString(expr)}`
+      );
     }
 
     if (exprIsAtom(lhs)) {
@@ -1322,6 +1409,7 @@ export default class Evaluator {
           token: lhs.token,
           type: lhs.type,
           isMutable,
+          isCompileTimeOnly,
           isNotInitialized: false,
           value: lhs.value,
         },
@@ -1329,8 +1417,8 @@ export default class Evaluator {
       env = nextEnv;
       expr.env = env;
       lhs.env = env;
-      expr.type = TUnit;
-
+      expr.value = VUnit;
+      expr.type = VUnit.type;
       return expr;
     } else {
       // Evaluate the destructuring assignment
@@ -1347,9 +1435,134 @@ export default class Evaluator {
         env,
         context,
       });
-      expr.type = TUnit;
+      expr.value = VUnit;
+      expr.type = VUnit.type;
       expr.env = env;
       return expr;
+    }
+  }
+
+  private evaluateAssignment({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, "=", 2)) {
+      throw this.formatErrorMessage(expr.token, `Expected "=" for assignment.`);
+    }
+
+    let lhs = expr.args[0];
+    let rhs = expr.args[1];
+
+    // Evaluate the rhs expression
+    rhs = this.evaluateExpression({
+      expr: rhs,
+      env,
+      context: {
+        ...context,
+        isEvaluatingExprAsType: false,
+      },
+    });
+    if (rhs.env) {
+      env = rhs.env;
+    }
+    if (!rhs.type) {
+      throw this.formatErrorMessage(
+        rhs.token,
+        `Expected type for right-hand side, got ${exprToString(rhs)}`
+      );
+    }
+    const rhsType = rhs.type;
+
+    if (
+      exprIsAtom(lhs) ||
+      (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ":", 2))
+    ) {
+      let variableName: string;
+      if (exprIsAtom(lhs)) {
+        // x = 12;
+        if (!this.isValidVariableName(lhs)) {
+          throw this.formatErrorMessage(
+            lhs.token,
+            `Invalid assignment to ${lhs.token.value}, expected identifier or operator`
+          );
+        }
+
+        // Check if the variable exists in the environment
+        variableName = lhs.token.value;
+      } else {
+        // (x: i32) = 12;
+        const {
+          expr: bindingExpr,
+          variableExpr,
+          variableName: nextVariableName,
+        } = this.evaluateBinding({
+          expr: lhs,
+          env,
+          context: {
+            ...context,
+          },
+        });
+        if (bindingExpr.env) {
+          env = bindingExpr.env;
+        }
+        lhs = variableExpr;
+        variableName = nextVariableName;
+      }
+
+      const variables = getVariablesFromEnv(env, variableName);
+      if (!variables.length) {
+        throw this.formatErrorMessage(
+          lhs.token,
+          `Variable ${variableName} not found in the environment`
+        );
+      }
+      const variable = variables[variables.length - 1];
+
+      // Check if the type matches
+      if (!areTypesCompatible(variable.type, rhsType, env)) {
+        throw this.formatErrorMessage(
+          lhs.token,
+          `Incompatible types:
+- Expected: ${typeToString(variable.type)}
+- Given   : ${typeToString(rhsType)}`
+        );
+      }
+
+      if (variable.isNotInitialized) {
+        env = updateExistingVariable(env, variable, {
+          ...variable,
+          isNotInitialized: false,
+        });
+      } else if (variable.isMutable) {
+        // Update the variable value
+        env = updateExistingVariable(env, variable, {
+          ...variable,
+          value: rhs.value,
+        });
+      } else {
+        throw this.formatErrorMessage(
+          lhs.token,
+          `Cannot assign to immutable variable "${variableName}"`
+        );
+      }
+      lhs.value = rhs.value;
+      lhs.type = rhsType;
+      lhs.env = env;
+      expr.value = VUnit;
+      expr.type = VUnit.type;
+      expr.env = env;
+      return expr;
+    } else {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Invalid assignment is not supported for:
+${exprToString(expr)}`
+      );
     }
   }
 
@@ -1377,7 +1590,8 @@ export default class Evaluator {
       },
     });
     env = nextEnv;
-    expr.type = TUnit;
+    expr.value = VUnit;
+    expr.type = VUnit.type;
     expr.env = env;
     return expr;
   }
@@ -3497,11 +3711,8 @@ Expected: ${typeToString(functionType)}`
     // Empty begin
     // return unit
     if (exprs.length === 0) {
-      expr.type = TUnit;
-      expr.value = {
-        tag: ValueTag.Unit,
-        type: TUnit,
-      };
+      expr.type = VUnit.type;
+      expr.value = VUnit;
       return expr;
     }
 
@@ -3565,9 +3776,19 @@ ${exprToString(expr)}`
         }
       }
     } else {
-      if (exprIsFunctionCallOf(expr, ":=", 2)) {
-        // Variable assignment
+      if (exprIsFunctionCallOf(expr, ":", 2)) {
+        // Binding type
+        const { expr: nextExpr } = this.evaluateBinding({ expr, env, context });
+        return nextExpr;
+      } else if (
+        exprIsFunctionCallOf(expr, ":=", 2) ||
+        exprIsFunctionCallOf(expr, "::", 2)
+      ) {
+        // Initialize assignment
         return this.evaluateInitializationAssignment({ expr, env, context });
+      } else if (exprIsFunctionCallOf(expr, "=", 2)) {
+        // Assignment
+        return this.evaluateAssignment({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, "->", 2)) {
         // Function implementation
         if (

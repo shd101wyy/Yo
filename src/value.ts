@@ -5,6 +5,7 @@ import {
   ArrayType,
   FunctionType,
   StructType,
+  TFree,
   TupleType,
   Type,
   typeOfType,
@@ -264,6 +265,11 @@ export function createTypeValue(value: Type): TypeValue {
 
 export const VUnknown: UnknownValue = {
   tag: ValueTag.Unknown,
+};
+
+export const VUnit: UnitValue = {
+  tag: ValueTag.Unit,
+  type: TFree,
 };
 
 export function areValuesEqual(

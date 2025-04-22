@@ -198,14 +198,29 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         // Get variable from the env
+        let isNotInitialized = true;
+        let foundVariable = false;
         if (expr.env) {
           const variables = getVariablesFromEnv(expr.env, expr.token.value);
-          if (
+          foundVariable = variables && variables.length > 0;
+          const isMutable =
             variables &&
             variables.length > 0 &&
-            variables[variables.length - 1].isMutable
-          ) {
+            variables[variables.length - 1].isMutable;
+          const isCompileTimeOnly =
+            variables &&
+            variables.length > 0 &&
+            variables[variables.length - 1].isCompileTimeOnly;
+          isNotInitialized =
+            variables &&
+            variables.length > 0 &&
+            !!variables[variables.length - 1].isNotInitialized;
+
+          if (isMutable) {
             tokenText = `mut(${tokenText})`;
+          }
+          if (isCompileTimeOnly) {
+            tokenText = `compt(${tokenText})`;
           }
         }
 
@@ -223,14 +238,18 @@ export function activate(context: vscode.ExtensionContext) {
           );
         }
 
-        // Add value if available
-        const valueString = valueToString(expr.value);
-        if (expr.value?.tag === ValueTag.Type) {
-          markdownContent.appendMarkdown(
-            `\n:= ${valueString} (${getSizeString(expr.value.value)})`
-          );
+        if (foundVariable && isNotInitialized) {
+          markdownContent.appendMarkdown(`\nNot initialized`);
         } else {
-          markdownContent.appendMarkdown(`\n:= ${valueString}`);
+          // Add value if available
+          const valueString = valueToString(expr.value);
+          if (expr.value?.tag === ValueTag.Type) {
+            markdownContent.appendMarkdown(
+              `\n= ${valueString} (${getSizeString(expr.value.value)})`
+            );
+          } else {
+            markdownContent.appendMarkdown(`\n= ${valueString}`);
+          }
         }
 
         // Close the code block

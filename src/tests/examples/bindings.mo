@@ -1,24 +1,39 @@
 
 // Runtime immutable variable
 x : i32;
+x = 12;
+(x : boolean) = true;
 
 // Runtime mutable variable
 mut(x) : i32;
+x = 12;
+(mut(x) : boolean) = true;
+x = false;
 
 // Compile-time immutable variable
 compt(x) : i32;
+x = 12;
+(compt(x) : boolean) = true;
+// x = false;
 
 // Compile-time mutable variable
 compt(mut(x)) : i32;
+x = 12;
+(compt(mut(x)) : boolean) = true;
+x = false;
 
 // Runtime immutable variable
-x := 12; 
+x := 12;
+// x = 13; // error
 
 // Runtime mutable variable
 mut(x) := 12;
+x = 13;
 
 // Compile-time immutable variable
 x :: 12;
+// x = 13; // error
 
 // Compile-time mutable variable
 mut(x) :: 12;
+x = 13;
