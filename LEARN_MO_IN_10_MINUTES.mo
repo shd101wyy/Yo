@@ -21,7 +21,7 @@ y :: 14;
 x : i32;        // Define a runtime immutable variable
 mut(x) : i32;   // Define a runtime mutable variable
 compt(x) : i32; // Define a compile-time immutable variable
-compt(mut(x));  // Define a compile-time mutable variable
+compt(mut(x)) : i32;  // Define a compile-time mutable variable
 
 (compt(x) : compt_int) = 12;  // compt(x): i32, immutable.
 (mut(y) : i32) = 14;          // mut(y): i32, mutable.
@@ -320,15 +320,7 @@ s := Shape.Circle 5;
 s := Shape.Rectangle width: 10, height: 20;
 
 // type as function parameter
-def Option(T: Type): Type,
-  // `T: Type` here will automatically be added the `compt` qualifier
-  // and same for the return `Type`
-  enum(
-    Some(T),
-    None
-  );
-// So it's equivalent to:
-def Option(compt(T): Type): (compt(_): Type),
+def Option(compt(T): Type): compt Type,
   enum(
     Some(T),
     None
@@ -340,13 +332,13 @@ x := Option(i32).Some(12);
 // By default, all variants return the same type.
 // You can also specify the return type for each variant
 // to make it a GADT
-def MyExpr(T: Type): Type,
+def MyExpr(compt(T): Type): compt Type,
   enum
     IntExpr: ((i32) -> MyExpr(i32)),
     BoolExpr: ((boolean) -> MyExpr(boolean)),
     EqExpr: ((MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean))
   ;
-def my_eval(T: Type, expr: MyExpr(T)): T,
+def my_eval(compt(T): Type, expr: MyExpr(T)): T,
   match expr,
     .IntExpr(i) -> i,
     .BoolExpr(b) -> b,
@@ -355,16 +347,16 @@ def my_eval(T: Type, expr: MyExpr(T)): T,
 
 // higher kinded types
 // are types that take other types as parameter
-def T1(F: ((Type) -> Type), A: Type): Type,
+def T1(F: ((compt Type) -> compt Type), A: compt Type): compt Type,
   F(A)
 ;
 // Assume we have the `Maybe` type,
 // then we can define `Option` like below
-def Option(T: Type): Type, 
+def Option(compt(T): Type): compt Type, 
   T1(Maybe, T);
 
 // interface
-def Id(T: Type): Interface,
+def Id(compt(T): Type): compt Interface,
   interface
     id: ((x: T)-> T)
 ;
@@ -375,7 +367,7 @@ impl Id(i32), (
 );
 
 // impl interface with generic type
-forall(T : (Type <: Show)) -> 
+forall(compt(T) : (Type <: Show)) -> 
   impl Show((T,)), (
     show: ((fn(x: (T,)): String) -> {
       return ("(" + x.0.show()) + ")";
@@ -402,13 +394,13 @@ Cm.M(x); // 2
 
 // `forall` can be used to define generics
 // e.g. without `forall` it also works:
-def id(T: Type, x: T):T, {
+def id(compt(T): Type, x: T):T, {
   return x;
 };
 // but when you call it, you need to specify the type:
 id(i32, 12); // 12
 // e.g. with `forall`:
-id :: (forall(T: Type) -> ((fn(x: T): T) -> x));
+id :: (forall(compt(T): Type) -> ((fn(x: T): T) -> x));
 // then you can call it without specifying the type:
 id(12); // 12
 
@@ -514,7 +506,7 @@ use &!(x), x_ref -> {
 }
 
 // Iterator
-to_iter_mut :: (forall(T: Type) ->
+to_iter_mut :: (forall(compt(T): Type) ->
   (fn(arr: &!(Array(T))) -> {
     return Iter
       data: arr, // allow to assign reference in this case because it's the last expression
@@ -651,7 +643,7 @@ match x,
 // Similar to Rust, Result is a union type with Ok and Err variants
 
 // Define the Result type as a generic type
-def Result(T: Type, E: Type): Type,
+def Result(compt(T): Type, compt(E): Type): compt Type,
   enum
     Ok(T),
     Err(E);
@@ -807,9 +799,9 @@ extern "C",
 // Compile-time Execution
 PI :: 3.14159265358979323846; // PI : const_float;
 
-// A function returning Type or (compt(_): Type) can only be executed at compile time
+// A function returning Type or (compt Type) can only be executed at compile time
 // Compile-time function execution
-def factorial(compt(n): compt_int): (compt(_): compt_int),
+def factorial(compt(n): compt_int): compt compt_int,
   if n <= 1, then: 1, else: (n * recur(n - 1));
 
 // This will be computed during compilation
@@ -822,7 +814,7 @@ x :: 10; // x : compt_int
 (z : compt_int) = y; // error: cannot cast i32 to compt_int for variable
 
 // Below is another example
-def max(T: Type, a: T, b: T): T,
+def max(compt(T): Type, a: T, b: T): T,
   cond // implicit compile-time evaluate the condition if it's known at the compile-time, and skip the branch not taken.
     (T == boolean) -> a.or b,
     (a > b) -> a,
@@ -847,7 +839,7 @@ arr := [read_input(), 2, 3]; // arr: Array(i32, 3); runtime mutable
 // The type function requires all its parameters to be `compt`.  
 // The type function is pure, which means it will be cached once executed.
 // All parameters of Type (Free or Linear) are `compt` by default so you don't need to specify it explicitly.
-def Matrix(T: Type, compt(ROWS): usize, compt(COLS): usize): Type,
+def Matrix(compt(T): Type, compt(ROWS): usize, compt(COLS): usize): compt Type,
   Array(Array(T, COLS), ROWS);
 
 // Create a 3x3 matrix of integers
