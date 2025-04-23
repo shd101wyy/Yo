@@ -1,7 +1,8 @@
 import { Environment, getVariablesFromEnv } from "./env";
 import { Expr } from "./expr";
+import { TypeValue } from "./type-value";
 import { randomId } from "./utils";
-import { isTypeValue, TypeValue } from "./value";
+import { ValueTag } from "./value-tag";
 
 // FIXME: We need to determine the ptr size based on the givenType architecture.
 /**
@@ -295,16 +296,6 @@ export interface TupleElement {
    * The expression of the element.
    */
   expr: Expr;
-
-  /**
-   * This is only used for Functions
-   */
-  isMutable?: boolean;
-
-  /**
-   * This is only used for Functions
-   */
-  defaultValue?: Expr;
 }
 
 export interface TupleType extends Type {
@@ -313,6 +304,42 @@ export interface TupleType extends Type {
    * The elements of the tuple.
    */
   elements: TupleElement[];
+}
+
+export interface FunctionParameter {
+  /**
+   * The type of the element.
+   * eg: i32
+   * i32 is the type of the element.
+   */
+  type: Type;
+
+  /**
+   * label of the element,
+   * eg: x: i32
+   * x is the label of the element.
+   */
+  label?: string;
+
+  /**
+   * The expression of the element.
+   */
+  expr: Expr;
+
+  /**
+   * This is only used for Functions
+   */
+  isMutable: boolean;
+
+  /**
+   * This is only used for Functions
+   */
+  isCompileTimeOnly: boolean;
+
+  /**
+   * This is only used for Functions
+   */
+  defaultValue?: Expr;
 }
 
 export interface StructType extends Type {
@@ -393,11 +420,16 @@ export interface FunctionReturn {
    * The type of the function return.
    */
   type: Type;
+
+  /**
+   * Whether the value of the function return can be used for compile-time only or not.
+   */
+  isCompileTimeOnly?: boolean;
 }
 
 export interface FunctionType extends Type {
   tag: TypeTag.Function;
-  params: TupleElement[]; // Changed from TupleElement[] to TupleType for consistency
+  params: FunctionParameter[];
   return: FunctionReturn;
   typeFunctionImplementation?: (args: Type[]) => Type;
 }
@@ -535,7 +567,7 @@ export function createFunctionType({
   return_,
   typeFunctionImplementation,
 }: {
-  params: TupleElement[];
+  params: FunctionParameter[];
   return_: FunctionReturn;
   typeFunctionImplementation?: (args: Type[]) => Type;
 }): FunctionType {
@@ -705,7 +737,7 @@ export function getValueOfSomeTypeFromEnv(
   let someTypeValue: TypeValue | undefined = undefined;
   do {
     const variables = getVariablesFromEnv(env, someType.name, (variable) => {
-      return isTypeValue(variable.value);
+      return variable.value?.tag === ValueTag.Type; // isTypeValue
     });
     if (!variables.length) {
       return undefined;

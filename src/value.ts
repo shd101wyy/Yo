@@ -5,56 +5,14 @@ import {
   ArrayType,
   FunctionType,
   StructType,
-  TFree,
+  TUnit,
   TupleType,
   Type,
   typeOfType,
   typeToString,
 } from "./type-checker";
-
-export enum ValueTag {
-  Type = "Type",
-  U8 = "U8",
-  I8 = "I8",
-  U16 = "U16",
-  I16 = "I16",
-  U32 = "U32",
-  I32 = "I32",
-  U64 = "U64",
-  I64 = "I64",
-  F16 = "F16",
-  F32 = "F32",
-  F64 = "F64",
-  Unit = "Unit",
-  Boolean = "Boolean",
-  Char = "Char",
-  Array = "Array",
-  Tuple = "Tuple",
-  Struct = "Struct",
-  Function = "Function",
-  Unknown = "Unknown",
-}
-
-export type TypeValue = {
-  /**
-   * This is for value such as
-   *    MyI32 := i32
-   *
-   * i32 is the value, where:
-   *    .type = Free
-   *    .value = i32
-   */
-  tag: ValueTag.Type;
-  /**
-   * Type of the .value
-   */
-  type: Type;
-
-  /**
-   * Such as TFree, TLinear, TType, TI32, TBoolean, TStruct, etc.
-   */
-  value: Type;
-};
+import { TypeValue } from "./type-value";
+import { ValueTag } from "./value-tag";
 
 export type NumberValue = {
   tag:
@@ -269,7 +227,7 @@ export const VUnknown: UnknownValue = {
 
 export const VUnit: UnitValue = {
   tag: ValueTag.Unit,
-  type: TFree,
+  type: TUnit,
 };
 
 export function areValuesEqual(

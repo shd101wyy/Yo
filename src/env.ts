@@ -483,3 +483,11 @@ export function updateExistingVariable(
     inputString: env.inputString,
   };
 }
+
+export function printEnvVarNames(env: Environment) {
+  console.log(
+    env.frames.map((frame) => {
+      return frame.variables.map((variable) => variable.name).join(", ");
+    })
+  );
+}

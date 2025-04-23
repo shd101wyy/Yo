@@ -28,6 +28,7 @@ import {
   createTupleType,
   EnumType,
   EnumVariant,
+  FunctionParameter,
   FunctionType,
   isBooleanType,
   isEnumType,
@@ -54,6 +55,7 @@ import {
   TU32,
   TU64,
   TU8,
+  TUnit,
   TupleElement,
   TupleType,
   TUsize,
@@ -62,6 +64,7 @@ import {
   TypeTag,
   typeToString,
 } from "./type-checker";
+import { TypeValue } from "./type-value";
 import { randomId } from "./utils";
 import {
   areValuesEqual,
@@ -71,13 +74,12 @@ import {
   isTupleValue,
   isTypeValue,
   TupleValue,
-  TypeValue,
   Value,
-  ValueTag,
   valueToString,
   VUnit,
   VUnknown,
 } from "./value";
+import { ValueTag } from "./value-tag";
 
 interface EvaluatorContext {
   /**
@@ -202,7 +204,6 @@ export default class Evaluator {
    * type:
    * i32 in (i32, ...)
    * (x: i32) in (x: i32, ...)
-   * (mut(x): i32) in (mut(x): i32, ...)
    */
   private evaluateTupleElement({
     expr,
@@ -214,7 +215,6 @@ export default class Evaluator {
     context: EvaluatorContext;
   }): { type: TupleElement; value: Value; env: Environment } {
     let label: string | undefined = undefined;
-    let isMutable: boolean = false;
     let lhsExpr: Expr | undefined = undefined;
     let rhsExpr: Expr = expr;
     let elementType: Type | undefined = undefined;
@@ -224,25 +224,6 @@ export default class Evaluator {
       rhsExpr = expr.args[1];
       lhsExpr = expr.args[0];
 
-      if (exprIsFunctionCall(lhsExpr) && exprIsFunctionCallOf(lhsExpr, "mut")) {
-        if (!context.isEvaluatingExprAsType) {
-          throw this.formatErrorMessage(
-            lhsExpr.token,
-            `Expected "mut" to be used in type context, got ${exprToString(
-              lhsExpr
-            )}`
-          );
-        }
-
-        isMutable = true;
-        if (lhsExpr.args.length !== 1) {
-          throw this.formatErrorMessage(
-            lhsExpr.token,
-            `Expected one argument for mut, got ${lhsExpr.args.length}`
-          );
-        }
-        lhsExpr = lhsExpr.args[0];
-      }
       if (!exprIsAtom(lhsExpr) && !this.isValidVariableName(lhsExpr)) {
         throw this.formatErrorMessage(
           lhsExpr.token,
@@ -313,8 +294,6 @@ ${exprToString(rhsExpr)}`
         label,
         type: elementType,
         expr,
-        isMutable,
-        defaultValue: undefined,
       },
       value: value,
       env,
@@ -340,8 +319,8 @@ ${exprToString(rhsExpr)}`
     if (expr.args.length === 0) {
       // Unit
       if (context.isEvaluatingExprAsType) {
-        expr.value = VUnit;
-        expr.type = VUnit.type;
+        expr.value = createTypeValue(TUnit);
+        expr.type = typeOfType(TUnit);
         return expr;
       } else {
         expr.value = VUnit;
@@ -350,18 +329,12 @@ ${exprToString(rhsExpr)}`
       }
     }
 
-    if (context.isEvaluatingExprAsType) {
-      env = pushEnvFrame(env);
-    }
     const {
       type: tupleType,
       value: tupleValue,
       env: nextEnv,
     } = this.evaluateTupleElements({ args: expr.args, env, context });
     env = nextEnv;
-    if (context.isEvaluatingExprAsType) {
-      env = popEnvFrame(env);
-    }
 
     expr.value = tupleValue;
     expr.type = context.isEvaluatingExprAsType
@@ -372,10 +345,6 @@ ${exprToString(rhsExpr)}`
   }
 
   /**
-   * Please note this function will add args to env if
-   * context.isEvaluatingExprAsType is true.
-   * You need to push the env frame before calling this function.
-   * You need to pop the env frame after calling this function.
    * @returns
    */
   private evaluateTupleElements({
@@ -423,21 +392,6 @@ ${exprToString(rhsExpr)}`
       tupleElements.push(type);
       tupleValues.push(value);
       env = nextEnv;
-
-      // Add the variable to the env
-      if (context.isEvaluatingExprAsType && type.label) {
-        const { env: nextEnv } = addVariableToEnv({
-          env,
-          variable: {
-            name: type.label,
-            token: arg.token,
-            type: type.type,
-            isMutable: !!type.isMutable,
-            isNotInitialized: false, // Set as initialized
-          },
-        });
-        env = nextEnv;
-      }
     }
 
     const tupleType: TupleType = createTupleType(tupleElements);
@@ -1335,7 +1289,7 @@ ${exprToString(rhs)}`
     if (isTypeValue(rhs.value) && !isCompileTimeOnly) {
       throw this.formatErrorMessage(
         expr.token,
-        `Unexpected "::" instead of ":=" for type value assignment:
+        `Expected "::" instead of ":=" for type value assignment:
 ${exprToString(expr)}`
       );
     }
@@ -1589,18 +1543,77 @@ ${exprToString(expr)}`
         `Expected extern, got ${expr.tag}`
       );
     }
-    const { env: nextEnv } = this.evaluateTupleElements({
-      args: expr.args,
-      env,
-      context: {
-        ...context,
-        isEvaluatingExprAsType: true,
-      },
-    });
-    env = nextEnv;
+
+    for (let i = 0; i < expr.args.length; i++) {
+      const arg = expr.args[i];
+      if (!exprIsFunctionCall(arg) || !exprIsFunctionCallOf(arg, ":", 2)) {
+        throw this.formatErrorMessage(
+          arg.token,
+          `Expected ":" for extern argument, got ${arg.tag}`
+        );
+      }
+      const lhs = arg.args[0];
+      const rhs = arg.args[1];
+
+      if (!this.isValidVariableName(lhs)) {
+        throw this.formatErrorMessage(
+          lhs.token,
+          `Invalid extern argument name ${lhs.token.value}, expected identifier`
+        );
+      } else {
+        const variableName = lhs.token.value;
+
+        // Evaluate rhs type
+        const evaluatedRhs = this.evaluateExpression({
+          expr: rhs,
+          env,
+          context: {
+            ...context,
+            isEvaluatingExprAsType: true,
+          },
+        });
+        if (evaluatedRhs.env) {
+          env = evaluatedRhs.env;
+        }
+        if (!isTypeValue(evaluatedRhs.value)) {
+          throw this.formatErrorMessage(
+            rhs.token,
+            `Expected type for extern argument, got ${exprToString(rhs)}`
+          );
+        } else {
+          const typeValue = evaluatedRhs.value;
+          const userDefinedType = typeValue.value;
+
+          // Add the variable to the env
+          const { env: nextEnv } = addVariableToEnv({
+            env,
+            variable: {
+              name: variableName,
+              token: lhs.token,
+              type: userDefinedType,
+              isMutable: false,
+              isCompileTimeOnly: true,
+              isNotInitialized: false,
+              value: VUnknown,
+            },
+          });
+          env = nextEnv;
+
+          // Attach the user defined type to the lhs
+          lhs.type = userDefinedType;
+        }
+      }
+    }
+
     expr.value = VUnit;
     expr.type = VUnit.type;
     expr.env = env;
+
+    // "extern" token
+    expr.func.value = VUnit;
+    expr.func.type = VUnit.type;
+    expr.func.env = env;
+
     return expr;
   }
 
@@ -2178,10 +2191,6 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    console.log(
-      "evaluateAnonymousFunctionImplementation: ",
-      exprToString(expr)
-    );
     const expectedFunctionType = context.expectedType;
     if (expectedFunctionType && !isFunctionType(expectedFunctionType)) {
       throw this.formatErrorMessage(
@@ -2229,20 +2238,20 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     // FIXME:
     // Evaluate the parameter list
     env = pushEnvFrame(env);
-    let functionParameters: TupleElement[] = [];
+    let functionParameters: FunctionParameter[] = [];
     if (expectedFunctionType) {
       // TODO: Evaluate the anonymous function parameter list
       // with the expectedFunctionType.params
     } else {
-      const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
-        args: functionDeclarationExpr.args,
+      const { parameters, env: nextEnv } = this.evaluateFunctionParameters({
+        parameterExprs: functionDeclarationExpr.args,
         env,
         context: {
           ...context,
           isEvaluatingExprAsType: true,
         },
       });
-      functionParameters = tupleType.elements;
+      functionParameters = parameters;
       env = nextEnv;
     }
 
@@ -2372,6 +2381,217 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     });
   }
 
+  /**
+   * type:
+   * i32 in (i32, ...)
+   * (x: i32) in (x: i32, ...)
+   * (mut(x): i32) in (mut(x): i32, ...)
+   */
+  private evaluateFunctionParameter({
+    expr,
+    env,
+    context,
+  }: {
+    expr: Expr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): { parameterType: FunctionParameter; env: Environment } {
+    let label: string | undefined = undefined;
+    let isMutable: boolean = false;
+    let isCompileTimeOnly: boolean = false;
+    let lhsExpr: Expr | undefined = undefined;
+    let rhsExpr: Expr = expr;
+    let elementType: Type | undefined = undefined;
+
+    // Parse the lhs expr
+    if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, ":")) {
+      rhsExpr = expr.args[1];
+      lhsExpr = expr.args[0];
+
+      if (
+        exprIsFunctionCall(lhsExpr) &&
+        exprIsFunctionCallOf(lhsExpr, "compt")
+      ) {
+        if (!context.isEvaluatingExprAsType) {
+          throw this.formatErrorMessage(
+            lhsExpr.token,
+            `Expected "compt" to be used in type context, got ${exprToString(
+              lhsExpr
+            )}`
+          );
+        }
+
+        isCompileTimeOnly = true;
+        if (lhsExpr.args.length !== 1) {
+          throw this.formatErrorMessage(
+            lhsExpr.token,
+            `Expected one argument for "compt", got ${lhsExpr.args.length}`
+          );
+        }
+        lhsExpr = lhsExpr.args[0];
+      }
+      if (exprIsFunctionCall(lhsExpr) && exprIsFunctionCallOf(lhsExpr, "mut")) {
+        if (!context.isEvaluatingExprAsType) {
+          throw this.formatErrorMessage(
+            lhsExpr.token,
+            `Expected "mut" to be used in type context, got ${exprToString(
+              lhsExpr
+            )}`
+          );
+        }
+
+        isMutable = true;
+        if (lhsExpr.args.length !== 1) {
+          throw this.formatErrorMessage(
+            lhsExpr.token,
+            `Expected one argument for "mut", got ${lhsExpr.args.length}`
+          );
+        }
+        lhsExpr = lhsExpr.args[0];
+      }
+      if (!exprIsAtom(lhsExpr) && !this.isValidVariableName(lhsExpr)) {
+        throw this.formatErrorMessage(
+          lhsExpr.token,
+          `Expected identifier for tuple element label, got ${exprToString(
+            lhsExpr
+          )}`
+        );
+      }
+      label = lhsExpr.token.value;
+    }
+
+    // Parse the rhs expr
+    const evaluatedRhs = this.evaluateExpression({
+      expr: rhsExpr,
+      env,
+      context,
+    });
+    if (evaluatedRhs.env) {
+      env = evaluatedRhs.env;
+    }
+    if (context.isEvaluatingExprAsType) {
+      // Expected the evaluatedRhs to be a type
+      const typeValue = evaluatedRhs.value;
+      if (!typeValue || !isTypeValue(typeValue)) {
+        throw this.formatErrorMessage(
+          rhsExpr.token,
+          `(1) Expected type for tuple element, got ${exprToString(rhsExpr)}`
+        );
+      }
+      elementType = typeValue.value;
+      if (lhsExpr) {
+        lhsExpr.type = elementType;
+      }
+    } else {
+      if (evaluatedRhs.value && isTypeValue(evaluatedRhs.value)) {
+        throw this.formatErrorMessage(
+          rhsExpr.token,
+          `Cannot store a type value in tuple while not in "type" context: 
+${exprToString(rhsExpr)}`
+        );
+      }
+
+      // Expected the evaluatedRhs to be a value
+      elementType = evaluatedRhs.type;
+      if (!elementType) {
+        elementType = TPlaceholder;
+      } else if (lhsExpr) {
+        lhsExpr.type = lhsExpr.type || evaluatedRhs.type;
+      }
+    }
+
+    let value: Value = VUnknown;
+    if (!context.isEvaluatingExprAsType) {
+      // Evaluating value.
+      value = evaluatedRhs.value ?? VUnknown;
+    } else {
+      // Evaluating type.
+      value = VUnknown; // NOTE: This is necessary
+    }
+
+    if (lhsExpr) {
+      lhsExpr.env = env;
+      lhsExpr.value = value;
+    }
+    expr.env = env;
+    return {
+      parameterType: {
+        label,
+        type: elementType,
+        expr,
+        isMutable,
+        isCompileTimeOnly,
+        defaultValue: undefined,
+      },
+      env,
+    };
+  }
+
+  /**
+   * NOTE: Calling this function will increase the env frame.
+   */
+  private evaluateFunctionParameters({
+    parameterExprs,
+    env,
+    context,
+  }: {
+    parameterExprs: Expr[];
+    env: Environment;
+    context: EvaluatorContext;
+  }): { parameters: FunctionParameter[]; env: Environment } {
+    env = pushEnvFrame(env);
+    const parameters: FunctionParameter[] = [];
+    for (let i = 0; i < parameterExprs.length; i++) {
+      const parameterExpr = parameterExprs[i];
+      const { parameterType, env: nextEnv } = this.evaluateFunctionParameter({
+        expr: parameterExpr,
+        env,
+        context: {
+          ...context,
+          isEvaluatingExprAsType: true,
+        },
+      });
+
+      // Check if there is duplicate labels
+      if (parameterType.label) {
+        const duplicateLabel = parameters.find(
+          (element) => element.label === parameterType.label
+        );
+        if (duplicateLabel) {
+          throw this.formatErrorMessage(
+            exprIsFunctionCall(parameterExpr)
+              ? parameterExpr.args[0]?.token ?? parameterExpr.token
+              : parameterExpr.token,
+            `Duplicate label "${parameterType.label}" in function parameter`
+          );
+        }
+      }
+
+      parameters.push(parameterType);
+      env = nextEnv;
+
+      // Add the variable to the env
+      if (context.isEvaluatingExprAsType && parameterType.label) {
+        const { env: nextEnv } = addVariableToEnv({
+          env,
+          variable: {
+            name: parameterType.label,
+            token: parameterExpr.token,
+            type: parameterType.type,
+            isMutable: parameterType.isMutable,
+            isCompileTimeOnly: parameterType.isCompileTimeOnly,
+            isNotInitialized: false, // Set as initialized
+          },
+        });
+        env = nextEnv;
+      }
+    }
+    return {
+      parameters,
+      env,
+    };
+  }
+
   private evaluateFunctionType({
     expr,
     env,
@@ -2416,15 +2636,14 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
 
     // Evaluate the parameter list
     env = pushEnvFrame(env);
-    const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
-      args: argList,
+    const { parameters, env: nextEnv } = this.evaluateFunctionParameters({
+      parameterExprs: argList,
       env,
       context: {
         ...context,
         isEvaluatingExprAsType: true,
       },
     });
-    const functionParameters = tupleType.elements;
     env = nextEnv;
 
     // Evaluate the return type expression
@@ -2447,7 +2666,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
 
     // Create the function type
     const functionType = createFunctionType({
-      params: functionParameters,
+      params: parameters,
       return_: {
         expr: returnTypeExpr,
         type: returnType,
@@ -2528,14 +2747,12 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       );
     }
 
-    env = pushEnvFrame(env);
     const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
       args: expr.args,
       env,
       context: { ...context, isEvaluatingExprAsType: true },
     });
     env = nextEnv;
-    env = popEnvFrame(env);
 
     const structType: StructType = createStructType(tupleType.elements);
     expr.type = typeOfType(structType);
@@ -2605,7 +2822,6 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         }
         const variantName = enumArg.func.token.value;
 
-        env = pushEnvFrame(env);
         const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
           args: enumArg.args,
           env,
@@ -2615,7 +2831,6 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           },
         });
         env = nextEnv;
-        env = popEnvFrame(env);
 
         variants.push({
           name: variantName,
@@ -2982,7 +3197,98 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
   }
   */
 
-  private areParametersAndArgumentsCompatible({
+  private areTupleElementsAndValuesCompatible({
+    tupleElements,
+    argElements,
+    // argValues,
+    argExprs,
+    env,
+    context,
+    updateArgType,
+  }: {
+    tupleElements: TupleElement[];
+    argElements: TupleElement[];
+    argValues: TupleValue | undefined;
+    argExprs: Expr[];
+    env: Environment;
+    context: EvaluatorContext;
+    updateArgType?: boolean;
+  }): boolean {
+    if (argElements.length > tupleElements.length) {
+      return false;
+    }
+
+    const checkedTupleElements: Set<TupleElement> = new Set();
+    for (let i = 0; i < tupleElements.length; i++) {
+      let paramElement: TupleElement | undefined = tupleElements[i];
+      const argElement = argElements[i];
+      // const argValue = argValues?.elements[i];
+      const argExpr = argExprs[i];
+
+      /*
+      // TODO: Implement this support for the defaultValue:
+      // Check the defaultValue
+      if (!argType) {
+        if (checkedTupleElements.has(paramType)) {
+          return false; // Already checked this element
+        }
+        // Needs to check the defaultValue if no arg
+        if (paramType.defaultValue) {
+          continue;
+        } else {
+          return false;
+        }
+      }
+      */
+      if (!argElement) {
+        return false;
+      }
+
+      if (argElement.label) {
+        // Find the matching label in the expectedType
+        paramElement = tupleElements.find(
+          (element) => element.label === argElement.label
+        );
+        if (!paramElement) {
+          return false;
+        }
+      }
+
+      if (checkedTupleElements.has(paramElement)) {
+        return false; // Already checked this element
+        // We cannot have duplicate labels
+      }
+
+      let argType = argElement.type;
+      if (isPlaceholderType(argType)) {
+        // Synthesize the type
+        try {
+          const { type: nextArgType, env: nextEnv } =
+            this.synthesizeExprAndType({
+              expr: argExpr,
+              type: paramElement.type,
+              env,
+              context,
+            });
+          env = nextEnv;
+          argType = nextArgType;
+          if (updateArgType) {
+            argElement.type = nextArgType;
+          }
+        } catch (e) {
+          return false; // If synthesis fails, the types are not compatible
+        }
+      }
+
+      if (!areTypesCompatible(paramElement.type, argType, env)) {
+        return false;
+      }
+      checkedTupleElements.add(paramElement);
+    }
+    return true;
+  }
+
+  private areFunctionParametersAndArgumentsCompatible({
     paramElements,
     argElements,
     argValues,
@@ -2991,7 +3297,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     context,
     updateArgType,
   }: {
-    paramElements: TupleElement[];
+    paramElements: FunctionParameter[];
     argElements: TupleElement[];
     argValues: TupleValue | undefined;
     argExprs: Expr[];
@@ -3006,7 +3312,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     env = pushEnvFrame(env);
     const checkedTupleElements: Set<TupleElement> = new Set();
     for (let i = 0; i < paramElements.length; i++) {
-      let paramElement: TupleElement | undefined = paramElements[i];
+      let paramElement: FunctionParameter | undefined = paramElements[i];
       const argElement = argElements[i];
       const argValue = argValues?.elements[i];
       const argExpr = argExprs[i];
@@ -3085,6 +3391,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
               name: paramElement.label,
               type: argType,
               isMutable: paramElement.isMutable,
+              isCompileTimeOnly: paramElement.isCompileTimeOnly,
               token: argExpr.token,
               isNotInitialized: false,
               value: argValue,
@@ -3191,6 +3498,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       }
     }
 
+    // FIXME:
     const {
       type: tupleType,
       value: tupleValue,
@@ -3210,7 +3518,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     // Find the functions whose parameters match the arguments
     const functionsWithMatchingTypes = functions.filter((func) => {
       if (isFunctionType(func.type)) {
-        return this.areParametersAndArgumentsCompatible({
+        return this.areFunctionParametersAndArgumentsCompatible({
           paramElements: func.type.params,
           argElements: evaluatedArgElements,
           argValues: evaluatedArgValues,
@@ -3222,8 +3530,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         const value = func.value;
         // struct value
         if (isTypeValue(value) && isStructType(value.value)) {
-          return this.areParametersAndArgumentsCompatible({
-            paramElements: value.value.members,
+          return this.areTupleElementsAndValuesCompatible({
+            tupleElements: value.value.members,
             argElements: evaluatedArgElements,
             argValues: evaluatedArgValues,
             argExprs: args,
@@ -3243,8 +3551,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
               `Enum variant not selected for enum type`
             );
           }
-          return this.areParametersAndArgumentsCompatible({
-            paramElements: selectedVariant.params || [],
+          return this.areTupleElementsAndValuesCompatible({
+            tupleElements: selectedVariant.params || [],
             argElements: evaluatedArgElements,
             argValues: evaluatedArgValues,
             argExprs: args,
@@ -3389,7 +3697,7 @@ ${exprToString(expr)}`
   }): { value: TypeValue; env: Environment } {
     // This will push a new frame to the env and
     // add the parameters to the env
-    const nextEnv = this.areParametersAndArgumentsCompatible({
+    const nextEnv = this.areFunctionParametersAndArgumentsCompatible({
       paramElements: functionType.params,
       argElements: argElements,
       argValues: argValues,
@@ -3501,7 +3809,7 @@ Expected: ${typeToString(functionType)}`
   }): { returnType: Type; env: Environment } {
     // This will push a new frame to the env and
     // add the parameters to the env
-    const nextEnv = this.areParametersAndArgumentsCompatible({
+    const nextEnv = this.areFunctionParametersAndArgumentsCompatible({
       paramElements: functionType.params,
       argElements: argElements,
       argValues,
@@ -3612,13 +3920,12 @@ Expected: ${typeToString(functionType)}`
 
     // Parse the function parameters
     env = pushEnvFrame(env);
-    const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
-      args: functionParameterExprList,
+    const { parameters, env: nextEnv } = this.evaluateFunctionParameters({
+      parameterExprs: functionParameterExprList,
       env,
       context: { ...context, isEvaluatingExprAsType: true },
     });
     env = nextEnv;
-    const functionParameters = tupleType.elements;
 
     // Parse the function return type
     const evaluatedReturnTypeExpr = this.evaluateExpression({
@@ -3639,7 +3946,7 @@ Expected: ${typeToString(functionType)}`
 
     /// Add functionType to the functionNameExpr
     const functionType = createFunctionType({
-      params: functionParameters,
+      params: parameters,
       return_: {
         expr: functionReturnTypeExpr,
         type: returnType,
@@ -3688,6 +3995,11 @@ Expected: ${typeToString(functionType)}`
 - Given  : ${typeToString(evaluatedFunctionBody.type)}`
         );
       }
+    } else {
+      throw this.formatErrorMessage(
+        functionBodyExpr.token,
+        `Function body is not evaluated correctly`
+      );
     }
 
     // Pop the env frame
@@ -3696,6 +4008,12 @@ Expected: ${typeToString(functionType)}`
     // Set the function type and value
     expr.type = functionType;
     expr.env = env;
+
+    // "def" token
+    expr.func.value = VUnit;
+    expr.func.type = VUnit.type;
+    expr.func.env = env;
+
     return expr;
   }
 

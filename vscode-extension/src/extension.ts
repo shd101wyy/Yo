@@ -9,7 +9,8 @@ import Evaluator from "@mo/evaluator";
 import { AtomExpr, Expr, exprIsAtom, exprToString } from "@mo/expr";
 import { stringIsOperator, TokenType } from "@mo/token";
 import { getSizeString, typeOfType, typeToString } from "@mo/type-checker";
-import { ValueTag, valueToString } from "@mo/value";
+import { valueToString } from "@mo/value";
+import { ValueTag } from "@mo/value-tag";
 
 export function activate(context: vscode.ExtensionContext) {
   // Create a diagnostic collection for Mo language errors
