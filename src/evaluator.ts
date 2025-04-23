@@ -2395,13 +2395,13 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     expr: Expr;
     env: Environment;
     context: EvaluatorContext;
-  }): { parameterType: FunctionParameter; env: Environment } {
+  }): { parameter: FunctionParameter; env: Environment } {
     let label: string | undefined = undefined;
     let isMutable: boolean = false;
     let isCompileTimeOnly: boolean = false;
     let lhsExpr: Expr | undefined = undefined;
     let rhsExpr: Expr = expr;
-    let elementType: Type | undefined = undefined;
+    let parameterType: Type | undefined = undefined;
 
     // Parse the lhs expr
     if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, ":")) {
@@ -2412,15 +2412,6 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         exprIsFunctionCall(lhsExpr) &&
         exprIsFunctionCallOf(lhsExpr, "compt")
       ) {
-        if (!context.isEvaluatingExprAsType) {
-          throw this.formatErrorMessage(
-            lhsExpr.token,
-            `Expected "compt" to be used in type context, got ${exprToString(
-              lhsExpr
-            )}`
-          );
-        }
-
         isCompileTimeOnly = true;
         if (lhsExpr.args.length !== 1) {
           throw this.formatErrorMessage(
@@ -2431,15 +2422,6 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         lhsExpr = lhsExpr.args[0];
       }
       if (exprIsFunctionCall(lhsExpr) && exprIsFunctionCallOf(lhsExpr, "mut")) {
-        if (!context.isEvaluatingExprAsType) {
-          throw this.formatErrorMessage(
-            lhsExpr.token,
-            `Expected "mut" to be used in type context, got ${exprToString(
-              lhsExpr
-            )}`
-          );
-        }
-
         isMutable = true;
         if (lhsExpr.args.length !== 1) {
           throw this.formatErrorMessage(
@@ -2469,55 +2451,43 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     if (evaluatedRhs.env) {
       env = evaluatedRhs.env;
     }
-    if (context.isEvaluatingExprAsType) {
-      // Expected the evaluatedRhs to be a type
-      const typeValue = evaluatedRhs.value;
-      if (!typeValue || !isTypeValue(typeValue)) {
-        throw this.formatErrorMessage(
-          rhsExpr.token,
-          `(1) Expected type for tuple element, got ${exprToString(rhsExpr)}`
-        );
-      }
-      elementType = typeValue.value;
-      if (lhsExpr) {
-        lhsExpr.type = elementType;
-      }
-    } else {
-      if (evaluatedRhs.value && isTypeValue(evaluatedRhs.value)) {
-        throw this.formatErrorMessage(
-          rhsExpr.token,
-          `Cannot store a type value in tuple while not in "type" context: 
-${exprToString(rhsExpr)}`
-        );
-      }
 
-      // Expected the evaluatedRhs to be a value
-      elementType = evaluatedRhs.type;
-      if (!elementType) {
-        elementType = TPlaceholder;
-      } else if (lhsExpr) {
-        lhsExpr.type = lhsExpr.type || evaluatedRhs.type;
-      }
+    // Expected the evaluatedRhs to be a type
+    const typeValue = evaluatedRhs.value;
+    if (!isTypeValue(typeValue)) {
+      throw this.formatErrorMessage(
+        rhsExpr.token,
+        `(1) Expected type for function parameter, got ${exprToString(rhsExpr)}`
+      );
     }
+    parameterType = typeValue.value;
 
-    let value: Value = VUnknown;
-    if (!context.isEvaluatingExprAsType) {
-      // Evaluating value.
-      value = evaluatedRhs.value ?? VUnknown;
-    } else {
-      // Evaluating type.
-      value = VUnknown; // NOTE: This is necessary
+    if (lhsExpr && label) {
+      // Add the parameter to the env
+      const { env: nextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name: label,
+          token: lhsExpr.token,
+          type: parameterType,
+          isMutable: isMutable,
+          isCompileTimeOnly: isCompileTimeOnly,
+          isNotInitialized: false, // Set as initialized
+        },
+      });
+      env = nextEnv;
     }
 
     if (lhsExpr) {
       lhsExpr.env = env;
-      lhsExpr.value = value;
+      lhsExpr.value = VUnknown;
+      lhsExpr.type = parameterType;
     }
     expr.env = env;
     return {
-      parameterType: {
+      parameter: {
         label,
-        type: elementType,
+        type: parameterType,
         expr,
         isMutable,
         isCompileTimeOnly,
@@ -2543,7 +2513,7 @@ ${exprToString(rhsExpr)}`
     const parameters: FunctionParameter[] = [];
     for (let i = 0; i < parameterExprs.length; i++) {
       const parameterExpr = parameterExprs[i];
-      const { parameterType, env: nextEnv } = this.evaluateFunctionParameter({
+      const { parameter, env: nextEnv } = this.evaluateFunctionParameter({
         expr: parameterExpr,
         env,
         context: {
@@ -2553,38 +2523,22 @@ ${exprToString(rhsExpr)}`
       });
 
       // Check if there is duplicate labels
-      if (parameterType.label) {
+      if (parameter.label) {
         const duplicateLabel = parameters.find(
-          (element) => element.label === parameterType.label
+          (element) => element.label === parameter.label
         );
         if (duplicateLabel) {
           throw this.formatErrorMessage(
             exprIsFunctionCall(parameterExpr)
               ? parameterExpr.args[0]?.token ?? parameterExpr.token
               : parameterExpr.token,
-            `Duplicate label "${parameterType.label}" in function parameter`
+            `Duplicate label "${parameter.label}" in function parameter`
           );
         }
       }
 
-      parameters.push(parameterType);
+      parameters.push(parameter);
       env = nextEnv;
-
-      // Add the variable to the env
-      if (context.isEvaluatingExprAsType && parameterType.label) {
-        const { env: nextEnv } = addVariableToEnv({
-          env,
-          variable: {
-            name: parameterType.label,
-            token: parameterExpr.token,
-            type: parameterType.type,
-            isMutable: parameterType.isMutable,
-            isCompileTimeOnly: parameterType.isCompileTimeOnly,
-            isNotInitialized: false, // Set as initialized
-          },
-        });
-        env = nextEnv;
-      }
     }
     return {
       parameters,
