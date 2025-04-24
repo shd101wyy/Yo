@@ -33,6 +33,9 @@ export enum TokenType {
   // whitespace
   // ' ' | '\t' | '\n' | '\r'
   Whitespace = "whitespace",
+
+  // special
+  BacktickIdentifier = "backtick_identifier", // `abc`
 }
 
 export interface Token {

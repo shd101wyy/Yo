@@ -3025,11 +3025,18 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
 
     // TODO: Evaluate the interface method call
 
+    throw this.formatErrorMessage(
+      expr.token,
+      `Failed to evaluate property access:\n${exprToString(expr)}`
+    );
+    /*
+    NOTE: We remove the support for uniform function call
     // Since we fail to evaluate the property access
     // it could be a uniform function call.
     expr.type = undefined;
     expr.value = undefined;
     return expr;
+    */
   }
 
   /*

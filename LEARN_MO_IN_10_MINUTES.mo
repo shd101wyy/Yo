@@ -125,14 +125,9 @@ add y: 5, x: 4;
 user1 := create_user(name: "Alice");  // age=18, role="user" (defaults)
 user2 := create_user(role: "admin", name: "Bob", age: 30);  // explicit values
 
-// Mo also supports uniform function call syntax
-// '.' will move the receiver to the first argument
-3.add(4); // is equivalent to add(3, 4)
-// You can also write it as
-3.add 4; 
-// NOTE: You can't have space between the receiver and the method name
-// So the below is invalid:
-3 .add 4; // invalid
+// Mo also supports the infix function application
+3 `add` 4; // is equivalent to add(3, 4)
+
 
 // Define a custom operator
 // NOTE: Operator is only allowed to be defined as method in interface implementation.
@@ -334,9 +329,9 @@ x := Option(i32).Some(12);
 // to make it a GADT
 def MyExpr(compt(T): Type): compt Type,
   enum
-    IntExpr: ((i32) -> MyExpr(i32)),
-    BoolExpr: ((boolean) -> MyExpr(boolean)),
-    EqExpr: ((MyExpr(i32), MyExpr(i32)) -> MyExpr(boolean))
+    IntExpr(i32): MyExpr(i32),
+    BoolExpr(boolean): MyExpr(boolean),
+    EqExpr(MyExpr(i32), MyExpr(i32)): MyExpr(boolean)
   ;
 def my_eval(compt(T): Type, expr: MyExpr(T)): T,
   match expr,
@@ -356,41 +351,35 @@ def Option(compt(T): Type): compt Type,
   T1(Maybe, T);
 
 // interface
-def Id(compt(T): Type): compt Interface,
-  interface
-    id: ((x: T)-> T)
-;
-
-// impl interface
-impl Id(i32), (
-  id: ((fn(x: i32): i32)-> x)
+Id :: interface (
+  id: ((Self)-> Self)
+);
+Stringer :: interface (
+  to_string: ((Self)-> String)
 );
 
-// impl interface with generic type
-forall(compt(T) : (Type <: Show)) -> 
-  impl Show((T,)), (
-    show: ((fn(x: (T,)): String) -> {
-      return ("(" + x.0.show()) + ")";
-    })
-  );
-show((3,)); // "(3,)"
+/// implicitly implement the interface
+method id(self: i32): i32,
+  self;
+forall(compt(T) : (Type <: Stringer)) ->
+  method to_string(self: (T,)): String,
+    "(" + self.0.to_string() + ")"
+;
 
-// Call a function defined in interface
-(13).id(); // 13
-Id(i32).id(13); // 13
-// or
-Id(_).id(13); // 13. Use `_` as a placeholder for type
+/// method call
+12.id(); // 12
+(3,).to_string(); // "(3,)"
+// or call from the interface
+Id.id(12); // 12
+Stringer.to_string((3,)); // "(3,)"
 
-// impl a type
+// Implement method to a type
 Cm :: struct(i32);
-impl Cm,
-  M: ((fn(Cm(x): Cm): i32) -> {
-    return x / 100;
-  });
-(x : Cm) = 200.Cm();
+method _(cm):Cm, M():i32,
+  cm / 100;
+
+(x : Cm) = Cm(200);
 x.M(); // 2
-// or
-Cm.M(x); // 2
 
 // `forall` can be used to define generics
 // e.g. without `forall` it also works:
@@ -574,7 +563,7 @@ free(ptr); // free the memory
 
 // cast reference to pointer using `as` function
 x := 12;
-ptr := &!(x).as *!(i32);
+ptr := &!(x) `as` *!(i32);
 
 // Control flow
 /// cond
