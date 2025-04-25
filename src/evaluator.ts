@@ -1168,12 +1168,12 @@ ${exprToString(rhsExpr)}`
     // Evaluate the lhs expression
     let isCompileTimeOnly = false;
     let isMutable = false;
-    if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, "compt")) {
+    if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ["compt", "@"])) {
       isCompileTimeOnly = true;
       if (lhs.args.length !== 1) {
         throw this.formatErrorMessage(
           lhs.token,
-          `Expected one argument for compt, got ${lhs.args.length}`
+          `Expected one argument for "compt" (or "@"), got ${lhs.args.length}`
         );
       }
       lhs = lhs.args[0];
@@ -1198,7 +1198,7 @@ ${exprToString(rhsExpr)}`
     if (isTypeHierarchyType(userDefinedType) && !isCompileTimeOnly) {
       throw this.formatErrorMessage(
         lhs.token,
-        `Expected "compt" to for compile-time known type value binding.`
+        `Expected "compt" (or "@") to for compile-time known type value binding.`
       );
     }
 
@@ -2410,13 +2410,13 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
 
       if (
         exprIsFunctionCall(lhsExpr) &&
-        exprIsFunctionCallOf(lhsExpr, "compt")
+        exprIsFunctionCallOf(lhsExpr, ["compt", "@"])
       ) {
         isCompileTimeOnly = true;
         if (lhsExpr.args.length !== 1) {
           throw this.formatErrorMessage(
             lhsExpr.token,
-            `Expected one argument for "compt", got ${lhsExpr.args.length}`
+            `Expected one argument for "compt" (or "@"), got ${lhsExpr.args.length}`
           );
         }
         lhsExpr = lhsExpr.args[0];

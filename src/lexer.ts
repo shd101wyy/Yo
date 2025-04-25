@@ -376,11 +376,16 @@ export function tokenize(input: string): Token[] {
 
           // Check if the identifier is valid using IdentifierRegex
           if (IdentifierRegex.test(value)) {
+            /* 
+            // NOTE: We stop making '@' part of identifier.
+            // It is now an operator used for the 'compt` meaning.
             if (tokens.length > 0 && tokens[tokens.length - 1].value === "@") {
               // Merge with previous token '@'
               tokens[tokens.length - 1].value += value;
               tokens[tokens.length - 1].type = TokenType.Identifier;
-            } else {
+            } else
+            */
+            {
               switch (value) {
                 // boolean
                 case "true":

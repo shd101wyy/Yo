@@ -52,13 +52,15 @@ export function exprIsAtomAndOperator(expr: Expr): boolean {
 
 export function exprIsFunctionCallOf(
   expr: Expr,
-  funcName: string,
+  funcNames: string | string[],
   argumentCount?: number
 ): boolean {
   return (
     expr.tag === ExprTag.FuncCall &&
     expr.func.tag === ExprTag.Atom &&
-    expr.func.token.value === funcName &&
+    (typeof funcNames === "string"
+      ? expr.func.token.value === funcNames
+      : funcNames.includes(expr.func.token.value)) &&
     (argumentCount === undefined || expr.args.length === argumentCount)
   );
 }
