@@ -4,7 +4,7 @@ import Parser from "../parser";
 
 describe("Parser Tests", () => {
   beforeAll(() => {
-    const testFileName = "bindings.mo";
+    const testFileName = "indentation.mo";
     const inputString = fs.readFileSync(
       path.join(__dirname, `examples/${testFileName}`),
       "utf-8"

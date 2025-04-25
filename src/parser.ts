@@ -1,6 +1,12 @@
 /* eslint-disable no-constant-condition */
 import { formatErrorMessage } from "./error";
-import { BuiltinCollections, Expr, ExprTag, exprToString } from "./expr";
+import {
+  BuiltinCollections,
+  Expr,
+  exprIsAtom,
+  ExprTag,
+  exprToString,
+} from "./expr";
 import { tokenize } from "./lexer";
 import { findMatchingBracketTokenIndex, Token, TokenType } from "./token";
 
@@ -383,6 +389,23 @@ export default class Parser {
     return returnValue;
   }
 
+  /**
+   * Get the minimum column number of the expression
+   * @param expr The expression to get the minimum column number
+   * @returns The minimum column number of the expression
+   */
+  private getExprMinimumColumnNumber(expr: Expr): number {
+    // Traverse all the tokens
+    if (exprIsAtom(expr)) {
+      return expr.token.position.column;
+    } else {
+      return Math.min(
+        this.getExprMinimumColumnNumber(expr.func),
+        ...expr.args.map((arg) => this.getExprMinimumColumnNumber(arg))
+      );
+    }
+  }
+
   private parsePrimaryEnd({
     primaryExpr,
     tokens,
@@ -491,19 +514,36 @@ export default class Parser {
         rhs.func.token.type !== TokenType.Dot && // Allow dot operator to chain
         !this.isParenthesizedExpression(tokens, startIndex, nextIndex - 1) // Check if the RHS is already parenthesized
       ) {
-        throw this.formatErrorMessage(
-          token,
-          `Ambiguous operator precedence. 
+        const ambiguityErrorMessage = `Ambiguous operator precedence. 
 Please use parentheses to clarify:
 
 ${exprToString(primaryExpr)} ${token.value} (${exprToString(rhs)})
 // or
 (${exprToString(primaryExpr)} ${token.value} ${exprToString(
-            rhs.args[0]
-          )}) ${exprToString(rhs.func)} ${exprToString(rhs.args[1])} 
+          rhs.args[0]
+        )}) ${exprToString(rhs.func)} ${exprToString(rhs.args[1])}
 
-`
+Or use newline after "${token.value}" to confirm the right-associativity.
+`;
+        // We allow to use newline indentation to implicitly
+        // skip the parenthese check.
+        // for example:
+        // 1 +
+        //   2 + 3
+        // will be parsed as
+        // 1 + (2 + 3)
+        const tokensInBetween = tokens.slice(index + 1, startIndex);
+        const hasNewLine = tokensInBetween.some(
+          (token) =>
+            token.type === TokenType.Whitespace && token.value.includes("\n")
         );
+        if (hasNewLine) {
+          // QUESTION: Do we need to check below?
+          // Check if the "rhs" most-left-side token is on the right side of the
+          // "primaryExpr" most-left-side token
+        } else {
+          throw this.formatErrorMessage(token, ambiguityErrorMessage);
+        }
       }
 
       return this.parsePrimaryEnd({

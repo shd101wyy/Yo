@@ -68,6 +68,13 @@ z := 16; // This will give error, as compt_int type cannot be assigned to runtim
 // or
 (+ 3, 4, 5); // Like in Lisp! But with commas separating the arguments
 
+// But there is a trick
+3 + // Newline after the operator is the magic here!
+  4 + 5
+;
+// This is equavalent to
+3 + (4 + 5);
+
 // Why no precedence?
 // Because it makes the language easier to parse and understand
 // and it's consistent with the rest of the language
@@ -91,7 +98,10 @@ z := 16; // This will give error, as compt_int type cannot be assigned to runtim
 def add(x: i32, y: i32):i32,
   x + y;
 // or with anonymous function defined with `fn` and `->`
-add :: ((fn(x: i32, y: i32) : i32) -> (x + y));
+add ::
+  (fn(x: i32, y: i32) : i32) ->
+    x + y;
+
 // or with the function type first, then the function implementation:
 compt(add) : ((x: i32, y: i32)-> i32);          // function type is written as (args...)-> return_type
 add = ((fn(x: i32, y: i32) : i32) -> (x + y));  // function implementation is written as fn(args...): return_type -> body
@@ -126,7 +136,7 @@ user1 := create_user(name: "Alice");  // age=18, role="user" (defaults)
 user2 := create_user(role: "admin", name: "Bob", age: 30);  // explicit values
 
 // Mo also supports the infix function application
-3 `add` 4; // is equivalent to add(3, 4)
+// 3 `add` 4; // is equivalent to add(3, 4)
 
 
 // Define a custom operator
@@ -351,32 +361,47 @@ def Option(compt(T): Type): compt Type,
   T1(Maybe, T);
 
 // interface
-Id :: interface (
-  id: ((Self)-> Self)
-);
-Stringer :: interface (
-  to_string: ((Self)-> String)
-);
+def Id(Self: Type): Interface,
+  interface
+    id: ((Self)-> Self)
+;
 
-/// implicitly implement the interface
-method id(self: i32): i32,
-  self;
-forall(compt(T) : (Type <: Stringer)) ->
-  method to_string(self: (T,)): String,
-    "(" + self.0.to_string() + ")"
+def Stringer(Self: Type): Interface,
+  interface
+    to_string: ((Self)-> String)
+;
+
+/// Implement the interface
+impl Id(i32),
+  id:
+    fn(self)-> self
+;
+forall(compt(X): Type, compt(Y): Type) ->
+  (Stringer(X), Stringer(Y)) => // => operator is used to define type constraints
+    impl Stringer((X, Y)),
+      to_string :
+        fn((x, y))->
+          "(" + 
+          x.to_string() + 
+          "," + 
+          y.to_string() + 
+          ")"
 ;
 
 /// method call
 12.id(); // 12
-(3,).to_string(); // "(3,)"
+(3,4).to_string(); // "(3,4)"
 // or call from the interface
 Id.id(12); // 12
-Stringer.to_string((3,)); // "(3,)"
+Stringer.to_string((3,4)); // "(3,4)"
 
 // Implement method to a type
 Cm :: struct(i32);
-method _(cm):Cm, M():i32,
-  cm / 100;
+impl Cm,
+  M : 
+    (fn(_(cm): Cm):i32) ->
+      cm / 100
+;
 
 (x : Cm) = Cm(200);
 x.M(); // 2
@@ -389,7 +414,10 @@ def id(compt(T): Type, x: T):T, {
 // but when you call it, you need to specify the type:
 id(i32, 12); // 12
 // e.g. with `forall`:
-id :: (forall(compt(T): Type) -> ((fn(x: T): T) -> x));
+id ::
+  forall(compt(T): Type)-> 
+    (fn(x: T): T) -> x
+;
 // then you can call it without specifying the type:
 id(12); // 12
 
@@ -541,7 +569,7 @@ do {
 }
 // is equavalent to
 {
-  fetch("https://api.example.com", (response) =>> {
+  fetch("https://api.example.com", fn(response) =>> {
     std.println(response);
     response.json((json) =>> {
       std.println(json);
@@ -563,7 +591,7 @@ free(ptr); // free the memory
 
 // cast reference to pointer using `as` function
 x := 12;
-ptr := &!(x) `as` *!(i32);
+// ptr := &!(x) `as` *!(i32);
 
 // Control flow
 /// cond
