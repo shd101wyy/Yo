@@ -1,5 +1,5 @@
 // Struct destructuring
-Named := struct(x: i32, y: boolean);
+Named :: struct(x: i32, y: boolean);
 p := Named(1, false);
 
 // Destructuring by position

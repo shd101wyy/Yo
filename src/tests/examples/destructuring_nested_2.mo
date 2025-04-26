@@ -1,9 +1,9 @@
 // Different types of data structures
-Complex := type (struct(
+Complex :: type (struct(
   x: i32,
   y: boolean 
 ),);
-SomeStruct := Complex.0;
+SomeStruct :: Complex.0;
 
 d := (a: 1, b: SomeStruct(2, false));
 

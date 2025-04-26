@@ -2,7 +2,7 @@ extern
   (*): ((i32, i32)-> i32)
 ;
 
-Color := enum Red, Green, Blue;
+Color :: enum Red, Green, Blue;
 
 def color_to_i32(color: Color): i32,
   match color,
@@ -12,7 +12,7 @@ def color_to_i32(color: Color): i32,
 ;
 
 
-Shape := enum
+Shape :: enum
   Circle(r: i32),
   Rectangle(w: i32, h: i32);
 

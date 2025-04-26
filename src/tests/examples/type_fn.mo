@@ -1,4 +1,4 @@
-def SomeStruct(T: Type): Type,
+def SomeStruct(compt(T): Type): compt(Type),
   struct(x: T)
 ;
 

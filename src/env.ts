@@ -9,7 +9,7 @@ import {
   TypeTag,
   typeToString,
 } from "./type-checker";
-import { createTypeValue, isTypeValue, Value } from "./value";
+import { createTypeValue, isTypeValue, Value, valueToString } from "./value";
 
 export type ReferedVariable = {
   frameLevel: number;
@@ -487,7 +487,10 @@ export function updateExistingVariable(
 export function printEnvVarNames(env: Environment) {
   console.log(
     env.frames.map((frame) => {
-      return frame.variables.map((variable) => variable.name).join(", ");
+      return frame.variables.map((variable) => ({
+        name: variable.name,
+        value: variable.value ? valueToString(variable.value) : undefined,
+      }));
     })
   );
 }

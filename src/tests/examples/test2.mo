@@ -1,4 +1,4 @@
-fn factorial(x: i32): i32,
+def factorial(x: i32): i32,
   if x == 0,
     then: 1,
     else: (x * factorial(x `sub` 1))

@@ -7,7 +7,7 @@ d := (a: 1, b: true, c: (x: 2, y: false));
 (c: (.y, .x), a: m, .b) := d;
 
 // Different types of data structures
-SomeStruct := struct(
+SomeStruct :: struct(
   x: i32,
   y: boolean 
 );

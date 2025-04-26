@@ -1335,7 +1335,7 @@ ${exprToString(expr)}`
         } catch (e) {
           throw this.formatErrorMessage(
             rhs.token,
-            `Failed to synthesize type for expression: ${exprToString(
+            `(evaluateInitializationAssignment) Failed to synthesize type for expression: ${exprToString(
               rhs
             )}\n${e}`
           );
@@ -1479,13 +1479,35 @@ ${exprToString(expr)}`
       if (rhs.env) {
         env = rhs.env;
       }
-      if (!rhs.type) {
-        throw this.formatErrorMessage(
-          rhs.token,
-          `Expected type for right-hand side, got ${exprToString(rhs)}`
-        );
+
+      let rhsType = rhs.type;
+      if (!rhsType) {
+        // Try synthesize the type
+        try {
+          // Infer the type
+          const {
+            expr: nextRhs,
+            type: nextRhsType,
+            env: nextEnv,
+          } = this.synthesizeExprAndType({
+            expr: rhs,
+            type: variable.type,
+            env: env,
+            context,
+          });
+          rhs = nextRhs;
+          rhsType = nextRhsType;
+          // as it is actually lhs.type if not synthesized.
+          env = nextEnv;
+        } catch (e) {
+          throw this.formatErrorMessage(
+            rhs.token,
+            `(evaluateAssignment) Failed to synthesize type for expression: ${exprToString(
+              rhs
+            )}\n${e}`
+          );
+        }
       }
-      const rhsType = rhs.type;
 
       // Check if the type matches
       if (!areTypesCompatible(variable.type, rhsType, env)) {
@@ -2879,21 +2901,65 @@ compt(${exprToString(returnTypeExpr)})`
 
     if (exprIsFunctionCallOf(expr, ".", 1)) {
       // Expect the argument to be an identifier
-      const arg = expr.args[0];
-      if (!exprIsAtom(arg) && !this.isValidVariableName(arg)) {
+      const propertyExpr = expr.args[0];
+      if (
+        !exprIsAtom(propertyExpr) &&
+        !this.isValidVariableName(propertyExpr)
+      ) {
         throw this.formatErrorMessage(
-          arg.token,
+          propertyExpr.token,
           `Expected identifier for enum variant access, got:\n${exprToString(
-            arg
+            propertyExpr
           )}`
         );
       }
 
-      // Inferred enum variant
-      // Skip the evaluation
-      // Set expr.type and expr.value later
-      expr.type = undefined;
-      expr.value = undefined;
+      const expectedEnumType = context.expectedType;
+      if (!isEnumType(expectedEnumType)) {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Failed to infer enum variant type.`
+        );
+      }
+      const variantName = propertyExpr.token.value;
+      const enumType = expectedEnumType;
+
+      const variant = enumType.variants.find(
+        (variant) => variant.name === variantName
+      );
+      if (!variant) {
+        throw this.formatErrorMessage(
+          propertyExpr.token,
+          `Enum variant "${variantName}" not found in enum`
+        );
+      }
+      const newEnumType: EnumType = {
+        ...enumType,
+        selectedVariantName: variantName,
+      };
+
+      /**
+       * This is for case like
+       * Color :: enum Red, Green, Blue;
+       * r := Color.Red;
+       */
+      if (!variant.params) {
+        expr.type = newEnumType;
+        propertyExpr.type = newEnumType;
+        // FIXME: Support expr.value for comptime evaluation.
+        // expr.value = createEnumValue()
+      } else {
+        /**
+         * This is for case like
+         * Shape := enum Circle(i32), Square(i32, i32);
+         * c := Shape.Circle(3);
+         */
+        expr.value = createTypeValue(newEnumType);
+        expr.type = expr.value.type;
+        propertyExpr.value = expr.value;
+        propertyExpr.type = expr.type;
+      }
+      expr.env = env;
       return expr;
     }
 
@@ -2948,11 +3014,12 @@ compt(${exprToString(returnTypeExpr)})`
 
         /**
          * This is for case like
-         * Color := enum Red, Green, Blue;
+         * Color :: enum Red, Green, Blue;
          * r := Color.Red;
          */
         if (!variant.params) {
           expr.type = newEnumType;
+          propertyExpr.type = newEnumType;
           // FIXME: Support expr.value for comptime evaluation.
           // expr.value = createEnumValue()
         } else {
@@ -2963,6 +3030,8 @@ compt(${exprToString(returnTypeExpr)})`
            */
           expr.value = createTypeValue(newEnumType);
           expr.type = expr.value.type;
+          propertyExpr.value = expr.value;
+          propertyExpr.type = expr.type;
         }
         expr.env = env;
         return expr;
@@ -3231,15 +3300,6 @@ compt(${exprToString(returnTypeExpr)})`
     if (givenFunc) {
       functions = [givenFunc];
     } else if (exprIsFunctionCall(func)) {
-      // Check .Circle(3) like function for inferred enum variant call
-      if (exprIsFunctionCall(func) && exprIsFunctionCallOf(func, ".", 1)) {
-        // Skip the evaluation
-        // Set expr.type and expr.value later
-        expr.type = undefined;
-        expr.value = undefined;
-        return expr;
-      }
-
       let functionToCall = this.evaluateExpression({
         expr: func,
         env,
@@ -3287,11 +3347,19 @@ compt(${exprToString(returnTypeExpr)})`
 
       // Check _ function
       if (functionName === "_") {
-        // Skip the evaluation
-        // Set expr.type and expr.value later
-        expr.type = undefined;
-        expr.value = undefined;
-        return expr;
+        const expectedType = context.expectedType;
+        if (!expectedType) {
+          throw this.formatErrorMessage(
+            func.token,
+            `Failed to infer type for _ function`
+          );
+        }
+        functions = [
+          {
+            type: typeOfType(expectedType),
+            value: createTypeValue(expectedType),
+          },
+        ];
       } else {
         /**
          * functionVariables might be of FunctionType, StructType, UnionType, and EnumVariant
@@ -3870,7 +3938,7 @@ Expected: ${typeToString(functionType)}`
     if (!isTypeValue(functionReturnTypeValue)) {
       throw this.formatErrorMessage(
         functionCallExpr.token,
-        `Function body is not evaluated correctly. Expected to return a type.`
+        `(evaluateFunctionCallReturnType) Function body is not evaluated correctly. Expected to return a type.`
       );
     }
     const returnType = functionReturnTypeValue.value;

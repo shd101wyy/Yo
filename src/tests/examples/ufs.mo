@@ -1,3 +1,4 @@
+// NOTE: This is no longer a valid example, as the syntax has changed
 // Uniform Function Calls
 // This example demonstrates the use of uniform function calls
 extern

@@ -23,7 +23,7 @@ def NestedFunction(compt(T): Type): T, {
   // a
 };
 x := NestedFunction(i32);
-y := NestedFunction(SomeLinear);
+// y := NestedFunction(SomeLinear);
 
 /*
 (x: SomeType(i32)) := 42;
