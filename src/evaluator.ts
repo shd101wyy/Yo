@@ -73,6 +73,7 @@ import {
   isFunctionValue,
   isTupleValue,
   isTypeValue,
+  isUnknownValue,
   TupleValue,
   Value,
   valueToString,
@@ -100,7 +101,7 @@ interface EvaluatorContext {
 
 interface CalledTypeFunctionCache {
   funcId: string;
-  argValues: TupleValue;
+  argValues: Value[];
   typeValue: TypeValue;
 }
 
@@ -3158,219 +3159,6 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
   }
   */
 
-  private areTupleElementsAndValuesCompatible({
-    tupleElements,
-    argElements,
-    // argValues,
-    argExprs,
-    env,
-    context,
-    updateArgType,
-  }: {
-    tupleElements: TupleElement[];
-    argElements: TupleElement[];
-    argValues: TupleValue | undefined;
-    argExprs: Expr[];
-    env: Environment;
-    context: EvaluatorContext;
-    updateArgType?: boolean;
-  }): boolean {
-    if (argElements.length > tupleElements.length) {
-      return false;
-    }
-
-    const checkedTupleElements: Set<TupleElement> = new Set();
-    for (let i = 0; i < tupleElements.length; i++) {
-      let paramElement: TupleElement | undefined = tupleElements[i];
-      const argElement = argElements[i];
-      // const argValue = argValues?.elements[i];
-      const argExpr = argExprs[i];
-
-      /*
-      // TODO: Implement this support for the defaultValue:
-      // Check the defaultValue
-      if (!argType) {
-        if (checkedTupleElements.has(paramType)) {
-          return false; // Already checked this element
-        }
-        // Needs to check the defaultValue if no arg
-        if (paramType.defaultValue) {
-          continue;
-        } else {
-          return false;
-        }
-      }
-      */
-      if (!argElement) {
-        return false;
-      }
-
-      if (argElement.label) {
-        // Find the matching label in the expectedType
-        paramElement = tupleElements.find(
-          (element) => element.label === argElement.label
-        );
-        if (!paramElement) {
-          return false;
-        }
-      }
-
-      if (checkedTupleElements.has(paramElement)) {
-        return false; // Already checked this element
-        // We cannot have duplicate labels
-      }
-
-      let argType = argElement.type;
-      if (isPlaceholderType(argType)) {
-        // Synthesize the type
-        try {
-          const { type: nextArgType, env: nextEnv } =
-            this.synthesizeExprAndType({
-              expr: argExpr,
-              type: paramElement.type,
-              env,
-              context,
-            });
-          env = nextEnv;
-          argType = nextArgType;
-          if (updateArgType) {
-            argElement.type = nextArgType;
-          }
-        } catch (e) {
-          return false; // If synthesis fails, the types are not compatible
-        }
-      }
-
-      if (!areTypesCompatible(paramElement.type, argType, env)) {
-        return false;
-      }
-      checkedTupleElements.add(paramElement);
-    }
-    return true;
-  }
-
-  private areFunctionParametersAndArgumentsCompatible({
-    paramElements,
-    argElements,
-    argValues,
-    argExprs,
-    env,
-    context,
-    updateArgType,
-  }: {
-    paramElements: FunctionParameter[];
-    argElements: TupleElement[];
-    argValues: TupleValue | undefined;
-    argExprs: Expr[];
-    env: Environment;
-    context: EvaluatorContext;
-    updateArgType?: boolean;
-  }): Environment | false {
-    if (argElements.length > paramElements.length) {
-      return false;
-    }
-
-    env = pushEnvFrame(env);
-    const checkedTupleElements: Set<TupleElement> = new Set();
-    for (let i = 0; i < paramElements.length; i++) {
-      let paramElement: FunctionParameter | undefined = paramElements[i];
-      const argElement = argElements[i];
-      const argValue = argValues?.elements[i];
-      const argExpr = argExprs[i];
-
-      /*
-      // TODO: Implement this support for the defaultValue:
-      // Check the defaultValue
-      if (!argType) {
-        if (checkedTupleElements.has(paramType)) {
-          return false; // Already checked this element
-        }
-        // Needs to check the defaultValue if no arg
-        if (paramType.defaultValue) {
-          continue;
-        } else {
-          return false;
-        }
-      }
-      */
-      if (!argElement) {
-        return false;
-      }
-
-      if (argElement.label) {
-        // Find the matching label in the expectedType
-        paramElement = paramElements.find(
-          (element) => element.label === argElement.label
-        );
-        if (!paramElement) {
-          return false;
-        }
-      }
-
-      if (checkedTupleElements.has(paramElement)) {
-        return false; // Already checked this element
-        // We cannot have duplicate labels
-      }
-
-      let argType = argElement.type;
-      if (isPlaceholderType(argType)) {
-        // Synthesize the type
-        try {
-          const { type: nextArgType, env: nextEnv } =
-            this.synthesizeExprAndType({
-              expr: argExpr,
-              type: paramElement.type,
-              env,
-              context,
-            });
-          env = nextEnv;
-          argType = nextArgType;
-          if (updateArgType) {
-            argElement.type = nextArgType;
-          }
-        } catch (e) {
-          return false; // If synthesis fails, the types are not compatible
-        }
-      }
-
-      // Pass a type to parameter
-      // eg: T: Type
-      if (
-        isTypeHierarchyType(paramElement.type) &&
-        paramElement.type.level === 0
-      ) {
-        // Check if the type is a subtype of the given type
-        // TODO: Check interfaces
-        if (!isTypeHierarchyType(argType) || argType.level !== 0) {
-          return false;
-        }
-        if (paramElement.label) {
-          // Add the arg to the environment
-          const { env: nextEnv } = addVariableToEnv({
-            env,
-            variable: {
-              name: paramElement.label,
-              type: argType,
-              isMutable: paramElement.isMutable,
-              isCompileTimeOnly: paramElement.isCompileTimeOnly,
-              token: argExpr.token,
-              isNotInitialized: false,
-              value: argValue,
-            },
-          });
-          env = nextEnv;
-        }
-      }
-
-      // Compare the types
-      else if (!areTypesCompatible(paramElement.type, argType, env)) {
-        return false;
-      }
-      checkedTupleElements.add(paramElement);
-    }
-    return env;
-  }
-
   private evaluateFunctionCall({
     expr,
     env,
@@ -3462,30 +3250,11 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       }
     }
 
-    // FIXME:
-    const {
-      type: tupleType,
-      value: tupleValue,
-      env: nextEnv,
-    } = this.evaluateTupleElements({
-      args,
-      env,
-      context: {
-        ...context,
-        isEvaluatingExprAsType: false,
-      },
-    });
-    env = nextEnv;
-    const evaluatedArgElements = tupleType.elements;
-    const evaluatedArgValues = tupleValue as TupleValue | undefined;
-
     // Find the functions whose parameters match the arguments
     const functionsWithMatchingTypes = functions.filter((func) => {
       if (isFunctionType(func.type)) {
-        return this.areFunctionParametersAndArgumentsCompatible({
-          paramElements: func.type.params,
-          argElements: evaluatedArgElements,
-          argValues: evaluatedArgValues,
+        return this.tryToCallFunctionWithArguments({
+          functionType: func.type,
           argExprs: args,
           env,
           context,
@@ -3494,10 +3263,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         const value = func.value;
         // struct value
         if (isTypeValue(value) && isStructType(value.value)) {
-          return this.areTupleElementsAndValuesCompatible({
-            tupleElements: value.value.members,
-            argElements: evaluatedArgElements,
-            argValues: evaluatedArgValues,
+          return this.tryToCallTypeWithArguments({
+            memberElements: value.value.members,
             argExprs: args,
             env,
             context,
@@ -3515,10 +3282,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
               `Enum variant not selected for enum type`
             );
           }
-          return this.areTupleElementsAndValuesCompatible({
-            tupleElements: selectedVariant.params || [],
-            argElements: evaluatedArgElements,
-            argValues: evaluatedArgValues,
+          return this.tryToCallTypeWithArguments({
+            memberElements: selectedVariant.params || [],
             argExprs: args,
             env,
             context,
@@ -3569,8 +3334,6 @@ ${functionsWithMatchingTypes
             functionCallExpr: expr,
             functionType,
             functionValue,
-            argElements: evaluatedArgElements,
-            argValues: evaluatedArgValues,
             argExprs: args,
             env,
             context,
@@ -3590,8 +3353,6 @@ ${functionsWithMatchingTypes
           this.evaluateFunctionCallReturnType({
             functionCallExpr: expr,
             functionType,
-            argElements: evaluatedArgElements,
-            argValues: evaluatedArgValues,
             argExprs: args,
             env,
             context,
@@ -3640,12 +3401,242 @@ ${exprToString(expr)}`
     );
   }
 
+  private tryToCallFunctionWithArguments({
+    functionType,
+    argExprs,
+    env,
+    context,
+  }: {
+    functionType: FunctionType;
+    argExprs: Expr[];
+    env: Environment;
+    context: EvaluatorContext;
+  }): Environment | false {
+    if (argExprs.length > functionType.params.length) {
+      return false;
+    }
+
+    env = pushEnvFrame(env);
+    const checkedFunctionParameters: Set<FunctionParameter> = new Set();
+    for (let i = 0; i < functionType.params.length; i++) {
+      let paramElement = functionType.params[i];
+      let argExpr = argExprs[i];
+      if (!argExpr) {
+        return false;
+      }
+
+      // Check if it's a label
+      let label: string | undefined;
+      if (
+        exprIsFunctionCall(argExpr) &&
+        exprIsFunctionCallOf(argExpr, ":", 2)
+      ) {
+        const labelExpr = argExpr.args[0];
+        argExpr = argExpr.args[1];
+
+        if (!exprIsAtom(labelExpr)) {
+          throw this.formatErrorMessage(
+            labelExpr.token,
+            `Expected identifier for label, got:\n${exprToString(labelExpr)}`
+          );
+        }
+        label = labelExpr.token.value;
+      }
+
+      if (label) {
+        // Find the matching label in the expectedType
+        const paramElement_ = functionType.params.find(
+          (element) => element.label === label
+        );
+        if (!paramElement_) {
+          return false;
+        } else {
+          paramElement = paramElement_;
+        }
+      }
+
+      if (checkedFunctionParameters.has(paramElement)) {
+        return false; // Already checked this element
+        // We cannot have duplicate labels
+      }
+
+      // Evaluate the argExpr
+      const evaluatedArgExpr = this.evaluateExpression({
+        expr: argExpr,
+        env,
+        context: {
+          ...context,
+          isEvaluatingExprAsType: false,
+          expectedType: paramElement.type,
+        },
+      });
+      let argType = evaluatedArgExpr.type;
+      if (!argType) {
+        return false; // If synthesis fails, the types are not compatible
+      }
+      if (isPlaceholderType(argType)) {
+        // Synthesize the type
+        try {
+          const { type: nextArgType, env: nextEnv } =
+            this.synthesizeExprAndType({
+              expr: argExpr,
+              type: paramElement.type,
+              env,
+              context,
+            });
+          env = nextEnv;
+          argType = nextArgType;
+          evaluatedArgExpr.type = nextArgType; // QUESTION: Will this cause problem?
+        } catch (e) {
+          return false; // If synthesis fails, the types are not compatible
+        }
+      }
+
+      // Pass a type to parameter
+      // eg: T: Type
+      if (
+        isTypeHierarchyType(paramElement.type) &&
+        paramElement.type.level === 0
+      ) {
+        // Check if the type is a subtype of the given type
+        // TODO: Check interfaces
+        if (!isTypeHierarchyType(argType) || argType.level !== 0) {
+          return false;
+        }
+        if (paramElement.label) {
+          const argValue = evaluatedArgExpr.value;
+
+          // Add the arg to the environment
+          const { env: nextEnv } = addVariableToEnv({
+            env,
+            variable: {
+              name: paramElement.label,
+              type: argType,
+              isMutable: paramElement.isMutable,
+              isCompileTimeOnly: paramElement.isCompileTimeOnly,
+              token: argExpr.token,
+              isNotInitialized: false,
+              value: argValue,
+            },
+          });
+          env = nextEnv;
+        }
+      }
+
+      // Compare the types
+      else if (!areTypesCompatible(paramElement.type, argType, env)) {
+        return false;
+      }
+
+      checkedFunctionParameters.add(paramElement);
+    }
+    return env;
+  }
+
+  private tryToCallTypeWithArguments({
+    memberElements,
+    argExprs,
+    env,
+    context,
+  }: {
+    memberElements: TupleElement[];
+    argExprs: Expr[];
+    env: Environment;
+    context: EvaluatorContext;
+  }): boolean {
+    if (argExprs.length > memberElements.length) {
+      return false;
+    }
+
+    env = pushEnvFrame(env);
+    const checkedMemberElements: Set<TupleElement> = new Set();
+    for (let i = 0; i < memberElements.length; i++) {
+      let memberElement = memberElements[i];
+      let argExpr = argExprs[i];
+      if (!argExpr) {
+        return false;
+      }
+
+      // Check if it's a label
+      let label: string | undefined;
+      if (
+        exprIsFunctionCall(argExpr) &&
+        exprIsFunctionCallOf(argExpr, ":", 2)
+      ) {
+        const labelExpr = argExpr.args[0];
+        argExpr = argExpr.args[1];
+
+        if (!exprIsAtom(labelExpr)) {
+          throw this.formatErrorMessage(
+            labelExpr.token,
+            `Expected identifier for label, got:\n${exprToString(labelExpr)}`
+          );
+        }
+        label = labelExpr.token.value;
+      }
+
+      if (label) {
+        // Find the matching label in the expectedType
+        const paramElement_ = memberElements.find(
+          (element) => element.label === label
+        );
+        if (!paramElement_) {
+          return false;
+        } else {
+          memberElement = paramElement_;
+        }
+      }
+
+      if (checkedMemberElements.has(memberElement)) {
+        return false; // Already checked this element
+        // We cannot have duplicate labels
+      }
+
+      // Evaluate the argExpr
+      const evaluatedArgExpr = this.evaluateExpression({
+        expr: argExpr,
+        env,
+        context: {
+          ...context,
+          isEvaluatingExprAsType: false,
+          expectedType: memberElement.type,
+        },
+      });
+      let argType = evaluatedArgExpr.type;
+      if (!argType) {
+        return false; // If synthesis fails, the types are not compatible
+      }
+      if (isPlaceholderType(argType)) {
+        // Synthesize the type
+        try {
+          const { type: nextArgType, env: nextEnv } =
+            this.synthesizeExprAndType({
+              expr: argExpr,
+              type: memberElement.type,
+              env,
+              context,
+            });
+          env = nextEnv;
+          argType = nextArgType;
+          evaluatedArgExpr.type = nextArgType; // QUESTION: Will this cause problem?
+        } catch (e) {
+          return false; // If synthesis fails, the types are not compatible
+        }
+      }
+
+      // Compare the types
+      if (!areTypesCompatible(memberElement.type, argType, env)) {
+        return false;
+      }
+      checkedMemberElements.add(memberElement);
+    }
+    return true;
+  }
+
   private evaluateTypeFunctionCall({
     functionCallExpr,
     functionType,
     functionValue,
-    argElements,
-    argValues,
     argExprs,
     env,
     context,
@@ -3653,21 +3644,16 @@ ${exprToString(expr)}`
     functionCallExpr: Expr;
     functionType: FunctionType;
     functionValue: FunctionValue;
-    argElements: TupleElement[];
-    argValues: TupleValue | undefined;
     argExprs: Expr[];
     env: Environment;
     context: EvaluatorContext;
   }): { value: TypeValue; env: Environment } {
     // This will push a new frame to the env and
     // add the parameters to the env
-    const nextEnv = this.areFunctionParametersAndArgumentsCompatible({
-      paramElements: functionType.params,
-      argElements: argElements,
-      argValues: argValues,
+    const nextEnv = this.tryToCallFunctionWithArguments({
+      functionType: functionType,
       argExprs: argExprs,
       env,
-      updateArgType: true,
       context,
     });
     if (!nextEnv) {
@@ -3678,6 +3664,19 @@ Expected: ${typeToString(functionType)}`
       );
     }
     env = nextEnv;
+
+    // argExprs should be evaluated now
+    const argValues: Value[] = [];
+    for (let i = 0; i < argExprs.length; i++) {
+      const argValue = argExprs[i].value;
+      if (!argValue || isUnknownValue(argValue)) {
+        throw this.formatErrorMessage(
+          argExprs[i].token,
+          `Argument is not evaluated correctly`
+        );
+      }
+      argValues.push(argValue);
+    }
 
     // For type function, argValues cannot be undefined
     if (!argValues) {
@@ -3693,7 +3692,12 @@ Expected: ${typeToString(functionType)}`
     if (calledTypeFunctions) {
       // Check if the function is already called.
       const calledTypeFunction = calledTypeFunctions.find((cache) => {
-        return areValuesEqual(cache.argValues, argValues, env);
+        return (
+          cache.argValues.length === argValues.length &&
+          cache.argValues.every((argValue, index) => {
+            return areValuesEqual(argValue, argValues[index], env);
+          })
+        ); // Check if the values are equal
       });
       if (calledTypeFunction) {
         // Find the cache
@@ -3734,7 +3738,8 @@ Expected: ${typeToString(functionType)}`
       functionValue.funcName
     ) {
       returnType.typeName =
-        functionValue.funcName + `${valueToString(argValues)}`;
+        functionValue.funcName +
+        `(${argValues.map((v) => valueToString(v)).join(", ")})`;
     }
 
     // Restore the environment frames
@@ -3757,29 +3762,22 @@ Expected: ${typeToString(functionType)}`
   private evaluateFunctionCallReturnType({
     functionCallExpr,
     functionType,
-    argElements,
-    argValues,
     argExprs,
     env,
     context,
   }: {
     functionCallExpr: Expr;
     functionType: FunctionType;
-    argElements: TupleElement[];
-    argValues: TupleValue | undefined;
     argExprs: Expr[];
     env: Environment;
     context: EvaluatorContext;
   }): { returnType: Type; env: Environment } {
     // This will push a new frame to the env and
     // add the parameters to the env
-    const nextEnv = this.areFunctionParametersAndArgumentsCompatible({
-      paramElements: functionType.params,
-      argElements: argElements,
-      argValues,
+    const nextEnv = this.tryToCallFunctionWithArguments({
+      functionType: functionType,
       argExprs,
       env,
-      updateArgType: true,
       context,
     });
     if (!nextEnv) {

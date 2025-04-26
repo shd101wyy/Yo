@@ -12,4 +12,4 @@ def my_add(mut(x): i32, y: i32): i32, {
 
 def identity(T: Type, x: T): T,
   x;
-identity(i32, 12);
+x := identity(i32, 12);
