@@ -6,7 +6,7 @@ extern
   (-): ((i32, i32) -> i32)
 ;
 
-factorial_fn := ((x: i32) -> i32);
+factorial_fn :: ((x: i32) -> i32);
 
 
 // Without given type
@@ -20,28 +20,28 @@ n := factorial(10);
 
 
 // With given type
-(factorial2: factorial_fn) := ((fn(a: i32): i32)-> {
-  cond
-    (a == 0) -> 1,
-    (a > 0) -> (a * recur(a - 1))  
-});
+(factorial2 : factorial_fn) = 
+  (fn(a: i32): i32) -> {
+    cond
+      (a == 0) -> 1,
+      (a > 0) -> (a * recur(a - 1))  
+  }
+;
 
 
 
-/*
 // With given type and fn implementaion has no type
-(factorial3: factorial_fn) := (fn(a)-> {
-  cond
-    (a == 0) -> 1,
-    (a > 0) -> (a * recur(a - 1))  
-})
-*/
+(factorial3: factorial_fn) = 
+  fn(a)-> {
+    cond
+      (a == 0) -> 1,
+      (a > 0) -> (a * recur(a - 1))  
+  }
+;
 
-// TODO: fn as callback
-/*
-def call_fn(cb: (i32) -> i32, a: i32): i32 {
-  return cb(a);
-}
+
+def call_fn(cb: ((i32) -> i32), a: i32): i32,
+  cb(a)
+;
 call_fn(factorial, 10);
 call_fn((fn(x) -> x), 12);
-*/

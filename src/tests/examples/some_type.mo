@@ -1,19 +1,19 @@
 extern
   // identity: ((T: Type, x: T) -> T)
   SomeLinear: Linear,
-  return_value_of_type: ((X: Type)-> X)
+  return_value_of_type: ((compt(X): Type)-> X)
 ;
 
-def SomeType(T: Type): Type,
+def SomeType(compt(T): Type): compt(Type),
   type (T,);
-(x: SomeType(i32)) := (12,);
+(x: SomeType(i32)) = (12,);
 
-def identity(Y: Type, x: SomeType(Y)): SomeType(Y),
+def identity(compt(Y): Type, x: SomeType(Y)): SomeType(Y),
   x;
 x := identity(i32, (42,));
 
-def NestedFunction(T: Type): T, {
-  def identity2(Y: Type, x: Y): Y,
+def NestedFunction(compt(T): Type): T, {
+  def identity2(compt(Y): Type, x: Y): Y,
     x;
   a := return_value_of_type(T);
   x := identity2(T, return_value_of_type(T));

@@ -10,6 +10,6 @@ def my_add(mut(x): i32, y: i32): i32, {
   c
 };
 
-def identity(T: Type, x: T): T,
+def identity(compt(T): Type, x: T): T,
   x;
 x := identity(i32, 12);

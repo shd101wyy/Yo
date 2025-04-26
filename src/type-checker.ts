@@ -339,7 +339,7 @@ export interface FunctionParameter {
   /**
    * This is only used for Functions
    */
-  defaultValue?: Expr;
+  // defaultValue?: Expr;
 }
 
 export interface StructType extends Type {
@@ -429,9 +429,20 @@ export interface FunctionReturn {
 
 export interface FunctionType extends Type {
   tag: TypeTag.Function;
+  /**
+   * The parameters of the function.
+   */
   params: FunctionParameter[];
+  /**
+   * The return information of the function.
+   */
   return: FunctionReturn;
-  typeFunctionImplementation?: (args: Type[]) => Type;
+  /**
+   * The env when the function type is created.
+   * The env shouldn't contain the frame that have the parameters.
+   * The env is also useful to show the frame level at which the function is defined.
+   */
+  env: Environment;
 }
 
 // NOTE: Interface is not Type
@@ -565,18 +576,18 @@ export function createUnionType(members: TupleElement[]): UnionType {
 export function createFunctionType({
   params,
   return_,
-  typeFunctionImplementation,
+  env,
 }: {
   params: FunctionParameter[];
   return_: FunctionReturn;
-  typeFunctionImplementation?: (args: Type[]) => Type;
+  env: Environment;
 }): FunctionType {
   return {
     tag: TypeTag.Function,
     size: getPtrSize() * 8,
     params: params, // Wrap params in a TupleType
     return: return_,
-    typeFunctionImplementation,
+    env,
   };
 }
 
