@@ -560,6 +560,36 @@ Or use newline after "${token.value}" to confirm the right-associativity.
         tokens,
         index: nextIndex,
       });
+    }
+
+    // Backtick identifier function call
+    // such as:
+    // 1 `add` 2
+    // 1 `add` 2, 3
+    // Convert them to normal function call expr
+    // such as:
+    // add(1, 2)
+    // add(1, 2, 3)
+    else if (token.type === TokenType.BacktickIdentifier) {
+      const { index: nextIndex, args } = this.parseFunctionArguments({
+        tokens,
+        index: index + 1,
+        hasWhitespace: true,
+      });
+      return this.parsePrimaryEnd({
+        primaryExpr: {
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token,
+          },
+          args: [primaryExpr, ...args],
+          isInfix: true,
+          token,
+        },
+        tokens,
+        index: nextIndex,
+      });
     } else if (!hasWhitespace) {
       if (token.type === TokenType.LParen) {
         // Function call like
@@ -620,13 +650,11 @@ ${exprToString(returnValue.expr)}`
     }
   }
 
-  private parseFunctionCall({
-    func,
+  private parseFunctionArguments({
     tokens,
     index,
     hasWhitespace,
   }: {
-    func: Expr;
     tokens: Token[];
     index: number;
     /**
@@ -634,21 +662,13 @@ ${exprToString(returnValue.expr)}`
      * like `add 3, 4` instead of `add(3, 4)`
      */
     hasWhitespace: boolean;
-  }): ParserReturn {
+  }): { args: Expr[]; index: number } {
     // Parse arguments
     const args: Expr[] = [];
     index = this.skipWhitespace(tokens, index);
 
     if (!hasWhitespace && tokens[index]?.type === TokenType.RParen) {
-      return {
-        expr: {
-          tag: ExprTag.FuncCall,
-          func,
-          args,
-          token: func.token,
-        },
-        index: index + 1,
-      };
+      return { args, index: index + 1 };
     }
 
     while (true) {
@@ -669,22 +689,12 @@ ${exprToString(returnValue.expr)}`
         token.type === TokenType.RCurlyBracket
       ) {
         return {
-          expr: {
-            tag: ExprTag.FuncCall,
-            func,
-            args,
-            token: func.token,
-          },
-          index: index,
+          args,
+          index,
         };
       } else if (token.type === TokenType.RParen) {
         return {
-          expr: {
-            tag: ExprTag.FuncCall,
-            func,
-            args,
-            token: func.token,
-          },
+          args,
           index: hasWhitespace ? index : index + 1,
         };
       } else {
@@ -698,6 +708,39 @@ or ) to end the function call`
         );
       }
     }
+  }
+
+  private parseFunctionCall({
+    func,
+    tokens,
+    index,
+    hasWhitespace,
+  }: {
+    func: Expr;
+    tokens: Token[];
+    index: number;
+    /**
+     * If the function call has whitespace between the function name and the arguments
+     * like `add 3, 4` instead of `add(3, 4)`
+     */
+    hasWhitespace: boolean;
+  }): ParserReturn {
+    // Parse arguments
+    const { args, index: nextIndex } = this.parseFunctionArguments({
+      tokens,
+      index,
+      hasWhitespace,
+    });
+    index = nextIndex;
+    return {
+      expr: {
+        tag: ExprTag.FuncCall,
+        func,
+        args,
+        token: func.token,
+      },
+      index,
+    };
   }
 
   private parseExpression({

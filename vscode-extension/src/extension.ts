@@ -196,6 +196,12 @@ export function activate(context: vscode.ExtensionContext) {
         if (stringIsOperator(tokenText)) {
           // Wrap operators in parentheses
           tokenText = `(${tokenText})`;
+        } else if (
+          exprIsAtom(expr) &&
+          expr.token.type === TokenType.BacktickIdentifier
+        ) {
+          // Remove backticks from identifiers
+          tokenText = tokenText.slice(1, -1);
         }
 
         // Get variable from the env

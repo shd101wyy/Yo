@@ -141,6 +141,18 @@ export function exprToString(expr: Expr): string {
         break;
       }
 
+      if (
+        expr.func.tag === "Atom" &&
+        expr.func.token.type === TokenType.BacktickIdentifier
+      ) {
+        return `(${exprToString(expr.args[0])} ${
+          expr.func.token.value
+        } ${expr.args
+          .slice(1)
+          .map((arg) => exprToString(arg))
+          .join(", ")})`;
+      }
+
       const func = exprToString(expr.func);
       const args = expr.args
         .map((arg) => {

@@ -281,6 +281,43 @@ export function tokenize(input: string): Token[] {
 
         break;
       }
+      // backtick identifier
+      case "`": {
+        let value = "";
+        for (let j = i + 1; j < input.length; j++) {
+          if (input[j] === "\\") {
+            value += input[j];
+            j = j + 1;
+            value += input[j];
+            continue;
+          }
+          if (input[j] === "`") {
+            i = j;
+            break;
+          }
+
+          value += input[j];
+        }
+
+        if (!IdentifierRegex.test(value)) {
+          throw new MoLexerError({
+            message: `Invalid backtick identifier \`${value}\``,
+            characterIndex: i,
+          });
+        }
+
+        tokens.push({
+          type: TokenType.BacktickIdentifier,
+          value: `\`${value}\``,
+          position: {
+            row: line,
+            column: characterColumn,
+            character: characterIndex,
+          },
+        });
+
+        break;
+      }
       // other
       case ",":
         tokens.push({

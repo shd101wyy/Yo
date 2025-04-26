@@ -3438,7 +3438,10 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         },
       ];
     } else {
-      const functionName = func.token.value;
+      const functionName =
+        func.token.type === TokenType.BacktickIdentifier
+          ? func.token.value.slice(1, -1) // Convert `add` to add
+          : func.token.value;
 
       // Check _ function
       if (functionName === "_") {
