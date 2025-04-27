@@ -4046,11 +4046,16 @@ Expected: ${typeToString(functionType)}`
       }
     }
 
-    // Evaluate functionValue.body with the new env
+    // Evaluate functionValue.body with the function env
     const functionBodyExpr = functionValue.body;
+    // NOTE: We should use the env from the function, not the current env.
+    const functionEnv = pushEnvFrame(
+      functionType.env,
+      env.frames[env.frames.length - 1]
+    ); // Add the env last frame which contains evaluated args
     const evaluatedFunctionBody = this.evaluateExpression({
       expr: functionBodyExpr,
-      env,
+      env: functionEnv,
       context: { ...context, isEvaluatingExprAsType: false },
     });
     if (!evaluatedFunctionBody.env) {
@@ -4080,7 +4085,7 @@ Expected: ${typeToString(functionType)}`
     }
 
     // Restore the environment frames
-    env = popEnvFrame(evaluatedFunctionBody.env);
+    env = popEnvFrame(env);
 
     // Cache the function call
     const caches = (calledTypeFunctions ?? []).concat({
@@ -4127,11 +4132,11 @@ Expected: ${typeToString(functionType)}`
     env = nextEnv;
 
     // Evaluate the function return expr again
+    // NOTE: We should use the env from the function, not the current env.
     const functionTypeEnv = pushEnvFrame(
       functionType.env,
       env.frames[env.frames.length - 1]
     ); // Add the env last frame which contains evaluated args
-
     const evaluatedFunctionReturnExpr = this.evaluateExpression({
       expr: functionType.return.expr,
       env: functionTypeEnv,
