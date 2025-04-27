@@ -492,6 +492,11 @@ export interface InterfaceType extends Type {
    * And interface is unsized
    */
   size: undefined;
+
+  /**
+   * Whether the interface is implemented or not.
+   */
+  isImplemented: boolean;
 }
 
 export function createTypeHierarchy(level: number): TypeHierarchyType {
@@ -642,6 +647,7 @@ export function createInterfaceType(
     members, // Updated to use the renamed field
     size: undefined,
     typeId: typeId ?? `interface_${randomId()}`,
+    isImplemented: false,
   };
 }
 
@@ -1208,7 +1214,7 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Interface: {
       const interfaceType = type as InterfaceType;
-      return `${interfaceType.typeName ? `(${interfaceType.typeName})` : ""}${
+      return `${interfaceType.typeName ? `(${interfaceType.typeName}) ` : ""}${
         interfaceType.typeName ? "interface" : interfaceType.typeId
       }(${interfaceType.members
         .map((member) => {

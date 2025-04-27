@@ -3,6 +3,8 @@ extern
     (x: i32, y: i32)-> i32
 ;
 
+Point :: struct(i32);
+
 // interface behaves similar to a struct
 MyAdd :: interface                  // (MyAdd : Type)
   my_add: ((x: i32, y: i32)-> i32)
@@ -11,7 +13,7 @@ MyAdd :: interface                  // (MyAdd : Type)
 // Each interface can only be implemented once.
 impl MyAdd,
   my_add:
-    fn(x, y)-> add(x, y)
+    fn(a, b)-> add(a, b)
 ;
 
 // Can function from interface:

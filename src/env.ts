@@ -2,7 +2,10 @@ import { createHash } from "crypto";
 import { formatErrorMessages } from "./error";
 import { charIsOperator, Operators, Token } from "./token";
 import {
+  areTypesCompatible,
+  InterfaceMember,
   isFunctionType,
+  isInterfaceType,
   isTypeHierarchyType,
   SomeType,
   Type,
@@ -493,4 +496,37 @@ export function printEnvVarNames(env: Environment) {
       }));
     })
   );
+}
+
+export function getInterfaceMethodsByNameFromEnv(
+  env: Environment,
+  methodName: string,
+  receiverType: Type
+): InterfaceMember[] {
+  const interfaceMembers: InterfaceMember[] = [];
+  for (let i = env.frames.length - 1; i >= 0; i--) {
+    const frame = env.frames[i];
+    for (let j = frame.variables.length - 1; j >= 0; j--) {
+      const variable = frame.variables[j];
+      if (
+        isTypeValue(variable.value) &&
+        isInterfaceType(variable.value.value)
+      ) {
+        const interfaceType = variable.value.value;
+        const method = interfaceType.members.find(
+          (member) =>
+            member.label === methodName &&
+            !!member.value &&
+            isFunctionType(member.type) &&
+            member.type.params.length > 0 &&
+            // TODO: support autocast to reference/immutable reference.
+            areTypesCompatible(member.type.params[0].type, receiverType, env)
+        );
+        if (method) {
+          interfaceMembers.push(method);
+        }
+      }
+    }
+  }
+  return interfaceMembers;
 }
