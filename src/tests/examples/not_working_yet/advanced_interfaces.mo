@@ -1,5 +1,4 @@
-
-def Iterator(Self: Type): Interface,
+def Iterator(compt(Self): Type): compt(Interface),
   interface
     Item: Type,
     next: ((&!(Self)) -> Option(this.Item))
@@ -18,7 +17,7 @@ Point :: struct
   x: i32,
   y: i32;
 
-def Add(Self: Type, (Rhs: Type) = Self): Interface,
+def Add(compt(Self): Type, (compt(Rhs): Type) = Self): compt(Interface),
   interface
     Output: Type,
     add: (fn(self, other: Self) -> Self)
@@ -35,12 +34,12 @@ impl Add(Point),
 
 // ==================================================
 
-def Pilot(Self: Type): Interface,
+def Pilot(compt(Self): Type): Interface,
   interface
     fly: (fn(&(Self)) -> ())
 ;
 
-def Wizard(Self: Type): Interface,
+def Wizard(compt(Self): Type): Interface,
   interface
     fly: (fn(&(Self)) -> ())
 ;
@@ -61,12 +60,12 @@ impl Human,
 
 person :: Human();
 person.fly(); // Calls Human's fly method
-Pilot::fly(&(person)); // Calls Pilot's fly method
-Wizard::fly(&(person)); // Calls Wizard's fly method
+Pilot.fly(&(person)); // Calls Pilot's fly method
+Wizard.fly(&(person)); // Calls Wizard's fly method
 
 // ==================================================
 
-def Animal(Self: Type): Interface,
+def Animal(compt(Self): Type): Interface,
   interface
     baby_name: (()-> String)
 ;
@@ -88,10 +87,10 @@ Dog.(Animal.baby_name)(); // puppy
 
 // ==================================================
 // Use => for defining the constraints.
-OutlinePrint : ((Self: Type)-> 
-                  ((Display(Self),)=> Interface));
+OutlinePrint : ((compt(Self): Type)-> 
+                  ((Display(Self),)=> compt(Interface)));
 
-def OutlinePrint(Self: Type): ((Display(Self),)=> Interface),
+def OutlinePrint(compt(Self): Type): ((Display(Self),)=> Interface),
   interface
     outline_print: (fn(&(Self)) -> ())
 ;
@@ -107,12 +106,12 @@ def sort_and_print(compt(T): Type): ((...(PrintableAndComparable(T))) => String)
 ;
 
 // ==================================================
-forall(X: Type) ->
-  def identical(x: X)-> X,
+forall(compt(X): Type) ->
+  def identity(x: X)-> X,
     x
 ;
 
 identity :: 
-  (forall(X: Type) ->
+  (forall(compt(X): Type) ->
     ((fn(x: X): X) -> X))
 ;

@@ -18,6 +18,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "./expr";
+import { FunctionValue } from "./function-value";
 import Parser from "./parser";
 import { Token, TokenType } from "./token";
 import {
@@ -68,7 +69,6 @@ import { randomId } from "./utils";
 import {
   areValuesEqual,
   createTypeValue,
-  FunctionValue,
   isFunctionValue,
   isTupleValue,
   isTypeValue,
@@ -98,12 +98,6 @@ interface EvaluatorContext {
   isEvaluatingFunctionBodyOfType?: FunctionType;
 }
 
-interface CalledTypeFunctionCache {
-  funcId: string;
-  argValues: Value[];
-  typeValue: TypeValue;
-}
-
 /**
  * This class is responsible for:
  * - Type checking the program
@@ -115,9 +109,6 @@ export default class Evaluator {
   private parser: Parser;
   private program: Expr[];
   private tokens: Token[];
-
-  private calledTypeFunctionsMap: Map<string, CalledTypeFunctionCache[]> =
-    new Map();
 
   constructor({
     modulePath,
@@ -2399,6 +2390,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       body: functionBodyExpr,
       frameLevel: env.frames.length - 1,
       funcId: `fn_${randomId()}`,
+      calledTypeFunctionCaches: [],
     };
     expr.env = env;
     return expr;
@@ -3738,7 +3730,7 @@ Expected: ${typeToString(functionType)}`
 
     // Check if it's in calledTypeFunctions
     const funcId = functionValue.funcId;
-    const calledTypeFunctions = this.calledTypeFunctionsMap.get(funcId);
+    const calledTypeFunctions = functionValue.calledTypeFunctionCaches;
     if (calledTypeFunctions) {
       // Check if the function is already called.
       const calledTypeFunction = calledTypeFunctions.find((cache) => {
@@ -3801,7 +3793,7 @@ Expected: ${typeToString(functionType)}`
       argValues,
       typeValue: returnValue,
     });
-    this.calledTypeFunctionsMap.set(funcId, caches);
+    functionValue.calledTypeFunctionCaches = caches;
 
     return {
       value: returnValue,
@@ -3996,6 +3988,7 @@ compt(${exprToString(functionReturnTypeExpr)})`
           frameLevel: env.frames.length - 1,
           funcName: functionNameExpr.token.value,
           funcId: `fn_${randomId()}`,
+          calledTypeFunctionCaches: [],
         },
       },
       deltaFrame: -1,

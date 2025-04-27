@@ -1,5 +1,6 @@
 import { Environment, getVariablesFromEnv } from "./env";
 import { Expr } from "./expr";
+import { FunctionValue } from "./function-value";
 import { TypeValue } from "./type-value";
 import { randomId } from "./utils";
 import { ValueTag } from "./value-tag";
@@ -62,6 +63,9 @@ export enum TypeTag {
   // This is only used as an intermediate type
   // which should be synthesized to a real type
   Placeholder = "Placeholder",
+
+  // Interface
+  Interface = "Interface",
 }
 
 export interface Type {
@@ -129,26 +133,26 @@ export function isBooleanType(type: Type): boolean {
 //   size: 0, // Undefined has no runtime size
 // };
 
-export interface TTypeHierarchy extends Type {
+export interface TypeHierarchyType extends Type {
   tag: TypeTag.Free | TypeTag.Linear | TypeTag.Type;
   level: number;
 
   // TODO: Implemented interfaces
 }
 
-export const TFree: TTypeHierarchy = {
+export const TFree: TypeHierarchyType = {
   tag: TypeTag.Free,
   size: 0, // Types themselves don't have runtime size
   level: 0,
 };
 
-export const TLinear: TTypeHierarchy = {
+export const TLinear: TypeHierarchyType = {
   tag: TypeTag.Linear,
   size: 0, // Types themselves don't have runtime size
   level: 0,
 };
 
-export const TType: TTypeHierarchy = {
+export const TType: TypeHierarchyType = {
   tag: TypeTag.Type,
   size: 0, // Types themselves don't have runtime size
   level: 0,
@@ -181,7 +185,7 @@ export interface SomeType extends Type {
   /**
    * The parent type of the SomeType.
    */
-  parentType: TTypeHierarchy;
+  parentType: TypeHierarchyType;
   /**
    * size is unknown for SomeType
    */
@@ -445,14 +449,52 @@ export interface FunctionType extends Type {
   env: Environment;
 }
 
-// NOTE: Interface is not Type
-// It is just a collection of types
-export interface Interface {
-  tag: "Interface"; // Using Type as the tag for interfaces
-  members: TupleElement[];
+export interface InterfaceMember {
+  /**
+   * The label of the member.
+   */
+  label: string;
+  /**
+   * The type of the member.
+   */
+  type: TypeHierarchyType | FunctionType;
+  /**
+   * The implemented value of the member.  \
+   * If it's not implemented, then it's undefined.  \
+   * Only the TypeValue and FunctionValue (both are compt) are allowed.
+   */
+  value: TypeValue | FunctionValue | undefined;
 }
 
-export function createTypeHierarchy(level: number): TTypeHierarchy {
+// NOTE: Interface is not Type
+// It is just a collection of types
+export interface InterfaceType extends Type {
+  tag: TypeTag.Interface;
+  /**
+   * The unique identifier for this interface.
+   */
+  typeId: string;
+
+  /**
+   * The name of the interface.
+   * eg:
+   *   Id := interface;
+   * Id is the name of the struct.
+   */
+  typeName?: string;
+
+  /**
+   * The members of the interface.
+   */
+  members: InterfaceMember[];
+
+  /**
+   * And interface is unsized
+   */
+  size: undefined;
+}
+
+export function createTypeHierarchy(level: number): TypeHierarchyType {
   return {
     tag: TypeTag.Type,
     size: 0,
@@ -591,10 +633,15 @@ export function createFunctionType({
   };
 }
 
-export function createInterfaceType(members: TupleElement[]): Interface {
+export function createInterfaceType(
+  members: InterfaceMember[],
+  typeId?: string
+): InterfaceType {
   return {
-    tag: "Interface",
+    tag: TypeTag.Interface,
     members, // Updated to use the renamed field
+    size: undefined,
+    typeId: typeId ?? `interface_${randomId()}`,
   };
 }
 
@@ -710,7 +757,7 @@ export function typeOfType(t: Type): Type {
   } else */ if (isPrimitiveType(t)) {
     return TFree;
   } else if (isTypeHierarchyType(t)) {
-    return createTypeHierarchy((t as TTypeHierarchy).level + 1);
+    return createTypeHierarchy((t as TypeHierarchyType).level + 1);
   } else if (t.tag === TypeTag.Function) {
     return TFree;
   } else if (isArrayType(t)) {
@@ -736,6 +783,8 @@ export function typeOfType(t: Type): Type {
     return determineTypeUniverse(t.members.map((element) => element.type));
   } else if (isSomeType(t)) {
     return t.parentType;
+  } else if (isInterfaceType(t)) {
+    return determineTypeUniverse(t.members.map((member) => member.type));
   } else {
     throw new Error(`Unknown type tag: ${t.tag}`);
   }
@@ -949,6 +998,10 @@ export function isUnionType(type?: Type): type is UnionType {
   return type?.tag === TypeTag.Union;
 }
 
+export function isInterfaceType(type?: Type): type is InterfaceType {
+  return type?.tag === TypeTag.Interface;
+}
+
 // Add isEnumType guard function
 export function isEnumType(type?: Type): type is EnumType {
   return type?.tag === TypeTag.Enum;
@@ -980,7 +1033,7 @@ export function isLiteralType(type?: Type): type is LiteralType {
   return type?.tag === TypeTag.Literal;
 }
 
-export function isTypeHierarchyType(type?: Type): type is TTypeHierarchy {
+export function isTypeHierarchyType(type?: Type): type is TypeHierarchyType {
   return (
     type?.tag === TypeTag.Free ||
     type?.tag === TypeTag.Linear ||
@@ -1151,6 +1204,19 @@ export function typeToString(type: Type): string {
         )
         .join(", ");
       return `(${params}) -> ${typeToString(func.return.type)}`;
+    }
+
+    case TypeTag.Interface: {
+      const interfaceType = type as InterfaceType;
+      return `${interfaceType.typeName ? `(${interfaceType.typeName})` : ""}${
+        interfaceType.typeName ? "interface" : interfaceType.typeId
+      }(${interfaceType.members
+        .map((member) => {
+          return `${member.label ? `${member.label}:` : ""}${typeToString(
+            member.type
+          )}`;
+        })
+        .join(", ")})`;
     }
 
     case TypeTag.Literal: {

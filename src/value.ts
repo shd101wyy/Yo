@@ -1,9 +1,8 @@
 import { Environment } from "./env";
-import { Expr } from "./expr";
+import { FunctionValue } from "./function-value";
 import {
   areTypesCompatible,
   ArrayType,
-  FunctionType,
   StructType,
   TUnit,
   TupleType,
@@ -64,24 +63,6 @@ export type StructValue = {
   tag: ValueTag.Struct;
   type: StructType;
   members: Value[];
-};
-
-export type FunctionValue = {
-  tag: ValueTag.Function;
-  type: FunctionType;
-  frameLevel: number;
-  body: Expr;
-
-  /**
-   * The function name, if available
-   */
-  funcName?: string;
-
-  /**
-   * The unique identifier of the function
-   */
-  // TODO: Let's make it mandatory for now
-  funcId: string;
 };
 
 export type UnknownValue = {
