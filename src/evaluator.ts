@@ -49,7 +49,6 @@ import {
   TI8,
   TIsize,
   TLinear,
-  TPlaceholder,
   TType,
   TU16,
   TU32,
@@ -208,10 +207,12 @@ export default class Evaluator {
    */
   private evaluateTupleElement({
     expr,
+    tupleElementIndex,
     env,
     context,
   }: {
     expr: Expr;
+    tupleElementIndex: number;
     env: Environment;
     context: EvaluatorContext;
   }): { type: TupleElement; value: Value; env: Environment } {
@@ -236,11 +237,29 @@ export default class Evaluator {
       label = lhsExpr.token.value;
     }
 
+    // Check expectedType
+    const expectedTupleType = context.expectedType;
+    let expectedTupleElementType: Type | undefined = undefined;
+    if (expectedTupleType) {
+      if (!isTupleType(expectedTupleType)) {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Failed to evaluate the tuple elements. Expected type to be:
+${typeToString(expectedTupleType)}`
+        );
+      }
+      const tupleElement = expectedTupleType.elements[tupleElementIndex];
+      expectedTupleElementType = tupleElement.type;
+    }
+
     // Parse the rhs expr
     const evaluatedRhs = this.evaluateExpression({
       expr: rhsExpr,
       env,
-      context,
+      context: {
+        ...context,
+        expectedType: expectedTupleElementType,
+      },
     });
     if (evaluatedRhs.env) {
       env = evaluatedRhs.env;
@@ -270,7 +289,11 @@ ${exprToString(rhsExpr)}`
       // Expected the evaluatedRhs to be a value
       elementType = evaluatedRhs.type;
       if (!elementType) {
-        elementType = TPlaceholder;
+        throw this.formatErrorMessage(
+          evaluatedRhs.token,
+          `Failed to evaluate the tuple element.`
+        );
+        // elementType = TPlaceholder;
       } else if (lhsExpr) {
         lhsExpr.type = lhsExpr.type || evaluatedRhs.type;
       }
@@ -365,6 +388,7 @@ ${exprToString(rhsExpr)}`
     const tupleValues: Value[] = [];
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
+
       const {
         type,
         value,
@@ -372,6 +396,7 @@ ${exprToString(rhsExpr)}`
       } = this.evaluateTupleElement({
         expr: arg,
         env,
+        tupleElementIndex: i,
         context,
       });
 
@@ -1253,20 +1278,7 @@ ${exprToString(rhsExpr)}`
     let lhs = expr.args[0];
     let rhs = expr.args[1];
 
-    // Evaluate the rhs expression
-    rhs = this.evaluateExpression({
-      expr: rhs,
-      env,
-      context: {
-        ...context,
-        isEvaluatingExprAsType: false,
-        expectedType: lhs.type,
-      },
-    });
-    if (rhs.env) {
-      env = rhs.env;
-    }
-
+    // Check if the variable is mutable
     if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, "mut")) {
       isMutable = true;
       // Check if the lhs is a variable
@@ -1277,6 +1289,31 @@ ${exprToString(rhsExpr)}`
         );
       }
       lhs = lhs.args[0];
+    }
+
+    // Prevent declaring variable type using :: or :=
+    if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ":")) {
+      throw this.formatErrorMessage(
+        lhs.token,
+        `Unexpected use of ":" in type declaration with "${
+          expr.token.value
+        }". Please consider using "=":
+(${exprToString(lhs)}) = ${exprToString(rhs)}`
+      );
+    }
+
+    // Evaluate the rhs expression
+    rhs = this.evaluateExpression({
+      expr: rhs,
+      env,
+      context: {
+        ...context,
+        isEvaluatingExprAsType: false,
+        expectedType: undefined,
+      },
+    });
+    if (rhs.env) {
+      env = rhs.env;
     }
 
     // If rhs is type value, then it cannot be mutable
@@ -3162,125 +3199,6 @@ compt(${exprToString(returnTypeExpr)})`
     return expr;
     */
   }
-
-  /*
-  private evaluateVariant({
-    expr,
-    // env,
-    context,
-  }: {
-    expr: FuncCallExpr;
-    env: Environment;
-    context: EvaluatorContext;
-  }): FuncCallExpr {
-    if (!context.isEvaluatingExprAsType) {
-      throw this.formatErrorMessage(expr.token, "Not implemented");
-    }
-    if (!exprIsFunctionCallOf(expr, ".", 1)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected variant with 1 argument, got:\n${exprToString(expr)}`
-      );
-    }
-    const variantExpr = expr.args[0];
-    if (exprIsAtom(variantExpr)) {
-      if (!this.isValidVariableName(variantExpr)) {
-        throw this.formatErrorMessage(
-          variantExpr.token,
-          `Expected identifier for variant, got:\n${exprToString(variantExpr)}`
-        );
-      }
-      const variantName = variantExpr.token.value;
-      const variantType: VariantType = {
-        tag: TypeTag.Variant,
-        name: variantName,
-      };
-      expr.type = typeOfType(variantType);
-      expr.value = {
-        tag: TypeTag.Type,
-        type: typeOfType(variantType),
-        value: variantType,
-      };
-      return expr;
-    }
-    throw this.formatErrorMessage(
-      expr.token,
-      `Expected identifier for variant, got:\n${exprToString(expr)}`
-    );
-  }
-  */
-
-  /*
-  private applyArgumentsToVariant({
-    variantExpr,
-    args,
-    env,
-    context,
-  }: {
-    variantExpr: FuncCallExpr;
-    args: Expr[];
-    env: Environment;
-    context: EvaluatorContext;
-  }): Environment {
-    const tupleElements: TupleElement[] = [];
-    const tupleValues: (Value | undefined)[] = [];
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      const {
-        type,
-        value,
-        env: nextEnv,
-      } = this.evaluateTupleElement({
-        expr: arg,
-        env: env,
-        context,
-      });
-      env = nextEnv;
-
-      // Check if there is duplicate labels
-      if (type.label) {
-        const duplicateLabel = tupleElements.find(
-          (element) => element.label === type.label
-        );
-        if (duplicateLabel) {
-          throw this.formatErrorMessage(
-            arg.token,
-            `Duplicate label "${type.label}" in variant`
-          );
-        }
-      }
-
-      tupleElements.push(type);
-      tupleValues.push(value);
-    }
-    const tupleType: TupleType = createTupleType(tupleElements);
-    const variantType: VariantType = {
-      tag: TypeTag.Variant,
-      name: variantExpr.args[0].token.value,
-      params: tupleType,
-    };
-    if (context.isEvaluatingExprAsType) {
-      variantExpr.value = {
-        tag: TypeTag.Type,
-        type: typeOfType(variantType),
-        value: variantType,
-      };
-      variantExpr.type = typeOfType(variantType);
-      variantExpr.env = env;
-    } else {
-      variantExpr.type = variantType;
-      variantExpr.value = tupleValues.some((v) => v === undefined)
-        ? undefined
-        : {
-            tag: TypeTag.Variant,
-            type: variantType,
-            elements: tupleValues as Value[],
-          };
-      variantExpr.env = env;
-    }
-    return env;
-  }
-  */
 
   private evaluateFunctionCall({
     expr,
