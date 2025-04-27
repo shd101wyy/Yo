@@ -1,5 +1,5 @@
 extern
-  (*): ((i32, i32)-> i32)
+  (mul): ((i32, i32)-> i32)
 ;
 
 Color :: enum Red, Green, Blue;
@@ -18,6 +18,6 @@ Shape :: enum
 
 def area(shape: Shape): i32,
   match shape,
-    .Circle(r) -> (3 * (r * r)),
-    .Rectangle(w, h) -> (w * h)
+    .Circle(r) -> (3 `mul` (r `mul` r)),
+    .Rectangle(w, h) -> (w `mul` h)
 ;

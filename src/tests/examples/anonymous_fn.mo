@@ -1,9 +1,9 @@
 extern
-  (==): ((i32, i32) -> boolean),
-  (>): ((i32, i32)-> boolean),
-  (*): ((i32, i32) -> i32),
-  (+): ((i32, i32) -> i32),
-  (-): ((i32, i32) -> i32)
+  (eq): ((i32, i32) -> boolean),
+  (gt): ((i32, i32)-> boolean),
+  (mul): ((i32, i32) -> i32),
+  (add): ((i32, i32) -> i32),
+  (sub): ((i32, i32) -> i32)
 ;
 
 factorial_fn :: ((x: i32) -> i32);
@@ -12,8 +12,8 @@ factorial_fn :: ((x: i32) -> i32);
 // Without given type
 factorial := ((fn(x: i32): i32)-> {
   cond
-    (x == 0) -> 1,
-    (x > 0) -> (x * recur(x - 1))  
+    (x `eq` 0) -> 1,
+    (x `gt` 0) -> (x `mul` recur(x `sub` 1))  
 });
 n := factorial(10);
 
@@ -23,8 +23,8 @@ n := factorial(10);
 (factorial2 : factorial_fn) = 
   (fn(a: i32): i32) -> {
     cond
-      (a == 0) -> 1,
-      (a > 0) -> (a * recur(a - 1))  
+      (a `eq` 0) -> 1,
+      (a `gt` 0) -> (a `mul` recur(a `sub` 1))  
   }
 ;
 
@@ -34,8 +34,8 @@ n := factorial(10);
 (factorial3: factorial_fn) = 
   fn(a)-> {
     cond
-      (a == 0) -> 1,
-      (a > 0) -> (a * recur(a - 1))  
+      (a `eq` 0) -> 1,
+      (a `gt` 0) -> (a `mul` recur(a `sub` 1))  
   }
 ;
 

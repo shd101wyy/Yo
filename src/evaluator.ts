@@ -21,7 +21,7 @@ import {
 } from "./expr";
 import { FunctionValue } from "./function-value";
 import Parser from "./parser";
-import { Token, TokenType } from "./token";
+import { stringIsOperator, Token, TokenType } from "./token";
 import {
   areTypesCompatible,
   createEnumType,
@@ -440,9 +440,10 @@ ${exprToString(rhsExpr)}`
 
   private isValidVariableName(expr: Expr): boolean {
     return (
-      exprIsAtom(expr) &&
-      (expr.token.type === TokenType.Identifier ||
-        expr.token.type === TokenType.Operator)
+      exprIsAtom(expr) && expr.token.type === TokenType.Identifier
+      //   || expr.token.type === TokenType.Operator
+      // Operator is not a valid variable name anymore.
+      // It can only be used in the context of interface method declaration.
     );
   }
 
@@ -1617,7 +1618,7 @@ ${exprToString(expr)}`
       if (!this.isValidVariableName(lhs)) {
         throw this.formatErrorMessage(
           lhs.token,
-          `Invalid extern argument name ${lhs.token.value}, expected identifier`
+          `Invalid extern argument name "${lhs.token.value}", expected identifier`
         );
       } else {
         const variableName = lhs.token.value;
@@ -3362,6 +3363,45 @@ compt(${exprToString(returnTypeExpr)})`
             value: createTypeValue(expectedType),
           },
         ];
+      }
+      // Operator is taken as an interface method call
+      else if (stringIsOperator(functionName)) {
+        const firstArg = args[0];
+        if (!firstArg) {
+          throw this.formatErrorMessage(
+            func.token,
+            `Expected first argument for operator, got:\n${exprToString(func)}`
+          );
+        }
+        // Evaluate the first argument to get its type
+        const evaluatedFirstArg = this.evaluateExpression({
+          expr: firstArg,
+          env,
+          context: {
+            ...context,
+            isEvaluatingExprAsType: false,
+          },
+        });
+        const receiverType = evaluatedFirstArg.type;
+        if (!receiverType) {
+          throw this.formatErrorMessage(
+            firstArg.token,
+            `Expected to be evaluated.`
+          );
+        }
+        const methodName = functionName;
+        methodExpr = func;
+        // Get the method with the same name in the interface in the env
+        const interfaceMethods = getInterfaceMethodsByNameFromEnv(
+          env,
+          methodName,
+          receiverType
+        );
+        functions = interfaceMethods.map((method) => ({
+          type: method.type,
+          value: method.value,
+        }));
+        // No need to change the args
       } else {
         /**
          * functionVariables might be of FunctionType, StructType, UnionType, and EnumVariant
@@ -4373,7 +4413,15 @@ compt(${exprToString(functionReturnTypeExpr)})`
       const rhsExpr = memberExpr.args[1];
 
       // Get the label of member
-      if (!exprIsAtom(lhsExpr) || !this.isValidVariableName(lhsExpr)) {
+      if (
+        !exprIsAtom(lhsExpr) ||
+        !(
+          (
+            lhsExpr.token.type === TokenType.Identifier ||
+            lhsExpr.token.type === TokenType.Operator
+          ) // We allow to define operator as interface member
+        )
+      ) {
         throw this.formatErrorMessage(
           lhsExpr.token,
           `Expected identifier for interface member name, got:\n${exprToString(
@@ -4408,6 +4456,13 @@ compt(${exprToString(functionReturnTypeExpr)})`
           `Expected either Type (Free, Linear) or FunctionType for interface member, got:\n${exprToString(
             rhsExpr
           )}`
+        );
+      }
+      // Check if the label already exists
+      if (members.find((m) => m.label === label)) {
+        throw this.formatErrorMessage(
+          lhsExpr.token,
+          `Duplicate label "${label}" in interface member`
         );
       }
       // Add the member to the members list
