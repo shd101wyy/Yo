@@ -3924,6 +3924,9 @@ ${exprToString(expr)}`
       checkedInterfaceMembers.add(interfaceMember);
     }
 
+    // Set the interface as implemented
+    interfaceType.isImplemented = true;
+
     return popEnvFrame(env);
   }
 
@@ -4013,7 +4016,7 @@ Expected: ${typeToString(functionType)}`
     if (!evaluatedFunctionBody.env) {
       throw this.formatErrorMessage(
         functionCallExpr.token,
-        `Function body is not evaluated correctly`
+        `(evaluateTypeFunctionCall) Function body is not evaluated correctly`
       );
     }
 
@@ -4022,12 +4025,12 @@ Expected: ${typeToString(functionType)}`
     if (!isTypeValue(returnValue)) {
       throw this.formatErrorMessage(
         functionCallExpr.token,
-        `Function body is not evaluated correctly. Expected to return a type.`
+        `(evaluateTypeFunctionCall) Function body is not evaluated correctly. Expected to return a type.`
       );
     }
     const returnType = returnValue.value;
     if (
-      isStructType(returnType) &&
+      (isStructType(returnType) || isInterfaceType(returnType)) &&
       !returnType.typeName &&
       functionValue.funcName
     ) {
@@ -4472,6 +4475,7 @@ compt(${exprToString(functionReturnTypeExpr)})`
     // Set the interface type and value
     expr.type = typeOfType(interfaceType);
     expr.value = createTypeValue(interfaceType);
+    expr.env = env;
     return expr;
   }
 

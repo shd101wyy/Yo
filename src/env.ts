@@ -4,6 +4,7 @@ import { charIsOperator, Operators, Token } from "./token";
 import {
   areTypesCompatible,
   InterfaceMember,
+  InterfaceType,
   isFunctionType,
   isInterfaceType,
   isTypeHierarchyType,
@@ -12,7 +13,13 @@ import {
   TypeTag,
   typeToString,
 } from "./type-checker";
-import { createTypeValue, isTypeValue, Value, valueToString } from "./value";
+import {
+  createTypeValue,
+  isFunctionValue,
+  isTypeValue,
+  Value,
+  valueToString,
+} from "./value";
 
 export type ReferedVariable = {
   frameLevel: number;
@@ -504,26 +511,50 @@ export function getInterfaceMethodsByNameFromEnv(
   receiverType: Type
 ): InterfaceMember[] {
   const interfaceMembers: InterfaceMember[] = [];
+
+  function checkInterfaceType(interfaceType: InterfaceType) {
+    const method = interfaceType.members.find(
+      (member) =>
+        member.label === methodName &&
+        !!member.value &&
+        isFunctionType(member.type) &&
+        member.type.params.length > 0 &&
+        // TODO: support autocast to reference/immutable reference.
+        areTypesCompatible(member.type.params[0].type, receiverType, env)
+    );
+    if (method && !interfaceMembers.includes(method)) {
+      interfaceMembers.push(method);
+    }
+  }
+
   for (let i = env.frames.length - 1; i >= 0; i--) {
     const frame = env.frames[i];
     for (let j = frame.variables.length - 1; j >= 0; j--) {
       const variable = frame.variables[j];
       if (
+        // Find the interface
         isTypeValue(variable.value) &&
         isInterfaceType(variable.value.value)
       ) {
         const interfaceType = variable.value.value;
-        const method = interfaceType.members.find(
-          (member) =>
-            member.label === methodName &&
-            !!member.value &&
-            isFunctionType(member.type) &&
-            member.type.params.length > 0 &&
-            // TODO: support autocast to reference/immutable reference.
-            areTypesCompatible(member.type.params[0].type, receiverType, env)
-        );
-        if (method) {
-          interfaceMembers.push(method);
+        checkInterfaceType(interfaceType);
+      } else if (
+        // Check if it's a function that returns interface, then we check its caches
+        isFunctionType(variable.type) &&
+        isFunctionValue(variable.value)
+      ) {
+        const functionValue = variable.value;
+        // Check the caches
+        for (
+          let k = 0;
+          k < functionValue.calledTypeFunctionCaches.length;
+          k++
+        ) {
+          const cache = functionValue.calledTypeFunctionCaches[k];
+          if (isInterfaceType(cache.typeValue.value)) {
+            const interfaceType = cache.typeValue.value;
+            checkInterfaceType(interfaceType);
+          }
         }
       }
     }
