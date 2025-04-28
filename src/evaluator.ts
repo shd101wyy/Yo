@@ -384,6 +384,17 @@ ${exprToString(rhsExpr)}`
     } = this.evaluateTupleElements({ args: expr.args, env, context });
     env = nextEnv;
 
+    // We disallow the tuple elements to have defaultValue for the tuple type
+    for (let i = 0; i < tupleType.elements.length; i++) {
+      const tupleElement = tupleType.elements[i];
+      if (tupleElement.defaultValue) {
+        throw this.formatErrorMessage(
+          tupleElement.expr.token,
+          `Tuple elements cannot have default value.`
+        );
+      }
+    }
+
     expr.value = tupleValue;
     expr.type = context.isEvaluatingExprAsType
       ? typeOfType(tupleType)

@@ -885,6 +885,7 @@ export function areTypesCompatible(
         return false;
       }
 
+      // QUESTION: Should we check the label here?
       // NOTE: Tuple is ordered. To be unordered, use Struct
       if (expectedTypeElement.label && givenTypeElement.label) {
         if (expectedTypeElement.label !== givenTypeElement.label) {
