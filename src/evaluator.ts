@@ -3106,21 +3106,33 @@ compt(${exprToString(returnTypeExpr)})`
             return expr;
           } else if (this.isValidVariableName(propertyExpr)) {
             const label = propertyExpr.token.value;
-            const tupleElement = elements.find(
-              (element) => element.label === label
+            // Check if the type method exists
+            const method = (typeValue.value.methods ?? []).find(
+              (method) => method.label === label
             );
-            if (!tupleElement) {
-              throw this.formatErrorMessage(
-                propertyExpr.token,
-                `Element with label "${label}" not found in:\n${typeToString(
-                  typeValue.value
-                )}`
+            if (method) {
+              expr.value = method.value;
+              expr.type = method.type;
+              propertyExpr.value = method.value;
+              propertyExpr.type = method.type;
+              return expr;
+            } else {
+              const tupleElement = elements.find(
+                (element) => element.label === label
               );
+              if (!tupleElement) {
+                throw this.formatErrorMessage(
+                  propertyExpr.token,
+                  `Element with label "${label}" not found in:\n${typeToString(
+                    typeValue.value
+                  )}`
+                );
+              }
+              expr.value = createTypeValue(tupleElement.type);
+              expr.type = expr.value.type;
+              propertyExpr.type = tupleElement.type;
+              return expr;
             }
-            expr.value = createTypeValue(tupleElement.type);
-            expr.type = expr.value.type;
-            propertyExpr.type = tupleElement.type;
-            return expr;
           }
         }
       } else if (isInterfaceType(typeValue.value)) {
@@ -3191,22 +3203,34 @@ compt(${exprToString(returnTypeExpr)})`
           return expr;
         } else if (this.isValidVariableName(propertyExpr)) {
           const label = propertyExpr.token.value;
-          const tupleElement = elements.find(
-            (element) => element.label === label
+          // Check if the type method exists
+          const method = (objectExpr.type.methods ?? []).find(
+            (method) => method.label === label
           );
-          if (!tupleElement) {
-            throw this.formatErrorMessage(
-              propertyExpr.token,
-              `Element with label "${label}" not found in:\n${typeToString(
-                objectExpr.type
-              )}`
+          if (method) {
+            expr.value = method.value;
+            expr.type = method.type;
+            propertyExpr.value = method.value;
+            propertyExpr.type = method.type;
+            return expr;
+          } else {
+            const tupleElement = elements.find(
+              (element) => element.label === label
             );
+            if (!tupleElement) {
+              throw this.formatErrorMessage(
+                propertyExpr.token,
+                `Element with label "${label}" not found in:\n${typeToString(
+                  objectExpr.type
+                )}`
+              );
+            }
+            expr.type = tupleElement.type;
+            propertyExpr.type = tupleElement.type;
+            // TODO: Support comptime value
+            // expr.value = ...
+            return expr;
           }
-          expr.type = tupleElement.type;
-          propertyExpr.type = tupleElement.type;
-          // TODO: Support comptime value
-          // expr.value = ...
-          return expr;
         }
       }
     }

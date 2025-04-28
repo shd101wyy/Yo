@@ -19,7 +19,15 @@ c := Point (a.x `add` b.x), b.y;
 impl Point,
   (+):
     (fn(a: Point, b: Point): Point)->
-      Point((a.x `add` b.x), (a.y `add` b.y ))
+      Point((a.x `add` b.x), (a.y `add` b.y )),
+
+  new:
+    (fn(): Point)->
+      Point(0, 0),
+  
+  create:
+    (fn(x: i32, y: i32): Point)->
+      Point(x, y)
 ;
 
 def add_points(a: Point, b: Point): Point,
@@ -29,3 +37,5 @@ def add_points(a: Point, b: Point): Point,
 c := add_points(a, b);
 c := (a + b);
 
+a := Point.new();
+b := Point.create(3, 4);
