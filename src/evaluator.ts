@@ -385,12 +385,20 @@ ${exprToString(rhsExpr)}`
     env = nextEnv;
 
     // We disallow the tuple elements to have defaultValue for the tuple type
+    // We disallow the tuple value to have labels. Only the tuple type can have labels.
     for (let i = 0; i < tupleType.elements.length; i++) {
       const tupleElement = tupleType.elements[i];
       if (tupleElement.defaultValue) {
         throw this.formatErrorMessage(
           tupleElement.expr.token,
           `Tuple elements cannot have default value.`
+        );
+      }
+
+      if (!context.isEvaluatingExprAsType && tupleElement.label) {
+        throw this.formatErrorMessage(
+          tupleElement.expr.token,
+          `Tuple value cannot have labels.`
         );
       }
     }

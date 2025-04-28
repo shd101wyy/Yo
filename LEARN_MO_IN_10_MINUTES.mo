@@ -171,13 +171,18 @@ result := begin(
 );
 empty_block := {}   // This is an empty block that returns unit.  
 
-// There is no record in Mo, instead there is only the named tuple.
 // All tuples in Mo are named tuples.
+// You can define the tuple type using `type` keyword.  
+// A tuple type can have named fields or unnamed fields.
 // Like the one in JavaScript.
-person := (
-  name: "John",
-  age: 30
+Person :: type (name: String, age: i32);
+// NOTE: You cannot have labelled fields in the tuple value, it's only allowed in the tuple type.
+(person : Person) = (
+  "John",
+  30
 );
+name := person.name; // "John"
+age := person.age;   // 30
 
 
 // tuple is defined using (...) with "," as separator
