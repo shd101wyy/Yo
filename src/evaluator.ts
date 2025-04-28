@@ -4697,7 +4697,7 @@ compt(${exprToString(functionReturnTypeExpr)})`
     if (!isTypeValue(typeValue)) {
       throw this.formatErrorMessage(
         typeExpr.token,
-        `Expected interface, got:\n${exprToString(typeExpr)}`
+        `Expected type (or interface), got:\n${exprToString(typeExpr)}`
       );
     }
 
@@ -4729,6 +4729,16 @@ compt(${exprToString(functionReturnTypeExpr)})`
     // Implement the type (struct/enum/etc)
     else {
       const type = typeValue.value;
+
+      // We disallow to implement the methods for function type for now
+      if (isFunctionType(type)) {
+        throw this.formatErrorMessage(
+          typeExpr.token,
+          `Cannot implement methods for function type, got:\n${exprToString(
+            typeExpr
+          )}`
+        );
+      }
 
       // Evaluate the type methods
       const nextEnv = this.evaluateImplTypeMethods({
