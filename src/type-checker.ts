@@ -3,6 +3,7 @@ import { Expr } from "./expr";
 import { FunctionValue } from "./function-value";
 import { TypeValue } from "./type-value";
 import { randomId } from "./utils";
+import { Value, valueToString } from "./value";
 import { ValueTag } from "./value-tag";
 
 // FIXME: We need to determine the ptr size based on the givenType architecture.
@@ -303,6 +304,12 @@ export interface TupleElement {
    * x is the label of the element.
    */
   label?: string;
+
+  /**
+   * The default value of the element.
+   * Which has to be compile-time known.
+   */
+  defaultValue?: Value;
 
   /**
    * The expression of the element.
@@ -1152,9 +1159,13 @@ export function typeToString(type: Type): string {
       }
       return `(${(type as TupleType).elements
         .map((element) => {
-          return `${element.label ? `${element.label}: ` : ""}${typeToString(
+          let t = `${element.label ? `${element.label}: ` : ""}${typeToString(
             element.type
           )}`;
+          if (element.defaultValue) {
+            t = `(${t}) = ${valueToString(element.defaultValue)}`;
+          }
+          return t;
         })
         .join(", ")}${(type as TupleType).elements.length === 1 ? "," : ""})`;
     }
@@ -1166,9 +1177,13 @@ export function typeToString(type: Type): string {
         struct.typeName ? "struct" : struct.typeId
       }(${struct.members
         .map((member) => {
-          return `${member.label ? `${member.label}: ` : ""}${typeToString(
+          let t = `${member.label ? `${member.label}: ` : ""}${typeToString(
             member.type
           )}`;
+          if (member.defaultValue) {
+            t = `(${t}) = ${valueToString(member.defaultValue)}`;
+          }
+          return t;
         })
         .join(", ")})`;
     }
@@ -1183,9 +1198,13 @@ export function typeToString(type: Type): string {
             variant.params
               ? `(${variant.params
                   .map((param) => {
-                    return `${
+                    let t = `${
                       param.label ? `${param.label}: ` : ""
                     }${typeToString(param.type)}`;
+                    if (param.defaultValue) {
+                      t = `(${t}) = ${valueToString(param.defaultValue)}`;
+                    }
+                    return t;
                   })
                   .join(", ")})`
               : ""

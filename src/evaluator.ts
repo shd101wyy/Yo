@@ -213,14 +213,41 @@ export default class Evaluator {
     context: EvaluatorContext;
   }): { type: TupleElement; value: Value; env: Environment } {
     let label: string | undefined = undefined;
+    let expr_ = expr;
     let lhsExpr: Expr | undefined = undefined;
     let rhsExpr: Expr = expr;
     let elementType: Type | undefined = undefined;
+    let defaultValue: Value | undefined = undefined;
+
+    // Check the default value
+    if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, "=", 2)) {
+      expr_ = expr.args[0];
+      const defaultValueExpr = expr.args[1];
+
+      // Evaluate the defaultValueExpr
+      const evaluatedDefaultValue = this.evaluateExpression({
+        expr: defaultValueExpr,
+        env,
+        context: {
+          ...context,
+        },
+      });
+      if (evaluatedDefaultValue.env) {
+        env = evaluatedDefaultValue.env;
+      }
+      defaultValue = evaluatedDefaultValue.value;
+      if (!defaultValue || defaultValue === VUnknown) {
+        throw this.formatErrorMessage(
+          defaultValueExpr.token,
+          `Expect compile-time known value as default value.`
+        );
+      }
+    }
 
     // Parse the lhs expr
-    if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, ":")) {
-      rhsExpr = expr.args[1];
-      lhsExpr = expr.args[0];
+    if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":")) {
+      rhsExpr = expr_.args[1];
+      lhsExpr = expr_.args[0];
 
       if (!exprIsAtom(lhsExpr) && !this.isValidVariableName(lhsExpr)) {
         throw this.formatErrorMessage(
@@ -314,6 +341,7 @@ ${exprToString(rhsExpr)}`
         label,
         type: elementType,
         expr,
+        defaultValue,
       },
       value: value,
       env,
@@ -3755,7 +3783,7 @@ ${exprToString(expr)}`
       let memberElement = memberElements[i];
       let argExpr = argExprs[i];
       if (!argExpr) {
-        return false;
+        break;
       }
 
       // Check if it's a label
@@ -3836,6 +3864,17 @@ ${exprToString(expr)}`
       }
       checkedMemberElements.add(memberElement);
     }
+
+    // Check if any unchecked member elements have no default value
+    for (let i = 0; i < memberElements.length; i++) {
+      const memberElement = memberElements[i];
+      if (!checkedMemberElements.has(memberElement)) {
+        if (!memberElement.defaultValue) {
+          return false;
+        }
+      }
+    }
+
     return true;
   }
 
