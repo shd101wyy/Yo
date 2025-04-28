@@ -563,6 +563,8 @@ Or use newline after "${token.value}" to confirm the right-associativity.
     }
 
     // Backtick identifier function call
+    // QUESTION: Should we only support this for infix operator?
+    //           So only 2 arguments are allowed?
     // such as:
     // 1 `add` 2
     // 1 `add` 2, 3

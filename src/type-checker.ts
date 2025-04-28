@@ -68,6 +68,12 @@ export enum TypeTag {
   Interface = "Interface",
 }
 
+export interface TypeMethod {
+  label: string;
+  type: FunctionType;
+  value: FunctionValue;
+}
+
 export interface Type {
   /**
    * The tag to identify the type of type.
@@ -86,6 +92,8 @@ export interface Type {
    * Whether the value of the type is compile-time known or not.
    */
   isCompileTimeOnly?: boolean;
+
+  methods?: TypeMethod[];
 }
 
 export interface LiteralType extends Type {

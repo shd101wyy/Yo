@@ -527,6 +527,23 @@ export function getInterfaceMethodsByNameFromEnv(
     }
   }
 
+  // Check if the receiverType itself has method that can be called
+  if (receiverType.methods) {
+    const methods = receiverType.methods.filter(
+      (method) =>
+        method.label === methodName &&
+        !!method.value &&
+        isFunctionType(method.type) &&
+        method.type.params.length > 0
+    );
+    for (let i = 0; i < methods.length; i++) {
+      const method = methods[i];
+      if (!interfaceMembers.includes(method)) {
+        interfaceMembers.push(method);
+      }
+    }
+  }
+
   for (let i = env.frames.length - 1; i >= 0; i--) {
     const frame = env.frames[i];
     for (let j = frame.variables.length - 1; j >= 0; j--) {
