@@ -214,11 +214,11 @@ named_tuple := (x: x, y: y);
 // destructure
 (a, b) := named_tuple; // a: 1, b: 2
 // or destructure with name
-(.y, .x) := named_tuple; // y: 2, x: 1
+(y: y, x: x) := named_tuple; // y: 2, x: 1
 // or destructurep part of the tuple
-(.x) := named_tuple; // x: 1
+(x: x) := named_tuple; // x: 1
 // or rename the field
-(.x: a) := named_tuple; // a: 1
+(x: a) := named_tuple; // a: 1
 
 // there might be ambiguity for the function that accepts tuple as its first argument
 def some_func(x: (i32, i32)):i32, {
@@ -258,7 +258,14 @@ Point :: struct(x: i32, y: i32);
 p := Point(x: 3, y: 4);
 // destructure:
 Point(a, b) := p; // a: 3, b: 4
-_(.y) := p;       // y: 4
+/// Exact struct name
+Point(y: y) := p
+/// or use "_"
+/// "_" here infered to Point
+_(y: y) := p;       // y: 4
+/// or use curly brackets "{}"
+{ y, x: z } := p; // y: 4
+/// { y } gets converted to _(y: y, x: z);
 
 Cm := struct i32;
 x := Cm 200;
@@ -440,7 +447,7 @@ def sub (x: i32, y: i32): i32,
 // ( add: add, sub: sub )
 
 // main.mo
-( .add, .sub ) := import("./arith.mo");
+{ add, sub } := import("./arith.mo");
 add(3, 4); // 7
 
 // Type in Mo can be either Linear or Free

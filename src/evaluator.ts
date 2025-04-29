@@ -1025,6 +1025,8 @@ ${exprToString(rhsExpr)}`
       }
 
       // Handle label-based destructuring like Named(.x, .y) := p or (.a, .b) := x
+      /*
+      // NOTE: This is disabled, as `.` operator here might cause confusion with variant.
       else if (
         exprIsFunctionCall(lhsElement) &&
         exprIsFunctionCallOf(lhsElement, ".", 1)
@@ -1059,6 +1061,7 @@ ${exprToString(rhsExpr)}`
         variableName = label;
         variableToken = labelExpr.token;
       }
+      */
 
       // Handle nested struct destructuring pattern like (a, SomeStruct(x, y)) or (a, _(x, y))
       else if (
