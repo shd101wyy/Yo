@@ -6,6 +6,7 @@ import {
   exprIsAtom,
   ExprTag,
   exprToString,
+  FuncCallExpr,
 } from "./expr";
 import { tokenize } from "./lexer";
 import { findMatchingBracketTokenIndex, Token, TokenType } from "./token";
@@ -244,21 +245,36 @@ export default class Parser {
       );
     }
     const args: Expr[] = [];
+    let separator: TokenType.Semicolon | TokenType.Comma | undefined =
+      undefined;
     index = index + 1;
     while (true) {
       index = this.skipWhitespace(tokens, index);
       if (!tokens[index]) {
         throw this.formatErrorMessage(
           tokens[index - 1],
-          "Expected } or , for struct"
+          'Unexpected end of curly bracket. Expected "}" or "," or ";"'
         );
       }
       if (tokens[index].type === TokenType.Comma) {
-        throw this.formatErrorMessage(
-          tokens[index],
-          "Cannot use , as separator in {...}"
-        );
+        if (!separator || separator === TokenType.Comma) {
+          separator = TokenType.Comma;
+        } else {
+          throw this.formatErrorMessage(
+            tokens[index],
+            'Cannot mix "," with ";" as separator in {...}'
+          );
+        }
+        index = index + 1;
       } else if (tokens[index].type === TokenType.Semicolon) {
+        if (!separator || separator === TokenType.Semicolon) {
+          separator = TokenType.Semicolon;
+        } else {
+          throw this.formatErrorMessage(
+            tokens[index],
+            'Cannot mix ";" with "," as separator in {...}'
+          );
+        }
         index = index + 1;
       }
       index = this.skipWhitespace(tokens, index);
@@ -268,6 +284,7 @@ export default class Parser {
         const lastNonWhiteSpaceToken =
           tokens[this.skipWhitespaceBackward(tokens, index - 1)];
         if (
+          separator === TokenType.Semicolon &&
           lastNonWhiteSpaceToken &&
           (lastNonWhiteSpaceToken.type === TokenType.Semicolon ||
             lastNonWhiteSpaceToken.type === TokenType.LCurlyBracket)
@@ -300,22 +317,70 @@ export default class Parser {
       index = nextIndex;
     }
 
-    return {
-      expr: {
+    if (separator === TokenType.Comma || !separator) {
+      // Go over the args, if it's an identifier, then convert it to (:)
+      // For example:
+      // { x, y: 2 }
+      // get converted to
+      // _( x: x, y: 2 );
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        if (exprIsAtom(arg)) {
+          const colonToken: Token = {
+            type: TokenType.Operator,
+            value: ":",
+            position: tokens[startIndex].position,
+          };
+          const newArg: FuncCallExpr = {
+            tag: ExprTag.FuncCall,
+            func: {
+              tag: ExprTag.Atom,
+              token: colonToken,
+            },
+            isInfix: true,
+            args: [arg, arg],
+            token: colonToken,
+          };
+          args[i] = newArg;
+        }
+      }
+
+      const returnExpr: FuncCallExpr = {
         tag: ExprTag.FuncCall,
         func: {
           tag: ExprTag.Atom,
           token: {
             type: TokenType.Identifier,
-            value: BuiltinCollections.Begin, // begin block
+            // QUESTION: Should we take _ out as an individual token type?
+            value: "_",
             position: tokens[startIndex].position,
           },
         },
         args,
         token: tokens[startIndex],
-      },
-      index: index + 1,
-    };
+      };
+      return {
+        expr: returnExpr,
+        index: index + 1,
+      };
+    } else {
+      return {
+        expr: {
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.Identifier,
+              value: BuiltinCollections.Begin, // begin block
+              position: tokens[startIndex].position,
+            },
+          },
+          args,
+          token: tokens[startIndex],
+        },
+        index: index + 1,
+      };
+    }
   }
 
   private parsePrimary({
