@@ -102,7 +102,7 @@ export type Value =
  */
 export function valueToString(value?: Value): string {
   if (!value) {
-    return "<unknown>";
+    return "<runtime value>";
   }
 
   switch (value.tag) {
@@ -166,10 +166,10 @@ export function valueToString(value?: Value): string {
       return `()`;
     }
     case ValueTag.Unknown: {
-      return `<unknown>`;
+      return `<compt ${typeToString(value.type)}>`;
     }
     default: {
-      return `<unknown>`;
+      throw new Error(`valueToString: Unsupported value`);
     }
   }
 }

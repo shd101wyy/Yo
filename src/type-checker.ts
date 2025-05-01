@@ -1083,9 +1083,7 @@ export function isFunctionType(type?: Type): type is FunctionType {
   return type?.tag === TypeTag.Function;
 }
 
-export function isFunctionTypeAndIsTypeFunction(
-  type?: Type
-): type is FunctionType {
+export function isFunctionTypeAndIsTypeFunction(type?: Type) {
   return (
     type?.tag === TypeTag.Function &&
     isTypeHierarchyType((type as FunctionType).return.type)

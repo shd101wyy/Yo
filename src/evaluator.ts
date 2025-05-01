@@ -1461,6 +1461,15 @@ ${exprToString(expr)}`
         rhs.value.value.typeName = lhs.token.value;
       }
 
+      // Prohibit assigning runtime value to comptime-only variable
+      if (!rhs.value && isCompileTimeOnly) {
+        throw this.formatErrorMessage(
+          lhs.token,
+          `Expected compile-time value for "${lhs.token.value}", got:
+${exprToString(rhs)}`
+        );
+      }
+
       // Set the variable value
       lhs.value = rhs.value;
       // Add variable to env
@@ -2816,6 +2825,19 @@ compt(${exprToString(returnTypeExpr)})`
       );
     }
 
+    // If the returnType is compile time only, then
+    // we need to make sure all the parameters are compile time only
+    if (isReturnTypeCompileTimeOnly) {
+      for (const parameter of parameters) {
+        if (!parameter.isCompileTimeOnly) {
+          throw this.formatErrorMessage(
+            parameter.expr.token,
+            `Expected all parameters to be compile time only given the return type is compile time only.`
+          );
+        }
+      }
+    }
+
     // Create the function type
     const functionType = createFunctionType({
       params: parameters,
@@ -3637,7 +3659,12 @@ ${functionsWithMatchingTypes
           });
         env = nextEnv;
         expr.type = returnType;
-        // TODO: expr.value should be available for comptime function.
+
+        if (functionType.return.isCompileTimeOnly) {
+          // TODO: expr.value should be available for comptime function.
+          // We should evaluate its body.
+          expr.value = createUnknownValue(returnType);
+        }
 
         // Attach necessary info to the func
         func.type = functionToCall.type;
@@ -4432,6 +4459,19 @@ Expected: ${typeToString(functionType)}`
         `Expected a "compt" (or "@") for return type, like:\n
 compt(${exprToString(functionReturnTypeExpr)})`
       );
+    }
+
+    // If the returnType is compile time only, then
+    // we need to make sure all the parameters are compile time only
+    if (isReturnTypeCompileTimeOnly) {
+      for (const parameter of parameters) {
+        if (!parameter.isCompileTimeOnly) {
+          throw this.formatErrorMessage(
+            parameter.expr.token,
+            `Expected all parameters to be compile time only given the return type is compile time only.`
+          );
+        }
+      }
     }
 
     /// Add functionType to the functionNameExpr
