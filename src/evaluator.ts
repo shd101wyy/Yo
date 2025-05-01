@@ -71,10 +71,12 @@ import {
   typeToString,
 } from "./type-checker";
 import { TypeValue } from "./type-value";
+import { VUnit } from "./unit-value";
 import { randomId } from "./utils";
 import {
   areValuesEqual,
   createTypeValue,
+  createUnknownValue,
   isFunctionValue,
   isTupleValue,
   isTypeValue,
@@ -82,8 +84,6 @@ import {
   TupleValue,
   Value,
   valueToString,
-  VUnit,
-  VUnknown,
 } from "./value";
 import { ValueTag } from "./value-tag";
 
@@ -237,7 +237,7 @@ export default class Evaluator {
         env = evaluatedDefaultValue.env;
       }
       defaultValue = evaluatedDefaultValue.value;
-      if (!defaultValue || defaultValue === VUnknown) {
+      if (!defaultValue) {
         throw this.formatErrorMessage(
           defaultValueExpr.token,
           `Expect compile-time known value as default value.`
@@ -301,6 +301,19 @@ ${typeToString(expectedTupleType)}`
       if (lhsExpr) {
         lhsExpr.type = elementType;
       }
+
+      // Check if defaultValue matches the type
+      if (
+        defaultValue &&
+        !areTypesCompatible(elementType, defaultValue.type, env)
+      ) {
+        throw this.formatErrorMessage(
+          rhsExpr.token,
+          `Default value type mismatch:
+Expected type: ${typeToString(elementType)}
+Given type: ${typeToString(defaultValue.type)}`
+        );
+      }
     } else {
       if (evaluatedRhs.value && isTypeValue(evaluatedRhs.value)) {
         throw this.formatErrorMessage(
@@ -323,13 +336,13 @@ ${exprToString(rhsExpr)}`
       }
     }
 
-    let value: Value = VUnknown;
+    let value: Value = createUnknownValue(elementType);
     if (!context.isEvaluatingExprAsType) {
       // Evaluating value.
-      value = evaluatedRhs.value ?? VUnknown;
+      value = evaluatedRhs.value ?? createUnknownValue(elementType);
     } else {
       // Evaluating type.
-      value = VUnknown; // NOTE: This is necessary
+      value = createUnknownValue(elementType); // NOTE: This is necessary
     }
 
     if (lhsExpr) {
@@ -1286,7 +1299,7 @@ ${exprToString(rhsExpr)}`
         type: userDefinedType,
         isMutable,
         isNotInitialized: true,
-        value: VUnknown,
+        value: createUnknownValue(userDefinedType),
         isCompileTimeOnly,
       },
     });
@@ -1705,7 +1718,7 @@ ${exprToString(expr)}`
               isMutable: false,
               isCompileTimeOnly: true,
               isNotInitialized: false,
-              value: VUnknown,
+              value: createUnknownValue(userDefinedType),
             },
           });
           env = nextEnv;
@@ -1828,7 +1841,7 @@ ${exprToString(expr)}`
 
     expr.type = valueType;
     // TODO: set .value
-    expr.value = VUnknown;
+    expr.value = valueType ? createUnknownValue(valueType) : undefined;
     return expr;
   }
 
@@ -2094,7 +2107,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     expr.type = resultType;
     // For compile-time evaluation, we'd determine which arm matches and set the value
     // For now, just set it to unknown
-    expr.value = VUnknown;
+    expr.value = createUnknownValue(resultType);
     expr.env = env;
 
     return expr;
@@ -2627,6 +2640,13 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           isMutable: isMutable,
           isCompileTimeOnly: isCompileTimeOnly,
           isNotInitialized: false, // Set as initialized
+          value:
+            isCompileTimeOnly &&
+            // NOTE: This check if necessary to help create someType
+            // Check the if condition in `addVariableToFrame` function
+            !isTypeHierarchyType(parameterType)
+              ? createUnknownValue(parameterType)
+              : undefined,
         },
       });
       env = nextEnv;
@@ -2634,7 +2654,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
 
     if (lhsExpr) {
       lhsExpr.env = env;
-      lhsExpr.value = VUnknown;
+      lhsExpr.value = createUnknownValue(parameterType);
       lhsExpr.type = parameterType;
     }
     expr.env = env;

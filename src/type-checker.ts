@@ -1038,7 +1038,7 @@ export function areTypesCompatible(
       }
     } else {
       const expectedType_ = getValueOfSomeTypeFromEnv(env, expectedType);
-      if (!expectedType_) {
+      if (!expectedType_ || expectedType === expectedType_) {
         return false;
       }
       return areTypesCompatible(expectedType_, givenType, env);

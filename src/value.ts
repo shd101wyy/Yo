@@ -4,13 +4,13 @@ import {
   areTypesCompatible,
   ArrayType,
   StructType,
-  TUnit,
   TupleType,
   Type,
   typeOfType,
   typeToString,
 } from "./type-checker";
 import { TypeValue } from "./type-value";
+import { UnitValue } from "./unit-value";
 import { ValueTag } from "./value-tag";
 
 export type NumberValue = {
@@ -28,11 +28,6 @@ export type NumberValue = {
     | ValueTag.F64;
   type: Type;
   value: number;
-};
-
-export type UnitValue = {
-  tag: ValueTag.Unit;
-  type: Type;
 };
 
 export type BooleanValue = {
@@ -67,6 +62,7 @@ export type StructValue = {
 
 export type UnknownValue = {
   tag: ValueTag.Unknown;
+  type: Type;
 };
 
 export type Value =
@@ -202,14 +198,12 @@ export function createTypeValue(value: Type): TypeValue {
   };
 }
 
-export const VUnknown: UnknownValue = {
-  tag: ValueTag.Unknown,
-};
-
-export const VUnit: UnitValue = {
-  tag: ValueTag.Unit,
-  type: TUnit,
-};
+export function createUnknownValue(type: Type): UnknownValue {
+  return {
+    tag: ValueTag.Unknown,
+    type,
+  };
+}
 
 export function areValuesEqual(
   value1: Value | undefined,
