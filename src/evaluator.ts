@@ -159,7 +159,7 @@ export default class Evaluator {
       const integerValue = parseInt(expr.token.value, 10);
       const value: Value = {
         tag: ValueTag.I32,
-        type: { ...TI32, isCompileTimeOnly: true },
+        type: TI32,
         value: integerValue,
       };
       expr.value = value;
@@ -178,7 +178,7 @@ export default class Evaluator {
       const booleanValue = expr.token.value === "true";
       const value: Value = {
         tag: ValueTag.Boolean,
-        type: { ...TBoolean, isCompileTimeOnly: true },
+        type: TBoolean,
         value: booleanValue,
       };
       expr.value = value;
@@ -1299,7 +1299,9 @@ ${exprToString(rhsExpr)}`
         type: userDefinedType,
         isMutable,
         isNotInitialized: true,
-        value: createUnknownValue(userDefinedType),
+        value: isCompileTimeOnly
+          ? createUnknownValue(userDefinedType)
+          : undefined,
         isCompileTimeOnly,
       },
     });
@@ -1645,7 +1647,13 @@ ${exprToString(rhs)}`
           `Cannot assign to immutable variable "${variableName}"`
         );
       }
-      lhs.value = rhs.value;
+      if (variable.isCompileTimeOnly) {
+        lhs.value = rhs.value;
+      } else {
+        // runtime variable
+        lhs.value = undefined;
+      }
+
       lhs.type = rhsType;
       lhs.env = env;
       expr.value = VUnit;
@@ -3835,6 +3843,11 @@ ${exprToString(expr)}`
           });
           env = nextEnv;
         }
+      }
+
+      // Cannot assign runtime parameter to compt parameter
+      if (!evaluatedArgExpr.value && paramElement.isCompileTimeOnly) {
+        return false;
       }
 
       // Compare the types

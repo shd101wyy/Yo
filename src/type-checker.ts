@@ -90,10 +90,8 @@ export interface Type {
   size?: number;
 
   /**
-   * Whether the value of the type is compile-time known or not.
+   * The methods implemented for this type
    */
-  isCompileTimeOnly?: boolean;
-
   methods?: TypeMethod[];
 }
 
@@ -266,8 +264,6 @@ export const TF64: Type = {
   tag: TypeTag.F64,
   size: 8 * 8,
 };
-
-// Update the primitive type constants to include kind
 export const TUnit: Type = {
   tag: TypeTag.Unit,
   size: 0,
@@ -1280,7 +1276,11 @@ export function typeToString(type: Type): string {
             : (param.isMutable ? `mut(_):` : "") + typeToString(param.type)
         )
         .join(", ");
-      return `(${params}) -> ${typeToString(func.return.type)}`;
+      let returnTypeString = typeToString(func.return.type);
+      if (func.return.isCompileTimeOnly) {
+        returnTypeString = `compt(${returnTypeString})`;
+      }
+      return `(${params}) -> ${returnTypeString}`;
     }
 
     case TypeTag.Interface: {

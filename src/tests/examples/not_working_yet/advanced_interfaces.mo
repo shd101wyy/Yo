@@ -1,4 +1,4 @@
-def Iterator(compt(Self): Type): compt(Interface),
+def Iterator(compt(Self): Type): compt(Type),
   interface
     Item: Type,
     next: ((&!(Self)) -> Option(this.Item))
