@@ -2116,6 +2116,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TFree,
       };
       expr.type = typeOfType(TFree);
+      expr.env = env;
       return expr;
     }
     // Linear
@@ -2126,6 +2127,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TLinear,
       };
       expr.type = typeOfType(TLinear);
+      expr.env = env;
       return expr;
     }
     // Type
@@ -2136,6 +2138,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TType,
       };
       expr.type = typeOfType(TType);
+      expr.env = env;
       return expr;
     }
     // boolean
@@ -2146,6 +2149,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TBoolean,
       };
       expr.type = typeOfType(TBoolean);
+      expr.env = env;
       return expr;
     }
     // usize
@@ -2156,6 +2160,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TUsize,
       };
       expr.type = typeOfType(TUsize);
+      expr.env = env;
       return expr;
     }
     // isize
@@ -2166,6 +2171,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TIsize,
       };
       expr.type = typeOfType(TIsize);
+      expr.env = env;
       return expr;
     }
     // u8
@@ -2176,6 +2182,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TU8,
       };
       expr.type = typeOfType(TU8);
+      expr.env = env;
       return expr;
     }
     // i8
@@ -2186,6 +2193,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TI8,
       };
       expr.type = typeOfType(TI8);
+      expr.env = env;
       return expr;
     }
     // u16
@@ -2196,6 +2204,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TU16,
       };
       expr.type = typeOfType(TU16);
+      expr.env = env;
       return expr;
     }
     // i16
@@ -2206,6 +2215,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TI16,
       };
       expr.type = typeOfType(TI16);
+      expr.env = env;
       return expr;
     }
     // u32
@@ -2216,6 +2226,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TU32,
       };
       expr.type = typeOfType(TU32);
+      expr.env = env;
       return expr;
     }
     // i32
@@ -2226,6 +2237,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TI32,
       };
       expr.type = typeOfType(TI32);
+      expr.env = env;
       return expr;
     }
     // u64
@@ -2236,6 +2248,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TU64,
       };
       expr.type = typeOfType(TU64);
+      expr.env = env;
       return expr;
     }
     // i64
@@ -2246,6 +2259,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TI64,
       };
       expr.type = typeOfType(TI64);
+      expr.env = env;
       return expr;
     }
     // f32
@@ -2256,6 +2270,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TF32,
       };
       expr.type = typeOfType(TF32);
+      expr.env = env;
       return expr;
     }
     // f64
@@ -2266,6 +2281,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TF64,
       };
       expr.type = typeOfType(TF64);
+      expr.env = env;
       return expr;
     }
     // variable
@@ -2729,7 +2745,6 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
 
     // Evaluate the parameter list
-    env = pushEnvFrame(env);
     const { parameters, env: nextEnv } = this.evaluateFunctionParameters({
       parameterExprs: argList,
       env,
@@ -3901,11 +3916,13 @@ ${exprToString(expr)}`
   }
 
   private tryToImplementInterfaceWithArguments({
+    interfaceExpr,
     interfaceType,
     argExprs,
     env,
     context,
   }: {
+    interfaceExpr: Expr;
     interfaceType: InterfaceType;
     argExprs: Expr[];
     env: Environment;
@@ -3913,7 +3930,7 @@ ${exprToString(expr)}`
   }): Environment {
     if (argExprs.length > interfaceType.members.length) {
       throw this.formatErrorMessage(
-        argExprs[interfaceType.members.length - 1].token,
+        interfaceExpr.token,
         `Failed to implement the interface. Too many members provided.`
       );
     }
@@ -3924,7 +3941,11 @@ ${exprToString(expr)}`
       let interfaceMember = interfaceType.members[i];
       let argExpr = argExprs[i];
       if (!argExpr) {
-        `Failed to implement the interface. Too few members provided.`;
+        throw this.formatErrorMessage(
+          interfaceExpr.token,
+          `Failed to implement the interface. Missing implementation for:
+${interfaceMember.label}: ${typeToString(interfaceMember.type)}`
+        );
       }
 
       // Check if it's a label
@@ -4003,7 +4024,7 @@ ${exprToString(expr)}`
       ) {
         throw this.formatErrorMessage(
           argExpr.token,
-          `Failed to evaluate the interface member "${label}"`
+          `Failed to evaluate the interface member "${label}". Expected either function type, or Type (or Free or Linear)`
         );
       }
 
@@ -4826,6 +4847,7 @@ compt(${exprToString(functionReturnTypeExpr)})`
       // Evaluate the interface members
       // This should like a function call
       const nextEnv = this.tryToImplementInterfaceWithArguments({
+        interfaceExpr: evaluatedTypeExpr,
         interfaceType: interfaceType,
         argExprs: implMemberExprs,
         env,

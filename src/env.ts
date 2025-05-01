@@ -5,6 +5,7 @@ import { charIsOperator, Operators, Token } from "./token";
 import {
   areTypesCompatible,
   FunctionType,
+  getInterfaceReceiverType,
   InterfaceType,
   isFunctionType,
   isInterfaceType,
@@ -514,8 +515,15 @@ export function getMethodsByNameFromEnv(
   const methods: { type: FunctionType; value: FunctionValue }[] = [];
 
   function checkInterfaceType(interfaceType: InterfaceType) {
+    const interfaceReceiverType = getInterfaceReceiverType(interfaceType);
+    if (!interfaceReceiverType) {
+      // NOTE: We require receiverType to be defined with "Self"
+      return;
+    }
+
     const method = interfaceType.members.find(
       (member) =>
+        areTypesCompatible(interfaceReceiverType, receiverType, env) &&
         member.label === methodName &&
         !!member.value &&
         isFunctionType(member.type) &&
@@ -550,6 +558,7 @@ export function getMethodsByNameFromEnv(
     }
   }
 
+  // Check the interfaces
   for (let i = env.frames.length - 1; i >= 0; i--) {
     const frame = env.frames[i];
     for (let j = frame.variables.length - 1; j >= 0; j--) {

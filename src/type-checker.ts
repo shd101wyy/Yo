@@ -3,7 +3,7 @@ import { Expr } from "./expr";
 import { FunctionValue } from "./function-value";
 import { TypeValue } from "./type-value";
 import { randomId } from "./utils";
-import { Value, valueToString } from "./value";
+import { isTypeValue, Value, valueToString } from "./value";
 import { ValueTag } from "./value-tag";
 
 // FIXME: We need to determine the ptr size based on the givenType architecture.
@@ -511,7 +511,9 @@ export interface InterfaceType extends Type {
    * The receiver type of the interface.
    * We take member whose name is "Self" as the receiverType.
    */
-  receiverType?: Type;
+  // receiverType?: Type;
+  // NOTE: I remove this^
+  // Instead, let's use a function to get the receiverType from an interface
 
   /**
    * The members of the interface.
@@ -690,6 +692,22 @@ export function createInterfaceType(
   };
 }
 
+export function getInterfaceReceiverType(
+  interfaceType: InterfaceType
+): Type | null {
+  const selfType = interfaceType.members.find(
+    (member) => member.label === "Self"
+  );
+  if (!selfType || !selfType.value) {
+    return null;
+  }
+  const typeValue = selfType.value;
+  if (!isTypeValue(typeValue)) {
+    return null;
+  }
+  return typeValue.value;
+}
+
 // Example: Array type function - now using regular FunctionType
 /*
 export const ArrayFunction: FunctionType = createFunctionType(
@@ -829,7 +847,8 @@ export function typeOfType(t: Type): Type {
   } else if (isSomeType(t)) {
     return t.parentType;
   } else if (isInterfaceType(t)) {
-    return determineTypeUniverse(t.members.map((member) => member.type));
+    return TFree;
+    // return determineTypeUniverse(t.members.map((member) => member.type));
   } else {
     throw new Error(`Unknown type tag: ${t.tag}`);
   }
@@ -1270,9 +1289,13 @@ export function typeToString(type: Type): string {
         interfaceType.typeName ? "interface" : interfaceType.typeId
       }(${interfaceType.members
         .map((member) => {
-          return `${member.label ? `${member.label}:` : ""}${typeToString(
+          let t = `${member.label ? `${member.label}:` : ""}${typeToString(
             member.type
           )}`;
+          if (member.value) {
+            t = `(${t}) = ${valueToString(member.value)}`;
+          }
+          return t;
         })
         .join(", ")})`;
     }
