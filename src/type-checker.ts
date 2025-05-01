@@ -473,6 +473,15 @@ export interface InterfaceMember {
    * The type of the member.
    */
   type: TypeHierarchyType | FunctionType;
+
+  /**
+   * The type expression of the member.
+   * Such as:
+   * - Type,
+   * - (x: Self, y: Self)-> Self
+   */
+  typeExpr: Expr;
+
   /**
    * The implemented value of the member.  \
    * If it's not implemented, then it's undefined.  \
@@ -499,6 +508,12 @@ export interface InterfaceType extends Type {
   typeName?: string;
 
   /**
+   * The receiver type of the interface.
+   * We take member whose name is "Self" as the receiverType.
+   */
+  receiverType?: Type;
+
+  /**
    * The members of the interface.
    */
   members: InterfaceMember[];
@@ -512,6 +527,13 @@ export interface InterfaceType extends Type {
    * Whether the interface is implemented or not.
    */
   isImplemented: boolean;
+
+  /**
+   * The env when the function type is created.
+   * The env shouldn't contain the frame that have the parameters.
+   * The env is also useful to show the frame level at which the function is defined.
+   */
+  env: Environment;
 }
 
 export function createTypeHierarchy(level: number): TypeHierarchyType {
@@ -655,6 +677,7 @@ export function createFunctionType({
 
 export function createInterfaceType(
   members: InterfaceMember[],
+  env: Environment,
   typeId?: string
 ): InterfaceType {
   return {
@@ -663,6 +686,7 @@ export function createInterfaceType(
     size: undefined,
     typeId: typeId ?? `interface_${randomId()}`,
     isImplemented: false,
+    env,
   };
 }
 

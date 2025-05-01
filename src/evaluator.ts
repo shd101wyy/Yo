@@ -2,7 +2,7 @@ import {
   addVariableToEnv,
   createNewEnv,
   Environment,
-  getInterfaceMethodsByNameFromEnv,
+  getMethodsByNameFromEnv,
   getVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
@@ -3347,12 +3347,12 @@ compt(${exprToString(returnTypeExpr)})`
             // 1.add(3);
             const methodName = methodExpr.token.value;
             // Get the method with the same name in the interface in the env
-            const interfaceMethods = getInterfaceMethodsByNameFromEnv(
+            const methods = getMethodsByNameFromEnv(
               env,
               methodName,
               receiverType
             );
-            functions = interfaceMethods.map((method) => ({
+            functions = methods.map((method) => ({
               type: method.type,
               value: method.value,
             }));
@@ -3470,7 +3470,7 @@ compt(${exprToString(returnTypeExpr)})`
         const methodName = functionName;
         methodExpr = func;
         // Get the method with the same name in the interface in the env
-        const interfaceMethods = getInterfaceMethodsByNameFromEnv(
+        const interfaceMethods = getMethodsByNameFromEnv(
           env,
           methodName,
           receiverType
@@ -3928,12 +3928,13 @@ ${exprToString(expr)}`
       }
 
       // Check if it's a label
+      let labelExpr: Expr | undefined;
       let label: string | undefined;
       if (
         exprIsFunctionCall(argExpr) &&
         exprIsFunctionCallOf(argExpr, ":", 2)
       ) {
-        const labelExpr = argExpr.args[0];
+        labelExpr = argExpr.args[0];
         argExpr = argExpr.args[1];
 
         if (!exprIsAtom(labelExpr)) {
@@ -3974,6 +3975,38 @@ ${exprToString(expr)}`
         );
       }
 
+      // evaluate the interface type again with the new frame containing the arg
+      const interfaceMemberEnv = pushEnvFrame(
+        interfaceType.env,
+        env.frames[env.frames.length - 1]
+      );
+      const evaluatedInterfaceMember = this.evaluateExpression({
+        expr: interfaceMember.typeExpr,
+        env: interfaceMemberEnv,
+        context: {
+          ...context,
+          isEvaluatingExprAsType: true,
+          expectedType: undefined,
+        },
+      });
+      const evaluatedInterfaceMemberTypeValue = evaluatedInterfaceMember.value;
+      if (!isTypeValue(evaluatedInterfaceMemberTypeValue)) {
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Failed to evaluate the interface member "${label}"`
+        );
+      }
+      const interfaceMemberType = evaluatedInterfaceMemberTypeValue.value;
+      if (
+        !isTypeHierarchyType(interfaceMemberType) &&
+        !isFunctionType(interfaceMemberType)
+      ) {
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Failed to evaluate the interface member "${label}"`
+        );
+      }
+
       // Evaluate the argExpr
       let evaluatedArgExpr: Expr;
       try {
@@ -3983,13 +4016,14 @@ ${exprToString(expr)}`
           context: {
             ...context,
             isEvaluatingExprAsType: false,
-            expectedType: interfaceMember.type,
+            expectedType: interfaceMemberType,
           },
         });
       } catch (error) {
+        console.error(error);
         throw this.formatErrorMessage(
           argExpr.token,
-          `Failed to evaluate the interface member "${label}"`
+          `(1) Failed to evaluate the interface member "${label}"`
         );
       }
 
@@ -3997,58 +4031,50 @@ ${exprToString(expr)}`
       if (!argType) {
         throw this.formatErrorMessage(
           argExpr.token,
-          `Failed to evaluate the interface member "${label}"`
+          `(2) Failed to evaluate the interface member "${label}"`
         );
       }
 
-      // Pass a type to parameter
-      // eg: T: Type
-      if (
-        isTypeHierarchyType(interfaceMember.type) &&
-        interfaceMember.type.level === 0
-      ) {
-        // Check if the type is a subtype of the given type
-        // TODO: Check interfaces
-        if (!isTypeHierarchyType(argType) || argType.level !== 0) {
-          throw this.formatErrorMessage(
-            argExpr.token,
-            `Failed to evaluate the interface member "${label}"`
-          );
-        }
-
-        const argValue = evaluatedArgExpr.value;
-
-        // Add the arg to the environment
-        const { env: nextEnv } = addVariableToEnv({
-          env,
-          variable: {
-            name: interfaceMember.label,
-            type: argType,
-            isMutable: false,
-            isCompileTimeOnly: true,
-            token: argExpr.token,
-            isNotInitialized: false,
-            value: argValue,
-          },
-        });
-        env = nextEnv;
+      if (evaluatedArgExpr.env) {
+        env = evaluatedArgExpr.env;
       }
 
+      // Add the arg to the environment
+      const argValue = evaluatedArgExpr.value;
+      const { env: nextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name: interfaceMember.label,
+          type: argType,
+          isMutable: false,
+          isCompileTimeOnly: true,
+          token: argExpr.token,
+          isNotInitialized: false,
+          value: argValue,
+        },
+      });
+      env = nextEnv;
+
       // Compare the types
-      else if (!areTypesCompatible(interfaceMember.type, argType, env)) {
+      if (!areTypesCompatible(interfaceMemberType, argType, env)) {
         throw this.formatErrorMessage(
           argExpr.token,
-          `Failed to evaluate the interface member "${label}"`
+          `(4) Failed to evaluate the interface member "${label}"`
         );
       }
 
       // Set the interface member value
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       interfaceMember.value = evaluatedArgExpr.value as any; // FIXME: Update the check
+      interfaceMember.type = interfaceMemberType;
 
       // Add the type information to argExpr
       argExpr.type = argType;
       argExpr.value = evaluatedArgExpr.value;
+      if (labelExpr) {
+        labelExpr.type = argType;
+        labelExpr.value = evaluatedArgExpr.value;
+      }
 
       checkedInterfaceMembers.add(interfaceMember);
     }
@@ -4563,6 +4589,7 @@ compt(${exprToString(functionReturnTypeExpr)})`
         label,
         type: memberType,
         value: undefined,
+        typeExpr: evaluatedMemberTypeExpr,
       });
 
       // Add type info the lhsExpr;
@@ -4614,7 +4641,7 @@ compt(${exprToString(functionReturnTypeExpr)})`
     env = nextEnv;
 
     // Create the interface type
-    const interfaceType = createInterfaceType(members);
+    const interfaceType = createInterfaceType(members, popEnvFrame(env));
 
     // Pop the environment frame
     env = popEnvFrame(env);

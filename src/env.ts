@@ -1,9 +1,10 @@
 import { createHash } from "crypto";
 import { formatErrorMessages } from "./error";
+import { FunctionValue } from "./function-value";
 import { charIsOperator, Operators, Token } from "./token";
 import {
   areTypesCompatible,
-  InterfaceMember,
+  FunctionType,
   InterfaceType,
   isFunctionType,
   isInterfaceType,
@@ -505,12 +506,12 @@ export function printEnvVarNames(env: Environment) {
   );
 }
 
-export function getInterfaceMethodsByNameFromEnv(
+export function getMethodsByNameFromEnv(
   env: Environment,
   methodName: string,
   receiverType: Type
-): InterfaceMember[] {
-  const interfaceMembers: InterfaceMember[] = [];
+): { type: Type; value: FunctionValue }[] {
+  const methods: { type: FunctionType; value: FunctionValue }[] = [];
 
   function checkInterfaceType(interfaceType: InterfaceType) {
     const method = interfaceType.members.find(
@@ -522,24 +523,29 @@ export function getInterfaceMethodsByNameFromEnv(
         // TODO: support autocast to reference/immutable reference.
         areTypesCompatible(member.type.params[0].type, receiverType, env)
     );
-    if (method && !interfaceMembers.includes(method)) {
-      interfaceMembers.push(method);
+    if (
+      method &&
+      isFunctionType(method.type) &&
+      isFunctionValue(method.value) &&
+      !methods.some((m) => m.value === method.value)
+    ) {
+      methods.push({ type: method.type, value: method.value });
     }
   }
 
   // Check if the receiverType itself has method that can be called
   if (receiverType.methods) {
-    const methods = receiverType.methods.filter(
+    const typeMethods = receiverType.methods.filter(
       (method) =>
         method.label === methodName &&
         !!method.value &&
         isFunctionType(method.type) &&
         method.type.params.length > 0
     );
-    for (let i = 0; i < methods.length; i++) {
-      const method = methods[i];
-      if (!interfaceMembers.includes(method)) {
-        interfaceMembers.push(method);
+    for (let i = 0; i < typeMethods.length; i++) {
+      const method = typeMethods[i];
+      if (!methods.some((m) => m.value === method.value)) {
+        methods.push({ type: method.type, value: method.value });
       }
     }
   }
@@ -576,5 +582,5 @@ export function getInterfaceMethodsByNameFromEnv(
       }
     }
   }
-  return interfaceMembers;
+  return methods;
 }

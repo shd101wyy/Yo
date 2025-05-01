@@ -1,16 +1,16 @@
 // https://doc.rust-lang.org/book/ch20-02-advanced-traits.html
 
-Iterator :: trait 
-  Self: Type,
+Iterator :: trait Self: Type,
   Item: Type,
   next: ((&!(Self)) -> Option(Item))
 ;
 
-impl Iterator, for: Counter,
+Iterator Self: Counter,
   Item: u32,
-  next: (fn(self)-> {
-    // ...
-  });
+  next: 
+    fn(self)-> {
+      // ...
+    }
 
 // ==================================================
 
@@ -18,17 +18,17 @@ Point :: struct
   x: i32,
   y: i32;
 
-def Add(Self: Type, (Rhs: Type) = Self): Trait, // Question: Where is Self defined?
+def Add(compt(Self): Type, compt(Rhs): Type): Type, // Question: Where is Self defined?
   trait 
-    Self = Self, // Is this correct?
+    (Self: Type) = Self, // Is this correct?
     Output: Type,
-    add: (fn(self, other: Self) -> Self)
+    add: (fn(self: Self, other: Self) -> Self)
 ;
 // QUESTION: How to express below correctly?:
 // SomeConstraints :: (Type <: Add(?, ?)); // Doesn't look right.  
 // 
 
-impl Add(Point), for: Point,
+Add(Point) Point,
   Output: Point,
   add: (fn(self, other) -> 
     Point
@@ -39,24 +39,24 @@ impl Add(Point), for: Point,
 
 // ==================================================
 
-Pilot :: trait
+Pilot :: trait Self: Type,
   fly: (fn(&(Self)) -> ())
 ;
-Wizard :: trait
+Wizard :: trait Self: Type,
   fly: (fn(&(Self)) -> ())
 
 Human :: struct();
 
-impl Pilot, for: Human,
+Pilot Human,
   fly: (fn(self) -> println("Piloting!"))
 ;
 
-impl Wizard, for: Human,
+Wizard Human,
   fly: (fn(self) -> println("Wizarding!"))
 ;
 
-impl Human,
-  fly: (fn(self: Human) -> println("Humaning!"))
+def Human.fly(self: Human): (),
+  println("Humaning!")
 ;
 
 person :: Human();
@@ -66,28 +66,28 @@ Wizard::fly(&(person)); // Calls Wizard's fly method
 
 // ==================================================
 
-Animal :: trait
+Animal :: trait Self: Type,
   baby_name: (()-> String)
 ;
 
 Dog :: struct();
 
-impl Dog,
-  baby_name: (fn()-> String.from("Spot"))
+def Dog.baby_name(): String,
+  String.from("Spot")
 ;
 
-impl Animal, for: Dog,
+Animal Dog,
   baby_name: (fn()-> String.from("puppy"))
 ;
 
 Dog.baby_name(); // Spot
-Animal.baby_name(); // error: No implementation found.  
+Animal.baby_name(); // puppy  
 Dog.(Animal.baby_name)(); // puppy
 
 // ==================================================
 
-OutlinePrint :: trait for: (Type <: (Display,)),
-  (outline_print: (fn(&(Self)) -> ())) = (fn(self)-> {
+OutlinePrint :: trait Self: (Type <: (Display,)),
+  (outline_print: ((&(Self)) -> ())) = (fn(self)-> {
     // ...
   })
 ;
