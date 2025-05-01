@@ -199,8 +199,6 @@ export interface SomeType extends Type {
    * size is unknown for SomeType
    */
   size: undefined;
-
-  // TODO: Implemented interfaces
 }
 
 export const TBoolean: Type = {
@@ -1275,7 +1273,11 @@ export function typeToString(type: Type): string {
         .map((param) =>
           param.label
             ? `${
-                param.isMutable ? `mut(${param.label})` : `${param.label}`
+                param.isMutable
+                  ? `mut(${param.label})`
+                  : param.isCompileTimeOnly
+                  ? `compt(${param.label})`
+                  : `${param.label}`
               }: ${typeToString(param.type)}`
             : (param.isMutable ? `mut(_):` : "") + typeToString(param.type)
         )

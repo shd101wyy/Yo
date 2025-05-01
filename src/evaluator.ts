@@ -41,6 +41,7 @@ import {
   isFunctionTypeAndIsTypeFunction,
   isInterfaceType,
   isPlaceholderType,
+  isSomeType,
   isStructType,
   isTupleType,
   isTypeHierarchyType,
@@ -4168,7 +4169,24 @@ Expected: ${typeToString(functionType)}`
         return (
           cache.argValues.length === argValues.length &&
           cache.argValues.every((argValue, index) => {
-            return areValuesEqual(argValue, argValues[index], env);
+            const givenArgValue = argValues[index];
+
+            // If argValue is some type, and givenArgValue is not some type,
+            // we return false.
+            // For example:
+            // - Point(T)
+            // - Point(i32)
+            // given T = i32 in env, we don't use the cache.
+            if (isTypeValue(argValue) && isTypeValue(givenArgValue)) {
+              if (
+                isSomeType(argValue.value) &&
+                !isSomeType(givenArgValue.value)
+              ) {
+                return false;
+              }
+            }
+
+            return areValuesEqual(argValue, givenArgValue, env);
           })
         ); // Check if the values are equal
       });
