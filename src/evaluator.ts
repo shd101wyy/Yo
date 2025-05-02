@@ -75,6 +75,8 @@ import { VUnit } from "./unit-value";
 import { randomId } from "./utils";
 import {
   areValuesEqual,
+  createEnumValue,
+  createStructValue,
   createTypeValue,
   createUnknownValue,
   isFunctionValue,
@@ -192,17 +194,77 @@ export default class Evaluator {
     }
   }
 
+  private evaluateTuple({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected tuple, got ${expr.tag}`
+      );
+    }
+
+    if (expr.args.length === 0) {
+      // Unit
+      if (context.isEvaluatingExprAsType) {
+        expr.value = createTypeValue(TUnit);
+        expr.type = typeOfType(TUnit);
+        return expr;
+      } else {
+        expr.value = VUnit;
+        expr.type = VUnit.type;
+        return expr;
+      }
+    }
+
+    const {
+      type: tupleType,
+      value: tupleValue,
+      env: nextEnv,
+    } = this.evaluateTupleElements({ args: expr.args, env, context });
+    env = nextEnv;
+
+    // We disallow the tuple elements to have defaultValue for the tuple type
+    // We disallow the tuple value to have labels. Only the tuple type can have labels.
+    for (let i = 0; i < tupleType.elements.length; i++) {
+      const tupleElement = tupleType.elements[i];
+      if (tupleElement.defaultValue) {
+        throw this.formatErrorMessage(
+          tupleElement.expr.token,
+          `Tuple elements cannot have default value.`
+        );
+      }
+
+      if (!context.isEvaluatingExprAsType && tupleElement.label) {
+        throw this.formatErrorMessage(
+          tupleElement.expr.token,
+          `Tuple value cannot have labels.`
+        );
+      }
+    }
+
+    expr.value = tupleValue;
+    expr.type = context.isEvaluatingExprAsType
+      ? typeOfType(tupleType)
+      : tupleType;
+    expr.env = env;
+    return expr;
+  }
+
   /**
-   * Evaluate the element in tuple rvalue, such as
-   * value:
-   * 14  in (14, ...)
-   * (x: 16) in (x: 16)
+   * Evaluate the element in tuple rvalue
    *
    * type:
    * i32 in (i32, ...)
    * (x: i32) in (x: i32, ...)
    */
-  private evaluateTupleElement({
+  private evaluateTupleElementType({
     expr,
     tupleElementIndex,
     env,
@@ -212,7 +274,14 @@ export default class Evaluator {
     tupleElementIndex: number;
     env: Environment;
     context: EvaluatorContext;
-  }): { type: TupleElement; value: Value; env: Environment } {
+  }): { type: TupleElement; value: TypeValue; env: Environment } {
+    if (!context.isEvaluatingExprAsType) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected context.isEvaluatingExprAsType == true`
+      );
+    }
+
     let label: string | undefined = undefined;
     let expr_ = expr;
     let lhsExpr: Expr | undefined = undefined;
@@ -288,66 +357,37 @@ ${typeToString(expectedTupleType)}`
     if (evaluatedRhs.env) {
       env = evaluatedRhs.env;
     }
-    if (context.isEvaluatingExprAsType) {
-      // Expected the evaluatedRhs to be a type
-      const typeValue = evaluatedRhs.value;
-      if (!isTypeValue(typeValue)) {
-        throw this.formatErrorMessage(
-          rhsExpr.token,
-          `(1) Expected type for tuple element, got ${exprToString(rhsExpr)}`
-        );
-      }
-      elementType = typeValue.value;
-      if (lhsExpr) {
-        lhsExpr.type = elementType;
-      }
 
-      // Check if defaultValue matches the type
-      if (
-        defaultValue &&
-        !areTypesCompatible(elementType, defaultValue.type, env)
-      ) {
-        throw this.formatErrorMessage(
-          rhsExpr.token,
-          `Default value type mismatch:
-Expected type: ${typeToString(elementType)}
-Given type: ${typeToString(defaultValue.type)}`
-        );
-      }
-    } else {
-      if (evaluatedRhs.value && isTypeValue(evaluatedRhs.value)) {
-        throw this.formatErrorMessage(
-          rhsExpr.token,
-          `Cannot store a type value in tuple while not in "type" context: 
-${exprToString(rhsExpr)}`
-        );
-      }
-
-      // Expected the evaluatedRhs to be a value
-      elementType = evaluatedRhs.type;
-      if (!elementType) {
-        throw this.formatErrorMessage(
-          evaluatedRhs.token,
-          `Failed to evaluate the tuple element.`
-        );
-        // elementType = TPlaceholder;
-      } else if (lhsExpr) {
-        lhsExpr.type = lhsExpr.type || evaluatedRhs.type;
-      }
+    // Expected the evaluatedRhs to be a type
+    const typeValue = evaluatedRhs.value;
+    if (!isTypeValue(typeValue)) {
+      throw this.formatErrorMessage(
+        rhsExpr.token,
+        `(1) Expected type for tuple element, got ${exprToString(rhsExpr)}`
+      );
+    }
+    elementType = typeValue.value;
+    if (lhsExpr) {
+      lhsExpr.type = elementType;
     }
 
-    let value: Value = createUnknownValue(elementType);
-    if (!context.isEvaluatingExprAsType) {
-      // Evaluating value.
-      value = evaluatedRhs.value ?? createUnknownValue(elementType);
-    } else {
-      // Evaluating type.
-      value = createUnknownValue(elementType); // NOTE: This is necessary
+    // Check if defaultValue matches the type
+    if (
+      defaultValue &&
+      !areTypesCompatible(elementType, defaultValue.type, env)
+    ) {
+      throw this.formatErrorMessage(
+        rhsExpr.token,
+        `Default value type mismatch:
+Expected type: ${typeToString(elementType)}
+Given type: ${typeToString(defaultValue.type)}`
+      );
     }
 
     if (lhsExpr) {
       lhsExpr.env = env;
-      lhsExpr.value = value;
+      lhsExpr.type = typeValue.type;
+      lhsExpr.value = typeValue;
     }
     expr.env = env;
     return {
@@ -357,72 +397,125 @@ ${exprToString(rhsExpr)}`
         expr,
         defaultValue,
       },
-      value: value,
+      value: typeValue,
       env,
     };
   }
 
-  private evaluateTuple({
+  /**
+   * Evaluate the element in tuple rvalue, such as
+   * value:
+   * 14  in (14, ...)
+   * (x: 16) in (x: 16)
+   *
+   */
+  private evaluateTupleElementValue({
     expr,
+    tupleElementIndex,
     env,
     context,
   }: {
-    expr: FuncCallExpr;
+    expr: Expr;
+    tupleElementIndex: number;
     env: Environment;
     context: EvaluatorContext;
-  }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
+  }): {
+    type: TupleElement;
+    value: Value | undefined;
+    env: Environment;
+  } {
+    if (context.isEvaluatingExprAsType) {
       throw this.formatErrorMessage(
         expr.token,
-        `Expected tuple, got ${expr.tag}`
+        `Expected context.isEvaluatingExprAsType == false`
       );
     }
 
-    if (expr.args.length === 0) {
-      // Unit
-      if (context.isEvaluatingExprAsType) {
-        expr.value = createTypeValue(TUnit);
-        expr.type = typeOfType(TUnit);
-        return expr;
-      } else {
-        expr.value = VUnit;
-        expr.type = VUnit.type;
-        return expr;
-      }
-    }
+    let label: string | undefined = undefined;
+    const expr_ = expr;
+    let lhsExpr: Expr | undefined = undefined;
+    let rhsExpr: Expr = expr;
+    let elementType: Type | undefined = undefined;
 
-    const {
-      type: tupleType,
-      value: tupleValue,
-      env: nextEnv,
-    } = this.evaluateTupleElements({ args: expr.args, env, context });
-    env = nextEnv;
+    // Parse the lhs expr
+    if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":")) {
+      rhsExpr = expr_.args[1];
+      lhsExpr = expr_.args[0];
 
-    // We disallow the tuple elements to have defaultValue for the tuple type
-    // We disallow the tuple value to have labels. Only the tuple type can have labels.
-    for (let i = 0; i < tupleType.elements.length; i++) {
-      const tupleElement = tupleType.elements[i];
-      if (tupleElement.defaultValue) {
+      if (!exprIsAtom(lhsExpr) && !this.isValidVariableName(lhsExpr)) {
         throw this.formatErrorMessage(
-          tupleElement.expr.token,
-          `Tuple elements cannot have default value.`
+          lhsExpr.token,
+          `Expected identifier for tuple element label, got ${exprToString(
+            lhsExpr
+          )}`
         );
       }
-
-      if (!context.isEvaluatingExprAsType && tupleElement.label) {
-        throw this.formatErrorMessage(
-          tupleElement.expr.token,
-          `Tuple value cannot have labels.`
-        );
-      }
+      label = lhsExpr.token.value;
     }
 
-    expr.value = tupleValue;
-    expr.type = context.isEvaluatingExprAsType
-      ? typeOfType(tupleType)
-      : tupleType;
+    // Check expectedType
+    const expectedTupleType = context.expectedType;
+    let expectedTupleElementType: Type | undefined = undefined;
+    if (expectedTupleType) {
+      if (!isTupleType(expectedTupleType)) {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Failed to evaluate the tuple elements. Expected type to be:
+  ${typeToString(expectedTupleType)}`
+        );
+      }
+      const tupleElement = expectedTupleType.elements[tupleElementIndex];
+      expectedTupleElementType = tupleElement.type;
+    }
+
+    // Parse the rhs expr
+    const evaluatedRhs = this.evaluateExpression({
+      expr: rhsExpr,
+      env,
+      context: {
+        ...context,
+        expectedType: expectedTupleElementType,
+      },
+    });
+    if (evaluatedRhs.env) {
+      env = evaluatedRhs.env;
+    }
+
+    const value = evaluatedRhs.value;
+    if (value && isTypeValue(evaluatedRhs.value)) {
+      throw this.formatErrorMessage(
+        rhsExpr.token,
+        `Cannot store a type value in tuple while not in "type" context: 
+  ${exprToString(rhsExpr)}`
+      );
+    }
+
+    // Expected the evaluatedRhs to be a value
+    elementType = evaluatedRhs.type;
+    if (!elementType) {
+      throw this.formatErrorMessage(
+        evaluatedRhs.token,
+        `Failed to evaluate the tuple element.`
+      );
+    }
+
+    if (lhsExpr) {
+      lhsExpr.env = env;
+      lhsExpr.type = elementType;
+      lhsExpr.value = value;
+    }
     expr.env = env;
-    return expr;
+    expr.type = elementType;
+    expr.value = value;
+    return {
+      type: {
+        label,
+        type: elementType,
+        expr,
+      },
+      value,
+      env,
+    };
   }
 
   /**
@@ -442,7 +535,7 @@ ${exprToString(rhsExpr)}`
     env: Environment;
   } {
     const tupleElements: TupleElement[] = [];
-    const tupleValues: Value[] = [];
+    const tupleValues: (Value | undefined)[] = [];
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
 
@@ -450,12 +543,19 @@ ${exprToString(rhsExpr)}`
         type,
         value,
         env: nextEnv,
-      } = this.evaluateTupleElement({
-        expr: arg,
-        env,
-        tupleElementIndex: i,
-        context,
-      });
+      } = context.isEvaluatingExprAsType
+        ? this.evaluateTupleElementType({
+            expr: arg,
+            env,
+            tupleElementIndex: i,
+            context,
+          })
+        : this.evaluateTupleElementValue({
+            expr: arg,
+            env,
+            tupleElementIndex: i,
+            context,
+          });
 
       // Check if there is duplicate labels
       if (type.label) {
@@ -480,17 +580,16 @@ ${exprToString(rhsExpr)}`
     const tupleType: TupleType = createTupleType(tupleElements);
     let value: Value | undefined = undefined;
     if (context.isEvaluatingExprAsType) {
-      value = {
-        tag: ValueTag.Type,
-        type: typeOfType(tupleType),
-        value: tupleType,
-      };
+      value = createTypeValue(tupleType);
     } else {
-      value = {
-        tag: ValueTag.Tuple,
-        type: tupleType,
-        elements: tupleValues,
-      };
+      value = tupleValues.some((v) => !v)
+        ? // ^ Meaning some element value is not compile-time known.
+          undefined
+        : {
+            tag: ValueTag.Tuple,
+            type: tupleType,
+            elements: tupleValues as Value[],
+          };
     }
     return {
       type: tupleType,
@@ -1473,7 +1572,7 @@ ${exprToString(rhs)}`
       }
 
       // Set the variable value
-      lhs.value = rhs.value;
+      lhs.value = isCompileTimeOnly ? rhs.value : undefined;
       // Add variable to env
       // Attach the updated env to expr
       const { env: nextEnv } = addVariableToEnv({
@@ -1856,9 +1955,17 @@ ${exprToString(expr)}`
       }
     }
 
+    if (!valueType) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Failed to determine the type of value from the cond.`
+      );
+    }
+
     expr.type = valueType;
-    // TODO: set .value
-    expr.value = valueType ? createUnknownValue(valueType) : undefined;
+    // TODO: set .value to support compile-time value.
+    // Right now the createUnknownValue below is wrong
+    expr.value = undefined; // valueType ? createUnknownValue(valueType) : undefined;
     return expr;
   }
 
@@ -2122,9 +2229,9 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
 
     // Set the type and value of the match expression
     expr.type = resultType;
+    // TODO: Support the compile-time value.
     // For compile-time evaluation, we'd determine which arm matches and set the value
-    // For now, just set it to unknown
-    expr.value = createUnknownValue(resultType);
+    expr.value = undefined; // createUnknownValue(resultType);
     expr.env = env;
 
     return expr;
@@ -2646,34 +2753,34 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       );
     }
 
-    if (lhsExpr && label) {
-      // Add the parameter to the env
-      const { env: nextEnv } = addVariableToEnv({
-        env,
-        variable: {
-          name: label,
-          token: lhsExpr.token,
-          type: parameterType,
-          isMutable: isMutable,
-          isCompileTimeOnly: isCompileTimeOnly,
-          isNotInitialized: false, // Set as initialized
-          value:
-            isCompileTimeOnly &&
-            // NOTE: This check if necessary to help create someType
-            // Check the if condition in `addVariableToFrame` function
-            !isTypeHierarchyType(parameterType)
-              ? createUnknownValue(parameterType)
-              : undefined,
-        },
-      });
-      env = nextEnv;
-    }
-
     if (lhsExpr) {
+      const value = isCompileTimeOnly
+        ? createUnknownValue(parameterType, label)
+        : undefined;
+
+      if (label) {
+        // Add the parameter to the env
+        const { env: nextEnv } = addVariableToEnv({
+          env,
+          variable: {
+            name: label,
+            token: lhsExpr.token,
+            type: parameterType,
+            isMutable: isMutable,
+            isCompileTimeOnly: isCompileTimeOnly,
+            isNotInitialized: false, // Set as initialized
+            value: isCompileTimeOnly
+              ? createUnknownValue(parameterType, label)
+              : undefined,
+          },
+        });
+        env = nextEnv;
+      }
       lhsExpr.env = env;
-      lhsExpr.value = createUnknownValue(parameterType);
+      lhsExpr.value = value;
       lhsExpr.type = parameterType;
     }
+
     expr.env = env;
     return {
       parameter: {
@@ -3095,7 +3202,7 @@ compt(${exprToString(returnTypeExpr)})`
         expr.type = newEnumType;
         propertyExpr.type = newEnumType;
         // FIXME: Support expr.value for comptime evaluation.
-        // expr.value = createEnumValue()
+        expr.value = createEnumValue(newEnumType, variantName, []);
       } else {
         /**
          * This is for case like
@@ -3169,7 +3276,7 @@ compt(${exprToString(returnTypeExpr)})`
           expr.type = newEnumType;
           propertyExpr.type = newEnumType;
           // FIXME: Support expr.value for comptime evaluation.
-          // expr.value = createEnumValue()
+          expr.value = createEnumValue(newEnumType, variantName, []);
         } else {
           /**
            * This is for case like
@@ -3691,6 +3798,23 @@ ${functionsWithMatchingTypes
         const structType = value.value;
         expr.type = structType;
         expr.env = env;
+        // FIXME: Support to set value for comptime
+        const memberValues = this.tryToCallTypeWithArguments({
+          memberElements: value.value.members,
+          argExprs: args,
+          env,
+          context,
+        });
+        if (!memberValues) {
+          throw this.formatErrorMessage(
+            func.token,
+            `Error evaluating struct call.`
+          );
+        }
+        if (memberValues.every((v) => !!v)) {
+          const structValue = createStructValue(structType, memberValues);
+          expr.value = structValue;
+        }
 
         // Attach necessary info to the func
         func.type = value.type;
@@ -3703,6 +3827,36 @@ ${functionsWithMatchingTypes
         const enumType = value.value;
         expr.type = enumType;
         expr.env = env;
+        // FIXME: Support to set value for comptime
+        const selectedVariant = enumType.variants.find(
+          (variant) => variant.name === enumType.selectedVariantName
+        );
+        if (!selectedVariant) {
+          throw this.formatErrorMessage(
+            expr.token,
+            `Enum variant not selected for enum type`
+          );
+        }
+        const memberValues = this.tryToCallTypeWithArguments({
+          memberElements: selectedVariant.params || [],
+          argExprs: args,
+          env,
+          context,
+        });
+        if (!memberValues) {
+          throw this.formatErrorMessage(
+            func.token,
+            `Error evaluating enum call.`
+          );
+        }
+        if (memberValues.every((v) => !!v)) {
+          const enumValue = createEnumValue(
+            enumType,
+            selectedVariant.name,
+            memberValues
+          );
+          expr.value = enumValue;
+        }
 
         // Attach necessary info to the func
         func.type = value.type;
@@ -3870,13 +4024,16 @@ ${exprToString(expr)}`
     argExprs: Expr[];
     env: Environment;
     context: EvaluatorContext;
-  }): boolean {
+  }): false | (Value | undefined)[] {
     if (argExprs.length > memberElements.length) {
       return false;
     }
 
     env = pushEnvFrame(env);
     const checkedMemberElements: Set<TupleElement> = new Set();
+    const values: (Value | undefined)[] = Array(memberElements.length).fill(
+      undefined
+    );
     for (let i = 0; i < memberElements.length; i++) {
       let memberElement = memberElements[i];
       let argExpr = argExprs[i];
@@ -3918,6 +4075,7 @@ ${exprToString(expr)}`
         return false; // Already checked this element
         // We cannot have duplicate labels
       }
+      const memberElementPositionIndex = memberElements.indexOf(memberElement);
 
       // Evaluate the argExpr
       let evaluatedArgExpr: Expr;
@@ -3960,6 +4118,8 @@ ${exprToString(expr)}`
       if (!areTypesCompatible(memberElement.type, argType, env)) {
         return false;
       }
+
+      values[memberElementPositionIndex] = evaluatedArgExpr.value;
       checkedMemberElements.add(memberElement);
     }
 
@@ -3969,11 +4129,14 @@ ${exprToString(expr)}`
       if (!checkedMemberElements.has(memberElement)) {
         if (!memberElement.defaultValue) {
           return false;
+        } else {
+          // Set the default value to values
+          values[i] = memberElement.defaultValue;
         }
       }
     }
 
-    return true;
+    return values;
   }
 
   private tryToImplementInterfaceWithArguments({

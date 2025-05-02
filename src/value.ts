@@ -3,10 +3,14 @@ import { FunctionValue } from "./function-value";
 import {
   areTypesCompatible,
   ArrayType,
+  EnumType,
+  isTypeHierarchyType,
+  SomeType,
   StructType,
   TupleType,
   Type,
   typeOfType,
+  TypeTag,
   typeToString,
 } from "./type-checker";
 import { TypeValue } from "./type-value";
@@ -60,6 +64,13 @@ export type StructValue = {
   members: Value[];
 };
 
+export type EnumValue = {
+  tag: ValueTag.Enum;
+  type: EnumType;
+  variantName: string;
+  members: Value[];
+};
+
 export type UnknownValue = {
   tag: ValueTag.Unknown;
   type: Type;
@@ -74,6 +85,7 @@ export type Value =
   | ArrayValue
   | TupleValue
   | StructValue
+  | EnumValue
   /*
   | {
       tag: TypeTag.Enum;
@@ -146,15 +158,15 @@ export function valueToString(value?: Value): string {
         })
         .join(", ")})`;
     }
-    /*
-    case TypeTag.Enum: {
-      if (value.elements.length === 0) {
+    case ValueTag.Enum: {
+      if (value.members.length === 0) {
         return `.${value.variantName}`;
       }
-      return `.${value.variantName}(${value.elements
+      return `.${value.variantName}(${value.members
         .map(valueToString)
         .join(", ")})`;
     }
+    /*
     case TypeTag.Union: {
       return `${value.variantName}(${valueToString(value.value)})`;
     }
@@ -198,10 +210,50 @@ export function createTypeValue(value: Type): TypeValue {
   };
 }
 
-export function createUnknownValue(type: Type): UnknownValue {
+let someTypeIdIndex = 0;
+export function createUnknownValue(
+  type: Type,
+  variableName?: string
+): UnknownValue | TypeValue {
+  if (isTypeHierarchyType(type) && type.level === 0 && variableName) {
+    // SomeType
+    const someType: SomeType = {
+      tag: TypeTag.SomeType,
+      typeId: `sometype_${someTypeIdIndex++}`,
+      name: variableName,
+      parentType: type,
+      size: undefined,
+    };
+    return createTypeValue(someType);
+  }
+
   return {
     tag: ValueTag.Unknown,
     type,
+  };
+}
+
+export function createStructValue(
+  type: StructType,
+  members: Value[]
+): StructValue {
+  return {
+    tag: ValueTag.Struct,
+    type,
+    members,
+  };
+}
+
+export function createEnumValue(
+  type: EnumType,
+  variantName: string,
+  members: Value[]
+): EnumValue {
+  return {
+    tag: ValueTag.Enum,
+    type,
+    variantName,
+    members,
   };
 }
 
@@ -271,7 +323,30 @@ export function areValuesEqual(
     }
     return true;
   } else if (value1.tag === ValueTag.Struct) {
-    if (value1.members.length !== (value2 as StructValue).members.length) {
+    if (
+      value1.members.length !== (value2 as StructValue).members.length ||
+      !areTypesCompatible(value1.type, value2.type, env)
+    ) {
+      return false;
+    }
+    for (let i = 0; i < value1.members.length; i++) {
+      if (
+        !areValuesEqual(
+          value1.members[i],
+          (value2 as StructValue).members[i],
+          env
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
+  } else if (value1.tag === ValueTag.Enum) {
+    if (
+      value1.members.length !== (value2 as EnumValue).members.length ||
+      !areTypesCompatible(value1.type, value2.type, env) ||
+      value1.variantName !== (value2 as EnumValue).variantName
+    ) {
       return false;
     }
     for (let i = 0; i < value1.members.length; i++) {

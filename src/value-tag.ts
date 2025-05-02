@@ -17,6 +17,7 @@ export enum ValueTag {
   Array = "Array",
   Tuple = "Tuple",
   Struct = "Struct",
+  Enum = "Enum",
   Function = "Function",
   Unknown = "Unknown",
 }

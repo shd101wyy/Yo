@@ -1,7 +1,6 @@
 // Compt value can be assigned to runtime variable,
 // but not the other way around.
 
-/*
 def compt_return(compt(T): Type, compt(value): T): compt(T),
   value
 ;
@@ -31,7 +30,7 @@ def test(compt(x): i32, y: i32): (), {
 
   ()
 };
-*/
+
 
 // Below should give error as `value` is supposed to be compt
 // def some_func(compt(T): Type, value: T): compt(T), value;

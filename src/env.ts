@@ -9,19 +9,11 @@ import {
   InterfaceType,
   isFunctionType,
   isInterfaceType,
-  isTypeHierarchyType,
-  SomeType,
   Type,
   TypeTag,
   typeToString,
 } from "./type-checker";
-import {
-  createTypeValue,
-  isFunctionValue,
-  isTypeValue,
-  Value,
-  valueToString,
-} from "./value";
+import { isFunctionValue, isTypeValue, Value, valueToString } from "./value";
 
 export type ReferedVariable = {
   frameLevel: number;
@@ -234,7 +226,7 @@ export function addVariableToEnv({
   return { env: newEnv, variable: newVariable };
 }
 
-let someIdIndex = 0;
+// let someIdIndex = 0;
 function addVariableToFrame({
   env,
   frame,
@@ -246,21 +238,20 @@ function addVariableToFrame({
   variable: Variable;
   preventDuplicate?: boolean;
 }): Frame {
+  /*
   // Check if the variable has type of SomeType
   if (isTypeHierarchyType(variable.type)) {
     if (variable.value || variable.type.level > 0) {
-      /*
-      throw formatErrorMessages({
-        modulePath: env.modulePath,
-        inputString: env.inputString,
-        tokenAndErrorList: [
-          {
-            token: variable.token,
-            errorMessage: `Failed to define variable "${variable.name}" for SomeType:`,
-          },
-        ],
-      });
-      */
+      // throw formatErrorMessages({
+      //   modulePath: env.modulePath,
+      //   inputString: env.inputString,
+      //   tokenAndErrorList: [
+      //     {
+      //       token: variable.token,
+      //       errorMessage: `Failed to define variable "${variable.name}" for SomeType:`,
+      //     },
+      //   ],
+      // });
     } else {
       const someType: SomeType = {
         tag: TypeTag.SomeType,
@@ -272,6 +263,7 @@ function addVariableToFrame({
       variable.value = createTypeValue(someType);
     }
   }
+  */
 
   // Check if there is already a value with the same variableName
   // but is uninitialized

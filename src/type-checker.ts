@@ -93,6 +93,8 @@ export interface Type {
    * The methods implemented for this type
    */
   methods?: TypeMethod[];
+
+  // NOTE: isCompileTimeOnly shouldn't be part of the Type interface.
 }
 
 export interface LiteralType extends Type {
