@@ -40,7 +40,6 @@ import {
   isFunctionType,
   isFunctionTypeAndIsTypeFunction,
   isInterfaceType,
-  isPlaceholderType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -808,7 +807,7 @@ Given type: ${typeToString(defaultValue.type)}`
     }
     // If both expr and type are already set, return them
     // No need to synthesize again
-    else if (expr.type && !isPlaceholderType(expr.type) && type) {
+    else if (expr.type && type) {
       return {
         expr,
         type: expr.type, // NOTE: Here we should return the type of expr, not `type`
@@ -3946,26 +3945,9 @@ ${exprToString(expr)}`
       } catch (error) {
         return false;
       }
-      let argType = evaluatedArgExpr.type;
+      const argType = evaluatedArgExpr.type;
       if (!argType) {
         return false; // If synthesis fails, the types are not compatible
-      }
-      if (isPlaceholderType(argType)) {
-        // Synthesize the type
-        try {
-          const { type: nextArgType, env: nextEnv } =
-            this.synthesizeExprAndType({
-              expr: argExpr,
-              type: paramElement.type,
-              env,
-              context,
-            });
-          env = nextEnv;
-          argType = nextArgType;
-          evaluatedArgExpr.type = nextArgType; // QUESTION: Will this cause problem?
-        } catch (e) {
-          return false; // If synthesis fails, the types are not compatible
-        }
       }
 
       // Pass a type to parameter
@@ -4092,26 +4074,9 @@ ${exprToString(expr)}`
       } catch (error) {
         return false;
       }
-      let argType = evaluatedArgExpr.type;
+      const argType = evaluatedArgExpr.type;
       if (!argType) {
         return false; // If synthesis fails, the types are not compatible
-      }
-      if (isPlaceholderType(argType)) {
-        // Synthesize the type
-        try {
-          const { type: nextArgType, env: nextEnv } =
-            this.synthesizeExprAndType({
-              expr: argExpr,
-              type: memberElement.type,
-              env,
-              context,
-            });
-          env = nextEnv;
-          argType = nextArgType;
-          evaluatedArgExpr.type = nextArgType; // QUESTION: Will this cause problem?
-        } catch (e) {
-          return false; // If synthesis fails, the types are not compatible
-        }
       }
 
       // Compare the types
