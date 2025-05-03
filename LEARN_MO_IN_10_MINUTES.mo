@@ -373,13 +373,15 @@ def Option(compt(T): Type): compt Type,
   T1(Maybe, T);
 
 // interface
-def Id(Self: Type): Interface,
+def Id(Self: Type): Type,
   interface
+    (Self: Type) = Self,
     id: ((Self)-> Self)
 ;
 
-def Stringer(Self: Type): Interface,
+def Stringer(Self: Type): Type,
   interface
+    (Self: Type) = Self,
     to_string: ((Self)-> String)
 ;
 
@@ -388,7 +390,7 @@ impl Id(i32),
   id:
     fn(self)-> self
 ;
-forall(compt(X): Type, compt(Y): Type) ->
+forall(compt(X): Type, compt(Y): Type) . // forall uses "." as separator.  
   (Stringer(X), Stringer(Y)) => // => operator is used to define type constraints
     impl Stringer((X, Y)),
       to_string :
@@ -427,7 +429,7 @@ def id(compt(T): Type, x: T):T, {
 id(i32, 12); // 12
 // e.g. with `forall`:
 id ::
-  forall(compt(T): Type)-> 
+  forall(compt(T): Type) .
     (fn(x: T): T) -> x
 ;
 // then you can call it without specifying the type:
@@ -535,7 +537,7 @@ use &!(x), x_ref -> {
 }
 
 // Iterator
-to_iter_mut :: (forall(compt(T): Type) ->
+to_iter_mut :: (forall(compt(T): Type) .
   (fn(arr: &!(Array(T))) -> {
     return Iter
       data: arr, // allow to assign reference in this case because it's the last expression
