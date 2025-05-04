@@ -4,8 +4,18 @@ extern
 ;
 
 // Should we support this?
-def return_self(x: any(T: Type)): T,
+/*
+def return_self(x: any(compt(T): Type)): T,
   x;
+def return_self(x: (compt(T): Type)): T,
+  x;
+def (forall(T: Type) . (return_self(x: T): T)),
+  x;
+*/
+
+def return_self(x: any(compt(T): Type)): T,
+  x
+;
 
 x := Id(12);
 y := Id(true);
@@ -17,13 +27,13 @@ def Add(compt(T): Type): compt(Type),
     (+):
       (Self, Self) -> Self
 ;
-def add_data(x: any(T: Type), y: T):
-    (Add(T)) => T,
+def add_data(x: any(compt(T): Type), y: T):
+  using(Add(T)) => T,
   x + y
 ;
 
 Point :: struct(x: i32, y: i32);
-impl Add(Point),
+Add(Point)
   (+):
     fn(p1: Point, p2: Point) ->
       Point(p1.x + p2.x, p1.y + p2.y)

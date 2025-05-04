@@ -1,16 +1,15 @@
-// (constraints) => type_expression
+// (constraints (that returns booleans)) => type_expression
 
 equals : 
-  forall(compt(T): Type) .
-    (Eq(T)) =>
-      (x: T, y: T) -> boolean;
+  (x: any(T: Type), y: T) -> 
+    (using(Eq(T))) => boolean;
 equals =
   fn(x, y) -> x == y;
 
 show_and_compare :
   forall(compt(T): Type) .
-    (Show(T), Eq(T)) =>
-      (x: T, y: T) -> String;
+    (x: T, y: T) -> 
+        (Show(T), Eq(T)) => String;
 show_and_compare =
   fn(x, y)->
     if (x == y),

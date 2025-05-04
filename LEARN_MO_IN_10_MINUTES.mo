@@ -369,37 +369,37 @@ def T1(F: ((compt Type) -> compt Type), A: compt Type): compt Type,
 ;
 // Assume we have the `Maybe` type,
 // then we can define `Option` like below
-def Option(compt(T): Type): compt Type, 
+def Option(compt(T): Type): compt(Type), 
   T1(Maybe, T);
 
 // interface
-def Id(Self: Type): Type,
+def Id(compt(Self): Type): compt(Type),
   interface
     (Self: Type) = Self,
     id: ((Self)-> Self)
 ;
 
-def Stringer(Self: Type): Type,
+def Stringer(compt(Self): Type): compt(Type),
   interface
     (Self: Type) = Self,
     to_string: ((Self)-> String)
 ;
 
-/// Implement the interface
-impl Id(i32),
+/// Implement the interface by calling the interface
+Id(i32)
   id:
     fn(self)-> self
 ;
-forall(compt(X): Type, compt(Y): Type) . // forall uses "." as separator.  
-  (Stringer(X), Stringer(Y)) => // => operator is used to define type constraints
-    impl Stringer((X, Y)),
-      to_string :
-        fn((x, y))->
-          "(" + 
-          x.to_string() + 
-          "," + 
-          y.to_string() + 
-          ")"
+
+Stringer((any(compt(T): Type), any(compt(U): Type)) <= // => or <= operator is used to define type constraints
+  using(Stringer(T), Stringer(U)))
+  to_string:
+    fn((x, y))->
+      "(" + 
+      x.to_string() + 
+      "," + 
+      y.to_string() + 
+      ")"
 ;
 
 /// method call
@@ -420,20 +420,22 @@ impl Cm,
 (x : Cm) = Cm(200);
 x.M(); // 2
 
-// `forall` can be used to define generics
-// e.g. without `forall` it also works:
+// `any` can be used to define generics
+// e.g. without `any` it also works:
 def id(compt(T): Type, x: T):T, {
   return x;
 };
 // but when you call it, you need to specify the type:
 id(i32, 12); // 12
-// e.g. with `forall`:
-id ::
-  forall(compt(T): Type) .
-    (fn(x: T): T) -> x
-;
+id(boolean, 12); // true
+// e.g. with `any`:
+def id(x: any(compt(T): Type)): T, {
+  return x;
+}
+
 // then you can call it without specifying the type:
-id(12); // 12
+id(12);   // 12
+id(true); // true
 
 // Module
 // Module is a block of expressions.
@@ -537,13 +539,11 @@ use &!(x), x_ref -> {
 }
 
 // Iterator
-to_iter_mut :: (forall(compt(T): Type) .
-  (fn(arr: &!(Array(T))) -> {
-    return Iter
-      data: arr, // allow to assign reference in this case because it's the last expression
-      index: 0
-    ;
-  }));
+def to_iter_mut(arr: &!(Array(any(compt(T): Type)))): Iter,
+  return Iter
+    data: arr, // allow to assign reference in this case because it's the last expression
+    index: 0
+;
 
 arr := ["Hello".to_string(), "world".to_string(), "!".to_string()];
 use arr.to_iter_mut(), iter-> {
