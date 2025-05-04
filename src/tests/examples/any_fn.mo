@@ -3,20 +3,23 @@ extern
     (x: i32, y: i32)-> i32
 ;
 
+def id_fun(compt(T): Type, x: T): T,
+  x;
+
 def id_func(x: any(compt(T): Type)): T,
   x
 ;
-
 x := id_func(12);
 x := id_func(true);
 
-/*
-def complex_func(x: (any(T: Type), any(Y: Type)), a: T, b: Y): (T, Y),
+// tuple
+def tuple_func(x: (any(compt(T): Type), any(compt(Y): Type)), a: T, b: Y): (T, Y),
   (a, b)
 ;
-x := complex_func((12, true), 1, false);
+x := tuple_func((12, true), 1, false);
 
 
+/*
 def Container(compt(T): Type): Type,
   struct(value: T)
 ;

@@ -33,6 +33,7 @@ import {
   EnumVariant,
   FunctionParameter,
   FunctionType,
+  getValueOfSomeTypeFromEnv,
   InterfaceMember,
   InterfaceType,
   isBooleanType,
@@ -604,6 +605,54 @@ Given type: ${typeToString(defaultValue.type)}`
       // Operator is not a valid variable name anymore.
       // It can only be used in the context of interface method declaration.
     );
+  }
+
+  /**
+   * Synthesize the types, such as
+   * compt(T): Type, i32  => T = i32
+   */
+  private synthesizeTypes(
+    expectedType: Type,
+    givenType: Type,
+    env: Environment
+  ): Environment {
+    if (isSomeType(expectedType)) {
+      // Check if the env has
+      const type = getValueOfSomeTypeFromEnv(env, expectedType);
+      if (!type || type === expectedType) {
+        // Update the env to set givenType to expectedType.name
+        const value = createTypeValue(givenType);
+        const { env: nextEnv } = addVariableToEnv({
+          env,
+          variable: {
+            name: expectedType.name,
+            value: value,
+            type: value.type,
+            token: null,
+            isMutable: false,
+            isCompileTimeOnly: true,
+            isNotInitialized: false,
+          },
+        });
+        env = nextEnv;
+      }
+    } else if (
+      isTupleType(expectedType) &&
+      isTupleType(givenType) &&
+      expectedType.elements.length === givenType.elements.length
+    ) {
+      for (let i = 0; i < expectedType.elements.length; i++) {
+        env = this.synthesizeTypes(
+          expectedType.elements[i].type,
+          givenType.elements[i].type,
+          env
+        );
+      }
+    }
+
+    // TODO: Support more cases
+
+    return env;
   }
 
   /**
@@ -3465,6 +3514,121 @@ compt(${exprToString(returnTypeExpr)})`
     return expr;
   }
 
+  /**
+   * Evaluate expression such as:
+   *
+   * def id_func(x: any(compt(T): Type)): T,
+   *   return x;
+   *
+   * "any" aims to create the SomeType.
+   */
+  private evaluateAny({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, "any", 1)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "any" with one argument, got:\n${exprToString(expr)}`
+      );
+    }
+
+    const colonExpr = expr.args[0];
+    if (
+      !exprIsFunctionCall(colonExpr) ||
+      !exprIsFunctionCallOf(colonExpr, ":", 2)
+    ) {
+      throw this.formatErrorMessage(
+        colonExpr.token,
+        `Expected ":" for "any" expression, got:\n${exprToString(colonExpr)}`
+      );
+    }
+
+    const comptExpr = colonExpr.args[0];
+    const typeExpr = colonExpr.args[1];
+    if (
+      !exprIsFunctionCall(comptExpr) ||
+      !exprIsFunctionCallOf(comptExpr, ["compt", "@"])
+    ) {
+      throw this.formatErrorMessage(
+        comptExpr.token,
+        `Expected "compt" (or "@") for "any" expression, got:\n${exprToString(
+          comptExpr
+        )}`
+      );
+    }
+
+    const labelExpr = comptExpr.args[0];
+    if (!exprIsAtom(labelExpr) || !this.isValidVariableName(labelExpr)) {
+      throw this.formatErrorMessage(
+        labelExpr.token,
+        `Expected identifier for "any" expression, got:\n${exprToString(
+          labelExpr
+        )}`
+      );
+    }
+    const label = labelExpr.token.value;
+    const evaluatedTypeExpr = this.evaluateExpression({
+      expr: typeExpr,
+      env,
+      context: {
+        ...context,
+        isEvaluatingExprAsType: true,
+      },
+    });
+    if (evaluatedTypeExpr.env) {
+      env = evaluatedTypeExpr.env;
+    }
+    const typeValue = evaluatedTypeExpr.value;
+    if (!isTypeValue(typeValue)) {
+      throw this.formatErrorMessage(
+        typeExpr.token,
+        `Expected type for "any" expression, got:\n${exprToString(typeExpr)}`
+      );
+    }
+    const type = typeValue.value;
+    if (!isTypeHierarchyType(type) || type.level !== 0) {
+      throw this.formatErrorMessage(
+        typeExpr.token,
+        `Expected "Type" (or "Free" or "Linear"), got:\n${exprToString(
+          typeExpr
+        )}`
+      );
+    }
+
+    const value = createUnknownValue(type, label);
+
+    // Add value to env
+    const { env: nextEnv } = addVariableToEnv({
+      env,
+      variable: {
+        name: label,
+        token: labelExpr.token,
+        type,
+        isMutable: false,
+        isCompileTimeOnly: true,
+        isNotInitialized: false, // Set as initialized
+        value,
+      },
+    });
+    env = nextEnv;
+
+    // Attach necessary informations
+    expr.value = value;
+    expr.type = value.type;
+    expr.env = env;
+
+    labelExpr.value = value;
+    labelExpr.type = value.type;
+    labelExpr.env = env;
+    return expr;
+  }
+
   private evaluateFunctionCall({
     expr,
     env,
@@ -3811,7 +3975,10 @@ ${functionsWithMatchingTypes
           );
         }
         if (memberValues.every((v) => !!v)) {
-          const structValue = createStructValue(structType, memberValues);
+          const structValue = createStructValue(
+            structType,
+            memberValues as Value[]
+          );
           expr.value = structValue;
         }
 
@@ -3852,7 +4019,7 @@ ${functionsWithMatchingTypes
           const enumValue = createEnumValue(
             enumType,
             selectedVariant.name,
-            memberValues
+            memberValues as Value[]
           );
           expr.value = enumValue;
         }
@@ -3986,8 +4153,15 @@ ${exprToString(expr)}`
         return false;
       }
 
+      console.log(
+        "compare: ",
+        typeToString(paramElement.type),
+        typeToString(argType)
+      );
       // Compare the types
-      else if (!areTypesCompatible(paramElement.type, argType, env)) {
+      const nextEnv = this.synthesizeTypes(paramElement.type, argType, env);
+      env = nextEnv;
+      if (!areTypesCompatible(paramElement.type, argType, env)) {
         return false;
       }
 
@@ -5207,6 +5381,9 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, ".")) {
         // property access
         return this.evaluatePropertyAccess({ expr, env, context });
+      } else if (exprIsFunctionCallOf(expr, "any")) {
+        // any
+        return this.evaluateAny({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, "def")) {
         // def
         return this.evaluateDefExpression({ expr, env, context });
