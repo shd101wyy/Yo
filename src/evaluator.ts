@@ -42,6 +42,7 @@ import {
   isFunctionType,
   isFunctionTypeAndIsTypeFunction,
   isInterfaceType,
+  isPrimitiveType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -615,7 +616,8 @@ Given type: ${typeToString(defaultValue.type)}`
   private synthesizeTypes(
     expectedType: Type,
     givenType: Type,
-    env: Environment
+    env: Environment,
+    token: Token
   ): Environment {
     if (isSomeType(expectedType)) {
       // Check if the env has
@@ -629,7 +631,7 @@ Given type: ${typeToString(defaultValue.type)}`
             name: expectedType.name,
             value: value,
             type: value.type,
-            token: null,
+            token: token, // FIXME: What should be `token` here?
             isMutable: false,
             isCompileTimeOnly: true,
             isNotInitialized: false,
@@ -646,7 +648,8 @@ Given type: ${typeToString(defaultValue.type)}`
         env = this.synthesizeTypes(
           expectedType.elements[i].type,
           givenType.elements[i].type,
-          env
+          env,
+          expectedType.elements[i].expr.token
         );
       }
     }
@@ -3437,8 +3440,8 @@ compt(${exprToString(returnTypeExpr)})`
             (method) => method.label === label
           );
           if (method) {
-            expr.value = method.value;
-            expr.type = method.type;
+            expr.value = undefined; // NOTE: Set it to `undefined` so the `evaluateFunctionCall` will handle this.
+            expr.type = undefined; // NOTE: Set it to `undefined` so the `evaluateFunctionCall` will handle this.
             propertyExpr.value = method.value;
             propertyExpr.type = method.type;
             return expr;
@@ -4119,13 +4122,13 @@ ${exprToString(expr)}`
         return false;
       }
 
-      console.log(
-        "compare: ",
-        typeToString(paramElement.type),
-        typeToString(argType)
-      );
       // Compare the types
-      const nextEnv = this.synthesizeTypes(paramElement.type, argType, env);
+      const nextEnv = this.synthesizeTypes(
+        paramElement.type,
+        argType,
+        env,
+        paramElement.expr.token
+      );
       env = nextEnv;
       if (!areTypesCompatible(paramElement.type, argType, env)) {
         return false;
@@ -4729,6 +4732,14 @@ Expected: ${typeToString(functionType)}`
       }
       const methodName = methodExpr.token.value;
 
+      // Disallow to define type method for primitive and tuple types
+      if (isPrimitiveType(type) || isTupleType(type)) {
+        throw this.formatErrorMessage(
+          typeExpr.token,
+          `Cannot define type method for primitive and tuple types`
+        );
+      }
+
       // Check if the method already exists
       const existingMethods = type.methods ?? [];
       if (existingMethods.find((m) => m.label === methodName)) {
@@ -5137,116 +5148,6 @@ Expected: ${typeToString(functionType)}`
     return expr;
   }
 
-  private evaluateImplTypeMethods({
-    type,
-    argExprs,
-    env,
-    context,
-  }: {
-    type: Type;
-    argExprs: Expr[];
-    env: Environment;
-    context: EvaluatorContext;
-  }): Environment {
-    for (let i = 0; i < argExprs.length; i++) {
-      const argExpr = argExprs[i];
-      if (
-        !exprIsFunctionCall(argExpr) ||
-        !exprIsFunctionCallOf(argExpr, ":", 2)
-      ) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Expected ":", got:\n${exprToString(argExpr)}`
-        );
-      }
-      const lhsExpr = argExpr.args[0];
-      const rhsExpr = argExpr.args[1];
-
-      // Get the label of member
-      if (
-        !exprIsAtom(lhsExpr) ||
-        !(
-          (
-            lhsExpr.token.type === TokenType.Identifier ||
-            lhsExpr.token.type === TokenType.Operator
-          ) // We allow to define operator as interface member
-        )
-      ) {
-        throw this.formatErrorMessage(
-          lhsExpr.token,
-          `Expected identifier for type method name, got:\n${exprToString(
-            lhsExpr
-          )}`
-        );
-      }
-      const label = lhsExpr.token.value;
-
-      // Evaluate the member type
-      const evaluatedMemberValueExpr = this.evaluateExpression({
-        expr: rhsExpr,
-        env,
-        context: { ...context, isEvaluatingExprAsType: false },
-      });
-      if (evaluatedMemberValueExpr.env) {
-        env = evaluatedMemberValueExpr.env;
-      }
-
-      const functionType = evaluatedMemberValueExpr.type;
-      const functionValue = evaluatedMemberValueExpr.value;
-      if (!isFunctionType(functionType) || !isFunctionValue(functionValue)) {
-        throw this.formatErrorMessage(
-          rhsExpr.token,
-          `Expected function for type method, got:\n${exprToString(rhsExpr)}`
-        );
-      }
-
-      const existingMethods = type.methods ?? [];
-      // Check if the method already exists
-      if (existingMethods.find((m) => m.label === label)) {
-        throw this.formatErrorMessage(
-          lhsExpr.token,
-          `Duplicate label "${label}" in type method`
-        );
-      }
-      if (isStructType(type)) {
-        // Check if the method name conflicts with the struct members
-        if (type.members.find((m) => m.label === label)) {
-          throw this.formatErrorMessage(
-            lhsExpr.token,
-            `Duplicate label "${label}" in struct member`
-          );
-        }
-      } else if (isTupleType(type)) {
-        // Check if the method name conflicts with the tuple elements
-        if (type.elements.find((m) => m.label === label)) {
-          throw this.formatErrorMessage(
-            lhsExpr.token,
-            `Duplicate label "${label}" in tuple elements`
-          );
-        }
-      } else if (isEnumType(type)) {
-        // Check if the method name conflicts with the enum variants
-        if (type.variants.find((m) => m.name === label)) {
-          throw this.formatErrorMessage(
-            lhsExpr.token,
-            `Enum variant already has the name "${label}"`
-          );
-        }
-      }
-
-      // Add the method to the type
-      type.methods = existingMethods.concat({
-        label,
-        type: functionType,
-        value: functionValue,
-      });
-      // Add type info the lhsExpr;
-      lhsExpr.type = functionType;
-      lhsExpr.value = functionValue;
-    }
-    return env;
-  }
-
   private evaluateImpl({
     expr,
     env,
@@ -5325,30 +5226,6 @@ Expected: ${typeToString(functionType)}`
     }
     // Implement the type (struct/enum/etc)
     else {
-      const type = typeValue.value;
-
-      // We disallow to implement the methods for function type for now
-      if (isFunctionType(type)) {
-        throw this.formatErrorMessage(
-          typeExpr.token,
-          `Cannot implement methods for function type, got:\n${exprToString(
-            typeExpr
-          )}`
-        );
-      }
-
-      // Evaluate the type methods
-      const nextEnv = this.evaluateImplTypeMethods({
-        type,
-        argExprs: implMemberExprs,
-        env,
-        context: { ...context },
-      });
-      env = nextEnv;
-
-      expr.env = env;
-      expr.value = VUnit;
-      expr.type = VUnit.type;
       return expr;
     }
   }

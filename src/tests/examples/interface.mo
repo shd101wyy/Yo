@@ -13,8 +13,8 @@ MyAdd :: interface // (MyAdd : Type)
   new_self2: ((boolean)-> Self);
 ;
 
+/*
 // receiver :: MyAdd.Self; // unknown
-
 // Each interface can only be implemented once.
 impl MyAdd,
   Self: i32,
@@ -66,6 +66,7 @@ x := Id(i32).id(1);
 x := IdI32.id(2);
 x := (13).id();
 x := (13).(Id(i32).id)();
+*/
 
 
 /*

@@ -78,7 +78,7 @@ export interface Variable {
   /**
    * At which token the variable is defined.
    */
-  token: Token | null;
+  token: Token;
 }
 
 export type Frame = {

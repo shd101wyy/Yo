@@ -14,7 +14,7 @@ x := (a.x `add` b.x);
 y := (a.y `add` b.y);
 // c := Point(x, y);
 c := Point (a.x `add` b.x), b.y;
-// c := (a + b);  
+// c := (a + b);
 
 def Point.(+) :
   (a: Point, b: Point)-> Point,
@@ -45,3 +45,4 @@ c := (a + b);
 a := Point.new();
 b := Point.create(3, 4);
 c := Point.add(a, b);
+d := a.add(b);
