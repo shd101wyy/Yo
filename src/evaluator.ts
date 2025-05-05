@@ -4677,25 +4677,123 @@ Expected: ${typeToString(functionType)}`
         )}`
       );
     }
-    const functionNameExpr = functionDefinitionExpr.args[0];
-    const functionTypeExpr = functionDefinitionExpr.args[1];
-    // TODO: Support type method such as
-    // def Point.add:
-    //   (self: Point, other: Point)-> Point
 
-    // Get the function name
+    let functionName: string;
+    let functionNameExpr = functionDefinitionExpr.args[0];
+    const functionTypeExpr = functionDefinitionExpr.args[1];
+    let typeMethodInfo: { type: Type; methodName: string } | undefined =
+      undefined;
+
+    // Check if it's a type method, such as:
+    //
+    // def Point.add:
+    //   (self: Point, other: Point)-> Point,
+    //   ...
     if (
-      !exprIsAtom(functionNameExpr) &&
-      !this.isValidVariableName(functionNameExpr)
+      exprIsFunctionCall(functionNameExpr) &&
+      exprIsFunctionCallOf(functionNameExpr, ".", 2)
     ) {
-      throw this.formatErrorMessage(
-        functionNameExpr.token,
-        `Expected identifier for function name, got:\n${exprToString(
-          functionNameExpr
-        )}`
-      );
+      const typeExpr = functionNameExpr.args[0];
+      const methodExpr = functionNameExpr.args[1];
+      functionNameExpr = methodExpr;
+
+      // Evaluate the typeExpr;
+      const evaluatedTypeExpr = this.evaluateExpression({
+        expr: typeExpr,
+        env,
+        context: { ...context },
+      });
+      const evaluatedTypeValue = evaluatedTypeExpr.value;
+      if (!isTypeValue(evaluatedTypeValue)) {
+        throw this.formatErrorMessage(
+          typeExpr.token,
+          `Expected type, got:\n${exprToString(typeExpr)}`
+        );
+      }
+      const type = evaluatedTypeValue.value;
+
+      // Get the method name
+      if (
+        !exprIsAtom(methodExpr) ||
+        !(
+          methodExpr.token.type === TokenType.Identifier ||
+          methodExpr.token.type === TokenType.Operator
+        )
+      ) {
+        throw this.formatErrorMessage(
+          methodExpr.token,
+          `Expected identifier or operator for type method name, got:\n${exprToString(
+            methodExpr
+          )}`
+        );
+      }
+      const methodName = methodExpr.token.value;
+
+      // Check if the method already exists
+      const existingMethods = type.methods ?? [];
+      if (existingMethods.find((m) => m.label === methodName)) {
+        throw this.formatErrorMessage(
+          methodExpr.token,
+          `Duplicate label "${methodName}" in type method`
+        );
+      }
+      if (isStructType(type)) {
+        // Check if the method name conflicts with the struct members
+        if (type.members.find((m) => m.label === methodName)) {
+          throw this.formatErrorMessage(
+            methodExpr.token,
+            `Duplicate label "${methodName}" in struct member`
+          );
+        }
+      } else if (isTupleType(type)) {
+        // Check if the method name conflicts with the tuple elements
+        if (type.elements.find((m) => m.label === methodName)) {
+          throw this.formatErrorMessage(
+            methodExpr.token,
+            `Duplicate label "${methodName}" in tuple elements`
+          );
+        }
+      } else if (isEnumType(type)) {
+        // Check if the method name conflicts with the enum variants
+        if (type.variants.find((m) => m.name === methodName)) {
+          throw this.formatErrorMessage(
+            methodExpr.token,
+            `Enum variant already has the name "${methodName}"`
+          );
+        }
+      }
+
+      /*
+      // Add the method to the type
+      type.methods = existingMethods.concat({
+        label: methodName,
+        type: functionType,
+        value: functionValue,
+      });
+      */
+
+      typeMethodInfo = {
+        type,
+        methodName,
+      };
+      functionName = methodName;
     }
-    const functionName = functionNameExpr.token.value;
+    // It's not the type method, but the normal function
+    else {
+      // Get the function name
+      if (
+        !exprIsAtom(functionNameExpr) &&
+        !this.isValidVariableName(functionNameExpr)
+      ) {
+        throw this.formatErrorMessage(
+          functionNameExpr.token,
+          `Expected identifier for function name, got:\n${exprToString(
+            functionNameExpr
+          )}`
+        );
+      }
+      functionName = functionNameExpr.token.value;
+    }
 
     // Evaluate the function type
     const evaluatedFunctionTypeExpr = this.evaluateExpression({
@@ -4717,7 +4815,6 @@ Expected: ${typeToString(functionType)}`
         `Expected function type, got:\n${exprToString(functionTypeExpr)}`
       );
     }
-
     if (evaluatedFunctionTypeExpr.env) {
       env = evaluatedFunctionTypeExpr.env;
     }
@@ -4746,7 +4843,7 @@ Expected: ${typeToString(functionType)}`
       }
     }
 
-    /// Add function with name to env;
+    // Create the function value
     const functionValue: FunctionValue = {
       tag: ValueTag.Function,
       type: functionType,
@@ -4756,19 +4853,35 @@ Expected: ${typeToString(functionType)}`
       funcId: `fn_${randomId()}`,
       calledTypeFunctionCaches: [],
     };
-    const { env: nextNextEnv } = addVariableToEnv({
-      env,
-      variable: {
-        name: functionName,
-        token: functionNameExpr.token,
+
+    // It's a type method
+    if (typeMethodInfo) {
+      // Add the method to the type
+      const existingMethods = typeMethodInfo.type.methods ?? [];
+      const methodName = typeMethodInfo.methodName;
+      typeMethodInfo.type.methods = existingMethods.concat({
+        label: methodName,
         type: functionType,
-        isMutable: false,
-        isNotInitialized: false,
         value: functionValue,
-      },
-      deltaFrame: -1,
-    });
-    env = nextNextEnv;
+      });
+    }
+    // It's a normal method
+    else {
+      /// Add function with name to env;
+      const { env: nextNextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name: functionName,
+          token: functionNameExpr.token,
+          type: functionType,
+          isMutable: false,
+          isNotInitialized: false,
+          value: functionValue,
+        },
+        deltaFrame: -1,
+      });
+      env = nextNextEnv;
+    }
 
     // Attach some information
     functionNameExpr.type = functionType;
