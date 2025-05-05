@@ -7,8 +7,10 @@ def id_fun:
   (compt(T): Type, x: T)-> T,
   x;
 
-x := id_func(i32, 12);
-x := id_func(boolean, true);
+
+x := id_fun(i32, 12);
+x := id_fun(boolean, true);
+
 
 /*
 def id_func(x: any(compt(T): Type)): T,

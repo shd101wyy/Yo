@@ -72,6 +72,14 @@ export enum BuiltinCollections {
   Begin = "begin",
 }
 
+export const BuiltinKeywords = {
+  Compt: ["compt", "@"],
+  Forall: ["forall", "∀"],
+  Implicit: ["implicit", "?"],
+  Quote: ["quote", ":"],
+  Unquote: ["unquote", "$"],
+};
+
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
   return !!(
     expr.tag === "FuncCall" &&
