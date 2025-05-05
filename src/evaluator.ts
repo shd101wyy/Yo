@@ -106,6 +106,12 @@ interface EvaluatorContext {
    * This is used for calling the `recur` function.
    */
   isEvaluatingFunctionBodyOfType?: FunctionType;
+
+  /**
+   * The innermost interface, struct, enum, or union that this function call is inside.
+   * This can be useful for an anonymous struct that needs to refer to itself
+   */
+  SelfType?: Type;
 }
 
 /**
@@ -2294,7 +2300,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
 
   private evaluateIdentifier({
     expr,
-    env, // context,
+    env,
+    context,
   }: {
     expr: AtomExpr;
     env: Environment;
@@ -2474,6 +2481,46 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         value: TF64,
       };
       expr.type = typeOfType(TF64);
+      expr.env = env;
+      return expr;
+    }
+    // Self
+    else if (identifier === "Self") {
+      if (!context.SelfType) {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Expected to use "Self" in the interface/struct/enum/union context.`
+        );
+      }
+      expr.value = createTypeValue(context.SelfType);
+      expr.type = expr.value.type;
+      expr.env = env;
+      return expr;
+    }
+    // This
+    // refers to Self.This in the interface context
+    else if (identifier === "This") {
+      if (!context.SelfType || !isInterfaceType(context.SelfType)) {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Expected to use "This" in the interface context.`
+        );
+      }
+
+      const interfaceType = context.SelfType;
+      const ThisType = interfaceType.members.find(
+        (member) => member.label === "This"
+      );
+      if (!ThisType) {
+        throw this.formatErrorMessage(
+          expr.token,
+          `"This" type not found in the interface.`
+        );
+      }
+
+      expr.value =
+        ThisType.value ?? createUnknownValue(ThisType.type, ThisType.label);
+      expr.type = expr.value.type;
       expr.env = env;
       return expr;
     }
@@ -2971,6 +3018,7 @@ compt(${exprToString(returnTypeExpr)})`
         isCompileTimeOnly: isReturnTypeCompileTimeOnly,
       },
       env: popEnvFrame(env),
+      SelfType: context.SelfType,
     });
 
     // Pop the environment frame
@@ -3789,17 +3837,37 @@ compt(${exprToString(returnTypeExpr)})`
       }
     }
 
+    // Check if it's calling an interface.
+    // Calling an interface means to implement the interface.
+    if (
+      functions.length === 1 &&
+      isTypeValue(functions[0].value) &&
+      isInterfaceType(functions[0].value.value)
+    ) {
+      const interfaceType = functions[0].value.value;
+      this.tryToImplementInterfaceWithArguments({
+        interfaceExpr: func,
+        interfaceType: interfaceType,
+        argExprs: args,
+        env,
+        context,
+      });
+      expr.value = VUnit;
+      expr.type = TUnit;
+      return expr;
+    }
+
     // Find the functions whose parameters match the arguments
-    const functionsWithMatchingTypes = functions.filter((func) => {
-      if (isFunctionType(func.type)) {
+    const functionsWithMatchingTypes = functions.filter((functionToCall) => {
+      if (isFunctionType(functionToCall.type)) {
         return this.tryToCallFunctionWithArguments({
-          functionType: func.type,
+          functionType: functionToCall.type,
           argExprs: args,
           env,
           context,
         });
       } else {
-        const value = func.value;
+        const value = functionToCall.value;
         // struct value
         if (isTypeValue(value) && isStructType(value.value)) {
           return this.tryToCallTypeWithArguments({
@@ -3875,7 +3943,9 @@ ${functionsWithMatchingTypes
             functionValue,
             argExprs: args,
             env,
-            context,
+            context: {
+              ...context,
+            },
           });
         env = nextEnv;
         expr.value = returnValue;
@@ -3894,7 +3964,10 @@ ${functionsWithMatchingTypes
             functionType,
             argExprs: args,
             env,
-            context,
+            context: {
+              ...context,
+              SelfType: functionType.SelfType,
+            },
           });
         env = nextEnv;
         expr.type = returnType;
@@ -3927,7 +4000,9 @@ ${functionsWithMatchingTypes
           memberElements: value.value.members,
           argExprs: args,
           env,
-          context,
+          context: {
+            ...context,
+          },
         });
         if (!memberValues) {
           throw this.formatErrorMessage(
@@ -4259,7 +4334,7 @@ ${exprToString(expr)}`
     argExprs: Expr[];
     env: Environment;
     context: EvaluatorContext;
-  }): Environment {
+  }): void {
     if (argExprs.length > interfaceType.members.length) {
       throw this.formatErrorMessage(
         interfaceExpr.token,
@@ -4267,7 +4342,6 @@ ${exprToString(expr)}`
       );
     }
 
-    env = pushEnvFrame(env);
     const checkedInterfaceMembers: Set<InterfaceMember> = new Set();
     for (let i = 0; i < interfaceType.members.length; i++) {
       let interfaceMember = interfaceType.members[i];
@@ -4328,18 +4402,15 @@ ${interfaceMember.label}: ${typeToString(interfaceMember.type)}`
         );
       }
 
-      // evaluate the interface type again with the new frame containing the arg
-      const interfaceMemberEnv = pushEnvFrame(
-        interfaceType.env,
-        env.frames[env.frames.length - 1]
-      );
+      // evaluate the interface member type again.
       const evaluatedInterfaceMember = this.evaluateExpression({
         expr: interfaceMember.typeExpr,
-        env: interfaceMemberEnv,
+        env: interfaceType.env, // env,
         context: {
           ...context,
           isEvaluatingExprAsType: true,
           expectedType: undefined,
+          SelfType: interfaceType,
         },
       });
       const evaluatedInterfaceMemberTypeValue = evaluatedInterfaceMember.value;
@@ -4370,6 +4441,7 @@ ${interfaceMember.label}: ${typeToString(interfaceMember.type)}`
             ...context,
             isEvaluatingExprAsType: false,
             expectedType: interfaceMemberType,
+            SelfType: interfaceType,
           },
         });
       } catch (error) {
@@ -4392,27 +4464,13 @@ ${interfaceMember.label}: ${typeToString(interfaceMember.type)}`
         env = evaluatedArgExpr.env;
       }
 
-      // Add the arg to the environment
-      const argValue = evaluatedArgExpr.value;
-      const { env: nextEnv } = addVariableToEnv({
-        env,
-        variable: {
-          name: interfaceMember.label,
-          type: argType,
-          isMutable: false,
-          isCompileTimeOnly: true,
-          token: argExpr.token,
-          isNotInitialized: false,
-          value: argValue,
-        },
-      });
-      env = nextEnv;
-
       // Compare the types
       if (!areTypesCompatible(interfaceMemberType, argType, env)) {
         throw this.formatErrorMessage(
           argExpr.token,
-          `(4) Failed to evaluate the interface member "${label}"`
+          `Type mismatches for the interface member "${label}":
+Expected: ${typeToString(interfaceMemberType)}
+Got: ${typeToString(argType)}`
         );
       }
 
@@ -4434,8 +4492,6 @@ ${interfaceMember.label}: ${typeToString(interfaceMember.type)}`
 
     // Set the interface as implemented
     interfaceType.isImplemented = true;
-
-    return popEnvFrame(env);
   }
 
   private evaluateTypeFunctionCall({
@@ -4998,22 +5054,28 @@ Expected: ${typeToString(functionType)}`
     return expr;
   }
 
-  /**
-   * NOTE: Calling this function will increase the env frame.
-   */
-  private evaluateInterfaceMembers({
-    memberExprs,
+  private evaluateInterface({
+    expr,
     env,
     context,
   }: {
-    memberExprs: Expr[];
+    expr: FuncCallExpr;
     env: Environment;
     context: EvaluatorContext;
-  }): { members: InterfaceMember[]; env: Environment } {
-    env = pushEnvFrame(env);
-    const members: InterfaceMember[] = [];
-    for (let i = 0; i < memberExprs.length; i++) {
-      const memberExpr = memberExprs[i];
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, "interface")) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "interface", got:\n${exprToString(expr)}`
+      );
+    }
+
+    const interfaceMemberExprs = expr.args;
+    // Evaluate the interface members
+    // NOTE: We shouldn't add env frame here.
+    const interfaceType = createInterfaceType([], env);
+    for (let i = 0; i < interfaceMemberExprs.length; i++) {
+      const memberExpr = interfaceMemberExprs[i];
       if (
         !exprIsFunctionCall(memberExpr) ||
         !exprIsFunctionCallOf(memberExpr, ":", 2)
@@ -5045,15 +5107,28 @@ Expected: ${typeToString(functionType)}`
       }
       const label = lhsExpr.token.value;
 
+      if (label === "Self") {
+        // Self is a reserved keyword
+        throw this.formatErrorMessage(
+          lhsExpr.token,
+          `Cannot use "Self" as interface member name`
+        );
+      }
+
       // Evaluate the member type
       const evaluatedMemberTypeExpr = this.evaluateExpression({
         expr: rhsExpr,
         env,
-        context: { ...context, isEvaluatingExprAsType: true },
+        context: {
+          ...context,
+          isEvaluatingExprAsType: true,
+          SelfType: interfaceType,
+        },
       });
       if (evaluatedMemberTypeExpr.env) {
         env = evaluatedMemberTypeExpr.env;
       }
+
       // Expect the member type to be a type
       const typeValue = evaluatedMemberTypeExpr.value;
       if (!isTypeValue(typeValue)) {
@@ -5062,6 +5137,7 @@ Expected: ${typeToString(functionType)}`
           `Expected type for interface member, got:\n${exprToString(rhsExpr)}`
         );
       }
+
       // We only accept hierarchy type or function type.
       const memberType = typeValue.value;
       if (!isTypeHierarchyType(memberType) && !isFunctionType(memberType)) {
@@ -5072,162 +5148,34 @@ Expected: ${typeToString(functionType)}`
           )}`
         );
       }
+
       // Check if the label already exists
+      const members = interfaceType.members;
       if (members.find((m) => m.label === label)) {
         throw this.formatErrorMessage(
           lhsExpr.token,
           `Duplicate label "${label}" in interface member`
         );
       }
-      // Add the member to the members list
-      members.push({
-        label,
-        type: memberType,
-        value: undefined,
-        typeExpr: evaluatedMemberTypeExpr,
-      });
 
       // Add type info the lhsExpr;
       lhsExpr.type = memberType;
 
-      // Add the member to the env
-      const { env: nextEnv } = addVariableToEnv({
-        env,
-        variable: {
-          name: label,
-          token: lhsExpr.token,
-          type: memberType,
-          isMutable: false,
-          isNotInitialized: false,
-          value: undefined,
-        },
+      // Add the member to the interfaceType
+      interfaceType.members.push({
+        label,
+        type: memberType,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        value: createUnknownValue(memberType, label) as any, //  undefined, // TODO: Support the default value
+        typeExpr: evaluatedMemberTypeExpr,
       });
-      env = nextEnv;
     }
-    return {
-      members,
-      env,
-    };
-  }
-
-  private evaluateInterface({
-    expr,
-    env,
-    context,
-  }: {
-    expr: FuncCallExpr;
-    env: Environment;
-    context: EvaluatorContext;
-  }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, "interface")) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "interface", got:\n${exprToString(expr)}`
-      );
-    }
-
-    const interfaceMemberExprs = expr.args;
-    // Evaluate the interface members
-    const { members, env: nextEnv } = this.evaluateInterfaceMembers({
-      memberExprs: interfaceMemberExprs,
-      env,
-      context: { ...context, isEvaluatingExprAsType: true },
-    });
-    env = nextEnv;
-
-    // Create the interface type
-    const interfaceType = createInterfaceType(members, popEnvFrame(env));
-
-    // Pop the environment frame
-    env = popEnvFrame(env);
 
     // Set the interface type and value
     expr.type = typeOfType(interfaceType);
     expr.value = createTypeValue(interfaceType);
     expr.env = env;
     return expr;
-  }
-
-  private evaluateImpl({
-    expr,
-    env,
-    context,
-  }: {
-    expr: FuncCallExpr;
-    env: Environment;
-    context: EvaluatorContext;
-  }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, "impl")) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "impl", got:\n${exprToString(expr)}`
-      );
-    }
-    if (env.frames.length !== 1) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "impl" to be called in the top level.`
-      );
-    }
-
-    const typeExpr = expr.args[0];
-    const implMemberExprs = expr.args.slice(1);
-
-    if (!typeExpr) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected interface to implement, got:\n${exprToString(expr)}`
-      );
-    }
-
-    // Evaluate the typeExpr
-    const evaluatedTypeExpr = this.evaluateExpression({
-      expr: typeExpr,
-      env,
-      context: { ...context, isEvaluatingExprAsType: true },
-    });
-    if (evaluatedTypeExpr.env) {
-      env = evaluatedTypeExpr.env;
-    }
-
-    const typeValue = evaluatedTypeExpr.value;
-    if (!isTypeValue(typeValue)) {
-      throw this.formatErrorMessage(
-        typeExpr.token,
-        `Expected type (or interface), got:\n${exprToString(typeExpr)}`
-      );
-    }
-
-    // Implement the interface
-    if (isInterfaceType(typeValue.value)) {
-      const interfaceType = typeValue.value;
-      if (interfaceType.isImplemented) {
-        throw this.formatErrorMessage(
-          typeExpr.token,
-          `Interface is already implemented, got:\n${exprToString(typeExpr)}`
-        );
-      }
-
-      // Evaluate the interface members
-      // This should like a function call
-      const nextEnv = this.tryToImplementInterfaceWithArguments({
-        interfaceExpr: evaluatedTypeExpr,
-        interfaceType: interfaceType,
-        argExprs: implMemberExprs,
-        env,
-        context: { ...context },
-      });
-      env = nextEnv;
-
-      expr.env = env;
-      expr.value = VUnit;
-      expr.type = VUnit.type;
-      return expr;
-    }
-    // Implement the type (struct/enum/etc)
-    else {
-      return expr;
-    }
   }
 
   private evaluateExpression({
@@ -5340,9 +5288,6 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, "interface")) {
         // interface
         return this.evaluateInterface({ expr, env, context });
-      } else if (exprIsFunctionCallOf(expr, "impl")) {
-        // impl
-        return this.evaluateImpl({ expr, env, context });
       } else {
         /* else if (exprIsFunctionCallOf(expr, ".", 1)) {
         // variant

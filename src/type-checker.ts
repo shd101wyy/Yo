@@ -445,6 +445,10 @@ export interface FunctionType extends Type {
    * The env is also useful to show the frame level at which the function is defined.
    */
   env: Environment;
+  /**
+   * Under which interface/struct/enum/union this function is defined.
+   */
+  SelfType?: Type;
 }
 
 export interface InterfaceMember {
@@ -514,9 +518,9 @@ export interface InterfaceType extends Type {
   isImplemented: boolean;
 
   /**
-   * The env when the function type is created.
+   * The env when the interface type is created.
    * The env shouldn't contain the frame that have the parameters.
-   * The env is also useful to show the frame level at which the function is defined.
+   * The env is also useful to show the frame level at which the interface is defined.
    */
   env: Environment;
 }
@@ -646,10 +650,12 @@ export function createFunctionType({
   params,
   return_,
   env,
+  SelfType,
 }: {
   params: FunctionParameter[];
   return_: FunctionReturn;
   env: Environment;
+  SelfType?: Type;
 }): FunctionType {
   return {
     tag: TypeTag.Function,
@@ -657,6 +663,7 @@ export function createFunctionType({
     params: params, // Wrap params in a TupleType
     return: return_,
     env,
+    SelfType,
   };
 }
 
@@ -678,13 +685,13 @@ export function createInterfaceType(
 export function getInterfaceReceiverType(
   interfaceType: InterfaceType
 ): Type | null {
-  const selfType = interfaceType.members.find(
-    (member) => member.label === "Self"
+  const receiverType = interfaceType.members.find(
+    (member) => member.label === "This"
   );
-  if (!selfType || !selfType.value) {
+  if (!receiverType || !receiverType.value) {
     return null;
   }
-  const typeValue = selfType.value;
+  const typeValue = receiverType.value;
   if (!isTypeValue(typeValue)) {
     return null;
   }
