@@ -13,7 +13,10 @@ def (forall(T: Type) . (return_self(x: T): T)),
   x;
 */
 
-def return_self(x: any(compt(T): Type)): T,
+/*
+def return_self:
+  forall(compt(T): Type) .
+    (x: T)-> T,
   x
 ;
 
@@ -42,3 +45,4 @@ Add(Point)
 p1 :: Point(1, 2);
 p2 :: Point(3, 4);
 p3 := add_data(p1, p2);
+*/

@@ -4057,10 +4057,11 @@ ${exprToString(expr)}`
     const checkedFunctionParameters: Set<FunctionParameter> = new Set();
     for (let i = 0; i < functionType.params.length; i++) {
       let paramElement = functionType.params[i];
-      let argExpr = argExprs[i];
+      const argExpr = argExprs[i];
       if (!argExpr) {
         return false;
       }
+      // NOTE: We disallow to have default values for function parameters
 
       // Check if it's a label
       let label: string | undefined;
@@ -4068,6 +4069,12 @@ ${exprToString(expr)}`
         exprIsFunctionCall(argExpr) &&
         exprIsFunctionCallOf(argExpr, ":", 2)
       ) {
+        // NOTE: We disallow to have named arguments
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Named arguments are not supported.`
+        );
+        /*
         const labelExpr = argExpr.args[0];
         argExpr = argExpr.args[1];
 
@@ -4078,6 +4085,7 @@ ${exprToString(expr)}`
           );
         }
         label = labelExpr.token.value;
+        */
       }
 
       if (label) {

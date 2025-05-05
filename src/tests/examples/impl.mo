@@ -7,9 +7,9 @@ def Stringer(compt(Self): Type): compt(Type),
 
 // Implement the Stringer interface
 // for generic tuples.  
-Stringer(forall(compt(X): Type, compt(Y): Type) .
+forall(compt(X): Type, compt(Y): Type) .
   using(Stringer(X), Stringer(Y)) =>
-    (X, Y))
+    Stringer((X, Y))
   to_string:
     fn((x, y))->
       "(" + 
@@ -19,9 +19,9 @@ Stringer(forall(compt(X): Type, compt(Y): Type) .
       ")"
 ;
 
-// Introduce the <= operator
-Stringer((any(compt(T): Type), any(compt(U): Type)) <=
-  using(Stringer(T), Stringer(U)))
+// Introduce the =< operator
+Stringer((any(compt(T): Type), any(compt(U): Type))) =<
+  using(Stringer(T), Stringer(U))
   to_string:
     fn((x, y))->
       "(" + 
