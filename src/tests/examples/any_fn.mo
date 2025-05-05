@@ -4,13 +4,11 @@ extern
 ;
 
 // Explicitly define Type as function parameter. 
-/*
 def id_fun :
   (compt(T): Type, x: T)-> T,
   x;
 x := id_fun(i32, 12);
 x := id_fun(boolean, true);
-*/
 
 // QUESTION: Should we support "Scoped Type Variables"?
 // Maybe we can just use `typeof` function to get the type of a variable.
@@ -49,26 +47,20 @@ def tuple_func:
 ;
 x := tuple_func((12, true), 1, false);
 
-/*
+
 // struct
-def Container(compt(T): Type): compt(Type),
+def Container:
+  (compt(T): Type)-> compt(Type),
   struct(value: T)
 ;
 
-def use_container(c: Container(any(X: Type)), x: X): X,
-  // QUESTION: Can we use `T` for `x`?
+def use_container:
+  forall(compt(X): Type) .
+    (c: Container(X), x: X)-> X,
   x
-;
-*/
-/*
-def Container(compt(T): Type): Type,
-  struct(value: T)
 ;
 
-def use_container(c: Container(any(T: Type)), x: T): T,
-  // QUESTION: Can we use `T` for `x`?
-  x
-;
+i32_container_value := Container(i32)(12);
+x := use_container(i32_container_value, 13);
 x := use_container(Container(i32)(13), 12);
-x := use_container(Container(bool)(true), false);
-*/
+x := use_container(Container(boolean)(true), false);

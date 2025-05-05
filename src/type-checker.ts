@@ -324,9 +324,14 @@ export interface FunctionParameter {
   label?: string;
 
   /**
-   * The expression of the element.
+   * The parameter label expr.
    */
-  expr: Expr;
+  labelExpr?: Expr;
+
+  /**
+   * The parameter type expr.
+   */
+  typeExpr: Expr;
 
   /**
    * This is only used for Functions

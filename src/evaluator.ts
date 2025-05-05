@@ -21,6 +21,7 @@ import {
   FuncCallExpr,
 } from "./expr";
 import { FunctionValue } from "./function-value";
+import * as logger from "./logger";
 import Parser from "./parser";
 import { stringIsOperator, Token, TokenType } from "./token";
 import {
@@ -339,18 +340,22 @@ export default class Evaluator {
     }
 
     // Check expectedType
-    const expectedTupleType = context.expectedType;
+    const expectedType = context.expectedType;
     let expectedTupleElementType: Type | undefined = undefined;
-    if (expectedTupleType) {
-      if (!isTupleType(expectedTupleType)) {
+    if (expectedType) {
+      if (isTupleType(expectedType)) {
+        const tupleElement = expectedType.elements[tupleElementIndex];
+        expectedTupleElementType = tupleElement.type;
+      } else if (isStructType(expectedType)) {
+        const structMember = expectedType.members[tupleElementIndex];
+        expectedTupleElementType = structMember.type;
+      } else {
         throw this.formatErrorMessage(
           expr.token,
-          `Failed to evaluate the tuple elements. Expected type to be:
-${typeToString(expectedTupleType)}`
+          `(1) Failed to evaluate the tuple elements. Expected type to be:
+${typeToString(expectedType)}`
         );
       }
-      const tupleElement = expectedTupleType.elements[tupleElementIndex];
-      expectedTupleElementType = tupleElement.type;
     }
 
     // Parse the rhs expr
@@ -468,8 +473,8 @@ Given type: ${typeToString(defaultValue.type)}`
       if (!isTupleType(expectedTupleType)) {
         throw this.formatErrorMessage(
           expr.token,
-          `Failed to evaluate the tuple elements. Expected type to be:
-  ${typeToString(expectedTupleType)}`
+          `(2) Failed to evaluate the tuple elements. Expected type to be:
+${typeToString(expectedTupleType)}`
         );
       }
       const tupleElement = expectedTupleType.elements[tupleElementIndex];
@@ -658,9 +663,27 @@ Given type: ${typeToString(defaultValue.type)}`
           expectedType.elements[i].expr.token
         );
       }
+    } else if (
+      isStructType(expectedType) &&
+      isStructType(givenType) &&
+      expectedType.members.length === givenType.members.length &&
+      expectedType.members.every((expectedTypeMember, index) => {
+        const givenTypeMember = givenType.members[index];
+        return expectedTypeMember.label === givenTypeMember.label;
+      })
+      // NOTE: The typeId might not match
+    ) {
+      for (let i = 0; i < expectedType.members.length; i++) {
+        const expectedTypeMember = expectedType.members[i];
+        const givenTypeMember = givenType.members[i];
+        env = this.synthesizeTypes(
+          expectedTypeMember.type,
+          givenTypeMember.type,
+          env,
+          expectedTypeMember.expr.token
+        );
+      }
     }
-
-    // TODO: Support more cases
 
     return env;
   }
@@ -2715,6 +2738,9 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     let rhsExpr: Expr = expr;
     let parameterType: Type | undefined = undefined;
 
+    let typeExpr: Expr = expr;
+    let labelExpr: Expr | undefined = undefined;
+
     // Parse the lhs expr
     if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, ":")) {
       if (expectedParameter) {
@@ -2726,6 +2752,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
 
       rhsExpr = expr.args[1];
       lhsExpr = expr.args[0];
+      typeExpr = rhsExpr;
 
       if (
         exprIsFunctionCall(lhsExpr) &&
@@ -2759,6 +2786,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         );
       }
       label = lhsExpr.token.value;
+      labelExpr = lhsExpr;
     }
 
     if (!lhsExpr && expectedParameter) {
@@ -2778,6 +2806,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         );
       }
       label = lhsExpr.token.value;
+      labelExpr = lhsExpr;
     } else {
       // Parse the rhs expr which should be a type
       const evaluatedRhs = this.evaluateExpression({
@@ -2842,7 +2871,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       parameter: {
         label,
         type: parameterType,
-        expr,
+        labelExpr,
+        typeExpr,
         isMutable,
         isCompileTimeOnly,
         // defaultValue: undefined,
@@ -3002,7 +3032,7 @@ compt(${exprToString(returnTypeExpr)})`
       for (const parameter of parameters) {
         if (!parameter.isCompileTimeOnly) {
           throw this.formatErrorMessage(
-            parameter.expr.token,
+            parameter.labelExpr?.token ?? parameter.typeExpr.token,
             `Expected all parameters to be compile time only given the return type is compile time only.`
           );
         }
@@ -3912,12 +3942,13 @@ compt(${exprToString(returnTypeExpr)})`
     // Find the functions whose parameters match the arguments
     const functionsWithMatchingTypes = functions.filter((functionToCall) => {
       if (isFunctionType(functionToCall.type)) {
-        return this.tryToCallFunctionWithArguments({
+        const result = this.tryToCallFunctionWithArguments({
           functionType: functionToCall.type,
           argExprs: args,
           env,
           context,
         });
+        return result;
       } else {
         const value = functionToCall.value;
         // struct value
@@ -4126,6 +4157,9 @@ ${exprToString(expr)}`
     );
   }
 
+  /**
+   * NOTE: This function will push new frame to env, but will not pop frame.
+   */
   private tryToCallFunctionWithArguments({
     functionType,
     argExprs,
@@ -4206,10 +4240,13 @@ ${exprToString(expr)}`
           },
         });
       } catch (error) {
+        logger.debug(error);
+        logger.debug("return false(1)");
         return false;
       }
       const argType = evaluatedArgExpr.type;
       if (!argType) {
+        logger.debug("return false(2)");
         return false; // If synthesis fails, the types are not compatible
       }
 
@@ -4222,6 +4259,7 @@ ${exprToString(expr)}`
         // Check if the type is a subtype of the given type
         // TODO: Check interfaces
         if (!isTypeHierarchyType(argType) || argType.level !== 0) {
+          logger.debug("return false(3)");
           return false;
         }
         if (paramElement.label) {
@@ -4246,18 +4284,43 @@ ${exprToString(expr)}`
 
       // Cannot assign runtime parameter to compt parameter
       if (!evaluatedArgExpr.value && paramElement.isCompileTimeOnly) {
+        logger.debug("return false(4)");
         return false;
       }
 
-      // Compare the types
+      // Synthesize the types
       const nextEnv = this.synthesizeTypes(
         paramElement.type,
         argType,
         env,
-        paramElement.expr.token
+        paramElement.typeExpr.token
       );
       env = nextEnv;
-      if (!areTypesCompatible(paramElement.type, argType, env)) {
+
+      // Evaluate the parameter type again
+      const evaluatedParameterType = this.evaluateExpression({
+        expr: paramElement.typeExpr,
+        env: pushEnvFrame(functionType.env, env.frames[env.frames.length - 1]),
+        context: {
+          ...context,
+          isEvaluatingExprAsType: true,
+          expectedType: undefined,
+        },
+      });
+      const evaluatedParameterTypeValue = evaluatedParameterType.value;
+      if (!isTypeValue(evaluatedParameterTypeValue)) {
+        throw this.formatErrorMessage(
+          paramElement.typeExpr.token,
+          `Expected type for parameter, got:\n${exprToString(
+            evaluatedParameterType
+          )}`
+        );
+      }
+      const paramElementType = evaluatedParameterTypeValue.value;
+
+      // Compare the types
+      if (!areTypesCompatible(paramElementType, argType, env)) {
+        logger.debug("return false(5)");
         return false;
       }
 
@@ -4943,12 +5006,12 @@ Expected: ${typeToString(functionType)}`
     const functionParameters = functionType.params;
     for (let i = 0; i < functionParameters.length; i++) {
       const parameter = functionParameters[i];
-      if (parameter.label) {
+      if (parameter.label && parameter.labelExpr) {
         const { env: nextEnv } = addVariableToEnv({
           env,
           variable: {
             name: parameter.label,
-            token: parameter.expr.token,
+            token: parameter.labelExpr.token,
             type: parameter.type,
             isMutable: parameter.isMutable,
             isCompileTimeOnly: parameter.isCompileTimeOnly,
