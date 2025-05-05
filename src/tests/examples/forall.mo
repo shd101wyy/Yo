@@ -9,16 +9,13 @@
 // (forall a. (t a -> r)) ≅ ((exists a. t a) -> r)
 
 // Scoped Type Variables
-f :
-  forall(compt(T): Type) .
-    (arr: List(T)) -> List(T)
+def id_func:
+  forall(compt(T): Type).
+    (x: T)-> T,
+  (xx : T) = x; // Use `T` inside the function body
+  xx
 ;
 
-f =
-  fn(arr) ->
-    // ...
-    arr
-;
 
 /**
  * Rank N Types

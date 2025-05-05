@@ -1,7 +1,7 @@
 /* eslint-disable no-constant-condition */
 import { formatErrorMessage } from "./error";
 import {
-  BuiltinCollections,
+  BuiltinKeywords,
   Expr,
   exprIsAtom,
   ExprTag,
@@ -106,7 +106,7 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinCollections.Tuple,
+              value: BuiltinKeywords.Tuple,
               position: tokens[index].position,
             },
           },
@@ -161,7 +161,7 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinCollections.Tuple,
+              value: BuiltinKeywords.Tuple,
               position: tokens[startIndex].position,
             },
           },
@@ -218,7 +218,7 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinCollections.Array,
+              value: BuiltinKeywords.Array,
               position: tokens[startIndex].position,
             },
           },
@@ -291,7 +291,7 @@ export default class Parser {
         ) {
           const token: Token = {
             type: TokenType.Identifier,
-            value: BuiltinCollections.Tuple,
+            value: BuiltinKeywords.Tuple,
             position: lastNonWhiteSpaceToken.position,
           };
           // Push unit
@@ -371,7 +371,7 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinCollections.Begin, // begin block
+              value: BuiltinKeywords.Begin, // begin block
               position: tokens[startIndex].position,
             },
           },
@@ -506,7 +506,9 @@ export default class Parser {
       primaryExpr.tag === "Atom" && primaryExpr.token.type === TokenType.Dot;
     if (
       primaryExprIsDotOperator ||
-      (token.type === TokenType.Dot && !hasWhitespace)
+      (token.type === TokenType.Dot &&
+        !hasWhitespace &&
+        tokens[nextIndex + 1]?.type !== TokenType.Whitespace)
     ) {
       // Field access like
       // obj.field
@@ -556,7 +558,7 @@ export default class Parser {
         index: returnValue.index,
       });
     } else if (
-      token.type === TokenType.Operator &&
+      (token.type === TokenType.Operator || token.type === TokenType.Dot) &&
       // prevent the case
       // use &(x), a;
       // getting parsed as:
@@ -878,7 +880,7 @@ or ) to end the function call`
     ) {
       const token: Token = {
         type: TokenType.Identifier,
-        value: BuiltinCollections.Tuple,
+        value: BuiltinKeywords.Tuple,
         position: lastNonWhiteSpaceToken.position,
       };
       // Add unit

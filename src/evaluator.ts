@@ -11,7 +11,6 @@ import {
 import { formatErrorMessage } from "./error";
 import {
   AtomExpr,
-  BuiltinCollections,
   BuiltinKeywords,
   Expr,
   exprIsAtom,
@@ -211,7 +210,7 @@ export default class Evaluator {
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Tuple)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected tuple, got ${expr.tag}`
@@ -687,7 +686,7 @@ Given type: ${typeToString(defaultValue.type)}`
     if (
       isTupleType(type) &&
       exprIsFunctionCall(expr) &&
-      exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)
+      exprIsFunctionCallOf(expr, BuiltinKeywords.Tuple)
     ) {
       if (type.elements.length !== expr.args.length) {
         throw this.formatErrorMessage(
@@ -919,7 +918,7 @@ Given type: ${typeToString(defaultValue.type)}`
     else if (
       isTupleType(rhsType) &&
       exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinCollections.Tuple)
+      exprIsFunctionCallOf(lhs, BuiltinKeywords.Tuple)
     ) {
       return this.handleMemberDestructuring({
         lhsFunc: lhs.func,
@@ -999,7 +998,7 @@ Given type: ${typeToString(defaultValue.type)}`
       // Handle nested tuple destructuring pattern like (a, b, (x, y))
       if (
         exprIsFunctionCall(lhsElement) &&
-        exprIsFunctionCallOf(lhsElement, BuiltinCollections.Tuple)
+        exprIsFunctionCallOf(lhsElement, BuiltinKeywords.Tuple)
       ) {
         rhsMember = rhsMembers[elementIndex];
         const nestedRhsType = rhsMember.type;
@@ -1076,7 +1075,7 @@ Given type: ${typeToString(defaultValue.type)}`
           throw this.formatErrorMessage(
             lhsElement.token,
             `Label "${label}" not found in the ${
-              isStruct ? "struct" : "tuple"
+              isStruct ? BuiltinKeywords.Struct : "tuple"
             } being destructured`
           );
         }
@@ -1094,7 +1093,7 @@ Given type: ${typeToString(defaultValue.type)}`
         // Check if the right side is a tuple for nested destructuring (c: (x, y))
         if (
           exprIsFunctionCall(rightSide) &&
-          exprIsFunctionCallOf(rightSide, BuiltinCollections.Tuple)
+          exprIsFunctionCallOf(rightSide, BuiltinKeywords.Tuple)
         ) {
           // Ensure the member we're destructuring is a tuple or struct
           if (!isTupleType(nestedRhsType) && !isStructType(nestedRhsType)) {
@@ -1222,7 +1221,7 @@ Given type: ${typeToString(defaultValue.type)}`
           throw this.formatErrorMessage(
             lhsElement.token,
             `Label "${label}" not found in the ${
-              isStruct ? "struct" : "tuple"
+              isStruct ? BuiltinKeywords.Struct : "tuple"
             } being destructured`
           );
         }
@@ -1318,7 +1317,7 @@ Given type: ${typeToString(defaultValue.type)}`
         throw this.formatErrorMessage(
           lhsElement.token,
           `Unsupported destructuring pattern for ${
-            isStruct ? "struct" : "tuple"
+            isStruct ? BuiltinKeywords.Struct : "tuple"
           }: ${exprToString(lhsElement)}`
         );
       }
@@ -1838,7 +1837,7 @@ ${exprToString(expr)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, "extern")) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Extern)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected extern, got ${expr.tag}`
@@ -1927,10 +1926,10 @@ ${exprToString(expr)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, "cond")) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Cond)) {
       throw this.formatErrorMessage(
         expr.token,
-        `Expected cond, got ${expr.tag}`
+        `Expected "cond", got ${expr.tag}`
       );
     }
 
@@ -1938,7 +1937,7 @@ ${exprToString(expr)}`
     if (statements.length === 0) {
       throw this.formatErrorMessage(
         expr.token,
-        `Expected at least one statement in cond, got ${statements.length}`
+        `Expected at least one statement in "cond", got ${statements.length}`
       );
     }
 
@@ -2039,10 +2038,10 @@ ${exprToString(expr)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, "match")) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Match)) {
       throw this.formatErrorMessage(
         expr.token,
-        `Expected match, got ${expr.tag}`
+        `Expected "match", got ${expr.tag}`
       );
     }
 
@@ -2050,7 +2049,7 @@ ${exprToString(expr)}`
     if (args.length < 2) {
       throw this.formatErrorMessage(
         expr.token,
-        `Expected at least 2 arguments for match, got ${args.length}`
+        `Expected at least 2 arguments for "match", got ${args.length}`
       );
     }
 
@@ -2582,7 +2581,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
 
     if (
       !exprIsFunctionCall(functionDeclarationExpr) ||
-      !exprIsFunctionCallOf(functionDeclarationExpr, "fn")
+      !exprIsFunctionCallOf(functionDeclarationExpr, BuiltinKeywords.Fn)
     ) {
       throw this.formatErrorMessage(
         functionDeclarationExpr.token,
@@ -2674,7 +2673,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         `Expected a function type for recur, got:\n${exprToString(expr)}`
       );
     }
-    if (!exprIsFunctionCallOf(expr, "recur")) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Recur)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected recur, got:\n${exprToString(expr)}`
@@ -2926,7 +2925,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     let argList: Expr[] = [];
     if (
       exprIsFunctionCall(argListExpr) &&
-      exprIsFunctionCallOf(argListExpr, BuiltinCollections.Tuple)
+      exprIsFunctionCallOf(argListExpr, BuiltinKeywords.Tuple)
     ) {
       // Handle tuple-style parameter list: (param1: Type1, param2: Type2)
       argList = argListExpr.args;
@@ -3039,7 +3038,7 @@ compt(${exprToString(returnTypeExpr)})`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, "type", 1)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Type, 1)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected type with 1 argument, got:\n${exprToString(expr)}`
@@ -3083,10 +3082,10 @@ compt(${exprToString(returnTypeExpr)})`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, "struct")) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Struct)) {
       throw this.formatErrorMessage(
         expr.token,
-        `Expected struct, got:\n${exprToString(expr)}`
+        `Expected "struct", got:\n${exprToString(expr)}`
       );
     }
 
@@ -3123,10 +3122,10 @@ compt(${exprToString(returnTypeExpr)})`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, "enum")) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Enum)) {
       throw this.formatErrorMessage(
         expr.token,
-        `Expected enum, got:\n${exprToString(expr)}`
+        `Expected "enum", got:\n${exprToString(expr)}`
       );
     }
 
@@ -3526,12 +3525,15 @@ compt(${exprToString(returnTypeExpr)})`
   /**
    * Evaluate expression such as:
    *
-   * def id_func(x: any(compt(T): Type)): T,
+   * def id_func:
+   *   forall(compt(T): Type) .
+   *     (x: T)-> T,
+   * {
    *   return x;
+   * }
    *
-   * "any" aims to create the SomeType.
    */
-  private evaluateAny({
+  private evaluateForall({
     expr,
     env,
     context,
@@ -3540,7 +3542,7 @@ compt(${exprToString(returnTypeExpr)})`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, "any", 1)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Forall, 1)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "any" with one argument, got:\n${exprToString(expr)}`
@@ -4715,7 +4717,7 @@ Expected: ${typeToString(functionType)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, "def", 2)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Def, 2)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "def" with 2 arguments, got:\n${exprToString(expr)}`
@@ -5011,7 +5013,7 @@ Expected: ${typeToString(functionType)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, "begin")) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Begin)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "begin", got:\n${exprToString(expr)}`
@@ -5063,7 +5065,7 @@ Expected: ${typeToString(functionType)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, "interface")) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Interface)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "interface", got:\n${exprToString(expr)}`
@@ -5111,7 +5113,8 @@ Expected: ${typeToString(functionType)}`
         // Self is a reserved keyword
         throw this.formatErrorMessage(
           lhsExpr.token,
-          `Cannot use "Self" as interface member name`
+          `Cannot use "Self" as interface member name.
+If you want to define the receiver type, please use "This" instead.`
         );
       }
 
@@ -5178,6 +5181,50 @@ Expected: ${typeToString(functionType)}`
     return expr;
   }
 
+  private evaluateTypeOf({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.TypeOf, 1)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "typeof" with 1 argument, got:\n${exprToString(expr)}`
+      );
+    }
+
+    // Evaluate the expression
+    const evaluatedExpr = this.evaluateExpression({
+      expr: expr.args[0],
+      env,
+      context: {
+        ...context,
+        isEvaluatingExprAsType: true,
+      },
+    });
+    if (evaluatedExpr.env) {
+      env = evaluatedExpr.env;
+    }
+
+    // Check if the expression has a type
+    if (!evaluatedExpr.type) {
+      throw this.formatErrorMessage(
+        expr.args[0].token,
+        `Expected type for expression, got:\n${exprToString(expr.args[0])}`
+      );
+    }
+    const type = evaluatedExpr.type;
+
+    expr.value = createTypeValue(type);
+    expr.type = expr.value.type;
+    expr.env = env;
+    return expr;
+  }
+
   private evaluateExpression({
     expr,
     env,
@@ -5227,14 +5274,9 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, "->", 2)) {
         // Function implementation
         if (
-          // (fn(x: i32) -> x)
-          (exprIsFunctionCall(expr.args[0]) &&
-            exprIsFunctionCallOf(expr.args[0], "fn")) ||
-          // ((fn(x:i32):i32)-> x)
-          (exprIsFunctionCall(expr.args[0]) &&
-            exprIsFunctionCallOf(expr.args[0], ":", 2) &&
-            exprIsFunctionCall(expr.args[0].args[0]) &&
-            exprIsFunctionCallOf(expr.args[0].args[0], "fn"))
+          // (fn(x) -> x)
+          exprIsFunctionCall(expr.args[0]) &&
+          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.Fn)
         ) {
           return this.evaluateAnonymousFunctionImplementation({
             expr,
@@ -5249,45 +5291,45 @@ ${exprToString(expr)}`
           env,
           context: { ...context, isEvaluatingExprAsType: true },
         });
-      } else if (exprIsFunctionCallOf(expr, "recur")) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Recur)) {
         // recur
         return this.evaluateRecur({ expr, env, context });
-      } else if (exprIsFunctionCallOf(expr, "extern")) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Extern)) {
         // extern
         return this.evaluateExtern({ expr, env, context });
-      } else if (exprIsFunctionCallOf(expr, "cond")) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Cond)) {
         // cond
         return this.evaluateCond({ expr, env, context });
-      } else if (exprIsFunctionCallOf(expr, "match")) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Match)) {
         // match
         return this.evaluateMatch({ expr, env, context });
-      } else if (exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Tuple)) {
         // tuple
         return this.evaluateTuple({ expr, env, context });
-      } else if (exprIsFunctionCallOf(expr, "type")) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Type)) {
         // type Expr
         return this.evaluateTypeExpression({ expr, env, context });
-      } else if (exprIsFunctionCallOf(expr, "struct")) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Struct)) {
         // struct
         return this.evaluateStruct({ expr, env, context });
-      } else if (exprIsFunctionCallOf(expr, "enum")) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Enum)) {
         // enum
         return this.evaluateEnum({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, ".")) {
         // property access
         return this.evaluatePropertyAccess({ expr, env, context });
-      } else if (exprIsFunctionCallOf(expr, "any")) {
-        // any
-        return this.evaluateAny({ expr, env, context });
-      } else if (exprIsFunctionCallOf(expr, "def")) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Def)) {
         // def
         return this.evaluateDefExpression({ expr, env, context });
-      } else if (exprIsFunctionCallOf(expr, "begin")) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Begin)) {
         // begin
         return this.evaluateBeginExpression({ expr, env, context });
-      } else if (exprIsFunctionCallOf(expr, "interface")) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Interface)) {
         // interface
         return this.evaluateInterface({ expr, env, context });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.TypeOf)) {
+        // typeof
+        return this.evaluateTypeOf({ expr, env, context });
       } else {
         /* else if (exprIsFunctionCallOf(expr, ".", 1)) {
         // variant

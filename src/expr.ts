@@ -65,19 +65,27 @@ export function exprIsFunctionCallOf(
   );
 }
 
-export enum BuiltinCollections {
-  Array = "array",
-  Tuple = "tuple",
-  // Record = "record",
-  Begin = "begin",
-}
-
 export const BuiltinKeywords = {
   Compt: ["compt", "@"],
   Forall: ["forall", "∀"],
   Implicit: ["implicit", "?"],
   Quote: ["quote", ":"],
   Unquote: ["unquote", "$"],
+  TypeOf: ["typeof"],
+  Def: ["def"],
+  Recur: ["recur"],
+  Fn: ["fn"],
+  Extern: ["extern"],
+  Cond: ["cond"],
+  Type: ["type"],
+  Match: ["match"],
+  Struct: ["struct"],
+  Enum: ["enum"],
+  Union: ["union"],
+  Interface: ["interface"],
+  Array: ["array"],
+  Tuple: ["tuple"],
+  Begin: ["begin"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
@@ -134,7 +142,7 @@ export function exprToString(expr: Expr): string {
       if (
         expr.func.tag === "Atom" &&
         expr.func.token.type === TokenType.Identifier &&
-        expr.func.token.value === BuiltinCollections.Tuple
+        expr.func.token.value === BuiltinKeywords.Tuple
       ) {
         if (expr.args.length === 1) {
           printed = `(${exprToString(expr.args[0])},)`;

@@ -3,24 +3,34 @@ extern
     (x: i32, y: i32)-> i32
 ;
 
-def id_fun:
+// Explicitly define Type as function parameter. 
+def id_fun :
   (compt(T): Type, x: T)-> T,
   x;
-
-
 x := id_fun(i32, 12);
 x := id_fun(boolean, true);
 
-
-/*
-def id_func(x: any(compt(T): Type)): T,
+// QUESTION: Should we support "Scoped Type Variables"?
+// Maybe we can just use `typeof` function to get the type of a variable.
+def id_func :
+  forall(compt(T): Type) .
+    (x : T)-> T,
+  // (xx : T) = x; // Use `T` inside the function body
+  // xx
   x
 ;
-x := id_func(12);
-x := id_func(true);
 
-def id_func: (forall(compt(T): Type) . (x: T)-> T),
-  x
+x := id_func(12);
+x := id_func(true); 
+
+/*
+// Anonymous function
+
+anonymous_func :
+  forall(compt(T): Type) .
+    (x: T)-> T;
+anonymous_func =
+  fn(x)-> x;
 */
 
 /*
