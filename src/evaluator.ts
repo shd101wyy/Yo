@@ -666,12 +666,12 @@ ${typeToString(expectedTupleType)}`
     } else if (
       isStructType(expectedType) &&
       isStructType(givenType) &&
-      expectedType.members.length === givenType.members.length &&
-      expectedType.members.every((expectedTypeMember, index) => {
-        const givenTypeMember = givenType.members[index];
-        return expectedTypeMember.label === givenTypeMember.label;
-      })
+      (expectedType.typeId === givenType.typeId ||
+        (expectedType.functionValue &&
+          givenType.functionValue &&
+          expectedType.functionValue === givenType.functionValue))
       // NOTE: The typeId might not match
+      // They might be different structs that both are returned from the same function.
     ) {
       for (let i = 0; i < expectedType.members.length; i++) {
         const expectedTypeMember = expectedType.members[i];
@@ -683,8 +683,33 @@ ${typeToString(expectedTupleType)}`
           expectedTypeMember.expr.token
         );
       }
-    }
+    } else if (
+      isEnumType(expectedType) &&
+      isEnumType(givenType) &&
+      (expectedType.typeId === givenType.typeId ||
+        (expectedType.functionValue &&
+          givenType.functionValue &&
+          expectedType.functionValue === givenType.functionValue))
+      // NOTE: The typeId might not match
+      // They might be different structs that both are returned from the same function.
+    ) {
+      for (let i = 0; i < expectedType.variants.length; i++) {
+        const expectedTypeVariant = expectedType.variants[i];
+        const givenTypeVariant = givenType.variants[i];
 
+        const expectedTypeVariantParams = expectedTypeVariant.params ?? [];
+        const givenTypeVariantParams = givenTypeVariant.params ?? [];
+
+        for (let j = 0; j < expectedTypeVariantParams.length; j++) {
+          env = this.synthesizeTypes(
+            expectedTypeVariantParams[j].type,
+            givenTypeVariantParams[j].type,
+            env,
+            expectedTypeVariantParams[j].expr.token
+          );
+        }
+      }
+    }
     return env;
   }
 
@@ -4731,13 +4756,19 @@ Expected: ${typeToString(functionType)}`
     }
     const returnType = returnValue.value;
     if (
-      (isStructType(returnType) || isInterfaceType(returnType)) &&
-      !returnType.typeName &&
-      functionValue.funcName
+      isStructType(returnType) ||
+      isEnumType(returnType) ||
+      isInterfaceType(returnType)
     ) {
-      returnType.typeName =
-        functionValue.funcName +
-        `(${argValues.map((v) => valueToString(v)).join(", ")})`;
+      if (!returnType.typeName && functionValue.funcName) {
+        returnType.typeName =
+          functionValue.funcName +
+          `(${argValues.map((v) => valueToString(v)).join(", ")})`;
+      }
+
+      if (!returnType.functionValue) {
+        returnType.functionValue = functionValue;
+      }
     }
 
     // Restore the environment frames

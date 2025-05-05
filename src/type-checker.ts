@@ -366,6 +366,17 @@ export interface StructType extends Type {
   typeName?: string;
 
   /**
+   * The function that returns the struct.
+   * eg:
+   *   def Container:
+   *     (compt(T): Type)-> compt(Type),
+   *     struct(T, T)
+   * ;
+   * "Container" is the function that returns the struct.
+   */
+  functionValue?: FunctionValue;
+
+  /**
    * The members of the struct.
    */
   members: TupleElement[];
@@ -395,6 +406,11 @@ export interface EnumType extends Type {
    * Point is the name of the struct.
    */
   typeName?: string;
+
+  /**
+   * The function that returns the enum.
+   */
+  functionValue?: FunctionValue;
 
   /**
    * The variants of the enum.
@@ -498,6 +514,11 @@ export interface InterfaceType extends Type {
    * Id is the name of the struct.
    */
   typeName?: string;
+
+  /**
+   * The function that returns the enum.
+   */
+  functionValue?: FunctionValue;
 
   /**
    * The receiver type of the interface.
