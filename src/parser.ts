@@ -1,6 +1,7 @@
 /* eslint-disable no-constant-condition */
 import { formatErrorMessage } from "./error";
 import {
+  BuiltinCollections,
   BuiltinKeywords,
   Expr,
   exprIsAtom,
@@ -106,7 +107,7 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinKeywords.Tuple,
+              value: BuiltinCollections.Tuple[0],
               position: tokens[index].position,
             },
           },
@@ -161,7 +162,7 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinKeywords.Tuple,
+              value: BuiltinCollections.Tuple,
               position: tokens[startIndex].position,
             },
           },
@@ -218,7 +219,7 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinKeywords.Array,
+              value: BuiltinCollections.Array,
               position: tokens[startIndex].position,
             },
           },
@@ -291,7 +292,7 @@ export default class Parser {
         ) {
           const token: Token = {
             type: TokenType.Identifier,
-            value: BuiltinKeywords.Tuple,
+            value: BuiltinCollections.Tuple,
             position: lastNonWhiteSpaceToken.position,
           };
           // Push unit
@@ -371,7 +372,7 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinKeywords.Begin, // begin block
+              value: BuiltinKeywords.Begin[0], // begin block
               position: tokens[startIndex].position,
             },
           },
@@ -880,7 +881,7 @@ or ) to end the function call`
     ) {
       const token: Token = {
         type: TokenType.Identifier,
-        value: BuiltinKeywords.Tuple,
+        value: BuiltinCollections.Tuple,
         position: lastNonWhiteSpaceToken.position,
       };
       // Add unit

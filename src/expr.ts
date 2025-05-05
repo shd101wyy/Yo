@@ -65,6 +65,11 @@ export function exprIsFunctionCallOf(
   );
 }
 
+export const BuiltinCollections = {
+  Tuple: "tuple",
+  Array: "array",
+};
+
 export const BuiltinKeywords = {
   Compt: ["compt", "@"],
   Forall: ["forall", "∀"],
@@ -83,8 +88,6 @@ export const BuiltinKeywords = {
   Enum: ["enum"],
   Union: ["union"],
   Interface: ["interface"],
-  Array: ["array"],
-  Tuple: ["tuple"],
   Begin: ["begin"],
 };
 
@@ -142,7 +145,7 @@ export function exprToString(expr: Expr): string {
       if (
         expr.func.tag === "Atom" &&
         expr.func.token.type === TokenType.Identifier &&
-        expr.func.token.value === BuiltinKeywords.Tuple
+        expr.func.token.value === BuiltinCollections.Tuple
       ) {
         if (expr.args.length === 1) {
           printed = `(${exprToString(expr.args[0])},)`;

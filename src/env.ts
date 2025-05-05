@@ -493,6 +493,7 @@ export function printEnvVarNames(env: Environment) {
     env.frames.map((frame) => {
       return frame.variables.map((variable) => ({
         name: variable.name,
+        type: typeToString(variable.type),
         value: variable.value ? valueToString(variable.value) : undefined,
       }));
     })

@@ -11,6 +11,7 @@ import {
 import { formatErrorMessage } from "./error";
 import {
   AtomExpr,
+  BuiltinCollections,
   BuiltinKeywords,
   Expr,
   exprIsAtom,
@@ -210,7 +211,7 @@ export default class Evaluator {
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Tuple)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected tuple, got ${expr.tag}`
@@ -686,7 +687,7 @@ Given type: ${typeToString(defaultValue.type)}`
     if (
       isTupleType(type) &&
       exprIsFunctionCall(expr) &&
-      exprIsFunctionCallOf(expr, BuiltinKeywords.Tuple)
+      exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)
     ) {
       if (type.elements.length !== expr.args.length) {
         throw this.formatErrorMessage(
@@ -918,7 +919,7 @@ Given type: ${typeToString(defaultValue.type)}`
     else if (
       isTupleType(rhsType) &&
       exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinKeywords.Tuple)
+      exprIsFunctionCallOf(lhs, BuiltinCollections.Tuple)
     ) {
       return this.handleMemberDestructuring({
         lhsFunc: lhs.func,
@@ -998,7 +999,7 @@ Given type: ${typeToString(defaultValue.type)}`
       // Handle nested tuple destructuring pattern like (a, b, (x, y))
       if (
         exprIsFunctionCall(lhsElement) &&
-        exprIsFunctionCallOf(lhsElement, BuiltinKeywords.Tuple)
+        exprIsFunctionCallOf(lhsElement, BuiltinCollections.Tuple)
       ) {
         rhsMember = rhsMembers[elementIndex];
         const nestedRhsType = rhsMember.type;
@@ -1093,7 +1094,7 @@ Given type: ${typeToString(defaultValue.type)}`
         // Check if the right side is a tuple for nested destructuring (c: (x, y))
         if (
           exprIsFunctionCall(rightSide) &&
-          exprIsFunctionCallOf(rightSide, BuiltinKeywords.Tuple)
+          exprIsFunctionCallOf(rightSide, BuiltinCollections.Tuple)
         ) {
           // Ensure the member we're destructuring is a tuple or struct
           if (!isTupleType(nestedRhsType) && !isStructType(nestedRhsType)) {
@@ -2925,7 +2926,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     let argList: Expr[] = [];
     if (
       exprIsFunctionCall(argListExpr) &&
-      exprIsFunctionCallOf(argListExpr, BuiltinKeywords.Tuple)
+      exprIsFunctionCallOf(argListExpr, BuiltinCollections.Tuple)
     ) {
       // Handle tuple-style parameter list: (param1: Type1, param2: Type2)
       argList = argListExpr.args;
@@ -3542,48 +3543,122 @@ compt(${exprToString(returnTypeExpr)})`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Forall, 1)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "any" with one argument, got:\n${exprToString(expr)}`
-      );
-    }
+    const forallExpr = expr.args[0];
+    const typeExpr = expr.args[1];
 
-    const colonExpr = expr.args[0];
-    if (
-      !exprIsFunctionCall(colonExpr) ||
-      !exprIsFunctionCallOf(colonExpr, ":", 2)
-    ) {
+    if (!typeExpr) {
       throw this.formatErrorMessage(
-        colonExpr.token,
-        `Expected ":" for "any" expression, got:\n${exprToString(colonExpr)}`
-      );
-    }
-
-    const comptExpr = colonExpr.args[0];
-    const typeExpr = colonExpr.args[1];
-    if (
-      !exprIsFunctionCall(comptExpr) ||
-      !exprIsFunctionCallOf(comptExpr, BuiltinKeywords.Compt)
-    ) {
-      throw this.formatErrorMessage(
-        comptExpr.token,
-        `Expected "compt" (or "@") for "any" expression, got:\n${exprToString(
-          comptExpr
+        forallExpr.token,
+        `Expected type expression for "forall", got:\n${exprToString(
+          forallExpr
         )}`
       );
     }
-
-    const labelExpr = comptExpr.args[0];
-    if (!exprIsAtom(labelExpr) || !this.isValidVariableName(labelExpr)) {
+    if (
+      !exprIsFunctionCall(forallExpr) ||
+      !exprIsFunctionCallOf(forallExpr, BuiltinKeywords.Forall)
+    ) {
       throw this.formatErrorMessage(
-        labelExpr.token,
-        `Expected identifier for "any" expression, got:\n${exprToString(
-          labelExpr
-        )}`
+        forallExpr.token,
+        `Expected "forall", got:\n${exprToString(forallExpr)}`
       );
     }
-    const label = labelExpr.token.value;
+
+    // Add new frame to hold the type variables.
+    env = pushEnvFrame(env);
+
+    // Evaluate type variables:
+    const forallArgExprs = forallExpr.args;
+    for (let i = 0; i < forallArgExprs.length; i++) {
+      const colonExpr = forallArgExprs[i];
+      if (
+        !exprIsFunctionCall(colonExpr) ||
+        !exprIsFunctionCallOf(colonExpr, ":", 2)
+      ) {
+        throw this.formatErrorMessage(
+          colonExpr.token,
+          `Expected ":" to define type variable, got:\n${exprToString(
+            colonExpr
+          )}`
+        );
+      }
+
+      const comptExpr = colonExpr.args[0];
+      const typeExpr = colonExpr.args[1];
+      if (
+        !exprIsFunctionCall(comptExpr) ||
+        !exprIsFunctionCallOf(comptExpr, BuiltinKeywords.Compt)
+      ) {
+        throw this.formatErrorMessage(
+          comptExpr.token,
+          `Expected "compt" (or "@") for type variable, got:\n${exprToString(
+            comptExpr
+          )}`
+        );
+      }
+
+      const labelExpr = comptExpr.args[0];
+      if (!exprIsAtom(labelExpr) || !this.isValidVariableName(labelExpr)) {
+        throw this.formatErrorMessage(
+          labelExpr.token,
+          `Expected identifier for type variable, got:\n${exprToString(
+            labelExpr
+          )}`
+        );
+      }
+      const label = labelExpr.token.value;
+      const evaluatedTypeExpr = this.evaluateExpression({
+        expr: typeExpr,
+        env,
+        context: {
+          ...context,
+          isEvaluatingExprAsType: true,
+        },
+      });
+      if (evaluatedTypeExpr.env) {
+        env = evaluatedTypeExpr.env;
+      }
+      const typeValue = evaluatedTypeExpr.value;
+      if (!isTypeValue(typeValue)) {
+        throw this.formatErrorMessage(
+          typeExpr.token,
+          `Expected type for "any" expression, got:\n${exprToString(typeExpr)}`
+        );
+      }
+      const type = typeValue.value;
+      if (!isTypeHierarchyType(type) || type.level !== 0) {
+        throw this.formatErrorMessage(
+          typeExpr.token,
+          `Expected "Type" (or "Free" or "Linear"), got:\n${exprToString(
+            typeExpr
+          )}`
+        );
+      }
+
+      const value = createUnknownValue(type, label);
+
+      // Add value to env
+      const { env: nextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name: label,
+          token: labelExpr.token,
+          type,
+          isMutable: false,
+          isCompileTimeOnly: true,
+          isNotInitialized: false, // Set as initialized
+          value,
+        },
+      });
+      env = nextEnv;
+
+      // Attach necessary information
+      labelExpr.value = value;
+      labelExpr.type = value.type;
+      labelExpr.env = env;
+    }
+
+    // Evaluate the type expression
     const evaluatedTypeExpr = this.evaluateExpression({
       expr: typeExpr,
       env,
@@ -3592,51 +3667,26 @@ compt(${exprToString(returnTypeExpr)})`
         isEvaluatingExprAsType: true,
       },
     });
+
     if (evaluatedTypeExpr.env) {
       env = evaluatedTypeExpr.env;
     }
-    const typeValue = evaluatedTypeExpr.value;
-    if (!isTypeValue(typeValue)) {
+    const value = evaluatedTypeExpr.value;
+    if (!isTypeValue(value)) {
       throw this.formatErrorMessage(
         typeExpr.token,
-        `Expected type for "any" expression, got:\n${exprToString(typeExpr)}`
-      );
-    }
-    const type = typeValue.value;
-    if (!isTypeHierarchyType(type) || type.level !== 0) {
-      throw this.formatErrorMessage(
-        typeExpr.token,
-        `Expected "Type" (or "Free" or "Linear"), got:\n${exprToString(
-          typeExpr
-        )}`
+        `Expected type for "forall" expression, got:\n${exprToString(typeExpr)}`
       );
     }
 
-    const value = createUnknownValue(type, label);
-
-    // Add value to env
-    const { env: nextEnv } = addVariableToEnv({
-      env,
-      variable: {
-        name: label,
-        token: labelExpr.token,
-        type,
-        isMutable: false,
-        isCompileTimeOnly: true,
-        isNotInitialized: false, // Set as initialized
-        value,
-      },
-    });
-    env = nextEnv;
+    // Pop the env frame
+    env = popEnvFrame(env);
 
     // Attach necessary informations
     expr.value = value;
     expr.type = value.type;
     expr.env = env;
 
-    labelExpr.value = value;
-    labelExpr.type = value.type;
-    labelExpr.env = env;
     return expr;
   }
 
@@ -5303,7 +5353,7 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Match)) {
         // match
         return this.evaluateMatch({ expr, env, context });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Tuple)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
         // tuple
         return this.evaluateTuple({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Type)) {
@@ -5316,6 +5366,19 @@ ${exprToString(expr)}`
         // enum
         return this.evaluateEnum({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, ".")) {
+        // forall
+        if (
+          // forall(compt(T): Type) . ((x: T) -> T)
+          exprIsFunctionCall(expr.args[0]) &&
+          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.Forall)
+        ) {
+          return this.evaluateForall({
+            expr,
+            env,
+            context,
+          });
+        }
+
         // property access
         return this.evaluatePropertyAccess({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Def)) {

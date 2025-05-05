@@ -847,14 +847,17 @@ export function typeOfType(t: Type): Type {
 export function getValueOfSomeTypeFromEnv(
   env: Environment,
   someType: SomeType
-): Type | undefined {
+): Type {
   let someTypeValue: TypeValue | undefined = undefined;
   do {
     const variables = getVariablesFromEnv(env, someType.name, (variable) => {
       return variable.value?.tag === ValueTag.Type; // isTypeValue
     });
     if (!variables.length) {
-      return undefined;
+      // NOTE: This might be SomeType defined from "forall"
+      // So it doesn't exist in the env.
+      return someType; // Return itself
+      // return undefined;
     }
     someTypeValue = variables[variables.length - 1].value as TypeValue;
 
@@ -1019,9 +1022,6 @@ export function areTypesCompatible(
     if (isSomeType(givenType)) {
       const expectedType_ = getValueOfSomeTypeFromEnv(env, expectedType);
       const givenType_ = getValueOfSomeTypeFromEnv(env, givenType);
-      if (!expectedType_ || !givenType_) {
-        return false;
-      }
       if (isSomeType(expectedType_) && isSomeType(givenType_)) {
         return expectedType_.typeId === givenType_.typeId;
       } else {
