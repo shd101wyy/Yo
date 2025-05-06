@@ -10,11 +10,11 @@
 
 // Scoped Type Variables
 def id_func:
-  forall(compt(T): Type).
-    (x: T)-> T,
-  (xx : T) = x; // Use `T` inside the function body
+  forall(compt(T): Type) .
+    (x: T)-> T, {
+  xx := x; // Use `T` inside the function body
   xx
-;
+};
 
 
 /**

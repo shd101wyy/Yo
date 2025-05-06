@@ -24,6 +24,7 @@ def func1:
     given(Id(T)) => T,
   x.id()
 ;
+/*
 def SomeStruct:
   (compt(T): Type) ->
     given(Id(T)) => compt(Type),
@@ -52,3 +53,4 @@ forall(compt(T): Type) .
       some_func: 
         fn(x)-> x.id()
 ;
+*/

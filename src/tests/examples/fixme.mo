@@ -1,22 +1,16 @@
-/*
-def define_struct_with_default_field:
-  (compt(T): Type, compt(value): T, runtime_value: T) -> (), {
-  Point :: struct
-    (x: T) = value,
-    (y: T) = value
-  ;
-  p := Point(x: value, y: value);
-};
-
-define_struct_with_default_field(i32, 0, 0);
-*/
-
-def SomeStructWithDefaultValue:
-  (compt(T): Type, compt(value): T)-> compt(Type),
-  struct(
-    (x: T) = value
-  )
+def Id:
+  (compt(T): Type) -> compt(Type),
+  interface
+    (This: Type) = T,
+    (id: ((x: This) -> This)) =
+      fn(x) -> x
 ;
-SomeStruct :: SomeStructWithDefaultValue(i32, 12);
-x :: SomeStruct();
-a :: x.x;
+
+AnotherPoint :: struct(x: i32, y: i32);
+AnotherIdPoint :: Id(AnotherPoint);
+Id(AnotherPoint)
+  This: i32 // We didn't use `AnotherPoint` as `This`
+;
+this :: AnotherIdPoint.This;
+another_func :: AnotherIdPoint.id;
+x := another_func(13);

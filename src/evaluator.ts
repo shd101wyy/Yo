@@ -3756,7 +3756,13 @@ compt(${exprToString(returnTypeExpr)})`
       env = evaluatedTypeExpr.env;
     }
     const value = evaluatedTypeExpr.value;
-    if (!isTypeValue(value)) {
+
+    // `forall` can only work with FunctionType or InterfaceType.
+    // Supporting other types means to support Rank N Types.
+    if (
+      !isTypeValue(value) ||
+      !(isFunctionType(value.value) || isInterfaceType(value.value))
+    ) {
       throw this.formatErrorMessage(
         typeExpr.token,
         `Expected type for "forall" expression, got:\n${exprToString(typeExpr)}`
@@ -5489,6 +5495,7 @@ If you want to define the receiver type, please use "This" instead.`
             ...context,
             isEvaluatingExprAsType: false,
             expectedType: memberType,
+            SelfType: interfaceType,
           },
         });
         if (evaluatedDefaultValueExpr.env) {
