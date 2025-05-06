@@ -1,6 +1,6 @@
 // https://wasp.sh/blog/2021/09/01/haskell-forall-tutorial
 // 
-// forall(type_variables) . type_expression
+// forall(type_variables) . (function_type | interface_type)
 //
 // `forall` is universal quantification, which means that the type variable
 // can be instantiated to any type. It is used to express polymorphic types.

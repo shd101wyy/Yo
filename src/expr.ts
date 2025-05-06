@@ -72,8 +72,9 @@ export const BuiltinCollections = {
 
 export const BuiltinKeywords = {
   Compt: ["compt", "@"],
-  Forall: ["forall", "∀"],
+  Mut: ["mut", "!"],
   Implicit: ["implicit", "?"],
+  Forall: ["forall", "∀"],
   Quote: ["quote", ":"],
   Unquote: ["unquote", "$"],
   TypeOf: ["typeof"],

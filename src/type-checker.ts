@@ -491,6 +491,16 @@ export interface InterfaceMember {
   typeExpr: Expr;
 
   /**
+   * The default value expression of the member.
+   * Such as:
+   *
+   * (This: Type) = T;
+   *
+   * Here, `T` is the default value expression.
+   */
+  defaultValueExpr?: Expr;
+
+  /**
    * The implemented value of the member.  \
    * If it's not implemented, then it's undefined.  \
    * Only the TypeValue and FunctionValue (both are compt) are allowed.
