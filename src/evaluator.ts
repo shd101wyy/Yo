@@ -83,6 +83,7 @@ import {
   createTypeValue,
   createUnknownValue,
   isFunctionValue,
+  isStructValue,
   isTupleValue,
   isTypeValue,
   isUnknownValue,
@@ -3513,6 +3514,7 @@ compt(${exprToString(returnTypeExpr)})`
 
     if (isTupleType(objectExpr.type) || isStructType(objectExpr.type)) {
       let elements: TupleElement[] = [];
+      const objectExprValue = objectExpr.value;
       if (isTupleType(objectExpr.type)) {
         elements = objectExpr.type.elements;
       } else if (isStructType(objectExpr.type)) {
@@ -3545,6 +3547,15 @@ compt(${exprToString(returnTypeExpr)})`
           propertyExpr.type = tupleElement.type;
           // TODO: Support comptime value
           // expr.value = ...
+          if (objectExprValue) {
+            let values: Value[] | undefined = [];
+            if (isTupleValue(objectExprValue)) {
+              values = objectExprValue.elements;
+            } else if (isStructValue(objectExprValue)) {
+              values = objectExprValue.members;
+            }
+            expr.value = values?.[index];
+          }
           return expr;
         } else if (this.isValidVariableName(propertyExpr)) {
           const label = propertyExpr.token.value;
@@ -3559,19 +3570,29 @@ compt(${exprToString(returnTypeExpr)})`
             propertyExpr.type = method.type;
             return expr;
           } else {
-            const tupleElement = elements.find(
+            const tupleElementIndex = elements.findIndex(
               (element) => element.label === label
             );
-            if (!tupleElement) {
+            if (tupleElementIndex < 0) {
               // It could be interface method call
               expr.type = undefined;
               expr.value = undefined;
               return expr;
             }
+            const tupleElement = elements[tupleElementIndex];
             expr.type = tupleElement.type;
             propertyExpr.type = tupleElement.type;
             // TODO: Support comptime value
             // expr.value = ...
+            if (objectExprValue) {
+              let values: Value[] | undefined = [];
+              if (isTupleValue(objectExprValue)) {
+                values = objectExprValue.elements;
+              } else if (isStructValue(objectExprValue)) {
+                values = objectExprValue.members;
+              }
+              expr.value = values?.[tupleElementIndex];
+            }
             return expr;
           }
         }
@@ -4739,6 +4760,8 @@ Got: ${typeToString(argType)}`
             `Interface member "${interfaceMember.label}" is not provided and has no default value.`
           );
         } else {
+          // NOTE: No need to evaluate default value again.
+          /*
           // Evaluate the default value expr again
           const evaluatedDefaultValueExpr = this.evaluateExpression({
             expr: interfaceMember.defaultValueExpr,
@@ -4758,6 +4781,7 @@ Got: ${typeToString(argType)}`
             );
           }
           interfaceMember.value = value;
+          */
         }
       }
     }

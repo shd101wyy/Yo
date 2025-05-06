@@ -107,7 +107,7 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinCollections.Tuple[0],
+              value: BuiltinCollections.Tuple,
               position: tokens[index].position,
             },
           },

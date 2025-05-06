@@ -202,6 +202,10 @@ export function isTupleValue(value?: Value): value is TupleValue {
   return value?.tag === ValueTag.Tuple;
 }
 
+export function isStructValue(value?: Value): value is StructValue {
+  return value?.tag === ValueTag.Struct;
+}
+
 export function createTypeValue(value: Type): TypeValue {
   return {
     tag: ValueTag.Type,

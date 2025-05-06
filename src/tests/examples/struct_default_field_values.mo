@@ -13,11 +13,8 @@ p := Point(y: 3);
 SomeTuple :: type (x: i32, y: i32);
 (t: SomeTuple) = (1, 2);
 
-def define_struct_with_default_field(
-  compt(T): Type, 
-  compt(value): T,
-  runtime_value: T
-  ): (), {
+def define_struct_with_default_field:
+  (compt(T): Type, compt(value): T, runtime_value: T) -> (), {
   Point :: struct
     (x: T) = value,
     (y: T) = value
