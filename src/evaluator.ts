@@ -3762,7 +3762,7 @@ compt(${exprToString(returnTypeExpr)})`
     // For interface method call
     let methodExpr: Expr | undefined = undefined;
 
-    let functions: { type: Type; value?: Value }[] = [];
+    let functions: { type: Type; value?: Value; error?: Error }[] = [];
     if (givenFunc) {
       functions = [givenFunc];
     } else if (exprIsFunctionCall(func)) {
@@ -3965,25 +3965,35 @@ compt(${exprToString(returnTypeExpr)})`
     }
 
     // Find the functions whose parameters match the arguments
-    const functionsWithMatchingTypes = functions.filter((functionToCall) => {
+    const functionsToCall = functions.map((functionToCall) => {
       if (isFunctionType(functionToCall.type)) {
-        const result = this.tryToCallFunctionWithArguments({
-          functionType: functionToCall.type,
-          argExprs: args,
-          env,
-          context,
-        });
-        return result;
-      } else {
-        const value = functionToCall.value;
-        // struct value
-        if (isTypeValue(value) && isStructType(value.value)) {
-          return this.tryToCallTypeWithArguments({
-            memberElements: value.value.members,
+        try {
+          this.tryToCallFunctionWithArguments({
+            functionType: functionToCall.type,
+            functionCallExpr: func,
             argExprs: args,
             env,
             context,
           });
+        } catch (error) {
+          functionToCall.error = error;
+        }
+        return functionToCall;
+      } else {
+        const value = functionToCall.value;
+        // struct value
+        if (isTypeValue(value) && isStructType(value.value)) {
+          try {
+            this.tryToCallTypeWithArguments({
+              memberElements: value.value.members,
+              functionCallExpr: func,
+              argExprs: args,
+              env,
+              context,
+            });
+          } catch (error) {
+            functionToCall.error = error;
+          }
         }
         // enum value
         else if (isTypeValue(value) && isEnumType(value.value)) {
@@ -3997,22 +4007,59 @@ compt(${exprToString(returnTypeExpr)})`
               `Enum variant not selected for enum type`
             );
           }
-          return this.tryToCallTypeWithArguments({
-            memberElements: selectedVariant.params || [],
-            argExprs: args,
-            env,
-            context,
-          });
+          try {
+            this.tryToCallTypeWithArguments({
+              memberElements: selectedVariant.params || [],
+              functionCallExpr: func,
+              argExprs: args,
+              env,
+              context,
+            });
+          } catch (error) {
+            functionToCall.error = error;
+          }
+        } else {
+          functionToCall.error = new Error(`Invalid function call`);
         }
-        return false;
+        return functionToCall;
       }
     });
 
+    const functionsWithMatchingTypes = functionsToCall.filter(
+      (functionToCall) => !functionToCall.error
+    );
+
     if (functionsWithMatchingTypes.length === 0) {
+      if (functionsToCall.length === 1) {
+        throw functionsToCall[0].error!;
+      }
+
       throw this.formatErrorMessage(
         func.token,
         `No matching call found with arguments:
-${exprToString(expr)}`
+${exprToString(expr)}
+
+Available functions:
+${functionsToCall
+  .map((func) => {
+    const error = func.error;
+    if (error) {
+      const errorMessage = error.message;
+      // Append 2 spaces ahead each line of the errorMessage
+      const errorMessageWithIndent = errorMessage
+        .split("\n")
+        .map((line) => `  ${line}`)
+        .join("\n");
+
+      return `
+- ${typeToString(func.type)}
+${errorMessageWithIndent}`;
+    } else {
+      return `${typeToString(func.type)}`;
+    }
+  })
+  .join("\n")}
+`
       );
     }
     if (functionsWithMatchingTypes.length > 1) {
@@ -4106,6 +4153,7 @@ ${functionsWithMatchingTypes
         // FIXME: Support to set value for comptime
         const memberValues = this.tryToCallTypeWithArguments({
           memberElements: value.value.members,
+          functionCallExpr: func,
           argExprs: args,
           env,
           context: {
@@ -4149,6 +4197,7 @@ ${functionsWithMatchingTypes
         }
         const memberValues = this.tryToCallTypeWithArguments({
           memberElements: selectedVariant.params || [],
+          functionCallExpr: func,
           argExprs: args,
           env,
           context,
@@ -4187,42 +4236,39 @@ ${exprToString(expr)}`
    */
   private tryToCallFunctionWithArguments({
     functionType,
+    functionCallExpr,
     argExprs,
     env,
     context,
   }: {
     functionType: FunctionType;
+    functionCallExpr: Expr;
     argExprs: Expr[];
     env: Environment;
     context: EvaluatorContext;
-  }): Environment | false {
-    if (argExprs.length > functionType.params.length) {
-      return false;
+  }): Environment {
+    // NOTE: We disallow to have default values for function parameters
+    if (argExprs.length !== functionType.params.length) {
+      throw this.formatErrorMessage(
+        functionCallExpr.token,
+        `Expected ${functionType.params.length} arguments, got ${argExprs.length}.`
+      );
     }
 
     env = pushEnvFrame(env);
-    const checkedFunctionParameters: Set<FunctionParameter> = new Set();
     for (let i = 0; i < functionType.params.length; i++) {
-      let paramElement = functionType.params[i];
-      const argExpr = argExprs[i];
-      if (!argExpr) {
-        return false;
-      }
-      // NOTE: We disallow to have default values for function parameters
+      const paramElement = functionType.params[i];
+      let argExpr = argExprs[i];
 
-      // Check if it's a label
-      let label: string | undefined;
+      // NOTE: We don't support named argument.
+      // But we support to use label for readibility.
+      // eg: add(1, 2) vs add(x: 1, y: 2)
+      let labelExpr: Expr | undefined = undefined;
       if (
         exprIsFunctionCall(argExpr) &&
         exprIsFunctionCallOf(argExpr, ":", 2)
       ) {
-        // NOTE: We disallow to have named arguments
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Named arguments are not supported.`
-        );
-        /*
-        const labelExpr = argExpr.args[0];
+        labelExpr = argExpr.args[0];
         argExpr = argExpr.args[1];
 
         if (!exprIsAtom(labelExpr)) {
@@ -4231,29 +4277,21 @@ ${exprToString(expr)}`
             `Expected identifier for label, got:\n${exprToString(labelExpr)}`
           );
         }
-        label = labelExpr.token.value;
-        */
-      }
+        const label = labelExpr.token.value;
 
-      if (label) {
-        // Find the matching label in the expectedType
-        const paramElement_ = functionType.params.find(
-          (element) => element.label === label
-        );
-        if (!paramElement_) {
-          return false;
-        } else {
-          paramElement = paramElement_;
+        if (paramElement.label !== label) {
+          throw this.formatErrorMessage(
+            labelExpr.token,
+            `Named argument is not supported. Label is only used for readibility. 
+Expected ${
+              paramElement ? `label "${paramElement.label}"` : `no label`
+            } at the argument position, but got "${label}".`
+          );
         }
       }
 
-      if (checkedFunctionParameters.has(paramElement)) {
-        return false; // Already checked this element
-        // We cannot have duplicate labels
-      }
-
       // Evaluate the argExpr
-      let evaluatedArgExpr: Expr;
+      let evaluatedArgExpr: Expr | undefined = undefined;
       try {
         evaluatedArgExpr = this.evaluateExpression({
           expr: argExpr,
@@ -4267,16 +4305,31 @@ ${exprToString(expr)}`
       } catch (error) {
         logger.debug(error);
         logger.debug("return false(1)");
-        return false;
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
+        );
       }
+      if (!evaluatedArgExpr) {
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
+        );
+      }
+
       const argType = evaluatedArgExpr.type;
       if (!argType) {
         logger.debug("return false(2)");
-        return false; // If synthesis fails, the types are not compatible
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
+        );
+        // If synthesis fails, the types are not compatible
       }
 
       // Pass a type to parameter
-      // eg: T: Type
+      // eg: compt(T): Type
+      /*
       if (
         isTypeHierarchyType(paramElement.type) &&
         paramElement.type.level === 0
@@ -4306,11 +4359,34 @@ ${exprToString(expr)}`
           env = nextEnv;
         }
       }
+      */
 
       // Cannot assign runtime parameter to compt parameter
       if (!evaluatedArgExpr.value && paramElement.isCompileTimeOnly) {
-        logger.debug("return false(4)");
-        return false;
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Cannot assign runtime parameter to compile time parameter:\n${exprToString(
+            argExpr
+          )}`
+        );
+      }
+
+      // Add the arg to the environment
+      if (paramElement.label) {
+        const argValue = evaluatedArgExpr.value;
+        const { env: nextEnv } = addVariableToEnv({
+          env,
+          variable: {
+            name: paramElement.label,
+            type: argType,
+            isMutable: paramElement.isMutable,
+            isCompileTimeOnly: paramElement.isCompileTimeOnly,
+            token: argExpr.token,
+            isNotInitialized: false,
+            value: argValue,
+          },
+        });
+        env = nextEnv;
       }
 
       // Synthesize the types
@@ -4345,31 +4421,38 @@ ${exprToString(expr)}`
 
       // Compare the types
       if (!areTypesCompatible(paramElementType, argType, env)) {
-        logger.debug("return false(5)");
-        return false;
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Type mismatch for parameter "${paramElement.label}":
+Expected: ${typeToString(paramElementType)}
+Got:   ${typeToString(argType)}`
+        );
       }
-
-      checkedFunctionParameters.add(paramElement);
     }
+
     return env;
   }
 
   private tryToCallTypeWithArguments({
     memberElements,
+    functionCallExpr,
     argExprs,
     env,
     context,
   }: {
     memberElements: TupleElement[];
+    functionCallExpr: Expr;
     argExprs: Expr[];
     env: Environment;
     context: EvaluatorContext;
-  }): false | (Value | undefined)[] {
+  }): (Value | undefined)[] {
     if (argExprs.length > memberElements.length) {
-      return false;
+      throw this.formatErrorMessage(
+        functionCallExpr.token,
+        `Failed to call the type. Too many members provided. Expected ${memberElements.length} arguments, got ${argExprs.length}.`
+      );
     }
 
-    env = pushEnvFrame(env);
     const checkedMemberElements: Set<TupleElement> = new Set();
     const values: (Value | undefined)[] = Array(memberElements.length).fill(
       undefined
@@ -4382,12 +4465,12 @@ ${exprToString(expr)}`
       }
 
       // Check if it's a label
-      let label: string | undefined;
+      let labelExpr: Expr | undefined = undefined;
       if (
         exprIsFunctionCall(argExpr) &&
         exprIsFunctionCallOf(argExpr, ":", 2)
       ) {
-        const labelExpr = argExpr.args[0];
+        labelExpr = argExpr.args[0];
         argExpr = argExpr.args[1];
 
         if (!exprIsAtom(labelExpr)) {
@@ -4396,52 +4479,64 @@ ${exprToString(expr)}`
             `Expected identifier for label, got:\n${exprToString(labelExpr)}`
           );
         }
-        label = labelExpr.token.value;
       }
 
-      if (label) {
+      if (labelExpr) {
+        const label = labelExpr.token.value;
         // Find the matching label in the expectedType
         const paramElement_ = memberElements.find(
           (element) => element.label === label
         );
         if (!paramElement_) {
-          return false;
+          throw this.formatErrorMessage(
+            argExpr.token,
+            `Failed to find "${label}" in the type.`
+          );
         } else {
           memberElement = paramElement_;
         }
       }
 
       if (checkedMemberElements.has(memberElement)) {
-        return false; // Already checked this element
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Type member "${memberElement.label}" is already implemented.`
+        );
+        // Already checked this element
         // We cannot have duplicate labels
       }
       const memberElementPositionIndex = memberElements.indexOf(memberElement);
 
       // Evaluate the argExpr
-      let evaluatedArgExpr: Expr;
-      try {
-        evaluatedArgExpr = this.evaluateExpression({
-          expr: argExpr,
-          env,
-          context: {
-            ...context,
-            isEvaluatingExprAsType: false,
-            expectedType: memberElement.type,
-          },
-        });
-      } catch (error) {
-        return false;
-      }
+      const evaluatedArgExpr = this.evaluateExpression({
+        expr: argExpr,
+        env,
+        context: {
+          ...context,
+          isEvaluatingExprAsType: false,
+          expectedType: memberElement.type,
+        },
+      });
+
       const argType = evaluatedArgExpr.type;
       if (!argType) {
-        return false; // If synthesis fails, the types are not compatible
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
+        );
       }
 
       // Compare the types
       if (!areTypesCompatible(memberElement.type, argType, env)) {
-        return false;
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Type mismatch for type member "${memberElement.label}":
+Expected: ${typeToString(memberElement.type)}
+Got:   ${typeToString(argType)}`
+        );
       }
 
+      // Set the values
       values[memberElementPositionIndex] = evaluatedArgExpr.value;
       checkedMemberElements.add(memberElement);
     }
@@ -4451,7 +4546,10 @@ ${exprToString(expr)}`
       const memberElement = memberElements[i];
       if (!checkedMemberElements.has(memberElement)) {
         if (!memberElement.defaultValue) {
-          return false;
+          throw this.formatErrorMessage(
+            functionCallExpr.token,
+            `Type member "${memberElement.label}" is not provided and has no default value.`
+          );
         } else {
           // Set the default value to values
           values[i] = memberElement.defaultValue;
@@ -4527,7 +4625,7 @@ ${interfaceMember.label}: ${typeToString(interfaceMember.type)}`
           interfaceMember = interfaceMember_;
         }
       } else {
-        this.formatErrorMessage(
+        throw this.formatErrorMessage(
           argExpr.token,
           `Expected member label, but got:\n${exprToString(argExpr)}`
         );
@@ -4652,8 +4750,9 @@ Got: ${typeToString(argType)}`
     // This will push a new frame to the env and
     // add the parameters to the env
     const nextEnv = this.tryToCallFunctionWithArguments({
-      functionType: functionType,
-      argExprs: argExprs,
+      functionType,
+      functionCallExpr,
+      argExprs,
       env,
       context,
     });
@@ -4804,7 +4903,8 @@ Expected: ${typeToString(functionType)}`
     // This will push a new frame to the env and
     // add the parameters to the env
     const nextEnv = this.tryToCallFunctionWithArguments({
-      functionType: functionType,
+      functionType,
+      functionCallExpr,
       argExprs,
       env,
       context,
