@@ -352,6 +352,19 @@ export function getVariablesFromEnv(
   return variables;
 }
 
+export function getVariablesFromEnvByFilter(
+  env: Environment,
+  variableFilter: (variable: Variable) => boolean
+): Variable[] {
+  const variables: Variable[] = [];
+  for (let i = 0; i < env.frames.length; i++) {
+    const frame = env.frames[i];
+    const variablesInFrame = frame.variables.filter(variableFilter);
+    variables.push(...variablesInFrame);
+  }
+  return variables;
+}
+
 export function pushEnvFrame(
   env: Environment,
   frame: Frame = {

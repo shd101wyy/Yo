@@ -74,9 +74,15 @@ export const BuiltinKeywords = {
   Compt: ["compt", "@"],
   Mut: ["mut", "!"],
   Implicit: ["implicit", "?"],
+
   Forall: ["forall", "∀"],
+  Exists: ["exists", "∃"],
+  Where: ["where", "∋"],
+  In: ["in", "∈"],
+
   Quote: ["quote", ":"],
   Unquote: ["unquote", "$"],
+
   TypeOf: ["typeof"],
   Def: ["def"],
   Recur: ["recur"],

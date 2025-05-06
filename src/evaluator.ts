@@ -4,6 +4,7 @@ import {
   Environment,
   getMethodsByNameFromEnv,
   getVariablesFromEnv,
+  getVariablesFromEnvByFilter,
   popEnvFrame,
   pushEnvFrame,
   updateExistingVariable,
@@ -78,6 +79,7 @@ import { VUnit } from "./unit-value";
 import { randomId } from "./utils";
 import {
   areValuesEqual,
+  createBooleanValue,
   createEnumValue,
   createStructValue,
   createTypeValue,
@@ -188,11 +190,7 @@ export default class Evaluator {
   private evaluateBooleanLiteral(expr: AtomExpr): AtomExpr {
     if (expr.token.type === TokenType.Boolean) {
       const booleanValue = expr.token.value === "true";
-      const value: Value = {
-        tag: ValueTag.Boolean,
-        type: TBoolean,
-        value: booleanValue,
-      };
+      const value: Value = createBooleanValue(booleanValue);
       expr.value = value;
       expr.type = value.type;
       return expr;
@@ -5586,6 +5584,100 @@ If you want to define the receiver type, please use "This" instead.`
     return expr;
   }
 
+  private evaluateExists({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "exists" (or "∃"), got:\n${exprToString(expr)}`
+      );
+    }
+
+    const args = expr.args;
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      let labelExpr: Expr | undefined = undefined;
+      let typeExpr: Expr = arg;
+      if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, ":", 2)) {
+        labelExpr = arg.args[0];
+        typeExpr = arg.args[1];
+      }
+
+      if (labelExpr && !exprIsAtom(labelExpr)) {
+        throw this.formatErrorMessage(
+          labelExpr.token,
+          `Expected identifier for label, got:\n${exprToString(labelExpr)}`
+        );
+      }
+
+      // Evaluate the typeExpr
+      const evaluatedTypeExpr = this.evaluateExpression({
+        expr: typeExpr,
+        env,
+        context: {
+          ...context,
+          isEvaluatingExprAsType: true,
+          expectedType: undefined,
+          SelfType: undefined,
+        },
+      });
+      if (evaluatedTypeExpr.env) {
+        env = evaluatedTypeExpr.env;
+      }
+
+      const typeValue = evaluatedTypeExpr.value;
+      if (!isTypeValue(typeValue)) {
+        throw this.formatErrorMessage(
+          typeExpr.token,
+          `Expected type, got:\n${exprToString(typeExpr)}`
+        );
+      }
+      const type = typeValue.value;
+
+      if (isInterfaceType(type)) {
+        // Check if the interface is implemented
+        if (!type.isImplemented) {
+          expr.value = createBooleanValue(false);
+          expr.type = expr.value.type;
+          expr.env = env;
+          return expr;
+        }
+      } else {
+        // Check if the variable of label with type exists in the current env.
+        // Check if the variable of type exists in the current env.
+        const variables = getVariablesFromEnvByFilter(env, (variable) => {
+          // We only check the compile time variables
+          if (!variable.isCompileTimeOnly) {
+            return false;
+          }
+          if (labelExpr && variable.name !== labelExpr.token.value) {
+            return false;
+          }
+          return areTypesCompatible(variable.type, type, env);
+        });
+        // Not found
+        if (variables.length === 0) {
+          expr.value = createBooleanValue(false);
+          expr.type = expr.value.type;
+          expr.env = env;
+          return expr;
+        }
+      }
+    }
+
+    expr.value = createBooleanValue(true);
+    expr.type = expr.value.type;
+    expr.env = env;
+    return expr;
+  }
+
   private evaluateExpression({
     expr,
     env,
@@ -5704,6 +5796,9 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.TypeOf)) {
         // typeof
         return this.evaluateTypeOf({ expr, env, context });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {
+        // exists
+        return this.evaluateExists({ expr, env, context });
       } else {
         /* else if (exprIsFunctionCallOf(expr, ".", 1)) {
         // variant

@@ -7,6 +7,7 @@ import {
   isTypeHierarchyType,
   SomeType,
   StructType,
+  TBoolean,
   TupleType,
   Type,
   typeOfType,
@@ -190,6 +191,10 @@ export function isTypeValue(value?: Value): value is TypeValue {
   return value?.tag === ValueTag.Type;
 }
 
+export function isBooleanValue(value?: Value): value is BooleanValue {
+  return value?.tag === ValueTag.Boolean;
+}
+
 export function isFunctionValue(value?: Value): value is FunctionValue {
   return value?.tag === ValueTag.Function;
 }
@@ -210,6 +215,14 @@ export function createTypeValue(value: Type): TypeValue {
   return {
     tag: ValueTag.Type,
     type: typeOfType(value),
+    value,
+  };
+}
+
+export function createBooleanValue(value: boolean): BooleanValue {
+  return {
+    tag: ValueTag.Boolean,
+    type: TBoolean,
     value,
   };
 }
