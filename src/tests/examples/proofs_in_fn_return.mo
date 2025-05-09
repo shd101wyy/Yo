@@ -1,7 +1,6 @@
-
 def my_add:
   (compt(T): Type, x: T, y: T) ->
-    exists(add: (T, T)-> T) => T,
+    (exists(add: ((T, T)-> T))) => T,
   add(x, y)
 ;
 

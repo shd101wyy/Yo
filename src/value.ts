@@ -62,14 +62,14 @@ export type TupleValue = {
 export type StructValue = {
   tag: ValueTag.Struct;
   type: StructType;
-  members: Value[];
+  elements: Value[];
 };
 
 export type EnumValue = {
   tag: ValueTag.Enum;
   type: EnumType;
   variantName: string;
-  members: Value[];
+  elements: Value[];
 };
 
 export type UnknownValue = {
@@ -153,17 +153,17 @@ export function valueToString(value?: Value): string {
       })`;
     }
     case ValueTag.Struct: {
-      return `_(${value.members
-        .map((member) => {
-          return `${valueToString(member)}`;
+      return `_(${value.elements
+        .map((element) => {
+          return `${valueToString(element)}`;
         })
         .join(", ")})`;
     }
     case ValueTag.Enum: {
-      if (value.members.length === 0) {
+      if (value.elements.length === 0) {
         return `.${value.variantName}`;
       }
-      return `.${value.variantName}(${value.members
+      return `.${value.variantName}(${value.elements
         .map(valueToString)
         .join(", ")})`;
     }
@@ -252,25 +252,25 @@ export function createUnknownValue(
 
 export function createStructValue(
   type: StructType,
-  members: Value[]
+  elements: Value[]
 ): StructValue {
   return {
     tag: ValueTag.Struct,
     type,
-    members,
+    elements,
   };
 }
 
 export function createEnumValue(
   type: EnumType,
   variantName: string,
-  members: Value[]
+  elements: Value[]
 ): EnumValue {
   return {
     tag: ValueTag.Enum,
     type,
     variantName,
-    members,
+    elements,
   };
 }
 
@@ -341,16 +341,16 @@ export function areValuesEqual(
     return true;
   } else if (value1.tag === ValueTag.Struct) {
     if (
-      value1.members.length !== (value2 as StructValue).members.length ||
+      value1.elements.length !== (value2 as StructValue).elements.length ||
       !areTypesCompatible(value1.type, value2.type, env)
     ) {
       return false;
     }
-    for (let i = 0; i < value1.members.length; i++) {
+    for (let i = 0; i < value1.elements.length; i++) {
       if (
         !areValuesEqual(
-          value1.members[i],
-          (value2 as StructValue).members[i],
+          value1.elements[i],
+          (value2 as StructValue).elements[i],
           env
         )
       ) {
@@ -360,17 +360,17 @@ export function areValuesEqual(
     return true;
   } else if (value1.tag === ValueTag.Enum) {
     if (
-      value1.members.length !== (value2 as EnumValue).members.length ||
+      value1.elements.length !== (value2 as EnumValue).elements.length ||
       !areTypesCompatible(value1.type, value2.type, env) ||
       value1.variantName !== (value2 as EnumValue).variantName
     ) {
       return false;
     }
-    for (let i = 0; i < value1.members.length; i++) {
+    for (let i = 0; i < value1.elements.length; i++) {
       if (
         !areValuesEqual(
-          value1.members[i],
-          (value2 as StructValue).members[i],
+          value1.elements[i],
+          (value2 as StructValue).elements[i],
           env
         )
       ) {

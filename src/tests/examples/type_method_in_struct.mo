@@ -5,7 +5,27 @@ extern
 
 Point :: struct
   x: i32,
-  y: i32
+  y: i32,
+
+  (def (+):
+    (a: Self, b: Self)-> Self,
+    Self((a.x `add` b.x), (a.y `add` b.y))
+  ),
+
+  (def add:
+    (a: Self, b: Self)-> Self,
+    Self((a.x `add` b.x), (a.y `add` b.y))
+  ),
+
+  (def new:
+    () -> Self,
+    Self(0, 0)
+  ),
+
+  (def create:
+    (x: i32, y: i32) -> Self,
+    Self(x, y)
+  )
 ;
 
 a := Point(1, 2);
@@ -15,24 +35,6 @@ y := (a.y `add` b.y);
 // c := Point(x, y);
 c := Point (a.x `add` b.x), b.y;
 // c := (a + b);
-
-def Point.(+) :
-  (a: Point, b: Point)-> Point,
-  Point((a.x `add` b.x), (a.y `add` b.y ))
-;
-def Point.add :
-  (a: Point, b: Point)-> Point,
-  Point((a.x `add` b.x), (a.y `add` b.y ))
-;
-def Point.new :
-  () -> Point,
-  Point(0, 0)
-;
-def Point.create :
-  (x: i32, y: i32) -> Point,
-  Point(x, y)
-;
-
 
 def add_points:
   (a: Point, b: Point)-> Point,

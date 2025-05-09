@@ -346,7 +346,7 @@ export default class Evaluator {
         const tupleElement = expectedType.elements[tupleElementIndex];
         expectedTupleElementType = tupleElement.type;
       } else if (isStructType(expectedType)) {
-        const structMember = expectedType.members[tupleElementIndex];
+        const structMember = expectedType.elements[tupleElementIndex];
         expectedTupleElementType = structMember.type;
       } else {
         throw this.formatErrorMessage(
@@ -672,14 +672,14 @@ ${typeToString(expectedTupleType)}`
       // NOTE: The typeId might not match
       // They might be different structs that both are returned from the same function.
     ) {
-      for (let i = 0; i < expectedType.members.length; i++) {
-        const expectedTypeMember = expectedType.members[i];
-        const givenTypeMember = givenType.members[i];
+      for (let i = 0; i < expectedType.elements.length; i++) {
+        const expectedElement = expectedType.elements[i];
+        const givenElement = givenType.elements[i];
         env = this.synthesizeTypes(
-          expectedTypeMember.type,
-          givenTypeMember.type,
+          expectedElement.type,
+          givenElement.type,
           env,
-          expectedTypeMember.expr.token
+          expectedElement.expr.token
         );
       }
     } else if (
@@ -696,15 +696,15 @@ ${typeToString(expectedTupleType)}`
         const expectedTypeVariant = expectedType.variants[i];
         const givenTypeVariant = givenType.variants[i];
 
-        const expectedTypeVariantParams = expectedTypeVariant.params ?? [];
-        const givenTypeVariantParams = givenTypeVariant.params ?? [];
+        const expectedTypeVariantElements = expectedTypeVariant.elements ?? [];
+        const givenTypeVariantElements = givenTypeVariant.elements ?? [];
 
-        for (let j = 0; j < expectedTypeVariantParams.length; j++) {
+        for (let j = 0; j < expectedTypeVariantElements.length; j++) {
           env = this.synthesizeTypes(
-            expectedTypeVariantParams[j].type,
-            givenTypeVariantParams[j].type,
+            expectedTypeVariantElements[j].type,
+            givenTypeVariantElements[j].type,
             env,
-            expectedTypeVariantParams[j].expr.token
+            expectedTypeVariantElements[j].expr.token
           );
         }
       }
@@ -954,7 +954,7 @@ ${typeToString(expectedTupleType)}`
       return this.handleMemberDestructuring({
         lhsFunc: lhs.func,
         lhsElements: lhs.args,
-        rhsMembers: rhsType.members,
+        rhsElements: rhsType.elements,
         rhsValue: rhs.value,
         rhsType,
         lhs,
@@ -971,7 +971,7 @@ ${typeToString(expectedTupleType)}`
       return this.handleMemberDestructuring({
         lhsFunc: lhs.func,
         lhsElements: lhs.args,
-        rhsMembers: rhsType.elements,
+        rhsElements: rhsType.elements,
         rhsValue: rhs.value,
         rhsType,
         lhs,
@@ -992,7 +992,7 @@ ${typeToString(expectedTupleType)}`
   private handleMemberDestructuring({
     lhsFunc,
     lhsElements,
-    rhsMembers,
+    rhsElements,
     rhsValue,
     rhsType,
     lhs,
@@ -1001,7 +1001,7 @@ ${typeToString(expectedTupleType)}`
   }: {
     lhsFunc: Expr;
     lhsElements: Expr[];
-    rhsMembers: TupleElement[];
+    rhsElements: TupleElement[];
     rhsValue: Value | undefined;
     rhsType: Type;
     lhs: Expr;
@@ -1025,10 +1025,10 @@ ${typeToString(expectedTupleType)}`
     }
 
     // Check if we have enough elements
-    if (lhsElements.length > rhsMembers.length) {
+    if (lhsElements.length > rhsElements.length) {
       throw this.formatErrorMessage(
         lhs.token,
-        `Too many elements in destructuring pattern. Expected at most ${rhsMembers.length}, got ${lhsElements.length}`
+        `Too many elements in destructuring pattern. Expected at most ${rhsElements.length}, got ${lhsElements.length}`
       );
     }
 
@@ -1036,8 +1036,8 @@ ${typeToString(expectedTupleType)}`
     for (let i = 0; i < lhsElements.length; i++) {
       const lhsElement = lhsElements[i];
       let elementIndex: number = i;
-      // Initialize rhsMember here, before any conditional branches
-      let rhsMember = rhsMembers[elementIndex];
+      // Initialize rhsElement here, before any conditional branches
+      let rhsElement = rhsElements[elementIndex];
       let variableName: string | undefined;
       let variableToken: Token | undefined;
       let labelExpr: Expr | undefined = undefined;
@@ -1048,8 +1048,8 @@ ${typeToString(expectedTupleType)}`
         exprIsFunctionCall(lhsElement) &&
         exprIsFunctionCallOf(lhsElement, BuiltinCollections.Tuple)
       ) {
-        rhsMember = rhsMembers[elementIndex];
-        const nestedRhsType = rhsMember.type;
+        rhsElement = rhsElements[elementIndex];
+        const nestedRhsType = rhsElement.type;
 
         // Get the nested value
         let nestedValue: Value | undefined = undefined;
@@ -1070,13 +1070,13 @@ ${typeToString(expectedTupleType)}`
         // Get the nested members
         const nestedMembers = isTupleType(nestedRhsType)
           ? nestedRhsType.elements
-          : (nestedRhsType as StructType).members;
+          : (nestedRhsType as StructType).elements;
 
         // Recursively process nested destructuring
         env = this.handleMemberDestructuring({
           lhsFunc: lhsElement.func,
           lhsElements: lhsElement.args,
-          rhsMembers: nestedMembers,
+          rhsElements: nestedMembers,
           rhsValue: nestedValue as TupleValue | undefined,
           rhsType: nestedRhsType,
           lhs: lhsElement,
@@ -1115,7 +1115,7 @@ ${typeToString(expectedTupleType)}`
         const label = labelExpr.token.value;
 
         // Find the member with matching label
-        const matchingMemberIndex = rhsMembers.findIndex(
+        const matchingMemberIndex = rhsElements.findIndex(
           (member) => member.label === label
         );
 
@@ -1129,8 +1129,8 @@ ${typeToString(expectedTupleType)}`
         }
 
         elementIndex = matchingMemberIndex;
-        rhsMember = rhsMembers[elementIndex];
-        const nestedRhsType = rhsMember.type;
+        rhsElement = rhsElements[elementIndex];
+        const nestedRhsType = rhsElement.type;
 
         // Get the nested value
         let nestedValue: Value | undefined = undefined;
@@ -1154,15 +1154,15 @@ ${typeToString(expectedTupleType)}`
           }
 
           // Get the nested members
-          const nestedMembers = isTupleType(nestedRhsType)
+          const nestedElements = isTupleType(nestedRhsType)
             ? nestedRhsType.elements
-            : (nestedRhsType as StructType).members;
+            : (nestedRhsType as StructType).elements;
 
           // Recursively process nested destructuring
           env = this.handleMemberDestructuring({
             lhsFunc: rightSide.func,
             lhsElements: rightSide.args,
-            rhsMembers: nestedMembers,
+            rhsElements: nestedElements,
             rhsValue: nestedValue as TupleValue | undefined,
             rhsType: nestedRhsType,
             lhs: rightSide,
@@ -1199,11 +1199,11 @@ ${typeToString(expectedTupleType)}`
           }
 
           // Recursively process nested destructuring
-          const nestedMembers = nestedRhsType.members;
+          const nestedElements = nestedRhsType.elements;
           env = this.handleMemberDestructuring({
             lhsFunc: rightSide.func,
             lhsElements: rightSide.args,
-            rhsMembers: nestedMembers,
+            rhsElements: nestedElements,
             rhsValue: nestedValue as TupleValue | undefined,
             rhsType: nestedRhsType,
             lhs: rightSide,
@@ -1305,8 +1305,8 @@ ${typeToString(expectedTupleType)}`
           : "_";
 
         // Get the right-hand side value at this position
-        rhsMember = rhsMembers[elementIndex];
-        const nestedRhsType = rhsMember.type;
+        rhsElement = rhsElements[elementIndex];
+        const nestedRhsType = rhsElement.type;
 
         // Get the nested value
         let nestedValue: Value | undefined = undefined;
@@ -1340,7 +1340,7 @@ ${typeToString(expectedTupleType)}`
         env = this.handleMemberDestructuring({
           lhsFunc: lhsElement.func,
           lhsElements: lhsElement.args,
-          rhsMembers: nestedRhsType.members,
+          rhsElements: nestedRhsType.elements,
           rhsValue: nestedValue as TupleValue | undefined,
           rhsType: nestedRhsType,
           lhs: lhsElement,
@@ -1384,7 +1384,7 @@ ${typeToString(expectedTupleType)}`
           variable: {
             name: variableName,
             token: variableToken,
-            type: rhsMember.type,
+            type: rhsElement.type,
             isMutable: false,
             isNotInitialized: false,
             value: elementValue,
@@ -1394,12 +1394,12 @@ ${typeToString(expectedTupleType)}`
         env = nextEnv;
 
         // Set the type and value on the lhs element for completeness
-        lhsElement.type = rhsMember.type;
+        lhsElement.type = rhsElement.type;
         lhsElement.value = elementValue;
         lhsElement.env = env;
 
         if (labelExpr) {
-          labelExpr.type = rhsMember.type;
+          labelExpr.type = rhsElement.type;
           if (!renameExpr) {
             labelExpr.value = elementValue;
           }
@@ -1407,7 +1407,7 @@ ${typeToString(expectedTupleType)}`
         }
 
         if (renameExpr) {
-          renameExpr.type = rhsMember.type;
+          renameExpr.type = rhsElement.type;
           renameExpr.value = elementValue;
           renameExpr.env = env;
         }
@@ -2246,10 +2246,10 @@ ${exprToString(expr)}`
           );
         }
 
-        if (!variant.params) {
+        if (!variant.elements) {
           throw this.formatErrorMessage(
             patternExpr.token,
-            `Enum variant "${variantName}" does not have parameters but got pattern with parameters`
+            `Enum variant "${variantName}" does not have elements but got pattern with elements`
           );
         }
 
@@ -2257,35 +2257,40 @@ ${exprToString(expr)}`
         const patternEnv = pushEnvFrame(env);
 
         // Check if the pattern arguments match the variant parameters
-        const patternParams = patternExpr.args;
-        if (patternParams.length > variant.params.length) {
+        const patternElements = patternExpr.args;
+        if (patternElements.length > variant.elements.length) {
           throw this.formatErrorMessage(
             patternExpr.token,
-            `Too many parameters in pattern. Expected ${variant.params.length}, got ${patternParams.length}`
+            `Too many parameters in pattern. Expected ${variant.elements.length}, got ${patternElements.length}`
           );
         }
 
-        // Add each parameter to environment as local variable
-        for (let j = 0; j < patternParams.length; j++) {
-          const param = patternParams[j];
-          const variantParam = variant.params[j];
+        // Add each element to environment as local variable
+        for (let j = 0; j < patternElements.length; j++) {
+          const patternElement = patternElements[j];
+          const variantElement = variant.elements[j];
 
-          if (!exprIsAtom(param) || !this.isValidVariableName(param)) {
+          if (
+            !exprIsAtom(patternElement) ||
+            !this.isValidVariableName(patternElement)
+          ) {
             throw this.formatErrorMessage(
-              param.token,
-              `Expected identifier for parameter, got ${exprToString(param)}`
+              patternElement.token,
+              `Expected identifier for parameter, got ${exprToString(
+                patternElement
+              )}`
             );
           }
 
           // Assign the proper type from the variant parameter to this variable
-          param.type = variantParam.type;
+          patternElement.type = variantElement.type;
 
           const { env: updatedEnv } = addVariableToEnv({
             env: patternEnv,
             variable: {
-              name: param.token.value,
-              token: param.token,
-              type: variantParam.type,
+              name: patternElement.token.value,
+              token: patternElement.token,
+              type: variantElement.type,
               isMutable: false,
               isNotInitialized: false,
             },
@@ -2967,6 +2972,37 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     };
   }
 
+  /**
+   * For example:
+   * (exists(add: ((i32, i32) -> i32))) => SomeType
+   *
+   * here "expr" is the expression on the left side of the "=>":
+   *
+   *   (exists(add: ((i32, i32) -> i32)))
+   */
+  private evaluateProofAssumptions({
+    expr, // env,
+  } // context,
+  : {
+    expr: Expr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): Expr {
+    /*
+    let proofExprs: Expr[] = [];
+    if (
+      exprIsFunctionCall(expr) &&
+      exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)
+    ) {
+      proofExprs = expr.args;
+    } else {
+      proofExprs = [expr];
+    }
+      */
+
+    return expr;
+  }
+
   private evaluateFunctionType({
     expr,
     env,
@@ -3020,6 +3056,26 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     });
     env = nextEnv;
 
+    // Analysize the return type expression
+    /// Evaluate the proofs
+    if (
+      exprIsFunctionCall(returnTypeExpr) &&
+      exprIsFunctionCallOf(returnTypeExpr, "=>", 2)
+    ) {
+      // const lhsExpr = returnTypeExpr.args[0];
+      returnTypeExpr = returnTypeExpr.args[1];
+
+      /*
+      const evaluatedProofAssumptionsExpr = this.evaluateProofAssumptions({
+        expr: lhsExpr,
+        env,
+        context: {
+          ...context,
+        },
+      });
+      */
+    }
+    /// Check if the function is returning compile-time only value.
     let isReturnTypeCompileTimeOnly = false;
     if (
       exprIsFunctionCall(returnTypeExpr) &&
@@ -3241,7 +3297,7 @@ compt(${exprToString(returnTypeExpr)})`
 
         variants.push({
           name: variantName,
-          params: tupleType.elements,
+          elements: tupleType.elements,
         });
       }
     }
@@ -3319,7 +3375,7 @@ compt(${exprToString(returnTypeExpr)})`
        * Color :: enum Red, Green, Blue;
        * r := Color.Red;
        */
-      if (!variant.params) {
+      if (!variant.elements) {
         expr.type = newEnumType;
         propertyExpr.type = newEnumType;
         // FIXME: Support expr.value for comptime evaluation.
@@ -3393,7 +3449,7 @@ compt(${exprToString(returnTypeExpr)})`
          * Color :: enum Red, Green, Blue;
          * r := Color.Red;
          */
-        if (!variant.params) {
+        if (!variant.elements) {
           expr.type = newEnumType;
           propertyExpr.type = newEnumType;
           // FIXME: Support expr.value for comptime evaluation.
@@ -3419,7 +3475,7 @@ compt(${exprToString(returnTypeExpr)})`
         if (isTupleType(typeValue.value)) {
           elements = typeValue.value.elements;
         } else if (isStructType(typeValue.value)) {
-          elements = typeValue.value.members;
+          elements = typeValue.value.elements;
         }
         // Check if it's accessing the tuple element by
         // - number index: point.0
@@ -3516,7 +3572,7 @@ compt(${exprToString(returnTypeExpr)})`
       if (isTupleType(objectExpr.type)) {
         elements = objectExpr.type.elements;
       } else if (isStructType(objectExpr.type)) {
-        elements = objectExpr.type.members;
+        elements = objectExpr.type.elements;
       }
       // Check if it's accessing the tuple element by
       // - number index: point.0
@@ -3550,7 +3606,7 @@ compt(${exprToString(returnTypeExpr)})`
             if (isTupleValue(objectExprValue)) {
               values = objectExprValue.elements;
             } else if (isStructValue(objectExprValue)) {
-              values = objectExprValue.members;
+              values = objectExprValue.elements;
             }
             expr.value = values?.[index];
           }
@@ -3587,7 +3643,7 @@ compt(${exprToString(returnTypeExpr)})`
               if (isTupleValue(objectExprValue)) {
                 values = objectExprValue.elements;
               } else if (isStructValue(objectExprValue)) {
-                values = objectExprValue.members;
+                values = objectExprValue.elements;
               }
               expr.value = values?.[tupleElementIndex];
             }
@@ -4020,7 +4076,7 @@ compt(${exprToString(returnTypeExpr)})`
         if (isTypeValue(value) && isStructType(value.value)) {
           try {
             this.tryToCallTypeWithArguments({
-              memberElements: value.value.members,
+              memberElements: value.value.elements,
               functionCallExpr: func,
               argExprs: args,
               env,
@@ -4044,7 +4100,7 @@ compt(${exprToString(returnTypeExpr)})`
           }
           try {
             this.tryToCallTypeWithArguments({
-              memberElements: selectedVariant.params || [],
+              memberElements: selectedVariant.elements || [],
               functionCallExpr: func,
               argExprs: args,
               env,
@@ -4188,7 +4244,7 @@ ${functionsWithMatchingTypes
         expr.env = env;
         // FIXME: Support to set value for comptime
         const memberValues = this.tryToCallTypeWithArguments({
-          memberElements: value.value.members,
+          memberElements: value.value.elements,
           functionCallExpr: func,
           argExprs: args,
           env,
@@ -4232,7 +4288,7 @@ ${functionsWithMatchingTypes
           );
         }
         const memberValues = this.tryToCallTypeWithArguments({
-          memberElements: selectedVariant.params || [],
+          memberElements: selectedVariant.elements || [],
           functionCallExpr: func,
           argExprs: args,
           env,
@@ -5118,7 +5174,7 @@ Expected: ${typeToString(functionType)}`
       }
       if (isStructType(type)) {
         // Check if the method name conflicts with the struct members
-        if (type.members.find((m) => m.label === methodName)) {
+        if (type.elements.find((m) => m.label === methodName)) {
           throw this.formatErrorMessage(
             methodExpr.token,
             `Duplicate label "${methodName}" in struct member`

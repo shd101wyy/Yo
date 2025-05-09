@@ -377,9 +377,9 @@ export interface StructType extends Type {
   functionValue?: FunctionValue;
 
   /**
-   * The members of the struct.
+   * The elements of the struct.
    */
-  members: TupleElement[];
+  elements: TupleElement[];
 }
 
 export interface EnumVariant {
@@ -387,7 +387,7 @@ export interface EnumVariant {
    * Without `.` prefix
    */
   name: string;
-  params?: TupleElement[]; // Changed from TupleElement[] to TupleType for consistency
+  elements?: TupleElement[]; // Changed from TupleElement[] to TupleType for consistency
   // TODO: return type? For GADT
 }
 
@@ -430,7 +430,7 @@ export interface EnumType extends Type {
 
 export interface UnionType extends Type {
   tag: TypeTag.Union;
-  members: TupleElement[];
+  elements: TupleElement[];
 }
 
 export interface FunctionReturn {
@@ -604,23 +604,23 @@ export function createTupleType(elements: TupleElement[]): TupleType {
 }
 
 export function createStructType(
-  members: TupleElement[],
+  elements: TupleElement[],
   typeId?: string
 ): StructType {
   let totalSize: undefined | number = 0;
-  for (let i = 0; i < members.length; i++) {
-    const member = members[i];
-    if (member.type.size === undefined) {
+  for (let i = 0; i < elements.length; i++) {
+    const element = elements[i];
+    if (element.type.size === undefined) {
       totalSize = undefined;
     } else if (typeof totalSize === "number") {
-      totalSize += member.type.size;
+      totalSize += element.type.size;
     }
   }
 
   return {
     tag: TypeTag.Struct,
     size: totalSize,
-    members,
+    elements,
     typeId: typeId ?? `struct_${randomId()}`,
   };
 }
@@ -633,13 +633,13 @@ export function createEnumType(
   for (let i = 0; i < variants.length; i++) {
     const variant = variants[i];
     let variantSize = 0;
-    if (variant.params) {
-      for (let j = 0; j < variant.params.length; j++) {
-        const param = variant.params[j];
-        if (param.type.size === undefined) {
+    if (variant.elements) {
+      for (let j = 0; j < variant.elements.length; j++) {
+        const element = variant.elements[j];
+        if (element.type.size === undefined) {
           totalSize = undefined;
         } else if (typeof totalSize === "number") {
-          variantSize += param.type.size;
+          variantSize += element.type.size;
         }
       }
     }
@@ -663,10 +663,10 @@ export function createEnumType(
   };
 }
 
-export function createUnionType(members: TupleElement[]): UnionType {
+export function createUnionType(elements: TupleElement[]): UnionType {
   let maxSize = 0;
-  for (let i = 0; i < members.length; i++) {
-    const type = members[i].type;
+  for (let i = 0; i < elements.length; i++) {
+    const type = elements[i].type;
     if (type.size === undefined) {
       throw new Error(
         `Cannot create union type: type at index ${i} has undefined size`
@@ -678,7 +678,7 @@ export function createUnionType(members: TupleElement[]): UnionType {
   return {
     tag: TypeTag.Union,
     size: maxSize, // Changed from totalSize to maxSize as unions use the size of largest variant
-    members,
+    elements,
   };
 }
 
@@ -857,19 +857,19 @@ export function typeOfType(t: Type): Type {
     return determineTypeUniverse(t.elements.map((element) => element.type));
   } else if (isStructType(t)) {
     // For structs, check all member types
-    return determineTypeUniverse(t.members.map((element) => element.type));
+    return determineTypeUniverse(t.elements.map((element) => element.type));
   } else if (isEnumType(t)) {
     // For enums, check all variant
     const types: Type[] = [];
     for (const variant of t.variants) {
-      if (variant.params) {
-        types.push(...variant.params.map((param) => param.type));
+      if (variant.elements) {
+        types.push(...variant.elements.map((param) => param.type));
       }
     }
     return determineTypeUniverse(types);
   } else if (isUnionType(t)) {
     // For unions, check all member types
-    return determineTypeUniverse(t.members.map((element) => element.type));
+    return determineTypeUniverse(t.elements.map((element) => element.type));
   } else if (isSomeType(t)) {
     return t.parentType;
   } else if (isInterfaceType(t)) {
@@ -969,9 +969,9 @@ export function areTypesCompatible(
   }
 
   if (isStructType(expectedType) && isStructType(givenType)) {
-    // Structs must have same members and compatible types
+    // Structs must have same elements and compatible types
     if (
-      expectedType.members.length !== givenType.members.length ||
+      expectedType.elements.length !== givenType.elements.length ||
       expectedType.typeId !== givenType.typeId
     ) {
       return false;
@@ -986,13 +986,13 @@ export function areTypesCompatible(
     }
 
     // QUESTION: In theory comparing the typeId is enough
-    for (let i = 0; i < expectedType.members.length; i++) {
-      const expectedMember = expectedType.members[i];
-      const givenMember = givenType.members[i];
+    for (let i = 0; i < expectedType.elements.length; i++) {
+      const expectedElement = expectedType.elements[i];
+      const givenElement = givenType.elements[i];
 
       if (
-        !areTypesCompatible(expectedMember.type, givenMember.type, env) ||
-        expectedMember.label !== givenMember.label
+        !areTypesCompatible(expectedElement.type, givenElement.type, env) ||
+        expectedElement.label !== givenElement.label
       ) {
         return false;
       }
@@ -1239,13 +1239,13 @@ export function typeToString(type: Type): string {
 
       return `${struct.typeName ? `(${struct.typeName}) ` : ""}${
         struct.typeName ? "struct" : struct.typeId
-      }(${struct.members
-        .map((member) => {
-          let t = `${member.label ? `${member.label}: ` : ""}${typeToString(
-            member.type
+      }(${struct.elements
+        .map((element) => {
+          let t = `${element.label ? `${element.label}: ` : ""}${typeToString(
+            element.type
           )}`;
-          if (member.defaultValue) {
-            t = `(${t}) = ${valueToString(member.defaultValue)}`;
+          if (element.defaultValue) {
+            t = `(${t}) = ${valueToString(element.defaultValue)}`;
           }
           return t;
         })
@@ -1259,8 +1259,8 @@ export function typeToString(type: Type): string {
       }enum(${enumType.variants
         .map((variant) => {
           return `${variant.name}${
-            variant.params
-              ? `(${variant.params
+            variant.elements
+              ? `(${variant.elements
                   .map((param) => {
                     let t = `${
                       param.label ? `${param.label}: ` : ""
@@ -1278,12 +1278,12 @@ export function typeToString(type: Type): string {
     }
 
     case TypeTag.Union: {
-      const members = (type as UnionType).members;
-      return `union(${members
+      const elements = (type as UnionType).elements;
+      return `union(${elements
         .map(
-          (member) =>
-            `${member.label ? `${member.label}:` : ""}${typeToString(
-              member.type
+          (element) =>
+            `${element.label ? `${element.label}:` : ""}${typeToString(
+              element.type
             )}`
         )
         .join(", ")})`;
