@@ -70,6 +70,7 @@ import {
   TupleType,
   TUsize,
   Type,
+  TypeHierarchyType,
   typeOfType,
   TypeTag,
   typeToString,
@@ -349,11 +350,14 @@ export default class Evaluator {
         const structMember = expectedType.elements[tupleElementIndex];
         expectedTupleElementType = structMember.type;
       } else {
+        /*
         throw this.formatErrorMessage(
           expr.token,
           `(1) Failed to evaluate the tuple elements. Expected type to be:
 ${typeToString(expectedType)}`
         );
+        */
+        // NOTE: Don't throw error here
       }
     }
 
@@ -560,13 +564,13 @@ ${typeToString(expectedTupleType)}`
             expr: arg,
             env,
             tupleElementIndex: i,
-            context,
+            context: { ...context },
           })
         : this.evaluateTupleElementValue({
             expr: arg,
             env,
             tupleElementIndex: i,
-            context,
+            context: { ...context },
           });
 
       // Check if there is duplicate labels
@@ -756,7 +760,7 @@ ${typeToString(expectedTupleType)}`
           expr: elementExpr,
           type: elementType,
           env,
-          context,
+          context: { ...context },
         });
 
         env = nextEnv;
@@ -777,7 +781,7 @@ ${typeToString(expectedTupleType)}`
             type: typeOfType(type),
             value: createTypeValue(type),
           },
-          context,
+          context: { ...context },
         });
 
         if (!funcCallExpr.type || !funcCallExpr.env) {
@@ -886,7 +890,7 @@ ${typeToString(expectedTupleType)}`
             type: typeOfType(newEnumType),
             value: createTypeValue(newEnumType),
           },
-          context,
+          context: { ...context },
         });
         if (!funcCallExpr.type || !funcCallExpr.env) {
           throw this.formatErrorMessage(
@@ -959,7 +963,7 @@ ${typeToString(expectedTupleType)}`
         rhsType,
         lhs,
         env,
-        context,
+        context: { ...context },
       });
     }
     // Handle tuple destructuring
@@ -976,7 +980,7 @@ ${typeToString(expectedTupleType)}`
         rhsType,
         lhs,
         env,
-        context,
+        context: { ...context },
       });
     }
 
@@ -1081,7 +1085,7 @@ ${typeToString(expectedTupleType)}`
           rhsType: nestedRhsType,
           lhs: lhsElement,
           env,
-          context,
+          context: { ...context },
         });
 
         // Set type and value on the lhs element
@@ -1167,7 +1171,7 @@ ${typeToString(expectedTupleType)}`
             rhsType: nestedRhsType,
             lhs: rightSide,
             env,
-            context,
+            context: { ...context },
           });
 
           // Set type and value on expressions
@@ -1208,7 +1212,7 @@ ${typeToString(expectedTupleType)}`
             rhsType: nestedRhsType,
             lhs: rightSide,
             env,
-            context,
+            context: { ...context },
           });
 
           // Set type and value on expressions
@@ -1345,7 +1349,7 @@ ${typeToString(expectedTupleType)}`
           rhsType: nestedRhsType,
           lhs: lhsElement,
           env,
-          context,
+          context: { ...context },
         });
 
         // Set type and value on the lhs element
@@ -1639,7 +1643,7 @@ ${exprToString(expr)}`
             expr: rhs,
             type: lhs.type,
             env: env,
-            context,
+            context: { ...context },
           });
           rhs = nextRhs;
           rhsType = nextRhsType;
@@ -1720,7 +1724,7 @@ ${exprToString(rhs)}`
         lhs,
         rhs,
         env,
-        context,
+        context: { ...context },
       });
       expr.value = VUnit;
       expr.type = VUnit.type;
@@ -1817,7 +1821,7 @@ ${exprToString(rhs)}`
             expr: rhs,
             type: variable.type,
             env: env,
-            context,
+            context: { ...context },
           });
           rhs = nextRhs;
           rhsType = nextRhsType;
@@ -2746,7 +2750,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         type: isEvaluatingFunctionBodyOfType,
         value: createTypeValue(isEvaluatingFunctionBodyOfType),
       },
-      context,
+      context: { ...context },
     });
   }
 
@@ -2851,7 +2855,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       const evaluatedRhs = this.evaluateExpression({
         expr: rhsExpr,
         env,
-        context,
+        context: { ...context },
       });
       if (evaluatedRhs.env) {
         env = evaluatedRhs.env;
@@ -2980,28 +2984,30 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
    *
    *   (exists(add: ((i32, i32) -> i32)))
    */
+  /*
   private evaluateProofAssumptions({
     expr, // env,
-  } // context,
-  : {
+    // context,
+  }: {
     expr: Expr;
     env: Environment;
     context: EvaluatorContext;
   }): Expr {
-    /*
-    let proofExprs: Expr[] = [];
-    if (
-      exprIsFunctionCall(expr) &&
-      exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)
-    ) {
-      proofExprs = expr.args;
-    } else {
-      proofExprs = [expr];
-    }
-      */
+    
+    // let proofExprs: Expr[] = [];
+    // if (
+    //   exprIsFunctionCall(expr) &&
+    //   exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)
+    // ) {
+    //   proofExprs = expr.args;
+    // } else {
+    //   proofExprs = [expr];
+    // }
+      
 
     return expr;
   }
+  */
 
   private evaluateFunctionType({
     expr,
@@ -3218,12 +3224,8 @@ compt(${exprToString(returnTypeExpr)})`
     env = nextEnv;
 
     const structType: StructType = createStructType(tupleType.elements);
-    expr.type = typeOfType(structType);
-    expr.value = {
-      tag: ValueTag.Type,
-      type: typeOfType(structType),
-      value: structType,
-    };
+    expr.value = createTypeValue(structType);
+    expr.type = expr.value.type;
     expr.env = env;
 
     // Append more information to "struct" token.
@@ -3406,11 +3408,13 @@ compt(${exprToString(returnTypeExpr)})`
     const propertyExpr = expr.args[1];
 
     // Evaluate object
+    console.log("Before evaluating objectExpr: ", exprToString(objectExpr));
     objectExpr = this.evaluateExpression({
       expr: objectExpr,
       env,
-      context,
+      context: { ...context },
     });
+    console.log("After evaluating objectExpr", exprToString(objectExpr));
     if (objectExpr.env) {
       env = objectExpr.env;
     }
@@ -3819,7 +3823,9 @@ compt(${exprToString(returnTypeExpr)})`
     ) {
       throw this.formatErrorMessage(
         typeExpr.token,
-        `Expected type for "forall" expression, got:\n${exprToString(typeExpr)}`
+        `Expected either function or interface type for "forall" expression, got:\n${exprToString(
+          typeExpr
+        )}`
       );
     }
 
@@ -4033,6 +4039,7 @@ compt(${exprToString(returnTypeExpr)})`
       }
     }
 
+    /*
     // FIXME: There might be multiple functions that all return interface.
     // Check if it's calling an interface.
     // Calling an interface means to implement the interface.
@@ -4053,6 +4060,7 @@ compt(${exprToString(returnTypeExpr)})`
       expr.type = TUnit;
       return expr;
     }
+    */
 
     // Find the functions whose parameters match the arguments
     const functionsToCall = functions.map((functionToCall) => {
@@ -4064,7 +4072,7 @@ compt(${exprToString(returnTypeExpr)})`
             functionCallExpr: func,
             argExprs: args,
             env,
-            context,
+            context: { ...context },
           });
         } catch (error) {
           functionToCall.error = error;
@@ -4080,7 +4088,7 @@ compt(${exprToString(returnTypeExpr)})`
               functionCallExpr: func,
               argExprs: args,
               env,
-              context,
+              context: { ...context },
             });
           } catch (error) {
             functionToCall.error = error;
@@ -4104,7 +4112,22 @@ compt(${exprToString(returnTypeExpr)})`
               functionCallExpr: func,
               argExprs: args,
               env,
-              context,
+              context: { ...context },
+            });
+          } catch (error) {
+            functionToCall.error = error;
+          }
+        }
+        // interface
+        else if (isTypeValue(value) && isInterfaceType(value.value)) {
+          const interfaceType = value.value;
+          try {
+            this.tryToImplementInterfaceWithArguments({
+              interfaceExpr: func,
+              interfaceType: interfaceType,
+              argExprs: args,
+              env,
+              context: { ...context },
             });
           } catch (error) {
             functionToCall.error = error;
@@ -4130,26 +4153,25 @@ compt(${exprToString(returnTypeExpr)})`
         `No matching call found with arguments:
 ${exprToString(expr)}
 
-Available functions:
-${functionsToCall
-  .map((func) => {
-    const error = func.error;
-    if (error) {
-      const errorMessage = error.message;
-      // Append 2 spaces ahead each line of the errorMessage
-      const errorMessageWithIndent = errorMessage
-        .split("\n")
-        .map((line) => `  ${line}`)
-        .join("\n");
+${functionsToCall.length ? "Available functions:\n" : ""}${functionsToCall
+          .map((func) => {
+            const error = func.error;
+            if (error) {
+              const errorMessage = error.message;
+              // Append 2 spaces ahead each line of the errorMessage
+              const errorMessageWithIndent = errorMessage
+                .split("\n")
+                .map((line) => `  ${line}`)
+                .join("\n");
 
-      return `
+              return `
 - ${typeToString(func.type)}
 ${errorMessageWithIndent}`;
-    } else {
-      return `${typeToString(func.type)}`;
-    }
-  })
-  .join("\n")}
+            } else {
+              return `${typeToString(func.type)}`;
+            }
+          })
+          .join("\n")}
 `
       );
     }
@@ -4181,7 +4203,6 @@ ${functionsWithMatchingTypes
             `Function value is not defined`
           );
         }
-
         const { value: returnValue, env: nextEnv } =
           this.evaluateTypeFunctionCall({
             functionCallExpr: expr,
@@ -4195,7 +4216,7 @@ ${functionsWithMatchingTypes
           });
         env = nextEnv;
         expr.value = returnValue;
-        expr.type = typeOfType(returnValue.type);
+        expr.type = returnValue.type;
 
         // Attach necessary info to the func
         func.type = functionToCall.type;
@@ -4238,7 +4259,6 @@ ${functionsWithMatchingTypes
       const value = functionToCall.value;
       // struct value
       if (isTypeValue(value) && isStructType(value.value)) {
-        // console.log("struct value");
         const structType = value.value;
         expr.type = structType;
         expr.env = env;
@@ -4273,7 +4293,6 @@ ${functionsWithMatchingTypes
       }
       // enum value
       else if (isTypeValue(value) && isEnumType(value.value)) {
-        // console.log("enum value");
         const enumType = value.value;
         expr.type = enumType;
         expr.env = env;
@@ -4292,7 +4311,7 @@ ${functionsWithMatchingTypes
           functionCallExpr: func,
           argExprs: args,
           env,
-          context,
+          context: { ...context },
         });
         if (!memberValues) {
           throw this.formatErrorMessage(
@@ -4312,6 +4331,23 @@ ${functionsWithMatchingTypes
         // Attach necessary info to the func
         func.type = value.type;
         func.value = value;
+        return expr;
+      }
+      // interface
+      else if (isTypeValue(value) && isInterfaceType(value.value)) {
+        // There is no need to call tryToImplementInterfaceWithArguments again
+        const interfaceType = value.value;
+        const interfaceTypeValue = createTypeValue(interfaceType);
+
+        // QUESTION: Should we set the value to interfaceTypeValue?
+        expr.value = VUnit;
+        expr.type = VUnit.type;
+        // expr.value = interfaceTypeValue;
+        // expr.type = interfaceTypeValue.type;
+        expr.env = env;
+
+        func.value = interfaceTypeValue;
+        func.type = interfaceTypeValue.type;
         return expr;
       }
     }
@@ -4398,11 +4434,7 @@ Expected ${
         });
       } catch (error) {
         logger.debug(error);
-        logger.debug("return false(1)");
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
-        );
+        throw error;
       }
       if (!evaluatedArgExpr) {
         throw this.formatErrorMessage(
@@ -4413,7 +4445,6 @@ Expected ${
 
       const argType = evaluatedArgExpr.type;
       if (!argType) {
-        logger.debug("return false(2)");
         throw this.formatErrorMessage(
           argExpr.token,
           `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
@@ -4676,6 +4707,13 @@ Got:   ${typeToString(argType)}`
     }
 
     const checkedInterfaceMembers: Set<InterfaceMember> = new Set();
+    const toUpdateInterfaceMemberMap: Map<
+      number,
+      {
+        value: TypeValue | FunctionValue | undefined;
+        type: TypeHierarchyType | FunctionType;
+      }
+    > = new Map();
     for (let i = 0; i < interfaceType.members.length; i++) {
       let interfaceMember = interfaceType.members[i];
       let argExpr = argExprs[i];
@@ -4731,10 +4769,13 @@ Got:   ${typeToString(argType)}`
         );
       }
 
+      const interfaceMembersIndex =
+        interfaceType.members.indexOf(interfaceMember);
+
       // evaluate the interface member type again.
       const evaluatedInterfaceMember = this.evaluateExpression({
         expr: interfaceMember.typeExpr,
-        env: interfaceType.env, // env,
+        env: interfaceType.env,
         context: {
           ...context,
           isEvaluatingExprAsType: true,
@@ -4793,11 +4834,22 @@ Expected: ${typeToString(interfaceMemberType)}
 Got: ${typeToString(argType)}`
         );
       }
+      const argValue = evaluatedArgExpr.value;
+      if (!argValue || !(isTypeValue(argValue) || isFunctionValue(argValue))) {
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Failed to evaluate the interface member "${label}"`
+        );
+      }
 
       // Set the interface member value
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      interfaceMember.value = evaluatedArgExpr.value as any; // FIXME: Update the check
-      interfaceMember.type = interfaceMemberType;
+      toUpdateInterfaceMemberMap.set(interfaceMembersIndex, {
+        value: argValue,
+        type: interfaceMemberType,
+      });
+      // interfaceMember.value = evaluatedArgExpr.value as any; // FIXME: Update the check
+      // interfaceMember.type = interfaceMemberType;
 
       // Add the type information to argExpr
       argExpr.type = argType;
@@ -4846,6 +4898,13 @@ Got: ${typeToString(argType)}`
       }
     }
 
+    // Set the interface member types and values
+    for (const [index, { value, type }] of toUpdateInterfaceMemberMap) {
+      const interfaceMember = interfaceType.members[index];
+      interfaceMember.value = value;
+      interfaceMember.type = type;
+    }
+
     // Set the interface as implemented
     interfaceType.isImplemented = true;
   }
@@ -4873,8 +4932,9 @@ Got: ${typeToString(argType)}`
       functionCallExpr,
       argExprs,
       env,
-      context,
+      context: { ...context },
     });
+
     if (!nextEnv) {
       throw this.formatErrorMessage(
         functionCallExpr.token,
@@ -4921,7 +4981,8 @@ Expected: ${typeToString(functionType)}`
             // For example:
             // - Point(T)
             // - Point(i32)
-            // given T = i32 in env, we don't use the cache.
+            // given T = i32 in env, areValuesEqual returns true.
+            // We don't want to use the cache there.
             if (isTypeValue(argValue) && isTypeValue(givenArgValue)) {
               if (
                 isSomeType(argValue.value) &&
@@ -5029,7 +5090,7 @@ Expected: ${typeToString(functionType)}`
       functionCallExpr,
       argExprs,
       env,
-      context,
+      context: { ...context },
     });
     if (!nextEnv) {
       throw this.formatErrorMessage(
@@ -5387,6 +5448,7 @@ Expected: ${typeToString(functionType)}`
       );
     }
     const exprs = expr.args;
+    const expectedType = context.expectedType;
 
     // Empty begin
     // return unit
@@ -5407,6 +5469,7 @@ Expected: ${typeToString(functionType)}`
         context: {
           ...context,
           isEvaluatingExprAsType: false,
+          expectedType: i === exprs.length - 1 ? expectedType : undefined,
         },
       });
       if (evaluatedExpr.env) {
@@ -5749,7 +5812,7 @@ If you want to define the receiver type, please use "This" instead.`
           return this.evaluateIdentifier({
             expr,
             env,
-            context,
+            context: { ...context },
           });
         }
         case TokenType.Integer: {
@@ -5802,28 +5865,32 @@ ${exprToString(expr)}`
         });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Recur)) {
         // recur
-        return this.evaluateRecur({ expr, env, context });
+        return this.evaluateRecur({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Extern)) {
         // extern
-        return this.evaluateExtern({ expr, env, context });
+        return this.evaluateExtern({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Cond)) {
         // cond
-        return this.evaluateCond({ expr, env, context });
+        return this.evaluateCond({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Match)) {
         // match
-        return this.evaluateMatch({ expr, env, context });
+        return this.evaluateMatch({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
         // tuple
-        return this.evaluateTuple({ expr, env, context });
+        return this.evaluateTuple({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Type)) {
         // type Expr
-        return this.evaluateTypeExpression({ expr, env, context });
+        return this.evaluateTypeExpression({
+          expr,
+          env,
+          context: { ...context },
+        });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Struct)) {
         // struct
-        return this.evaluateStruct({ expr, env, context });
+        return this.evaluateStruct({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Enum)) {
         // enum
-        return this.evaluateEnum({ expr, env, context });
+        return this.evaluateEnum({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, ".")) {
         // forall
         if (
@@ -5834,34 +5901,50 @@ ${exprToString(expr)}`
           return this.evaluateForall({
             expr,
             env,
-            context,
+            context: { ...context },
           });
         }
 
         // property access
-        return this.evaluatePropertyAccess({ expr, env, context });
+        return this.evaluatePropertyAccess({
+          expr,
+          env,
+          context: { ...context },
+        });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Def)) {
         // def
-        return this.evaluateDefExpression({ expr, env, context });
+        return this.evaluateDefExpression({
+          expr,
+          env,
+          context: { ...context },
+        });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Begin)) {
         // begin
-        return this.evaluateBeginExpression({ expr, env, context });
+        return this.evaluateBeginExpression({
+          expr,
+          env,
+          context: { ...context },
+        });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Interface)) {
         // interface
-        return this.evaluateInterface({ expr, env, context });
+        return this.evaluateInterface({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.TypeOf)) {
         // typeof
-        return this.evaluateTypeOf({ expr, env, context });
+        return this.evaluateTypeOf({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {
         // exists
-        return this.evaluateExists({ expr, env, context });
+        return this.evaluateExists({ expr, env, context: { ...context } });
       } else {
         /* else if (exprIsFunctionCallOf(expr, ".", 1)) {
         // variant
         return this.evaluateVariant({ expr, env, context });
       } */
         // Function call
-        return this.evaluateFunctionCall({ expr, env, context });
+        return this.evaluateFunctionCall({
+          expr,
+          env,
+          context: { ...context },
+        });
       }
     }
   }

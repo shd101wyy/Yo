@@ -19,12 +19,15 @@ def Point:
     y: T
 ;
 
-(forall(@(T): Type) .
+forall(@(T): Type) .
   Id(Point(T))
     id:
       fn(p)-> Point(T)(p.x, p.y)
-);
+;
 
+
+/*
 p :: Point(i32)(3, 4);
 // p.id();
 // ID(Point(i32)).id(p);
+*/
