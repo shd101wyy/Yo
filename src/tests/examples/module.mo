@@ -1,5 +1,6 @@
 // variables with _ are private
 // variables without _ are public
+// `module` is also nominal type.
 // Difference between `module` and `struct`:
 // - "struct" is used to host runtime values, while "module" is used to host compile-time values.
 // - field in "module" can use its previous field, while "struct" cannot.

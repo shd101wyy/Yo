@@ -160,7 +160,7 @@ The **Mo** language is heavily inspired by:
   - Module system
 - [Koka](https://koka-lang.github.io/)
   - ~~Brace elision~~
-  - Dot notation (Uniform Function Call Syntax)
+  - ~~Dot notation (Uniform Function Call Syntax)~~
   - ~~Perceus and reuse~~
   - ~~Algebraic effects~~
 - [Rust](https://www.rust-lang.org/)
@@ -171,7 +171,9 @@ The **Mo** language is heavily inspired by:
   - Linear types
   - ~~Borrowing~~ Replaced with 2nd-Class Reference
 - [Haskell](https://www.haskell.org/)
-  - Type and typeclass
+  - ~~Type and typeclass~~
+- [OCaml](https://ocaml.org/)
+  - Module system
 - [Python](https://python.org/)
   - Keyword arguments
 - [C++](https://isocpp.org/)

@@ -50,6 +50,8 @@ id(13, IdInt); // Explicit call
 id(14.2); // Implicit call
 id(14.2, IdFloat); // Explicit call
 
+// QUESTION: How to implement the following?
 id(Point(i32)(1, 2)); // Implicit call
 id(Point(i32)(1, 2), IdPoint); // Implicit call 2
+
 id(Point(i32)(1, 2), IdPoint(IdInt)); // Explicit call
