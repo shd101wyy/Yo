@@ -1,9 +1,11 @@
 // contextual parameters, aka implicit parameters
 def generic_add:
-  ( compt(T): Type, x: T, y: T,
+  ( // define type parameters
+    forall(@(T): Type), 
+    x: T, y: T,
     // defining contextual parameters 
     using(
-      compt(add): 
+      @(add):
         (T, T)-> T 
     )
   )-> T,

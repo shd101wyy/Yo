@@ -1,21 +1,29 @@
 // variables with _ are private
 // variables without _ are public
+// Difference between `module` and `struct`:
+// - "struct" is used to host runtime values, while "module" is used to host compile-time values.
+// - field in "module" can use its previous field, while "struct" cannot.
+
+extern
+  add:
+    (i32, i32) -> i32
+;
 
 // Define a module type
 // All the fields are comptile-time only. No runtime values are allowed.  
-// with `module struct`:
-MY_MODULE :: module struct
-  x: i32,
-  add_int:
+// with `struct`:
+MY_MODULE :: module
+  x : i32,
+  add_int :
     (i32, i32)-> i32
 ;
 
 // Initialize a module instance
 (MyModule : MY_MODULE) = {
-  x: 0,
-  add_int:
+  x : 0,
+  add_int :
     fn(x, y)-> 
-      x + y
+      add(x, y)
 }
 ;
 // or define an anonymous module
@@ -31,10 +39,11 @@ MY_MODULE :: module struct
 }
 
 // Define anonymous module
-// with `module begin`:
+// with `module`:
 MyModule :: module {
   Point :: struct(i32, i32); // Point is exported
   _Color :: enum Red, Green, Blue; // _Color is private and not exported
+  This :: Point; // Setting `This` will enable the method call to the type "Point"
 
   def new:
     (x: i32, y: i32) -> Point,
@@ -57,12 +66,13 @@ p :: MyModule.new(1, 2); // Explicitly call new from MyModule
 // Not allowed
 // p :: new(1, 2); // Implicitly call new from MyModule
 
-// Uniform function call syntax
-// It will implicitly call function from the module.
-p1 :: Point(1, 2);
-p2 :: Point(3, 4);
-p1 + p2; // Implicitly call + from MyModule
-p1.(MyModule.(+))(p2); // Explicitly call + from MyModule
+
+p1 :: MyModule.Point(1, 2);
+p2 :: MyModule.Point(3, 4);
+MyModule.(+)(p1, p2); // Explicitly call + from MyModule
+// p1 + p2; // Implicitly method call + from MyModule
+// p1.(+)(p2); // Implicitly method call + from MyModule
+// p1.(MyModule.(+))(p2); // Explicitly call + from MyModule
 
 Point :: struct(i32, i32); // We defined a new Point struct here.
 p :: Point(1, 2); // Use the new Point struct.
