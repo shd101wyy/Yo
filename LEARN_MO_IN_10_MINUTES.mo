@@ -147,8 +147,6 @@ user2 := create_user(role: "admin", name: "Bob", age: 30);  // explicit values
 
 
 // Define a custom operator
-// NOTE: Operator is only allowed to be defined as method in interface implementation.
-// So the code below is invalid.
 def (+++): ((x: i32, y: i32)->i32),
   x + y;
 3 +++ 4; // 7
@@ -387,45 +385,47 @@ def Option:
   (compt(T): Type)-> compt(Type), 
   T1(Maybe, T);
 
-// interface
+// module
 def Id:
-  (compt(Self): Type)-> compt(Type),
-  interface
-    (Self: Type) = Self,
-    id: ((Self)-> Self)
+  (compt(This): Type)-> compt(Type),
+  module
+    (This: Type) = This,
+    id: ((This)-> This)
 ;
 
 def Stringer:
-  (compt(Self): Type)-> compt(Type),
-  interface
-    (Self: Type) = Self,
-    to_string: ((Self)-> String)
+  (compt(This): Type)-> compt(Type),
+  module
+    (This: Type) = This,
+    to_string: ((This)-> String)
 ;
 
-/// Implement the interface by calling the interface
-Id(i32)
+/// Implement the module
+IdI32 :: Id(i32)
   id:
     fn(self)-> self
 ;
 
-forall(compt(X): Type, compt(Y): Type) .
-  using(Stringer(T), Stringer(U)) =>
-    Stringer((X, Y))
-  to_string:
-    fn((x, y))->
-      "(" + 
-      x.to_string() + 
-      "," + 
-      y.to_string() + 
-      ")"
+def MakeStringer:
+  (forall(compt(T): Type, compt(Y): Type),
+   using(compt(Stringer(T), compt(Stringer(U))))) ->
+  Stringer((T, Y)),
+  Stringer((T, Y))
+    to_string:
+      fn((x, y))->
+        "(" + 
+        x.to_string() + 
+        "," + 
+        y.to_string() + 
+        ")"
 ;
 
 /// method call
 12.id(); // 12
 (3,4).to_string(); // "(3,4)"
-// or call from the interface
-Id.id(12); // 12
-Stringer.to_string((3,4)); // "(3,4)"
+// or call from the module
+Id(i32).id(12); // 12
+Stringer((i32, i32)).to_string((3,4)); // "(3,4)"
 
 // Implement method to a type
 Cm :: struct(i32);
@@ -448,8 +448,7 @@ id(i32, 12); // 12
 id(boolean, 12); // true
 // e.g. with `forall`:
 def id:
-  forall(compt(T): Type) . (x: any(compt(T): Type))-> T, 
-{
+  (forall(compt(T): Type), x: T)-> T, {
   return x;
 }
 
@@ -506,8 +505,6 @@ fail_list = [2, 3, 4]; // Type error: expected [1, 2, 3], got [2, 3, 4]
 
 Array7 := Array(7, 3);
 (arr: Array7) = [7, 7, 7]; // Correct!
-
-// Interface is not a type here!
 
 // Reference and Pointer
 // Mo uses *, *! to for immutable pointer and mutable pointer
@@ -583,7 +580,7 @@ use arr.to_iter_mut(), iter-> {
 
 
 // closure
-// FnOnce, FnMut, Fn are interfaces
+// FnOnce, FnMut, Fn are modules
 // like the ones in Rust
 x := 12;
 use &!(x), x-> {
