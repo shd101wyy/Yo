@@ -4,7 +4,6 @@ import {
   Environment,
   getMethodsByNameFromEnv,
   getVariablesFromEnv,
-  getVariablesFromEnvByFilter,
   popEnvFrame,
   pushEnvFrame,
   updateExistingVariable,
@@ -29,7 +28,7 @@ import {
   areTypesCompatible,
   createEnumType,
   createFunctionType,
-  createInterfaceType,
+  createModuleType,
   createStructType,
   createTupleType,
   EnumType,
@@ -37,18 +36,17 @@ import {
   FunctionParameter,
   FunctionType,
   getValueOfSomeTypeFromEnv,
-  InterfaceMember,
-  InterfaceType,
   isBooleanType,
   isEnumType,
   isFunctionType,
   isFunctionTypeAndIsTypeFunction,
-  isInterfaceType,
+  isModuleType,
   isPrimitiveType,
   isSomeType,
   isStructType,
   isTupleType,
   isTypeHierarchyType,
+  ModuleType,
   StructType,
   TBoolean,
   TF32,
@@ -70,7 +68,6 @@ import {
   TupleType,
   TUsize,
   Type,
-  TypeHierarchyType,
   typeOfType,
   TypeTag,
   typeToString,
@@ -82,14 +79,17 @@ import {
   areValuesEqual,
   createBooleanValue,
   createEnumValue,
+  createModuleValue,
   createStructValue,
   createTypeValue,
   createUnknownValue,
   isFunctionValue,
+  isModuleValue,
   isStructValue,
   isTupleValue,
   isTypeValue,
   isUnknownValue,
+  ModuleValue,
   TupleValue,
   Value,
   valueToString,
@@ -1496,10 +1496,15 @@ ${typeToString(expectedTupleType)}`
       );
     }
 
-    if (isTypeHierarchyType(userDefinedType) && !isCompileTimeOnly) {
+    if (
+      (isTypeHierarchyType(userDefinedType) || isModuleType(userDefinedType)) &&
+      !isCompileTimeOnly
+    ) {
       throw this.formatErrorMessage(
         lhs.token,
-        `Expected "compt" (or "@") to for compile-time known type value binding.`
+        `Expected "compt" (or "@") to for compile-time known ${
+          isTypeHierarchyType(userDefinedType) ? "type" : "module"
+        } value binding.`
       );
     }
 
@@ -1611,6 +1616,13 @@ ${exprToString(rhs)}`
 ${exprToString(expr)}`
       );
     }
+    if (isModuleValue(rhs.value) && !isCompileTimeOnly) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "::" instead of ":=" for module value assignment:
+${exprToString(expr)}`
+      );
+    }
 
     if (exprIsAtom(lhs)) {
       if (!this.isValidVariableName(lhs)) {
@@ -1674,7 +1686,7 @@ ${exprToString(expr)}`
         isTypeValue(rhs.value) &&
         (isStructType(rhs.value.value) ||
           isEnumType(rhs.value.value) ||
-          isInterfaceType(rhs.value.value)) &&
+          isModuleType(rhs.value.value)) &&
         !rhs.value.value.typeName
       ) {
         rhs.value.value.typeName = lhs.token.value;
@@ -1851,6 +1863,7 @@ ${exprToString(rhs)}`
         env = updateExistingVariable(env, variable, {
           ...variable,
           isNotInitialized: false,
+          value: rhs.value,
         });
       } else if (variable.isMutable) {
         // Update the variable value
@@ -2559,18 +2572,19 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       expr.env = env;
       return expr;
     }
+    /*
     // This
     // refers to Self.This in the interface context
     else if (identifier === "This") {
-      if (!context.SelfType || !isInterfaceType(context.SelfType)) {
+      if (!context.SelfType || !isModuleType(context.SelfType)) {
         throw this.formatErrorMessage(
           expr.token,
           `Expected to use "This" in the interface context.`
         );
       }
 
-      const interfaceType = context.SelfType;
-      const ThisType = interfaceType.members.find(
+      const moduleType = context.SelfType;
+      const ThisType = moduleType.members.find(
         (member) => member.label === "This"
       );
       if (!ThisType) {
@@ -2586,6 +2600,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       expr.env = env;
       return expr;
     }
+    */
     // variable
     else {
       const variables = getVariablesFromEnv(env, identifier);
@@ -2874,7 +2889,10 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       parameterType = typeValue.value;
     }
 
-    if (isTypeHierarchyType(parameterType) && !isCompileTimeOnly) {
+    if (
+      (isTypeHierarchyType(parameterType) || isModuleType(parameterType)) &&
+      !isCompileTimeOnly
+    ) {
       throw this.formatErrorMessage(
         lhsExpr?.token ?? rhsExpr.token,
         `Expected a "compt" (or "@") for parameter to be compile-time only.`
@@ -3114,7 +3132,10 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       );
     }
     const returnType = evaluatedReturnType.value.value;
-    if (isTypeHierarchyType(returnType) && !isReturnTypeCompileTimeOnly) {
+    if (
+      (isTypeHierarchyType(returnType) || isModuleType(returnType)) &&
+      !isReturnTypeCompileTimeOnly
+    ) {
       throw this.formatErrorMessage(
         returnTypeExpr.token,
         `Expected a "compt" (or "@") for return type, like:\n
@@ -3408,13 +3429,11 @@ compt(${exprToString(returnTypeExpr)})`
     const propertyExpr = expr.args[1];
 
     // Evaluate object
-    console.log("Before evaluating objectExpr: ", exprToString(objectExpr));
     objectExpr = this.evaluateExpression({
       expr: objectExpr,
       env,
       context: { ...context },
     });
-    console.log("After evaluating objectExpr", exprToString(objectExpr));
     if (objectExpr.env) {
       env = objectExpr.env;
     }
@@ -3471,102 +3490,6 @@ compt(${exprToString(returnTypeExpr)})`
         }
         expr.env = env;
         return expr;
-      } else if (
-        isTupleType(typeValue.value) ||
-        isStructType(typeValue.value)
-      ) {
-        let elements: TupleElement[] = [];
-        if (isTupleType(typeValue.value)) {
-          elements = typeValue.value.elements;
-        } else if (isStructType(typeValue.value)) {
-          elements = typeValue.value.elements;
-        }
-        // Check if it's accessing the tuple element by
-        // - number index: point.0
-        // - label name:   point.x
-        if (exprIsAtom(propertyExpr)) {
-          if (propertyExpr.token.type === TokenType.Integer) {
-            const index = parseInt(propertyExpr.token.value, 10);
-            if (isNaN(index)) {
-              throw this.formatErrorMessage(
-                propertyExpr.token,
-                `Expected integer for tuple index, got:\n${exprToString(
-                  propertyExpr
-                )}`
-              );
-            }
-            if (index < 0 || index >= elements.length) {
-              throw this.formatErrorMessage(
-                propertyExpr.token,
-                `Index out of bounds: ${index} for accessing element in:\n${typeToString(
-                  typeValue.value
-                )}`
-              );
-            }
-            const tupleElement = elements[index];
-            expr.value = createTypeValue(tupleElement.type);
-            expr.type = expr.value.type;
-            propertyExpr.type = tupleElement.type;
-            return expr;
-          } else if (this.isValidVariableName(propertyExpr)) {
-            const label = propertyExpr.token.value;
-            // Check if the type method exists
-            const method = (typeValue.value.methods ?? []).find(
-              (method) => method.label === label
-            );
-            if (method) {
-              expr.value = method.value;
-              expr.type = method.type;
-              propertyExpr.value = method.value;
-              propertyExpr.type = method.type;
-              return expr;
-            } else {
-              const tupleElement = elements.find(
-                (element) => element.label === label
-              );
-              if (!tupleElement) {
-                throw this.formatErrorMessage(
-                  propertyExpr.token,
-                  `Element with label "${label}" not found in:\n${typeToString(
-                    typeValue.value
-                  )}`
-                );
-              }
-              expr.value = createTypeValue(tupleElement.type);
-              expr.type = expr.value.type;
-              propertyExpr.type = tupleElement.type;
-              return expr;
-            }
-          }
-        }
-      } else if (isInterfaceType(typeValue.value)) {
-        const interfaceType = typeValue.value;
-        if (exprIsAtom(propertyExpr)) {
-          const label = propertyExpr.token.value;
-          const interfaceMember = interfaceType.members.find(
-            (member) => member.label === label
-          );
-          if (!interfaceMember) {
-            throw this.formatErrorMessage(
-              propertyExpr.token,
-              `Interface member "${label}" not found in:\n${exprToString(
-                objectExpr
-              )}`
-            );
-          }
-          expr.value = interfaceMember.value;
-          expr.type = interfaceMember.type;
-          propertyExpr.type = interfaceMember.type;
-          propertyExpr.value = interfaceMember.value;
-          return expr;
-        } else {
-          throw this.formatErrorMessage(
-            propertyExpr.token,
-            `Expected identifier for interface method, got:\n${exprToString(
-              propertyExpr
-            )}`
-          );
-        }
       }
     }
 
@@ -3654,6 +3577,37 @@ compt(${exprToString(returnTypeExpr)})`
             return expr;
           }
         }
+      }
+    } else if (isModuleValue(objectExpr.value)) {
+      // Check if it's accessing the module member by
+      // - label name:   my_module.add
+      if (exprIsAtom(propertyExpr)) {
+        const label = propertyExpr.token.value;
+        // Check if the type method exists
+        const moduleValue = objectExpr.value;
+        const moduleType = moduleValue.type;
+        const moduleMember = (moduleType.members ?? []).find(
+          (member) => member.label === label
+        );
+        if (moduleMember) {
+          expr.value = moduleValue.members[label];
+          expr.type = moduleMember.type;
+          propertyExpr.value = expr.value;
+          propertyExpr.type = expr.type;
+          return expr;
+        } else {
+          throw this.formatErrorMessage(
+            propertyExpr.token,
+            `Module member "${label}" not found in module`
+          );
+        }
+      } else {
+        throw this.formatErrorMessage(
+          propertyExpr.token,
+          `Expected identifier for module member, got:\n${exprToString(
+            propertyExpr
+          )}`
+        );
       }
     }
 
@@ -3815,11 +3769,11 @@ compt(${exprToString(returnTypeExpr)})`
     }
     const value = evaluatedTypeExpr.value;
 
-    // `forall` can only work with FunctionType or InterfaceType.
+    // `forall` can only work with FunctionType or ModuleType.
     // Supporting other types means to support Rank N Types.
     if (
       !isTypeValue(value) ||
-      !(isFunctionType(value.value) || isInterfaceType(value.value))
+      !(isFunctionType(value.value) || isModuleType(value.value))
     ) {
       throw this.formatErrorMessage(
         typeExpr.token,
@@ -4039,29 +3993,6 @@ compt(${exprToString(returnTypeExpr)})`
       }
     }
 
-    /*
-    // FIXME: There might be multiple functions that all return interface.
-    // Check if it's calling an interface.
-    // Calling an interface means to implement the interface.
-    if (
-      functions.length === 1 &&
-      isTypeValue(functions[0].value) &&
-      isInterfaceType(functions[0].value.value)
-    ) {
-      const interfaceType = functions[0].value.value;
-      this.tryToImplementInterfaceWithArguments({
-        interfaceExpr: func,
-        interfaceType: interfaceType,
-        argExprs: args,
-        env,
-        context,
-      });
-      expr.value = VUnit;
-      expr.type = TUnit;
-      return expr;
-    }
-    */
-
     // Find the functions whose parameters match the arguments
     const functionsToCall = functions.map((functionToCall) => {
       if (isFunctionType(functionToCall.type)) {
@@ -4119,12 +4050,12 @@ compt(${exprToString(returnTypeExpr)})`
           }
         }
         // interface
-        else if (isTypeValue(value) && isInterfaceType(value.value)) {
-          const interfaceType = value.value;
+        else if (isTypeValue(value) && isModuleType(value.value)) {
+          const moduleType = value.value;
           try {
-            this.tryToImplementInterfaceWithArguments({
-              interfaceExpr: func,
-              interfaceType: interfaceType,
+            this.tryToImplementModuleWithArguments({
+              moduleExpr: func,
+              moduleType: moduleType,
               argExprs: args,
               env,
               context: { ...context },
@@ -4334,20 +4265,24 @@ ${functionsWithMatchingTypes
         return expr;
       }
       // interface
-      else if (isTypeValue(value) && isInterfaceType(value.value)) {
-        // There is no need to call tryToImplementInterfaceWithArguments again
-        const interfaceType = value.value;
-        const interfaceTypeValue = createTypeValue(interfaceType);
+      else if (isTypeValue(value) && isModuleType(value.value)) {
+        const moduleValue = this.tryToImplementModuleWithArguments({
+          moduleExpr: func,
+          moduleType: value.value,
+          argExprs: args,
+          env,
+          context: {
+            ...context,
+          },
+        });
 
-        // QUESTION: Should we set the value to interfaceTypeValue?
-        expr.value = VUnit;
-        expr.type = VUnit.type;
-        // expr.value = interfaceTypeValue;
-        // expr.type = interfaceTypeValue.type;
+        expr.value = moduleValue;
+        expr.type = moduleValue.type;
         expr.env = env;
 
-        func.value = interfaceTypeValue;
-        func.type = interfaceTypeValue.type;
+        // Attach necessary info to the func
+        func.type = value.type;
+        func.value = value;
         return expr;
       }
     }
@@ -4490,7 +4425,7 @@ Expected ${
       if (!evaluatedArgExpr.value && paramElement.isCompileTimeOnly) {
         throw this.formatErrorMessage(
           argExpr.token,
-          `Cannot assign runtime parameter to compile time parameter:\n${exprToString(
+          `Cannot assign runtime parameter to compile-time parameter:\n${exprToString(
             argExpr
           )}`
         );
@@ -4686,227 +4621,203 @@ Got:   ${typeToString(argType)}`
     return values;
   }
 
-  private tryToImplementInterfaceWithArguments({
-    interfaceExpr,
-    interfaceType,
+  private tryToImplementModuleWithArguments({
+    moduleExpr,
+    moduleType,
     argExprs,
     env,
     context,
   }: {
-    interfaceExpr: Expr;
-    interfaceType: InterfaceType;
+    moduleExpr: Expr;
+    moduleType: ModuleType;
     argExprs: Expr[];
     env: Environment;
     context: EvaluatorContext;
-  }): void {
-    if (argExprs.length > interfaceType.members.length) {
+  }): ModuleValue {
+    if (argExprs.length > moduleType.members.length) {
       throw this.formatErrorMessage(
-        interfaceExpr.token,
-        `Failed to implement the interface. Too many members provided.`
+        moduleExpr.token,
+        `Failed to implement the module. Too many members provided.`
       );
     }
 
-    const checkedInterfaceMembers: Set<InterfaceMember> = new Set();
-    const toUpdateInterfaceMemberMap: Map<
-      number,
-      {
-        value: TypeValue | FunctionValue | undefined;
-        type: TypeHierarchyType | FunctionType;
-      }
-    > = new Map();
-    for (let i = 0; i < interfaceType.members.length; i++) {
-      let interfaceMember = interfaceType.members[i];
-      let argExpr = argExprs[i];
-      if (!argExpr) {
-        break;
-      }
+    const members: Record<string, Value> = {};
+    env = pushEnvFrame(env);
+    for (let i = 0; i < moduleType.members.length; i++) {
+      const moduleMember = moduleType.members[i];
+      let foundArgExpr = false;
+      let label: string | undefined = undefined;
+      // Traverse over argExprs to see if there is label for the member
+      for (let j = 0; j < argExprs.length; j++) {
+        let argExpr = argExprs[j];
 
-      // Check if it's a label
-      let labelExpr: Expr | undefined;
-      let label: string | undefined;
-      if (
-        exprIsFunctionCall(argExpr) &&
-        exprIsFunctionCallOf(argExpr, ":", 2)
-      ) {
-        labelExpr = argExpr.args[0];
-        argExpr = argExpr.args[1];
+        // Check if it's a label
+        let labelExpr: Expr | undefined;
+        if (
+          exprIsFunctionCall(argExpr) &&
+          exprIsFunctionCallOf(argExpr, ":", 2)
+        ) {
+          labelExpr = argExpr.args[0];
+          argExpr = argExpr.args[1];
 
-        if (!exprIsAtom(labelExpr)) {
-          throw this.formatErrorMessage(
-            labelExpr.token,
-            `Expected identifier for label, got:\n${exprToString(labelExpr)}`
-          );
-        }
-        label = labelExpr.token.value;
-      }
-
-      if (label) {
-        // Find the matching label in the expectedType
-        const interfaceMember_ = interfaceType.members.find(
-          (element) => element.label === label
-        );
-        if (!interfaceMember_) {
+          if (!exprIsAtom(labelExpr)) {
+            throw this.formatErrorMessage(
+              labelExpr.token,
+              `Expected identifier for label, got:\n${exprToString(labelExpr)}`
+            );
+          }
+          label = labelExpr.token.value;
+        } else {
           throw this.formatErrorMessage(
             argExpr.token,
-            `Failed to find "${label}" in the interface.`
+            `Expected member label, but got:\n${exprToString(argExpr)}`
           );
-        } else {
-          interfaceMember = interfaceMember_;
         }
-      } else {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Expected member label, but got:\n${exprToString(argExpr)}`
-        );
-      }
 
-      if (checkedInterfaceMembers.has(interfaceMember)) {
-        // Already checked this element
-        // We cannot have duplicate labels
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Interface member "${label}" is already implemented.`
-        );
-      }
+        if (moduleMember.label === label) {
+          foundArgExpr = true;
 
-      const interfaceMembersIndex =
-        interfaceType.members.indexOf(interfaceMember);
+          // evaluate the module member type again.
+          const evaluatedModuleMember = this.evaluateExpression({
+            expr: moduleMember.typeExpr,
+            env: pushEnvFrame(
+              moduleType.env,
+              env.frames[env.frames.length - 1]
+            ),
+            context: {
+              ...context,
+              isEvaluatingExprAsType: true,
+              expectedType: undefined,
+              SelfType: moduleType,
+            },
+          });
+          const evaluatedModuleMemberTypeValue = evaluatedModuleMember.value;
+          if (!isTypeValue(evaluatedModuleMemberTypeValue)) {
+            throw this.formatErrorMessage(
+              argExpr.token,
+              `Failed to evaluate the module member "${label}"`
+            );
+          }
+          const moduleMemberType = evaluatedModuleMemberTypeValue.value;
 
-      // evaluate the interface member type again.
-      const evaluatedInterfaceMember = this.evaluateExpression({
-        expr: interfaceMember.typeExpr,
-        env: interfaceType.env,
-        context: {
-          ...context,
-          isEvaluatingExprAsType: true,
-          expectedType: undefined,
-          SelfType: interfaceType,
-        },
-      });
-      const evaluatedInterfaceMemberTypeValue = evaluatedInterfaceMember.value;
-      if (!isTypeValue(evaluatedInterfaceMemberTypeValue)) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Failed to evaluate the interface member "${label}"`
-        );
-      }
-      const interfaceMemberType = evaluatedInterfaceMemberTypeValue.value;
-      if (
-        !isTypeHierarchyType(interfaceMemberType) &&
-        !isFunctionType(interfaceMemberType)
-      ) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Failed to evaluate the interface member "${label}". Expected either function type, or Type (or Free or Linear)`
-        );
-      }
-
-      // Evaluate the argExpr
-      const evaluatedArgExpr = this.evaluateExpression({
-        expr: argExpr,
-        env,
-        context: {
-          ...context,
-          isEvaluatingExprAsType: false,
-          expectedType: interfaceMemberType,
-          SelfType: interfaceType,
-        },
-      });
-
-      const argType = evaluatedArgExpr.type;
-      if (!argType) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Failed to evaluate the interface member "${label}"`
-        );
-      }
-
-      if (evaluatedArgExpr.env) {
-        env = evaluatedArgExpr.env;
-      }
-
-      // Compare the types
-      if (!areTypesCompatible(interfaceMemberType, argType, env)) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Type mismatches for the interface member "${label}":
-Expected: ${typeToString(interfaceMemberType)}
-Got: ${typeToString(argType)}`
-        );
-      }
-      const argValue = evaluatedArgExpr.value;
-      if (!argValue || !(isTypeValue(argValue) || isFunctionValue(argValue))) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Failed to evaluate the interface member "${label}"`
-        );
-      }
-
-      // Set the interface member value
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      toUpdateInterfaceMemberMap.set(interfaceMembersIndex, {
-        value: argValue,
-        type: interfaceMemberType,
-      });
-      // interfaceMember.value = evaluatedArgExpr.value as any; // FIXME: Update the check
-      // interfaceMember.type = interfaceMemberType;
-
-      // Add the type information to argExpr
-      argExpr.type = argType;
-      argExpr.value = evaluatedArgExpr.value;
-      if (labelExpr) {
-        labelExpr.type = argType;
-        labelExpr.value = evaluatedArgExpr.value;
-      }
-
-      checkedInterfaceMembers.add(interfaceMember);
-    }
-
-    // Check if any unchecked member has no default value
-    for (let i = 0; i < interfaceType.members.length; i++) {
-      const interfaceMember = interfaceType.members[i];
-      if (!checkedInterfaceMembers.has(interfaceMember)) {
-        if (!interfaceMember.defaultValueExpr) {
-          throw this.formatErrorMessage(
-            interfaceExpr.token,
-            `Interface member "${interfaceMember.label}" is not provided and has no default value.`
-          );
-        } else {
-          // NOTE: No need to evaluate default value again.
-          /*
-          // Evaluate the default value expr again
-          const evaluatedDefaultValueExpr = this.evaluateExpression({
-            expr: interfaceMember.defaultValueExpr,
-            env: interfaceType.env,
+          // evaluate the argExpr
+          const evaluatedArgExpr = this.evaluateExpression({
+            expr: argExpr,
+            env,
             context: {
               ...context,
               isEvaluatingExprAsType: false,
-              expectedType: interfaceMember.type,
-              SelfType: interfaceType,
+              expectedType: moduleMemberType,
+              SelfType: moduleType,
             },
           });
-          const value = evaluatedDefaultValueExpr.value;
-          if (!value || !(isTypeValue(value) || isFunctionValue(value))) {
+          const argType = evaluatedArgExpr.type;
+          if (!argType) {
             throw this.formatErrorMessage(
-              interfaceExpr.token,
-              `Failed to evaluate the default value for the interface member "${interfaceMember.label}"`
+              argExpr.token,
+              `Failed to evaluate the module member "${label}"`
             );
           }
-          interfaceMember.value = value;
-          */
+          if (evaluatedArgExpr.env) {
+            env = evaluatedArgExpr.env;
+          }
+
+          // Compare the types
+          if (!areTypesCompatible(moduleMemberType, argType, env)) {
+            throw this.formatErrorMessage(
+              argExpr.token,
+              `Type mismatch for the module member "${label}":
+Expected: ${typeToString(moduleMemberType)}
+Got:   ${typeToString(argType)}`
+            );
+          }
+          const argValue = evaluatedArgExpr.value;
+          if (!argValue) {
+            throw this.formatErrorMessage(
+              argExpr.token,
+              `Failed to evaluate the module member "${label}"`
+            );
+          }
+
+          // Save the value to the members
+          members[label] = argValue;
+          // Add to the env
+          const { env: nextEnv } = addVariableToEnv({
+            env,
+            variable: {
+              name: label,
+              type: argType,
+              isMutable: false,
+              isCompileTimeOnly: true,
+              token: argExpr.token,
+              isNotInitialized: false,
+              value: argValue,
+            },
+          });
+          env = nextEnv;
+
+          // Add the type information to argExpr
+          argExpr.type = argType;
+          argExpr.value = argValue;
+          argExpr.env = env;
+          if (labelExpr) {
+            labelExpr.type = argType;
+            labelExpr.value = argValue;
+            labelExpr.env = env;
+          }
+          break;
         }
+      }
+
+      if (!foundArgExpr) {
+        // Check if moduleMember has default value
+        if (!moduleMember.default) {
+          throw this.formatErrorMessage(
+            moduleExpr.token,
+            `Module member "${moduleMember.label}" is not provided and has no default value.`
+          );
+        }
+
+        // Evaluate the default value expr again
+        const evaluatedDefaultValueExpr = this.evaluateExpression({
+          expr: moduleMember.default.expr,
+          env: moduleType.env,
+          context: {
+            ...context,
+            isEvaluatingExprAsType: false,
+            expectedType: moduleMember.type,
+            SelfType: moduleType,
+          },
+        });
+        const value = evaluatedDefaultValueExpr.value;
+        if (!value) {
+          throw this.formatErrorMessage(
+            moduleExpr.token,
+            `Failed to evaluate the module member "${moduleMember.label}"`
+          );
+        }
+        // Add the value to the members
+        members[moduleMember.label] = value;
+        // Add to the env
+        const { env: nextEnv } = addVariableToEnv({
+          env,
+          variable: {
+            name: moduleMember.label,
+            type: moduleMember.type,
+            isMutable: false,
+            isCompileTimeOnly: true,
+            token: moduleExpr.token,
+            isNotInitialized: false,
+            value: value,
+          },
+        });
+        env = nextEnv;
       }
     }
 
-    // Set the interface member types and values
-    for (const [index, { value, type }] of toUpdateInterfaceMemberMap) {
-      const interfaceMember = interfaceType.members[index];
-      interfaceMember.value = value;
-      interfaceMember.type = type;
-    }
-
-    // Set the interface as implemented
-    interfaceType.isImplemented = true;
+    // Create the module value
+    const moduleValue = createModuleValue(moduleType, members);
+    return moduleValue;
   }
 
   private evaluateTypeFunctionCall({
@@ -5037,7 +4948,7 @@ Expected: ${typeToString(functionType)}`
     if (
       isStructType(returnType) ||
       isEnumType(returnType) ||
-      isInterfaceType(returnType)
+      isModuleType(returnType)
     ) {
       if (!returnType.typeName && functionValue.funcName) {
         returnType.typeName =
@@ -5486,7 +5397,7 @@ Expected: ${typeToString(functionType)}`
     return expr;
   }
 
-  private evaluateInterface({
+  private evaluateModule({
     expr,
     env,
     context,
@@ -5495,19 +5406,23 @@ Expected: ${typeToString(functionType)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Interface)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Module)) {
       throw this.formatErrorMessage(
         expr.token,
-        `Expected "interface", got:\n${exprToString(expr)}`
+        `Expected "module", got:\n${exprToString(expr)}`
       );
     }
 
-    const interfaceMemberExprs = expr.args;
-    // Evaluate the interface members
-    // NOTE: We shouldn't add env frame here.
-    const interfaceType = createInterfaceType([], env);
-    for (let i = 0; i < interfaceMemberExprs.length; i++) {
-      let memberExpr = interfaceMemberExprs[i];
+    const moduleMemberExprs = expr.args;
+    // Evaluate the module members
+    const moduleType = createModuleType([], env);
+
+    // Increase the env frame
+    env = pushEnvFrame(env);
+
+    // Evaluate each module member
+    for (let i = 0; i < moduleMemberExprs.length; i++) {
+      let memberExpr = moduleMemberExprs[i];
       let defaultValueExpr: Expr | undefined = undefined;
       if (
         exprIsFunctionCall(memberExpr) &&
@@ -5536,12 +5451,12 @@ Expected: ${typeToString(functionType)}`
           (
             labelExpr.token.type === TokenType.Identifier ||
             labelExpr.token.type === TokenType.Operator
-          ) // We allow to define operator as interface member
+          ) // We allow to define operator as module member
         )
       ) {
         throw this.formatErrorMessage(
           labelExpr.token,
-          `Expected identifier for interface member name, got:\n${exprToString(
+          `Expected identifier for module member name, got:\n${exprToString(
             labelExpr
           )}`
         );
@@ -5564,7 +5479,7 @@ If you want to define the receiver type, please use "This" instead.`
         context: {
           ...context,
           isEvaluatingExprAsType: true,
-          SelfType: interfaceType,
+          SelfType: moduleType,
         },
       });
       if (evaluatedMemberTypeExpr.env) {
@@ -5576,29 +5491,47 @@ If you want to define the receiver type, please use "This" instead.`
       if (!isTypeValue(typeValue)) {
         throw this.formatErrorMessage(
           typeExpr.token,
-          `Expected type for interface member, got:\n${exprToString(typeExpr)}`
+          `Expected type for module member, got:\n${exprToString(typeExpr)}`
         );
       }
 
-      // We only accept hierarchy type or function type.
       const memberType = typeValue.value;
+      /*
+      NOTE: This is no longer true.
+      // We only accept hierarchy type or function type.
       if (!isTypeHierarchyType(memberType) && !isFunctionType(memberType)) {
         throw this.formatErrorMessage(
           typeExpr.token,
-          `Expected either Type (Free, Linear) or FunctionType for interface member, got:\n${exprToString(
+          `Expected either Type (Free, Linear) or FunctionType for module member, got:\n${exprToString(
             typeExpr
           )}`
         );
       }
+      */
 
       // Check if the label already exists
-      const members = interfaceType.members;
+      const members = moduleType.members;
       if (members.find((m) => m.label === label)) {
         throw this.formatErrorMessage(
           labelExpr.token,
-          `Duplicate label "${label}" in interface member`
+          `Duplicate label "${label}" in module member`
         );
       }
+
+      // Add the label to the env
+      const { env: nextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name: label,
+          token: labelExpr.token,
+          type: memberType,
+          isMutable: false,
+          isNotInitialized: false,
+          isCompileTimeOnly: true,
+          value: createUnknownValue(memberType, label),
+        },
+      });
+      env = nextEnv;
 
       // Add type info the labelExpr;
       labelExpr.type = memberType;
@@ -5612,7 +5545,7 @@ If you want to define the receiver type, please use "This" instead.`
             ...context,
             isEvaluatingExprAsType: false,
             expectedType: memberType,
-            SelfType: interfaceType,
+            SelfType: moduleType,
           },
         });
         if (evaluatedDefaultValueExpr.env) {
@@ -5625,37 +5558,46 @@ If you want to define the receiver type, please use "This" instead.`
         ) {
           throw this.formatErrorMessage(
             defaultValueExpr.token,
-            `Expected value for interface member, got:\n${exprToString(
+            `Expected value for module member, got:\n${exprToString(
               defaultValueExpr
             )}`
           );
         }
 
         // Set the default value
-        interfaceType.members.push({
+        moduleType.members.push({
           label,
           type: memberType,
-          value: defaultValue,
+          default: {
+            expr: defaultValueExpr,
+            value: defaultValue,
+          },
           typeExpr: evaluatedMemberTypeExpr,
-          defaultValueExpr: evaluatedDefaultValueExpr,
         });
       } else {
-        // Add the member to the interfaceType
-        interfaceType.members.push({
+        // Add the member to the moduleType
+        moduleType.members.push({
           label,
           type: memberType,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          value: createUnknownValue(memberType, label) as any, //  undefined, // TODO: Support the default value
+          default: undefined,
           typeExpr: evaluatedMemberTypeExpr,
-          defaultValueExpr: undefined,
         });
       }
     }
 
-    // Set the interface type and value
-    expr.type = typeOfType(interfaceType);
-    expr.value = createTypeValue(interfaceType);
+    // Pop the env frame
+    env = popEnvFrame(env);
+
+    // Set the module type and value
+    expr.type = typeOfType(moduleType);
+    expr.value = createTypeValue(moduleType);
     expr.env = env;
+
+    expr.func.type = expr.type;
+    expr.func.value = expr.value;
+    expr.func.env = env;
+
     return expr;
   }
 
@@ -5703,6 +5645,7 @@ If you want to define the receiver type, please use "This" instead.`
     return expr;
   }
 
+  /*
   private evaluateExists({
     expr,
     env,
@@ -5760,7 +5703,7 @@ If you want to define the receiver type, please use "This" instead.`
       }
       const type = typeValue.value;
 
-      if (isInterfaceType(type)) {
+      if (isModuleType(type)) {
         // Check if the interface is implemented
         if (!type.isImplemented) {
           expr.value = createBooleanValue(false);
@@ -5796,6 +5739,7 @@ If you want to define the receiver type, please use "This" instead.`
     expr.env = env;
     return expr;
   }
+  */
 
   private evaluateExpression({
     expr,
@@ -5925,16 +5869,19 @@ ${exprToString(expr)}`
           env,
           context: { ...context },
         });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Interface)) {
-        // interface
-        return this.evaluateInterface({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Module)) {
+        // module
+        return this.evaluateModule({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.TypeOf)) {
         // typeof
         return this.evaluateTypeOf({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {
+      } else {
+        /* 
+      else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {
         // exists
         return this.evaluateExists({ expr, env, context: { ...context } });
-      } else {
+      }
+      */
         /* else if (exprIsFunctionCallOf(expr, ".", 1)) {
         // variant
         return this.evaluateVariant({ expr, env, context });

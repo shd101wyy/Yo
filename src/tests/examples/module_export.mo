@@ -24,9 +24,6 @@ MyModule :: module
     fn(x) -> x
 ;
 
-some_this :: my_module.This;
 some_id :: my_module.id;
-x := some_id(13);
-x := my_module.id(13);
 
-{ id } :: my_module;
+// x :: my_module.id(1);

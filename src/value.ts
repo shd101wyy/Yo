@@ -5,6 +5,7 @@ import {
   ArrayType,
   EnumType,
   isTypeHierarchyType,
+  ModuleType,
   SomeType,
   StructType,
   TBoolean,
@@ -72,6 +73,12 @@ export type EnumValue = {
   elements: Value[];
 };
 
+export type ModuleValue = {
+  tag: ValueTag.Module;
+  type: ModuleType;
+  members: Record<string, Value>;
+};
+
 export type UnknownValue = {
   tag: ValueTag.Unknown;
   type: Type;
@@ -87,28 +94,9 @@ export type Value =
   | TupleValue
   | StructValue
   | EnumValue
-  /*
-  | {
-      tag: TypeTag.Enum;
-      variantName: string;
-      type: EnumVariant;
-      elements: Value[];
-    }
-  | {
-      tag: TypeTag.Union;
-      type: UnionType;
-      variantName: string;
-      value: Value;
-    }
-  | */
   | FunctionValue
+  | ModuleValue
   | UnknownValue;
-/* | {
-      tag: "Interface";
-      type: Interface;
-      implementations: Record<string, Value>;
-    }
-      */
 
 /**
  * Convert a Value object to a human-readable string representation
@@ -167,6 +155,13 @@ export function valueToString(value?: Value): string {
         .map(valueToString)
         .join(", ")})`;
     }
+    case ValueTag.Module: {
+      return `_(${Object.entries(value.members)
+        .map(([key, value]) => {
+          return `${key}: ${valueToString(value)}`;
+        })
+        .join(", ")})`;
+    }
     /*
     case TypeTag.Union: {
       return `${value.variantName}(${valueToString(value.value)})`;
@@ -209,6 +204,10 @@ export function isTupleValue(value?: Value): value is TupleValue {
 
 export function isStructValue(value?: Value): value is StructValue {
   return value?.tag === ValueTag.Struct;
+}
+
+export function isModuleValue(value?: Value): value is ModuleValue {
+  return value?.tag === ValueTag.Module;
 }
 
 export function createTypeValue(value: Type): TypeValue {
@@ -271,6 +270,17 @@ export function createEnumValue(
     type,
     variantName,
     elements,
+  };
+}
+
+export function createModuleValue(
+  type: ModuleType,
+  members: Record<string, Value>
+): ModuleValue {
+  return {
+    tag: ValueTag.Module,
+    type,
+    members,
   };
 }
 
@@ -374,6 +384,26 @@ export function areValuesEqual(
           env
         )
       ) {
+        return false;
+      }
+    }
+    return true;
+  } else if (value1.tag === ValueTag.Module) {
+    const members1 = value1.members;
+    const members2 = (value2 as ModuleValue).members;
+    const keys1 = Object.keys(members1);
+    const keys2 = Object.keys(members2);
+    if (
+      keys1.length !== keys2.length ||
+      !areTypesCompatible(value1.type, value2.type, env)
+    ) {
+      return false;
+    }
+    for (const key of keys1) {
+      if (!members2[key]) {
+        return false;
+      }
+      if (!areValuesEqual(members1[key], members2[key], env)) {
         return false;
       }
     }

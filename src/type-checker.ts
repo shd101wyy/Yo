@@ -3,7 +3,7 @@ import { Expr } from "./expr";
 import { FunctionValue } from "./function-value";
 import { TypeValue } from "./type-value";
 import { randomId } from "./utils";
-import { isTypeValue, Value, valueToString } from "./value";
+import { Value, valueToString } from "./value";
 import { ValueTag } from "./value-tag";
 
 // FIXME: We need to determine the ptr size based on the givenType architecture.
@@ -60,8 +60,8 @@ export enum TypeTag {
   // Value
   Literal = "Literal",
 
-  // Interface
-  Interface = "Interface",
+  // Module
+  Module = "Module",
 }
 
 export interface TypeMethod {
@@ -88,8 +88,6 @@ export interface Type {
    * The methods implemented for this type
    */
   methods?: TypeMethod[];
-
-  // NOTE: isCompileTimeOnly shouldn't be part of the Type interface.
 }
 
 export interface LiteralType extends Type {
@@ -472,7 +470,7 @@ export interface FunctionType extends Type {
   SelfType?: Type;
 }
 
-export interface InterfaceMember {
+export interface ModuleMember {
   /**
    * The label of the member.
    */
@@ -480,7 +478,7 @@ export interface InterfaceMember {
   /**
    * The type of the member.
    */
-  type: TypeHierarchyType | FunctionType;
+  type: Type;
 
   /**
    * The type expression of the member.
@@ -490,73 +488,68 @@ export interface InterfaceMember {
    */
   typeExpr: Expr;
 
-  /**
-   * The default value expression of the member.
-   * Such as:
-   *
-   * (This: Type) = T;
-   *
-   * Here, `T` is the default value expression.
-   */
-  defaultValueExpr?: Expr;
+  default?: {
+    /**
+     * The default value of the member.
+     * It should be compile-time known.
+     */
+    value: Value;
 
-  /**
-   * The implemented value of the member.  \
-   * If it's not implemented, then it's undefined.  \
-   * Only the TypeValue and FunctionValue (both are compt) are allowed.
-   */
-  value: TypeValue | FunctionValue | undefined;
+    /**
+     * The default value expression of the member.
+     * Such as:
+     *
+     * (This: Type) = T;
+     *
+     * Here, `T` is the default value expression.
+     */
+    expr: Expr;
+  };
 }
 
-// NOTE: Interface is not Type
 // It is just a collection of types
-export interface InterfaceType extends Type {
-  tag: TypeTag.Interface;
+export interface ModuleType extends Type {
+  tag: TypeTag.Module;
   /**
-   * The unique identifier for this interface.
+   * The unique identifier for this module.
    */
   typeId: string;
 
   /**
-   * The name of the interface.
+   * The name of the module.
    * eg:
-   *   Id := interface;
+   *   Id := module;
    * Id is the name of the struct.
    */
   typeName?: string;
 
   /**
-   * The function that returns the enum.
+   * The function that returns the module.
    */
   functionValue?: FunctionValue;
 
   /**
-   * The receiver type of the interface.
+   * The receiver type of the module.
    * We take member whose name is "Self" as the receiverType.
    */
   // receiverType?: Type;
   // NOTE: I remove this^
-  // Instead, let's use a function to get the receiverType from an interface
+  // Instead, let's use a function to get the receiverType from an module
 
   /**
-   * The members of the interface.
+   * The members of the module.
    */
-  members: InterfaceMember[];
+  members: ModuleMember[];
 
   /**
-   * And interface is unsized
+   * Module is unsized
    */
   size: undefined;
 
   /**
-   * Whether the interface is implemented or not.
-   */
-  isImplemented: boolean;
-
-  /**
-   * The env when the interface type is created.
+   * The env when the module type is created.
    * The env shouldn't contain the frame that have the parameters.
-   * The env is also useful to show the frame level at which the interface is defined.
+   * The env is also useful to show the frame level at which the module is defined.
    */
   env: Environment;
 }
@@ -703,25 +696,24 @@ export function createFunctionType({
   };
 }
 
-export function createInterfaceType(
-  members: InterfaceMember[],
+export function createModuleType(
+  members: ModuleMember[],
   env: Environment,
   typeId?: string
-): InterfaceType {
+): ModuleType {
   return {
-    tag: TypeTag.Interface,
+    tag: TypeTag.Module,
     members, // Updated to use the renamed field
     size: undefined,
-    typeId: typeId ?? `interface_${randomId()}`,
-    isImplemented: false,
+    typeId: typeId ?? `module_${randomId()}`,
     env,
   };
 }
 
-export function getInterfaceReceiverType(
-  interfaceType: InterfaceType
-): Type | null {
-  const receiverType = interfaceType.members.find(
+// FIXME:
+export function getModuleReceiverType(moduleType: ModuleType): Type | null {
+  /*
+  const receiverType = moduleType.members.find(
     (member) => member.label === "This"
   );
   if (!receiverType || !receiverType.value) {
@@ -732,6 +724,9 @@ export function getInterfaceReceiverType(
     return null;
   }
   return typeValue.value;
+  */
+  moduleType.members.find((member) => member.label === "This");
+  return null;
 }
 
 // Example: Array type function - now using regular FunctionType
@@ -872,7 +867,7 @@ export function typeOfType(t: Type): Type {
     return determineTypeUniverse(t.elements.map((element) => element.type));
   } else if (isSomeType(t)) {
     return t.parentType;
-  } else if (isInterfaceType(t)) {
+  } else if (isModuleType(t)) {
     return TFree;
     // return determineTypeUniverse(t.members.map((member) => member.type));
   } else {
@@ -1000,6 +995,10 @@ export function areTypesCompatible(
     return true;
   }
 
+  if (isModuleType(expectedType) && isModuleType(givenType)) {
+    return expectedType.typeId === givenType.typeId;
+  }
+
   if (isEnumType(expectedType) && isEnumType(givenType)) {
     if (expectedType.typeId !== givenType.typeId) {
       return false;
@@ -1089,8 +1088,8 @@ export function isUnionType(type?: Type): type is UnionType {
   return type?.tag === TypeTag.Union;
 }
 
-export function isInterfaceType(type?: Type): type is InterfaceType {
-  return type?.tag === TypeTag.Interface;
+export function isModuleType(type?: Type): type is ModuleType {
+  return type?.tag === TypeTag.Module;
 }
 
 // Add isEnumType guard function
@@ -1311,17 +1310,17 @@ export function typeToString(type: Type): string {
       return `(${params}) -> ${returnTypeString}`;
     }
 
-    case TypeTag.Interface: {
-      const interfaceType = type as InterfaceType;
-      return `${interfaceType.typeName ? `(${interfaceType.typeName}) ` : ""}${
-        interfaceType.typeName ? "interface" : interfaceType.typeId
-      }(${interfaceType.members
+    case TypeTag.Module: {
+      const moduleType = type as ModuleType;
+      return `${moduleType.typeName ? `(${moduleType.typeName}) ` : ""}${
+        moduleType.typeName ? "module" : moduleType.typeId
+      }(${moduleType.members
         .map((member) => {
           let t = `${member.label ? `${member.label}:` : ""}${typeToString(
             member.type
           )}`;
-          if (member.value) {
-            t = `(${t}) = ${valueToString(member.value)}`;
+          if (member.default?.value) {
+            t = `(${t}) = ${valueToString(member.default.value)}`;
           }
           return t;
         })

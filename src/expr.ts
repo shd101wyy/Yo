@@ -94,7 +94,7 @@ export const BuiltinKeywords = {
   Struct: ["struct"],
   Enum: ["enum"],
   Union: ["union"],
-  Interface: ["interface"],
+  Module: ["module"],
   Begin: ["begin"],
 };
 

@@ -3,17 +3,13 @@ import { formatErrorMessages } from "./error";
 import { FunctionValue } from "./function-value";
 import { charIsOperator, Operators, Token } from "./token";
 import {
-  areTypesCompatible,
   FunctionType,
-  getInterfaceReceiverType,
-  InterfaceType,
   isFunctionType,
-  isInterfaceType,
   Type,
   TypeTag,
   typeToString,
 } from "./type-checker";
-import { isFunctionValue, isTypeValue, Value, valueToString } from "./value";
+import { isTypeValue, Value, valueToString } from "./value";
 
 export type ReferedVariable = {
   frameLevel: number;
@@ -514,14 +510,18 @@ export function printEnvVarNames(env: Environment) {
 }
 
 export function getMethodsByNameFromEnv(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   env: Environment,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   methodName: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   receiverType: Type
 ): { type: Type; value: FunctionValue }[] {
   const methods: { type: FunctionType; value: FunctionValue }[] = [];
 
-  function checkInterfaceType(interfaceType: InterfaceType) {
-    const interfaceReceiverType = getInterfaceReceiverType(interfaceType);
+  /*
+  function checkInterfaceType(interfaceType: ModuleType) {
+    const interfaceReceiverType = getModuleReceiverType(interfaceType);
     if (!interfaceReceiverType) {
       // NOTE: We require receiverType to be defined with "Self"
       return;
@@ -572,7 +572,7 @@ export function getMethodsByNameFromEnv(
       if (
         // Find the interface
         isTypeValue(variable.value) &&
-        isInterfaceType(variable.value.value)
+        isModuleType(variable.value.value)
       ) {
         const interfaceType = variable.value.value;
         checkInterfaceType(interfaceType);
@@ -589,7 +589,7 @@ export function getMethodsByNameFromEnv(
           k++
         ) {
           const cache = functionValue.calledTypeFunctionCaches[k];
-          if (isInterfaceType(cache.typeValue.value)) {
+          if (isModuleType(cache.typeValue.value)) {
             const interfaceType = cache.typeValue.value;
             checkInterfaceType(interfaceType);
           }
@@ -597,5 +597,6 @@ export function getMethodsByNameFromEnv(
       }
     }
   }
+    */
   return methods;
 }
