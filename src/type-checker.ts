@@ -488,23 +488,11 @@ export interface ModuleMember {
    */
   typeExpr: Expr;
 
-  default?: {
-    /**
-     * The default value of the member.
-     * It should be compile-time known.
-     */
-    value: Value;
-
-    /**
-     * The default value expression of the member.
-     * Such as:
-     *
-     * (This: Type) = T;
-     *
-     * Here, `T` is the default value expression.
-     */
-    expr: Expr;
-  };
+  /**
+   * The default value of the element.
+   * Which has to be compile-time known.
+   */
+  defaultValue?: Value;
 }
 
 // It is just a collection of types
@@ -1319,8 +1307,8 @@ export function typeToString(type: Type): string {
           let t = `${member.label ? `${member.label}:` : ""}${typeToString(
             member.type
           )}`;
-          if (member.default?.value) {
-            t = `(${t}) = ${valueToString(member.default.value)}`;
+          if (member.defaultValue) {
+            t = `(${t}) = ${valueToString(member.defaultValue)}`;
           }
           return t;
         })

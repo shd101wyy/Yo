@@ -4771,33 +4771,15 @@ Got:   ${typeToString(argType)}`
 
       if (!foundArgExpr) {
         // Check if moduleMember has default value
-        if (!moduleMember.default) {
+        if (!moduleMember.defaultValue) {
           throw this.formatErrorMessage(
             moduleExpr.token,
             `Module member "${moduleMember.label}" is not provided and has no default value.`
           );
         }
 
-        // Evaluate the default value expr again
-        const evaluatedDefaultValueExpr = this.evaluateExpression({
-          expr: moduleMember.default.expr,
-          env: moduleType.env,
-          context: {
-            ...context,
-            isEvaluatingExprAsType: false,
-            expectedType: moduleMember.type,
-            SelfType: moduleType,
-          },
-        });
-        const value = evaluatedDefaultValueExpr.value;
-        if (!value) {
-          throw this.formatErrorMessage(
-            moduleExpr.token,
-            `Failed to evaluate the module member "${moduleMember.label}"`
-          );
-        }
         // Add the value to the members
-        members[moduleMember.label] = value;
+        members[moduleMember.label] = moduleMember.defaultValue;
         // Add to the env
         const { env: nextEnv } = addVariableToEnv({
           env,
@@ -4808,7 +4790,7 @@ Got:   ${typeToString(argType)}`
             isCompileTimeOnly: true,
             token: moduleExpr.token,
             isNotInitialized: false,
-            value: value,
+            value: moduleMember.defaultValue,
           },
         });
         env = nextEnv;
@@ -5568,10 +5550,7 @@ If you want to define the receiver type, please use "This" instead.`
         moduleType.members.push({
           label,
           type: memberType,
-          default: {
-            expr: defaultValueExpr,
-            value: defaultValue,
-          },
+          defaultValue,
           typeExpr: evaluatedMemberTypeExpr,
         });
       } else {
@@ -5579,8 +5558,7 @@ If you want to define the receiver type, please use "This" instead.`
         moduleType.members.push({
           label,
           type: memberType,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          default: undefined,
+          defaultValue: undefined,
           typeExpr: evaluatedMemberTypeExpr,
         });
       }
