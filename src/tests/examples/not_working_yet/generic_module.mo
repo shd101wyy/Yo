@@ -1,16 +1,14 @@
 def Id:
   (@(T): Type)-> @(Type),
-  interface // or module?
-    (This: Type) = T,
+  module
+    (This: Type) == T,
     id:
       (x: This)-> This
 ;
 
-I32Id :: Id(i32);
-I32Id2 :: Id(i32) // calling interface will implement it and return itself.
+I32Id2 :: Id(i32)
   id:
     fn(x) -> x;
-// I32Id == I32Id2; // true;
 
 def Point:
   (@(T): Type)-> @(Type),
@@ -19,10 +17,12 @@ def Point:
     y: T
 ;
 
-forall(@(T): Type) .
+def IdPoint:
+  (forall(@(T): Type), implicit(@(I): Id(T))) -> @(Id(Point(T))),
   Id(Point(T))
     id:
-      fn(p)-> Point(T)(p.x, p.y)
+      fn(p)->
+        Point(T)(p.x, p.y)
 ;
 
 

@@ -1,21 +1,24 @@
-d := (a: 1, b: true, c: (x: 2, y: false));
+def main:
+  ()-> (), {
+  (d: (a: i32, b: boolean, c: (x: i32, y: boolean))) = (1, true, (2, false));
 
-// Destructuring by position
-(m, n, (x, y)) := d;
+  // Destructuring by position
+  (m, n, (x, y)) := d;
 
-// Destructuring by label
-(c: (.y, .x), a: m, .b) := d;
+  // Destructuring by label
+  (c: (y: y, x: x), a: m, b: b) := d;
 
-// Different types of data structures
-SomeStruct :: struct(
-  x: i32,
-  y: boolean 
-);
+  // Different types of data structures
+  SomeStruct :: struct(
+    x: i32,
+    y: boolean 
+  );
 
-d := (a: 1, b: SomeStruct(2, false));
+  (d: (a: i32, b: SomeStruct)) = (1, SomeStruct(2, false));
 
-// Support destructuring struct
-(a, _(x, y)) := d;
-/// or
-(a, _(x, y)) := d;
+  // Support destructuring struct
+  (a, _(x, y)) := d;
+  /// or
+  (a, _(x, y)) := d;
 
+};

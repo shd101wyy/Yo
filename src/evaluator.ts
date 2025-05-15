@@ -1061,7 +1061,7 @@ ${typeToString(expectedTupleType)}`
         lhsFunc.token,
         `Expected "_" for ${isStruct ? "struct" : ""}${
           isModule ? "module" : ""
-        } destructuring, got ${lhsFuncName}`
+        } destructuring, got "${lhsFuncName}"`
       );
     }
 

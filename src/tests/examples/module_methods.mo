@@ -35,7 +35,6 @@ def main:
   // Or use the method call
   x := (1).my_add(2);
   
-  /*
   // Explict call
   x := (1).(MyAdd.my_add)(2);
 
@@ -43,8 +42,8 @@ def main:
   // (true).new_self2(); // not ok
   MyAdd.new_self2(true); // ok
   MyAdd.new_self2(false); // ok
-
-
+  
+  /*
   // Function returning an interface
   def Id :
     (compt(T): Type) -> compt(Type),

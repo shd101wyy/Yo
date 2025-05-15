@@ -6,9 +6,10 @@ extern
   (eq): ((i32, i32)-> boolean)
 ;
 
-def factoral(x: i32): i32,
+def factoral:
+  (x: i32)-> i32,
   cond
     (x `eq` 0) -> 1,
     true     -> (factoral(x `sub` 1) `mul` x);
 
-x := factoral(x: 12);
+factoral(x: 12);

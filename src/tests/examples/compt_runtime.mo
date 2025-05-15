@@ -1,50 +1,57 @@
 // Compt value can be assigned to runtime variable,
 // but not the other way around.
 
-def compt_return(compt(T): Type, compt(value): T): compt(T),
-  value
-;
+def main: 
+  ()-> (), {
+  def compt_return:
+    (compt(T): Type, compt(value): T)-> compt(T),
+    value
+  ;
 
-def runtime_return(compt(T): Type, value: T): T,
-  value
-;
+  def runtime_return:
+    (compt(T): Type, value: T)-> T,
+    value
+  ;
 
-xx :: compt_return(i32, 12);
-xxx := compt_return(i32, 12);
-// xx :: runtime_return(i32, 12); // error
-xxx := runtime_return(i32, 12);
+  xx :: compt_return(i32, 12);
+  xxx := compt_return(i32, 12);
+  // xx :: runtime_return(i32, 12); // error
+  xxx := runtime_return(i32, 12);
 
-def test(compt(x): i32, y: i32): (), {
-  // Assign compt value to another compt is allowed
-  xx :: x;
-  xx :: compt_return(i32, x);
+  def test:
+    (compt(x): i32, y: i32)-> (), {
+    // Assign compt value to another compt is allowed
+    xx :: x;
+    xx :: compt_return(i32, x);
 
-  // Assign compt value to another runtime is allowed
-  yy := x;
+    // Assign compt value to another runtime is allowed
+    yy := x;
 
-  // Assign runtime value to another compt is not allowed
-  // xx :: y; // expected-error {{cannot assign runtime value to a compt variable}}
+    // Assign runtime value to another compt is not allowed
+    // xx :: y; // expected-error {{cannot assign runtime value to a compt variable}}
 
-  // Assign runtime value to another runtime is allowed
-  yy := y;
+    // Assign runtime value to another runtime is allowed
+    yy := y;
 
-  ()
-};
+    ()
+  };
 
 
-// Below should give error as `value` is supposed to be compt
-// def some_func(compt(T): Type, value: T): compt(T), value;
+  // Below should give error as `value` is supposed to be compt
+  // def some_func(compt(T): Type, value: T): compt(T), value;
 
-// compt value can be assigned to runtime parameter,
-// but not the other way around.
+  // compt value can be assigned to runtime parameter,
+  // but not the other way around.
 
-def accept_compt(compt(x): i32): (), {
-  xx :: x;
-  xxx := x;
-};
-(x: i32) = 13; // runtime
-xx :: 14; // compt
-// accept_compt(compt_return(i32, 12));
-// accept_compt(x); // error:
-accept_compt(xx);
-// accept_compt(runtime_return(i32, 12));
+  def accept_compt:
+    (compt(x): i32)-> (), {
+    xx :: x;
+    xxx := x;
+  };
+  (x: i32) = 13; // runtime
+  xx :: 14; // compt
+  // accept_compt(compt_return(i32, 12));
+  // accept_compt(x); // error:
+  accept_compt(xx);
+  // accept_compt(runtime_return(i32, 12));
+}

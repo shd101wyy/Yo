@@ -1,16 +1,20 @@
 // Tuple desturcturing
-x := (a: 1, b: true);
 
-// Destructuring by position
-(m, n) := x;
+def main:
+  ()-> (), {
+  (x: (a: i32, b: boolean)) = (1, true);
 
-// Destructuring by label
-(.a, .b) := x; // a == 1, b == true
+  // Destructuring by position
+  (m, n) := x;
 
-// Renaming
-(a: u, b: v) := x; // u == 1, v == true
+  // Destructuring by label
+  (a: a, b: b) := x; // a == 1, b == true
 
-// i := a;
-i := u;
-j := v;
-z := x.a;
+  // Renaming
+  (a: u, b: v) := x; // u == 1, v == true
+
+  // i := a;
+  i := u;
+  j := v;
+  z := x.a;
+};

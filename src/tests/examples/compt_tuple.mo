@@ -1,8 +1,10 @@
+def main:
+  ()-> (), {
+  x :: 12;
+  t :: (x,);
 
-x :: 12;
-t :: (x,);
+  runt_x := 12;
 
-runt_x := 12;
-
-// t :: (x, runt_x); // Expected error
-t := (x, runt_x);
+  // t :: (x, runt_x); // Expected error
+  t := (x, runt_x);
+};

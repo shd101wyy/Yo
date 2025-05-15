@@ -1,17 +1,20 @@
-Point :: struct(x: i32, y: boolean);
+def main:
+  ()-> (), {
+  Point :: struct(x: i32, y: boolean);
 
-p := Point(3, true);
-(p: Point) = _(3, true);
-(p: Point) = {x: 3, y: true};
-(p: Point) = {y: true, x: 3};
+  p := Point(3, true);
+  (p: Point) = _(3, true);
+  (p: Point) = {x: 3, y: true};
+  (p: Point) = {y: true, x: 3};
 
-x := 1;
-y := true;
-(p: Point) = {x, y}; 
-(p: Point) = {y, x};
+  x := 1;
+  y := true;
+  (p: Point) = {x, y}; 
+  (p: Point) = {y, x};
 
-{ x, y: a } := p;
-a;
-{ x: a, y: b } := p;
-a;
-b;
+  { x, y: a } := p;
+  a;
+  { x: a, y: b } := p;
+  a;
+  b;
+}

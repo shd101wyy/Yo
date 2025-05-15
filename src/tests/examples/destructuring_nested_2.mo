@@ -1,16 +1,16 @@
-// Different types of data structures
-Complex :: type (struct(
-  x: i32,
-  y: boolean 
-),);
-SomeStruct :: Complex.0;
+def main:
+  ()-> (), {
+  // Different types of data structures
+  SomeStruct :: struct(x: i32, y: boolean);
+  Complex :: type (SomeStruct,);
 
-d := (a: 1, b: SomeStruct(2, false));
+  (d : (a: i32, b: SomeStruct)) = (1, SomeStruct(2, false));
 
-// Support destructuring struct
-(a, _(x, y)) := d;
-/// or
-(a, _(x, y)) := d;
-/// or
-// (a, Complex.0(x, y)) := d; // This is not supported
-(b: _(x, y), a: another_a) := d;
+  // Support destructuring struct
+  (a, _(x, y)) := d;
+  /// or
+  (a, _(x, y)) := d;
+  /// or
+  // (a, Complex.0(x, y)) := d; // This is not supported
+  (b: _(x, y), a: another_a) := d;
+};
