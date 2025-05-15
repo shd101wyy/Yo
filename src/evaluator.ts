@@ -5380,40 +5380,15 @@ Expected: ${typeToString(functionType)}`
     return expr;
   }
 
-  private evaluateAnonymousModule({
-    expr,
+  private evaluateAnonmousModuleBeginExprs({
+    beginExprs,
     env,
     context,
   }: {
-    expr: FuncCallExpr;
+    beginExprs: Expr[];
     env: Environment;
     context: EvaluatorContext;
-  }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Module)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "module", got:\n${exprToString(expr)}`
-      );
-    }
-    if (expr.args.length !== 1) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "module" with 1 argument, got:\n${exprToString(expr)}`
-      );
-    }
-    const moduleBodyExpr = expr.args[0];
-    if (
-      !exprIsFunctionCall(moduleBodyExpr) ||
-      !exprIsFunctionCallOf(moduleBodyExpr, BuiltinKeywords.Begin)
-    ) {
-      throw this.formatErrorMessage(
-        moduleBodyExpr.token,
-        `Expected "begin", got:\n${exprToString(moduleBodyExpr)}`
-      );
-    }
-
-    const beginExprs = moduleBodyExpr.args;
-
+  }): { moduleValue: ModuleValue; moduleType: ModuleType; env: Environment } {
     // Create module type
     const moduleType = createModuleType([], env);
 
@@ -5453,7 +5428,8 @@ Expected: ${typeToString(functionType)}`
         moduleMembers.push({
           label: variable.name,
           type: variable.type,
-          requiredValue: variable.value,
+          // NOTE: Don't set requiredValue:
+          // requiredValue: variable.value,
         });
         memberValues[variable.name] = variable.value;
       } else {
@@ -5468,6 +5444,63 @@ Expected: ${typeToString(functionType)}`
 
     // Create the module value
     const moduleValue = createModuleValue(moduleType, memberValues);
+
+    return {
+      moduleValue,
+      moduleType,
+      env,
+    };
+  }
+
+  private evaluateAnonymousModule({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Module)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "module", got:\n${exprToString(expr)}`
+      );
+    }
+    if (expr.args.length !== 1) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "module" with 1 argument, got:\n${exprToString(expr)}`
+      );
+    }
+    const moduleBodyExpr = expr.args[0];
+    if (
+      !exprIsFunctionCall(moduleBodyExpr) ||
+      !exprIsFunctionCallOf(moduleBodyExpr, BuiltinKeywords.Begin)
+    ) {
+      throw this.formatErrorMessage(
+        moduleBodyExpr.token,
+        `Expected "begin", got:\n${exprToString(moduleBodyExpr)}`
+      );
+    }
+
+    const beginExprs = moduleBodyExpr.args;
+
+    const {
+      moduleType,
+      moduleValue,
+      env: nextEnv,
+    } = this.evaluateAnonmousModuleBeginExprs({
+      beginExprs,
+      env,
+      context: {
+        ...context,
+        isEvaluatingExprAsType: false,
+        expectedType: undefined,
+        SelfType: undefined,
+      },
+    });
+    env = nextEnv;
 
     // Set the module value to the expr
     expr.type = moduleType;
@@ -6015,16 +6048,16 @@ ${exprToString(expr)}`
       modulePath: this.modulePath,
       inputString: this.inputString,
     });
-    for (let i = 0; i < this.program.length; i++) {
-      const expr = this.program[i];
-      const nextExpr = this.evaluateExpression({
-        expr,
-        env,
-        context: {
-          isEvaluatingExprAsType: false,
-        },
-      });
-      env = nextExpr.env || env;
-    }
+
+    const { env: nextEnv } = this.evaluateAnonmousModuleBeginExprs({
+      beginExprs: this.program,
+      env,
+      context: {
+        isEvaluatingExprAsType: false,
+        expectedType: undefined,
+        SelfType: undefined,
+      },
+    });
+    env = nextEnv;
   }
 }
