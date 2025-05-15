@@ -1,15 +1,20 @@
-def SomeStruct(compt(T): Type): compt(Type),
-  struct(x: T)
-;
+def main:
+  ()-> (), {
+  def SomeStruct:
+    (compt(T): Type) -> compt(Type),
+    struct(x: T)
+  ;
 
 
-(x: SomeStruct(i32)) = SomeStruct(i32)(1);
-(x: SomeStruct(i32)) = _(1);
-(y: SomeStruct(i32)) = x;
+  (x: SomeStruct(i32)) = SomeStruct(i32)(1);
+  (x: SomeStruct(i32)) = _(1);
+  (y: SomeStruct(i32)) = x;
 
 
-def AnotherStruct(compt(T): Type): compt(Type),
-  struct(x: T)
-;
-// (z: AnotherStruct(i32)) = x; // Should give error as the struct is nominal type in Mo
+  def AnotherStruct:
+    (compt(T): Type) -> compt(Type),
+    struct(x: T)
+  ;
+  // (z: AnotherStruct(i32)) = x; // Should give error as the struct is nominal type in Mo
 
+};

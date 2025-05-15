@@ -43,7 +43,6 @@ import {
   isFunctionType,
   isFunctionTypeAndIsTypeFunction,
   isModuleType,
-  isPrimitiveType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -3549,6 +3548,7 @@ compt(${exprToString(returnTypeExpr)})`
           return expr;
         } else if (this.isValidVariableName(propertyExpr)) {
           const label = propertyExpr.token.value;
+          /*
           // Check if the type method exists
           const method = (objectExpr.type.methods ?? []).find(
             (method) => method.label === label
@@ -3559,7 +3559,9 @@ compt(${exprToString(returnTypeExpr)})`
             propertyExpr.value = method.value;
             propertyExpr.type = method.type;
             return expr;
-          } else {
+          } else 
+          */
+          {
             const tupleElementIndex = elements.findIndex(
               (element) => element.label === label
             );
@@ -3826,7 +3828,7 @@ compt(${exprToString(returnTypeExpr)})`
     const func = expr.func;
     let args = expr.args;
 
-    // For interface method call
+    // For module method call
     let methodExpr: Expr | undefined = undefined;
 
     let functions: { type: Type; value?: Value; error?: Error }[] = [];
@@ -3841,7 +3843,7 @@ compt(${exprToString(returnTypeExpr)})`
           isEvaluatingExprAsType: false,
         },
       });
-      // Check if . property access for interface method call
+      // Check if . property access for module method call
       if (!functionToCall.type) {
         if (
           exprIsFunctionCall(functionToCall) &&
@@ -3989,12 +3991,12 @@ compt(${exprToString(returnTypeExpr)})`
         const methodName = functionName;
         methodExpr = func;
         // Get the method with the same name in the interface in the env
-        const interfaceMethods = getMethodsByNameFromEnv(
+        const moduleMethods = getMethodsByNameFromEnv(
           env,
           methodName,
           receiverType
         );
-        functions = interfaceMethods.map((method) => ({
+        functions = moduleMethods.map((method) => ({
           type: method.type,
           value: method.value,
         }));
@@ -5097,16 +5099,17 @@ Expected: ${typeToString(functionType)}`
     }
 
     let functionName: string;
-    let functionNameExpr = functionDefinitionExpr.args[0];
+    const functionNameExpr = functionDefinitionExpr.args[0];
     const functionTypeExpr = functionDefinitionExpr.args[1];
-    let typeMethodInfo: { type: Type; methodName: string } | undefined =
-      undefined;
+    // let typeMethodInfo: { type: Type; methodName: string } | undefined =
+    //   undefined;
 
     // Check if it's a type method, such as:
     //
     // def Point.add:
     //   (self: Point, other: Point)-> Point,
     //   ...
+    /*
     if (
       exprIsFunctionCall(functionNameExpr) &&
       exprIsFunctionCallOf(functionNameExpr, ".", 2)
@@ -5189,14 +5192,12 @@ Expected: ${typeToString(functionType)}`
         }
       }
 
-      /*
       // Add the method to the type
-      type.methods = existingMethods.concat({
-        label: methodName,
-        type: functionType,
-        value: functionValue,
-      });
-      */
+      // type.methods = existingMethods.concat({
+      //   label: methodName,
+      //   type: functionType,
+      //   value: functionValue,
+      // });
 
       typeMethodInfo = {
         type,
@@ -5205,7 +5206,8 @@ Expected: ${typeToString(functionType)}`
       functionName = methodName;
     }
     // It's not the type method, but the normal function
-    else {
+    else */
+    {
       // Get the function name
       if (
         !exprIsAtom(functionNameExpr) &&
@@ -5282,6 +5284,7 @@ Expected: ${typeToString(functionType)}`
     };
 
     // It's a type method
+    /*
     if (typeMethodInfo) {
       // Add the method to the type
       const existingMethods = typeMethodInfo.type.methods ?? [];
@@ -5293,7 +5296,9 @@ Expected: ${typeToString(functionType)}`
       });
     }
     // It's a normal method
-    else {
+    else
+    */
+    {
       /// Add function with name to env;
       const { env: nextNextEnv } = addVariableToEnv({
         env,

@@ -3,7 +3,7 @@ import { Expr } from "./expr";
 import { FunctionValue } from "./function-value";
 import { TypeValue } from "./type-value";
 import { randomId } from "./utils";
-import { Value, valueToString } from "./value";
+import { isTypeValue, Value, valueToString } from "./value";
 import { ValueTag } from "./value-tag";
 
 // FIXME: We need to determine the ptr size based on the givenType architecture.
@@ -87,7 +87,7 @@ export interface Type {
   /**
    * The methods implemented for this type
    */
-  methods?: TypeMethod[];
+  // methods?: TypeMethod[];
 }
 
 export interface LiteralType extends Type {
@@ -721,21 +721,17 @@ export function createModuleType(
 
 // FIXME:
 export function getModuleReceiverType(moduleType: ModuleType): Type | null {
-  /*
   const receiverType = moduleType.members.find(
     (member) => member.label === "This"
   );
-  if (!receiverType || !receiverType.value) {
+  if (!receiverType || !receiverType.requiredValue) {
     return null;
   }
-  const typeValue = receiverType.value;
+  const typeValue = receiverType.requiredValue;
   if (!isTypeValue(typeValue)) {
     return null;
   }
   return typeValue.value;
-  */
-  moduleType.members.find((member) => member.label === "This");
-  return null;
 }
 
 // Example: Array type function - now using regular FunctionType

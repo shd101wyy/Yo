@@ -1,15 +1,24 @@
 import { createHash } from "crypto";
 import { formatErrorMessages } from "./error";
-import { FunctionValue } from "./function-value";
 import { charIsOperator, Operators, Token } from "./token";
 import {
-  FunctionType,
+  areTypesCompatible,
+  getModuleReceiverType,
   isFunctionType,
+  isModuleType,
+  ModuleType,
   Type,
   TypeTag,
   typeToString,
 } from "./type-checker";
-import { isTypeValue, Value, valueToString } from "./value";
+import {
+  createUnknownValue,
+  isModuleValue,
+  isTypeValue,
+  isUnknownValue,
+  Value,
+  valueToString,
+} from "./value";
 
 export type ReferedVariable = {
   frameLevel: number;
@@ -513,44 +522,42 @@ export function printEnvVarNames(env: Environment) {
 }
 
 export function getMethodsByNameFromEnv(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   env: Environment,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   methodName: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   receiverType: Type
-): { type: Type; value: FunctionValue }[] {
-  const methods: { type: FunctionType; value: FunctionValue }[] = [];
+): { type: Type; value: Value | undefined }[] {
+  const methods: { type: Type; value: Value | undefined }[] = [];
 
-  /*
-  function checkInterfaceType(interfaceType: ModuleType) {
-    const interfaceReceiverType = getModuleReceiverType(interfaceType);
-    if (!interfaceReceiverType) {
-      // NOTE: We require receiverType to be defined with "Self"
+  function checkModule(moduleType: ModuleType, moduleValue: Value) {
+    const moduleReceiverType = getModuleReceiverType(moduleType);
+    if (!moduleReceiverType) {
+      // NOTE: We require receiverType to be defined with "This"
       return;
     }
 
-    const method = interfaceType.members.find(
+    const method = moduleType.members.find(
       (member) =>
-        areTypesCompatible(interfaceReceiverType, receiverType, env) &&
+        areTypesCompatible(moduleReceiverType, receiverType, env) &&
         member.label === methodName &&
-        !!member.value &&
         isFunctionType(member.type) &&
         member.type.params.length > 0 &&
         // TODO: support autocast to reference/immutable reference.
         areTypesCompatible(member.type.params[0].type, receiverType, env)
     );
-    if (
-      method &&
-      isFunctionType(method.type) &&
-      isFunctionValue(method.value) &&
-      !methods.some((m) => m.value === method.value)
-    ) {
-      methods.push({ type: method.type, value: method.value });
+    if (method) {
+      let value: Value | undefined = undefined;
+      if (isUnknownValue(moduleValue)) {
+        value = createUnknownValue(method.type, method.label);
+      } else if (isModuleValue(moduleValue)) {
+        value = moduleValue.members[method.label];
+      }
+
+      methods.push({ type: method.type, value });
     }
   }
 
   // Check if the receiverType itself has method that can be called
+  /*
   if (receiverType.methods) {
     const typeMethods = receiverType.methods.filter(
       (method) =>
@@ -566,20 +573,24 @@ export function getMethodsByNameFromEnv(
       }
     }
   }
+  */
 
-  // Check the interfaces
+  // Check the modules
   for (let i = env.frames.length - 1; i >= 0; i--) {
     const frame = env.frames[i];
     for (let j = frame.variables.length - 1; j >= 0; j--) {
       const variable = frame.variables[j];
+      const moduleType = variable.type;
+      const moduleValue = variable.value;
       if (
-        // Find the interface
-        isTypeValue(variable.value) &&
-        isModuleType(variable.value.value)
+        // Find the module value
+        isModuleType(moduleType) &&
+        moduleValue
       ) {
-        const interfaceType = variable.value.value;
-        checkInterfaceType(interfaceType);
-      } else if (
+        checkModule(moduleType, moduleValue);
+      }
+      /*
+      else if (
         // Check if it's a function that returns interface, then we check its caches
         isFunctionType(variable.type) &&
         isFunctionValue(variable.value)
@@ -593,13 +604,14 @@ export function getMethodsByNameFromEnv(
         ) {
           const cache = functionValue.calledTypeFunctionCaches[k];
           if (isModuleType(cache.typeValue.value)) {
-            const interfaceType = cache.typeValue.value;
-            checkInterfaceType(interfaceType);
+            const moduleType = cache.typeValue.value;
+            checkModuleType(moduleType);
           }
         }
       }
+      */
     }
   }
-    */
+
   return methods;
 }
