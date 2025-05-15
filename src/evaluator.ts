@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   addVariableToEnv,
   createNewEnv,
@@ -131,19 +133,32 @@ export default class Evaluator {
   private parser: Parser;
   private program: Expr[];
   private tokens: Token[];
+  private moduleValue: ModuleValue;
+  private loadModule: (modulePath: string) => ModuleValue;
 
   constructor({
     modulePath,
-    inputString,
+    loadModule,
   }: {
     modulePath: string;
-    inputString: string;
+    loadModule: (modulePath: string) => ModuleValue;
   }) {
     this.modulePath = modulePath;
-    this.inputString = inputString;
+    this.loadModule = loadModule;
+
+    if (!this.modulePath.match(/^file:\/\//)) {
+      throw new Error(
+        `Invalid file protocol: ${this.modulePath}. Only file:// is supported for now.  `
+      );
+    }
+
+    this.inputString = readFileSync(
+      modulePath.replace(/^file:\/\//, ""), // NOTE: We only support local file for now
+      "utf-8"
+    );
 
     // Parse the module
-    this.parser = new Parser({ modulePath, inputString });
+    this.parser = new Parser({ modulePath, inputString: this.inputString });
     this.program = this.parser.getProgram();
     this.tokens = this.parser.getTokens();
 
@@ -942,11 +957,13 @@ ${typeToString(expectedTupleType)}`
     lhs,
     rhs,
     env,
+    isCompileTimeOnly,
     context,
   }: {
     lhs: Expr;
     rhs: Expr;
     env: Environment;
+    isCompileTimeOnly: boolean;
     context: EvaluatorContext;
   }): Environment {
     const rhsType = rhs.type;
@@ -968,6 +985,7 @@ ${typeToString(expectedTupleType)}`
         lhs,
         env,
         context: { ...context },
+        isCompileTimeOnly,
       });
     }
     // Handle tuple destructuring
@@ -985,6 +1003,7 @@ ${typeToString(expectedTupleType)}`
         lhs,
         env,
         context: { ...context },
+        isCompileTimeOnly,
       });
     }
     // Handle module destructuring
@@ -998,6 +1017,7 @@ ${typeToString(expectedTupleType)}`
         lhs,
         env,
         context: { ...context },
+        isCompileTimeOnly,
       });
     }
 
@@ -1019,6 +1039,7 @@ ${typeToString(expectedTupleType)}`
     lhs,
     env,
     context,
+    isCompileTimeOnly,
   }: {
     lhsFunc: Expr;
     lhsElements: Expr[];
@@ -1028,6 +1049,7 @@ ${typeToString(expectedTupleType)}`
     lhs: Expr;
     env: Environment;
     context: EvaluatorContext;
+    isCompileTimeOnly: boolean;
   }): Environment {
     const isStruct = isStructType(rhsType);
     const isModule = isModuleType(rhsType);
@@ -1146,6 +1168,7 @@ ${typeToString(expectedTupleType)}`
             lhs: rightSide,
             env,
             context: { ...context },
+            isCompileTimeOnly,
           });
 
           // Set type and value on expressions
@@ -1195,6 +1218,7 @@ ${typeToString(expectedTupleType)}`
             lhs: rightSide,
             env,
             context: { ...context },
+            isCompileTimeOnly,
           });
 
           // Set type and value on expressions
@@ -1275,6 +1299,7 @@ ${typeToString(expectedTupleType)}`
             lhs: lhsElement,
             env,
             context: { ...context },
+            isCompileTimeOnly,
           });
 
           // Set type and value on expressions
@@ -1316,6 +1341,7 @@ ${typeToString(expectedTupleType)}`
             lhs: lhsElement,
             env,
             context: { ...context },
+            isCompileTimeOnly,
           });
           // Set type and value on expressions
           lhsElement.type = nestedRhsType;
@@ -1371,6 +1397,7 @@ Please consider to write it as:
             type: rhsElement.type,
             isMutable: false,
             isNotInitialized: false,
+            isCompileTimeOnly: isCompileTimeOnly,
             value: elementValue,
           },
         });
@@ -1717,6 +1744,7 @@ ${exprToString(rhs)}`
         lhs,
         rhs,
         env,
+        isCompileTimeOnly,
         context: { ...context },
       });
       expr.value = VUnit;
@@ -5424,7 +5452,7 @@ Expected: ${typeToString(functionType)}`
     const moduleMembers: ModuleMember[] = [];
     const memberValues: Record<string, Value> = {};
     for (const variable of newFrame.variables) {
-      if (variable.isCompileTimeOnly && variable.value) {
+      if (variable.isCompileTimeOnly && variable.value && !variable.isMutable) {
         moduleMembers.push({
           label: variable.name,
           type: variable.type,
@@ -5435,7 +5463,7 @@ Expected: ${typeToString(functionType)}`
       } else {
         throw this.formatErrorMessage(
           variable.token,
-          `Expected compile time only variable.`
+          `Only immutable compile-time variables are allowed in the top-level module.`
         );
       }
     }
@@ -5792,6 +5820,75 @@ If you want to define the receiver type, please use "This" instead.`
     return expr;
   }
 
+  private evaluateImport({
+    expr,
+    env,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Import, 1)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "import" with 1 argument, got:\n${exprToString(expr)}`
+      );
+    }
+
+    const moduleArg = expr.args[0];
+    /*
+    // TODO: Support comptime string
+    // Evaluate the moduleArg
+    const evaluatedModuleArg = this.evaluateExpression({
+      expr: moduleArg,
+      env,
+      context: {
+        ...context,
+        isEvaluatingExprAsType: false,
+        expectedType: undefined,
+        SelfType: undefined,
+      },
+    });
+    const value = evaluatedModuleArg.value;
+    */
+    if (moduleArg.token.type !== TokenType.String) {
+      throw this.formatErrorMessage(
+        moduleArg.token,
+        `Expected string for module path, got:\n${exprToString(moduleArg)}`
+      );
+    }
+
+    // Import the module
+    const modulePath = moduleArg.token.value.slice(1, -1); // Remove the quotes
+
+    if (!modulePath.startsWith("./")) {
+      throw this.formatErrorMessage(
+        moduleArg.token,
+        "Only local relative path is supported for now"
+      );
+    }
+    // FIXME: Support other protocol like https://
+    let moduleAbsolutePath =
+      "file://" +
+      path.resolve(
+        path.dirname(this.modulePath.replace(/^file:\/\//, "")),
+        modulePath
+      );
+    const extname = path.extname(moduleAbsolutePath);
+    if (!extname) {
+      moduleAbsolutePath = moduleAbsolutePath + ".mo";
+    } else if (extname !== ".mo") {
+      throw new Error("Only .mo file is supported for now");
+    }
+
+    // Load the module
+    const moduleValue = this.loadModule(moduleAbsolutePath);
+    expr.value = moduleValue;
+    expr.type = moduleValue.type;
+    expr.env = env;
+    return expr;
+  }
+
   /*
   private evaluateExists({
     expr,
@@ -6022,6 +6119,9 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.TypeOf)) {
         // typeof
         return this.evaluateTypeOf({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Import)) {
+        // import
+        return this.evaluateImport({ expr, env, context: { ...context } });
       } else {
         /* 
       else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {
@@ -6049,15 +6149,25 @@ ${exprToString(expr)}`
       inputString: this.inputString,
     });
 
-    const { env: nextEnv } = this.evaluateAnonmousModuleBeginExprs({
-      beginExprs: this.program,
-      env,
-      context: {
-        isEvaluatingExprAsType: false,
-        expectedType: undefined,
-        SelfType: undefined,
-      },
-    });
+    const { moduleValue, env: nextEnv } = this.evaluateAnonmousModuleBeginExprs(
+      {
+        beginExprs: this.program,
+        env,
+        context: {
+          isEvaluatingExprAsType: false,
+          expectedType: undefined,
+          SelfType: undefined,
+        },
+      }
+    );
     env = nextEnv;
+    this.moduleValue = moduleValue;
+  }
+
+  public getModuleValue(): ModuleValue {
+    if (!this.moduleValue) {
+      throw new Error("Module value is not set");
+    }
+    return this.moduleValue;
   }
 }

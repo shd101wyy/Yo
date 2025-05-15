@@ -5,8 +5,8 @@ import * as vscode from "vscode";
 // This assumes your extension can access the Mo project code
 import { getVariablesFromEnv } from "@mo/env";
 import { MoLexerError, MoParserError } from "@mo/error";
-import Evaluator from "@mo/evaluator";
 import { AtomExpr, Expr, exprIsAtom, exprToString } from "@mo/expr";
+import { ModuleManager } from "@mo/module-manager";
 import { stringIsOperator, TokenType } from "@mo/token";
 import { getSizeString, typeOfType, typeToString } from "@mo/type-checker";
 import { valueToString } from "@mo/value";
@@ -18,8 +18,8 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.languages.createDiagnosticCollection("mo");
   context.subscriptions.push(diagnosticCollection);
 
-  // Map to store evaluated expressions by file path
-  const evaluatedFiles = new Map<string, { evaluator: Evaluator }>();
+  // Mo language module manager
+  const moduleManager = new ModuleManager();
 
   // Function to analyze Mo file and show diagnostics
   const analyzeMoFile = async (document: vscode.TextDocument) => {
@@ -33,17 +33,17 @@ export function activate(context: vscode.ExtensionContext) {
 
     const text = document.getText();
     const filePath = document.uri.fsPath;
-    let evaluator: Evaluator | null = null;
 
     try {
-      // Clear any previous evaluation for this file
-      evaluatedFiles.delete(filePath);
+      // Include protocol in the file path
+      const modulePath = "file://" + filePath;
 
-      // Then try to evaluate:
-      evaluator = new Evaluator({
-        modulePath: filePath,
-        inputString: text,
-      });
+      // Clear any previous evaluation for this file
+      moduleManager.deleteModule(modulePath);
+
+      // Load the module again
+      moduleManager.loadModule(modulePath);
+
       // If we get here, there were no errors
     } catch (error) {
       const diagnostics: vscode.Diagnostic[] = [];
@@ -104,22 +104,20 @@ export function activate(context: vscode.ExtensionContext) {
       // Set the diagnostics for the file
       diagnosticCollection.set(document.uri, diagnostics);
     }
-
-    if (evaluator) {
-      // Store the evaluated expressions for hover provider to use
-      evaluatedFiles.set(filePath, {
-        evaluator,
-      });
-    }
   };
 
   // Register hover provider for Mo language
   const hoverProvider = vscode.languages.registerHoverProvider("mo", {
     provideHover(document, position) {
       const filePath = document.uri.fsPath;
-      const fileData = evaluatedFiles.get(filePath);
 
-      if (!fileData) {
+      // Include protocol in the file path
+      const modulePath = "file://" + filePath;
+
+      // Get the module evaluator
+      const module = moduleManager.modules.get(modulePath);
+
+      if (!module) {
         return null; // No evaluated data for this file
       }
 
@@ -132,8 +130,8 @@ export function activate(context: vscode.ExtensionContext) {
 
       // Get the text of the document and tokenize it
       // const text = document.getText();
-      const exprs = fileData.evaluator.getProgram();
-      const tokens = fileData.evaluator.getTokens();
+      const exprs = module.evaluator.getProgram();
+      const tokens = module.evaluator.getTokens();
 
       // Find the token at the current position
       const line = position.line;
