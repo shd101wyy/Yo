@@ -22,3 +22,10 @@ MyModule :: module
   id:
     fn(x) -> x
 ;
+
+def some_func:
+  (@(my_module): MyModule, x: i32)-> i32, {
+  my_add :: my_module.my_add;
+  my_add(x, 1)
+}
+;

@@ -3587,19 +3587,28 @@ compt(${exprToString(returnTypeExpr)})`
           }
         }
       }
-    } else if (isModuleValue(objectExpr.value)) {
+    } else if (isModuleType(objectExpr.type)) {
       // Check if it's accessing the module member by
       // - label name:   my_module.add
       if (exprIsAtom(propertyExpr)) {
         const label = propertyExpr.token.value;
         // Check if the type method exists
         const moduleValue = objectExpr.value;
-        const moduleType = moduleValue.type;
+        const moduleType = objectExpr.type;
         const moduleMember = (moduleType.members ?? []).find(
           (member) => member.label === label
         );
         if (moduleMember) {
-          expr.value = moduleValue.members[label];
+          if (isModuleValue(moduleValue)) {
+            // moduleValue might be UnknownValue
+            expr.value = moduleValue.members[label];
+          } else {
+            expr.value = createUnknownValue(
+              moduleMember.type,
+              moduleMember.label
+            );
+          }
+
           expr.type = moduleMember.type;
           propertyExpr.value = expr.value;
           propertyExpr.type = expr.type;

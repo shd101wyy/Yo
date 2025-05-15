@@ -3,7 +3,7 @@ import { ModuleManager } from "../module-manager";
 
 describe("Module Manager Tests", () => {
   beforeAll(() => {
-    const testFileName = "module_import.mo";
+    const testFileName = "fixme.mo";
     const moduleManager = new ModuleManager();
     moduleManager.loadModule(
       "file://" + path.join(__dirname, `examples/${testFileName}`)
