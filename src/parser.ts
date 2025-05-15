@@ -559,7 +559,9 @@ export default class Parser {
         index: returnValue.index,
       });
     } else if (
-      (token.type === TokenType.Operator || token.type === TokenType.Dot) &&
+      (token.type === TokenType.Operator ||
+        token.type === TokenType.Dot ||
+        token.type === TokenType.BacktickIdentifier) &&
       // prevent the case
       // use &(x), a;
       // getting parsed as:
@@ -640,6 +642,10 @@ Or use newline after "${token.value}" to confirm the right-associativity.
     // such as:
     // add(1, 2)
     // add(1, 2, 3)
+    // ANSWER: Yes we should only support 2 arguments
+    // Having more than 2 arguments might cause confusion.
+    // So basically we regard it as the infix operator.
+    /*
     else if (token.type === TokenType.BacktickIdentifier) {
       const { index: nextIndex, args } = this.parseFunctionArguments({
         tokens,
@@ -660,7 +666,9 @@ Or use newline after "${token.value}" to confirm the right-associativity.
         tokens,
         index: nextIndex,
       });
-    } else if (!hasWhitespace) {
+    }
+      */
+    else if (!hasWhitespace) {
       if (token.type === TokenType.LParen) {
         // Function call like
         // add(3, 4)

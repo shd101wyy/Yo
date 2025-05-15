@@ -120,7 +120,8 @@ export function exprToString(expr: Expr): string {
       if (
         expr.func.tag === "Atom" &&
         (expr.func.token.type === TokenType.Operator ||
-          expr.func.token.type === TokenType.Dot)
+          expr.func.token.type === TokenType.Dot ||
+          expr.func.token.type === TokenType.BacktickIdentifier)
       ) {
         if (expr.args.length === 1) {
           if (expr.func.token.value === ".") {
@@ -166,18 +167,6 @@ export function exprToString(expr: Expr): string {
             .trim()})`;
         }
         break;
-      }
-
-      if (
-        expr.func.tag === "Atom" &&
-        expr.func.token.type === TokenType.BacktickIdentifier
-      ) {
-        return `(${exprToString(expr.args[0])} ${
-          expr.func.token.value
-        } ${expr.args
-          .slice(1)
-          .map((arg) => exprToString(arg))
-          .join(", ")})`;
       }
 
       const func = exprToString(expr.func);

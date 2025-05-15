@@ -22,7 +22,7 @@ n := factorial(10);
 
 
 // With given type
-(factorial2 : factorial_fn) = 
+(compt(factorial2) : factorial_fn) = 
   fn(a)->
     cond
       (a `eq` 0) -> 1,
@@ -32,7 +32,7 @@ n := factorial(10);
 
 
 // With given type and fn implementaion has no type
-(factorial3: factorial_fn) = 
+(compt(factorial3): factorial_fn) = 
   fn(a)->
     cond
       (a `eq` 0) -> 1,
