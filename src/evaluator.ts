@@ -46,6 +46,7 @@ import {
   isStructType,
   isTupleType,
   isTypeHierarchyType,
+  ModuleMember,
   ModuleType,
   StructType,
   TBoolean,
@@ -4657,7 +4658,18 @@ Got:   ${typeToString(argType)}`
         if (moduleMember.label === label) {
           foundArgExpr = true;
 
+          if (moduleMember.requiredValue) {
+            throw this.formatErrorMessage(
+              argExpr.token,
+              `Module member "${
+                moduleMember.label
+              }" already has a required value:
+${valueToString(moduleMember.requiredValue)}`
+            );
+          }
+
           // evaluate the module member type again.
+          /*
           const evaluatedModuleMember = this.evaluateExpression({
             expr: moduleMember.typeExpr,
             env: pushEnvFrame(
@@ -4678,7 +4690,8 @@ Got:   ${typeToString(argType)}`
               `Failed to evaluate the module member "${label}"`
             );
           }
-          const moduleMemberType = evaluatedModuleMemberTypeValue.value;
+          */
+          const moduleMemberType = moduleMember.type;
 
           // evaluate the argExpr
           const evaluatedArgExpr = this.evaluateExpression({
@@ -4750,16 +4763,23 @@ Got:   ${typeToString(argType)}`
       }
 
       if (!foundArgExpr) {
-        // Check if moduleMember has default value
-        if (!moduleMember.defaultValue) {
+        const defaultValue = moduleMember.defaultValue;
+        const requiredValue = moduleMember.requiredValue;
+        // Check if moduleMember has default or required value
+        if (!defaultValue && !requiredValue) {
           throw this.formatErrorMessage(
             moduleExpr.token,
-            `Module member "${moduleMember.label}" is not provided and has no default value.`
+            `Module member "${moduleMember.label}" is not provided and has no required/default value.`
           );
         }
 
-        // Add the value to the members
-        members[moduleMember.label] = moduleMember.defaultValue;
+        if (defaultValue) {
+          members[moduleMember.label] = defaultValue;
+        }
+        if (requiredValue) {
+          members[moduleMember.label] = requiredValue;
+        }
+
         // Add to the env
         const { env: nextEnv } = addVariableToEnv({
           env,
@@ -5245,6 +5265,7 @@ Expected: ${typeToString(functionType)}`
           token: functionNameExpr.token,
           type: functionType,
           isMutable: false,
+          isCompileTimeOnly: true,
           isNotInitialized: false,
           value: functionValue,
         },
@@ -5359,6 +5380,103 @@ Expected: ${typeToString(functionType)}`
     return expr;
   }
 
+  private evaluateAnonymousModule({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Module)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "module", got:\n${exprToString(expr)}`
+      );
+    }
+    if (expr.args.length !== 1) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "module" with 1 argument, got:\n${exprToString(expr)}`
+      );
+    }
+    const moduleBodyExpr = expr.args[0];
+    if (
+      !exprIsFunctionCall(moduleBodyExpr) ||
+      !exprIsFunctionCallOf(moduleBodyExpr, BuiltinKeywords.Begin)
+    ) {
+      throw this.formatErrorMessage(
+        moduleBodyExpr.token,
+        `Expected "begin", got:\n${exprToString(moduleBodyExpr)}`
+      );
+    }
+
+    const beginExprs = moduleBodyExpr.args;
+
+    // Create module type
+    const moduleType = createModuleType([], env);
+
+    // Push new frame to the env
+    env = pushEnvFrame(env);
+
+    // Evaluate each expression in the begin
+    for (let i = 0; i < beginExprs.length; i++) {
+      const evaluatedExpr = this.evaluateExpression({
+        expr: beginExprs[i],
+        env,
+        context: {
+          ...context,
+          isEvaluatingExprAsType: false,
+          expectedType: undefined,
+          SelfType: moduleType,
+        },
+      });
+      if (evaluatedExpr.env) {
+        env = evaluatedExpr.env;
+      }
+    }
+
+    // Save the top frame
+    // This is the frame that contains the module members
+    const newFrame = env.frames[env.frames.length - 1];
+
+    // Pop the env frame
+    env = popEnvFrame(env);
+
+    // Traverse all variables in newFrame,
+    // and set them to moduleType
+    const moduleMembers: ModuleMember[] = [];
+    const memberValues: Record<string, Value> = {};
+    for (const variable of newFrame.variables) {
+      if (variable.isCompileTimeOnly && variable.value) {
+        moduleMembers.push({
+          label: variable.name,
+          type: variable.type,
+          requiredValue: variable.value,
+        });
+        memberValues[variable.name] = variable.value;
+      } else {
+        throw this.formatErrorMessage(
+          variable.token,
+          `Expected compile time only variable.`
+        );
+      }
+    }
+    // Update the moduleType
+    moduleType.members = moduleMembers;
+
+    // Create the module value
+    const moduleValue = createModuleValue(moduleType, memberValues);
+
+    // Set the module value to the expr
+    expr.type = moduleType;
+    expr.value = moduleValue;
+    expr.env = env;
+
+    return expr;
+  }
+
   private evaluateModule({
     expr,
     env,
@@ -5375,6 +5493,14 @@ Expected: ${typeToString(functionType)}`
       );
     }
 
+    if (
+      expr.args.length === 1 &&
+      exprIsFunctionCall(expr.args[0]) &&
+      exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.Begin)
+    ) {
+      return this.evaluateAnonymousModule({ expr, env, context });
+    }
+
     const moduleMemberExprs = expr.args;
     // Evaluate the module members
     const moduleType = createModuleType([], env);
@@ -5385,13 +5511,18 @@ Expected: ${typeToString(functionType)}`
     // Evaluate each module member
     for (let i = 0; i < moduleMemberExprs.length; i++) {
       let memberExpr = moduleMemberExprs[i];
-      let defaultValueExpr: Expr | undefined = undefined;
+      let valueExpr: Expr | undefined = undefined;
+      let valueKind: "required" | "default" | undefined = undefined;
       if (
         exprIsFunctionCall(memberExpr) &&
-        exprIsFunctionCallOf(memberExpr, "=", 2)
+        (exprIsFunctionCallOf(memberExpr, "=", 2) ||
+          exprIsFunctionCallOf(memberExpr, "==", 2))
       ) {
-        defaultValueExpr = memberExpr.args[1];
+        valueExpr = memberExpr.args[1];
         memberExpr = memberExpr.args[0];
+        valueKind = exprIsFunctionCallOf(memberExpr, "=", 2)
+          ? "default"
+          : "required";
       }
 
       if (
@@ -5480,28 +5611,17 @@ If you want to define the receiver type, please use "This" instead.`
         );
       }
 
-      // Add the label to the env
-      const { env: nextEnv } = addVariableToEnv({
-        env,
-        variable: {
-          name: label,
-          token: labelExpr.token,
-          type: memberType,
-          isMutable: false,
-          isNotInitialized: false,
-          isCompileTimeOnly: true,
-          value: createUnknownValue(memberType, label),
-        },
-      });
-      env = nextEnv;
-
-      // Add type info the labelExpr;
-      labelExpr.type = memberType;
+      if (isTypeHierarchyType(memberType) && valueKind !== "required") {
+        throw this.formatErrorMessage(
+          typeExpr.token,
+          `Module member "${label}" is missing required type value.`
+        );
+      }
 
       // Evaluate the default value expr if it exists
-      if (defaultValueExpr) {
-        const evaluatedDefaultValueExpr = this.evaluateExpression({
-          expr: defaultValueExpr,
+      if (valueExpr) {
+        const evaluatedValueExpr = this.evaluateExpression({
+          expr: valueExpr,
           env,
           context: {
             ...context,
@@ -5510,19 +5630,14 @@ If you want to define the receiver type, please use "This" instead.`
             SelfType: moduleType,
           },
         });
-        if (evaluatedDefaultValueExpr.env) {
-          env = evaluatedDefaultValueExpr.env;
+        if (evaluatedValueExpr.env) {
+          env = evaluatedValueExpr.env;
         }
-        const defaultValue = evaluatedDefaultValueExpr.value;
-        if (
-          !defaultValue ||
-          !(isTypeValue(defaultValue) || isFunctionValue(defaultValue))
-        ) {
+        const value = evaluatedValueExpr.value;
+        if (!value) {
           throw this.formatErrorMessage(
-            defaultValueExpr.token,
-            `Expected value for module member, got:\n${exprToString(
-              defaultValueExpr
-            )}`
+            valueExpr.token,
+            `Expected value for module member, got:\n${exprToString(valueExpr)}`
           );
         }
 
@@ -5530,17 +5645,58 @@ If you want to define the receiver type, please use "This" instead.`
         moduleType.members.push({
           label,
           type: memberType,
-          defaultValue,
-          typeExpr: evaluatedMemberTypeExpr,
+          defaultValue: valueKind === "default" ? value : undefined,
+          requiredValue: valueKind === "required" ? value : undefined,
+          // typeExpr: evaluatedMemberTypeExpr,
         });
+
+        // Add the label to the env
+        const { env: nextEnv } = addVariableToEnv({
+          env,
+          variable: {
+            name: label,
+            token: labelExpr.token,
+            type: memberType,
+            isMutable: false,
+            isNotInitialized: false,
+            isCompileTimeOnly: true,
+            value:
+              valueKind === "required"
+                ? value
+                : createUnknownValue(memberType, label),
+          },
+        });
+        env = nextEnv;
+
+        // Add type info the labelExpr;
+        labelExpr.type = memberType;
       } else {
         // Add the member to the moduleType
         moduleType.members.push({
           label,
           type: memberType,
           defaultValue: undefined,
-          typeExpr: evaluatedMemberTypeExpr,
+          requiredValue: undefined,
+          // typeExpr: evaluatedMemberTypeExpr,
         });
+
+        // Add the label to the env
+        const { env: nextEnv } = addVariableToEnv({
+          env,
+          variable: {
+            name: label,
+            token: labelExpr.token,
+            type: memberType,
+            isMutable: false,
+            isNotInitialized: false,
+            isCompileTimeOnly: true,
+            value: createUnknownValue(memberType, label),
+          },
+        });
+        env = nextEnv;
+
+        // Add type info the labelExpr;
+        labelExpr.type = memberType;
       }
     }
 

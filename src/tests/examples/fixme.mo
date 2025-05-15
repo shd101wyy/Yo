@@ -6,7 +6,7 @@ extern
 
 // Define a module type
 MyModule :: module
-  This: Type,
+  (This: Type) == i32,
   my_add:
     (x: i32, y: i32)-> i32,
   id:
@@ -15,7 +15,6 @@ MyModule :: module
 
 // Define a module instance
 (compt(my_module) : MyModule) = MyModule
-  This: i32,
   my_add:
     fn(x, y)->
       add(x, y)
@@ -24,6 +23,23 @@ MyModule :: module
     fn(x) -> x
 ;
 
+anonymous_module :: 
+  (module {
+    This :: i32;
+    x :: 12;
+
+    def my_add:
+      (x: i32, y: i32) -> i32,
+      add(x, y)
+    ;
+
+    def id:
+      (x: This) -> This,
+      x
+    ;
+  });
+
+/*
 some_this :: my_module.This;
 some_id :: my_module.id;
 x := some_id(13);
@@ -33,3 +49,6 @@ _( id: id2 ) :: my_module;
 { id: id3 } :: my_module;
 x := id2(13);
 x := id3(13);
+*/
+
+

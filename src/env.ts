@@ -504,6 +504,9 @@ export function printEnvVarNames(env: Environment) {
         name: variable.name,
         type: typeToString(variable.type),
         value: valueToString(variable.value),
+        isCompileTimeOnly: variable.isCompileTimeOnly,
+        isMutable: variable.isMutable,
+        isNotInitialized: variable.isNotInitialized,
       }));
     })
   );

@@ -76,9 +76,9 @@ export const BuiltinKeywords = {
   Implicit: ["implicit", "?"],
 
   Forall: ["forall", "∀"],
-  Exists: ["exists", "∃"],
-  Where: ["where", "∋"],
-  In: ["in", "∈"],
+  // Exists: ["exists", "∃"],
+  // Where: ["where", "∋"],
+  // In: ["in", "∈"],
 
   Quote: ["quote", ":"],
   Unquote: ["unquote", "$"],

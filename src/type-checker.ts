@@ -481,18 +481,39 @@ export interface ModuleMember {
   type: Type;
 
   /**
-   * The type expression of the member.
-   * Such as:
-   * - Type,
-   * - (x: Self, y: Self)-> Self
-   */
-  typeExpr: Expr;
-
-  /**
    * The default value of the element.
    * Which has to be compile-time known.
+   * For example:
+   *   (T: Type) = i32;
    */
   defaultValue?: Value;
+
+  /**
+   * The required value of the element.
+   * Which has to be compile-time known.
+   * For example:
+   *  (T: Type) == i32;
+   *
+   * Once this is set, we cannot assign/change the value.
+   *
+   * For example:
+   *
+   *    ```
+   *    def Id:
+   *      (@(T): Type)-> @(Type),
+   *      module:
+   *        (This: Type) == T,
+   *        id:
+   *          (x: This)-> This
+   *    ;
+   *    MyId :: Id(i32)
+   *      // This: i32, // <- This line is not allowed
+   *      id:
+   *        fn(x)-> x
+   *    ;
+   *    ```
+   */
+  requiredValue?: Value;
 }
 
 // It is just a collection of types
@@ -1309,6 +1330,9 @@ export function typeToString(type: Type): string {
           )}`;
           if (member.defaultValue) {
             t = `(${t}) = ${valueToString(member.defaultValue)}`;
+          }
+          if (member.requiredValue) {
+            t = `(${t}) == ${valueToString(member.requiredValue)}`;
           }
           return t;
         })
