@@ -614,12 +614,15 @@ ${typeToString(expectedTupleType)}`
     };
   }
 
+  /**
+   * Check if the expr is either an identifier or an operator
+   * @param expr
+   * @returns
+   */
   private isValidVariableName(expr: Expr): boolean {
     return (
-      exprIsAtom(expr) && expr.token.type === TokenType.Identifier
-      //   || expr.token.type === TokenType.Operator
-      // Operator is not a valid variable name anymore.
-      // It can only be used in the context of interface method declaration.
+      (exprIsAtom(expr) && expr.token.type === TokenType.Identifier) ||
+      expr.token.type === TokenType.Operator
     );
   }
 
@@ -983,6 +986,19 @@ ${typeToString(expectedTupleType)}`
         context: { ...context },
       });
     }
+    // Handle module destructuring
+    else if (isModuleType(rhsType) && exprIsFunctionCall(lhs)) {
+      return this.handleMemberDestructuring({
+        lhsFunc: lhs.func,
+        lhsElements: lhs.args,
+        rhsElements: rhsType.members,
+        rhsValue: rhs.value,
+        rhsType,
+        lhs,
+        env,
+        context: { ...context },
+      });
+    }
 
     throw this.formatErrorMessage(
       lhs.token,
@@ -1005,7 +1021,7 @@ ${typeToString(expectedTupleType)}`
   }: {
     lhsFunc: Expr;
     lhsElements: Expr[];
-    rhsElements: TupleElement[];
+    rhsElements: { label?: string; type: Type }[];
     rhsValue: Value | undefined;
     rhsType: Type;
     lhs: Expr;
@@ -1013,18 +1029,17 @@ ${typeToString(expectedTupleType)}`
     context: EvaluatorContext;
   }): Environment {
     const isStruct = isStructType(rhsType);
-    const structTypeName = isStruct ? lhsFunc.token.value : undefined;
+    const isModule = isModuleType(rhsType);
+    const lhsFuncName = lhsFunc.token.value;
 
-    // Verify the struct type name matches if specified
-    if (
-      isStructType(rhsType) &&
-      rhsType.typeName &&
-      structTypeName !== "_" &&
-      structTypeName !== rhsType.typeName
-    ) {
+    // ~~Verify the struct type name matches if specified~~
+    // We force to use _ for destructuring
+    if ((isStruct || isModule) && lhsFuncName !== "_") {
       throw this.formatErrorMessage(
         lhsFunc.token,
-        `Expected struct of type ${rhsType.typeName}, got ${structTypeName}`
+        `Expected "_" for ${isStruct ? "struct" : ""}${
+          isModule ? "module" : ""
+        } destructuring, got ${lhsFuncName}`
       );
     }
 
@@ -1040,6 +1055,7 @@ ${typeToString(expectedTupleType)}`
     for (let i = 0; i < lhsElements.length; i++) {
       const lhsElement = lhsElements[i];
       let elementIndex: number = i;
+      let elementValue: Value | undefined = undefined;
       // Initialize rhsElement here, before any conditional branches
       let rhsElement = rhsElements[elementIndex];
       let variableName: string | undefined;
@@ -1047,58 +1063,10 @@ ${typeToString(expectedTupleType)}`
       let labelExpr: Expr | undefined = undefined;
       let renameExpr: Expr | undefined = undefined;
 
-      // Handle nested tuple destructuring pattern like (a, b, (x, y))
+      // Handle labeled nested destructuring pattern like:
+      // - (c: (x, y))
+      // - (c: _(x, y))
       if (
-        exprIsFunctionCall(lhsElement) &&
-        exprIsFunctionCallOf(lhsElement, BuiltinCollections.Tuple)
-      ) {
-        rhsElement = rhsElements[elementIndex];
-        const nestedRhsType = rhsElement.type;
-
-        // Get the nested value
-        let nestedValue: Value | undefined = undefined;
-        if (isTupleValue(rhsValue)) {
-          nestedValue = rhsValue.elements[elementIndex];
-        }
-
-        // Ensure the member we're destructuring is a tuple or struct
-        if (!isTupleType(nestedRhsType) && !isStructType(nestedRhsType)) {
-          throw this.formatErrorMessage(
-            lhsElement.token,
-            `Expected tuple or struct for nested destructuring, got ${typeToString(
-              nestedRhsType
-            )}`
-          );
-        }
-
-        // Get the nested members
-        const nestedMembers = isTupleType(nestedRhsType)
-          ? nestedRhsType.elements
-          : (nestedRhsType as StructType).elements;
-
-        // Recursively process nested destructuring
-        env = this.handleMemberDestructuring({
-          lhsFunc: lhsElement.func,
-          lhsElements: lhsElement.args,
-          rhsElements: nestedMembers,
-          rhsValue: nestedValue as TupleValue | undefined,
-          rhsType: nestedRhsType,
-          lhs: lhsElement,
-          env,
-          context: { ...context },
-        });
-
-        // Set type and value on the lhs element
-        lhsElement.type = nestedRhsType;
-        lhsElement.value = nestedValue;
-        lhsElement.env = env;
-
-        // Skip to next element since we've already processed this one
-        continue;
-      }
-
-      // Handle labeled nested destructuring pattern like (c: (x, y))
-      else if (
         exprIsFunctionCall(lhsElement) &&
         exprIsFunctionCallOf(lhsElement, ":", 2)
       ) {
@@ -1140,7 +1108,12 @@ ${typeToString(expectedTupleType)}`
         let nestedValue: Value | undefined = undefined;
         if (isTupleValue(rhsValue)) {
           nestedValue = rhsValue.elements[elementIndex];
+        } else if (isStructValue(rhsValue)) {
+          nestedValue = rhsValue.elements[elementIndex];
+        } else if (isModuleValue(rhsValue)) {
+          nestedValue = rhsValue.members[label];
         }
+        elementValue = nestedValue;
 
         // Check if the right side is a tuple for nested destructuring (c: (x, y))
         if (
@@ -1148,10 +1121,10 @@ ${typeToString(expectedTupleType)}`
           exprIsFunctionCallOf(rightSide, BuiltinCollections.Tuple)
         ) {
           // Ensure the member we're destructuring is a tuple or struct
-          if (!isTupleType(nestedRhsType) && !isStructType(nestedRhsType)) {
+          if (!isTupleType(nestedRhsType)) {
             throw this.formatErrorMessage(
               lhsElement.token,
-              `Expected tuple or struct for nested destructuring, got ${typeToString(
+              `Expected tuple for nested destructuring, got ${typeToString(
                 nestedRhsType
               )}`
             );
@@ -1167,7 +1140,7 @@ ${typeToString(expectedTupleType)}`
             lhsFunc: rightSide.func,
             lhsElements: rightSide.args,
             rhsElements: nestedElements,
-            rhsValue: nestedValue as TupleValue | undefined,
+            rhsValue: nestedValue,
             rhsType: nestedRhsType,
             lhs: rightSide,
             env,
@@ -1188,27 +1161,35 @@ ${typeToString(expectedTupleType)}`
           continue;
         }
 
-        // Check if the right side is a struct for nested destructuring (c: _(x, y))
-        else if (
-          exprIsFunctionCall(rightSide) &&
-          exprIsFunctionCallOf(rightSide, "_")
-        ) {
-          if (!isStructType(nestedRhsType)) {
+        // Check if the right side is a struct/module for nested destructuring (c: _(x, y))
+        else if (exprIsFunctionCall(rightSide)) {
+          if (!exprIsFunctionCallOf(rightSide, "_")) {
+            throw this.formatErrorMessage(
+              rightSide.token,
+              `Expected "_" for nested destructuring, got ${exprToString(
+                rightSide
+              )}`
+            );
+          }
+
+          if (!isStructType(nestedRhsType) && !isModuleType(nestedRhsType)) {
             throw this.formatErrorMessage(
               lhsElement.token,
-              `Expected struct for nested destructuring, got ${typeToString(
+              `Expected struct/module for nested destructuring, got ${typeToString(
                 nestedRhsType
               )}`
             );
           }
 
           // Recursively process nested destructuring
-          const nestedElements = nestedRhsType.elements;
+          const nestedElements = isStructType(nestedRhsType)
+            ? nestedRhsType.elements
+            : nestedRhsType.members;
           env = this.handleMemberDestructuring({
             lhsFunc: rightSide.func,
             lhsElements: rightSide.args,
             rhsElements: nestedElements,
-            rhsValue: nestedValue as TupleValue | undefined,
+            rhsValue: nestedValue,
             rhsType: nestedRhsType,
             lhs: rightSide,
             env,
@@ -1246,68 +1227,10 @@ ${typeToString(expectedTupleType)}`
         }
       }
 
-      // Handle label-based destructuring like Named(.x, .y) := p or (.a, .b) := x
-      /*
-      // NOTE: This is disabled, as `.` operator here might cause confusion with variant.
-      else if (
-        exprIsFunctionCall(lhsElement) &&
-        exprIsFunctionCallOf(lhsElement, ".", 1)
-      ) {
-        labelExpr = lhsElement.args[0];
-        if (!exprIsAtom(labelExpr) || !this.isValidVariableName(labelExpr)) {
-          throw this.formatErrorMessage(
-            labelExpr.token,
-            `Expected identifier for label in destructuring pattern, got ${exprToString(
-              labelExpr
-            )}`
-          );
-        }
-
-        const label = labelExpr.token.value;
-        // Find the member with matching label
-        const matchingMemberIndex = rhsMembers.findIndex(
-          (member) => member.label === label
-        );
-
-        if (matchingMemberIndex === -1) {
-          throw this.formatErrorMessage(
-            lhsElement.token,
-            `Label "${label}" not found in the ${
-              isStruct ? BuiltinKeywords.Struct : "tuple"
-            } being destructured`
-          );
-        }
-
-        elementIndex = matchingMemberIndex;
-        rhsMember = rhsMembers[elementIndex];
-        variableName = label;
-        variableToken = labelExpr.token;
-      }
-      */
-
-      // Handle nested struct destructuring pattern like (a, SomeStruct(x, y)) or (a, _(x, y))
-      else if (
-        exprIsFunctionCall(lhsElement) /* &&
-        ((exprIsAtom(lhsElement.func) &&
-          this.isValidVariableName(lhsElement.func) &&
-          lhsElement.func.token.value !== ":") ||
-          exprIsFunctionCallOf(lhsElement.func, "_"))
-        */
-      ) {
-        if (!exprIsFunctionCallOf(lhsElement, "_")) {
-          throw this.formatErrorMessage(
-            lhsElement.token,
-            `Expected "_" for struct destructuring, got ${exprToString(
-              lhsElement
-            )}`
-          );
-        }
-
-        const structNameExpr = lhsElement.func;
-        const structNameValue = exprIsAtom(structNameExpr)
-          ? structNameExpr.token.value
-          : "_";
-
+      // Handle nested struct/module destructuring pattern like:
+      // - (a, (x, y))
+      // - (a, _(x, y))
+      else if (exprIsFunctionCall(lhsElement)) {
         // Get the right-hand side value at this position
         rhsElement = rhsElements[elementIndex];
         const nestedRhsType = rhsElement.type;
@@ -1316,72 +1239,128 @@ ${typeToString(expectedTupleType)}`
         let nestedValue: Value | undefined = undefined;
         if (isTupleValue(rhsValue)) {
           nestedValue = rhsValue.elements[elementIndex];
+        } else if (isStructValue(rhsValue)) {
+          nestedValue = rhsValue.elements[elementIndex];
+        } else if (isModuleValue(rhsValue)) {
+          throw new Error(`Expected label for module destructuring`);
         }
+        elementValue = nestedValue;
 
-        // Ensure the member we're destructuring is a struct
-        if (!isStructType(nestedRhsType)) {
-          throw this.formatErrorMessage(
-            lhsElement.token,
-            `Expected struct for struct destructuring, got ${typeToString(
-              nestedRhsType
-            )}`
-          );
-        }
-
-        // For named struct, verify the struct type name matches
+        // Check if the right side is a tuple for nested destructuring (a, (x, y))
         if (
-          structNameValue !== "_" &&
-          nestedRhsType.typeName &&
-          structNameValue !== nestedRhsType.typeName
+          exprIsFunctionCall(lhsElement) &&
+          exprIsFunctionCallOf(lhsElement, BuiltinCollections.Tuple)
         ) {
-          throw this.formatErrorMessage(
-            lhsElement.func.token,
-            `Expected struct of type ${nestedRhsType.typeName}, got ${structNameValue}`
-          );
+          // Ensure the member we're destructuring is a tuple or struct
+          if (!isTupleType(nestedRhsType)) {
+            throw this.formatErrorMessage(
+              lhsElement.token,
+              `Expected tuple for nested destructuring, got ${typeToString(
+                nestedRhsType
+              )}`
+            );
+          }
+
+          // Get the nested members
+          const nestedElements = nestedRhsType.elements;
+
+          // Recursively process nested destructuring
+          env = this.handleMemberDestructuring({
+            lhsFunc: lhsElement.func,
+            lhsElements: lhsElement.args,
+            rhsElements: nestedElements,
+            rhsValue: nestedValue,
+            rhsType: nestedRhsType,
+            lhs: lhsElement,
+            env,
+            context: { ...context },
+          });
+
+          // Set type and value on expressions
+          lhsElement.type = nestedRhsType;
+          lhsElement.value = nestedValue;
+          lhsElement.env = env;
+
+          continue;
         }
+        // Check if the right side is a struct/module for nested destructuring (a, _(x, y))
+        else {
+          if (!exprIsFunctionCallOf(lhsElement, "_")) {
+            throw this.formatErrorMessage(
+              lhsElement.token,
+              `Expected "_" for nested destructuring, got ${exprToString(
+                lhsElement
+              )}`
+            );
+          }
+          if (!isStructType(nestedRhsType)) {
+            throw this.formatErrorMessage(
+              lhsElement.token,
+              `Expected struct/module for nested destructuring, got ${typeToString(
+                nestedRhsType
+              )}`
+            );
+          }
 
-        // Recursively process nested destructuring
-        env = this.handleMemberDestructuring({
-          lhsFunc: lhsElement.func,
-          lhsElements: lhsElement.args,
-          rhsElements: nestedRhsType.elements,
-          rhsValue: nestedValue as TupleValue | undefined,
-          rhsType: nestedRhsType,
-          lhs: lhsElement,
-          env,
-          context: { ...context },
-        });
+          // Get the nested members
+          const nestedElements = nestedRhsType.elements;
 
-        // Set type and value on the lhs element
-        lhsElement.type = nestedRhsType;
-        lhsElement.value = nestedValue;
-        lhsElement.env = env;
-
-        // Skip to next element since we've already processed this one
-        continue;
+          // Recursively process nested destructuring
+          env = this.handleMemberDestructuring({
+            lhsFunc: lhsElement.func,
+            lhsElements: lhsElement.args,
+            rhsElements: nestedElements,
+            rhsValue: nestedValue,
+            rhsType: nestedRhsType,
+            lhs: lhsElement,
+            env,
+            context: { ...context },
+          });
+          // Set type and value on expressions
+          lhsElement.type = nestedRhsType;
+          lhsElement.value = nestedValue;
+          lhsElement.env = env;
+          continue;
+        }
       }
 
       // Handle positional destructuring
       else if (exprIsAtom(lhsElement) && this.isValidVariableName(lhsElement)) {
+        if (isModuleType(rhsType)) {
+          throw this.formatErrorMessage(
+            lhsElement.token,
+            `Expected label for module destructuring.
+Please consider to write it as:
+(${lhs.token.value} : ${lhs.token.value})`
+          );
+        }
+
+        if (isTupleValue(rhsValue)) {
+          elementValue = rhsValue.elements[elementIndex];
+        } else if (isStructValue(rhsValue)) {
+          elementValue = rhsValue.elements[elementIndex];
+        }
+
         variableName = lhsElement.token.value;
         variableToken = lhsElement.token;
-      } else {
+      }
+
+      // Throw error
+      else {
         throw this.formatErrorMessage(
           lhsElement.token,
           `Unsupported destructuring pattern for ${
-            isStruct ? BuiltinKeywords.Struct : "tuple"
+            isStruct
+              ? BuiltinKeywords.Struct
+              : isModule
+              ? BuiltinKeywords.Module
+              : "tuple"
           }: ${exprToString(lhsElement)}`
         );
       }
 
       // After determining variableName and variableToken, add to environment
       if (variableName && variableToken) {
-        // Get the value if available
-        let elementValue: Value | undefined = undefined;
-        if (isTupleValue(rhsValue)) {
-          elementValue = rhsValue.elements[elementIndex];
-        }
-
         // Add the variable to the environment
         const { env: nextEnv } = addVariableToEnv({
           env,
@@ -1696,7 +1675,8 @@ ${exprToString(expr)}`
       if (!rhs.value && isCompileTimeOnly) {
         throw this.formatErrorMessage(
           lhs.token,
-          `Expected compile-time value for "${lhs.token.value}", got:
+          `Expected compile-time value for "${lhs.token.value}".
+Got runtime value. Please consider using ":=" instead of "::":
 ${exprToString(rhs)}`
         );
       }

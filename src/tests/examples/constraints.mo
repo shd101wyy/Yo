@@ -2,7 +2,7 @@
 
 equals : 
   (x: any(T: Type), y: T) -> 
-    (using(Eq(T))) => boolean;
+    (implicit(Eq(T))) => boolean;
 equals =
   fn(x, y) -> x == y;
 

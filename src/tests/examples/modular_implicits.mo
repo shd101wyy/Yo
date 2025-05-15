@@ -14,27 +14,27 @@ def Id:
 ;
 
 def id:
-  (forall(@(T): Type), x: T, using(@(I): Id(T)))-> (),
+  (forall(@(T): Type), x: T, implicit(@(I): Id(T)))-> (),
   I.id(x)
 ;
 
-given(IdInt) ::
+implicit(IdInt) ::
   Id(i32)
     This: i32,
     id:
       fn(x) -> x
 ;
 
-given(IdFloat) ::
+implicit(IdFloat) ::
   Id(f32)
     This: f32,
     id:
       fn(x) -> x
 ;
 
-def given(IdPoint) :
+def implicit(IdPoint) :
   ( forall(@(T): Type), 
-    using(@(I): Id(T))
+    implicit(@(I): Id(T))
   )-> @(Id(Point(T))),
   Id(Point(T))
     This: Point(T),

@@ -25,5 +25,4 @@ MyModule :: module
 ;
 
 some_id :: my_module.id;
-
-// x :: my_module.id(1);
+x := my_module.id(1);

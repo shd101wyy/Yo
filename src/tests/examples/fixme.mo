@@ -29,4 +29,7 @@ some_id :: my_module.id;
 x := some_id(13);
 x := my_module.id(13);
 
-{ id } :: my_module;
+_( id: id2 ) :: my_module;
+{ id: id3 } :: my_module;
+x := id2(13);
+x := id3(13);
