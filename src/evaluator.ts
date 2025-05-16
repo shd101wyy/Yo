@@ -2684,7 +2684,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     {
       const { env: nextEnv } = this.evaluateFunctionParameters({
         parameterExprs: functionDeclarationExpr.args,
-        expectedParameters: functionType.params,
+        expectedParameters: functionType.parameters,
         env,
         context: {
           ...context,
@@ -2964,41 +2964,137 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     expectedParameters?: FunctionParameter[];
     env: Environment;
     context: EvaluatorContext;
-  }): { parameters: FunctionParameter[]; env: Environment } {
+  }): {
+    parameters: FunctionParameter[];
+    typeParameters: FunctionParameter[];
+    implicitParameters: FunctionParameter[];
+    env: Environment;
+  } {
     env = pushEnvFrame(env);
+
     const parameters: FunctionParameter[] = [];
+    const typeParameters: FunctionParameter[] = [];
+    const implicitParameters: FunctionParameter[] = [];
+
     for (let i = 0; i < parameterExprs.length; i++) {
       const parameterExpr = parameterExprs[i];
-      const { parameter, env: nextEnv } = this.evaluateFunctionParameter({
-        expr: parameterExpr,
-        expectedParameter: expectedParameters?.[i],
-        env,
-        context: {
-          ...context,
-          isEvaluatingExprAsType: true,
-        },
-      });
 
-      // Check if there is duplicate labels
-      if (parameter.label) {
-        const duplicateLabel = parameters.find(
-          (element) => element.label === parameter.label
-        );
-        if (duplicateLabel) {
+      // Check if it's the type parameters
+      if (
+        exprIsFunctionCall(parameterExpr) &&
+        exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.Forall)
+      ) {
+        if (i !== 0) {
           throw this.formatErrorMessage(
-            exprIsFunctionCall(parameterExpr)
-              ? (parameterExpr.args[0]?.token ?? parameterExpr.token)
-              : parameterExpr.token,
-            `Duplicate label "${parameter.label}" in function parameter`
+            parameterExpr.token,
+            `Expected type parameters to be the first argument, got ${i + 1}`
           );
         }
-      }
+        const typeParameterExprs = parameterExpr.args;
+        for (let j = 0; j < typeParameterExprs.length; j++) {
+          const typeParameterExpr = typeParameterExprs[j];
+          const { parameter, env: nextEnv } = this.evaluateFunctionParameter({
+            expr: typeParameterExpr,
+            env,
+            context: {
+              ...context,
+              isEvaluatingExprAsType: true,
+            },
+          });
 
-      parameters.push(parameter);
-      env = nextEnv;
+          // Check if there is duplicate labels
+          if (parameter.label) {
+            const duplicateLabel = typeParameters.find(
+              (element) => element.label === parameter.label
+            );
+            if (duplicateLabel) {
+              throw this.formatErrorMessage(
+                typeParameterExpr.token,
+                `Duplicate label "${parameter.label}" in type parameter`
+              );
+            }
+          }
+
+          typeParameters.push(parameter);
+          env = nextEnv;
+        }
+      }
+      // Check if it's the implicit parameters
+      else if (
+        exprIsFunctionCall(parameterExpr) &&
+        exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.Implicit)
+      ) {
+        if (i !== parameterExprs.length - 1) {
+          throw this.formatErrorMessage(
+            parameterExpr.token,
+            `Expected implicit parameters to be the last argument, got ${i + 1}`
+          );
+        }
+
+        const implicitParameterExprs = parameterExpr.args;
+        for (let j = 0; j < implicitParameterExprs.length; j++) {
+          const implicitParameterExpr = implicitParameterExprs[j];
+          const { parameter, env: nextEnv } = this.evaluateFunctionParameter({
+            expr: implicitParameterExpr,
+            env,
+            context: {
+              ...context,
+              isEvaluatingExprAsType: true,
+            },
+          });
+
+          // Check if there is duplicate labels
+          if (parameter.label) {
+            const duplicateLabel = implicitParameters.find(
+              (element) => element.label === parameter.label
+            );
+            if (duplicateLabel) {
+              throw this.formatErrorMessage(
+                implicitParameterExpr.token,
+                `Duplicate label "${parameter.label}" in implicit parameter`
+              );
+            }
+          }
+
+          implicitParameters.push(parameter);
+          env = nextEnv;
+        }
+      }
+      // Normal function parameters
+      else {
+        const { parameter, env: nextEnv } = this.evaluateFunctionParameter({
+          expr: parameterExpr,
+          expectedParameter: expectedParameters?.[i],
+          env,
+          context: {
+            ...context,
+            isEvaluatingExprAsType: true,
+          },
+        });
+
+        // Check if there is duplicate labels
+        if (parameter.label) {
+          const duplicateLabel = parameters.find(
+            (element) => element.label === parameter.label
+          );
+          if (duplicateLabel) {
+            throw this.formatErrorMessage(
+              exprIsFunctionCall(parameterExpr)
+                ? (parameterExpr.args[0]?.token ?? parameterExpr.token)
+                : parameterExpr.token,
+              `Duplicate label "${parameter.label}" in function parameter`
+            );
+          }
+        }
+
+        parameters.push(parameter);
+        env = nextEnv;
+      }
     }
     return {
       parameters,
+      typeParameters,
+      implicitParameters,
       env,
     };
   }
@@ -3167,7 +3263,9 @@ compt(${exprToString(returnTypeExpr)})`
 
     // Create the function type
     const functionType = createFunctionType({
-      params: parameters,
+      parameters: parameters,
+      typeParameters: [], // TODO: Support this
+      implicitParameters: [], // TODO: Support this
       return_: {
         type: returnType,
         expr: returnTypeExpr,
@@ -3651,6 +3749,7 @@ compt(${exprToString(returnTypeExpr)})`
    * }
    *
    */
+  /*
   private evaluateForall({
     expr,
     env,
@@ -3814,6 +3913,7 @@ compt(${exprToString(returnTypeExpr)})`
 
     return expr;
   }
+  */
 
   private createAnonymousStruct({
     expr,
@@ -4437,16 +4537,16 @@ ${exprToString(expr)}`
     context: EvaluatorContext;
   }): Environment {
     // NOTE: We disallow to have default values for function parameters
-    if (argExprs.length !== functionType.params.length) {
+    if (argExprs.length !== functionType.parameters.length) {
       throw this.formatErrorMessage(
         functionCallExpr.token,
-        `Expected ${functionType.params.length} arguments, got ${argExprs.length}.`
+        `Expected ${functionType.parameters.length} arguments, got ${argExprs.length}.`
       );
     }
 
     env = pushEnvFrame(env);
-    for (let i = 0; i < functionType.params.length; i++) {
-      const paramElement = functionType.params[i];
+    for (let i = 0; i < functionType.parameters.length; i++) {
+      const paramElement = functionType.parameters[i];
       let argExpr = argExprs[i];
 
       // NOTE: We don't support named argument.
@@ -5353,7 +5453,7 @@ Expected: ${typeToString(functionType)}`
 
     // Add parameters to the env new frame
     env = pushEnvFrame(env);
-    const functionParameters = functionType.params;
+    const functionParameters = functionType.parameters;
     for (let i = 0; i < functionParameters.length; i++) {
       const parameter = functionParameters[i];
       if (parameter.label && parameter.labelExpr) {
@@ -6238,6 +6338,7 @@ ${exprToString(expr)}`
         // enum
         return this.evaluateEnum({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, ".")) {
+        /*
         // forall
         if (
           // forall(compt(T): Type) . ((x: T) -> T)
@@ -6250,6 +6351,7 @@ ${exprToString(expr)}`
             context: { ...context },
           });
         }
+        */
 
         // property access
         return this.evaluatePropertyAccess({

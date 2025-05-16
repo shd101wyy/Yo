@@ -408,7 +408,7 @@ IdI32 :: Id(i32)
 
 def MakeStringer:
   (forall(compt(T): Type, compt(Y): Type),
-   using(compt(Stringer(T), compt(Stringer(U))))) ->
+   implicit(compt(Stringer(T), compt(Stringer(U))))) ->
   Stringer((T, Y)),
   Stringer((T, Y))
     to_string:

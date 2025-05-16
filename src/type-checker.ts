@@ -451,9 +451,24 @@ export interface FunctionReturn {
 export interface FunctionType extends Type {
   tag: TypeTag.Function;
   /**
-   * The parameters of the function.
+   * The normal parameters of the function.
    */
-  params: FunctionParameter[];
+  parameters: FunctionParameter[];
+
+  /**
+   * The type parameters, usually defined in forall(...):
+   * eg:
+   *   (forall(@(T): Type), x: T)-> T;
+   */
+  typeParameters: FunctionParameter[];
+
+  /**
+   * The implicit parameters (aka contextual parameters), usually define in implicit(...):
+   * eg:
+   *   (@(T): Type, p: Point(T), implicit(Show(T)))-> String
+   */
+  implicitParameters: FunctionParameter[];
+
   /**
    * The return information of the function.
    */
@@ -685,12 +700,16 @@ export function createUnionType(elements: TupleElement[]): UnionType {
 }
 
 export function createFunctionType({
-  params,
+  parameters,
+  typeParameters,
+  implicitParameters,
   return_,
   env,
   SelfType,
 }: {
-  params: FunctionParameter[];
+  parameters: FunctionParameter[];
+  typeParameters: FunctionParameter[];
+  implicitParameters: FunctionParameter[];
   return_: FunctionReturn;
   env: Environment;
   SelfType?: Type;
@@ -698,7 +717,9 @@ export function createFunctionType({
   return {
     tag: TypeTag.Function,
     size: getPtrSize() * 8,
-    params: params, // Wrap params in a TupleType
+    parameters: parameters, // Wrap params in a TupleType
+    typeParameters,
+    implicitParameters,
     return: return_,
     env,
     SelfType,
@@ -1026,13 +1047,14 @@ export function areTypesCompatible(
   // TODO: union
 
   if (isFunctionType(expectedType) && isFunctionType(givenType)) {
-    if (expectedType.params.length !== givenType.params.length) return false;
+    if (expectedType.parameters.length !== givenType.parameters.length)
+      return false;
 
-    for (let i = 0; i < expectedType.params.length; i++) {
+    for (let i = 0; i < expectedType.parameters.length; i++) {
       if (
         !areTypesCompatible(
-          givenType.params[i].type,
-          expectedType.params[i].type,
+          givenType.parameters[i].type,
+          expectedType.parameters[i].type,
           env
         )
       ) {
@@ -1295,15 +1317,15 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Function: {
       const func = type as FunctionType;
-      const params = func.params
+      const params = func.parameters
         .map((param) =>
           param.label
             ? `${
                 param.isMutable
                   ? `mut(${param.label})`
                   : param.isCompileTimeOnly
-                  ? `compt(${param.label})`
-                  : `${param.label}`
+                    ? `compt(${param.label})`
+                    : `${param.label}`
               }: ${typeToString(param.type)}`
             : (param.isMutable ? `mut(_):` : "") + typeToString(param.type)
         )

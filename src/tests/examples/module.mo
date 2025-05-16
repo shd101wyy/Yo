@@ -20,7 +20,7 @@ MY_MODULE :: module
 ;
 
 // Initialize a module instance
-(MyModule : MY_MODULE) = {
+(@(MyModule) : MY_MODULE) = {
   x : 0,
   add_int :
     fn(x, y)-> 
@@ -29,15 +29,16 @@ MY_MODULE :: module
 ;
 // or define an anonymous module
 // with `module begin`:
-(MyModule : MY_MODULE) = module {
+(@(MyModule) : MY_MODULE) = 
+module {
   x :: 0;
   def add_int:
     (x: i32, y: i32) -> i32,
-    x + y;
+    x `add` y;
 
   // You are also allowed to define extra variables
   y :: 1;
-}
+};
 
 // Define anonymous module
 // with `module`:
