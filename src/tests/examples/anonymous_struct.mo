@@ -1,1 +1,7 @@
-p :: {x: 1, y: 2};
+def main:
+  ()-> (), {
+  mut(p1) :: { x: 1, y: 2 };
+  mut(p2) :: { x: 3, y: 4 };
+  
+  // p2 = p1; // Should give error
+}

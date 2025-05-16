@@ -92,6 +92,7 @@ import {
   isTypeValue,
   isUnknownValue,
   ModuleValue,
+  StructValue,
   TupleValue,
   Value,
   valueToString,
@@ -596,7 +597,7 @@ ${typeToString(expectedTupleType)}`
         if (duplicateLabel) {
           throw this.formatErrorMessage(
             exprIsFunctionCall(arg)
-              ? arg.args[0]?.token ?? arg.token
+              ? (arg.args[0]?.token ?? arg.token)
               : arg.token,
             `Duplicate label "${type.label}" in tuple`
           );
@@ -1379,8 +1380,8 @@ Please consider to write it as:
             isStruct
               ? BuiltinKeywords.Struct
               : isModule
-              ? BuiltinKeywords.Module
-              : "tuple"
+                ? BuiltinKeywords.Module
+                : "tuple"
           }: ${exprToString(lhsElement)}`
         );
       }
@@ -2986,7 +2987,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         if (duplicateLabel) {
           throw this.formatErrorMessage(
             exprIsFunctionCall(parameterExpr)
-              ? parameterExpr.args[0]?.token ?? parameterExpr.token
+              ? (parameterExpr.args[0]?.token ?? parameterExpr.token)
               : parameterExpr.token,
             `Duplicate label "${parameter.label}" in function parameter`
           );
@@ -3814,6 +3815,102 @@ compt(${exprToString(returnTypeExpr)})`
     return expr;
   }
 
+  private createAnonymousStruct({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    const func = expr.func;
+    const args = expr.args;
+
+    // func should be "_"
+    if (!exprIsAtom(func) || func.token.value !== "_") {
+      throw this.formatErrorMessage(
+        func.token,
+        `Expected "_" for anonymous struct, got:\n${exprToString(func)}`
+      );
+    }
+
+    const elements: TupleElement[] = [];
+    const values: (Value | undefined)[] = [];
+
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      let labelExpr: Expr | undefined = undefined;
+      let valueExpr: Expr = arg;
+      let label: string | undefined = undefined;
+
+      if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, ":", 2)) {
+        labelExpr = arg.args[0];
+        valueExpr = arg.args[1];
+
+        if (!exprIsAtom(labelExpr) || !this.isValidVariableName(labelExpr)) {
+          throw this.formatErrorMessage(
+            labelExpr.token,
+            `Expected identifier for anonymous struct element label, got:\n${exprToString(
+              labelExpr
+            )}`
+          );
+        }
+        label = labelExpr.token.value;
+      }
+
+      const evaluatedArg = this.evaluateExpression({
+        expr: valueExpr,
+        env,
+        context: {
+          ...context,
+        },
+      });
+      if (evaluatedArg.env) {
+        env = evaluatedArg.env;
+      }
+      const type = evaluatedArg.type;
+      if (!type) {
+        throw this.formatErrorMessage(
+          arg.token,
+          `Expected type for anonymous struct element, got:\n${exprToString(
+            arg
+          )}`
+        );
+      }
+
+      const element: TupleElement = {
+        expr: arg,
+        type,
+        label,
+      };
+      elements.push(element);
+
+      if (evaluatedArg.value) {
+        values.push(evaluatedArg.value);
+      }
+    }
+
+    // Create structType
+    const structType = createStructType(elements);
+
+    // Check if it's comptime value
+    let structValue: StructValue | undefined = undefined;
+    if (values.every((value) => !!value)) {
+      structValue = createStructValue(structType, values);
+    }
+
+    expr.type = structType;
+    expr.value = structValue;
+    expr.env = env;
+
+    func.value = createTypeValue(structType);
+    func.type = func.value.type;
+    func.env = env;
+
+    return expr;
+  }
+
   private evaluateFunctionCall({
     expr,
     env,
@@ -3951,10 +4048,17 @@ compt(${exprToString(returnTypeExpr)})`
       if (functionName === "_") {
         const expectedType = context.expectedType;
         if (!expectedType) {
-          throw this.formatErrorMessage(
-            func.token,
-            `Failed to infer type for _ function`
-          );
+          // throw this.formatErrorMessage(
+          //   func.token,
+          //   `Failed to infer type for _ function`
+          // );
+
+          // Make it as an anonymous struct
+          return this.createAnonymousStruct({
+            expr,
+            env,
+            context,
+          });
         }
         functions = [
           {
