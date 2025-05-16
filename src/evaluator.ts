@@ -2928,6 +2928,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
               ? createUnknownValue(parameterType, label)
               : undefined,
           },
+          skipCheckingFunctionOverloading: true,
         });
         env = nextEnv;
       }
@@ -5302,8 +5303,7 @@ Expected: ${typeToString(functionType)}`
       );
     }
 
-    let functionName: string;
-    const functionNameExpr = functionDefinitionExpr.args[0];
+    let functionNameExpr = functionDefinitionExpr.args[0];
     const functionTypeExpr = functionDefinitionExpr.args[1];
     // let typeMethodInfo: { type: Type; methodName: string } | undefined =
     //   undefined;
@@ -5411,21 +5411,30 @@ Expected: ${typeToString(functionType)}`
     }
     // It's not the type method, but the normal function
     else */
-    {
-      // Get the function name
-      if (
-        !exprIsAtom(functionNameExpr) &&
-        !this.isValidVariableName(functionNameExpr)
-      ) {
-        throw this.formatErrorMessage(
-          functionNameExpr.token,
-          `Expected identifier for function name, got:\n${exprToString(
-            functionNameExpr
-          )}`
-        );
-      }
-      functionName = functionNameExpr.token.value;
+
+    // Check if the function is implicit
+    let isImplicit = false;
+    if (
+      exprIsFunctionCall(functionNameExpr) &&
+      exprIsFunctionCallOf(functionNameExpr, BuiltinKeywords.Implicit, 1)
+    ) {
+      functionNameExpr = functionNameExpr.args[0];
+      isImplicit = true;
     }
+
+    // Get the function name
+    if (
+      !exprIsAtom(functionNameExpr) &&
+      !this.isValidVariableName(functionNameExpr)
+    ) {
+      throw this.formatErrorMessage(
+        functionNameExpr.token,
+        `Expected identifier for function name, got:\n${exprToString(
+          functionNameExpr
+        )}`
+      );
+    }
+    const functionName = functionNameExpr.token.value;
 
     // Evaluate the function type
     const evaluatedFunctionTypeExpr = this.evaluateExpression({
@@ -5487,38 +5496,22 @@ Expected: ${typeToString(functionType)}`
       SelfType: context.SelfType, // In theory, this should be undefined
     };
 
-    // It's a type method
-    /*
-    if (typeMethodInfo) {
-      // Add the method to the type
-      const existingMethods = typeMethodInfo.type.methods ?? [];
-      const methodName = typeMethodInfo.methodName;
-      typeMethodInfo.type.methods = existingMethods.concat({
-        label: methodName,
+    /// Add function with name to env;
+    const { env: nextNextEnv } = addVariableToEnv({
+      env,
+      variable: {
+        name: functionName,
+        token: functionNameExpr.token,
         type: functionType,
+        isMutable: false,
+        isCompileTimeOnly: true,
+        isNotInitialized: false,
+        isImplicit,
         value: functionValue,
-      });
-    }
-    // It's a normal method
-    else
-    */
-    {
-      /// Add function with name to env;
-      const { env: nextNextEnv } = addVariableToEnv({
-        env,
-        variable: {
-          name: functionName,
-          token: functionNameExpr.token,
-          type: functionType,
-          isMutable: false,
-          isCompileTimeOnly: true,
-          isNotInitialized: false,
-          value: functionValue,
-        },
-        deltaFrame: -1,
-      });
-      env = nextNextEnv;
-    }
+      },
+      deltaFrame: -1,
+    });
+    env = nextNextEnv;
 
     // Attach some information
     functionNameExpr.type = functionType;

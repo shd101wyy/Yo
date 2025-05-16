@@ -62,6 +62,10 @@ export interface Variable {
    */
   isCompileTimeOnly?: boolean;
   /**
+   * Whether the variable is implicit or not.
+   */
+  isImplicit?: boolean;
+  /**
    * If the variable is initialized.
    */
   isNotInitialized?: boolean;
@@ -542,9 +546,9 @@ export function getMethodsByNameFromEnv(
         areTypesCompatible(moduleReceiverType, receiverType, env) &&
         member.label === methodName &&
         isFunctionType(member.type) &&
-        member.type.params.length > 0 &&
+        member.type.parameters.length > 0 &&
         // TODO: support autocast to reference/immutable reference.
-        areTypesCompatible(member.type.params[0].type, receiverType, env)
+        areTypesCompatible(member.type.parameters[0].type, receiverType, env)
     );
     if (method) {
       let value: Value | undefined = undefined;
