@@ -175,15 +175,17 @@ export function addVariableToEnv({
   deltaFrame,
   preventDuplicate,
   variableId,
+  skipCheckingFunctionOverloading,
 }: {
   env: Environment;
   variable: Omit<Variable, "id" | "frameLevel">;
   deltaFrame?: number;
   preventDuplicate?: boolean;
   variableId?: string;
+  skipCheckingFunctionOverloading?: boolean;
 }): { env: Environment; variable: Variable } {
   // Prevent the function overloading
-  if (isFunctionType(variable.type)) {
+  if (!skipCheckingFunctionOverloading && isFunctionType(variable.type)) {
     const existingFunctionVariables = getVariablesFromEnv(
       env,
       variable.name,
@@ -211,7 +213,7 @@ export function addVariableToEnv({
   const frame = env.frames[frameLevel];
   const id = isTempVariableName(env, variable.name)
     ? variable.name
-    : variableId ?? generateVarialeValueId(env, variable.name);
+    : (variableId ?? generateVarialeValueId(env, variable.name));
   const newVariable: Variable = { ...variable, frameLevel, id };
   const newFrame = addVariableToFrame({
     env,

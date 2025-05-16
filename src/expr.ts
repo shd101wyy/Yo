@@ -97,6 +97,7 @@ export const BuiltinKeywords = {
   Module: ["module"],
   Begin: ["begin"],
   Import: ["import"],
+  Export: ["export"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {

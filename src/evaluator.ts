@@ -1118,7 +1118,7 @@ ${typeToString(expectedTupleType)}`
           throw this.formatErrorMessage(
             lhsElement.token,
             `Label "${label}" not found in the ${
-              isStruct ? BuiltinKeywords.Struct : "tuple"
+              isModule ? "module" : isStruct ? "struct" : "tuple"
             } being destructured`
           );
         }
@@ -5541,50 +5541,89 @@ Expected: ${typeToString(functionType)}`
     // Push new frame to the env
     env = pushEnvFrame(env);
 
+    const moduleMembers: ModuleMember[] = [];
+    const memberValues: Record<string, Value> = {};
+
     // Evaluate each expression in the begin
     for (let i = 0; i < beginExprs.length; i++) {
-      const evaluatedExpr = this.evaluateExpression({
-        expr: beginExprs[i],
-        env,
-        context: {
-          ...context,
-          isEvaluatingExprAsType: false,
-          expectedType: undefined,
-          SelfType: moduleType,
-        },
-      });
-      if (evaluatedExpr.env) {
-        env = evaluatedExpr.env;
+      const expr = beginExprs[i];
+      // Export
+      if (
+        exprIsFunctionCall(expr) &&
+        exprIsFunctionCallOf(expr, BuiltinKeywords.Export, 1)
+      ) {
+        const evaluatedExpr = this.evaluateExpression({
+          expr: expr.args[0],
+          env,
+          context: {
+            ...context,
+            isEvaluatingExprAsType: false,
+            expectedType: undefined,
+            SelfType: moduleType,
+          },
+        });
+        const structValue = evaluatedExpr.value;
+        if (!isStructValue(structValue)) {
+          throw this.formatErrorMessage(
+            expr.token,
+            `Expected struct value, got:\n${exprToString(expr)}`
+          );
+        }
+        const structType = structValue.type;
+
+        // Traverse the struct elements to set to module
+        for (let i = 0; i < structType.elements.length; i++) {
+          const element = structType.elements[i];
+
+          // Check if the element has a label
+          const label = element.label;
+          if (!label) {
+            throw this.formatErrorMessage(
+              expr.token,
+              `Expected label for struct element at position ${i}, got:\n${exprToString(expr)}`
+            );
+          }
+
+          const moduleMember: ModuleMember = {
+            label,
+            type: element.type,
+            requiredValue: undefined,
+            defaultValue: undefined,
+          };
+          // Check if the module member already exists
+          // If so, override it
+          const existingModuleMemberIndex = moduleMembers.findIndex(
+            (member) => member.label === label
+          );
+          if (existingModuleMemberIndex >= 0) {
+            moduleMembers[existingModuleMemberIndex] = moduleMember;
+          } else {
+            moduleMembers.push(moduleMember);
+          }
+
+          const value = structValue.elements[i];
+          memberValues[label] = value;
+        }
+      } else {
+        const evaluatedExpr = this.evaluateExpression({
+          expr,
+          env,
+          context: {
+            ...context,
+            isEvaluatingExprAsType: false,
+            expectedType: undefined,
+            SelfType: moduleType,
+          },
+        });
+        if (evaluatedExpr.env) {
+          env = evaluatedExpr.env;
+        }
       }
     }
-
-    // Save the top frame
-    // This is the frame that contains the module members
-    const newFrame = env.frames[env.frames.length - 1];
 
     // Pop the env frame
     env = popEnvFrame(env);
 
-    // Traverse all variables in newFrame,
-    // and set them to moduleType
-    const moduleMembers: ModuleMember[] = [];
-    const memberValues: Record<string, Value> = {};
-    for (const variable of newFrame.variables) {
-      if (variable.isCompileTimeOnly && variable.value && !variable.isMutable) {
-        moduleMembers.push({
-          label: variable.name,
-          type: variable.type,
-          // NOTE: Don't set requiredValue:
-          // requiredValue: variable.value,
-        });
-        memberValues[variable.name] = variable.value;
-      } else {
-        throw this.formatErrorMessage(
-          variable.token,
-          `Only immutable compile-time variables are allowed in the top-level module.`
-        );
-      }
-    }
     // Update the moduleType
     moduleType.members = moduleMembers;
 
@@ -5844,6 +5883,7 @@ If you want to define the receiver type, please use "This" instead.`
                 ? value
                 : createUnknownValue(memberType, label),
           },
+          skipCheckingFunctionOverloading: true,
         });
         env = nextEnv;
 

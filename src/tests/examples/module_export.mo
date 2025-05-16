@@ -29,3 +29,10 @@ def some_func:
   my_add(x, 1)
 }
 ;
+
+export {
+  MyModule,
+  my_module,
+  some_func,
+  add,
+}
