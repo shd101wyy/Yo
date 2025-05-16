@@ -1,10 +1,11 @@
-{ pkgs ? import <nixpkgs> { } }:
+{ pkgs ? import <nixpkgs> { }, pkgsUnstable }:
 with pkgs;
 let
   gccForLibs = stdenv.cc.cc;
 in
 mkShell rec {
   buildInputs = [
+    pkgsUnstable.bun
     nodejs_22
     yarn
     python3
