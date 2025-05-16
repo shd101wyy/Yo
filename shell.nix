@@ -6,8 +6,6 @@ in
 mkShell rec {
   buildInputs = [
     pkgsUnstable.bun
-    nodejs_22
-    yarn
     python3
     cmake
     llvmPackages_14.llvm
