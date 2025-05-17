@@ -8,21 +8,21 @@ yargs(hideBin(process.argv))
   .usage(
     `Usage:
 
-mo <file> [options]              Compile a '.mo' file
+yo <file> [options]              Compile a '.yo' file
 Example:
-  $ mo hello.mo -o  hello
-  $ mo hello.mo -cc clang -o hello
-  $ mo hello.mo -t  wasm -o hello.wasm
+  $ yo hello.yo -o  hello
+  $ yo hello.yo -cc clang -o hello
+  $ yo hello.yo -t  wasm -o hello.wasm
 
-mo --help                        Show this help message  
-mo --version                     Show version number
+yo --help                        Show this help message  
+yo --version                     Show version number
 
-mo install                       Install all packages
-mo install <package>             Install a package
-mo install <package>@<version>   Install a specific version of a package
-mo uninstall <package>           Uninstall a package
+yo install                       Install all packages
+yo install <package>             Install a package
+yo install <package>@<version>   Install a specific version of a package
+yo uninstall <package>           Uninstall a package
 
-mo run <script>                  Run a script defined in 'mo.json'
+yo run <script>                  Run a script defined in 'yo.json'
 `
   )
   .option("o", {
@@ -108,4 +108,4 @@ mo run <script>                  Run a script defined in 'mo.json'
     }
   )
   .help()
-  .version("version", "Show version number", `mo ${packageJson.version}`).argv;
+  .version("version", "Show version number", `yo ${packageJson.version}`).argv;

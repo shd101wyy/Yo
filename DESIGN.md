@@ -1,16 +1,16 @@
 # Language Design
 
-**Mo** 墨 🐼 is general-purpose, compiled programming language that incorporates the Linear Types, Mutable Value Semantics, and (Poor man's) Algebraic Effects.
+**Yo** is general-purpose, compiled programming language that incorporates the Linear Types, Mutable Value Semantics, and (Poor man's) Algebraic Effects.
 
-**Mo** aims to be a simple to learn programming language for C and JavaScript (TypeScript) programmers 😉.
+**Yo** aims to be a simple to learn programming language for C and JavaScript (TypeScript) programmers 😉.
 
-**Mo** has a syntax design that looks like TypeScript, and uses uniform function call syntax (dot notation)~~, brace elison~~ to make the code more concise.
+**Yo** has a syntax design that looks like TypeScript, and uses uniform function call syntax (dot notation)~~, brace elison~~ to make the code more concise.
 
-**Mo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types `In Design`.
+**Yo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types `In Design`.
 
 Our goal is to be a practical language that is easy to use and easy to learn.
 
-We will also post a series of articles on the design and implementation of **Mo**. Stay tuned!
+We will also post a series of articles on the design and implementation of **Yo**. Stay tuned!
 
 <!-- @import "[TOC]" {cmd="toc" depthFrom=2 depthTo=6 orderedList=false} -->
 
@@ -133,7 +133,7 @@ We will also post a series of articles on the design and implementation of **Mo*
 ## Philosophy
 
 It's just a combination of "Lisp" and "C"!  
-Mo has no keywords!
+Yo has no keywords!
 Everthing is a function, even the `if`, `while`, `match`, etc.
 Extended with a little bit of functional programming.
 Interpret as much as possible. Otherwise, compile!
@@ -153,7 +153,7 @@ IDEA: No Deref trait like in the Rust, as it is a bit implicit.
 
 ## Inspiration
 
-The **Mo** language is heavily inspired by:
+The **Yo** language is heavily inspired by:
 
 - [TypeScript](https://www.typescriptlang.org/)
   - Syntax and semantics
@@ -191,7 +191,7 @@ The **Mo** language is heavily inspired by:
 - [Io](https://iolanguage.org/)
   - Minimal syntax and semantic
 
-Other languages that are worth mentioning that have influenced **Mo**:
+Other languages that are worth mentioning that have influenced **Yo**:
 
 - [Effekt](https://effekt-lang.org/)
 - [PureScript](https://www.purescript.org/)
@@ -218,30 +218,30 @@ main := ()-> {
 ## CLI Usage
 
 ```bash
-mo --help
-mo --version
-mo init # Create a new project in the current directory
+yo --help
+yo --version
+yo init # Create a new project in the current directory
 
 # Compilation
-mo hello.mo -o hello
-mo hello.mo --c-compiler clang -o hello
-mo hello.mo --target wasm -o hello.wasm
+yo hello.yo -o hello
+yo hello.yo --c-compiler clang -o hello
+yo hello.yo --target wasm -o hello.wasm
 
 # Package management
-mo install # Install dependencies defined in `mo.json` and `mo.lock`
-mo install package-name # Install a specific package
-mo install package-name@version # Install a specific version of a package
-mo install --global package-name # Install a package globally
-mo uninstall package-name # Uninstall a package
+yo install # Install dependencies defined in `yo.json` and `yo.lock`
+yo install package-name # Install a specific package
+yo install package-name@version # Install a specific version of a package
+yo install --global package-name # Install a package globally
+yo uninstall package-name # Uninstall a package
 
 # package-name could be
 #   github:shd101wyy/some-package@master
 
 # Run scripts
-mo run test
+yo run test
 
 # Format code
-mo format
+yo format
 ```
 
 ## Types
@@ -287,7 +287,7 @@ The [Austral language](https://austral-lang.org/) has a very good explanation on
 
 ### Variable Declaration
 
-Like `rust`, **Mo** defines variables with `:=` operator.
+Like `rust`, **Yo** defines variables with `:=` operator.
 
 ```rust
                // compt here means compile-time known
@@ -563,11 +563,11 @@ Guarantee memory safety in low-level programming language is hard.
 Rust uses the borrow checker to ensure memory safety, but it adds complexity to the language and burden to the programmer.  
 Mutable Value Semantics in contrast is a restriction to first-class references which makes you lose some generality but gain simplicity.
 Raw pointer is a natural thing in low-level programming languages. It's unavoidable.
-The goal of the **Mo** language is to let you write workable and kinda memory-safe code without the need to use raw pointers.
+The goal of the **Yo** language is to let you write workable and kinda memory-safe code without the need to use raw pointers.
 
 ### Second-Class References
 
-References in **Mo** are second-class citizens.
+References in **Yo** are second-class citizens.
 
 - Can't be stored in ~~data structures or~~ variables.
 - ~~Can't be returned from functions.~~ Can't return the reference to local variables in function body, but can return the references that are the function arguments or from the function arguments.
@@ -650,7 +650,7 @@ NOTE: Why not use `inout`, `in`, and `out` keywords? Because it doesn't work wit
 
 **Might not be supported**
 
-**Mo** supports the RAII to automatically insert the `drop` function when the variable of linear type goes out of scope.
+**Yo** supports the RAII to automatically insert the `drop` function when the variable of linear type goes out of scope.
 
 ```rust
 defn test(), {
@@ -807,7 +807,7 @@ add y: 2, x: 1; // 3
 ### Contextual parameters, aka implicit parameters
 
 The contextual parameters are passed implicitly to the function.  
-**Mo** looks for the closest value that matches the contextual parameter by the **type**, not by **name**.
+**Yo** looks for the closest value that matches the contextual parameter by the **type**, not by **name**.
 
 NOTE: `implicit` should be part of the `type`.
 
@@ -820,7 +820,7 @@ defn some_async_func(?(_): Async(i32)): i32, {
 #### Compiletime
 
 ```rust
-// id.mo
+// id.yo
 defn Id(Self: Type),
   interface {
     id: ((self: Self)-> Self)
@@ -834,8 +834,8 @@ impl Id(i32), {
 
 { Id } // Export Id
 
-// main.mo
-{ Id } := import "./id.mo";
+// main.yo
+{ Id } := import "./id.yo";
 
 (12).id(); // 12
 use_id := forall ((T: Type) <: Id), (fn(x: T): T)-> {
@@ -1113,7 +1113,7 @@ use &!(i32_array(0)), ptr -> {
 // i32_array: [9, 2, 3, 4, 5]
 ```
 
-Slice in **Mo** is a reference to an array. It is a pointer to the first element of the array and the length of the slice calculated from the **runtime**.
+Slice in **Yo** is a reference to an array. It is a pointer to the first element of the array and the length of the slice calculated from the **runtime**.
 
 QUESTION: We do we need `&` before slice?
 ANSWER: Yes we do. Not only because the size of slice is unknown at the compile-time, when we use it in function parameter, we also need to know if its mutability by & or &mut.
@@ -1181,9 +1181,9 @@ range2 := Range {
 
 NOTE: Closure is a `class`, not `type`.
 
-The closure in **Mo** is a function that can capture ~~Linear~~ values from the outer scope.  
-**Mo** only supports **explicit captures** in closures.
-**Mo** **doesn't** support references in captured values.
+The closure in **Yo** is a function that can capture ~~Linear~~ values from the outer scope.  
+**Yo** only supports **explicit captures** in closures.
+**Yo** **doesn't** support references in captured values.
 
 The closure type is defined as:
 
@@ -1246,7 +1246,7 @@ defn test(), {
 
 ### Type parameters
 
-Type is first-class citenzen in Mo
+Type is first-class citenzen in Yo
 
 ```rust
 defn id(T: Type, x: T): T, {
@@ -1290,7 +1290,7 @@ forall ((A: Type) <: Show,
 ```
 
 ```rust
-// show.mo
+// show.yo
 defn Show(Self: Type): Interface,
   interface {
     show: ((self: &(Self))-> String)
@@ -1311,8 +1311,8 @@ impl Show(String), {
 { Show } // export Show
 
 
-// main.mo
-{ Show } := import "./show.mo";
+// main.yo
+{ Show } := import "./show.yo";
 
 forall ((T: Type) <: Show, size: compt(usize)), defn show(x: Array(T, size)): String, {
   // ...
@@ -1320,7 +1320,7 @@ forall ((T: Type) <: Show, size: compt(usize)), defn show(x: Array(T, size)): St
 { show } // export show
 
 
-{ Show } = import "./show.mo";
+{ Show } = import "./show.yo";
 forall ((T: Type) <: (Ord & Show)),
   defn less_than(x: T, y: T): boolean, {
     println(x.show());
@@ -1774,7 +1774,7 @@ QUESTION: Should we allow `impl` a primitive type?
 ANSWER: Yes we allow
 
 ```rust
-// my_type.mo
+// my_type.yo
 defn MyType(T: Type): Type,
   type .MyType { value: T };
 
@@ -1788,7 +1788,7 @@ forall (T: Type),
     })
   };
 
-// main.mo
+// main.yo
 { MyType } := import("./my_type");
 v := MyType(i32).new(1); // MyType { value: 1 }
 ```
@@ -1858,7 +1858,7 @@ defn Summary((Self: Type) <: ?(Show)),
 This is useful for resolving conflicts when implementing multiple classes for the same type.
 
 ```rust
-// id.mo
+// id.yo
 defn Id(Self: Type),
   interface {
     id: ((self: &(Self))-> Self)
@@ -1866,25 +1866,25 @@ defn Id(Self: Type),
 
 { Id }
 
-// id1.mo
+// id1.yo
 MyIdImplementation := impl Id(i32), {
   id: (fn(self: &(i32)) -> *(self))
 };
 { MyIdImplementation }
 
-// id2.mo
+// id2.yo
 impl Id(i32), {
   id: (fn(self: &(i32)) -> (*(self) + 1))
 };
 
-// use_id.mo
-{ MyIdImplementation } := import("./id1.mo");
+// use_id.yo
+{ MyIdImplementation } := import("./id1.yo");
 MyIdImplementation.id(&(12)); // 13
 12.id() // 13, using the `id` from `MyIdImplementation`.
         // QUESTION: Should we allow this 12.id()?
 
-// another_use_id.mo
-{ Id } := import("./id.mo");
+// another_use_id.yo
+{ Id } := import("./id.yo");
 12.id(); // Compiler Error: Ambiguous call to `id` function.
 ```
 
@@ -2024,7 +2024,7 @@ In C, there are 4 types of pointers:
 - Constant pointer to a non-constant
   `int* const`
 
-In Mo, these 4 categories are represented as:
+In Yo, these 4 categories are represented as:
 
 ```rust
 // Pointer to a constant
@@ -2290,7 +2290,7 @@ defn wait_for_seconds(sec: i32): K(()), {
 }
 
 defn use_wait(), do {
-  // NOTE: Unlike JavaScript Promise, which starts executing immediately, a `K` in Mo will only start executing when it is `resumed`ed.
+  // NOTE: Unlike JavaScript Promise, which starts executing immediately, a `K` in Yo will only start executing when it is `resumed`ed.
   sec <- wait_for_seconds(14).resume();
   println(sec);
 }
@@ -2307,8 +2307,8 @@ QUESTION: Should we allow to `export` a linear type value?
 - for consistency with the destructuring. Like for javascript, it uses `import {x as y} from "module.ts"` but destructuring uses `let {x: y} = obj`.
 
 ```rust
-// module1.mo
-{ copy } := import "https://github.com/mo-lang/mo/std/fs.mo";
+// module1.yo
+{ copy } := import "https://github.com/yo-lang/yo/std/fs.yo";
 
 defn test(), {
   println("Hello, world!");
@@ -2316,7 +2316,7 @@ defn test(), {
 
 { test, copy } // The last expression of the module will be exported.
 
-// module2.mo
+// module2.yo
 // Export the type
 defn Option(T: Type): Type,
   type (|
@@ -2325,7 +2325,7 @@ defn Option(T: Type): Type,
   );
 { Option }
 
-// module3.mo
+// module3.yo
 // Export the interface.
 defn Id(Self: Type): Interface,
   interface {
@@ -2343,17 +2343,17 @@ impl Id(i32), {
 
 ```rust
 
-{*} := import("./test.mo"); // Import everything from test.mo
-Test := import("./test.mo"); // Import everything from test.mo and put it in the Test namespace
-{ test } := import("./test.mo"); // Import test function from test.mo
-{ test: test2 } := import("./test.mo"); // Import test function from test.mo and rename it to test2
+{*} := import("./test.yo"); // Import everything from test.yo
+Test := import("./test.yo"); // Import everything from test.yo and put it in the Test namespace
+{ test } := import("./test.yo"); // Import test function from test.yo
+{ test: test2 } := import("./test.yo"); // Import test function from test.yo and rename it to test2
 
-{ Option } := import("./test.mo"); // Import Option type from test.mo
+{ Option } := import("./test.yo"); // Import Option type from test.yo
 
-{ Id } := import("./test.mo"); // Import `Id` class from test.mo
+{ Id } := import("./test.yo"); // Import `Id` class from test.yo
 ```
 
-`mo.json` and `mo.lock`
+`yo.json` and `yo.lock`
 
 ```json
 {
@@ -2578,11 +2578,11 @@ extern "C" {
 4. Run the `code generator` to generate the code.  
    This step also does the optimization.
 
-The current **Mo** compiler frontend is written in **TypeScript** as a proof of concept.
+The current **Yo** compiler frontend is written in **TypeScript** as a proof of concept.
 
-Boostrapping the **Mo** compiler is not a priority at the moment. We will do it when it's ready.
+Boostrapping the **Yo** compiler is not a priority at the moment. We will do it when it's ready.
 
-**Mo** currently compiles to C (C11, the version that most modern compilers support).  
+**Yo** currently compiles to C (C11, the version that most modern compilers support).  
 We might support compiling to LLVM IR in the future.
 
 ## Meta-programming `In Design`

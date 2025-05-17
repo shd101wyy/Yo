@@ -11,7 +11,7 @@ import * as List from "data/list";
 
 ## Making our own modules
 
-- **geometry.mo**
+- **geometry.yo**
 
 ```typescript
 function sphereVolume(r: f64): f64 {
@@ -52,7 +52,7 @@ export {
 };
 ```
 
-- **main.mo**
+- **main.yo**
 
 ```typescript
 import * as Geometry from "./geometry";
@@ -66,7 +66,7 @@ import "./geometry" hiding { sphereVolume };
 
 Split into multiple files:
 
-- **geometry/sphere.mo**
+- **geometry/sphere.yo**
 
 ```typescript
 function volume(r: f64): f64 {
@@ -78,7 +78,7 @@ function area(r: f64): f64 {
 }
 ```
 
-- **geometry/cuboid.mo**
+- **geometry/cuboid.yo**
 
 ```typescript
 function rectangleArea(a: f64, b: f64): f64 {
@@ -94,7 +94,7 @@ function area(a: f64, b: f64, c: f64): f64 {
 }
 ```
 
-- **geometry/cube.mo**
+- **geometry/cube.yo**
 
 ```typescript
 import * as Cuboid from "./cuboid";

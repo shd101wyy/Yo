@@ -6127,9 +6127,9 @@ If you want to define the receiver type, please use "This" instead.`
       );
     const extname = path.extname(moduleAbsolutePath);
     if (!extname) {
-      moduleAbsolutePath = moduleAbsolutePath + ".mo";
-    } else if (extname !== ".mo") {
-      throw new Error("Only .mo file is supported for now");
+      moduleAbsolutePath = moduleAbsolutePath + ".yo";
+    } else if (extname !== ".yo") {
+      throw new Error("Only .yo file is supported for now");
     }
 
     // Load the module

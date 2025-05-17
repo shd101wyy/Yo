@@ -2,7 +2,7 @@
 #include <setjmp.h>
 
 /*
-// Translate the following Mo code to C:
+// Translate the following Yo code to C:
 interface Exception {
     control throw: (msg: symbol)=> [Exception] i32;
 }

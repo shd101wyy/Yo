@@ -1,6 +1,6 @@
 ```abnf
 ;; Grammar
-;; Since everything in Mo is a function, the grammar is much simpler
+;; Since everything in Yo is a function, the grammar is much simpler
 
 ;; Core Syntax
 Program ::= [Expression (";" Expression)*] ";"?

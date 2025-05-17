@@ -104,7 +104,7 @@ export type Environment = {
 
 export function generateModuleId(modulePath: string) {
   const hash = createHash("sha1").update(modulePath).digest("hex");
-  return "mo" + hash.slice(0, 8);
+  return "yo" + hash.slice(0, 8);
 }
 
 let tempVariableNameCount = 1;

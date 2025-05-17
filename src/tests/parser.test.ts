@@ -4,7 +4,7 @@ import Parser from "../parser";
 
 describe("Parser Tests", () => {
   beforeAll(() => {
-    const testFileName = "fixme.mo";
+    const testFileName = "fixme.yo";
     const inputString = fs.readFileSync(
       path.join(__dirname, `examples/${testFileName}`),
       "utf-8"
@@ -16,7 +16,7 @@ describe("Parser Tests", () => {
     console.log(parser.programToString());
   });
 
-  it("should parse learn_mo.mo correctly", () => {
+  it("should parse learn_mo.yo correctly", () => {
     expect(true).toBe(true);
   });
 });

@@ -5,7 +5,7 @@ const { dependencies, devDependencies } = require("./package.json");
  * @type {import('esbuild').BuildOptions}
  */
 const sharedConfig = {
-  entryPoints: ["./src/index.ts", "./src/mo-cli.ts"],
+  entryPoints: ["./src/index.ts", "./src/yo-cli.ts"],
   bundle: true,
   minify: true,
   // sourcemap: true,

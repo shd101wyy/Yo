@@ -345,9 +345,9 @@ export type TModule = {
   type: "Module";
   /**
    * `modulePath` is the path of the module with protocol. For example:
-   * - file:///home/username/project/src/main.mo
+   * - file:///home/username/project/src/main.yo
    * - https://github.com/username/project
-   * - mo://@mo/std
+   * - yo://@yo/std
    */
   modulePath: string;
   ast: Expr[];
@@ -1757,7 +1757,7 @@ export function applyTypeArgumentsToTrait({
 }): TTrait {
   // logger.debug("- applyTypeArgumentsToTrait");
   /*
-  // NOTE: Adding the code below will cause ./examples/classes/use_id3.mo failed to parse
+  // NOTE: Adding the code below will cause ./examples/classes/use_id3.yo failed to parse
   if (
     typeArguments &&
     trait.typeParameters.length !== typeArguments.length
@@ -4645,7 +4645,7 @@ export function synthesizeTypes({
   }
 
   // Update expectedType kind
-  // Check examples/tuple/tuple2.mo
+  // Check examples/tuple/tuple2.yo
   if (expectedType.kind === "Type") {
     expectedType.kind = givenType.kind;
   }

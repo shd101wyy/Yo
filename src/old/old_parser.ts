@@ -4218,12 +4218,12 @@ ${exprToString(expr)}\n`,
     index = index + 1;
 
     // TODO: Specify the language, like "C" or "JavaScript"
-    let language: "c" | "mo" = "c";
+    let language: "c" | "yo" = "c";
     if (
       tokens[index].type === TokenType.String &&
-      tokens[index].value.match(/^(c|mo)$/i)
+      tokens[index].value.match(/^(c|yo)$/i)
     ) {
-      language = tokens[index].value.toLowerCase() as "c" | "mo";
+      language = tokens[index].value.toLowerCase() as "c" | "yo";
       index = index + 1;
     }
 
@@ -4252,14 +4252,14 @@ ${exprToString(expr)}\n`,
       if (language === "c" && tokens[index].type === TokenType.Identifier) {
         variableName = tokens[index].value;
         index = index + 1;
-      } else if (language === "mo") {
+      } else if (language === "yo") {
         if (tokens[index].type === TokenType.Identifier) {
           variableName = `${tokens[index].value}`;
           index = index + 1;
         } else {
           throw this.formatErrorMessage(
             tokens[index],
-            `Expected identifier for extern variable name for language "mo", but got ${JSON.stringify(
+            `Expected identifier for extern variable name for language "yo", but got ${JSON.stringify(
               tokens[index]
             )}`
           );
@@ -7185,7 +7185,7 @@ ${exprToString(expr)}`
           throw this.formatErrorMessage(token, "Invalid export statement");
         }
 
-        // export * from "module.mo";
+        // export * from "module.yo";
         const { destructurings, index: nextIndex } =
           this.parseImportAndExportDestructurings({
             tokens,
@@ -7303,9 +7303,9 @@ ${exprToString(expr)}`
       );
     const extname = path.extname(moduleAbsolutePath);
     if (!extname) {
-      moduleAbsolutePath = moduleAbsolutePath + ".mo";
-    } else if (extname !== ".mo") {
-      throw new Error("Only .mo file is supported for now");
+      moduleAbsolutePath = moduleAbsolutePath + ".yo";
+    } else if (extname !== ".yo") {
+      throw new Error("Only .yo file is supported for now");
     }
     let module: TModule | undefined = undefined;
     try {
@@ -7577,8 +7577,8 @@ ${exprToString(expr)}`
       callSites: [],
     };
 
-    // Load the std/prelude.mo
-    // NOTE: .mo files inside std/ will not load prelude.mo
+    // Load the std/prelude.yo
+    // NOTE: .yo files inside std/ will not load prelude.yo
     if (!this.modulePath.startsWith(`file://${this.stdPath}`) && !skipPrelude) {
       const { env: nextEnv } = this.importModule({
         destructurings: [

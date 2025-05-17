@@ -1,6 +1,6 @@
 [IN DESIGN]
 
-**Mo language** uses the memory management technique similar to the ARC (Automatic Reference Counting) in the Swift language:
+**Yo language** uses the memory management technique similar to the ARC (Automatic Reference Counting) in the Swift language:
 
 > https://docs.swift.org/swift-book/documentation/the-swift-programming-language/automaticreferencecounting/
 

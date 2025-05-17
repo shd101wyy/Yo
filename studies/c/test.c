@@ -5,22 +5,22 @@ struct Unit {};
 struct Unit unit = {};
 
 
-// Module file:///home/yiyiwang/Workspace/mo/std/builtins.mo
+// Module file:///home/yiyiwang/Workspace/yo/std/builtins.yo
 // Module ID: mo7f32697e
 
-// Module file:///home/yiyiwang/Workspace/mo/std/data/arithmetic.mo
+// Module file:///home/yiyiwang/Workspace/yo/std/data/arithmetic.yo
 // Module ID: mod3bddfa5
 
-// Module file:///home/yiyiwang/Workspace/mo/std/data/primitive/i32.mo
+// Module file:///home/yiyiwang/Workspace/yo/std/data/primitive/i32.yo
 // Module ID: mo86a322ea
 
-// Module file:///home/yiyiwang/Workspace/mo/std/data/option.mo
+// Module file:///home/yiyiwang/Workspace/yo/std/data/option.yo
 // Module ID: mo53dd88a6
 
-// Module file:///home/yiyiwang/Workspace/mo/std/prelude.mo
+// Module file:///home/yiyiwang/Workspace/yo/std/prelude.yo
 // Module ID: mo213980cc
 
-// Module file:///home/yiyiwang/Workspace/mo/examples/type/slice.mo
+// Module file:///home/yiyiwang/Workspace/yo/examples/type/slice.yo
 // Module ID: mo2b15e616
 int32_t main();
 

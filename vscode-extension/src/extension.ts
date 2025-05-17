@@ -1,30 +1,30 @@
 // Activate the extension
 import * as vscode from "vscode";
 
-// Import the parser and lexer from Mo project
-// This assumes your extension can access the Mo project code
-import { getVariablesFromEnv } from "@mo/env";
-import { MoLexerError, MoParserError } from "@mo/error";
-import { AtomExpr, Expr, exprIsAtom, exprToString } from "@mo/expr";
-import { ModuleManager } from "@mo/module-manager";
-import { stringIsOperator, TokenType } from "@mo/token";
-import { getSizeString, typeOfType, typeToString } from "@mo/type-checker";
-import { valueToString } from "@mo/value";
-import { ValueTag } from "@mo/value-tag";
+// Import the parser and lexer from Yo project
+// This assumes your extension can access the Yo project code
+import { getVariablesFromEnv } from "@yo/env";
+import { MoLexerError, MoParserError } from "@yo/error";
+import { AtomExpr, Expr, exprIsAtom, exprToString } from "@yo/expr";
+import { ModuleManager } from "@yo/module-manager";
+import { stringIsOperator, TokenType } from "@yo/token";
+import { getSizeString, typeOfType, typeToString } from "@yo/type-checker";
+import { valueToString } from "@yo/value";
+import { ValueTag } from "@yo/value-tag";
 
 export function activate(context: vscode.ExtensionContext) {
-  // Create a diagnostic collection for Mo language errors
+  // Create a diagnostic collection for Yo language errors
   const diagnosticCollection =
-    vscode.languages.createDiagnosticCollection("mo");
+    vscode.languages.createDiagnosticCollection("yo");
   context.subscriptions.push(diagnosticCollection);
 
-  // Mo language module manager
+  // Yo language module manager
   const moduleManager = new ModuleManager();
 
-  // Function to analyze Mo file and show diagnostics
+  // Function to analyze Yo file and show diagnostics
   const analyzeMoFile = async (document: vscode.TextDocument) => {
-    // Only analyze Mo files
-    if (document.languageId !== "mo") {
+    // Only analyze Yo files
+    if (document.languageId.match(/^yo$/i)) {
       return;
     }
 
@@ -106,8 +106,8 @@ export function activate(context: vscode.ExtensionContext) {
     }
   };
 
-  // Register hover provider for Mo language
-  const hoverProvider = vscode.languages.registerHoverProvider("mo", {
+  // Register hover provider for Yo language
+  const hoverProvider = vscode.languages.registerHoverProvider("yo", {
     provideHover(document, position) {
       const filePath = document.uri.fsPath;
 

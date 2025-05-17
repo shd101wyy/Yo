@@ -1255,7 +1255,7 @@ ${indentation}};
       }
       case AstType.Extern: {
         // TODO: Support "C"
-        if (expr.language === "mo") {
+        if (expr.language === "yo") {
           return "";
         }
         return "";

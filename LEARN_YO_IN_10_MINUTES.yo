@@ -1,11 +1,11 @@
-// # Learn Mo in 10 Minutes
+// # Learn Yo in 10 Minutes
 // Philosophy
 // A combination of Lisp and C.
 
 // Comment is using `//` or `/* */`
-// Mo is case-sensitive
+// Yo is case-sensitive
 
-// In Mo, everything is a function:
+// In Yo, everything is a function:
 x := true;
 y :: 14;
 
@@ -40,7 +40,7 @@ mut(y) := 14;
 z := 16; // This will give error, as compt_int type cannot be assigned to runtime variable.  
 
 
-// There is no arithmetic precedence in Mo
+// There is no arithmetic precedence in Yo
 // Except for the "." is not taking as a operator, but it has the highest precedence.
 // "." has its own parsing rules, for example a.b + c.d is parsed as (. a b) + (. c d)
 
@@ -90,7 +90,7 @@ z := 16; // This will give error, as compt_int type cannot be assigned to runtim
 2 ** (3 ** 4);
 // It's hard to tell! So let's make it explicit
 
-// NOTE: All operators are method in Mo
+// NOTE: All operators are method in Yo
 3 + 4;
 // is equavalent to
 3.(+) 4;
@@ -142,7 +142,7 @@ add y: 5, x: 4;
 user1 := create_user(name: "Alice");  // age=18, role="user" (defaults)
 user2 := create_user(role: "admin", name: "Bob", age: 30);  // explicit values
 
-// Mo also supports the infix function application
+// Yo also supports the infix function application
 // 3 `add` 4; // is equivalent to add(3, 4)
 
 
@@ -176,7 +176,7 @@ result := begin(
 );
 empty_block := {}   // This is an empty block that returns unit.  
 
-// All tuples in Mo are named tuples.
+// All tuples in Yo are named tuples.
 // You can define the tuple type using `type` keyword.  
 // A tuple type can have named fields or unnamed fields.
 // Like the one in JavaScript.
@@ -245,7 +245,7 @@ arr := [1, 2, 3]; // Array(i32, 3)
 arr := array(1, 2, 3);
 arr := [1, 2, 3]; // mutable array
 
-// In Mo, type is the first-class citizen,
+// In Yo, type is the first-class citizen,
 // meaning that you can assign a type to a variable, or pass it as an argument to a function.
 MyI32 :: i32; // type alias
 (x : MyI32) = 12; // valid
@@ -255,7 +255,7 @@ MyI32 :: i32; // type alias
 MyPoint :: type (i32, i32); // tuple type
 (p : MyPoint) = (3, 4); // valid
 
-// In Mo, you can define a struct like below:
+// In Yo, you can define a struct like below:
 Point :: struct(i32, i32);
 p := Point 3, 4;
 
@@ -275,7 +275,7 @@ _(y: y) := p;       // y: 4
 Cm := struct i32;
 x := Cm 200;
 
-// In Mo, struct/enum/union are nominal types.
+// In Yo, struct/enum/union are nominal types.
 // This means that two types with the same structure are not the same type.
 // For example, the following two types are different:
 Point1 :: struct(i32, i32);
@@ -460,7 +460,7 @@ id(true); // true
 // Module is a block of expressions.
 // The very last expression is the return value.
 
-// arith.mo
+// arith.yo
 def add: 
   (x: i32, y: i32)-> i32,
   x + y;
@@ -471,11 +471,11 @@ def sub:
 // is equivalent to
 // ( add: add, sub: sub )
 
-// main.mo
-{ add, sub } := import("./arith.mo");
+// main.yo
+{ add, sub } := import("./arith.yo");
 add(3, 4); // 7
 
-// Type in Mo can be either Linear or Free
+// Type in Yo can be either Linear or Free
 // Linear means it must be used exactly once
 // For example, String is a linear type
 (s : String) = String.from("Hello");
@@ -484,7 +484,7 @@ s2 := s;  // error: s is consumed
 
 // QUESTION: Should we have the RAII?
 // RAII (Resource Acquisition Is Initialization)
-// Mo automatically insert `drop` function for Linear types that are not used anymore and implement `drop` function.
+// Yo automatically insert `drop` function for Linear types that are not used anymore and implement `drop` function.
 
 // Type universe
 // - ...
@@ -507,8 +507,8 @@ Array7 := Array(7, 3);
 (arr: Array7) = [7, 7, 7]; // Correct!
 
 // Reference and Pointer
-// Mo uses *, *! to for immutable pointer and mutable pointer
-// Mo uses &, &! for immutable reference and mutable reference
+// Yo uses *, *! to for immutable pointer and mutable pointer
+// Yo uses &, &! for immutable reference and mutable reference
 x := 1;
 y := 2;
 def swap:
@@ -614,7 +614,7 @@ do {
 }
 
 // malloc
-// There is no null pointer in Mo.
+// There is no null pointer in Yo.
 // ^Type or ^!(Type) is a pointer type which is Linear.
 (ptr : Option(^!(i32))) = malloc(sizeof(i32)); // allocate memory for i32
 match ptr,
@@ -697,7 +697,7 @@ match x,
   .None -> std.println("x is None")
 
 // Error Handling
-// Mo uses the Result type for operations that may fail
+// Yo uses the Result type for operations that may fail
 // Similar to Rust, Result is a union type with Ok and Err variants
 
 // Define the Result type as a generic type
@@ -778,7 +778,7 @@ Expr ::
 //
 // All are function calls, just with specialized notation in some cases
 
-// Note: In Mo, like in Lisp, operators and identifiers are both symbols
+// Note: In Yo, like in Lisp, operators and identifiers are both symbols
 // For example, '+', ':=', and 'add' are all symbols
 
 // `quote` function to quote an expression, return Expr

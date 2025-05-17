@@ -1,6 +1,5 @@
 import { Token } from "../token";
 import {
-  TBoolean,
   TEnum,
   TFunction,
   TModule,
@@ -8,7 +7,6 @@ import {
   TPrimitiveWithValue,
   TTrait,
   TTypeConstructor,
-  TUnit,
   Type,
   traitToString,
   typeParametersToString,
@@ -359,7 +357,7 @@ export type ExternVariable = {
 
 export type ExternExpr = {
   type: AstType.Extern;
-  language: "c" | "mo";
+  language: "c" | "yo";
   variables: ExternVariable[];
   typeValue: TUnit;
   env: Environment;

@@ -5,7 +5,7 @@ import { tokenize } from "../lexer";
 describe("Lexer Tests", () => {
   beforeAll(() => {
     /*
-    const testFileName = "test1.mo";
+    const testFileName = "test1.yo";
     // Tokenize the content
     const tokens = tokenize(
       fs.readFileSync(path.join(__dirname, `examples/${testFileName}`), "utf-8")
@@ -21,9 +21,9 @@ describe("Lexer Tests", () => {
     */
   });
 
-  test("should tokenize test1.mo correctly", () => {
+  test("should tokenize test1.yo correctly", () => {
     // Read the test file
-    const filePath = path.join(__dirname, "examples/test1.mo");
+    const filePath = path.join(__dirname, "examples/test1.yo");
     const fileContent = fs.readFileSync(filePath, "utf-8");
 
     // Tokenize the content
