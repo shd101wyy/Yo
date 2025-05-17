@@ -16,6 +16,7 @@ import {
   BuiltinCollections,
   BuiltinFunctions,
   BuiltinKeywords,
+  cloneExpr,
   Expr,
   exprIsAtom,
   exprIsFunctionCall,
@@ -4608,6 +4609,41 @@ Expected ${
         }
       }
 
+      let parameterType = paramElement.type;
+      if (isFunctionType(parameterType)) {
+        // Evaluate the parameter type again.
+        // This is for anonymous function type that contains type parameter
+        // for example:
+        //    (forall(@(T): Type), x: T, callback: ((v: T)-> T))-> T
+        // and we call it:
+        //    generic_fn(1, fn(x)-> add(x, 1));
+        // We can infer `T` is `i32`,
+        // But when we evaluate `callback`, we need to evaluate its type again
+        // before we evluate the arg
+        const evaluatedTypeExpr = this.evaluateExpression({
+          expr: cloneExpr(paramElement.typeExpr),
+          env: pushEnvFrame(
+            functionType.env,
+            env.frames[env.frames.length - 1]
+          ),
+          context: {
+            ...context,
+            isEvaluatingExprAsType: true,
+            expectedType: undefined,
+            SelfType: functionValue?.SelfType,
+          },
+        });
+        if (!isTypeValue(evaluatedTypeExpr.value)) {
+          throw this.formatErrorMessage(
+            paramElement.typeExpr.token,
+            `Expected type for parameter, got:\n${exprToString(
+              paramElement.typeExpr
+            )}`
+          );
+        }
+        parameterType = evaluatedTypeExpr.value.value;
+      }
+
       // Evaluate the argExpr
       let evaluatedArgExpr: Expr | undefined = undefined;
       try {
@@ -4617,7 +4653,7 @@ Expected ${
           context: {
             ...context,
             isEvaluatingExprAsType: false,
-            expectedType: paramElement.type,
+            expectedType: parameterType,
           },
         });
       } catch (error) {
@@ -4639,40 +4675,6 @@ Expected ${
         );
         // If synthesis fails, the types are not compatible
       }
-
-      // Pass a type to parameter
-      // eg: compt(T): Type
-      /*
-      if (
-        isTypeHierarchyType(paramElement.type) &&
-        paramElement.type.level === 0
-      ) {
-        // Check if the type is a subtype of the given type
-        // TODO: Check interfaces
-        if (!isTypeHierarchyType(argType) || argType.level !== 0) {
-          logger.debug("return false(3)");
-          return false;
-        }
-        if (paramElement.label) {
-          const argValue = evaluatedArgExpr.value;
-
-          // Add the arg to the environment
-          const { env: nextEnv } = addVariableToEnv({
-            env,
-            variable: {
-              name: paramElement.label,
-              type: argType,
-              isMutable: paramElement.isMutable,
-              isCompileTimeOnly: paramElement.isCompileTimeOnly,
-              token: argExpr.token,
-              isNotInitialized: false,
-              value: argValue,
-            },
-          });
-          env = nextEnv;
-        }
-      }
-      */
 
       // Cannot assign runtime parameter to compt parameter
       if (!evaluatedArgExpr.value && paramElement.isCompileTimeOnly) {
@@ -4704,7 +4706,7 @@ Expected ${
 
       // Synthesize the types
       const nextEnv = this.synthesizeTypes(
-        paramElement.type,
+        parameterType,
         argType,
         env,
         paramElement.typeExpr.token
@@ -4712,8 +4714,8 @@ Expected ${
       env = nextEnv;
 
       // Evaluate the parameter type again
-      const evaluatedParameterType = this.evaluateExpression({
-        expr: paramElement.typeExpr,
+      const evaluatedTypeExpr = this.evaluateExpression({
+        expr: cloneExpr(paramElement.typeExpr),
         env: pushEnvFrame(functionType.env, env.frames[env.frames.length - 1]),
         context: {
           ...context,
@@ -4722,23 +4724,22 @@ Expected ${
           SelfType: functionValue?.SelfType,
         },
       });
-      const evaluatedParameterTypeValue = evaluatedParameterType.value;
-      if (!isTypeValue(evaluatedParameterTypeValue)) {
+      if (!isTypeValue(evaluatedTypeExpr.value)) {
         throw this.formatErrorMessage(
           paramElement.typeExpr.token,
           `Expected type for parameter, got:\n${exprToString(
-            evaluatedParameterType
+            evaluatedTypeExpr
           )}`
         );
       }
-      const paramElementType = evaluatedParameterTypeValue.value;
+      parameterType = evaluatedTypeExpr.value.value;
 
       // Compare the types
-      if (!areTypesCompatible(paramElementType, argType, env)) {
+      if (!areTypesCompatible(parameterType, argType, env)) {
         throw this.formatErrorMessage(
           argExpr.token,
           `Type mismatch for parameter "${paramElement.label}":
-Expected: ${typeToString(paramElementType)}
+Expected: ${typeToString(parameterType)}
 Got:   ${typeToString(argType)}`
         );
       }
@@ -5273,7 +5274,7 @@ Expected: ${typeToString(functionType)}`
       env.frames[env.frames.length - 1]
     ); // Add the env last frame which contains evaluated args
     const evaluatedFunctionReturnExpr = this.evaluateExpression({
-      expr: functionType.return.expr,
+      expr: cloneExpr(functionType.return.expr),
       env: functionTypeEnv,
       context: { ...context, isEvaluatingExprAsType: true },
     });

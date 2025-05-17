@@ -64,3 +64,12 @@ i32_container_value := Container(i32)(12);
 x := use_container(i32_container_value, 13);
 x := use_container(Container(i32)(13), 12);
 x := use_container(Container(boolean)(true), false);
+
+// Parameter contains function type
+def generic_fn:
+  (forall(@(T): Type), x: T, callback: ((v: T)-> T))-> T,
+  callback(x)
+;
+
+generic_fn(1, fn(x)-> add(x, 1));
+generic_fn(true, fn(x)-> x);

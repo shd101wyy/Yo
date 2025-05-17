@@ -37,6 +37,19 @@ export type FuncCallExpr = {
   value?: Value;
 };
 
+export function cloneExpr(expr: Expr): Expr {
+  switch (expr.tag) {
+    case ExprTag.Atom:
+      return { ...expr };
+    case ExprTag.FuncCall:
+      return {
+        ...expr,
+        func: cloneExpr(expr.func),
+        args: expr.args.map(cloneExpr),
+      };
+  }
+}
+
 export type Expr = AtomExpr | FuncCallExpr;
 
 export function exprIsFunctionCall(expr: Expr): expr is FuncCallExpr {
