@@ -1,5 +1,5 @@
 extern
-  add:
+  implicit(add):
     (x: i32, y: i32)-> i32
 ;
 
@@ -8,23 +8,21 @@ def main:
   // contextual parameters, aka implicit parameters
   def generic_add:
     ( // define type parameters
-      ∀(@(T): Type), 
+      forall(@(T): Type), 
       x: T, y: T,
       // defining contextual parameters 
       implicit(
         @(add):
           (T, T)-> T 
       )
-    )-> T, {
-      // add(x, y)
-      y;
-      x
-    }
+    )-> T,
+      add(x, y)
   ;
-
+/*
   def implicit(add2):
     (x: i32, y: i32)-> i32,
     x `add` y;
+*/
 
   x := generic_add(1, 2); // Implicitly uses the `add2` function
   x := generic_add(true, false); // This should give error.

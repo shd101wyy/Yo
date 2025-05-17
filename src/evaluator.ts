@@ -14,6 +14,7 @@ import { formatErrorMessage } from "./error";
 import {
   AtomExpr,
   BuiltinCollections,
+  BuiltinFunctions,
   BuiltinKeywords,
   Expr,
   exprIsAtom,
@@ -1932,8 +1933,18 @@ ${exprToString(expr)}`
           `Expected ":" for extern argument, got ${arg.tag}`
         );
       }
-      const lhs = arg.args[0];
+      let lhs = arg.args[0];
       const rhs = arg.args[1];
+
+      // Check if lhs is implicit
+      let isImplicit = false;
+      if (
+        exprIsFunctionCall(lhs) &&
+        exprIsFunctionCallOf(lhs, BuiltinKeywords.Implicit, 1)
+      ) {
+        lhs = lhs.args[0];
+        isImplicit = true;
+      }
 
       if (!this.isValidVariableName(lhs)) {
         throw this.formatErrorMessage(
@@ -1974,6 +1985,7 @@ ${exprToString(expr)}`
               isMutable: false,
               isCompileTimeOnly: true,
               isNotInitialized: false,
+              isImplicit,
               value: createUnknownValue(userDefinedType),
             },
           });
@@ -3273,6 +3285,7 @@ compt(${exprToString(returnTypeExpr)})`
         isCompileTimeOnly: isReturnTypeCompileTimeOnly,
       },
       env: popEnvFrame(env),
+      parametersFrame: env.frames[env.frames.length - 1],
       SelfType: context.SelfType,
     });
 
@@ -5305,113 +5318,6 @@ Expected: ${typeToString(functionType)}`
 
     let functionNameExpr = functionDefinitionExpr.args[0];
     const functionTypeExpr = functionDefinitionExpr.args[1];
-    // let typeMethodInfo: { type: Type; methodName: string } | undefined =
-    //   undefined;
-
-    // Check if it's a type method, such as:
-    //
-    // def Point.add:
-    //   (self: Point, other: Point)-> Point,
-    //   ...
-    /*
-    if (
-      exprIsFunctionCall(functionNameExpr) &&
-      exprIsFunctionCallOf(functionNameExpr, ".", 2)
-    ) {
-      const typeExpr = functionNameExpr.args[0];
-      const methodExpr = functionNameExpr.args[1];
-      functionNameExpr = methodExpr;
-
-      // Evaluate the typeExpr;
-      const evaluatedTypeExpr = this.evaluateExpression({
-        expr: typeExpr,
-        env,
-        context: { ...context },
-      });
-      const evaluatedTypeValue = evaluatedTypeExpr.value;
-      if (!isTypeValue(evaluatedTypeValue)) {
-        throw this.formatErrorMessage(
-          typeExpr.token,
-          `Expected type, got:\n${exprToString(typeExpr)}`
-        );
-      }
-      const type = evaluatedTypeValue.value;
-
-      // Get the method name
-      if (
-        !exprIsAtom(methodExpr) ||
-        !(
-          methodExpr.token.type === TokenType.Identifier ||
-          methodExpr.token.type === TokenType.Operator
-        )
-      ) {
-        throw this.formatErrorMessage(
-          methodExpr.token,
-          `Expected identifier or operator for type method name, got:\n${exprToString(
-            methodExpr
-          )}`
-        );
-      }
-      const methodName = methodExpr.token.value;
-
-      // Disallow to define type method for primitive and tuple types
-      if (isPrimitiveType(type) || isTupleType(type)) {
-        throw this.formatErrorMessage(
-          typeExpr.token,
-          `Cannot define type method for primitive and tuple types`
-        );
-      }
-
-      // Check if the method already exists
-      const existingMethods = type.methods ?? [];
-      if (existingMethods.find((m) => m.label === methodName)) {
-        throw this.formatErrorMessage(
-          methodExpr.token,
-          `Duplicate label "${methodName}" in type method`
-        );
-      }
-      if (isStructType(type)) {
-        // Check if the method name conflicts with the struct members
-        if (type.elements.find((m) => m.label === methodName)) {
-          throw this.formatErrorMessage(
-            methodExpr.token,
-            `Duplicate label "${methodName}" in struct member`
-          );
-        }
-      } else if (isTupleType(type)) {
-        // Check if the method name conflicts with the tuple elements
-        if (type.elements.find((m) => m.label === methodName)) {
-          throw this.formatErrorMessage(
-            methodExpr.token,
-            `Duplicate label "${methodName}" in tuple elements`
-          );
-        }
-      } else if (isEnumType(type)) {
-        // Check if the method name conflicts with the enum variants
-        if (type.variants.find((m) => m.name === methodName)) {
-          throw this.formatErrorMessage(
-            methodExpr.token,
-            `Enum variant already has the name "${methodName}"`
-          );
-        }
-      }
-
-      // Add the method to the type
-      // type.methods = existingMethods.concat({
-      //   label: methodName,
-      //   type: functionType,
-      //   value: functionValue,
-      // });
-
-      typeMethodInfo = {
-        type,
-        methodName,
-      };
-      functionName = methodName;
-    }
-    // It's not the type method, but the normal function
-    else */
-
     // Check if the function is implicit
     let isImplicit = false;
     if (
@@ -5461,28 +5367,7 @@ Expected: ${typeToString(functionType)}`
     }
 
     // Add parameters to the env new frame
-    env = pushEnvFrame(env);
-    const functionParameters = functionType.parameters;
-    for (let i = 0; i < functionParameters.length; i++) {
-      const parameter = functionParameters[i];
-      if (parameter.label && parameter.labelExpr) {
-        const { env: nextEnv } = addVariableToEnv({
-          env,
-          variable: {
-            name: parameter.label,
-            token: parameter.labelExpr.token,
-            type: parameter.type,
-            isMutable: parameter.isMutable,
-            isCompileTimeOnly: parameter.isCompileTimeOnly,
-            isNotInitialized: false, // Set as initialized
-            value: parameter.isCompileTimeOnly
-              ? createUnknownValue(parameter.type, parameter.label)
-              : undefined,
-          },
-        });
-        env = nextEnv;
-      }
-    }
+    env = pushEnvFrame(env, functionType.parametersFrame);
 
     // Create the function value
     const functionValue: FunctionValue = {
@@ -6236,6 +6121,74 @@ If you want to define the receiver type, please use "This" instead.`
   }
   */
 
+  /**
+   * Check if two types are compatible
+   */
+  private evaluateAreTypesCompatible({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    const args = expr.args;
+    const expectedTypeArg = args[0];
+    const givenTypeArg = args[1];
+
+    const evaluatedExpectedTypeArg = this.evaluateExpression({
+      expr: expectedTypeArg,
+      env,
+      context: {
+        ...context,
+        isEvaluatingExprAsType: true,
+        expectedType: undefined,
+        SelfType: undefined,
+      },
+    });
+    if (!isTypeValue(evaluatedExpectedTypeArg.value)) {
+      throw this.formatErrorMessage(
+        expectedTypeArg.token,
+        `Expected type, got:\n${exprToString(expectedTypeArg)}`
+      );
+    }
+    const expectedType = evaluatedExpectedTypeArg.value.value;
+    if (evaluatedExpectedTypeArg.env) {
+      env = evaluatedExpectedTypeArg.env;
+    }
+
+    const evaluatedGivenTypeArg = this.evaluateExpression({
+      expr: givenTypeArg,
+      env,
+      context: {
+        ...context,
+        isEvaluatingExprAsType: true,
+        expectedType: undefined,
+        SelfType: undefined,
+      },
+    });
+    if (!isTypeValue(evaluatedGivenTypeArg.value)) {
+      throw this.formatErrorMessage(
+        givenTypeArg.token,
+        `Expected type, got:\n${exprToString(givenTypeArg)}`
+      );
+    }
+    const givenType = evaluatedGivenTypeArg.value.value;
+    if (evaluatedGivenTypeArg.env) {
+      env = evaluatedGivenTypeArg.env;
+    }
+
+    // Check if the types are compatible
+    const compatible = areTypesCompatible(expectedType, givenType, env);
+
+    // Attach info to the expr
+    expr.value = createBooleanValue(compatible);
+    expr.type = expr.value.type;
+    expr.env = env;
+    return expr;
+  }
+
   private evaluateExpression({
     expr,
     env,
@@ -6375,6 +6328,15 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Import)) {
         // import
         return this.evaluateImport({ expr, env, context: { ...context } });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.AreTypesCompatible, 2)
+      ) {
+        // are_types_compatible
+        return this.evaluateAreTypesCompatible({
+          expr,
+          env,
+          context: { ...context },
+        });
       } else {
         /* 
       else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {

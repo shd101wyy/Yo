@@ -24,7 +24,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Function to analyze Yo file and show diagnostics
   const analyzeMoFile = async (document: vscode.TextDocument) => {
     // Only analyze Yo files
-    if (document.languageId.match(/^yo$/i)) {
+    if (!document.languageId.match(/^yo$/i)) {
       return;
     }
 

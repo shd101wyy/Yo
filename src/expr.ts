@@ -100,6 +100,10 @@ export const BuiltinKeywords = {
   Export: ["export"],
 };
 
+export const BuiltinFunctions = {
+  AreTypesCompatible: ["are_types_compatible"],
+};
+
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
   return !!(
     expr.tag === "FuncCall" &&

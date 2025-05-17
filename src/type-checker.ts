@@ -1,4 +1,4 @@
-import { Environment, getVariablesFromEnv } from "./env";
+import { Environment, Frame, getVariablesFromEnv } from "./env";
 import { Expr } from "./expr";
 import { FunctionValue } from "./function-value";
 import { TypeValue } from "./type-value";
@@ -479,6 +479,12 @@ export interface FunctionType extends Type {
    * The env is also useful to show the frame level at which the function is defined.
    */
   env: Environment;
+
+  /**
+   * The frame that contains the parameters
+   */
+  parametersFrame: Frame;
+
   /**
    * Under which interface/struct/enum/union this function is defined.
    */
@@ -705,6 +711,7 @@ export function createFunctionType({
   implicitParameters,
   return_,
   env,
+  parametersFrame,
   SelfType,
 }: {
   parameters: FunctionParameter[];
@@ -712,6 +719,7 @@ export function createFunctionType({
   implicitParameters: FunctionParameter[];
   return_: FunctionReturn;
   env: Environment;
+  parametersFrame: Frame;
   SelfType?: Type;
 }): FunctionType {
   return {
@@ -722,6 +730,7 @@ export function createFunctionType({
     implicitParameters,
     return: return_,
     env,
+    parametersFrame,
     SelfType,
   };
 }
@@ -1330,11 +1339,25 @@ export function typeToString(type: Type): string {
             : (param.isMutable ? `mut(_):` : "") + typeToString(param.type)
         )
         .join(", ");
+
+      const typeParams =
+        func.typeParameters.length > 0
+          ? `forall(${func.typeParameters
+              .map((param) => `${param.label}: ${typeToString(param.type)}`)
+              .join(", ")}), `
+          : "";
+      const implicitParams =
+        func.implicitParameters.length > 0
+          ? `implicit(${func.implicitParameters
+              .map((param) => `${param.label}: ${typeToString(param.type)}`)
+              .join(", ")}), `
+          : "";
+
       let returnTypeString = typeToString(func.return.type);
       if (func.return.isCompileTimeOnly) {
         returnTypeString = `compt(${returnTypeString})`;
       }
-      return `(${params}) -> ${returnTypeString}`;
+      return `(${typeParams}${params}${implicitParams}) -> ${returnTypeString}`;
     }
 
     case TypeTag.Module: {
