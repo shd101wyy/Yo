@@ -1,12 +1,30 @@
 extern
-  add:
-    (x: i32, y: i32) -> i32
+  implicit(add):
+    (x: i32, y: i32)-> i32
 ;
 
-def generic_fn:
-  (forall(@(T): Type), x: T, callback: ((v: T)-> T))-> T,
-  callback(x)
+// contextual parameters, aka implicit parameters
+def generic_add:
+  ( // define type parameters
+    forall(@(T): Type), 
+    x: T, y: T,
+    // defining contextual parameters 
+    implicit(
+      @(add):
+        (T, T)-> T 
+    )
+  )-> T,
+  add(x, y)
 ;
 
-generic_fn(1, fn(x)-> add(x, 1));
-generic_fn(true, fn(x)-> x);
+/*
+def implicit(add2):
+  (x: i32, y: i32)-> i32,
+  x `add` y
+;
+*/
+
+generic_add(1, 2); // Implicitly uses the `add` function
+// generic_add(true, false);
+
+// generic_add(1, 2, implicit(add2)); // Explicitly uses the `add2` function

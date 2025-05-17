@@ -6,6 +6,7 @@ import {
   Environment,
   getMethodsByNameFromEnv,
   getVariablesFromEnv,
+  getVariablesFromEnvByFilter,
   popEnvFrame,
   pushEnvFrame,
   updateExistingVariable,
@@ -4575,6 +4576,7 @@ ${exprToString(expr)}`
     }
 
     env = pushEnvFrame(env);
+    // Check if the parameters match the arguments
     for (let i = 0; i < functionType.parameters.length; i++) {
       const paramElement = functionType.parameters[i];
       let argExpr = argExprs[i];
@@ -4741,6 +4743,66 @@ Expected ${
           `Type mismatch for parameter "${paramElement.label}":
 Expected: ${typeToString(parameterType)}
 Got:   ${typeToString(argType)}`
+        );
+      }
+    }
+
+    // Check if the implicit parameters are provided
+    for (let i = 0; i < functionType.implicitParameters.length; i++) {
+      const implicitParameter = functionType.implicitParameters[i];
+
+      // Evaluate its type again
+      const evaluatedTypeExpr = this.evaluateExpression({
+        expr: cloneExpr(implicitParameter.typeExpr),
+        env: pushEnvFrame(functionType.env, env.frames[env.frames.length - 1]),
+        context: {
+          ...context,
+          isEvaluatingExprAsType: true,
+          expectedType: undefined,
+          SelfType: functionValue?.SelfType,
+        },
+      });
+      if (!isTypeValue(evaluatedTypeExpr.value)) {
+        throw this.formatErrorMessage(
+          implicitParameter.typeExpr.token,
+          `Expected type for parameter, got:\n${exprToString(
+            implicitParameter.typeExpr
+          )}`
+        );
+      }
+      const implicitParameterType = evaluatedTypeExpr.value.value;
+
+      // Check in the env if implicit variable of such type exists
+      const implicitVariables = getVariablesFromEnvByFilter(env, (variable) => {
+        return (
+          areTypesCompatible(implicitParameterType, variable.type, env) &&
+          Boolean(variable.isImplicit) &&
+          Boolean(variable.isCompileTimeOnly) ===
+            Boolean(implicitParameter.isCompileTimeOnly)
+        );
+      });
+
+      if (implicitVariables.length === 0) {
+        throw this.formatErrorMessage(
+          functionCallExpr.token,
+          `Implicit parameter is not provided:
+${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implicitParameterType)})` : typeToString(implicitParameterType)}`
+        );
+      }
+
+      if (implicitVariables.length > 1) {
+        throw this.formatErrorMessage(
+          functionCallExpr.token,
+          `Ambiguous implicit parameter:
+${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implicitParameterType)})` : typeToString(implicitParameterType)}
+
+Found:
+${implicitVariables
+  .map((variable) => {
+    return `- ${variable.name} : ${typeToString(variable.type)}`;
+  })
+  .join("\n")}
+`
         );
       }
     }
