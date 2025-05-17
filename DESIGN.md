@@ -141,6 +141,8 @@ Interpret as much as possible. Otherwise, compile!
 Explicit is better than Implicit.  
 Strict is better than Loose.
 
+No subtyping!
+
 QUESTION: Should be allow hidden control flow?
 ANSWER: No
 

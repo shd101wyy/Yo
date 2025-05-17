@@ -1,10 +1,30 @@
-flag :: are_types_compatible(i32, i32);
-flag :: are_types_compatible(i32, i64);
-flag :: are_types_compatible(
-    (x: i32, y: i32)-> i32,
-    (a: i32, y: i32)-> i32
+flag :: are_types_compatible(i32, i32); // true
+flag :: are_types_compatible(i32, i64); // false
+flag :: are_types_compatible(i64, i32); // false
+
+// Functions
+flag :: are_types_compatible( // true
+  (x: i32, y: i32)-> i32,
+  (a: i32, y: i32)-> i32
 );
+flag :: are_types_compatible( // true
+  (forall(@(T): Type), x: T, y: T)-> T,
+  (forall(@(Z): Type), a: Z, b: Z)-> Z
+);
+flag :: are_types_compatible( // false
+  (forall(@(T): Type), x: T, y: T)-> T,
+  (a: i32, b: i32)-> i32
+);
+flag :: are_types_compatible( // false
+  (a: i32, b: i32)-> i32,
+  (forall(@(T): Type), x: T, y: T)-> T
+);
+
+def Point:
+  (@(T): Type)-> @(Type),
+  struct(x: T, y: T)
+;
 flag :: are_types_compatible(
-    (forall(@(T): Type), x: T, y: T)-> T,
-    (forall(@(Z): Type), a: Z, b: Z)-> Z
+  (forall(@(T): Type), x: T, y: T)-> Point(T),
+  (forall(@(Z): Type), a: Z, b: Z)-> Point(Z)
 );

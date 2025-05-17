@@ -3188,7 +3188,12 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
 
     // Evaluate the parameter list
-    const { parameters, env: nextEnv } = this.evaluateFunctionParameters({
+    const {
+      parameters,
+      typeParameters,
+      implicitParameters,
+      env: nextEnv,
+    } = this.evaluateFunctionParameters({
       parameterExprs: argList,
       env,
       context: {
@@ -3272,13 +3277,23 @@ compt(${exprToString(returnTypeExpr)})`
           );
         }
       }
+
+      // Check if all implicitParameters are compile time only
+      for (const parameter of implicitParameters) {
+        if (!parameter.isCompileTimeOnly) {
+          throw this.formatErrorMessage(
+            parameter.labelExpr?.token ?? parameter.typeExpr.token,
+            `Expected all implicit parameters to be compile time only given the return type is compile time only.`
+          );
+        }
+      }
     }
 
     // Create the function type
     const functionType = createFunctionType({
-      parameters: parameters,
-      typeParameters: [], // TODO: Support this
-      implicitParameters: [], // TODO: Support this
+      parameters,
+      typeParameters,
+      implicitParameters,
       return_: {
         type: returnType,
         expr: returnTypeExpr,

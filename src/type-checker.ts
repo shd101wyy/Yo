@@ -1,9 +1,14 @@
-import { Environment, Frame, getVariablesFromEnv } from "./env";
+import {
+  addVariableToEnv,
+  Environment,
+  Frame,
+  getVariablesFromEnv,
+} from "./env";
 import { Expr } from "./expr";
 import { FunctionValue } from "./function-value";
 import { TypeValue } from "./type-value";
 import { randomId } from "./utils";
-import { isTypeValue, Value, valueToString } from "./value";
+import { createUnknownValue, isTypeValue, Value, valueToString } from "./value";
 import { ValueTag } from "./value-tag";
 
 // FIXME: We need to determine the ptr size based on the givenType architecture.
@@ -749,7 +754,6 @@ export function createModuleType(
   };
 }
 
-// FIXME:
 export function getModuleReceiverType(moduleType: ModuleType): Type | null {
   const receiverType = moduleType.members.find(
     (member) => member.label === "This"
@@ -763,76 +767,6 @@ export function getModuleReceiverType(moduleType: ModuleType): Type | null {
   }
   return typeValue.value;
 }
-
-// Example: Array type function - now using regular FunctionType
-/*
-export const ArrayFunction: FunctionType = createFunctionType(
-  [
-    { name: "T", type: TType },
-    { name: "length", type: TUsize },
-  ],
-  TType, // Return type is Type
-  (args: Type[]): Type => {
-    const elementType = args[0];
-    const lengthArg = args[1];
-    let length = 0;
-    if (isLiteral(lengthArg) && lengthArg.type === TUsize) {
-      length = lengthArg.value as number;
-    } else {
-      throw new Error(`Expected length to be a usize value.`);
-    }
-    return createArrayType(elementType, length);
-  }
-);
-*/
-
-// Example: Option type function
-/*
-export const OptionFunction: FunctionType = createFunctionType(
-  { tag: TypeTag.Tuple, elements: [{ label: "T", type: TType }] },
-  TType, // Return type is Type
-  (args: Type[]): UnionType => {
-    const innerType = args[0];
-    const variants: EnumVariant[] = [
-      { tag: TypeTag.Variant, name: "Some", type: innerType },
-      { tag: TypeTag.Variant, name: "None" },
-    ];
-    return {
-      tag: TypeTag.Union,
-      size: undefined,
-      types: variants,
-    };
-  }
-);
-
-
-// Replace applyTypeFunction with a more general function
-export function applyTypeFunction(func: FunctionType, args: Type[]): Type {
-  // Validate arguments
-  if (args.length !== func.params.length) {
-    throw new Error(
-      `Expected ${func.params.length} arguments, got ${args.length}`
-    );
-  }
-
-  // Ensure arg types match expected param types
-  for (let i = 0; i < args.length; i++) {
-    const argType = args[i];
-    if (!areTypesCompatible(argType, func.params[i].type)) {
-      throw new Error(
-        `Argument ${i} is incompatible. Expected ${func.params[i].type.tag}, got ${argType.tag}`
-      );
-    }
-  }
-
-  // If implementation is provided, call it
-  if (func.typeFunctionImplementation) {
-    return func.typeFunctionImplementation(args);
-  }
-
-  throw new Error("Function has no implementation that returns a Type");
-}
-  */
 
 // Helper function to determine the type universe of a list of types
 function determineTypeUniverse(types: Type[]): Type {
@@ -940,23 +874,125 @@ export function getValueOfSomeTypeFromEnv(
   return someTypeValue.value;
 }
 
+/**
+ * Check if two function types are compatible.
+ * @param expectedType The expected function type.
+ * @param givenType The given function type.
+ * @param env
+ * @returns
+ */
+export function areFunctionTypesCompatible(
+  expectedType: FunctionType,
+  givenType: FunctionType,
+  env: Environment
+): boolean {
+  // Check if the type parameters have the same count
+  if (expectedType.parameters.length !== givenType.parameters.length) {
+    return false;
+  }
+
+  // Check if the parameters have the same count
+  if (expectedType.typeParameters.length !== givenType.typeParameters.length) {
+    return false;
+  }
+
+  // Check if the implicit parameters have the same count
+  if (
+    expectedType.implicitParameters.length !==
+    givenType.implicitParameters.length
+  ) {
+    return false;
+  }
+
+  // Check type parameters for compatibility
+  for (let i = 0; i < expectedType.typeParameters.length; i++) {
+    const expectedTypeParam = expectedType.typeParameters[i];
+    const givenTypeParam = givenType.typeParameters[i];
+
+    /**
+     * Check if
+     * Type == Type
+     * Linear == Linear
+     * Free == Free
+     */
+    if (!areTypesCompatible(expectedTypeParam.type, givenTypeParam.type, env)) {
+      return false;
+    }
+    // Create some type value for expectedType and givenType
+    // then add it to the env.
+    const typeValue = createUnknownValue(
+      givenTypeParam.type,
+      `some_type_${randomId()}`
+    );
+    const { env: nextEnv } = addVariableToEnv({
+      env,
+      variable: {
+        name: expectedTypeParam.label!,
+        value: typeValue,
+        type: typeValue.type,
+        isCompileTimeOnly: true,
+        token: expectedTypeParam.typeExpr.token,
+      },
+    });
+    env = nextEnv;
+
+    const { env: nextEnv2 } = addVariableToEnv({
+      env,
+      variable: {
+        name: givenTypeParam.label!,
+        value: typeValue,
+        type: typeValue.type,
+        isCompileTimeOnly: true,
+        token: givenTypeParam.typeExpr.token,
+      },
+    });
+    env = nextEnv2;
+  }
+
+  // Check regular parameters for compatibility
+  for (let i = 0; i < expectedType.parameters.length; i++) {
+    if (
+      !areTypesCompatible(
+        givenType.parameters[i].type,
+        expectedType.parameters[i].type,
+        env
+      )
+    ) {
+      return false;
+    }
+  }
+
+  // Check implicit parameters for compatibility
+  for (let i = 0; i < expectedType.implicitParameters.length; i++) {
+    const expectedImplicitParam = expectedType.implicitParameters[i];
+    const givenImplicitParam = givenType.implicitParameters[i];
+
+    if (
+      expectedImplicitParam.isCompileTimeOnly !==
+        givenImplicitParam.isCompileTimeOnly ||
+      !areTypesCompatible(
+        expectedImplicitParam.type,
+        givenImplicitParam.type,
+        env
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return areTypesCompatible(
+    expectedType.return.type,
+    givenType.return.type,
+    env
+  );
+}
+
 // Update the areTypesCompatible function for StructType
 export function areTypesCompatible(
   expectedType: Type,
   givenType: Type,
   env: Environment
 ): boolean {
-  // Undefined is only compatible with itself
-  /*
-  if (expectedType.tag === TypeTag.Undefined) {
-    return givenType.tag === TypeTag.Undefined;
-  }
-
-  if (givenType.tag === TypeTag.Undefined) {
-    return false; // Nothing is compatible with undefined except undefined itself
-  }
-    */
-
   if (isPrimitiveType(expectedType) && isPrimitiveType(givenType)) {
     return expectedType.tag === givenType.tag;
   }
@@ -1056,26 +1092,7 @@ export function areTypesCompatible(
   // TODO: union
 
   if (isFunctionType(expectedType) && isFunctionType(givenType)) {
-    if (expectedType.parameters.length !== givenType.parameters.length)
-      return false;
-
-    for (let i = 0; i < expectedType.parameters.length; i++) {
-      if (
-        !areTypesCompatible(
-          givenType.parameters[i].type,
-          expectedType.parameters[i].type,
-          env
-        )
-      ) {
-        return false;
-      }
-    }
-
-    return areTypesCompatible(
-      expectedType.return.type,
-      givenType.return.type,
-      env
-    );
+    return areFunctionTypesCompatible(expectedType, givenType, env);
   }
 
   if (isTypeHierarchyType(expectedType) && isTypeHierarchyType(givenType)) {
