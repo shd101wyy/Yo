@@ -1361,20 +1361,23 @@ export function typeToString(type: Type): string {
         func.typeParameters.length > 0
           ? `forall(${func.typeParameters
               .map((param) => `${param.label}: ${typeToString(param.type)}`)
-              .join(", ")}), `
+              .join(", ")})`
           : "";
       const implicitParams =
         func.implicitParameters.length > 0
           ? `implicit(${func.implicitParameters
               .map((param) => `${param.label}: ${typeToString(param.type)}`)
-              .join(", ")}), `
+              .join(", ")})`
           : "";
 
       let returnTypeString = typeToString(func.return.type);
       if (func.return.isCompileTimeOnly) {
         returnTypeString = `compt(${returnTypeString})`;
       }
-      return `(${typeParams}${params}${implicitParams}) -> ${returnTypeString}`;
+      const paramsString = [typeParams, params, implicitParams]
+        .filter((x) => !!x)
+        .join(", ");
+      return `(${paramsString}) -> ${returnTypeString}`;
     }
 
     case TypeTag.Module: {

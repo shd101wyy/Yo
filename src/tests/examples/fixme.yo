@@ -17,14 +17,18 @@ def generic_add:
   add(x, y)
 ;
 
-/*
+
 def implicit(add2):
   (x: i32, y: i32)-> i32,
   x `add` y
 ;
-*/
 
-generic_add(1, 2); // Implicitly uses the `add` function
-// generic_add(true, false);
+generic_add(1, 2, implicit(add2)); // Explicitly uses the `add2` function
+// generic_add(1, 2); // Ambiguous implicit parameter.
 
-// generic_add(1, 2, implicit(add2)); // Explicitly uses the `add2` function
+
+def implicit(some_boolean):
+  (x: boolean, y: boolean)-> boolean,
+  x
+;
+generic_add(true, false);

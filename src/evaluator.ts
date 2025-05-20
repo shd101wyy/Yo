@@ -4549,6 +4549,183 @@ ${exprToString(expr)}`
     );
   }
 
+  private checkIfFunctionParametersMatchArguments({
+    functionValue,
+    functionType,
+    parameter,
+    argExpr,
+    env,
+    context,
+  }: {
+    functionValue?: FunctionValue;
+    functionType: FunctionType;
+    /**
+     * It could be typeParameters, parameters, or implicitParameters
+     */
+    parameter: FunctionParameter;
+    argExpr: Expr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): Environment {
+    // NOTE: We don't support named argument.
+    // But we support to use label for readibility.
+    // eg: add(1, 2) vs add(x: 1, y: 2)
+    let labelExpr: Expr | undefined = undefined;
+    if (exprIsFunctionCall(argExpr) && exprIsFunctionCallOf(argExpr, ":", 2)) {
+      labelExpr = argExpr.args[0];
+      argExpr = argExpr.args[1];
+
+      if (!exprIsAtom(labelExpr)) {
+        throw this.formatErrorMessage(
+          labelExpr.token,
+          `Expected identifier for label, got:\n${exprToString(labelExpr)}`
+        );
+      }
+      const label = labelExpr.token.value;
+
+      if (parameter.label !== label) {
+        throw this.formatErrorMessage(
+          labelExpr.token,
+          `Named argument is not supported. Label is only used for readibility. 
+    Expected ${
+      parameter ? `label "${parameter.label}"` : `no label`
+    } at the argument position, but got "${label}".`
+        );
+      }
+    }
+
+    let parameterType = parameter.type;
+    if (isFunctionType(parameterType)) {
+      // Evaluate the parameter type again.
+      // This is for anonymous function type that contains type parameter
+      // for example:
+      //    (forall(@(T): Type), x: T, callback: ((v: T)-> T))-> T
+      // and we call it:
+      //    generic_fn(1, fn(x)-> add(x, 1));
+      // We can infer `T` is `i32`,
+      // But when we evaluate `callback`, we need to evaluate its type again
+      // before we evluate the arg
+      const evaluatedTypeExpr = this.evaluateExpression({
+        expr: cloneExpr(parameter.typeExpr),
+        env: pushEnvFrame(functionType.env, env.frames[env.frames.length - 1]),
+        context: {
+          ...context,
+          isEvaluatingExprAsType: true,
+          expectedType: undefined,
+          SelfType: functionValue?.SelfType,
+        },
+      });
+      if (!isTypeValue(evaluatedTypeExpr.value)) {
+        throw this.formatErrorMessage(
+          parameter.typeExpr.token,
+          `Expected type for parameter, got:\n${exprToString(
+            parameter.typeExpr
+          )}`
+        );
+      }
+      parameterType = evaluatedTypeExpr.value.value;
+    }
+
+    // Evaluate the argExpr
+    let evaluatedArgExpr: Expr | undefined = undefined;
+    try {
+      evaluatedArgExpr = this.evaluateExpression({
+        expr: argExpr,
+        env,
+        context: {
+          ...context,
+          isEvaluatingExprAsType: false,
+          expectedType: parameterType,
+        },
+      });
+    } catch (error) {
+      logger.debug(error);
+      throw error;
+    }
+    if (!evaluatedArgExpr) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
+      );
+    }
+
+    const argType = evaluatedArgExpr.type;
+    if (!argType) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
+      );
+      // If synthesis fails, the types are not compatible
+    }
+
+    // Cannot assign runtime parameter to compt parameter
+    if (!evaluatedArgExpr.value && parameter.isCompileTimeOnly) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Cannot assign runtime parameter to compile-time parameter:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+
+    // Add the arg to the environment
+    if (parameter.label) {
+      const argValue = evaluatedArgExpr.value;
+      const { env: nextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name: parameter.label,
+          type: argType,
+          isMutable: parameter.isMutable,
+          isCompileTimeOnly: parameter.isCompileTimeOnly,
+          token: argExpr.token,
+          isNotInitialized: false,
+          value: argValue,
+        },
+      });
+      env = nextEnv;
+    }
+
+    // Synthesize the types
+    const nextEnv = this.synthesizeTypes(
+      parameterType,
+      argType,
+      env,
+      parameter.typeExpr.token
+    );
+    env = nextEnv;
+
+    // Evaluate the parameter type again
+    const evaluatedTypeExpr = this.evaluateExpression({
+      expr: cloneExpr(parameter.typeExpr),
+      env: pushEnvFrame(functionType.env, env.frames[env.frames.length - 1]),
+      context: {
+        ...context,
+        isEvaluatingExprAsType: true,
+        expectedType: undefined,
+        SelfType: functionValue?.SelfType,
+      },
+    });
+    if (!isTypeValue(evaluatedTypeExpr.value)) {
+      throw this.formatErrorMessage(
+        parameter.typeExpr.token,
+        `Expected type for parameter, got:\n${exprToString(evaluatedTypeExpr)}`
+      );
+    }
+    parameterType = evaluatedTypeExpr.value.value;
+
+    // Compare the types
+    if (!areTypesCompatible(parameterType, argType, env)) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Type mismatch for parameter "${parameter.label}":
+    Expected: ${typeToString(parameterType)}
+    Got:   ${typeToString(argType)}`
+      );
+    }
+    return env;
+  }
+
   /**
    * NOTE: This function will push new frame to env, but will not pop frame.
    */
@@ -4568,7 +4745,53 @@ ${exprToString(expr)}`
     context: EvaluatorContext;
   }): Environment {
     // NOTE: We disallow to have default values for function parameters
-    if (argExprs.length !== functionType.parameters.length) {
+    let givenArgCount = argExprs.length;
+    let forallArgsExpr: FuncCallExpr | undefined = undefined;
+    let implicitArgsExpr: FuncCallExpr | undefined = undefined;
+
+    // Check if there is `forall(...)` argument zone.
+    // If yes, then it should be the first argument
+    //
+    // Check if there is `implicit(...)` argument zone.
+    // If yes, then it should be the last argument
+    for (let i = 0; i < argExprs.length; i++) {
+      const argExpr = argExprs[i];
+      if (
+        exprIsFunctionCall(argExpr) &&
+        exprIsFunctionCallOf(argExpr, BuiltinKeywords.Forall)
+      ) {
+        if (i !== 0) {
+          throw this.formatErrorMessage(
+            argExpr.token,
+            `Expected forall argument to be the first argument, got:\n${exprToString(
+              argExpr
+            )}`
+          );
+        }
+        givenArgCount = givenArgCount - 1;
+        forallArgsExpr = argExpr;
+        continue;
+      }
+
+      if (
+        exprIsFunctionCall(argExpr) &&
+        exprIsFunctionCallOf(argExpr, BuiltinKeywords.Implicit)
+      ) {
+        if (i !== argExprs.length - 1) {
+          throw this.formatErrorMessage(
+            argExpr.token,
+            `Expected implicit argument to be the last argument, got:\n${exprToString(argExpr)}`
+          );
+        }
+        givenArgCount = givenArgCount - 1;
+        implicitArgsExpr = argExpr;
+        break;
+      }
+    }
+
+    // NOTE: We don't support default values for function parameters
+    // So we need to check if the number of arguments is correct
+    if (givenArgCount !== functionType.parameters.length) {
       throw this.formatErrorMessage(
         functionCallExpr.token,
         `Expected ${functionType.parameters.length} arguments, got ${argExprs.length}.`
@@ -4576,175 +4799,27 @@ ${exprToString(expr)}`
     }
 
     env = pushEnvFrame(env);
+
+    // TODO: Evaluate the forallArgsExpr
+    if (forallArgsExpr) {
+      const forallArgExprs = forallArgsExpr.args;
+      for (let i = 0; i < forallArgExprs.length; i++) {
+        // TODO:
+      }
+    }
+
     // Check if the parameters match the arguments
     for (let i = 0; i < functionType.parameters.length; i++) {
-      const paramElement = functionType.parameters[i];
-      let argExpr = argExprs[i];
-
-      // NOTE: We don't support named argument.
-      // But we support to use label for readibility.
-      // eg: add(1, 2) vs add(x: 1, y: 2)
-      let labelExpr: Expr | undefined = undefined;
-      if (
-        exprIsFunctionCall(argExpr) &&
-        exprIsFunctionCallOf(argExpr, ":", 2)
-      ) {
-        labelExpr = argExpr.args[0];
-        argExpr = argExpr.args[1];
-
-        if (!exprIsAtom(labelExpr)) {
-          throw this.formatErrorMessage(
-            labelExpr.token,
-            `Expected identifier for label, got:\n${exprToString(labelExpr)}`
-          );
-        }
-        const label = labelExpr.token.value;
-
-        if (paramElement.label !== label) {
-          throw this.formatErrorMessage(
-            labelExpr.token,
-            `Named argument is not supported. Label is only used for readibility. 
-Expected ${
-              paramElement ? `label "${paramElement.label}"` : `no label`
-            } at the argument position, but got "${label}".`
-          );
-        }
-      }
-
-      let parameterType = paramElement.type;
-      if (isFunctionType(parameterType)) {
-        // Evaluate the parameter type again.
-        // This is for anonymous function type that contains type parameter
-        // for example:
-        //    (forall(@(T): Type), x: T, callback: ((v: T)-> T))-> T
-        // and we call it:
-        //    generic_fn(1, fn(x)-> add(x, 1));
-        // We can infer `T` is `i32`,
-        // But when we evaluate `callback`, we need to evaluate its type again
-        // before we evluate the arg
-        const evaluatedTypeExpr = this.evaluateExpression({
-          expr: cloneExpr(paramElement.typeExpr),
-          env: pushEnvFrame(
-            functionType.env,
-            env.frames[env.frames.length - 1]
-          ),
-          context: {
-            ...context,
-            isEvaluatingExprAsType: true,
-            expectedType: undefined,
-            SelfType: functionValue?.SelfType,
-          },
-        });
-        if (!isTypeValue(evaluatedTypeExpr.value)) {
-          throw this.formatErrorMessage(
-            paramElement.typeExpr.token,
-            `Expected type for parameter, got:\n${exprToString(
-              paramElement.typeExpr
-            )}`
-          );
-        }
-        parameterType = evaluatedTypeExpr.value.value;
-      }
-
-      // Evaluate the argExpr
-      let evaluatedArgExpr: Expr | undefined = undefined;
-      try {
-        evaluatedArgExpr = this.evaluateExpression({
-          expr: argExpr,
-          env,
-          context: {
-            ...context,
-            isEvaluatingExprAsType: false,
-            expectedType: parameterType,
-          },
-        });
-      } catch (error) {
-        logger.debug(error);
-        throw error;
-      }
-      if (!evaluatedArgExpr) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
-        );
-      }
-
-      const argType = evaluatedArgExpr.type;
-      if (!argType) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
-        );
-        // If synthesis fails, the types are not compatible
-      }
-
-      // Cannot assign runtime parameter to compt parameter
-      if (!evaluatedArgExpr.value && paramElement.isCompileTimeOnly) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Cannot assign runtime parameter to compile-time parameter:\n${exprToString(
-            argExpr
-          )}`
-        );
-      }
-
-      // Add the arg to the environment
-      if (paramElement.label) {
-        const argValue = evaluatedArgExpr.value;
-        const { env: nextEnv } = addVariableToEnv({
-          env,
-          variable: {
-            name: paramElement.label,
-            type: argType,
-            isMutable: paramElement.isMutable,
-            isCompileTimeOnly: paramElement.isCompileTimeOnly,
-            token: argExpr.token,
-            isNotInitialized: false,
-            value: argValue,
-          },
-        });
-        env = nextEnv;
-      }
-
-      // Synthesize the types
-      const nextEnv = this.synthesizeTypes(
-        parameterType,
-        argType,
+      const parameter = functionType.parameters[i];
+      const argExpr = argExprs[i];
+      env = this.checkIfFunctionParametersMatchArguments({
+        functionValue,
+        functionType,
+        parameter,
+        argExpr,
         env,
-        paramElement.typeExpr.token
-      );
-      env = nextEnv;
-
-      // Evaluate the parameter type again
-      const evaluatedTypeExpr = this.evaluateExpression({
-        expr: cloneExpr(paramElement.typeExpr),
-        env: pushEnvFrame(functionType.env, env.frames[env.frames.length - 1]),
-        context: {
-          ...context,
-          isEvaluatingExprAsType: true,
-          expectedType: undefined,
-          SelfType: functionValue?.SelfType,
-        },
+        context,
       });
-      if (!isTypeValue(evaluatedTypeExpr.value)) {
-        throw this.formatErrorMessage(
-          paramElement.typeExpr.token,
-          `Expected type for parameter, got:\n${exprToString(
-            evaluatedTypeExpr
-          )}`
-        );
-      }
-      parameterType = evaluatedTypeExpr.value.value;
-
-      // Compare the types
-      if (!areTypesCompatible(parameterType, argType, env)) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Type mismatch for parameter "${paramElement.label}":
-Expected: ${typeToString(parameterType)}
-Got:   ${typeToString(argType)}`
-        );
-      }
     }
 
     // Check if the implicit parameters are provided
@@ -4772,6 +4847,54 @@ Got:   ${typeToString(argType)}`
       }
       const implicitParameterType = evaluatedTypeExpr.value.value;
 
+      // Check if it's provided in implicitArgsExpr
+      if (implicitArgsExpr) {
+        const implicitArg = implicitArgsExpr.args[i];
+        if (!implicitArg) {
+          throw this.formatErrorMessage(
+            implicitArgsExpr.token,
+            `Expected implicit argument:
+${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implicitParameterType)})` : typeToString(implicitParameterType)}`
+          );
+        }
+
+        if (exprIsAtom(implicitArg) && implicitArg.token.value === "_") {
+          // _ is a special case, it means to use the default value
+          // So we don't need to check the type
+        } else {
+          // Evaluate the implicit argument
+          const evaluatedImplicitArg = this.evaluateExpression({
+            expr: implicitArg,
+            env,
+            context: {
+              ...context,
+              isEvaluatingExprAsType: false,
+              expectedType: implicitParameterType,
+            },
+          });
+          if (evaluatedImplicitArg.env) {
+            env = evaluatedImplicitArg.env;
+          }
+          const argType = evaluatedImplicitArg.type;
+          if (!argType) {
+            throw this.formatErrorMessage(
+              implicitArg.token,
+              `Failed to evaluate implicit argument expression:\n${exprToString(implicitArg)}`
+            );
+          }
+          // Compare the types
+          if (!areTypesCompatible(implicitParameterType, argType, env)) {
+            throw this.formatErrorMessage(
+              implicitArg.token,
+              `Type mismatch for implicit parameter "${implicitParameter.label}":
+Expected: ${typeToString(implicitParameterType)}
+Got:   ${typeToString(argType)}`
+            );
+          }
+          continue; // Found the correct implicit argument
+        }
+      }
+
       // Check in the env if implicit variable of such type exists
       const implicitVariables = getVariablesFromEnvByFilter(env, (variable) => {
         return (
@@ -4785,8 +4908,8 @@ Got:   ${typeToString(argType)}`
       if (implicitVariables.length === 0) {
         throw this.formatErrorMessage(
           functionCallExpr.token,
-          `Implicit parameter is not provided:
-${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implicitParameterType)})` : typeToString(implicitParameterType)}`
+          `Implicit parameter is not provided. Expected:
+${implicitParameter.label ? `implicit(${implicitParameter.label}) :\n  ${typeToString(implicitParameterType)}` : `implicit ${typeToString(implicitParameterType)}`}`
         );
       }
 
