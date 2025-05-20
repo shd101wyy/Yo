@@ -4754,6 +4754,7 @@ ${exprToString(expr)}`
     //
     // Check if there is `implicit(...)` argument zone.
     // If yes, then it should be the last argument
+    const newArgsExpr: Expr[] = [];
     for (let i = 0; i < argExprs.length; i++) {
       const argExpr = argExprs[i];
       if (
@@ -4787,7 +4788,10 @@ ${exprToString(expr)}`
         implicitArgsExpr = argExpr;
         break;
       }
+
+      newArgsExpr.push(argExpr);
     }
+    argExprs = newArgsExpr;
 
     // NOTE: We don't support default values for function parameters
     // So we need to check if the number of arguments is correct
@@ -4798,13 +4802,75 @@ ${exprToString(expr)}`
       );
     }
 
+    // Push new frame to env
     env = pushEnvFrame(env);
 
-    // TODO: Evaluate the forallArgsExpr
+    // Evaluate the forallArgsExpr if exists
     if (forallArgsExpr) {
-      const forallArgExprs = forallArgsExpr.args;
-      for (let i = 0; i < forallArgExprs.length; i++) {
-        // TODO:
+      if (forallArgsExpr.args.length !== functionType.typeParameters.length) {
+        throw this.formatErrorMessage(
+          forallArgsExpr.token,
+          `Expected ${functionType.typeParameters.length} type arguments, got ${forallArgsExpr.args.length}.`
+        );
+      }
+
+      for (let i = 0; i < functionType.typeParameters.length; i++) {
+        const forallArgExpr = forallArgsExpr.args[i];
+        if (exprIsAtom(forallArgExpr) && forallArgExpr.token.value === "_") {
+          // _ is a special case, it means to use the inferred type
+          // So we don't need to check the type
+          continue;
+        }
+
+        const typeParameter = functionType.typeParameters[i];
+
+        // Evaluate forallArgExpr
+        const evaluatedTypeExpr = this.evaluateExpression({
+          expr: forallArgExpr,
+          env,
+          context: {
+            ...context,
+            isEvaluatingExprAsType: true,
+            expectedType: typeParameter.type,
+          },
+        });
+        if (evaluatedTypeExpr.env) {
+          env = evaluatedTypeExpr.env;
+        }
+        const typeValue = evaluatedTypeExpr.value;
+        if (!isTypeValue(typeValue)) {
+          throw this.formatErrorMessage(
+            forallArgExpr.token,
+            `Expected type for parameter, got:\n${exprToString(forallArgExpr)}`
+          );
+        }
+
+        // Compare the types
+        if (!areTypesCompatible(typeParameter.type, typeValue.type, env)) {
+          throw this.formatErrorMessage(
+            forallArgExpr.token,
+            `Type mismatch for type parameter "${typeParameter.label}":
+Expected: ${typeToString(typeParameter.type)}
+Got:   ${typeToString(typeValue.type)}`
+          );
+        }
+
+        // Add the type to the env
+        if (typeParameter.label) {
+          const { env: nextEnv } = addVariableToEnv({
+            env,
+            variable: {
+              name: typeParameter.label,
+              token: forallArgExpr.token,
+              type: typeValue.type,
+              isMutable: false,
+              isCompileTimeOnly: true,
+              isNotInitialized: false, // Set as initialized
+              value: typeValue,
+            },
+          });
+          env = nextEnv;
+        }
       }
     }
 
@@ -4859,7 +4925,7 @@ ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implic
         }
 
         if (exprIsAtom(implicitArg) && implicitArg.token.value === "_") {
-          // _ is a special case, it means to use the default value
+          // _ is a special case, it means to use the inferred value.
           // So we don't need to check the type
         } else {
           // Evaluate the implicit argument
