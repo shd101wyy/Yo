@@ -501,6 +501,7 @@ export interface ModuleMember {
    * The label of the member.
    */
   label: string;
+
   /**
    * The type of the member.
    */
@@ -540,6 +541,11 @@ export interface ModuleMember {
    *    ```
    */
   requiredValue?: Value;
+
+  /**
+   * The expression of the member.
+   */
+  expr: Expr;
 }
 
 // It is just a collection of types
@@ -851,7 +857,8 @@ export function getValueOfSomeTypeFromEnv(
   let someTypeValue: TypeValue | undefined = undefined;
   do {
     const variables = getVariablesFromEnv(env, someType.name, (variable) => {
-      return variable.value?.tag === ValueTag.Type; // isTypeValue
+      return variable.value?.tag === ValueTag.Type;
+      // cannot use "isTypeValue" function here due to circular dependency
     });
     if (!variables.length) {
       // NOTE: This might be SomeType defined from "forall"
@@ -859,6 +866,7 @@ export function getValueOfSomeTypeFromEnv(
       return someType; // Return itself
       // return undefined;
     }
+
     someTypeValue = variables[variables.length - 1].value as TypeValue;
 
     // This if condition is used to prevent the infinite loop

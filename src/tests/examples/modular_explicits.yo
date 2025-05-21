@@ -18,35 +18,31 @@ def id:
   I.id(x)
 ;
 
-IdInt :: Id(i32)
-  id:
-    fn(x)-> x
+IdInt ::
+  Id(i32)
+    id:
+      fn(x)-> x
 ;
 
-/*
 IdBoolean ::
   Id(boolean)
     id:
       fn(x)-> x
 ;
-*/
 
 def IdPoint :
-  ( forall(@(T): Type),
-    @(I): Id(T)
-  )-> @(Id(Point(T))),
-  Id(Point(T))
+  ( forall(@(X): Type),
+    @(I): Id(X)
+  )-> @(Id(Point(X))),
+  Id(Point(X))
     id:
       fn(p) ->
-        Point(T)(I.id(p.x), I.id(p.y))
+        Point(X)(I.id(p.x), I.id(p.y))
   ;
 
-// id(13, IdInt);
-// id(true, IdBoolean);
+id(13, IdInt);
+id(true, IdBoolean);
 point :: Point(i32)(1, 2);
-// idPoint :: IdPoint(IdInt);
-// id(point, idPoint);
+idPoint :: IdPoint(IdInt);
+id(point, idPoint);
 id(point, IdPoint(IdInt));
-
-// T: Point(i32)
-// Id(Point(i32)) with IdPoint(IdInt)

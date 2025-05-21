@@ -655,6 +655,11 @@ ${typeToString(expectedTupleType)}`
     env: Environment,
     token: Token
   ): Environment {
+    console.log(
+      "synthesizing types: ",
+      typeToString(expectedType),
+      typeToString(givenType)
+    );
     if (isSomeType(expectedType)) {
       // Check if the env has
       const type = getValueOfSomeTypeFromEnv(env, expectedType);
@@ -734,6 +739,52 @@ ${typeToString(expectedTupleType)}`
           );
         }
       }
+    } else if (
+      isModuleType(expectedType) &&
+      isModuleType(givenType) &&
+      (expectedType.typeId === givenType.typeId ||
+        (expectedType.functionValue &&
+          givenType.functionValue &&
+          expectedType.functionValue === givenType.functionValue))
+    ) {
+      for (const member of expectedType.members) {
+        const givenMember = givenType.members.find(
+          (m) => m.label === member.label
+        );
+        if (!givenMember) {
+          throw this.formatErrorMessage(
+            token,
+            `Module member "${member.label}" not found in ${typeToString(
+              expectedType
+            )}`
+          );
+        }
+        env = this.synthesizeTypes(
+          member.type,
+          givenMember.type,
+          env,
+          member.expr.token
+        );
+
+        if (
+          isTypeValue(member.requiredValue) &&
+          isTypeValue(givenMember.requiredValue)
+        ) {
+          env = this.synthesizeTypes(
+            member.requiredValue.value,
+            givenMember.requiredValue.value,
+            env,
+            member.expr.token
+          );
+        }
+      }
+    } else {
+      console.log(
+        "Failed to synthesize: ",
+        typeToString(expectedType),
+        typeToString(givenType),
+        areTypesCompatible(expectedType, givenType, env)
+      );
     }
     return env;
   }
@@ -5270,6 +5321,7 @@ Got:   ${typeToString(argType)}`
               isNotInitialized: false,
               value: argValue,
             },
+            skipCheckingFunctionOverloading: true,
           });
           env = nextEnv;
 
@@ -5834,6 +5886,7 @@ Expected: ${typeToString(functionType)}`
             type: element.type,
             requiredValue: undefined,
             defaultValue: undefined,
+            expr: element.expr,
           };
           // Check if the module member already exists
           // If so, override it
@@ -6111,6 +6164,7 @@ If you want to define the receiver type, please use "This" instead.`
           defaultValue: valueKind === "default" ? value : undefined,
           requiredValue: valueKind === "required" ? value : undefined,
           // typeExpr: evaluatedMemberTypeExpr,
+          expr: memberExpr,
         });
 
         // Add the label to the env
@@ -6142,6 +6196,7 @@ If you want to define the receiver type, please use "This" instead.`
           defaultValue: undefined,
           requiredValue: undefined,
           // typeExpr: evaluatedMemberTypeExpr,
+          expr: memberExpr,
         });
 
         // Add the label to the env
