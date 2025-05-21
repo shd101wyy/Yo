@@ -1,3 +1,8 @@
+def Box:
+  (@(B): Type)-> @(Type),
+  struct(value: B)
+;
+
 def Point:
   (@(T): Type)-> @(Type),
   struct
@@ -30,6 +35,18 @@ IdBoolean ::
       fn(x)-> x
 ;
 
+def IdBox :
+  ( forall(@(X): Type),
+    @(I): Id(X)
+  )-> @(Id(Box(X))), {
+  flag :: are_types_compatible(Box(X), Box(X));
+  Id(Box(X))
+    id:
+      fn(p) ->
+        Box(X)(I.id(p.value))
+  }
+  ;
+
 def IdPoint :
   ( forall(@(X): Type),
     @(I): Id(X)
@@ -42,6 +59,13 @@ def IdPoint :
 
 id(13, IdInt);
 id(true, IdBoolean);
+
+box :: Box(i32)(1);
+idBox :: IdBox(IdInt);
+id(box, idBox);
+id(box, IdBox(IdInt));
+
+
 point :: Point(i32)(1, 2);
 idPoint :: IdPoint(IdInt);
 id(point, idPoint);

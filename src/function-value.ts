@@ -1,3 +1,4 @@
+import { Environment } from "./env";
 import { Expr } from "./expr";
 import { FunctionType, Type } from "./type-checker";
 import { TypeValue } from "./type-value";
@@ -7,6 +8,7 @@ import { ValueTag } from "./value-tag";
 export interface CalledTypeFunctionCache {
   funcId: string;
   argValues: Value[];
+  env: Environment;
   typeValue: TypeValue;
 }
 

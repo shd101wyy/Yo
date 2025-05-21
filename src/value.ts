@@ -285,10 +285,18 @@ export function createModuleValue(
 }
 
 export function areValuesEqual(
-  value1: Value | undefined,
-  value2: Value | undefined,
-  env: Environment
+  expected: {
+    value: Value | undefined;
+    env: Environment;
+  },
+  given: {
+    value: Value | undefined;
+    env: Environment;
+  }
 ): boolean {
+  const value1 = expected.value;
+  const value2 = given.value;
+
   if (value1 === value2) {
     return true;
   }
@@ -303,8 +311,8 @@ export function areValuesEqual(
 
   if (value1.tag === ValueTag.Type) {
     return areTypesCompatible(
-      { type: value1.value, env },
-      { type: (value2 as TypeValue).value, env }
+      { type: value1.value, env: expected.env },
+      { type: (value2 as TypeValue).value, env: given.env }
     );
   } else if (
     value1.tag === ValueTag.U8 ||
@@ -330,7 +338,10 @@ export function areValuesEqual(
     }
     for (let i = 0; i < value1.value.length; i++) {
       if (
-        !areValuesEqual(value1.value[i], (value2 as ArrayValue).value[i], env)
+        !areValuesEqual(
+          { value: value1.value[i], env: expected.env },
+          { value: (value2 as ArrayValue).value[i], env: given.env }
+        )
       ) {
         return false;
       }
@@ -343,9 +354,8 @@ export function areValuesEqual(
     for (let i = 0; i < value1.elements.length; i++) {
       if (
         !areValuesEqual(
-          value1.elements[i],
-          (value2 as TupleValue).elements[i],
-          env
+          { value: value1.elements[i], env: expected.env },
+          { value: (value2 as TupleValue).elements[i], env: given.env }
         )
       ) {
         return false;
@@ -356,8 +366,8 @@ export function areValuesEqual(
     if (
       value1.elements.length !== (value2 as StructValue).elements.length ||
       !areTypesCompatible(
-        { type: value1.type, env },
-        { type: value2.type, env }
+        { type: value1.type, env: expected.env },
+        { type: value2.type, env: given.env }
       )
     ) {
       return false;
@@ -365,9 +375,8 @@ export function areValuesEqual(
     for (let i = 0; i < value1.elements.length; i++) {
       if (
         !areValuesEqual(
-          value1.elements[i],
-          (value2 as StructValue).elements[i],
-          env
+          { value: value1.elements[i], env: expected.env },
+          { value: (value2 as StructValue).elements[i], env: given.env }
         )
       ) {
         return false;
@@ -378,8 +387,8 @@ export function areValuesEqual(
     if (
       value1.elements.length !== (value2 as EnumValue).elements.length ||
       !areTypesCompatible(
-        { type: value1.type, env },
-        { type: value2.type, env }
+        { type: value1.type, env: expected.env },
+        { type: value2.type, env: given.env }
       ) ||
       value1.variantName !== (value2 as EnumValue).variantName
     ) {
@@ -388,9 +397,8 @@ export function areValuesEqual(
     for (let i = 0; i < value1.elements.length; i++) {
       if (
         !areValuesEqual(
-          value1.elements[i],
-          (value2 as StructValue).elements[i],
-          env
+          { value: value1.elements[i], env: expected.env },
+          { value: (value2 as StructValue).elements[i], env: given.env }
         )
       ) {
         return false;
@@ -405,8 +413,8 @@ export function areValuesEqual(
     if (
       keys1.length !== keys2.length ||
       !areTypesCompatible(
-        { type: value1.type, env },
-        { type: value2.type, env }
+        { type: value1.type, env: expected.env },
+        { type: value2.type, env: given.env }
       )
     ) {
       return false;
@@ -415,7 +423,12 @@ export function areValuesEqual(
       if (!members2[key]) {
         return false;
       }
-      if (!areValuesEqual(members1[key], members2[key], env)) {
+      if (
+        !areValuesEqual(
+          { value: members1[key], env: expected.env },
+          { value: members2[key], env: given.env }
+        )
+      ) {
         return false;
       }
     }

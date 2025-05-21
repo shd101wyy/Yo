@@ -1007,8 +1007,6 @@ export function areFunctionTypesCompatible(
     }
   }
 
-  console.log("Enter here");
-
   return areTypesCompatible(
     { type: expected.type.return.type, env: expected.env },
     { type: given.type.return.type, env: given.env }

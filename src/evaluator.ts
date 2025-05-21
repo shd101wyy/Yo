@@ -1607,6 +1607,11 @@ Please consider to write it as:
     return { expr, variableExpr: lhs, variableName };
   }
 
+  /**
+   * Evaluate the initialization assignment
+   * - ::
+   * - :=
+   */
   private evaluateInitializationAssignment({
     expr,
     env,
@@ -1627,9 +1632,26 @@ Please consider to write it as:
     }
     const isCompileTimeOnly = exprIsFunctionCallOf(expr, "::");
     let isMutable = false;
+    let isImplicit = false;
 
     let lhs = expr.args[0];
     let rhs = expr.args[1];
+
+    // Check if the variale is implicit
+    if (
+      exprIsFunctionCall(lhs) &&
+      exprIsFunctionCallOf(lhs, BuiltinKeywords.Implicit)
+    ) {
+      isImplicit = true;
+      // Check if the lhs is a variable
+      if (lhs.args.length !== 1) {
+        throw this.formatErrorMessage(
+          lhs.token,
+          `Expected one argument for implicit, got ${lhs.args.length}`
+        );
+      }
+      lhs = lhs.args[0];
+    }
 
     // Check if the variable is mutable
     if (
@@ -1788,6 +1810,7 @@ ${exprToString(rhs)}`
           isMutable,
           isCompileTimeOnly,
           isNotInitialized: false,
+          isImplicit,
           value: lhs.value,
         },
       });
@@ -3851,183 +3874,6 @@ compt(${exprToString(returnTypeExpr)})`
     return expr;
   }
 
-  /**
-   * Evaluate expression such as:
-   *
-   * def id_func:
-   *   forall(compt(T): Type) .
-   *     (x: T)-> T,
-   * {
-   *   return x;
-   * }
-   *
-   */
-  /*
-  private evaluateForall({
-    expr,
-    env,
-    context,
-  }: {
-    expr: FuncCallExpr;
-    env: Environment;
-    context: EvaluatorContext;
-  }): FuncCallExpr {
-    const forallExpr = expr.args[0];
-    const typeExpr = expr.args[1];
-
-    if (!typeExpr) {
-      throw this.formatErrorMessage(
-        forallExpr.token,
-        `Expected type expression for "forall", got:\n${exprToString(
-          forallExpr
-        )}`
-      );
-    }
-    if (
-      !exprIsFunctionCall(forallExpr) ||
-      !exprIsFunctionCallOf(forallExpr, BuiltinKeywords.Forall)
-    ) {
-      throw this.formatErrorMessage(
-        forallExpr.token,
-        `Expected "forall", got:\n${exprToString(forallExpr)}`
-      );
-    }
-
-    // Add new frame to hold the type variables.
-    env = pushEnvFrame(env);
-
-    // Evaluate type variables:
-    const forallArgExprs = forallExpr.args;
-    for (let i = 0; i < forallArgExprs.length; i++) {
-      const colonExpr = forallArgExprs[i];
-      if (
-        !exprIsFunctionCall(colonExpr) ||
-        !exprIsFunctionCallOf(colonExpr, ":", 2)
-      ) {
-        throw this.formatErrorMessage(
-          colonExpr.token,
-          `Expected ":" to define type variable, got:\n${exprToString(
-            colonExpr
-          )}`
-        );
-      }
-
-      const comptExpr = colonExpr.args[0];
-      const typeExpr = colonExpr.args[1];
-      if (
-        !exprIsFunctionCall(comptExpr) ||
-        !exprIsFunctionCallOf(comptExpr, BuiltinKeywords.Compt)
-      ) {
-        throw this.formatErrorMessage(
-          comptExpr.token,
-          `Expected "compt" (or "@") for type variable, got:\n${exprToString(
-            comptExpr
-          )}`
-        );
-      }
-
-      const labelExpr = comptExpr.args[0];
-      if (!exprIsAtom(labelExpr) || !this.isValidVariableName(labelExpr)) {
-        throw this.formatErrorMessage(
-          labelExpr.token,
-          `Expected identifier for type variable, got:\n${exprToString(
-            labelExpr
-          )}`
-        );
-      }
-      const label = labelExpr.token.value;
-      const evaluatedTypeExpr = this.evaluateExpression({
-        expr: typeExpr,
-        env,
-        context: {
-          ...context,
-          isEvaluatingExprAsType: true,
-        },
-      });
-      if (evaluatedTypeExpr.env) {
-        env = evaluatedTypeExpr.env;
-      }
-      const typeValue = evaluatedTypeExpr.value;
-      if (!isTypeValue(typeValue)) {
-        throw this.formatErrorMessage(
-          typeExpr.token,
-          `Expected type for "any" expression, got:\n${exprToString(typeExpr)}`
-        );
-      }
-      const type = typeValue.value;
-      if (!isTypeHierarchyType(type) || type.level !== 0) {
-        throw this.formatErrorMessage(
-          typeExpr.token,
-          `Expected "Type" (or "Free" or "Linear"), got:\n${exprToString(
-            typeExpr
-          )}`
-        );
-      }
-
-      const value = createUnknownValue(type, label);
-
-      // Add value to env
-      const { env: nextEnv } = addVariableToEnv({
-        env,
-        variable: {
-          name: label,
-          token: labelExpr.token,
-          type,
-          isMutable: false,
-          isCompileTimeOnly: true,
-          isNotInitialized: false, // Set as initialized
-          value,
-        },
-      });
-      env = nextEnv;
-
-      // Attach necessary information
-      labelExpr.value = value;
-      labelExpr.type = value.type;
-      labelExpr.env = env;
-    }
-
-    // Evaluate the type expression
-    const evaluatedTypeExpr = this.evaluateExpression({
-      expr: typeExpr,
-      env,
-      context: {
-        ...context,
-        isEvaluatingExprAsType: true,
-      },
-    });
-
-    if (evaluatedTypeExpr.env) {
-      env = evaluatedTypeExpr.env;
-    }
-    const value = evaluatedTypeExpr.value;
-
-    // `forall` can only work with FunctionType or ModuleType.
-    // Supporting other types means to support Rank N Types.
-    if (
-      !isTypeValue(value) ||
-      !(isFunctionType(value.value) || isModuleType(value.value))
-    ) {
-      throw this.formatErrorMessage(
-        typeExpr.token,
-        `Expected either function or interface type for "forall" expression, got:\n${exprToString(
-          typeExpr
-        )}`
-      );
-    }
-
-    // Pop the env frame
-    env = popEnvFrame(env);
-
-    // Attach necessary informations
-    expr.value = value;
-    expr.type = value.type;
-    expr.env = env;
-
-    return expr;
-  }
-  */
-
   private createAnonymousStruct({
     expr,
     env,
@@ -4723,6 +4569,9 @@ ${exprToString(expr)}`
           expectedType: parameterType,
         },
       });
+      if (evaluatedArgExpr.env) {
+        env = evaluatedArgExpr.env;
+      }
     } catch (error) {
       logger.debug(error);
       throw error;
@@ -5460,7 +5309,7 @@ Got:   ${typeToString(argType)}`
     env: Environment;
     context: EvaluatorContext;
   }): { value: TypeValue; env: Environment } {
-    // This will push a new frame to the env and
+    // This will push a new frame to the function env and
     // add the parameters to the env
     const { functionEnv } = this.tryToCallFunctionWithArguments({
       functionValue,
@@ -5478,18 +5327,10 @@ Got:   ${typeToString(argType)}`
       if (!argValue || isUnknownValue(argValue)) {
         throw this.formatErrorMessage(
           argExprs[i].token,
-          `Argument is not evaluated correctly`
+          `Argument for type function is not evaluated correctly`
         );
       }
       argValues.push(argValue);
-    }
-
-    // For type function, argValues cannot be undefined
-    if (!argValues) {
-      throw this.formatErrorMessage(
-        functionCallExpr.token,
-        `Type function call is not evaluated correctly`
-      );
     }
 
     // Check if it's in calledTypeFunctions
@@ -5519,13 +5360,15 @@ Got:   ${typeToString(argType)}`
               }
             }
 
-            return areValuesEqual(argValue, givenArgValue, env);
+            return areValuesEqual(
+              { value: argValue, env: cache.env },
+              { value: givenArgValue, env }
+            );
           })
         ); // Check if the values are equal
       });
       if (calledTypeFunction) {
         // Find the cache
-        // env = popEnvFrame(env);
         return {
           env,
           value: calledTypeFunction.typeValue,
@@ -5573,14 +5416,12 @@ Got:   ${typeToString(argType)}`
       }
     }
 
-    // Restore the environment frames
-    env = popEnvFrame(env);
-
     // Cache the function call
     const caches = (calledTypeFunctions ?? []).concat({
       funcId,
       argValues,
       typeValue: returnValue,
+      env: evaluatedFunctionBody.env,
     });
     functionValue.calledTypeFunctionCaches = caches;
 
@@ -5632,9 +5473,6 @@ Got:   ${typeToString(argType)}`
       );
     }
     const returnType = functionReturnTypeValue.value;
-
-    // Restore the environment frames
-    env = popEnvFrame(env);
 
     return {
       returnType: returnType,

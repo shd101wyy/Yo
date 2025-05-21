@@ -1,17 +1,48 @@
-def Point:
-  (@(T): Type)-> @(Type),
-  struct(x: T, y: T)
-;
-flag :: are_types_compatible( // true
-  (forall(@(T): Type), x: T, y: T)-> Point(T),
-  (forall(@(Z): Type), a: Z, b: Z)-> Point(Z)
-);
-
 def Box:
-  (@(T): Type)-> @(Type),
-  struct(T)
+  (@(B): Type)-> @(Type),
+  struct(value: B)
 ;
-flag :: are_types_compatible( // true
-  (forall(@(T): Type), x: T)-> Box(T),
-  (forall(@(Z): Type), a: Z)-> Box(Z)
-);
+
+def Id:
+  (@(This): Type)-> @(Type),
+  module
+    (This: Type) == This,
+    id:
+      (This)-> This
+;
+
+def id:
+  (forall(@(T): Type), x: T, @(I): Id(T))-> T,
+  I.id(x)
+;
+
+IdInt ::
+  Id(i32)
+    id:
+      fn(x)-> x
+;
+
+IdBoolean ::
+  Id(boolean)
+    id:
+      fn(x)-> x
+;
+
+def IdBox :
+  ( forall(@(X): Type),
+    @(I): Id(X)
+  )-> @(Id(Box(X))), {
+  flag :: are_types_compatible(Box(X), Box(X));
+  Id(Box(X))
+    id:
+      fn(p) ->
+        Box(X)(I.id(p.value))
+  }
+  ;
+
+// id(13, IdInt);
+// id(true, IdBoolean);
+box :: Box(i32)(1);
+idBox :: IdBox(IdInt);
+// id(box, idBox);
+// id(box, IdBox(IdInt));
