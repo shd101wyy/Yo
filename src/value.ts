@@ -302,7 +302,10 @@ export function areValuesEqual(
   }
 
   if (value1.tag === ValueTag.Type) {
-    return areTypesCompatible(value1.value, (value2 as TypeValue).value, env);
+    return areTypesCompatible(
+      { type: value1.value, env },
+      { type: (value2 as TypeValue).value, env }
+    );
   } else if (
     value1.tag === ValueTag.U8 ||
     value1.tag === ValueTag.I8 ||
@@ -352,7 +355,10 @@ export function areValuesEqual(
   } else if (value1.tag === ValueTag.Struct) {
     if (
       value1.elements.length !== (value2 as StructValue).elements.length ||
-      !areTypesCompatible(value1.type, value2.type, env)
+      !areTypesCompatible(
+        { type: value1.type, env },
+        { type: value2.type, env }
+      )
     ) {
       return false;
     }
@@ -371,7 +377,10 @@ export function areValuesEqual(
   } else if (value1.tag === ValueTag.Enum) {
     if (
       value1.elements.length !== (value2 as EnumValue).elements.length ||
-      !areTypesCompatible(value1.type, value2.type, env) ||
+      !areTypesCompatible(
+        { type: value1.type, env },
+        { type: value2.type, env }
+      ) ||
       value1.variantName !== (value2 as EnumValue).variantName
     ) {
       return false;
@@ -395,7 +404,10 @@ export function areValuesEqual(
     const keys2 = Object.keys(members2);
     if (
       keys1.length !== keys2.length ||
-      !areTypesCompatible(value1.type, value2.type, env)
+      !areTypesCompatible(
+        { type: value1.type, env },
+        { type: value2.type, env }
+      )
     ) {
       return false;
     }

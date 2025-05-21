@@ -543,12 +543,18 @@ export function getMethodsByNameFromEnv(
 
     const method = moduleType.members.find(
       (member) =>
-        areTypesCompatible(moduleReceiverType, receiverType, env) &&
+        areTypesCompatible(
+          { type: moduleReceiverType, env },
+          { type: receiverType, env }
+        ) &&
         member.label === methodName &&
         isFunctionType(member.type) &&
         member.type.parameters.length > 0 &&
         // TODO: support autocast to reference/immutable reference.
-        areTypesCompatible(member.type.parameters[0].type, receiverType, env)
+        areTypesCompatible(
+          { type: member.type.parameters[0].type, env },
+          { type: receiverType, env }
+        )
     );
     if (method) {
       let value: Value | undefined = undefined;

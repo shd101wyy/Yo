@@ -409,7 +409,10 @@ ${typeToString(expectedType)}`
     // Check if defaultValue matches the type
     if (
       defaultValue &&
-      !areTypesCompatible(elementType, defaultValue.type, env)
+      !areTypesCompatible(
+        { type: elementType, env },
+        { type: defaultValue.type, env }
+      )
     ) {
       throw this.formatErrorMessage(
         rhsExpr.token,
@@ -650,26 +653,26 @@ ${typeToString(expectedTupleType)}`
    * compt(T): Type, i32  => T = i32
    */
   private synthesizeTypes(
-    expectedType: Type,
-    givenType: Type,
-    env: Environment,
+    expected: {
+      type: Type;
+      env: Environment;
+    },
+    given: {
+      type: Type;
+      env: Environment;
+    },
     token: Token
-  ): Environment {
-    console.log(
-      "synthesizing types: ",
-      typeToString(expectedType),
-      typeToString(givenType)
-    );
-    if (isSomeType(expectedType)) {
+  ): { expectedEnv: Environment; givenEnv: Environment } {
+    if (isSomeType(expected.type)) {
       // Check if the env has
-      const type = getValueOfSomeTypeFromEnv(env, expectedType);
-      if (!type || type === expectedType) {
+      const type = getValueOfSomeTypeFromEnv(expected.env, expected.type);
+      if (!type || type === expected.type) {
         // Update the env to set givenType to expectedType.name
-        const value = createTypeValue(givenType);
+        const value = createTypeValue(given.type);
         const { env: nextEnv } = addVariableToEnv({
-          env,
+          env: expected.env,
           variable: {
-            name: expectedType.name,
+            name: expected.type.name,
             value: value,
             type: value.type,
             token: token, // FIXME: What should be `token` here?
@@ -678,115 +681,122 @@ ${typeToString(expectedTupleType)}`
             isNotInitialized: false,
           },
         });
-        env = nextEnv;
+        expected.env = nextEnv;
       }
     } else if (
-      isTupleType(expectedType) &&
-      isTupleType(givenType) &&
-      expectedType.elements.length === givenType.elements.length
+      isTupleType(expected.type) &&
+      isTupleType(given.type) &&
+      expected.type.elements.length === given.type.elements.length
     ) {
-      for (let i = 0; i < expectedType.elements.length; i++) {
-        env = this.synthesizeTypes(
-          expectedType.elements[i].type,
-          givenType.elements[i].type,
-          env,
-          expectedType.elements[i].expr.token
+      for (let i = 0; i < expected.type.elements.length; i++) {
+        const { expectedEnv, givenEnv } = this.synthesizeTypes(
+          { type: expected.type.elements[i].type, env: expected.env },
+          { type: given.type.elements[i].type, env: given.env },
+          expected.type.elements[i].expr.token
         );
+        expected.env = expectedEnv;
+        given.env = givenEnv;
       }
     } else if (
-      isStructType(expectedType) &&
-      isStructType(givenType) &&
-      (expectedType.typeId === givenType.typeId ||
-        (expectedType.functionValue &&
-          givenType.functionValue &&
-          expectedType.functionValue === givenType.functionValue))
+      isStructType(expected.type) &&
+      isStructType(given.type) &&
+      (expected.type.typeId === given.type.typeId ||
+        (expected.type.functionValue &&
+          given.type.functionValue &&
+          expected.type.functionValue === given.type.functionValue))
       // NOTE: The typeId might not match
       // They might be different structs that both are returned from the same function.
     ) {
-      for (let i = 0; i < expectedType.elements.length; i++) {
-        const expectedElement = expectedType.elements[i];
-        const givenElement = givenType.elements[i];
-        env = this.synthesizeTypes(
-          expectedElement.type,
-          givenElement.type,
-          env,
+      for (let i = 0; i < expected.type.elements.length; i++) {
+        const expectedElement = expected.type.elements[i];
+        const givenElement = given.type.elements[i];
+        const { expectedEnv, givenEnv } = this.synthesizeTypes(
+          { type: expectedElement.type, env: expected.env },
+          { type: givenElement.type, env: given.env },
           expectedElement.expr.token
         );
+        expected.env = expectedEnv;
+        given.env = givenEnv;
       }
     } else if (
-      isEnumType(expectedType) &&
-      isEnumType(givenType) &&
-      (expectedType.typeId === givenType.typeId ||
-        (expectedType.functionValue &&
-          givenType.functionValue &&
-          expectedType.functionValue === givenType.functionValue))
+      isEnumType(expected.type) &&
+      isEnumType(given.type) &&
+      (expected.type.typeId === given.type.typeId ||
+        (expected.type.functionValue &&
+          given.type.functionValue &&
+          expected.type.functionValue === given.type.functionValue))
       // NOTE: The typeId might not match
       // They might be different structs that both are returned from the same function.
     ) {
-      for (let i = 0; i < expectedType.variants.length; i++) {
-        const expectedTypeVariant = expectedType.variants[i];
-        const givenTypeVariant = givenType.variants[i];
+      for (let i = 0; i < expected.type.variants.length; i++) {
+        const expectedTypeVariant = expected.type.variants[i];
+        const givenTypeVariant = given.type.variants[i];
 
         const expectedTypeVariantElements = expectedTypeVariant.elements ?? [];
         const givenTypeVariantElements = givenTypeVariant.elements ?? [];
 
         for (let j = 0; j < expectedTypeVariantElements.length; j++) {
-          env = this.synthesizeTypes(
-            expectedTypeVariantElements[j].type,
-            givenTypeVariantElements[j].type,
-            env,
+          const { expectedEnv, givenEnv } = this.synthesizeTypes(
+            { type: expectedTypeVariantElements[j].type, env: expected.env },
+            { type: givenTypeVariantElements[j].type, env: given.env },
             expectedTypeVariantElements[j].expr.token
           );
+          expected.env = expectedEnv;
+          given.env = givenEnv;
         }
       }
     } else if (
-      isModuleType(expectedType) &&
-      isModuleType(givenType) &&
-      (expectedType.typeId === givenType.typeId ||
-        (expectedType.functionValue &&
-          givenType.functionValue &&
-          expectedType.functionValue === givenType.functionValue))
+      isModuleType(expected.type) &&
+      isModuleType(given.type) &&
+      (expected.type.typeId === given.type.typeId ||
+        (expected.type.functionValue &&
+          given.type.functionValue &&
+          expected.type.functionValue === given.type.functionValue))
     ) {
-      for (const member of expectedType.members) {
-        const givenMember = givenType.members.find(
+      for (const member of expected.type.members) {
+        const givenMember = given.type.members.find(
           (m) => m.label === member.label
         );
         if (!givenMember) {
           throw this.formatErrorMessage(
             token,
             `Module member "${member.label}" not found in ${typeToString(
-              expectedType
+              expected.type
             )}`
           );
         }
-        env = this.synthesizeTypes(
-          member.type,
-          givenMember.type,
-          env,
+        const { expectedEnv, givenEnv } = this.synthesizeTypes(
+          { type: member.type, env: expected.env },
+          { type: givenMember.type, env: given.env },
           member.expr.token
         );
+        expected.env = expectedEnv;
+        given.env = givenEnv;
 
         if (
           isTypeValue(member.requiredValue) &&
           isTypeValue(givenMember.requiredValue)
         ) {
-          env = this.synthesizeTypes(
-            member.requiredValue.value,
-            givenMember.requiredValue.value,
-            env,
+          const { expectedEnv, givenEnv } = this.synthesizeTypes(
+            { type: member.requiredValue.value, env: expected.env },
+            { type: givenMember.requiredValue.value, env: given.env },
             member.expr.token
           );
+          expected.env = expectedEnv;
+          given.env = givenEnv;
         }
       }
     } else {
+      /*
       console.log(
         "Failed to synthesize: ",
-        typeToString(expectedType),
+        typeToString(expected.type),
         typeToString(givenType),
-        areTypesCompatible(expectedType, givenType, env)
+        areTypesCompatible(expected.type, given.type, env)
       );
+      */
     }
-    return env;
+    return { expectedEnv: expected.env, givenEnv: given.env };
   }
 
   /**
@@ -1732,7 +1742,9 @@ ${exprToString(expr)}`
         }
 
         // Check if the type is compatible
-        if (!areTypesCompatible(lhs.type, rhsType, env)) {
+        if (
+          !areTypesCompatible({ type: lhs.type, env }, { type: rhsType, env })
+        ) {
           throw this.formatErrorMessage(
             lhs.token,
             `Incompatible types:
@@ -1913,7 +1925,12 @@ ${exprToString(rhs)}`
       }
 
       // Check if the type matches
-      if (!areTypesCompatible(variable.type, rhsType, env)) {
+      if (
+        !areTypesCompatible(
+          { type: variable.type, env },
+          { type: rhsType, env }
+        )
+      ) {
         throw this.formatErrorMessage(
           lhs.token,
           `Incompatible types:
@@ -2149,7 +2166,12 @@ ${exprToString(expr)}`
         valueType = evaluatedValue.type;
       } else {
         // Check if the type is compatible
-        if (!areTypesCompatible(valueType, evaluatedValue.type, env)) {
+        if (
+          !areTypesCompatible(
+            { type: valueType, env },
+            { type: evaluatedValue.type, env }
+          )
+        ) {
           throw this.formatErrorMessage(
             valueExpr.token,
             `Incompatible types:
@@ -2299,7 +2321,12 @@ ${exprToString(expr)}`
         // Set or verify the result type consistency
         if (!resultType) {
           resultType = evaluatedResult.type;
-        } else if (!areTypesCompatible(resultType, evaluatedResult.type, env)) {
+        } else if (
+          !areTypesCompatible(
+            { type: resultType, env },
+            { type: evaluatedResult.type, env }
+          )
+        ) {
           throw this.formatErrorMessage(
             resultExpr.token,
             `Incompatible types in match arms:
@@ -2413,7 +2440,12 @@ ${exprToString(expr)}`
         // Set or verify the result type consistency
         if (!resultType) {
           resultType = evaluatedResult.type;
-        } else if (!areTypesCompatible(resultType, evaluatedResult.type, env)) {
+        } else if (
+          !areTypesCompatible(
+            { type: resultType, env },
+            { type: evaluatedResult.type, env }
+          )
+        ) {
           throw this.formatErrorMessage(
             resultExpr.token,
             `Incompatible types in match arms:
@@ -2775,9 +2807,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     if (
       evaluatedBodyReturnType &&
       !areTypesCompatible(
-        functionType.return.type,
-        evaluatedBodyReturnType,
-        env
+        { type: functionType.return.type, env },
+        { type: evaluatedBodyReturnType, env }
       )
     ) {
       throw this.formatErrorMessage(
@@ -4600,24 +4631,24 @@ ${exprToString(expr)}`
     );
   }
 
-  private checkIfFunctionParametersMatchArguments({
+  private checkIfFunctionParameterMatchesArgument({
     functionValue,
-    functionType,
     parameter,
     argExpr,
+    functionEnv,
     env,
     context,
   }: {
     functionValue?: FunctionValue;
-    functionType: FunctionType;
     /**
      * It could be typeParameters, parameters, or implicitParameters
      */
     parameter: FunctionParameter;
     argExpr: Expr;
+    functionEnv: Environment;
     env: Environment;
     context: EvaluatorContext;
-  }): Environment {
+  }): { functionEnv: Environment } {
     // NOTE: We don't support named argument.
     // But we support to use label for readibility.
     // eg: add(1, 2) vs add(x: 1, y: 2)
@@ -4658,7 +4689,7 @@ ${exprToString(expr)}`
       // before we evluate the arg
       const evaluatedTypeExpr = this.evaluateExpression({
         expr: cloneExpr(parameter.typeExpr),
-        env: pushEnvFrame(functionType.env, env.frames[env.frames.length - 1]),
+        env: functionEnv,
         context: {
           ...context,
           isEvaluatingExprAsType: true,
@@ -4673,6 +4704,9 @@ ${exprToString(expr)}`
             parameter.typeExpr
           )}`
         );
+      }
+      if (evaluatedTypeExpr.env) {
+        functionEnv = evaluatedTypeExpr.env;
       }
       parameterType = evaluatedTypeExpr.value.value;
     }
@@ -4723,7 +4757,7 @@ ${exprToString(expr)}`
     if (parameter.label) {
       const argValue = evaluatedArgExpr.value;
       const { env: nextEnv } = addVariableToEnv({
-        env,
+        env: functionEnv,
         variable: {
           name: parameter.label,
           type: argType,
@@ -4734,22 +4768,22 @@ ${exprToString(expr)}`
           value: argValue,
         },
       });
-      env = nextEnv;
+      functionEnv = nextEnv;
     }
 
     // Synthesize the types
-    const nextEnv = this.synthesizeTypes(
-      parameterType,
-      argType,
-      env,
+    const { expectedEnv, givenEnv } = this.synthesizeTypes(
+      { type: parameterType, env: functionEnv },
+      { type: argType, env: env },
       parameter.typeExpr.token
     );
-    env = nextEnv;
+    functionEnv = expectedEnv;
+    env = givenEnv;
 
     // Evaluate the parameter type again
     const evaluatedTypeExpr = this.evaluateExpression({
       expr: cloneExpr(parameter.typeExpr),
-      env: pushEnvFrame(functionType.env, env.frames[env.frames.length - 1]),
+      env: functionEnv,
       context: {
         ...context,
         isEvaluatingExprAsType: true,
@@ -4766,7 +4800,12 @@ ${exprToString(expr)}`
     parameterType = evaluatedTypeExpr.value.value;
 
     // Compare the types
-    if (!areTypesCompatible(parameterType, argType, env)) {
+    if (
+      !areTypesCompatible(
+        { type: parameterType, env: functionEnv },
+        { type: argType, env }
+      )
+    ) {
       throw this.formatErrorMessage(
         argExpr.token,
         `Type mismatch for parameter "${parameter.label}":
@@ -4774,11 +4813,12 @@ ${exprToString(expr)}`
     Got:   ${typeToString(argType)}`
       );
     }
-    return env;
+    return { functionEnv };
   }
 
   /**
-   * NOTE: This function will push new frame to env, but will not pop frame.
+   * NOTE: This function will push new frame to the function env,
+   * but will not pop frame.
    */
   private tryToCallFunctionWithArguments({
     functionValue,
@@ -4794,7 +4834,7 @@ ${exprToString(expr)}`
     argExprs: Expr[];
     env: Environment;
     context: EvaluatorContext;
-  }): Environment {
+  }): { functionEnv: Environment } {
     // NOTE: We disallow to have default values for function parameters
     let givenArgCount = argExprs.length;
     let forallArgsExpr: FuncCallExpr | undefined = undefined;
@@ -4805,7 +4845,7 @@ ${exprToString(expr)}`
     //
     // Check if there is `implicit(...)` argument zone.
     // If yes, then it should be the last argument
-    const newArgsExpr: Expr[] = [];
+    const newArgExprs: Expr[] = [];
     for (let i = 0; i < argExprs.length; i++) {
       const argExpr = argExprs[i];
       if (
@@ -4840,9 +4880,9 @@ ${exprToString(expr)}`
         break;
       }
 
-      newArgsExpr.push(argExpr);
+      newArgExprs.push(argExpr);
     }
-    argExprs = newArgsExpr;
+    argExprs = newArgExprs;
 
     // NOTE: We don't support default values for function parameters
     // So we need to check if the number of arguments is correct
@@ -4855,6 +4895,8 @@ ${exprToString(expr)}`
 
     // Push new frame to env
     env = pushEnvFrame(env);
+    // Push new frame to function env
+    let functionEnv = pushEnvFrame(functionType.env);
 
     // Evaluate the forallArgsExpr if exists
     if (forallArgsExpr) {
@@ -4897,7 +4939,12 @@ ${exprToString(expr)}`
         }
 
         // Compare the types
-        if (!areTypesCompatible(typeParameter.type, typeValue.type, env)) {
+        if (
+          !areTypesCompatible(
+            { type: typeParameter.type, env: functionEnv },
+            { type: typeValue.type, env }
+          )
+        ) {
           throw this.formatErrorMessage(
             forallArgExpr.token,
             `Type mismatch for type parameter "${typeParameter.label}":
@@ -4909,7 +4956,7 @@ Got:   ${typeToString(typeValue.type)}`
         // Add the type to the env
         if (typeParameter.label) {
           const { env: nextEnv } = addVariableToEnv({
-            env,
+            env: functionEnv,
             variable: {
               name: typeParameter.label,
               token: forallArgExpr.token,
@@ -4920,7 +4967,7 @@ Got:   ${typeToString(typeValue.type)}`
               value: typeValue,
             },
           });
-          env = nextEnv;
+          functionEnv = nextEnv;
         }
       }
     }
@@ -4929,14 +4976,16 @@ Got:   ${typeToString(typeValue.type)}`
     for (let i = 0; i < functionType.parameters.length; i++) {
       const parameter = functionType.parameters[i];
       const argExpr = argExprs[i];
-      env = this.checkIfFunctionParametersMatchArguments({
-        functionValue,
-        functionType,
-        parameter,
-        argExpr,
-        env,
-        context,
-      });
+      const { functionEnv: nextFunctionEnv } =
+        this.checkIfFunctionParameterMatchesArgument({
+          functionValue,
+          parameter,
+          argExpr,
+          env,
+          functionEnv,
+          context,
+        });
+      functionEnv = nextFunctionEnv;
     }
 
     // Check if the implicit parameters are provided
@@ -4946,7 +4995,7 @@ Got:   ${typeToString(typeValue.type)}`
       // Evaluate its type again
       const evaluatedTypeExpr = this.evaluateExpression({
         expr: cloneExpr(implicitParameter.typeExpr),
-        env: pushEnvFrame(functionType.env, env.frames[env.frames.length - 1]),
+        env: functionEnv,
         context: {
           ...context,
           isEvaluatingExprAsType: true,
@@ -5000,7 +5049,12 @@ ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implic
             );
           }
           // Compare the types
-          if (!areTypesCompatible(implicitParameterType, argType, env)) {
+          if (
+            !areTypesCompatible(
+              { type: implicitParameterType, env: functionEnv },
+              { type: argType, env }
+            )
+          ) {
             throw this.formatErrorMessage(
               implicitArg.token,
               `Type mismatch for implicit parameter "${implicitParameter.label}":
@@ -5015,7 +5069,10 @@ Got:   ${typeToString(argType)}`
       // Check in the env if implicit variable of such type exists
       const implicitVariables = getVariablesFromEnvByFilter(env, (variable) => {
         return (
-          areTypesCompatible(implicitParameterType, variable.type, env) &&
+          areTypesCompatible(
+            { type: implicitParameterType, env: functionEnv },
+            { type: variable.type, env }
+          ) &&
           Boolean(variable.isImplicit) &&
           Boolean(variable.isCompileTimeOnly) ===
             Boolean(implicitParameter.isCompileTimeOnly)
@@ -5047,7 +5104,7 @@ ${implicitVariables
       }
     }
 
-    return env;
+    return { functionEnv };
   }
 
   private tryToCallTypeWithArguments({
@@ -5144,7 +5201,12 @@ ${implicitVariables
       }
 
       // Compare the types
-      if (!areTypesCompatible(memberElement.type, argType, env)) {
+      if (
+        !areTypesCompatible(
+          { type: memberElement.type, env },
+          { type: argType, env }
+        )
+      ) {
         throw this.formatErrorMessage(
           argExpr.token,
           `Type mismatch for type member "${memberElement.label}":
@@ -5291,7 +5353,12 @@ ${valueToString(moduleMember.requiredValue)}`
           }
 
           // Compare the types
-          if (!areTypesCompatible(moduleMemberType, argType, env)) {
+          if (
+            !areTypesCompatible(
+              { type: moduleMemberType, env },
+              { type: argType, env }
+            )
+          ) {
             throw this.formatErrorMessage(
               argExpr.token,
               `Type mismatch for the module member "${label}":
@@ -5395,7 +5462,7 @@ Got:   ${typeToString(argType)}`
   }): { value: TypeValue; env: Environment } {
     // This will push a new frame to the env and
     // add the parameters to the env
-    const nextEnv = this.tryToCallFunctionWithArguments({
+    const { functionEnv } = this.tryToCallFunctionWithArguments({
       functionValue,
       functionType,
       functionCallExpr,
@@ -5403,15 +5470,6 @@ Got:   ${typeToString(argType)}`
       env,
       context: { ...context },
     });
-
-    if (!nextEnv) {
-      throw this.formatErrorMessage(
-        functionCallExpr.token,
-        `Incompatible types for function call:
-Expected: ${typeToString(functionType)}`
-      );
-    }
-    env = nextEnv;
 
     // argExprs should be evaluated now
     const argValues: Value[] = [];
@@ -5467,7 +5525,7 @@ Expected: ${typeToString(functionType)}`
       });
       if (calledTypeFunction) {
         // Find the cache
-        env = popEnvFrame(env);
+        // env = popEnvFrame(env);
         return {
           env,
           value: calledTypeFunction.typeValue,
@@ -5478,10 +5536,6 @@ Expected: ${typeToString(functionType)}`
     // Evaluate functionValue.body with the function env
     const functionBodyExpr = functionValue.body;
     // NOTE: We should use the env from the function, not the current env.
-    const functionEnv = pushEnvFrame(
-      functionType.env,
-      env.frames[env.frames.length - 1]
-    ); // Add the env last frame which contains evaluated args
     const evaluatedFunctionBody = this.evaluateExpression({
       expr: functionBodyExpr,
       env: functionEnv,
@@ -5553,7 +5607,7 @@ Expected: ${typeToString(functionType)}`
   }): { returnType: Type; env: Environment } {
     // This will push a new frame to the env and
     // add the parameters to the env
-    const nextEnv = this.tryToCallFunctionWithArguments({
+    const { functionEnv } = this.tryToCallFunctionWithArguments({
       functionValue,
       functionType,
       functionCallExpr,
@@ -5561,24 +5615,11 @@ Expected: ${typeToString(functionType)}`
       env,
       context: { ...context },
     });
-    if (!nextEnv) {
-      throw this.formatErrorMessage(
-        functionCallExpr.token,
-        `Incompatible types for function call:
-Expected: ${typeToString(functionType)}`
-      );
-    }
-    env = nextEnv;
-
     // Evaluate the function return expr again
     // NOTE: We should use the env from the function, not the current env.
-    const functionTypeEnv = pushEnvFrame(
-      functionType.env,
-      env.frames[env.frames.length - 1]
-    ); // Add the env last frame which contains evaluated args
     const evaluatedFunctionReturnExpr = this.evaluateExpression({
       expr: cloneExpr(functionType.return.expr),
-      env: functionTypeEnv,
+      env: functionEnv,
       context: { ...context, isEvaluatingExprAsType: true },
     });
 
@@ -5735,9 +5776,8 @@ Expected: ${typeToString(functionType)}`
     if (evaluatedFunctionBody.type) {
       if (
         !areTypesCompatible(
-          functionType.return.type,
-          evaluatedFunctionBody.type,
-          env
+          { type: functionType.return.type, env },
+          { type: evaluatedFunctionBody.type, env }
         )
       ) {
         throw this.formatErrorMessage(
@@ -6502,7 +6542,10 @@ If you want to define the receiver type, please use "This" instead.`
     }
 
     // Check if the types are compatible
-    const compatible = areTypesCompatible(expectedType, givenType, env);
+    const compatible = areTypesCompatible(
+      { type: expectedType, env },
+      { type: givenType, env }
+    );
 
     // Attach info to the expr
     expr.value = createBooleanValue(compatible);

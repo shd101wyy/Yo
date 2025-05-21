@@ -890,32 +890,39 @@ export function getValueOfSomeTypeFromEnv(
  * @returns
  */
 export function areFunctionTypesCompatible(
-  expectedType: FunctionType,
-  givenType: FunctionType,
-  env: Environment
+  expected: {
+    type: FunctionType;
+    env: Environment;
+  },
+  given: {
+    type: FunctionType;
+    env: Environment;
+  }
 ): boolean {
   // Check if the type parameters have the same count
-  if (expectedType.parameters.length !== givenType.parameters.length) {
+  if (expected.type.parameters.length !== given.type.parameters.length) {
     return false;
   }
 
   // Check if the parameters have the same count
-  if (expectedType.typeParameters.length !== givenType.typeParameters.length) {
+  if (
+    expected.type.typeParameters.length !== given.type.typeParameters.length
+  ) {
     return false;
   }
 
   // Check if the implicit parameters have the same count
   if (
-    expectedType.implicitParameters.length !==
-    givenType.implicitParameters.length
+    expected.type.implicitParameters.length !==
+    given.type.implicitParameters.length
   ) {
     return false;
   }
 
   // Check type parameters for compatibility
-  for (let i = 0; i < expectedType.typeParameters.length; i++) {
-    const expectedTypeParam = expectedType.typeParameters[i];
-    const givenTypeParam = givenType.typeParameters[i];
+  for (let i = 0; i < expected.type.typeParameters.length; i++) {
+    const expectedTypeParam = expected.type.typeParameters[i];
+    const givenTypeParam = given.type.typeParameters[i];
 
     /**
      * Check if
@@ -923,7 +930,12 @@ export function areFunctionTypesCompatible(
      * Linear == Linear
      * Free == Free
      */
-    if (!areTypesCompatible(expectedTypeParam.type, givenTypeParam.type, env)) {
+    if (
+      !areTypesCompatible(
+        { type: expectedTypeParam.type, env: expected.env },
+        { type: givenTypeParam.type, env: given.env }
+      )
+    ) {
       return false;
     }
     // Create some type value for expectedType and givenType
@@ -932,38 +944,46 @@ export function areFunctionTypesCompatible(
       givenTypeParam.type,
       `some_type_${randomId()}`
     );
-    const { env: nextEnv } = addVariableToEnv({
-      env,
-      variable: {
-        name: expectedTypeParam.label!,
-        value: typeValue,
-        type: typeValue.type,
-        isCompileTimeOnly: true,
-        token: expectedTypeParam.typeExpr.token,
-      },
-    });
-    env = nextEnv;
-
-    const { env: nextEnv2 } = addVariableToEnv({
-      env,
-      variable: {
-        name: givenTypeParam.label!,
-        value: typeValue,
-        type: typeValue.type,
-        isCompileTimeOnly: true,
-        token: givenTypeParam.typeExpr.token,
-      },
-    });
-    env = nextEnv2;
+    if (expectedTypeParam.label) {
+      const { env: nextEnv } = addVariableToEnv({
+        env: expected.env,
+        variable: {
+          name: expectedTypeParam.label,
+          value: typeValue,
+          type: typeValue.type,
+          isCompileTimeOnly: true,
+          token: expectedTypeParam.typeExpr.token,
+        },
+      });
+      expected.env = nextEnv;
+    }
+    if (givenTypeParam.label) {
+      const { env: nextEnv2 } = addVariableToEnv({
+        env: given.env,
+        variable: {
+          name: givenTypeParam.label,
+          value: typeValue,
+          type: typeValue.type,
+          isCompileTimeOnly: true,
+          token: givenTypeParam.typeExpr.token,
+        },
+      });
+      given.env = nextEnv2;
+    }
   }
 
   // Check regular parameters for compatibility
-  for (let i = 0; i < expectedType.parameters.length; i++) {
+  for (let i = 0; i < expected.type.parameters.length; i++) {
     if (
       !areTypesCompatible(
-        givenType.parameters[i].type,
-        expectedType.parameters[i].type,
-        env
+        {
+          type: expected.type.parameters[i].type,
+          env: expected.env,
+        },
+        {
+          type: given.type.parameters[i].type,
+          env: given.env,
+        }
       )
     ) {
       return false;
@@ -971,61 +991,71 @@ export function areFunctionTypesCompatible(
   }
 
   // Check implicit parameters for compatibility
-  for (let i = 0; i < expectedType.implicitParameters.length; i++) {
-    const expectedImplicitParam = expectedType.implicitParameters[i];
-    const givenImplicitParam = givenType.implicitParameters[i];
+  for (let i = 0; i < expected.type.implicitParameters.length; i++) {
+    const expectedImplicitParam = expected.type.implicitParameters[i];
+    const givenImplicitParam = given.type.implicitParameters[i];
 
     if (
       expectedImplicitParam.isCompileTimeOnly !==
         givenImplicitParam.isCompileTimeOnly ||
       !areTypesCompatible(
-        expectedImplicitParam.type,
-        givenImplicitParam.type,
-        env
+        { type: expectedImplicitParam.type, env: expected.env },
+        { type: givenImplicitParam.type, env: given.env }
       )
     ) {
       return false;
     }
   }
 
+  console.log("Enter here");
+
   return areTypesCompatible(
-    expectedType.return.type,
-    givenType.return.type,
-    env
+    { type: expected.type.return.type, env: expected.env },
+    { type: given.type.return.type, env: given.env }
   );
 }
 
 // Update the areTypesCompatible function for StructType
 export function areTypesCompatible(
-  expectedType: Type,
-  givenType: Type,
-  env: Environment
+  expected: {
+    type: Type;
+    env: Environment;
+  },
+  given: {
+    type: Type;
+    env: Environment;
+  }
 ): boolean {
-  if (isPrimitiveType(expectedType) && isPrimitiveType(givenType)) {
-    return expectedType.tag === givenType.tag;
+  if (isPrimitiveType(expected.type) && isPrimitiveType(given.type)) {
+    return expected.type.tag === given.type.tag;
   }
 
-  if (isArrayType(expectedType) && isArrayType(givenType)) {
+  if (isArrayType(expected.type) && isArrayType(given.type)) {
     // Arrays must have same length and compatible element types
     return (
-      expectedType.length === givenType.length &&
-      areTypesCompatible(expectedType.elementType, givenType.elementType, env)
+      expected.type.length === given.type.length &&
+      areTypesCompatible(
+        {
+          type: expected.type.elementType,
+          env: expected.env,
+        },
+        { type: given.type.elementType, env: given.env }
+      )
     );
   }
 
-  if (isTupleType(expectedType) && isTupleType(givenType)) {
-    if (expectedType.elements.length !== givenType.elements.length) {
+  if (isTupleType(expected.type) && isTupleType(given.type)) {
+    if (expected.type.elements.length !== given.type.elements.length) {
       return false;
     }
-    for (let i = 0; i < expectedType.elements.length; i++) {
-      const expectedTypeElement = expectedType.elements[i];
-      const givenTypeElement = givenType.elements[i];
+    for (let i = 0; i < expected.type.elements.length; i++) {
+      const expectedTypeElement = expected.type.elements[i];
+      const givenTypeElement = given.type.elements[i];
 
       if (
         !areTypesCompatible(
-          expectedTypeElement.type,
-          givenTypeElement.type,
-          env
+          { type: expectedTypeElement.type, env: expected.env },
+          { type: givenTypeElement.type, env: given.env }
         )
       ) {
         return false;
@@ -1042,31 +1072,34 @@ export function areTypesCompatible(
     return true;
   }
 
-  if (isStructType(expectedType) && isStructType(givenType)) {
+  if (isStructType(expected.type) && isStructType(given.type)) {
     // Structs must have same elements and compatible types
     if (
-      expectedType.elements.length !== givenType.elements.length ||
-      expectedType.typeId !== givenType.typeId
+      expected.type.elements.length !== given.type.elements.length
+      // NOTE: Below is not necessarily true
+      // We might compare Box(T) and Box(U), where T and U are SomeType.
+      // || expected.type.typeId !== given.type.typeId
     ) {
       return false;
     }
 
-    if (
-      expectedType.typeId &&
-      givenType.typeId &&
-      expectedType.typeId === givenType.typeId
-    ) {
+    if (expected.type.typeId === given.type.typeId) {
       return true;
     }
 
-    // QUESTION: In theory comparing the typeId is enough
-    for (let i = 0; i < expectedType.elements.length; i++) {
-      const expectedElement = expectedType.elements[i];
-      const givenElement = givenType.elements[i];
+    for (let i = 0; i < expected.type.elements.length; i++) {
+      const expectedElement = expected.type.elements[i];
+      const givenElement = given.type.elements[i];
 
       if (
-        !areTypesCompatible(expectedElement.type, givenElement.type, env) ||
-        expectedElement.label !== givenElement.label
+        expectedElement.label !== givenElement.label ||
+        !areTypesCompatible(
+          {
+            type: expectedElement.type,
+            env: expected.env,
+          },
+          { type: givenElement.type, env: given.env }
+        )
       ) {
         return false;
       }
@@ -1074,21 +1107,79 @@ export function areTypesCompatible(
     return true;
   }
 
-  if (isModuleType(expectedType) && isModuleType(givenType)) {
-    return expectedType.typeId === givenType.typeId;
-  }
-
-  if (isEnumType(expectedType) && isEnumType(givenType)) {
-    if (expectedType.typeId !== givenType.typeId) {
+  if (isModuleType(expected.type) && isModuleType(given.type)) {
+    if (expected.type.members.length !== given.type.members.length) {
       return false;
     }
+
+    if (expected.type.typeId === given.type.typeId) {
+      return true;
+    }
+
+    for (let i = 0; i < expected.type.members.length; i++) {
+      const expectedMember = expected.type.members[i];
+      const givenMember = given.type.members[i];
+
+      if (
+        expectedMember.label !== givenMember.label ||
+        !areTypesCompatible(
+          { type: expectedMember.type, env: expected.env },
+          { type: givenMember.type, env: given.env }
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  if (isEnumType(expected.type) && isEnumType(given.type)) {
+    if (expected.type.typeId === given.type.typeId) {
+      return true;
+    }
+
+    // Check each variants
+    if (expected.type.variants.length !== given.type.variants.length) {
+      return false;
+    }
+
+    for (let i = 0; i < expected.type.variants.length; i++) {
+      const expectedVariant = expected.type.variants[i];
+      const givenVariant = given.type.variants[i];
+
+      if (expectedVariant.name !== givenVariant.name) {
+        return false;
+      }
+
+      if (expectedVariant.elements?.length !== givenVariant.elements?.length) {
+        return false;
+      }
+
+      if (expectedVariant.elements) {
+        for (let j = 0; j < expectedVariant.elements.length; j++) {
+          const expectedElement = expectedVariant.elements[j];
+          const givenElement = givenVariant.elements![j];
+
+          if (
+            expectedElement.label !== givenElement.label ||
+            !areTypesCompatible(
+              { type: expectedElement.type, env: expected.env },
+              { type: givenElement.type, env: given.env }
+            )
+          ) {
+            return false;
+          }
+        }
+      }
+    }
+
     if (
-      expectedType.selectedVariantName &&
-      givenType.selectedVariantName &&
-      expectedType.selectedVariantName !== givenType.selectedVariantName
+      expected.type.selectedVariantName &&
+      given.type.selectedVariantName &&
+      expected.type.selectedVariantName !== given.type.selectedVariantName
     ) {
       return false;
-    } else if (!expectedType.selectedVariantName) {
+    } else if (!expected.type.selectedVariantName) {
       return true;
     } else {
       return false;
@@ -1099,25 +1190,32 @@ export function areTypesCompatible(
 
   // TODO: union
 
-  if (isFunctionType(expectedType) && isFunctionType(givenType)) {
-    return areFunctionTypesCompatible(expectedType, givenType, env);
+  if (isFunctionType(expected.type) && isFunctionType(given.type)) {
+    return areFunctionTypesCompatible(
+      { type: expected.type, env: expected.env },
+      { type: given.type, env: given.env }
+    );
   }
 
-  if (isTypeHierarchyType(expectedType) && isTypeHierarchyType(givenType)) {
+  if (isTypeHierarchyType(expected.type) && isTypeHierarchyType(given.type)) {
     // Check if the given type is a subtype of the expected type
     return (
-      givenType.level === expectedType.level &&
-      (givenType.tag === expectedType.tag || expectedType.tag === TypeTag.Type)
+      given.type.level === expected.type.level &&
+      (given.type.tag === expected.type.tag ||
+        expected.type.tag === TypeTag.Type)
     );
   }
 
   // Meet SomeType,
   // eg: x: T
   // here T should already be added to env by the if condition above ^^^
-  if (isSomeType(expectedType)) {
-    if (isSomeType(givenType)) {
-      const expectedType_ = getValueOfSomeTypeFromEnv(env, expectedType);
-      const givenType_ = getValueOfSomeTypeFromEnv(env, givenType);
+  if (isSomeType(expected.type)) {
+    if (isSomeType(given.type)) {
+      const expectedType_ = getValueOfSomeTypeFromEnv(
+        expected.env,
+        expected.type
+      );
+      const givenType_ = getValueOfSomeTypeFromEnv(given.env, given.type);
       if (isSomeType(expectedType_) && isSomeType(givenType_)) {
         return expectedType_.typeId === givenType_.typeId;
       } else {
@@ -1125,11 +1223,17 @@ export function areTypesCompatible(
         return false;
       }
     } else {
-      const expectedType_ = getValueOfSomeTypeFromEnv(env, expectedType);
-      if (!expectedType_ || expectedType === expectedType_) {
+      const expectedType_ = getValueOfSomeTypeFromEnv(
+        expected.env,
+        expected.type
+      );
+      if (!expectedType_ || expected.type === expectedType_) {
         return false;
       }
-      return areTypesCompatible(expectedType_, givenType, env);
+      return areTypesCompatible(
+        { type: expectedType_, env: expected.env },
+        given
+      );
     }
   }
 
