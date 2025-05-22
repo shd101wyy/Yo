@@ -58,6 +58,16 @@ export interface Token {
   };
 }
 
+export const PlaceholderToken: Token = {
+  type: TokenType.Identifier,
+  value: "_",
+  position: {
+    row: -1,
+    column: -1,
+    character: -1,
+  },
+};
+
 export const Operators = [
   "=",
   "+",

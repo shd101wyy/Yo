@@ -28,7 +28,7 @@ import {
 import { FunctionValue } from "./function-value";
 import * as logger from "./logger";
 import Parser from "./parser";
-import { stringIsOperator, Token, TokenType } from "./token";
+import { PlaceholderToken, stringIsOperator, Token, TokenType } from "./token";
 import {
   areTypesCompatible,
   createEnumType,
@@ -673,8 +673,7 @@ ${typeToString(expectedTupleType)}`
     given: {
       type: Type;
       env: Environment;
-    },
-    token: Token
+    }
   ): { expectedEnv: Environment; givenEnv: Environment } {
     if (isSomeType(expected.type)) {
       // Check if the env has
@@ -692,7 +691,7 @@ ${typeToString(expectedTupleType)}`
             name: expected.type.name,
             value: value,
             type: value.type,
-            token: token, // FIXME: What should be `token` here?
+            token: PlaceholderToken, // FIXME: What should be `token` here?
             isMutable: false,
             isCompileTimeOnly: true,
             isNotInitialized: false,
@@ -708,8 +707,7 @@ ${typeToString(expectedTupleType)}`
       for (let i = 0; i < expected.type.elements.length; i++) {
         const { expectedEnv, givenEnv } = this.synthesizeTypes(
           { type: expected.type.elements[i].type, env: expected.env },
-          { type: given.type.elements[i].type, env: given.env },
-          expected.type.elements[i].expr.token
+          { type: given.type.elements[i].type, env: given.env }
         );
         expected.env = expectedEnv;
         given.env = givenEnv;
@@ -729,8 +727,7 @@ ${typeToString(expectedTupleType)}`
         const givenElement = given.type.elements[i];
         const { expectedEnv, givenEnv } = this.synthesizeTypes(
           { type: expectedElement.type, env: expected.env },
-          { type: givenElement.type, env: given.env },
-          expectedElement.expr.token
+          { type: givenElement.type, env: given.env }
         );
         expected.env = expectedEnv;
         given.env = givenEnv;
@@ -755,8 +752,7 @@ ${typeToString(expectedTupleType)}`
         for (let j = 0; j < expectedTypeVariantElements.length; j++) {
           const { expectedEnv, givenEnv } = this.synthesizeTypes(
             { type: expectedTypeVariantElements[j].type, env: expected.env },
-            { type: givenTypeVariantElements[j].type, env: given.env },
-            expectedTypeVariantElements[j].expr.token
+            { type: givenTypeVariantElements[j].type, env: given.env }
           );
           expected.env = expectedEnv;
           given.env = givenEnv;
@@ -775,17 +771,11 @@ ${typeToString(expectedTupleType)}`
           (m) => m.label === member.label
         );
         if (!givenMember) {
-          throw this.formatErrorMessage(
-            token,
-            `Module member "${member.label}" not found in ${typeToString(
-              expected.type
-            )}`
-          );
+          break;
         }
         const { expectedEnv, givenEnv } = this.synthesizeTypes(
           { type: member.type, env: expected.env },
-          { type: givenMember.type, env: given.env },
-          member.expr.token
+          { type: givenMember.type, env: given.env }
         );
         expected.env = expectedEnv;
         given.env = givenEnv;
@@ -796,8 +786,7 @@ ${typeToString(expectedTupleType)}`
         ) {
           const { expectedEnv, givenEnv } = this.synthesizeTypes(
             { type: member.requiredValue.value, env: expected.env },
-            { type: givenMember.requiredValue.value, env: given.env },
-            member.expr.token
+            { type: givenMember.requiredValue.value, env: given.env }
           );
           expected.env = expectedEnv;
           given.env = givenEnv;
@@ -4640,8 +4629,7 @@ ${exprToString(expr)}`
     // Synthesize the types
     const { expectedEnv, givenEnv } = this.synthesizeTypes(
       { type: parameterType, env: functionEnv },
-      { type: argType, env: env },
-      parameter.typeExpr.token
+      { type: argType, env: env }
     );
     functionEnv = expectedEnv;
     env = givenEnv;
@@ -4696,18 +4684,11 @@ ${exprToString(expr)}`
   }: {
     functionValue?: FunctionValue;
     functionType: FunctionType;
-    functionCallExpr: Expr;
+    functionCallExpr?: Expr;
     argExprs: Expr[];
     env: Environment;
     context: EvaluatorContext;
   }): { functionEnv: Environment } {
-    console.log(
-      "tryToCallFunctionWithArguments: ",
-      exprToString(functionCallExpr),
-      context.expectedType
-        ? typeToString(context.expectedType.type)
-        : "<no expected type>"
-    );
     // NOTE: We disallow to have default values for function parameters
     let givenArgCount = argExprs.length;
     let forallArgsExpr: FuncCallExpr | undefined = undefined;
@@ -4761,7 +4742,7 @@ ${exprToString(expr)}`
     // So we need to check if the number of arguments is correct
     if (givenArgCount !== functionType.parameters.length) {
       throw this.formatErrorMessage(
-        functionCallExpr.token,
+        functionCallExpr?.token ?? PlaceholderToken,
         `Expected ${functionType.parameters.length} arguments, got ${argExprs.length}.`
       );
     }
@@ -4867,11 +4848,11 @@ Got:   ${typeToString(typeValue.type)}`
 
     // Synthesize the returnType if context.expectedType is giving
     // The context.expectedType is the expected function return type.
+    // QUESTION: Should we run it after evaluating the normal arguments?
     if (context.expectedType) {
       const { expectedEnv } = this.synthesizeTypes(
         { type: functionType.return.type, env: functionEnv },
-        { type: context.expectedType.type, env: context.expectedType.env },
-        functionCallExpr.token
+        { type: context.expectedType.type, env: context.expectedType.env }
       );
       functionEnv = expectedEnv;
       // env = givenEnv; // NOTE: No need to update `env` here
@@ -4917,10 +4898,6 @@ Got:   ${typeToString(typeValue.type)}`
         );
       }
       let implicitParameterType = evaluatedTypeExpr.value.value;
-      console.log(
-        "evaluated implicit parameter type: ",
-        typeToString(implicitParameterType)
-      );
 
       // Check if it's provided in implicitArgsExpr
       if (implicitArgsExpr) {
@@ -4979,8 +4956,7 @@ ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implic
           // Synthesize the types
           const { expectedEnv, givenEnv } = this.synthesizeTypes(
             { type: implicitParameterType, env: functionEnv },
-            { type: argType, env },
-            implicitParameter.typeExpr.token
+            { type: argType, env }
           );
           functionEnv = expectedEnv;
           env = givenEnv;
@@ -5026,20 +5002,68 @@ Got:   ${typeToString(argType)}`
 
       // Check in the env if implicit variable of such type exists
       const implicitVariables = getVariablesFromEnvByFilter(env, (variable) => {
-        return (
+        if (
+          !(
+            Boolean(variable.isImplicit) &&
+            Boolean(variable.isCompileTimeOnly) ===
+              Boolean(implicitParameter.isCompileTimeOnly)
+          )
+        ) {
+          return false;
+        }
+
+        // Check if type matches
+        if (
           areTypesCompatible(
             { type: implicitParameterType, env: functionEnv },
             { type: variable.type, env }
-          ) &&
-          Boolean(variable.isImplicit) &&
-          Boolean(variable.isCompileTimeOnly) ===
-            Boolean(implicitParameter.isCompileTimeOnly)
-        );
+          )
+        ) {
+          return true;
+        }
+
+        // Check if it's a function that has no parameters.
+        // (can have type parameters, and implicit parameters).
+        // Then try to call that function to check if its return type can
+        // match the implicit parameter type
+        if (isFunctionType(variable.type)) {
+          const funcType = variable.type;
+          if (funcType.parameters.length === 0) {
+            const funcValue = variable.value;
+
+            if (!!funcValue && !!functionValue && funcValue === functionValue) {
+              // Prevent infinite loop
+              return false;
+            }
+
+            try {
+              this.tryToCallFunctionWithArguments({
+                argExprs: [],
+                env,
+                functionType: funcType,
+                functionValue: funcValue as FunctionValue | undefined,
+                functionCallExpr: undefined, // FIXME: <- this is the wrong expr
+                context: {
+                  expectedType: {
+                    type: implicitParameterType,
+                    env: functionEnv,
+                  },
+                  isEvaluatingExprAsType: false,
+                },
+              });
+              return true;
+            } catch {
+              // Failed
+            }
+          }
+        }
+
+        return false;
       });
 
       if (implicitVariables.length === 0) {
         throw this.formatErrorMessage(
-          functionCallExpr.token,
+          functionCallExpr?.token ?? PlaceholderToken,
           `Implicit parameter is not provided. Expected:
 ${implicitParameter.label ? `implicit(${implicitParameter.label}) :\n  ${typeToString(implicitParameterType)}` : `implicit ${typeToString(implicitParameterType)}`}`
         );
@@ -5047,7 +5071,7 @@ ${implicitParameter.label ? `implicit(${implicitParameter.label}) :\n  ${typeToS
 
       if (implicitVariables.length > 1) {
         throw this.formatErrorMessage(
-          functionCallExpr.token,
+          functionCallExpr?.token ?? PlaceholderToken,
           `Ambiguous implicit parameter:
 ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implicitParameterType)})` : typeToString(implicitParameterType)}
 
@@ -5061,7 +5085,7 @@ ${implicitVariables
         );
       }
 
-      // Add the implicit variable to the env
+      // Add the implicit variable to the function env
       const implicitVariable = implicitVariables[0];
       const { env: nextEnv } = addVariableToEnv({
         env: functionEnv,
@@ -5070,7 +5094,7 @@ ${implicitVariables
           type: implicitVariable.type,
           isMutable: implicitVariable.isMutable,
           isCompileTimeOnly: implicitVariable.isCompileTimeOnly,
-          token: functionCallExpr.token,
+          token: functionCallExpr?.token ?? PlaceholderToken,
           isNotInitialized: false,
           value: implicitVariable.value,
         },
