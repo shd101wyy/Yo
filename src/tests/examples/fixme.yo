@@ -1,48 +1,57 @@
-def Box:
-  (@(B): Type)-> @(Type),
-  struct(value: B)
+def Point:
+  (@(T): Type)-> @(Type),
+  struct
+    x: T,
+    y: T
 ;
 
 def Id:
   (@(This): Type)-> @(Type),
   module
-    (This: Type) == This,
+    (This: Type) = This,
     id:
       (This)-> This
 ;
 
 def id:
-  (forall(@(T): Type), x: T, @(I): Id(T))-> T,
+  (forall(@(T): Type), x: T, implicit(@(I): Id(T)))-> T,
   I.id(x)
 ;
 
-IdInt ::
+implicit(IdInt) ::
   Id(i32)
     id:
-      fn(x)-> x
+      fn(x) -> x
 ;
 
-IdBoolean ::
+implicit(IdBoolean) ::
   Id(boolean)
     id:
-      fn(x)-> x
+      fn(x) -> x
 ;
 
-def IdBox :
-  ( forall(@(X): Type),
-    @(I): Id(X)
-  )-> @(Id(Box(X))), {
-  flag :: are_types_compatible(Box(X), Box(X));
-  Id(Box(X))
+def implicit(IdPoint) :
+  ( forall(@(T): Type), 
+    implicit(@(I): Id(T))
+  )-> @(Id(Point(T))),
+  Id(Point(T))
     id:
       fn(p) ->
-        Box(X)(I.id(p.value))
-  }
-  ;
+        Point(T)(I.id(p.x), I.id(p.y))
+;
 
-// id(13, IdInt);
-// id(true, IdBoolean);
-box :: Box(i32)(1);
-idBox :: IdBox(IdInt);
-// id(box, idBox);
-// id(box, IdBox(IdInt));
+def main: (() -> ()), {
+  x := id(13); // Implicit call
+  x := id(13, implicit(IdInt)); // Explicit call
+
+  x := id(false); // Implicit call
+  x := id(true, implicit(IdBoolean)); // Explicit call
+
+  point :: Point(i32)(1, 2); 
+  IdIntPoint :: IdPoint(implicit(IdInt));
+
+  // QUESTION: How to implement the following?
+  // id(Point(i32)(1, 2)); // Implicit call
+  // id(Point(i32)(1, 2), implicit(IdPoint())); // Implicit call 2
+  id(point, implicit(IdPoint(implicit(IdInt)))); // Explicit call
+}

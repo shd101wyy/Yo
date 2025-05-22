@@ -666,7 +666,11 @@ ${typeToString(expectedTupleType)}`
     if (isSomeType(expected.type)) {
       // Check if the env has
       const type = getValueOfSomeTypeFromEnv(expected.env, expected.type);
-      if (!type || type === expected.type) {
+      if (
+        //type === expected.type
+        isSomeType(type) &&
+        type.name === expected.type.name
+      ) {
         // Update the env to set givenType to expectedType.name
         const value = createTypeValue(given.type);
         const { env: nextEnv } = addVariableToEnv({
@@ -4596,7 +4600,7 @@ ${exprToString(expr)}`
     if (!evaluatedArgExpr.value && parameter.isCompileTimeOnly) {
       throw this.formatErrorMessage(
         argExpr.token,
-        `Cannot assign runtime parameter to compile-time parameter:\n${exprToString(
+        `Cannot assign runtime argument to compile-time parameter:\n${exprToString(
           argExpr
         )}`
       );
@@ -4748,23 +4752,41 @@ ${exprToString(expr)}`
     let functionEnv = pushEnvFrame(functionType.env);
 
     // Evaluate the forallArgsExpr if exists
-    if (forallArgsExpr) {
-      if (forallArgsExpr.args.length !== functionType.typeParameters.length) {
-        throw this.formatErrorMessage(
-          forallArgsExpr.token,
-          `Expected ${functionType.typeParameters.length} type arguments, got ${forallArgsExpr.args.length}.`
-        );
+    if (
+      forallArgsExpr &&
+      forallArgsExpr.args.length !== functionType.typeParameters.length
+    ) {
+      throw this.formatErrorMessage(
+        forallArgsExpr.token,
+        `Expected ${functionType.typeParameters.length} type arguments, got ${forallArgsExpr.args.length}.`
+      );
+    }
+    for (let i = 0; i < functionType.typeParameters.length; i++) {
+      // Add typeParameter to functionEnv
+      const typeParameter = functionType.typeParameters[i];
+      if (typeParameter.labelExpr && typeParameter.label) {
+        const { env: nextEnv } = addVariableToEnv({
+          env: functionEnv,
+          variable: {
+            name: typeParameter.label,
+            token: typeParameter.labelExpr.token,
+            type: typeParameter.type,
+            isMutable: false,
+            isCompileTimeOnly: true,
+            isNotInitialized: false, // Set as initialized
+            value: createUnknownValue(typeParameter.type, typeParameter.label),
+          },
+        });
+        functionEnv = nextEnv;
       }
 
-      for (let i = 0; i < functionType.typeParameters.length; i++) {
+      if (forallArgsExpr) {
         const forallArgExpr = forallArgsExpr.args[i];
         if (exprIsAtom(forallArgExpr) && forallArgExpr.token.value === "_") {
           // _ is a special case, it means to use the inferred type
           // So we don't need to check the type
           continue;
         }
-
-        const typeParameter = functionType.typeParameters[i];
 
         // Evaluate forallArgExpr
         const evaluatedTypeExpr = this.evaluateExpression({
@@ -4804,6 +4826,7 @@ Got:   ${typeToString(typeValue.type)}`
 
         // Add the type to the env
         if (typeParameter.label) {
+          // QUESTION: Should we just update the existing variable?
           const { env: nextEnv } = addVariableToEnv({
             env: functionEnv,
             variable: {
@@ -4860,7 +4883,7 @@ Got:   ${typeToString(typeValue.type)}`
           )}`
         );
       }
-      const implicitParameterType = evaluatedTypeExpr.value.value;
+      let implicitParameterType = evaluatedTypeExpr.value.value;
 
       // Check if it's provided in implicitArgsExpr
       if (implicitArgsExpr) {
@@ -4897,6 +4920,55 @@ ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implic
               `Failed to evaluate implicit argument expression:\n${exprToString(implicitArg)}`
             );
           }
+
+          // Add the arg to the environment
+          if (implicitParameter.label) {
+            const argValue = evaluatedImplicitArg.value;
+            const { env: nextEnv } = addVariableToEnv({
+              env: functionEnv,
+              variable: {
+                name: implicitParameter.label,
+                type: argType,
+                isMutable: implicitParameter.isMutable,
+                isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
+                token: implicitArg.token,
+                isNotInitialized: false,
+                value: argValue,
+              },
+            });
+            functionEnv = nextEnv;
+          }
+
+          // Synthesize the types
+          const { expectedEnv, givenEnv } = this.synthesizeTypes(
+            { type: implicitParameterType, env: functionEnv },
+            { type: argType, env },
+            implicitParameter.typeExpr.token
+          );
+          functionEnv = expectedEnv;
+          env = givenEnv;
+
+          // Evaluate the parameter type again
+          const evaluatedTypeExpr = this.evaluateExpression({
+            expr: cloneExpr(implicitParameter.typeExpr),
+            env: functionEnv,
+            context: {
+              ...context,
+              isEvaluatingExprAsType: true,
+              expectedType: undefined,
+              SelfType: functionValue?.SelfType,
+            },
+          });
+          if (!isTypeValue(evaluatedTypeExpr.value)) {
+            throw this.formatErrorMessage(
+              implicitParameter.typeExpr.token,
+              `Expected type for parameter, got:\n${exprToString(
+                implicitParameter.typeExpr
+              )}`
+            );
+          }
+          implicitParameterType = evaluatedTypeExpr.value.value;
+
           // Compare the types
           if (
             !areTypesCompatible(
@@ -4951,6 +5023,22 @@ ${implicitVariables
 `
         );
       }
+
+      // Add the implicit variable to the env
+      const implicitVariable = implicitVariables[0];
+      const { env: nextEnv } = addVariableToEnv({
+        env: functionEnv,
+        variable: {
+          name: implicitVariable.name,
+          type: implicitVariable.type,
+          isMutable: implicitVariable.isMutable,
+          isCompileTimeOnly: implicitVariable.isCompileTimeOnly,
+          token: functionCallExpr.token,
+          isNotInitialized: false,
+          value: implicitVariable.value,
+        },
+      });
+      functionEnv = nextEnv;
     }
 
     return { functionEnv };
@@ -6487,21 +6575,6 @@ ${exprToString(expr)}`
         // enum
         return this.evaluateEnum({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, ".")) {
-        /*
-        // forall
-        if (
-          // forall(compt(T): Type) . ((x: T) -> T)
-          exprIsFunctionCall(expr.args[0]) &&
-          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.Forall)
-        ) {
-          return this.evaluateForall({
-            expr,
-            env,
-            context: { ...context },
-          });
-        }
-        */
-
         // property access
         return this.evaluatePropertyAccess({
           expr,

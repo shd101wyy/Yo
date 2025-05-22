@@ -1,16 +1,16 @@
+import * as fs from "fs";
 import * as path from "path";
 import { ModuleManager } from "../module-manager";
 
 describe("Module Manager Tests", () => {
-  beforeAll(() => {
-    const testFileName = "fixme.yo";
-    const moduleManager = new ModuleManager();
-    moduleManager.loadModule(
-      "file://" + path.join(__dirname, `examples/${testFileName}`)
-    );
-  });
+  const examplesDir = path.join(__dirname, "examples");
+  const files = fs.readdirSync(examplesDir).filter((f) => f.endsWith(".yo"));
 
-  it("should evaluate learn_mo.yo correctly", () => {
-    expect(true).toBe(true);
+  files.forEach((file) => {
+    it(`should load and evaluate ${file} correctly`, () => {
+      const moduleManager = new ModuleManager();
+      moduleManager.loadModule("file://" + path.join(examplesDir, file));
+      // Optionally add assertions here if needed
+    });
   });
 });

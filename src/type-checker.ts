@@ -1215,6 +1215,7 @@ export function areTypesCompatible(
       );
       const givenType_ = getValueOfSomeTypeFromEnv(given.env, given.type);
       if (isSomeType(expectedType_) && isSomeType(givenType_)) {
+        // QUESTION: Should compare name instead?
         return expectedType_.typeId === givenType_.typeId;
       } else {
         // QUESTION: Is this correct?
@@ -1225,7 +1226,7 @@ export function areTypesCompatible(
         expected.env,
         expected.type
       );
-      if (!expectedType_ || expected.type === expectedType_) {
+      if (expected.type === expectedType_) {
         return false;
       }
       return areTypesCompatible(
@@ -1398,6 +1399,9 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Struct: {
       const struct = type as StructType;
+      if (struct.typeName) {
+        return struct.typeName;
+      }
 
       return `${struct.typeName ? `(${struct.typeName}) ` : ""}${
         struct.typeName ? "struct" : struct.typeId
@@ -1416,6 +1420,10 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Enum: {
       const enumType = type as EnumType;
+      if (enumType.typeName) {
+        return enumType.typeName;
+      }
+
       return `${
         enumType.typeName ? `(${enumType.typeName}) ` : ""
       }enum(${enumType.variants
@@ -1492,6 +1500,10 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Module: {
       const moduleType = type as ModuleType;
+      if (moduleType.typeName) {
+        return moduleType.typeName;
+      }
+
       return `${moduleType.typeName ? `(${moduleType.typeName}) ` : ""}${
         moduleType.typeName ? "module" : moduleType.typeId
       }(${moduleType.members
@@ -1520,6 +1532,7 @@ export function typeToString(type: Type): string {
       // const parentType = someType.parentType;
       // TODO: Display the interfaces implemented
       return someType.name;
+      // return `${someType.name}(${someType.typeId})`;
       // return `some(${parentType.tag})`;
     }
 
