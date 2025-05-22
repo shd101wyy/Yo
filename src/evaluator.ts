@@ -4345,19 +4345,18 @@ ${functionsWithMatchingTypes
         // It's
         // - Runtime function
         // - Comptime function
-        const { returnType, env: nextEnv } =
-          this.evaluateFunctionCallReturnType({
-            functionCallExpr: expr,
-            functionValue: functionToCall.value as FunctionValue | undefined,
-            functionType,
-            argExprs: args,
-            env,
-            context: {
-              ...context,
-              SelfType: functionType.SelfType,
-            },
-          });
-        env = nextEnv;
+        const { returnType } = this.tryToCallFunctionWithArguments({
+          functionCallExpr: expr,
+          functionValue: functionToCall.value as FunctionValue | undefined,
+          functionType,
+          argExprs: args,
+          env,
+          context: {
+            ...context,
+            SelfType: functionType.SelfType,
+          },
+        });
+        // env = nextEnv;
         expr.type = returnType;
 
         if (functionType.return.isCompileTimeOnly) {
@@ -4487,7 +4486,7 @@ ${exprToString(expr)}`
     functionValue,
     parameter,
     argExpr,
-    functionEnv,
+    calleeEnv,
     env,
     context,
   }: {
@@ -4497,10 +4496,10 @@ ${exprToString(expr)}`
      */
     parameter: FunctionParameter;
     argExpr: Expr;
-    functionEnv: Environment;
+    calleeEnv: Environment;
     env: Environment;
     context: EvaluatorContext;
-  }): { functionEnv: Environment } {
+  }): { calleeEnv: Environment } {
     // NOTE: We don't support named argument.
     // But we support to use label for readibility.
     // eg: add(1, 2) vs add(x: 1, y: 2)
@@ -4541,7 +4540,7 @@ ${exprToString(expr)}`
       // before we evluate the arg
       const evaluatedTypeExpr = this.evaluateExpression({
         expr: cloneExpr(parameter.typeExpr),
-        env: functionEnv,
+        env: calleeEnv,
         context: {
           ...context,
           isEvaluatingExprAsType: true,
@@ -4558,7 +4557,7 @@ ${exprToString(expr)}`
         );
       }
       if (evaluatedTypeExpr.env) {
-        functionEnv = evaluatedTypeExpr.env;
+        calleeEnv = evaluatedTypeExpr.env;
       }
       parameterType = evaluatedTypeExpr.value.value;
     }
@@ -4572,7 +4571,7 @@ ${exprToString(expr)}`
         context: {
           ...context,
           isEvaluatingExprAsType: false,
-          expectedType: { type: parameterType, env: functionEnv },
+          expectedType: { type: parameterType, env: calleeEnv },
         },
       });
       if (evaluatedArgExpr.env) {
@@ -4612,7 +4611,7 @@ ${exprToString(expr)}`
     if (parameter.label) {
       const argValue = evaluatedArgExpr.value;
       const { env: nextEnv } = addVariableToEnv({
-        env: functionEnv,
+        env: calleeEnv,
         variable: {
           name: parameter.label,
           type: argType,
@@ -4623,21 +4622,21 @@ ${exprToString(expr)}`
           value: argValue,
         },
       });
-      functionEnv = nextEnv;
+      calleeEnv = nextEnv;
     }
 
     // Synthesize the types
     const { expectedEnv, givenEnv } = this.synthesizeTypes(
-      { type: parameterType, env: functionEnv },
+      { type: parameterType, env: calleeEnv },
       { type: argType, env: env }
     );
-    functionEnv = expectedEnv;
+    calleeEnv = expectedEnv;
     env = givenEnv;
 
     // Evaluate the parameter type again
     const evaluatedTypeExpr = this.evaluateExpression({
       expr: cloneExpr(parameter.typeExpr),
-      env: functionEnv,
+      env: calleeEnv,
       context: {
         ...context,
         isEvaluatingExprAsType: true,
@@ -4656,7 +4655,7 @@ ${exprToString(expr)}`
     // Compare the types
     if (
       !areTypesCompatible(
-        { type: parameterType, env: functionEnv },
+        { type: parameterType, env: calleeEnv },
         { type: argType, env }
       )
     ) {
@@ -4667,7 +4666,7 @@ ${exprToString(expr)}`
     Got:   ${typeToString(argType)}`
       );
     }
-    return { functionEnv };
+    return { calleeEnv };
   }
 
   /**
@@ -4688,7 +4687,7 @@ ${exprToString(expr)}`
     argExprs: Expr[];
     env: Environment;
     context: EvaluatorContext;
-  }): { functionEnv: Environment } {
+  }): { calleeEnv: Environment; returnType: Type } {
     // NOTE: We disallow to have default values for function parameters
     let givenArgCount = argExprs.length;
     let forallArgsExpr: FuncCallExpr | undefined = undefined;
@@ -4750,10 +4749,10 @@ ${exprToString(expr)}`
     // Push new frame to env
     env = pushEnvFrame(env);
     // Push new frame to function env
-    let functionEnv = pushEnvFrame(functionType.env);
+    let calleeEnv = pushEnvFrame(functionType.env);
 
     // Evaluate the forallArgsExpr
-    // Add necessary type parameters to the functionEnv
+    // Add necessary type parameters to the calleeEnv
     if (
       forallArgsExpr &&
       forallArgsExpr.args.length !== functionType.typeParameters.length
@@ -4764,11 +4763,11 @@ ${exprToString(expr)}`
       );
     }
     for (let i = 0; i < functionType.typeParameters.length; i++) {
-      // Add typeParameter to functionEnv
+      // Add typeParameter to calleeEnv
       const typeParameter = functionType.typeParameters[i];
       if (typeParameter.labelExpr && typeParameter.label) {
         const { env: nextEnv } = addVariableToEnv({
-          env: functionEnv,
+          env: calleeEnv,
           variable: {
             name: typeParameter.label,
             token: typeParameter.labelExpr.token,
@@ -4779,7 +4778,7 @@ ${exprToString(expr)}`
             value: createUnknownValue(typeParameter.type, typeParameter.label),
           },
         });
-        functionEnv = nextEnv;
+        calleeEnv = nextEnv;
       }
 
       if (forallArgsExpr) {
@@ -4797,7 +4796,7 @@ ${exprToString(expr)}`
           context: {
             ...context,
             isEvaluatingExprAsType: true,
-            expectedType: { type: typeParameter.type, env: functionEnv },
+            expectedType: { type: typeParameter.type, env: calleeEnv },
           },
         });
         if (evaluatedTypeExpr.env) {
@@ -4814,7 +4813,7 @@ ${exprToString(expr)}`
         // Compare the types
         if (
           !areTypesCompatible(
-            { type: typeParameter.type, env: functionEnv },
+            { type: typeParameter.type, env: calleeEnv },
             { type: typeValue.type, env }
           )
         ) {
@@ -4830,7 +4829,7 @@ Got:   ${typeToString(typeValue.type)}`
         if (typeParameter.label) {
           // QUESTION: Should we just update the existing variable?
           const { env: nextEnv } = addVariableToEnv({
-            env: functionEnv,
+            env: calleeEnv,
             variable: {
               name: typeParameter.label,
               token: forallArgExpr.token,
@@ -4841,7 +4840,7 @@ Got:   ${typeToString(typeValue.type)}`
               value: typeValue,
             },
           });
-          functionEnv = nextEnv;
+          calleeEnv = nextEnv;
         }
       }
     }
@@ -4851,10 +4850,10 @@ Got:   ${typeToString(typeValue.type)}`
     // QUESTION: Should we run it after evaluating the normal arguments?
     if (context.expectedType) {
       const { expectedEnv } = this.synthesizeTypes(
-        { type: functionType.return.type, env: functionEnv },
+        { type: functionType.return.type, env: calleeEnv },
         { type: context.expectedType.type, env: context.expectedType.env }
       );
-      functionEnv = expectedEnv;
+      calleeEnv = expectedEnv;
       // env = givenEnv; // NOTE: No need to update `env` here
     }
 
@@ -4862,16 +4861,16 @@ Got:   ${typeToString(typeValue.type)}`
     for (let i = 0; i < functionType.parameters.length; i++) {
       const parameter = functionType.parameters[i];
       const argExpr = argExprs[i];
-      const { functionEnv: nextFunctionEnv } =
+      const { calleeEnv: nextCalleeEnv } =
         this.checkIfFunctionParameterMatchesArgument({
           functionValue,
           parameter,
           argExpr,
           env,
-          functionEnv,
+          calleeEnv,
           context,
         });
-      functionEnv = nextFunctionEnv;
+      calleeEnv = nextCalleeEnv;
     }
 
     // Check if the implicit parameters are provided
@@ -4881,7 +4880,7 @@ Got:   ${typeToString(typeValue.type)}`
       // Evaluate its type again
       const evaluatedTypeExpr = this.evaluateExpression({
         expr: cloneExpr(implicitParameter.typeExpr),
-        env: functionEnv,
+        env: calleeEnv,
         context: {
           ...context,
           isEvaluatingExprAsType: true,
@@ -4921,7 +4920,7 @@ ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implic
             context: {
               ...context,
               isEvaluatingExprAsType: false,
-              expectedType: { type: implicitParameterType, env: functionEnv },
+              expectedType: { type: implicitParameterType, env: calleeEnv },
             },
           });
           if (evaluatedImplicitArg.env) {
@@ -4939,7 +4938,7 @@ ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implic
           if (implicitParameter.label) {
             const argValue = evaluatedImplicitArg.value;
             const { env: nextEnv } = addVariableToEnv({
-              env: functionEnv,
+              env: calleeEnv,
               variable: {
                 name: implicitParameter.label,
                 type: argType,
@@ -4950,21 +4949,21 @@ ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implic
                 value: argValue,
               },
             });
-            functionEnv = nextEnv;
+            calleeEnv = nextEnv;
           }
 
           // Synthesize the types
           const { expectedEnv, givenEnv } = this.synthesizeTypes(
-            { type: implicitParameterType, env: functionEnv },
+            { type: implicitParameterType, env: calleeEnv },
             { type: argType, env }
           );
-          functionEnv = expectedEnv;
+          calleeEnv = expectedEnv;
           env = givenEnv;
 
           // Evaluate the parameter type again
           const evaluatedTypeExpr = this.evaluateExpression({
             expr: cloneExpr(implicitParameter.typeExpr),
-            env: functionEnv,
+            env: calleeEnv,
             context: {
               ...context,
               isEvaluatingExprAsType: true,
@@ -4985,7 +4984,7 @@ ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implic
           // Compare the types
           if (
             !areTypesCompatible(
-              { type: implicitParameterType, env: functionEnv },
+              { type: implicitParameterType, env: calleeEnv },
               { type: argType, env }
             )
           ) {
@@ -5015,7 +5014,7 @@ Got:   ${typeToString(argType)}`
         // Check if type matches
         if (
           areTypesCompatible(
-            { type: implicitParameterType, env: functionEnv },
+            { type: implicitParameterType, env: calleeEnv },
             { type: variable.type, env }
           )
         ) {
@@ -5037,7 +5036,7 @@ Got:   ${typeToString(argType)}`
             }
 
             try {
-              this.tryToCallFunctionWithArguments({
+              const { returnType } = this.tryToCallFunctionWithArguments({
                 argExprs: [],
                 env,
                 functionType: funcType,
@@ -5046,12 +5045,15 @@ Got:   ${typeToString(argType)}`
                 context: {
                   expectedType: {
                     type: implicitParameterType,
-                    env: functionEnv,
+                    env: calleeEnv,
                   },
                   isEvaluatingExprAsType: false,
                 },
               });
-              return true;
+              return areTypesCompatible(
+                { type: returnType, env },
+                { type: implicitParameterType, env: calleeEnv }
+              );
             } catch {
               // Failed
             }
@@ -5088,7 +5090,7 @@ ${implicitVariables
       // Add the implicit variable to the function env
       const implicitVariable = implicitVariables[0];
       const { env: nextEnv } = addVariableToEnv({
-        env: functionEnv,
+        env: calleeEnv,
         variable: {
           name: implicitVariable.name,
           type: implicitVariable.type,
@@ -5099,10 +5101,26 @@ ${implicitVariables
           value: implicitVariable.value,
         },
       });
-      functionEnv = nextEnv;
+      calleeEnv = nextEnv;
     }
 
-    return { functionEnv };
+    // Evaluate the function return type again
+    const evaluatedFunctionReturnExpr = this.evaluateExpression({
+      expr: cloneExpr(functionType.return.expr),
+      env: calleeEnv,
+      context: { ...context, isEvaluatingExprAsType: true },
+    });
+
+    const functionReturnTypeValue = evaluatedFunctionReturnExpr.value;
+    if (!isTypeValue(functionReturnTypeValue)) {
+      throw this.formatErrorMessage(
+        functionCallExpr?.token ?? PlaceholderToken,
+        `Function body is not evaluated correctly. Expected to return a type.`
+      );
+    }
+    const returnType = functionReturnTypeValue.value;
+
+    return { returnType, calleeEnv };
   }
 
   private tryToCallTypeWithArguments({
@@ -5460,7 +5478,7 @@ Got:   ${typeToString(argType)}`
   }): { value: TypeValue; env: Environment } {
     // This will push a new frame to the function env and
     // add the parameters to the env
-    const { functionEnv } = this.tryToCallFunctionWithArguments({
+    const { calleeEnv } = this.tryToCallFunctionWithArguments({
       functionValue,
       functionType,
       functionCallExpr,
@@ -5530,7 +5548,7 @@ Got:   ${typeToString(argType)}`
     // NOTE: We should use the env from the function, not the current env.
     const evaluatedFunctionBody = this.evaluateExpression({
       expr: functionBodyExpr,
-      env: functionEnv,
+      env: calleeEnv,
       context: { ...context, isEvaluatingExprAsType: false },
     });
     if (!evaluatedFunctionBody.env) {
@@ -5576,55 +5594,6 @@ Got:   ${typeToString(argType)}`
 
     return {
       value: returnValue,
-      env,
-    };
-  }
-
-  private evaluateFunctionCallReturnType({
-    functionCallExpr,
-    functionValue,
-    functionType,
-    argExprs,
-    env,
-    context,
-  }: {
-    functionCallExpr: Expr;
-    functionValue?: FunctionValue;
-    functionType: FunctionType;
-    argExprs: Expr[];
-    env: Environment;
-    context: EvaluatorContext;
-  }): { returnType: Type; env: Environment } {
-    // This will push a new frame to the env and
-    // add the parameters to the env
-    const { functionEnv } = this.tryToCallFunctionWithArguments({
-      functionValue,
-      functionType,
-      functionCallExpr,
-      argExprs,
-      env,
-      context: { ...context },
-    });
-    // Evaluate the function return expr again
-    // NOTE: We should use the env from the function, not the current env.
-    const evaluatedFunctionReturnExpr = this.evaluateExpression({
-      expr: cloneExpr(functionType.return.expr),
-      env: functionEnv,
-      context: { ...context, isEvaluatingExprAsType: true },
-    });
-
-    // Get the return type
-    const functionReturnTypeValue = evaluatedFunctionReturnExpr.value;
-    if (!isTypeValue(functionReturnTypeValue)) {
-      throw this.formatErrorMessage(
-        functionCallExpr.token,
-        `(evaluateFunctionCallReturnType) Function body is not evaluated correctly. Expected to return a type.`
-      );
-    }
-    const returnType = functionReturnTypeValue.value;
-
-    return {
-      returnType: returnType,
       env,
     };
   }
