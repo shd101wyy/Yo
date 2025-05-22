@@ -111,7 +111,10 @@ interface EvaluatorContext {
   /**
    *
    */
-  expectedType?: Type;
+  expectedType?: {
+    type: Type;
+    env: Environment;
+  };
 
   /**
    * This is used for calling the `recur` function.
@@ -359,7 +362,7 @@ export default class Evaluator {
     }
 
     // Check expectedType
-    const expectedType = context.expectedType;
+    const expectedType = context.expectedType?.type;
     let expectedTupleElementType: Type | undefined = undefined;
     if (expectedType) {
       if (isTupleType(expectedType)) {
@@ -386,7 +389,12 @@ ${typeToString(expectedType)}`
       env,
       context: {
         ...context,
-        expectedType: expectedTupleElementType,
+        expectedType: expectedTupleElementType
+          ? {
+              type: expectedTupleElementType,
+              env,
+            }
+          : undefined,
       },
     });
     if (evaluatedRhs.env) {
@@ -492,7 +500,7 @@ Given type: ${typeToString(defaultValue.type)}`
     }
 
     // Check expectedType
-    const expectedTupleType = context.expectedType;
+    const expectedTupleType = context.expectedType?.type;
     let expectedTupleElementType: Type | undefined = undefined;
     if (expectedTupleType) {
       if (!isTupleType(expectedTupleType)) {
@@ -512,7 +520,12 @@ ${typeToString(expectedTupleType)}`
       env,
       context: {
         ...context,
-        expectedType: expectedTupleElementType,
+        expectedType: expectedTupleElementType
+          ? {
+              type: expectedTupleElementType,
+              env,
+            }
+          : undefined,
       },
     });
     if (evaluatedRhs.env) {
@@ -1915,7 +1928,7 @@ ${exprToString(rhs)}`
         context: {
           ...context,
           isEvaluatingExprAsType: false,
-          expectedType: variable.type,
+          expectedType: { type: variable.type, env },
         },
       });
       if (rhs.env) {
@@ -2767,7 +2780,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    const functionType = context.expectedType;
+    const functionType = context.expectedType?.type;
     if (!functionType) {
       throw this.formatErrorMessage(
         expr.token,
@@ -3616,7 +3629,7 @@ compt(${exprToString(returnTypeExpr)})`
         );
       }
 
-      const expectedEnumType = context.expectedType;
+      const expectedEnumType = context.expectedType?.type;
       if (!isEnumType(expectedEnumType)) {
         throw this.formatErrorMessage(
           expr.token,
@@ -4125,8 +4138,8 @@ compt(${exprToString(returnTypeExpr)})`
         }
         functions = [
           {
-            type: typeOfType(expectedType),
-            value: createTypeValue(expectedType),
+            type: typeOfType(expectedType.type),
+            value: createTypeValue(expectedType.type),
           },
         ];
       }
@@ -4570,7 +4583,7 @@ ${exprToString(expr)}`
         context: {
           ...context,
           isEvaluatingExprAsType: false,
-          expectedType: parameterType,
+          expectedType: { type: parameterType, env: functionEnv },
         },
       });
       if (evaluatedArgExpr.env) {
@@ -4688,6 +4701,13 @@ ${exprToString(expr)}`
     env: Environment;
     context: EvaluatorContext;
   }): { functionEnv: Environment } {
+    console.log(
+      "tryToCallFunctionWithArguments: ",
+      exprToString(functionCallExpr),
+      context.expectedType
+        ? typeToString(context.expectedType.type)
+        : "<no expected type>"
+    );
     // NOTE: We disallow to have default values for function parameters
     let givenArgCount = argExprs.length;
     let forallArgsExpr: FuncCallExpr | undefined = undefined;
@@ -4751,7 +4771,8 @@ ${exprToString(expr)}`
     // Push new frame to function env
     let functionEnv = pushEnvFrame(functionType.env);
 
-    // Evaluate the forallArgsExpr if exists
+    // Evaluate the forallArgsExpr
+    // Add necessary type parameters to the functionEnv
     if (
       forallArgsExpr &&
       forallArgsExpr.args.length !== functionType.typeParameters.length
@@ -4795,7 +4816,7 @@ ${exprToString(expr)}`
           context: {
             ...context,
             isEvaluatingExprAsType: true,
-            expectedType: typeParameter.type,
+            expectedType: { type: typeParameter.type, env: functionEnv },
           },
         });
         if (evaluatedTypeExpr.env) {
@@ -4844,6 +4865,18 @@ Got:   ${typeToString(typeValue.type)}`
       }
     }
 
+    // Synthesize the returnType if context.expectedType is giving
+    // The context.expectedType is the expected function return type.
+    if (context.expectedType) {
+      const { expectedEnv } = this.synthesizeTypes(
+        { type: functionType.return.type, env: functionEnv },
+        { type: context.expectedType.type, env: context.expectedType.env },
+        functionCallExpr.token
+      );
+      functionEnv = expectedEnv;
+      // env = givenEnv; // NOTE: No need to update `env` here
+    }
+
     // Check if the parameters match the arguments
     for (let i = 0; i < functionType.parameters.length; i++) {
       const parameter = functionType.parameters[i];
@@ -4884,6 +4917,10 @@ Got:   ${typeToString(typeValue.type)}`
         );
       }
       let implicitParameterType = evaluatedTypeExpr.value.value;
+      console.log(
+        "evaluated implicit parameter type: ",
+        typeToString(implicitParameterType)
+      );
 
       // Check if it's provided in implicitArgsExpr
       if (implicitArgsExpr) {
@@ -4907,7 +4944,7 @@ ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implic
             context: {
               ...context,
               isEvaluatingExprAsType: false,
-              expectedType: implicitParameterType,
+              expectedType: { type: implicitParameterType, env: functionEnv },
             },
           });
           if (evaluatedImplicitArg.env) {
@@ -5125,7 +5162,7 @@ ${implicitVariables
         context: {
           ...context,
           isEvaluatingExprAsType: false,
-          expectedType: memberElement.type,
+          expectedType: { type: memberElement.type, env },
         },
       });
 
@@ -5274,7 +5311,7 @@ ${valueToString(moduleMember.requiredValue)}`
             context: {
               ...context,
               isEvaluatingExprAsType: false,
-              expectedType: moduleMemberType,
+              expectedType: { type: moduleMemberType, env },
               SelfType: moduleType,
             },
           });
@@ -6108,7 +6145,7 @@ If you want to define the receiver type, please use "This" instead.`
           context: {
             ...context,
             isEvaluatingExprAsType: false,
-            expectedType: memberType,
+            expectedType: { type: memberType, env },
             SelfType: moduleType,
           },
         });

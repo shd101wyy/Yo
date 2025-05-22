@@ -1,8 +1,8 @@
 def Point:
-  (@(T): Type)-> @(Type),
+  (@(P): Type)-> @(Type),
   struct
-    x: T,
-    y: T
+    x: P,
+    y: P
 ;
 
 def Id:
@@ -31,27 +31,27 @@ implicit(IdBoolean) ::
 ;
 
 def implicit(IdPoint) :
-  ( forall(@(T): Type), 
-    implicit(@(I): Id(T))
-  )-> @(Id(Point(T))),
-  Id(Point(T))
+  ( forall(@(IP): Type), 
+    implicit(@(I): Id(IP))
+  )-> @(Id(Point(IP))),
+  Id(Point(IP))
     id:
       fn(p) ->
-        Point(T)(I.id(p.x), I.id(p.y))
+        Point(IP)(I.id(p.x), I.id(p.y))
 ;
 
 def main: (() -> ()), {
-  x := id(13); // Implicit call
-  x := id(13, implicit(IdInt)); // Explicit call
+  // x := id(13); // Implicit call
+  // x := id(13, implicit(IdInt)); // Explicit call
 
-  x := id(false); // Implicit call
-  x := id(true, implicit(IdBoolean)); // Explicit call
+  // x := id(false); // Implicit call
+  // x := id(true, implicit(IdBoolean)); // Explicit call
 
-  point :: Point(i32)(1, 2); 
+  // point :: Point(i32)(1, 2); 
   IdIntPoint :: IdPoint(implicit(IdInt));
 
   // QUESTION: How to implement the following?
-  // id(Point(i32)(1, 2)); // Implicit call
+  id(Point(i32)(1, 2)); // Implicit call
   // id(Point(i32)(1, 2), implicit(IdPoint())); // Implicit call 2
-  id(point, implicit(IdPoint(implicit(IdInt)))); // Explicit call
+  // id(Point(i32)(1, 2), implicit(IdPoint(implicit(IdInt)))); // Explicit call
 }
