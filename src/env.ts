@@ -162,11 +162,7 @@ export function createNewEnv({
 }): Environment {
   return {
     functionDeclarationFrameLevel: -1,
-    frames: [
-      {
-        variables: [],
-      },
-    ],
+    frames: [],
     freeVariables: [],
     modulePath,
     inputString,
@@ -601,27 +597,6 @@ export function getMethodsByNameFromEnv(
       ) {
         checkModule(moduleType, moduleValue);
       }
-      /*
-      else if (
-        // Check if it's a function that returns interface, then we check its caches
-        isFunctionType(variable.type) &&
-        isFunctionValue(variable.value)
-      ) {
-        const functionValue = variable.value;
-        // Check the caches
-        for (
-          let k = 0;
-          k < functionValue.calledTypeFunctionCaches.length;
-          k++
-        ) {
-          const cache = functionValue.calledTypeFunctionCaches[k];
-          if (isModuleType(cache.typeValue.value)) {
-            const moduleType = cache.typeValue.value;
-            checkModuleType(moduleType);
-          }
-        }
-      }
-      */
     }
   }
 

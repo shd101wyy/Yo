@@ -2508,7 +2508,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     return expr;
   }
 
-  private evaluateIdentifier({
+  private evaluateIdentifierAndOperator({
     expr,
     env,
     context,
@@ -3423,6 +3423,7 @@ compt(${exprToString(returnTypeExpr)})`
     // Set the type and value of the expression
     expr.type = typeOfType(functionType);
     expr.value = createTypeValue(functionType);
+    expr.env = env;
     return expr;
   }
 
@@ -4132,8 +4133,8 @@ compt(${exprToString(returnTypeExpr)})`
           },
         ];
       }
-      // Operator is taken as an interface method call
-      else if (stringIsOperator(functionName)) {
+      // Infix operator is taken as an interface method call
+      else if (stringIsOperator(functionName) && expr.isInfix) {
         const firstArg = args[0];
         if (!firstArg) {
           throw this.formatErrorMessage(
@@ -5887,7 +5888,9 @@ Got:   ${typeToString(argType)}`
           const moduleMember: ModuleMember = {
             label,
             type: element.type,
-            requiredValue: undefined,
+            // NOTE: Needs to set the value as requiredValue
+            // It is necessary to make it work with `This` the receiver type.
+            requiredValue: structValue.elements[i],
             defaultValue: undefined,
             expr: element.expr,
           };
@@ -6528,8 +6531,9 @@ If you want to define the receiver type, please use "This" instead.`
   }): Expr {
     if (exprIsAtom(expr)) {
       switch (expr.token.type) {
-        case TokenType.Identifier: {
-          return this.evaluateIdentifier({
+        case TokenType.Identifier:
+        case TokenType.Operator: {
+          return this.evaluateIdentifierAndOperator({
             expr,
             env,
             context: { ...context },
