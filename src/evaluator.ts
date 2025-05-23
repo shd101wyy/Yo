@@ -4191,7 +4191,7 @@ compt(${exprToString(returnTypeExpr)})`
             functionType: functionToCall.type,
             functionCallExpr: func,
             argExprs: args,
-            env,
+            callerEnv: env,
             context: { ...context },
           });
         } catch (error) {
@@ -4207,7 +4207,7 @@ compt(${exprToString(returnTypeExpr)})`
               memberElements: value.value.elements,
               functionCallExpr: func,
               argExprs: args,
-              env,
+              callerEnv: env,
               context: { ...context },
             });
           } catch (error) {
@@ -4231,7 +4231,7 @@ compt(${exprToString(returnTypeExpr)})`
               memberElements: selectedVariant.elements || [],
               functionCallExpr: func,
               argExprs: args,
-              env,
+              callerEnv: env,
               context: { ...context },
             });
           } catch (error) {
@@ -4246,7 +4246,7 @@ compt(${exprToString(returnTypeExpr)})`
               moduleExpr: func,
               moduleType: moduleType,
               argExprs: args,
-              env,
+              callerEnv: env,
               context: { ...context },
             });
           } catch (error) {
@@ -4329,7 +4329,7 @@ ${functionsWithMatchingTypes
             functionType,
             functionValue,
             argExprs: args,
-            env,
+            callerEnv: env,
             context: {
               ...context,
             },
@@ -4350,7 +4350,7 @@ ${functionsWithMatchingTypes
           functionValue: functionToCall.value as FunctionValue | undefined,
           functionType,
           argExprs: args,
-          env,
+          callerEnv: env,
           context: {
             ...context,
             SelfType: functionType.SelfType,
@@ -4386,7 +4386,7 @@ ${functionsWithMatchingTypes
           memberElements: value.value.elements,
           functionCallExpr: func,
           argExprs: args,
-          env,
+          callerEnv: env,
           context: {
             ...context,
           },
@@ -4429,7 +4429,7 @@ ${functionsWithMatchingTypes
           memberElements: selectedVariant.elements || [],
           functionCallExpr: func,
           argExprs: args,
-          env,
+          callerEnv: env,
           context: { ...context },
         });
         if (!memberValues) {
@@ -4458,7 +4458,7 @@ ${functionsWithMatchingTypes
           moduleExpr: func,
           moduleType: value.value,
           argExprs: args,
-          env,
+          callerEnv: env,
           context: {
             ...context,
           },
@@ -4487,7 +4487,7 @@ ${exprToString(expr)}`
     parameter,
     argExpr,
     calleeEnv,
-    env,
+    callerEnv,
     context,
   }: {
     functionValue?: FunctionValue;
@@ -4497,7 +4497,7 @@ ${exprToString(expr)}`
     parameter: FunctionParameter;
     argExpr: Expr;
     calleeEnv: Environment;
-    env: Environment;
+    callerEnv: Environment;
     context: EvaluatorContext;
   }): { calleeEnv: Environment } {
     // NOTE: We don't support named argument.
@@ -4567,7 +4567,7 @@ ${exprToString(expr)}`
     try {
       evaluatedArgExpr = this.evaluateExpression({
         expr: argExpr,
-        env,
+        env: callerEnv,
         context: {
           ...context,
           isEvaluatingExprAsType: false,
@@ -4575,7 +4575,7 @@ ${exprToString(expr)}`
         },
       });
       if (evaluatedArgExpr.env) {
-        env = evaluatedArgExpr.env;
+        callerEnv = evaluatedArgExpr.env;
       }
     } catch (error) {
       logger.debug(error);
@@ -4628,10 +4628,10 @@ ${exprToString(expr)}`
     // Synthesize the types
     const { expectedEnv, givenEnv } = this.synthesizeTypes(
       { type: parameterType, env: calleeEnv },
-      { type: argType, env: env }
+      { type: argType, env: callerEnv }
     );
     calleeEnv = expectedEnv;
-    env = givenEnv;
+    callerEnv = givenEnv;
 
     // Evaluate the parameter type again
     const evaluatedTypeExpr = this.evaluateExpression({
@@ -4656,7 +4656,7 @@ ${exprToString(expr)}`
     if (
       !areTypesCompatible(
         { type: parameterType, env: calleeEnv },
-        { type: argType, env }
+        { type: argType, env: callerEnv }
       )
     ) {
       throw this.formatErrorMessage(
@@ -4678,14 +4678,14 @@ ${exprToString(expr)}`
     functionType,
     functionCallExpr,
     argExprs,
-    env,
+    callerEnv,
     context,
   }: {
     functionValue?: FunctionValue;
     functionType: FunctionType;
     functionCallExpr?: Expr;
     argExprs: Expr[];
-    env: Environment;
+    callerEnv: Environment;
     context: EvaluatorContext;
   }): { calleeEnv: Environment; returnType: Type } {
     // NOTE: We disallow to have default values for function parameters
@@ -4747,7 +4747,7 @@ ${exprToString(expr)}`
     }
 
     // Push new frame to env
-    env = pushEnvFrame(env);
+    callerEnv = pushEnvFrame(callerEnv);
     // Push new frame to function env
     let calleeEnv = pushEnvFrame(functionType.env);
 
@@ -4792,7 +4792,7 @@ ${exprToString(expr)}`
         // Evaluate forallArgExpr
         const evaluatedTypeExpr = this.evaluateExpression({
           expr: forallArgExpr,
-          env,
+          env: callerEnv,
           context: {
             ...context,
             isEvaluatingExprAsType: true,
@@ -4800,7 +4800,7 @@ ${exprToString(expr)}`
           },
         });
         if (evaluatedTypeExpr.env) {
-          env = evaluatedTypeExpr.env;
+          callerEnv = evaluatedTypeExpr.env;
         }
         const typeValue = evaluatedTypeExpr.value;
         if (!isTypeValue(typeValue)) {
@@ -4814,7 +4814,7 @@ ${exprToString(expr)}`
         if (
           !areTypesCompatible(
             { type: typeParameter.type, env: calleeEnv },
-            { type: typeValue.type, env }
+            { type: typeValue.type, env: callerEnv }
           )
         ) {
           throw this.formatErrorMessage(
@@ -4866,7 +4866,7 @@ Got:   ${typeToString(typeValue.type)}`
           functionValue,
           parameter,
           argExpr,
-          env,
+          callerEnv,
           calleeEnv,
           context,
         });
@@ -4916,7 +4916,7 @@ ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implic
           // Evaluate the implicit argument
           const evaluatedImplicitArg = this.evaluateExpression({
             expr: implicitArg,
-            env,
+            env: callerEnv,
             context: {
               ...context,
               isEvaluatingExprAsType: false,
@@ -4924,7 +4924,7 @@ ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implic
             },
           });
           if (evaluatedImplicitArg.env) {
-            env = evaluatedImplicitArg.env;
+            callerEnv = evaluatedImplicitArg.env;
           }
           const argType = evaluatedImplicitArg.type;
           if (!argType) {
@@ -4955,10 +4955,10 @@ ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implic
           // Synthesize the types
           const { expectedEnv, givenEnv } = this.synthesizeTypes(
             { type: implicitParameterType, env: calleeEnv },
-            { type: argType, env }
+            { type: argType, env: callerEnv }
           );
           calleeEnv = expectedEnv;
-          env = givenEnv;
+          callerEnv = givenEnv;
 
           // Evaluate the parameter type again
           const evaluatedTypeExpr = this.evaluateExpression({
@@ -4985,7 +4985,7 @@ ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implic
           if (
             !areTypesCompatible(
               { type: implicitParameterType, env: calleeEnv },
-              { type: argType, env }
+              { type: argType, env: callerEnv }
             )
           ) {
             throw this.formatErrorMessage(
@@ -5000,68 +5000,75 @@ Got:   ${typeToString(argType)}`
       }
 
       // Check in the env if implicit variable of such type exists
-      const implicitVariables = getVariablesFromEnvByFilter(env, (variable) => {
-        if (
-          !(
-            Boolean(variable.isImplicit) &&
-            Boolean(variable.isCompileTimeOnly) ===
-              Boolean(implicitParameter.isCompileTimeOnly)
-          )
-        ) {
-          return false;
-        }
+      const implicitVariables = getVariablesFromEnvByFilter(
+        callerEnv,
+        (variable) => {
+          if (
+            !(
+              Boolean(variable.isImplicit) &&
+              Boolean(variable.isCompileTimeOnly) ===
+                Boolean(implicitParameter.isCompileTimeOnly)
+            )
+          ) {
+            return false;
+          }
 
-        // Check if type matches
-        if (
-          areTypesCompatible(
-            { type: implicitParameterType, env: calleeEnv },
-            { type: variable.type, env }
-          )
-        ) {
-          return true;
-        }
+          // Check if type matches
+          if (
+            areTypesCompatible(
+              { type: implicitParameterType, env: calleeEnv },
+              { type: variable.type, env: callerEnv }
+            )
+          ) {
+            return true;
+          }
 
-        // Check if it's a function that has no parameters.
-        // (can have type parameters, and implicit parameters).
-        // Then try to call that function to check if its return type can
-        // match the implicit parameter type
-        if (isFunctionType(variable.type)) {
-          const funcType = variable.type;
-          if (funcType.parameters.length === 0) {
-            const funcValue = variable.value;
+          // Check if it's a function that has no parameters.
+          // (can have type parameters, and implicit parameters).
+          // Then try to call that function to check if its return type can
+          // match the implicit parameter type
+          if (isFunctionType(variable.type)) {
+            const funcType = variable.type;
+            if (funcType.parameters.length === 0) {
+              const funcValue = variable.value;
 
-            if (!!funcValue && !!functionValue && funcValue === functionValue) {
-              // Prevent infinite loop
-              return false;
-            }
+              if (
+                !!funcValue &&
+                !!functionValue &&
+                funcValue === functionValue
+              ) {
+                // Prevent infinite loop
+                return false;
+              }
 
-            try {
-              const { returnType } = this.tryToCallFunctionWithArguments({
-                argExprs: [],
-                env,
-                functionType: funcType,
-                functionValue: funcValue as FunctionValue | undefined,
-                functionCallExpr: undefined, // FIXME: <- this is the wrong expr
-                context: {
-                  expectedType: {
-                    type: implicitParameterType,
-                    env: calleeEnv,
+              try {
+                const { returnType } = this.tryToCallFunctionWithArguments({
+                  argExprs: [],
+                  callerEnv,
+                  functionType: funcType,
+                  functionValue: funcValue as FunctionValue | undefined,
+                  functionCallExpr: undefined, // FIXME: <- this is the wrong expr
+                  context: {
+                    expectedType: {
+                      type: implicitParameterType,
+                      env: calleeEnv,
+                    },
+                    isEvaluatingExprAsType: false,
                   },
-                  isEvaluatingExprAsType: false,
-                },
-              });
-              return areTypesCompatible(
-                { type: returnType, env },
-                { type: implicitParameterType, env: calleeEnv }
-              );
-            } catch {
-              // Failed
+                });
+                return areTypesCompatible(
+                  { type: returnType, env: callerEnv },
+                  { type: implicitParameterType, env: calleeEnv }
+                );
+              } catch {
+                // Failed
+              }
             }
           }
-        }
 
-        return false;
-      });
+          return false;
+        }
+      );
 
       if (implicitVariables.length === 0) {
         throw this.formatErrorMessage(
@@ -5127,13 +5134,13 @@ ${implicitVariables
     memberElements,
     functionCallExpr,
     argExprs,
-    env,
+    callerEnv,
     context,
   }: {
     memberElements: TupleElement[];
     functionCallExpr: Expr;
     argExprs: Expr[];
-    env: Environment;
+    callerEnv: Environment;
     context: EvaluatorContext;
   }): (Value | undefined)[] {
     if (argExprs.length > memberElements.length) {
@@ -5200,11 +5207,11 @@ ${implicitVariables
       // Evaluate the argExpr
       const evaluatedArgExpr = this.evaluateExpression({
         expr: argExpr,
-        env,
+        env: callerEnv,
         context: {
           ...context,
           isEvaluatingExprAsType: false,
-          expectedType: { type: memberElement.type, env },
+          expectedType: { type: memberElement.type, env: callerEnv },
         },
       });
 
@@ -5219,8 +5226,8 @@ ${implicitVariables
       // Compare the types
       if (
         !areTypesCompatible(
-          { type: memberElement.type, env },
-          { type: argType, env }
+          { type: memberElement.type, env: callerEnv },
+          { type: argType, env: callerEnv }
         )
       ) {
         throw this.formatErrorMessage(
@@ -5259,13 +5266,13 @@ Got:   ${typeToString(argType)}`
     moduleExpr,
     moduleType,
     argExprs,
-    env,
+    callerEnv,
     context,
   }: {
     moduleExpr: Expr;
     moduleType: ModuleType;
     argExprs: Expr[];
-    env: Environment;
+    callerEnv: Environment;
     context: EvaluatorContext;
   }): ModuleValue {
     if (argExprs.length > moduleType.members.length) {
@@ -5276,7 +5283,7 @@ Got:   ${typeToString(argType)}`
     }
 
     const members: Record<string, Value> = {};
-    env = pushEnvFrame(env);
+    callerEnv = pushEnvFrame(callerEnv);
     for (let i = 0; i < moduleType.members.length; i++) {
       const moduleMember = moduleType.members[i];
       let foundArgExpr = false;
@@ -5349,11 +5356,11 @@ ${valueToString(moduleMember.requiredValue)}`
           // evaluate the argExpr
           const evaluatedArgExpr = this.evaluateExpression({
             expr: argExpr,
-            env,
+            env: callerEnv,
             context: {
               ...context,
               isEvaluatingExprAsType: false,
-              expectedType: { type: moduleMemberType, env },
+              expectedType: { type: moduleMemberType, env: callerEnv },
               SelfType: moduleType,
             },
           });
@@ -5365,14 +5372,14 @@ ${valueToString(moduleMember.requiredValue)}`
             );
           }
           if (evaluatedArgExpr.env) {
-            env = evaluatedArgExpr.env;
+            callerEnv = evaluatedArgExpr.env;
           }
 
           // Compare the types
           if (
             !areTypesCompatible(
-              { type: moduleMemberType, env },
-              { type: argType, env }
+              { type: moduleMemberType, env: callerEnv },
+              { type: argType, env: callerEnv }
             )
           ) {
             throw this.formatErrorMessage(
@@ -5394,7 +5401,7 @@ Got:   ${typeToString(argType)}`
           members[label] = argValue;
           // Add to the env
           const { env: nextEnv } = addVariableToEnv({
-            env,
+            env: callerEnv,
             variable: {
               name: label,
               type: argType,
@@ -5406,16 +5413,16 @@ Got:   ${typeToString(argType)}`
             },
             skipCheckingFunctionOverloading: true,
           });
-          env = nextEnv;
+          callerEnv = nextEnv;
 
           // Add the type information to argExpr
           argExpr.type = argType;
           argExpr.value = argValue;
-          argExpr.env = env;
+          argExpr.env = callerEnv;
           if (labelExpr) {
             labelExpr.type = argType;
             labelExpr.value = argValue;
-            labelExpr.env = env;
+            labelExpr.env = callerEnv;
           }
           break;
         }
@@ -5441,7 +5448,7 @@ Got:   ${typeToString(argType)}`
 
         // Add to the env
         const { env: nextEnv } = addVariableToEnv({
-          env,
+          env: callerEnv,
           variable: {
             name: moduleMember.label,
             type: moduleMember.type,
@@ -5452,7 +5459,7 @@ Got:   ${typeToString(argType)}`
             value: moduleMember.defaultValue,
           },
         });
-        env = nextEnv;
+        callerEnv = nextEnv;
       }
     }
 
@@ -5466,14 +5473,14 @@ Got:   ${typeToString(argType)}`
     functionType,
     functionValue,
     argExprs,
-    env,
+    callerEnv,
     context,
   }: {
     functionCallExpr: Expr;
     functionType: FunctionType;
     functionValue: FunctionValue;
     argExprs: Expr[];
-    env: Environment;
+    callerEnv: Environment;
     context: EvaluatorContext;
   }): { value: TypeValue; env: Environment } {
     // This will push a new frame to the function env and
@@ -5483,7 +5490,7 @@ Got:   ${typeToString(argType)}`
       functionType,
       functionCallExpr,
       argExprs,
-      env,
+      callerEnv,
       context: { ...context },
     });
 
@@ -5529,7 +5536,7 @@ Got:   ${typeToString(argType)}`
 
             return areValuesEqual(
               { value: argValue, env: cache.env },
-              { value: givenArgValue, env }
+              { value: givenArgValue, env: callerEnv }
             );
           })
         ); // Check if the values are equal
@@ -5537,7 +5544,7 @@ Got:   ${typeToString(argType)}`
       if (calledTypeFunction) {
         // Find the cache
         return {
-          env,
+          env: callerEnv,
           value: calledTypeFunction.typeValue,
         };
       }
@@ -5554,7 +5561,7 @@ Got:   ${typeToString(argType)}`
     if (!evaluatedFunctionBody.env) {
       throw this.formatErrorMessage(
         functionCallExpr.token,
-        `(evaluateTypeFunctionCall) Function body is not evaluated correctly`
+        `Function body is not evaluated correctly`
       );
     }
 
@@ -5563,7 +5570,7 @@ Got:   ${typeToString(argType)}`
     if (!isTypeValue(returnValue)) {
       throw this.formatErrorMessage(
         functionCallExpr.token,
-        `(evaluateTypeFunctionCall) Function body is not evaluated correctly. Expected to return a type.`
+        `Function body is not evaluated correctly. Expected to return a type.`
       );
     }
     const returnType = returnValue.value;
@@ -5594,7 +5601,7 @@ Got:   ${typeToString(argType)}`
 
     return {
       value: returnValue,
-      env,
+      env: callerEnv,
     };
   }
 
