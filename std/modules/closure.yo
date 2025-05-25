@@ -1,9 +1,21 @@
-fn FnOnce(Context: Type, Arguments: Type), interface {
-  (Output: Type) = Context,
-  call_once: (fn(self: Context, arguments: Arguments)
-                -> this.Output)
-};
+def FnOnce:
+  (@(Context): Type, @(Arguments): Type, @(Output): Type)-> @(Type), 
+  module
+    call_once: 
+      (self: Context, arguments: Arguments)
+        -> Output
+;
 
+def FnMut:
+  (@(Context): Type, @(Arguments): Type, @(Output): Type, implicit(@(fn_mut): FnOnce(Context, Arguments, Output)))
+    -> @(Type), 
+  module
+    call_mut: 
+      (self: &!(Context), arguments: Arguments)
+        -> Output
+;
+
+/*
 fn FnMut(
   (Context: Free) <: FnOnce(_, Arguments), // _ here means Context
   Arguments: Type
@@ -23,4 +35,5 @@ fn Fn(
 };
 
 
-{ FnOnce, FnMut, Fn }
+export { FnOnce, FnMut, Fn }
+*/
