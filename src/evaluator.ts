@@ -1156,10 +1156,66 @@ ${typeToString(expectedTupleType)}`
       let labelExpr: Expr | undefined = undefined;
       let renameExpr: Expr | undefined = undefined;
 
+      // Handle destructuring all elements with *
+      // - (* : *)
+      // - ( * )
+      if (
+        (exprIsFunctionCall(lhsElement) &&
+          exprIsFunctionCallOf(lhsElement, ":", 2) &&
+          lhsElement.args[0].token.value === "*" &&
+          lhsElement.args[1].token.value === "*") ||
+        (exprIsAtom(lhsElement) && lhsElement.token.value === "*")
+      ) {
+        // If it's a single *, we destructure all elements
+        if (lhsElements.length === 1) {
+          // We can destructure all elements
+          for (let j = 0; j < rhsElements.length; j++) {
+            const member = rhsElements[j];
+            if (!member.label) {
+              continue;
+            }
+            const memberValue =
+              isTupleValue(rhsValue) || isStructValue(rhsValue)
+                ? rhsValue.elements[j]
+                : isModuleValue(rhsValue)
+                  ? rhsValue.members[member.label!]
+                  : undefined;
+
+            // Add to environment
+            const { env: nextEnv } = addVariableToEnv({
+              env,
+              variable: {
+                name: member.label,
+                value: memberValue,
+                type: member.type,
+                token: lhsElement.token,
+                isMutable: false,
+                isCompileTimeOnly,
+                isNotInitialized: false,
+              },
+            });
+            env = nextEnv;
+          }
+
+          // Set the type and value of the lhsElement
+          lhsElement.type = rhsType;
+          lhsElement.value = rhsValue;
+          lhsElement.env = env;
+
+          // Done with destructuring, return the environment
+          return env;
+        } else {
+          throw this.formatErrorMessage(
+            lhsElement.token,
+            `Destructuring with * requires a single element, got ${lhsElements.length}`
+          );
+        }
+      }
+
       // Handle labeled nested destructuring pattern like:
       // - (c: (x, y))
       // - (c: _(x, y))
-      if (
+      else if (
         exprIsFunctionCall(lhsElement) &&
         exprIsFunctionCallOf(lhsElement, ":", 2)
       ) {
