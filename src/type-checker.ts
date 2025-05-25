@@ -529,12 +529,12 @@ export interface ModuleMember {
    *    def Id:
    *      (@(T): Type)-> @(Type),
    *      module:
-   *        (This: Type) == T,
+   *        (Self: Type) == T,
    *        id:
-   *          (x: This)-> This
+   *          (x: Self)-> Self
    *    ;
    *    MyId :: Id(i32)
-   *      // This: i32, // <- This line is not allowed
+   *      // Self: i32, // <- This line is not allowed
    *      id:
    *        fn(x)-> x
    *    ;
@@ -762,7 +762,7 @@ export function createModuleType(
 
 export function getModuleReceiverType(moduleType: ModuleType): Type | null {
   const receiverType = moduleType.members.find(
-    (member) => member.label === "This"
+    (member) => member.label === "Self"
   );
   if (!receiverType || !receiverType.requiredValue) {
     return null;

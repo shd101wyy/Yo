@@ -50,6 +50,7 @@ import {
   isStructType,
   isTupleType,
   isTypeHierarchyType,
+  isUnionType,
   ModuleMember,
   ModuleType,
   StructType,
@@ -2751,47 +2752,19 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       return expr;
     }
     // Self
-    else if (identifier === "Self") {
-      if (!context.SelfType) {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Expected to use "Self" in the interface/struct/enum/union context.`
-        );
-      }
+    else if (
+      identifier === "Self" &&
+      // NOTE: If `Self` is used inside struct/enum/union
+      // then it means the type itself.
+      (isStructType(context.SelfType) ||
+        isEnumType(context.SelfType) ||
+        isUnionType(context.SelfType))
+    ) {
       expr.value = createTypeValue(context.SelfType);
       expr.type = expr.value.type;
       expr.env = env;
       return expr;
     }
-    /*
-    // This
-    // refers to Self.This in the interface context
-    else if (identifier === "This") {
-      if (!context.SelfType || !isModuleType(context.SelfType)) {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Expected to use "This" in the interface context.`
-        );
-      }
-
-      const moduleType = context.SelfType;
-      const ThisType = moduleType.members.find(
-        (member) => member.label === "This"
-      );
-      if (!ThisType) {
-        throw this.formatErrorMessage(
-          expr.token,
-          `"This" type not found in the interface.`
-        );
-      }
-
-      expr.value =
-        ThisType.value ?? createUnknownValue(ThisType.type, ThisType.label);
-      expr.type = expr.value.type;
-      expr.env = env;
-      return expr;
-    }
-    */
     // variable
     else {
       const variables = getVariablesFromEnv(env, identifier);
@@ -5916,7 +5889,7 @@ Got:   ${typeToString(argType)}`
             ...context,
             isEvaluatingExprAsType: false,
             expectedType: undefined,
-            SelfType: moduleType,
+            SelfType: undefined,
           },
         });
         const structValue = evaluatedExpr.value;
@@ -6134,15 +6107,6 @@ Got:   ${typeToString(argType)}`
       }
       const label = labelExpr.token.value;
 
-      if (label === "Self") {
-        // Self is a reserved keyword
-        throw this.formatErrorMessage(
-          labelExpr.token,
-          `Cannot use "Self" as interface member name.
-If you want to define the receiver type, please use "This" instead.`
-        );
-      }
-
       // Evaluate the member type
       const evaluatedMemberTypeExpr = this.evaluateExpression({
         expr: typeExpr,
@@ -6150,7 +6114,8 @@ If you want to define the receiver type, please use "This" instead.`
         context: {
           ...context,
           isEvaluatingExprAsType: true,
-          SelfType: moduleType,
+          SelfType: undefined, // NOTE: Set it as undefined here.
+          // `Self` in a module is used as the received type.
         },
       });
       if (evaluatedMemberTypeExpr.env) {
@@ -6205,7 +6170,7 @@ If you want to define the receiver type, please use "This" instead.`
             ...context,
             isEvaluatingExprAsType: false,
             expectedType: { type: memberType, env },
-            SelfType: moduleType,
+            SelfType: undefined,
           },
         });
         if (evaluatedValueExpr.env) {

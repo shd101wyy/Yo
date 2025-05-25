@@ -387,17 +387,20 @@ def Option:
 
 // module
 def Id:
-  (compt(This): Type)-> compt(Type),
+  (compt(Self): Type)-> compt(Type),
   module
-    (This: Type) = This,
-    id: ((This)-> This)
+    (Self: Type) == Self, 
+    // ^ `Self` in module here means the receiver type. 
+    // It enables the method call syntax like `12.id()` for the `i32` receiver type.
+    id:
+      (Self)-> Self
 ;
 
 def Stringer:
-  (compt(This): Type)-> compt(Type),
+  (compt(Self): Type)-> compt(Type),
   module
-    (This: Type) = This,
-    to_string: ((This)-> String)
+    (Self: Type) = Self,
+    to_string: ((Self)-> String)
 ;
 
 /// Implement the module

@@ -6,14 +6,12 @@ extern
 Point :: struct(i32);
 
 MY_ADD :: module
-  (This: Type) == i32,
-  my_add: ((x: This, y: This)-> This),
-  new_self: (()-> This),
-  new_self2: ((boolean)-> This);
+  (Self: Type) == i32,
+  my_add: ((x: Self, y: Self)-> Self),
+  new_self: (()-> Self),
+  new_self2: ((boolean)-> Self);
 ;
 
-// receiver :: MyAdd.Self; // unknown
-// Each interface can only be implemented once.
 MyAdd :: MY_ADD(
   my_add:
     fn(a, b)-> add(a, b),
@@ -23,11 +21,11 @@ MyAdd :: MY_ADD(
     fn(flag)-> 0
 );
 
-receiver :: MyAdd.This; // i32
+receiver :: MyAdd.Self; // i32
 
 def main:
   ()-> (), {
-  // Call function from interface:
+  // Call function from module:
   x := MyAdd.my_add(1, 2);
   x := MyAdd.new_self();
   x := MyAdd.new_self2(true);
@@ -43,29 +41,19 @@ def main:
   MyAdd.new_self2(true); // ok
   MyAdd.new_self2(false); // ok
   
-  /*
-  // Function returning an interface
+  // Function returning an module
   def Id :
-    (compt(T): Type) -> compt(Type),
-    interface
-      This: Type,
-      id: ((x: This)-> This)
+    (compt(Self): Type) -> compt(Type),
+    module
+      (Self: Type) == Self,
+      id: ((x: Self)-> Self)
   ;
 
-  // Call to interface function will be cached.
-  // So Id(i32) will always return the same interface.
-  Id_i32 :: Id(i32);
-  Id(i32)
-    This: i32,
+  IdI32 :: Id(i32)
     id:
-      fn(x)-> x
-  ;
-
-  IdI32 :: Id(i32);
-  receiver :: Id(i32).This; // i32
-  x := Id(i32).id(1);
-  x := IdI32.id(2);
+      fn(x)-> x;
+  receiver :: IdI32.Self; // i32
+  x := IdI32.id(1);
   x := (13).id();
-  x := (13).(Id(i32).id)();
-  */  
-}
+  x := (13).(IdI32.id)();
+};
