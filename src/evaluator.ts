@@ -5030,11 +5030,37 @@ ${exprToString(expr)}`
       }
 
       if (forallArgsExpr) {
-        const forallArgExpr = forallArgsExpr.args[i];
+        let forallArgExpr = forallArgsExpr.args[i];
+        let labelExpr: Expr | undefined = undefined;
         if (exprIsAtom(forallArgExpr) && forallArgExpr.token.value === "_") {
           // _ is a special case, it means to use the inferred type
           // So we don't need to check the type
           continue;
+        }
+
+        // Check if it's calling the named argument
+        if (
+          exprIsFunctionCall(forallArgExpr) &&
+          exprIsFunctionCallOf(forallArgExpr, ":", 2)
+        ) {
+          labelExpr = forallArgExpr.args[0];
+          forallArgExpr = forallArgExpr.args[1];
+
+          // Check if the label is valid
+          if (!exprIsAtom(labelExpr)) {
+            throw this.formatErrorMessage(
+              labelExpr.token,
+              `Expected identifier for type parameter label, got:\n${exprToString(labelExpr)}`
+            );
+          }
+
+          // Check if the label matches the type parameter label
+          if (typeParameter.label !== labelExpr.token.value) {
+            throw this.formatErrorMessage(
+              labelExpr.token,
+              `Expected type parameter label "${typeParameter.label}", got "${labelExpr.token.value}".`
+            );
+          }
         }
 
         // Evaluate forallArgExpr
@@ -5050,11 +5076,15 @@ ${exprToString(expr)}`
         if (evaluatedTypeExpr.env) {
           callerEnv = evaluatedTypeExpr.env;
         }
+        if (labelExpr) {
+          labelExpr.type = evaluatedTypeExpr.type;
+          labelExpr.value = evaluatedTypeExpr.value;
+        }
         const typeValue = evaluatedTypeExpr.value;
         if (!isTypeValue(typeValue)) {
           throw this.formatErrorMessage(
             forallArgExpr.token,
-            `Expected type for parameter, got:\n${exprToString(forallArgExpr)}`
+            `Expected type for argument, got:\n${exprToString(forallArgExpr)}`
           );
         }
 
@@ -5278,6 +5308,7 @@ Got:   ${typeToString(argType)}`
               }
 
               try {
+                // FIXME: Prevent circular call
                 const { returnType } = this.tryToCallFunctionWithArguments({
                   argExprs: [],
                   callerEnv,
@@ -5730,6 +5761,7 @@ Got:   ${typeToString(argType)}`
       context: { ...context },
     });
 
+    // FIXME: The argValues below should be returned from this.tryToCallFunctionWithArguments
     // argExprs should be evaluated now
     const argValues: Value[] = [];
     for (let i = 0; i < argExprs.length; i++) {
