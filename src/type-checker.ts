@@ -4,8 +4,9 @@ import {
   Frame,
   getVariablesFromEnv,
 } from "./env";
-import { Expr } from "./expr";
+import { Expr, exprToString } from "./expr";
 import { FunctionValue } from "./function-value";
+import { Token } from "./token";
 import { TypeValue } from "./type-value";
 import { randomId } from "./utils";
 import { createUnknownValue, isTypeValue, Value, valueToString } from "./value";
@@ -311,6 +312,54 @@ export interface TupleType extends Type {
   elements: TupleElement[];
 }
 
+export type FunctionParameterExprs =
+  | {
+      // (i32)
+      labelExpr: undefined;
+      typeExpr: Expr;
+      defaultValueExpr: undefined;
+    }
+  | {
+      // (x: i32)
+      labelExpr: Expr;
+      typeExpr: Expr;
+      defaultValueExpr: undefined;
+    }
+  | {
+      // ((x : i32) = 14)
+      labelExpr: Expr;
+      typeExpr: Expr;
+      defaultValueExpr: Expr;
+    }
+  | {
+      // (x = 15)
+      labelExpr: Expr;
+      typeExpr: undefined;
+      defaultValueExpr: Expr;
+    };
+
+export function getFunctionParameterExprs({
+  labelExpr,
+  typeExpr,
+  defaultValueExpr,
+}: {
+  labelExpr: Expr | undefined;
+  typeExpr: Expr | undefined;
+  defaultValueExpr: Expr | undefined;
+}): FunctionParameterExprs {
+  if (!labelExpr && !typeExpr && !defaultValueExpr) {
+    throw new Error(
+      `At least one of labelExpr, typeExpr or defaultValueExpr must be defined`
+    );
+  }
+  if (!typeExpr && !defaultValueExpr) {
+    throw new Error(
+      `Expected either typeExpr or defaultValueExpr to be defined`
+    );
+  }
+  return { labelExpr, typeExpr, defaultValueExpr } as FunctionParameterExprs;
+}
+
 export interface FunctionParameter {
   /**
    * The type of the element.
@@ -326,30 +375,30 @@ export interface FunctionParameter {
    */
   label?: string;
 
-  /**
-   * The parameter label expr.
-   */
-  labelExpr?: Expr;
+  // Some expressions used in the parameter definition
+  exprs: FunctionParameterExprs;
 
   /**
-   * The parameter type expr.
-   */
-  typeExpr: Expr;
-
-  /**
-   * This is only used for Functions
+   * If the parameter is mutable or not.
    */
   isMutable: boolean;
 
   /**
-   * This is only used for Functions
+   * If the parameter is compile-time only or not.
    */
   isCompileTimeOnly: boolean;
+}
 
-  /**
-   * This is only used for Functions
-   */
-  // defaultValue?: Expr;
+export function getFunctionParameterToken(parameter: FunctionParameter): Token {
+  if (parameter.exprs.labelExpr?.token) {
+    return parameter.exprs.labelExpr.token;
+  } else if (parameter.exprs.typeExpr?.token) {
+    return parameter.exprs.typeExpr.token;
+  } else if (parameter.exprs.defaultValueExpr?.token) {
+    return parameter.exprs.defaultValueExpr.token;
+  } else {
+    throw new Error(`Cannot get token for function parameter`);
+  }
 }
 
 export interface StructType extends Type {
@@ -952,7 +1001,7 @@ export function areFunctionTypesCompatible(
           value: typeValue,
           type: typeValue.type,
           isCompileTimeOnly: true,
-          token: expectedTypeParam.typeExpr.token,
+          token: getFunctionParameterToken(expectedTypeParam),
         },
       });
       expected.env = nextEnv;
@@ -965,7 +1014,7 @@ export function areFunctionTypesCompatible(
           value: typeValue,
           type: typeValue.type,
           isCompileTimeOnly: true,
-          token: givenTypeParam.typeExpr.token,
+          token: getFunctionParameterToken(givenTypeParam),
         },
       });
       given.env = nextEnv2;
@@ -1300,6 +1349,37 @@ export function isUndefinedType(type: Type): boolean {
 }
 */
 
+export function functionParameterToString(
+  parameter: FunctionParameter
+): string {
+  let label = parameter.label ?? "_";
+  if (parameter.isMutable) {
+    label = `mut(${label})`;
+  }
+  if (parameter.isCompileTimeOnly) {
+    label = `compt(${label})`;
+  }
+
+  const typeStr = parameter.exprs.typeExpr
+    ? exprToString(parameter.exprs.typeExpr)
+    : "";
+
+  const defaultValueStr = parameter.exprs.defaultValueExpr
+    ? exprToString(parameter.exprs.defaultValueExpr)
+    : "";
+
+  if (defaultValueStr) {
+    if (typeStr) {
+      return `(${label}: ${typeStr}) = ${defaultValueStr}`;
+    } else {
+      return `${label} = ${defaultValueStr}`;
+    }
+  } else {
+    // typeStr is always defined here
+    return `${label}: ${typeStr}`;
+  }
+}
+
 /**
  * Convert a Type object to a human-readable string representation
  */
@@ -1461,30 +1541,18 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Function: {
       const func = type as FunctionType;
-      const params = func.parameters
-        .map((param) =>
-          param.label
-            ? `${
-                param.isMutable
-                  ? `mut(${param.label})`
-                  : param.isCompileTimeOnly
-                    ? `compt(${param.label})`
-                    : `${param.label}`
-              }: ${typeToString(param.type)}`
-            : (param.isMutable ? `mut(_):` : "") + typeToString(param.type)
-        )
-        .join(", ");
+      const params = func.parameters.map(functionParameterToString).join(", ");
 
       const typeParams =
         func.typeParameters.length > 0
           ? `forall(${func.typeParameters
-              .map((param) => `${param.label}: ${typeToString(param.type)}`)
+              .map(functionParameterToString)
               .join(", ")})`
           : "";
       const implicitParams =
         func.implicitParameters.length > 0
           ? `implicit(${func.implicitParameters
-              .map((param) => `${param.label}: ${typeToString(param.type)}`)
+              .map(functionParameterToString)
               .join(", ")})`
           : "";
 

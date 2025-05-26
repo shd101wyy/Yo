@@ -40,6 +40,8 @@ import {
   EnumVariant,
   FunctionParameter,
   FunctionType,
+  getFunctionParameterExprs,
+  getFunctionParameterToken,
   getValueOfSomeTypeFromEnv,
   isBooleanType,
   isEnumType,
@@ -2952,26 +2954,65 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     let label: string | undefined = undefined;
     let isMutable: boolean = false;
     let isCompileTimeOnly: boolean = false;
+
     let lhsExpr: Expr | undefined = undefined;
-    let rhsExpr: Expr = expr;
+    let rhsExpr: Expr | undefined = undefined;
+
     let parameterType: Type | undefined = undefined;
+    let defaultValue: Value | undefined = undefined;
 
-    let typeExpr: Expr = expr;
+    let expr_: Expr = expr;
+    let typeExpr: Expr | undefined = undefined;
     let labelExpr: Expr | undefined = undefined;
+    let defaultValueExpr: Expr | undefined = undefined;
 
-    // Parse the lhs expr
-    if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, ":")) {
+    // Check if there is defaultValue
+    // eg:
+    //   (x = 12)
+    //   ((x: i32) = 13)
+    if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, "=", 2)) {
       if (expectedParameter) {
         throw this.formatErrorMessage(
-          expr.token,
+          expr_.token,
+          `Not allowed to define default parameter value for anonymous function implementation.`
+        );
+      }
+
+      rhsExpr = expr_.args[1];
+      lhsExpr = expr_.args[0];
+      defaultValueExpr = rhsExpr;
+      expr_ = lhsExpr; // NOTE: Don't change the original `expr`
+    }
+
+    // Parse the lhs expr
+    // eg:
+    //   (x: i32)
+    if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":", 2)) {
+      if (expectedParameter) {
+        throw this.formatErrorMessage(
+          expr_.token,
           `Not allowed to define parameter type for anonymous function implementation.`
         );
       }
 
-      rhsExpr = expr.args[1];
-      lhsExpr = expr.args[0];
+      rhsExpr = expr_.args[1];
+      lhsExpr = expr_.args[0];
       typeExpr = rhsExpr;
+    } else {
+      // eg:
+      //   (i32)
+      if (!defaultValueExpr) {
+        typeExpr = expr_;
+      }
+      // eg:
+      //   (x = 13)
+      else {
+        typeExpr = undefined;
+        lhsExpr = expr_;
+      }
+    }
 
+    if (lhsExpr) {
       if (
         exprIsFunctionCall(lhsExpr) &&
         exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.Compt)
@@ -3016,7 +3057,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       // such as:
       // fn(a, b) -> a + b;
       parameterType = expectedParameter.type;
-      lhsExpr = rhsExpr;
+      lhsExpr = expr; // Use the original expr
 
       if (!exprIsAtom(lhsExpr) && !this.isValidVariableName(lhsExpr)) {
         throw this.formatErrorMessage(
@@ -3029,37 +3070,92 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       label = lhsExpr.token.value;
       labelExpr = lhsExpr;
     } else {
-      // Parse the rhs expr which should be a type
-      const evaluatedRhs = this.evaluateExpression({
-        expr: rhsExpr,
-        env,
-        context: { ...context },
-      });
-      if (evaluatedRhs.env) {
-        env = evaluatedRhs.env;
+      // Evaluate the typeExpr if exists
+      if (typeExpr) {
+        // Parse the rhs expr which should be a type
+        const evaluatedRhs = this.evaluateExpression({
+          expr: typeExpr,
+          env,
+          context: { ...context },
+        });
+        if (evaluatedRhs.env) {
+          env = evaluatedRhs.env;
+        }
+
+        // Expected the evaluatedRhs to be a type
+        const typeValue = evaluatedRhs.value;
+        if (!isTypeValue(typeValue)) {
+          throw this.formatErrorMessage(
+            typeExpr.token,
+            `Expected type for function parameter, got ${exprToString(
+              typeExpr
+            )}`
+          );
+        }
+        parameterType = typeValue.value;
       }
 
-      // Expected the evaluatedRhs to be a type
-      const typeValue = evaluatedRhs.value;
-      if (!isTypeValue(typeValue)) {
+      // Evaluate the defaultValueExpr if exists
+      if (defaultValueExpr) {
+        const evaluatedDefaultValue = this.evaluateExpression({
+          expr: defaultValueExpr,
+          env,
+          context: {
+            ...context,
+            isEvaluatingExprAsType: false,
+          },
+        });
+        if (evaluatedDefaultValue.env) {
+          env = evaluatedDefaultValue.env;
+        }
+
+        // Check the compile-time known value which has to exist
+        defaultValue = evaluatedDefaultValue.value;
+        if (!defaultValue) {
+          throw this.formatErrorMessage(
+            defaultValueExpr.token,
+            `Expected a compile-time known value for default parameter, got ${exprToString(
+              defaultValueExpr
+            )}`
+          );
+        }
+
+        if (!parameterType) {
+          parameterType = defaultValue.type;
+        } else {
+          // Check if the default value type is compatible with the parameter type
+          if (
+            !areTypesCompatible(
+              { type: parameterType, env },
+              { type: defaultValue.type, env }
+            )
+          ) {
+            throw this.formatErrorMessage(
+              defaultValueExpr.token,
+              `Incompatible default value type:
+- Expected: ${typeToString(parameterType)}
+- Got     : ${typeToString(defaultValue.type)}`
+            );
+          }
+        }
+      }
+
+      // Check the parameterType
+      if (!parameterType) {
         throw this.formatErrorMessage(
-          rhsExpr.token,
-          `(1) Expected type for function parameter, got ${exprToString(
-            rhsExpr
-          )}`
+          expr.token,
+          `Expected type for function parameter}`
         );
       }
-      parameterType = typeValue.value;
-    }
-
-    if (
-      (isTypeHierarchyType(parameterType) || isModuleType(parameterType)) &&
-      !isCompileTimeOnly
-    ) {
-      throw this.formatErrorMessage(
-        lhsExpr?.token ?? rhsExpr.token,
-        `Expected a "compt" (or "@") for parameter to be compile-time only.`
-      );
+      if (
+        (isTypeHierarchyType(parameterType) || isModuleType(parameterType)) &&
+        !isCompileTimeOnly
+      ) {
+        throw this.formatErrorMessage(
+          lhsExpr?.token ?? expr.token,
+          `Expected a "compt" (or "@") for parameter to be compile-time only.`
+        );
+      }
     }
 
     if (lhsExpr) {
@@ -3078,9 +3174,11 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
             isMutable: isMutable,
             isCompileTimeOnly: isCompileTimeOnly,
             isNotInitialized: false, // Set as initialized
-            value: isCompileTimeOnly
-              ? createUnknownValue(parameterType, label)
-              : undefined,
+            value:
+              // defaultValue ?? // NOTE: No need to use the default value here.
+              isCompileTimeOnly
+                ? createUnknownValue(parameterType, label)
+                : undefined,
           },
           skipCheckingFunctionOverloading: true,
         });
@@ -3096,11 +3194,13 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       parameter: {
         label,
         type: parameterType,
-        labelExpr,
-        typeExpr,
+        exprs: getFunctionParameterExprs({
+          labelExpr,
+          typeExpr,
+          defaultValueExpr,
+        }),
         isMutable,
         isCompileTimeOnly,
-        // defaultValue: undefined,
       },
       env,
     };
@@ -3170,6 +3270,16 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
             }
           }
 
+          // Require parameter to be compile-time only
+          if (!parameter.isCompileTimeOnly) {
+            throw this.formatErrorMessage(
+              parameter.exprs.labelExpr?.token ?? typeParameterExpr.token,
+              `Expected type parameter to be compile-time only, got ${exprToString(
+                typeParameterExpr
+              )}`
+            );
+          }
+
           typeParameters.push(parameter);
           env = nextEnv;
         }
@@ -3211,6 +3321,20 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
             }
           }
 
+          // If parameter is compile-time only, then
+          // require there is no runtime implicitParameters before it
+          if (parameter.isCompileTimeOnly) {
+            const runtimeImplicitParameters = implicitParameters.filter(
+              (p) => !p.isCompileTimeOnly
+            );
+            if (runtimeImplicitParameters.length > 0) {
+              throw this.formatErrorMessage(
+                implicitParameterExpr.token,
+                `Compile-time parameters must appear first in the implicit parameter list.`
+              );
+            }
+          }
+
           implicitParameters.push(parameter);
           env = nextEnv;
         }
@@ -3238,6 +3362,20 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
                 ? (parameterExpr.args[0]?.token ?? parameterExpr.token)
                 : parameterExpr.token,
               `Duplicate label "${parameter.label}" in function parameter`
+            );
+          }
+        }
+
+        // If parameter is compile-time only, then
+        // require there is no runtime parameters before it
+        if (parameter.isCompileTimeOnly) {
+          const runtimeParameters = parameters.filter(
+            (p) => !p.isCompileTimeOnly
+          );
+          if (runtimeParameters.length > 0) {
+            throw this.formatErrorMessage(
+              parameterExpr.token,
+              `Compile-time parameters must appear first in the parameter list.`
             );
           }
         }
@@ -3317,7 +3455,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     } else if (
       exprIsAtom(argListExpr) ||
       (exprIsFunctionCall(argListExpr) &&
-        exprIsFunctionCallOf(argListExpr, ":"))
+        (exprIsFunctionCallOf(argListExpr, ":", 2) ||
+          exprIsFunctionCallOf(argListExpr, "=", 2)))
     ) {
       argList = [argListExpr];
     } else {
@@ -3414,7 +3553,7 @@ compt(${exprToString(returnTypeExpr)})`
       for (const parameter of parameters) {
         if (!parameter.isCompileTimeOnly) {
           throw this.formatErrorMessage(
-            parameter.labelExpr?.token ?? parameter.typeExpr.token,
+            getFunctionParameterToken(parameter),
             `Expected all parameters to be compile time only given the return type is compile time only.`
           );
         }
@@ -3424,7 +3563,7 @@ compt(${exprToString(returnTypeExpr)})`
       for (const parameter of implicitParameters) {
         if (!parameter.isCompileTimeOnly) {
           throw this.formatErrorMessage(
-            parameter.labelExpr?.token ?? parameter.typeExpr.token,
+            getFunctionParameterToken(parameter),
             `Expected all implicit parameters to be compile time only given the return type is compile time only.`
           );
         }
@@ -4512,6 +4651,75 @@ ${exprToString(expr)}`
     );
   }
 
+  private evaluateFunctionParameterType({
+    parameter,
+    calleeEnv,
+    context,
+    functionValue,
+  }: {
+    parameter: FunctionParameter;
+    calleeEnv: Environment;
+    context: EvaluatorContext;
+    functionValue: FunctionValue | undefined;
+  }): { parameterType: Type; calleeEnv: Environment } {
+    const typeExpr = parameter.exprs.typeExpr;
+    const defaultValueExpr = parameter.exprs.defaultValueExpr;
+    if (typeExpr) {
+      const evaluatedTypeExpr = this.evaluateExpression({
+        expr: cloneExpr(typeExpr),
+        env: calleeEnv,
+        context: {
+          ...context,
+          isEvaluatingExprAsType: true,
+          expectedType: undefined,
+          SelfType: functionValue?.SelfType,
+        },
+      });
+      if (!isTypeValue(evaluatedTypeExpr.value)) {
+        throw this.formatErrorMessage(
+          typeExpr.token,
+          `Expected type for parameter, got:\n${exprToString(evaluatedTypeExpr)}`
+        );
+      }
+      if (evaluatedTypeExpr.env) {
+        calleeEnv = evaluatedTypeExpr.env;
+      }
+      const parameterType = evaluatedTypeExpr.value.value;
+      return {
+        parameterType,
+        calleeEnv,
+      };
+    } else if (defaultValueExpr) {
+      const evaluatedDefaultValueExpr = this.evaluateExpression({
+        expr: cloneExpr(defaultValueExpr),
+        env: calleeEnv,
+        context: {
+          ...context,
+          isEvaluatingExprAsType: false,
+          expectedType: undefined,
+          SelfType: functionValue?.SelfType,
+        },
+      });
+      const value = evaluatedDefaultValueExpr.value;
+      if (!value) {
+        throw this.formatErrorMessage(
+          defaultValueExpr.token,
+          `Expected value for parameter, got:\n${exprToString(defaultValueExpr)}`
+        );
+      }
+      if (evaluatedDefaultValueExpr.env) {
+        calleeEnv = evaluatedDefaultValueExpr.env;
+      }
+      const parameterType = value.type;
+      return {
+        parameterType,
+        calleeEnv,
+      };
+    } else {
+      throw new Error(`Expected either type expr or default value expr`);
+    }
+  }
+
   private checkIfFunctionParameterMatchesArgument({
     functionValue,
     parameter,
@@ -4568,44 +4776,60 @@ ${exprToString(expr)}`
       // We can infer `T` is `i32`,
       // But when we evaluate `callback`, we need to evaluate its type again
       // before we evluate the arg
-      const evaluatedTypeExpr = this.evaluateExpression({
-        expr: cloneExpr(parameter.typeExpr),
-        env: calleeEnv,
-        context: {
-          ...context,
-          isEvaluatingExprAsType: true,
-          expectedType: undefined,
-          SelfType: functionValue?.SelfType,
-        },
-      });
-      if (!isTypeValue(evaluatedTypeExpr.value)) {
-        throw this.formatErrorMessage(
-          parameter.typeExpr.token,
-          `Expected type for parameter, got:\n${exprToString(
-            parameter.typeExpr
-          )}`
-        );
-      }
-      if (evaluatedTypeExpr.env) {
-        calleeEnv = evaluatedTypeExpr.env;
-      }
-      parameterType = evaluatedTypeExpr.value.value;
+
+      const { parameterType: newParameterType, calleeEnv: nextCalleeEnv } =
+        this.evaluateFunctionParameterType({
+          parameter,
+          calleeEnv,
+          context: {
+            ...context,
+          },
+          functionValue,
+        });
+      parameterType = newParameterType;
+      calleeEnv = nextCalleeEnv;
     }
 
     // Evaluate the argExpr
     let evaluatedArgExpr: Expr | undefined = undefined;
     try {
-      evaluatedArgExpr = this.evaluateExpression({
-        expr: argExpr,
-        env: callerEnv,
-        context: {
-          ...context,
-          isEvaluatingExprAsType: false,
-          expectedType: { type: parameterType, env: calleeEnv },
-        },
-      });
-      if (evaluatedArgExpr.env) {
-        callerEnv = evaluatedArgExpr.env;
+      if (exprIsAtom(argExpr) && argExpr.token.value === "_") {
+        // Use the default value
+        if (parameter.exprs.defaultValueExpr) {
+          evaluatedArgExpr = this.evaluateExpression({
+            expr: cloneExpr(parameter.exprs.defaultValueExpr),
+            env: calleeEnv,
+            context: {
+              ...context,
+              isEvaluatingExprAsType: false,
+            },
+          });
+          if (evaluatedArgExpr.env) {
+            calleeEnv = evaluatedArgExpr.env;
+          }
+          argExpr.value = evaluatedArgExpr.value;
+          argExpr.type = evaluatedArgExpr.type;
+        } else {
+          throw this.formatErrorMessage(
+            argExpr.token,
+            `Expected default value for parameter "${parameter.label}", got:\n${exprToString(
+              argExpr
+            )}`
+          );
+        }
+      } else {
+        evaluatedArgExpr = this.evaluateExpression({
+          expr: argExpr,
+          env: callerEnv,
+          context: {
+            ...context,
+            isEvaluatingExprAsType: false,
+            expectedType: { type: parameterType, env: calleeEnv },
+          },
+        });
+        if (evaluatedArgExpr.env) {
+          callerEnv = evaluatedArgExpr.env;
+        }
       }
     } catch (error) {
       logger.debug(error);
@@ -4664,23 +4888,17 @@ ${exprToString(expr)}`
     callerEnv = givenEnv;
 
     // Evaluate the parameter type again
-    const evaluatedTypeExpr = this.evaluateExpression({
-      expr: cloneExpr(parameter.typeExpr),
-      env: calleeEnv,
-      context: {
-        ...context,
-        isEvaluatingExprAsType: true,
-        expectedType: undefined,
-        SelfType: functionValue?.SelfType,
-      },
-    });
-    if (!isTypeValue(evaluatedTypeExpr.value)) {
-      throw this.formatErrorMessage(
-        parameter.typeExpr.token,
-        `Expected type for parameter, got:\n${exprToString(evaluatedTypeExpr)}`
-      );
-    }
-    parameterType = evaluatedTypeExpr.value.value;
+    const { parameterType: newParameterType, calleeEnv: nextCalleeEnv } =
+      this.evaluateFunctionParameterType({
+        parameter,
+        calleeEnv,
+        context: {
+          ...context,
+        },
+        functionValue,
+      });
+    parameterType = newParameterType;
+    calleeEnv = nextCalleeEnv;
 
     // Compare the types
     if (
@@ -4795,12 +5013,12 @@ ${exprToString(expr)}`
     for (let i = 0; i < functionType.typeParameters.length; i++) {
       // Add typeParameter to calleeEnv
       const typeParameter = functionType.typeParameters[i];
-      if (typeParameter.labelExpr && typeParameter.label) {
+      if (typeParameter.exprs.labelExpr && typeParameter.label) {
         const { env: nextEnv } = addVariableToEnv({
           env: calleeEnv,
           variable: {
             name: typeParameter.label,
-            token: typeParameter.labelExpr.token,
+            token: typeParameter.exprs.labelExpr.token,
             type: typeParameter.type,
             isMutable: false,
             isCompileTimeOnly: true,
@@ -4908,25 +5126,19 @@ Got:   ${typeToString(typeValue.type)}`
       const implicitParameter = functionType.implicitParameters[i];
 
       // Evaluate its type again
-      const evaluatedTypeExpr = this.evaluateExpression({
-        expr: cloneExpr(implicitParameter.typeExpr),
-        env: calleeEnv,
+      const {
+        parameterType: newImplicitParameterType,
+        calleeEnv: nextCalleeEnv,
+      } = this.evaluateFunctionParameterType({
+        parameter: implicitParameter,
+        calleeEnv,
         context: {
           ...context,
-          isEvaluatingExprAsType: true,
-          expectedType: undefined,
-          SelfType: functionValue?.SelfType,
         },
+        functionValue,
       });
-      if (!isTypeValue(evaluatedTypeExpr.value)) {
-        throw this.formatErrorMessage(
-          implicitParameter.typeExpr.token,
-          `Expected type for parameter, got:\n${exprToString(
-            implicitParameter.typeExpr
-          )}`
-        );
-      }
-      let implicitParameterType = evaluatedTypeExpr.value.value;
+      calleeEnv = nextCalleeEnv;
+      let implicitParameterType = newImplicitParameterType;
 
       // Check if it's provided in implicitArgsExpr
       if (implicitArgsExpr) {
@@ -4991,25 +5203,19 @@ ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implic
           callerEnv = givenEnv;
 
           // Evaluate the parameter type again
-          const evaluatedTypeExpr = this.evaluateExpression({
-            expr: cloneExpr(implicitParameter.typeExpr),
-            env: calleeEnv,
+          const {
+            parameterType: newImplicitParameterType,
+            calleeEnv: nextCalleeEnv,
+          } = this.evaluateFunctionParameterType({
+            parameter: implicitParameter,
+            calleeEnv,
             context: {
               ...context,
-              isEvaluatingExprAsType: true,
-              expectedType: undefined,
-              SelfType: functionValue?.SelfType,
             },
+            functionValue,
           });
-          if (!isTypeValue(evaluatedTypeExpr.value)) {
-            throw this.formatErrorMessage(
-              implicitParameter.typeExpr.token,
-              `Expected type for parameter, got:\n${exprToString(
-                implicitParameter.typeExpr
-              )}`
-            );
-          }
-          implicitParameterType = evaluatedTypeExpr.value.value;
+          implicitParameterType = newImplicitParameterType;
+          calleeEnv = nextCalleeEnv;
 
           // Compare the types
           if (

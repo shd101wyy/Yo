@@ -3,8 +3,8 @@
 | \\                                                           | Tuple | Struct/Enum/Union | Function | Module |
 | ------------------------------------------------------------ | ----- | ----------------- | -------- | ------ |
 | labelled parameter                                           | ✅    | ✅                | ✅       | ✅     |
-| parameter default value (compt only)                         | ❌    | ✅                | ❌       | ✅     |
-| parameter type uses previous parameter value (comptime only) | ❌    | ❌                | ✅       | ✅     |
+| parameter default value (compt-only)                         | ❌    | ✅                | ✅       | ✅     |
+| parameter type uses previous parameter value (comptime-only) | ❌    | ❌                | ✅       | ✅     |
 
 - Value
 
