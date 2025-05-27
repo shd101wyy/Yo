@@ -122,11 +122,20 @@ export const BuiltinKeywords = {
   begin: ["begin"],
   import: ["import"],
   export: ["export"],
+  borrow: ["borrow"],
 
   undefined: ["undefined"],
   null: ["null"],
   true: ["true"],
   false: ["false"],
+
+  // data types
+  LinearPtr: ["^", "LinearPtr"],
+  MutLinearPtr: ["^!", "MutLinearPtr"],
+  Ptr: ["*", "Ptr"],
+  MutPtr: ["*!", "MutPtr"],
+  Ref: ["&", "Ref"],
+  MutRef: ["&!", "MutRef"],
 };
 
 export const BuiltinFunctions = {

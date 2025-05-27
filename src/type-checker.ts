@@ -68,6 +68,14 @@ export enum TypeTag {
 
   // Module
   Module = "Module",
+
+  // Pointer & Reference
+  MutLinearPtr = "MutLinearPtr",
+  LinearPtr = "LinearPtr",
+  MutPtr = "MutPtr",
+  Ptr = "Ptr",
+  MutRef = "MutRef",
+  Ref = "Ref",
 }
 
 export interface TypeMethod {
@@ -642,6 +650,54 @@ export interface ModuleType extends Type {
    * The env is also useful to show the frame level at which the module is defined.
    */
   env: Environment;
+}
+
+export interface MutLinearPtrType extends Type {
+  tag: TypeTag.MutLinearPtr;
+  /**
+   * The type of the pointer.
+   */
+  type: Type;
+}
+
+export interface LinearPtrType extends Type {
+  tag: TypeTag.LinearPtr;
+  /**
+   * The type of the pointer.
+   */
+  type: Type;
+}
+
+export interface MutPtrType extends Type {
+  tag: TypeTag.MutPtr;
+  /**
+   * The type of the pointer.
+   */
+  type: Type;
+}
+
+export interface PtrType extends Type {
+  tag: TypeTag.Ptr;
+  /**
+   * The type of the pointer.
+   */
+  type: Type;
+}
+
+export interface MutRefType extends Type {
+  tag: TypeTag.MutRef;
+  /**
+   * The type of the reference.
+   */
+  type: Type;
+}
+
+export interface RefType extends Type {
+  tag: TypeTag.Ref;
+  /**
+   * The type of the reference.
+   */
+  type: Type;
 }
 
 export function createTypeHierarchy(level: number): TypeHierarchyType {
