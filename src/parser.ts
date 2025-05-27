@@ -10,7 +10,12 @@ import {
   FuncCallExpr,
 } from "./expr";
 import { tokenize } from "./lexer";
-import { findMatchingBracketTokenIndex, Token, TokenType } from "./token";
+import {
+  findMatchingBracketTokenIndex,
+  PlaceholderToken,
+  Token,
+  TokenType,
+} from "./token";
 
 type ParserReturn = {
   expr: Expr;
@@ -50,9 +55,9 @@ export default class Parser {
   private skipWhitespace(tokens: Token[], index: number): number {
     while (
       tokens[index] &&
-      (tokens[index].type === TokenType.Whitespace ||
-        tokens[index].type === TokenType.SingleLineComment ||
-        tokens[index].type === TokenType.MultiLineComment)
+      (tokens[index]!.type === TokenType.Whitespace ||
+        tokens[index]!.type === TokenType.SingleLineComment ||
+        tokens[index]!.type === TokenType.MultiLineComment)
     ) {
       index = index + 1;
     }
@@ -62,9 +67,9 @@ export default class Parser {
   private skipWhitespaceBackward(tokens: Token[], index: number): number {
     while (
       tokens[index] &&
-      (tokens[index].type === TokenType.Whitespace ||
-        tokens[index].type === TokenType.SingleLineComment ||
-        tokens[index].type === TokenType.MultiLineComment)
+      (tokens[index]!.type === TokenType.Whitespace ||
+        tokens[index]!.type === TokenType.SingleLineComment ||
+        tokens[index]!.type === TokenType.MultiLineComment)
     ) {
       index = index - 1;
     }
@@ -79,10 +84,10 @@ export default class Parser {
     startIndex = this.skipWhitespace(tokens, startIndex);
     endIndex = this.skipWhitespaceBackward(tokens, endIndex);
     return (
-      tokens[startIndex] &&
-      tokens[startIndex].type === TokenType.LParen &&
-      tokens[endIndex] &&
-      tokens[endIndex].type === TokenType.RParen &&
+      Boolean(tokens[startIndex]) &&
+      tokens[startIndex]!.type === TokenType.LParen &&
+      Boolean(tokens[endIndex]) &&
+      tokens[endIndex]!.type === TokenType.RParen &&
       findMatchingBracketTokenIndex(tokens, startIndex) === endIndex
     );
   }
@@ -95,10 +100,10 @@ export default class Parser {
     index: number;
   }): ParserReturn {
     const startIndex = index;
-    if (tokens[index].type !== TokenType.LParen) {
-      throw this.formatErrorMessage(tokens[index], "Expected left paren");
+    if (tokens[index]!.type !== TokenType.LParen) {
+      throw this.formatErrorMessage(tokens[index]!, "Expected left paren");
     }
-    if (tokens[index + 1].type === TokenType.RParen) {
+    if (tokens[index + 1]?.type === TokenType.RParen) {
       // unit type
       return {
         expr: {
@@ -108,11 +113,11 @@ export default class Parser {
             token: {
               type: TokenType.Identifier,
               value: BuiltinCollections.Tuple,
-              position: tokens[index].position,
+              position: tokens[index]!.position,
             },
           },
           args: [],
-          token: tokens[index],
+          token: tokens[index]!,
         },
         index: index + 2,
       };
@@ -124,7 +129,7 @@ export default class Parser {
     });
     const expr = returnValue.expr;
     index = returnValue.index;
-    if (tokens[index].type === TokenType.RParen) {
+    if (tokens[index]!.type === TokenType.RParen) {
       return {
         expr,
         index: index + 1,
@@ -135,14 +140,14 @@ export default class Parser {
       while (true) {
         if (!tokens[index]) {
           throw this.formatErrorMessage(
-            tokens[index - 1],
+            tokens[index - 1]!,
             "Expected ) or , for tuple"
           );
         }
-        if (tokens[index].type === TokenType.Comma) {
+        if (tokens[index]!.type === TokenType.Comma) {
           index = index + 1;
         }
-        if (tokens[index].type === TokenType.RParen) {
+        if (tokens[index]!.type === TokenType.RParen) {
           break;
         }
 
@@ -163,11 +168,11 @@ export default class Parser {
             token: {
               type: TokenType.Identifier,
               value: BuiltinCollections.Tuple,
-              position: tokens[startIndex].position,
+              position: tokens[startIndex]!.position,
             },
           },
           args,
-          token: tokens[startIndex],
+          token: tokens[startIndex]!,
         },
         index: index + 1,
       };
@@ -182,8 +187,8 @@ export default class Parser {
     index: number;
   }): ParserReturn {
     const startIndex = index;
-    if (tokens[index].type !== TokenType.LBracket) {
-      throw this.formatErrorMessage(tokens[index], "Expected left bracket");
+    if (tokens[index]!.type !== TokenType.LBracket) {
+      throw this.formatErrorMessage(tokens[index]!, "Expected left bracket");
     }
     index = index + 1;
     {
@@ -192,14 +197,14 @@ export default class Parser {
       while (true) {
         if (!tokens[index]) {
           throw this.formatErrorMessage(
-            tokens[index - 1],
+            tokens[index - 1]!,
             "Expected ] or , for array"
           );
         }
-        if (tokens[index].type === TokenType.Comma) {
+        if (tokens[index]!.type === TokenType.Comma) {
           index = index + 1;
         }
-        if (tokens[index].type === TokenType.RBracket) {
+        if (tokens[index]!.type === TokenType.RBracket) {
           break;
         }
 
@@ -220,11 +225,11 @@ export default class Parser {
             token: {
               type: TokenType.Identifier,
               value: BuiltinCollections.Array,
-              position: tokens[startIndex].position,
+              position: tokens[startIndex]!.position,
             },
           },
           args,
-          token: tokens[startIndex],
+          token: tokens[startIndex]!,
         },
         index: index + 1,
       };
@@ -239,9 +244,9 @@ export default class Parser {
     index: number;
   }): ParserReturn {
     const startIndex = index;
-    if (tokens[index].type !== TokenType.LCurlyBracket) {
+    if (tokens[index]!.type !== TokenType.LCurlyBracket) {
       throw this.formatErrorMessage(
-        tokens[index],
+        tokens[index]!,
         "Expected left curly bracket"
       );
     }
@@ -253,33 +258,33 @@ export default class Parser {
       index = this.skipWhitespace(tokens, index);
       if (!tokens[index]) {
         throw this.formatErrorMessage(
-          tokens[index - 1],
+          tokens[index - 1]!,
           'Unexpected end of curly bracket. Expected "}" or "," or ";"'
         );
       }
-      if (tokens[index].type === TokenType.Comma) {
+      if (tokens[index]!.type === TokenType.Comma) {
         if (!separator || separator === TokenType.Comma) {
           separator = TokenType.Comma;
         } else {
           throw this.formatErrorMessage(
-            tokens[index],
+            tokens[index]!,
             'Cannot mix "," with ";" as separator in {...}'
           );
         }
         index = index + 1;
-      } else if (tokens[index].type === TokenType.Semicolon) {
+      } else if (tokens[index]!.type === TokenType.Semicolon) {
         if (!separator || separator === TokenType.Semicolon) {
           separator = TokenType.Semicolon;
         } else {
           throw this.formatErrorMessage(
-            tokens[index],
+            tokens[index]!,
             'Cannot mix ";" with "," as separator in {...}'
           );
         }
         index = index + 1;
       }
       index = this.skipWhitespace(tokens, index);
-      if (tokens[index].type === TokenType.RCurlyBracket) {
+      if (tokens[index]!.type === TokenType.RCurlyBracket) {
         // begin block,
         // lets check if the forwarded token is a semicolon
         const lastNonWhiteSpaceToken =
@@ -330,7 +335,7 @@ export default class Parser {
           const colonToken: Token = {
             type: TokenType.Operator,
             value: ":",
-            position: tokens[startIndex].position,
+            position: tokens[startIndex]!.position,
           };
           const newArg: FuncCallExpr = {
             tag: ExprTag.FuncCall,
@@ -354,11 +359,11 @@ export default class Parser {
             type: TokenType.Identifier,
             // QUESTION: Should we take _ out as an individual token type?
             value: "_",
-            position: tokens[startIndex].position,
+            position: tokens[startIndex]!.position,
           },
         },
         args,
-        token: tokens[startIndex],
+        token: tokens[startIndex]!,
       };
       return {
         expr: returnExpr,
@@ -372,12 +377,12 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinKeywords.Begin[0], // begin block
-              position: tokens[startIndex].position,
+              value: BuiltinKeywords.begin[0]!, // begin block
+              position: tokens[startIndex]!.position,
             },
           },
           args,
-          token: tokens[startIndex],
+          token: tokens[startIndex]!,
         },
         index: index + 1,
       };
@@ -394,7 +399,10 @@ export default class Parser {
     index = this.skipWhitespace(tokens, index);
     const token = tokens[index];
     if (!token) {
-      throw this.formatErrorMessage(token, "Unexpected end of input");
+      throw this.formatErrorMessage(
+        PlaceholderToken,
+        "Unexpected end of input"
+      );
     }
     let returnValue: ParserReturn | null = null;
 
@@ -532,7 +540,7 @@ export default class Parser {
         index,
       };
       // Check chaining
-      while (tokens[index] && tokens[index].type === TokenType.Dot) {
+      while (tokens[index] && tokens[index]!.type === TokenType.Dot) {
         const { expr, index: nextIndex } = this.parsePrimary({
           tokens,
           index: index + 1,
@@ -590,8 +598,8 @@ Please use parentheses to clarify:
 ${exprToString(primaryExpr)} ${token.value} (${exprToString(rhs)})
 // or
 (${exprToString(primaryExpr)} ${token.value} ${exprToString(
-          rhs.args[0]
-        )}) ${exprToString(rhs.func)} ${exprToString(rhs.args[1])}
+          rhs.args[0]!
+        )}) ${exprToString(rhs.func)} ${exprToString(rhs.args[1]!)}
 
 Or use newline after "${token.value}" to confirm the right-associativity.
 `;
@@ -855,7 +863,7 @@ or ) to end the function call`
     const exprs: Expr[] = [];
     // eslint-disable-next-line no-constant-condition
     while (index < tokens.length) {
-      const token = tokens[index];
+      const token = tokens[index]!;
       // Top level expression
       switch (token.type) {
         case TokenType.Whitespace:

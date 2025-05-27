@@ -52,11 +52,22 @@ export function cloneExpr(expr: Expr): Expr {
 
 export type Expr = AtomExpr | FuncCallExpr;
 
-export function exprIsFunctionCall(expr: Expr): expr is FuncCallExpr {
-  return expr.tag === ExprTag.FuncCall;
+export function exprIsFunctionCall(
+  expr: Expr | undefined
+): expr is FuncCallExpr {
+  return expr?.tag === ExprTag.FuncCall;
 }
-export function exprIsAtom(expr: Expr): expr is AtomExpr {
-  return expr.tag === ExprTag.Atom;
+export function exprIsAtom(expr: Expr | undefined): expr is AtomExpr {
+  return expr?.tag === ExprTag.Atom;
+}
+
+export function exprIsAtomOf(expr: Expr, values: string | string[]): boolean {
+  return (
+    expr.tag === ExprTag.Atom &&
+    (typeof values === "string"
+      ? expr.token.value === values
+      : values.includes(expr.token.value))
+  );
 }
 
 export function exprIsAtomAndOperator(expr: Expr): boolean {
@@ -84,33 +95,38 @@ export const BuiltinCollections = {
 };
 
 export const BuiltinKeywords = {
-  Compt: ["compt", "@"],
-  Mut: ["mut", "!"],
-  Implicit: ["implicit", "?"],
+  compt: ["compt", "@"],
+  mut: ["mut", "!"],
+  implicit: ["implicit", "?"],
 
-  Forall: ["forall", "∀"],
+  forall: ["forall", "∀"],
   // Exists: ["exists", "∃"],
   // Where: ["where", "∋"],
   // In: ["in", "∈"],
 
-  Quote: ["quote", ":"],
-  Unquote: ["unquote", "$"],
+  quote: ["quote", ":"],
+  unquote: ["unquote", "$"],
 
-  TypeOf: ["typeof"],
-  Def: ["def"],
-  Recur: ["recur"],
-  Fn: ["fn"],
-  Extern: ["extern"],
-  Cond: ["cond"],
-  Type: ["type"],
-  Match: ["match"],
-  Struct: ["struct"],
-  Enum: ["enum"],
-  Union: ["union"],
-  Module: ["module"],
-  Begin: ["begin"],
-  Import: ["import"],
-  Export: ["export"],
+  typeof: ["typeof"],
+  def: ["def"],
+  recur: ["recur"],
+  fn: ["fn"],
+  extern: ["extern"],
+  cond: ["cond"],
+  type: ["type"],
+  match: ["match"],
+  struct: ["struct"],
+  enum: ["enum"],
+  union: ["union"],
+  module: ["module"],
+  begin: ["begin"],
+  import: ["import"],
+  export: ["export"],
+
+  undefined: ["undefined"],
+  null: ["null"],
+  true: ["true"],
+  false: ["false"],
 };
 
 export const BuiltinFunctions = {

@@ -116,6 +116,10 @@ export function formatErrorMessages({
   tokenAndErrorList: { token: Token; errorMessage: string }[];
   cause?: Error;
 }): MoParserError {
+  if (tokenAndErrorList.length === 0) {
+    throw new Error("tokenAndErrorList must not be empty");
+  }
+
   const errorMessages = tokenAndErrorList
     .map(({ token, errorMessage }) => {
       return `${errorMessage}
@@ -126,7 +130,7 @@ ${getLineAtToken({ modulePath, inputString, token })}`;
   return new MoParserError({
     modulePath,
     inputString,
-    token: tokenAndErrorList[0]?.token,
+    token: tokenAndErrorList[0]!.token,
     message:
       (errorMessage ? errorMessage + "\n" : "") +
       errorMessages +

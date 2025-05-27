@@ -5,9 +5,12 @@
  * @returns
  */
 export function isUpperCamelCase(name: string): boolean {
+  if (!name) {
+    throw new Error("Name cannot be empty");
+  }
   name = name.replace(/^_*/, "");
   name = name.replace(/_*$/, "");
-  return name[0] === name[0].toUpperCase() && name.indexOf("_") < 0;
+  return name[0]! === name[0]!.toUpperCase() && name.indexOf("_") < 0;
 }
 
 /**
@@ -16,9 +19,13 @@ export function isUpperCamelCase(name: string): boolean {
  * @returns
  */
 export function isLowerCamelCase(name: string): boolean {
+  if (!name) {
+    throw new Error("Name cannot be empty");
+  }
+
   name = name.replace(/^_*/, "");
   name = name.replace(/_*$/, "");
-  return name[0] === name[0].toLowerCase() && name.indexOf("_") < 0;
+  return name[0]! === name[0]!.toLowerCase() && name.indexOf("_") < 0;
 }
 
 /**

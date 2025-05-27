@@ -54,21 +54,22 @@ export interface Variable {
    * mut(x) := 1;
    * The token `x` has `isMutable` set to true.
    */
-  isMutable?: boolean;
+  isMutable: boolean;
   /**
    * Whether the variable is compile-time only or not.
    * Eg:
    * x :: 1;
    */
-  isCompileTimeOnly?: boolean;
+  isCompileTimeOnly: boolean;
   /**
    * Whether the variable is implicit or not.
    */
-  isImplicit?: boolean;
+  isImplicit: boolean;
   /**
    * If the variable is initialized.
    */
-  isNotInitialized?: boolean;
+  isUndefined: boolean;
+
   /**
    * Check linear type consumption.
    */
@@ -134,8 +135,8 @@ export function generateVarialeValueId(
 ): string {
   let sanitizedVariableName = "";
   for (let i = 0; i < variableName.length; i++) {
-    if (charIsOperator(variableName[i])) {
-      const index = Operators.indexOf(variableName[i]);
+    if (charIsOperator(variableName[i]!)) {
+      const index = Operators.indexOf(variableName[i]!);
       sanitizedVariableName += `${index}`;
     } else {
       sanitizedVariableName += variableName[i];
@@ -201,8 +202,8 @@ export function addVariableToEnv({
             errorMessage: `Failed to define function "${variable.name}" as overloading is not allowed:`,
           },
           {
-            token: existingFunctionVariables[0].token,
-            errorMessage: `Function "${existingFunctionVariables[0].name}" is already defined here:`,
+            token: existingFunctionVariables[0]!.token,
+            errorMessage: `Function "${existingFunctionVariables[0]!.name}" is already defined here:`,
           },
         ],
       });
@@ -210,7 +211,7 @@ export function addVariableToEnv({
   }
 
   const frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
-  const frame = env.frames[frameLevel];
+  const frame = env.frames[frameLevel]!;
   const id = isTempVariableName(env, variable.name)
     ? variable.name
     : (variableId ?? generateVarialeValueId(env, variable.name));
@@ -274,12 +275,12 @@ function addVariableToFrame({
 
   // Check if there is already a value with the same variableName
   // but is uninitialized
-  const existingUninitializedVariableIndex = frame.variables.findIndex(
-    (value_) => value_.name === variable.name && value_.isNotInitialized
+  const existingUndefinedVariableIndex = frame.variables.findIndex(
+    (value_) => value_.name === variable.name && value_.isUndefined
   );
-  if (existingUninitializedVariableIndex > -1) {
+  if (existingUndefinedVariableIndex > -1) {
     const newVariables = frame.variables.slice();
-    newVariables[existingUninitializedVariableIndex] = variable;
+    newVariables[existingUndefinedVariableIndex] = variable;
     return {
       variables: newVariables,
     };
@@ -344,7 +345,7 @@ export function getVariablesFromEnv(
 ): Variable[] {
   const variables: Variable[] = [];
   for (let i = 0; i < env.frames.length; i++) {
-    const frame = env.frames[i];
+    const frame = env.frames[i]!;
     const variablesInFrame = getVariablesFromFrame(
       frame,
       variableName,
@@ -365,7 +366,7 @@ export function getVariablesFromEnvByFilter(
 ): Variable[] {
   const variables: Variable[] = [];
   for (let i = 0; i < env.frames.length; i++) {
-    const frame = env.frames[i];
+    const frame = env.frames[i]!;
     const variablesInFrame = frame.variables.filter(variableFilter);
     variables.push(...variablesInFrame);
   }
@@ -396,7 +397,7 @@ export function popEnvFrame(
   ignoreCheck = false
 ): Environment {
   if (!ignoreCheck) {
-    const frameToPop = env.frames[env.frames.length - 1];
+    const frameToPop = env.frames[env.frames.length - 1]!;
     // Check if there is any value in the frame that is not consumed or uninitialized
     const unconsumedLinearVariables = frameToPop.variables.filter(
       (variable) =>
@@ -415,8 +416,8 @@ export function popEnvFrame(
     );
     */
 
-    const notInitializedVariables = frameToPop.variables.filter(
-      (variable) => variable.isNotInitialized
+    const undefinedVariables = frameToPop.variables.filter(
+      (variable) => variable.isUndefined
     );
     if (unconsumedLinearVariables.length > 0) {
       throw formatErrorMessages({
@@ -432,11 +433,11 @@ ${typeToString(variable.type)}`,
           };
         }),
       });
-    } else if (notInitializedVariables.length > 0) {
+    } else if (undefinedVariables.length > 0) {
       throw formatErrorMessages({
         modulePath: env.modulePath,
         inputString: env.inputString,
-        tokenAndErrorList: notInitializedVariables.map((value) => {
+        tokenAndErrorList: undefinedVariables.map((value) => {
           return {
             token: value.token,
             errorMessage: `Variable is not initialized.`,
@@ -517,7 +518,8 @@ export function printEnvVarNames(env: Environment) {
         value: valueToString(variable.value),
         isCompileTimeOnly: variable.isCompileTimeOnly,
         isMutable: variable.isMutable,
-        isNotInitialized: variable.isNotInitialized,
+        isImplicit: variable.isImplicit,
+        isUndefined: variable.isUndefined,
       }));
     })
   );
@@ -548,7 +550,7 @@ export function getMethodsByNameFromEnv(
         member.type.parameters.length > 0 &&
         // TODO: support autocast to reference/immutable reference.
         areTypesCompatible(
-          { type: member.type.parameters[0].type, env },
+          { type: member.type.parameters[0]!.type, env },
           { type: receiverType, env }
         )
     );
@@ -585,9 +587,9 @@ export function getMethodsByNameFromEnv(
 
   // Check the modules
   for (let i = env.frames.length - 1; i >= 0; i--) {
-    const frame = env.frames[i];
+    const frame = env.frames[i]!;
     for (let j = frame.variables.length - 1; j >= 0; j--) {
-      const variable = frame.variables[j];
+      const variable = frame.variables[j]!;
       const moduleType = variable.type;
       const moduleValue = variable.value;
       if (

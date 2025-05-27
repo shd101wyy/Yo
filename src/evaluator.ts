@@ -20,6 +20,7 @@ import {
   cloneExpr,
   Expr,
   exprIsAtom,
+  exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
@@ -266,8 +267,7 @@ export default class Evaluator {
 
     // We disallow the tuple elements to have defaultValue for the tuple type
     // We disallow the tuple value to have labels. Only the tuple type can have labels.
-    for (let i = 0; i < tupleType.elements.length; i++) {
-      const tupleElement = tupleType.elements[i];
+    tupleType.elements.forEach((tupleElement) => {
       if (tupleElement.defaultValue) {
         throw this.formatErrorMessage(
           tupleElement.expr.token,
@@ -281,7 +281,7 @@ export default class Evaluator {
           `Tuple value cannot have labels.`
         );
       }
-    }
+    });
 
     expr.value = tupleValue;
     expr.type = context.isEvaluatingExprAsType
@@ -325,8 +325,8 @@ export default class Evaluator {
 
     // Check the default value
     if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, "=", 2)) {
-      expr_ = expr.args[0];
-      const defaultValueExpr = expr.args[1];
+      expr_ = expr.args[0]!;
+      const defaultValueExpr = expr.args[1]!;
 
       // Evaluate the defaultValueExpr
       const evaluatedDefaultValue = this.evaluateExpression({
@@ -349,9 +349,9 @@ export default class Evaluator {
     }
 
     // Parse the lhs expr
-    if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":")) {
-      rhsExpr = expr_.args[1];
-      lhsExpr = expr_.args[0];
+    if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":", 2)) {
+      rhsExpr = expr_.args[1]!;
+      lhsExpr = expr_.args[0]!;
 
       if (!exprIsAtom(lhsExpr) && !this.isValidVariableName(lhsExpr)) {
         throw this.formatErrorMessage(
@@ -370,9 +370,23 @@ export default class Evaluator {
     if (expectedType) {
       if (isTupleType(expectedType)) {
         const tupleElement = expectedType.elements[tupleElementIndex];
+        if (!tupleElement) {
+          throw this.formatErrorMessage(
+            expr.token,
+            `Failed to get the tuple element at index ${tupleElementIndex}`
+          );
+        }
+
         expectedTupleElementType = tupleElement.type;
       } else if (isStructType(expectedType)) {
         const structMember = expectedType.elements[tupleElementIndex];
+        if (!structMember) {
+          throw this.formatErrorMessage(
+            expr.token,
+            `Failed to get the struct member at index ${tupleElementIndex}`
+          );
+        }
+
         expectedTupleElementType = structMember.type;
       } else {
         /*
@@ -487,9 +501,9 @@ Given type: ${typeToString(defaultValue.type)}`
     let elementType: Type | undefined = undefined;
 
     // Parse the lhs expr
-    if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":")) {
-      rhsExpr = expr_.args[1];
-      lhsExpr = expr_.args[0];
+    if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":", 2)) {
+      rhsExpr = expr_.args[1]!;
+      lhsExpr = expr_.args[0]!;
 
       if (!exprIsAtom(lhsExpr) && !this.isValidVariableName(lhsExpr)) {
         throw this.formatErrorMessage(
@@ -514,6 +528,12 @@ ${typeToString(expectedTupleType)}`
         );
       }
       const tupleElement = expectedTupleType.elements[tupleElementIndex];
+      if (!tupleElement) {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Failed to get the tuple element at index ${tupleElementIndex}`
+        );
+      }
       expectedTupleElementType = tupleElement.type;
     }
 
@@ -591,7 +611,7 @@ ${typeToString(expectedTupleType)}`
     const tupleElements: TupleElement[] = [];
     const tupleValues: (Value | undefined)[] = [];
     for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
+      const arg = args[i]!;
 
       const {
         type,
@@ -697,7 +717,8 @@ ${typeToString(expectedTupleType)}`
             token: PlaceholderToken, // FIXME: What should be `token` here?
             isMutable: false,
             isCompileTimeOnly: true,
-            isNotInitialized: false,
+            isUndefined: false,
+            isImplicit: false,
           },
         });
         expected.env = nextEnv;
@@ -709,8 +730,8 @@ ${typeToString(expectedTupleType)}`
     ) {
       for (let i = 0; i < expected.type.elements.length; i++) {
         const { expectedEnv, givenEnv } = this.synthesizeTypes(
-          { type: expected.type.elements[i].type, env: expected.env },
-          { type: given.type.elements[i].type, env: given.env }
+          { type: expected.type.elements[i]!.type, env: expected.env },
+          { type: given.type.elements[i]!.type, env: given.env }
         );
         expected.env = expectedEnv;
         given.env = givenEnv;
@@ -726,8 +747,8 @@ ${typeToString(expectedTupleType)}`
       // They might be different structs that both are returned from the same function.
     ) {
       for (let i = 0; i < expected.type.elements.length; i++) {
-        const expectedElement = expected.type.elements[i];
-        const givenElement = given.type.elements[i];
+        const expectedElement = expected.type.elements[i]!;
+        const givenElement = given.type.elements[i]!;
         const { expectedEnv, givenEnv } = this.synthesizeTypes(
           { type: expectedElement.type, env: expected.env },
           { type: givenElement.type, env: given.env }
@@ -746,16 +767,16 @@ ${typeToString(expectedTupleType)}`
       // They might be different structs that both are returned from the same function.
     ) {
       for (let i = 0; i < expected.type.variants.length; i++) {
-        const expectedTypeVariant = expected.type.variants[i];
-        const givenTypeVariant = given.type.variants[i];
+        const expectedTypeVariant = expected.type.variants[i]!;
+        const givenTypeVariant = given.type.variants[i]!;
 
         const expectedTypeVariantElements = expectedTypeVariant.elements ?? [];
         const givenTypeVariantElements = givenTypeVariant.elements ?? [];
 
         for (let j = 0; j < expectedTypeVariantElements.length; j++) {
           const { expectedEnv, givenEnv } = this.synthesizeTypes(
-            { type: expectedTypeVariantElements[j].type, env: expected.env },
-            { type: givenTypeVariantElements[j].type, env: given.env }
+            { type: expectedTypeVariantElements[j]!.type, env: expected.env },
+            { type: givenTypeVariantElements[j]!.type, env: given.env }
           );
           expected.env = expectedEnv;
           given.env = givenEnv;
@@ -841,8 +862,8 @@ ${typeToString(expectedTupleType)}`
 
       // Recursively synthesize each tuple element
       for (let i = 0; i < type.elements.length; i++) {
-        const elementType = type.elements[i].type;
-        const elementExpr = expr.args[i];
+        const elementType = type.elements[i]!.type;
+        const elementExpr = expr.args[i]!;
 
         const {
           // expr: synthesizedExpr,
@@ -907,7 +928,7 @@ ${typeToString(expectedTupleType)}`
     else if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, ".", 1)) {
       // Check if type is an enum type
       if (isEnumType(type)) {
-        const variantNameExpr = expr.args[0];
+        const variantNameExpr = expr.args[0]!;
         if (!exprIsAtom(variantNameExpr)) {
           throw this.formatErrorMessage(
             expr.token,
@@ -953,7 +974,7 @@ ${typeToString(expectedTupleType)}`
     ) {
       if (isEnumType(type)) {
         const variantExpr = expr.func;
-        const variantNameExpr = variantExpr.args[0];
+        const variantNameExpr = variantExpr.args[0]!;
         if (!exprIsAtom(variantNameExpr)) {
           throw this.formatErrorMessage(
             variantExpr.token,
@@ -1149,11 +1170,11 @@ ${typeToString(expectedTupleType)}`
 
     // Process each lhs element
     for (let i = 0; i < lhsElements.length; i++) {
-      const lhsElement = lhsElements[i];
+      const lhsElement = lhsElements[i]!;
       let elementIndex: number = i;
       let elementValue: Value | undefined = undefined;
       // Initialize rhsElement here, before any conditional branches
-      let rhsElement = rhsElements[elementIndex];
+      let rhsElement = rhsElements[elementIndex]!;
       let variableName: string | undefined;
       let variableToken: Token | undefined;
       let labelExpr: Expr | undefined = undefined;
@@ -1165,15 +1186,15 @@ ${typeToString(expectedTupleType)}`
       if (
         (exprIsFunctionCall(lhsElement) &&
           exprIsFunctionCallOf(lhsElement, ":", 2) &&
-          lhsElement.args[0].token.value === "*" &&
-          lhsElement.args[1].token.value === "*") ||
+          lhsElement.args[0]!.token.value === "*" &&
+          lhsElement.args[1]!.token.value === "*") ||
         (exprIsAtom(lhsElement) && lhsElement.token.value === "*")
       ) {
         // If it's a single *, we destructure all elements
         if (lhsElements.length === 1) {
           // We can destructure all elements
           for (let j = 0; j < rhsElements.length; j++) {
-            const member = rhsElements[j];
+            const member = rhsElements[j]!;
             if (!member.label) {
               continue;
             }
@@ -1194,7 +1215,8 @@ ${typeToString(expectedTupleType)}`
                 token: lhsElement.token,
                 isMutable: false,
                 isCompileTimeOnly,
-                isNotInitialized: false,
+                isUndefined: false,
+                isImplicit: false,
               },
             });
             env = nextEnv;
@@ -1222,8 +1244,8 @@ ${typeToString(expectedTupleType)}`
         exprIsFunctionCall(lhsElement) &&
         exprIsFunctionCallOf(lhsElement, ":", 2)
       ) {
-        const leftSide = lhsElement.args[0]; // The label (c)
-        const rightSide = lhsElement.args[1]; // Could be (x, y) or could be a variable
+        const leftSide = lhsElement.args[0]!; // The label (c)
+        const rightSide = lhsElement.args[1]!; // Could be (x, y) or could be a variable
 
         // The left side should be an identifier
         if (!exprIsAtom(leftSide) || !this.isValidVariableName(leftSide)) {
@@ -1253,7 +1275,7 @@ ${typeToString(expectedTupleType)}`
         }
 
         elementIndex = matchingMemberIndex;
-        rhsElement = rhsElements[elementIndex];
+        rhsElement = rhsElements[elementIndex]!;
         const nestedRhsType = rhsElement.type;
 
         // Get the nested value
@@ -1386,7 +1408,7 @@ ${typeToString(expectedTupleType)}`
       // - (a, _(x, y))
       else if (exprIsFunctionCall(lhsElement)) {
         // Get the right-hand side value at this position
-        rhsElement = rhsElements[elementIndex];
+        rhsElement = rhsElements[elementIndex]!;
         const nestedRhsType = rhsElement.type;
 
         // Get the nested value
@@ -1507,9 +1529,9 @@ Please consider to write it as:
           lhsElement.token,
           `Unsupported destructuring pattern for ${
             isStruct
-              ? BuiltinKeywords.Struct
+              ? BuiltinKeywords.struct
               : isModule
-                ? BuiltinKeywords.Module
+                ? BuiltinKeywords.module
                 : "tuple"
           }: ${exprToString(lhsElement)}`
         );
@@ -1525,7 +1547,8 @@ Please consider to write it as:
             token: variableToken,
             type: rhsElement.type,
             isMutable: false,
-            isNotInitialized: false,
+            isUndefined: false,
+            isImplicit: false,
             isCompileTimeOnly: isCompileTimeOnly,
             value: elementValue,
           },
@@ -1572,8 +1595,8 @@ Please consider to write it as:
         `Expected ":" for variable binding.`
       );
     }
-    let lhs = expr.args[0];
-    const rhs = expr.args[1];
+    let lhs = expr.args[0]!;
+    const rhs = expr.args[1]!;
 
     // Evaluate the rhs expression
     const evaluatedRhs = this.evaluateExpression({
@@ -1601,7 +1624,7 @@ Please consider to write it as:
     let isMutable = false;
     if (
       exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinKeywords.Compt)
+      exprIsFunctionCallOf(lhs, BuiltinKeywords.compt)
     ) {
       isCompileTimeOnly = true;
       if (lhs.args.length !== 1) {
@@ -1610,11 +1633,11 @@ Please consider to write it as:
           `Expected one argument for "compt" (or "@"), got ${lhs.args.length}`
         );
       }
-      lhs = lhs.args[0];
+      lhs = lhs.args[0]!;
     }
     if (
       exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinKeywords.Mut)
+      exprIsFunctionCallOf(lhs, BuiltinKeywords.mut)
     ) {
       isMutable = true;
       if (lhs.args.length !== 1) {
@@ -1623,7 +1646,7 @@ Please consider to write it as:
           `Expected one argument for mut, got ${lhs.args.length}`
         );
       }
-      lhs = lhs.args[0];
+      lhs = lhs.args[0]!;
     }
     if (!this.isValidVariableName(lhs)) {
       throw this.formatErrorMessage(
@@ -1653,11 +1676,12 @@ Please consider to write it as:
         token: lhs.token,
         type: userDefinedType,
         isMutable,
-        isNotInitialized: true,
+        isUndefined: true,
+        isCompileTimeOnly,
+        isImplicit: false,
         value: isCompileTimeOnly
           ? createUnknownValue(userDefinedType)
           : undefined,
-        isCompileTimeOnly,
       },
     });
     env = nextEnv;
@@ -1699,13 +1723,13 @@ Please consider to write it as:
     let isMutable = false;
     let isImplicit = false;
 
-    let lhs = expr.args[0];
-    let rhs = expr.args[1];
+    let lhs = expr.args[0]!;
+    let rhs = expr.args[1]!;
 
     // Check if the variale is implicit
     if (
       exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinKeywords.Implicit)
+      exprIsFunctionCallOf(lhs, BuiltinKeywords.implicit)
     ) {
       isImplicit = true;
       // Check if the lhs is a variable
@@ -1715,13 +1739,13 @@ Please consider to write it as:
           `Expected one argument for implicit, got ${lhs.args.length}`
         );
       }
-      lhs = lhs.args[0];
+      lhs = lhs.args[0]!;
     }
 
     // Check if the variable is mutable
     if (
       exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinKeywords.Mut)
+      exprIsFunctionCallOf(lhs, BuiltinKeywords.mut)
     ) {
       isMutable = true;
       // Check if the lhs is a variable
@@ -1731,7 +1755,7 @@ Please consider to write it as:
           `Expected one argument for mut, got ${lhs.args.length}`
         );
       }
-      lhs = lhs.args[0];
+      lhs = lhs.args[0]!;
     }
 
     // Prevent declaring variable type using :: or :=
@@ -1874,7 +1898,7 @@ ${exprToString(rhs)}`
           type: lhs.type,
           isMutable,
           isCompileTimeOnly,
-          isNotInitialized: false,
+          isUndefined: false,
           isImplicit,
           value: lhs.value,
         },
@@ -1921,8 +1945,8 @@ ${exprToString(rhs)}`
       throw this.formatErrorMessage(expr.token, `Expected "=" for assignment.`);
     }
 
-    let lhs = expr.args[0];
-    let rhs = expr.args[1];
+    let lhs = expr.args[0]!;
+    let rhs = expr.args[1]!;
 
     if (
       exprIsAtom(lhs) ||
@@ -1967,7 +1991,7 @@ ${exprToString(rhs)}`
           `Variable ${variableName} not found in the environment`
         );
       }
-      const variable = variables[variables.length - 1];
+      const variable = variables[variables.length - 1]!;
 
       // Evaluate the rhs expression
       rhs = this.evaluateExpression({
@@ -2027,10 +2051,10 @@ ${exprToString(rhs)}`
         );
       }
 
-      if (variable.isNotInitialized) {
+      if (variable.isUndefined) {
         env = updateExistingVariable(env, variable, {
           ...variable,
-          isNotInitialized: false,
+          isUndefined: false,
           value: rhs.value,
         });
       } else if (variable.isMutable) {
@@ -2076,7 +2100,7 @@ ${exprToString(expr)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Extern)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.extern)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected extern, got ${expr.tag}`
@@ -2084,23 +2108,23 @@ ${exprToString(expr)}`
     }
 
     for (let i = 0; i < expr.args.length; i++) {
-      const arg = expr.args[i];
+      const arg = expr.args[i]!;
       if (!exprIsFunctionCall(arg) || !exprIsFunctionCallOf(arg, ":", 2)) {
         throw this.formatErrorMessage(
           arg.token,
           `Expected ":" for extern argument, got ${arg.tag}`
         );
       }
-      let lhs = arg.args[0];
-      const rhs = arg.args[1];
+      let lhs = arg.args[0]!;
+      const rhs = arg.args[1]!;
 
       // Check if lhs is implicit
       let isImplicit = false;
       if (
         exprIsFunctionCall(lhs) &&
-        exprIsFunctionCallOf(lhs, BuiltinKeywords.Implicit, 1)
+        exprIsFunctionCallOf(lhs, BuiltinKeywords.implicit, 1)
       ) {
-        lhs = lhs.args[0];
+        lhs = lhs.args[0]!;
         isImplicit = true;
       }
 
@@ -2142,7 +2166,7 @@ ${exprToString(expr)}`
               type: userDefinedType,
               isMutable: false,
               isCompileTimeOnly: true,
-              isNotInitialized: false,
+              isUndefined: false,
               isImplicit,
               value: createUnknownValue(userDefinedType),
             },
@@ -2176,7 +2200,7 @@ ${exprToString(expr)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Cond)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "cond", got ${expr.tag}`
@@ -2196,7 +2220,7 @@ ${exprToString(expr)}`
     // expect each value to be the same type.
     let valueType: Type | undefined = undefined;
     for (let i = 0; i < statements.length; i++) {
-      const statement = statements[i];
+      const statement = statements[i]!;
       if (
         !exprIsFunctionCall(statement) ||
         !exprIsFunctionCallOf(statement, "->", 2)
@@ -2206,8 +2230,8 @@ ${exprToString(expr)}`
           `Expected -> for cond statement, got ${statement.tag}`
         );
       }
-      const condExpr = statement.args[0];
-      const valueExpr = statement.args[1];
+      const condExpr = statement.args[0]!;
+      const valueExpr = statement.args[1]!;
 
       // Expect condExpr to be a boolean
       const evaluatedCond = this.evaluateExpression({
@@ -2293,7 +2317,7 @@ ${exprToString(expr)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Match)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "match", got ${expr.tag}`
@@ -2309,7 +2333,7 @@ ${exprToString(expr)}`
     }
 
     // Evaluate the value to be matched
-    const valueExpr = args[0];
+    const valueExpr = args[0]!;
     const evaluatedValue = this.evaluateExpression({
       expr: valueExpr,
       env,
@@ -2341,7 +2365,7 @@ ${exprToString(expr)}`
 
     // Process each pattern
     for (let i = 0; i < patterns.length; i++) {
-      const pattern = patterns[i];
+      const pattern = patterns[i]!;
 
       // Check if the pattern is a valid match arm
       if (
@@ -2354,8 +2378,8 @@ ${exprToString(expr)}`
         );
       }
 
-      const patternExpr = pattern.args[0];
-      const resultExpr = pattern.args[1];
+      const patternExpr = pattern.args[0]!;
+      const resultExpr = pattern.args[1]!;
 
       // Check if the pattern is a valid enum variant
       if (
@@ -2363,7 +2387,7 @@ ${exprToString(expr)}`
         exprIsFunctionCallOf(patternExpr, ".", 1)
       ) {
         // For patterns like .Red
-        const variantNameExpr = patternExpr.args[0];
+        const variantNameExpr = patternExpr.args[0]!;
         if (!exprIsAtom(variantNameExpr)) {
           throw this.formatErrorMessage(
             patternExpr.token,
@@ -2430,7 +2454,7 @@ ${exprToString(expr)}`
         exprIsFunctionCallOf(patternExpr.func, ".", 1)
       ) {
         const variantExpr = patternExpr.func;
-        const variantNameExpr = variantExpr.args[0];
+        const variantNameExpr = variantExpr.args[0]!;
         if (!exprIsAtom(variantNameExpr)) {
           throw this.formatErrorMessage(
             variantExpr.token,
@@ -2473,8 +2497,8 @@ ${exprToString(expr)}`
 
         // Add each element to environment as local variable
         for (let j = 0; j < patternElements.length; j++) {
-          const patternElement = patternElements[j];
-          const variantElement = variant.elements[j];
+          const patternElement = patternElements[j]!;
+          const variantElement = variant.elements[j]!;
 
           if (
             !exprIsAtom(patternElement) ||
@@ -2498,7 +2522,9 @@ ${exprToString(expr)}`
               token: patternElement.token,
               type: variantElement.type,
               isMutable: false,
-              isNotInitialized: false,
+              isUndefined: false,
+              isImplicit: false,
+              isCompileTimeOnly: false,
             },
           });
 
@@ -2776,11 +2802,11 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           `Variable "${identifier}" not found`
         );
       } else {
-        const variable = variables[variables.length - 1];
-        if (variable.isNotInitialized) {
+        const variable = variables[variables.length - 1]!;
+        if (variable.isUndefined) {
           throw this.formatErrorMessage(
             expr.token,
-            `Variable "${identifier}" not initialized`
+            `Variable "${identifier}" is undefined`
           );
         }
         expr.value = variable.value;
@@ -2820,12 +2846,12 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         `Expected -> for anonymous function, got:\n${exprToString(expr)}`
       );
     }
-    const functionDeclarationExpr = expr.args[0];
-    const functionBodyExpr = expr.args[1];
+    const functionDeclarationExpr = expr.args[0]!;
+    const functionBodyExpr = expr.args[1]!;
 
     if (
       !exprIsFunctionCall(functionDeclarationExpr) ||
-      !exprIsFunctionCallOf(functionDeclarationExpr, BuiltinKeywords.Fn)
+      !exprIsFunctionCallOf(functionDeclarationExpr, BuiltinKeywords.fn)
     ) {
       throw this.formatErrorMessage(
         functionDeclarationExpr.token,
@@ -2917,7 +2943,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         `Expected a function type for recur, got:\n${exprToString(expr)}`
       );
     }
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Recur)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected recur, got:\n${exprToString(expr)}`
@@ -2978,8 +3004,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         );
       }
 
-      rhsExpr = expr_.args[1];
-      lhsExpr = expr_.args[0];
+      rhsExpr = expr_.args[1]!;
+      lhsExpr = expr_.args[0]!;
       defaultValueExpr = rhsExpr;
       expr_ = lhsExpr; // NOTE: Don't change the original `expr`
     }
@@ -2995,8 +3021,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         );
       }
 
-      rhsExpr = expr_.args[1];
-      lhsExpr = expr_.args[0];
+      rhsExpr = expr_.args[1]!;
+      lhsExpr = expr_.args[0]!;
       typeExpr = rhsExpr;
     } else {
       // eg:
@@ -3015,7 +3041,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     if (lhsExpr) {
       if (
         exprIsFunctionCall(lhsExpr) &&
-        exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.Compt)
+        exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.compt)
       ) {
         isCompileTimeOnly = true;
         if (lhsExpr.args.length !== 1) {
@@ -3024,11 +3050,11 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
             `Expected one argument for "compt" (or "@"), got ${lhsExpr.args.length}`
           );
         }
-        lhsExpr = lhsExpr.args[0];
+        lhsExpr = lhsExpr.args[0]!;
       }
       if (
         exprIsFunctionCall(lhsExpr) &&
-        exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.Mut)
+        exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.mut)
       ) {
         isMutable = true;
         if (lhsExpr.args.length !== 1) {
@@ -3037,7 +3063,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
             `Expected one argument for "mut" (or "!"), got ${lhsExpr.args.length}`
           );
         }
-        lhsExpr = lhsExpr.args[0];
+        lhsExpr = lhsExpr.args[0]!;
       }
       if (!exprIsAtom(lhsExpr) && !this.isValidVariableName(lhsExpr)) {
         throw this.formatErrorMessage(
@@ -3173,7 +3199,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
             type: parameterType,
             isMutable: isMutable,
             isCompileTimeOnly: isCompileTimeOnly,
-            isNotInitialized: false, // Set as initialized
+            isUndefined: false, // Set as initialized
+            isImplicit: false,
             value:
               // defaultValue ?? // NOTE: No need to use the default value here.
               isCompileTimeOnly
@@ -3232,12 +3259,12 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     const implicitParameters: FunctionParameter[] = [];
 
     for (let i = 0; i < parameterExprs.length; i++) {
-      const parameterExpr = parameterExprs[i];
+      const parameterExpr = parameterExprs[i]!;
 
       // Check if it's the type parameters
       if (
         exprIsFunctionCall(parameterExpr) &&
-        exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.Forall)
+        exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.forall)
       ) {
         if (i !== 0) {
           throw this.formatErrorMessage(
@@ -3247,7 +3274,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         }
         const typeParameterExprs = parameterExpr.args;
         for (let j = 0; j < typeParameterExprs.length; j++) {
-          const typeParameterExpr = typeParameterExprs[j];
+          const typeParameterExpr = typeParameterExprs[j]!;
           const { parameter, env: nextEnv } = this.evaluateFunctionParameter({
             expr: typeParameterExpr,
             env,
@@ -3287,7 +3314,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       // Check if it's the implicit parameters
       else if (
         exprIsFunctionCall(parameterExpr) &&
-        exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.Implicit)
+        exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.implicit)
       ) {
         if (i !== parameterExprs.length - 1) {
           throw this.formatErrorMessage(
@@ -3298,7 +3325,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
 
         const implicitParameterExprs = parameterExpr.args;
         for (let j = 0; j < implicitParameterExprs.length; j++) {
-          const implicitParameterExpr = implicitParameterExprs[j];
+          const implicitParameterExpr = implicitParameterExprs[j]!;
           const { parameter, env: nextEnv } = this.evaluateFunctionParameter({
             expr: implicitParameterExpr,
             env,
@@ -3307,6 +3334,16 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
               isEvaluatingExprAsType: true,
             },
           });
+
+          // Implicit parameter cannot have default value
+          if (parameter.exprs.defaultValueExpr) {
+            throw this.formatErrorMessage(
+              implicitParameterExpr.token,
+              `Implicit parameter cannot have default value, got ${exprToString(
+                implicitParameterExpr
+              )}`
+            );
+          }
 
           // Check if there is duplicate labels
           if (parameter.label) {
@@ -3441,8 +3478,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       );
     }
 
-    const argListExpr = expr.args[0];
-    let returnTypeExpr = expr.args[1];
+    const argListExpr = expr.args[0]!;
+    let returnTypeExpr = expr.args[1]!;
 
     // Handle different forms of parameter lists
     let argList: Expr[] = [];
@@ -3484,30 +3521,11 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     });
     env = nextEnv;
 
-    // Analysize the return type expression
-    /// Evaluate the proofs
-    if (
-      exprIsFunctionCall(returnTypeExpr) &&
-      exprIsFunctionCallOf(returnTypeExpr, "=>", 2)
-    ) {
-      // const lhsExpr = returnTypeExpr.args[0];
-      returnTypeExpr = returnTypeExpr.args[1];
-
-      /*
-      const evaluatedProofAssumptionsExpr = this.evaluateProofAssumptions({
-        expr: lhsExpr,
-        env,
-        context: {
-          ...context,
-        },
-      });
-      */
-    }
     /// Check if the function is returning compile-time only value.
     let isReturnTypeCompileTimeOnly = false;
     if (
       exprIsFunctionCall(returnTypeExpr) &&
-      exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.Compt)
+      exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.compt)
     ) {
       isReturnTypeCompileTimeOnly = true;
       if (returnTypeExpr.args.length !== 1) {
@@ -3516,7 +3534,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           `Expected one argument for "compt" (or "@"), got ${returnTypeExpr.args.length}`
         );
       }
-      returnTypeExpr = returnTypeExpr.args[0];
+      returnTypeExpr = returnTypeExpr.args[0]!;
     }
 
     // Evaluate the return type expression
@@ -3581,7 +3599,7 @@ compt(${exprToString(returnTypeExpr)})`
         isCompileTimeOnly: isReturnTypeCompileTimeOnly,
       },
       env: popEnvFrame(env),
-      parametersFrame: env.frames[env.frames.length - 1],
+      parametersFrame: env.frames[env.frames.length - 1]!,
       SelfType: context.SelfType,
     });
 
@@ -3604,14 +3622,14 @@ compt(${exprToString(returnTypeExpr)})`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Type, 1)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.type, 1)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected type with 1 argument, got:\n${exprToString(expr)}`
       );
     }
 
-    const typeExpr = expr.args[0];
+    const typeExpr = expr.args[0]!;
     const evaluatedType = this.evaluateExpression({
       expr: typeExpr,
       env,
@@ -3648,7 +3666,7 @@ compt(${exprToString(returnTypeExpr)})`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Struct)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "struct", got:\n${exprToString(expr)}`
@@ -3684,7 +3702,7 @@ compt(${exprToString(returnTypeExpr)})`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Enum)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.enum)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "enum", got:\n${exprToString(expr)}`
@@ -3694,7 +3712,7 @@ compt(${exprToString(returnTypeExpr)})`
     // Evaluate the variants
     const variants: EnumVariant[] = [];
     for (let i = 0; i < expr.args.length; i++) {
-      const enumArg = expr.args[i];
+      const enumArg = expr.args[i]!;
 
       if (exprIsAtom(enumArg)) {
         const variantName = enumArg.token.value;
@@ -3774,7 +3792,7 @@ compt(${exprToString(returnTypeExpr)})`
 
     if (exprIsFunctionCallOf(expr, ".", 1)) {
       // Expect the argument to be an identifier
-      const propertyExpr = expr.args[0];
+      const propertyExpr = expr.args[0]!;
       if (
         !exprIsAtom(propertyExpr) &&
         !this.isValidVariableName(propertyExpr)
@@ -3843,8 +3861,8 @@ compt(${exprToString(returnTypeExpr)})`
       );
     }
 
-    let objectExpr = expr.args[0];
-    const propertyExpr = expr.args[1];
+    let objectExpr = expr.args[0]!;
+    const propertyExpr = expr.args[1]!;
 
     // Evaluate object
     objectExpr = this.evaluateExpression({
@@ -3941,7 +3959,7 @@ compt(${exprToString(returnTypeExpr)})`
               )}`
             );
           }
-          const tupleElement = elements[index];
+          const tupleElement = elements[index]!;
           expr.type = tupleElement.type;
           propertyExpr.type = tupleElement.type;
           // TODO: Support comptime value
@@ -3981,7 +3999,7 @@ compt(${exprToString(returnTypeExpr)})`
               expr.value = undefined;
               return expr;
             }
-            const tupleElement = elements[tupleElementIndex];
+            const tupleElement = elements[tupleElementIndex]!;
             expr.type = tupleElement.type;
             propertyExpr.type = tupleElement.type;
             // TODO: Support comptime value
@@ -4073,14 +4091,14 @@ compt(${exprToString(returnTypeExpr)})`
     const values: (Value | undefined)[] = [];
 
     for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
+      const arg = args[i]!;
       let labelExpr: Expr | undefined = undefined;
       let valueExpr: Expr = arg;
       let label: string | undefined = undefined;
 
       if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, ":", 2)) {
-        labelExpr = arg.args[0];
-        valueExpr = arg.args[1];
+        labelExpr = arg.args[0]!;
+        valueExpr = arg.args[1]!;
 
         if (!exprIsAtom(labelExpr) || !this.isValidVariableName(labelExpr)) {
           throw this.formatErrorMessage(
@@ -4180,8 +4198,8 @@ compt(${exprToString(returnTypeExpr)})`
           exprIsFunctionCall(functionToCall) &&
           exprIsFunctionCallOf(functionToCall, ".", 2)
         ) {
-          const receiverArg = functionToCall.args[0];
-          methodExpr = functionToCall.args[1];
+          const receiverArg = functionToCall.args[0]!;
+          methodExpr = functionToCall.args[1]!;
 
           // The receiverArg should already be evaluated in the previous step
           // so it should have a type
@@ -4434,7 +4452,7 @@ compt(${exprToString(returnTypeExpr)})`
 
     if (functionsWithMatchingTypes.length === 0) {
       if (functionsToCall.length === 1) {
-        throw functionsToCall[0].error!;
+        throw functionsToCall[0]!.error!; // NOTE: It should have error here.
       }
 
       throw this.formatErrorMessage(
@@ -4478,8 +4496,7 @@ ${functionsWithMatchingTypes
       );
     }
 
-    const functionToCall = functionsWithMatchingTypes[0];
-
+    const functionToCall = functionsWithMatchingTypes[0]!; // Found the only one function to call
     if (isFunctionType(functionToCall.type)) {
       const functionType = functionToCall.type;
 
@@ -4733,7 +4750,7 @@ ${exprToString(expr)}`
      * It could be typeParameters, parameters, or implicitParameters
      */
     parameter: FunctionParameter;
-    argExpr: Expr;
+    argExpr: Expr | undefined;
     calleeEnv: Environment;
     callerEnv: Environment;
     context: EvaluatorContext;
@@ -4742,9 +4759,13 @@ ${exprToString(expr)}`
     // But we support to use label for readibility.
     // eg: add(1, 2) vs add(x: 1, y: 2)
     let labelExpr: Expr | undefined = undefined;
-    if (exprIsFunctionCall(argExpr) && exprIsFunctionCallOf(argExpr, ":", 2)) {
-      labelExpr = argExpr.args[0];
-      argExpr = argExpr.args[1];
+    if (
+      argExpr &&
+      exprIsFunctionCall(argExpr) &&
+      exprIsFunctionCallOf(argExpr, ":", 2)
+    ) {
+      labelExpr = argExpr.args[0]!;
+      argExpr = argExpr.args[1]!;
 
       if (!exprIsAtom(labelExpr)) {
         throw this.formatErrorMessage(
@@ -4752,8 +4773,8 @@ ${exprToString(expr)}`
           `Expected identifier for label, got:\n${exprToString(labelExpr)}`
         );
       }
-      const label = labelExpr.token.value;
 
+      const label = labelExpr.token.value;
       if (parameter.label !== label) {
         throw this.formatErrorMessage(
           labelExpr.token,
@@ -4793,7 +4814,11 @@ ${exprToString(expr)}`
     // Evaluate the argExpr
     let evaluatedArgExpr: Expr | undefined = undefined;
     try {
-      if (exprIsAtom(argExpr) && argExpr.token.value === "_") {
+      if (
+        !argExpr ||
+        (exprIsAtom(argExpr) &&
+          exprIsAtomOf(argExpr, BuiltinKeywords.undefined))
+      ) {
         // Use the default value
         if (parameter.exprs.defaultValueExpr) {
           evaluatedArgExpr = this.evaluateExpression({
@@ -4807,14 +4832,14 @@ ${exprToString(expr)}`
           if (evaluatedArgExpr.env) {
             calleeEnv = evaluatedArgExpr.env;
           }
-          argExpr.value = evaluatedArgExpr.value;
-          argExpr.type = evaluatedArgExpr.type;
+          if (argExpr) {
+            argExpr.value = evaluatedArgExpr.value;
+            argExpr.type = evaluatedArgExpr.type;
+          }
         } else {
           throw this.formatErrorMessage(
-            argExpr.token,
-            `Expected default value for parameter "${parameter.label}", got:\n${exprToString(
-              argExpr
-            )}`
+            argExpr?.token ?? PlaceholderToken,
+            `Expected default value for parameter "${parameter.label}"`
           );
         }
       } else {
@@ -4837,16 +4862,16 @@ ${exprToString(expr)}`
     }
     if (!evaluatedArgExpr) {
       throw this.formatErrorMessage(
-        argExpr.token,
-        `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
+        argExpr?.token ?? PlaceholderToken,
+        `Failed to evaluate argument expression.`
       );
     }
 
     const argType = evaluatedArgExpr.type;
     if (!argType) {
       throw this.formatErrorMessage(
-        argExpr.token,
-        `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
+        argExpr?.token ?? PlaceholderToken,
+        `Failed to evaluate argument expression.`
       );
       // If synthesis fails, the types are not compatible
     }
@@ -4854,10 +4879,10 @@ ${exprToString(expr)}`
     // Cannot assign runtime parameter to compt parameter
     if (!evaluatedArgExpr.value && parameter.isCompileTimeOnly) {
       throw this.formatErrorMessage(
-        argExpr.token,
-        `Cannot assign runtime argument to compile-time parameter:\n${exprToString(
-          argExpr
-        )}`
+        argExpr?.token ?? PlaceholderToken,
+        `Cannot assign runtime argument to compile-time parameter:\n${
+          argExpr ? exprToString(argExpr) : ""
+        }`
       );
     }
 
@@ -4871,8 +4896,9 @@ ${exprToString(expr)}`
           type: argType,
           isMutable: parameter.isMutable,
           isCompileTimeOnly: parameter.isCompileTimeOnly,
-          token: argExpr.token,
-          isNotInitialized: false,
+          token: argExpr?.token ?? PlaceholderToken,
+          isUndefined: false,
+          isImplicit: false,
           value: argValue,
         },
       });
@@ -4908,7 +4934,7 @@ ${exprToString(expr)}`
       )
     ) {
       throw this.formatErrorMessage(
-        argExpr.token,
+        argExpr?.token ?? PlaceholderToken,
         `Type mismatch for parameter "${parameter.label}":
     Expected: ${typeToString(parameterType)}
     Got:   ${typeToString(argType)}`
@@ -4936,10 +4962,8 @@ ${exprToString(expr)}`
     callerEnv: Environment;
     context: EvaluatorContext;
   }): { calleeEnv: Environment; returnType: Type } {
-    // NOTE: We disallow to have default values for function parameters
-    let givenArgCount = argExprs.length;
     let forallArgsExpr: FuncCallExpr | undefined = undefined;
-    let implicitArgsExpr: FuncCallExpr | undefined = undefined;
+    let implicitArgExprs: Expr[] = [];
 
     // Check if there is `forall(...)` argument zone.
     // If yes, then it should be the first argument
@@ -4948,10 +4972,10 @@ ${exprToString(expr)}`
     // If yes, then it should be the last argument
     const newArgExprs: Expr[] = [];
     for (let i = 0; i < argExprs.length; i++) {
-      const argExpr = argExprs[i];
+      const argExpr = argExprs[i]!;
       if (
         exprIsFunctionCall(argExpr) &&
-        exprIsFunctionCallOf(argExpr, BuiltinKeywords.Forall)
+        exprIsFunctionCallOf(argExpr, BuiltinKeywords.forall)
       ) {
         if (i !== 0) {
           throw this.formatErrorMessage(
@@ -4961,14 +4985,13 @@ ${exprToString(expr)}`
             )}`
           );
         }
-        givenArgCount = givenArgCount - 1;
         forallArgsExpr = argExpr;
         continue;
       }
 
       if (
         exprIsFunctionCall(argExpr) &&
-        exprIsFunctionCallOf(argExpr, BuiltinKeywords.Implicit)
+        exprIsFunctionCallOf(argExpr, BuiltinKeywords.implicit)
       ) {
         if (i !== argExprs.length - 1) {
           throw this.formatErrorMessage(
@@ -4976,8 +4999,7 @@ ${exprToString(expr)}`
             `Expected implicit argument to be the last argument, got:\n${exprToString(argExpr)}`
           );
         }
-        givenArgCount = givenArgCount - 1;
-        implicitArgsExpr = argExpr;
+        implicitArgExprs = argExpr.args;
         break;
       }
 
@@ -4985,7 +5007,8 @@ ${exprToString(expr)}`
     }
     argExprs = newArgExprs;
 
-    // NOTE: We don't support default values for function parameters
+    /* NOTE: We now support default values
+    // ~~NOTE: We don't support default values for function parameters~~
     // So we need to check if the number of arguments is correct
     if (givenArgCount !== functionType.parameters.length) {
       throw this.formatErrorMessage(
@@ -4993,12 +5016,14 @@ ${exprToString(expr)}`
         `Expected ${functionType.parameters.length} arguments, got ${argExprs.length}.`
       );
     }
+    */
 
     // Push new frame to env
     callerEnv = pushEnvFrame(callerEnv);
     // Push new frame to function env
     let calleeEnv = pushEnvFrame(functionType.env);
 
+    /* NOTE: We now support default values 
     // Evaluate the forallArgsExpr
     // Add necessary type parameters to the calleeEnv
     if (
@@ -5010,9 +5035,11 @@ ${exprToString(expr)}`
         `Expected ${functionType.typeParameters.length} type arguments, got ${forallArgsExpr.args.length}.`
       );
     }
+    */
+
     for (let i = 0; i < functionType.typeParameters.length; i++) {
       // Add typeParameter to calleeEnv
-      const typeParameter = functionType.typeParameters[i];
+      const typeParameter = functionType.typeParameters[i]!;
       if (typeParameter.exprs.labelExpr && typeParameter.label) {
         const { env: nextEnv } = addVariableToEnv({
           env: calleeEnv,
@@ -5022,7 +5049,8 @@ ${exprToString(expr)}`
             type: typeParameter.type,
             isMutable: false,
             isCompileTimeOnly: true,
-            isNotInitialized: false, // Set as initialized
+            isUndefined: false, // Set as initialized
+            isImplicit: false,
             value: createUnknownValue(typeParameter.type, typeParameter.label),
           },
         });
@@ -5030,21 +5058,16 @@ ${exprToString(expr)}`
       }
 
       if (forallArgsExpr) {
-        let forallArgExpr = forallArgsExpr.args[i];
+        let forallArgExpr: Expr | undefined = forallArgsExpr.args[i];
         let labelExpr: Expr | undefined = undefined;
-        if (exprIsAtom(forallArgExpr) && forallArgExpr.token.value === "_") {
-          // _ is a special case, it means to use the inferred type
-          // So we don't need to check the type
-          continue;
-        }
 
         // Check if it's calling the named argument
         if (
           exprIsFunctionCall(forallArgExpr) &&
           exprIsFunctionCallOf(forallArgExpr, ":", 2)
         ) {
-          labelExpr = forallArgExpr.args[0];
-          forallArgExpr = forallArgExpr.args[1];
+          labelExpr = forallArgExpr.args[0]!;
+          forallArgExpr = forallArgExpr.args[1]!;
 
           // Check if the label is valid
           if (!exprIsAtom(labelExpr)) {
@@ -5063,29 +5086,83 @@ ${exprToString(expr)}`
           }
         }
 
-        // Evaluate forallArgExpr
-        const evaluatedTypeExpr = this.evaluateExpression({
-          expr: forallArgExpr,
-          env: callerEnv,
-          context: {
-            ...context,
-            isEvaluatingExprAsType: true,
-            expectedType: { type: typeParameter.type, env: calleeEnv },
-          },
-        });
-        if (evaluatedTypeExpr.env) {
-          callerEnv = evaluatedTypeExpr.env;
+        // Check if it's undefined
+        let typeValue: Value;
+        // Check if it's '_'
+        if (exprIsAtom(forallArgExpr) && forallArgExpr.token.value === "_") {
+          // _ is a special case, it means to use the inferred type
+          // So we don't need to check the type
+          continue;
         }
+        // Check the default value
+        else if (
+          !forallArgExpr ||
+          (exprIsAtom(forallArgExpr) &&
+            exprIsAtomOf(forallArgExpr, BuiltinKeywords.undefined))
+        ) {
+          // Check if typeParameter has default value
+          if (typeParameter.exprs.defaultValueExpr) {
+            const evaluatedArgExpr = this.evaluateExpression({
+              expr: cloneExpr(typeParameter.exprs.defaultValueExpr),
+              env: calleeEnv,
+              context: {
+                ...context,
+                isEvaluatingExprAsType: false,
+              },
+            });
+            if (evaluatedArgExpr.env) {
+              callerEnv = evaluatedArgExpr.env;
+            }
+            if (forallArgExpr) {
+              forallArgExpr.value = evaluatedArgExpr.value;
+              forallArgExpr.type = evaluatedArgExpr.type;
+            }
+
+            if (!isTypeValue(evaluatedArgExpr.value)) {
+              throw this.formatErrorMessage(
+                forallArgExpr?.token ??
+                  functionCallExpr?.token ??
+                  PlaceholderToken,
+                forallArgExpr
+                  ? `Expected type for default value, got:\n${exprToString(forallArgExpr)}`
+                  : `Expected type for default value.`
+              );
+            }
+            typeValue = evaluatedArgExpr.value;
+          } else {
+            throw this.formatErrorMessage(
+              forallArgExpr?.token ??
+                functionCallExpr?.token ??
+                PlaceholderToken,
+              `Type parameter does not have default value.`
+            );
+          }
+        } else {
+          // Evaluate forallArgExpr
+          const evaluatedTypeExpr = this.evaluateExpression({
+            expr: forallArgExpr,
+            env: callerEnv,
+            context: {
+              ...context,
+              isEvaluatingExprAsType: true,
+              expectedType: { type: typeParameter.type, env: calleeEnv },
+            },
+          });
+          if (evaluatedTypeExpr.env) {
+            callerEnv = evaluatedTypeExpr.env;
+          }
+          if (!isTypeValue(evaluatedTypeExpr.value)) {
+            throw this.formatErrorMessage(
+              forallArgExpr.token,
+              `Expected type for argument, got:\n${exprToString(forallArgExpr)}`
+            );
+          }
+          typeValue = evaluatedTypeExpr.value;
+        }
+
         if (labelExpr) {
-          labelExpr.type = evaluatedTypeExpr.type;
-          labelExpr.value = evaluatedTypeExpr.value;
-        }
-        const typeValue = evaluatedTypeExpr.value;
-        if (!isTypeValue(typeValue)) {
-          throw this.formatErrorMessage(
-            forallArgExpr.token,
-            `Expected type for argument, got:\n${exprToString(forallArgExpr)}`
-          );
+          labelExpr.type = typeValue.type;
+          labelExpr.value = typeValue;
         }
 
         // Compare the types
@@ -5096,7 +5173,7 @@ ${exprToString(expr)}`
           )
         ) {
           throw this.formatErrorMessage(
-            forallArgExpr.token,
+            forallArgExpr?.token ?? functionCallExpr?.token ?? PlaceholderToken,
             `Type mismatch for type parameter "${typeParameter.label}":
 Expected: ${typeToString(typeParameter.type)}
 Got:   ${typeToString(typeValue.type)}`
@@ -5110,11 +5187,15 @@ Got:   ${typeToString(typeValue.type)}`
             env: calleeEnv,
             variable: {
               name: typeParameter.label,
-              token: forallArgExpr.token,
+              token:
+                forallArgExpr?.token ??
+                functionCallExpr?.token ??
+                PlaceholderToken,
               type: typeValue.type,
               isMutable: false,
               isCompileTimeOnly: true,
-              isNotInitialized: false, // Set as initialized
+              isUndefined: false, // Set as initialized
+              isImplicit: false,
               value: typeValue,
             },
           });
@@ -5137,8 +5218,8 @@ Got:   ${typeToString(typeValue.type)}`
 
     // Check if the parameters match the arguments
     for (let i = 0; i < functionType.parameters.length; i++) {
-      const parameter = functionType.parameters[i];
-      const argExpr = argExprs[i];
+      const parameter = functionType.parameters[i]!;
+      const argExpr: Expr | undefined = argExprs[i];
       const { calleeEnv: nextCalleeEnv } =
         this.checkIfFunctionParameterMatchesArgument({
           functionValue,
@@ -5153,7 +5234,7 @@ Got:   ${typeToString(typeValue.type)}`
 
     // Check if the implicit parameters are provided
     for (let i = 0; i < functionType.implicitParameters.length; i++) {
-      const implicitParameter = functionType.implicitParameters[i];
+      const implicitParameter = functionType.implicitParameters[i]!;
 
       // Evaluate its type again
       const {
@@ -5171,99 +5252,125 @@ Got:   ${typeToString(typeValue.type)}`
       let implicitParameterType = newImplicitParameterType;
 
       // Check if it's provided in implicitArgsExpr
-      if (implicitArgsExpr) {
-        const implicitArg = implicitArgsExpr.args[i];
-        if (!implicitArg) {
+      let implicitArgExpr: Expr | undefined = implicitArgExprs[i];
+      let labelExpr: Expr | undefined = undefined;
+
+      // Check if it's calling the named argument
+      if (
+        exprIsFunctionCall(implicitArgExpr) &&
+        exprIsFunctionCallOf(implicitArgExpr, ":", 2)
+      ) {
+        labelExpr = implicitArgExpr.args[0]!;
+        implicitArgExpr = implicitArgExpr.args[1]!;
+
+        // Check if the label is valid
+        if (!exprIsAtom(labelExpr)) {
           throw this.formatErrorMessage(
-            implicitArgsExpr.token,
-            `Expected implicit argument:
-${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implicitParameterType)})` : typeToString(implicitParameterType)}`
+            labelExpr.token,
+            `Expected identifier for type parameter label, got:\n${exprToString(labelExpr)}`
           );
         }
 
-        if (exprIsAtom(implicitArg) && implicitArg.token.value === "_") {
-          // _ is a special case, it means to use the inferred value.
-          // So we don't need to check the type
-        } else {
-          // Evaluate the implicit argument
-          const evaluatedImplicitArg = this.evaluateExpression({
-            expr: implicitArg,
-            env: callerEnv,
-            context: {
-              ...context,
-              isEvaluatingExprAsType: false,
-              expectedType: { type: implicitParameterType, env: calleeEnv },
-            },
-          });
-          if (evaluatedImplicitArg.env) {
-            callerEnv = evaluatedImplicitArg.env;
-          }
-          const argType = evaluatedImplicitArg.type;
-          if (!argType) {
-            throw this.formatErrorMessage(
-              implicitArg.token,
-              `Failed to evaluate implicit argument expression:\n${exprToString(implicitArg)}`
-            );
-          }
-
-          // Add the arg to the environment
-          if (implicitParameter.label) {
-            const argValue = evaluatedImplicitArg.value;
-            const { env: nextEnv } = addVariableToEnv({
-              env: calleeEnv,
-              variable: {
-                name: implicitParameter.label,
-                type: argType,
-                isMutable: implicitParameter.isMutable,
-                isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
-                token: implicitArg.token,
-                isNotInitialized: false,
-                value: argValue,
-              },
-            });
-            calleeEnv = nextEnv;
-          }
-
-          // Synthesize the types
-          const { expectedEnv, givenEnv } = this.synthesizeTypes(
-            { type: implicitParameterType, env: calleeEnv },
-            { type: argType, env: callerEnv }
+        // Check if the label matches the type parameter label
+        if (implicitParameter.label !== labelExpr.token.value) {
+          throw this.formatErrorMessage(
+            labelExpr.token,
+            `Expected type parameter label "${implicitParameter.label}", got "${labelExpr.token.value}".`
           );
-          calleeEnv = expectedEnv;
-          callerEnv = givenEnv;
-
-          // Evaluate the parameter type again
-          const {
-            parameterType: newImplicitParameterType,
-            calleeEnv: nextCalleeEnv,
-          } = this.evaluateFunctionParameterType({
-            parameter: implicitParameter,
-            calleeEnv,
-            context: {
-              ...context,
-            },
-            functionValue,
-          });
-          implicitParameterType = newImplicitParameterType;
-          calleeEnv = nextCalleeEnv;
-
-          // Compare the types
-          if (
-            !areTypesCompatible(
-              { type: implicitParameterType, env: calleeEnv },
-              { type: argType, env: callerEnv }
-            )
-          ) {
-            throw this.formatErrorMessage(
-              implicitArg.token,
-              `Type mismatch for implicit parameter "${implicitParameter.label}":
-Expected: ${typeToString(implicitParameterType)}
-Got:   ${typeToString(argType)}`
-            );
-          }
-          continue; // Found the correct implicit argument
         }
       }
+
+      // Check if it's '_'
+      if (
+        !implicitArgExpr ||
+        (exprIsAtom(implicitArgExpr) && implicitArgExpr.token.value === "_")
+      ) {
+        // _ is a special case, it means to use the inferred value.
+        // So we don't need to check the type
+      }
+      // NOTE: Default value is not supported for implicit parameters
+      else {
+        // Evaluate the given implicit argument
+        const evaluatedImplicitArg = this.evaluateExpression({
+          expr: implicitArgExpr,
+          env: callerEnv,
+          context: {
+            ...context,
+            isEvaluatingExprAsType: false,
+            expectedType: { type: implicitParameterType, env: calleeEnv },
+          },
+        });
+        if (evaluatedImplicitArg.env) {
+          callerEnv = evaluatedImplicitArg.env;
+        }
+        const argType = evaluatedImplicitArg.type;
+        if (!argType) {
+          throw this.formatErrorMessage(
+            implicitArgExpr.token,
+            `Failed to evaluate implicit argument expression:\n${exprToString(implicitArgExpr)}`
+          );
+        }
+
+        // Add the arg to the environment
+        if (implicitParameter.label) {
+          const argValue = evaluatedImplicitArg.value;
+          const { env: nextEnv } = addVariableToEnv({
+            env: calleeEnv,
+            variable: {
+              name: implicitParameter.label,
+              type: argType,
+              isMutable: implicitParameter.isMutable,
+              isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
+              token: implicitArgExpr.token,
+              isUndefined: false,
+              isImplicit: false,
+              value: argValue,
+            },
+          });
+          calleeEnv = nextEnv;
+        }
+
+        // Synthesize the types
+        const { expectedEnv, givenEnv } = this.synthesizeTypes(
+          { type: implicitParameterType, env: calleeEnv },
+          { type: argType, env: callerEnv }
+        );
+        calleeEnv = expectedEnv;
+        callerEnv = givenEnv;
+
+        // Evaluate the parameter type again
+        const {
+          parameterType: newImplicitParameterType,
+          calleeEnv: nextCalleeEnv,
+        } = this.evaluateFunctionParameterType({
+          parameter: implicitParameter,
+          calleeEnv,
+          context: {
+            ...context,
+          },
+          functionValue,
+        });
+        implicitParameterType = newImplicitParameterType;
+        calleeEnv = nextCalleeEnv;
+
+        // Compare the types
+        if (
+          !areTypesCompatible(
+            { type: implicitParameterType, env: calleeEnv },
+            { type: argType, env: callerEnv }
+          )
+        ) {
+          throw this.formatErrorMessage(
+            implicitArgExpr.token,
+            `Type mismatch for implicit parameter "${implicitParameter.label}":
+Expected: ${typeToString(implicitParameterType)}
+Got:   ${typeToString(argType)}`
+          );
+        }
+        continue; // Found the correct implicit argument
+      }
+
+      // =====
 
       // Check in the env if implicit variable of such type exists
       const implicitVariables = getVariablesFromEnvByFilter(
@@ -5362,7 +5469,7 @@ ${implicitVariables
       }
 
       // Add the implicit variable to the function env
-      const implicitVariable = implicitVariables[0];
+      const implicitVariable = implicitVariables[0]!;
       const { env: nextEnv } = addVariableToEnv({
         env: calleeEnv,
         variable: {
@@ -5371,7 +5478,8 @@ ${implicitVariables
           isMutable: implicitVariable.isMutable,
           isCompileTimeOnly: implicitVariable.isCompileTimeOnly,
           token: functionCallExpr?.token ?? PlaceholderToken,
-          isNotInitialized: false,
+          isUndefined: false,
+          isImplicit: false,
           value: implicitVariable.value,
         },
       });
@@ -5422,7 +5530,7 @@ ${implicitVariables
       undefined
     );
     for (let i = 0; i < memberElements.length; i++) {
-      let memberElement = memberElements[i];
+      let memberElement = memberElements[i]!;
       let argExpr = argExprs[i];
       if (!argExpr) {
         break;
@@ -5434,8 +5542,8 @@ ${implicitVariables
         exprIsFunctionCall(argExpr) &&
         exprIsFunctionCallOf(argExpr, ":", 2)
       ) {
-        labelExpr = argExpr.args[0];
-        argExpr = argExpr.args[1];
+        labelExpr = argExpr.args[0]!;
+        argExpr = argExpr.args[1]!;
 
         if (!exprIsAtom(labelExpr)) {
           throw this.formatErrorMessage(
@@ -5512,7 +5620,7 @@ Got:   ${typeToString(argType)}`
 
     // Check if any unchecked member elements have no default value
     for (let i = 0; i < memberElements.length; i++) {
-      const memberElement = memberElements[i];
+      const memberElement = memberElements[i]!;
       if (!checkedMemberElements.has(memberElement)) {
         if (!memberElement.defaultValue) {
           throw this.formatErrorMessage(
@@ -5552,12 +5660,12 @@ Got:   ${typeToString(argType)}`
     const members: Record<string, Value> = {};
     callerEnv = pushEnvFrame(callerEnv);
     for (let i = 0; i < moduleType.members.length; i++) {
-      const moduleMember = moduleType.members[i];
+      const moduleMember = moduleType.members[i]!;
       let foundArgExpr = false;
       let label: string | undefined = undefined;
       // Traverse over argExprs to see if there is label for the member
       for (let j = 0; j < argExprs.length; j++) {
-        let argExpr = argExprs[j];
+        let argExpr = argExprs[j]!;
 
         // Check if it's a label
         let labelExpr: Expr | undefined;
@@ -5565,8 +5673,8 @@ Got:   ${typeToString(argType)}`
           exprIsFunctionCall(argExpr) &&
           exprIsFunctionCallOf(argExpr, ":", 2)
         ) {
-          labelExpr = argExpr.args[0];
-          argExpr = argExpr.args[1];
+          labelExpr = argExpr.args[0]!;
+          argExpr = argExpr.args[1]!;
 
           if (!exprIsAtom(labelExpr)) {
             throw this.formatErrorMessage(
@@ -5675,7 +5783,8 @@ Got:   ${typeToString(argType)}`
               isMutable: false,
               isCompileTimeOnly: true,
               token: argExpr.token,
-              isNotInitialized: false,
+              isUndefined: false,
+              isImplicit: false,
               value: argValue,
             },
             skipCheckingFunctionOverloading: true,
@@ -5722,7 +5831,8 @@ Got:   ${typeToString(argType)}`
             isMutable: false,
             isCompileTimeOnly: true,
             token: moduleExpr.token,
-            isNotInitialized: false,
+            isUndefined: false,
+            isImplicit: false,
             value: moduleMember.defaultValue,
           },
         });
@@ -5765,10 +5875,11 @@ Got:   ${typeToString(argType)}`
     // argExprs should be evaluated now
     const argValues: Value[] = [];
     for (let i = 0; i < argExprs.length; i++) {
-      const argValue = argExprs[i].value;
+      const argExpr = argExprs[i]!;
+      const argValue = argExpr.value;
       if (!argValue || isUnknownValue(argValue)) {
         throw this.formatErrorMessage(
-          argExprs[i].token,
+          argExpr.token,
           `Argument for type function is not evaluated correctly`
         );
       }
@@ -5885,15 +5996,15 @@ Got:   ${typeToString(argType)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Def, 2)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.def, 2)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "def" with 2 arguments, got:\n${exprToString(expr)}`
       );
     }
 
-    const functionDefinitionExpr = expr.args[0];
-    const functionBodyExpr = expr.args[1];
+    const functionDefinitionExpr = expr.args[0]!;
+    const functionBodyExpr = expr.args[1]!;
 
     if (
       !exprIsFunctionCall(functionDefinitionExpr) ||
@@ -5907,15 +6018,15 @@ Got:   ${typeToString(argType)}`
       );
     }
 
-    let functionNameExpr = functionDefinitionExpr.args[0];
-    const functionTypeExpr = functionDefinitionExpr.args[1];
+    let functionNameExpr = functionDefinitionExpr.args[0]!;
+    const functionTypeExpr = functionDefinitionExpr.args[1]!;
     // Check if the function is implicit
     let isImplicit = false;
     if (
       exprIsFunctionCall(functionNameExpr) &&
-      exprIsFunctionCallOf(functionNameExpr, BuiltinKeywords.Implicit, 1)
+      exprIsFunctionCallOf(functionNameExpr, BuiltinKeywords.implicit, 1)
     ) {
-      functionNameExpr = functionNameExpr.args[0];
+      functionNameExpr = functionNameExpr.args[0]!;
       isImplicit = true;
     }
 
@@ -5981,7 +6092,7 @@ Got:   ${typeToString(argType)}`
         type: functionType,
         isMutable: false,
         isCompileTimeOnly: true,
-        isNotInitialized: false,
+        isUndefined: false,
         isImplicit,
         value: functionValue,
       },
@@ -6049,7 +6160,7 @@ Got:   ${typeToString(argType)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Begin)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.begin)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "begin", got:\n${exprToString(expr)}`
@@ -6072,7 +6183,7 @@ Got:   ${typeToString(argType)}`
     // Evaluate expressions
     for (let i = 0; i < exprs.length; i++) {
       const evaluatedExpr = this.evaluateExpression({
-        expr: exprs[i],
+        expr: exprs[i]!,
         env,
         context: {
           ...context,
@@ -6084,7 +6195,7 @@ Got:   ${typeToString(argType)}`
         env = evaluatedExpr.env;
       }
     }
-    const lastExpr = exprs[exprs.length - 1];
+    const lastExpr = exprs[exprs.length - 1]!;
     expr.type = lastExpr.type;
     expr.value = lastExpr.value;
 
@@ -6114,14 +6225,14 @@ Got:   ${typeToString(argType)}`
 
     // Evaluate each expression in the begin
     for (let i = 0; i < beginExprs.length; i++) {
-      const expr = beginExprs[i];
+      const expr = beginExprs[i]!;
       // Export
       if (
         exprIsFunctionCall(expr) &&
-        exprIsFunctionCallOf(expr, BuiltinKeywords.Export, 1)
+        exprIsFunctionCallOf(expr, BuiltinKeywords.export, 1)
       ) {
         const evaluatedExpr = this.evaluateExpression({
-          expr: expr.args[0],
+          expr: expr.args[0]!,
           env,
           context: {
             ...context,
@@ -6141,7 +6252,7 @@ Got:   ${typeToString(argType)}`
 
         // Traverse the struct elements to set to module
         for (let i = 0; i < structType.elements.length; i++) {
-          const element = structType.elements[i];
+          const element = structType.elements[i]!;
 
           // Check if the element has a label
           const label = element.label;
@@ -6172,7 +6283,7 @@ Got:   ${typeToString(argType)}`
             moduleMembers.push(moduleMember);
           }
 
-          const value = structValue.elements[i];
+          const value = structValue.elements[i]!;
           memberValues[label] = value;
         }
       } else {
@@ -6217,7 +6328,7 @@ Got:   ${typeToString(argType)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Module)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "module", got:\n${exprToString(expr)}`
@@ -6229,10 +6340,10 @@ Got:   ${typeToString(argType)}`
         `Expected "module" with 1 argument, got:\n${exprToString(expr)}`
       );
     }
-    const moduleBodyExpr = expr.args[0];
+    const moduleBodyExpr = expr.args[0]!;
     if (
       !exprIsFunctionCall(moduleBodyExpr) ||
-      !exprIsFunctionCallOf(moduleBodyExpr, BuiltinKeywords.Begin)
+      !exprIsFunctionCallOf(moduleBodyExpr, BuiltinKeywords.begin)
     ) {
       throw this.formatErrorMessage(
         moduleBodyExpr.token,
@@ -6275,7 +6386,7 @@ Got:   ${typeToString(argType)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Module)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "module", got:\n${exprToString(expr)}`
@@ -6285,7 +6396,7 @@ Got:   ${typeToString(argType)}`
     if (
       expr.args.length === 1 &&
       exprIsFunctionCall(expr.args[0]) &&
-      exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.Begin)
+      exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.begin)
     ) {
       return this.evaluateAnonymousModule({ expr, env, context });
     }
@@ -6299,7 +6410,7 @@ Got:   ${typeToString(argType)}`
 
     // Evaluate each module member
     for (let i = 0; i < moduleMemberExprs.length; i++) {
-      let memberExpr = moduleMemberExprs[i];
+      let memberExpr = moduleMemberExprs[i]!;
       let valueExpr: Expr | undefined = undefined;
       let valueKind: "required" | "default" | undefined = undefined;
       if (
@@ -6307,8 +6418,8 @@ Got:   ${typeToString(argType)}`
         (exprIsFunctionCallOf(memberExpr, "=", 2) ||
           exprIsFunctionCallOf(memberExpr, "==", 2))
       ) {
-        valueExpr = memberExpr.args[1];
-        memberExpr = memberExpr.args[0];
+        valueExpr = memberExpr.args[1]!;
+        memberExpr = memberExpr.args[0]!;
         valueKind = exprIsFunctionCallOf(memberExpr, "=", 2)
           ? "default"
           : "required";
@@ -6323,8 +6434,8 @@ Got:   ${typeToString(argType)}`
           `Expected ":", got:\n${exprToString(memberExpr)}`
         );
       }
-      const labelExpr = memberExpr.args[0];
-      const typeExpr = memberExpr.args[1];
+      const labelExpr = memberExpr.args[0]!;
+      const typeExpr = memberExpr.args[1]!;
 
       // Get the label of member
       if (
@@ -6440,8 +6551,9 @@ Got:   ${typeToString(argType)}`
             token: labelExpr.token,
             type: memberType,
             isMutable: false,
-            isNotInitialized: false,
+            isUndefined: false,
             isCompileTimeOnly: true,
+            isImplicit: false,
             value:
               valueKind === "required"
                 ? value
@@ -6472,8 +6584,9 @@ Got:   ${typeToString(argType)}`
             token: labelExpr.token,
             type: memberType,
             isMutable: false,
-            isNotInitialized: false,
+            isUndefined: false,
             isCompileTimeOnly: true,
+            isImplicit: false,
             value: createUnknownValue(memberType, label),
           },
         });
@@ -6508,16 +6621,17 @@ Got:   ${typeToString(argType)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.TypeOf, 1)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.typeof, 1)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "typeof" with 1 argument, got:\n${exprToString(expr)}`
       );
     }
+    const typeExpr = expr.args[0]!;
 
     // Evaluate the expression
     const evaluatedExpr = this.evaluateExpression({
-      expr: expr.args[0],
+      expr: typeExpr,
       env,
       context: {
         ...context,
@@ -6531,8 +6645,8 @@ Got:   ${typeToString(argType)}`
     // Check if the expression has a type
     if (!evaluatedExpr.type) {
       throw this.formatErrorMessage(
-        expr.args[0].token,
-        `Expected type for expression, got:\n${exprToString(expr.args[0])}`
+        typeExpr.token,
+        `Expected type for expression, got:\n${exprToString(typeExpr)}`
       );
     }
     const type = evaluatedExpr.type;
@@ -6551,14 +6665,14 @@ Got:   ${typeToString(argType)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Import, 1)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.import, 1)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "import" with 1 argument, got:\n${exprToString(expr)}`
       );
     }
 
-    const moduleArg = expr.args[0];
+    const moduleArg = expr.args[0]!;
     /*
     // TODO: Support comptime string
     // Evaluate the moduleArg
@@ -6721,8 +6835,8 @@ Got:   ${typeToString(argType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     const args = expr.args;
-    const expectedTypeArg = args[0];
-    const givenTypeArg = args[1];
+    const expectedTypeArg = args[0]!;
+    const givenTypeArg = args[1]!;
 
     const evaluatedExpectedTypeArg = this.evaluateExpression({
       expr: expectedTypeArg,
@@ -6831,7 +6945,7 @@ ${exprToString(expr)}`
         if (
           // (fn(x) -> x)
           exprIsFunctionCall(expr.args[0]) &&
-          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.Fn)
+          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn)
         ) {
           return this.evaluateAnonymousFunctionImplementation({
             expr,
@@ -6846,32 +6960,32 @@ ${exprToString(expr)}`
           env,
           context: { ...context, isEvaluatingExprAsType: true },
         });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Recur)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
         // recur
         return this.evaluateRecur({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Extern)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.extern)) {
         // extern
         return this.evaluateExtern({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Cond)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) {
         // cond
         return this.evaluateCond({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Match)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
         // match
         return this.evaluateMatch({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
         // tuple
         return this.evaluateTuple({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Type)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.type)) {
         // type Expr
         return this.evaluateTypeExpression({
           expr,
           env,
           context: { ...context },
         });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Struct)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
         // struct
         return this.evaluateStruct({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Enum)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.enum)) {
         // enum
         return this.evaluateEnum({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, ".")) {
@@ -6881,27 +6995,27 @@ ${exprToString(expr)}`
           env,
           context: { ...context },
         });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Def)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.def)) {
         // def
         return this.evaluateDefExpression({
           expr,
           env,
           context: { ...context },
         });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Begin)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.begin)) {
         // begin
         return this.evaluateBeginExpression({
           expr,
           env,
           context: { ...context },
         });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Module)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
         // module
         return this.evaluateModule({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.TypeOf)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.typeof)) {
         // typeof
         return this.evaluateTypeOf({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Import)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
         // import
         return this.evaluateImport({ expr, env, context: { ...context } });
       } else if (

@@ -13,18 +13,11 @@ def Add:
     (+): ((lhs: Lhs, rhs: Rhs)-> Output)
 ;
 
-IntAdd :: Add(i32, _, _);
-BoolAdd :: Add(boolean, _, _);
-
-/*
-// QUESTION: Should we allow the named arguments?
-// Named arguments are only allowed for 
-// non-compile-time known parameters,
-// so the order of the arguments can be changed.
-// To enable the named arguments, we need to force having the
-// compile-time known parameters to be the first ones ahead the non-compile-time known parameters.
-def some_add:
-  (x : i32, y : i32)-> i32,
-  add(x, y);
-some_add(y: 3, x: 2);
-*/
+// _ is used as the inferred, not the default value.
+// Default value is only used when the parameter is not provided.
+IntAdd :: Add(i32);
+IntAdd :: Add(i32, undefined);
+IntAdd :: Add(i32, undefined, undefined);
+BoolAdd :: Add(boolean);
+BoolAdd :: Add(boolean, undefined);
+BoolAdd :: Add(boolean, undefined, undefined);

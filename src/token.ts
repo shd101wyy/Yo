@@ -98,7 +98,8 @@ export function charIsOperator(char: string): boolean {
 export function stringIsOperator(str: string): boolean {
   let isOperator = true;
   for (let i = 0; i < str.length; i++) {
-    if (!charIsOperator(str[i])) {
+    const char = str[i]!;
+    if (!charIsOperator(char)) {
       isOperator = false;
       break;
     }
@@ -129,7 +130,10 @@ export function findMatchingBracketTokenIndex(
   index: number
 ): number {
   let endBracketType = TokenType.RParen;
-  const startBracketType = tokens[index].type;
+  if (!tokens[index]) {
+    return -1;
+  }
+  const startBracketType = tokens[index]!.type;
   if (startBracketType === TokenType.LCurlyBracket) {
     endBracketType = TokenType.RCurlyBracket;
   } else if (startBracketType === TokenType.LParen) {
@@ -144,17 +148,18 @@ export function findMatchingBracketTokenIndex(
   let endIndex = -1;
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    if (!tokens[index]) {
+    const token = tokens[index];
+    if (!token) {
       return -1;
     }
 
-    if (tokens[index].type === endBracketType) {
+    if (token.type === endBracketType) {
       count = count - 1;
       if (count === 0) {
         endIndex = index;
         break;
       }
-    } else if (tokens[index].type === startBracketType) {
+    } else if (token.type === startBracketType) {
       count = count + 1;
     }
 

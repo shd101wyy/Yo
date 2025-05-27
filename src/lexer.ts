@@ -11,14 +11,14 @@ export function tokenize(input: string): Token[] {
   let totalCharacters = 0;
 
   for (let i = 0; i < input.length; i++) {
-    const char = input[i];
+    const char = input[i]!;
     const characterColumn = i - totalCharacters;
     const characterIndex = i;
 
     // Check operators
     let operator: string = "";
     let j = i;
-    while (charIsOperator(input[j])) {
+    while (charIsOperator(input[j]!)) {
       operator += input[j];
       j = j + 1;
     }
@@ -350,7 +350,7 @@ export function tokenize(input: string): Token[] {
           let value = char;
           i = i + 1;
 
-          while (/[0-9]/.test(input[i]) && input[i]) {
+          while (typeof input[i] === "string" && /[0-9]/.test(input[i]!)) {
             value += input[i];
             i = i + 1;
           }
@@ -363,7 +363,7 @@ export function tokenize(input: string): Token[] {
             value += input[i];
             i = i + 1;
 
-            while (/[0-9]/.test(input[i])) {
+            while (typeof input[i] === "string" && /[0-9]/.test(input[i]!)) {
               value += input[i];
               i = i + 1;
             }
@@ -396,7 +396,10 @@ export function tokenize(input: string): Token[] {
           const startIndex = i;
           i = i + 1;
 
-          while (/[_a-zA-Z0-9\xA0-\uFFFF]/.test(input[i]) && input[i]) {
+          while (
+            typeof input[i] === "string" &&
+            /[_a-zA-Z0-9\xA0-\uFFFF]/.test(input[i]!)
+          ) {
             value += input[i];
             i = i + 1;
           }

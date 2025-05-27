@@ -671,7 +671,7 @@ export function createArrayType(elementType: Type, length: number): ArrayType {
 export function createTupleType(elements: TupleElement[]): TupleType {
   let totalSize: undefined | number = 0;
   for (let i = 0; i < elements.length; i++) {
-    const element = elements[i];
+    const element = elements[i]!;
     if (element.type.size === undefined) {
       totalSize = undefined;
     } else if (typeof totalSize === "number") {
@@ -692,7 +692,7 @@ export function createStructType(
 ): StructType {
   let totalSize: undefined | number = 0;
   for (let i = 0; i < elements.length; i++) {
-    const element = elements[i];
+    const element = elements[i]!;
     if (element.type.size === undefined) {
       totalSize = undefined;
     } else if (typeof totalSize === "number") {
@@ -714,11 +714,11 @@ export function createEnumType(
 ): EnumType {
   let totalSize: undefined | number = 0;
   for (let i = 0; i < variants.length; i++) {
-    const variant = variants[i];
+    const variant = variants[i]!;
     let variantSize = 0;
     if (variant.elements) {
       for (let j = 0; j < variant.elements.length; j++) {
-        const element = variant.elements[j];
+        const element = variant.elements[j]!;
         if (element.type.size === undefined) {
           totalSize = undefined;
         } else if (typeof totalSize === "number") {
@@ -749,7 +749,7 @@ export function createEnumType(
 export function createUnionType(elements: TupleElement[]): UnionType {
   let maxSize = 0;
   for (let i = 0; i < elements.length; i++) {
-    const type = elements[i].type;
+    const type = elements[i]!.type;
     if (type.size === undefined) {
       throw new Error(
         `Cannot create union type: type at index ${i} has undefined size`
@@ -916,7 +916,7 @@ export function getValueOfSomeTypeFromEnv(
       // return undefined;
     }
 
-    someTypeValue = variables[variables.length - 1].value as TypeValue;
+    someTypeValue = variables[variables.length - 1]!.value as TypeValue;
 
     // This if condition is used to prevent the infinite loop
     if (someTypeValue.value === someType) {
@@ -970,8 +970,8 @@ export function areFunctionTypesCompatible(
 
   // Check type parameters for compatibility
   for (let i = 0; i < expected.type.typeParameters.length; i++) {
-    const expectedTypeParam = expected.type.typeParameters[i];
-    const givenTypeParam = given.type.typeParameters[i];
+    const expectedTypeParam = expected.type.typeParameters[i]!;
+    const givenTypeParam = given.type.typeParameters[i]!;
 
     /**
      * Check if
@@ -1001,6 +1001,9 @@ export function areFunctionTypesCompatible(
           value: typeValue,
           type: typeValue.type,
           isCompileTimeOnly: true,
+          isImplicit: false,
+          isUndefined: false,
+          isMutable: false,
           token: getFunctionParameterToken(expectedTypeParam),
         },
       });
@@ -1014,6 +1017,9 @@ export function areFunctionTypesCompatible(
           value: typeValue,
           type: typeValue.type,
           isCompileTimeOnly: true,
+          isImplicit: false,
+          isUndefined: false,
+          isMutable: false,
           token: getFunctionParameterToken(givenTypeParam),
         },
       });
@@ -1026,11 +1032,11 @@ export function areFunctionTypesCompatible(
     if (
       !areTypesCompatible(
         {
-          type: expected.type.parameters[i].type,
+          type: expected.type.parameters[i]!.type,
           env: expected.env,
         },
         {
-          type: given.type.parameters[i].type,
+          type: given.type.parameters[i]!.type,
           env: given.env,
         }
       )
@@ -1041,8 +1047,8 @@ export function areFunctionTypesCompatible(
 
   // Check implicit parameters for compatibility
   for (let i = 0; i < expected.type.implicitParameters.length; i++) {
-    const expectedImplicitParam = expected.type.implicitParameters[i];
-    const givenImplicitParam = given.type.implicitParameters[i];
+    const expectedImplicitParam = expected.type.implicitParameters[i]!;
+    const givenImplicitParam = given.type.implicitParameters[i]!;
 
     if (
       expectedImplicitParam.isCompileTimeOnly !==
@@ -1096,8 +1102,8 @@ export function areTypesCompatible(
       return false;
     }
     for (let i = 0; i < expected.type.elements.length; i++) {
-      const expectedTypeElement = expected.type.elements[i];
-      const givenTypeElement = given.type.elements[i];
+      const expectedTypeElement = expected.type.elements[i]!;
+      const givenTypeElement = given.type.elements[i]!;
 
       if (
         !areTypesCompatible(
@@ -1135,8 +1141,8 @@ export function areTypesCompatible(
     }
 
     for (let i = 0; i < expected.type.elements.length; i++) {
-      const expectedElement = expected.type.elements[i];
-      const givenElement = given.type.elements[i];
+      const expectedElement = expected.type.elements[i]!;
+      const givenElement = given.type.elements[i]!;
 
       if (
         expectedElement.label !== givenElement.label ||
@@ -1164,8 +1170,8 @@ export function areTypesCompatible(
     }
 
     for (let i = 0; i < expected.type.members.length; i++) {
-      const expectedMember = expected.type.members[i];
-      const givenMember = given.type.members[i];
+      const expectedMember = expected.type.members[i]!;
+      const givenMember = given.type.members[i]!;
 
       if (
         expectedMember.label !== givenMember.label ||
@@ -1191,8 +1197,8 @@ export function areTypesCompatible(
     }
 
     for (let i = 0; i < expected.type.variants.length; i++) {
-      const expectedVariant = expected.type.variants[i];
-      const givenVariant = given.type.variants[i];
+      const expectedVariant = expected.type.variants[i]!;
+      const givenVariant = given.type.variants[i]!;
 
       if (expectedVariant.name !== givenVariant.name) {
         return false;
@@ -1204,8 +1210,8 @@ export function areTypesCompatible(
 
       if (expectedVariant.elements) {
         for (let j = 0; j < expectedVariant.elements.length; j++) {
-          const expectedElement = expectedVariant.elements[j];
-          const givenElement = givenVariant.elements![j];
+          const expectedElement = expectedVariant.elements![j]!;
+          const givenElement = givenVariant.elements![j]!;
 
           if (
             expectedElement.label !== givenElement.label ||
