@@ -13,11 +13,13 @@ export type AtomExpr = {
   // Parser stage
   tag: ExprTag.Atom;
   token: Token;
+  tempVariableName: string;
 
   // Evaluator stage
   type?: Type;
-  env?: Environment;
   value?: Value;
+
+  env?: Environment;
 };
 
 export type FuncCallExpr = {
@@ -27,14 +29,13 @@ export type FuncCallExpr = {
   args: Expr[];
   isInfix?: boolean;
   token: Token;
+  tempVariableName: string;
 
   // Evaluator stage
-  /**
-   * The type of the return value of the function call.
-   */
   type?: Type;
-  env?: Environment;
   value?: Value;
+
+  env?: Environment;
 };
 
 export function cloneExpr(expr: Expr): Expr {
@@ -168,22 +169,22 @@ export function exprToString(expr: Expr): string {
       ) {
         if (expr.args.length === 1) {
           if (expr.func.token.value === ".") {
-            printed = `${expr.func.token.value}${exprToString(expr.args[0])}`;
+            printed = `${expr.func.token.value}${exprToString(expr.args[0]!)}`;
           } else {
-            printed = `${expr.func.token.value}(${exprToString(expr.args[0])})`;
+            printed = `${expr.func.token.value}(${exprToString(expr.args[0]!)})`;
           }
           break;
         } else if (expr.args.length === 2 && expr.isInfix) {
-          let lhs = exprToString(expr.args[0]);
-          let rhs = exprToString(expr.args[1]);
+          let lhs = exprToString(expr.args[0]!);
+          let rhs = exprToString(expr.args[1]!);
           lhs =
-            exprIsInfixOperatorFunctionCall(expr.args[0]) ||
-            exprIsAtomAndOperator(expr.args[0])
+            exprIsInfixOperatorFunctionCall(expr.args[0]!) ||
+            exprIsAtomAndOperator(expr.args[0]!)
               ? `(${lhs})`
               : lhs;
           rhs =
-            exprIsInfixOperatorFunctionCall(expr.args[1]) ||
-            exprIsAtomAndOperator(expr.args[1])
+            exprIsInfixOperatorFunctionCall(expr.args[1]!) ||
+            exprIsAtomAndOperator(expr.args[1]!)
               ? `(${rhs})`
               : rhs;
           if (expr.func.token.value === ".") {
@@ -200,7 +201,7 @@ export function exprToString(expr: Expr): string {
         expr.func.token.value === BuiltinCollections.Tuple
       ) {
         if (expr.args.length === 1) {
-          printed = `(${exprToString(expr.args[0])},)`;
+          printed = `(${exprToString(expr.args[0]!)},)`;
         } else {
           printed = `(${expr.args
             .map((arg) => {

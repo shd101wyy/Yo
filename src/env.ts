@@ -1,20 +1,20 @@
-import { createHash } from "crypto";
 import { formatErrorMessages } from "./error";
-import { charIsOperator, Operators, Token } from "./token";
+import { Token } from "./token";
 import {
   areTypesCompatible,
   getModuleReceiverType,
+  isFreeType,
   isFunctionType,
   isModuleType,
   ModuleType,
   Type,
-  TypeTag,
+  typeOfType,
   typeToString,
 } from "./type-checker";
+import { generateVarialeId, isTempVariableName } from "./utils";
 import {
   createUnknownValue,
   isModuleValue,
-  isTypeValue,
   isUnknownValue,
   Value,
   valueToString,
@@ -44,8 +44,8 @@ export interface Variable {
    */
   type: Type;
   /**
-   * This is compile-time only value of the variable.
-   * Could be not defined if the variable is not initialized.
+   * If the `value` is not `undefined`, then it means the variable is compile-time known.
+   * Otherwise, it is a runtime variable.
    */
   value?: Value;
   /**
@@ -102,57 +102,6 @@ export type Environment = {
   modulePath: string;
   inputString: string;
 };
-
-export function generateModuleId(modulePath: string) {
-  const hash = createHash("sha1").update(modulePath).digest("hex");
-  return "yo" + hash.slice(0, 8);
-}
-
-let tempVariableNameCount = 1;
-function generateTempVariableNamePrefix(env: Environment): string {
-  return `_${generateModuleId(env.modulePath)}_temp_`;
-}
-export function generateNewTempVariableName(env: Environment): string {
-  return `${generateTempVariableNamePrefix(env)}${tempVariableNameCount++}`;
-}
-export function isTempVariableName(
-  env: Environment,
-  variableName: string
-): boolean {
-  return variableName.startsWith(generateTempVariableNamePrefix(env));
-}
-
-const IdMap = new Map<string, number>();
-/**
- * Return the first 10 characters of SHA1 of env.modulePath + variableName
- * @param env
- * @param variableName
- * @returns
- */
-export function generateVarialeValueId(
-  env: Environment,
-  variableName: string
-): string {
-  let sanitizedVariableName = "";
-  for (let i = 0; i < variableName.length; i++) {
-    if (charIsOperator(variableName[i]!)) {
-      const index = Operators.indexOf(variableName[i]!);
-      sanitizedVariableName += `${index}`;
-    } else {
-      sanitizedVariableName += variableName[i];
-    }
-  }
-
-  const id = generateModuleId(env.modulePath) + "_" + sanitizedVariableName;
-  let count = IdMap.get(id);
-  if (count === undefined) {
-    count = 0;
-  } else {
-    count++;
-  }
-  IdMap.set(id, count);
-  return id + (count == 0 ? "" : `_${count}`);
-}
 
 export function createNewEnv({
   modulePath,
@@ -212,9 +161,9 @@ export function addVariableToEnv({
 
   const frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
   const frame = env.frames[frameLevel]!;
-  const id = isTempVariableName(env, variable.name)
+  const id = isTempVariableName(env.modulePath, variable.name)
     ? variable.name
-    : (variableId ?? generateVarialeValueId(env, variable.name));
+    : (variableId ?? generateVarialeId(env.modulePath, variable.name));
   const newVariable: Variable = { ...variable, frameLevel, id };
   const newFrame = addVariableToFrame({
     env,
@@ -246,33 +195,6 @@ function addVariableToFrame({
   variable: Variable;
   preventDuplicate?: boolean;
 }): Frame {
-  /*
-  // Check if the variable has type of SomeType
-  if (isTypeHierarchyType(variable.type)) {
-    if (variable.value || variable.type.level > 0) {
-      // throw formatErrorMessages({
-      //   modulePath: env.modulePath,
-      //   inputString: env.inputString,
-      //   tokenAndErrorList: [
-      //     {
-      //       token: variable.token,
-      //       errorMessage: `Failed to define variable "${variable.name}" for SomeType:`,
-      //     },
-      //   ],
-      // });
-    } else {
-      const someType: SomeType = {
-        tag: TypeTag.SomeType,
-        typeId: `sometype_${someIdIndex++}`,
-        name: variable.name,
-        parentType: variable.type,
-        size: undefined,
-      };
-      variable.value = createTypeValue(someType);
-    }
-  }
-  */
-
   // Check if there is already a value with the same variableName
   // but is uninitialized
   const existingUndefinedVariableIndex = frame.variables.findIndex(
@@ -401,10 +323,7 @@ export function popEnvFrame(
     // Check if there is any value in the frame that is not consumed or uninitialized
     const unconsumedLinearVariables = frameToPop.variables.filter(
       (variable) =>
-        (!variable.value || !isTypeValue(variable.value)) &&
-        (variable.type.tag === TypeTag.Linear ||
-          variable.type.tag === TypeTag.Free) &&
-        !variable.consumedAtToken
+        !isFreeType(typeOfType(variable.type)) && !variable.consumedAtToken
     );
     /*
     const unusedFreeValues = frameToPop.values.filter(
@@ -427,7 +346,9 @@ export function popEnvFrame(
           return {
             token: variable.token,
             errorMessage: `${
-              isTempVariableName(env, variable.name) ? "Value" : "Variable"
+              isTempVariableName(env.modulePath, variable.name)
+                ? "Value"
+                : "Variable"
             } is "Linear" type but is not consumed:
 ${typeToString(variable.type)}`,
           };
@@ -506,6 +427,60 @@ export function updateExistingVariable(
     frames,
     modulePath: env.modulePath,
     inputString: env.inputString,
+  };
+}
+
+export function setEnvVariableAsConsumed({
+  env,
+  variableName,
+  consumedAtToken,
+}: {
+  env: Environment;
+  variableName: string;
+  consumedAtToken: Token;
+}): { env: Environment; referedVariable?: ReferedVariable } {
+  const variables = getVariablesFromEnv(env, variableName);
+  if (variables.length === 0) {
+    throw formatErrorMessages({
+      modulePath: env.modulePath,
+      inputString: env.inputString,
+      tokenAndErrorList: [
+        {
+          token: consumedAtToken,
+          errorMessage: `Variable ${variableName} is not defined.`,
+        },
+      ],
+    });
+  }
+  const variable = variables[variables.length - 1]!;
+
+  // Check if it's linear type
+  if (!isFreeType(typeOfType(variable.type))) {
+    // Check if the variable is already consumed.
+    if (variable.consumedAtToken) {
+      throw formatErrorMessages({
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+        tokenAndErrorList: [
+          {
+            token: consumedAtToken,
+            errorMessage: `Variable "${variable.name}" is already consumed and cannot be used again.`,
+          },
+          {
+            token: variable.consumedAtToken,
+            errorMessage: `Previously consumed here:`,
+          },
+        ],
+      });
+    }
+  }
+
+  const referedVariable = variable.referedVariable;
+
+  const newVariableValue: Variable = { ...variable, consumedAtToken };
+  return {
+    env: updateExistingVariable(env, variable, newVariableValue),
+    referedVariable,
   };
 }
 

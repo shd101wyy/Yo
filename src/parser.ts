@@ -16,6 +16,7 @@ import {
   Token,
   TokenType,
 } from "./token";
+import { generateNewTempVariableName } from "./utils";
 
 type ParserReturn = {
   expr: Expr;
@@ -41,6 +42,10 @@ export default class Parser {
     this.program = [];
 
     this.parse(this.tokens);
+  }
+
+  private generateTempVariableName(): string {
+    return generateNewTempVariableName(this.modulePath);
   }
 
   private formatErrorMessage(token: Token, errorMessage: string) {
@@ -115,9 +120,11 @@ export default class Parser {
               value: BuiltinCollections.Tuple,
               position: tokens[index]!.position,
             },
+            tempVariableName: this.generateTempVariableName(),
           },
           args: [],
           token: tokens[index]!,
+          tempVariableName: this.generateTempVariableName(),
         },
         index: index + 2,
       };
@@ -170,9 +177,11 @@ export default class Parser {
               value: BuiltinCollections.Tuple,
               position: tokens[startIndex]!.position,
             },
+            tempVariableName: this.generateTempVariableName(),
           },
           args,
           token: tokens[startIndex]!,
+          tempVariableName: this.generateTempVariableName(),
         },
         index: index + 1,
       };
@@ -227,9 +236,11 @@ export default class Parser {
               value: BuiltinCollections.Array,
               position: tokens[startIndex]!.position,
             },
+            tempVariableName: this.generateTempVariableName(),
           },
           args,
           token: tokens[startIndex]!,
+          tempVariableName: this.generateTempVariableName(),
         },
         index: index + 1,
       };
@@ -306,9 +317,11 @@ export default class Parser {
             func: {
               tag: ExprTag.Atom,
               token,
+              tempVariableName: this.generateTempVariableName(),
             },
             args: [],
             token,
+            tempVariableName: this.generateTempVariableName(),
           });
         }
         break;
@@ -342,10 +355,12 @@ export default class Parser {
             func: {
               tag: ExprTag.Atom,
               token: colonToken,
+              tempVariableName: this.generateTempVariableName(),
             },
             isInfix: true,
             args: [arg, arg],
             token: colonToken,
+            tempVariableName: this.generateTempVariableName(),
           };
           args[i] = newArg;
         }
@@ -361,9 +376,11 @@ export default class Parser {
             value: "_",
             position: tokens[startIndex]!.position,
           },
+          tempVariableName: this.generateTempVariableName(),
         },
         args,
         token: tokens[startIndex]!,
+        tempVariableName: this.generateTempVariableName(),
       };
       return {
         expr: returnExpr,
@@ -380,9 +397,11 @@ export default class Parser {
               value: BuiltinKeywords.begin[0]!, // begin block
               position: tokens[startIndex]!.position,
             },
+            tempVariableName: this.generateTempVariableName(),
           },
           args,
           token: tokens[startIndex]!,
+          tempVariableName: this.generateTempVariableName(),
         },
         index: index + 1,
       };
@@ -418,6 +437,7 @@ export default class Parser {
           expr: {
             tag: ExprTag.Atom,
             token,
+            tempVariableName: this.generateTempVariableName(),
           },
           index: index + 1,
         };
@@ -450,6 +470,7 @@ export default class Parser {
           expr: {
             tag: ExprTag.Atom,
             token,
+            tempVariableName: this.generateTempVariableName(),
           },
           index: index + 1,
         };
@@ -532,10 +553,12 @@ export default class Parser {
           func: {
             tag: ExprTag.Atom,
             token: primaryExprIsDotOperator ? primaryExpr.token : token,
+            tempVariableName: this.generateTempVariableName(),
           },
           args: primaryExprIsDotOperator ? [expr] : [primaryExpr, expr],
           isInfix: primaryExprIsDotOperator ? false : true,
           token: primaryExprIsDotOperator ? primaryExpr.token : token,
+          tempVariableName: this.generateTempVariableName(),
         },
         index,
       };
@@ -551,10 +574,12 @@ export default class Parser {
             func: {
               tag: ExprTag.Atom,
               token,
+              tempVariableName: this.generateTempVariableName(),
             },
             args: [returnValue.expr, expr],
             isInfix: true,
             token,
+            tempVariableName: this.generateTempVariableName(),
           },
           index: nextIndex,
         };
@@ -630,10 +655,12 @@ Or use newline after "${token.value}" to confirm the right-associativity.
           func: {
             tag: ExprTag.Atom,
             token,
+            tempVariableName: this.generateTempVariableName(),
           },
           args: [primaryExpr, rhs],
           isInfix: true,
           token,
+          tempVariableName: this.generateTempVariableName(),
         },
         tokens,
         index: nextIndex,
@@ -824,6 +851,7 @@ or ) to end the function call`
         func,
         args,
         token: func.token,
+        tempVariableName: this.generateTempVariableName(),
       },
       index,
     };
@@ -906,9 +934,11 @@ or ) to end the function call`
         func: {
           tag: ExprTag.Atom,
           token,
+          tempVariableName: this.generateTempVariableName(),
         },
         args: [],
         token,
+        tempVariableName: this.generateTempVariableName(),
       });
     }
 
