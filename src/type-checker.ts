@@ -1530,6 +1530,20 @@ export function isFreeType(type?: Type): boolean {
   return type?.tag === TypeTag.Free;
 }
 
+export function isLinearType(type?: Type): boolean {
+  return type?.tag === TypeTag.Linear;
+}
+
+export function isType0(type?: Type): boolean {
+  return (
+    isTypeHierarchyType(type) && type.tag === TypeTag.Type && type.level === 0
+  );
+}
+
+export function isLinearOrType0Type(type?: Type): boolean {
+  return isLinearType(type) || isType0(type);
+}
+
 export function isSomeType(type?: Type): type is SomeType {
   return type?.tag === TypeTag.SomeType;
 }

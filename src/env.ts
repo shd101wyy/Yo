@@ -3,8 +3,8 @@ import { Token } from "./token";
 import {
   areTypesCompatible,
   getModuleReceiverType,
-  isFreeType,
   isFunctionType,
+  isLinearOrType0Type,
   isModuleType,
   ModuleType,
   Type,
@@ -323,7 +323,8 @@ export function popEnvFrame(
     // Check if there is any value in the frame that is not consumed or uninitialized
     const unconsumedLinearVariables = frameToPop.variables.filter(
       (variable) =>
-        !isFreeType(typeOfType(variable.type)) && !variable.consumedAtToken
+        isLinearOrType0Type(typeOfType(variable.type)) &&
+        !variable.consumedAtToken
     );
     /*
     const unusedFreeValues = frameToPop.values.filter(
@@ -455,7 +456,7 @@ export function setEnvVariableAsConsumed({
   const variable = variables[variables.length - 1]!;
 
   // Check if it's linear type
-  if (!isFreeType(typeOfType(variable.type))) {
+  if (isLinearOrType0Type(typeOfType(variable.type))) {
     // Check if the variable is already consumed.
     if (variable.consumedAtToken) {
       throw formatErrorMessages({
