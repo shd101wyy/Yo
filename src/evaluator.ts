@@ -201,7 +201,7 @@ export default class Evaluator {
     });
   }
 
-  private evaluateIntegerLiteral(expr: AtomExpr): AtomExpr {
+  private evaluateIntegerLiteral(expr: AtomExpr, env: Environment): AtomExpr {
     if (expr.token.type === TokenType.Integer) {
       const integerValue = parseInt(expr.token.value, 10);
       const value: Value = {
@@ -209,8 +209,11 @@ export default class Evaluator {
         type: TI32,
         value: integerValue,
       };
-      expr.value = value;
-      expr.type = value.type;
+      expr.$ = {
+        env,
+        value,
+        type: value.type,
+      };
       return expr;
     } else {
       throw this.formatErrorMessage(
@@ -220,12 +223,15 @@ export default class Evaluator {
     }
   }
 
-  private evaluateBooleanLiteral(expr: AtomExpr): AtomExpr {
+  private evaluateBooleanLiteral(expr: AtomExpr, env: Environment): AtomExpr {
     if (expr.token.type === TokenType.Boolean) {
       const booleanValue = expr.token.value === "true";
       const value: Value = createBooleanValue(booleanValue);
-      expr.value = value;
-      expr.type = value.type;
+      expr.$ = {
+        env,
+        value,
+        type: value.type,
+      };
       return expr;
     } else {
       throw this.formatErrorMessage(
@@ -254,12 +260,19 @@ export default class Evaluator {
     if (expr.args.length === 0) {
       // Unit
       if (context.isEvaluatingExprAsType) {
-        expr.value = createTypeValue(TUnit);
-        expr.type = typeOfType(TUnit);
+        const value = createTypeValue(TUnit);
+        expr.$ = {
+          env,
+          value,
+          type: value.type,
+        };
         return expr;
       } else {
-        expr.value = VUnit;
-        expr.type = VUnit.type;
+        expr.$ = {
+          env,
+          value: VUnit,
+          type: VUnit.type,
+        };
         return expr;
       }
     }
@@ -289,11 +302,11 @@ export default class Evaluator {
       }
     });
 
-    expr.value = tupleValue;
-    expr.type = context.isEvaluatingExprAsType
-      ? typeOfType(tupleType)
-      : tupleType;
-    expr.env = env;
+    expr.$ = {
+      env,
+      value: tupleValue,
+      type: context.isEvaluatingExprAsType ? typeOfType(tupleType) : tupleType,
+    };
     return expr;
   }
 
@@ -342,10 +355,10 @@ export default class Evaluator {
           ...context,
         },
       });
-      if (evaluatedDefaultValue.env) {
-        env = evaluatedDefaultValue.env;
+      if (evaluatedDefaultValue.$?.env) {
+        env = evaluatedDefaultValue.$?.env;
       }
-      defaultValue = evaluatedDefaultValue.value;
+      defaultValue = evaluatedDefaultValue.$?.value;
       if (!defaultValue) {
         throw this.formatErrorMessage(
           defaultValueExpr.token,
@@ -420,12 +433,12 @@ ${typeToString(expectedType)}`
           : undefined,
       },
     });
-    if (evaluatedRhs.env) {
-      env = evaluatedRhs.env;
+    if (evaluatedRhs.$?.env) {
+      env = evaluatedRhs.$?.env;
     }
 
     // Expected the evaluatedRhs to be a type
-    const typeValue = evaluatedRhs.value;
+    const typeValue = evaluatedRhs.$?.value;
     if (!isTypeValue(typeValue)) {
       throw this.formatErrorMessage(
         rhsExpr.token,
@@ -434,7 +447,10 @@ ${typeToString(expectedType)}`
     }
     elementType = typeValue.value;
     if (lhsExpr) {
-      lhsExpr.type = elementType;
+      lhsExpr.$ = {
+        env,
+        type: elementType,
+      };
     }
 
     // Check if defaultValue matches the type
@@ -454,11 +470,17 @@ Given type: ${typeToString(defaultValue.type)}`
     }
 
     if (lhsExpr) {
-      lhsExpr.env = env;
-      lhsExpr.type = typeValue.type;
-      lhsExpr.value = typeValue;
+      lhsExpr.$ = {
+        env,
+        value: typeValue,
+        type: typeValue.type,
+      };
     }
-    expr.env = env;
+    expr.$ = {
+      env,
+      value: typeValue,
+      type: typeValue.type,
+    };
     return {
       type: {
         label,
@@ -557,12 +579,12 @@ ${typeToString(expectedTupleType)}`
           : undefined,
       },
     });
-    if (evaluatedRhs.env) {
-      env = evaluatedRhs.env;
+    if (evaluatedRhs.$?.env) {
+      env = evaluatedRhs.$?.env;
     }
 
-    const value = evaluatedRhs.value;
-    if (value && isTypeValue(evaluatedRhs.value)) {
+    const value = evaluatedRhs.$?.value;
+    if (value && isTypeValue(evaluatedRhs.$?.value)) {
       throw this.formatErrorMessage(
         rhsExpr.token,
         `Cannot store a type value in tuple while not in "type" context: 
@@ -571,7 +593,7 @@ ${typeToString(expectedTupleType)}`
     }
 
     // Expected the evaluatedRhs to be a value
-    elementType = evaluatedRhs.type;
+    elementType = evaluatedRhs.$?.type;
     if (!elementType) {
       throw this.formatErrorMessage(
         evaluatedRhs.token,
@@ -580,13 +602,17 @@ ${typeToString(expectedTupleType)}`
     }
 
     if (lhsExpr) {
-      lhsExpr.env = env;
-      lhsExpr.type = elementType;
-      lhsExpr.value = value;
+      lhsExpr.$ = {
+        env,
+        type: elementType,
+        value: value,
+      };
     }
-    expr.env = env;
-    expr.type = elementType;
-    expr.value = value;
+    expr.$ = {
+      env,
+      type: elementType,
+      value: value,
+    };
     return {
       type: {
         label,
@@ -886,7 +912,10 @@ ${typeToString(expectedTupleType)}`
       }
 
       // The entire tuple is now synthesized
-      expr.type = type;
+      expr.$ = {
+        env,
+        type,
+      };
       return { expr, type, env };
     }
     // Handle the _ case
@@ -903,7 +932,7 @@ ${typeToString(expectedTupleType)}`
           context: { ...context },
         });
 
-        if (!funcCallExpr.type || !funcCallExpr.env) {
+        if (!funcCallExpr.$?.type || !funcCallExpr.$?.env) {
           throw this.formatErrorMessage(
             expr.token,
             `Failed to evaluate expr and type for struct:\n${exprToString(
@@ -918,8 +947,8 @@ ${typeToString(expectedTupleType)}`
 
         return {
           expr: funcCallExpr,
-          type: funcCallExpr.type,
-          env: funcCallExpr.env,
+          type: funcCallExpr.$?.type,
+          env: funcCallExpr.$?.env,
         };
       } else {
         throw this.formatErrorMessage(
@@ -955,7 +984,10 @@ ${typeToString(expectedTupleType)}`
         }
 
         const newEnumType = { ...type, selectedVariantName: variantName };
-        expr.type = newEnumType;
+        expr.$ = {
+          type: newEnumType,
+          env,
+        };
         // TODO: comptime value
 
         return {
@@ -1011,7 +1043,7 @@ ${typeToString(expectedTupleType)}`
           },
           context: { ...context },
         });
-        if (!funcCallExpr.type || !funcCallExpr.env) {
+        if (!funcCallExpr.$?.type || !funcCallExpr.$?.env) {
           throw this.formatErrorMessage(
             expr.token,
             `Failed to evaluate expr and type for enum variant:\n${exprToString(
@@ -1022,8 +1054,8 @@ ${typeToString(expectedTupleType)}`
 
         return {
           expr: funcCallExpr,
-          type: funcCallExpr.type,
-          env: funcCallExpr.env,
+          type: funcCallExpr.$?.type,
+          env: funcCallExpr.$?.env,
         };
       } else {
         throw this.formatErrorMessage(
@@ -1036,10 +1068,10 @@ ${typeToString(expectedTupleType)}`
     }
     // If both expr and type are already set, return them
     // No need to synthesize again
-    else if (expr.type && type) {
+    else if (expr.$?.type && type) {
       return {
         expr,
-        type: expr.type, // NOTE: Here we should return the type of expr, not `type`
+        type: expr.$?.type, // NOTE: Here we should return the type of expr, not `type`
         env,
       };
     } else {
@@ -1066,7 +1098,7 @@ ${typeToString(expectedTupleType)}`
     isCompileTimeOnly: boolean;
     context: EvaluatorContext;
   }): Environment {
-    const rhsType = rhs.type;
+    const rhsType = rhs.$?.type;
     if (!rhsType) {
       throw this.formatErrorMessage(
         rhs.token,
@@ -1080,7 +1112,7 @@ ${typeToString(expectedTupleType)}`
         lhsFunc: lhs.func,
         lhsElements: lhs.args,
         rhsElements: rhsType.elements,
-        rhsValue: rhs.value,
+        rhsValue: rhs.$?.value,
         rhsType,
         lhs,
         env,
@@ -1098,7 +1130,7 @@ ${typeToString(expectedTupleType)}`
         lhsFunc: lhs.func,
         lhsElements: lhs.args,
         rhsElements: rhsType.elements,
-        rhsValue: rhs.value,
+        rhsValue: rhs.$?.value,
         rhsType,
         lhs,
         env,
@@ -1112,7 +1144,7 @@ ${typeToString(expectedTupleType)}`
         lhsFunc: lhs.func,
         lhsElements: lhs.args,
         rhsElements: rhsType.members,
-        rhsValue: rhs.value,
+        rhsValue: rhs.$?.value,
         rhsType,
         lhs,
         env,
@@ -1229,9 +1261,11 @@ ${typeToString(expectedTupleType)}`
           }
 
           // Set the type and value of the lhsElement
-          lhsElement.type = rhsType;
-          lhsElement.value = rhsValue;
-          lhsElement.env = env;
+          lhsElement.$ = {
+            env,
+            type: rhsType,
+            value: rhsValue,
+          };
 
           // Done with destructuring, return the environment
           return env;
@@ -1329,14 +1363,23 @@ ${typeToString(expectedTupleType)}`
           });
 
           // Set type and value on expressions
-          rightSide.type = nestedRhsType;
-          rightSide.value = nestedValue;
-          rightSide.env = env;
+          rightSide.$ = {
+            env,
+            type: nestedRhsType,
+            value: nestedValue,
+          };
 
-          labelExpr.type = nestedRhsType;
-          lhsElement.type = nestedRhsType;
-          lhsElement.value = nestedValue;
-          lhsElement.env = env;
+          labelExpr.$ = {
+            env,
+            type: nestedRhsType,
+            value: nestedValue,
+          };
+
+          lhsElement.$ = {
+            env,
+            type: nestedRhsType,
+            value: nestedValue,
+          };
 
           // Skip to next element since we've already processed this one
           continue;
@@ -1379,14 +1422,23 @@ ${typeToString(expectedTupleType)}`
           });
 
           // Set type and value on expressions
-          rightSide.type = nestedRhsType;
-          rightSide.value = nestedValue;
-          rightSide.env = env;
+          rightSide.$ = {
+            env,
+            type: nestedRhsType,
+            value: nestedValue,
+          };
 
-          labelExpr.type = nestedRhsType;
-          lhsElement.type = nestedRhsType;
-          lhsElement.value = nestedValue;
-          lhsElement.env = env;
+          labelExpr.$ = {
+            env,
+            type: nestedRhsType,
+            value: nestedValue,
+          };
+
+          lhsElement.$ = {
+            env,
+            type: nestedRhsType,
+            value: nestedValue,
+          };
 
           // Skip to next element since we've already processed this one
           continue;
@@ -1460,9 +1512,11 @@ ${typeToString(expectedTupleType)}`
           });
 
           // Set type and value on expressions
-          lhsElement.type = nestedRhsType;
-          lhsElement.value = nestedValue;
-          lhsElement.env = env;
+          lhsElement.$ = {
+            env,
+            type: nestedRhsType,
+            value: nestedValue,
+          };
 
           continue;
         }
@@ -1501,9 +1555,11 @@ ${typeToString(expectedTupleType)}`
             isCompileTimeOnly,
           });
           // Set type and value on expressions
-          lhsElement.type = nestedRhsType;
-          lhsElement.value = nestedValue;
-          lhsElement.env = env;
+          lhsElement.$ = {
+            env,
+            type: nestedRhsType,
+            value: nestedValue,
+          };
           continue;
         }
       }
@@ -1563,22 +1619,26 @@ Please consider to write it as:
         env = nextEnv;
 
         // Set the type and value on the lhs element for completeness
-        lhsElement.type = rhsElement.type;
-        lhsElement.value = elementValue;
-        lhsElement.env = env;
+        lhsElement.$ = {
+          env,
+          type: rhsElement.type,
+          value: elementValue,
+        };
 
         if (labelExpr) {
-          labelExpr.type = rhsElement.type;
-          if (!renameExpr) {
-            labelExpr.value = elementValue;
-          }
-          labelExpr.env = env;
+          labelExpr.$ = {
+            env,
+            type: rhsElement.type,
+            value: elementValue, // !renameExpr ? elementValue : undefined,
+          };
         }
 
         if (renameExpr) {
-          renameExpr.type = rhsElement.type;
-          renameExpr.value = elementValue;
-          renameExpr.env = env;
+          renameExpr.$ = {
+            env,
+            type: rhsElement.type,
+            value: elementValue,
+          };
         }
       }
     }
@@ -1613,16 +1673,17 @@ Please consider to write it as:
         isEvaluatingExprAsType: true,
       },
     });
-    if (evaluatedRhs.env) {
-      env = evaluatedRhs.env;
+    if (evaluatedRhs.$?.env) {
+      env = evaluatedRhs.$?.env;
     }
-    if (!isTypeValue(evaluatedRhs.value)) {
+
+    const typeValue = evaluatedRhs.$?.value;
+    if (!isTypeValue(typeValue)) {
       throw this.formatErrorMessage(
         rhs.token,
         `Expected type for rhs, got ${exprToString(rhs)}`
       );
     }
-    const typeValue = evaluatedRhs.value;
     const userDefinedType = typeValue.value;
 
     // Evaluate the lhs expression
@@ -1693,12 +1754,16 @@ Please consider to write it as:
     env = nextEnv;
 
     // Attach the user defined type to the lhs
-    lhs.type = userDefinedType;
-    lhs.env = env;
+    lhs.$ = {
+      env,
+      type: userDefinedType,
+    };
 
-    expr.env = env;
-    expr.value = VUnit;
-    expr.type = VUnit.type;
+    expr.$ = {
+      env,
+      type: VUnit.type,
+      value: VUnit,
+    };
     return { expr, variableExpr: lhs, variableName };
   }
 
@@ -1785,26 +1850,26 @@ Please consider to write it as:
         expectedType: undefined,
       },
     });
-    if (rhs.env) {
-      env = rhs.env;
+    if (rhs.$?.env) {
+      env = rhs.$?.env;
     }
 
     // If rhs is type value, then it cannot be mutable
-    if (isTypeValue(rhs.value) && isMutable) {
+    if (isTypeValue(rhs.$?.value) && isMutable) {
       throw this.formatErrorMessage(
         lhs.token,
         `Unexpected "mut" (or "!") for type value:
 ${exprToString(rhs)}`
       );
     }
-    if (isTypeValue(rhs.value) && !isCompileTimeOnly) {
+    if (isTypeValue(rhs.$?.value) && !isCompileTimeOnly) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "::" instead of ":=" for type value assignment:
 ${exprToString(expr)}`
       );
     }
-    if (isModuleValue(rhs.value) && !isCompileTimeOnly) {
+    if (isModuleValue(rhs.$?.value) && !isCompileTimeOnly) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "::" instead of ":=" for module value assignment:
@@ -1821,8 +1886,8 @@ ${exprToString(expr)}`
       }
 
       // Set the variable type
-      let rhsType = rhs.type;
-      if (!lhs.type) {
+      let rhsType = rhs.$?.type;
+      if (!lhs.$?.type) {
         if (!rhsType) {
           throw this.formatErrorMessage(
             rhs.token,
@@ -1830,7 +1895,10 @@ ${exprToString(expr)}`
           );
         }
         // user didn't specify the type
-        lhs.type = rhsType;
+        lhs.$ = {
+          env,
+          type: rhsType,
+        };
       } else {
         // If !rhsType, then check if rhs is a function call of _ or a tuple containing _
         try {
@@ -1841,7 +1909,7 @@ ${exprToString(expr)}`
             env: nextEnv,
           } = this.synthesizeExprAndType({
             expr: rhs,
-            type: lhs.type,
+            type: lhs.$?.type,
             env: env,
             context: { ...context },
           });
@@ -1860,30 +1928,34 @@ ${exprToString(expr)}`
 
         // Check if the type is compatible
         if (
-          !areTypesCompatible({ type: lhs.type, env }, { type: rhsType, env })
+          !areTypesCompatible(
+            { type: lhs.$?.type, env },
+            { type: rhsType, env }
+          )
         ) {
           throw this.formatErrorMessage(
             lhs.token,
             `Incompatible types:
-- Defined: ${typeToString(lhs.type)}
+- Defined: ${typeToString(lhs.$?.type)}
 - Given  : ${typeToString(rhsType)}`
           );
         }
       }
 
       // Add .typeName info if necessary
+      const rhsValue = rhs.$?.value;
       if (
-        isTypeValue(rhs.value) &&
-        (isStructType(rhs.value.value) ||
-          isEnumType(rhs.value.value) ||
-          isModuleType(rhs.value.value)) &&
-        !rhs.value.value.typeName
+        isTypeValue(rhsValue) &&
+        (isStructType(rhsValue.value) ||
+          isEnumType(rhsValue.value) ||
+          isModuleType(rhsValue.value)) &&
+        !rhsValue.value.typeName
       ) {
-        rhs.value.value.typeName = lhs.token.value;
+        rhsValue.value.typeName = lhs.token.value;
       }
 
       // Prohibit assigning runtime value to comptime-only variable
-      if (!rhs.value && isCompileTimeOnly) {
+      if (!rhsValue && isCompileTimeOnly) {
         throw this.formatErrorMessage(
           lhs.token,
           `Expected compile-time value for "${lhs.token.value}".
@@ -1893,7 +1965,11 @@ ${exprToString(rhs)}`
       }
 
       // Set the variable value
-      lhs.value = isCompileTimeOnly ? rhs.value : undefined;
+      lhs.$ = {
+        env,
+        type: lhs.$?.type,
+        value: isCompileTimeOnly ? rhsValue : undefined,
+      };
       // Add variable to env
       // Attach the updated env to expr
       const { env: nextEnv } = addVariableToEnv({
@@ -1901,23 +1977,25 @@ ${exprToString(rhs)}`
         variable: {
           name: lhs.token.value,
           token: lhs.token,
-          type: lhs.type,
+          type: lhs.$?.type,
           isMutable,
           isCompileTimeOnly,
           isUndefined: false,
           isImplicit,
-          value: lhs.value,
+          value: lhs.$?.value,
         },
       });
       env = nextEnv;
-      expr.env = env;
-      lhs.env = env;
-      expr.value = VUnit;
-      expr.type = VUnit.type;
+      lhs.$.env = env;
+      expr.$ = {
+        env,
+        value: VUnit,
+        type: VUnit.type,
+      };
       return expr;
     } else {
       // Evaluate the destructuring assignment
-      if (!rhs.type) {
+      if (!rhs.$?.type) {
         throw this.formatErrorMessage(
           rhs.token,
           `(3) Expected type for right-hand side, got ${exprToString(rhs)}`
@@ -1931,9 +2009,11 @@ ${exprToString(rhs)}`
         isCompileTimeOnly,
         context: { ...context },
       });
-      expr.value = VUnit;
-      expr.type = VUnit.type;
-      expr.env = env;
+      expr.$ = {
+        env,
+        value: VUnit,
+        type: VUnit.type,
+      };
       return expr;
     }
   }
@@ -1983,8 +2063,8 @@ ${exprToString(rhs)}`
             ...context,
           },
         });
-        if (bindingExpr.env) {
-          env = bindingExpr.env;
+        if (bindingExpr.$?.env) {
+          env = bindingExpr.$?.env;
         }
         lhs = variableExpr;
         variableName = nextVariableName;
@@ -2009,11 +2089,11 @@ ${exprToString(rhs)}`
           expectedType: { type: variable.type, env },
         },
       });
-      if (rhs.env) {
-        env = rhs.env;
+      if (rhs.$?.env) {
+        env = rhs.$?.env;
       }
 
-      let rhsType = rhs.type;
+      let rhsType = rhs.$?.type;
       if (!rhsType) {
         // Try synthesize the type
         try {
@@ -2061,13 +2141,13 @@ ${exprToString(rhs)}`
         env = updateExistingVariable(env, variable, {
           ...variable,
           isUndefined: false,
-          value: rhs.value,
+          value: rhs.$?.value,
         });
       } else if (variable.isMutable) {
         // Update the variable value
         env = updateExistingVariable(env, variable, {
           ...variable,
-          value: rhs.value,
+          value: rhs.$?.value,
         });
       } else {
         throw this.formatErrorMessage(
@@ -2075,18 +2155,19 @@ ${exprToString(rhs)}`
           `Cannot assign to immutable variable "${variableName}"`
         );
       }
-      if (variable.isCompileTimeOnly) {
-        lhs.value = rhs.value;
-      } else {
-        // runtime variable
-        lhs.value = undefined;
-      }
 
-      lhs.type = rhsType;
-      lhs.env = env;
-      expr.value = VUnit;
-      expr.type = VUnit.type;
-      expr.env = env;
+      lhs.$ = {
+        env,
+        type: rhsType,
+        value: variable.isCompileTimeOnly ? rhs.$?.value : undefined,
+      };
+
+      expr.$ = {
+        env,
+        value: VUnit,
+        type: VUnit.type,
+      };
+
       return expr;
     } else {
       throw this.formatErrorMessage(
@@ -2151,16 +2232,16 @@ ${exprToString(expr)}`
             isEvaluatingExprAsType: true,
           },
         });
-        if (evaluatedRhs.env) {
-          env = evaluatedRhs.env;
+        if (evaluatedRhs.$?.env) {
+          env = evaluatedRhs.$?.env;
         }
-        if (!isTypeValue(evaluatedRhs.value)) {
+        if (!isTypeValue(evaluatedRhs.$?.value)) {
           throw this.formatErrorMessage(
             rhs.token,
             `Expected type for extern argument, got ${exprToString(rhs)}`
           );
         } else {
-          const typeValue = evaluatedRhs.value;
+          const typeValue = evaluatedRhs.$?.value;
           const userDefinedType = typeValue.value;
 
           // Add the variable to the env
@@ -2180,19 +2261,26 @@ ${exprToString(expr)}`
           env = nextEnv;
 
           // Attach the user defined type to the lhs
-          lhs.type = userDefinedType;
+          lhs.$ = {
+            env,
+            type: userDefinedType,
+          };
         }
       }
     }
 
-    expr.value = VUnit;
-    expr.type = VUnit.type;
-    expr.env = env;
+    expr.$ = {
+      env,
+      value: VUnit,
+      type: VUnit.type,
+    };
 
     // "extern" token
-    expr.func.value = VUnit;
-    expr.func.type = VUnit.type;
-    expr.func.env = env;
+    expr.func.$ = {
+      env,
+      value: VUnit,
+      type: VUnit.type,
+    };
 
     return expr;
   }
@@ -2250,10 +2338,10 @@ ${exprToString(expr)}`
       });
 
       // TODO: Check comptime value if exists
-      if (evaluatedCond.env) {
-        env = evaluatedCond.env;
+      if (evaluatedCond.$?.env) {
+        env = evaluatedCond.$?.env;
       }
-      if (!evaluatedCond.type || !isBooleanType(evaluatedCond.type)) {
+      if (!evaluatedCond.$?.type || !isBooleanType(evaluatedCond.$?.type)) {
         throw this.formatErrorMessage(
           condExpr.token,
           `Expected boolean for cond statement, got ${exprToString(condExpr)}`
@@ -2274,27 +2362,27 @@ ${exprToString(expr)}`
       // if (evaluatedValue.env) {
       //   env = evaluatedValue.env;
       //}
-      if (!evaluatedValue.type) {
+      if (!evaluatedValue.$?.type) {
         throw this.formatErrorMessage(
           valueExpr.token,
           `Expected type for cond statement, got ${exprToString(valueExpr)}`
         );
       }
       if (!valueType) {
-        valueType = evaluatedValue.type;
+        valueType = evaluatedValue.$?.type;
       } else {
         // Check if the type is compatible
         if (
           !areTypesCompatible(
             { type: valueType, env },
-            { type: evaluatedValue.type, env }
+            { type: evaluatedValue.$?.type, env }
           )
         ) {
           throw this.formatErrorMessage(
             valueExpr.token,
             `Incompatible types:
 - Previous: ${typeToString(valueType)}
-- Current : ${typeToString(evaluatedValue.type)}`
+- Current : ${typeToString(evaluatedValue.$?.type)}`
           );
         }
       }
@@ -2307,10 +2395,14 @@ ${exprToString(expr)}`
       );
     }
 
-    expr.type = valueType;
-    // TODO: set .value to support compile-time value.
-    // Right now the createUnknownValue below is wrong
-    expr.value = undefined; // valueType ? createUnknownValue(valueType) : undefined;
+    expr.$ = {
+      env,
+      type: valueType,
+      // TODO: set .value to support compile-time value.
+      // Right now the createUnknownValue below is wrong
+      value: undefined, // valueType ? createUnknownValue(valueType) : undefined;
+    };
+
     return expr;
   }
 
@@ -2349,23 +2441,23 @@ ${exprToString(expr)}`
       },
     });
 
-    if (evaluatedValue.env) {
-      env = evaluatedValue.env;
+    if (evaluatedValue.$?.env) {
+      env = evaluatedValue.$?.env;
     }
 
     // Check if the value is an enum type
-    if (!evaluatedValue.type || !isEnumType(evaluatedValue.type)) {
+    if (!evaluatedValue.$?.type || !isEnumType(evaluatedValue.$?.type)) {
       throw this.formatErrorMessage(
         valueExpr.token,
         `Expected enum type for match expression, got ${
-          evaluatedValue.type
-            ? typeToString(evaluatedValue.type)
+          evaluatedValue.$?.type
+            ? typeToString(evaluatedValue.$?.type)
             : "unknown type"
         }`
       );
     }
 
-    const enumType = evaluatedValue.type;
+    const enumType = evaluatedValue.$?.type;
     const patterns = args.slice(1);
     let resultType: Type | undefined = undefined;
 
@@ -2427,7 +2519,7 @@ ${exprToString(expr)}`
         });
         // We don't update the original env here since each pattern has its own scope
 
-        if (!evaluatedResult.type) {
+        if (!evaluatedResult.$?.type) {
           throw this.formatErrorMessage(
             resultExpr.token,
             `Expected type for match result expression, got ${exprToString(
@@ -2438,18 +2530,18 @@ ${exprToString(expr)}`
 
         // Set or verify the result type consistency
         if (!resultType) {
-          resultType = evaluatedResult.type;
+          resultType = evaluatedResult.$?.type;
         } else if (
           !areTypesCompatible(
             { type: resultType, env },
-            { type: evaluatedResult.type, env }
+            { type: evaluatedResult.$?.type, env }
           )
         ) {
           throw this.formatErrorMessage(
             resultExpr.token,
             `Incompatible types in match arms:
 - Previous: ${typeToString(resultType)}
-- Current : ${typeToString(evaluatedResult.type)}`
+- Current : ${typeToString(evaluatedResult.$?.type)}`
           );
         }
       }
@@ -2519,7 +2611,10 @@ ${exprToString(expr)}`
           }
 
           // Assign the proper type from the variant parameter to this variable
-          patternElement.type = variantElement.type;
+          patternElement.$ = {
+            env,
+            type: variantElement.type,
+          };
 
           const { env: updatedEnv } = addVariableToEnv({
             env: patternEnv,
@@ -2548,7 +2643,7 @@ ${exprToString(expr)}`
           },
         });
 
-        if (!evaluatedResult.type) {
+        if (!evaluatedResult.$?.type) {
           throw this.formatErrorMessage(
             resultExpr.token,
             `Expected type for match result expression, got ${exprToString(
@@ -2559,18 +2654,18 @@ ${exprToString(expr)}`
 
         // Set or verify the result type consistency
         if (!resultType) {
-          resultType = evaluatedResult.type;
+          resultType = evaluatedResult.$?.type;
         } else if (
           !areTypesCompatible(
             { type: resultType, env },
-            { type: evaluatedResult.type, env }
+            { type: evaluatedResult.$?.type, env }
           )
         ) {
           throw this.formatErrorMessage(
             resultExpr.token,
             `Incompatible types in match arms:
 - Previous: ${typeToString(resultType)}
-- Current: ${typeToString(evaluatedResult.type)}`
+- Current: ${typeToString(evaluatedResult.$?.type)}`
           );
         }
       } else {
@@ -2590,11 +2685,13 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
 
     // Set the type and value of the match expression
-    expr.type = resultType;
-    // TODO: Support the compile-time value.
-    // For compile-time evaluation, we'd determine which arm matches and set the value
-    expr.value = undefined; // createUnknownValue(resultType);
-    expr.env = env;
+    expr.$ = {
+      env,
+      type: resultType,
+      // TODO: Support the compile-time value.
+      // For compile-time evaluation, we'd determine which arm matches and set the value
+      value: undefined, // createUnknownValue(resultType),
+    };
 
     return expr;
   }
@@ -2611,178 +2708,162 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     const identifier = expr.token.value;
     // Free
     if (identifier === TypeTag.Free) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TFree),
-        value: TFree,
+      const value = createTypeValue(TFree);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TFree);
-      expr.env = env;
       return expr;
     }
     // Linear
     else if (identifier === TypeTag.Linear) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TLinear),
-        value: TLinear,
+      const value = createTypeValue(TLinear);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TLinear);
-      expr.env = env;
       return expr;
     }
     // Type
     else if (identifier === TypeTag.Type) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TType),
-        value: TType,
+      const value = createTypeValue(TType);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TType);
-      expr.env = env;
       return expr;
     }
     // boolean
     else if (identifier === TypeTag.Boolean) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TBoolean),
-        value: TBoolean,
+      const value = createTypeValue(TBoolean);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TBoolean);
-      expr.env = env;
       return expr;
     }
     // usize
     else if (identifier === TypeTag.Usize) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TUsize),
-        value: TUsize,
+      const value = createTypeValue(TUsize);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TUsize);
-      expr.env = env;
       return expr;
     }
     // isize
     else if (identifier === TypeTag.Isize) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TIsize),
-        value: TIsize,
+      const value = createTypeValue(TIsize);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TIsize);
-      expr.env = env;
       return expr;
     }
     // u8
     else if (identifier === TypeTag.U8) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TU8),
-        value: TU8,
+      const value = createTypeValue(TU8);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TU8);
-      expr.env = env;
       return expr;
     }
     // i8
     else if (identifier === TypeTag.I8) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TI8),
-        value: TI8,
+      const value = createTypeValue(TI8);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TI8);
-      expr.env = env;
       return expr;
     }
     // u16
     else if (identifier === TypeTag.U16) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TU16),
-        value: TU16,
+      const value = createTypeValue(TU16);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TU16);
-      expr.env = env;
       return expr;
     }
     // i16
     else if (identifier === TypeTag.I16) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TI16),
-        value: TI16,
+      const value = createTypeValue(TI16);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TI16);
-      expr.env = env;
       return expr;
     }
     // u32
     else if (identifier === TypeTag.U32) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TU32),
-        value: TU32,
+      const value = createTypeValue(TU32);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TU32);
-      expr.env = env;
       return expr;
     }
     // i32
     else if (identifier === TypeTag.I32) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TI32),
-        value: TI32,
+      const value = createTypeValue(TI32);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TI32);
-      expr.env = env;
       return expr;
     }
     // u64
     else if (identifier === TypeTag.U64) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TU64),
-        value: TU64,
+      const value = createTypeValue(TU64);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TU64);
-      expr.env = env;
       return expr;
     }
     // i64
     else if (identifier === TypeTag.I64) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TI64),
-        value: TI64,
+      const value = createTypeValue(TI64);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TI64);
-      expr.env = env;
       return expr;
     }
     // f32
     else if (identifier === TypeTag.F32) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TF32),
-        value: TF32,
+      const value = createTypeValue(TF32);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TF32);
-      expr.env = env;
       return expr;
     }
     // f64
     else if (identifier === TypeTag.F64) {
-      expr.value = {
-        tag: ValueTag.Type,
-        type: typeOfType(TF64),
-        value: TF64,
+      const value = createTypeValue(TF64);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
       };
-      expr.type = typeOfType(TF64);
-      expr.env = env;
       return expr;
     }
     // Self
@@ -2794,9 +2875,12 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         isEnumType(context.SelfType) ||
         isUnionType(context.SelfType))
     ) {
-      expr.value = createTypeValue(context.SelfType);
-      expr.type = expr.value.type;
-      expr.env = env;
+      const value = createTypeValue(context.SelfType);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
+      };
       return expr;
     }
     // variable
@@ -2815,9 +2899,11 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
             `Variable "${identifier}" is undefined`
           );
         }
-        expr.value = variable.value;
-        expr.type = variable.type;
-        expr.env = env;
+        expr.$ = {
+          env,
+          type: variable.type,
+          value: variable.value,
+        };
         return expr;
       }
     }
@@ -2895,7 +2981,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     });
 
     // Check if the return type is compatible
-    const evaluatedBodyReturnType = evaluatedBody.type;
+    const evaluatedBodyReturnType = evaluatedBody.$?.type;
     if (
       evaluatedBodyReturnType &&
       !areTypesCompatible(
@@ -2911,24 +2997,26 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       );
     }
 
-    if (evaluatedBody.env) {
-      env = evaluatedBody.env;
+    if (evaluatedBody.$?.env) {
+      env = evaluatedBody.$?.env;
     }
     // Restore the env frame
     env = popEnvFrame(env);
 
     // Set the type and value of the expression
-    expr.type = functionType;
-    expr.value = {
-      tag: ValueTag.Function,
+    expr.$ = {
+      env,
       type: functionType,
-      body: functionBodyExpr,
-      frameLevel: env.frames.length - 1,
-      funcId: `fn_${randomId()}`,
-      calledTypeFunctionCaches: [],
-      SelfType: context.SelfType,
+      value: {
+        tag: ValueTag.Function,
+        type: functionType,
+        body: functionBodyExpr,
+        frameLevel: env.frames.length - 1,
+        funcId: `fn_${randomId()}`,
+        calledTypeFunctionCaches: [],
+        SelfType: context.SelfType,
+      },
     };
-    expr.env = env;
     return expr;
   }
 
@@ -3110,12 +3198,12 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           env,
           context: { ...context },
         });
-        if (evaluatedRhs.env) {
-          env = evaluatedRhs.env;
+        if (evaluatedRhs.$?.env) {
+          env = evaluatedRhs.$?.env;
         }
 
         // Expected the evaluatedRhs to be a type
-        const typeValue = evaluatedRhs.value;
+        const typeValue = evaluatedRhs.$?.value;
         if (!isTypeValue(typeValue)) {
           throw this.formatErrorMessage(
             typeExpr.token,
@@ -3137,12 +3225,12 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
             isEvaluatingExprAsType: false,
           },
         });
-        if (evaluatedDefaultValue.env) {
-          env = evaluatedDefaultValue.env;
+        if (evaluatedDefaultValue.$?.env) {
+          env = evaluatedDefaultValue.$?.env;
         }
 
         // Check the compile-time known value which has to exist
-        defaultValue = evaluatedDefaultValue.value;
+        defaultValue = evaluatedDefaultValue.$?.value;
         if (!defaultValue) {
           throw this.formatErrorMessage(
             defaultValueExpr.token,
@@ -3217,12 +3305,18 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         });
         env = nextEnv;
       }
-      lhsExpr.env = env;
-      lhsExpr.value = value;
-      lhsExpr.type = parameterType;
+      lhsExpr.$ = {
+        env,
+        type: parameterType,
+        value: value,
+      };
     }
 
-    expr.env = env;
+    expr.$ = {
+      env,
+      type: VUnit.type,
+      value: VUnit,
+    };
     return {
       parameter: {
         label,
@@ -3551,7 +3645,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     });
 
     // Check that the return type is indeed a type
-    if (!isTypeValue(evaluatedReturnType.value)) {
+    if (!isTypeValue(evaluatedReturnType.$?.value)) {
       throw this.formatErrorMessage(
         returnTypeExpr.token,
         `Expected a type for function return type, got:\n${exprToString(
@@ -3559,7 +3653,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         )}`
       );
     }
-    const returnType = evaluatedReturnType.value.value;
+    const returnType = evaluatedReturnType.$?.value.value;
     if (
       (isTypeHierarchyType(returnType) || isModuleType(returnType)) &&
       !isReturnTypeCompileTimeOnly
@@ -3613,9 +3707,11 @@ compt(${exprToString(returnTypeExpr)})`
     env = popEnvFrame(env, true);
 
     // Set the type and value of the expression
-    expr.type = typeOfType(functionType);
-    expr.value = createTypeValue(functionType);
-    expr.env = env;
+    expr.$ = {
+      env,
+      value: createTypeValue(functionType),
+      type: typeOfType(functionType),
+    };
     return expr;
   }
 
@@ -3641,25 +3737,24 @@ compt(${exprToString(returnTypeExpr)})`
       env,
       context: { ...context, isEvaluatingExprAsType: true },
     });
-    if (evaluatedType.env) {
-      env = evaluatedType.env;
+    if (evaluatedType.$?.env) {
+      env = evaluatedType.$?.env;
     }
-    const typeValue = evaluatedType.value;
+    const typeValue = evaluatedType.$?.value;
     if (!isTypeValue(typeValue)) {
       throw this.formatErrorMessage(
         typeExpr.token,
         `Expected a type for type expression, got:\n${exprToString(typeExpr)}`
       );
     }
-    expr.type = typeValue.type;
-    expr.value = typeValue;
-    expr.env = env;
+    expr.$ = {
+      env,
+      type: typeValue.type,
+      value: typeValue,
+    };
 
     // Add information to the `type` token
-    expr.func.type = expr.type;
-    expr.func.value = expr.value;
-    expr.func.env = env;
-
+    expr.func.$ = expr.$;
     return expr;
   }
 
@@ -3687,15 +3782,15 @@ compt(${exprToString(returnTypeExpr)})`
     env = nextEnv;
 
     const structType: StructType = createStructType(tupleType.elements);
-    expr.value = createTypeValue(structType);
-    expr.type = expr.value.type;
-    expr.env = env;
+    const structTypeValue = createTypeValue(structType);
+    expr.$ = {
+      env,
+      type: structTypeValue.type,
+      value: structTypeValue,
+    };
 
     // Append more information to "struct" token.
-    expr.func.type = expr.type;
-    expr.func.value = expr.value;
-    expr.func.env = env;
-
+    expr.func.$ = expr.$;
     return expr;
   }
 
@@ -3768,15 +3863,15 @@ compt(${exprToString(returnTypeExpr)})`
     }
 
     const enumType: EnumType = createEnumType(variants);
-    expr.type = typeOfType(enumType);
-    expr.value = createTypeValue(enumType);
-    expr.env = env;
+    const enumTypeValue = createTypeValue(enumType);
+    expr.$ = {
+      env,
+      value: enumTypeValue,
+      type: enumTypeValue.type,
+    };
 
     // Append more information to "enum" token.
-    expr.func.type = expr.type;
-    expr.func.value = expr.value;
-    expr.func.env = env;
-
+    expr.func.$ = expr.$;
     return expr;
   }
 
@@ -3841,22 +3936,32 @@ compt(${exprToString(returnTypeExpr)})`
        * r := Color.Red;
        */
       if (!variant.elements) {
-        expr.type = newEnumType;
-        propertyExpr.type = newEnumType;
-        // FIXME: Support expr.value for comptime evaluation.
-        expr.value = createEnumValue(newEnumType, variantName, []);
+        expr.$ = {
+          env,
+          type: newEnumType,
+          // FIXME: Support expr.value for comptime evaluation.
+          value: createEnumValue(newEnumType, variantName, []),
+        };
+
+        propertyExpr.$ = {
+          env,
+          type: newEnumType,
+        };
       } else {
         /**
          * This is for case like
          * Shape := enum Circle(i32), Square(i32, i32);
          * c := Shape.Circle(3);
          */
-        expr.value = createTypeValue(newEnumType);
-        expr.type = expr.value.type;
-        propertyExpr.value = expr.value;
-        propertyExpr.type = expr.type;
+        const enumTypeValue = createTypeValue(newEnumType);
+        expr.$ = {
+          env,
+          value: enumTypeValue,
+          type: enumTypeValue.type,
+        };
+
+        propertyExpr.$ = expr.$;
       }
-      expr.env = env;
       return expr;
     }
 
@@ -3876,12 +3981,12 @@ compt(${exprToString(returnTypeExpr)})`
       env,
       context: { ...context },
     });
-    if (objectExpr.env) {
-      env = objectExpr.env;
+    if (objectExpr.$?.env) {
+      env = objectExpr.$?.env;
     }
 
-    if (isTypeValue(objectExpr.value)) {
-      const typeValue = objectExpr.value;
+    if (isTypeValue(objectExpr.$?.value)) {
+      const typeValue = objectExpr.$?.value;
       if (isEnumType(typeValue.value)) {
         // Expect propertyExpr to be a symbol atom
         if (!exprIsAtom(propertyExpr)) {
@@ -3915,33 +4020,40 @@ compt(${exprToString(returnTypeExpr)})`
          * r := Color.Red;
          */
         if (!variant.elements) {
-          expr.type = newEnumType;
-          propertyExpr.type = newEnumType;
-          // FIXME: Support expr.value for comptime evaluation.
-          expr.value = createEnumValue(newEnumType, variantName, []);
+          expr.$ = {
+            env,
+            type: newEnumType,
+            // FIXME: Support expr.value for comptime evaluation.
+            value: createEnumValue(newEnumType, variantName, []),
+          };
+
+          propertyExpr.$ = expr.$;
         } else {
           /**
            * This is for case like
            * Shape := enum Circle(i32), Square(i32, i32);
            * c := Shape.Circle(3);
            */
-          expr.value = createTypeValue(newEnumType);
-          expr.type = expr.value.type;
-          propertyExpr.value = expr.value;
-          propertyExpr.type = expr.type;
+          const enumTypeValue = createTypeValue(newEnumType);
+          expr.$ = {
+            env,
+            type: enumTypeValue.type,
+            value: enumTypeValue,
+          };
+
+          propertyExpr.$ = expr.$;
         }
-        expr.env = env;
         return expr;
       }
     }
 
-    if (isTupleType(objectExpr.type) || isStructType(objectExpr.type)) {
+    if (isTupleType(objectExpr.$?.type) || isStructType(objectExpr.$?.type)) {
       let elements: TupleElement[] = [];
-      const objectExprValue = objectExpr.value;
-      if (isTupleType(objectExpr.type)) {
-        elements = objectExpr.type.elements;
-      } else if (isStructType(objectExpr.type)) {
-        elements = objectExpr.type.elements;
+      const objectExprValue = objectExpr.$?.value;
+      if (isTupleType(objectExpr.$?.type)) {
+        elements = objectExpr.$?.type.elements;
+      } else if (isStructType(objectExpr.$?.type)) {
+        elements = objectExpr.$?.type.elements;
       }
       // Check if it's accessing the tuple element by
       // - number index: point.0
@@ -3961,13 +4073,17 @@ compt(${exprToString(returnTypeExpr)})`
             throw this.formatErrorMessage(
               propertyExpr.token,
               `Index out of bounds: ${index} for accessing element in:\n${typeToString(
-                objectExpr.type
+                objectExpr.$?.type
               )}`
             );
           }
           const tupleElement = elements[index]!;
-          expr.type = tupleElement.type;
-          propertyExpr.type = tupleElement.type;
+          expr.$ = {
+            env,
+            type: tupleElement.type,
+          };
+          propertyExpr.$ = expr.$;
+
           // TODO: Support comptime value
           // expr.value = ...
           if (objectExprValue) {
@@ -3977,7 +4093,7 @@ compt(${exprToString(returnTypeExpr)})`
             } else if (isStructValue(objectExprValue)) {
               values = objectExprValue.elements;
             }
-            expr.value = values?.[index];
+            expr.$.value = values?.[index];
           }
           return expr;
         } else if (this.isValidVariableName(propertyExpr)) {
@@ -4001,13 +4117,16 @@ compt(${exprToString(returnTypeExpr)})`
             );
             if (tupleElementIndex < 0) {
               // It could be interface method call
-              expr.type = undefined;
-              expr.value = undefined;
+              expr.$ = undefined;
               return expr;
             }
             const tupleElement = elements[tupleElementIndex]!;
-            expr.type = tupleElement.type;
-            propertyExpr.type = tupleElement.type;
+            expr.$ = {
+              env,
+              type: tupleElement.type,
+            };
+            propertyExpr.$ = expr.$;
+
             // TODO: Support comptime value
             // expr.value = ...
             if (objectExprValue) {
@@ -4017,37 +4136,32 @@ compt(${exprToString(returnTypeExpr)})`
               } else if (isStructValue(objectExprValue)) {
                 values = objectExprValue.elements;
               }
-              expr.value = values?.[tupleElementIndex];
+              expr.$.value = values?.[tupleElementIndex];
             }
             return expr;
           }
         }
       }
-    } else if (isModuleType(objectExpr.type)) {
+    } else if (isModuleType(objectExpr.$?.type)) {
       // Check if it's accessing the module member by
       // - label name:   my_module.add
       if (exprIsAtom(propertyExpr)) {
         const label = propertyExpr.token.value;
         // Check if the type method exists
-        const moduleValue = objectExpr.value;
-        const moduleType = objectExpr.type;
+        const moduleValue = objectExpr.$?.value;
+        const moduleType = objectExpr.$?.type;
         const moduleMember = (moduleType.members ?? []).find(
           (member) => member.label === label
         );
         if (moduleMember) {
-          if (isModuleValue(moduleValue)) {
-            // moduleValue might be UnknownValue
-            expr.value = moduleValue.members[label];
-          } else {
-            expr.value = createUnknownValue(
-              moduleMember.type,
-              moduleMember.label
-            );
-          }
-
-          expr.type = moduleMember.type;
-          propertyExpr.value = expr.value;
-          propertyExpr.type = expr.type;
+          expr.$ = {
+            env,
+            type: moduleMember.type,
+            value: isModuleValue(moduleValue)
+              ? moduleValue.members[label]
+              : createUnknownValue(moduleMember.type, moduleMember.label),
+          };
+          propertyExpr.$ = expr.$;
           return expr;
         } else {
           throw this.formatErrorMessage(
@@ -4068,8 +4182,7 @@ compt(${exprToString(returnTypeExpr)})`
     // TODO: Evaluate the interface method call
     // Since we fail to evaluate the property access
     // it could be an ~~uniform function call~~ interface method call.
-    expr.type = undefined;
-    expr.value = undefined;
+    expr.$ = undefined;
     return expr;
   }
 
@@ -4124,10 +4237,10 @@ compt(${exprToString(returnTypeExpr)})`
           ...context,
         },
       });
-      if (evaluatedArg.env) {
-        env = evaluatedArg.env;
+      if (evaluatedArg.$?.env) {
+        env = evaluatedArg.$?.env;
       }
-      const type = evaluatedArg.type;
+      const type = evaluatedArg.$?.type;
       if (!type) {
         throw this.formatErrorMessage(
           arg.token,
@@ -4144,8 +4257,8 @@ compt(${exprToString(returnTypeExpr)})`
       };
       elements.push(element);
 
-      if (evaluatedArg.value) {
-        values.push(evaluatedArg.value);
+      if (evaluatedArg.$?.value) {
+        values.push(evaluatedArg.$?.value);
       }
     }
 
@@ -4158,13 +4271,17 @@ compt(${exprToString(returnTypeExpr)})`
       structValue = createStructValue(structType, values);
     }
 
-    expr.type = structType;
-    expr.value = structValue;
-    expr.env = env;
+    expr.$ = {
+      env,
+      type: structType,
+      value: structValue,
+    };
 
-    func.value = createTypeValue(structType);
-    func.type = func.value.type;
-    func.env = env;
+    func.$ = {
+      env,
+      type: typeOfType(structType),
+      value: createTypeValue(structType),
+    };
 
     return expr;
   }
@@ -4199,7 +4316,7 @@ compt(${exprToString(returnTypeExpr)})`
         },
       });
       // Check if . property access for module method call
-      if (!functionToCall.type) {
+      if (!functionToCall.$?.type) {
         if (
           exprIsFunctionCall(functionToCall) &&
           exprIsFunctionCallOf(functionToCall, ".", 2)
@@ -4209,7 +4326,7 @@ compt(${exprToString(returnTypeExpr)})`
 
           // The receiverArg should already be evaluated in the previous step
           // so it should have a type
-          const receiverType = receiverArg.type;
+          const receiverType = receiverArg.$?.type;
           if (!receiverType) {
             throw this.formatErrorMessage(
               receiverArg.token,
@@ -4245,13 +4362,13 @@ compt(${exprToString(returnTypeExpr)})`
                 isEvaluatingExprAsType: false,
               },
             });
-            if (nextExpr.env) {
-              env = nextExpr.env;
+            if (nextExpr.$?.env) {
+              env = nextExpr.$?.env;
             }
             methodExpr = nextExpr;
 
-            const methodType = methodExpr.type;
-            const methodValue = methodExpr.value;
+            const methodType = methodExpr.$?.type;
+            const methodValue = methodExpr.$?.value;
             if (!methodType || !methodValue) {
               throw this.formatErrorMessage(
                 methodExpr.token,
@@ -4291,8 +4408,8 @@ compt(${exprToString(returnTypeExpr)})`
       } else {
         functions = [
           {
-            type: functionToCall.type,
-            value: functionToCall.value,
+            type: functionToCall.$?.type,
+            value: functionToCall.$?.value,
           },
         ];
       }
@@ -4343,7 +4460,7 @@ compt(${exprToString(returnTypeExpr)})`
             isEvaluatingExprAsType: false,
           },
         });
-        const receiverType = evaluatedFirstArg.type;
+        const receiverType = evaluatedFirstArg.$?.type;
         if (!receiverType) {
           throw this.formatErrorMessage(
             firstArg.token,
@@ -4526,13 +4643,20 @@ ${functionsWithMatchingTypes
               ...context,
             },
           });
+
         env = nextEnv;
-        expr.value = returnValue;
-        expr.type = returnValue.type;
+        expr.$ = {
+          env,
+          type: returnValue.type,
+          value: returnValue,
+        };
 
         // Attach necessary info to the func
-        func.type = functionToCall.type;
-        func.value = functionToCall.value;
+        func.$ = {
+          env,
+          type: functionToCall.type,
+          value: functionToCall.value,
+        };
       } else {
         // It's
         // - Runtime function
@@ -4548,21 +4672,29 @@ ${functionsWithMatchingTypes
             SelfType: functionType.SelfType,
           },
         });
-        // env = nextEnv;
-        expr.type = returnType;
+        expr.$ = {
+          env,
+          type: returnType,
+        };
 
         if (functionType.return.isCompileTimeOnly) {
           // TODO: expr.value should be available for comptime function.
           // We should evaluate its body.
-          expr.value = createUnknownValue(returnType);
+          expr.$.value = createUnknownValue(returnType);
         }
 
         // Attach necessary info to the func
-        func.type = functionToCall.type;
-        func.value = functionToCall.value;
+        func.$ = {
+          env,
+          type: functionToCall.type,
+          value: functionToCall.value,
+        };
         if (methodExpr) {
-          methodExpr.type = functionToCall.type;
-          methodExpr.value = functionToCall.value;
+          methodExpr.$ = {
+            env,
+            type: functionToCall.type,
+            value: functionToCall.value,
+          };
         }
       }
       return expr;
@@ -4571,8 +4703,10 @@ ${functionsWithMatchingTypes
       // struct value
       if (isTypeValue(value) && isStructType(value.value)) {
         const structType = value.value;
-        expr.type = structType;
-        expr.env = env;
+        expr.$ = {
+          env,
+          type: structType,
+        };
         // FIXME: Support to set value for comptime
         const memberValues = this.tryToCallTypeWithArguments({
           memberElements: value.value.elements,
@@ -4594,19 +4728,24 @@ ${functionsWithMatchingTypes
             structType,
             memberValues as Value[]
           );
-          expr.value = structValue;
+          expr.$.value = structValue;
         }
 
         // Attach necessary info to the func
-        func.type = value.type;
-        func.value = value;
+        func.$ = {
+          env,
+          type: value.type,
+          value: value,
+        };
         return expr;
       }
       // enum value
       else if (isTypeValue(value) && isEnumType(value.value)) {
         const enumType = value.value;
-        expr.type = enumType;
-        expr.env = env;
+        expr.$ = {
+          env,
+          type: enumType,
+        };
         // FIXME: Support to set value for comptime
         const selectedVariant = enumType.variants.find(
           (variant) => variant.name === enumType.selectedVariantName
@@ -4636,12 +4775,15 @@ ${functionsWithMatchingTypes
             selectedVariant.name,
             memberValues as Value[]
           );
-          expr.value = enumValue;
+          expr.$.value = enumValue;
         }
 
         // Attach necessary info to the func
-        func.type = value.type;
-        func.value = value;
+        func.$ = {
+          env,
+          type: value.type,
+          value: value,
+        };
         return expr;
       }
       // module
@@ -4656,13 +4798,18 @@ ${functionsWithMatchingTypes
           },
         });
 
-        expr.value = moduleValue;
-        expr.type = moduleValue.type;
-        expr.env = env;
+        expr.$ = {
+          env,
+          type: moduleValue.type,
+          value: moduleValue,
+        };
 
         // Attach necessary info to the func
-        func.type = value.type;
-        func.value = value;
+        func.$ = {
+          env,
+          type: value.type,
+          value: value,
+        };
         return expr;
       }
     }
@@ -4698,16 +4845,16 @@ ${exprToString(expr)}`
           SelfType: functionValue?.SelfType,
         },
       });
-      if (!isTypeValue(evaluatedTypeExpr.value)) {
+      if (!isTypeValue(evaluatedTypeExpr.$?.value)) {
         throw this.formatErrorMessage(
           typeExpr.token,
           `Expected type for parameter, got:\n${exprToString(evaluatedTypeExpr)}`
         );
       }
-      if (evaluatedTypeExpr.env) {
-        calleeEnv = evaluatedTypeExpr.env;
+      if (evaluatedTypeExpr.$?.env) {
+        calleeEnv = evaluatedTypeExpr.$?.env;
       }
-      const parameterType = evaluatedTypeExpr.value.value;
+      const parameterType = evaluatedTypeExpr.$?.value.value;
       return {
         parameterType,
         calleeEnv,
@@ -4723,15 +4870,15 @@ ${exprToString(expr)}`
           SelfType: functionValue?.SelfType,
         },
       });
-      const value = evaluatedDefaultValueExpr.value;
+      const value = evaluatedDefaultValueExpr.$?.value;
       if (!value) {
         throw this.formatErrorMessage(
           defaultValueExpr.token,
           `Expected value for parameter, got:\n${exprToString(defaultValueExpr)}`
         );
       }
-      if (evaluatedDefaultValueExpr.env) {
-        calleeEnv = evaluatedDefaultValueExpr.env;
+      if (evaluatedDefaultValueExpr.$?.env) {
+        calleeEnv = evaluatedDefaultValueExpr.$?.env;
       }
       const parameterType = value.type;
       return {
@@ -4835,12 +4982,11 @@ ${exprToString(expr)}`
               isEvaluatingExprAsType: false,
             },
           });
-          if (evaluatedArgExpr.env) {
-            calleeEnv = evaluatedArgExpr.env;
+          if (evaluatedArgExpr.$?.env) {
+            calleeEnv = evaluatedArgExpr.$?.env;
           }
           if (argExpr) {
-            argExpr.value = evaluatedArgExpr.value;
-            argExpr.type = evaluatedArgExpr.type;
+            argExpr.$ = evaluatedArgExpr.$;
           }
         } else {
           throw this.formatErrorMessage(
@@ -4858,8 +5004,8 @@ ${exprToString(expr)}`
             expectedType: { type: parameterType, env: calleeEnv },
           },
         });
-        if (evaluatedArgExpr.env) {
-          callerEnv = evaluatedArgExpr.env;
+        if (evaluatedArgExpr.$?.env) {
+          callerEnv = evaluatedArgExpr.$?.env;
         }
       }
     } catch (error) {
@@ -4873,7 +5019,7 @@ ${exprToString(expr)}`
       );
     }
 
-    const argType = evaluatedArgExpr.type;
+    const argType = evaluatedArgExpr.$?.type;
     if (!argType) {
       throw this.formatErrorMessage(
         argExpr?.token ?? PlaceholderToken,
@@ -4883,7 +5029,7 @@ ${exprToString(expr)}`
     }
 
     // Cannot assign runtime parameter to compt parameter
-    if (!evaluatedArgExpr.value && parameter.isCompileTimeOnly) {
+    if (!evaluatedArgExpr.$?.value && parameter.isCompileTimeOnly) {
       throw this.formatErrorMessage(
         argExpr?.token ?? PlaceholderToken,
         `Cannot assign runtime argument to compile-time parameter:\n${
@@ -4894,7 +5040,7 @@ ${exprToString(expr)}`
 
     // Add the arg to the environment
     if (parameter.label) {
-      const argValue = evaluatedArgExpr.value;
+      const argValue = evaluatedArgExpr.$?.value;
       const { env: nextEnv } = addVariableToEnv({
         env: calleeEnv,
         variable: {
@@ -5116,15 +5262,14 @@ ${exprToString(expr)}`
                 isEvaluatingExprAsType: false,
               },
             });
-            if (evaluatedArgExpr.env) {
-              callerEnv = evaluatedArgExpr.env;
+            if (evaluatedArgExpr.$?.env) {
+              callerEnv = evaluatedArgExpr.$.env;
             }
             if (forallArgExpr) {
-              forallArgExpr.value = evaluatedArgExpr.value;
-              forallArgExpr.type = evaluatedArgExpr.type;
+              forallArgExpr.$ = evaluatedArgExpr.$;
             }
 
-            if (!isTypeValue(evaluatedArgExpr.value)) {
+            if (!isTypeValue(evaluatedArgExpr.$?.value)) {
               throw this.formatErrorMessage(
                 forallArgExpr?.token ??
                   functionCallExpr?.token ??
@@ -5134,7 +5279,7 @@ ${exprToString(expr)}`
                   : `Expected type for default value.`
               );
             }
-            typeValue = evaluatedArgExpr.value;
+            typeValue = evaluatedArgExpr.$?.value;
           } else {
             throw this.formatErrorMessage(
               forallArgExpr?.token ??
@@ -5154,21 +5299,24 @@ ${exprToString(expr)}`
               expectedType: { type: typeParameter.type, env: calleeEnv },
             },
           });
-          if (evaluatedTypeExpr.env) {
-            callerEnv = evaluatedTypeExpr.env;
+          if (evaluatedTypeExpr.$?.env) {
+            callerEnv = evaluatedTypeExpr.$.env;
           }
-          if (!isTypeValue(evaluatedTypeExpr.value)) {
+          if (!isTypeValue(evaluatedTypeExpr.$?.value)) {
             throw this.formatErrorMessage(
               forallArgExpr.token,
               `Expected type for argument, got:\n${exprToString(forallArgExpr)}`
             );
           }
-          typeValue = evaluatedTypeExpr.value;
+          typeValue = evaluatedTypeExpr.$?.value;
         }
 
         if (labelExpr) {
-          labelExpr.type = typeValue.type;
-          labelExpr.value = typeValue;
+          labelExpr.$ = {
+            env: calleeEnv, // QUESTION: Which env should we use?
+            type: typeValue.type,
+            value: typeValue,
+          };
         }
 
         // Compare the types
@@ -5306,10 +5454,10 @@ Got:   ${typeToString(typeValue.type)}`
             expectedType: { type: implicitParameterType, env: calleeEnv },
           },
         });
-        if (evaluatedImplicitArg.env) {
-          callerEnv = evaluatedImplicitArg.env;
+        if (evaluatedImplicitArg.$?.env) {
+          callerEnv = evaluatedImplicitArg.$.env;
         }
-        const argType = evaluatedImplicitArg.type;
+        const argType = evaluatedImplicitArg.$?.type;
         if (!argType) {
           throw this.formatErrorMessage(
             implicitArgExpr.token,
@@ -5319,7 +5467,7 @@ Got:   ${typeToString(typeValue.type)}`
 
         // Add the arg to the environment
         if (implicitParameter.label) {
-          const argValue = evaluatedImplicitArg.value;
+          const argValue = evaluatedImplicitArg.$?.value;
           const { env: nextEnv } = addVariableToEnv({
             env: calleeEnv,
             variable: {
@@ -5499,7 +5647,7 @@ ${implicitVariables
       context: { ...context, isEvaluatingExprAsType: true },
     });
 
-    const functionReturnTypeValue = evaluatedFunctionReturnExpr.value;
+    const functionReturnTypeValue = evaluatedFunctionReturnExpr.$?.value;
     if (!isTypeValue(functionReturnTypeValue)) {
       throw this.formatErrorMessage(
         functionCallExpr?.token ?? PlaceholderToken,
@@ -5596,7 +5744,7 @@ ${implicitVariables
         },
       });
 
-      const argType = evaluatedArgExpr.type;
+      const argType = evaluatedArgExpr.$?.type;
       if (!argType) {
         throw this.formatErrorMessage(
           argExpr.token,
@@ -5620,7 +5768,7 @@ Got:   ${typeToString(argType)}`
       }
 
       // Set the values
-      values[memberElementPositionIndex] = evaluatedArgExpr.value;
+      values[memberElementPositionIndex] = evaluatedArgExpr.$?.value;
       checkedMemberElements.add(memberElement);
     }
 
@@ -5745,15 +5893,15 @@ ${valueToString(moduleMember.requiredValue)}`
               SelfType: moduleType,
             },
           });
-          const argType = evaluatedArgExpr.type;
+          const argType = evaluatedArgExpr.$?.type;
           if (!argType) {
             throw this.formatErrorMessage(
               argExpr.token,
               `Failed to evaluate the module member "${label}"`
             );
           }
-          if (evaluatedArgExpr.env) {
-            callerEnv = evaluatedArgExpr.env;
+          if (evaluatedArgExpr.$?.env) {
+            callerEnv = evaluatedArgExpr.$.env;
           }
 
           // Compare the types
@@ -5770,7 +5918,7 @@ Expected: ${typeToString(moduleMemberType)}
 Got:   ${typeToString(argType)}`
             );
           }
-          const argValue = evaluatedArgExpr.value;
+          const argValue = evaluatedArgExpr.$?.value;
           if (!argValue) {
             throw this.formatErrorMessage(
               argExpr.token,
@@ -5798,13 +5946,13 @@ Got:   ${typeToString(argType)}`
           callerEnv = nextEnv;
 
           // Add the type information to argExpr
-          argExpr.type = argType;
-          argExpr.value = argValue;
-          argExpr.env = callerEnv;
+          argExpr.$ = {
+            env: callerEnv,
+            type: argType,
+            value: argValue,
+          };
           if (labelExpr) {
-            labelExpr.type = argType;
-            labelExpr.value = argValue;
-            labelExpr.env = callerEnv;
+            labelExpr.$ = argExpr.$;
           }
           break;
         }
@@ -5882,7 +6030,7 @@ Got:   ${typeToString(argType)}`
     const argValues: Value[] = [];
     for (let i = 0; i < argExprs.length; i++) {
       const argExpr = argExprs[i]!;
-      const argValue = argExpr.value;
+      const argValue = argExpr.$?.value;
       if (!argValue || isUnknownValue(argValue)) {
         throw this.formatErrorMessage(
           argExpr.token,
@@ -5943,7 +6091,7 @@ Got:   ${typeToString(argType)}`
       env: calleeEnv,
       context: { ...context, isEvaluatingExprAsType: false },
     });
-    if (!evaluatedFunctionBody.env) {
+    if (!evaluatedFunctionBody.$) {
       throw this.formatErrorMessage(
         functionCallExpr.token,
         `Function body is not evaluated correctly`
@@ -5951,7 +6099,7 @@ Got:   ${typeToString(argType)}`
     }
 
     // Get the return type value
-    const returnValue = evaluatedFunctionBody.value;
+    const returnValue = evaluatedFunctionBody.$.value;
     if (!isTypeValue(returnValue)) {
       throw this.formatErrorMessage(
         functionCallExpr.token,
@@ -5980,7 +6128,7 @@ Got:   ${typeToString(argType)}`
       funcId,
       argValues,
       typeValue: returnValue,
-      env: evaluatedFunctionBody.env,
+      env: evaluatedFunctionBody.$.env,
     });
     functionValue.calledTypeFunctionCaches = caches;
 
@@ -6056,7 +6204,7 @@ Got:   ${typeToString(argType)}`
       env,
       context: { ...context, isEvaluatingExprAsType: true },
     });
-    const evaluatedFunctionTypeValue = evaluatedFunctionTypeExpr.value;
+    const evaluatedFunctionTypeValue = evaluatedFunctionTypeExpr.$?.value;
     if (!isTypeValue(evaluatedFunctionTypeValue)) {
       throw this.formatErrorMessage(
         functionTypeExpr.token,
@@ -6070,8 +6218,8 @@ Got:   ${typeToString(argType)}`
         `Expected function type, got:\n${exprToString(functionTypeExpr)}`
       );
     }
-    if (evaluatedFunctionTypeExpr.env) {
-      env = evaluatedFunctionTypeExpr.env;
+    if (evaluatedFunctionTypeExpr.$?.env) {
+      env = evaluatedFunctionTypeExpr.$.env;
     }
 
     // Add parameters to the env new frame
@@ -6107,8 +6255,11 @@ Got:   ${typeToString(argType)}`
     env = nextNextEnv;
 
     // Attach some information
-    functionNameExpr.type = functionType;
-    functionNameExpr.value = functionValue;
+    functionNameExpr.$ = {
+      env,
+      type: functionType,
+      value: functionValue,
+    };
 
     // Parse the function body
     const evaluatedFunctionBody = this.evaluateExpression({
@@ -6116,23 +6267,23 @@ Got:   ${typeToString(argType)}`
       env,
       context: { ...context, isEvaluatingExprAsType: false },
     });
-    if (evaluatedFunctionBody.env) {
-      env = evaluatedFunctionBody.env;
+    if (evaluatedFunctionBody.$?.env) {
+      env = evaluatedFunctionBody.$.env;
     }
 
     // Check if the function body type matches the function return type
-    if (evaluatedFunctionBody.type) {
+    if (evaluatedFunctionBody.$?.type) {
       if (
         !areTypesCompatible(
           { type: functionType.return.type, env },
-          { type: evaluatedFunctionBody.type, env }
+          { type: evaluatedFunctionBody.$.type, env }
         )
       ) {
         throw this.formatErrorMessage(
           functionType.return.expr.token,
           `Incompatible function return type:
 - Expected: ${typeToString(functionType.return.type)}
-- Given  : ${typeToString(evaluatedFunctionBody.type)}`
+- Given  : ${typeToString(evaluatedFunctionBody.$.type)}`
         );
       }
     } else {
@@ -6146,13 +6297,17 @@ Got:   ${typeToString(argType)}`
     env = popEnvFrame(env);
 
     // Set the function type and value
-    expr.type = functionType;
-    expr.env = env;
+    expr.$ = {
+      env,
+      type: functionType,
+    };
 
     // "def" token
-    expr.func.value = VUnit;
-    expr.func.type = VUnit.type;
-    expr.func.env = env;
+    expr.func.$ = {
+      env,
+      type: VUnit.type,
+      value: VUnit,
+    };
 
     return expr;
   }
@@ -6178,8 +6333,11 @@ Got:   ${typeToString(argType)}`
     // Empty begin
     // return unit
     if (exprs.length === 0) {
-      expr.type = VUnit.type;
-      expr.value = VUnit;
+      expr.$ = {
+        env,
+        type: VUnit.type,
+        value: VUnit,
+      };
       return expr;
     }
 
@@ -6197,17 +6355,26 @@ Got:   ${typeToString(argType)}`
           expectedType: i === exprs.length - 1 ? expectedType : undefined,
         },
       });
-      if (evaluatedExpr.env) {
-        env = evaluatedExpr.env;
+      if (evaluatedExpr.$?.env) {
+        env = evaluatedExpr.$?.env;
       }
     }
     const lastExpr = exprs[exprs.length - 1]!;
-    expr.type = lastExpr.type;
-    expr.value = lastExpr.value;
+    if (!lastExpr.$) {
+      throw this.formatErrorMessage(
+        lastExpr.token,
+        `Last expression in "begin" is not evaluated correctly:\n${exprToString(lastExpr)}`
+      );
+    }
 
     // Pop the environment frame
     env = popEnvFrame(env);
-    expr.env = env;
+
+    expr.$ = {
+      env,
+      type: lastExpr.$.type,
+      value: lastExpr.$.value,
+    };
     return expr;
   }
 
@@ -6247,7 +6414,7 @@ Got:   ${typeToString(argType)}`
             SelfType: undefined,
           },
         });
-        const structValue = evaluatedExpr.value;
+        const structValue = evaluatedExpr.$?.value;
         if (!isStructValue(structValue)) {
           throw this.formatErrorMessage(
             expr.token,
@@ -6303,8 +6470,8 @@ Got:   ${typeToString(argType)}`
             SelfType: moduleType,
           },
         });
-        if (evaluatedExpr.env) {
-          env = evaluatedExpr.env;
+        if (evaluatedExpr.$?.env) {
+          env = evaluatedExpr.$?.env;
         }
       }
     }
@@ -6376,9 +6543,11 @@ Got:   ${typeToString(argType)}`
     env = nextEnv;
 
     // Set the module value to the expr
-    expr.type = moduleType;
-    expr.value = moduleValue;
-    expr.env = env;
+    expr.$ = {
+      env,
+      type: moduleType,
+      value: moduleValue,
+    };
 
     return expr;
   }
@@ -6473,12 +6642,12 @@ Got:   ${typeToString(argType)}`
           // `Self` in a module is used as the received type.
         },
       });
-      if (evaluatedMemberTypeExpr.env) {
-        env = evaluatedMemberTypeExpr.env;
+      if (evaluatedMemberTypeExpr.$?.env) {
+        env = evaluatedMemberTypeExpr.$.env;
       }
 
       // Expect the member type to be a type
-      const typeValue = evaluatedMemberTypeExpr.value;
+      const typeValue = evaluatedMemberTypeExpr.$?.value;
       if (!isTypeValue(typeValue)) {
         throw this.formatErrorMessage(
           typeExpr.token,
@@ -6528,10 +6697,10 @@ Got:   ${typeToString(argType)}`
             SelfType: undefined,
           },
         });
-        if (evaluatedValueExpr.env) {
-          env = evaluatedValueExpr.env;
+        if (evaluatedValueExpr.$?.env) {
+          env = evaluatedValueExpr.$.env;
         }
-        const value = evaluatedValueExpr.value;
+        const value = evaluatedValueExpr.$?.value;
         if (!value) {
           throw this.formatErrorMessage(
             valueExpr.token,
@@ -6570,7 +6739,10 @@ Got:   ${typeToString(argType)}`
         env = nextEnv;
 
         // Add type info the labelExpr;
-        labelExpr.type = memberType;
+        labelExpr.$ = {
+          env,
+          type: memberType,
+        };
       } else {
         // Add the member to the moduleType
         moduleType.members.push({
@@ -6599,7 +6771,10 @@ Got:   ${typeToString(argType)}`
         env = nextEnv;
 
         // Add type info the labelExpr;
-        labelExpr.type = memberType;
+        labelExpr.$ = {
+          env,
+          type: memberType,
+        };
       }
     }
 
@@ -6607,14 +6782,12 @@ Got:   ${typeToString(argType)}`
     env = popEnvFrame(env);
 
     // Set the module type and value
-    expr.type = typeOfType(moduleType);
-    expr.value = createTypeValue(moduleType);
-    expr.env = env;
-
-    expr.func.type = expr.type;
-    expr.func.value = expr.value;
-    expr.func.env = env;
-
+    expr.$ = {
+      env,
+      type: typeOfType(moduleType),
+      value: createTypeValue(moduleType),
+    };
+    expr.func.$ = expr.$;
     return expr;
   }
 
@@ -6644,22 +6817,24 @@ Got:   ${typeToString(argType)}`
         isEvaluatingExprAsType: true,
       },
     });
-    if (evaluatedExpr.env) {
-      env = evaluatedExpr.env;
+    if (evaluatedExpr.$?.env) {
+      env = evaluatedExpr.$.env;
     }
 
     // Check if the expression has a type
-    if (!evaluatedExpr.type) {
+    if (!evaluatedExpr.$?.type) {
       throw this.formatErrorMessage(
         typeExpr.token,
         `Expected type for expression, got:\n${exprToString(typeExpr)}`
       );
     }
-    const type = evaluatedExpr.type;
-
-    expr.value = createTypeValue(type);
-    expr.type = expr.value.type;
-    expr.env = env;
+    const type = evaluatedExpr.$.type;
+    const value = createTypeValue(type);
+    expr.$ = {
+      env,
+      type: value.type,
+      value: value,
+    };
     return expr;
   }
 
@@ -6726,9 +6901,11 @@ Got:   ${typeToString(argType)}`
 
     // Load the module
     const moduleValue = this.loadModule(moduleAbsolutePath);
-    expr.value = moduleValue;
-    expr.type = moduleValue.type;
-    expr.env = env;
+    expr.$ = {
+      env,
+      type: moduleValue.type,
+      value: moduleValue,
+    };
     return expr;
   }
 
@@ -6854,16 +7031,14 @@ Got:   ${typeToString(argType)}`
         SelfType: undefined,
       },
     });
-    if (!isTypeValue(evaluatedExpectedTypeArg.value)) {
+    if (!isTypeValue(evaluatedExpectedTypeArg.$?.value)) {
       throw this.formatErrorMessage(
         expectedTypeArg.token,
         `Expected type, got:\n${exprToString(expectedTypeArg)}`
       );
     }
-    const expectedType = evaluatedExpectedTypeArg.value.value;
-    if (evaluatedExpectedTypeArg.env) {
-      env = evaluatedExpectedTypeArg.env;
-    }
+    const expectedType = evaluatedExpectedTypeArg.$.value.value;
+    env = evaluatedExpectedTypeArg.$.env;
 
     const evaluatedGivenTypeArg = this.evaluateExpression({
       expr: givenTypeArg,
@@ -6875,16 +7050,14 @@ Got:   ${typeToString(argType)}`
         SelfType: undefined,
       },
     });
-    if (!isTypeValue(evaluatedGivenTypeArg.value)) {
+    if (!isTypeValue(evaluatedGivenTypeArg.$?.value)) {
       throw this.formatErrorMessage(
         givenTypeArg.token,
         `Expected type, got:\n${exprToString(givenTypeArg)}`
       );
     }
-    const givenType = evaluatedGivenTypeArg.value.value;
-    if (evaluatedGivenTypeArg.env) {
-      env = evaluatedGivenTypeArg.env;
-    }
+    const givenType = evaluatedGivenTypeArg.$.value.value;
+    env = evaluatedGivenTypeArg.$.env;
 
     // Check if the types are compatible
     const compatible = areTypesCompatible(
@@ -6893,9 +7066,12 @@ Got:   ${typeToString(argType)}`
     );
 
     // Attach info to the expr
-    expr.value = createBooleanValue(compatible);
-    expr.type = expr.value.type;
-    expr.env = env;
+    const booleanValue = createBooleanValue(compatible);
+    expr.$ = {
+      env,
+      type: booleanValue.type,
+      value: booleanValue,
+    };
     return expr;
   }
 
@@ -6936,18 +7112,18 @@ Got:   ${typeToString(argType)}`
         SelfType: undefined,
       },
     });
-    if (evaluatedArgExpr.env) {
-      env = evaluatedArgExpr.env;
+    if (evaluatedArgExpr.$?.env) {
+      env = evaluatedArgExpr.$.env;
     }
 
     // Check if the argExpr is a type
-    if (!isTypeValue(evaluatedArgExpr.value)) {
+    if (!isTypeValue(evaluatedArgExpr.$?.value)) {
       throw this.formatErrorMessage(
         argExpr.token,
         `Expected type for pointer or reference type, got:\n${exprToString(argExpr)}`
       );
     }
-    const argType = evaluatedArgExpr.value.value;
+    const argType = evaluatedArgExpr.$.value.value;
 
     // Create the pointer or reference type
     let pointerOrReferenceType: Type;
@@ -6971,9 +7147,12 @@ Got:   ${typeToString(argType)}`
     }
 
     // Set the type and value of the expr
-    expr.type = pointerOrReferenceType;
-    expr.value = createTypeValue(pointerOrReferenceType);
-    expr.env = env;
+    const typeValue = createTypeValue(pointerOrReferenceType);
+    expr.$ = {
+      env,
+      type: typeValue.type,
+      value: typeValue,
+    };
     return expr;
   }
 
@@ -6997,10 +7176,10 @@ Got:   ${typeToString(argType)}`
           });
         }
         case TokenType.Integer: {
-          return this.evaluateIntegerLiteral(expr);
+          return this.evaluateIntegerLiteral(expr, env);
         }
         case TokenType.Boolean: {
-          return this.evaluateBooleanLiteral(expr);
+          return this.evaluateBooleanLiteral(expr, env);
         }
         default: {
           throw this.formatErrorMessage(

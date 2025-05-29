@@ -15,11 +15,12 @@ export interface EvaluatedExprData {
    */
   env: Environment;
   /**
-   * The type of the expression, if it has been evaluated.
+   * The type of the expression after the evaluation.
    */
   type: Type;
   /**
-   * The value of the expression, if it has been evaluated.
+   * The value of the expression.
+   * If it's undefined, then it means it's a runtime value.
    */
   value?: Value;
   /**
