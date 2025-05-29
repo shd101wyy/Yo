@@ -9,17 +9,35 @@ export enum ExprTag {
   FuncCall = "FuncCall",
 }
 
+export interface EvaluatedExprData {
+  /**
+   * The environment after the expression has been evaluated.
+   */
+  env: Environment;
+  /**
+   * The type of the expression, if it has been evaluated.
+   */
+  type: Type;
+  /**
+   * The value of the expression, if it has been evaluated.
+   */
+  value?: Value;
+  /**
+   * If this is given, then it means there is a temporary variable holding the value in the `env` above.
+   */
+  tempVariableName?: string;
+}
+
 export type AtomExpr = {
   // Parser stage
   tag: ExprTag.Atom;
   token: Token;
-  tempVariableName: string;
 
   // Evaluator stage
-  type?: Type;
-  value?: Value;
-
-  env?: Environment;
+  /**
+   * If it's undefined, then the expression has not been evaluated yet.
+   */
+  $: EvaluatedExprData | undefined;
 };
 
 export type FuncCallExpr = {
@@ -29,13 +47,12 @@ export type FuncCallExpr = {
   args: Expr[];
   isInfix?: boolean;
   token: Token;
-  tempVariableName: string;
 
   // Evaluator stage
-  type?: Type;
-  value?: Value;
-
-  env?: Environment;
+  /**
+   * If it's undefined, then the expression has not been evaluated yet.
+   */
+  $: EvaluatedExprData | undefined;
 };
 
 export function cloneExpr(expr: Expr): Expr {
