@@ -203,28 +203,28 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         // Get variable from the env
-        let isNotInitialized = true;
+        let isUndefined = true;
         let foundVariable = false;
-        if (expr.env) {
-          const variables = getVariablesFromEnv(expr.env, expr.token.value);
+        if (expr.$?.env) {
+          const variables = getVariablesFromEnv(expr.$.env, expr.token.value);
           foundVariable = variables && variables.length > 0;
           const isMutable =
             variables &&
             variables.length > 0 &&
-            variables[variables.length - 1].isMutable;
+            variables[variables.length - 1]!.isMutable;
           const isCompileTimeOnly =
             variables &&
             variables.length > 0 &&
-            variables[variables.length - 1].isCompileTimeOnly;
+            variables[variables.length - 1]!.isCompileTimeOnly;
           const isImplicit =
             variables &&
             variables.length > 0 &&
-            variables[variables.length - 1].isImplicit;
+            variables[variables.length - 1]!.isImplicit;
 
-          isNotInitialized =
+          isUndefined =
             variables &&
             variables.length > 0 &&
-            !!variables[variables.length - 1].isNotInitialized;
+            !!variables[variables.length - 1]!.isUndefined;
 
           if (isMutable) {
             tokenText = `mut(${tokenText})`;
@@ -241,24 +241,24 @@ export function activate(context: vscode.ExtensionContext) {
         markdownContent.appendMarkdown(`\`\`\`\n${tokenText}`);
 
         // Add type if available
-        if (expr.type) {
-          const typeString = typeToString(expr.type);
+        if (expr.$?.type) {
+          const typeString = typeToString(expr.$.type);
           markdownContent.appendMarkdown(
-            `\n: ${typeString} (${getSizeString(expr.type)})`
+            `\n: ${typeString} (${getSizeString(expr.$.type)})`
           );
           markdownContent.appendMarkdown(
-            `\n  : ${typeToString(typeOfType(expr.type))}`
+            `\n  : ${typeToString(typeOfType(expr.$.type))}`
           );
         }
 
-        if (foundVariable && isNotInitialized) {
+        if (foundVariable && isUndefined) {
           markdownContent.appendMarkdown(`\nNot initialized`);
         } else {
           // Add value if available
-          const valueString = valueToString(expr.value);
-          if (expr.value?.tag === ValueTag.Type) {
+          const valueString = valueToString(expr.$?.value);
+          if (expr.$?.value?.tag === ValueTag.Type) {
             markdownContent.appendMarkdown(
-              `\n= ${valueString} (${getSizeString(expr.value.value)})`
+              `\n= ${valueString} (${getSizeString(expr.$?.value.value)})`
             );
           } else {
             markdownContent.appendMarkdown(`\n= ${valueString}`);

@@ -11,7 +11,7 @@ import {
   pushEnvFrame,
   updateExistingVariable,
 } from "./env";
-import { formatErrorMessage } from "./error";
+import { formatErrorMessage, MoParserError } from "./error";
 import {
   AtomExpr,
   BuiltinCollections,
@@ -343,7 +343,7 @@ export default class Evaluator {
     let defaultValue: Value | undefined = undefined;
 
     // Check the default value
-    if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, "=", 2)) {
+    if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, "?=", 2)) {
       expr_ = expr.args[0]!;
       const defaultValueExpr = expr.args[1]!;
 
@@ -1952,6 +1952,8 @@ ${exprToString(expr)}`
         !rhsValue.value.typeName
       ) {
         rhsValue.value.typeName = lhs.token.value;
+      } else if (isFunctionValue(rhsValue) && !rhsValue.funcName) {
+        rhsValue.funcName = lhs.token.value;
       }
 
       // Prohibit assigning runtime value to comptime-only variable
@@ -2955,11 +2957,11 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
 
     // NOTE: We disallow to define function signature for anonymous function anymore.
     // Evaluate the parameter list
-    // env = pushEnvFrame(env);
+    // env = pushEnvFrame(env); // < this is done in evaluateFunctionParameters function.
     {
       const { env: nextEnv } = this.evaluateFunctionParameters({
         parameterExprs: functionDeclarationExpr.args,
-        expectedParameters: functionType.parameters,
+        expectedFunctionType: functionType,
         env,
         context: {
           ...context,
@@ -3089,8 +3091,8 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     // Check if there is defaultValue
     // eg:
     //   (x = 12)
-    //   ((x: i32) = 13)
-    if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, "=", 2)) {
+    //   ((x: i32) ?= 13)
+    if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, "?=", 2)) {
       if (expectedParameter) {
         throw this.formatErrorMessage(
           expr_.token,
@@ -3312,11 +3314,13 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       };
     }
 
-    expr.$ = {
-      env,
-      type: VUnit.type,
-      value: VUnit,
-    };
+    if (lhsExpr !== expr) {
+      expr.$ = {
+        env,
+        type: VUnit.type,
+        value: VUnit,
+      };
+    }
     return {
       parameter: {
         label,
@@ -3338,12 +3342,12 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
    */
   private evaluateFunctionParameters({
     parameterExprs,
-    expectedParameters,
+    expectedFunctionType,
     env,
     context,
   }: {
     parameterExprs: Expr[];
-    expectedParameters?: FunctionParameter[];
+    expectedFunctionType?: FunctionType;
     env: Environment;
     context: EvaluatorContext;
   }): {
@@ -3373,11 +3377,26 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           );
         }
         const typeParameterExprs = parameterExpr.args;
+
+        // Check if enough type parameters are provided
+        // given the expected function type
+        if (
+          expectedFunctionType &&
+          expectedFunctionType.typeParameters.length !==
+            typeParameterExprs.length
+        ) {
+          throw this.formatErrorMessage(
+            parameterExpr.token,
+            `Expected ${expectedFunctionType.typeParameters.length} type parameters, got ${typeParameterExprs.length}`
+          );
+        }
+
         for (let j = 0; j < typeParameterExprs.length; j++) {
           const typeParameterExpr = typeParameterExprs[j]!;
           const { parameter, env: nextEnv } = this.evaluateFunctionParameter({
             expr: typeParameterExpr,
             env,
+            expectedParameter: expectedFunctionType?.typeParameters?.[j],
             context: {
               ...context,
               isEvaluatingExprAsType: true,
@@ -3424,11 +3443,26 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         }
 
         const implicitParameterExprs = parameterExpr.args;
+
+        // Check if enough implicit parameters are provided
+        // given the expected function type
+        if (
+          expectedFunctionType &&
+          expectedFunctionType.implicitParameters.length !==
+            implicitParameterExprs.length
+        ) {
+          throw this.formatErrorMessage(
+            parameterExpr.token,
+            `Expected ${expectedFunctionType.implicitParameters.length} implicit parameters, got ${implicitParameterExprs.length}`
+          );
+        }
+
         for (let j = 0; j < implicitParameterExprs.length; j++) {
           const implicitParameterExpr = implicitParameterExprs[j]!;
           const { parameter, env: nextEnv } = this.evaluateFunctionParameter({
             expr: implicitParameterExpr,
             env,
+            expectedParameter: expectedFunctionType?.implicitParameters?.[j],
             context: {
               ...context,
               isEvaluatingExprAsType: true,
@@ -3480,7 +3514,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       else {
         const { parameter, env: nextEnv } = this.evaluateFunctionParameter({
           expr: parameterExpr,
-          expectedParameter: expectedParameters?.[i],
+          expectedParameter: expectedFunctionType?.parameters?.[i],
           env,
           context: {
             ...context,
@@ -4303,7 +4337,11 @@ compt(${exprToString(returnTypeExpr)})`
     // For module method call
     let methodExpr: Expr | undefined = undefined;
 
-    let functions: { type: Type; value?: Value; error?: Error }[] = [];
+    let functions: {
+      type: Type;
+      value?: Value;
+      error?: Error | MoParserError;
+    }[] = [];
     if (givenFunc) {
       functions = [givenFunc];
     } else if (exprIsFunctionCall(func)) {
@@ -4441,6 +4479,13 @@ compt(${exprToString(returnTypeExpr)})`
             value: createTypeValue(expectedType.type),
           },
         ];
+
+        // Add info to the func token
+        func.$ = {
+          env,
+          type: functions[0]!.type,
+          value: functions[0]!.value,
+        };
       }
       // Infix operator is taken as an interface method call
       else if (stringIsOperator(functionName) && expr.isInfix) {
@@ -4531,16 +4576,31 @@ compt(${exprToString(returnTypeExpr)})`
             (variant) => variant.name === enumType.selectedVariantName
           );
           if (!selectedVariant) {
-            throw this.formatErrorMessage(
+            functionToCall.error = this.formatErrorMessage(
               expr.token,
               `Enum variant not selected for enum type`
             );
+          } else {
+            try {
+              this.tryToCallTypeWithArguments({
+                memberElements: selectedVariant.elements || [],
+                functionCallExpr: func,
+                argExprs: args,
+                callerEnv: env,
+                context: { ...context },
+              });
+            } catch (error) {
+              functionToCall.error = error;
+            }
           }
+        }
+        // function
+        else if (isTypeValue(value) && isFunctionType(value.value)) {
+          const functionType = value.value;
           try {
-            this.tryToCallTypeWithArguments({
-              memberElements: selectedVariant.elements || [],
-              functionCallExpr: func,
-              argExprs: args,
+            this.tryToImplementFunctionByFunctionType({
+              expr: expr,
+              functionType: functionType,
               callerEnv: env,
               context: { ...context },
             });
@@ -4548,7 +4608,7 @@ compt(${exprToString(returnTypeExpr)})`
             functionToCall.error = error;
           }
         }
-        // interface
+        // module
         else if (isTypeValue(value) && isModuleType(value.value)) {
           const moduleType = value.value;
           try {
@@ -4563,7 +4623,11 @@ compt(${exprToString(returnTypeExpr)})`
             functionToCall.error = error;
           }
         } else {
-          functionToCall.error = new Error(`Invalid function call`);
+          functionToCall.error = this.formatErrorMessage(
+            func.token,
+            `Invalid function call on type:
+${typeToString(functionToCall.type)}`
+          );
         }
         return functionToCall;
       }
@@ -4784,6 +4848,19 @@ ${functionsWithMatchingTypes
           type: value.type,
           value: value,
         };
+        return expr;
+      }
+      // function value
+      else if (isTypeValue(value) && isFunctionType(value.value)) {
+        // This should already be evaluated.
+        if (!expr.$ || !expr.$.value) {
+          throw this.formatErrorMessage(
+            func.token,
+            `Expected function value for function call, got:\n${exprToString(
+              expr
+            )}`
+          );
+        }
         return expr;
       }
       // module
@@ -5791,6 +5868,93 @@ Got:   ${typeToString(argType)}`
     return values;
   }
 
+  /**
+   * expr should be the:
+   * functionType(functionBody);
+   */
+  private tryToImplementFunctionByFunctionType({
+    expr,
+    functionType,
+    callerEnv,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    functionType: FunctionType;
+    callerEnv: Environment;
+    context: EvaluatorContext;
+  }): Expr {
+    const functionTypeExpr = expr.func;
+    const argExprs = expr.args;
+    if (argExprs.length !== 1) {
+      throw this.formatErrorMessage(
+        functionTypeExpr.token,
+        `Failed to implement the function. Expected 1 argument for the function body, got ${argExprs.length}.`
+      );
+    }
+    const functionBodyExpr = argExprs[0]!;
+
+    // Add parameters to the env new frame
+    let env = pushEnvFrame(callerEnv, functionType.parametersFrame);
+
+    // Create the function value
+    const functionValue: FunctionValue = {
+      tag: ValueTag.Function,
+      type: functionType,
+      body: functionBodyExpr,
+      frameLevel: env.frames.length - 1,
+      funcName: undefined,
+      funcId: `fn_${randomId()}`,
+      calledTypeFunctionCaches: [],
+      SelfType: context.SelfType, // In theory, this should be undefined.
+    };
+
+    // Evaluate the function body
+    const evaluatedFunctionBody = this.evaluateExpression({
+      expr: functionBodyExpr,
+      env,
+      context: {
+        ...context,
+        isEvaluatingExprAsType: false,
+        isEvaluatingFunctionBodyOfType: functionType,
+      },
+    });
+    if (!evaluatedFunctionBody.$) {
+      throw this.formatErrorMessage(
+        functionBodyExpr.token,
+        `Failed to evaluate the function body.`
+      );
+    }
+    env = evaluatedFunctionBody.$.env;
+
+    // Check if the function body type matches the function return type
+    const functionBodyReturnType = evaluatedFunctionBody.$.type;
+    if (
+      !areTypesCompatible(
+        { type: functionType.return.type, env },
+        { type: functionBodyReturnType, env }
+      )
+    ) {
+      throw this.formatErrorMessage(
+        functionType.return.expr.token,
+        `Incompatible function return type:
+- Expected: ${typeToString(functionType.return.type)}
+- Given  : ${typeToString(functionBodyReturnType)}`
+      );
+    }
+
+    // Pop the env frame
+    env = popEnvFrame(env);
+
+    // Set the function type and value
+    expr.$ = {
+      env,
+      value: functionValue,
+      type: functionType,
+    };
+
+    return expr;
+  }
+
   private tryToImplementModuleWithArguments({
     moduleExpr,
     moduleType,
@@ -6138,180 +6302,6 @@ Got:   ${typeToString(argType)}`
     };
   }
 
-  /**
-   * def function_name : function_type, function body
-   */
-  private evaluateDefExpression({
-    expr,
-    env,
-    context,
-  }: {
-    expr: FuncCallExpr;
-    env: Environment;
-    context: EvaluatorContext;
-  }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.def, 2)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "def" with 2 arguments, got:\n${exprToString(expr)}`
-      );
-    }
-
-    const functionDefinitionExpr = expr.args[0]!;
-    const functionBodyExpr = expr.args[1]!;
-
-    if (
-      !exprIsFunctionCall(functionDefinitionExpr) ||
-      !exprIsFunctionCallOf(functionDefinitionExpr, ":", 2)
-    ) {
-      throw this.formatErrorMessage(
-        functionDefinitionExpr.token,
-        `Expected ":" for defining the function parameters and return type, got:\n${exprToString(
-          functionDefinitionExpr
-        )}`
-      );
-    }
-
-    let functionNameExpr = functionDefinitionExpr.args[0]!;
-    const functionTypeExpr = functionDefinitionExpr.args[1]!;
-    // Check if the function is implicit
-    let isImplicit = false;
-    if (
-      exprIsFunctionCall(functionNameExpr) &&
-      exprIsFunctionCallOf(functionNameExpr, BuiltinKeywords.implicit, 1)
-    ) {
-      functionNameExpr = functionNameExpr.args[0]!;
-      isImplicit = true;
-    }
-
-    // Get the function name
-    if (
-      !exprIsAtom(functionNameExpr) &&
-      !this.isValidVariableName(functionNameExpr)
-    ) {
-      throw this.formatErrorMessage(
-        functionNameExpr.token,
-        `Expected identifier for function name, got:\n${exprToString(
-          functionNameExpr
-        )}`
-      );
-    }
-    const functionName = functionNameExpr.token.value;
-
-    // Evaluate the function type
-    const evaluatedFunctionTypeExpr = this.evaluateExpression({
-      expr: functionTypeExpr,
-      env,
-      context: { ...context, isEvaluatingExprAsType: true },
-    });
-    const evaluatedFunctionTypeValue = evaluatedFunctionTypeExpr.$?.value;
-    if (!isTypeValue(evaluatedFunctionTypeValue)) {
-      throw this.formatErrorMessage(
-        functionTypeExpr.token,
-        `Expected function type, got:\n${exprToString(functionTypeExpr)}`
-      );
-    }
-    const functionType = evaluatedFunctionTypeValue.value;
-    if (!isFunctionType(functionType)) {
-      throw this.formatErrorMessage(
-        functionTypeExpr.token,
-        `Expected function type, got:\n${exprToString(functionTypeExpr)}`
-      );
-    }
-    if (evaluatedFunctionTypeExpr.$?.env) {
-      env = evaluatedFunctionTypeExpr.$.env;
-    }
-
-    // Add parameters to the env new frame
-    env = pushEnvFrame(env, functionType.parametersFrame);
-
-    // Create the function value
-    const functionValue: FunctionValue = {
-      tag: ValueTag.Function,
-      type: functionType,
-      body: functionBodyExpr,
-      frameLevel: env.frames.length - 1,
-      funcName: functionName,
-      funcId: `fn_${randomId()}`,
-      calledTypeFunctionCaches: [],
-      SelfType: context.SelfType, // In theory, this should be undefined
-    };
-
-    /// Add function with name to env;
-    const { env: nextNextEnv } = addVariableToEnv({
-      env,
-      variable: {
-        name: functionName,
-        token: functionNameExpr.token,
-        type: functionType,
-        isMutable: false,
-        isCompileTimeOnly: true,
-        isUndefined: false,
-        isImplicit,
-        value: functionValue,
-      },
-      deltaFrame: -1,
-    });
-    env = nextNextEnv;
-
-    // Attach some information
-    functionNameExpr.$ = {
-      env,
-      type: functionType,
-      value: functionValue,
-    };
-
-    // Parse the function body
-    const evaluatedFunctionBody = this.evaluateExpression({
-      expr: functionBodyExpr,
-      env,
-      context: { ...context, isEvaluatingExprAsType: false },
-    });
-    if (evaluatedFunctionBody.$?.env) {
-      env = evaluatedFunctionBody.$.env;
-    }
-
-    // Check if the function body type matches the function return type
-    if (evaluatedFunctionBody.$?.type) {
-      if (
-        !areTypesCompatible(
-          { type: functionType.return.type, env },
-          { type: evaluatedFunctionBody.$.type, env }
-        )
-      ) {
-        throw this.formatErrorMessage(
-          functionType.return.expr.token,
-          `Incompatible function return type:
-- Expected: ${typeToString(functionType.return.type)}
-- Given  : ${typeToString(evaluatedFunctionBody.$.type)}`
-        );
-      }
-    } else {
-      throw this.formatErrorMessage(
-        functionBodyExpr.token,
-        `Function body is not evaluated correctly`
-      );
-    }
-
-    // Pop the env frame
-    env = popEnvFrame(env);
-
-    // Set the function type and value
-    expr.$ = {
-      env,
-      type: functionType,
-    };
-
-    // "def" token
-    expr.func.$ = {
-      env,
-      type: VUnit.type,
-      value: VUnit,
-    };
-
-    return expr;
-  }
-
   private evaluateBeginExpression({
     expr,
     env,
@@ -6590,12 +6580,12 @@ Got:   ${typeToString(argType)}`
       let valueKind: "required" | "default" | undefined = undefined;
       if (
         exprIsFunctionCall(memberExpr) &&
-        (exprIsFunctionCallOf(memberExpr, "=", 2) ||
-          exprIsFunctionCallOf(memberExpr, "==", 2))
+        (exprIsFunctionCallOf(memberExpr, "?=", 2) ||
+          exprIsFunctionCallOf(memberExpr, "=", 2))
       ) {
         valueExpr = memberExpr.args[1]!;
         memberExpr = memberExpr.args[0]!;
-        valueKind = exprIsFunctionCallOf(memberExpr, "=", 2)
+        valueKind = exprIsFunctionCallOf(memberExpr, "?=", 2)
           ? "default"
           : "required";
       }
@@ -7254,13 +7244,6 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, ".")) {
         // property access
         return this.evaluatePropertyAccess({
-          expr,
-          env,
-          context: { ...context },
-        });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.def)) {
-        // def
-        return this.evaluateDefExpression({
           expr,
           env,
           context: { ...context },

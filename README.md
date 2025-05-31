@@ -8,6 +8,15 @@ A multi-paradigm, general-purpose, compiled programming language.
 - [Roadmap](./ROADMAP.md)
 - [Removals](./REMOVALS.md)
 
+## Features
+
+- Linear types, combined with RAII.
+- First-class types (Dependent types).
+- Compile-time evaluation.
+- 2nd-class reference, allowing for unsafe raw-pointers.
+- Modular implicits.
+- Homoiconicity and metaprogramming.
+
 ## Development
 
 Please install [nix](https://nixos.org/download.html) and [direnv](https://direnv.net/) before proceeding.

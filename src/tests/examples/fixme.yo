@@ -1,15 +1,58 @@
 extern
-  add: ((x: i32, y: i32)-> i32)
+  add: ((x: i32, y: i32)-> i32),
+  sub: ((x: i32, y: i32)-> i32),
+  div: ((x: i32, y: i32)-> i32),
+  mul: ((x: i32, y: i32)-> i32),
+  eq: ((x: i32, y: i32)-> boolean),
+  gt: ((x: i32, y: i32)-> boolean)
 ;
 
+// define a normal function.
 some_add :: ((x: i32, y: i32)-> i32)
   add(x, y)
 ;
 
+// use the `recur` keyword to call the function itself.
+use_recur :: ((x: i32, y: i32)-> i32)
+  recur(x, y)
+;
 
-/*
-123
-  /*
-  456
-  */
-*/
+// factorial
+factorial :: ((n: i32)-> i32)
+  cond
+    (n `eq` 0) -> 1,
+    (n `gt` 0) ->
+      n `mul` recur(n `sub` 1)
+  // n `mul` factorial(n `sub` 1) // This is wrong. 
+  // As we haven't defined `factorial` yet, it will cause an error.
+;
+
+// define type first
+// and implement function with `_`
+(@(type_first): ((x: i32, y: i32)-> i32))
+  = _ add(x, y)
+;
+
+// define type first
+// and implement function with `fn`
+(@(type_first_fn): ((x: i32, y: i32)-> i32))
+  =
+    fn(a, b)-> add(a, b);
+
+(@(another_factorial) : ((n: i32)-> i32))
+  = _ cond
+    (n `eq` 0) -> 1,
+    (n `gt` 0) ->
+      n `mul` another_factorial(n `sub` 1)
+;
+
+x := type_first(3, 4);
+x := type_first_fn(3, 4);
+
+Point :: struct(x: i32, y: i32);
+p := Point(3, 4);
+
+Point :: ((@(T): Type)-> @(Type))
+  struct(x: T, y: T)
+;
+p := Point(i32)(3, 4);

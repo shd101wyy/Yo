@@ -127,7 +127,6 @@ export const BuiltinKeywords = {
   unquote: ["unquote", "$"],
 
   typeof: ["typeof"],
-  def: ["def"],
   recur: ["recur"],
   fn: ["fn"],
   extern: ["extern"],
