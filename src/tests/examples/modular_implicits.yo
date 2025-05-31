@@ -1,20 +1,20 @@
-def Point:
-  (@(P): Type)-> @(Type),
+Point ::
+  ((@(P): Type)-> @(Type))
   struct
     x: P,
     y: P
 ;
 
-def Id:
-  (@(Self): Type)-> @(Type),
+Id ::
+  ((@(Self): Type)-> @(Type))
   module
     (Self: Type) = Self,
     id:
       (Self)-> Self
 ;
 
-def id:
-  (forall(@(T): Type), x: T, implicit(@(I): Id(T)))-> T,
+id ::
+  ((forall(@(T): Type), x: T, implicit(@(I): Id(T)))-> T)
   I.id(x)
 ;
 
@@ -30,17 +30,17 @@ implicit(IdBoolean) ::
       fn(x) -> x
 ;
 
-def implicit(IdPoint) :
-  ( forall(@(IP): Type), 
+implicit(IdPoint) ::
+  (( forall(@(IP): Type), 
     implicit(@(I): Id(IP))
-  )-> @(Id(Point(IP))),
+  )-> @(Id(Point(IP))))
   Id(Point(IP))
     id:
       fn(p) ->
         Point(IP)(I.id(p.x), I.id(p.y))
 ;
 
-def main: (() -> ()), {
+main :: (()-> ()) {
   x := id(13); // Implicit call
   x := id(13, implicit(IdInt)); // Explicit call
 

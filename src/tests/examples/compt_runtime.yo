@@ -1,15 +1,12 @@
 // Compt value can be assigned to runtime variable,
 // but not the other way around.
 
-def main: 
-  ()-> (), {
-  def compt_return:
-    (compt(T): Type, compt(value): T)-> compt(T),
+main :: (()-> ()) {
+  compt_return :: ((compt(T): Type, compt(value): T)-> compt(T))
     value
   ;
 
-  def runtime_return:
-    (compt(T): Type, value: T)-> T,
+  runtime_return :: ((compt(T): Type, value: T)-> T)
     value
   ;
 
@@ -18,8 +15,7 @@ def main:
   // xx :: runtime_return(i32, 12); // error
   xxx := runtime_return(i32, 12);
 
-  def test:
-    (compt(x): i32, y: i32)-> (), {
+  test :: ((compt(x): i32, y: i32)-> ()) {
     // Assign compt value to another compt is allowed
     xx :: x;
     xx :: compt_return(i32, x);
@@ -43,8 +39,7 @@ def main:
   // compt value can be assigned to runtime parameter,
   // but not the other way around.
 
-  def accept_compt:
-    (compt(x): i32)-> (), {
+  accept_compt :: ((compt(x): i32)-> ()) {
     xx :: x;
     xxx := x;
   };

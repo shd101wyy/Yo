@@ -6,7 +6,7 @@ extern
 Point :: struct(i32);
 
 MY_ADD :: module
-  (Self: Type) == i32,
+  (Self: Type) = i32,
   my_add: ((x: Self, y: Self)-> Self),
   new_self: (()-> Self),
   new_self2: ((boolean)-> Self);
@@ -23,8 +23,7 @@ MyAdd :: MY_ADD(
 
 receiver :: MyAdd.Self; // i32
 
-def main:
-  ()-> (), {
+main :: (()-> ()) {
   // Call function from module:
   x := MyAdd.my_add(1, 2);
   x := MyAdd.new_self();
@@ -42,10 +41,9 @@ def main:
   MyAdd.new_self2(false); // ok
   
   // Function returning an module
-  def Id :
-    (compt(Self): Type) -> compt(Type),
+  Id :: ((compt(Self): Type) -> compt(Type))
     module
-      (Self: Type) == Self,
+      (Self: Type) = Self,
       id: ((x: Self)-> Self)
   ;
 
