@@ -128,8 +128,8 @@ get_value =
 // Named parameters in function declarations with default values
 create_user :: (( 
     name: String,
-    (age: i32) = 18,
-    (role: String) = String.from("user")
+    (age: i32) ?= 18, // Use ?= operator to define a default value
+    (role: String) ?= String.from("user")
   ) -> User)
   User
     name: name,
@@ -143,12 +143,13 @@ create_user :: ((
 add(3, 4);
 // or without parens
 add 3, 4;
-// or use named arguments
-add 3, y: 5;
-add y: 5, x: 4;
+// or use named arguments.
+// NOTE: The named arguments cannot be used in any order.  
+add 3, y: 5; // This is allowed.
+add y: 5, x: 4; // This is not allowed, because it should be `x` before `y`.  
 // Call with named parameters in any order, omitting those with defaults
 user1 := create_user(name: "Alice");  // age=18, role="user" (defaults)
-user2 := create_user(role: "admin", name: "Bob", age: 30);  // explicit values
+user2 := create_user(name: "Bob", age: 30);  // explicit values
 
 // Yo also supports the infix function application
 // 3 `add` 4; // is equivalent to add(3, 4)
@@ -365,11 +366,11 @@ x := Option(i32).Some(12);
 MyExpr :: ((compt(T): Type)-> compt(Type))
   enum
     IntExpr:
-      (i32)-> MyExpr(i32),
+      (i32)-> recur(i32),
     BoolExpr:
-      (boolean)-> MyExpr(boolean),
+      (boolean)-> recur(boolean),
     EqExpr:
-      (MyExpr(i32), MyExpr(i32))-> MyExpr(boolean)
+      (recur(i32), recur(i32))-> recur(boolean)
   ;
 my_eval :: ((compt(T): Type, expr: MyExpr(T))-> T)
   match expr,
@@ -392,21 +393,23 @@ Option ::
 ;
 
 // module
+// All the fields of the module have to be compile-time known.
 Id ::
   (compt(Self): Type)-> compt(Type)
   module
-    (Self: Type) == Self, 
+    (@(Self): Type) = Self, 
     // ^ `Self` in module here means the receiver type. 
     // It enables the method call syntax like `12.id()` for the `i32` receiver type.
-    id:
+    // `=` here means the Self has to be equal to Self.
+    @(id):
       (Self)-> Self
 ;
 
 Stringer ::
   (compt(Self): Type)-> compt(Type)
   module
-    (Self: Type) = Self,
-    to_string: ((Self)-> String)
+    (@(Self): Type) = Self,
+    @(to_string): ((Self)-> String)
 ;
 
 /// Implement the module
@@ -629,8 +632,8 @@ do {
 (ptr : Option(^!(i32))) = malloc(sizeof(i32)); // allocate memory for i32
 match ptr,
   .Some(p) -> {
-    *(p) = 42; // dereference the pointer
-    std.println(*(p)); // print the value
+    p.* = 42; // dereference the pointer
+    std.println(p.*); // print the value
   },
   .None -> std.println("Memory allocation failed");
 free(ptr); // free the memory
@@ -651,7 +654,7 @@ factorial ::
   mut(x) := x; // Convert immutable variable to mutable
   mut(result) := 1;
   while x > 1, do: {
-    result *= x;
+    result = (result * x);
     x -= 1;
   };
   result
@@ -665,7 +668,7 @@ factorial ::
   while x > 1,  // condition
         x -= 1, // step
   do: { // body
-    result *= x;
+    result = (result * x);
   };
   result
 }

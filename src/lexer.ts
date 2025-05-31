@@ -29,17 +29,49 @@ export function tokenize(input: string): Token[] {
       !operator.startsWith("//") &&
       !operator.startsWith("/*")
     ) {
-      tokens.push({
-        type: operator === "." ? TokenType.Dot : TokenType.Operator,
-        value: operator,
-        position: {
-          row: line,
-          column: characterColumn,
-          character: characterIndex,
-        },
-      });
-      i = j - 1;
-      continue;
+      // Check if the first character is a dot
+      // If so, then split the operator into two parts
+      // For example, .* in x.* should split into two tokens:
+      // - `.`
+      // - `*`
+      //
+      if (operator[0] === "." && operator.length > 1 && operator[1] !== ".") {
+        // Split the operator into two parts
+        const firstPart = operator[0];
+        const secondPart = operator.slice(1);
+        tokens.push({
+          type: TokenType.Dot,
+          value: firstPart,
+          position: {
+            row: line,
+            column: characterColumn,
+            character: characterIndex,
+          },
+        });
+        tokens.push({
+          type: TokenType.Operator,
+          value: secondPart,
+          position: {
+            row: line,
+            column: characterColumn + 1,
+            character: characterIndex + 1,
+          },
+        });
+        i = j - 1; // Move the index to the end of the operator
+        continue;
+      } else {
+        tokens.push({
+          type: operator === "." ? TokenType.Dot : TokenType.Operator,
+          value: operator,
+          position: {
+            row: line,
+            column: characterColumn,
+            character: characterIndex,
+          },
+        });
+        i = j - 1;
+        continue;
+      }
     }
 
     switch (char) {
