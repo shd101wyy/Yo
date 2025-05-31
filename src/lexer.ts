@@ -133,27 +133,46 @@ export function tokenize(input: string): Token[] {
           let j = i;
           let comment = "";
           const currentLine = line;
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            // ignore the rest of the comment
+          let nestingLevel = 1; // Track nesting level, starting with 1 for the opening /*
+
+          comment += input[j]; // Add the opening '/'
+          j++;
+          comment += input[j]; // Add the opening '*'
+          j++;
+
+          while (nestingLevel > 0 && j < input.length) {
             if (input[j] === "\n") {
               totalCharacters = j + 1;
               line++;
             }
-            if (j >= input.length - 1) {
-              throw new MoLexerError({
-                message: "Unterminated multi-line comment",
-                characterIndex: input.length - 1,
-              });
+
+            // Check for nested opening comment
+            if (input[j] === "/" && input[j + 1] === "*") {
+              nestingLevel++;
+              comment += "/*";
+              j += 2;
+              continue;
             }
+
+            // Check for closing comment
             if (input[j] === "*" && input[j + 1] === "/") {
+              nestingLevel--;
               comment += "*/";
-              break;
-            } else {
-              comment += input[j];
+              j += 2;
+              continue;
             }
-            j = j + 1;
+
+            comment += input[j];
+            j++;
           }
+
+          if (nestingLevel > 0) {
+            throw new MoLexerError({
+              message: "Unterminated multi-line comment",
+              characterIndex: input.length - 1,
+            });
+          }
+
           tokens.push({
             type: TokenType.MultiLineComment,
             value: comment,
@@ -163,7 +182,7 @@ export function tokenize(input: string): Token[] {
               character: characterIndex,
             },
           });
-          i = j + 1;
+          i = j - 1;
         } else {
           throw new MoLexerError({
             message: `Unexpected character ${char}`,

@@ -340,6 +340,8 @@ export function popEnvFrame(
       (variable) => variable.isUndefined
     );
     if (unconsumedLinearVariables.length > 0) {
+      /*
+      // TODO: Restore the block of the code below
       throw formatErrorMessages({
         modulePath: env.modulePath,
         inputString: env.inputString,
@@ -355,6 +357,7 @@ ${typeToString(variable.type)}`,
           };
         }),
       });
+      */
     } else if (undefinedVariables.length > 0) {
       throw formatErrorMessages({
         modulePath: env.modulePath,
