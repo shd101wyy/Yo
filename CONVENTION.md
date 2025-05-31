@@ -8,6 +8,6 @@
 
 - Value
 
-| \\                | Create Tuple Value | Create Struct/Enum/Union Value | Call Function | Module instance |
-| ----------------- | ------------------ | ------------------------------ | ------------- | --------------- |
-| labelled argument | ❌                 | ✅                             | ❌            | ✅              |
+| \\                | Create Tuple Value | Create Struct/Enum/Union Value | Call Function                              | Module instance |
+| ----------------- | ------------------ | ------------------------------ | ------------------------------------------ | --------------- |
+| labelled argument | ❌                 | ✅                             | ❌ (Can use label at the matched position) | ✅              |

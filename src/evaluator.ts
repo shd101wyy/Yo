@@ -55,6 +55,8 @@ import {
   isFunctionType,
   isFunctionTypeAndIsTypeFunction,
   isModuleType,
+  isMutPtrType,
+  isPtrType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -213,6 +215,7 @@ export default class Evaluator {
         env,
         value,
         type: value.type,
+        isMutable: false,
       };
       return expr;
     } else {
@@ -231,6 +234,7 @@ export default class Evaluator {
         env,
         value,
         type: value.type,
+        isMutable: false,
       };
       return expr;
     } else {
@@ -265,6 +269,7 @@ export default class Evaluator {
           env,
           value,
           type: value.type,
+          isMutable: false,
         };
         return expr;
       } else {
@@ -272,6 +277,7 @@ export default class Evaluator {
           env,
           value: VUnit,
           type: VUnit.type,
+          isMutable: false,
         };
         return expr;
       }
@@ -306,6 +312,7 @@ export default class Evaluator {
       env,
       value: tupleValue,
       type: context.isEvaluatingExprAsType ? typeOfType(tupleType) : tupleType,
+      isMutable: context.isEvaluatingExprAsType ? false : true,
     };
     return expr;
   }
@@ -450,6 +457,7 @@ ${typeToString(expectedType)}`
       lhsExpr.$ = {
         env,
         type: elementType,
+        isMutable: false,
       };
     }
 
@@ -474,12 +482,14 @@ Given type: ${typeToString(defaultValue.type)}`
         env,
         value: typeValue,
         type: typeValue.type,
+        isMutable: false,
       };
     }
     expr.$ = {
       env,
       value: typeValue,
       type: typeValue.type,
+      isMutable: false,
     };
     return {
       type: {
@@ -606,12 +616,14 @@ ${typeToString(expectedTupleType)}`
         env,
         type: elementType,
         value: value,
+        isMutable: evaluatedRhs.$?.isMutable ?? false,
       };
     }
     expr.$ = {
       env,
       type: elementType,
       value: value,
+      isMutable: evaluatedRhs.$?.isMutable ?? false,
     };
     return {
       type: {
@@ -915,6 +927,7 @@ ${typeToString(expectedTupleType)}`
       expr.$ = {
         env,
         type,
+        isMutable: false,
       };
       return { expr, type, env };
     }
@@ -987,6 +1000,7 @@ ${typeToString(expectedTupleType)}`
         expr.$ = {
           type: newEnumType,
           env,
+          isMutable: false,
         };
         // TODO: comptime value
 
@@ -1265,6 +1279,7 @@ ${typeToString(expectedTupleType)}`
             env,
             type: rhsType,
             value: rhsValue,
+            isMutable: false,
           };
 
           // Done with destructuring, return the environment
@@ -1367,18 +1382,21 @@ ${typeToString(expectedTupleType)}`
             env,
             type: nestedRhsType,
             value: nestedValue,
+            isMutable: false,
           };
 
           labelExpr.$ = {
             env,
             type: nestedRhsType,
             value: nestedValue,
+            isMutable: false,
           };
 
           lhsElement.$ = {
             env,
             type: nestedRhsType,
             value: nestedValue,
+            isMutable: false,
           };
 
           // Skip to next element since we've already processed this one
@@ -1426,18 +1444,21 @@ ${typeToString(expectedTupleType)}`
             env,
             type: nestedRhsType,
             value: nestedValue,
+            isMutable: false,
           };
 
           labelExpr.$ = {
             env,
             type: nestedRhsType,
             value: nestedValue,
+            isMutable: false,
           };
 
           lhsElement.$ = {
             env,
             type: nestedRhsType,
             value: nestedValue,
+            isMutable: false,
           };
 
           // Skip to next element since we've already processed this one
@@ -1516,6 +1537,7 @@ ${typeToString(expectedTupleType)}`
             env,
             type: nestedRhsType,
             value: nestedValue,
+            isMutable: false,
           };
 
           continue;
@@ -1559,6 +1581,7 @@ ${typeToString(expectedTupleType)}`
             env,
             type: nestedRhsType,
             value: nestedValue,
+            isMutable: false,
           };
           continue;
         }
@@ -1623,6 +1646,7 @@ Please consider to write it as:
           env,
           type: rhsElement.type,
           value: elementValue,
+          isMutable: false,
         };
 
         if (labelExpr) {
@@ -1630,6 +1654,7 @@ Please consider to write it as:
             env,
             type: rhsElement.type,
             value: elementValue, // !renameExpr ? elementValue : undefined,
+            isMutable: false,
           };
         }
 
@@ -1638,6 +1663,7 @@ Please consider to write it as:
             env,
             type: rhsElement.type,
             value: elementValue,
+            isMutable: false,
           };
         }
       }
@@ -1757,12 +1783,14 @@ Please consider to write it as:
     lhs.$ = {
       env,
       type: userDefinedType,
+      isMutable,
     };
 
     expr.$ = {
       env,
       type: VUnit.type,
       value: VUnit,
+      isMutable: false,
     };
     return { expr, variableExpr: lhs, variableName };
   }
@@ -1898,6 +1926,7 @@ ${exprToString(expr)}`
         lhs.$ = {
           env,
           type: rhsType,
+          isMutable,
         };
       } else {
         // If !rhsType, then check if rhs is a function call of _ or a tuple containing _
@@ -1971,6 +2000,7 @@ ${exprToString(rhs)}`
         env,
         type: lhs.$?.type,
         value: isCompileTimeOnly ? rhsValue : undefined,
+        isMutable,
       };
       // Add variable to env
       // Attach the updated env to expr
@@ -1993,6 +2023,7 @@ ${exprToString(rhs)}`
         env,
         value: VUnit,
         type: VUnit.type,
+        isMutable: false,
       };
       return expr;
     } else {
@@ -2015,6 +2046,7 @@ ${exprToString(rhs)}`
         env,
         value: VUnit,
         type: VUnit.type,
+        isMutable: false,
       };
       return expr;
     }
@@ -2162,21 +2194,114 @@ ${exprToString(rhs)}`
         env,
         type: rhsType,
         value: variable.isCompileTimeOnly ? rhs.$?.value : undefined,
+        isMutable: variable.isMutable,
       };
 
       expr.$ = {
         env,
         value: VUnit,
         type: VUnit.type,
+        isMutable: false,
       };
 
       return expr;
     } else {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Invalid assignment is not supported for:
-${exprToString(expr)}`
-      );
+      // Evaluate the lhs
+      const evaluatedLhs = this.evaluateExpression({
+        expr: lhs,
+        env,
+        context: {
+          ...context,
+          isEvaluatingExprAsType: false,
+          expectedType: undefined,
+        },
+      });
+      if (!evaluatedLhs.$) {
+        throw this.formatErrorMessage(
+          lhs.token,
+          `Failed to evaluate left-hand side of assignment: ${exprToString(lhs)}`
+        );
+      }
+      if (!evaluatedLhs.$.isMutable) {
+        throw this.formatErrorMessage(
+          lhs.token,
+          `Cannot assign value to the immutable: ${exprToString(lhs)}`
+        );
+      }
+
+      const expectedType = evaluatedLhs.$.type;
+
+      // Evaluate the rhs expression
+      rhs = this.evaluateExpression({
+        expr: rhs,
+        env,
+        context: {
+          ...context,
+          isEvaluatingExprAsType: false,
+          expectedType: { type: expectedType, env },
+        },
+      });
+      if (rhs.$?.env) {
+        env = rhs.$?.env;
+      }
+      let rhsType = rhs.$?.type;
+      if (!rhsType) {
+        // Try synthesize the type
+        try {
+          // Infer the type
+          const {
+            expr: nextRhs,
+            type: nextRhsType,
+            env: nextEnv,
+          } = this.synthesizeExprAndType({
+            expr: rhs,
+            type: expectedType,
+            env: env,
+            context: { ...context },
+          });
+          rhs = nextRhs;
+          rhsType = nextRhsType;
+          // as it is actually lhs.type if not synthesized.
+          env = nextEnv;
+        } catch (e) {
+          throw this.formatErrorMessage(
+            rhs.token,
+            `(evaluateAssignment) Failed to synthesize type for expression: ${exprToString(
+              rhs
+            )}\n${e}`
+          );
+        }
+      }
+      // Check if the type matches
+      if (
+        !areTypesCompatible({ type: expectedType, env }, { type: rhsType, env })
+      ) {
+        throw this.formatErrorMessage(
+          lhs.token,
+          `Incompatible types:
+- Expected: ${typeToString(expectedType)}
+- Given   : ${typeToString(rhsType)}`
+        );
+      }
+
+      // Attach the updated env to expr
+      expr.$ = {
+        // FIXME: This should return the original value of lhs
+        env,
+        value: evaluatedLhs.$.value,
+        type: evaluatedLhs.$.type,
+        isMutable: evaluatedLhs.$.isMutable,
+      };
+
+      // Update the lhs with the new value
+      evaluatedLhs.$ = {
+        env,
+        type: rhsType,
+        value: rhs.$?.value,
+        isMutable: evaluatedLhs.$.isMutable,
+      };
+      // Return the updated expression
+      return expr;
     }
   }
 
@@ -2266,6 +2391,7 @@ ${exprToString(expr)}`
           lhs.$ = {
             env,
             type: userDefinedType,
+            isMutable: false,
           };
         }
       }
@@ -2275,6 +2401,7 @@ ${exprToString(expr)}`
       env,
       value: VUnit,
       type: VUnit.type,
+      isMutable: false,
     };
 
     // "extern" token
@@ -2282,6 +2409,7 @@ ${exprToString(expr)}`
       env,
       value: VUnit,
       type: VUnit.type,
+      isMutable: false,
     };
 
     return expr;
@@ -2403,6 +2531,7 @@ ${exprToString(expr)}`
       // TODO: set .value to support compile-time value.
       // Right now the createUnknownValue below is wrong
       value: undefined, // valueType ? createUnknownValue(valueType) : undefined;
+      isMutable: false,
     };
 
     return expr;
@@ -2616,6 +2745,7 @@ ${exprToString(expr)}`
           patternElement.$ = {
             env,
             type: variantElement.type,
+            isMutable: false,
           };
 
           const { env: updatedEnv } = addVariableToEnv({
@@ -2693,6 +2823,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       // TODO: Support the compile-time value.
       // For compile-time evaluation, we'd determine which arm matches and set the value
       value: undefined, // createUnknownValue(resultType),
+      isMutable: false,
     };
 
     return expr;
@@ -2715,6 +2846,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2725,6 +2857,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2735,6 +2868,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2745,6 +2879,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2755,6 +2890,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2765,6 +2901,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2775,6 +2912,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2785,6 +2923,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2795,6 +2934,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2805,6 +2945,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2815,6 +2956,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2825,6 +2967,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2835,6 +2978,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2845,6 +2989,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2855,6 +3000,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2865,6 +3011,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2882,6 +3029,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: value.type,
         value: value,
+        isMutable: false,
       };
       return expr;
     }
@@ -2905,6 +3053,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           env,
           type: variable.type,
           value: variable.value,
+          isMutable: variable.isMutable,
         };
         return expr;
       }
@@ -3018,6 +3167,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         calledTypeFunctionCaches: [],
         SelfType: context.SelfType,
       },
+      isMutable: false,
     };
     return expr;
   }
@@ -3311,6 +3461,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: parameterType,
         value: value,
+        isMutable,
       };
     }
 
@@ -3319,6 +3470,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         type: VUnit.type,
         value: VUnit,
+        isMutable: false,
       };
     }
     return {
@@ -3745,6 +3897,7 @@ compt(${exprToString(returnTypeExpr)})`
       env,
       value: createTypeValue(functionType),
       type: typeOfType(functionType),
+      isMutable: false,
     };
     return expr;
   }
@@ -3785,6 +3938,7 @@ compt(${exprToString(returnTypeExpr)})`
       env,
       type: typeValue.type,
       value: typeValue,
+      isMutable: false,
     };
 
     // Add information to the `type` token
@@ -3821,6 +3975,7 @@ compt(${exprToString(returnTypeExpr)})`
       env,
       type: structTypeValue.type,
       value: structTypeValue,
+      isMutable: false,
     };
 
     // Append more information to "struct" token.
@@ -3902,6 +4057,7 @@ compt(${exprToString(returnTypeExpr)})`
       env,
       value: enumTypeValue,
       type: enumTypeValue.type,
+      isMutable: false,
     };
 
     // Append more information to "enum" token.
@@ -3975,11 +4131,13 @@ compt(${exprToString(returnTypeExpr)})`
           type: newEnumType,
           // FIXME: Support expr.value for comptime evaluation.
           value: createEnumValue(newEnumType, variantName, []),
+          isMutable: false,
         };
 
         propertyExpr.$ = {
           env,
           type: newEnumType,
+          isMutable: false,
         };
       } else {
         /**
@@ -3992,6 +4150,7 @@ compt(${exprToString(returnTypeExpr)})`
           env,
           value: enumTypeValue,
           type: enumTypeValue.type,
+          isMutable: false,
         };
 
         propertyExpr.$ = expr.$;
@@ -4017,6 +4176,23 @@ compt(${exprToString(returnTypeExpr)})`
     });
     if (objectExpr.$?.env) {
       env = objectExpr.$?.env;
+    }
+
+    // Check if it's .* for dereference
+    if (
+      exprIsAtom(propertyExpr) &&
+      propertyExpr.token.value === "*" &&
+      (isPtrType(objectExpr.$?.type) || isMutPtrType(objectExpr.$?.type))
+    ) {
+      const pointerType = objectExpr.$.type;
+      const baseType = pointerType.type;
+      expr.$ = {
+        env,
+        type: baseType,
+        value: undefined,
+        isMutable: isMutPtrType(pointerType),
+      };
+      return expr;
     }
 
     if (isTypeValue(objectExpr.$?.value)) {
@@ -4059,6 +4235,7 @@ compt(${exprToString(returnTypeExpr)})`
             type: newEnumType,
             // FIXME: Support expr.value for comptime evaluation.
             value: createEnumValue(newEnumType, variantName, []),
+            isMutable: objectExpr.$.isMutable,
           };
 
           propertyExpr.$ = expr.$;
@@ -4073,6 +4250,7 @@ compt(${exprToString(returnTypeExpr)})`
             env,
             type: enumTypeValue.type,
             value: enumTypeValue,
+            isMutable: objectExpr.$.isMutable,
           };
 
           propertyExpr.$ = expr.$;
@@ -4115,6 +4293,7 @@ compt(${exprToString(returnTypeExpr)})`
           expr.$ = {
             env,
             type: tupleElement.type,
+            isMutable: objectExpr.$.isMutable,
           };
           propertyExpr.$ = expr.$;
 
@@ -4158,6 +4337,7 @@ compt(${exprToString(returnTypeExpr)})`
             expr.$ = {
               env,
               type: tupleElement.type,
+              isMutable: objectExpr.$.isMutable,
             };
             propertyExpr.$ = expr.$;
 
@@ -4194,6 +4374,7 @@ compt(${exprToString(returnTypeExpr)})`
             value: isModuleValue(moduleValue)
               ? moduleValue.members[label]
               : createUnknownValue(moduleMember.type, moduleMember.label),
+            isMutable: objectExpr.$.isMutable,
           };
           propertyExpr.$ = expr.$;
           return expr;
@@ -4309,12 +4490,14 @@ compt(${exprToString(returnTypeExpr)})`
       env,
       type: structType,
       value: structValue,
+      isMutable: false,
     };
 
     func.$ = {
       env,
       type: typeOfType(structType),
       value: createTypeValue(structType),
+      isMutable: false,
     };
 
     return expr;
@@ -4485,6 +4668,7 @@ compt(${exprToString(returnTypeExpr)})`
           env,
           type: functions[0]!.type,
           value: functions[0]!.value,
+          isMutable: false,
         };
       }
       // Infix operator is taken as an interface method call
@@ -4713,6 +4897,7 @@ ${functionsWithMatchingTypes
           env,
           type: returnValue.type,
           value: returnValue,
+          isMutable: false,
         };
 
         // Attach necessary info to the func
@@ -4720,6 +4905,7 @@ ${functionsWithMatchingTypes
           env,
           type: functionToCall.type,
           value: functionToCall.value,
+          isMutable: false,
         };
       } else {
         // It's
@@ -4739,6 +4925,7 @@ ${functionsWithMatchingTypes
         expr.$ = {
           env,
           type: returnType,
+          isMutable: false,
         };
 
         if (functionType.return.isCompileTimeOnly) {
@@ -4752,12 +4939,14 @@ ${functionsWithMatchingTypes
           env,
           type: functionToCall.type,
           value: functionToCall.value,
+          isMutable: false,
         };
         if (methodExpr) {
           methodExpr.$ = {
             env,
             type: functionToCall.type,
             value: functionToCall.value,
+            isMutable: false,
           };
         }
       }
@@ -4770,6 +4959,7 @@ ${functionsWithMatchingTypes
         expr.$ = {
           env,
           type: structType,
+          isMutable: false,
         };
         // FIXME: Support to set value for comptime
         const memberValues = this.tryToCallTypeWithArguments({
@@ -4800,6 +4990,7 @@ ${functionsWithMatchingTypes
           env,
           type: value.type,
           value: value,
+          isMutable: false,
         };
         return expr;
       }
@@ -4809,6 +5000,7 @@ ${functionsWithMatchingTypes
         expr.$ = {
           env,
           type: enumType,
+          isMutable: false,
         };
         // FIXME: Support to set value for comptime
         const selectedVariant = enumType.variants.find(
@@ -4847,6 +5039,7 @@ ${functionsWithMatchingTypes
           env,
           type: value.type,
           value: value,
+          isMutable: false,
         };
         return expr;
       }
@@ -4879,6 +5072,7 @@ ${functionsWithMatchingTypes
           env,
           type: moduleValue.type,
           value: moduleValue,
+          isMutable: false,
         };
 
         // Attach necessary info to the func
@@ -4886,6 +5080,7 @@ ${functionsWithMatchingTypes
           env,
           type: value.type,
           value: value,
+          isMutable: false,
         };
         return expr;
       }
@@ -5393,6 +5588,7 @@ ${exprToString(expr)}`
             env: calleeEnv, // QUESTION: Which env should we use?
             type: typeValue.type,
             value: typeValue,
+            isMutable: false,
           };
         }
 
@@ -5950,6 +6146,7 @@ Got:   ${typeToString(argType)}`
       env,
       value: functionValue,
       type: functionType,
+      isMutable: false,
     };
 
     return expr;
@@ -6114,6 +6311,7 @@ Got:   ${typeToString(argType)}`
             env: callerEnv,
             type: argType,
             value: argValue,
+            isMutable: false,
           };
           if (labelExpr) {
             labelExpr.$ = argExpr.$;
@@ -6327,6 +6525,7 @@ Got:   ${typeToString(argType)}`
         env,
         type: VUnit.type,
         value: VUnit,
+        isMutable: false,
       };
       return expr;
     }
@@ -6364,6 +6563,7 @@ Got:   ${typeToString(argType)}`
       env,
       type: lastExpr.$.type,
       value: lastExpr.$.value,
+      isMutable: false,
     };
     return expr;
   }
@@ -6537,6 +6737,7 @@ Got:   ${typeToString(argType)}`
       env,
       type: moduleType,
       value: moduleValue,
+      isMutable: false,
     };
 
     return expr;
@@ -6732,6 +6933,7 @@ Got:   ${typeToString(argType)}`
         labelExpr.$ = {
           env,
           type: memberType,
+          isMutable: false,
         };
       } else {
         // Add the member to the moduleType
@@ -6764,6 +6966,7 @@ Got:   ${typeToString(argType)}`
         labelExpr.$ = {
           env,
           type: memberType,
+          isMutable: false,
         };
       }
     }
@@ -6776,6 +6979,7 @@ Got:   ${typeToString(argType)}`
       env,
       type: typeOfType(moduleType),
       value: createTypeValue(moduleType),
+      isMutable: false,
     };
     expr.func.$ = expr.$;
     return expr;
@@ -6824,6 +7028,7 @@ Got:   ${typeToString(argType)}`
       env,
       type: value.type,
       value: value,
+      isMutable: false,
     };
     return expr;
   }
@@ -6895,6 +7100,7 @@ Got:   ${typeToString(argType)}`
       env,
       type: moduleValue.type,
       value: moduleValue,
+      isMutable: false,
     };
     return expr;
   }
@@ -7061,6 +7267,7 @@ Got:   ${typeToString(argType)}`
       env,
       type: booleanValue.type,
       value: booleanValue,
+      isMutable: false,
     };
     return expr;
   }
@@ -7142,8 +7349,98 @@ Got:   ${typeToString(argType)}`
       env,
       type: typeValue.type,
       value: typeValue,
+      isMutable: false,
     };
     return expr;
+  }
+
+  /**
+   * Evaluate a raw pointer call
+   * For example:
+   *
+   * I32Ptr :: *(i32);
+   * x := 1;
+   * p := *(x); // p: *(i32)
+   */
+  private evaluateRawPointerCall({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    const pointerTypeKind: TypeTag.Ptr | TypeTag.MutPtr = exprIsFunctionCallOf(
+      expr,
+      BuiltinKeywords.Ptr
+    )
+      ? TypeTag.Ptr
+      : TypeTag.MutPtr;
+
+    const argExpr = expr.args[0]!;
+    const evaluatedArgExpr = this.evaluateExpression({
+      expr: argExpr,
+      env,
+      context: {
+        ...context,
+        expectedType: undefined,
+        SelfType: undefined,
+      },
+    });
+
+    if (!evaluatedArgExpr.$) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Failed to evaluate the argument expression for pointer:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    env = evaluatedArgExpr.$.env;
+
+    // Check if the argExpr is a type
+    if (isTypeValue(evaluatedArgExpr.$.value)) {
+      const typeValue = evaluatedArgExpr.$.value;
+      const baseType = typeValue.value;
+      // Create the pointer type
+      const pointerType =
+        pointerTypeKind === TypeTag.Ptr
+          ? createPtrType(baseType)
+          : createMutPtrType(baseType);
+      const typeValueForPointer = createTypeValue(pointerType);
+      expr.$ = {
+        env,
+        type: typeValueForPointer.type,
+        value: typeValueForPointer,
+        isMutable: false,
+      };
+      return expr;
+    } else {
+      const argType = evaluatedArgExpr.$.type;
+      const pointerType =
+        pointerTypeKind === TypeTag.Ptr
+          ? createPtrType(argType)
+          : createMutPtrType(argType);
+
+      // Check if we are creating a mutable pointer to an immutable value
+      if (pointerTypeKind === TypeTag.MutPtr && !evaluatedArgExpr.$.isMutable) {
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Cannot create a mutable pointer to the immutable:\n${exprToString(
+            argExpr
+          )}`
+        );
+      }
+
+      expr.$ = {
+        env,
+        type: pointerType,
+        value: undefined, // pointer is only available for runtime
+        isMutable: pointerTypeKind === TypeTag.MutPtr,
+      };
+      return expr;
+    }
   }
 
   private evaluateExpression({
@@ -7264,6 +7561,16 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
         // import
         return this.evaluateImport({ expr, env, context: { ...context } });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinKeywords.Ptr, 1) ||
+        exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1)
+      ) {
+        // * or *! raw pointers
+        return this.evaluateRawPointerCall({
+          expr,
+          env,
+          context: { ...context },
+        });
       } else if (
         exprIsFunctionCallOf(expr, BuiltinFunctions.AreTypesCompatible, 2)
       ) {

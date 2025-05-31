@@ -27,6 +27,13 @@ export interface EvaluatedExprData {
    * If this is given, then it means there is a temporary variable holding the value in the `env` above.
    */
   tempVariableName?: string;
+  /**
+   * Check if the value returned from the expression is mutable.
+   * For exampe:
+   * mut(x) := 12;
+   * y = x; // Expression `x` here is mutable.
+   */
+  isMutable: boolean;
 }
 
 export type AtomExpr = {
@@ -148,12 +155,12 @@ export const BuiltinKeywords = {
   false: ["false"],
 
   // data types
-  LinearPtr: ["^", "LinearPtr"],
-  MutLinearPtr: ["^!", "MutLinearPtr"],
-  Ptr: ["*", "Ptr"],
-  MutPtr: ["*!", "MutPtr"],
-  Ref: ["&", "Ref"],
-  MutRef: ["&!", "MutRef"],
+  LinearPtr: ["^"],
+  MutLinearPtr: ["^!"],
+  Ptr: ["*"],
+  MutPtr: ["*!"],
+  Ref: ["&"],
+  MutRef: ["&!"],
 };
 
 export const BuiltinFunctions = {
