@@ -43,11 +43,11 @@ export interface EvaluatedExprData {
   isMutable: boolean;
 
   /**
-   * For example, the expression below is dereferencing:
+   * For example, the expression below is accessing property:
    *   p.*
-   * `p.*` is an expression whose `isDereferencing` is true.
+   * `p.*` is an expression whose `isAccessingProperty` is true.
    */
-  isDereferencing?: boolean;
+  isAccessingProperty?: boolean;
 }
 
 export type AtomExpr = {
@@ -298,14 +298,17 @@ ${exprToString(expr)}`);
 
 export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
   // Check if it's dereferencing a pointer/reference to linear type value.
-  if (expr.$?.isDereferencing && isLinearOrType0Type(typeOfType(expr.$.type))) {
+  if (
+    expr.$?.isAccessingProperty &&
+    isLinearOrType0Type(typeOfType(expr.$.type))
+  ) {
     throw formatErrorMessages({
       modulePath: env.modulePath,
       inputString: env.inputString,
       tokenAndErrorList: [
         {
           token: expr.token,
-          errorMessage: `Cannot consume a dereferenced pointer/reference to a "Linear" type value.`,
+          errorMessage: `Cannot consume a property to a "Linear" value.`,
         },
       ],
     });

@@ -1228,6 +1228,7 @@ ${typeToString(expectedTupleType)}`
       );
     }
 
+    const destructuredRhsElementSet = new Set<{ label?: string; type: Type }>();
     // Process each lhs element
     for (let i = 0; i < lhsElements.length; i++) {
       const lhsElement = lhsElements[i]!;
@@ -1339,6 +1340,7 @@ ${typeToString(expectedTupleType)}`
 
         elementIndex = matchingMemberIndex;
         rhsElement = rhsElements[elementIndex]!;
+        destructuredRhsElementSet.add(rhsElement);
         const nestedRhsType = rhsElement.type;
 
         // Get the nested value
@@ -1496,6 +1498,7 @@ ${typeToString(expectedTupleType)}`
       else if (exprIsFunctionCall(lhsElement)) {
         // Get the right-hand side value at this position
         rhsElement = rhsElements[elementIndex]!;
+        destructuredRhsElementSet.add(rhsElement);
         const nestedRhsType = rhsElement.type;
 
         // Get the nested value
@@ -1606,6 +1609,8 @@ Please consider to write it as:
           );
         }
 
+        destructuredRhsElementSet.add(rhsElement);
+
         if (isTupleValue(rhsValue)) {
           elementValue = rhsValue.elements[elementIndex];
         } else if (isStructValue(rhsValue)) {
@@ -1673,6 +1678,22 @@ Please consider to write it as:
             value: elementValue,
             isMutable: false,
           };
+        }
+      }
+    }
+
+    // Iterate the rhsElements to check if there is any
+    // "Linear" value that is not destructured
+    for (const rhsElement of rhsElements) {
+      if (!destructuredRhsElementSet.has(rhsElement)) {
+        if (isLinearOrType0Type(typeOfType(rhsElement.type))) {
+          // If it's a linear type, we should throw an error
+          throw this.formatErrorMessage(
+            lhs.token,
+            `Linear value ${rhsElement.label ? `"${rhsElement.label}" ` : ""}of type ${typeToString(
+              rhsElement.type
+            )} is not destructured.`
+          );
         }
       }
     }
@@ -2050,13 +2071,13 @@ ${exprToString(rhs)}`
       return expr;
     } else {
       // Evaluate the destructuring assignment
-      if (!rhs.$?.type) {
+      if (!rhs.$) {
         throw this.formatErrorMessage(
           rhs.token,
-          `(3) Expected type for right-hand side, got ${exprToString(rhs)}`
+          `Failed to evaluate the right-hand side expression:
+${exprToString(rhs)}`
         );
       }
-
       env = this.evaluateDestructuringAssignment({
         lhs,
         rhs,
@@ -2064,6 +2085,10 @@ ${exprToString(rhs)}`
         isCompileTimeOnly,
         context: { ...context },
       });
+
+      // Set the rhs as consumed
+      env = setExprAsConsumed(rhs, env);
+
       expr.$ = {
         env,
         value: VUnit,
@@ -4217,7 +4242,7 @@ compt(${exprToString(returnTypeExpr)})`
           type: baseType,
           value: undefined,
           isMutable: isMutPtrType(pointerType),
-          isDereferencing: true,
+          isAccessingProperty: true,
         };
         return expr;
       } else if (
@@ -4231,7 +4256,7 @@ compt(${exprToString(returnTypeExpr)})`
           type: baseType,
           value: undefined,
           isMutable: isMutLinearPtrType(linearPtrType),
-          isDereferencing: true,
+          isAccessingProperty: true,
         };
         return expr;
       } else if (
@@ -4245,7 +4270,7 @@ compt(${exprToString(returnTypeExpr)})`
           type: baseType,
           value: undefined,
           isMutable: isMutRefType(refType),
-          isDereferencing: true,
+          isAccessingProperty: true,
         };
         return expr;
       }
@@ -4292,6 +4317,7 @@ compt(${exprToString(returnTypeExpr)})`
             // FIXME: Support expr.value for comptime evaluation.
             value: createEnumValue(newEnumType, variantName, []),
             isMutable: objectExpr.$.isMutable,
+            isAccessingProperty: true,
           };
 
           propertyExpr.$ = expr.$;
@@ -4307,6 +4333,7 @@ compt(${exprToString(returnTypeExpr)})`
             type: enumTypeValue.type,
             value: enumTypeValue,
             isMutable: objectExpr.$.isMutable,
+            isAccessingProperty: true,
           };
 
           propertyExpr.$ = expr.$;
@@ -4350,6 +4377,7 @@ compt(${exprToString(returnTypeExpr)})`
             env,
             type: tupleElement.type,
             isMutable: objectExpr.$.isMutable,
+            isAccessingProperty: true,
           };
           propertyExpr.$ = expr.$;
 
@@ -4394,6 +4422,7 @@ compt(${exprToString(returnTypeExpr)})`
               env,
               type: tupleElement.type,
               isMutable: objectExpr.$.isMutable,
+              isAccessingProperty: true,
             };
             propertyExpr.$ = expr.$;
 
@@ -4431,6 +4460,7 @@ compt(${exprToString(returnTypeExpr)})`
               ? moduleValue.members[label]
               : createUnknownValue(moduleMember.type, moduleMember.label),
             isMutable: objectExpr.$.isMutable,
+            isAccessingProperty: true,
           };
           propertyExpr.$ = expr.$;
           return expr;
