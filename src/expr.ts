@@ -288,14 +288,7 @@ ${exprToString(expr)}`);
 }
 
 export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
-  let nameOfVariableToConsume = expr.$?.tempVariableName;
-  if (!nameOfVariableToConsume) {
-    // Check if the expression is an identifier
-    if (exprIsAtom(expr)) {
-      nameOfVariableToConsume = expr.token.value;
-    }
-  }
-
+  const nameOfVariableToConsume = expr.$?.tempVariableName;
   if (!nameOfVariableToConsume) {
     return env;
     /*

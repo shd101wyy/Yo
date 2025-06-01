@@ -91,6 +91,7 @@ import {
   TupleType,
   TUsize,
   Type,
+  typeContainsReference,
   typeOfType,
   TypeTag,
   typeToString,
@@ -1979,6 +1980,14 @@ ${exprToString(expr)}`
         }
       }
 
+      // Check if the rhsType contains reference
+      if (typeContainsReference(rhsType)) {
+        throw this.formatErrorMessage(
+          rhs.token,
+          `Assigning reference to variable is not allowed.`
+        );
+      }
+
       // Add .typeName info if necessary
       const rhsValue = rhs.$?.value;
       if (
@@ -2286,6 +2295,15 @@ ${exprToString(rhs)}`
           );
         }
       }
+
+      // Check if the rhsType contains reference
+      if (typeContainsReference(rhsType)) {
+        throw this.formatErrorMessage(
+          rhs.token,
+          `Assigning reference to variable is not allowed.`
+        );
+      }
+
       // Check if the type matches
       if (
         !areTypesCompatible({ type: expectedType, env }, { type: rhsType, env })
@@ -3071,6 +3089,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           type: variable.type,
           value: variable.value,
           isMutable: variable.isMutable,
+          tempVariableName: variable.name, // NOTE: The tempVariableName here is the variable name itself.
         };
         return expr;
       }
@@ -4203,13 +4222,13 @@ compt(${exprToString(returnTypeExpr)})`
         isLinearPtrType(objectExpr.$?.type) ||
         isMutLinearPtrType(objectExpr.$?.type)
       ) {
-        const linearType = objectExpr.$.type;
-        const baseType = linearType.type;
+        const linearPtrType = objectExpr.$.type;
+        const baseType = linearPtrType.type;
         expr.$ = {
           env,
           type: baseType,
           value: undefined,
-          isMutable: isMutLinearPtrType(linearType),
+          isMutable: isMutLinearPtrType(linearPtrType),
         };
         return expr;
       } else if (

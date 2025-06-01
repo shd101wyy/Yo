@@ -1578,6 +1578,41 @@ export function isRefType(type?: Type): type is RefType {
   return type?.tag === TypeTag.Ref;
 }
 
+export function typeContainsReference(type?: Type): boolean {
+  if (!type) {
+    return false;
+  }
+
+  // Check if the type is a reference type
+  if (isRefType(type) || isMutRefType(type)) {
+    return true;
+  }
+
+  // Recursively check for references in complex types
+  switch (type.tag) {
+    case TypeTag.Array:
+      return typeContainsReference((type as ArrayType).elementType);
+    case TypeTag.Tuple:
+      return (type as TupleType).elements.some((element) =>
+        typeContainsReference(element.type)
+      );
+    case TypeTag.Struct:
+      return (type as StructType).elements.some((element) =>
+        typeContainsReference(element.type)
+      );
+    case TypeTag.Enum:
+      return (type as EnumType).variants.some((variant) =>
+        variant.elements?.some((param) => typeContainsReference(param.type))
+      );
+    case TypeTag.Union:
+      return (type as UnionType).elements.some((element) =>
+        typeContainsReference(element.type)
+      );
+    default:
+      return false; // For other types, no references are present
+  }
+}
+
 /*
 // Helper function for checking if a type is undefined
 export function isUndefinedType(type: Type): boolean {
