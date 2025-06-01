@@ -56,7 +56,9 @@ import {
   isEnumType,
   isFunctionType,
   isFunctionTypeAndIsTypeFunction,
+  isLinearPtrType,
   isModuleType,
+  isMutLinearPtrType,
   isMutPtrType,
   isPtrType,
   isSomeType,
@@ -2184,14 +2186,14 @@ ${exprToString(rhs)}`
           ...variable,
           isUndefined: false,
           value: rhs.$?.value,
-          type: rhsType,
+          // type: rhsType,
         });
       } else if (variable.isMutable) {
         // Update the variable value
         env = updateExistingVariable(env, variable, {
           ...variable,
           value: rhs.$?.value,
-          type: rhsType,
+          // type: rhsType,
         });
       } else {
         throw this.formatErrorMessage(
@@ -2302,6 +2304,9 @@ ${exprToString(rhs)}`
         type: evaluatedLhs.$.type,
         isMutable: evaluatedLhs.$.isMutable,
       };
+
+      // This temp variable is used to hold the old value of lhs
+      attachTempVariableToExpr(expr);
 
       // Update the lhs with the new value
       evaluatedLhs.$ = {
@@ -4181,20 +4186,31 @@ compt(${exprToString(returnTypeExpr)})`
     }
 
     // Check if it's .* for dereference
-    if (
-      exprIsAtom(propertyExpr) &&
-      propertyExpr.token.value === "*" &&
-      (isPtrType(objectExpr.$?.type) || isMutPtrType(objectExpr.$?.type))
-    ) {
-      const pointerType = objectExpr.$.type;
-      const baseType = pointerType.type;
-      expr.$ = {
-        env,
-        type: baseType,
-        value: undefined,
-        isMutable: isMutPtrType(pointerType),
-      };
-      return expr;
+    if (exprIsAtom(propertyExpr) && propertyExpr.token.value === "*") {
+      if (isPtrType(objectExpr.$?.type) || isMutPtrType(objectExpr.$?.type)) {
+        const pointerType = objectExpr.$.type;
+        const baseType = pointerType.type;
+        expr.$ = {
+          env,
+          type: baseType,
+          value: undefined,
+          isMutable: isMutPtrType(pointerType),
+        };
+        return expr;
+      } else if (
+        isLinearPtrType(objectExpr.$?.type) ||
+        isMutLinearPtrType(objectExpr.$?.type)
+      ) {
+        const linearType = objectExpr.$.type;
+        const baseType = linearType.type;
+        expr.$ = {
+          env,
+          type: baseType,
+          value: undefined,
+          isMutable: isMutLinearPtrType(linearType),
+        };
+        return expr;
+      }
     }
 
     if (isTypeValue(objectExpr.$?.value)) {
@@ -4937,7 +4953,7 @@ ${functionsWithMatchingTypes
           expr.$.value = createUnknownValue(returnType);
         }
 
-        // Set temp variable
+        // Set temp variable which holds the result of the function call
         attachTempVariableToExpr(expr);
 
         // Attach necessary info to the func
