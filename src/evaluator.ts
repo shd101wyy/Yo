@@ -14,6 +14,7 @@ import {
 import { formatErrorMessage, MoParserError } from "./error";
 import {
   AtomExpr,
+  attachTempVariableToExpr,
   BuiltinCollections,
   BuiltinFunctions,
   BuiltinKeywords,
@@ -25,6 +26,7 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
+  setExprAsConsumed,
 } from "./expr";
 import { FunctionValue } from "./function-value";
 import * as logger from "./logger";
@@ -91,7 +93,7 @@ import {
 } from "./type-checker";
 import { TypeValue } from "./type-value";
 import { VUnit } from "./unit-value";
-import { randomId } from "./utils";
+import { generateNewTempVariableName, randomId } from "./utils";
 import {
   areValuesEqual,
   createBooleanValue,
@@ -1890,6 +1892,7 @@ Please consider to write it as:
 ${exprToString(rhs)}`
       );
     }
+    // If rhs is type value, then it must be compile-time only
     if (isTypeValue(rhs.$?.value) && !isCompileTimeOnly) {
       throw this.formatErrorMessage(
         expr.token,
@@ -1897,6 +1900,7 @@ ${exprToString(rhs)}`
 ${exprToString(expr)}`
       );
     }
+    // If rhs is module value, then it must be compile-time only
     if (isModuleValue(rhs.$?.value) && !isCompileTimeOnly) {
       throw this.formatErrorMessage(
         expr.token,
@@ -2018,6 +2022,10 @@ ${exprToString(rhs)}`
         },
       });
       env = nextEnv;
+
+      // Set the rhs as consumed
+      env = setExprAsConsumed(rhs, env);
+
       lhs.$.env = env;
       expr.$ = {
         env,
@@ -3432,33 +3440,36 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       }
     }
 
-    if (lhsExpr) {
-      const value = isCompileTimeOnly
-        ? createUnknownValue(parameterType, label)
-        : undefined;
+    if (!label) {
+      label = generateNewTempVariableName(this.modulePath);
+    }
 
-      if (label) {
-        // Add the parameter to the env
-        const { env: nextEnv } = addVariableToEnv({
-          env,
-          variable: {
-            name: label,
-            token: lhsExpr.token,
-            type: parameterType,
-            isMutable: isMutable,
-            isCompileTimeOnly: isCompileTimeOnly,
-            isUndefined: false, // Set as initialized
-            isImplicit: false,
-            value:
-              // defaultValue ?? // NOTE: No need to use the default value here.
-              isCompileTimeOnly
-                ? createUnknownValue(parameterType, label)
-                : undefined,
-          },
-          skipCheckingFunctionOverloading: true,
-        });
-        env = nextEnv;
-      }
+    const value = isCompileTimeOnly
+      ? createUnknownValue(parameterType, label)
+      : undefined;
+
+    // Add the parameter to the env
+    const { env: nextEnv } = addVariableToEnv({
+      env,
+      variable: {
+        name: label,
+        token: lhsExpr?.token ?? expr.token,
+        type: parameterType,
+        isMutable: isMutable,
+        isCompileTimeOnly: isCompileTimeOnly,
+        isUndefined: false, // Set as initialized
+        isImplicit: false,
+        value:
+          // defaultValue ?? // NOTE: No need to use the default value here.
+          isCompileTimeOnly
+            ? createUnknownValue(parameterType, label)
+            : undefined,
+      },
+      skipCheckingFunctionOverloading: true,
+    });
+    env = nextEnv;
+
+    if (lhsExpr) {
       lhsExpr.$ = {
         env,
         type: parameterType,
@@ -3477,7 +3488,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     return {
       parameter: {
-        label,
+        label: label,
         type: parameterType,
         exprs: getFunctionParameterExprs({
           labelExpr,
@@ -3558,16 +3569,14 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           });
 
           // Check if there is duplicate labels
-          if (parameter.label) {
-            const duplicateLabel = typeParameters.find(
-              (element) => element.label === parameter.label
+          const duplicateLabel = typeParameters.find(
+            (element) => element.label === parameter.label
+          );
+          if (duplicateLabel) {
+            throw this.formatErrorMessage(
+              typeParameterExpr.token,
+              `Duplicate label "${parameter.label}" in type parameter`
             );
-            if (duplicateLabel) {
-              throw this.formatErrorMessage(
-                typeParameterExpr.token,
-                `Duplicate label "${parameter.label}" in type parameter`
-              );
-            }
           }
 
           // Require parameter to be compile-time only
@@ -3634,16 +3643,14 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           }
 
           // Check if there is duplicate labels
-          if (parameter.label) {
-            const duplicateLabel = implicitParameters.find(
-              (element) => element.label === parameter.label
+          const duplicateLabel = implicitParameters.find(
+            (element) => element.label === parameter.label
+          );
+          if (duplicateLabel) {
+            throw this.formatErrorMessage(
+              implicitParameterExpr.token,
+              `Duplicate label "${parameter.label}" in implicit parameter`
             );
-            if (duplicateLabel) {
-              throw this.formatErrorMessage(
-                implicitParameterExpr.token,
-                `Duplicate label "${parameter.label}" in implicit parameter`
-              );
-            }
           }
 
           // If parameter is compile-time only, then
@@ -3677,18 +3684,16 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         });
 
         // Check if there is duplicate labels
-        if (parameter.label) {
-          const duplicateLabel = parameters.find(
-            (element) => element.label === parameter.label
+        const duplicateLabel = parameters.find(
+          (element) => element.label === parameter.label
+        );
+        if (duplicateLabel) {
+          throw this.formatErrorMessage(
+            exprIsFunctionCall(parameterExpr)
+              ? (parameterExpr.args[0]?.token ?? parameterExpr.token)
+              : parameterExpr.token,
+            `Duplicate label "${parameter.label}" in function parameter`
           );
-          if (duplicateLabel) {
-            throw this.formatErrorMessage(
-              exprIsFunctionCall(parameterExpr)
-                ? (parameterExpr.args[0]?.token ?? parameterExpr.token)
-                : parameterExpr.token,
-              `Duplicate label "${parameter.label}" in function parameter`
-            );
-          }
         }
 
         // If parameter is compile-time only, then
@@ -4908,7 +4913,7 @@ ${functionsWithMatchingTypes
         // It's
         // - Runtime function
         // - Comptime function
-        const { returnType } = this.tryToCallFunctionWithArguments({
+        const { returnType, callerEnv } = this.tryToCallFunctionWithArguments({
           functionCallExpr: expr,
           functionValue: functionToCall.value as FunctionValue | undefined,
           functionType,
@@ -4919,6 +4924,7 @@ ${functionsWithMatchingTypes
             SelfType: functionType.SelfType,
           },
         });
+        env = callerEnv;
         expr.$ = {
           env,
           type: returnType,
@@ -4930,6 +4936,9 @@ ${functionsWithMatchingTypes
           // We should evaluate its body.
           expr.$.value = createUnknownValue(returnType);
         }
+
+        // Set temp variable
+        attachTempVariableToExpr(expr);
 
         // Attach necessary info to the func
         func.$ = {
@@ -5176,7 +5185,7 @@ ${exprToString(expr)}`
     calleeEnv: Environment;
     callerEnv: Environment;
     context: EvaluatorContext;
-  }): { calleeEnv: Environment } {
+  }): { calleeEnv: Environment; callerEnv: Environment } {
     // NOTE: We don't support named argument.
     // But we support to use label for readibility.
     // eg: add(1, 2) vs add(x: 1, y: 2)
@@ -5269,7 +5278,7 @@ ${exprToString(expr)}`
           env: callerEnv,
           context: {
             ...context,
-            isEvaluatingExprAsType: false,
+            // isEvaluatingExprAsType: false,
             expectedType: { type: parameterType, env: calleeEnv },
           },
         });
@@ -5308,23 +5317,24 @@ ${exprToString(expr)}`
     }
 
     // Add the arg to the environment
-    if (parameter.label) {
-      const argValue = evaluatedArgExpr.$?.value;
-      const { env: nextEnv } = addVariableToEnv({
-        env: calleeEnv,
-        variable: {
-          name: parameter.label,
-          type: argType,
-          isMutable: parameter.isMutable,
-          isCompileTimeOnly: parameter.isCompileTimeOnly,
-          token: argExpr?.token ?? PlaceholderToken,
-          isUndefined: false,
-          isImplicit: false,
-          value: argValue,
-        },
-      });
-      calleeEnv = nextEnv;
-    }
+    const argValue = evaluatedArgExpr.$?.value;
+    const { env: nextEnv } = addVariableToEnv({
+      env: calleeEnv,
+      variable: {
+        name: parameter.label,
+        type: argType,
+        isMutable: parameter.isMutable,
+        isCompileTimeOnly: parameter.isCompileTimeOnly,
+        token: argExpr?.token ?? PlaceholderToken,
+        isUndefined: false,
+        isImplicit: false,
+        value: argValue,
+      },
+    });
+    calleeEnv = nextEnv;
+
+    // Set the arg expr as consumed
+    callerEnv = setExprAsConsumed(evaluatedArgExpr, callerEnv);
 
     // Synthesize the types
     const { expectedEnv, givenEnv } = this.synthesizeTypes(
@@ -5361,7 +5371,7 @@ ${exprToString(expr)}`
     Got:   ${typeToString(argType)}`
       );
     }
-    return { calleeEnv };
+    return { calleeEnv, callerEnv };
   }
 
   /**
@@ -5382,7 +5392,7 @@ ${exprToString(expr)}`
     argExprs: Expr[];
     callerEnv: Environment;
     context: EvaluatorContext;
-  }): { calleeEnv: Environment; returnType: Type } {
+  }): { calleeEnv: Environment; callerEnv: Environment; returnType: Type } {
     let forallArgsExpr: FuncCallExpr | undefined = undefined;
     let implicitArgExprs: Expr[] = [];
 
@@ -5644,7 +5654,7 @@ Got:   ${typeToString(typeValue.type)}`
     for (let i = 0; i < functionType.parameters.length; i++) {
       const parameter = functionType.parameters[i]!;
       const argExpr: Expr | undefined = argExprs[i];
-      const { calleeEnv: nextCalleeEnv } =
+      const { calleeEnv: nextCalleeEnv, callerEnv: nextCallerEnv } =
         this.checkIfFunctionParameterMatchesArgument({
           functionValue,
           parameter,
@@ -5654,6 +5664,7 @@ Got:   ${typeToString(typeValue.type)}`
           context,
         });
       calleeEnv = nextCalleeEnv;
+      callerEnv = nextCallerEnv;
     }
 
     // Check if the implicit parameters are provided
@@ -5840,7 +5851,11 @@ Got:   ${typeToString(argType)}`
 
               try {
                 // FIXME: Prevent circular call
-                const { returnType } = this.tryToCallFunctionWithArguments({
+                const {
+                  returnType,
+                  calleeEnv: nextCalleeEnv,
+                  callerEnv: nextCallerEnv,
+                } = this.tryToCallFunctionWithArguments({
                   argExprs: [],
                   callerEnv,
                   functionType: funcType,
@@ -5855,8 +5870,8 @@ Got:   ${typeToString(argType)}`
                   },
                 });
                 return areTypesCompatible(
-                  { type: returnType, env: callerEnv },
-                  { type: implicitParameterType, env: calleeEnv }
+                  { type: returnType, env: nextCallerEnv },
+                  { type: implicitParameterType, env: nextCalleeEnv }
                 );
               } catch {
                 // Failed
@@ -5926,7 +5941,7 @@ ${implicitVariables
     }
     const returnType = functionReturnTypeValue.value;
 
-    return { returnType, calleeEnv };
+    return { returnType, calleeEnv, callerEnv };
   }
 
   private tryToCallTypeWithArguments({
@@ -6375,14 +6390,16 @@ Got:   ${typeToString(argType)}`
   }): { value: TypeValue; env: Environment } {
     // This will push a new frame to the function env and
     // add the parameters to the env
-    const { calleeEnv } = this.tryToCallFunctionWithArguments({
-      functionValue,
-      functionType,
-      functionCallExpr,
-      argExprs,
-      callerEnv,
-      context: { ...context },
-    });
+    const { calleeEnv, callerEnv: nextCallerEnv } =
+      this.tryToCallFunctionWithArguments({
+        functionValue,
+        functionType,
+        functionCallExpr,
+        argExprs,
+        callerEnv,
+        context: { ...context },
+      });
+    callerEnv = nextCallerEnv;
 
     // FIXME: The argValues below should be returned from this.tryToCallFunctionWithArguments
     // argExprs should be evaluated now

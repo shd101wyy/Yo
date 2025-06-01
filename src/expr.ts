@@ -1,7 +1,14 @@
 /* eslint-disable no-constant-condition */
-import { Environment } from "./env";
+import {
+  addVariableToEnv,
+  Environment,
+  getVariablesFromEnv,
+  updateExistingVariable,
+} from "./env";
+import { formatErrorMessages } from "./error";
 import { Token, TokenType } from "./token";
-import { Type } from "./type-checker";
+import { isLinearOrType0Type, Type, typeOfType } from "./type-checker";
+import { generateNewTempVariableName } from "./utils";
 import { Value } from "./value";
 
 export enum ExprTag {
@@ -250,4 +257,103 @@ export function exprToString(expr: Expr): string {
   }
 
   return printed;
+}
+
+export function attachTempVariableToExpr(expr: Expr): void {
+  if (!expr.$) {
+    throw new Error(`Expected expression to be evaluated, but it is not:
+${exprToString(expr)}`);
+  }
+  const { env, type, value, isMutable } = expr.$;
+  const modulePath = env.modulePath;
+  const tempVariableName = generateNewTempVariableName(modulePath);
+
+  // Add temp variable to the environment
+  const { env: nextEnv } = addVariableToEnv({
+    env,
+    variable: {
+      name: tempVariableName,
+      type,
+      value,
+      isMutable,
+      isCompileTimeOnly: Boolean(value),
+      isImplicit: false,
+      isUndefined: false,
+      token: expr.token,
+    },
+  });
+
+  expr.$.tempVariableName = tempVariableName;
+  expr.$.env = nextEnv;
+}
+
+export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
+  let nameOfVariableToConsume = expr.$?.tempVariableName;
+  if (!nameOfVariableToConsume) {
+    // Check if the expression is an identifier
+    if (exprIsAtom(expr)) {
+      nameOfVariableToConsume = expr.token.value;
+    }
+  }
+
+  if (!nameOfVariableToConsume) {
+    return env;
+    /*
+    throw formatErrorMessages({
+      modulePath: env.modulePath,
+      inputString: env.inputString,
+      tokenAndErrorList: [
+        {
+          token: expr.token,
+          errorMessage: `Failed to consume the expression as it is not a variable or does not have a temporary variable name.`,
+        },
+      ],
+    });
+    */
+  }
+
+  const variables = getVariablesFromEnv(env, nameOfVariableToConsume);
+  if (variables.length === 0) {
+    throw formatErrorMessages({
+      modulePath: env.modulePath,
+      inputString: env.inputString,
+      tokenAndErrorList: [
+        {
+          token: expr.token,
+          errorMessage: `Variable "${nameOfVariableToConsume}" is not defined.`,
+        },
+      ],
+    });
+  }
+
+  const variableToConsume = variables[variables.length - 1]!;
+  if (isLinearOrType0Type(typeOfType(variableToConsume.type))) {
+    // Check if the variable is already consumed
+    if (variableToConsume.consumedAtToken) {
+      throw formatErrorMessages({
+        modulePath: env.modulePath,
+        inputString: env.inputString,
+        tokenAndErrorList: [
+          {
+            token: variableToConsume.token,
+            errorMessage: `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`,
+          },
+          {
+            token: variableToConsume.consumedAtToken,
+            errorMessage: `Previously consumed here:`,
+          },
+          {
+            token: expr.token,
+            errorMessage: `Trying to be used again there:`,
+          },
+        ],
+      });
+    }
+    // Set the variable as consumed
+    env = updateExistingVariable(env, variableToConsume, {
+      ...variableToConsume,
+      consumedAtToken: expr.token,
+    });
+  }
+  return env;
 }

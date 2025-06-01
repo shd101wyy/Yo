@@ -380,8 +380,14 @@ export interface FunctionParameter {
    * label of the element,
    * eg: x: i32
    * x is the label of the element.
+   *
+   * For the parameter that are not labelled, we generate temporary label for it.
+   * For example:
+   * i32
+   * This is a parameter without label.
+   * We generate a temporary label for it, like $param_12345
    */
-  label?: string;
+  label: string;
 
   // Some expressions used in the parameter definition
   exprs: FunctionParameterExprs;

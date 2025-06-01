@@ -180,11 +180,12 @@ export function addVariableToEnv({
     modulePath: env.modulePath,
     inputString: env.inputString,
   };
+
   return { env: newEnv, variable: newVariable };
 }
 
 // let someIdIndex = 0;
-function addVariableToFrame({
+export function addVariableToFrame({
   env,
   frame,
   variable,
@@ -340,7 +341,6 @@ export function popEnvFrame(
       (variable) => variable.isUndefined
     );
     if (unconsumedLinearVariables.length > 0) {
-      /*
       // TODO: Restore the block of the code below
       throw formatErrorMessages({
         modulePath: env.modulePath,
@@ -357,7 +357,6 @@ ${typeToString(variable.type)}`,
           };
         }),
       });
-      */
     } else if (undefinedVariables.length > 0) {
       throw formatErrorMessages({
         modulePath: env.modulePath,
