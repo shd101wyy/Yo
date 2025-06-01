@@ -533,7 +533,7 @@ swap ::
 };
 swap(&!(x), &!(y));
 
-// Mutable Value Semantics rules:
+// 2nd-class reference:
 // Rule 1.0, let's say fucntion parameter is not local variable, then:
 // - 1) Reference can only happen in the call site.
 //   - 1.1) It cannot be stored in a variable or data structure.
@@ -552,24 +552,24 @@ y := {
   &(x) // error: Violate the Rule 1.2
 }
 
-fn(some_ref: &!(i32)) -> {
+((some_ref: &!(i32)) -> ()) {
   x := some_ref;      // Not allowed! Violate the Rule 1.1
   return some_ref;    // Allowed
   // or
   return ( value: some_ref ); // Allowed
 }
 
-fn(container: &!(Container), some_ref: &(i32)) -> {
+((container: &!(Container), some_ref: &(i32)) -> ()) {
   container.x = some_ref; // Not allowed!
                           // Why? Because it is hard to compare the lifetime of container and some_ref.
                           // container might live longer than some_ref.
 }
 
 
-// You can use the `use` function to use the reference value in a new scope
-use &!(x), x_ref -> {
+// You can use the `borrow` function to use the reference value in a new scope
+borrow &!(x), x_ref -> {
   // `x` is not allowed to be used here
-  *(x_ref) = 13;
+  x_ref.* = 13;
 }
 
 // Iterator
@@ -581,10 +581,10 @@ to_iter_mut ::
 ;
 
 arr := ["Hello".to_string(), "world".to_string(), "!".to_string()];
-use arr.to_iter_mut(), iter-> {
+borrow arr.to_iter_mut(), iter-> {
   // arr is not allowed to be used here
   // iter: Iter(&!(String))
-  use iter.next(), v -> {
+  borrow iter.next(), v -> {
     // iter is not allowed to be used here
     // v: Option(&!(String))
     // ...
@@ -596,10 +596,10 @@ use arr.to_iter_mut(), iter-> {
 // FnOnce, FnMut, Fn are modules
 // like the ones in Rust
 x := 12;
-use &!(x), x-> {
+borrow &!(x), x-> {
   // x: &!(i32)
-  use ((fn(y: i32):i32) => { // => means closure that captures the outside environment.
-    *(x) = (*(x) + y);
+  borrow ((fn(y: i32):i32) => { // => means closure that captures the outside environment.
+    x.* = (x.* + y);
   // =>
   }), closure -> { // in this case, closure is FnMut
     closure(1); // x: 13

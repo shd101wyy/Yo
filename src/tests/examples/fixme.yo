@@ -1,48 +1,34 @@
-extern
-  malloc:
-    () -> ^!(i32),
-  free:
-    (^!(i32)) -> ()
-;
+// 2nd-class reference
+Data :: struct(x: &(i32));
 
-func1 :: (() -> ()) {
-  x := malloc();
-  p := *(x);
+main :: (() -> ()) {
+  swap :: ((p: &!(i32), q: &!(i32)) -> ()) {
+    tmp := p.*;
+    p.* = q.*;
+    q.* = tmp;
+  };
 
-  y := *(p.*); // <- This is valid.
-  // z := p.*; // This is not valid.
+  // Assign value that contains reference to a variable is prohibited.
+  !(x) := 12;
+  !(y) := 13;
+  // p := &(x); // This is not allowed.
+  swap(&!(x), &!(y));
+  swap(&!(x), &!(x)); // FIXME: This shouldn't be allowed.
+                      // Because we cannot create multiple references
+                      // to the same variable.
+                      // Their paths overlap.
 
-  free(x);
-};
+  return_ref :: (()-> &(i32)) {
+    x := 1;
+    &(x) // FIXME: Return a reference to local variable is prohibited.
+  };
 
-Data :: struct
-  x : ^!(i32),
-  y: ^!(i32),
-  z: i32
-;
+  return_ref_2 :: ((p: &(i32))-> &(i32)) {
+    x := 1;
+    p // Return the reference that is not created in the function body is allowed.
+  };
 
-func :: ((data: Data)-> ()) {
-  // destructuring Linear value requires 
-  // all fields of Linear value to be destructured,
-  // and it will consume the Linear value itself.    
-  // { x } := data; // <- This is not valid.
-  { * } := data;
-  consume(x);
-  consume(y);
-  
-  // consume(data); // This will give error, as `data` is
-                 // already consumed by destructuring.
-};
-
-func2 :: ((data: Data)-> ()) {
-  // destructuring Linear value requires 
-  // all fields of Linear value to be destructured,
-  // and it will consume the Linear value itself.    
-  // { x } := data; // <- This will give error, as `y` is not destructured.
-  { x, y } := data;
-  consume(x);
-  consume(y);
-  
-  // consume(data); // This will give error, as `data` is
-                    // already consumed by destructuring.
+  return_ref_3 :: ((p: &(i32))-> Data)
+    Data(p) // Return the reference that is not created in the function body is allowed.
+  ;
 };

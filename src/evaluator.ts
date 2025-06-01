@@ -7501,6 +7501,7 @@ Got:   ${typeToString(argType)}`
         value: undefined, // reference is only available for runtime
         isMutable: referenceTypeKind === TypeTag.MutRef,
       };
+      attachTempVariableToExpr(expr);
       return expr;
     }
   }
@@ -7590,6 +7591,7 @@ Got:   ${typeToString(argType)}`
         value: undefined, // pointer is only available for runtime
         isMutable: pointerTypeKind === TypeTag.MutPtr,
       };
+      attachTempVariableToExpr(expr);
       return expr;
     }
   }

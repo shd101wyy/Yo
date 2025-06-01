@@ -11,7 +11,7 @@ A multi-paradigm, general-purpose, compiled programming language.
 ## Features
 
 - Linear types, combined with RAII.
-- First-class types (Dependent types).
+- First-class types.
 - Compile-time evaluation.
 - 2nd-class reference, allowing for unsafe raw-pointers.
 - Modular implicits.

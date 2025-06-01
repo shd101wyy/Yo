@@ -183,7 +183,8 @@ The **Yo** language is heavily inspired by:
 - [Scheme (Lisp)](https://www.scheme.com/)
   - `set!`
   - [Meta-programming (Macros)](https://docs.racket-lang.org/reference/quasiquote.html)
-- [Zig](https://ziglang.org/)
+- [Jai](https://github.com/Ivo-Balbaert/The_Way_to_Jai), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/)
+  - Syntax
   - Compile time execution
   - `defer`
 - [Elixir](https://elixir-lang.org/)
