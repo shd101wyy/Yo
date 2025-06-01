@@ -1,18 +1,26 @@
-// 2nd-class reference
+extern
+  malloc:
+    () -> ^!(i32),
+  free:
+    (^!(i32)) -> ()
+;
 
-main :: (() -> ()) {
-  I32Ref :: &(i32);
-  I32MutRef :: &!(i32);
+func1 :: (() -> ()) {
+  x := malloc();
+  p := *(x);
 
-  swap :: ((p: &!(i32), q: &!(i32)) -> ()) {
-    tmp := p.*;
-    p.* = q.*;
-    q.* = tmp;
-  };
+  y := *(p.*); // <- This is valid.
+  // z := p.*; // This is not valid.
 
-  // Assign value that contains reference to a variable is prohibited.
-  !(x) := 12;
-  !(y) := 13;
-  // p := &(x); // This is not allowed.
-  swap(&!(x), &!(y));
+  free(x);
+};
+
+Data :: struct
+  x : ^!(i32),
+  y: i32
+;
+
+func :: ((data: Data)-> ()) {
+  x := data.y;
+  consume(data);
 };

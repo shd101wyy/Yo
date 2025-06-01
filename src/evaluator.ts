@@ -56,6 +56,7 @@ import {
   isEnumType,
   isFunctionType,
   isFunctionTypeAndIsTypeFunction,
+  isLinearOrType0Type,
   isLinearPtrType,
   isModuleType,
   isMutLinearPtrType,
@@ -4216,6 +4217,7 @@ compt(${exprToString(returnTypeExpr)})`
           type: baseType,
           value: undefined,
           isMutable: isMutPtrType(pointerType),
+          isDereferencing: true,
         };
         return expr;
       } else if (
@@ -4229,6 +4231,7 @@ compt(${exprToString(returnTypeExpr)})`
           type: baseType,
           value: undefined,
           isMutable: isMutLinearPtrType(linearPtrType),
+          isDereferencing: true,
         };
         return expr;
       } else if (
@@ -4242,6 +4245,7 @@ compt(${exprToString(returnTypeExpr)})`
           type: baseType,
           value: undefined,
           isMutable: isMutRefType(refType),
+          isDereferencing: true,
         };
         return expr;
       }
@@ -7058,7 +7062,7 @@ Got:   ${typeToString(argType)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.typeof, 1)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinFunctions.typeof, 1)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected "typeof" with 1 argument, got:\n${exprToString(expr)}`
@@ -7092,6 +7096,59 @@ Got:   ${typeToString(argType)}`
       env,
       type: value.type,
       value: value,
+      isMutable: false,
+    };
+    return expr;
+  }
+
+  private evaluateConsume({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, BuiltinFunctions.consume, 1)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "consume" with 1 argument, got:\n${exprToString(expr)}`
+      );
+    }
+    const consumeArgExpr = expr.args[0]!;
+
+    // Evaluate the consume argument
+    const evaluatedConsumeArgExpr = this.evaluateExpression({
+      expr: consumeArgExpr,
+      env,
+      context: {
+        ...context,
+        isEvaluatingExprAsType: false,
+      },
+    });
+    if (!evaluatedConsumeArgExpr.$) {
+      throw this.formatErrorMessage(
+        consumeArgExpr.token,
+        `Failed to evaluate the consume argument:\n${exprToString(consumeArgExpr)}`
+      );
+    }
+
+    const argType = evaluatedConsumeArgExpr.$.type;
+    if (!isLinearOrType0Type(typeOfType(argType))) {
+      throw this.formatErrorMessage(
+        consumeArgExpr.token,
+        `Expected "Linear" type for consume argument, got:\n${exprToString(consumeArgExpr)}`
+      );
+    }
+
+    env = evaluatedConsumeArgExpr.$.env;
+    env = setExprAsConsumed(evaluatedConsumeArgExpr, env);
+
+    expr.$ = {
+      env,
+      type: VUnit.type,
+      value: VUnit,
       isMutable: false,
     };
     return expr;
@@ -7685,9 +7742,12 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
         // module
         return this.evaluateModule({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.typeof)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.typeof)) {
         // typeof
         return this.evaluateTypeOf({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume)) {
+        // consume
+        return this.evaluateConsume({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
         // import
         return this.evaluateImport({ expr, env, context: { ...context } });
@@ -7722,7 +7782,7 @@ ${exprToString(expr)}`
           context: { ...context },
         });
       } else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.AreTypesCompatible, 2)
+        exprIsFunctionCallOf(expr, BuiltinFunctions.are_types_compatible, 2)
       ) {
         // are_types_compatible
         return this.evaluateAreTypesCompatible({

@@ -41,6 +41,13 @@ export interface EvaluatedExprData {
    * y = x; // Expression `x` here is mutable.
    */
   isMutable: boolean;
+
+  /**
+   * For example, the expression below is dereferencing:
+   *   p.*
+   * `p.*` is an expression whose `isDereferencing` is true.
+   */
+  isDereferencing?: boolean;
 }
 
 export type AtomExpr = {
@@ -140,7 +147,6 @@ export const BuiltinKeywords = {
   quote: ["quote", ":"],
   unquote: ["unquote", "$"],
 
-  typeof: ["typeof"],
   recur: ["recur"],
   fn: ["fn"],
   extern: ["extern"],
@@ -156,6 +162,7 @@ export const BuiltinKeywords = {
   export: ["export"],
   borrow: ["borrow"],
 
+  // values
   undefined: ["undefined"],
   null: ["null"],
   true: ["true"],
@@ -171,7 +178,9 @@ export const BuiltinKeywords = {
 };
 
 export const BuiltinFunctions = {
-  AreTypesCompatible: ["are_types_compatible"],
+  are_types_compatible: ["are_types_compatible"],
+  typeof: ["typeof"],
+  consume: ["consume"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
@@ -288,6 +297,20 @@ ${exprToString(expr)}`);
 }
 
 export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
+  // Check if it's dereferencing a pointer/reference to linear type value.
+  if (expr.$?.isDereferencing && isLinearOrType0Type(typeOfType(expr.$.type))) {
+    throw formatErrorMessages({
+      modulePath: env.modulePath,
+      inputString: env.inputString,
+      tokenAndErrorList: [
+        {
+          token: expr.token,
+          errorMessage: `Cannot consume a dereferenced pointer/reference to a "Linear" type value.`,
+        },
+      ],
+    });
+  }
+
   const nameOfVariableToConsume = expr.$?.tempVariableName;
   if (!nameOfVariableToConsume) {
     return env;
