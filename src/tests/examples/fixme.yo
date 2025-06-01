@@ -1,30 +1,10 @@
-main :: (()-> ()) {
-  x := 12;
+extern
+  malloc:
+    ()-> ^!(i32),
+  free:
+    (^!(i32))-> ()
+;
 
-  // constant pointer
-  I32Ptr :: *(i32);
-  p : *(i32);
-  p = *(x);
-  (p : *(i32)) = *(x); // Create pointer
-  p := *(x); // Create pointer
-  q := p.*; // Dereference pointer
-
-  // mutable pointer
-  mut(x) := 12;
-  p := *!(x); // Create mutable pointer
-  // NOTE: Creating mutable pointer to immutable value is not allowed
-  
-  q := p.*;   // Dereference mutable pointer
-  temp := (p.* = 13);   // Mutate value through pointer
-
-  // swap
-  Point :: struct(x: i32, y: i32);
-  mut(p) := Point(1, 2);
-  mut(y) := 2;
-  swap :: ((p: *!(i32), q: *!(i32))-> ()) {
-    tmp := p.*;
-    p.* = q.*;
-    q.* = tmp;
-  };
-  swap(*!(p.x), *!(y));
+main :: (() -> ()) {
+  malloc();
 };

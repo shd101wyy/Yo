@@ -2176,12 +2176,14 @@ ${exprToString(rhs)}`
           ...variable,
           isUndefined: false,
           value: rhs.$?.value,
+          type: rhsType,
         });
       } else if (variable.isMutable) {
         // Update the variable value
         env = updateExistingVariable(env, variable, {
           ...variable,
           value: rhs.$?.value,
+          type: rhsType,
         });
       } else {
         throw this.formatErrorMessage(
@@ -3775,21 +3777,16 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     ) {
       // Handle tuple-style parameter list: (param1: Type1, param2: Type2)
       argList = argListExpr.args;
-    } else if (
-      exprIsAtom(argListExpr) ||
-      (exprIsFunctionCall(argListExpr) &&
-        (exprIsFunctionCallOf(argListExpr, ":", 2) ||
-          exprIsFunctionCallOf(argListExpr, "=", 2)))
-    ) {
-      argList = [argListExpr];
     } else {
+      argList = [argListExpr];
+    } /* else {
       throw this.formatErrorMessage(
         argListExpr.token,
         `Expected tuple for function parameters, got:\n${exprToString(
           argListExpr
         )}`
       );
-    }
+    }*/
 
     // Evaluate the parameter list
     const {
@@ -7443,6 +7440,72 @@ Got:   ${typeToString(argType)}`
     }
   }
 
+  /**
+   * Evaluate a linear pointer call
+   * For example:
+   *
+   *
+   */
+  private evaluateLinearPointerCall({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    const pointerTypeKind: TypeTag.LinearPtr | TypeTag.MutLinearPtr =
+      exprIsFunctionCallOf(expr, BuiltinKeywords.LinearPtr)
+        ? TypeTag.LinearPtr
+        : TypeTag.MutLinearPtr;
+
+    const argExpr = expr.args[0]!;
+    const evaluatedArgExpr = this.evaluateExpression({
+      expr: argExpr,
+      env,
+      context: {
+        ...context,
+        expectedType: undefined,
+        SelfType: undefined,
+      },
+    });
+
+    if (!evaluatedArgExpr.$) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Failed to evaluate the argument expression for pointer:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    env = evaluatedArgExpr.$.env;
+
+    // Check if the argExpr is a type
+    if (isTypeValue(evaluatedArgExpr.$.value)) {
+      const typeValue = evaluatedArgExpr.$.value;
+      const baseType = typeValue.value;
+      // Create the pointer type
+      const pointerType =
+        pointerTypeKind === TypeTag.LinearPtr
+          ? createLinearPtrType(baseType)
+          : createMutLinearPtrType(baseType);
+      const typeValueForPointer = createTypeValue(pointerType);
+      expr.$ = {
+        env,
+        type: typeValueForPointer.type,
+        value: typeValueForPointer,
+        isMutable: false,
+      };
+      return expr;
+    } else {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected type for linear pointer, got:\n${exprToString(argExpr)}`
+      );
+    }
+  }
+
   private evaluateExpression({
     expr,
     env,
@@ -7572,6 +7635,16 @@ ${exprToString(expr)}`
           context: { ...context },
         });
       } else if (
+        exprIsFunctionCallOf(expr, BuiltinKeywords.LinearPtr, 1) ||
+        exprIsFunctionCallOf(expr, BuiltinKeywords.MutLinearPtr, 1)
+      ) {
+        // ^ or ^! linear pointers
+        return this.evaluateLinearPointerCall({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
         exprIsFunctionCallOf(expr, BuiltinFunctions.AreTypesCompatible, 2)
       ) {
         // are_types_compatible
@@ -7581,12 +7654,6 @@ ${exprToString(expr)}`
           context: { ...context },
         });
       } else if (
-        (context.isEvaluatingExprAsType &&
-          exprIsFunctionCall(expr) &&
-          (exprIsFunctionCallOf(expr, BuiltinKeywords.MutLinearPtr, 1) ||
-            exprIsFunctionCallOf(expr, BuiltinKeywords.LinearPtr, 1) ||
-            exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1) ||
-            exprIsFunctionCallOf(expr, BuiltinKeywords.Ptr, 1))) ||
         exprIsFunctionCallOf(expr, BuiltinKeywords.MutRef, 1) ||
         exprIsFunctionCallOf(expr, BuiltinKeywords.Ref, 1)
       ) {
