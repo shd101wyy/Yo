@@ -60,7 +60,9 @@ import {
   isModuleType,
   isMutLinearPtrType,
   isMutPtrType,
+  isMutRefType,
   isPtrType,
+  isRefType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -4210,6 +4212,19 @@ compt(${exprToString(returnTypeExpr)})`
           isMutable: isMutLinearPtrType(linearType),
         };
         return expr;
+      } else if (
+        isRefType(objectExpr.$?.type) ||
+        isMutRefType(objectExpr.$?.type)
+      ) {
+        const refType = objectExpr.$.type;
+        const baseType = refType.type;
+        expr.$ = {
+          env,
+          type: baseType,
+          value: undefined,
+          isMutable: isMutRefType(refType),
+        };
+        return expr;
       }
     }
 
@@ -7302,7 +7317,7 @@ Got:   ${typeToString(argType)}`
     return expr;
   }
 
-  private evaluatePointerOrReferenceType({
+  private evaluateReferenceCall({
     expr,
     env,
     context,
@@ -7311,22 +7326,10 @@ Got:   ${typeToString(argType)}`
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (
-      !exprIsFunctionCall(expr) ||
-      !(
-        exprIsFunctionCallOf(expr, BuiltinKeywords.MutLinearPtr, 1) ||
-        exprIsFunctionCallOf(expr, BuiltinKeywords.LinearPtr, 1) ||
-        exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1) ||
-        exprIsFunctionCallOf(expr, BuiltinKeywords.Ptr, 1) ||
-        exprIsFunctionCallOf(expr, BuiltinKeywords.MutRef, 1) ||
-        exprIsFunctionCallOf(expr, BuiltinKeywords.Ref, 1)
-      )
-    ) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected pointer or reference type, got:\n${exprToString(expr)}`
-      );
-    }
+    const referenceTypeKind: TypeTag.Ref | TypeTag.MutRef =
+      exprIsFunctionCallOf(expr, BuiltinKeywords.Ref)
+        ? TypeTag.Ref
+        : TypeTag.MutRef;
 
     const argExpr = expr.args[0]!;
     const evaluatedArgExpr = this.evaluateExpression({
@@ -7334,54 +7337,66 @@ Got:   ${typeToString(argType)}`
       env,
       context: {
         ...context,
-        isEvaluatingExprAsType: true,
         expectedType: undefined,
         SelfType: undefined,
       },
     });
-    if (evaluatedArgExpr.$?.env) {
-      env = evaluatedArgExpr.$.env;
-    }
 
-    // Check if the argExpr is a type
-    if (!isTypeValue(evaluatedArgExpr.$?.value)) {
+    if (!evaluatedArgExpr.$) {
       throw this.formatErrorMessage(
         argExpr.token,
-        `Expected type for pointer or reference type, got:\n${exprToString(argExpr)}`
+        `Failed to evaluate the argument expression for reference:\n${exprToString(
+          argExpr
+        )}`
       );
     }
-    const argType = evaluatedArgExpr.$.value.value;
+    env = evaluatedArgExpr.$.env;
 
-    // Create the pointer or reference type
-    let pointerOrReferenceType: Type;
-    if (exprIsFunctionCallOf(expr, BuiltinKeywords.MutLinearPtr)) {
-      pointerOrReferenceType = createMutLinearPtrType(argType);
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.LinearPtr)) {
-      pointerOrReferenceType = createLinearPtrType(argType);
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr)) {
-      pointerOrReferenceType = createMutPtrType(argType);
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Ptr)) {
-      pointerOrReferenceType = createPtrType(argType);
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.MutRef)) {
-      pointerOrReferenceType = createMutRefType(argType);
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Ref)) {
-      pointerOrReferenceType = createRefType(argType);
+    // Check if the argExpr is a type
+    if (isTypeValue(evaluatedArgExpr.$.value)) {
+      const typeValue = evaluatedArgExpr.$.value;
+      const baseType = typeValue.value;
+      // Create the pointer type
+      const referenceType =
+        referenceTypeKind === TypeTag.Ref
+          ? createRefType(baseType)
+          : createMutRefType(baseType);
+      const typeValueForPointer = createTypeValue(referenceType);
+      expr.$ = {
+        env,
+        type: typeValueForPointer.type,
+        value: typeValueForPointer,
+        isMutable: false,
+      };
+      return expr;
     } else {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Unknown pointer or reference type: ${exprToString(expr)}`
-      );
-    }
+      const argType = evaluatedArgExpr.$.type;
+      const referenceType =
+        referenceTypeKind === TypeTag.Ref
+          ? createRefType(argType)
+          : createMutRefType(argType);
 
-    // Set the type and value of the expr
-    const typeValue = createTypeValue(pointerOrReferenceType);
-    expr.$ = {
-      env,
-      type: typeValue.type,
-      value: typeValue,
-      isMutable: false,
-    };
-    return expr;
+      // Check if we are creating a mutable pointer to an immutable value
+      if (
+        referenceTypeKind === TypeTag.MutRef &&
+        !evaluatedArgExpr.$.isMutable
+      ) {
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Cannot create a mutable reference to the immutable:\n${exprToString(
+            argExpr
+          )}`
+        );
+      }
+
+      expr.$ = {
+        env,
+        type: referenceType,
+        value: undefined, // reference is only available for runtime
+        isMutable: referenceTypeKind === TypeTag.MutRef,
+      };
+      return expr;
+    }
   }
 
   /**
@@ -7678,6 +7693,16 @@ ${exprToString(expr)}`
           context: { ...context },
         });
       } else if (
+        exprIsFunctionCallOf(expr, BuiltinKeywords.MutRef, 1) ||
+        exprIsFunctionCallOf(expr, BuiltinKeywords.Ref, 1)
+      ) {
+        // & or &! references
+        return this.evaluateReferenceCall({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
         exprIsFunctionCallOf(expr, BuiltinFunctions.AreTypesCompatible, 2)
       ) {
         // are_types_compatible
@@ -7685,16 +7710,6 @@ ${exprToString(expr)}`
           expr,
           env,
           context: { ...context },
-        });
-      } else if (
-        exprIsFunctionCallOf(expr, BuiltinKeywords.MutRef, 1) ||
-        exprIsFunctionCallOf(expr, BuiltinKeywords.Ref, 1)
-      ) {
-        // pointers or references
-        return this.evaluatePointerOrReferenceType({
-          expr,
-          env,
-          context: { ...context, isEvaluatingExprAsType: true },
         });
       } else {
         /* 

@@ -1,26 +1,12 @@
-extern
-  malloc:
-    ()-> ^!(i32),
-  free:
-    (^!(i32))-> ()
-;
+// 2nd-class reference
 
-func1 :: (() -> ()) {
-  x := malloc();
-  x.* = 13;
-  free(x);
-};
+main :: (() -> ()) {
+  I32Ref :: &(i32);
+  I32MutRef :: &!(i32);
 
-func2 :: (() -> ()) {
-  x := malloc();
-  y := x;
-  // z := x; // Cannot use again.
-  // free(x); // Cannot use again
-  free(y);
-};
-
-func3 :: (() -> ()) {
-  x := malloc();
-  free(x);
-  // y := x; // Cannot use again.
+  swap :: ((p: &!(i32), q: &!(i32)) -> ()) {
+    tmp := p.*;
+    p.* = q.*;
+    q.* = tmp;
+  };
 };
