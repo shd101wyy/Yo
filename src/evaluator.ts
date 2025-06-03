@@ -6195,7 +6195,16 @@ Got:   ${typeToString(argType)}`
     const functionBodyExpr = argExprs[0]!;
 
     // Add parameters to the env new frame
-    let env = pushEnvFrame(callerEnv, functionType.parametersFrame);
+    let env = pushEnvFrame(
+      pushEnvFrame(
+        createNewEnv({
+          modulePath: this.modulePath,
+          inputString: this.inputString,
+        }),
+        callerEnv.frames[0] // TODO: For closure, we use different env.
+      ),
+      functionType.parametersFrame
+    );
 
     // Create the function value
     const functionValue: FunctionValue = {
@@ -6248,7 +6257,7 @@ Got:   ${typeToString(argType)}`
 
     // Set the function type and value
     expr.$ = {
-      env,
+      env: callerEnv,
       value: functionValue,
       type: functionType,
       isMutable: false,
