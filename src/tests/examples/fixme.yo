@@ -23,7 +23,7 @@ main :: (()-> ()) {
   );
   mut(p) := Point(1, 2);
 
-  borrow (&(p.x)), (p_x_ref)-> {
+  borrow (&(p.x)), (p_x_ref) -> {
     x := p_x_ref.*;
     // p.x = 13; // Not allowed. Because `p.x` is borrowed.
 
@@ -33,5 +33,16 @@ main :: (()-> ()) {
     // p = Point(4, 5); // Error, because `p.x` is borrowed.
                      // Path `p.x` contains the path `p`.
                      // So path `p.x` conflicts with the path`p`.
-  }
+  };
+
+  swap :: 
+    ((x: &!(i32), y: &!(i32)) -> ()) {
+      temp := x.*;
+      x.* = y.*;
+      y.* = temp;
+  };
+  // swap(&!(x), &!(x)); // error, because `x` is borrowed multiple times.
+  swap(&!(p.x), &!(p.y)); // Allowed, because `p.x` and `p.y` are different paths.
+  // swap(&!(p.x), &!(p.x)); // Error, because `p.x` is borrowed multiple times.
+  swap(&!(p.x), &!(x)); // Allowed, because `p.x` and `x` are different paths.
 };

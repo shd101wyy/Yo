@@ -5384,7 +5384,11 @@ ${exprToString(expr)}`
     calleeEnv: Environment;
     callerEnv: Environment;
     context: EvaluatorContext;
-  }): { calleeEnv: Environment; callerEnv: Environment } {
+  }): {
+    calleeEnv: Environment;
+    callerEnv: Environment;
+    context: EvaluatorContext;
+  } {
     // NOTE: We don't support named argument.
     // But we support to use label for readibility.
     // eg: add(1, 2) vs add(x: 1, y: 2)
@@ -5443,6 +5447,7 @@ ${exprToString(expr)}`
 
     // Evaluate the argExpr
     let evaluatedArgExpr: Expr | undefined = undefined;
+    let borrowings = context.borrowings;
     try {
       if (
         !argExpr ||
@@ -5494,6 +5499,23 @@ ${exprToString(expr)}`
         argExpr?.token ?? PlaceholderToken,
         `Failed to evaluate argument expression.`
       );
+    }
+
+    // Check the borrowings
+    if (
+      isMutRefType(evaluatedArgExpr.$?.type) ||
+      isRefType(evaluatedArgExpr.$?.type)
+    ) {
+      checkBorrowings(context.borrowings, evaluatedArgExpr);
+
+      // Add evaluated arg expr to the borrowings
+      borrowings = borrowings.concat([
+        {
+          expr: evaluatedArgExpr,
+          type: evaluatedArgExpr.$.type,
+          pathCollection: evaluatedArgExpr.$.pathCollection,
+        },
+      ]);
     }
 
     const argType = evaluatedArgExpr.$?.type;
@@ -5570,7 +5592,7 @@ ${exprToString(expr)}`
     Got:   ${typeToString(argType)}`
       );
     }
-    return { calleeEnv, callerEnv };
+    return { calleeEnv, callerEnv, context: { ...context, borrowings } };
   }
 
   /**
@@ -5854,17 +5876,21 @@ Got:   ${typeToString(typeValue.type)}`
     for (let i = 0; i < functionType.parameters.length; i++) {
       const parameter = functionType.parameters[i]!;
       const argExpr: Expr | undefined = argExprs[i];
-      const { calleeEnv: nextCalleeEnv, callerEnv: nextCallerEnv } =
-        this.checkIfFunctionParameterMatchesArgument({
-          functionValue,
-          parameter,
-          argExpr,
-          callerEnv,
-          calleeEnv,
-          context,
-        });
+      const {
+        calleeEnv: nextCalleeEnv,
+        callerEnv: nextCallerEnv,
+        context: nextContext,
+      } = this.checkIfFunctionParameterMatchesArgument({
+        functionValue,
+        parameter,
+        argExpr,
+        callerEnv,
+        calleeEnv,
+        context,
+      });
       calleeEnv = nextCalleeEnv;
       callerEnv = nextCallerEnv;
+      context = nextContext;
     }
 
     // Check if the implicit parameters are provided
