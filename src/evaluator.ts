@@ -1844,7 +1844,7 @@ Please consider to write it as:
       env,
       type: userDefinedType,
       isMutable,
-      pathCollection: [],
+      pathCollection: [[variableName]],
     };
 
     expr.$ = {
@@ -2043,6 +2043,9 @@ ${exprToString(expr)}`
           `Assigning reference to variable is not allowed.`
         );
       }
+
+      // Check the borrowings
+      checkBorrowings(context.borrowings, rhs);
 
       // Add .typeName info if necessary
       const rhsValue = rhs.$?.value;
@@ -2281,8 +2284,10 @@ ${exprToString(rhs)}`
         type: rhsType,
         value: variable.isCompileTimeOnly ? rhs.$?.value : undefined,
         isMutable: variable.isMutable,
-        pathCollection: [],
+        pathCollection: [[variableName]],
       };
+      // Check the borrowings
+      checkBorrowings(context.borrowings, lhs);
 
       expr.$ = {
         env,
@@ -2316,6 +2321,9 @@ ${exprToString(rhs)}`
           `Cannot assign value to the immutable: ${exprToString(lhs)}`
         );
       }
+
+      // Check the borrowings
+      checkBorrowings(context.borrowings, evaluatedLhs);
 
       const expectedType = evaluatedLhs.$.type;
 
@@ -3179,7 +3187,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           type: variable.type,
           value: variable.value,
           isMutable: variable.isMutable,
-          tempVariableName: variable.name, // NOTE: The tempVariableName here is the variable name itself.
+          variableName: variable.name, // NOTE: The tempVariableName here is the variable name itself.
           pathCollection: [[variable.name]],
         };
         return expr;
@@ -4458,7 +4466,12 @@ compt(${exprToString(returnTypeExpr)})`
             type: tupleElement.type,
             isMutable: objectExpr.$.isMutable,
             isAccessingProperty: true,
-            pathCollection: [],
+            pathCollection: [
+              [
+                objectExpr.$.variableName ?? "?", // FIXME
+                propertyExpr.token.value,
+              ],
+            ],
           };
           propertyExpr.$ = expr.$;
 
@@ -4504,7 +4517,12 @@ compt(${exprToString(returnTypeExpr)})`
               type: tupleElement.type,
               isMutable: objectExpr.$.isMutable,
               isAccessingProperty: true,
-              pathCollection: [],
+              pathCollection: [
+                [
+                  objectExpr.$.variableName ?? "?", // FIXME
+                  propertyExpr.token.value,
+                ],
+              ],
             };
             propertyExpr.$ = expr.$;
 
@@ -7491,10 +7509,6 @@ Got:   ${typeToString(argType)}`
         type: evaluatedBorrowedValueExpr.$.type,
         pathCollection: evaluatedBorrowedValueExpr.$.pathCollection,
       });
-      console.log(`expr: ${exprToString(borrowedValueExpr)}`);
-      console.log(`pathCollection: `);
-      console.log(evaluatedBorrowedValueExpr.$.pathCollection);
-      console.log("");
       checkBorrowings(borrowings);
     }
 

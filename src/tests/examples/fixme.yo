@@ -2,7 +2,6 @@
 
 main :: (()-> ()) {
   mut(x) := 12;
-
   /*
   borrow (&(x), &!(x)), (x_ref, x_mut_ref)-> {
     // ^ Error. Cannot borrow `x` as mutable and immutable at the same time.
@@ -13,12 +12,11 @@ main :: (()-> ()) {
 
   borrow (&(x)), (x_ref)-> {
     y := x_ref.*;
-
-    z := x; // error, because `x` is borrowed.
-    x = 13; // error, because `x` is borrowed.
+    // z := x; // error, because `x` is borrowed.
+    // x = 13; // error, because `x` is borrowed.
             // assignment here is like using the mutable reference of `x`
   };
-  /*
+
   Point :: struct(
     x: i32,
     y: i32
@@ -27,13 +25,13 @@ main :: (()-> ()) {
 
   borrow (&(p.x)), (p_x_ref)-> {
     x := p_x_ref.*;
+    // p.x = 13; // Not allowed. Because `p.x` is borrowed.
 
     p.y = 3; // Allowed, because only `p.x` is borrowed.
              // There is no path overlap with `p.y`.
 
-    p = Point(4, 5); // Error, because `p.x` is borrowed.
+    // p = Point(4, 5); // Error, because `p.x` is borrowed.
                      // Path `p.x` contains the path `p`.
                      // So path `p.x` conflicts with the path`p`.
   }
-  */
 };

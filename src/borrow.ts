@@ -12,14 +12,14 @@ export interface Borrowing {
   pathCollection: PathCollection;
 }
 
-export function checkBorrowings(borrowings: Borrowing[]): void {
+export function checkBorrowings(borrowings: Borrowing[], expr?: Expr): void {
   const mutableBorrowings = borrowings.filter((b) => isMutRefType(b.type));
+  for (let i = 0; i < mutableBorrowings.length; i++) {
+    const mutableBorrowing = mutableBorrowings[i]!;
 
-  for (let i = 0; i < borrowings.length; i++) {
-    const borrowing = borrowings[i]!;
-
-    for (let j = 0; j < mutableBorrowings.length; j++) {
-      const mutableBorrowing = mutableBorrowings[j]!;
+    // Check against all other borrowings
+    for (let j = 0; j < borrowings.length; j++) {
+      const borrowing = borrowings[j]!;
       if (borrowing === mutableBorrowing) {
         continue; // Skip if it's the same borrowing
       }
@@ -52,12 +52,40 @@ export function checkBorrowings(borrowings: Borrowing[]): void {
           inputString: borrowing.expr.$!.env.inputString,
           tokenAndErrorList: [
             {
-              errorMessage: `Borrowing conflict detected`,
+              errorMessage: `Borrow conflict detected`,
               token: borrowing2.expr.token,
             },
             {
-              errorMessage: `Previous borrowing`,
+              errorMessage: `Previous borrowed`,
               token: borrowing1.expr.token,
+            },
+          ],
+        });
+      }
+    }
+  }
+
+  // Check against expr if provided
+  if (expr && expr.$) {
+    for (let i = 0; i < borrowings.length; i++) {
+      const borrowing = borrowings[i]!;
+      if (
+        pathCollectionConflictsWithPathCollection(
+          borrowing.pathCollection,
+          expr.$.pathCollection
+        )
+      ) {
+        throw formatErrorMessages({
+          modulePath: expr.$!.env.modulePath,
+          inputString: expr.$!.env.inputString,
+          tokenAndErrorList: [
+            {
+              errorMessage: `Borrow conflict detected`,
+              token: expr.token,
+            },
+            {
+              errorMessage: `Previous borrowed`,
+              token: borrowing.expr.token,
             },
           ],
         });

@@ -92,7 +92,7 @@ export interface EvaluatedExprData {
   /**
    * If this is given, then it means there is a temporary variable holding the value in the `env` above.
    */
-  tempVariableName?: string;
+  variableName?: string;
   /**
    * Check if the value returned from the expression is mutable.
    * For exampe:
@@ -356,7 +356,7 @@ ${exprToString(expr)}`);
     },
   });
 
-  expr.$.tempVariableName = tempVariableName;
+  expr.$.variableName = tempVariableName;
   expr.$.env = nextEnv;
 }
 
@@ -378,7 +378,7 @@ export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
     });
   }
 
-  const nameOfVariableToConsume = expr.$?.tempVariableName;
+  const nameOfVariableToConsume = expr.$?.variableName;
   if (!nameOfVariableToConsume) {
     return env;
     /*
