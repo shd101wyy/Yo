@@ -6816,6 +6816,29 @@ Got:   ${typeToString(argType)}`
       );
     }
 
+    // Prevent return reference to the local variable.
+    const returnType = lastExpr.$.type;
+    if (isRefType(returnType) || isMutRefType(returnType)) {
+      // Check the path
+      const pathCollection = lastExpr.$.pathCollection;
+      for (let i = 0; i < pathCollection.length; i++) {
+        const path = pathCollection[i]!;
+        const variableName = path[0]!;
+        if (variableName) {
+          // Check if the variable name is a local variable
+          const frame = env.frames[env.frames.length - 1]!;
+          const variable = frame.variables.find((v) => v.name === variableName);
+          if (variable) {
+            // If the variable is a local variable, we cannot return a reference to it
+            throw this.formatErrorMessage(
+              lastExpr.token,
+              `Cannot return a reference to the local variable "${variableName}" in the "begin" expression.`
+            );
+          }
+        }
+      }
+    }
+
     // Pop the environment frame
     env = popEnvFrame(env);
 
@@ -7782,6 +7805,46 @@ Got:   ${typeToString(argType)}`
     return expr;
   }
 
+  /**
+   * Expect having compile error
+   */
+  private evaluateExpectCompileError({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    const argExpr = expr.args[0]!;
+
+    try {
+      // Evaluate the expression
+      this.evaluateExpression({
+        expr: argExpr,
+        env,
+        context: {
+          ...context,
+        },
+      });
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected compile error, but the expression was evaluated successfully:\n${exprToString(argExpr)}`
+      );
+    } catch (error) {
+      // The error is expected, so we do nothing
+      expr.$ = {
+        env,
+        type: VUnit.type,
+        value: VUnit,
+        isMutable: false,
+        pathCollection: [],
+      };
+      return expr;
+    }
+  }
+
   private evaluateReferenceCall({
     expr,
     env,
@@ -8185,6 +8248,15 @@ ${exprToString(expr)}`
       ) {
         // are_types_compatible
         return this.evaluateAreTypesCompatible({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.expect_compile_error, 1)
+      ) {
+        // expect_compile_error
+        return this.evaluateExpectCompileError({
           expr,
           env,
           context: { ...context },

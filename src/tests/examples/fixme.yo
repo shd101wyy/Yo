@@ -2,19 +2,25 @@
 
 main :: (()-> ()) {
   mut(x) := 12;
-  /*
-  borrow (&(x), &!(x)), (x_ref, x_mut_ref)-> {
-    // ^ Error. Cannot borrow `x` as mutable and immutable at the same time.
-    y := x_ref.*;
-    y := x_mut_ref.*;
-  };
-  */
+
+  expect_compile_error(
+    // "Cannot borrow `x` as mutable and immutable at the same time.",
+    borrow (&(x), &!(x)), (x_ref, x_mut_ref)-> {
+      // ^ Error. Cannot borrow `x` as mutable and immutable at the same time.
+      y := x_ref.*;
+      y := x_mut_ref.*;
+    }
+  );
 
   borrow (&(x)), (x_ref)-> {
     y := x_ref.*;
-    // z := x; // error, because `x` is borrowed.
-    // x = 13; // error, because `x` is borrowed.
-            // assignment here is like using the mutable reference of `x`
+    expect_compile_error(
+      z := x // error, because `x` is borrowed.
+    );
+    expect_compile_error(
+      x = 13 // error, because `x` is borrowed.
+          // assignment here is like using the mutable reference of `x`
+    );
   };
 
   Point :: struct(
@@ -25,14 +31,19 @@ main :: (()-> ()) {
 
   borrow (&(p.x)), (p_x_ref) -> {
     x := p_x_ref.*;
-    // p.x = 13; // Not allowed. Because `p.x` is borrowed.
+    
+    expect_compile_error(
+      p.x = 13 // Not allowed. Because `p.x` is borrowed.
+    );
 
     p.y = 3; // Allowed, because only `p.x` is borrowed.
              // There is no path overlap with `p.y`.
 
-    // p = Point(4, 5); // Error, because `p.x` is borrowed.
+    expect_compile_error(
+      p = Point(4, 5) // Error, because `p.x` is borrowed.
                      // Path `p.x` contains the path `p`.
                      // So path `p.x` conflicts with the path`p`.
+    );
   };
 
   swap :: 
@@ -41,8 +52,31 @@ main :: (()-> ()) {
       x.* = y.*;
       y.* = temp;
   };
-  // swap(&!(x), &!(x)); // error, because `x` is borrowed multiple times.
+  
+  expect_compile_error(
+    swap(&!(x), &!(x)) // error, because `x` is borrowed multiple times.
+  );
+  
   swap(&!(p.x), &!(p.y)); // Allowed, because `p.x` and `p.y` are different paths.
-  // swap(&!(p.x), &!(p.x)); // Error, because `p.x` is borrowed multiple times.
+  
+  expect_compile_error(
+    swap(&!(p.x), &!(p.x)) // Error, because `p.x` is borrowed multiple times.
+  );
+  
   swap(&!(p.x), &!(x)); // Allowed, because `p.x` and `x` are different paths.
+
+
+  // fn returns local reference
+  expect_compile_error(
+    return_local_ref :: (()-> &(i32)) {
+      x := 12;
+      &(x)
+    }
+  );
+
+  // fn return parameter taht is reference is allowed
+  return_param :: ((x: &(i32)) -> &(i32)) {
+    a := 12;
+    x
+  };
 };
