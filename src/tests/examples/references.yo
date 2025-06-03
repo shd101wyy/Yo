@@ -1,7 +1,10 @@
 // 2nd-class reference
+Data :: struct(x: &(i32));
+
 main :: (() -> ()) {
-  I32Ref :: &(i32);
-  I32MutRef :: &!(i32);
+  // Create reference types
+  I32Ref :: &(i32); // immutable reference
+  I32MutRef :: &!(i32); // mutable reference
 
   swap :: ((p: &!(i32), q: &!(i32)) -> ()) {
     tmp := p.*;
@@ -14,9 +17,22 @@ main :: (() -> ()) {
   !(y) := 13;
   // p := &(x); // This is not allowed.
   swap(&!(x), &!(y));
-
   swap(&!(x), &!(x)); // FIXME: This shouldn't be allowed.
                       // Because we cannot create multiple references
                       // to the same variable.
                       // Their paths overlap.
+
+  return_ref :: (()-> &(i32)) {
+    x := 1;
+    &(x) // FIXME: Return a reference to local variable is prohibited.
+  };
+
+  return_ref_2 :: ((p: &(i32))-> &(i32)) {
+    x := 1;
+    p // Return the reference that is not created in the function body is allowed.
+  };
+
+  return_ref_3 :: ((p: &(i32))-> Data)
+    Data(p) // Return the reference that is not created in the function body is allowed.
+  ;
 };

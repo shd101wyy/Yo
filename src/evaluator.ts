@@ -3183,7 +3183,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
 
     // Evaluate the function body
-    const evaluatedBody = this.evaluateExpression({
+    const evaluatedBody = this.evaluateBeginExpression({
       expr: functionBodyExpr,
       env,
       context: {
@@ -4966,7 +4966,7 @@ ${functionsWithMatchingTypes
             `Function value is not defined`
           );
         }
-        const { value: returnValue, env: nextEnv } =
+        const { value: returnValue, callerEnv: nextEnv } =
           this.evaluateTypeFunctionCall({
             functionCallExpr: expr,
             functionType,
@@ -4978,7 +4978,7 @@ ${functionsWithMatchingTypes
             },
           });
 
-        env = nextEnv;
+        env = popEnvFrame(nextEnv);
         expr.$ = {
           env,
           type: returnValue.type,
@@ -5008,7 +5008,7 @@ ${functionsWithMatchingTypes
             SelfType: functionType.SelfType,
           },
         });
-        env = callerEnv;
+        env = popEnvFrame(callerEnv);
         expr.$ = {
           env,
           type: returnType,
@@ -5892,7 +5892,7 @@ Got:   ${typeToString(argType)}`
       // =====
 
       // Check in the env if implicit variable of such type exists
-      const implicitVariables = getVariablesFromEnvByFilter(
+      let implicitVariables = getVariablesFromEnvByFilter(
         callerEnv,
         (variable) => {
           if (
@@ -5966,6 +5966,14 @@ Got:   ${typeToString(argType)}`
           return false;
         }
       );
+      // Get the max frame level of the implicit variables
+      // This is to ensure that we get the most recent implicit variable
+      const maxImplicitVariableFrameLevel = Math.max(
+        ...implicitVariables.map((variable) => variable.frameLevel)
+      );
+      implicitVariables = implicitVariables.filter(
+        (variable) => variable.frameLevel === maxImplicitVariableFrameLevel
+      );
 
       if (implicitVariables.length === 0) {
         throw this.formatErrorMessage(
@@ -6005,6 +6013,7 @@ ${implicitVariables
           isImplicit: false,
           value: implicitVariable.value,
         },
+        skipCheckingFunctionOverloading: true,
       });
       calleeEnv = nextEnv;
     }
@@ -6201,7 +6210,7 @@ Got:   ${typeToString(argType)}`
     };
 
     // Evaluate the function body
-    const evaluatedFunctionBody = this.evaluateExpression({
+    const evaluatedFunctionBody = this.evaluateBeginExpression({
       expr: functionBodyExpr,
       env,
       context: {
@@ -6471,7 +6480,7 @@ Got:   ${typeToString(argType)}`
     argExprs: Expr[];
     callerEnv: Environment;
     context: EvaluatorContext;
-  }): { value: TypeValue; env: Environment } {
+  }): { value: TypeValue; callerEnv: Environment } {
     // This will push a new frame to the function env and
     // add the parameters to the env
     const { calleeEnv, callerEnv: nextCallerEnv } =
@@ -6537,7 +6546,7 @@ Got:   ${typeToString(argType)}`
       if (calledTypeFunction) {
         // Find the cache
         return {
-          env: callerEnv,
+          callerEnv: callerEnv,
           value: calledTypeFunction.typeValue,
         };
       }
@@ -6546,7 +6555,7 @@ Got:   ${typeToString(argType)}`
     // Evaluate functionValue.body with the function env
     const functionBodyExpr = functionValue.body;
     // NOTE: We should use the env from the function, not the current env.
-    const evaluatedFunctionBody = this.evaluateExpression({
+    const evaluatedFunctionBody = this.evaluateBeginExpression({
       expr: functionBodyExpr,
       env: calleeEnv,
       context: { ...context, isEvaluatingExprAsType: false },
@@ -6594,7 +6603,7 @@ Got:   ${typeToString(argType)}`
 
     return {
       value: returnValue,
-      env: callerEnv,
+      callerEnv: callerEnv,
     };
   }
 
@@ -6603,22 +6612,24 @@ Got:   ${typeToString(argType)}`
     env,
     context,
   }: {
-    expr: FuncCallExpr;
+    expr: Expr;
     env: Environment;
     context: EvaluatorContext;
-  }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.begin)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "begin", got:\n${exprToString(expr)}`
-      );
+  }): Expr {
+    let beginExpressions: Expr[] = [];
+    if (
+      !exprIsFunctionCall(expr) ||
+      !exprIsFunctionCallOf(expr, BuiltinKeywords.begin)
+    ) {
+      beginExpressions = [expr];
+    } else {
+      beginExpressions = expr.args;
     }
-    const exprs = expr.args;
     const expectedType = context.expectedType;
 
     // Empty begin
     // return unit
-    if (exprs.length === 0) {
+    if (beginExpressions.length === 0) {
       expr.$ = {
         env,
         type: VUnit.type,
@@ -6632,21 +6643,22 @@ Got:   ${typeToString(argType)}`
     env = pushEnvFrame(env);
 
     // Evaluate expressions
-    for (let i = 0; i < exprs.length; i++) {
+    for (let i = 0; i < beginExpressions.length; i++) {
       const evaluatedExpr = this.evaluateExpression({
-        expr: exprs[i]!,
+        expr: beginExpressions[i]!,
         env,
         context: {
           ...context,
           isEvaluatingExprAsType: false,
-          expectedType: i === exprs.length - 1 ? expectedType : undefined,
+          expectedType:
+            i === beginExpressions.length - 1 ? expectedType : undefined,
         },
       });
       if (evaluatedExpr.$?.env) {
         env = evaluatedExpr.$?.env;
       }
     }
-    const lastExpr = exprs[exprs.length - 1]!;
+    const lastExpr = beginExpressions[beginExpressions.length - 1]!;
     if (!lastExpr.$) {
       throw this.formatErrorMessage(
         lastExpr.token,
