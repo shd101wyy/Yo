@@ -7,6 +7,7 @@ import {
   getMethodsByNameFromEnv,
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
+  keepComptimeVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
   updateExistingVariable,
@@ -6196,13 +6197,8 @@ Got:   ${typeToString(argType)}`
 
     // Add parameters to the env new frame
     let env = pushEnvFrame(
-      pushEnvFrame(
-        createNewEnv({
-          modulePath: this.modulePath,
-          inputString: this.inputString,
-        }),
-        callerEnv.frames[0] // TODO: For closure, we use different env.
-      ),
+      // QUESTION: Allow to keep the comptime variables, but not the runtime ones?
+      keepComptimeVariablesFromEnv(callerEnv),
       functionType.parametersFrame
     );
 

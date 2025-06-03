@@ -582,3 +582,24 @@ export function getMethodsByNameFromEnv(
 
   return methods;
 }
+
+/**
+ * This function will remove all runtime variables from the environment.
+ * @param env Environment
+ */
+export function keepComptimeVariablesFromEnv(env: Environment): Environment {
+  const newFrames = env.frames.map((frame) => {
+    const newVariables = frame.variables.filter(
+      (variable) => variable.isCompileTimeOnly
+    );
+    return { ...frame, variables: newVariables };
+  });
+
+  return {
+    functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
+    freeVariables: env.freeVariables,
+    frames: newFrames,
+    modulePath: env.modulePath,
+    inputString: env.inputString,
+  };
+}
