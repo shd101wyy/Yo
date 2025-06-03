@@ -20,15 +20,17 @@ import {
   valueToString,
 } from "./value";
 
+/*
 export type ReferedVariable = {
   frameLevel: number;
   variableName: string;
   isMutableReference: boolean;
-  /**
-   * token where the reference is created
-   */
+  //
+  // token where the reference is created
+  //
   token: Token;
 };
+*/
 
 export interface Variable {
   /**
@@ -78,7 +80,7 @@ export interface Variable {
   /* This is only used for temp variable, check the
    * tempVariableName of the ReferenceExpr of AstType.Reference
    */
-  referedVariable?: ReferedVariable;
+  // referedVariable?: ReferedVariable;
 
   /**
    * frameLevel is the level of the frame where the value is defined.
@@ -441,7 +443,7 @@ export function setEnvVariableAsConsumed({
   env: Environment;
   variableName: string;
   consumedAtToken: Token;
-}): { env: Environment; referedVariable?: ReferedVariable } {
+}): { env: Environment /* referedVariable?: ReferedVariable */ } {
   const variables = getVariablesFromEnv(env, variableName);
   if (variables.length === 0) {
     throw formatErrorMessages({
@@ -478,12 +480,12 @@ export function setEnvVariableAsConsumed({
     }
   }
 
-  const referedVariable = variable.referedVariable;
+  // const referedVariable = variable.referedVariable;
 
   const newVariableValue: Variable = { ...variable, consumedAtToken };
   return {
     env: updateExistingVariable(env, variable, newVariableValue),
-    referedVariable,
+    // referedVariable,
   };
 }
 
