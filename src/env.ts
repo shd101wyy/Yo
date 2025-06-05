@@ -198,6 +198,26 @@ export function addVariableToFrame({
   variable: Variable;
   preventDuplicate?: boolean;
 }): Frame {
+  // Check if variable already exists in the frame
+  // If yes, then report an error
+  if (frame.variables.some((value) => value.name === variable.name)) {
+    throw formatErrorMessages({
+      modulePath: env.modulePath,
+      inputString: env.inputString,
+      tokenAndErrorList: [
+        {
+          token: variable.token,
+          errorMessage: `Failed to define variable "${variable.name}":`,
+        },
+        {
+          token: frame.variables.find((value) => value.name === variable.name)!
+            .token,
+          errorMessage: `Variable "${variable.name}" is already defined here:`,
+        },
+      ],
+    });
+  }
+
   // Check if there is already a value with the same variableName
   // but is uninitialized
   const existingUndefinedVariableIndex = frame.variables.findIndex(
