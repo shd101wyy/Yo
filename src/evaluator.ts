@@ -76,6 +76,9 @@ import {
   ModuleType,
   StructType,
   TBoolean,
+  TComptFloat,
+  TComptInt,
+  TComptString,
   TF32,
   TF64,
   TFree,
@@ -97,6 +100,7 @@ import {
   Type,
   typeContainsReference,
   typeOfType,
+  typeRequiresComptModifier,
   TypeTag,
   typeToString,
 } from "./type-checker";
@@ -106,11 +110,17 @@ import { generateNewTempVariableName, randomId } from "./utils";
 import {
   areValuesEqual,
   createBooleanValue,
+  createComptFloatValue,
+  createComptIntValue,
+  createComptStringValue,
   createEnumValue,
   createModuleValue,
   createStructValue,
   createTypeValue,
   createUnknownValue,
+  isComptFloatValue,
+  isComptIntValue,
+  isComptStringValue,
   isFunctionValue,
   isModuleValue,
   isStructValue,
@@ -222,11 +232,7 @@ export default class Evaluator {
   private evaluateIntegerLiteral(expr: AtomExpr, env: Environment): AtomExpr {
     if (expr.token.type === TokenType.Integer) {
       const integerValue = parseInt(expr.token.value, 10);
-      const value: Value = {
-        tag: ValueTag.I32,
-        type: TI32,
-        value: integerValue,
-      };
+      const value = createComptIntValue(integerValue);
       expr.$ = {
         env,
         value,
@@ -239,6 +245,45 @@ export default class Evaluator {
       throw this.formatErrorMessage(
         expr.token,
         `Expected integer literal, got ${expr.tag}`
+      );
+    }
+  }
+
+  private evaluateFloatLiteral(expr: AtomExpr, env: Environment): AtomExpr {
+    if (expr.token.type === TokenType.Float) {
+      const floatValue = parseFloat(expr.token.value);
+      const value = createComptFloatValue(floatValue);
+      expr.$ = {
+        env,
+        value,
+        type: value.type,
+        isMutable: false,
+        pathCollection: [],
+      };
+      return expr;
+    } else {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected float literal, got ${expr.tag}`
+      );
+    }
+  }
+
+  private evaluateStringLiteral(expr: AtomExpr, env: Environment): AtomExpr {
+    if (expr.token.type === TokenType.String) {
+      const value = createComptStringValue(JSON.parse(expr.token.value));
+      expr.$ = {
+        env,
+        value,
+        type: value.type,
+        isMutable: false,
+        pathCollection: [],
+      };
+      return expr;
+    } else {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected string literal, got ${expr.tag}`
       );
     }
   }
@@ -1809,10 +1854,7 @@ Please consider to write it as:
       );
     }
 
-    if (
-      (isTypeHierarchyType(userDefinedType) || isModuleType(userDefinedType)) &&
-      !isCompileTimeOnly
-    ) {
+    if (typeRequiresComptModifier(userDefinedType) && !isCompileTimeOnly) {
       throw this.formatErrorMessage(
         lhs.token,
         `Expected "compt" (or "@") to for compile-time known ${
@@ -1953,21 +1995,55 @@ Please consider to write it as:
 ${exprToString(rhs)}`
       );
     }
-    // If rhs is type value, then it must be compile-time only
-    if (isTypeValue(rhs.$?.value) && !isCompileTimeOnly) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "::" instead of ":=" for type value assignment:
+    // Check some value that requires compile-time only
+    if (!isCompileTimeOnly) {
+      // If rhs is type value, then it must be compile-time only
+      if (isTypeValue(rhs.$?.value)) {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Expected "::" instead of ":=" for type value assignment:
 ${exprToString(expr)}`
-      );
-    }
-    // If rhs is module value, then it must be compile-time only
-    if (isModuleValue(rhs.$?.value) && !isCompileTimeOnly) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "::" instead of ":=" for module value assignment:
+        );
+      }
+      // If rhs is module value, then it must be compile-time only
+      else if (isModuleValue(rhs.$?.value)) {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Expected "::" instead of ":=" for module value assignment:
 ${exprToString(expr)}`
-      );
+        );
+      }
+      // If rhs is compt_int value, then it must be compile-time only
+      else if (isComptIntValue(rhs.$?.value)) {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Expected "::" instead of ":=" for compt_int value assignment:
+${exprToString(expr)}
+
+To assign it to a specific runtime integer type, please use:
+(${lhs.token.value}: i32) = ${exprToString(rhs)}`
+        );
+      }
+      // If rhs is compt_float value, then it must be compile-time only
+      else if (isComptFloatValue(rhs.$?.value)) {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Expected "::" instead of ":=" for compt_float value assignment:
+${exprToString(expr)}
+
+To assign it to a specific runtime integer type, please use:
+(${lhs.token.value}: f64) = ${exprToString(rhs)}
+`
+        );
+      }
+      // If rhs is compt_string value, then it must be compile-time only
+      else if (isComptStringValue(rhs.$?.value)) {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Expected "::" instead of ":=" for compt_string value assignment:
+${exprToString(expr)}`
+        );
+      }
     }
 
     if (exprIsAtom(lhs)) {
@@ -2140,6 +2216,11 @@ ${exprToString(rhs)}`
     }
   }
 
+  /**
+   * Evaluate assignment like
+   * (x : i32) = 12;
+   * x = 13;
+   */
   private evaluateAssignment({
     expr,
     env,
@@ -2282,7 +2363,7 @@ ${exprToString(rhs)}`
 
       lhs.$ = {
         env,
-        type: rhsType,
+        type: variable.type, // NOTE: It shouldn't be the rhsType.
         value: variable.isCompileTimeOnly ? rhs.$?.value : undefined,
         isMutable: variable.isMutable,
         pathCollection: [[variableName]],
@@ -2406,10 +2487,10 @@ ${exprToString(rhs)}`
       // Update the lhs with the new value
       evaluatedLhs.$ = {
         env,
-        type: rhsType,
+        type: expectedType, // NOTE: It shouldn't be the rhsType.
         value: rhs.$?.value,
         isMutable: evaluatedLhs.$.isMutable,
-        pathCollection: [],
+        pathCollection: evaluatedLhs.$.pathCollection,
       };
       // Return the updated expression
       return expr;
@@ -2971,6 +3052,42 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     // Linear
     else if (identifier === TypeTag.Linear) {
       const value = createTypeValue(TLinear);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
+        isMutable: false,
+        pathCollection: [],
+      };
+      return expr;
+    }
+    // compt_int
+    else if (identifier === TypeTag.ComptInt) {
+      const value = createTypeValue(TComptInt);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
+        isMutable: false,
+        pathCollection: [],
+      };
+      return expr;
+    }
+    // compt_float
+    else if (identifier === TypeTag.ComptFloat) {
+      const value = createTypeValue(TComptFloat);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
+        isMutable: false,
+        pathCollection: [],
+      };
+      return expr;
+    }
+    // compt_string
+    else if (identifier === TypeTag.ComptString) {
+      const value = createTypeValue(TComptString);
       expr.$ = {
         env,
         type: value.type,
@@ -3556,10 +3673,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           `Expected type for function parameter}`
         );
       }
-      if (
-        (isTypeHierarchyType(parameterType) || isModuleType(parameterType)) &&
-        !isCompileTimeOnly
-      ) {
+      if (typeRequiresComptModifier(parameterType) && !isCompileTimeOnly) {
         throw this.formatErrorMessage(
           lhsExpr?.token ?? expr.token,
           `Expected a "compt" (or "@") for parameter to be compile-time only.`
@@ -3971,10 +4085,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       );
     }
     const returnType = evaluatedReturnType.$?.value.value;
-    if (
-      (isTypeHierarchyType(returnType) || isModuleType(returnType)) &&
-      !isReturnTypeCompileTimeOnly
-    ) {
+    if (typeRequiresComptModifier(returnType) && !isReturnTypeCompileTimeOnly) {
       throw this.formatErrorMessage(
         returnTypeExpr.token,
         `Expected a "compt" (or "@") for return type, like:\n
@@ -8183,6 +8294,12 @@ Got:   ${typeToString(argType)}`
         }
         case TokenType.Integer: {
           return this.evaluateIntegerLiteral(expr, env);
+        }
+        case TokenType.Float: {
+          return this.evaluateFloatLiteral(expr, env);
+        }
+        case TokenType.String: {
+          return this.evaluateStringLiteral(expr, env);
         }
         case TokenType.Boolean: {
           return this.evaluateBooleanLiteral(expr, env);

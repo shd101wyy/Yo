@@ -9,6 +9,9 @@ import {
   SomeType,
   StructType,
   TBoolean,
+  TComptFloat,
+  TComptInt,
+  TComptString,
   TupleType,
   Type,
   typeOfType,
@@ -18,6 +21,24 @@ import {
 import { TypeValue } from "./type-value";
 import { UnitValue } from "./unit-value";
 import { ValueTag } from "./value-tag";
+
+export type ComptIntValue = {
+  tag: ValueTag.ComptInt;
+  type: Type;
+  value: number;
+};
+
+export type ComptFloatValue = {
+  tag: ValueTag.ComptFloat;
+  type: Type;
+  value: number;
+};
+
+export type ComptStringValue = {
+  tag: ValueTag.ComptString;
+  type: Type;
+  value: string;
+};
 
 export type NumberValue = {
   tag:
@@ -86,6 +107,9 @@ export type UnknownValue = {
 
 export type Value =
   | TypeValue
+  | ComptIntValue
+  | ComptFloatValue
+  | ComptStringValue
   | NumberValue
   | UnitValue
   | BooleanValue
@@ -109,6 +133,13 @@ export function valueToString(value?: Value): string {
   switch (value.tag) {
     case ValueTag.Type: {
       return typeToString(value.value);
+    }
+    case ValueTag.ComptInt:
+    case ValueTag.ComptFloat: {
+      return value.value.toString();
+    }
+    case ValueTag.ComptString: {
+      return JSON.stringify(value.value);
     }
     case ValueTag.U8:
     case ValueTag.I8:
@@ -186,6 +217,18 @@ export function isTypeValue(value?: Value): value is TypeValue {
   return value?.tag === ValueTag.Type;
 }
 
+export function isComptIntValue(value?: Value): value is ComptIntValue {
+  return value?.tag === ValueTag.ComptInt;
+}
+
+export function isComptFloatValue(value?: Value): value is ComptFloatValue {
+  return value?.tag === ValueTag.ComptFloat;
+}
+
+export function isComptStringValue(value?: Value): value is ComptStringValue {
+  return value?.tag === ValueTag.ComptString;
+}
+
 export function isBooleanValue(value?: Value): value is BooleanValue {
   return value?.tag === ValueTag.Boolean;
 }
@@ -214,6 +257,30 @@ export function createTypeValue(value: Type): TypeValue {
   return {
     tag: ValueTag.Type,
     type: typeOfType(value),
+    value,
+  };
+}
+
+export function createComptIntValue(value: number): ComptIntValue {
+  return {
+    tag: ValueTag.ComptInt,
+    type: TComptInt,
+    value,
+  };
+}
+
+export function createComptFloatValue(value: number): ComptFloatValue {
+  return {
+    tag: ValueTag.ComptFloat,
+    type: TComptFloat,
+    value,
+  };
+}
+
+export function createComptStringValue(value: string): ComptStringValue {
+  return {
+    tag: ValueTag.ComptString,
+    type: TComptString,
     value,
   };
 }
@@ -314,6 +381,12 @@ export function areValuesEqual(
       { type: value1.value, env: expected.env },
       { type: (value2 as TypeValue).value, env: given.env }
     );
+  } else if (value1.tag === ValueTag.ComptInt) {
+    return value1.value === (value2 as ComptIntValue).value;
+  } else if (value1.tag === ValueTag.ComptFloat) {
+    return value1.value === (value2 as ComptFloatValue).value;
+  } else if (value1.tag === ValueTag.ComptString) {
+    return value1.value === (value2 as ComptStringValue).value;
   } else if (
     value1.tag === ValueTag.U8 ||
     value1.tag === ValueTag.I8 ||

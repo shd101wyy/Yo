@@ -212,7 +212,7 @@ export function addVariableToFrame({
         {
           token: frame.variables.find((value) => value.name === variable.name)!
             .token,
-          errorMessage: `Variable "${variable.name}" is already defined here:`,
+          errorMessage: `Variable "${variable.name}" is already defined here in the same scope:`,
         },
       ],
     });

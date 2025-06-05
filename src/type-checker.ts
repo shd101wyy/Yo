@@ -26,7 +26,6 @@ export function getPtrSize(): number {
 export enum TypeTag {
   // Primitive types
   Unit = "()",
-
   Boolean = "boolean",
   Char = "char",
   Usize = "usize",
@@ -42,6 +41,11 @@ export enum TypeTag {
   F16 = "f16",
   F32 = "f32",
   F64 = "f64",
+
+  // Compt types
+  ComptInt = "compt_int",
+  ComptFloat = "compt_float",
+  ComptString = "compt_string",
 
   // Add Undefined type
   // Undefined = "Undefined",
@@ -132,11 +136,22 @@ export function isPrimitiveType(type: Type): boolean {
     type.tag === TypeTag.I32 ||
     type.tag === TypeTag.U64 ||
     type.tag === TypeTag.I64 ||
-    type.tag === TypeTag.F16 ||
     type.tag === TypeTag.F32 ||
     type.tag === TypeTag.F64 // ||
     // type.tag === TypeTag.Undefined // Add undefined as a primitive type
   );
+}
+
+export function isComptIntType(type?: Type): boolean {
+  return type?.tag === TypeTag.ComptInt;
+}
+
+export function isComptFloatType(type?: Type): boolean {
+  return type?.tag === TypeTag.ComptFloat;
+}
+
+export function isComptStringType(type?: Type): boolean {
+  return type?.tag === TypeTag.ComptString;
 }
 
 export function isBooleanType(type: Type): boolean {
@@ -208,6 +223,21 @@ export interface SomeType extends Type {
   size: undefined;
 }
 
+export const TComptInt: Type = {
+  tag: TypeTag.ComptInt,
+  size: undefined, // Size of compt_int is unlimited
+};
+
+export const TComptFloat: Type = {
+  tag: TypeTag.ComptFloat,
+  size: undefined, // Size of compt_float is unlimited
+};
+
+export const TComptString: Type = {
+  tag: TypeTag.ComptString,
+  size: undefined, // Size of compt_string is unlimited
+};
+
 export const TBoolean: Type = {
   tag: TypeTag.Boolean,
   size: 8,
@@ -260,10 +290,6 @@ export const TI32: Type = {
 export const TI64: Type = {
   tag: TypeTag.I64,
   size: 8 * 8,
-};
-export const TF16: Type = {
-  tag: TypeTag.F16,
-  size: 2 * 8,
 };
 export const TF32: Type = {
   tag: TypeTag.F32,
@@ -976,6 +1002,8 @@ export function typeOfType(t: Type): Type {
     return TFree;
   } else if (isTypeHierarchyType(t)) {
     return createTypeHierarchy((t as TypeHierarchyType).level + 1);
+  } else if (isComptIntType(t) || isComptFloatType(t) || isComptStringType(t)) {
+    return TFree;
   } else if (t.tag === TypeTag.Function) {
     return TFree;
   } else if (isArrayType(t)) {
@@ -1200,6 +1228,49 @@ export function areTypesCompatible(
 ): boolean {
   if (isPrimitiveType(expected.type) && isPrimitiveType(given.type)) {
     return expected.type.tag === given.type.tag;
+  }
+
+  // compt_int can be converted to
+  // - compt_int
+  // - u8
+  // - i8
+  // - u16
+  // - i16
+  // - u32
+  // - i32
+  // - u64
+  // - i64
+  if (
+    (isComptIntType(expected.type) ||
+      expected.type.tag === TypeTag.U8 ||
+      expected.type.tag === TypeTag.I8 ||
+      expected.type.tag === TypeTag.U16 ||
+      expected.type.tag === TypeTag.I16 ||
+      expected.type.tag === TypeTag.U32 ||
+      expected.type.tag === TypeTag.I32 ||
+      expected.type.tag === TypeTag.U64 ||
+      expected.type.tag === TypeTag.I64) &&
+    isComptIntType(given.type)
+  ) {
+    return true;
+  }
+
+  // compt_float can be converted to
+  // - compt_float
+  // - f32
+  // - f64
+  if (
+    (isComptFloatType(expected.type) ||
+      expected.type.tag === TypeTag.F32 ||
+      expected.type.tag === TypeTag.F64) &&
+    isComptFloatType(given.type)
+  ) {
+    return true;
+  }
+
+  // compt_string
+  if (isComptStringType(expected.type) && isComptStringType(given.type)) {
+    return true;
   }
 
   if (isArrayType(expected.type) && isArrayType(given.type)) {
@@ -1578,6 +1649,22 @@ export function isRefType(type?: Type): type is RefType {
   return type?.tag === TypeTag.Ref;
 }
 
+/**
+ * Check if the type of the value requires to use the compt modifier.
+ * For example:
+ *   compt(x): Type
+ *   compt(x): compt_int
+ */
+export function typeRequiresComptModifier(type?: Type): boolean {
+  return (
+    isTypeHierarchyType(type) ||
+    isModuleType(type) ||
+    isComptIntType(type) ||
+    isComptFloatType(type) ||
+    isComptStringType(type)
+  );
+}
+
 export function typeContainsReference(type?: Type): boolean {
   if (!type) {
     return false;
@@ -1699,9 +1786,6 @@ export function typeToString(type: Type): string {
     }
     case TypeTag.I64: {
       return "i64";
-    }
-    case TypeTag.F16: {
-      return "f16";
     }
     case TypeTag.F32: {
       return "f32";
