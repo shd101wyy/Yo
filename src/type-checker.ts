@@ -597,6 +597,11 @@ export interface ModuleMember {
   type: Type;
 
   /**
+   * Whether the member is implicit or not.
+   */
+  isImplicit: boolean;
+
+  /**
    * The default value of the element.
    * Which has to be compile-time known.
    * For example:
@@ -1268,7 +1273,12 @@ export function areTypesCompatible(
     return true;
   }
 
-  // compt_string
+  // compt_string can be converted to
+  // - compt_float
+  // TODO:
+  // - *(u8);  // C-style string pointer.
+  // - Array(u8, N); // Fixed-length array of u8.
+  // - &(str); // Rust-style string slice, fat pointer.
   if (isComptStringType(expected.type) && isComptStringType(given.type)) {
     return true;
   }

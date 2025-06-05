@@ -9,6 +9,8 @@ typedef struct Ints
 
 int main()
 {
+    int _ = 12;
+
     // array
     int arr1[] = {1, 2, 3};
     // int arr2[3] = arr1; // This will not work in C, arrays cannot be copied directly

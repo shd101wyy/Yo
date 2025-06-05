@@ -1306,17 +1306,17 @@ ${typeToString(expectedTupleType)}`
       let labelExpr: Expr | undefined = undefined;
       let renameExpr: Expr | undefined = undefined;
 
-      // Handle destructuring all elements with *
-      // - (* : *)
-      // - ( * )
+      // Handle destructuring all elements with _
+      // - (_ : _)
+      // - ( _ )
       if (
         (exprIsFunctionCall(lhsElement) &&
           exprIsFunctionCallOf(lhsElement, ":", 2) &&
-          lhsElement.args[0]!.token.value === "*" &&
-          lhsElement.args[1]!.token.value === "*") ||
-        (exprIsAtom(lhsElement) && lhsElement.token.value === "*")
+          lhsElement.args[0]!.token.value === "_" &&
+          lhsElement.args[1]!.token.value === "_") ||
+        (exprIsAtom(lhsElement) && lhsElement.token.value === "_")
       ) {
-        // If it's a single *, we destructure all elements
+        // If it's a single _, we destructure all elements
         if (lhsElements.length === 1) {
           // We can destructure all elements
           for (let j = 0; j < rhsElements.length; j++) {
@@ -1362,9 +1362,73 @@ ${typeToString(expectedTupleType)}`
         } else {
           throw this.formatErrorMessage(
             lhsElement.token,
-            `Destructuring with * requires a single element, got ${lhsElements.length}`
+            `Destructuring with _ requires a single element, got ${lhsElements.length}`
           );
         }
+      }
+
+      // Handle destructuring with implicit members
+      // This only works with the module destructuring
+      // - ( _(?) )
+      else if (
+        exprIsFunctionCall(lhsElement) &&
+        exprIsFunctionCallOf(lhsElement, "_", 1) &&
+        lhsElement.args.length === 1 &&
+        exprIsAtomOf(lhsElement.args[0]!, BuiltinKeywords.implicit)
+      ) {
+        if (!isModuleType(rhsType) || !isModuleValue(rhsValue)) {
+          throw this.formatErrorMessage(
+            lhsElement.token,
+            `Expected module value for destructuring with implicit members, got ${typeToString(
+              rhsType
+            )}`
+          );
+        }
+
+        // We can destructure all elements
+        for (let j = 0; j < rhsElements.length; j++) {
+          const member = rhsElements[j]!;
+          if (!member.label) {
+            continue;
+          }
+
+          const memberType = rhsType.members.find(
+            (m) => m.label === member.label
+          )!;
+          if (!memberType.isImplicit) {
+            continue;
+          }
+
+          const memberValue = rhsValue.members[member.label!];
+
+          // Add to environment
+          const { env: nextEnv } = addVariableToEnv({
+            env,
+            variable: {
+              name: member.label,
+              value: memberValue,
+              type: member.type,
+              token: lhsElement.token,
+              isMutable: false,
+              isCompileTimeOnly,
+              isUndefined: false,
+              isImplicit: false,
+            },
+          });
+          env = nextEnv;
+        }
+
+        // Set the type and value of the lhsElement
+        lhsElement.$ = {
+          env,
+          type: rhsType,
+          value: rhsValue,
+          isMutable: false,
+          pathCollection: [],
+        };
+
+        // Done with destructuring, return the environment
+        return env;
       }
 
       // Handle labeled nested destructuring pattern like:
@@ -1580,7 +1644,10 @@ ${typeToString(expectedTupleType)}`
         } else if (isStructValue(rhsValue)) {
           nestedValue = rhsValue.elements[elementIndex];
         } else if (isModuleValue(rhsValue)) {
-          throw new Error(`Expected label for module destructuring`);
+          throw this.formatErrorMessage(
+            lhsElement.token,
+            "Expected label for module destructuring"
+          );
         }
         elementValue = nestedValue;
 
@@ -7094,9 +7161,20 @@ Got:   ${typeToString(argType)}`
             );
           }
 
+          // Get the variable of label from the env
+          const variables = getVariablesFromEnv(env, label);
+          if (variables.length === 0) {
+            throw this.formatErrorMessage(
+              expr.token,
+              `Failed to find variable "${label}" in the environment.`
+            );
+          }
+          const variable = variables[variables.length - 1]!;
+
           const moduleMember: ModuleMember = {
             label,
             type: element.type,
+            isImplicit: variable.isImplicit,
             // NOTE: Needs to set the value as requiredValue
             // It is necessary to make it work with `This` the receiver type.
             requiredValue: structValue.elements[i],
@@ -7248,6 +7326,7 @@ Got:   ${typeToString(argType)}`
       let memberExpr = moduleMemberExprs[i]!;
       let valueExpr: Expr | undefined = undefined;
       let valueKind: "required" | "default" | undefined = undefined;
+      let isImplicit = false;
       if (
         exprIsFunctionCall(memberExpr) &&
         (exprIsFunctionCallOf(memberExpr, "?=", 2) ||
@@ -7269,8 +7348,16 @@ Got:   ${typeToString(argType)}`
           `Expected ":", got:\n${exprToString(memberExpr)}`
         );
       }
-      const labelExpr = memberExpr.args[0]!;
+      let labelExpr = memberExpr.args[0]!;
       const typeExpr = memberExpr.args[1]!;
+
+      if (
+        exprIsFunctionCall(labelExpr) &&
+        exprIsFunctionCallOf(labelExpr, BuiltinKeywords.implicit, 1)
+      ) {
+        isImplicit = true;
+        labelExpr = labelExpr.args[0]!;
+      }
 
       // Get the label of member
       if (
@@ -7372,6 +7459,7 @@ Got:   ${typeToString(argType)}`
         moduleType.members.push({
           label,
           type: memberType,
+          isImplicit,
           defaultValue: valueKind === "default" ? value : undefined,
           requiredValue: valueKind === "required" ? value : undefined,
           // typeExpr: evaluatedMemberTypeExpr,
@@ -7410,6 +7498,7 @@ Got:   ${typeToString(argType)}`
         moduleType.members.push({
           label,
           type: memberType,
+          isImplicit,
           defaultValue: undefined,
           requiredValue: undefined,
           // typeExpr: evaluatedMemberTypeExpr,

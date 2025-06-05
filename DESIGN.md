@@ -2345,8 +2345,7 @@ impl Id(i32), {
 ```
 
 ```rust
-
-{*} := import("./test.yo"); // Import everything from test.yo
+{ ...(*) } := import("./test.yo"); // Import everything from test.yo
 Test := import("./test.yo"); // Import everything from test.yo and put it in the Test namespace
 { test } := import("./test.yo"); // Import test function from test.yo
 { test: test2 } := import("./test.yo"); // Import test function from test.yo and rename it to test2
