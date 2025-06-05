@@ -5164,15 +5164,16 @@ ${functionsWithMatchingTypes
           pathCollection: [],
         };
         // FIXME: Support to set value for comptime
-        const memberValues = this.tryToCallTypeWithArguments({
-          memberElements: value.value.elements,
-          functionCallExpr: func,
-          argExprs: args,
-          callerEnv: env,
-          context: {
-            ...context,
-          },
-        });
+        const { values: memberValues, pathCollection } =
+          this.tryToCallTypeWithArguments({
+            memberElements: value.value.elements,
+            functionCallExpr: func,
+            argExprs: args,
+            callerEnv: env,
+            context: {
+              ...context,
+            },
+          });
         if (!memberValues) {
           throw this.formatErrorMessage(
             func.token,
@@ -5186,6 +5187,7 @@ ${functionsWithMatchingTypes
           );
           expr.$.value = structValue;
         }
+        expr.$.pathCollection = pathCollection;
 
         // Attach necessary info to the func
         func.$ = {
@@ -5216,13 +5218,14 @@ ${functionsWithMatchingTypes
             `Enum variant not selected for enum type`
           );
         }
-        const memberValues = this.tryToCallTypeWithArguments({
-          memberElements: selectedVariant.elements || [],
-          functionCallExpr: func,
-          argExprs: args,
-          callerEnv: env,
-          context: { ...context },
-        });
+        const { values: memberValues, pathCollection } =
+          this.tryToCallTypeWithArguments({
+            memberElements: selectedVariant.elements || [],
+            functionCallExpr: func,
+            argExprs: args,
+            callerEnv: env,
+            context: { ...context },
+          });
         if (!memberValues) {
           throw this.formatErrorMessage(
             func.token,
@@ -5237,6 +5240,7 @@ ${functionsWithMatchingTypes
           );
           expr.$.value = enumValue;
         }
+        expr.$.pathCollection = pathCollection;
 
         // Attach necessary info to the func
         func.$ = {
@@ -5505,8 +5509,9 @@ ${exprToString(expr)}`
 
     // Check the borrowings
     if (
-      isMutRefType(evaluatedArgExpr.$?.type) ||
-      isRefType(evaluatedArgExpr.$?.type)
+      evaluatedArgExpr.$?.type &&
+      (isMutRefType(evaluatedArgExpr.$?.type) ||
+        isRefType(evaluatedArgExpr.$?.type))
     ) {
       checkBorrowings(context.borrowings, evaluatedArgExpr);
 
@@ -6211,13 +6216,16 @@ ${implicitVariables
     argExprs: Expr[];
     callerEnv: Environment;
     context: EvaluatorContext;
-  }): (Value | undefined)[] {
+  }): { values: (Value | undefined)[]; pathCollection: PathCollection } {
     if (argExprs.length > memberElements.length) {
       throw this.formatErrorMessage(
         functionCallExpr.token,
         `Failed to call the type. Too many members provided. Expected ${memberElements.length} arguments, got ${argExprs.length}.`
       );
     }
+
+    const initialBorrowings: Borrowing[] = [...context.borrowings];
+    let borrowings: Borrowing[] = [...context.borrowings];
 
     const checkedMemberElements: Set<TupleElement> = new Set();
     const values: (Value | undefined)[] = Array(memberElements.length).fill(
@@ -6281,6 +6289,7 @@ ${implicitVariables
           ...context,
           isEvaluatingExprAsType: false,
           expectedType: { type: memberElement.type, env: callerEnv },
+          borrowings,
         },
       });
 
@@ -6290,6 +6299,20 @@ ${implicitVariables
           argExpr.token,
           `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
         );
+      }
+
+      // Check the borrowings
+      if (evaluatedArgExpr.$ && (isMutRefType(argType) || isRefType(argType))) {
+        checkBorrowings(borrowings, evaluatedArgExpr);
+
+        // Add the evaluated arg expr to the borrowings
+        borrowings = borrowings.concat([
+          {
+            expr: evaluatedArgExpr,
+            type: argType,
+            pathCollection: evaluatedArgExpr.$.pathCollection,
+          },
+        ]);
       }
 
       // Compare the types
@@ -6328,7 +6351,18 @@ Got:   ${typeToString(argType)}`
       }
     }
 
-    return values;
+    const pathCollection: PathCollection = [];
+    if (borrowings.length !== initialBorrowings.length) {
+      const newBorrowings = borrowings.slice(initialBorrowings.length);
+      newBorrowings.forEach((borrowing) => {
+        const pc = borrowing.pathCollection;
+        pc.forEach((path) => {
+          pathCollection.push(path);
+        });
+      });
+    }
+
+    return { values, pathCollection };
   }
 
   /**
@@ -6837,21 +6871,41 @@ Got:   ${typeToString(argType)}`
 
     // Prevent return reference to the local variable.
     const returnType = lastExpr.$.type;
-    if (isRefType(returnType) || isMutRefType(returnType)) {
+    if (typeContainsReference(returnType)) {
       // Check the path
       const pathCollection = lastExpr.$.pathCollection;
       for (let i = 0; i < pathCollection.length; i++) {
         const path = pathCollection[i]!;
         const variableName = path[0]!;
         if (variableName) {
-          // Check if the variable name is a local variable
-          const frame = env.frames[env.frames.length - 1]!;
-          const variable = frame.variables.find((v) => v.name === variableName);
-          if (variable) {
+          const variables = getVariablesFromEnv(env, variableName);
+          if (!variables.length) {
+            throw this.formatErrorMessage(
+              lastExpr.token,
+              `Invalid path detected. It could be a bug of the compiler.`
+            );
+          }
+          const variable = variables[variables.length - 1]!;
+          if (
+            // Check if the variable name is a local variable
+            variable.frameLevel ===
+            env.frames.length - 1
+          ) {
             // If the variable is a local variable, we cannot return a reference to it
             throw this.formatErrorMessage(
               lastExpr.token,
-              `Cannot return a reference to the local variable "${variableName}" in the "begin" expression.`
+              `Cannot return value containing reference to the local variable "${variableName}".`
+            );
+          } else if (
+            // Otherwise, expect it to be reference type.
+            !(isMutRefType(variable.type) || isRefType(variable.type))
+          ) {
+            // If the variable is not a reference type, we cannot return a reference to it
+            throw this.formatErrorMessage(
+              lastExpr.token,
+              `Cannot return value containing reference to the variable "${variableName}" of type "${typeToString(
+                variable.type
+              )}". Expected reference type.`
             );
           }
         }
