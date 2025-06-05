@@ -8091,6 +8091,7 @@ Got:   ${typeToString(argType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     const argExpr = expr.args[0]!;
+    const messageExpr = expr.args[1];
 
     try {
       // Evaluate the expression
@@ -8101,10 +8102,6 @@ Got:   ${typeToString(argType)}`
           ...context,
         },
       });
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected compile error, but the expression was evaluated successfully:\n${exprToString(argExpr)}`
-      );
     } catch (error) {
       // The error is expected, so we do nothing
       expr.$ = {
@@ -8116,6 +8113,30 @@ Got:   ${typeToString(argType)}`
       };
       return expr;
     }
+
+    if (messageExpr) {
+      const evaluatedMessageExpr = this.evaluateExpression({
+        expr: messageExpr,
+        env,
+        context: {
+          ...context,
+        },
+      });
+      if (evaluatedMessageExpr.$?.value) {
+        throw this.formatErrorMessage(
+          expr.token,
+
+          isComptStringValue(evaluatedMessageExpr.$.value)
+            ? evaluatedMessageExpr.$.value.value
+            : valueToString(evaluatedMessageExpr.$.value)
+        );
+      }
+    }
+
+    throw this.formatErrorMessage(
+      expr.token,
+      `Expected compile error, but the expression was evaluated successfully:\n${exprToString(argExpr)}`
+    );
   }
 
   private evaluateReferenceCall({
@@ -8532,7 +8553,7 @@ ${exprToString(expr)}`
           context: { ...context },
         });
       } else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.expect_compile_error, 1)
+        exprIsFunctionCallOf(expr, BuiltinFunctions.expect_compile_error)
       ) {
         // expect_compile_error
         return this.evaluateExpectCompileError({

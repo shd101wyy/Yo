@@ -1245,6 +1245,8 @@ export function areTypesCompatible(
   // - i32
   // - u64
   // - i64
+  // - usize
+  // - isize
   if (
     (isComptIntType(expected.type) ||
       expected.type.tag === TypeTag.U8 ||
@@ -1254,7 +1256,9 @@ export function areTypesCompatible(
       expected.type.tag === TypeTag.U32 ||
       expected.type.tag === TypeTag.I32 ||
       expected.type.tag === TypeTag.U64 ||
-      expected.type.tag === TypeTag.I64) &&
+      expected.type.tag === TypeTag.I64 ||
+      expected.type.tag === TypeTag.Usize ||
+      expected.type.tag === TypeTag.Isize) &&
     isComptIntType(given.type)
   ) {
     return true;

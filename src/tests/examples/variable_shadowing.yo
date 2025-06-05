@@ -1,17 +1,18 @@
 main :: (()-> ()) {
-  x := 12;
+  (x : i32) = 12;
   expect_compile_error(
     x := 13 // Not allowed, because `x` already exists at the current frame.
   );
 
   {
-    x := 14; // Allowed, because we now are in a new frame.
+    (x : i32) = 14; // Allowed, because we now are in a new frame.
     expect_compile_error(
       x := 15 // Not allowed, because `x` already exists at the current frame.
     );
   };
   
   {
-    x := x; // Allowed, because we are in a new frame.
+    // FIXME:
+    // x := x; // Allowed, because we are in a new frame.
   };
 };

@@ -1,40 +1,13 @@
+
 main :: (()-> ()) {
-  SomeModule :: module {
-    id :: ((x: i32)-> i32) x;
-    implicit(implicit_id) :: ((x: i32)-> i32) x;
-    x :: 1;
-    y :: 2;
-    export { id, implicit_id, x, y };
-  };
-
-  {
-    // Use _ to destructure all exports
-    { _ } :: SomeModule;
-    v := id(3);
+  expect_compile_error(
+    x :: 12,
+    "haha"
+  );
+  // MyArray :: Array(i32, 3);
 
 
-    Point :: struct(a: i32, b: i32);
-    p :: Point 3, 4;
-    { _ } :: p;
-    x2 := id(a);
-  };
-
-  {
-    // Use _(?) to destructure all implicits
-    { _(?) } :: SomeModule;
-    
-    implicit_id(3);
-    
-    expect_compile_error(
-      id(3) // "id" is not imported here, so it should not be accessible
-    );
-  }
-};
-
-/*
-main :: (()-> ()) {
-  MyArray :: Array(i32, 3);
-  MyTuple :: Tuple(i32, i32, i32);
+  // MyTuple :: Tuple(i32, i32, i32);
   
   /*
   // arr := [1, 2, 3];
@@ -53,4 +26,3 @@ main :: (()-> ()) {
   */
   ()
 };
-*/

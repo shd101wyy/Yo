@@ -1,0 +1,20 @@
+// The Rc in Yo tries to use the Perceus garbage collection algorithm.  
+// NOTE: It doesn't prevent the circular references, so you should be careful with it.
+main :: (()-> ()) {
+  // Use $ to create a special Rc type:
+  SomeType :: $(String);
+  // ^ It will convert any Linear type to a Free type.
+
+  (x: SomeType) = $(String.from("Hello, world!"));
+  y = x; // Increase the reference count.
+  z = x; // Increase the reference count again.
+
+  // The reference counter works automatically.
+  // Yo also uses the compile-time reference counting to try to eliminate
+  // unnecessary calculations on reference counter.  
+  ()
+};
+
+
+
+

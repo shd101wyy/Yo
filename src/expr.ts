@@ -209,7 +209,7 @@ export const BuiltinKeywords = {
   // In: ["in", "∈"],
 
   quote: ["quote", ":"],
-  unquote: ["unquote", "$"],
+  unquote: ["unquote", "#"],
 
   recur: ["recur"],
   fn: ["fn"],
@@ -239,6 +239,7 @@ export const BuiltinKeywords = {
   MutPtr: ["*!"],
   Ref: ["&"],
   MutRef: ["&!"],
+  Rc: ["$"], // Everthing comes with a cost.
 };
 
 export const BuiltinFunctions = {
