@@ -9,7 +9,7 @@ let acceptOnlySpecificPointer = (x: *!<i32>)-> { // This means `x` is Linear and
 }
 
 extern "C" {
-  free: <T: Linear>(x: T)-> ();
+  free: <T: Linear>(x: T)-> unit;
 }
 
 class Alias<T, O> {
@@ -368,8 +368,8 @@ let test = ()-> {
 
 ```typescript
 let length = (x: read String)-> i32;
-let push = (x: write String, value: read String)-> ();
-let drop = (x: String)-> ();
+let push = (x: write String, value: read String)-> unit;
+let drop = (x: String)-> unit;
 
 let main = ()-> {
   var x = String.from("Hello, world"); // x: String. mutable

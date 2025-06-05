@@ -4,8 +4,8 @@ extern
     (x: i32, y: i32)-> boolean
 ;
 
-main :: (()-> ()) {
-  mut(x) := 12;
+main :: (()-> unit) {
+  (mut(x) : i32) = 12;
 
   expect_compile_error(
     // "Cannot borrow `x` as mutable and immutable at the same time.",
@@ -51,7 +51,7 @@ main :: (()-> ()) {
   };
 
   swap :: 
-    ((x: &!(i32), y: &!(i32)) -> ()) {
+    ((x: &!(i32), y: &!(i32)) -> unit) {
       temp := x.*;
       x.* = y.*;
       y.* = temp;
@@ -87,7 +87,7 @@ main :: (()-> ()) {
 
   // fn return parameter that is reference is allowed
   return_param :: ((x: &(i32)) -> &(i32)) {
-    a := 12;
+    (a : i32) = 12;
     x
   };
 
@@ -134,16 +134,18 @@ main :: (()-> ()) {
   };
 
   // Largest reference
-  mut(x) := 12;
-  mut(y) := 13;
-  largest :: ((x: &(i32), y: &(i32))-> &(i32))
-    cond
-      (x.* `gt` y.*) -> x,
-      true -> y
-  ;
-  borrow largest(&(x), &(y)), largest -> {
-    a := 12;
-    expect_compile_error(x = 13);
-    expect_compile_error(y = 13);
+  {
+    (mut(x) : i32) = 12;
+    (mut(y) : i32) = 13;
+    largest :: ((x: &(i32), y: &(i32))-> &(i32))
+      cond
+        (x.* `gt` y.*) -> x,
+        true -> y
+    ;
+    borrow largest(&(x), &(y)), largest -> {
+      (a : i32) = 12;
+      expect_compile_error(x = 13);
+      expect_compile_error(y = 13);
+    };
   };
 };

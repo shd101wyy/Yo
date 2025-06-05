@@ -526,7 +526,7 @@ Array7 := Array(7, 3);
 x := 1;
 y := 2;
 swap ::
-  ((a: &!(i32), b: &!(i32)) -> ()) {
+  ((a: &!(i32), b: &!(i32)) -> unit) {
   tmp := a.*; // dereference the pointer
   a.* = b.*;
   b.* = tmp;
@@ -552,14 +552,14 @@ y := {
   &(x) // error: Violate the Rule 1.2
 }
 
-((some_ref: &!(i32)) -> ()) {
+((some_ref: &!(i32)) -> unit) {
   x := some_ref;      // Not allowed! Violate the Rule 1.1
   return some_ref;    // Allowed
   // or
   return ( value: some_ref ); // Allowed
 }
 
-((container: &!(Container), some_ref: &(i32)) -> ()) {
+((container: &!(Container), some_ref: &(i32)) -> unit) {
   container.x = some_ref; // Not allowed!
                           // Why? Because it is hard to compare the lifetime of container and some_ref.
                           // container might live longer than some_ref.

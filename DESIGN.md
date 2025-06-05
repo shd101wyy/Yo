@@ -425,8 +425,8 @@ A longer example:
 ```rust
 extern "C", {
   length: ((x: &(String))-> i32);
-  push: ((x: &String, value: String)-> ());
-  drop: ((x: String)-> ());
+  push: ((x: &String, value: String)-> unit);
+  drop: ((x: String)-> unit);
 }
 
 defn main(), {
@@ -932,7 +932,7 @@ Record field access has higher priority than the free function and trait method.
 
 ```rust
 S := {
-  (method: (()-> ())) =
+  (method: (()-> unit)) =
     (fn()-> println("Record method"))
 }
 
@@ -942,7 +942,7 @@ method := (fn(s: S)-> {
 
 SomeInterface := fn(Self: Type)->
   interface {
-    (method: (self: &(Self))-> ()) =
+    (method: (self: &(Self))-> unit) =
       fn()-> println("Trait method")
   }
 
@@ -1243,7 +1243,7 @@ defn test(), {
 }
 ```
 
-**NOTE:** We can pass normal function ()->() to a function argument that expects a closure, but not the other way around.
+**NOTE:** We can pass normal function ()-> unit to a function argument that expects a closure, but not the other way around.
 
 ## Generic
 
@@ -1758,7 +1758,7 @@ forall ((T: Type) <: Display),
 ```rust
 defn LuckyNumber(T: compt(i32)),
   interface {
-    say_it: ((self: &(T))-> ())
+    say_it: ((self: &(T))-> unit)
   };
 
 impl LuckyNumber(7), {
@@ -2077,7 +2077,7 @@ constant_ptr_to_i32 := &!(i32_val); // ptr_to_i32: &!(i32)
 ```rust
 defn Animal(Self: Type): Interface,
   interface {
-    speak: ((self: &(Self))-> ())
+    speak: ((self: &(Self))-> unit)
   };
 
 Dog := type {};

@@ -37,9 +37,9 @@ type Coroutine<
 }
 
 interface CoroutineInterface<CoroutineType, ResumeType, AbortType> {
-  func: (self: CoroutineType)-> ();
-  resume: (self: CoroutineType, value: ResumeType)-> ();
-  abort: (self: CoroutineType, value: AbortType)-> ();
+  func: (self: CoroutineType)-> unit;
+  resume: (self: CoroutineType, value: ResumeType)-> unit;
+  abort: (self: CoroutineType, value: AbortType)-> unit;
 }
 
 type MyMainArguments = {};
@@ -65,7 +65,7 @@ type GiveIntCoroutine = Coroutine<
 >
 
 implements CoroutineInterface<MyMainCoroutine, i32, i32> {
-  func: (self: MyMainCoroutine)-> () {
+  func: (self: MyMainCoroutine)-> unit {
     match (self.step) {
       0 -> {
         let arguments_ = GiveIntArguments { x: 10 };
@@ -89,12 +89,12 @@ implements CoroutineInterface<MyMainCoroutine, i32, i32> {
       }
     }
   },
-  resume: (self: MyMainCoroutine, value: i32)-> () {
+  resume: (self: MyMainCoroutine, value: i32)-> unit {
     self.value = value;
     self.step += 1;
     func(self)
   },
-  abort: (self: MyMainCoroutine, value: i32)-> () {
+  abort: (self: MyMainCoroutine, value: i32)-> unit {
     self.value = value;
     self.step = -1; // Clean up
     func(self)
@@ -102,7 +102,7 @@ implements CoroutineInterface<MyMainCoroutine, i32, i32> {
 }
 
 implements CoroutineInterface<GiveIntCoroutine, i32, i32> {
-  func: (self: GiveIntCoroutine)-> () {
+  func: (self: GiveIntCoroutine)-> unit {
     match (self.step) {
       _ -> {
         if (self.arguments.x > 10) {
@@ -117,12 +117,12 @@ implements CoroutineInterface<GiveIntCoroutine, i32, i32> {
       }
     }
   },
-  resume: (self: GiveIntCoroutine, value: i32)-> () {
+  resume: (self: GiveIntCoroutine, value: i32)-> unit {
     self.value = value
     self.step += 1
     func(self)
   },
-  abort: (self: GiveIntCoroutine, value: i32)-> () {
+  abort: (self: GiveIntCoroutine, value: i32)-> unit {
     self.value = value
     self.step = -1; // Clean up
     func(self)

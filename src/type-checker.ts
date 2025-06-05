@@ -25,7 +25,7 @@ export function getPtrSize(): number {
  */
 export enum TypeTag {
   // Primitive types
-  Unit = "()",
+  Unit = "unit",
   Boolean = "boolean",
   Char = "char",
   Usize = "usize",
@@ -1773,7 +1773,7 @@ export function typeToString(type: Type): string {
   switch (type.tag) {
     // Primitive types
     case TypeTag.Unit: {
-      return "()";
+      return "unit";
     }
     case TypeTag.Boolean: {
       return "boolean";

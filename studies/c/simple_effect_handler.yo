@@ -22,7 +22,7 @@ let safeDivide = (
   a: i32,
   b: i32,
   parent: @EffectJmpBuf,
-  throw: (msg: symbol, buffer: @EffectJmpBuf)-> ())-> i32 {
+  throw: (msg: symbol, buffer: @EffectJmpBuf)-> unit)-> i32 {
     if (b == 0) {
       var throwEnv: jmp_buf;
       var throwResumeResult: i32;
@@ -55,7 +55,7 @@ let safeDivide = (
 }
 
 // Effect handler
-let throw = (msg: symbol, buffer: @EffectJmpBuf)-> () {
+let throw = (msg: symbol, buffer: @EffectJmpBuf)-> unit {
   // resume(1);
   (buffer.value as @i32) = 1;
   longjmp(buffer.env, InitEffectOperation);

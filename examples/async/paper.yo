@@ -36,11 +36,11 @@ let untry = <T>(result: Result<T, symbol>)-> [Exception<T, symbol>] T {
 interface Async<OkType=(), ErrorType=symbol> {
   control await: 
     (initiate: 
-      (callback: (result: Result<OkType, ErrorType>)-> ())-> ()
+      (callback: (result: Result<OkType, ErrorType>)-> unit)-> unit
     )-> [Self] Result<OkType, ErrorType>
 }
 
-let await1 = <T>(initiate: (callback: (result: T)-> ())-> ())-> [Async<T>, Exception<T>] T {
+let await1 = <T>(initiate: (callback: (result: T)-> unit)-> unit)-> [Async<T>, Exception<T>] T {
   untry(
     await((cb)-> {
       initiate((result)-> {
@@ -50,7 +50,7 @@ let await1 = <T>(initiate: (callback: (result: T)-> ())-> ())-> [Async<T>, Excep
   )
 }
 
-let await0 = (initiate: (callback: ()-> ())-> ())-> [Async<()>, Exception<()>] () {
+let await0 = (initiate: (callback: ()-> unit)-> unit)-> [Async<()>, Exception<()>] () {
   await1((cb)-> {
     initiate(()-> {
       cb(())

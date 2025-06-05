@@ -137,11 +137,6 @@ import { ValueTag } from "./value-tag";
 
 interface EvaluatorContext {
   /**
-   * Check if it's evaluating expr as type
-   */
-  isEvaluatingExprAsType?: boolean;
-
-  /**
    *
    */
   expectedType?: {
@@ -308,7 +303,7 @@ export default class Evaluator {
     }
   }
 
-  private evaluateTuple({
+  private evaluateTupleValue({
     expr,
     env,
     context,
@@ -326,33 +321,21 @@ export default class Evaluator {
 
     if (expr.args.length === 0) {
       // Unit
-      if (context.isEvaluatingExprAsType) {
-        const value = createTypeValue(TUnit);
-        expr.$ = {
-          env,
-          value,
-          type: value.type,
-          isMutable: false,
-          pathCollection: [],
-        };
-        return expr;
-      } else {
-        expr.$ = {
-          env,
-          value: VUnit,
-          type: VUnit.type,
-          isMutable: false,
-          pathCollection: [],
-        };
-        return expr;
-      }
+      expr.$ = {
+        env,
+        value: VUnit,
+        type: VUnit.type,
+        isMutable: false,
+        pathCollection: [],
+      };
+      return expr;
     }
 
     const {
       type: tupleType,
       value: tupleValue,
       env: nextEnv,
-    } = this.evaluateTupleElements({ args: expr.args, env, context });
+    } = this.evaluateTupleElementsValue({ args: expr.args, env, context });
     env = nextEnv;
 
     // We disallow the tuple elements to have defaultValue for the tuple type
@@ -365,7 +348,7 @@ export default class Evaluator {
         );
       }
 
-      if (!context.isEvaluatingExprAsType && tupleElement.label) {
+      if (tupleElement.label) {
         throw this.formatErrorMessage(
           tupleElement.expr.token,
           `Tuple value cannot have labels.`
@@ -376,8 +359,8 @@ export default class Evaluator {
     expr.$ = {
       env,
       value: tupleValue,
-      type: context.isEvaluatingExprAsType ? typeOfType(tupleType) : tupleType,
-      isMutable: context.isEvaluatingExprAsType ? false : true,
+      type: tupleType,
+      isMutable: true,
       pathCollection: [],
     };
     return expr;
@@ -401,13 +384,6 @@ export default class Evaluator {
     env: Environment;
     context: EvaluatorContext;
   }): { type: TupleElement; value: TypeValue; env: Environment } {
-    if (!context.isEvaluatingExprAsType) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected context.isEvaluatingExprAsType == true`
-      );
-    }
-
     let label: string | undefined = undefined;
     let expr_ = expr;
     let lhsExpr: Expr | undefined = undefined;
@@ -594,13 +570,6 @@ Given type: ${typeToString(defaultValue.type)}`
     value: Value | undefined;
     env: Environment;
   } {
-    if (context.isEvaluatingExprAsType) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected context.isEvaluatingExprAsType == false`
-      );
-    }
-
     let label: string | undefined = undefined;
     const expr_ = expr;
     let lhsExpr: Expr | undefined = undefined;
@@ -708,9 +677,8 @@ ${typeToString(expectedTupleType)}`
   }
 
   /**
-   * @returns
    */
-  private evaluateTupleElements({
+  private evaluateTupleElementsValue({
     args,
     env,
     context,
@@ -720,7 +688,7 @@ ${typeToString(expectedTupleType)}`
     context: EvaluatorContext;
   }): {
     type: TupleType;
-    value: TupleValue | TypeValue | undefined;
+    value: TupleValue | undefined;
     env: Environment;
   } {
     const tupleElements: TupleElement[] = [];
@@ -732,19 +700,12 @@ ${typeToString(expectedTupleType)}`
         type,
         value,
         env: nextEnv,
-      } = context.isEvaluatingExprAsType
-        ? this.evaluateTupleElementType({
-            expr: arg,
-            env,
-            tupleElementIndex: i,
-            context: { ...context },
-          })
-        : this.evaluateTupleElementValue({
-            expr: arg,
-            env,
-            tupleElementIndex: i,
-            context: { ...context },
-          });
+      } = this.evaluateTupleElementValue({
+        expr: arg,
+        env,
+        tupleElementIndex: i,
+        context: { ...context },
+      });
 
       // Check if there is duplicate labels
       if (type.label) {
@@ -767,22 +728,73 @@ ${typeToString(expectedTupleType)}`
     }
 
     const tupleType: TupleType = createTupleType(tupleElements);
-    let value: Value | undefined = undefined;
-    if (context.isEvaluatingExprAsType) {
-      value = createTypeValue(tupleType);
-    } else {
-      value = tupleValues.some((v) => !v)
-        ? // ^ Meaning some element value is not compile-time known.
-          undefined
-        : {
-            tag: ValueTag.Tuple,
-            type: tupleType,
-            elements: tupleValues as Value[],
-          };
-    }
+    const value: Value | undefined = tupleValues.some((v) => !v)
+      ? // ^ Meaning some element value is not compile-time known.
+        undefined
+      : {
+          tag: ValueTag.Tuple,
+          type: tupleType,
+          elements: tupleValues as Value[],
+        };
+
     return {
       type: tupleType,
       value,
+      env,
+    };
+  }
+
+  private evaluateTupleElementsType({
+    args,
+    env,
+    context,
+  }: {
+    args: Expr[];
+    env: Environment;
+    context: EvaluatorContext;
+  }): {
+    type: TupleType;
+    env: Environment;
+  } {
+    const tupleElements: TupleElement[] = [];
+    const tupleValues: (Value | undefined)[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+
+      const {
+        type,
+        value,
+        env: nextEnv,
+      } = this.evaluateTupleElementType({
+        expr: arg,
+        env,
+        tupleElementIndex: i,
+        context: { ...context },
+      });
+
+      // Check if there is duplicate labels
+      if (type.label) {
+        const duplicateLabel = tupleElements.find(
+          (element) => element.label === type.label
+        );
+        if (duplicateLabel) {
+          throw this.formatErrorMessage(
+            exprIsFunctionCall(arg)
+              ? (arg.args[0]?.token ?? arg.token)
+              : arg.token,
+            `Duplicate label "${type.label}" in tuple`
+          );
+        }
+      }
+
+      tupleElements.push(type);
+      tupleValues.push(value);
+      env = nextEnv;
+    }
+
+    const tupleType: TupleType = createTupleType(tupleElements);
+    return {
+      type: tupleType,
       env,
     };
   }
@@ -1869,7 +1881,6 @@ Please consider to write it as:
       env,
       context: {
         ...context,
-        isEvaluatingExprAsType: true,
       },
     });
     if (evaluatedRhs.$?.env) {
@@ -2046,7 +2057,6 @@ Please consider to write it as:
       env,
       context: {
         ...context,
-        isEvaluatingExprAsType: false,
         expectedType: undefined,
       },
     });
@@ -2355,7 +2365,6 @@ ${exprToString(rhs)}`
         env,
         context: {
           ...context,
-          isEvaluatingExprAsType: false,
           expectedType: { type: variable.type, env },
         },
       });
@@ -2454,7 +2463,6 @@ ${exprToString(rhs)}`
         env,
         context: {
           ...context,
-          isEvaluatingExprAsType: false,
           expectedType: undefined,
         },
       });
@@ -2482,7 +2490,6 @@ ${exprToString(rhs)}`
         env,
         context: {
           ...context,
-          isEvaluatingExprAsType: false,
           expectedType: { type: expectedType, env },
         },
       });
@@ -2615,7 +2622,6 @@ ${exprToString(rhs)}`
           env,
           context: {
             ...context,
-            isEvaluatingExprAsType: true,
           },
         });
         if (evaluatedRhs.$?.env) {
@@ -2725,7 +2731,6 @@ ${exprToString(rhs)}`
         env,
         context: {
           ...context,
-          isEvaluatingExprAsType: false,
         },
       });
 
@@ -2746,7 +2751,6 @@ ${exprToString(rhs)}`
         env,
         context: {
           ...context,
-          isEvaluatingExprAsType: false,
         },
       });
 
@@ -2767,7 +2771,7 @@ ${exprToString(rhs)}`
         if (
           !areTypesCompatible(
             { type: valueType, env },
-            { type: evaluatedValue.$?.type, env }
+            { type: evaluatedValue.$.type, env }
           )
         ) {
           throw this.formatErrorMessage(
@@ -2831,7 +2835,6 @@ ${exprToString(rhs)}`
       env,
       context: {
         ...context,
-        isEvaluatingExprAsType: false,
       },
     });
 
@@ -2908,7 +2911,6 @@ ${exprToString(rhs)}`
           env: tempEnv,
           context: {
             ...context,
-            isEvaluatingExprAsType: false,
           },
         });
         // We don't update the original env here since each pattern has its own scope
@@ -3035,7 +3037,6 @@ ${exprToString(rhs)}`
           env: patternEnv,
           context: {
             ...context,
-            isEvaluatingExprAsType: false,
           },
         });
 
@@ -3128,6 +3129,30 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       };
       return expr;
     }
+    // Type
+    else if (identifier === TypeTag.Type) {
+      const value = createTypeValue(TType);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
+        isMutable: false,
+        pathCollection: [],
+      };
+      return expr;
+    }
+    // unit
+    else if (identifier === TypeTag.Unit) {
+      const value = createTypeValue(TUnit);
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
+        isMutable: false,
+        pathCollection: [],
+      };
+      return expr;
+    }
     // compt_int
     else if (identifier === TypeTag.ComptInt) {
       const value = createTypeValue(TComptInt);
@@ -3155,18 +3180,6 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     // compt_string
     else if (identifier === TypeTag.ComptString) {
       const value = createTypeValue(TComptString);
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // Type
-    else if (identifier === TypeTag.Type) {
-      const value = createTypeValue(TType);
       expr.$ = {
         env,
         type: value.type,
@@ -3434,7 +3447,6 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         env,
         context: {
           ...context,
-          isEvaluatingExprAsType: true,
         },
       });
       env = nextEnv;
@@ -3446,7 +3458,6 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       env,
       context: {
         ...context,
-        isEvaluatingExprAsType: false,
         isEvaluatingFunctionBodyOfType: functionType,
       },
     });
@@ -3695,7 +3706,6 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           env,
           context: {
             ...context,
-            isEvaluatingExprAsType: false,
           },
         });
         if (evaluatedDefaultValue.$?.env) {
@@ -3874,7 +3884,6 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
             expectedParameter: expectedFunctionType?.typeParameters?.[j],
             context: {
               ...context,
-              isEvaluatingExprAsType: true,
             },
           });
 
@@ -3938,7 +3947,6 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
             expectedParameter: expectedFunctionType?.implicitParameters?.[j],
             context: {
               ...context,
-              isEvaluatingExprAsType: true,
             },
           });
 
@@ -3989,7 +3997,6 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           env,
           context: {
             ...context,
-            isEvaluatingExprAsType: true,
           },
         });
 
@@ -4114,7 +4121,6 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       env,
       context: {
         ...context,
-        isEvaluatingExprAsType: true,
       },
     });
     env = nextEnv;
@@ -4139,7 +4145,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     const evaluatedReturnType = this.evaluateExpression({
       expr: returnTypeExpr,
       env,
-      context: { ...context, isEvaluatingExprAsType: true },
+      context: { ...context },
     });
 
     // Check that the return type is indeed a type
@@ -4212,51 +4218,6 @@ compt(${exprToString(returnTypeExpr)})`
     return expr;
   }
 
-  private evaluateTypeExpression({
-    expr,
-    env,
-    context,
-  }: {
-    expr: FuncCallExpr;
-    env: Environment;
-    context: EvaluatorContext;
-  }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.type, 1)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected type with 1 argument, got:\n${exprToString(expr)}`
-      );
-    }
-
-    const typeExpr = expr.args[0]!;
-    const evaluatedType = this.evaluateExpression({
-      expr: typeExpr,
-      env,
-      context: { ...context, isEvaluatingExprAsType: true },
-    });
-    if (evaluatedType.$?.env) {
-      env = evaluatedType.$?.env;
-    }
-    const typeValue = evaluatedType.$?.value;
-    if (!isTypeValue(typeValue)) {
-      throw this.formatErrorMessage(
-        typeExpr.token,
-        `Expected a type for type expression, got:\n${exprToString(typeExpr)}`
-      );
-    }
-    expr.$ = {
-      env,
-      type: typeValue.type,
-      value: typeValue,
-      isMutable: false,
-      pathCollection: [],
-    };
-
-    // Add information to the `type` token
-    expr.func.$ = expr.$;
-    return expr;
-  }
-
   private evaluateStruct({
     expr,
     env,
@@ -4273,10 +4234,10 @@ compt(${exprToString(returnTypeExpr)})`
       );
     }
 
-    const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
+    const { type: tupleType, env: nextEnv } = this.evaluateTupleElementsType({
       args: expr.args,
       env,
-      context: { ...context, isEvaluatingExprAsType: true },
+      context: { ...context },
     });
     env = nextEnv;
 
@@ -4346,14 +4307,14 @@ compt(${exprToString(returnTypeExpr)})`
         }
         const variantName = enumArg.func.token.value;
 
-        const { type: tupleType, env: nextEnv } = this.evaluateTupleElements({
-          args: enumArg.args,
-          env,
-          context: {
-            ...context,
-            isEvaluatingExprAsType: true,
-          },
-        });
+        const { type: tupleType, env: nextEnv } =
+          this.evaluateTupleElementsType({
+            args: enumArg.args,
+            env,
+            context: {
+              ...context,
+            },
+          });
         env = nextEnv;
 
         variants.push({
@@ -4901,7 +4862,6 @@ compt(${exprToString(returnTypeExpr)})`
         env,
         context: {
           ...context,
-          isEvaluatingExprAsType: false,
         },
       });
       // Check if . property access for module method call
@@ -4948,7 +4908,6 @@ compt(${exprToString(returnTypeExpr)})`
               env,
               context: {
                 ...context,
-                isEvaluatingExprAsType: false,
               },
             });
             if (nextExpr.$?.env) {
@@ -5055,7 +5014,6 @@ compt(${exprToString(returnTypeExpr)})`
           env,
           context: {
             ...context,
-            isEvaluatingExprAsType: false,
           },
         });
         const receiverType = evaluatedFirstArg.$?.type;
@@ -5501,7 +5459,6 @@ ${exprToString(expr)}`
         env: calleeEnv,
         context: {
           ...context,
-          isEvaluatingExprAsType: true,
           expectedType: undefined,
           SelfType: functionValue?.SelfType,
         },
@@ -5526,7 +5483,6 @@ ${exprToString(expr)}`
         env: calleeEnv,
         context: {
           ...context,
-          isEvaluatingExprAsType: false,
           expectedType: undefined,
           SelfType: functionValue?.SelfType,
         },
@@ -5645,7 +5601,6 @@ ${exprToString(expr)}`
             env: calleeEnv,
             context: {
               ...context,
-              isEvaluatingExprAsType: false,
             },
           });
           if (evaluatedArgExpr.$?.env) {
@@ -5951,7 +5906,6 @@ ${exprToString(expr)}`
               env: calleeEnv,
               context: {
                 ...context,
-                isEvaluatingExprAsType: false,
               },
             });
             if (evaluatedArgExpr.$?.env) {
@@ -5987,7 +5941,6 @@ ${exprToString(expr)}`
             env: callerEnv,
             context: {
               ...context,
-              isEvaluatingExprAsType: true,
               expectedType: { type: typeParameter.type, env: calleeEnv },
             },
           });
@@ -6149,7 +6102,6 @@ Got:   ${typeToString(typeValue.type)}`
           env: callerEnv,
           context: {
             ...context,
-            isEvaluatingExprAsType: false,
             expectedType: { type: implicitParameterType, env: calleeEnv },
           },
         });
@@ -6285,7 +6237,6 @@ Got:   ${typeToString(argType)}`
                       type: implicitParameterType,
                       env: calleeEnv,
                     },
-                    isEvaluatingExprAsType: false,
                   },
                 });
                 return areTypesCompatible(
@@ -6357,7 +6308,7 @@ ${implicitVariables
     const evaluatedFunctionReturnExpr = this.evaluateExpression({
       expr: cloneExpr(functionType.return.expr),
       env: calleeEnv,
-      context: { ...context, isEvaluatingExprAsType: true },
+      context: { ...context },
     });
 
     const functionReturnTypeValue = evaluatedFunctionReturnExpr.$?.value;
@@ -6465,7 +6416,6 @@ ${implicitVariables
         env: callerEnv,
         context: {
           ...context,
-          isEvaluatingExprAsType: false,
           expectedType: { type: memberElement.type, env: callerEnv },
           borrowings,
         },
@@ -6593,7 +6543,6 @@ Got:   ${typeToString(argType)}`
       env,
       context: {
         ...context,
-        isEvaluatingExprAsType: false,
         isEvaluatingFunctionBodyOfType: functionType,
       },
     });
@@ -6733,7 +6682,6 @@ ${valueToString(moduleMember.requiredValue)}`
             env: callerEnv,
             context: {
               ...context,
-              isEvaluatingExprAsType: false,
               expectedType: { type: moduleMemberType, env: callerEnv },
               SelfType: moduleType,
             },
@@ -6938,7 +6886,7 @@ Got:   ${typeToString(argType)}`
     const evaluatedFunctionBody = this.evaluateBeginExpression({
       expr: functionBodyExpr,
       env: calleeEnv,
-      context: { ...context, isEvaluatingExprAsType: false },
+      context: { ...context },
     });
     if (!evaluatedFunctionBody.$) {
       throw this.formatErrorMessage(
@@ -7030,7 +6978,6 @@ Got:   ${typeToString(argType)}`
         env,
         context: {
           ...context,
-          isEvaluatingExprAsType: false,
           expectedType:
             i === beginExpressions.length - 1 ? expectedType : undefined,
         },
@@ -7134,7 +7081,6 @@ Got:   ${typeToString(argType)}`
           env,
           context: {
             ...context,
-            isEvaluatingExprAsType: false,
             expectedType: undefined,
             SelfType: undefined,
           },
@@ -7201,7 +7147,6 @@ Got:   ${typeToString(argType)}`
           env,
           context: {
             ...context,
-            isEvaluatingExprAsType: false,
             expectedType: undefined,
             SelfType: moduleType,
           },
@@ -7271,7 +7216,6 @@ Got:   ${typeToString(argType)}`
       env,
       context: {
         ...context,
-        isEvaluatingExprAsType: false,
         expectedType: undefined,
         SelfType: undefined,
       },
@@ -7384,7 +7328,6 @@ Got:   ${typeToString(argType)}`
         env,
         context: {
           ...context,
-          isEvaluatingExprAsType: true,
           SelfType: undefined, // NOTE: Set it as undefined here.
           // `Self` in a module is used as the received type.
         },
@@ -7439,7 +7382,6 @@ Got:   ${typeToString(argType)}`
           env,
           context: {
             ...context,
-            isEvaluatingExprAsType: false,
             expectedType: { type: memberType, env },
             SelfType: undefined,
           },
@@ -7569,7 +7511,6 @@ Got:   ${typeToString(argType)}`
       env,
       context: {
         ...context,
-        isEvaluatingExprAsType: true,
       },
     });
     if (evaluatedExpr.$?.env) {
@@ -7618,7 +7559,6 @@ Got:   ${typeToString(argType)}`
       env,
       context: {
         ...context,
-        isEvaluatingExprAsType: false,
       },
     });
     if (!evaluatedConsumeArgExpr.$) {
@@ -7798,7 +7738,6 @@ Got:   ${typeToString(argType)}`
         env,
         context: {
           ...context,
-          isEvaluatingExprAsType: false,
           expectedType: undefined,
           SelfType: undefined,
           borrowings: [...context.borrowings, ...borrowings],
@@ -7880,7 +7819,6 @@ Got:   ${typeToString(argType)}`
       env,
       context: {
         ...context,
-        isEvaluatingExprAsType: false,
         expectedType: undefined,
         SelfType: undefined,
         borrowings: [...context.borrowings, ...borrowings],
@@ -8027,7 +7965,6 @@ Got:   ${typeToString(argType)}`
       env,
       context: {
         ...context,
-        isEvaluatingExprAsType: true,
         expectedType: undefined,
         SelfType: undefined,
       },
@@ -8046,7 +7983,6 @@ Got:   ${typeToString(argType)}`
       env,
       context: {
         ...context,
-        isEvaluatingExprAsType: true,
         expectedType: undefined,
         SelfType: undefined,
       },
@@ -8245,14 +8181,10 @@ Got:   ${typeToString(argType)}`
       return expr;
     }
 
-    const {
-      type: tupleType,
-      value: tupleValue,
-      env: nextEnv,
-    } = this.evaluateTupleElements({
+    const { type: tupleType, env: nextEnv } = this.evaluateTupleElementsType({
       args: expr.args,
       env,
-      context: { ...context, isEvaluatingExprAsType: true },
+      context: { ...context },
     });
     env = nextEnv;
 
@@ -8268,7 +8200,7 @@ Got:   ${typeToString(argType)}`
 
     expr.$ = {
       env,
-      value: tupleValue,
+      value: createTypeValue(tupleType),
       type: typeOfType(tupleType),
       isMutable: false,
       pathCollection: [],
@@ -8302,7 +8234,6 @@ Got:\n${exprToString(expr)}`
       env,
       context: {
         ...context,
-        isEvaluatingExprAsType: true,
       },
     });
     if (!evaluatedElementTypeExpr.$) {
@@ -8596,7 +8527,7 @@ ${exprToString(expr)}`
           return this.evaluateAnonymousFunctionImplementation({
             expr,
             env,
-            context: { ...context, isEvaluatingExprAsType: false },
+            context: { ...context },
           });
         }
 
@@ -8604,7 +8535,7 @@ ${exprToString(expr)}`
         return this.evaluateFunctionType({
           expr,
           env,
-          context: { ...context, isEvaluatingExprAsType: true },
+          context: { ...context },
         });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
         // recur
@@ -8620,14 +8551,7 @@ ${exprToString(expr)}`
         return this.evaluateMatch({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.tuple)) {
         // tuple
-        return this.evaluateTuple({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.type)) {
-        // type Expr
-        return this.evaluateTypeExpression({
-          expr,
-          env,
-          context: { ...context },
-        });
+        return this.evaluateTupleValue({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
         // struct
         return this.evaluateStruct({ expr, env, context: { ...context } });
@@ -8757,7 +8681,6 @@ ${exprToString(expr)}`
         beginExprs: this.program,
         env,
         context: {
-          isEvaluatingExprAsType: false,
           expectedType: undefined,
           SelfType: undefined,
           borrowings: [],
