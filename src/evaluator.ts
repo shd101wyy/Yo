@@ -17,7 +17,6 @@ import { formatErrorMessage, MoParserError } from "./error";
 import {
   AtomExpr,
   attachTempVariableToExpr,
-  BuiltinCollections,
   BuiltinFunctions,
   BuiltinKeywords,
   cloneExpr,
@@ -37,6 +36,7 @@ import Parser from "./parser";
 import { PlaceholderToken, stringIsOperator, Token, TokenType } from "./token";
 import {
   areTypesCompatible,
+  createArrayType,
   createEnumType,
   createFunctionType,
   createLinearPtrType,
@@ -317,7 +317,7 @@ export default class Evaluator {
     env: Environment;
     context: EvaluatorContext;
   }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.tuple)) {
       throw this.formatErrorMessage(
         expr.token,
         `Expected tuple, got ${expr.tag}`
@@ -966,7 +966,7 @@ ${typeToString(expectedTupleType)}`
     if (
       isTupleType(type) &&
       exprIsFunctionCall(expr) &&
-      exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)
+      exprIsFunctionCallOf(expr, BuiltinKeywords.tuple)
     ) {
       if (type.elements.length !== expr.args.length) {
         throw this.formatErrorMessage(
@@ -1211,7 +1211,7 @@ ${typeToString(expectedTupleType)}`
     else if (
       isTupleType(rhsType) &&
       exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinCollections.Tuple)
+      exprIsFunctionCallOf(lhs, BuiltinKeywords.tuple)
     ) {
       return this.handleMemberDestructuring({
         lhsFunc: lhs.func,
@@ -1487,7 +1487,7 @@ ${typeToString(expectedTupleType)}`
         // Check if the right side is a tuple for nested destructuring (c: (x, y))
         if (
           exprIsFunctionCall(rightSide) &&
-          exprIsFunctionCallOf(rightSide, BuiltinCollections.Tuple)
+          exprIsFunctionCallOf(rightSide, BuiltinKeywords.tuple)
         ) {
           // Ensure the member we're destructuring is a tuple or struct
           if (!isTupleType(nestedRhsType)) {
@@ -1654,7 +1654,7 @@ ${typeToString(expectedTupleType)}`
         // Check if the right side is a tuple for nested destructuring (a, (x, y))
         if (
           exprIsFunctionCall(lhsElement) &&
-          exprIsFunctionCallOf(lhsElement, BuiltinCollections.Tuple)
+          exprIsFunctionCallOf(lhsElement, BuiltinKeywords.tuple)
         ) {
           // Ensure the member we're destructuring is a tuple or struct
           if (!isTupleType(nestedRhsType)) {
@@ -4053,7 +4053,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     // let proofExprs: Expr[] = [];
     // if (
     //   exprIsFunctionCall(expr) &&
-    //   exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)
+    //   exprIsFunctionCallOf(expr, BuiltinKeywords.tuple)
     // ) {
     //   proofExprs = expr.args;
     // } else {
@@ -4088,7 +4088,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     let argList: Expr[] = [];
     if (
       exprIsFunctionCall(argListExpr) &&
-      exprIsFunctionCallOf(argListExpr, BuiltinCollections.Tuple)
+      exprIsFunctionCallOf(argListExpr, BuiltinKeywords.tuple)
     ) {
       // Handle tuple-style parameter list: (param1: Type1, param2: Type2)
       argList = argListExpr.args;
@@ -7754,7 +7754,7 @@ Got:   ${typeToString(argType)}`
     const borrowedValueExprs: Expr[] = [];
     if (
       exprIsFunctionCall(firstExpr) &&
-      exprIsFunctionCallOf(firstExpr, BuiltinCollections.Tuple)
+      exprIsFunctionCallOf(firstExpr, BuiltinKeywords.tuple)
     ) {
       borrowedValueExprs.push(...firstExpr.args);
     } else {
@@ -7774,7 +7774,7 @@ Got:   ${typeToString(argType)}`
     const borrowBindingExprs: Expr[] = [];
     if (
       exprIsFunctionCall(secondExpr.args[0]!) &&
-      exprIsFunctionCallOf(secondExpr.args[0]!, BuiltinCollections.Tuple)
+      exprIsFunctionCallOf(secondExpr.args[0]!, BuiltinKeywords.tuple)
     ) {
       borrowBindingExprs.push(...secondExpr.args[0]!.args);
     } else {
@@ -8224,6 +8224,156 @@ Got:   ${typeToString(argType)}`
     }
   }
 
+  private evaluateTupleType({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (expr.args.length === 0) {
+      const value = createTypeValue(TUnit);
+      expr.$ = {
+        env,
+        value,
+        type: value.type,
+        isMutable: false,
+        pathCollection: [],
+      };
+      return expr;
+    }
+
+    const {
+      type: tupleType,
+      value: tupleValue,
+      env: nextEnv,
+    } = this.evaluateTupleElements({
+      args: expr.args,
+      env,
+      context: { ...context, isEvaluatingExprAsType: true },
+    });
+    env = nextEnv;
+
+    // We disallow the tuple elements to have defaultValue for the tuple type
+    tupleType.elements.forEach((tupleElement) => {
+      if (tupleElement.defaultValue) {
+        throw this.formatErrorMessage(
+          tupleElement.expr.token,
+          `Tuple elements cannot have default value.`
+        );
+      }
+    });
+
+    expr.$ = {
+      env,
+      value: tupleValue,
+      type: typeOfType(tupleType),
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
+
+  private evaluateArrayType({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Array, 2)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "Array(@(Type), @(usize))" with 2 arguments, like "Array(i32, 10)"
+Got:\n${exprToString(expr)}`
+      );
+    }
+
+    const elementTypeExpr = expr.args[0]!;
+    const lengthExpr = expr.args[1]!;
+
+    // Evaluate the element type expression
+    const evaluatedElementTypeExpr = this.evaluateExpression({
+      expr: elementTypeExpr,
+      env,
+      context: {
+        ...context,
+        isEvaluatingExprAsType: true,
+      },
+    });
+    if (!evaluatedElementTypeExpr.$) {
+      throw this.formatErrorMessage(
+        elementTypeExpr.token,
+        `Failed to evaluate the element type expression:\n${exprToString(
+          elementTypeExpr
+        )}`
+      );
+    }
+    if (!isTypeValue(evaluatedElementTypeExpr.$.value)) {
+      throw this.formatErrorMessage(
+        elementTypeExpr.token,
+        `Expected type for element type, got:\n${exprToString(elementTypeExpr)}`
+      );
+    }
+    const elementType = evaluatedElementTypeExpr.$.value.value;
+
+    // Evaluate the length expression
+    const evaluatedLengthExpr = this.evaluateExpression({
+      expr: lengthExpr,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!evaluatedLengthExpr.$) {
+      throw this.formatErrorMessage(
+        lengthExpr.token,
+        `Failed to evaluate the length expression:\n${exprToString(lengthExpr)}`
+      );
+    }
+    if (
+      !areTypesCompatible(
+        {
+          type: TUsize,
+          env,
+        },
+        {
+          type: evaluatedLengthExpr.$.type,
+          env,
+        }
+      )
+    ) {
+      throw this.formatErrorMessage(
+        lengthExpr.token,
+        `Expected usize for length, got:\n${exprToString(lengthExpr)}`
+      );
+    }
+
+    const lengthValue = evaluatedLengthExpr.$.value;
+    if (!lengthValue) {
+      throw this.formatErrorMessage(
+        lengthExpr.token,
+        `Expected compile-time known value for length, got:\n${exprToString(lengthExpr)}`
+      );
+    }
+
+    const arrayType = createArrayType(elementType, lengthValue);
+    const arrayValue = createTypeValue(arrayType);
+
+    expr.$ = {
+      env: evaluatedLengthExpr.$.env,
+      type: arrayValue.type,
+      value: arrayValue,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
+
   /**
    * Evaluate a raw pointer call
    * For example:
@@ -8468,7 +8618,7 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
         // match
         return this.evaluateMatch({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinCollections.Tuple)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.tuple)) {
         // tuple
         return this.evaluateTuple({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.type)) {
@@ -8539,6 +8689,20 @@ ${exprToString(expr)}`
       ) {
         // & or &! references
         return this.evaluateReferenceCall({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Tuple)) {
+        // Tuple type
+        return this.evaluateTupleType({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Array)) {
+        // Array type
+        return this.evaluateArrayType({
           expr,
           env,
           context: { ...context },

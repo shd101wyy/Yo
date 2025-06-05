@@ -1,5 +1,5 @@
 import Evaluator from "./evaluator";
-import { ModuleValue } from "./value";
+import { ModuleValue } from "./values";
 
 export class ModuleManager {
   /**

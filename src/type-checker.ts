@@ -100,7 +100,7 @@ export interface Type {
    * A 64-bit integer has a size of 8 bytes.
    * If not specified, the size is unknown.
    */
-  size?: number;
+  // size?: number;
 
   /**
    * The methods implemented for this type
@@ -173,19 +173,19 @@ export interface TypeHierarchyType extends Type {
 
 export const TFree: TypeHierarchyType = {
   tag: TypeTag.Free,
-  size: 0, // Types themselves don't have runtime size
+  // size: 0, // Types themselves don't have runtime size
   level: 0,
 };
 
 export const TLinear: TypeHierarchyType = {
   tag: TypeTag.Linear,
-  size: 0, // Types themselves don't have runtime size
+  // size: 0, // Types themselves don't have runtime size
   level: 0,
 };
 
 export const TType: TypeHierarchyType = {
   tag: TypeTag.Type,
-  size: 0, // Types themselves don't have runtime size
+  // size: 0, // Types themselves don't have runtime size
   level: 0,
 };
 
@@ -225,22 +225,22 @@ export interface SomeType extends Type {
 
 export const TComptInt: Type = {
   tag: TypeTag.ComptInt,
-  size: undefined, // Size of compt_int is unlimited
+  // size: 0, // Size of compt_int is not available at runtime
 };
 
 export const TComptFloat: Type = {
   tag: TypeTag.ComptFloat,
-  size: undefined, // Size of compt_float is unlimited
+  // size: 0, // Size of compt_float is not available at runtime
 };
 
 export const TComptString: Type = {
   tag: TypeTag.ComptString,
-  size: undefined, // Size of compt_string is unlimited
+  // size: 0, // Size of compt_string is not avaiable at runtime
 };
 
 export const TBoolean: Type = {
   tag: TypeTag.Boolean,
-  size: 8,
+  // size: 8,
 };
 
 /**
@@ -248,67 +248,67 @@ export const TBoolean: Type = {
  */
 export const TChar: Type = {
   tag: TypeTag.Char,
-  size: 4 * 8,
+  // size: 4 * 8,
 };
 
 export const TUsize: Type = {
   tag: TypeTag.Usize,
-  size: getPtrSize() * 8,
+  // size: getPtrSize() * 8,
 };
 export const TIsize: Type = {
   tag: TypeTag.Isize,
-  size: getPtrSize() * 8,
+  // size: getPtrSize() * 8,
 };
 export const TU8: Type = {
   tag: TypeTag.U8,
-  size: 1 * 8,
+  // size: 1 * 8,
 };
 export const TU16: Type = {
   tag: TypeTag.U16,
-  size: 2 * 8,
+  // size: 2 * 8,
 };
 export const TU32: Type = {
   tag: TypeTag.U32,
-  size: 4 * 8,
+  // size: 4 * 8,
 };
 export const TU64: Type = {
   tag: TypeTag.U64,
-  size: 8 * 8,
+  // size: 8 * 8,
 };
 export const TI8: Type = {
   tag: TypeTag.I8,
-  size: 1 * 8,
+  // size: 1 * 8,
 };
 export const TI16: Type = {
   tag: TypeTag.I16,
-  size: 2 * 8,
+  // size: 2 * 8,
 };
 export const TI32: Type = {
   tag: TypeTag.I32,
-  size: 4 * 8,
+  // size: 4 * 8,
 };
 export const TI64: Type = {
   tag: TypeTag.I64,
-  size: 8 * 8,
+  // size: 8 * 8,
 };
 export const TF32: Type = {
   tag: TypeTag.F32,
-  size: 4 * 8,
+  // size: 4 * 8,
 };
 export const TF64: Type = {
   tag: TypeTag.F64,
-  size: 8 * 8,
+  // size: 8 * 8,
 };
 export const TUnit: Type = {
   tag: TypeTag.Unit,
-  size: 0,
+  // size: 0,
 };
 
 // Extended Type interface for compound types
 export interface ArrayType extends Type {
   tag: TypeTag.Array;
   elementType: Type;
-  length: number; // Fixed length is required
+  length: Value; // Compile-time known usize compatible value.
 }
 
 export interface TupleElement {
@@ -512,7 +512,7 @@ export interface EnumType extends Type {
   /**
    * The size of the tag in bits.
    */
-  tagSize: number;
+  // tagSize: number;
 
   /**
    * The name of the selected variant.
@@ -740,29 +740,32 @@ export interface RefType extends Type {
 export function createTypeHierarchy(level: number): TypeHierarchyType {
   return {
     tag: TypeTag.Type,
-    size: 0,
+    // size: 0,
     level,
   };
 }
 
 // Type constructor functions (need to be updated to include kind)
-/*
-export function createArrayType(elementType: Type, length: number): ArrayType {
+export function createArrayType(elementType: Type, length: Value): ArrayType {
+  /*
   if (elementType.size === undefined) {
-    throw new Error(`Cannot create array type: element type size is undefined`);
+    throw new Error(
+      `Cannot create array type of ${typeToString(elementType)}.
+Element type size is undefined.`
+    );
   }
+    */
 
   return {
     tag: TypeTag.Array,
-    size: elementType.size * length,
+    // size: elementType.size * length,
     elementType,
     length,
   };
 }
-*/
 
 export function createTupleType(elements: TupleElement[]): TupleType {
-  let totalSize: undefined | number = 0;
+  /* let totalSize: undefined | number = 0;
   for (let i = 0; i < elements.length; i++) {
     const element = elements[i]!;
     if (element.type.size === undefined) {
@@ -771,10 +774,11 @@ export function createTupleType(elements: TupleElement[]): TupleType {
       totalSize += element.type.size;
     }
   }
+  */
 
   return {
     tag: TypeTag.Tuple,
-    size: totalSize,
+    // size: totalSize,
     elements,
   };
 }
@@ -783,6 +787,7 @@ export function createStructType(
   elements: TupleElement[],
   typeId?: string
 ): StructType {
+  /*
   let totalSize: undefined | number = 0;
   for (let i = 0; i < elements.length; i++) {
     const element = elements[i]!;
@@ -792,10 +797,11 @@ export function createStructType(
       totalSize += element.type.size;
     }
   }
+  */
 
   return {
     tag: TypeTag.Struct,
-    size: totalSize,
+    // size: totalSize,
     elements,
     typeId: typeId ?? `struct_${randomId()}`,
   };
@@ -805,6 +811,7 @@ export function createEnumType(
   variants: EnumVariant[],
   typeId?: string
 ): EnumType {
+  /*
   let totalSize: undefined | number = 0;
   for (let i = 0; i < variants.length; i++) {
     const variant = variants[i]!;
@@ -829,17 +836,19 @@ export function createEnumType(
     typeof totalSize === "number" && totalSize > 0
       ? Math.ceil(Math.log2(variants.length)) * 8
       : 0;
+  */
 
   return {
     tag: TypeTag.Enum,
-    size: typeof totalSize === "number" ? totalSize + tagSize : undefined,
+    // size: typeof totalSize === "number" ? totalSize + tagSize : undefined,
     variants,
-    tagSize,
+    // tagSize,
     typeId: typeId ?? `enum_${randomId()}`,
   };
 }
 
 export function createUnionType(elements: TupleElement[]): UnionType {
+  /*
   let maxSize = 0;
   for (let i = 0; i < elements.length; i++) {
     const type = elements[i]!.type;
@@ -850,10 +859,11 @@ export function createUnionType(elements: TupleElement[]): UnionType {
     }
     maxSize = Math.max(maxSize, type.size);
   }
+  */
 
   return {
     tag: TypeTag.Union,
-    size: maxSize, // Changed from totalSize to maxSize as unions use the size of largest variant
+    // size: maxSize, // Changed from totalSize to maxSize as unions use the size of largest variant
     elements,
   };
 }
@@ -877,7 +887,7 @@ export function createFunctionType({
 }): FunctionType {
   return {
     tag: TypeTag.Function,
-    size: getPtrSize() * 8,
+    // size: getPtrSize() * 8,
     parameters: parameters, // Wrap params in a TupleType
     typeParameters,
     implicitParameters,
@@ -919,7 +929,7 @@ export function getModuleReceiverType(moduleType: ModuleType): Type | null {
 export function createMutLinearPtrType(type: Type): MutLinearPtrType {
   return {
     tag: TypeTag.MutLinearPtr,
-    size: getPtrSize() * 8,
+    // size: getPtrSize() * 8,
     type,
   };
 }
@@ -927,7 +937,7 @@ export function createMutLinearPtrType(type: Type): MutLinearPtrType {
 export function createLinearPtrType(type: Type): LinearPtrType {
   return {
     tag: TypeTag.LinearPtr,
-    size: getPtrSize() * 8,
+    // size: getPtrSize() * 8,
     type,
   };
 }
@@ -935,7 +945,7 @@ export function createLinearPtrType(type: Type): LinearPtrType {
 export function createMutPtrType(type: Type): MutPtrType {
   return {
     tag: TypeTag.MutPtr,
-    size: getPtrSize() * 8,
+    // size: getPtrSize() * 8,
     type,
   };
 }
@@ -943,7 +953,7 @@ export function createMutPtrType(type: Type): MutPtrType {
 export function createPtrType(type: Type): PtrType {
   return {
     tag: TypeTag.Ptr,
-    size: getPtrSize() * 8,
+    // size: getPtrSize() * 8,
     type,
   };
 }
@@ -951,7 +961,7 @@ export function createPtrType(type: Type): PtrType {
 export function createMutRefType(type: Type): MutRefType {
   return {
     tag: TypeTag.MutRef,
-    size: getPtrSize() * 8,
+    // size: getPtrSize() * 8,
     type,
   };
 }
@@ -959,7 +969,7 @@ export function createMutRefType(type: Type): MutRefType {
 export function createRefType(type: Type): RefType {
   return {
     tag: TypeTag.Ref,
-    size: getPtrSize() * 8,
+    // size: getPtrSize() * 8,
     type,
   };
 }
@@ -1824,9 +1834,9 @@ export function typeToString(type: Type): string {
 
     // Complex types
     case TypeTag.Array: {
-      return `[${typeToString((type as ArrayType).elementType)}; ${
+      return `Array(${typeToString((type as ArrayType).elementType)}, ${valueToString(
         (type as ArrayType).length
-      }]`;
+      )})`;
     }
 
     case TypeTag.Tuple: {
@@ -2003,6 +2013,7 @@ export function typeToString(type: Type): string {
   }
 }
 
+/*
 function addPluralSuffix(unit: string, value: number): string {
   if (value === 1) {
     return unit;
@@ -2010,9 +2021,11 @@ function addPluralSuffix(unit: string, value: number): string {
     return `${unit}s`;
   }
 }
+*/
 /**
  * @param size - The size in bits
  */
+/*
 export function getSizeString(type: Type): string {
   const size = type.size;
   if (size === undefined) {
@@ -2033,3 +2046,4 @@ export function getSizeString(type: Type): string {
     return `${size} ${addPluralSuffix("bit", size)}`;
   }
 }
+*/

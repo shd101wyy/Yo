@@ -8,7 +8,7 @@ import { MoLexerError, MoParserError } from "@yo/error";
 import { AtomExpr, Expr, exprIsAtom, exprToString } from "@yo/expr";
 import { ModuleManager } from "@yo/module-manager";
 import { stringIsOperator, TokenType } from "@yo/token";
-import { getSizeString, typeOfType, typeToString } from "@yo/type-checker";
+import { typeOfType, typeToString } from "@yo/type-checker";
 import { valueToString } from "@yo/value";
 import { ValueTag } from "@yo/value-tag";
 
@@ -243,9 +243,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Add type if available
         if (expr.$?.type) {
           const typeString = typeToString(expr.$.type);
-          markdownContent.appendMarkdown(
-            `\n: ${typeString} (${getSizeString(expr.$.type)})`
-          );
+          markdownContent.appendMarkdown(`\n: ${typeString}`);
           markdownContent.appendMarkdown(
             `\n  : ${typeToString(typeOfType(expr.$.type))}`
           );
@@ -257,9 +255,7 @@ export function activate(context: vscode.ExtensionContext) {
           // Add value if available
           const valueString = valueToString(expr.$?.value);
           if (expr.$?.value?.tag === ValueTag.Type) {
-            markdownContent.appendMarkdown(
-              `\n= ${valueString} (${getSizeString(expr.$?.value.value)})`
-            );
+            markdownContent.appendMarkdown(`\n= ${valueString}`);
           } else {
             markdownContent.appendMarkdown(`\n= ${valueString}`);
           }

@@ -9,7 +9,7 @@ import { formatErrorMessages } from "./error";
 import { Token, TokenType } from "./token";
 import { isLinearOrType0Type, Type, typeOfType } from "./type-checker";
 import { generateNewTempVariableName } from "./utils";
-import { Value } from "./value";
+import { Value } from "./values";
 
 /**
  * Eg:
@@ -123,7 +123,7 @@ export type AtomExpr = {
   /**
    * If it's undefined, then the expression has not been evaluated yet.
    */
-  $: EvaluatedExprData | undefined;
+  $?: EvaluatedExprData | undefined;
 };
 
 export type FuncCallExpr = {
@@ -138,7 +138,7 @@ export type FuncCallExpr = {
   /**
    * If it's undefined, then the expression has not been evaluated yet.
    */
-  $: EvaluatedExprData | undefined;
+  $?: EvaluatedExprData | undefined;
 };
 
 export function cloneExpr(expr: Expr): Expr {
@@ -193,11 +193,6 @@ export function exprIsFunctionCallOf(
   );
 }
 
-export const BuiltinCollections = {
-  Tuple: "tuple",
-  Array: "array",
-};
-
 export const BuiltinKeywords = {
   compt: ["compt", "@"],
   mut: ["mut", "!"],
@@ -240,6 +235,12 @@ export const BuiltinKeywords = {
   Ref: ["&"],
   MutRef: ["&!"],
   Rc: ["$"], // Everthing comes with a cost.
+  Tuple: ["Tuple"],
+  Array: ["Array"],
+
+  // data values
+  tuple: "tuple",
+  array: "array",
 };
 
 export const BuiltinFunctions = {
@@ -304,7 +305,7 @@ export function exprToString(expr: Expr): string {
       if (
         expr.func.tag === "Atom" &&
         expr.func.token.type === TokenType.Identifier &&
-        expr.func.token.value === BuiltinCollections.Tuple
+        expr.func.token.value === BuiltinKeywords.tuple
       ) {
         if (expr.args.length === 1) {
           printed = `(${exprToString(expr.args[0]!)},)`;

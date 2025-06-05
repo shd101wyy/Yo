@@ -1,7 +1,6 @@
 /* eslint-disable no-constant-condition */
 import { formatErrorMessage } from "./error";
 import {
-  BuiltinCollections,
   BuiltinKeywords,
   Expr,
   exprIsAtom,
@@ -16,7 +15,6 @@ import {
   Token,
   TokenType,
 } from "./token";
-import { generateNewTempVariableName } from "./utils";
 
 type ParserReturn = {
   expr: Expr;
@@ -44,9 +42,11 @@ export default class Parser {
     this.parse(this.tokens);
   }
 
+  /*
   private generateTempVariableName(): string {
     return generateNewTempVariableName(this.modulePath);
   }
+  */
 
   private formatErrorMessage(token: Token, errorMessage: string) {
     return formatErrorMessage({
@@ -117,7 +117,7 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinCollections.Tuple,
+              value: BuiltinKeywords.tuple,
               position: tokens[index]!.position,
             },
           },
@@ -172,7 +172,7 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinCollections.Tuple,
+              value: BuiltinKeywords.tuple,
               position: tokens[startIndex]!.position,
             },
           },
@@ -229,7 +229,7 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinCollections.Array,
+              value: BuiltinKeywords.array,
               position: tokens[startIndex]!.position,
             },
           },
@@ -302,7 +302,7 @@ export default class Parser {
         ) {
           const token: Token = {
             type: TokenType.Identifier,
-            value: BuiltinCollections.Tuple,
+            value: BuiltinKeywords.tuple,
             position: lastNonWhiteSpaceToken.position,
           };
           // Push unit
@@ -902,7 +902,7 @@ or ) to end the function call`
     ) {
       const token: Token = {
         type: TokenType.Identifier,
-        value: BuiltinCollections.Tuple,
+        value: BuiltinKeywords.tuple,
         position: lastNonWhiteSpaceToken.position,
       };
       // Add unit
