@@ -79,4 +79,11 @@ main :: (()-> ()) {
     a := 12;
     x
   };
+
+  borrow return_param(&(x)), (x_ref)-> {
+    a := x_ref.*;
+    expect_compile_error(
+      x = 12 // Not allowed, because `x` is borrowed.
+    );
+  };
 };

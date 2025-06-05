@@ -28,6 +28,7 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
+  PathCollection,
   setExprAsConsumed,
 } from "./expr";
 import { FunctionValue } from "./function-value";
@@ -5103,23 +5104,24 @@ ${functionsWithMatchingTypes
         // It's
         // - Runtime function
         // - Comptime function
-        const { returnType, callerEnv } = this.tryToCallFunctionWithArguments({
-          functionCallExpr: expr,
-          functionValue: functionToCall.value as FunctionValue | undefined,
-          functionType,
-          argExprs: args,
-          callerEnv: env,
-          context: {
-            ...context,
-            SelfType: functionType.SelfType,
-          },
-        });
+        const { returnType, callerEnv, pathCollection } =
+          this.tryToCallFunctionWithArguments({
+            functionCallExpr: expr,
+            functionValue: functionToCall.value as FunctionValue | undefined,
+            functionType,
+            argExprs: args,
+            callerEnv: env,
+            context: {
+              ...context,
+              SelfType: functionType.SelfType,
+            },
+          });
         env = popEnvFrame(callerEnv);
         expr.$ = {
           env,
           type: returnType,
           isMutable: false,
-          pathCollection: [],
+          pathCollection: pathCollection,
         };
 
         if (functionType.return.isCompileTimeOnly) {
@@ -5613,7 +5615,14 @@ ${exprToString(expr)}`
     argExprs: Expr[];
     callerEnv: Environment;
     context: EvaluatorContext;
-  }): { calleeEnv: Environment; callerEnv: Environment; returnType: Type } {
+  }): {
+    calleeEnv: Environment;
+    callerEnv: Environment;
+    pathCollection: PathCollection;
+    returnType: Type;
+  } {
+    const initialBorrowings = [...context.borrowings];
+
     let forallArgsExpr: FuncCallExpr | undefined = undefined;
     let implicitArgExprs: Expr[] = [];
 
@@ -6177,7 +6186,17 @@ ${implicitVariables
     }
     const returnType = functionReturnTypeValue.value;
 
-    return { returnType, calleeEnv, callerEnv };
+    const pathCollection: PathCollection = [];
+    if (context.borrowings.length !== initialBorrowings.length) {
+      const newBorrowings = context.borrowings.slice(initialBorrowings.length);
+      newBorrowings.forEach((borrowing) => {
+        const pc = borrowing.pathCollection;
+        pc.forEach((path) => {
+          pathCollection.push(path);
+        });
+      });
+    }
+    return { returnType, calleeEnv, callerEnv, pathCollection };
   }
 
   private tryToCallTypeWithArguments({
