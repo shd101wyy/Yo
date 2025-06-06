@@ -56,6 +56,8 @@ import {
   getFunctionParameterToken,
   getValueOfSomeTypeFromEnv,
   isBooleanType,
+  isComptFloatType,
+  isComptIntType,
   isEnumType,
   isFunctionType,
   isFunctionTypeAndIsTypeFunction,
@@ -118,8 +120,6 @@ import {
   createStructValue,
   createTypeValue,
   createUnknownValue,
-  isComptFloatValue,
-  isComptIntValue,
   isComptStringValue,
   isFunctionValue,
   isModuleValue,
@@ -2090,29 +2090,6 @@ ${exprToString(expr)}`
 ${exprToString(expr)}`
         );
       }
-      // If rhs is compt_int value, then it must be compile-time only
-      else if (isComptIntValue(rhs.$?.value)) {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Expected "::" instead of ":=" for compt_int value assignment:
-${exprToString(expr)}
-
-To assign it to a specific runtime integer type, please use:
-(${lhs.token.value}: i32) = ${exprToString(rhs)}`
-        );
-      }
-      // If rhs is compt_float value, then it must be compile-time only
-      else if (isComptFloatValue(rhs.$?.value)) {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Expected "::" instead of ":=" for compt_float value assignment:
-${exprToString(expr)}
-
-To assign it to a specific runtime integer type, please use:
-(${lhs.token.value}: f64) = ${exprToString(rhs)}
-`
-        );
-      }
       // If rhs is compt_string value, then it must be compile-time only
       else if (isComptStringValue(rhs.$?.value)) {
         throw this.formatErrorMessage(
@@ -2140,10 +2117,23 @@ ${exprToString(expr)}`
             `(2) Expected type for right-hand side, got ${exprToString(rhs)}`
           );
         }
+
+        // If it's runtime, then we convert
+        // compt_int -> i32
+        // compt_float -> f64
+        let lhsType = rhsType;
+        if (!isCompileTimeOnly) {
+          if (isComptIntType(rhsType)) {
+            lhsType = TI32;
+          } else if (isComptFloatType(rhsType)) {
+            lhsType = TF64;
+          }
+        }
+
         // user didn't specify the type
         lhs.$ = {
           env,
-          type: rhsType,
+          type: lhsType,
           isMutable,
           pathCollection: [],
         };
@@ -2228,7 +2218,7 @@ ${exprToString(rhs)}`
       // Set the variable value
       lhs.$ = {
         env,
-        type: lhs.$?.type,
+        type: lhs.$.type,
         value: isCompileTimeOnly ? rhsValue : undefined,
         isMutable,
         pathCollection: [],
@@ -2240,7 +2230,7 @@ ${exprToString(rhs)}`
         variable: {
           name: lhs.token.value,
           token: lhs.token,
-          type: lhs.$?.type,
+          type: lhs.$.type,
           isMutable,
           isCompileTimeOnly,
           isUndefined: false,
@@ -8290,6 +8280,11 @@ Got:\n${exprToString(expr)}`
         lengthExpr.token,
         `Expected compile-time known value for length, got:\n${exprToString(lengthExpr)}`
       );
+    }
+    if (isUnknownValue(lengthValue)) {
+      // QUESTION: Should we do it this way?
+      // Change its type to usize
+      lengthValue.type = TUsize;
     }
 
     const arrayType = createArrayType(elementType, lengthValue);
