@@ -101,11 +101,6 @@ export interface Type {
    * If not specified, the size is unknown.
    */
   // size?: number;
-
-  /**
-   * The methods implemented for this type
-   */
-  // methods?: TypeMethod[];
 }
 
 export interface LiteralType extends Type {
@@ -472,6 +467,11 @@ export interface StructType extends Type {
    * The elements of the struct.
    */
   elements: TupleElement[];
+
+  /**
+   * The methods implemented for this type
+   */
+  methods: TypeMethod[];
 }
 
 export interface EnumVariant {
@@ -518,11 +518,25 @@ export interface EnumType extends Type {
    * The name of the selected variant.
    */
   selectedVariantName?: string;
+
+  /**
+   * The methods implemented for this type
+   */
+  methods: TypeMethod[];
 }
 
 export interface UnionType extends Type {
   tag: TypeTag.Union;
+
+  /**
+   * The elements of the union.
+   */
   elements: TupleElement[];
+
+  /**
+   * The methods implemented for this type
+   */
+  methods: TypeMethod[];
 }
 
 export interface FunctionReturn {
@@ -785,6 +799,7 @@ export function createTupleType(elements: TupleElement[]): TupleType {
 
 export function createStructType(
   elements: TupleElement[],
+  methods: TypeMethod[] = [],
   typeId?: string
 ): StructType {
   /*
@@ -803,12 +818,14 @@ export function createStructType(
     tag: TypeTag.Struct,
     // size: totalSize,
     elements,
+    methods,
     typeId: typeId ?? `struct_${randomId()}`,
   };
 }
 
 export function createEnumType(
   variants: EnumVariant[],
+  methods: TypeMethod[] = [],
   typeId?: string
 ): EnumType {
   /*
@@ -842,12 +859,16 @@ export function createEnumType(
     tag: TypeTag.Enum,
     // size: typeof totalSize === "number" ? totalSize + tagSize : undefined,
     variants,
+    methods,
     // tagSize,
     typeId: typeId ?? `enum_${randomId()}`,
   };
 }
 
-export function createUnionType(elements: TupleElement[]): UnionType {
+export function createUnionType(
+  elements: TupleElement[],
+  methods: TypeMethod[] = []
+): UnionType {
   /*
   let maxSize = 0;
   for (let i = 0; i < elements.length; i++) {
@@ -865,6 +886,7 @@ export function createUnionType(elements: TupleElement[]): UnionType {
     tag: TypeTag.Union,
     // size: maxSize, // Changed from totalSize to maxSize as unions use the size of largest variant
     elements,
+    methods,
   };
 }
 

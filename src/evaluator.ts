@@ -101,6 +101,7 @@ import {
   TUsize,
   Type,
   typeContainsReference,
+  TypeMethod,
   typeOfType,
   typeRequiresComptModifier,
   TypeTag,
@@ -4208,6 +4209,141 @@ compt(${exprToString(returnTypeExpr)})`
     return expr;
   }
 
+  private evaluateStructElementsType({
+    args,
+    env,
+    context,
+    structType,
+  }: {
+    args: Expr[];
+    env: Environment;
+    context: EvaluatorContext;
+    structType: StructType;
+  }): {
+    type: StructType;
+    env: Environment;
+  } {
+    const elements: TupleElement[] = [];
+    const typeMethods: TypeMethod[] = [];
+    structType.elements = elements;
+    structType.methods = typeMethods;
+
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+
+      // type method
+      if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "::", 2)) {
+        const lhsExpr = arg.args[0]!;
+        const rhsExpr = arg.args[1]!;
+
+        // Expect lhsExpr to be an identifier or operator
+        if (!this.isValidVariableName(lhsExpr)) {
+          throw this.formatErrorMessage(
+            lhsExpr.token,
+            `Expected identifier or operator for type method, got ${exprToString(
+              lhsExpr
+            )}`
+          );
+        }
+
+        // Evaluate the rhsExpr
+        const evaluatedRhs = this.evaluateExpression({
+          expr: rhsExpr,
+          env,
+          context: {
+            ...context,
+            SelfType: structType,
+          },
+        });
+        if (!evaluatedRhs.$) {
+          throw this.formatErrorMessage(
+            rhsExpr.token,
+            `Failed to evaluate the type method expression: ${exprToString(rhsExpr)}`
+          );
+        }
+
+        // Expect it has function value
+        const funcValue = evaluatedRhs.$.value;
+        if (!isFunctionValue(funcValue)) {
+          throw this.formatErrorMessage(
+            rhsExpr.token,
+            `Expected function value for type method, got ${valueToString(funcValue)}`
+          );
+        }
+
+        const funcType = funcValue.type;
+        if (!isFunctionType(funcType)) {
+          throw this.formatErrorMessage(
+            rhsExpr.token,
+            `Expected function type for type method, got ${typeToString(
+              funcType
+            )}`
+          );
+        }
+
+        // Check label doesn't exist in typeMethods and tupleElements
+        const label = lhsExpr.token.value;
+        if (typeMethods.some((method) => method.label === label)) {
+          throw this.formatErrorMessage(
+            lhsExpr.token,
+            `Duplicate type method label "${label}" in tuple.`
+          );
+        }
+        if (elements.some((element) => element.label === label)) {
+          throw this.formatErrorMessage(
+            lhsExpr.token,
+            `Member label "${label}" already exists.`
+          );
+        }
+
+        typeMethods.push({
+          label,
+          type: funcType,
+          value: funcValue,
+        });
+      }
+      // tuple element
+      else {
+        if (typeMethods.length > 0) {
+          throw this.formatErrorMessage(
+            arg.token,
+            `Struct element must be defined before type methods.`
+          );
+        }
+
+        const { type, env: nextEnv } = this.evaluateTupleElementType({
+          expr: arg,
+          env,
+          tupleElementIndex: i,
+          context: { ...context, SelfType: structType },
+        });
+
+        // Check if there is duplicate labels
+        if (type.label) {
+          const duplicateLabel = elements.find(
+            (element) => element.label === type.label
+          );
+          if (duplicateLabel) {
+            throw this.formatErrorMessage(
+              exprIsFunctionCall(arg)
+                ? (arg.args[0]?.token ?? arg.token)
+                : arg.token,
+              `Duplicate label "${type.label}" in tuple`
+            );
+          }
+        }
+
+        elements.push(type);
+        env = nextEnv;
+      }
+    }
+
+    return {
+      type: structType,
+      env,
+    };
+  }
+
   private evaluateStruct({
     expr,
     env,
@@ -4224,14 +4360,20 @@ compt(${exprToString(returnTypeExpr)})`
       );
     }
 
-    const { type: tupleType, env: nextEnv } = this.evaluateTupleElementsType({
-      args: expr.args,
-      env,
-      context: { ...context },
-    });
-    env = nextEnv;
+    // Create structType with empty elements
+    // This is used as the SelfType for the following evaluations.
+    let structType = createStructType([]);
 
-    const structType: StructType = createStructType(tupleType.elements);
+    const { type: nextStructType, env: nextEnv } =
+      this.evaluateStructElementsType({
+        args: expr.args,
+        env,
+        structType,
+        context: { ...context },
+      });
+    env = nextEnv;
+    structType = nextStructType;
+
     const structTypeValue = createTypeValue(structType);
     expr.$ = {
       env,
@@ -4557,6 +4699,39 @@ compt(${exprToString(returnTypeExpr)})`
           propertyExpr.$ = expr.$;
         }
         return expr;
+      }
+      // type methods
+      else if (isStructType(typeValue.value)) {
+        if (!this.isValidVariableName(propertyExpr)) {
+          throw this.formatErrorMessage(
+            propertyExpr.token,
+            `Expected identifier for struct type method, got:\n${exprToString(
+              propertyExpr
+            )}`
+          );
+        }
+        const methodName = propertyExpr.token.value;
+        // Check if the type method exists
+        const method = (typeValue.value.methods ?? []).find(
+          (method) => method.label === methodName
+        );
+        if (method) {
+          expr.$ = {
+            env,
+            type: method.type,
+            value: method.value,
+            isMutable: false,
+            pathCollection: [],
+            isAccessingProperty: true,
+          };
+          propertyExpr.$ = expr.$;
+          return expr;
+        } else {
+          throw this.formatErrorMessage(
+            propertyExpr.token,
+            `Struct type method "${methodName}" not found in struct type`
+          );
+        }
       }
     }
 
@@ -5026,7 +5201,19 @@ compt(${exprToString(returnTypeExpr)})`
           value: method.value,
         }));
         // No need to change the args
-      } else {
+      }
+      // Self function call
+      else if (functionName === "Self" && context.SelfType) {
+        const value = createTypeValue(context.SelfType);
+        functions = [
+          {
+            type: value.type,
+            value: value,
+          },
+        ];
+      }
+      // Normal function call
+      else {
         /**
          * functionVariables might be of FunctionType, StructType, UnionType, and EnumVariant
          */
@@ -5056,6 +5243,7 @@ compt(${exprToString(returnTypeExpr)})`
         return functionToCall;
       } else {
         const value = functionToCall.value;
+
         // struct value
         if (isTypeValue(value) && isStructType(value.value)) {
           try {
@@ -5811,6 +5999,24 @@ ${exprToString(expr)}`
     callerEnv = pushEnvFrame(callerEnv);
     // Push new frame to function env
     let calleeEnv = pushEnvFrame(functionType.env);
+
+    if (functionType.SelfType) {
+      // Add "Self" to the calleeEnv
+      const { env: nextEnv } = addVariableToEnv({
+        env: calleeEnv,
+        variable: {
+          name: "Self",
+          token: PlaceholderToken,
+          type: functionType.SelfType,
+          isMutable: false,
+          isCompileTimeOnly: true,
+          isUndefined: false, // Set as initialized
+          isImplicit: false,
+          value: createTypeValue(functionType.SelfType),
+        },
+      });
+      calleeEnv = nextEnv;
+    }
 
     /* NOTE: We now support default values 
     // Evaluate the forallArgsExpr

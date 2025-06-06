@@ -3,9 +3,12 @@ import { Token } from "./token";
 import {
   areTypesCompatible,
   getModuleReceiverType,
+  isEnumType,
   isFunctionType,
   isLinearOrType0Type,
   isModuleType,
+  isStructType,
+  isUnionType,
   ModuleType,
   Type,
   typeOfType,
@@ -567,23 +570,28 @@ export function getMethodsByNameFromEnv(
   }
 
   // Check if the receiverType itself has method that can be called
-  /*
-  if (receiverType.methods) {
+  if (
+    (isStructType(receiverType) ||
+      isEnumType(receiverType) ||
+      isUnionType(receiverType)) &&
+    receiverType.methods.length > 0
+  ) {
     const typeMethods = receiverType.methods.filter(
       (method) =>
-        method.label === methodName &&
-        !!method.value &&
-        isFunctionType(method.type) &&
-        method.type.params.length > 0
+        method.label === methodName && method.type.parameters.length > 0
     );
     for (let i = 0; i < typeMethods.length; i++) {
-      const method = typeMethods[i];
+      const method = typeMethods[i]!;
       if (!methods.some((m) => m.value === method.value)) {
         methods.push({ type: method.type, value: method.value });
       }
     }
   }
-  */
+  // Type methods have higher priority than module methods,
+  // so we check the module methods only if there are no type methods.
+  if (methods.length > 0) {
+    return methods;
+  }
 
   // Check the modules
   for (let i = env.frames.length - 1; i >= 0; i--) {
