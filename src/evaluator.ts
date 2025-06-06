@@ -36,6 +36,7 @@ import Parser from "./parser";
 import { PlaceholderToken, stringIsOperator, Token, TokenType } from "./token";
 import {
   areTypesCompatible,
+  convertComptTypeToRuntimeType,
   createArrayType,
   createEnumType,
   createFunctionType,
@@ -56,8 +57,6 @@ import {
   getFunctionParameterToken,
   getValueOfSomeTypeFromEnv,
   isBooleanType,
-  isComptFloatType,
-  isComptIntType,
   isEnumType,
   isFunctionType,
   isFunctionTypeAndIsTypeFunction,
@@ -112,12 +111,12 @@ import { VUnit } from "./unit-value";
 import { generateNewTempVariableName, randomId } from "./utils";
 import {
   areValuesEqual,
+  createArrayValue,
   createBooleanValue,
-  createComptFloatValue,
-  createComptIntValue,
   createComptStringValue,
   createEnumValue,
   createModuleValue,
+  createNumberValue,
   createStructValue,
   createTypeValue,
   createUnknownValue,
@@ -228,7 +227,7 @@ export default class Evaluator {
   private evaluateIntegerLiteral(expr: AtomExpr, env: Environment): AtomExpr {
     if (expr.token.type === TokenType.Integer) {
       const integerValue = parseInt(expr.token.value, 10);
-      const value = createComptIntValue(integerValue);
+      const value = createNumberValue(ValueTag.ComptInt, integerValue);
       expr.$ = {
         env,
         value,
@@ -248,7 +247,7 @@ export default class Evaluator {
   private evaluateFloatLiteral(expr: AtomExpr, env: Environment): AtomExpr {
     if (expr.token.type === TokenType.Float) {
       const floatValue = parseFloat(expr.token.value);
-      const value = createComptFloatValue(floatValue);
+      const value = createNumberValue(ValueTag.ComptFloat, floatValue);
       expr.$ = {
         env,
         value,
@@ -361,6 +360,111 @@ export default class Evaluator {
       env,
       value: tupleValue,
       type: tupleType,
+      isMutable: true,
+      pathCollection: [],
+    };
+    return expr;
+  }
+
+  private evaluateArrayValue({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    const arrayElementExprs = expr.args;
+
+    // NOTE: We disallow the empty array for now.
+    if (arrayElementExprs.length === 0) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected at least one element in array, got ${arrayElementExprs.length}`
+      );
+    }
+
+    const arrayLength = arrayElementExprs.length;
+    let arrayElementType: Type | undefined = undefined;
+    const arrayElementValues: (Value | undefined)[] = [];
+    for (let i = 0; i < arrayElementExprs.length; i++) {
+      const arrayElementExpr = arrayElementExprs[i]!;
+      const evaluatedElement = this.evaluateExpression({
+        expr: arrayElementExpr,
+        env,
+        context: {
+          ...context,
+        },
+      });
+
+      if (!evaluatedElement.$) {
+        throw this.formatErrorMessage(
+          arrayElementExpr.token,
+          `Failed to evaluate array element: ${exprToString(arrayElementExpr)}`
+        );
+      }
+      env = evaluatedElement.$.env;
+
+      // Save value
+      arrayElementValues.push(evaluatedElement.$.value);
+
+      // Check type
+      if (!arrayElementType) {
+        arrayElementType = evaluatedElement.$.type;
+      } else {
+        // Check if the type of the element matches the first element type
+        if (
+          !areTypesCompatible(
+            { type: arrayElementType, env },
+            { type: evaluatedElement.$.type, env }
+          )
+        ) {
+          // Check if types match when converting to runtime type.
+          // For example:
+          //    x := 12; // x: i32
+          //    arr := [1, x, 3];
+          //    -  1: compt_int
+          //    -  x: i32
+          //    Here we convert compt_int to i32 to check compatibility.
+          if (
+            areTypesCompatible(
+              {
+                type: convertComptTypeToRuntimeType(arrayElementType),
+                env,
+              },
+              {
+                type: evaluatedElement.$.type,
+                env,
+              }
+            )
+          ) {
+            arrayElementType = evaluatedElement.$.type;
+          } else {
+            throw this.formatErrorMessage(
+              arrayElementExpr.token,
+              `Array element type mismatch:
+Expected type: ${typeToString(arrayElementType)}
+Given type: ${typeToString(evaluatedElement.$.type)}`
+            );
+          }
+        }
+      }
+    }
+
+    const arrayType = createArrayType(
+      arrayElementType!,
+      createNumberValue(ValueTag.Usize, arrayLength)
+    );
+
+    const arrayValue = arrayElementValues.every((val) => !!val)
+      ? createArrayValue(arrayType, arrayElementValues as Value[])
+      : undefined;
+
+    expr.$ = {
+      env,
+      type: arrayType,
+      value: arrayValue,
       isMutable: true,
       pathCollection: [],
     };
@@ -636,7 +740,7 @@ ${typeToString(expectedTupleType)}`
     if (value && isTypeValue(evaluatedRhs.$?.value)) {
       throw this.formatErrorMessage(
         rhsExpr.token,
-        `Cannot store a type value in tuple while not in "type" context: 
+        `Cannot store a type value in tuple while not in "type" context:
   ${exprToString(rhsExpr)}`
       );
     }
@@ -2122,13 +2226,10 @@ ${exprToString(expr)}`
         // If it's runtime, then we convert
         // compt_int -> i32
         // compt_float -> f64
+        // etc...
         let lhsType = rhsType;
         if (!isCompileTimeOnly) {
-          if (isComptIntType(rhsType)) {
-            lhsType = TI32;
-          } else if (isComptFloatType(rhsType)) {
-            lhsType = TF64;
-          }
+          lhsType = convertComptTypeToRuntimeType(rhsType);
         }
 
         // user didn't specify the type
@@ -4047,7 +4148,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     env: Environment;
     context: EvaluatorContext;
   }): Expr {
-    
+
     // let proofExprs: Expr[] = [];
     // if (
     //   exprIsFunctionCall(expr) &&
@@ -4057,7 +4158,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     // } else {
     //   proofExprs = [expr];
     // }
-      
+
 
     return expr;
   }
@@ -4911,7 +5012,7 @@ compt(${exprToString(returnTypeExpr)})`
             propertyExpr.value = method.value;
             propertyExpr.type = method.type;
             return expr;
-          } else 
+          } else
           */
           {
             const tupleElementIndex = elements.findIndex(
@@ -5836,7 +5937,7 @@ ${exprToString(expr)}`
       if (parameter.label !== label) {
         throw this.formatErrorMessage(
           labelExpr.token,
-          `Named argument is not supported. Label is only used for readibility. 
+          `Named argument is not supported. Label is only used for readibility.
     Expected ${
       parameter ? `label "${parameter.label}"` : `no label`
     } at the argument position, but got "${label}".`
@@ -6124,7 +6225,7 @@ ${exprToString(expr)}`
       calleeEnv = nextEnv;
     }
 
-    /* NOTE: We now support default values 
+    /* NOTE: We now support default values
     // Evaluate the forallArgsExpr
     // Add necessary type parameters to the calleeEnv
     if (
@@ -7968,15 +8069,15 @@ Got:   ${typeToString(argType)}`
     return expr;
   }
 
-  /* 
+  /*
   eg:
     borrow((borrowed_values), (borrow_bindings)-> {
       let y = x_ref.*;
       y + 1
     });
 
-  Where 
-    - (borrowed_values) are the expressions being borrowed from, 
+  Where
+    - (borrowed_values) are the expressions being borrowed from,
     - (borrow_bindings) are the parameter names for the borrowed references,
     - { ... } is the borrow_scope or borrow_block.
   */
@@ -8863,6 +8964,9 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.tuple)) {
         // tuple
         return this.evaluateTupleValue({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.array)) {
+        // array
+        return this.evaluateArrayValue({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
         // struct
         return this.evaluateStructType({ expr, env, context: { ...context } });
@@ -8961,7 +9065,7 @@ ${exprToString(expr)}`
           context: { ...context },
         });
       } else {
-        /* 
+        /*
       else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {
         // exists
         return this.evaluateExists({ expr, env, context: { ...context } });

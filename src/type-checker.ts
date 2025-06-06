@@ -9,7 +9,13 @@ import { FunctionValue } from "./function-value";
 import { Token } from "./token";
 import { TypeValue } from "./type-value";
 import { randomId } from "./utils";
-import { createUnknownValue, isTypeValue, Value, valueToString } from "./value";
+import {
+  areValuesEqual,
+  createUnknownValue,
+  isTypeValue,
+  Value,
+  valueToString,
+} from "./value";
 import { ValueTag } from "./value-tag";
 
 // FIXME: We need to determine the ptr size based on the givenType architecture.
@@ -38,7 +44,6 @@ export enum TypeTag {
   I32 = "i32",
   U64 = "u64",
   I64 = "i64",
-  F16 = "f16",
   F32 = "f32",
   F64 = "f64",
 
@@ -1322,7 +1327,10 @@ export function areTypesCompatible(
   if (isArrayType(expected.type) && isArrayType(given.type)) {
     // Arrays must have same length and compatible element types
     return (
-      expected.type.length === given.type.length &&
+      areValuesEqual(
+        { value: expected.type.length, env: expected.env },
+        { value: given.type.length, env: expected.env }
+      ) &&
       areTypesCompatible(
         {
           type: expected.type.elementType,
@@ -2069,3 +2077,46 @@ export function getSizeString(type: Type): string {
   }
 }
 */
+
+export function convertComptTypeToRuntimeType(type: Type): Type {
+  if (isComptIntType(type)) {
+    return TI32;
+  } else if (isComptFloatType(type)) {
+    return TF32;
+  } else if (isArrayType(type)) {
+    type.elementType = convertComptTypeToRuntimeType(type.elementType);
+    return type;
+  } else if (isTupleType(type)) {
+    type.elements = type.elements.map((element) => {
+      return {
+        ...element,
+        type: convertComptTypeToRuntimeType(element.type),
+      };
+    });
+    return type;
+  } else if (isStructType(type)) {
+    type.elements = type.elements.map((element) => {
+      return {
+        ...element,
+        type: convertComptTypeToRuntimeType(element.type),
+      };
+    });
+    return type;
+  } else if (isEnumType(type)) {
+    type.variants = type.variants.map((variant) => {
+      if (variant.elements) {
+        variant.elements = variant.elements.map((param) => {
+          return {
+            ...param,
+            type: convertComptTypeToRuntimeType(param.type),
+          };
+        });
+      }
+      return variant;
+    });
+    return type;
+  } else {
+    // No change
+    return type;
+  }
+}

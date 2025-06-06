@@ -12,7 +12,19 @@ import {
   TComptFloat,
   TComptInt,
   TComptString,
+  TF32,
+  TF64,
+  TI16,
+  TI32,
+  TI64,
+  TI8,
+  TIsize,
+  TU16,
+  TU32,
+  TU64,
+  TU8,
   TupleType,
+  TUsize,
   Type,
   typeOfType,
   TypeTag,
@@ -22,18 +34,6 @@ import { TypeValue } from "./type-value";
 import { UnitValue } from "./unit-value";
 import { ValueTag } from "./value-tag";
 
-export type ComptIntValue = {
-  tag: ValueTag.ComptInt;
-  type: Type;
-  value: number;
-};
-
-export type ComptFloatValue = {
-  tag: ValueTag.ComptFloat;
-  type: Type;
-  value: number;
-};
-
 export type ComptStringValue = {
   tag: ValueTag.ComptString;
   type: Type;
@@ -42,6 +42,8 @@ export type ComptStringValue = {
 
 export type NumberValue = {
   tag:
+    | ValueTag.ComptInt
+    | ValueTag.ComptFloat
     | ValueTag.U8
     | ValueTag.I8
     | ValueTag.U16
@@ -50,9 +52,10 @@ export type NumberValue = {
     | ValueTag.I32
     | ValueTag.U64
     | ValueTag.I64
-    | ValueTag.F16
     | ValueTag.F32
-    | ValueTag.F64;
+    | ValueTag.F64
+    | ValueTag.Usize
+    | ValueTag.Isize;
   type: Type;
   value: number;
 };
@@ -61,18 +64,6 @@ export type BooleanValue = {
   tag: ValueTag.Boolean;
   type: Type;
   value: boolean;
-};
-
-export type CharValue = {
-  tag: ValueTag.Char;
-  type: Type;
-  value: string;
-};
-
-export type ArrayValue = {
-  tag: ValueTag.Array;
-  type: ArrayType;
-  value: Value[];
 };
 
 export type TupleValue = {
@@ -100,6 +91,12 @@ export type ModuleValue = {
   members: Record<string, Value>;
 };
 
+export type ArrayValue = {
+  tag: ValueTag.Array;
+  type: ArrayType;
+  elements: Value[];
+};
+
 export type UnknownValue = {
   tag: ValueTag.Unknown;
   type: Type;
@@ -107,13 +104,10 @@ export type UnknownValue = {
 
 export type Value =
   | TypeValue
-  | ComptIntValue
-  | ComptFloatValue
   | ComptStringValue
   | NumberValue
   | UnitValue
   | BooleanValue
-  | CharValue
   | ArrayValue
   | TupleValue
   | StructValue
@@ -149,19 +143,17 @@ export function valueToString(value?: Value): string {
     case ValueTag.I32:
     case ValueTag.U64:
     case ValueTag.I64:
-    case ValueTag.F16:
     case ValueTag.F32:
-    case ValueTag.F64: {
+    case ValueTag.F64:
+    case ValueTag.Usize:
+    case ValueTag.Isize: {
       return value.value.toString();
     }
     case ValueTag.Boolean: {
       return value.value.toString();
     }
-    case ValueTag.Char: {
-      return `'${value.value}'`;
-    }
     case ValueTag.Array: {
-      return `[${value.value.map(valueToString).join(", ")}]`;
+      return `[${value.elements.map(valueToString).join(", ")}]`;
     }
     case ValueTag.Tuple: {
       if (value.elements.length === 0) {
@@ -217,16 +209,35 @@ export function isTypeValue(value?: Value): value is TypeValue {
   return value?.tag === ValueTag.Type;
 }
 
-export function isComptIntValue(value?: Value): value is ComptIntValue {
+export function isComptIntValue(value?: Value): boolean {
   return value?.tag === ValueTag.ComptInt;
 }
 
-export function isComptFloatValue(value?: Value): value is ComptFloatValue {
+export function isComptFloatValue(value?: Value): boolean {
   return value?.tag === ValueTag.ComptFloat;
 }
 
 export function isComptStringValue(value?: Value): value is ComptStringValue {
   return value?.tag === ValueTag.ComptString;
+}
+
+export function isNumberValue(value?: Value): value is NumberValue {
+  return (
+    value?.tag === ValueTag.ComptInt ||
+    value?.tag === ValueTag.ComptFloat ||
+    value?.tag === ValueTag.U8 ||
+    value?.tag === ValueTag.I8 ||
+    value?.tag === ValueTag.U16 ||
+    value?.tag === ValueTag.I16 ||
+    value?.tag === ValueTag.U32 ||
+    value?.tag === ValueTag.I32 ||
+    value?.tag === ValueTag.U64 ||
+    value?.tag === ValueTag.I64 ||
+    value?.tag === ValueTag.F32 ||
+    value?.tag === ValueTag.F64 ||
+    value?.tag === ValueTag.Usize ||
+    value?.tag === ValueTag.Isize
+  );
 }
 
 export function isBooleanValue(value?: Value): value is BooleanValue {
@@ -253,6 +264,14 @@ export function isModuleValue(value?: Value): value is ModuleValue {
   return value?.tag === ValueTag.Module;
 }
 
+export function isArrayValue(value?: Value): value is ArrayValue {
+  return value?.tag === ValueTag.Array;
+}
+
+export function isEnumValue(value?: Value): value is EnumValue {
+  return value?.tag === ValueTag.Enum;
+}
+
 export function createTypeValue(value: Type): TypeValue {
   return {
     tag: ValueTag.Type,
@@ -261,26 +280,51 @@ export function createTypeValue(value: Type): TypeValue {
   };
 }
 
-export function createComptIntValue(value: number): ComptIntValue {
-  return {
-    tag: ValueTag.ComptInt,
-    type: TComptInt,
-    value,
-  };
-}
-
-export function createComptFloatValue(value: number): ComptFloatValue {
-  return {
-    tag: ValueTag.ComptFloat,
-    type: TComptFloat,
-    value,
-  };
-}
-
 export function createComptStringValue(value: string): ComptStringValue {
   return {
     tag: ValueTag.ComptString,
     type: TComptString,
+    value,
+  };
+}
+
+export function createNumberValue(tag: NumberValue["tag"], value: number) {
+  let numberType: Type;
+  if (tag === ValueTag.ComptInt) {
+    numberType = TComptInt;
+  } else if (tag === ValueTag.ComptFloat) {
+    numberType = TComptFloat;
+  } else if (tag === ValueTag.U8) {
+    numberType = TU8;
+  } else if (tag === ValueTag.I8) {
+    numberType = TI8;
+  } else if (tag === ValueTag.U16) {
+    numberType = TU16;
+  } else if (tag === ValueTag.I16) {
+    numberType = TI16;
+  } else if (tag === ValueTag.U32) {
+    numberType = TU32;
+  } else if (tag === ValueTag.I32) {
+    numberType = TI32;
+  } else if (tag === ValueTag.U64) {
+    numberType = TU64;
+  } else if (tag === ValueTag.I64) {
+    numberType = TI64;
+  } else if (tag === ValueTag.F32) {
+    numberType = TF32;
+  } else if (tag === ValueTag.F64) {
+    numberType = TF64;
+  } else if (tag === ValueTag.Usize) {
+    numberType = TUsize;
+  } else if (tag === ValueTag.Isize) {
+    numberType = TIsize;
+  } else {
+    throw new Error(`createNumberValue: Unsupported tag: ${tag}`);
+  }
+
+  return {
+    tag,
+    type: numberType,
     value,
   };
 }
@@ -351,6 +395,17 @@ export function createModuleValue(
   };
 }
 
+export function createArrayValue(
+  type: ArrayType,
+  elements: Value[]
+): ArrayValue {
+  return {
+    tag: ValueTag.Array,
+    type,
+    elements,
+  };
+}
+
 export function areValuesEqual(
   expected: {
     value: Value | undefined;
@@ -372,55 +427,33 @@ export function areValuesEqual(
     return false;
   }
 
-  if (value1.tag !== value2.tag) {
-    return false;
-  }
-
-  if (value1.tag === ValueTag.Type) {
+  if (value1.tag === ValueTag.Type && value2.tag === ValueTag.Type) {
     return areTypesCompatible(
       { type: value1.value, env: expected.env },
-      { type: (value2 as TypeValue).value, env: given.env }
+      { type: value2.value, env: given.env }
     );
-  } else if (value1.tag === ValueTag.ComptInt) {
-    return value1.value === (value2 as ComptIntValue).value;
-  } else if (value1.tag === ValueTag.ComptFloat) {
-    return value1.value === (value2 as ComptFloatValue).value;
-  } else if (value1.tag === ValueTag.ComptString) {
+  } else if (isComptStringValue(value1) && isComptStringValue(value2)) {
     return value1.value === (value2 as ComptStringValue).value;
-  } else if (
-    value1.tag === ValueTag.U8 ||
-    value1.tag === ValueTag.I8 ||
-    value1.tag === ValueTag.U16 ||
-    value1.tag === ValueTag.I16 ||
-    value1.tag === ValueTag.U32 ||
-    value1.tag === ValueTag.I32 ||
-    value1.tag === ValueTag.U64 ||
-    value1.tag === ValueTag.I64 ||
-    value1.tag === ValueTag.F16 ||
-    value1.tag === ValueTag.F32 ||
-    value1.tag === ValueTag.F64
-  ) {
+  } else if (isNumberValue(value1) && isNumberValue(value2)) {
     return value1.value === (value2 as NumberValue).value;
-  } else if (value1.tag === ValueTag.Boolean) {
+  } else if (isBooleanValue(value1) && isBooleanValue(value2)) {
     return value1.value === (value2 as BooleanValue).value;
-  } else if (value1.tag === ValueTag.Char) {
-    return value1.value === (value2 as CharValue).value;
-  } else if (value1.tag === ValueTag.Array) {
-    if (value1.value.length !== (value2 as ArrayValue).value.length) {
+  } else if (isArrayValue(value1) && isArrayValue(value2)) {
+    if (value1.elements.length !== (value2 as ArrayValue).elements.length) {
       return false;
     }
-    for (let i = 0; i < value1.value.length; i++) {
+    for (let i = 0; i < value1.elements.length; i++) {
       if (
         !areValuesEqual(
-          { value: value1.value[i], env: expected.env },
-          { value: (value2 as ArrayValue).value[i], env: given.env }
+          { value: value1.elements[i], env: expected.env },
+          { value: value2.elements[i], env: given.env }
         )
       ) {
         return false;
       }
     }
     return true;
-  } else if (value1.tag === ValueTag.Tuple) {
+  } else if (isTupleValue(value1) && isTupleValue(value2)) {
     if (value1.elements.length !== (value2 as TupleValue).elements.length) {
       return false;
     }
@@ -428,14 +461,14 @@ export function areValuesEqual(
       if (
         !areValuesEqual(
           { value: value1.elements[i], env: expected.env },
-          { value: (value2 as TupleValue).elements[i], env: given.env }
+          { value: value2.elements[i], env: given.env }
         )
       ) {
         return false;
       }
     }
     return true;
-  } else if (value1.tag === ValueTag.Struct) {
+  } else if (isStructValue(value1) && isStructValue(value2)) {
     if (
       value1.elements.length !== (value2 as StructValue).elements.length ||
       !areTypesCompatible(
@@ -449,14 +482,14 @@ export function areValuesEqual(
       if (
         !areValuesEqual(
           { value: value1.elements[i], env: expected.env },
-          { value: (value2 as StructValue).elements[i], env: given.env }
+          { value: value2.elements[i], env: given.env }
         )
       ) {
         return false;
       }
     }
     return true;
-  } else if (value1.tag === ValueTag.Enum) {
+  } else if (isEnumValue(value1) && isEnumValue(value2)) {
     if (
       value1.elements.length !== (value2 as EnumValue).elements.length ||
       !areTypesCompatible(
@@ -471,14 +504,14 @@ export function areValuesEqual(
       if (
         !areValuesEqual(
           { value: value1.elements[i], env: expected.env },
-          { value: (value2 as StructValue).elements[i], env: given.env }
+          { value: value2.elements[i], env: given.env }
         )
       ) {
         return false;
       }
     }
     return true;
-  } else if (value1.tag === ValueTag.Module) {
+  } else if (isModuleValue(value1) && isModuleValue(value2)) {
     const members1 = value1.members;
     const members2 = (value2 as ModuleValue).members;
     const keys1 = Object.keys(members1);
@@ -507,8 +540,6 @@ export function areValuesEqual(
     }
     return true;
   } else {
-    throw new Error(`areValuesEqual: Unsupported value: 
-${valueToString(value1)}
-${valueToString(value2)}`);
+    return false;
   }
 }
