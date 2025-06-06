@@ -495,7 +495,9 @@ export default class Parser {
     index: number;
   }): ParserReturn {
     const nextIndex = this.skipWhitespace(tokens, index);
-    const hasWhitespace = nextIndex !== index;
+    const hasWhitespaceForward = nextIndex !== index;
+    const hasWhitespaceBackward =
+      tokens[index - 1]?.type === TokenType.Whitespace;
     index = nextIndex;
 
     const token = tokens[nextIndex];
@@ -521,7 +523,8 @@ export default class Parser {
     if (
       primaryExprIsDotOperator ||
       (token.type === TokenType.Dot &&
-        !hasWhitespace &&
+        !hasWhitespaceForward &&
+        !hasWhitespaceBackward &&
         tokens[nextIndex + 1]?.type !== TokenType.Whitespace)
     ) {
       // Field access like
@@ -573,7 +576,7 @@ export default class Parser {
       });
     } else if (
       (token.type === TokenType.Operator ||
-        token.type === TokenType.Dot ||
+        (token.type === TokenType.Dot && !hasWhitespaceForward) ||
         token.type === TokenType.BacktickIdentifier) &&
       // prevent the case
       // use &(x), a;
@@ -681,7 +684,7 @@ Or use newline after "${token.value}" to confirm the right-associativity.
       });
     }
       */
-    else if (!hasWhitespace) {
+    else if (!hasWhitespaceForward) {
       if (token.type === TokenType.LParen) {
         // Function call like
         // add(3, 4)

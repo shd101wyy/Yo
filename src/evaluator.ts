@@ -4281,12 +4281,12 @@ compt(${exprToString(returnTypeExpr)})`
           );
         }
 
-        // Check label doesn't exist in typeMethods and tupleElements
+        // Check label doesn't exist in typeMethods and struct elements
         const label = lhsExpr.token.value;
         if (typeMethods.some((method) => method.label === label)) {
           throw this.formatErrorMessage(
             lhsExpr.token,
-            `Duplicate type method label "${label}" in tuple.`
+            `Duplicate type method label "${label}" in struct.`
           );
         }
         if (elements.some((element) => element.label === label)) {
@@ -4344,7 +4344,7 @@ compt(${exprToString(returnTypeExpr)})`
     };
   }
 
-  private evaluateStruct({
+  private evaluateStructType({
     expr,
     env,
     context,
@@ -4388,7 +4388,7 @@ compt(${exprToString(returnTypeExpr)})`
     return expr;
   }
 
-  private evaluateEnum({
+  private evaluateEnumType({
     expr,
     env,
     context,
@@ -4404,59 +4404,144 @@ compt(${exprToString(returnTypeExpr)})`
       );
     }
 
+    // Create enumType with empty variants
+    const enumType = createEnumType([]);
+
     // Evaluate the variants
     const variants: EnumVariant[] = [];
+    const typeMethods: TypeMethod[] = [];
+    enumType.variants = variants;
+    enumType.methods = typeMethods;
+
     for (let i = 0; i < expr.args.length; i++) {
       const enumArg = expr.args[i]!;
 
-      if (exprIsAtom(enumArg)) {
-        const variantName = enumArg.token.value;
-        if (!this.isValidVariableName(enumArg)) {
-          throw this.formatErrorMessage(
-            enumArg.token,
-            `Expected identifier for enum variant, got:\n${exprToString(
-              enumArg
-            )}`
-          );
-        }
-        variants.push({
-          name: variantName,
-        });
-      } else {
-        if (exprIsFunctionCallOf(enumArg, ":")) {
-          throw this.formatErrorMessage(
-            enumArg.token,
-            `Enum variant with : is not implemented yet`
-          );
-        }
-        if (!this.isValidVariableName(enumArg.func)) {
-          throw this.formatErrorMessage(
-            enumArg.func.token,
-            `Expected identifier for enum variant, got:\n${exprToString(
-              enumArg.func
-            )}`
-          );
-        }
-        const variantName = enumArg.func.token.value;
+      // Type method
+      if (
+        exprIsFunctionCall(enumArg) &&
+        exprIsFunctionCallOf(enumArg, "::", 2)
+      ) {
+        const lhsExpr = enumArg.args[0]!;
+        const rhsExpr = enumArg.args[1]!;
 
-        const { type: tupleType, env: nextEnv } =
-          this.evaluateTupleElementsType({
-            args: enumArg.args,
-            env,
-            context: {
-              ...context,
-            },
+        // Expect lhsExpr to be an identifier or operator
+        if (!this.isValidVariableName(lhsExpr)) {
+          throw this.formatErrorMessage(
+            lhsExpr.token,
+            `Expected identifier or operator for type method, got ${exprToString(
+              lhsExpr
+            )}`
+          );
+        }
+
+        // Evaluate the rhsExpr
+        const evaluatedRhs = this.evaluateExpression({
+          expr: rhsExpr,
+          env,
+          context: {
+            ...context,
+            SelfType: enumType,
+          },
+        });
+        if (!evaluatedRhs.$) {
+          throw this.formatErrorMessage(
+            rhsExpr.token,
+            `Failed to evaluate the type method expression: ${exprToString(rhsExpr)}`
+          );
+        }
+
+        // Expect it has function value
+        const funcValue = evaluatedRhs.$.value;
+        if (!isFunctionValue(funcValue)) {
+          throw this.formatErrorMessage(
+            rhsExpr.token,
+            `Expected function value for type method, got ${valueToString(funcValue)}`
+          );
+        }
+
+        const funcType = funcValue.type;
+        if (!isFunctionType(funcType)) {
+          throw this.formatErrorMessage(
+            rhsExpr.token,
+            `Expected function type for type method, got ${typeToString(
+              funcType
+            )}`
+          );
+        }
+
+        // Check label doesn't exist in typeMethods and variants
+        const label = lhsExpr.token.value;
+        if (typeMethods.some((method) => method.label === label)) {
+          throw this.formatErrorMessage(
+            lhsExpr.token,
+            `Duplicate type method label "${label}" in enum.`
+          );
+        }
+        if (enumType.variants.some((variant) => variant.name === label)) {
+          throw this.formatErrorMessage(
+            lhsExpr.token,
+            `Variant "${label}" already exists.`
+          );
+        }
+
+        typeMethods.push({
+          label,
+          type: funcType,
+          value: funcValue,
+        });
+      }
+
+      // Enum variant
+      else {
+        if (exprIsAtom(enumArg)) {
+          const variantName = enumArg.token.value;
+          if (!this.isValidVariableName(enumArg)) {
+            throw this.formatErrorMessage(
+              enumArg.token,
+              `Expected identifier for enum variant, got:\n${exprToString(
+                enumArg
+              )}`
+            );
+          }
+          variants.push({
+            name: variantName,
           });
-        env = nextEnv;
+        } else {
+          if (exprIsFunctionCallOf(enumArg, ":")) {
+            throw this.formatErrorMessage(
+              enumArg.token,
+              `Enum variant with : is not implemented yet`
+            );
+          }
+          if (!this.isValidVariableName(enumArg.func)) {
+            throw this.formatErrorMessage(
+              enumArg.func.token,
+              `Expected identifier for enum variant, got:\n${exprToString(
+                enumArg.func
+              )}`
+            );
+          }
+          const variantName = enumArg.func.token.value;
 
-        variants.push({
-          name: variantName,
-          elements: tupleType.elements,
-        });
+          const { type: tupleType, env: nextEnv } =
+            this.evaluateTupleElementsType({
+              args: enumArg.args,
+              env,
+              context: {
+                ...context,
+                SelfType: enumType,
+              },
+            });
+          env = nextEnv;
+
+          variants.push({
+            name: variantName,
+            elements: tupleType.elements,
+          });
+        }
       }
     }
 
-    const enumType: EnumType = createEnumType(variants);
     const enumTypeValue = createTypeValue(enumType);
     expr.$ = {
       env,
@@ -4646,6 +4731,27 @@ compt(${exprToString(returnTypeExpr)})`
             )}`
           );
         }
+
+        // Check if it's type method
+        {
+          const methodName = propertyExpr.token.value;
+          const method = typeValue.value.methods.find(
+            (method) => method.label === methodName
+          );
+          if (method) {
+            expr.$ = {
+              env,
+              type: method.type,
+              value: method.value,
+              isMutable: false,
+              pathCollection: [],
+              isAccessingProperty: true,
+            };
+            propertyExpr.$ = expr.$;
+            return expr;
+          }
+        }
+
         const variantName = propertyExpr.token.value;
         // Check if variantName is a valid enum variant
         const enumType = typeValue.value;
@@ -4712,7 +4818,7 @@ compt(${exprToString(returnTypeExpr)})`
         }
         const methodName = propertyExpr.token.value;
         // Check if the type method exists
-        const method = (typeValue.value.methods ?? []).find(
+        const method = typeValue.value.methods.find(
           (method) => method.label === methodName
         );
         if (method) {
@@ -6740,6 +6846,10 @@ Got:   ${typeToString(argType)}`
       context: {
         ...context,
         isEvaluatingFunctionBodyOfType: functionType,
+        expectedType: {
+          type: functionType.return.type,
+          env: env, // QUESTION: What should be the env here?
+        },
       },
     });
     if (!evaluatedFunctionBody.$) {
@@ -8755,10 +8865,10 @@ ${exprToString(expr)}`
         return this.evaluateTupleValue({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
         // struct
-        return this.evaluateStruct({ expr, env, context: { ...context } });
+        return this.evaluateStructType({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.enum)) {
         // enum
-        return this.evaluateEnum({ expr, env, context: { ...context } });
+        return this.evaluateEnumType({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, ".")) {
         // property access
         return this.evaluatePropertyAccess({

@@ -9,7 +9,7 @@ import { formatErrorMessages } from "./error";
 import { Token, TokenType } from "./token";
 import { isLinearOrType0Type, Type, typeOfType } from "./type-checker";
 import { generateNewTempVariableName } from "./utils";
-import { Value } from "./values";
+import { Value } from "./value";
 
 /**
  * Eg:
@@ -251,12 +251,12 @@ export const BuiltinFunctions = {
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
-  return !!(
+  return Boolean(
     expr.tag === "FuncCall" &&
-    expr.isInfix &&
-    expr.func.tag === "Atom" &&
-    expr.func.token.type === TokenType.Operator &&
-    expr.args.length === 2
+      expr.isInfix &&
+      expr.func.tag === "Atom" &&
+      expr.func.token.type === TokenType.Operator &&
+      expr.args.length === 2
   );
 }
 
@@ -320,7 +320,12 @@ export function exprToString(expr: Expr): string {
         break;
       }
 
-      const func = exprToString(expr.func);
+      let func = exprToString(expr.func);
+      func =
+        exprIsInfixOperatorFunctionCall(expr.func) ||
+        exprIsAtomAndOperator(expr.func)
+          ? `(${func})`
+          : func;
       const args = expr.args
         .map((arg) => {
           return exprToString(arg);
