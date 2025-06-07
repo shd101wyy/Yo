@@ -36,6 +36,7 @@ import Parser from "./parser";
 import { PlaceholderToken, stringIsOperator, Token, TokenType } from "./token";
 import {
   areTypesCompatible,
+  ArrayType,
   convertComptTypeToRuntimeType,
   createArrayType,
   createEnumType,
@@ -56,6 +57,7 @@ import {
   getFunctionParameterExprs,
   getFunctionParameterToken,
   getValueOfSomeTypeFromEnv,
+  isArrayType,
   isBooleanType,
   isEnumType,
   isFunctionType,
@@ -111,6 +113,7 @@ import { VUnit } from "./unit-value";
 import { generateNewTempVariableName, randomId } from "./utils";
 import {
   areValuesEqual,
+  ArrayValue,
   createArrayValue,
   createBooleanValue,
   createComptStringValue,
@@ -123,6 +126,7 @@ import {
   isComptStringValue,
   isFunctionValue,
   isModuleValue,
+  isNumberValue,
   isStructValue,
   isTupleValue,
   isTypeValue,
@@ -5518,6 +5522,21 @@ compt(${exprToString(returnTypeExpr)})`
           } catch (error) {
             functionToCall.error = error;
           }
+        }
+        // array
+        else if (isArrayType(functionToCall.type)) {
+          try {
+            this.tryToCallArrayWithArguments({
+              expr,
+              arrayType: functionToCall.type,
+              arrayValue: functionToCall.value as ArrayValue | undefined,
+              argExprs: args,
+              callerEnv: env,
+              context: { ...context },
+            });
+          } catch (error) {
+            functionToCall.error = error;
+          }
         } else {
           functionToCall.error = this.formatErrorMessage(
             func.token,
@@ -5811,6 +5830,39 @@ ${functionsWithMatchingTypes
           env,
           type: value.type,
           value: value,
+          isMutable: false,
+          pathCollection: [],
+        };
+        return expr;
+      }
+      // array
+      else if (isArrayType(functionToCall.type)) {
+        const arrayType = functionToCall.type;
+        const arrayValue = functionToCall.value as ArrayValue | undefined;
+        const { value } = this.tryToCallArrayWithArguments({
+          expr,
+          arrayType,
+          arrayValue,
+          argExprs: args,
+          callerEnv: env,
+          context: {
+            ...context,
+          },
+        });
+
+        expr.$ = {
+          env,
+          type: arrayType.elementType,
+          value: value,
+          isMutable: false,
+          pathCollection: [],
+        };
+
+        // Attach necessary info to the func
+        func.$ = {
+          env,
+          type: functionToCall.type,
+          value: functionToCall.value,
           isMutable: false,
           pathCollection: [],
         };
@@ -6894,6 +6946,88 @@ Got:   ${typeToString(argType)}`
     }
 
     return { values, pathCollection };
+  }
+
+  private tryToCallArrayWithArguments({
+    expr,
+    arrayType,
+    arrayValue,
+    argExprs,
+    callerEnv,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    arrayType: ArrayType;
+    arrayValue: ArrayValue | undefined;
+    argExprs: Expr[];
+    callerEnv: Environment;
+    context: EvaluatorContext;
+  }): { value: Value | undefined } {
+    if (argExprs.length !== 1) {
+      throw this.formatErrorMessage(
+        expr.func.token,
+        `Expect 1 argument for accessing array element, got ${argExprs.length}.`
+      );
+    }
+
+    // Evaluate the first argument
+    const argExpr = argExprs[0]!;
+    const evaluatedArgExpr = this.evaluateExpression({
+      expr: argExpr,
+      env: callerEnv,
+      context: {
+        ...context,
+      },
+    });
+    if (!evaluatedArgExpr.$) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
+      );
+    }
+
+    // Check if the argType matches the usize
+    const argType = evaluatedArgExpr.$.type;
+    if (
+      !areTypesCompatible(
+        {
+          type: TUsize,
+          env: callerEnv,
+        },
+        {
+          type: argType,
+          env: callerEnv,
+        }
+      )
+    ) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected usize for array index, got:\n${typeToString(argType)}`
+      );
+    }
+
+    // It's compile time known value
+    if (arrayValue) {
+      if (isNumberValue(evaluatedArgExpr.$.value)) {
+        const index = evaluatedArgExpr.$.value.value;
+        if (index < 0 || index >= arrayValue.elements.length) {
+          throw this.formatErrorMessage(
+            argExpr.token,
+            `Array index out of bounds: ${index}. Expected index in range [0, ${arrayValue.elements.length - 1}].`
+          );
+        }
+        const value = arrayValue.elements[index]!;
+        return { value };
+      } else {
+        // TODO: Check the index bound?
+        const value = createUnknownValue(arrayType.elementType);
+        return { value };
+      }
+    }
+    // It's runtime known value
+    else {
+      return { value: undefined };
+    }
   }
 
   /**
