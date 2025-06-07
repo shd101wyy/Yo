@@ -5205,35 +5205,139 @@ compt(${exprToString(returnTypeExpr)})`
         label = labelExpr.token.value;
       }
 
-      const evaluatedArg = this.evaluateExpression({
-        expr: valueExpr,
-        env,
-        context: {
-          ...context,
-        },
-      });
-      if (evaluatedArg.$?.env) {
-        env = evaluatedArg.$?.env;
-      }
-      const type = evaluatedArg.$?.type;
-      if (!type) {
-        throw this.formatErrorMessage(
-          arg.token,
-          `Expected type for anonymous struct element, got:\n${exprToString(
-            arg
-          )}`
-        );
-      }
+      // Check if it's spread operator
+      if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
+        const extendedStructExpr = arg.args[0]!;
+        // Evaluate the extended struct expression
+        const evaluatedExtendedStruct = this.evaluateExpression({
+          expr: extendedStructExpr,
+          env,
+          context: {
+            ...context,
+          },
+        });
+        if (!evaluatedExtendedStruct.$) {
+          throw this.formatErrorMessage(
+            extendedStructExpr.token,
+            `Failed to evaluate the extended struct expression: ${exprToString(extendedStructExpr)}`
+          );
+        }
+        const extendedDataType = evaluatedExtendedStruct.$.type;
+        if (isStructType(extendedDataType)) {
+          const extendedStructType = extendedDataType;
+          const extendedStructValue = evaluatedExtendedStruct.$.value as
+            | StructValue
+            | undefined;
 
-      const element: TupleElement = {
-        expr: arg,
-        type,
-        label,
-      };
-      elements.push(element);
+          // Iterate over the elements of the extended struct
+          for (let i = 0; i < extendedStructType.elements.length; i++) {
+            const extendedStructElement = extendedStructType.elements[i]!;
+            // Check if there is duplicate labels
+            // If yes, then override the element
+            const duplicateLabelIndex = elements.findIndex(
+              (e) => e.label === extendedStructElement.label
+            );
+            if (duplicateLabelIndex >= 0) {
+              // Override the existing one.
+              elements[duplicateLabelIndex] = extendedStructElement;
 
-      if (evaluatedArg.$?.value) {
-        values.push(evaluatedArg.$?.value);
+              if (extendedStructValue) {
+                // Override the existing value
+                values[duplicateLabelIndex] =
+                  extendedStructValue.elements[duplicateLabelIndex];
+              }
+            } else {
+              // Add the element to the struct
+              elements.push(extendedStructElement);
+
+              if (extendedStructValue) {
+                // Add the value to the struct
+                values.push(extendedStructValue.elements[i]!);
+              }
+            }
+          }
+        } else if (isModuleType(extendedDataType)) {
+          const extendedModuleType = extendedDataType;
+          const extendedModuleValue = evaluatedExtendedStruct.$.value as
+            | ModuleValue
+            | undefined;
+
+          // Iterate over the members of the extended module
+          for (let i = 0; i < extendedModuleType.members.length; i++) {
+            const extendedModuleMember = extendedModuleType.members[i]!;
+            // Check if there is duplicate labels
+            // If yes, then override the element
+            const duplicateLabelIndex = elements.findIndex(
+              (e) => e.label === extendedModuleMember.label
+            );
+            if (duplicateLabelIndex >= 0) {
+              // Override the existing one.
+              elements[duplicateLabelIndex] = {
+                expr: extendedModuleMember.expr,
+                type: extendedModuleMember.type,
+                label: extendedModuleMember.label,
+              };
+              if (extendedModuleValue) {
+                // Override the existing value
+                values[duplicateLabelIndex] =
+                  extendedModuleValue.members[extendedModuleMember.label];
+              }
+            } else {
+              // Add the element to the struct
+              elements.push({
+                expr: extendedModuleMember.expr,
+                type: extendedModuleMember.type,
+                label: extendedModuleMember.label,
+              });
+              if (extendedModuleValue) {
+                // Add the value to the struct
+                values.push(
+                  extendedModuleValue.members[extendedModuleMember.label]
+                );
+              }
+            }
+          }
+        } else {
+          throw this.formatErrorMessage(
+            extendedStructExpr.token,
+            `Expected a struct or module value for extending, got ${exprToString(
+              extendedStructExpr
+            )}`
+          );
+        }
+      }
+      // Normal element
+      else {
+        const evaluatedArg = this.evaluateExpression({
+          expr: valueExpr,
+          env,
+          context: {
+            ...context,
+          },
+        });
+        if (evaluatedArg.$?.env) {
+          env = evaluatedArg.$?.env;
+        }
+        const type = evaluatedArg.$?.type;
+        if (!type) {
+          throw this.formatErrorMessage(
+            arg.token,
+            `Expected type for anonymous struct element, got:\n${exprToString(
+              arg
+            )}`
+          );
+        }
+
+        const element: TupleElement = {
+          expr: arg,
+          type,
+          label,
+        };
+        elements.push(element);
+
+        if (evaluatedArg.$?.value) {
+          values.push(evaluatedArg.$?.value);
+        }
       }
     }
 
