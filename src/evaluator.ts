@@ -8352,16 +8352,24 @@ Got:   ${typeToString(argType)}`
       throw new Error("Only .yo file is supported for now");
     }
 
-    // Load the module
-    const moduleValue = this.loadModule(moduleAbsolutePath);
-    expr.$ = {
-      env,
-      type: moduleValue.type,
-      value: moduleValue,
-      isMutable: false,
-      pathCollection: [],
-    };
-    return expr;
+    try {
+      // Load the module
+      const moduleValue = this.loadModule(moduleAbsolutePath);
+      expr.$ = {
+        env,
+        type: moduleValue.type,
+        value: moduleValue,
+        isMutable: false,
+        pathCollection: [],
+      };
+      return expr;
+    } catch (error) {
+      // Failed to load the module
+      throw this.formatErrorMessage(
+        moduleArg.token,
+        `Failed to import module "${modulePath}":\n${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   /*
