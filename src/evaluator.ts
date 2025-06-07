@@ -4407,6 +4407,63 @@ compt(${exprToString(returnTypeExpr)})`
           value: funcValue,
         });
       }
+      // spread operator for extending another struct
+      else if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
+        if (typeMethods.length > 0) {
+          throw this.formatErrorMessage(
+            arg.token,
+            `Struct element must be defined before type methods.`
+          );
+        }
+
+        const extendedStructExpr = arg.args[0]!;
+        // Evaluate the extended struct expression
+        const evaluatedExtendedStruct = this.evaluateExpression({
+          expr: extendedStructExpr,
+          env,
+          context: {
+            ...context,
+            SelfType: structType,
+          },
+        });
+        if (!evaluatedExtendedStruct.$) {
+          throw this.formatErrorMessage(
+            extendedStructExpr.token,
+            `Failed to evaluate the extended struct expression: ${exprToString(extendedStructExpr)}`
+          );
+        }
+
+        // Check if it's a struct type
+        const extendedStructTypeValue = evaluatedExtendedStruct.$.value;
+        if (
+          !isTypeValue(extendedStructTypeValue) ||
+          !isStructType(extendedStructTypeValue.value)
+        ) {
+          throw this.formatErrorMessage(
+            extendedStructExpr.token,
+            `Expected a struct type for extending, got ${exprToString(
+              extendedStructExpr
+            )}`
+          );
+        }
+        const extendedStructType = extendedStructTypeValue.value;
+
+        // Iterate over the elements of the extended struct
+        for (const extendedStructElement of extendedStructType.elements) {
+          // Check if there is duplicate labels
+          // If yes, then override the element
+          const duplicateLabelIndex = elements.findIndex(
+            (e) => e.label === extendedStructElement.label
+          );
+          if (duplicateLabelIndex >= 0) {
+            // Override the existing one.
+            elements[duplicateLabelIndex] = extendedStructElement;
+          } else {
+            // Add the element to the struct
+            elements.push(extendedStructElement);
+          }
+        }
+      }
       // tuple element
       else {
         if (typeMethods.length > 0) {
@@ -5104,7 +5161,7 @@ compt(${exprToString(returnTypeExpr)})`
     return expr;
   }
 
-  private createAnonymousStruct({
+  private evaluateAnonymousStructValue({
     expr,
     env,
     context,
@@ -5353,7 +5410,7 @@ compt(${exprToString(returnTypeExpr)})`
           // );
 
           // Make it as an anonymous struct
-          return this.createAnonymousStruct({
+          return this.evaluateAnonymousStructValue({
             expr,
             env,
             context,
@@ -7591,7 +7648,7 @@ Got:   ${typeToString(argType)}`
     return expr;
   }
 
-  private evaluateAnonmousModuleBeginExprs({
+  private evaluateAnonymousModuleBeginExprs({
     beginExprs,
     env,
     context,
@@ -7752,7 +7809,7 @@ Got:   ${typeToString(argType)}`
       moduleType,
       moduleValue,
       env: nextEnv,
-    } = this.evaluateAnonmousModuleBeginExprs({
+    } = this.evaluateAnonymousModuleBeginExprs({
       beginExprs,
       env,
       context: {
@@ -9225,8 +9282,8 @@ ${exprToString(expr)}`
       inputString: this.inputString,
     });
 
-    const { moduleValue, env: nextEnv } = this.evaluateAnonmousModuleBeginExprs(
-      {
+    const { moduleValue, env: nextEnv } =
+      this.evaluateAnonymousModuleBeginExprs({
         beginExprs: this.program,
         env,
         context: {
@@ -9234,8 +9291,7 @@ ${exprToString(expr)}`
           SelfType: undefined,
           borrowings: [],
         },
-      }
-    );
+      });
     env = nextEnv;
     this.moduleValue = moduleValue;
   }

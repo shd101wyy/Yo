@@ -1,33 +1,30 @@
-main :: (() -> unit) {
-  x := 12;
-  y := 12.3;
+// Spread operator in structs
 
-  MyTuple :: Tuple(x: i32, i32, i32);
-  MyArray :: Array(i32, 3);
+_2DPoint :: struct(
+  x : i32,
+  y : i32
+);
 
-  {
-    // Create an array of integers with 3 elements
-    mut(arr) : Array(i32, 3);
-    arr = [1, 2, 3];
-    arr = array(1, 2, 3);
-  };
+_3DPoint :: struct(
+  ...(_2DPoint),
+  z : i32
+);
 
-  {
-    // Or create an array directly
-    x := 2;
-    arr := [1, x, 3];
-  };
+p :: _3DPoint(3, 4, 5);
 
-  {
-    (arr: Array(i32, 3)) = [1, 2, 3];
-    elem := arr(0);
-  };
-
-  /*
-
-  x := arr(0); // Calling on the `arr` it self is equalvalent to
-  x := arr.subscript(0); // calling the subscript method
-
-  */
-  ()
+/*
+ModuleA :: module {
+  a :: 1;
+  export { a };
 };
+
+ModuleB :: module {
+  b :: 2;
+  export { b };
+};
+
+Combined :: {
+  ...(ModuleA),
+  ...(ModuleB)
+};
+*/
