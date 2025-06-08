@@ -62,9 +62,9 @@ export const PlaceholderToken: Token = {
   type: TokenType.Identifier,
   value: "_",
   position: {
-    row: -1,
-    column: -1,
-    character: -1,
+    row: 0, // NOTE: Set to -1 will cause error in some cases
+    column: 0, // NOTE: Set to -1 will cause error in some cases
+    character: 0, // NOTE: Set to -1 will cause error in some cases
   },
 };
 

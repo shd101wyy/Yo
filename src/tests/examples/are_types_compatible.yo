@@ -21,17 +21,27 @@ flag7 :: are_types_compatible( // false
 );
 
 Box :: ((@(T): Type)-> @(Type))
-  struct(T)
+  struct(T) // Below is false because T here doesn't have a label
+            // So it's using a generated label. Box(T) and Box(Z) generated different labels.  
+            // QUESTION: Should we always require label for struct fields?
 ;
-flag :: are_types_compatible( // true
+flag8 :: are_types_compatible( // false
   (forall(@(T): Type), x: T)-> Box(T),
   (forall(@(Z): Type), a: Z)-> Box(Z)
+);
+
+Box2 :: ((@(T): Type)-> @(Type))
+  struct(x: T)
+;
+flag8_1 :: are_types_compatible( // true
+  (forall(@(T): Type), x: T)-> Box2(T),
+  (forall(@(Z): Type), a: Z)-> Box2(Z)
 );
 
 Point :: ((@(T): Type)-> @(Type))
   struct(x: T, y: T)
 ;
-flag8 :: are_types_compatible( // true
+flag9 :: are_types_compatible( // true
   (forall(@(T): Type), x: T, y: T)-> Point(T),
   (forall(@(Z): Type), a: Z, b: Z)-> Point(Z)
 );

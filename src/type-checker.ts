@@ -1769,6 +1769,7 @@ export function functionParameterToString(
   }
 }
 
+// NOTE: Don't use element.exprs
 export function tupleElementToString(element: TupleElement): string {
   let label = element.label;
   if (element.isImplicit) {
@@ -1778,39 +1779,23 @@ export function tupleElementToString(element: TupleElement): string {
     label = `@(${label})`;
   }
 
-  const typeStr = element.exprs.typeExpr
-    ? exprToString(element.exprs.typeExpr)
+  const defaultValueStr = element.defaultValue
+    ? valueToString(element.defaultValue)
     : "";
 
-  const defaultValueStr = element.exprs.defaultValueExpr
-    ? exprToString(element.exprs.defaultValueExpr)
-    : "";
-
-  const assignedValueStr = element.exprs.assignedValueExpr
-    ? exprToString(element.exprs.assignedValueExpr)
+  const assignedValueStr = element.assignedValue
+    ? valueToString(element.assignedValue)
     : "";
 
   if (defaultValueStr) {
-    if (typeStr) {
-      return `(${label}: ${typeStr}) ?= ${defaultValueStr}`;
-    } else {
-      return `${label} ?= ${defaultValueStr}`;
-    }
+    return `(${label}: ${typeToString(element.type)}) ?= ${defaultValueStr}`;
   }
 
   if (assignedValueStr) {
-    if (typeStr) {
-      return `(${label}: ${typeStr}) = ${assignedValueStr}`;
-    } else {
-      return `${element.label} :: ${assignedValueStr}`;
-    }
+    return `(${label}: ${typeToString(element.type)}) = ${assignedValueStr}`;
   }
 
-  if (typeStr) {
-    return `${label}: ${typeStr}`;
-  } else {
-    return label;
-  }
+  return `${label}: ${typeToString(element.type)}`;
 }
 
 /**

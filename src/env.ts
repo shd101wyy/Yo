@@ -203,6 +203,8 @@ export function addVariableToFrame({
   // Check if variable already exists in the frame
   // If yes, then report an error
   if (frame.variables.some((value) => value.name === variable.name)) {
+    printEnvVarNames(env);
+
     throw formatErrorMessages({
       modulePath: env.modulePath,
       inputString: env.inputString,
@@ -349,7 +351,8 @@ export function popEnvFrame(
     const unconsumedLinearVariables = frameToPop.variables.filter(
       (variable) =>
         isLinearOrType0Type(typeOfType(variable.type)) &&
-        !variable.consumedAtToken
+        !variable.consumedAtToken &&
+        !variable.isCompileTimeOnly // We only check for runtime variables
     );
     /*
     const unusedFreeValues = frameToPop.values.filter(

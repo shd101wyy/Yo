@@ -10,6 +10,7 @@ import {
   getVariablesFromEnvByFilter,
   keepComptimeVariablesFromEnv,
   popEnvFrame,
+  printEnvVarNames,
   pushEnvFrame,
   updateExistingVariable,
 } from "./env";
@@ -1108,6 +1109,7 @@ ${typeToString(expectedTupleType)}`
             isImplicit: false,
           },
         });
+        printEnvVarNames(nextEnv);
         expected.env = nextEnv;
       }
     } else if (
@@ -2258,14 +2260,6 @@ ${typeToString(expectedTupleType)}`
 ${exprToString(rhs)}`
       );
     }
-    // Check some value that requires compile-time only
-    if (!isCompileTimeOnly && rhs.$ && typeRequiresComptModifier(rhs.$.type)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "::" instead of ":=" for compile-time known value assignment:
-${exprToString(expr)}`
-      );
-    }
 
     if (exprIsAtom(lhs)) {
       if (!this.isValidVariableName(lhs)) {
@@ -2342,6 +2336,15 @@ ${exprToString(expr)}`
 - Given  : ${typeToString(rhsType)}`
           );
         }
+      }
+
+      // Check some value that requires compile-time only
+      if (!isCompileTimeOnly && typeRequiresComptModifier(lhs.$.type)) {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Expected "::" instead of ":=" for compile-time known value assignment:
+${exprToString(expr)}`
+        );
       }
 
       // Check if the rhsType contains reference
@@ -2572,14 +2575,14 @@ ${exprToString(rhs)}`
         env = updateExistingVariable(env, variable, {
           ...variable,
           isUndefined: false,
-          value: rhs.$?.value,
+          value: variable.isCompileTimeOnly ? rhs.$?.value : undefined,
           // type: rhsType,
         });
       } else if (variable.isMutable) {
         // Update the variable value
         env = updateExistingVariable(env, variable, {
           ...variable,
-          value: rhs.$?.value,
+          value: variable.isCompileTimeOnly ? rhs.$?.value : undefined,
           // type: rhsType,
         });
       } else {
@@ -5374,7 +5377,7 @@ compt(${exprToString(returnTypeExpr)})`
             labelExpr: undefined,
             typeExpr: undefined,
             defaultValueExpr: undefined,
-            assignedValueExpr: expr,
+            assignedValueExpr: valueExpr,
           },
           type,
           label: label ?? `$element_${randomId()}`,
@@ -6626,18 +6629,6 @@ Got:   ${typeToString(typeValue.type)}`
       }
     }
 
-    // Synthesize the returnType if context.expectedType is giving
-    // The context.expectedType is the expected function return type.
-    // QUESTION: Should we run it after evaluating the normal arguments?
-    if (context.expectedType) {
-      const { expectedEnv } = this.synthesizeTypes(
-        { type: functionType.return.type, env: calleeEnv },
-        { type: context.expectedType.type, env: context.expectedType.env }
-      );
-      calleeEnv = expectedEnv;
-      // env = givenEnv; // NOTE: No need to update `env` here
-    }
-
     // Check if the parameters match the arguments
     for (let i = 0; i < functionType.parameters.length; i++) {
       const parameter = functionType.parameters[i]!;
@@ -6657,6 +6648,21 @@ Got:   ${typeToString(typeValue.type)}`
       calleeEnv = nextCalleeEnv;
       callerEnv = nextCallerEnv;
       context = nextContext;
+    }
+
+    // Synthesize the returnType if context.expectedType is giving
+    // The context.expectedType is the expected function return type.
+    // QUESTION: Should we run it after evaluating the normal arguments?
+    // YES We should do it after evaluating the normal arguments
+    // Otherwise it might cause the variable shadowing problem.
+    // See example in compt_runtime.yo.
+    if (context.expectedType) {
+      const { expectedEnv } = this.synthesizeTypes(
+        { type: functionType.return.type, env: calleeEnv },
+        { type: context.expectedType.type, env: context.expectedType.env }
+      );
+      calleeEnv = expectedEnv;
+      // env = givenEnv; // NOTE: No need to update `env` here
     }
 
     // Check if the implicit parameters are provided
@@ -7086,9 +7092,9 @@ Got:   ${typeToString(argType)}`
       }
 
       // Set the values
-      if (memberElement.isCompileTimeOnly) {
-        values[memberElementPositionIndex] = evaluatedArgExpr.$?.value;
-      }
+      // if (memberElement.isCompileTimeOnly) {
+      values[memberElementPositionIndex] = evaluatedArgExpr.$?.value;
+      // }
       checkedMemberElements.add(memberElement);
     }
 
@@ -7103,10 +7109,9 @@ Got:   ${typeToString(argType)}`
           );
         } else {
           // Set the default value to values
-          if (memberElement.isCompileTimeOnly) {
-            values[i] =
-              memberElement.defaultValue ?? memberElement.assignedValue;
-          }
+          // if (memberElement.isCompileTimeOnly) {
+          values[i] = memberElement.defaultValue ?? memberElement.assignedValue;
+          // }
         }
       }
     }
@@ -7542,6 +7547,10 @@ Got:   ${typeToString(argType)}`
       }
     }
 
+    // Set the last expression as the return value
+    // and mark it as consumed.
+    env = setExprAsConsumed(lastExpr, env);
+
     // Pop the environment frame
     env = popEnvFrame(env);
 
@@ -7577,43 +7586,67 @@ Got:   ${typeToString(argType)}`
       // Export
       if (
         exprIsFunctionCall(expr) &&
-        exprIsFunctionCallOf(expr, BuiltinKeywords.export, 1)
+        exprIsFunctionCallOf(expr, BuiltinKeywords.export)
       ) {
-        const evaluatedExpr = this.evaluateExpression({
-          expr: expr.args[0]!,
-          env,
-          context: {
-            ...context,
-            expectedType: undefined,
-            SelfType: undefined,
-          },
-        });
-        const structValue = evaluatedExpr.$?.value;
-        if (!isStructValue(structValue)) {
-          throw this.formatErrorMessage(
-            expr.token,
-            `Expected struct value, got:\n${exprToString(expr)}`
-          );
-        }
-        const structType = structValue.type;
+        const exportExprs = expr.args;
+        for (let i = 0; i < exportExprs.length; i++) {
+          const exportExpr = exportExprs[i]!;
+          if (!this.isValidVariableName(exportExpr)) {
+            throw this.formatErrorMessage(
+              exportExpr.token,
+              `Expected identifier for export, got:\n${exprToString(exportExpr)}`
+            );
+          }
 
-        // Add the elements of structType to the moduleType
-        for (let i = 0; i < structType.elements.length; i++) {
-          const element = structType.elements[i]!;
-          const value = structValue.elements[i]!;
+          const variableName = exportExpr.token.value;
+          // Get the variable from the env
+          const variables = getVariablesFromEnv(env, variableName);
+          if (variables.length === 0) {
+            throw this.formatErrorMessage(
+              exportExpr.token,
+              `Variable "${variableName}" is not defined in the module.`
+            );
+          }
+          const variable = variables[variables.length - 1]!;
 
-          // Check if the same label is already used
-          // If yes, then override it
+          // Check if the same variable is already exported
           const existingElementIndex = moduleType.elements.findIndex(
-            (e) => e.label === element.label
+            (e) => e.label === variableName
           );
           if (existingElementIndex >= 0) {
-            moduleType.elements[existingElementIndex] = element;
-            moduleElementValues[existingElementIndex] = value;
+            // Throw error if the variable is already exported
+            throw this.formatErrorMessage(
+              exportExpr.token,
+              `Variable "${variableName}" is already exported in the module.`
+            );
           } else {
-            // Add the element to the module type
-            moduleType.elements.push(element);
-            moduleElementValues.push(value);
+            // Add the variable to the module type
+            moduleType.elements.push({
+              label: variableName,
+              type: variable.type,
+              isCompileTimeOnly: variable.isCompileTimeOnly,
+              isImplicit: variable.isImplicit,
+              assignedValue: variable.isCompileTimeOnly
+                ? variable.value
+                : undefined,
+              defaultValue: undefined,
+              exprs: {
+                expr: exportExpr,
+                labelExpr: undefined,
+                typeExpr: undefined,
+                assignedValueExpr: undefined,
+                defaultValueExpr: undefined,
+              },
+            });
+
+            // Add information to exportExpr
+            exportExpr.$ = {
+              env,
+              type: variable.type,
+              value: variable.value,
+              isMutable: variable.isMutable,
+              pathCollection: [],
+            };
           }
         }
       } else {
