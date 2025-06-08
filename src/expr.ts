@@ -249,6 +249,7 @@ export const BuiltinFunctions = {
   expect_compile_error: ["expect_compile_error"],
   typeof: ["typeof"],
   consume: ["consume"],
+  compt_assert: ["compt_assert"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {

@@ -119,6 +119,7 @@ import {
   createStructValue,
   createTypeValue,
   createUnknownValue,
+  isBooleanValue,
   isComptStringValue,
   isFunctionValue,
   isNumberValue,
@@ -591,6 +592,8 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
         );
       }
       label = labelExpr.token.value;
+    } else {
+      typeExpr = expr_;
     }
 
     // Check expectedType
@@ -8328,6 +8331,70 @@ Got:   ${typeToString(argType)}`
     );
   }
 
+  private evaluateComptAssert({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    const argExpr = expr.args[0]!;
+    const messageExpr = expr.args[1];
+
+    // Evaluate the expression
+    const evaluatedArgExpr = this.evaluateExpression({
+      expr: argExpr,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!evaluatedArgExpr.$ || !isBooleanValue(evaluatedArgExpr.$.value)) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected boolean value for "compt_assert", got:\n${exprToString(argExpr)}`
+      );
+    }
+    const booleanValue = evaluatedArgExpr.$.value;
+    if (booleanValue.value) {
+      // The assertion passed, return unit
+      expr.$ = {
+        env,
+        type: VUnit.type,
+        value: VUnit,
+        isMutable: false,
+        pathCollection: [],
+      };
+      return expr;
+    } else {
+      if (messageExpr) {
+        const evaluatedMessageExpr = this.evaluateExpression({
+          expr: messageExpr,
+          env,
+          context: {
+            ...context,
+          },
+        });
+        if (evaluatedMessageExpr.$?.value) {
+          throw this.formatErrorMessage(
+            expr.token,
+
+            isComptStringValue(evaluatedMessageExpr.$.value)
+              ? evaluatedMessageExpr.$.value.value
+              : valueToString(evaluatedMessageExpr.$.value)
+          );
+        }
+      }
+
+      throw this.formatErrorMessage(
+        expr.token,
+        `Assertion failed for "compt_assert":\n${exprToString(argExpr)}`
+      );
+    }
+  }
+
   private evaluateReferenceCall({
     expr,
     env,
@@ -8906,6 +8973,13 @@ ${exprToString(expr)}`
       ) {
         // expect_compile_error
         return this.evaluateExpectCompileError({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.compt_assert)) {
+        // compt_assert
+        return this.evaluateComptAssert({
           expr,
           env,
           context: { ...context },

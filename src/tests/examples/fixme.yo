@@ -1,18 +1,37 @@
-main :: (()-> unit) {
-  p1 :: { x: 1, y: 2 };
-  mut(p2) :: { x: 3, y: 4 };
-  expect_compile_error(
-    p2 = p1, 
-    "Should give error"
-  );
+flag1 :: are_types_compatible(i32, i32); // true
+flag2 :: are_types_compatible(i32, i64); // false
+flag3 :: are_types_compatible(i64, i32); // false
 
-  Point1 :: struct x: i32, y: i32;
-  Point2 :: struct x: i32, y: i32;
+// Functions
+flag4 :: are_types_compatible( // true
+  (x: i32, y: i32)-> i32,
+  (a: i32, y: i32)-> i32
+);
+flag5 :: are_types_compatible( // true
+  (forall(@(T): Type), x: T, y: T)-> T,
+  (forall(@(Z): Type), a: Z, b: Z)-> Z
+);
+flag6 :: are_types_compatible( // false
+  (forall(@(T): Type), x: T, y: T)-> T,
+  (a: i32, b: i32)-> i32
+);
+flag7 :: are_types_compatible( // false
+  (a: i32, b: i32)-> i32,
+  (forall(@(T): Type), x: T, y: T)-> T
+);
 
-  p3 := Point1(x: 5, y: 6);
-  mut(p4) := Point2(x: 7, y: 8);
-  expect_compile_error(
-    p4 = p3,
-    "Should give error"
-  );
-};
+Box :: ((@(T): Type)-> @(Type))
+  struct(T)
+;
+flag :: are_types_compatible( // true
+  (forall(@(T): Type), x: T)-> Box(T),
+  (forall(@(Z): Type), a: Z)-> Box(Z)
+);
+
+Point :: ((@(T): Type)-> @(Type))
+  struct(x: T, y: T)
+;
+flag8 :: are_types_compatible( // true
+  (forall(@(T): Type), x: T, y: T)-> Point(T),
+  (forall(@(Z): Type), a: Z, b: Z)-> Point(Z)
+);
