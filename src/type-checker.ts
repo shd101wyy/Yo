@@ -311,6 +311,13 @@ export interface ArrayType extends Type {
   length: Value; // Compile-time known usize compatible value.
 }
 
+export type TupleElementExprs = {
+  labelExpr?: Expr;
+  typeExpr?: Expr;
+  defaultValueExpr?: Expr;
+  assignedValueExpr?: Expr;
+};
+
 export interface TupleElement {
   /**
    * The type of the element.
@@ -323,19 +330,66 @@ export interface TupleElement {
    * label of the element,
    * eg: x: i32
    * x is the label of the element.
+   *
+   * For the element that is not labelled, we generate temporary label for it.
+   * For example:
+   *  i32
+   * This is a element without label.
+   * We generate a temporary label for it, like $element_12345
    */
-  label?: string;
+  label: string;
 
   /**
-   * The default value of the element.
+   * If the element is compile time only or not
+   */
+  isCompileTimeOnly: boolean;
+
+  /**
+   * If the element is implicit or not.
+   */
+  isImplicit: boolean;
+
+  /**
+   * The default value of the element, define using the ?= operator.
    * Which has to be compile-time known.
+   * For example:
+   *  (T: Type) ?= i32
    */
   defaultValue?: Value;
 
   /**
+   * The assigned value of the element.
+   * Which has to be compile-time known.
+   * For example:
+   *  (T: Type) = i32;
+   *
+   * Once this is set, we cannot assign/change the value.
+   *
+   * For example:
+   *
+   *    ```
+   *    Id :: ((@(T): Type)-> @(Type))
+   *      struct:
+   *        (@(Self) : Type) = T,
+   *        // or
+   *        // Self :: T,
+   *
+   *        id:
+   *          (x: Self)-> Self
+   *    ;
+   *    MyId :: Id(i32)
+   *      // Self: i32, // <- This line is not allowed
+   *      id:
+   *        fn(x)-> x
+   *    ;
+   *    ```
+   */
+  assignedValue?: Value;
+
+  /**
    * The expression of the element.
    */
-  expr: Expr;
+  exprs: TupleElementExprs;
 }
 
 export interface TupleType extends Type {
@@ -407,7 +461,7 @@ export interface FunctionParameter {
    * eg: x: i32
    * x is the label of the element.
    *
-   * For the parameter that are not labelled, we generate temporary label for it.
+   * For the parameter that is not labelled, we generate temporary label for it.
    * For example:
    * i32
    * This is a parameter without label.
@@ -602,110 +656,6 @@ export interface FunctionType extends Type {
    * Under which interface/struct/enum/union this function is defined.
    */
   SelfType?: Type;
-}
-
-export interface ModuleMember {
-  /**
-   * The label of the member.
-   */
-  label: string;
-
-  /**
-   * The type of the member.
-   */
-  type: Type;
-
-  /**
-   * Whether the member is implicit or not.
-   */
-  isImplicit: boolean;
-
-  /**
-   * The default value of the element.
-   * Which has to be compile-time known.
-   * For example:
-   *   (T: Type) = i32;
-   */
-  defaultValue?: Value;
-
-  /**
-   * The required value of the element.
-   * Which has to be compile-time known.
-   * For example:
-   *  (T: Type) == i32;
-   *
-   * Once this is set, we cannot assign/change the value.
-   *
-   * For example:
-   *
-   *    ```
-   *    def Id:
-   *      (@(T): Type)-> @(Type),
-   *      module:
-   *        (Self: Type) == T,
-   *        id:
-   *          (x: Self)-> Self
-   *    ;
-   *    MyId :: Id(i32)
-   *      // Self: i32, // <- This line is not allowed
-   *      id:
-   *        fn(x)-> x
-   *    ;
-   *    ```
-   */
-  requiredValue?: Value;
-
-  /**
-   * The expression of the member.
-   */
-  expr: Expr;
-}
-
-// It is just a collection of types
-export interface ModuleType extends Type {
-  tag: TypeTag.Module;
-  /**
-   * The unique identifier for this module.
-   */
-  typeId: string;
-
-  /**
-   * The name of the module.
-   * eg:
-   *   Id := module;
-   * Id is the name of the struct.
-   */
-  typeName?: string;
-
-  /**
-   * The function that returns the module.
-   */
-  functionValue?: FunctionValue;
-
-  /**
-   * The receiver type of the module.
-   * We take member whose name is "Self" as the receiverType.
-   */
-  // receiverType?: Type;
-  // NOTE: I remove this^
-  // Instead, let's use a function to get the receiverType from an module
-
-  /**
-   * The members of the module.
-   */
-  members: ModuleMember[];
-
-  /**
-   * Module is unsized
-   */
-  size: undefined;
-
-  /**
-   * The env when the module type is created.
-   * The env shouldn't contain the frame that have the parameters.
-   * The env is also useful to show the frame level at which the module is defined.
-   */
-  env: Environment;
 }
 
 export interface MutLinearPtrType extends Type {
@@ -925,28 +875,14 @@ export function createFunctionType({
   };
 }
 
-export function createModuleType(
-  members: ModuleMember[],
-  env: Environment,
-  typeId?: string
-): ModuleType {
-  return {
-    tag: TypeTag.Module,
-    members, // Updated to use the renamed field
-    size: undefined,
-    typeId: typeId ?? `module_${randomId()}`,
-    env,
-  };
-}
-
-export function getModuleReceiverType(moduleType: ModuleType): Type | null {
-  const receiverType = moduleType.members.find(
-    (member) => member.label === "Self"
+export function getStructReceiverType(structType: StructType): Type | null {
+  const receiverType = structType.elements.find(
+    (element) => element.label === "Self" && element.isCompileTimeOnly
   );
-  if (!receiverType || !receiverType.requiredValue) {
+  if (!receiverType || !receiverType.assignedValue) {
     return null;
   }
-  const typeValue = receiverType.requiredValue;
+  const typeValue = receiverType.assignedValue;
   if (!isTypeValue(typeValue)) {
     return null;
   }
@@ -1053,10 +989,18 @@ export function typeOfType(t: Type): Type {
     return typeOfType(t.elementType);
   } else if (isTupleType(t)) {
     // For tuples, check all element types
-    return determineTypeUniverse(t.elements.map((element) => element.type));
+    return determineTypeUniverse(
+      t.elements
+        .filter((element) => !element.isCompileTimeOnly)
+        .map((element) => element.type)
+    );
   } else if (isStructType(t)) {
     // For structs, check all member types
-    return determineTypeUniverse(t.elements.map((element) => element.type));
+    return determineTypeUniverse(
+      t.elements
+        .filter((element) => !element.isCompileTimeOnly)
+        .map((element) => element.type)
+    );
   } else if (isEnumType(t)) {
     // For enums, check all variant
     const types: Type[] = [];
@@ -1071,9 +1015,6 @@ export function typeOfType(t: Type): Type {
     return determineTypeUniverse(t.elements.map((element) => element.type));
   } else if (isSomeType(t)) {
     return t.parentType;
-  } else if (isModuleType(t)) {
-    return TFree;
-    // return determineTypeUniverse(t.members.map((member) => member.type));
   } else if (isMutLinearPtrType(t) || isLinearPtrType(t)) {
     return TLinear;
   } else if (
@@ -1084,7 +1025,7 @@ export function typeOfType(t: Type): Type {
   ) {
     return TFree;
   } else {
-    throw new Error(`Unknown type tag: ${t.tag}`);
+    throw new Error(`Unknown type tag: ${t}`);
   }
 }
 
@@ -1404,32 +1345,6 @@ export function areTypesCompatible(
     return true;
   }
 
-  if (isModuleType(expected.type) && isModuleType(given.type)) {
-    if (expected.type.members.length !== given.type.members.length) {
-      return false;
-    }
-
-    if (expected.type.typeId === given.type.typeId) {
-      return true;
-    }
-
-    for (let i = 0; i < expected.type.members.length; i++) {
-      const expectedMember = expected.type.members[i]!;
-      const givenMember = given.type.members[i]!;
-
-      if (
-        expectedMember.label !== givenMember.label ||
-        !areTypesCompatible(
-          { type: expectedMember.type, env: expected.env },
-          { type: givenMember.type, env: given.env }
-        )
-      ) {
-        return false;
-      }
-    }
-    return true;
-  }
-
   if (isEnumType(expected.type) && isEnumType(given.type)) {
     if (expected.type.typeId === given.type.typeId) {
       return true;
@@ -1620,10 +1535,6 @@ export function isUnionType(type?: Type): type is UnionType {
   return type?.tag === TypeTag.Union;
 }
 
-export function isModuleType(type?: Type): type is ModuleType {
-  return type?.tag === TypeTag.Module;
-}
-
 // Add isEnumType guard function
 export function isEnumType(type?: Type): type is EnumType {
   return type?.tag === TypeTag.Enum;
@@ -1712,7 +1623,10 @@ export function isRefType(type?: Type): type is RefType {
 export function typeRequiresComptModifier(type?: Type): boolean {
   return (
     isTypeHierarchyType(type) ||
-    isModuleType(type) ||
+    // If it's struct type, and it has compile-time only elements,
+    // then it cannot be assigned to a runtime variable.
+    (isStructType(type) &&
+      type.elements.some((element) => element.isCompileTimeOnly)) ||
     isComptIntType(type) ||
     isComptFloatType(type) ||
     isComptStringType(type)
@@ -1764,12 +1678,12 @@ export function isUndefinedType(type: Type): boolean {
 export function functionParameterToString(
   parameter: FunctionParameter
 ): string {
-  let label = parameter.label ?? "_";
+  let label = parameter.label;
   if (parameter.isMutable) {
     label = `mut(${label})`;
   }
   if (parameter.isCompileTimeOnly) {
-    label = `compt(${label})`;
+    label = `@(${label})`;
   }
 
   const typeStr = parameter.exprs.typeExpr
@@ -1782,13 +1696,57 @@ export function functionParameterToString(
 
   if (defaultValueStr) {
     if (typeStr) {
-      return `(${label}: ${typeStr}) = ${defaultValueStr}`;
+      return `(${label}: ${typeStr}) ?= ${defaultValueStr}`;
     } else {
-      return `${label} = ${defaultValueStr}`;
+      return `${label} ?= ${defaultValueStr}`;
     }
   } else {
     // typeStr is always defined here
     return `${label}: ${typeStr}`;
+  }
+}
+
+export function tupleElementToString(element: TupleElement): string {
+  let label = element.label;
+  if (element.isImplicit) {
+    label = `?${label}`;
+  }
+  if (element.isCompileTimeOnly) {
+    label = `@(${label})`;
+  }
+
+  const typeStr = element.exprs.typeExpr
+    ? exprToString(element.exprs.typeExpr)
+    : "";
+
+  const defaultValueStr = element.exprs.defaultValueExpr
+    ? exprToString(element.exprs.defaultValueExpr)
+    : "";
+
+  const assignedValueStr = element.exprs.assignedValueExpr
+    ? exprToString(element.exprs.assignedValueExpr)
+    : "";
+
+  if (defaultValueStr) {
+    if (typeStr) {
+      return `(${label}: ${typeStr}) ?= ${defaultValueStr}`;
+    } else {
+      return `${label} ?= ${defaultValueStr}`;
+    }
+  }
+
+  if (assignedValueStr) {
+    if (typeStr) {
+      return `(${label}: ${typeStr}) = ${assignedValueStr}`;
+    } else {
+      return `${element.label} :: ${assignedValueStr}`;
+    }
+  }
+
+  if (typeStr) {
+    return `${label}: ${typeStr}`;
+  } else {
+    return label;
   }
 }
 
@@ -1874,15 +1832,7 @@ export function typeToString(type: Type): string {
         return "()";
       }
       return `(${(type as TupleType).elements
-        .map((element) => {
-          let t = `${element.label ? `${element.label}: ` : ""}${typeToString(
-            element.type
-          )}`;
-          if (element.defaultValue) {
-            t = `(${t}) = ${valueToString(element.defaultValue)}`;
-          }
-          return t;
-        })
+        .map(tupleElementToString)
         .join(", ")}${(type as TupleType).elements.length === 1 ? "," : ""})`;
     }
 
@@ -1894,17 +1844,7 @@ export function typeToString(type: Type): string {
 
       return `${struct.typeName ? `(${struct.typeName}) ` : ""}${
         struct.typeName ? "struct" : struct.typeId
-      }(${struct.elements
-        .map((element) => {
-          let t = `${element.label ? `${element.label}: ` : ""}${typeToString(
-            element.type
-          )}`;
-          if (element.defaultValue) {
-            t = `(${t}) = ${valueToString(element.defaultValue)}`;
-          }
-          return t;
-        })
-        .join(", ")})`;
+      }(${struct.elements.map(tupleElementToString).join(", ")})`;
     }
 
     case TypeTag.Enum: {
@@ -1919,17 +1859,7 @@ export function typeToString(type: Type): string {
         .map((variant) => {
           return `${variant.name}${
             variant.elements
-              ? `(${variant.elements
-                  .map((param) => {
-                    let t = `${
-                      param.label ? `${param.label}: ` : ""
-                    }${typeToString(param.type)}`;
-                    if (param.defaultValue) {
-                      t = `(${t}) = ${valueToString(param.defaultValue)}`;
-                    }
-                    return t;
-                  })
-                  .join(", ")})`
+              ? `(${variant.elements.map(tupleElementToString).join(", ")})`
               : ""
           }`;
         })
@@ -1973,30 +1903,6 @@ export function typeToString(type: Type): string {
         .filter((x) => !!x)
         .join(", ");
       return `(${paramsString}) -> ${returnTypeString}`;
-    }
-
-    case TypeTag.Module: {
-      const moduleType = type as ModuleType;
-      if (moduleType.typeName) {
-        return moduleType.typeName;
-      }
-
-      return `${moduleType.typeName ? `(${moduleType.typeName}) ` : ""}${
-        moduleType.typeName ? "module" : moduleType.typeId
-      }(${moduleType.members
-        .map((member) => {
-          let t = `${member.label ? `${member.label}:` : ""}${typeToString(
-            member.type
-          )}`;
-          if (member.defaultValue) {
-            t = `(${t}) = ${valueToString(member.defaultValue)}`;
-          }
-          if (member.requiredValue) {
-            t = `(${t}) == ${valueToString(member.requiredValue)}`;
-          }
-          return t;
-        })
-        .join(", ")})`;
     }
 
     case TypeTag.Literal: {

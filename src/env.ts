@@ -2,14 +2,13 @@ import { formatErrorMessages } from "./error";
 import { Token } from "./token";
 import {
   areTypesCompatible,
-  getModuleReceiverType,
+  getStructReceiverType,
   isEnumType,
   isFunctionType,
   isLinearOrType0Type,
-  isModuleType,
   isStructType,
   isUnionType,
-  ModuleType,
+  StructType,
   Type,
   typeOfType,
   typeToString,
@@ -17,7 +16,7 @@ import {
 import { generateVarialeId, isTempVariableName } from "./utils";
 import {
   createUnknownValue,
-  isModuleValue,
+  isStructValue,
   isUnknownValue,
   Value,
   valueToString,
@@ -535,34 +534,37 @@ export function getMethodsByNameFromEnv(
 ): { type: Type; value: Value | undefined }[] {
   const methods: { type: Type; value: Value | undefined }[] = [];
 
-  function checkModule(moduleType: ModuleType, moduleValue: Value) {
-    const moduleReceiverType = getModuleReceiverType(moduleType);
-    if (!moduleReceiverType) {
+  function checkModule(structType: StructType, structValue: Value) {
+    const structReceiverType = getStructReceiverType(structType);
+    if (!structReceiverType) {
       // NOTE: We require receiverType to be defined with "This"
       return;
     }
 
-    const method = moduleType.members.find(
-      (member) =>
+    const method = structType.elements.find(
+      (element) =>
         areTypesCompatible(
-          { type: moduleReceiverType, env },
+          { type: structReceiverType, env },
           { type: receiverType, env }
         ) &&
-        member.label === methodName &&
-        isFunctionType(member.type) &&
-        member.type.parameters.length > 0 &&
+        element.label === methodName &&
+        isFunctionType(element.type) &&
+        element.type.parameters.length > 0 &&
         // TODO: support autocast to reference/immutable reference.
         areTypesCompatible(
-          { type: member.type.parameters[0]!.type, env },
+          { type: element.type.parameters[0]!.type, env },
           { type: receiverType, env }
         )
     );
     if (method) {
       let value: Value | undefined = undefined;
-      if (isUnknownValue(moduleValue)) {
+      if (isUnknownValue(structValue)) {
         value = createUnknownValue(method.type, method.label);
-      } else if (isModuleValue(moduleValue)) {
-        value = moduleValue.members[method.label];
+      } else if (isStructValue(structValue)) {
+        const index = structType.elements.findIndex(
+          (element) => element.label === method.label
+        );
+        value = structValue.elements[index];
       }
 
       methods.push({ type: method.type, value });
@@ -598,14 +600,14 @@ export function getMethodsByNameFromEnv(
     const frame = env.frames[i]!;
     for (let j = frame.variables.length - 1; j >= 0; j--) {
       const variable = frame.variables[j]!;
-      const moduleType = variable.type;
-      const moduleValue = variable.value;
+      const structType = variable.type;
+      const structValue = variable.value;
       if (
         // Find the module value
-        isModuleType(moduleType) &&
-        moduleValue
+        isStructType(structType) &&
+        structValue
       ) {
-        checkModule(moduleType, moduleValue);
+        checkModule(structType, structValue);
       }
     }
   }

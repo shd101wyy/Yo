@@ -1,5 +1,5 @@
 import Evaluator from "./evaluator";
-import { ModuleValue } from "./values";
+import { StructValue } from "./value";
 
 export class ModuleManager {
   /**
@@ -8,12 +8,12 @@ export class ModuleManager {
    */
   public modules: Map<
     string,
-    { moduleValue: ModuleValue; evaluator: Evaluator }
+    { moduleValue: StructValue; evaluator: Evaluator }
   > = new Map();
 
   constructor() {}
 
-  public loadModule(modulePath: string): ModuleValue {
+  public loadModule(modulePath: string): StructValue {
     if (!modulePath.match(/^file:\/\//)) {
       throw new Error(
         `Invalid file protocol: ${modulePath}. Only file:// is supported for now.  `

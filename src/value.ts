@@ -5,7 +5,6 @@ import {
   ArrayType,
   EnumType,
   isTypeHierarchyType,
-  ModuleType,
   SomeType,
   StructType,
   TBoolean,
@@ -69,13 +68,15 @@ export type BooleanValue = {
 export type TupleValue = {
   tag: ValueTag.Tuple;
   type: TupleType;
-  elements: Value[];
+  // If element is undefined, it means the field is a runtime value.
+  elements: (Value | undefined)[];
 };
 
 export type StructValue = {
   tag: ValueTag.Struct;
   type: StructType;
-  elements: Value[];
+  // If element is undefined, it means the field is a runtime value.
+  elements: (Value | undefined)[];
 };
 
 export type EnumValue = {
@@ -83,12 +84,6 @@ export type EnumValue = {
   type: EnumType;
   variantName: string;
   elements: Value[];
-};
-
-export type ModuleValue = {
-  tag: ValueTag.Module;
-  type: ModuleType;
-  members: Record<string, Value>;
 };
 
 export type ArrayValue = {
@@ -113,7 +108,6 @@ export type Value =
   | StructValue
   | EnumValue
   | FunctionValue
-  | ModuleValue
   | UnknownValue;
 
 /**
@@ -176,13 +170,6 @@ export function valueToString(value?: Value): string {
       }
       return `.${value.variantName}(${value.elements
         .map(valueToString)
-        .join(", ")})`;
-    }
-    case ValueTag.Module: {
-      return `_(${Object.entries(value.members)
-        .map(([key, value]) => {
-          return `${key}: ${valueToString(value)}`;
-        })
         .join(", ")})`;
     }
     /*
@@ -258,10 +245,6 @@ export function isTupleValue(value?: Value): value is TupleValue {
 
 export function isStructValue(value?: Value): value is StructValue {
   return value?.tag === ValueTag.Struct;
-}
-
-export function isModuleValue(value?: Value): value is ModuleValue {
-  return value?.tag === ValueTag.Module;
 }
 
 export function isArrayValue(value?: Value): value is ArrayValue {
@@ -362,7 +345,7 @@ export function createUnknownValue(
 
 export function createStructValue(
   type: StructType,
-  elements: Value[]
+  elements: (Value | undefined)[]
 ): StructValue {
   return {
     tag: ValueTag.Struct,
@@ -381,17 +364,6 @@ export function createEnumValue(
     type,
     variantName,
     elements,
-  };
-}
-
-export function createModuleValue(
-  type: ModuleType,
-  members: Record<string, Value>
-): ModuleValue {
-  return {
-    tag: ValueTag.Module,
-    type,
-    members,
   };
 }
 
@@ -505,34 +477,6 @@ export function areValuesEqual(
         !areValuesEqual(
           { value: value1.elements[i], env: expected.env },
           { value: value2.elements[i], env: given.env }
-        )
-      ) {
-        return false;
-      }
-    }
-    return true;
-  } else if (isModuleValue(value1) && isModuleValue(value2)) {
-    const members1 = value1.members;
-    const members2 = (value2 as ModuleValue).members;
-    const keys1 = Object.keys(members1);
-    const keys2 = Object.keys(members2);
-    if (
-      keys1.length !== keys2.length ||
-      !areTypesCompatible(
-        { type: value1.type, env: expected.env },
-        { type: value2.type, env: given.env }
-      )
-    ) {
-      return false;
-    }
-    for (const key of keys1) {
-      if (!members2[key]) {
-        return false;
-      }
-      if (
-        !areValuesEqual(
-          { value: members1[key], env: expected.env },
-          { value: members2[key], env: given.env }
         )
       ) {
         return false;

@@ -144,12 +144,13 @@ export type FuncCallExpr = {
 export function cloneExpr(expr: Expr): Expr {
   switch (expr.tag) {
     case ExprTag.Atom:
-      return { ...expr };
+      return { ...expr, $: expr.$ ? { ...expr.$ } : undefined };
     case ExprTag.FuncCall:
       return {
         ...expr,
         func: cloneExpr(expr.func),
         args: expr.args.map(cloneExpr),
+        $: expr.$ ? { ...expr.$ } : undefined,
       };
   }
 }

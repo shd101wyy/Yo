@@ -42,7 +42,6 @@ import {
   createEnumType,
   createFunctionType,
   createLinearPtrType,
-  createModuleType,
   createMutLinearPtrType,
   createMutPtrType,
   createMutRefType,
@@ -64,7 +63,6 @@ import {
   isFunctionTypeAndIsTypeFunction,
   isLinearOrType0Type,
   isLinearPtrType,
-  isModuleType,
   isMutLinearPtrType,
   isMutPtrType,
   isMutRefType,
@@ -75,8 +73,6 @@ import {
   isTupleType,
   isTypeHierarchyType,
   isUnionType,
-  ModuleMember,
-  ModuleType,
   StructType,
   TBoolean,
   TComptFloat,
@@ -98,6 +94,7 @@ import {
   TU8,
   TUnit,
   TupleElement,
+  tupleElementToString,
   TupleType,
   TUsize,
   Type,
@@ -118,20 +115,17 @@ import {
   createBooleanValue,
   createComptStringValue,
   createEnumValue,
-  createModuleValue,
   createNumberValue,
   createStructValue,
   createTypeValue,
   createUnknownValue,
   isComptStringValue,
   isFunctionValue,
-  isModuleValue,
   isNumberValue,
   isStructValue,
   isTupleValue,
   isTypeValue,
   isUnknownValue,
-  ModuleValue,
   StructValue,
   TupleValue,
   Value,
@@ -176,15 +170,15 @@ export default class Evaluator {
   private parser: Parser;
   private program: Expr[];
   private tokens: Token[];
-  private moduleValue: ModuleValue;
-  private loadModule: (modulePath: string) => ModuleValue;
+  private moduleValue: StructValue;
+  private loadModule: (modulePath: string) => StructValue;
 
   constructor({
     modulePath,
     loadModule,
   }: {
     modulePath: string;
-    loadModule: (modulePath: string) => ModuleValue;
+    loadModule: (modulePath: string) => StructValue;
   }) {
     this.modulePath = modulePath;
     this.loadModule = loadModule;
@@ -345,16 +339,16 @@ export default class Evaluator {
     // We disallow the tuple elements to have defaultValue for the tuple type
     // We disallow the tuple value to have labels. Only the tuple type can have labels.
     tupleType.elements.forEach((tupleElement) => {
-      if (tupleElement.defaultValue) {
+      if (tupleElement.exprs.defaultValueExpr) {
         throw this.formatErrorMessage(
-          tupleElement.expr.token,
+          tupleElement.exprs.defaultValueExpr!.token,
           `Tuple elements cannot have default value.`
         );
       }
 
-      if (tupleElement.label) {
+      if (tupleElement.exprs.labelExpr) {
         throw this.formatErrorMessage(
-          tupleElement.expr.token,
+          tupleElement.exprs.labelExpr!.token,
           `Tuple value cannot have labels.`
         );
       }
@@ -492,53 +486,111 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
     tupleElementIndex: number;
     env: Environment;
     context: EvaluatorContext;
-  }): { type: TupleElement; value: TypeValue; env: Environment } {
+  }): { type: TupleElement; env: Environment } {
     let label: string | undefined = undefined;
     let expr_ = expr;
-    let lhsExpr: Expr | undefined = undefined;
-    let rhsExpr: Expr = expr;
-    let elementType: Type | undefined = undefined;
+
+    let labelExpr: Expr | undefined = undefined;
+    let typeExpr: Expr | undefined = undefined;
+
+    let defaultValueExpr: Expr | undefined = undefined;
     let defaultValue: Value | undefined = undefined;
+
+    let assignedValueExpr: Expr | undefined = undefined;
+    let assignedValue: Value | undefined = undefined;
+
+    let isCompileTimeOnly = false;
+    let isImplicit = false;
+
+    let elementType: Type | undefined = undefined;
 
     // Check the default value
     if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, "?=", 2)) {
+      defaultValueExpr = expr.args[1]!;
       expr_ = expr.args[0]!;
-      const defaultValueExpr = expr.args[1]!;
+    }
 
-      // Evaluate the defaultValueExpr
-      const evaluatedDefaultValue = this.evaluateExpression({
-        expr: defaultValueExpr,
-        env,
-        context: {
-          ...context,
-        },
-      });
-      if (evaluatedDefaultValue.$?.env) {
-        env = evaluatedDefaultValue.$?.env;
+    // Check the required value
+    if (
+      exprIsFunctionCall(expr_) &&
+      (exprIsFunctionCallOf(expr_, "=", 2) ||
+        exprIsFunctionCallOf(expr_, "::", 2))
+    ) {
+      if (exprIsFunctionCallOf(expr_, "::", 2)) {
+        isCompileTimeOnly = true;
+
+        labelExpr = expr_.args[0]!;
+
+        // Check isImplicit
+        if (
+          exprIsFunctionCall(labelExpr) &&
+          exprIsFunctionCallOf(labelExpr, BuiltinKeywords.implicit, 1)
+        ) {
+          isImplicit = true;
+          labelExpr = labelExpr.args[0]!;
+        }
+
+        if (!this.isValidVariableName(labelExpr)) {
+          throw this.formatErrorMessage(
+            labelExpr.token,
+            `Expected identifier for tuple element label, got ${exprToString(
+              labelExpr
+            )}`
+          );
+        }
+        label = labelExpr.token.value;
       }
-      defaultValue = evaluatedDefaultValue.$?.value;
-      if (!defaultValue) {
-        throw this.formatErrorMessage(
-          defaultValueExpr.token,
-          `Expect compile-time known value as default value.`
-        );
-      }
+
+      assignedValueExpr = expr_.args[1]!;
+      expr_ = expr_.args[0]!;
+    }
+
+    // Cannot have both defaultValueExpr and assignedValueExpr
+    if (defaultValueExpr && assignedValueExpr) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Cannot have both default value and required value for tuple element.`
+      );
     }
 
     // Parse the lhs expr
     if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":", 2)) {
-      rhsExpr = expr_.args[1]!;
-      lhsExpr = expr_.args[0]!;
+      labelExpr = expr_.args[0]!;
+      typeExpr = expr_.args[1]!;
 
-      if (!exprIsAtom(lhsExpr) && !this.isValidVariableName(lhsExpr)) {
+      // Check if it's compile-time only
+      if (
+        exprIsFunctionCall(labelExpr) &&
+        exprIsFunctionCallOf(labelExpr, BuiltinKeywords.compt, 1)
+      ) {
+        if (isCompileTimeOnly) {
+          throw this.formatErrorMessage(
+            labelExpr.token,
+            `Cannot combine the use of "compt" (or "@") with ::`
+          );
+        }
+        isCompileTimeOnly = true;
+        labelExpr = labelExpr.args[0]!;
+      }
+
+      // Check isImplicit
+      if (
+        exprIsFunctionCall(labelExpr) &&
+        exprIsFunctionCallOf(labelExpr, BuiltinKeywords.implicit, 1)
+      ) {
+        isImplicit = true;
+        labelExpr = labelExpr.args[0]!;
+      }
+
+      if (!exprIsAtom(labelExpr) && !this.isValidVariableName(labelExpr)) {
         throw this.formatErrorMessage(
-          lhsExpr.token,
+          labelExpr.token,
           `Expected identifier for tuple element label, got ${exprToString(
-            lhsExpr
+            labelExpr
           )}`
         );
       }
-      label = lhsExpr.token.value;
+      label = labelExpr.token.value;
     }
 
     // Check expectedType
@@ -577,35 +629,175 @@ ${typeToString(expectedType)}`
       }
     }
 
-    // Parse the rhs expr
-    const evaluatedRhs = this.evaluateExpression({
-      expr: rhsExpr,
-      env,
-      context: {
-        ...context,
-        expectedType: expectedTupleElementType
+    // Parse the type expr
+    if (typeExpr) {
+      const evaluatedTypeExpr = this.evaluateExpression({
+        expr: typeExpr,
+        env,
+        context: {
+          ...context,
+          expectedType: expectedTupleElementType
+            ? {
+                type: expectedTupleElementType,
+                env,
+              }
+            : undefined,
+        },
+      });
+      if (evaluatedTypeExpr.$?.env) {
+        env = evaluatedTypeExpr.$?.env;
+      }
+
+      // Expected the evaluatedTypeExpr to be a type
+      const typeValue = evaluatedTypeExpr.$?.value;
+      if (!isTypeValue(typeValue)) {
+        throw this.formatErrorMessage(
+          typeExpr.token,
+          `(1) Expected type for tuple element, got ${exprToString(typeExpr)}`
+        );
+      }
+      elementType = typeValue.value;
+    }
+
+    // Evaluate assignedValueExpr if it exists
+    if (assignedValueExpr) {
+      // Required value only works for compile-time only
+      if (!isCompileTimeOnly) {
+        throw this.formatErrorMessage(
+          assignedValueExpr.token,
+          `Required value expression is only allowed for compile-time only tuple elements.`
+        );
+      }
+
+      const expectedType = elementType
+        ? { type: elementType, env }
+        : expectedTupleElementType
           ? {
               type: expectedTupleElementType,
               env,
             }
-          : undefined,
-      },
-    });
-    if (evaluatedRhs.$?.env) {
-      env = evaluatedRhs.$?.env;
+          : undefined;
+      const evaluatedAssignedValueExpr = this.evaluateExpression({
+        expr: assignedValueExpr,
+        env,
+        context: {
+          ...context,
+          expectedType: expectedType,
+        },
+      });
+      if (!evaluatedAssignedValueExpr.$) {
+        throw this.formatErrorMessage(
+          assignedValueExpr.token,
+          `Failed to evaluate required value expression: ${exprToString(
+            assignedValueExpr
+          )}`
+        );
+      }
+      env = evaluatedAssignedValueExpr.$?.env;
+
+      assignedValue = evaluatedAssignedValueExpr.$.value;
+      if (!assignedValue) {
+        throw this.formatErrorMessage(
+          assignedValueExpr.token,
+          `Expected compile-time known value for required value, got ${exprToString(
+            assignedValueExpr
+          )}`
+        );
+      }
+
+      const assignedValueType = evaluatedAssignedValueExpr.$.type;
+
+      // Check if assignedValueType matches expectedType
+      if (expectedType) {
+        if (
+          !areTypesCompatible(
+            { type: expectedType.type, env },
+            { type: assignedValueType, env }
+          )
+        ) {
+          throw this.formatErrorMessage(
+            assignedValueExpr.token,
+            `Assigned value type mismatch:
+Expected type: ${typeToString(expectedType.type)}
+Given type: ${typeToString(assignedValueType)}`
+          );
+        }
+        elementType = expectedType.type;
+      } else {
+        elementType = assignedValueType;
+      }
     }
 
-    // Expected the evaluatedRhs to be a type
-    const typeValue = evaluatedRhs.$?.value;
-    if (!isTypeValue(typeValue)) {
+    // Evaluate defaultValueExpr if it exists
+    if (defaultValueExpr) {
+      const expectedType = elementType
+        ? { type: elementType, env }
+        : expectedTupleElementType
+          ? {
+              type: expectedTupleElementType,
+              env,
+            }
+          : undefined;
+      const evaluatedDefaultValueExpr = this.evaluateExpression({
+        expr: defaultValueExpr,
+        env,
+        context: {
+          ...context,
+          expectedType: expectedType,
+        },
+      });
+      if (!evaluatedDefaultValueExpr.$) {
+        throw this.formatErrorMessage(
+          defaultValueExpr.token,
+          `Failed to evaluate default value expression: ${exprToString(
+            defaultValueExpr
+          )}`
+        );
+      }
+      env = evaluatedDefaultValueExpr.$.env;
+
+      defaultValue = evaluatedDefaultValueExpr.$?.value;
+      if (!defaultValue) {
+        throw this.formatErrorMessage(
+          defaultValueExpr.token,
+          `Expected compile-time known value for default value, got ${exprToString(
+            defaultValueExpr
+          )}`
+        );
+      }
+
+      const defaultValueType = evaluatedDefaultValueExpr.$.type;
+
+      // Check if defaultValueType matches expectedType
+      if (expectedType) {
+        if (
+          !areTypesCompatible(
+            { type: expectedType.type, env },
+            { type: defaultValueType, env }
+          )
+        ) {
+          throw this.formatErrorMessage(
+            defaultValueExpr.token,
+            `Default value type mismatch:
+Expected type: ${typeToString(expectedType.type)}
+Given type: ${typeToString(defaultValueType)}`
+          );
+        }
+        elementType = expectedType.type;
+      } else {
+        elementType = defaultValueType;
+      }
+    }
+
+    if (!elementType) {
       throw this.formatErrorMessage(
-        rhsExpr.token,
-        `(1) Expected type for tuple element, got ${exprToString(rhsExpr)}`
+        expr.token,
+        `Failed to infer the element type`
       );
     }
-    elementType = typeValue.value;
-    if (lhsExpr) {
-      lhsExpr.$ = {
+
+    if (labelExpr) {
+      labelExpr.$ = {
         env,
         type: elementType,
         isMutable: false,
@@ -613,46 +805,31 @@ ${typeToString(expectedType)}`
       };
     }
 
-    // Check if defaultValue matches the type
-    if (
-      defaultValue &&
-      !areTypesCompatible(
-        { type: elementType, env },
-        { type: defaultValue.type, env }
-      )
-    ) {
-      throw this.formatErrorMessage(
-        rhsExpr.token,
-        `Default value type mismatch:
-Expected type: ${typeToString(elementType)}
-Given type: ${typeToString(defaultValue.type)}`
-      );
-    }
-
-    if (lhsExpr) {
-      lhsExpr.$ = {
+    if (expr !== typeExpr) {
+      expr.$ = {
         env,
-        value: typeValue,
-        type: typeValue.type,
+        value: VUnit,
+        type: VUnit.type,
         isMutable: false,
         pathCollection: [],
       };
     }
-    expr.$ = {
-      env,
-      value: typeValue,
-      type: typeValue.type,
-      isMutable: false,
-      pathCollection: [],
-    };
+
     return {
       type: {
-        label,
+        label: label ?? `$element_${randomId()}`,
         type: elementType,
-        expr,
+        exprs: {
+          labelExpr,
+          typeExpr,
+          defaultValueExpr,
+          assignedValueExpr,
+        },
+        isCompileTimeOnly,
+        isImplicit,
         defaultValue,
+        assignedValue,
       },
-      value: typeValue,
       env,
     };
   }
@@ -661,7 +838,7 @@ Given type: ${typeToString(defaultValue.type)}`
    * Evaluate the element in tuple rvalue, such as
    * value:
    * 14  in (14, ...)
-   * (x: 16) in (x: 16)
+   * (x: 16) in (x: 16, ...)
    *
    */
   private evaluateTupleElementValue({
@@ -679,26 +856,18 @@ Given type: ${typeToString(defaultValue.type)}`
     value: Value | undefined;
     env: Environment;
   } {
-    let label: string | undefined = undefined;
     const expr_ = expr;
-    let lhsExpr: Expr | undefined = undefined;
-    let rhsExpr: Expr = expr;
+    const rhsExpr: Expr = expr;
     let elementType: Type | undefined = undefined;
 
     // Parse the lhs expr
     if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":", 2)) {
-      rhsExpr = expr_.args[1]!;
-      lhsExpr = expr_.args[0]!;
+      const lhsExpr = expr_.args[0]!;
 
-      if (!exprIsAtom(lhsExpr) && !this.isValidVariableName(lhsExpr)) {
-        throw this.formatErrorMessage(
-          lhsExpr.token,
-          `Expected identifier for tuple element label, got ${exprToString(
-            lhsExpr
-          )}`
-        );
-      }
-      label = lhsExpr.token.value;
+      throw this.formatErrorMessage(
+        lhsExpr.token,
+        `Labelled element is not allowed in tuple value.`
+      );
     }
 
     // Check expectedType
@@ -758,15 +927,6 @@ ${typeToString(expectedTupleType)}`
       );
     }
 
-    if (lhsExpr) {
-      lhsExpr.$ = {
-        env,
-        type: elementType,
-        value: value,
-        isMutable: evaluatedRhs.$?.isMutable ?? false,
-        pathCollection: [],
-      };
-    }
     expr.$ = {
       env,
       type: elementType,
@@ -776,9 +936,16 @@ ${typeToString(expectedTupleType)}`
     };
     return {
       type: {
-        label,
+        exprs: {
+          labelExpr: undefined,
+          typeExpr: undefined,
+          defaultValueExpr: undefined,
+          assignedValueExpr: expr,
+        },
+        isCompileTimeOnly: false,
+        isImplicit: false,
         type: elementType,
-        expr,
+        label: `$element_${randomId()}`,
       },
       value,
       env,
@@ -816,21 +983,6 @@ ${typeToString(expectedTupleType)}`
         context: { ...context },
       });
 
-      // Check if there is duplicate labels
-      if (type.label) {
-        const duplicateLabel = tupleElements.find(
-          (element) => element.label === type.label
-        );
-        if (duplicateLabel) {
-          throw this.formatErrorMessage(
-            exprIsFunctionCall(arg)
-              ? (arg.args[0]?.token ?? arg.token)
-              : arg.token,
-            `Duplicate label "${type.label}" in tuple`
-          );
-        }
-      }
-
       tupleElements.push(type);
       tupleValues.push(value);
       env = nextEnv;
@@ -866,15 +1018,10 @@ ${typeToString(expectedTupleType)}`
     env: Environment;
   } {
     const tupleElements: TupleElement[] = [];
-    const tupleValues: (Value | undefined)[] = [];
     for (let i = 0; i < args.length; i++) {
       const arg = args[i]!;
 
-      const {
-        type,
-        value,
-        env: nextEnv,
-      } = this.evaluateTupleElementType({
+      const { type, env: nextEnv } = this.evaluateTupleElementType({
         expr: arg,
         env,
         tupleElementIndex: i,
@@ -897,7 +1044,6 @@ ${typeToString(expectedTupleType)}`
       }
 
       tupleElements.push(type);
-      tupleValues.push(value);
       env = nextEnv;
     }
 
@@ -1013,40 +1159,6 @@ ${typeToString(expectedTupleType)}`
           const { expectedEnv, givenEnv } = this.synthesizeTypes(
             { type: expectedTypeVariantElements[j]!.type, env: expected.env },
             { type: givenTypeVariantElements[j]!.type, env: given.env }
-          );
-          expected.env = expectedEnv;
-          given.env = givenEnv;
-        }
-      }
-    } else if (
-      isModuleType(expected.type) &&
-      isModuleType(given.type) &&
-      (expected.type.typeId === given.type.typeId ||
-        (expected.type.functionValue &&
-          given.type.functionValue &&
-          expected.type.functionValue === given.type.functionValue))
-    ) {
-      for (const member of expected.type.members) {
-        const givenMember = given.type.members.find(
-          (m) => m.label === member.label
-        );
-        if (!givenMember) {
-          break;
-        }
-        const { expectedEnv, givenEnv } = this.synthesizeTypes(
-          { type: member.type, env: expected.env },
-          { type: givenMember.type, env: given.env }
-        );
-        expected.env = expectedEnv;
-        given.env = givenEnv;
-
-        if (
-          isTypeValue(member.requiredValue) &&
-          isTypeValue(givenMember.requiredValue)
-        ) {
-          const { expectedEnv, givenEnv } = this.synthesizeTypes(
-            { type: member.requiredValue.value, env: expected.env },
-            { type: givenMember.requiredValue.value, env: given.env }
           );
           expected.env = expectedEnv;
           given.env = givenEnv;
@@ -1346,20 +1458,6 @@ ${typeToString(expectedTupleType)}`
         isCompileTimeOnly,
       });
     }
-    // Handle module destructuring
-    else if (isModuleType(rhsType) && exprIsFunctionCall(lhs)) {
-      return this.handleMemberDestructuring({
-        lhsFunc: lhs.func,
-        lhsElements: lhs.args,
-        rhsElements: rhsType.members,
-        rhsValue: rhs.$?.value,
-        rhsType,
-        lhs,
-        env,
-        context: { ...context },
-        isCompileTimeOnly,
-      });
-    }
 
     throw this.formatErrorMessage(
       lhs.token,
@@ -1392,17 +1490,14 @@ ${typeToString(expectedTupleType)}`
     isCompileTimeOnly: boolean;
   }): Environment {
     const isStruct = isStructType(rhsType);
-    const isModule = isModuleType(rhsType);
     const lhsFuncName = lhsFunc.token.value;
 
     // ~~Verify the struct type name matches if specified~~
     // We force to use _ for destructuring
-    if ((isStruct || isModule) && lhsFuncName !== "_") {
+    if (isStruct && lhsFuncName !== "_") {
       throw this.formatErrorMessage(
         lhsFunc.token,
-        `Expected "_" for ${isStruct ? "struct" : ""}${
-          isModule ? "module" : ""
-        } destructuring, got "${lhsFuncName}"`
+        `Expected "_" for ${isStruct ? "struct " : ""}destructuring, got "${lhsFuncName}"`
       );
     }
 
@@ -1441,24 +1536,22 @@ ${typeToString(expectedTupleType)}`
         if (lhsElements.length === 1) {
           // We can destructure all elements
           for (let j = 0; j < rhsElements.length; j++) {
-            const member = rhsElements[j]!;
-            if (!member.label) {
+            const element = rhsElements[j]!;
+            if (!element.label) {
               continue;
             }
-            const memberValue =
+            const elementValue =
               isTupleValue(rhsValue) || isStructValue(rhsValue)
                 ? rhsValue.elements[j]
-                : isModuleValue(rhsValue)
-                  ? rhsValue.members[member.label!]
-                  : undefined;
+                : undefined;
 
             // Add to environment
             const { env: nextEnv } = addVariableToEnv({
               env,
               variable: {
-                name: member.label,
-                value: memberValue,
-                type: member.type,
+                name: element.label,
+                value: elementValue,
+                type: element.type,
                 token: lhsElement.token,
                 isMutable: false,
                 isCompileTimeOnly,
@@ -1489,7 +1582,7 @@ ${typeToString(expectedTupleType)}`
       }
 
       // Handle destructuring with implicit members
-      // This only works with the module destructuring
+      // This only works with the struct (module) destructuring
       // - ( _(?) )
       else if (
         exprIsFunctionCall(lhsElement) &&
@@ -1497,7 +1590,7 @@ ${typeToString(expectedTupleType)}`
         lhsElement.args.length === 1 &&
         exprIsAtomOf(lhsElement.args[0]!, BuiltinKeywords.implicit)
       ) {
-        if (!isModuleType(rhsType) || !isModuleValue(rhsValue)) {
+        if (!isStructType(rhsType) || !isStructValue(rhsValue)) {
           throw this.formatErrorMessage(
             lhsElement.token,
             `Expected module value for destructuring with implicit members, got ${typeToString(
@@ -1508,27 +1601,28 @@ ${typeToString(expectedTupleType)}`
 
         // We can destructure all elements
         for (let j = 0; j < rhsElements.length; j++) {
-          const member = rhsElements[j]!;
-          if (!member.label) {
+          const element = rhsElements[j]!;
+          if (!element.label) {
             continue;
           }
 
-          const memberType = rhsType.members.find(
-            (m) => m.label === member.label
+          const memberTypeIndex = rhsType.elements.findIndex(
+            (m) => m.label === element.label
           )!;
+          const memberType = rhsType.elements[memberTypeIndex]!;
           if (!memberType.isImplicit) {
             continue;
           }
 
-          const memberValue = rhsValue.members[member.label!];
+          const memberValue = rhsValue.elements[memberTypeIndex];
 
           // Add to environment
           const { env: nextEnv } = addVariableToEnv({
             env,
             variable: {
-              name: member.label,
+              name: element.label,
               value: memberValue,
-              type: member.type,
+              type: element.type,
               token: lhsElement.token,
               isMutable: false,
               isCompileTimeOnly,
@@ -1584,7 +1678,7 @@ ${typeToString(expectedTupleType)}`
           throw this.formatErrorMessage(
             lhsElement.token,
             `Label "${label}" not found in the ${
-              isModule ? "module" : isStruct ? "struct" : "tuple"
+              isStruct ? "struct" : "tuple"
             } being destructured`
           );
         }
@@ -1600,8 +1694,6 @@ ${typeToString(expectedTupleType)}`
           nestedValue = rhsValue.elements[elementIndex];
         } else if (isStructValue(rhsValue)) {
           nestedValue = rhsValue.elements[elementIndex];
-        } else if (isModuleValue(rhsValue)) {
-          nestedValue = rhsValue.members[label];
         }
         elementValue = nestedValue;
 
@@ -1678,19 +1770,17 @@ ${typeToString(expectedTupleType)}`
             );
           }
 
-          if (!isStructType(nestedRhsType) && !isModuleType(nestedRhsType)) {
+          if (!isStructType(nestedRhsType)) {
             throw this.formatErrorMessage(
               lhsElement.token,
-              `Expected struct/module for nested destructuring, got ${typeToString(
+              `Expected struct for nested destructuring, got ${typeToString(
                 nestedRhsType
               )}`
             );
           }
 
           // Recursively process nested destructuring
-          const nestedElements = isStructType(nestedRhsType)
-            ? nestedRhsType.elements
-            : nestedRhsType.members;
+          const nestedElements = nestedRhsType.elements;
           env = this.handleMemberDestructuring({
             lhsFunc: rightSide.func,
             lhsElements: rightSide.args,
@@ -1764,11 +1854,6 @@ ${typeToString(expectedTupleType)}`
           nestedValue = rhsValue.elements[elementIndex];
         } else if (isStructValue(rhsValue)) {
           nestedValue = rhsValue.elements[elementIndex];
-        } else if (isModuleValue(rhsValue)) {
-          throw this.formatErrorMessage(
-            lhsElement.token,
-            "Expected label for module destructuring"
-          );
         }
         elementValue = nestedValue;
 
@@ -1862,15 +1947,6 @@ ${typeToString(expectedTupleType)}`
 
       // Handle positional destructuring
       else if (exprIsAtom(lhsElement) && this.isValidVariableName(lhsElement)) {
-        if (isModuleType(rhsType)) {
-          throw this.formatErrorMessage(
-            lhsElement.token,
-            `Expected label for module destructuring.
-Please consider to write it as:
-(${lhs.token.value} : ${lhs.token.value})`
-          );
-        }
-
         destructuredRhsElementSet.add(rhsElement);
 
         if (isTupleValue(rhsValue)) {
@@ -1888,11 +1964,7 @@ Please consider to write it as:
         throw this.formatErrorMessage(
           lhsElement.token,
           `Unsupported destructuring pattern for ${
-            isStruct
-              ? BuiltinKeywords.struct
-              : isModule
-                ? BuiltinKeywords.module
-                : "tuple"
+            isStruct ? BuiltinKeywords.struct : "tuple"
           }: ${exprToString(lhsElement)}`
         );
       }
@@ -2191,14 +2263,6 @@ ${exprToString(rhs)}`
 ${exprToString(expr)}`
         );
       }
-      // If rhs is module value, then it must be compile-time only
-      else if (isModuleValue(rhs.$?.value)) {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Expected "::" instead of ":=" for module value assignment:
-${exprToString(expr)}`
-        );
-      }
       // If rhs is compt_string value, then it must be compile-time only
       else if (isComptStringValue(rhs.$?.value)) {
         throw this.formatErrorMessage(
@@ -2301,9 +2365,7 @@ ${exprToString(expr)}`
       const rhsValue = rhs.$?.value;
       if (
         isTypeValue(rhsValue) &&
-        (isStructType(rhsValue.value) ||
-          isEnumType(rhsValue.value) ||
-          isModuleType(rhsValue.value)) &&
+        (isStructType(rhsValue.value) || isEnumType(rhsValue.value)) &&
         !rhsValue.value.typeName
       ) {
         rhsValue.value.typeName = lhs.token.value;
@@ -3450,6 +3512,24 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         isEnumType(context.SelfType) ||
         isUnionType(context.SelfType))
     ) {
+      // Check if there is an element named "Self"
+      if (isStructType(context.SelfType)) {
+        const existingSelfElement = context.SelfType.elements.find(
+          (e) => e.label === "Self" && isTypeValue(e.assignedValue)
+        );
+        if (existingSelfElement) {
+          const typeValue = existingSelfElement.assignedValue as TypeValue;
+          expr.$ = {
+            env,
+            type: typeValue.type,
+            value: typeValue,
+            isMutable: false,
+            pathCollection: [],
+          };
+          return expr;
+        }
+      }
+
       const value = createTypeValue(context.SelfType);
       expr.$ = {
         env,
@@ -3893,7 +3973,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       };
     }
 
-    if (lhsExpr !== expr) {
+    if (lhsExpr !== expr && typeExpr !== expr) {
       expr.$ = {
         env,
         type: VUnit.type,
@@ -4337,16 +4417,31 @@ compt(${exprToString(returnTypeExpr)})`
       const arg = args[i]!;
 
       // type method
-      if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "::", 2)) {
-        const lhsExpr = arg.args[0]!;
+      // eg:
+      //   Self.new = (((lhs: Self, rhs: i32) -> i32) {})
+      if (
+        exprIsFunctionCall(arg) &&
+        exprIsFunctionCallOf(arg, "=", 2) &&
+        exprIsFunctionCall(arg.args[0]) &&
+        exprIsFunctionCallOf(arg.args[0], ".", 2)
+      ) {
+        // NOTE: We currently only support the use of "Self"
+        if (!exprIsAtomOf(arg.args[0].args[0]!, "Self")) {
+          throw this.formatErrorMessage(
+            arg.args[0].args[0]!.token,
+            `Expected "Self" for type method, got ${exprToString(arg.args[0].args[0]!)}`
+          );
+        }
+
+        const methodNameExpr = arg.args[0].args[1]!;
         const rhsExpr = arg.args[1]!;
 
         // Expect lhsExpr to be an identifier or operator
-        if (!this.isValidVariableName(lhsExpr)) {
+        if (!this.isValidVariableName(methodNameExpr)) {
           throw this.formatErrorMessage(
-            lhsExpr.token,
+            methodNameExpr.token,
             `Expected identifier or operator for type method, got ${exprToString(
-              lhsExpr
+              methodNameExpr
             )}`
           );
         }
@@ -4387,16 +4482,16 @@ compt(${exprToString(returnTypeExpr)})`
         }
 
         // Check label doesn't exist in typeMethods and struct elements
-        const label = lhsExpr.token.value;
+        const label = methodNameExpr.token.value;
         if (typeMethods.some((method) => method.label === label)) {
           throw this.formatErrorMessage(
-            lhsExpr.token,
+            methodNameExpr.token,
             `Duplicate type method label "${label}" in struct.`
           );
         }
         if (elements.some((element) => element.label === label)) {
           throw this.formatErrorMessage(
-            lhsExpr.token,
+            methodNameExpr.token,
             `Member label "${label}" already exists.`
           );
         }
@@ -5051,7 +5146,7 @@ compt(${exprToString(returnTypeExpr)})`
           // TODO: Support comptime value
           // expr.value = ...
           if (objectExprValue) {
-            let values: Value[] | undefined = [];
+            let values: (Value | undefined)[] = [];
             if (isTupleValue(objectExprValue)) {
               values = objectExprValue.elements;
             } else if (isStructValue(objectExprValue)) {
@@ -5102,7 +5197,7 @@ compt(${exprToString(returnTypeExpr)})`
             // TODO: Support comptime value
             // expr.value = ...
             if (objectExprValue) {
-              let values: Value[] | undefined = [];
+              let values: (Value | undefined)[] = [];
               if (isTupleValue(objectExprValue)) {
                 values = objectExprValue.elements;
               } else if (isStructValue(objectExprValue)) {
@@ -5114,46 +5209,7 @@ compt(${exprToString(returnTypeExpr)})`
           }
         }
       }
-    } else if (isModuleType(objectExpr.$?.type)) {
-      // Check if it's accessing the module member by
-      // - label name:   my_module.add
-      if (exprIsAtom(propertyExpr)) {
-        const label = propertyExpr.token.value;
-        // Check if the type method exists
-        const moduleValue = objectExpr.$?.value;
-        const moduleType = objectExpr.$?.type;
-        const moduleMember = (moduleType.members ?? []).find(
-          (member) => member.label === label
-        );
-        if (moduleMember) {
-          expr.$ = {
-            env,
-            type: moduleMember.type,
-            value: isModuleValue(moduleValue)
-              ? moduleValue.members[label]
-              : createUnknownValue(moduleMember.type, moduleMember.label),
-            isMutable: objectExpr.$.isMutable,
-            isAccessingProperty: true,
-            pathCollection: [],
-          };
-          propertyExpr.$ = expr.$;
-          return expr;
-        } else {
-          throw this.formatErrorMessage(
-            propertyExpr.token,
-            `Module member "${label}" not found in module`
-          );
-        }
-      } else {
-        throw this.formatErrorMessage(
-          propertyExpr.token,
-          `Expected identifier for module member, got:\n${exprToString(
-            propertyExpr
-          )}`
-        );
-      }
     }
-
     // TODO: Evaluate the interface method call
     // Since we fail to evaluate the property access
     // it could be an ~~uniform function call~~ interface method call.
@@ -5256,51 +5312,10 @@ compt(${exprToString(returnTypeExpr)})`
               }
             }
           }
-        } else if (isModuleType(extendedDataType)) {
-          const extendedModuleType = extendedDataType;
-          const extendedModuleValue = evaluatedExtendedStruct.$.value as
-            | ModuleValue
-            | undefined;
-
-          // Iterate over the members of the extended module
-          for (let i = 0; i < extendedModuleType.members.length; i++) {
-            const extendedModuleMember = extendedModuleType.members[i]!;
-            // Check if there is duplicate labels
-            // If yes, then override the element
-            const duplicateLabelIndex = elements.findIndex(
-              (e) => e.label === extendedModuleMember.label
-            );
-            if (duplicateLabelIndex >= 0) {
-              // Override the existing one.
-              elements[duplicateLabelIndex] = {
-                expr: extendedModuleMember.expr,
-                type: extendedModuleMember.type,
-                label: extendedModuleMember.label,
-              };
-              if (extendedModuleValue) {
-                // Override the existing value
-                values[duplicateLabelIndex] =
-                  extendedModuleValue.members[extendedModuleMember.label];
-              }
-            } else {
-              // Add the element to the struct
-              elements.push({
-                expr: extendedModuleMember.expr,
-                type: extendedModuleMember.type,
-                label: extendedModuleMember.label,
-              });
-              if (extendedModuleValue) {
-                // Add the value to the struct
-                values.push(
-                  extendedModuleValue.members[extendedModuleMember.label]
-                );
-              }
-            }
-          }
         } else {
           throw this.formatErrorMessage(
             extendedStructExpr.token,
-            `Expected a struct or module value for extending, got ${exprToString(
+            `Expected a struct value for extending, got ${exprToString(
               extendedStructExpr
             )}`
           );
@@ -5329,9 +5344,16 @@ compt(${exprToString(returnTypeExpr)})`
         }
 
         const element: TupleElement = {
-          expr: arg,
+          exprs: {
+            labelExpr: undefined,
+            typeExpr: undefined,
+            defaultValueExpr: undefined,
+            assignedValueExpr: expr,
+          },
           type,
-          label,
+          label: label ?? `$element_${randomId()}`,
+          isCompileTimeOnly: false, // TODO: Fix this
+          isImplicit: false,
         };
         elements.push(element);
 
@@ -5346,9 +5368,7 @@ compt(${exprToString(returnTypeExpr)})`
 
     // Check if it's comptime value
     let structValue: StructValue | undefined = undefined;
-    if (values.every((value) => !!value)) {
-      structValue = createStructValue(structType, values);
-    }
+    structValue = createStructValue(structType, values);
 
     expr.$ = {
       env,
@@ -5669,21 +5689,6 @@ compt(${exprToString(returnTypeExpr)})`
             functionToCall.error = error;
           }
         }
-        // module
-        else if (isTypeValue(value) && isModuleType(value.value)) {
-          const moduleType = value.value;
-          try {
-            this.tryToImplementModuleWithArguments({
-              moduleExpr: func,
-              moduleType: moduleType,
-              argExprs: args,
-              callerEnv: env,
-              context: { ...context },
-            });
-          } catch (error) {
-            functionToCall.error = error;
-          }
-        }
         // array
         else if (isArrayType(functionToCall.type)) {
           try {
@@ -5881,13 +5886,11 @@ ${functionsWithMatchingTypes
             `Error evaluating struct call.`
           );
         }
-        if (memberValues.every((v) => !!v)) {
-          const structValue = createStructValue(
-            structType,
-            memberValues as Value[]
-          );
-          expr.$.value = structValue;
-        }
+        const structValue = createStructValue(
+          structType,
+          memberValues as Value[]
+        );
+        expr.$.value = structValue;
         expr.$.pathCollection = pathCollection;
 
         // Attach necessary info to the func
@@ -5964,36 +5967,6 @@ ${functionsWithMatchingTypes
             )}`
           );
         }
-        return expr;
-      }
-      // module
-      else if (isTypeValue(value) && isModuleType(value.value)) {
-        const moduleValue = this.tryToImplementModuleWithArguments({
-          moduleExpr: func,
-          moduleType: value.value,
-          argExprs: args,
-          callerEnv: env,
-          context: {
-            ...context,
-          },
-        });
-
-        expr.$ = {
-          env,
-          type: moduleValue.type,
-          value: moduleValue,
-          isMutable: false,
-          pathCollection: [],
-        };
-
-        // Attach necessary info to the func
-        func.$ = {
-          env,
-          type: value.type,
-          value: value,
-          isMutable: false,
-          pathCollection: [],
-        };
         return expr;
       }
       // array
@@ -7011,6 +6984,12 @@ ${implicitVariables
             argExpr.token,
             `Failed to find "${label}" in the type.`
           );
+        } else if (paramElement_.assignedValue) {
+          throw this.formatErrorMessage(
+            argExpr.token,
+            `Cannot use label "${label}" for already assigned value:
+${tupleElementToString(paramElement_)}`
+          );
         } else {
           memberElement = paramElement_;
         }
@@ -7083,10 +7062,10 @@ Got:   ${typeToString(argType)}`
     for (let i = 0; i < memberElements.length; i++) {
       const memberElement = memberElements[i]!;
       if (!checkedMemberElements.has(memberElement)) {
-        if (!memberElement.defaultValue) {
+        if (!memberElement.defaultValue && !memberElement.assignedValue) {
           throw this.formatErrorMessage(
             functionCallExpr.token,
-            `Type member "${memberElement.label}" is not provided and has no default value.`
+            `Type member "${memberElement.label}" is not provided and has no default value or assigned value.`
           );
         } else {
           // Set the default value to values
@@ -7287,215 +7266,6 @@ Got:   ${typeToString(argType)}`
     return expr;
   }
 
-  private tryToImplementModuleWithArguments({
-    moduleExpr,
-    moduleType,
-    argExprs,
-    callerEnv,
-    context,
-  }: {
-    moduleExpr: Expr;
-    moduleType: ModuleType;
-    argExprs: Expr[];
-    callerEnv: Environment;
-    context: EvaluatorContext;
-  }): ModuleValue {
-    if (argExprs.length > moduleType.members.length) {
-      throw this.formatErrorMessage(
-        moduleExpr.token,
-        `Failed to implement the module. Too many members provided.`
-      );
-    }
-
-    const members: Record<string, Value> = {};
-    callerEnv = pushEnvFrame(callerEnv);
-    for (let i = 0; i < moduleType.members.length; i++) {
-      const moduleMember = moduleType.members[i]!;
-      let foundArgExpr = false;
-      let label: string | undefined = undefined;
-      // Traverse over argExprs to see if there is label for the member
-      for (let j = 0; j < argExprs.length; j++) {
-        let argExpr = argExprs[j]!;
-
-        // Check if it's a label
-        let labelExpr: Expr | undefined;
-        if (
-          exprIsFunctionCall(argExpr) &&
-          exprIsFunctionCallOf(argExpr, ":", 2)
-        ) {
-          labelExpr = argExpr.args[0]!;
-          argExpr = argExpr.args[1]!;
-
-          if (!exprIsAtom(labelExpr)) {
-            throw this.formatErrorMessage(
-              labelExpr.token,
-              `Expected identifier for label, got:\n${exprToString(labelExpr)}`
-            );
-          }
-          label = labelExpr.token.value;
-        } else {
-          throw this.formatErrorMessage(
-            argExpr.token,
-            `Expected member label, but got:\n${exprToString(argExpr)}`
-          );
-        }
-
-        if (moduleMember.label === label) {
-          foundArgExpr = true;
-
-          if (moduleMember.requiredValue) {
-            throw this.formatErrorMessage(
-              argExpr.token,
-              `Module member "${
-                moduleMember.label
-              }" already has a required value:
-${valueToString(moduleMember.requiredValue)}`
-            );
-          }
-
-          // evaluate the module member type again.
-          /*
-          const evaluatedModuleMember = this.evaluateExpression({
-            expr: moduleMember.typeExpr,
-            env: pushEnvFrame(
-              moduleType.env,
-              env.frames[env.frames.length - 1]
-            ),
-            context: {
-              ...context,
-              isEvaluatingExprAsType: true,
-              expectedType: undefined,
-              SelfType: moduleType,
-            },
-          });
-          const evaluatedModuleMemberTypeValue = evaluatedModuleMember.value;
-          if (!isTypeValue(evaluatedModuleMemberTypeValue)) {
-            throw this.formatErrorMessage(
-              argExpr.token,
-              `Failed to evaluate the module member "${label}"`
-            );
-          }
-          */
-          const moduleMemberType = moduleMember.type;
-
-          // evaluate the argExpr
-          const evaluatedArgExpr = this.evaluateExpression({
-            expr: argExpr,
-            env: callerEnv,
-            context: {
-              ...context,
-              expectedType: { type: moduleMemberType, env: callerEnv },
-              SelfType: moduleType,
-            },
-          });
-          const argType = evaluatedArgExpr.$?.type;
-          if (!argType) {
-            throw this.formatErrorMessage(
-              argExpr.token,
-              `Failed to evaluate the module member "${label}"`
-            );
-          }
-          if (evaluatedArgExpr.$?.env) {
-            callerEnv = evaluatedArgExpr.$.env;
-          }
-
-          // Compare the types
-          if (
-            !areTypesCompatible(
-              { type: moduleMemberType, env: callerEnv },
-              { type: argType, env: callerEnv }
-            )
-          ) {
-            throw this.formatErrorMessage(
-              argExpr.token,
-              `Type mismatch for the module member "${label}":
-Expected: ${typeToString(moduleMemberType)}
-Got:   ${typeToString(argType)}`
-            );
-          }
-          const argValue = evaluatedArgExpr.$?.value;
-          if (!argValue) {
-            throw this.formatErrorMessage(
-              argExpr.token,
-              `Failed to evaluate the module member "${label}"`
-            );
-          }
-
-          // Save the value to the members
-          members[label] = argValue;
-          // Add to the env
-          const { env: nextEnv } = addVariableToEnv({
-            env: callerEnv,
-            variable: {
-              name: label,
-              type: argType,
-              isMutable: false,
-              isCompileTimeOnly: true,
-              token: argExpr.token,
-              isUndefined: false,
-              isImplicit: false,
-              value: argValue,
-            },
-            skipCheckingFunctionOverloading: true,
-          });
-          callerEnv = nextEnv;
-
-          // Add the type information to argExpr
-          argExpr.$ = {
-            env: callerEnv,
-            type: argType,
-            value: argValue,
-            isMutable: false,
-            pathCollection: [],
-          };
-          if (labelExpr) {
-            labelExpr.$ = argExpr.$;
-          }
-          break;
-        }
-      }
-
-      if (!foundArgExpr) {
-        const defaultValue = moduleMember.defaultValue;
-        const requiredValue = moduleMember.requiredValue;
-        // Check if moduleMember has default or required value
-        if (!defaultValue && !requiredValue) {
-          throw this.formatErrorMessage(
-            moduleExpr.token,
-            `Module member "${moduleMember.label}" is not provided and has no required/default value.`
-          );
-        }
-
-        if (defaultValue) {
-          members[moduleMember.label] = defaultValue;
-        }
-        if (requiredValue) {
-          members[moduleMember.label] = requiredValue;
-        }
-
-        // Add to the env
-        const { env: nextEnv } = addVariableToEnv({
-          env: callerEnv,
-          variable: {
-            name: moduleMember.label,
-            type: moduleMember.type,
-            isMutable: false,
-            isCompileTimeOnly: true,
-            token: moduleExpr.token,
-            isUndefined: false,
-            isImplicit: false,
-            value: moduleMember.defaultValue,
-          },
-        });
-        callerEnv = nextEnv;
-      }
-    }
-
-    // Create the module value
-    const moduleValue = createModuleValue(moduleType, members);
-    return moduleValue;
-  }
-
   private evaluateTypeFunctionCall({
     functionCallExpr,
     functionType,
@@ -7586,7 +7356,7 @@ Got:   ${typeToString(argType)}`
     const functionBodyExpr = functionValue.body;
     // NOTE: We should use the env from the function, not the current env.
     const evaluatedFunctionBody = this.evaluateBeginExpression({
-      expr: functionBodyExpr,
+      expr: cloneExpr(functionBodyExpr), // NOTE: Clone here is necessary
       env: calleeEnv,
       context: { ...context },
     });
@@ -7606,11 +7376,7 @@ Got:   ${typeToString(argType)}`
       );
     }
     const returnType = returnValue.value;
-    if (
-      isStructType(returnType) ||
-      isEnumType(returnType) ||
-      isModuleType(returnType)
-    ) {
+    if (isStructType(returnType) || isEnumType(returnType)) {
       if (!returnType.typeName && functionValue.funcName) {
         returnType.typeName =
           functionValue.funcName +
@@ -7760,15 +7526,13 @@ Got:   ${typeToString(argType)}`
     beginExprs: Expr[];
     env: Environment;
     context: EvaluatorContext;
-  }): { moduleValue: ModuleValue; moduleType: ModuleType; env: Environment } {
+  }): { moduleValue: StructValue; moduleType: StructType; env: Environment } {
     // Create module type
-    const moduleType = createModuleType([], env);
+    const moduleType = createStructType([]);
+    const moduleElementValues: (Value | undefined)[] = [];
 
     // Push new frame to the env
     env = pushEnvFrame(env);
-
-    const moduleMembers: ModuleMember[] = [];
-    const memberValues: Record<string, Value> = {};
 
     // Evaluate each expression in the begin
     for (let i = 0; i < beginExprs.length; i++) {
@@ -7796,52 +7560,24 @@ Got:   ${typeToString(argType)}`
         }
         const structType = structValue.type;
 
-        // Traverse the struct elements to set to module
+        // Add the elements of structType to the moduleType
         for (let i = 0; i < structType.elements.length; i++) {
           const element = structType.elements[i]!;
-
-          // Check if the element has a label
-          const label = element.label;
-          if (!label) {
-            throw this.formatErrorMessage(
-              expr.token,
-              `Expected label for struct element at position ${i}, got:\n${exprToString(expr)}`
-            );
-          }
-
-          // Get the variable of label from the env
-          const variables = getVariablesFromEnv(env, label);
-          if (variables.length === 0) {
-            throw this.formatErrorMessage(
-              expr.token,
-              `Failed to find variable "${label}" in the environment.`
-            );
-          }
-          const variable = variables[variables.length - 1]!;
-
-          const moduleMember: ModuleMember = {
-            label,
-            type: element.type,
-            isImplicit: variable.isImplicit,
-            // NOTE: Needs to set the value as requiredValue
-            // It is necessary to make it work with `This` the receiver type.
-            requiredValue: structValue.elements[i],
-            defaultValue: undefined,
-            expr: element.expr,
-          };
-          // Check if the module member already exists
-          // If so, override it
-          const existingModuleMemberIndex = moduleMembers.findIndex(
-            (member) => member.label === label
-          );
-          if (existingModuleMemberIndex >= 0) {
-            moduleMembers[existingModuleMemberIndex] = moduleMember;
-          } else {
-            moduleMembers.push(moduleMember);
-          }
-
           const value = structValue.elements[i]!;
-          memberValues[label] = value;
+
+          // Check if the same label is already used
+          // If yes, then override it
+          const existingElementIndex = moduleType.elements.findIndex(
+            (e) => e.label === element.label
+          );
+          if (existingElementIndex >= 0) {
+            moduleType.elements[existingElementIndex] = element;
+            moduleElementValues[existingElementIndex] = value;
+          } else {
+            // Add the element to the module type
+            moduleType.elements.push(element);
+            moduleElementValues.push(value);
+          }
         }
       } else {
         const evaluatedExpr = this.evaluateExpression({
@@ -7862,11 +7598,8 @@ Got:   ${typeToString(argType)}`
     // Pop the env frame
     env = popEnvFrame(env);
 
-    // Update the moduleType
-    moduleType.members = moduleMembers;
-
     // Create the module value
-    const moduleValue = createModuleValue(moduleType, memberValues);
+    const moduleValue = createStructValue(moduleType, moduleElementValues);
 
     return {
       moduleValue,
@@ -7958,236 +7691,12 @@ Got:   ${typeToString(argType)}`
       exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.begin)
     ) {
       return this.evaluateAnonymousModule({ expr, env, context });
+    } else {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "module" with "begin" expression, got:\n${exprToString(expr)}`
+      );
     }
-
-    const moduleMemberExprs = expr.args;
-    // Evaluate the module members
-    const moduleType = createModuleType([], env);
-
-    // Increase the env frame
-    env = pushEnvFrame(env);
-
-    // Evaluate each module member
-    for (let i = 0; i < moduleMemberExprs.length; i++) {
-      let memberExpr = moduleMemberExprs[i]!;
-      let valueExpr: Expr | undefined = undefined;
-      let valueKind: "required" | "default" | undefined = undefined;
-      let isImplicit = false;
-      if (
-        exprIsFunctionCall(memberExpr) &&
-        (exprIsFunctionCallOf(memberExpr, "?=", 2) ||
-          exprIsFunctionCallOf(memberExpr, "=", 2))
-      ) {
-        valueExpr = memberExpr.args[1]!;
-        memberExpr = memberExpr.args[0]!;
-        valueKind = exprIsFunctionCallOf(memberExpr, "?=", 2)
-          ? "default"
-          : "required";
-      }
-
-      if (
-        !exprIsFunctionCall(memberExpr) ||
-        !exprIsFunctionCallOf(memberExpr, ":", 2)
-      ) {
-        throw this.formatErrorMessage(
-          memberExpr.token,
-          `Expected ":", got:\n${exprToString(memberExpr)}`
-        );
-      }
-      let labelExpr = memberExpr.args[0]!;
-      const typeExpr = memberExpr.args[1]!;
-
-      if (
-        exprIsFunctionCall(labelExpr) &&
-        exprIsFunctionCallOf(labelExpr, BuiltinKeywords.implicit, 1)
-      ) {
-        isImplicit = true;
-        labelExpr = labelExpr.args[0]!;
-      }
-
-      // Get the label of member
-      if (
-        !exprIsAtom(labelExpr) ||
-        !(
-          (
-            labelExpr.token.type === TokenType.Identifier ||
-            labelExpr.token.type === TokenType.Operator
-          ) // We allow to define operator as module member
-        )
-      ) {
-        throw this.formatErrorMessage(
-          labelExpr.token,
-          `Expected identifier for module member name, got:\n${exprToString(
-            labelExpr
-          )}`
-        );
-      }
-      const label = labelExpr.token.value;
-
-      // Evaluate the member type
-      const evaluatedMemberTypeExpr = this.evaluateExpression({
-        expr: typeExpr,
-        env,
-        context: {
-          ...context,
-          SelfType: undefined, // NOTE: Set it as undefined here.
-          // `Self` in a module is used as the received type.
-        },
-      });
-      if (evaluatedMemberTypeExpr.$?.env) {
-        env = evaluatedMemberTypeExpr.$.env;
-      }
-
-      // Expect the member type to be a type
-      const typeValue = evaluatedMemberTypeExpr.$?.value;
-      if (!isTypeValue(typeValue)) {
-        throw this.formatErrorMessage(
-          typeExpr.token,
-          `Expected type for module member, got:\n${exprToString(typeExpr)}`
-        );
-      }
-
-      const memberType = typeValue.value;
-      /*
-      NOTE: This is no longer true.
-      // We only accept hierarchy type or function type.
-      if (!isTypeHierarchyType(memberType) && !isFunctionType(memberType)) {
-        throw this.formatErrorMessage(
-          typeExpr.token,
-          `Expected either Type (Free, Linear) or FunctionType for module member, got:\n${exprToString(
-            typeExpr
-          )}`
-        );
-      }
-      */
-
-      // Check if the label already exists
-      const members = moduleType.members;
-      if (members.find((m) => m.label === label)) {
-        throw this.formatErrorMessage(
-          labelExpr.token,
-          `Duplicate label "${label}" in module member`
-        );
-      }
-
-      if (isTypeHierarchyType(memberType) && valueKind !== "required") {
-        throw this.formatErrorMessage(
-          typeExpr.token,
-          `Module member "${label}" is missing required type value.`
-        );
-      }
-
-      // Evaluate the default value expr if it exists
-      if (valueExpr) {
-        const evaluatedValueExpr = this.evaluateExpression({
-          expr: valueExpr,
-          env,
-          context: {
-            ...context,
-            expectedType: { type: memberType, env },
-            SelfType: undefined,
-          },
-        });
-        if (evaluatedValueExpr.$?.env) {
-          env = evaluatedValueExpr.$.env;
-        }
-        const value = evaluatedValueExpr.$?.value;
-        if (!value) {
-          throw this.formatErrorMessage(
-            valueExpr.token,
-            `Expected value for module member, got:\n${exprToString(valueExpr)}`
-          );
-        }
-
-        // Set the default value
-        moduleType.members.push({
-          label,
-          type: memberType,
-          isImplicit,
-          defaultValue: valueKind === "default" ? value : undefined,
-          requiredValue: valueKind === "required" ? value : undefined,
-          // typeExpr: evaluatedMemberTypeExpr,
-          expr: memberExpr,
-        });
-
-        // Add the label to the env
-        const { env: nextEnv } = addVariableToEnv({
-          env,
-          variable: {
-            name: label,
-            token: labelExpr.token,
-            type: memberType,
-            isMutable: false,
-            isUndefined: false,
-            isCompileTimeOnly: true,
-            isImplicit: false,
-            value:
-              valueKind === "required"
-                ? value
-                : createUnknownValue(memberType, label),
-          },
-          skipCheckingFunctionOverloading: true,
-        });
-        env = nextEnv;
-
-        // Add type info the labelExpr;
-        labelExpr.$ = {
-          env,
-          type: memberType,
-          isMutable: false,
-          pathCollection: [],
-        };
-      } else {
-        // Add the member to the moduleType
-        moduleType.members.push({
-          label,
-          type: memberType,
-          isImplicit,
-          defaultValue: undefined,
-          requiredValue: undefined,
-          // typeExpr: evaluatedMemberTypeExpr,
-          expr: memberExpr,
-        });
-
-        // Add the label to the env
-        const { env: nextEnv } = addVariableToEnv({
-          env,
-          variable: {
-            name: label,
-            token: labelExpr.token,
-            type: memberType,
-            isMutable: false,
-            isUndefined: false,
-            isCompileTimeOnly: true,
-            isImplicit: false,
-            value: createUnknownValue(memberType, label),
-          },
-        });
-        env = nextEnv;
-
-        // Add type info the labelExpr;
-        labelExpr.$ = {
-          env,
-          type: memberType,
-          isMutable: false,
-          pathCollection: [],
-        };
-      }
-    }
-
-    // Pop the env frame
-    env = popEnvFrame(env);
-
-    // Set the module type and value
-    expr.$ = {
-      env,
-      type: typeOfType(moduleType),
-      value: createTypeValue(moduleType),
-      isMutable: false,
-      pathCollection: [],
-    };
-    expr.func.$ = expr.$;
-    return expr;
   }
 
   private evaluateTypeOf({
@@ -8900,9 +8409,9 @@ Got:   ${typeToString(argType)}`
 
     // We disallow the tuple elements to have defaultValue for the tuple type
     tupleType.elements.forEach((tupleElement) => {
-      if (tupleElement.defaultValue) {
+      if (tupleElement.exprs.defaultValueExpr) {
         throw this.formatErrorMessage(
-          tupleElement.expr.token,
+          tupleElement.exprs.defaultValueExpr!.token,
           `Tuple elements cannot have default value.`
         );
       }
@@ -9408,7 +8917,7 @@ ${exprToString(expr)}`
     this.moduleValue = moduleValue;
   }
 
-  public getModuleValue(): ModuleValue {
+  public getModuleValue(): StructValue {
     if (!this.moduleValue) {
       throw new Error("Module value is not set");
     }
