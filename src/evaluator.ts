@@ -8273,7 +8273,7 @@ Got:   ${typeToString(argType)}`
   /**
    * Expect having compile error
    */
-  private evaluateExpectCompileError({
+  private evaluateComptExpectError({
     expr,
     env,
     context,
@@ -8969,10 +8969,10 @@ ${exprToString(expr)}`
           context: { ...context },
         });
       } else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.expect_compile_error)
+        exprIsFunctionCallOf(expr, BuiltinFunctions.compt_expect_error)
       ) {
-        // expect_compile_error
-        return this.evaluateExpectCompileError({
+        // compt_expect_error
+        return this.evaluateComptExpectError({
           expr,
           env,
           context: { ...context },

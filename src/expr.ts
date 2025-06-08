@@ -246,7 +246,7 @@ export const BuiltinKeywords = {
 
 export const BuiltinFunctions = {
   are_types_compatible: ["are_types_compatible"],
-  expect_compile_error: ["expect_compile_error"],
+  compt_expect_error: ["compt_expect_error"],
   typeof: ["typeof"],
   consume: ["consume"],
   compt_assert: ["compt_assert"],

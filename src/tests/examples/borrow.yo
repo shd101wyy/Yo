@@ -7,7 +7,7 @@ extern
 main :: (()-> unit) {
   (mut(x) : i32) = 12;
 
-  expect_compile_error(
+  compt_expect_error(
     // "Cannot borrow `x` as mutable and immutable at the same time.",
     borrow (&(x), &!(x)), (x_ref, x_mut_ref)-> {
       // ^ Error. Cannot borrow `x` as mutable and immutable at the same time.
@@ -18,10 +18,10 @@ main :: (()-> unit) {
 
   borrow (&(x)), (x_ref)-> {
     y := x_ref.*;
-    expect_compile_error(
+    compt_expect_error(
       z := x // error, because `x` is borrowed.
     );
-    expect_compile_error(
+    compt_expect_error(
       x = 13 // error, because `x` is borrowed.
           // assignment here is like using the mutable reference of `x`
     );
@@ -36,14 +36,14 @@ main :: (()-> unit) {
   borrow (&(p.x)), (p_x_ref) -> {
     x := p_x_ref.*;
     
-    expect_compile_error(
+    compt_expect_error(
       p.x = 13 // Not allowed. Because `p.x` is borrowed.
     );
 
     p.y = 3; // Allowed, because only `p.x` is borrowed.
              // There is no path overlap with `p.y`.
 
-    expect_compile_error(
+    compt_expect_error(
       p = Point(4, 5) // Error, because `p.x` is borrowed.
                      // Path `p.x` contains the path `p`.
                      // So path `p.x` conflicts with the path`p`.
@@ -57,13 +57,13 @@ main :: (()-> unit) {
       y.* = temp;
   };
   
-  expect_compile_error(
+  compt_expect_error(
     swap(&!(x), &!(x)) // error, because `x` is borrowed multiple times.
   );
   
   swap(&!(p.x), &!(p.y)); // Allowed, because `p.x` and `p.y` are different paths.
   
-  expect_compile_error(
+  compt_expect_error(
     swap(&!(p.x), &!(p.x)) // Error, because `p.x` is borrowed multiple times.
   );
   
@@ -71,14 +71,14 @@ main :: (()-> unit) {
 
 
   // fn returns local reference
-  expect_compile_error(
+  compt_expect_error(
     return_local_ref :: (()-> &(i32)) {
       x := 12;
       &(x)
     }
   );
 
-  expect_compile_error(
+  compt_expect_error(
     return_local_ref :: ((x: i32)-> &(i32)) {
       a := 12;
       &(x) // Error: Cannot return a reference to a parameter.
@@ -93,7 +93,7 @@ main :: (()-> unit) {
 
   borrow return_param(&(x)), (x_ref)-> {
     a := x_ref.*;
-    expect_compile_error(
+    compt_expect_error(
       x = 12 // Not allowed, because `x` is borrowed.
     );
   };
@@ -102,10 +102,10 @@ main :: (()-> unit) {
     a := p_x_ref.*;
     p.y = 12; // Allowed.
 
-    expect_compile_error(
+    compt_expect_error(
       p.x = 13 // Not allowed. Because `p.x` is borrowed.
     );
-    expect_compile_error(
+    compt_expect_error(
       p = Point(4, 5) // Not allowed, because p.x is borrowed.
     );
   };
@@ -116,13 +116,13 @@ main :: (()-> unit) {
   );
 
   // fn returns struct containing reference
-  expect_compile_error(
+  compt_expect_error(
     return_ref_struct_1 :: ((x: &(i32))-> RefStruct) {
       a := x.*;
       RefStruct(&(a)) // Error: Cannot return a struct containing reference to a local variable.
     }
   );
-  expect_compile_error(
+  compt_expect_error(
     return_ref_struct_2 :: ((x: i32)-> RefStruct) {
       a := 12;
       RefStruct(&(x)) // Allowed, because `x` is a parameter and not a local variable.
@@ -144,8 +144,8 @@ main :: (()-> unit) {
     ;
     borrow largest(&(x), &(y)), largest -> {
       (a : i32) = 12;
-      expect_compile_error(x = 13);
-      expect_compile_error(y = 13);
+      compt_expect_error(x = 13);
+      compt_expect_error(y = 13);
     };
   };
 };
