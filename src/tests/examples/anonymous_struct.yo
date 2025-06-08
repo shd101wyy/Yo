@@ -1,6 +1,18 @@
 main :: (()-> unit) {
-  mut(p1) :: { x: 1, y: 2 };
+  p1 :: { x: 1, y: 2 };
   mut(p2) :: { x: 3, y: 4 };
-  
-  // p2 = p1; // Should give error
-}
+  expect_compile_error(
+    p2 = p1, 
+    "Should give error"
+  );
+
+  Point1 :: struct x: i32, y: i32;
+  Point2 :: struct x: i32, y: i32;
+
+  p3 := Point1(x: 5, y: 6);
+  mut(p4) := Point2(x: 7, y: 8);
+  expect_compile_error(
+    p4 = p3,
+    "Should give error"
+  );
+};

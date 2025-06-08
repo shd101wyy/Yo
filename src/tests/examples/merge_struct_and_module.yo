@@ -1,0 +1,66 @@
+// Merge struct and module?
+
+{
+  // Basic struct
+  Point :: struct(
+    x : i32,
+
+    // field with default value
+    (y : i32) ?= 12 
+  );
+
+  p :: Point(2, 3);
+  x := p.x; // Error, because "p.x" is a runtime field.
+};
+
+{
+  // Basic struct with type method
+  Point :: struct(
+    x : i32,
+    y : i32,
+
+    // Type method
+    Self.new = ((()-> Self)
+      Self(0, 0) // `Self` here means `Point`
+    )
+  );
+};
+
+{
+  // Basic module
+  Id :: ((@(T): Type)-> @(Type))
+    struct(
+      // Self :: T, // Override `Self` to be `T`.
+      // After the override, it's no longer avaible to define the type method.
+      //  Or:
+      (@(Self) : Type) = T,
+
+      @(id) : ((Self)-> Self) // Expect `id` to be implemented.
+    )
+  ;
+  
+
+  // Implement the `Id`
+  I32Id :: Id(i32)
+    // `Self` cannot be overridden here, it is already set to `T = i32`
+    id : (fn(x) -> x)
+  ;
+  ()
+};
+
+// NOTE: struct with comptime fields cannot be assigned to a runtime variable.
+{
+  Config :: struct(
+    @(version) : usize, // comptime field
+    enabled: boolean    // runtime field
+  );
+
+  {
+    expect_compile_error(
+      runtime_config := Config(1, true),
+      "Error, because Config has a comptime field, it cannot be assigned to a runtime variable."
+    );
+  };
+  
+  runtime_config :: Config(1, true); // Allowed.
+};

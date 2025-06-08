@@ -312,9 +312,35 @@ export interface ArrayType extends Type {
 }
 
 export type TupleElementExprs = {
+  /**
+   * The expression of the tuple element.
+   */
+  expr: Expr;
+  /**
+   * For example:
+   *   x in (x: i32)
+   */
   labelExpr?: Expr;
+  /**
+   * For example:
+   *   i32 in (x: i32)
+   */
   typeExpr?: Expr;
+  /**
+   * For example:
+   *   x ?= 10
+   *
+   * defaultValueExpr is:
+   *   10
+   */
   defaultValueExpr?: Expr;
+  /**
+   * For example:
+   *   x = 20
+   *
+   * assignedValueExpr is:
+   *  20
+   */
   assignedValueExpr?: Expr;
 };
 
@@ -1313,10 +1339,12 @@ export function areTypesCompatible(
   if (isStructType(expected.type) && isStructType(given.type)) {
     // Structs must have same elements and compatible types
     if (
-      expected.type.elements.length !== given.type.elements.length
+      expected.type.elements.length !== given.type.elements.length ||
       // NOTE: Below is not necessarily true
       // We might compare Box(T) and Box(U), where T and U are SomeType.
-      // || expected.type.typeId !== given.type.typeId
+      (expected.type.typeId !== given.type.typeId &&
+        !typeContainsSomeType(expected.type) &&
+        !typeContainsSomeType(given.type))
     ) {
       return false;
     }
@@ -1665,6 +1693,41 @@ export function typeContainsReference(type?: Type): boolean {
       );
     default:
       return false; // For other types, no references are present
+  }
+}
+
+export function typeContainsSomeType(type?: Type): boolean {
+  if (!type) {
+    return false;
+  }
+
+  // Check if the type is a SomeType
+  if (isSomeType(type)) {
+    return true;
+  }
+
+  // Recursively check for SomeType in complex types
+  switch (type.tag) {
+    case TypeTag.Array:
+      return typeContainsSomeType((type as ArrayType).elementType);
+    case TypeTag.Tuple:
+      return (type as TupleType).elements.some((element) =>
+        typeContainsSomeType(element.type)
+      );
+    case TypeTag.Struct:
+      return (type as StructType).elements.some((element) =>
+        typeContainsSomeType(element.type)
+      );
+    case TypeTag.Enum:
+      return (type as EnumType).variants.some((variant) =>
+        variant.elements?.some((param) => typeContainsSomeType(param.type))
+      );
+    case TypeTag.Union:
+      return (type as UnionType).elements.some((element) =>
+        typeContainsSomeType(element.type)
+      );
+    default:
+      return false; // For other types, no SomeType is present
   }
 }
 

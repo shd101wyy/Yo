@@ -820,6 +820,7 @@ Given type: ${typeToString(defaultValueType)}`
         label: label ?? `$element_${randomId()}`,
         type: elementType,
         exprs: {
+          expr,
           labelExpr,
           typeExpr,
           defaultValueExpr,
@@ -937,10 +938,11 @@ ${typeToString(expectedTupleType)}`
     return {
       type: {
         exprs: {
+          expr: expr,
           labelExpr: undefined,
           typeExpr: undefined,
           defaultValueExpr: undefined,
-          assignedValueExpr: expr,
+          assignedValueExpr: undefined,
         },
         isCompileTimeOnly: false,
         isImplicit: false,
@@ -2254,23 +2256,12 @@ ${exprToString(rhs)}`
       );
     }
     // Check some value that requires compile-time only
-    if (!isCompileTimeOnly) {
-      // If rhs is type value, then it must be compile-time only
-      if (isTypeValue(rhs.$?.value)) {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Expected "::" instead of ":=" for type value assignment:
+    if (!isCompileTimeOnly && rhs.$ && typeRequiresComptModifier(rhs.$.type)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "::" instead of ":=" for compile-time known value assignment:
 ${exprToString(expr)}`
-        );
-      }
-      // If rhs is compt_string value, then it must be compile-time only
-      else if (isComptStringValue(rhs.$?.value)) {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Expected "::" instead of ":=" for compt_string value assignment:
-${exprToString(expr)}`
-        );
-      }
+      );
     }
 
     if (exprIsAtom(lhs)) {
@@ -2925,19 +2916,35 @@ ${exprToString(rhs)}`
       if (!valueType) {
         valueType = evaluatedValue.$?.type;
       } else {
-        // Check if the type is compatible
+        // Check if the types are compatible
         if (
           !areTypesCompatible(
             { type: valueType, env },
             { type: evaluatedValue.$.type, env }
           )
         ) {
-          throw this.formatErrorMessage(
-            valueExpr.token,
-            `Incompatible types:
+          // Check if the types match when converting to runtime type
+          if (
+            areTypesCompatible(
+              {
+                type: convertComptTypeToRuntimeType(valueType),
+                env,
+              },
+              {
+                type: evaluatedValue.$.type,
+                env,
+              }
+            )
+          ) {
+            valueType = evaluatedValue.$.type;
+          } else {
+            throw this.formatErrorMessage(
+              valueExpr.token,
+              `Incompatible types:
 - Previous: ${typeToString(valueType)}
 - Current : ${typeToString(evaluatedValue.$?.type)}`
-          );
+            );
+          }
         }
       }
     }
@@ -4791,6 +4798,20 @@ compt(${exprToString(returnTypeExpr)})`
             });
           env = nextEnv;
 
+          // We disallow to have isCompileTimeOnly for enum variant elements.
+          // Because enum variant fields cannot be marked as compile-time only.
+          for (let i = 0; i < tupleType.elements.length; i++) {
+            const element = tupleType.elements[i]!;
+            if (element.isCompileTimeOnly) {
+              throw this.formatErrorMessage(
+                element.exprs.expr.token,
+                `Enum variant element cannot be compile-time only, got:\n${exprToString(
+                  element.exprs.expr
+                )}`
+              );
+            }
+          }
+
           variants.push({
             name: variantName,
             elements: tupleType.elements,
@@ -5250,7 +5271,7 @@ compt(${exprToString(returnTypeExpr)})`
         labelExpr = arg.args[0]!;
         valueExpr = arg.args[1]!;
 
-        if (!exprIsAtom(labelExpr) || !this.isValidVariableName(labelExpr)) {
+        if (!this.isValidVariableName(labelExpr)) {
           throw this.formatErrorMessage(
             labelExpr.token,
             `Expected identifier for anonymous struct element label, got:\n${exprToString(
@@ -5301,6 +5322,8 @@ compt(${exprToString(returnTypeExpr)})`
                 // Override the existing value
                 values[duplicateLabelIndex] =
                   extendedStructValue.elements[duplicateLabelIndex];
+              } else {
+                values[duplicateLabelIndex] = undefined;
               }
             } else {
               // Add the element to the struct
@@ -5309,6 +5332,8 @@ compt(${exprToString(returnTypeExpr)})`
               if (extendedStructValue) {
                 // Add the value to the struct
                 values.push(extendedStructValue.elements[i]!);
+              } else {
+                values.push(undefined);
               }
             }
           }
@@ -5330,21 +5355,19 @@ compt(${exprToString(returnTypeExpr)})`
             ...context,
           },
         });
-        if (evaluatedArg.$?.env) {
-          env = evaluatedArg.$?.env;
-        }
-        const type = evaluatedArg.$?.type;
-        if (!type) {
+        if (!evaluatedArg.$) {
           throw this.formatErrorMessage(
-            arg.token,
-            `Expected type for anonymous struct element, got:\n${exprToString(
-              arg
+            valueExpr.token,
+            `Failed to evaluate the anonymous struct element expression: ${exprToString(
+              valueExpr
             )}`
           );
         }
-
+        env = evaluatedArg.$.env;
+        const type = evaluatedArg.$.type;
         const element: TupleElement = {
           exprs: {
+            expr: valueExpr,
             labelExpr: undefined,
             typeExpr: undefined,
             defaultValueExpr: undefined,
@@ -5357,8 +5380,14 @@ compt(${exprToString(returnTypeExpr)})`
         };
         elements.push(element);
 
-        if (evaluatedArg.$?.value) {
+        if (evaluatedArg.$.value) {
           values.push(evaluatedArg.$?.value);
+        } else {
+          values.push(undefined);
+        }
+
+        if (labelExpr) {
+          labelExpr.$ = evaluatedArg.$;
         }
       }
     }
@@ -7054,7 +7083,9 @@ Got:   ${typeToString(argType)}`
       }
 
       // Set the values
-      values[memberElementPositionIndex] = evaluatedArgExpr.$?.value;
+      if (memberElement.isCompileTimeOnly) {
+        values[memberElementPositionIndex] = evaluatedArgExpr.$?.value;
+      }
       checkedMemberElements.add(memberElement);
     }
 
@@ -7069,7 +7100,10 @@ Got:   ${typeToString(argType)}`
           );
         } else {
           // Set the default value to values
-          values[i] = memberElement.defaultValue;
+          if (memberElement.isCompileTimeOnly) {
+            values[i] =
+              memberElement.defaultValue ?? memberElement.assignedValue;
+          }
         }
       }
     }
