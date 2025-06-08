@@ -1,40 +1,25 @@
-main :: (()-> unit) {
-  SomeModule :: module {
-    runt_value := 12;
-    id :: ((x: i32)-> i32) x;
-    implicit(implicit_id) :: ((x: i32)-> i32) x;
-    x :: 1;
-    y :: 2;
-    
-    export(
-      runt_value,
-      id,
-      implicit_id,
-      x,
-      y
-    );
-  };
+extern
+  add: ((x: i32, y: i32)-> i32);
 
-  {
-    // Use _ to destructure all exports
-    { _ } :: SomeModule;
-    v := id(3);
+// Default parameters
+// The default value for a parameter has to be compile-time known.
+Add ::
+  (( @(Lhs): Type, 
+    (@(Rhs): Type) ?= Lhs, 
+    @(Output) ?= Lhs
+  )-> @(Type))
+  struct
+    Self :: Lhs,
+    (+): ((lhs: Lhs, rhs: Rhs)-> Output)
+;
 
+IntAdd :: Add(i32);
 
-    Point :: struct(a: i32, b: i32);
-    p :: Point 3, 4;
-    { _ } :: p;
-    x2 := id(a);
-  };
-
-  {
-    // Use _(?) to destructure all implicits
-    { _(?) } :: SomeModule;
-    
-    implicit_id(3);
-    
-    compt_expect_error(
-      id(3) // "id" is not imported here, so it should not be accessible
-    );
-  };
-};
+// _ is used as the inferred, not the default value.
+// Default value is only used when the parameter is not provided.
+// IntAdd :: Add(i32);
+// IntAdd :: Add(i32, undefined);
+// IntAdd :: Add(i32, undefined, undefined);
+// BoolAdd :: Add(boolean);
+// BoolAdd :: Add(boolean, undefined);
+// BoolAdd :: Add(boolean, undefined, undefined);

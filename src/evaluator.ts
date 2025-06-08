@@ -512,7 +512,7 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
       expr_ = expr.args[0]!;
     }
 
-    // Check the required value
+    // Check the assigned value
     if (
       exprIsFunctionCall(expr_) &&
       (exprIsFunctionCallOf(expr_, "=", 2) ||
@@ -593,7 +593,10 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
         );
       }
       label = labelExpr.token.value;
-    } else {
+    } else if (!defaultValueExpr && !assignedValueExpr) {
+      // Prevent the case such as:
+      //   Self :: i32
+      // typeExpr shouldn't be "Self"
       typeExpr = expr_;
     }
 
@@ -665,11 +668,11 @@ ${typeToString(expectedType)}`
 
     // Evaluate assignedValueExpr if it exists
     if (assignedValueExpr) {
-      // Required value only works for compile-time only
+      // Assigned value only works for compile-time only
       if (!isCompileTimeOnly) {
         throw this.formatErrorMessage(
           assignedValueExpr.token,
-          `Required value expression is only allowed for compile-time only tuple elements.`
+          `Assigned value expression is only allowed for compile-time only.`
         );
       }
 
@@ -6194,6 +6197,7 @@ ${exprToString(expr)}`
     // Evaluate the argExpr
     let evaluatedArgExpr: Expr | undefined = undefined;
     let borrowings = context.borrowings;
+    let evaluatedDefaultValueExpr: Expr | undefined = undefined;
     try {
       if (
         !argExpr ||
@@ -6202,6 +6206,7 @@ ${exprToString(expr)}`
       ) {
         // Use the default value
         if (parameter.exprs.defaultValueExpr) {
+          printEnvVarNames(calleeEnv);
           evaluatedArgExpr = this.evaluateExpression({
             expr: cloneExpr(parameter.exprs.defaultValueExpr),
             env: calleeEnv,
@@ -6209,6 +6214,7 @@ ${exprToString(expr)}`
               ...context,
             },
           });
+          evaluatedDefaultValueExpr = evaluatedArgExpr;
           if (evaluatedArgExpr.$?.env) {
             calleeEnv = evaluatedArgExpr.$?.env;
           }
@@ -6301,7 +6307,13 @@ ${exprToString(expr)}`
     calleeEnv = nextEnv;
 
     // Set the arg expr as consumed
-    callerEnv = setExprAsConsumed(evaluatedArgExpr, callerEnv);
+    // NOTE: If we evaluated the default value expression,
+    // then we don't set the arg expr as consumed,
+    // because that's the expression from parameter.exprs.defaultValueExpr
+    if (!evaluatedDefaultValueExpr) {
+      callerEnv = setExprAsConsumed(evaluatedArgExpr, callerEnv);
+      printEnvVarNames(callerEnv);
+    }
 
     // Synthesize the types
     const { expectedEnv, givenEnv } = this.synthesizeTypes(
