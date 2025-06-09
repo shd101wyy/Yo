@@ -10,7 +10,6 @@ import {
   getVariablesFromEnvByFilter,
   keepComptimeVariablesFromEnv,
   popEnvFrame,
-  printEnvVarNames,
   pushEnvFrame,
   updateExistingVariable,
 } from "./env";
@@ -1099,21 +1098,50 @@ ${typeToString(expectedTupleType)}`
       ) {
         // Update the env to set givenType to expectedType.name
         const value = createTypeValue(given.type);
-        const { env: nextEnv } = addVariableToEnv({
-          env: expected.env,
-          variable: {
-            name: expected.type.name,
-            value: value,
-            type: value.type,
-            token: PlaceholderToken, // FIXME: What should be `token` here?
-            isMutable: false,
-            isCompileTimeOnly: true,
-            isUndefined: false,
-            isImplicit: false,
-          },
-        });
-        printEnvVarNames(nextEnv);
-        expected.env = nextEnv;
+        // console.log("(1) addVariableToEnv");
+
+        // Check if the same variable already exists in the env
+        const existingVariables = getVariablesFromEnv(
+          expected.env,
+          expected.type.name
+        );
+        const variable = existingVariables[existingVariables.length - 1];
+        let alreadyExists = false;
+        if (variable && isTypeValue(variable.value)) {
+          if (
+            areTypesCompatible(
+              {
+                type: variable.value.value,
+                env: expected.env,
+              },
+              {
+                type: given.type,
+                env: expected.env,
+              }
+            )
+          ) {
+            alreadyExists = true;
+          } else {
+            // QUESTION: Should we throw an error here?
+          }
+        }
+
+        if (!alreadyExists) {
+          const { env: nextEnv } = addVariableToEnv({
+            env: expected.env,
+            variable: {
+              name: expected.type.name,
+              value: value,
+              type: value.type,
+              token: PlaceholderToken, // FIXME: What should be `token` here?
+              isMutable: false,
+              isCompileTimeOnly: true,
+              isUndefined: false,
+              isImplicit: false,
+            },
+          });
+          expected.env = nextEnv;
+        }
       }
     } else if (
       isTupleType(expected.type) &&
@@ -1556,6 +1584,7 @@ ${typeToString(expectedTupleType)}`
                 : undefined;
 
             // Add to environment
+            // console.log("(2) addVariableToEnv");
             const { env: nextEnv } = addVariableToEnv({
               env,
               variable: {
@@ -1627,6 +1656,7 @@ ${typeToString(expectedTupleType)}`
           const memberValue = rhsValue.elements[memberTypeIndex];
 
           // Add to environment
+          // console.log("(3) addVariableToEnv");
           const { env: nextEnv } = addVariableToEnv({
             env,
             variable: {
@@ -1982,6 +2012,7 @@ ${typeToString(expectedTupleType)}`
       // After determining variableName and variableToken, add to environment
       if (variableName && variableToken) {
         // Add the variable to the environment
+        // console.log("(4) addVariableToEnv");
         const { env: nextEnv } = addVariableToEnv({
           env,
           variable: {
@@ -2134,6 +2165,7 @@ ${typeToString(expectedTupleType)}`
 
     const variableName = lhs.token.value;
     // Add the variable to the env
+    // console.log("(5) addVariableToEnv");
     const { env: nextEnv } = addVariableToEnv({
       env,
       variable: {
@@ -2393,6 +2425,7 @@ ${exprToString(rhs)}`
       };
       // Add variable to env
       // Attach the updated env to expr
+      // console.log("(6) addVariableToEnv");
       const { env: nextEnv } = addVariableToEnv({
         env,
         variable: {
@@ -2795,6 +2828,7 @@ ${exprToString(rhs)}`
           const userDefinedType = typeValue.value;
 
           // Add the variable to the env
+          // console.log("(7) addVariableToEnv");
           const { env: nextEnv } = addVariableToEnv({
             env,
             variable: {
@@ -3188,6 +3222,7 @@ ${exprToString(rhs)}`
             pathCollection: [],
           };
 
+          // console.log("(8) addVariableToEnv");
           const { env: updatedEnv } = addVariableToEnv({
             env: patternEnv,
             variable: {
@@ -3959,6 +3994,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       : undefined;
 
     // Add the parameter to the env
+    // console.log("(9) addVariableToEnv");
     const { env: nextEnv } = addVariableToEnv({
       env,
       variable: {
@@ -5129,13 +5165,9 @@ compt(${exprToString(returnTypeExpr)})`
     }
 
     if (isTupleType(objectExpr.$?.type) || isStructType(objectExpr.$?.type)) {
-      let elements: TupleElement[] = [];
-      const objectExprValue = objectExpr.$?.value;
-      if (isTupleType(objectExpr.$?.type)) {
-        elements = objectExpr.$?.type.elements;
-      } else if (isStructType(objectExpr.$?.type)) {
-        elements = objectExpr.$?.type.elements;
-      }
+      const elements: TupleElement[] = objectExpr.$.type.elements;
+      const objectExprValue = objectExpr.$.value;
+
       // Check if it's accessing the tuple element by
       // - number index: point.0
       // - label name:   point.x
@@ -5233,7 +5265,13 @@ compt(${exprToString(returnTypeExpr)})`
               } else if (isStructValue(objectExprValue)) {
                 values = objectExprValue.elements;
               }
-              expr.$.value = values?.[tupleElementIndex];
+
+              let value = values?.[tupleElementIndex];
+              if (!value && tupleElement.isCompileTimeOnly) {
+                value = createUnknownValue(tupleElement.type);
+              }
+
+              expr.$.value = value;
             }
             return expr;
           }
@@ -5924,10 +5962,7 @@ ${functionsWithMatchingTypes
             `Error evaluating struct call.`
           );
         }
-        const structValue = createStructValue(
-          structType,
-          memberValues as Value[]
-        );
+        const structValue = createStructValue(structType, memberValues);
         expr.$.value = structValue;
         expr.$.pathCollection = pathCollection;
 
@@ -6206,7 +6241,6 @@ ${exprToString(expr)}`
       ) {
         // Use the default value
         if (parameter.exprs.defaultValueExpr) {
-          printEnvVarNames(calleeEnv);
           evaluatedArgExpr = this.evaluateExpression({
             expr: cloneExpr(parameter.exprs.defaultValueExpr),
             env: calleeEnv,
@@ -6290,6 +6324,7 @@ ${exprToString(expr)}`
     }
 
     // Add the arg to the environment
+    // console.log("(10) addVariableToEnv");
     const argValue = evaluatedArgExpr.$?.value;
     const { env: nextEnv } = addVariableToEnv({
       env: calleeEnv,
@@ -6312,7 +6347,6 @@ ${exprToString(expr)}`
     // because that's the expression from parameter.exprs.defaultValueExpr
     if (!evaluatedDefaultValueExpr) {
       callerEnv = setExprAsConsumed(evaluatedArgExpr, callerEnv);
-      printEnvVarNames(callerEnv);
     }
 
     // Synthesize the types
@@ -6441,18 +6475,33 @@ ${exprToString(expr)}`
     let calleeEnv = pushEnvFrame(functionType.env);
 
     if (functionType.SelfType) {
+      let typeValue: TypeValue;
+      if (isStructType(functionType.SelfType)) {
+        const existingSelfElement = functionType.SelfType.elements.find(
+          (e) => e.label === "Self" && isTypeValue(e.assignedValue)
+        );
+        if (existingSelfElement) {
+          typeValue = existingSelfElement.assignedValue as TypeValue;
+        } else {
+          typeValue = createTypeValue(functionType.SelfType);
+        }
+      } else {
+        typeValue = createTypeValue(functionType.SelfType);
+      }
+
       // Add "Self" to the calleeEnv
+      // console.log("(11) addVariableToEnv");
       const { env: nextEnv } = addVariableToEnv({
         env: calleeEnv,
         variable: {
           name: "Self",
           token: PlaceholderToken,
-          type: functionType.SelfType,
+          type: typeValue.type,
           isMutable: false,
           isCompileTimeOnly: true,
           isUndefined: false, // Set as initialized
           isImplicit: false,
-          value: createTypeValue(functionType.SelfType),
+          value: typeValue,
         },
       });
       calleeEnv = nextEnv;
@@ -6476,6 +6525,7 @@ ${exprToString(expr)}`
       // Add typeParameter to calleeEnv
       const typeParameter = functionType.typeParameters[i]!;
       if (typeParameter.exprs.labelExpr && typeParameter.label) {
+        // console.log("(12) addVariableToEnv");
         const { env: nextEnv } = addVariableToEnv({
           env: calleeEnv,
           variable: {
@@ -6620,6 +6670,7 @@ Got:   ${typeToString(typeValue.type)}`
         // Add the type to the env
         if (typeParameter.label) {
           // QUESTION: Should we just update the existing variable?
+          // console.log("(13) addVariableToEnv");
           const { env: nextEnv } = addVariableToEnv({
             env: calleeEnv,
             variable: {
@@ -6758,6 +6809,7 @@ Got:   ${typeToString(typeValue.type)}`
         // Add the arg to the environment
         if (implicitParameter.label) {
           const argValue = evaluatedImplicitArg.$?.value;
+          // console.log("(14) addVariableToEnv");
           const { env: nextEnv } = addVariableToEnv({
             env: calleeEnv,
             variable: {
@@ -6926,6 +6978,7 @@ ${implicitVariables
 
       // Add the implicit variable to the function env
       const implicitVariable = implicitVariables[0]!;
+      // console.log("(15) addVariableToEnv");
       const { env: nextEnv } = addVariableToEnv({
         env: calleeEnv,
         variable: {
@@ -7603,62 +7656,149 @@ Got:   ${typeToString(argType)}`
         const exportExprs = expr.args;
         for (let i = 0; i < exportExprs.length; i++) {
           const exportExpr = exportExprs[i]!;
-          if (!this.isValidVariableName(exportExpr)) {
-            throw this.formatErrorMessage(
-              exportExpr.token,
-              `Expected identifier for export, got:\n${exprToString(exportExpr)}`
-            );
-          }
 
-          const variableName = exportExpr.token.value;
-          // Get the variable from the env
-          const variables = getVariablesFromEnv(env, variableName);
-          if (variables.length === 0) {
-            throw this.formatErrorMessage(
-              exportExpr.token,
-              `Variable "${variableName}" is not defined in the module.`
-            );
-          }
-          const variable = variables[variables.length - 1]!;
-
-          // Check if the same variable is already exported
-          const existingElementIndex = moduleType.elements.findIndex(
-            (e) => e.label === variableName
-          );
-          if (existingElementIndex >= 0) {
-            // Throw error if the variable is already exported
-            throw this.formatErrorMessage(
-              exportExpr.token,
-              `Variable "${variableName}" is already exported in the module.`
-            );
-          } else {
-            // Add the variable to the module type
-            moduleType.elements.push({
-              label: variableName,
-              type: variable.type,
-              isCompileTimeOnly: variable.isCompileTimeOnly,
-              isImplicit: variable.isImplicit,
-              assignedValue: variable.isCompileTimeOnly
-                ? variable.value
-                : undefined,
-              defaultValue: undefined,
-              exprs: {
-                expr: exportExpr,
-                labelExpr: undefined,
-                typeExpr: undefined,
-                assignedValueExpr: undefined,
-                defaultValueExpr: undefined,
+          // spread operator for export all elements in another module
+          if (
+            exprIsFunctionCall(exportExpr) &&
+            exprIsFunctionCallOf(exportExpr, "...", 1)
+          ) {
+            const extendedStructExpr = exportExpr.args[0]!;
+            // Evaluate the extended struct expression
+            const evaluatedExtendedStructExpr = this.evaluateExpression({
+              expr: extendedStructExpr,
+              env,
+              context: {
+                ...context,
               },
             });
+            if (!evaluatedExtendedStructExpr.$) {
+              throw this.formatErrorMessage(
+                extendedStructExpr.token,
+                `Failed to evaluate the extended struct expression:\n${exprToString(extendedStructExpr)}`
+              );
+            }
+            const extendedStructType = evaluatedExtendedStructExpr.$.type;
+            if (!isStructType(extendedStructType)) {
+              throw this.formatErrorMessage(
+                extendedStructExpr.token,
+                `Expected struct type for export, got:\n${typeToString(extendedStructType)}`
+              );
+            }
+            const extendedStructValue = evaluatedExtendedStructExpr.$.value as
+              | StructValue
+              | undefined;
 
-            // Add information to exportExpr
-            exportExpr.$ = {
-              env,
-              type: variable.type,
-              value: variable.value,
-              isMutable: variable.isMutable,
-              pathCollection: [],
-            };
+            // Iterate over the elements of the extended struct
+            for (let i = 0; i < extendedStructType.elements.length; i++) {
+              const extendedStructElement = extendedStructType.elements[i]!;
+              // Check if there is duplicate labels
+              // If yes, then throw an error
+              const existingElementIndex = moduleType.elements.findIndex(
+                (e) => e.label === extendedStructElement.label
+              );
+              if (existingElementIndex >= 0) {
+                throw this.formatErrorMessage(
+                  exportExpr.token,
+                  `Element "${extendedStructElement.label}" is already exported in the module.`
+                );
+              } else {
+                // Add the element to the module type
+                moduleType.elements.push({
+                  label: extendedStructElement.label,
+                  type: extendedStructElement.type,
+                  isCompileTimeOnly: extendedStructElement.isCompileTimeOnly,
+                  isImplicit: extendedStructElement.isImplicit,
+                  assignedValue: extendedStructElement.isCompileTimeOnly
+                    ? extendedStructElement.assignedValue
+                    : undefined,
+                  defaultValue: extendedStructElement.defaultValue,
+                  exprs: {
+                    expr: exportExpr,
+                    labelExpr: undefined,
+                    typeExpr: undefined,
+                    assignedValueExpr: undefined,
+                    defaultValueExpr: undefined,
+                  },
+                });
+
+                // Add the value to the module element values
+                if (extendedStructValue) {
+                  moduleElementValues.push(extendedStructValue.elements[i]);
+                } else {
+                  moduleElementValues.push(undefined);
+                }
+
+                // Add information to exportExpr
+                exportExpr.$ = {
+                  env,
+                  type: extendedStructElement.type,
+                  value: extendedStructValue
+                    ? extendedStructValue.elements[i]
+                    : undefined,
+                  isMutable: false, // TODO: Check if the element is mutable
+                  pathCollection: [],
+                };
+              }
+            }
+          } else {
+            if (!this.isValidVariableName(exportExpr)) {
+              throw this.formatErrorMessage(
+                exportExpr.token,
+                `Expected identifier for export, got:\n${exprToString(exportExpr)}`
+              );
+            }
+
+            const variableName = exportExpr.token.value;
+            // Get the variable from the env
+            const variables = getVariablesFromEnv(env, variableName);
+            if (variables.length === 0) {
+              throw this.formatErrorMessage(
+                exportExpr.token,
+                `Variable "${variableName}" is not defined in the module.`
+              );
+            }
+            const variable = variables[variables.length - 1]!;
+
+            // Check if the same variable is already exported
+            const existingElementIndex = moduleType.elements.findIndex(
+              (e) => e.label === variableName
+            );
+            if (existingElementIndex >= 0) {
+              // Throw error if the variable is already exported
+              throw this.formatErrorMessage(
+                exportExpr.token,
+                `Variable "${variableName}" is already exported in the module.`
+              );
+            } else {
+              // Add the variable to the module type
+              moduleType.elements.push({
+                label: variableName,
+                type: variable.type,
+                isCompileTimeOnly: variable.isCompileTimeOnly,
+                isImplicit: variable.isImplicit,
+                assignedValue: variable.isCompileTimeOnly
+                  ? variable.value
+                  : undefined,
+                defaultValue: undefined,
+                exprs: {
+                  expr: exportExpr,
+                  labelExpr: undefined,
+                  typeExpr: undefined,
+                  assignedValueExpr: undefined,
+                  defaultValueExpr: undefined,
+                },
+              });
+              moduleElementValues.push(variable.value);
+
+              // Add information to exportExpr
+              exportExpr.$ = {
+                env,
+                type: variable.type,
+                value: variable.value,
+                isMutable: variable.isMutable,
+                pathCollection: [],
+              };
+            }
           }
         }
       } else {
@@ -8088,6 +8228,7 @@ Got:   ${typeToString(argType)}`
       }
       const bindingName = bindingExpr.token.value;
       // Add the binding to the env
+      // console.log("(16) addVariableToEnv");
       const { env: nextEnv } = addVariableToEnv({
         env,
         variable: {

@@ -203,8 +203,6 @@ export function addVariableToFrame({
   // Check if variable already exists in the frame
   // If yes, then report an error
   if (frame.variables.some((value) => value.name === variable.name)) {
-    printEnvVarNames(env);
-
     throw formatErrorMessages({
       modulePath: env.modulePath,
       inputString: env.inputString,

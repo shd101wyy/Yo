@@ -1,25 +1,37 @@
-extern
-  add: ((x: i32, y: i32)-> i32);
+// Spread operator in structs
+_2DPoint :: struct(
+  x : i32,
+  y : i32
+);
 
-// Default parameters
-// The default value for a parameter has to be compile-time known.
-Add ::
-  (( @(Lhs): Type, 
-    (@(Rhs): Type) ?= Lhs, 
-    @(Output) ?= Lhs
-  )-> @(Type))
-  struct
-    Self :: Lhs,
-    (+): ((lhs: Lhs, rhs: Rhs)-> Output)
-;
+_3DPoint :: struct(
+  ...(_2DPoint),
+  z : i32
+);
 
-IntAdd :: Add(i32);
+p :: _3DPoint(3, 4, 5);
 
-// _ is used as the inferred, not the default value.
-// Default value is only used when the parameter is not provided.
-// IntAdd :: Add(i32);
-// IntAdd :: Add(i32, undefined);
-// IntAdd :: Add(i32, undefined, undefined);
-// BoolAdd :: Add(boolean);
-// BoolAdd :: Add(boolean, undefined);
-// BoolAdd :: Add(boolean, undefined, undefined);
+anonymous_struct := { x: 1, y: 2 };
+another_anonymous_struct := { ...(anonymous_struct), z: 3 };
+
+ModuleA :: module {
+  a :: 1;
+  export a;
+};
+
+ModuleB :: module {
+  b :: 2;
+  export b;
+};
+
+ModuleC :: module {
+  export
+    ...(ModuleA),
+    ...(ModuleB)
+  ;
+};
+
+Combined :: {
+  ...(ModuleA),
+  ...(ModuleB)
+};

@@ -406,7 +406,6 @@ export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
   }
 
   const variables = getVariablesFromEnv(env, nameOfVariableToConsume);
-  console.log("nameOfVariableToConsume", nameOfVariableToConsume);
   if (variables.length === 0) {
     throw formatErrorMessages({
       modulePath: env.modulePath,
