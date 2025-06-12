@@ -1476,7 +1476,10 @@ ${typeToString(expectedTupleType)}`
     }
 
     // Handle struct destructuring
-    if (isStructType(rhsType) && exprIsFunctionCall(lhs)) {
+    if (
+      (isStructType(rhsType) || isUnionType(rhsType)) &&
+      exprIsFunctionCall(lhs)
+    ) {
       return this.handleMemberDestructuring({
         lhsFunc: lhs.func,
         lhsElements: lhs.args,
@@ -1538,16 +1541,27 @@ ${typeToString(expectedTupleType)}`
     context: EvaluatorContext;
     isCompileTimeOnly: boolean;
   }): Environment {
-    const isStruct = isStructType(rhsType);
+    const requireUnderscore = !isTupleType(rhsType);
     const lhsFuncName = lhsFunc.token.value;
 
     // ~~Verify the struct type name matches if specified~~
     // We force to use _ for destructuring
-    if (isStruct && lhsFuncName !== "_") {
+    if (requireUnderscore && lhsFuncName !== "_") {
       throw this.formatErrorMessage(
         lhsFunc.token,
-        `Expected "_" for ${isStruct ? "struct " : ""}destructuring, got "${lhsFuncName}"`
+        `Expected "_" for non-tuple destructuring, got "${lhsFuncName}"`
       );
+    }
+
+    // Check if it's destructuring a union type
+    if (isUnionType(rhsType)) {
+      // Expect lhsElements to be a single element
+      if (lhsElements.length !== 1) {
+        throw this.formatErrorMessage(
+          lhs.token,
+          `Destructuring union type requires a single element, got ${lhsElements.length}`
+        );
+      }
     }
 
     // Check if we have enough elements
@@ -1581,6 +1595,13 @@ ${typeToString(expectedTupleType)}`
           lhsElement.args[1]!.token.value === "_") ||
         (exprIsAtom(lhsElement) && lhsElement.token.value === "_")
       ) {
+        if (isUnionType(rhsType)) {
+          throw this.formatErrorMessage(
+            lhsElement.token,
+            `Cannot destructure union type with _, got ${typeToString(rhsType)}`
+          );
+        }
+
         // If it's a single _, we destructure all elements
         if (lhsElements.length === 1) {
           // We can destructure all elements
@@ -1643,7 +1664,7 @@ ${typeToString(expectedTupleType)}`
         if (!isStructType(rhsType) || !isStructValue(rhsValue)) {
           throw this.formatErrorMessage(
             lhsElement.token,
-            `Expected module value for destructuring with implicit members, got ${typeToString(
+            `Expected struct value for destructuring with implicit members, got ${typeToString(
               rhsType
             )}`
           );
@@ -1728,9 +1749,7 @@ ${typeToString(expectedTupleType)}`
         if (matchingMemberIndex === -1) {
           throw this.formatErrorMessage(
             lhsElement.token,
-            `Label "${label}" not found in the ${
-              isStruct ? "struct" : "tuple"
-            } being destructured`
+            `Label "${label}" being destructured not found.`
           );
         }
 
@@ -1998,6 +2017,15 @@ ${typeToString(expectedTupleType)}`
 
       // Handle positional destructuring
       else if (exprIsAtom(lhsElement) && this.isValidVariableName(lhsElement)) {
+        if (isUnionType(rhsType)) {
+          throw this.formatErrorMessage(
+            lhsElement.token,
+            `Cannot destructure union type with positional destructuring, got ${typeToString(
+              rhsType
+            )}`
+          );
+        }
+
         destructuredRhsElementSet.add(rhsElement);
 
         if (isTupleValue(rhsValue)) {
@@ -2014,9 +2042,7 @@ ${typeToString(expectedTupleType)}`
       else {
         throw this.formatErrorMessage(
           lhsElement.token,
-          `Unsupported destructuring pattern for ${
-            isStruct ? BuiltinKeywords.struct : "tuple"
-          }: ${exprToString(lhsElement)}`
+          `Unsupported destructuring pattern for: ${exprToString(lhsElement)}`
         );
       }
 
@@ -5348,7 +5374,7 @@ ${typeToString(returnType)}`
         return expr;
       }
       // type methods
-      else if (isStructType(typeValue.value)) {
+      else if (isStructType(typeValue.value) || isUnionType(typeValue.value)) {
         if (!this.isValidVariableName(propertyExpr)) {
           throw this.formatErrorMessage(
             propertyExpr.token,
@@ -5382,7 +5408,11 @@ ${typeToString(returnType)}`
       }
     }
 
-    if (isTupleType(objectExpr.$?.type) || isStructType(objectExpr.$?.type)) {
+    if (
+      isTupleType(objectExpr.$?.type) ||
+      isStructType(objectExpr.$?.type) ||
+      isUnionType(objectExpr.$?.type)
+    ) {
       const elements: TupleElement[] = objectExpr.$.type.elements;
       const objectExprValue = objectExpr.$.value;
 

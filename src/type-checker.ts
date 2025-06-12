@@ -1437,9 +1437,37 @@ export function areTypesCompatible(
     }
   }
 
-  // TODO: enum
+  if (isUnionType(expected.type) && isUnionType(given.type)) {
+    // Unions must have same elements and compatible types
+    if (
+      expected.type.elements.length !== given.type.elements.length ||
+      (expected.type.typeId !== given.type.typeId &&
+        !typeContainsSomeType(expected.type) &&
+        !typeContainsSomeType(given.type))
+    ) {
+      return false;
+    }
 
-  // TODO: union
+    if (expected.type.typeId === given.type.typeId) {
+      return true;
+    }
+
+    for (let i = 0; i < expected.type.elements.length; i++) {
+      const expectedElement = expected.type.elements[i]!;
+      const givenElement = given.type.elements[i]!;
+
+      if (
+        expectedElement.label !== givenElement.label ||
+        !areTypesCompatible(
+          { type: expectedElement.type, env: expected.env },
+          { type: givenElement.type, env: given.env }
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   if (isFunctionType(expected.type) && isFunctionType(given.type)) {
     return areFunctionTypesCompatible(
