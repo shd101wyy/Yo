@@ -158,9 +158,10 @@ export function valueToString(value?: Value): string {
       })`;
     }
     case ValueTag.Struct: {
-      return `_(${value.elements
-        .map((element) => {
-          return `${valueToString(element)}`;
+      return `${value.type.typeName ?? "_"}(${value.elements
+        .map((element, index) => {
+          const label = value.type.elements[index]!.label;
+          return `${label}: ${valueToString(element)}`;
         })
         .join(", ")})`;
     }

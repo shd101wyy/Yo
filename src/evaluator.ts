@@ -12,6 +12,7 @@ import {
   popEnvFrame,
   pushEnvFrame,
   updateExistingVariable,
+  Variable,
 } from "./env";
 import { formatErrorMessage, MoParserError } from "./error";
 import {
@@ -343,7 +344,7 @@ export default class Evaluator {
       if (tupleElement.exprs.defaultValueExpr) {
         throw this.formatErrorMessage(
           tupleElement.exprs.defaultValueExpr!.token,
-          `Tuple elements cannot have default value.`
+          `Tuple type cannot have default value.`
         );
       }
 
@@ -916,6 +917,9 @@ ${typeToString(expectedTupleType)}`
       env = evaluatedRhs.$?.env;
     }
 
+    // Set the evaluatedRhs as consumed
+    env = setExprAsConsumed(evaluatedRhs, env);
+
     const value = evaluatedRhs.$?.value;
     if (value && isTypeValue(evaluatedRhs.$?.value)) {
       throw this.formatErrorMessage(
@@ -1106,27 +1110,7 @@ ${typeToString(expectedTupleType)}`
           expected.type.name
         );
         const variable = existingVariables[existingVariables.length - 1];
-        let alreadyExists = false;
-        if (variable && isTypeValue(variable.value)) {
-          if (
-            areTypesCompatible(
-              {
-                type: variable.value.value,
-                env: expected.env,
-              },
-              {
-                type: given.type,
-                env: expected.env,
-              }
-            )
-          ) {
-            alreadyExists = true;
-          } else {
-            // QUESTION: Should we throw an error here?
-          }
-        }
-
-        if (!alreadyExists) {
+        if (!variable) {
           const { env: nextEnv } = addVariableToEnv({
             env: expected.env,
             variable: {
@@ -1141,6 +1125,12 @@ ${typeToString(expectedTupleType)}`
             },
           });
           expected.env = nextEnv;
+        } else if (variable) {
+          // Update existing
+          expected.env = updateExistingVariable(expected.env, variable, {
+            ...variable,
+            value,
+          });
         }
       }
     } else if (
@@ -1175,6 +1165,26 @@ ${typeToString(expectedTupleType)}`
         );
         expected.env = expectedEnv;
         given.env = givenEnv;
+
+        if (
+          expectedElement.assignedValue &&
+          givenElement.assignedValue &&
+          isTypeValue(expectedElement.assignedValue) &&
+          isTypeValue(givenElement.assignedValue)
+        ) {
+          const { expectedEnv, givenEnv } = this.synthesizeTypes(
+            {
+              type: expectedElement.assignedValue.value,
+              env: expected.env,
+            },
+            {
+              type: givenElement.assignedValue.value,
+              env: given.env,
+            }
+          );
+          expected.env = expectedEnv;
+          given.env = givenEnv;
+        }
       }
     } else if (
       isEnumType(expected.type) &&
@@ -3978,10 +3988,18 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         );
       }
       if (typeRequiresComptModifier(parameterType) && !isCompileTimeOnly) {
-        throw this.formatErrorMessage(
-          lhsExpr?.token ?? expr.token,
-          `Expected a "compt" (or "@") for parameter to be compile-time only.`
-        );
+        // Try converting to runtime type first
+        parameterType = convertComptTypeToRuntimeType(parameterType);
+
+        // If it still requires compt modifier,
+        // then throw an error
+        if (typeRequiresComptModifier(parameterType)) {
+          throw this.formatErrorMessage(
+            lhsExpr?.token ?? expr.token,
+            `Expected a "compt" (or "@") for parameter to be compile-time only. Given type:
+${typeToString(parameterType)}`
+          );
+        }
       }
     }
 
@@ -4385,13 +4403,23 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         )}`
       );
     }
-    const returnType = evaluatedReturnType.$?.value.value;
+
+    let returnType = evaluatedReturnType.$?.value.value;
     if (typeRequiresComptModifier(returnType) && !isReturnTypeCompileTimeOnly) {
-      throw this.formatErrorMessage(
-        returnTypeExpr.token,
-        `Expected a "compt" (or "@") for return type, like:\n
-compt(${exprToString(returnTypeExpr)})`
-      );
+      // Try converting to runtime type first
+      returnType = convertComptTypeToRuntimeType(returnType);
+      // If it still requires compt modifier,
+      // then throw an error
+      if (typeRequiresComptModifier(returnType)) {
+        throw this.formatErrorMessage(
+          returnTypeExpr.token,
+          `Expected a "compt" (or "@") for return type, like:\n
+compt(${exprToString(returnTypeExpr)})
+
+Given type:
+${typeToString(returnType)}`
+        );
+      }
     }
 
     // If the returnType is compile time only, then
@@ -4485,10 +4513,18 @@ compt(${exprToString(returnTypeExpr)})`
           );
         }
 
+        // Check if the struct already has a member `Self`
+        if (elements.some((element) => element.label === "Self")) {
+          throw this.formatErrorMessage(
+            arg.args[0].args[0]!.token,
+            `Cannot define type method because "Self" is overridden as receiver of the struct.`
+          );
+        }
+
         const methodNameExpr = arg.args[0].args[1]!;
         const rhsExpr = arg.args[1]!;
 
-        // Expect lhsExpr to be an identifier or operator
+        // Expect methodNameExpr to be an identifier or operator
         if (!this.isValidVariableName(methodNameExpr)) {
           throw this.formatErrorMessage(
             methodNameExpr.token,
@@ -4725,20 +4761,31 @@ compt(${exprToString(returnTypeExpr)})`
     for (let i = 0; i < expr.args.length; i++) {
       const enumArg = expr.args[i]!;
 
-      // Type method
+      // type method
+      // eg:
+      //   Self.new = (((lhs: Self, rhs: i32) -> i32) {})
       if (
         exprIsFunctionCall(enumArg) &&
-        exprIsFunctionCallOf(enumArg, "::", 2)
+        exprIsFunctionCallOf(enumArg, "=", 2) &&
+        exprIsFunctionCall(enumArg.args[0]) &&
+        exprIsFunctionCallOf(enumArg.args[0], ".", 2)
       ) {
-        const lhsExpr = enumArg.args[0]!;
+        // NOTE: We currently only support the use of "Self"
+        if (!exprIsAtomOf(enumArg.args[0].args[0]!, "Self")) {
+          throw this.formatErrorMessage(
+            enumArg.args[0].args[0]!.token,
+            `Expected "Self" for type method, got ${exprToString(enumArg.args[0].args[0]!)}`
+          );
+        }
+        const methodNameExpr = enumArg.args[0].args[1]!;
         const rhsExpr = enumArg.args[1]!;
 
-        // Expect lhsExpr to be an identifier or operator
-        if (!this.isValidVariableName(lhsExpr)) {
+        // Expect methodNameExpr to be an identifier or operator
+        if (!this.isValidVariableName(methodNameExpr)) {
           throw this.formatErrorMessage(
-            lhsExpr.token,
+            methodNameExpr.token,
             `Expected identifier or operator for type method, got ${exprToString(
-              lhsExpr
+              methodNameExpr
             )}`
           );
         }
@@ -4779,16 +4826,16 @@ compt(${exprToString(returnTypeExpr)})`
         }
 
         // Check label doesn't exist in typeMethods and variants
-        const label = lhsExpr.token.value;
+        const label = methodNameExpr.token.value;
         if (typeMethods.some((method) => method.label === label)) {
           throw this.formatErrorMessage(
-            lhsExpr.token,
+            methodNameExpr.token,
             `Duplicate type method label "${label}" in enum.`
           );
         }
         if (enumType.variants.some((variant) => variant.name === label)) {
           throw this.formatErrorMessage(
-            lhsExpr.token,
+            methodNameExpr.token,
             `Variant "${label}" already exists.`
           );
         }
@@ -5550,10 +5597,10 @@ compt(${exprToString(returnTypeExpr)})`
 
             const methodType = methodExpr.$?.type;
             const methodValue = methodExpr.$?.value;
-            if (!methodType || !methodValue) {
+            if (!methodType) {
               throw this.formatErrorMessage(
                 methodExpr.token,
-                `Expected to be an interface method.`
+                `Expected to be a function.`
               );
             }
             functions = [
@@ -5946,16 +5993,20 @@ ${functionsWithMatchingTypes
           pathCollection: [],
         };
         // FIXME: Support to set value for comptime
-        const { values: memberValues, pathCollection } =
-          this.tryToCallTypeWithArguments({
-            memberElements: value.value.elements,
-            functionCallExpr: func,
-            argExprs: args,
-            callerEnv: env,
-            context: {
-              ...context,
-            },
-          });
+        const {
+          values: memberValues,
+          pathCollection,
+          callerEnv,
+        } = this.tryToCallTypeWithArguments({
+          memberElements: value.value.elements,
+          functionCallExpr: func,
+          argExprs: args,
+          callerEnv: env,
+          context: {
+            ...context,
+          },
+        });
+        env = callerEnv;
         if (!memberValues) {
           throw this.formatErrorMessage(
             func.token,
@@ -5965,6 +6016,7 @@ ${functionsWithMatchingTypes
         const structValue = createStructValue(structType, memberValues);
         expr.$.value = structValue;
         expr.$.pathCollection = pathCollection;
+        expr.$.env = env;
 
         // Attach necessary info to the func
         func.$ = {
@@ -5995,14 +6047,19 @@ ${functionsWithMatchingTypes
             `Enum variant not selected for enum type`
           );
         }
-        const { values: memberValues, pathCollection } =
-          this.tryToCallTypeWithArguments({
-            memberElements: selectedVariant.elements || [],
-            functionCallExpr: func,
-            argExprs: args,
-            callerEnv: env,
-            context: { ...context },
-          });
+        const {
+          values: memberValues,
+          pathCollection,
+          callerEnv,
+        } = this.tryToCallTypeWithArguments({
+          memberElements: selectedVariant.elements || [],
+          functionCallExpr: func,
+          argExprs: args,
+          callerEnv: env,
+          context: { ...context },
+        });
+        env = callerEnv;
+
         if (!memberValues) {
           throw this.formatErrorMessage(
             func.token,
@@ -6018,6 +6075,7 @@ ${functionsWithMatchingTypes
           expr.$.value = enumValue;
         }
         expr.$.pathCollection = pathCollection;
+        expr.$.env = env;
 
         // Attach necessary info to the func
         func.$ = {
@@ -6279,7 +6337,7 @@ ${exprToString(expr)}`
       logger.debug(error);
       throw error;
     }
-    if (!evaluatedArgExpr) {
+    if (!evaluatedArgExpr.$) {
       throw this.formatErrorMessage(
         argExpr?.token ?? PlaceholderToken,
         `Failed to evaluate argument expression.`
@@ -6288,9 +6346,9 @@ ${exprToString(expr)}`
 
     // Check the borrowings
     if (
-      evaluatedArgExpr.$?.type &&
-      (isMutRefType(evaluatedArgExpr.$?.type) ||
-        isRefType(evaluatedArgExpr.$?.type))
+      evaluatedArgExpr.$.type &&
+      (isMutRefType(evaluatedArgExpr.$.type) ||
+        isRefType(evaluatedArgExpr.$.type))
     ) {
       checkBorrowings(context.borrowings, evaluatedArgExpr);
 
@@ -6304,14 +6362,7 @@ ${exprToString(expr)}`
       ]);
     }
 
-    const argType = evaluatedArgExpr.$?.type;
-    if (!argType) {
-      throw this.formatErrorMessage(
-        argExpr?.token ?? PlaceholderToken,
-        `Failed to evaluate argument expression.`
-      );
-      // If synthesis fails, the types are not compatible
-    }
+    const argType = evaluatedArgExpr.$.type;
 
     // Cannot assign runtime parameter to compt parameter
     if (!evaluatedArgExpr.$?.value && parameter.isCompileTimeOnly) {
@@ -6325,7 +6376,7 @@ ${exprToString(expr)}`
 
     // Add the arg to the environment
     // console.log("(10) addVariableToEnv");
-    const argValue = evaluatedArgExpr.$?.value;
+    const argValue = evaluatedArgExpr.$.value;
     const { env: nextEnv } = addVariableToEnv({
       env: calleeEnv,
       variable: {
@@ -6458,17 +6509,6 @@ ${exprToString(expr)}`
     }
     argExprs = newArgExprs;
 
-    /* NOTE: We now support default values
-    // ~~NOTE: We don't support default values for function parameters~~
-    // So we need to check if the number of arguments is correct
-    if (givenArgCount !== functionType.parameters.length) {
-      throw this.formatErrorMessage(
-        functionCallExpr?.token ?? PlaceholderToken,
-        `Expected ${functionType.parameters.length} arguments, got ${argExprs.length}.`
-      );
-    }
-    */
-
     // Push new frame to env
     callerEnv = pushEnvFrame(callerEnv);
     // Push new frame to function env
@@ -6507,26 +6547,15 @@ ${exprToString(expr)}`
       calleeEnv = nextEnv;
     }
 
-    /* NOTE: We now support default values
-    // Evaluate the forallArgsExpr
-    // Add necessary type parameters to the calleeEnv
-    if (
-      forallArgsExpr &&
-      forallArgsExpr.args.length !== functionType.typeParameters.length
-    ) {
-      throw this.formatErrorMessage(
-        forallArgsExpr.token,
-        `Expected ${functionType.typeParameters.length} type arguments, got ${forallArgsExpr.args.length}.`
-      );
-    }
-    */
-
     for (let i = 0; i < functionType.typeParameters.length; i++) {
       // Add typeParameter to calleeEnv
       const typeParameter = functionType.typeParameters[i]!;
+      let typeParameterVariable: Variable | undefined = undefined;
+      // NOTE: No need to add typeParameter to env
+      //       It will cause the variable shadowing problem.
       if (typeParameter.exprs.labelExpr && typeParameter.label) {
         // console.log("(12) addVariableToEnv");
-        const { env: nextEnv } = addVariableToEnv({
+        const { env: nextEnv, variable } = addVariableToEnv({
           env: calleeEnv,
           variable: {
             name: typeParameter.label,
@@ -6540,6 +6569,7 @@ ${exprToString(expr)}`
           },
         });
         calleeEnv = nextEnv;
+        typeParameterVariable = variable;
       }
 
       if (forallArgsExpr) {
@@ -6669,25 +6699,35 @@ Got:   ${typeToString(typeValue.type)}`
 
         // Add the type to the env
         if (typeParameter.label) {
-          // QUESTION: Should we just update the existing variable?
           // console.log("(13) addVariableToEnv");
-          const { env: nextEnv } = addVariableToEnv({
-            env: calleeEnv,
-            variable: {
-              name: typeParameter.label,
-              token:
-                forallArgExpr?.token ??
-                functionCallExpr?.token ??
-                PlaceholderToken,
-              type: typeValue.type,
-              isMutable: false,
-              isCompileTimeOnly: true,
-              isUndefined: false, // Set as initialized
-              isImplicit: false,
-              value: typeValue,
-            },
-          });
-          calleeEnv = nextEnv;
+          if (typeParameterVariable) {
+            calleeEnv = updateExistingVariable(
+              calleeEnv,
+              typeParameterVariable,
+              {
+                ...typeParameterVariable,
+                value: typeValue,
+              }
+            );
+          } else {
+            const { env: nextEnv } = addVariableToEnv({
+              env: calleeEnv,
+              variable: {
+                name: typeParameter.label,
+                token:
+                  forallArgExpr?.token ??
+                  functionCallExpr?.token ??
+                  PlaceholderToken,
+                type: typeValue.type,
+                isMutable: false,
+                isCompileTimeOnly: true,
+                isUndefined: false, // Set as initialized
+                isImplicit: false,
+                value: typeValue,
+              },
+            });
+            calleeEnv = nextEnv;
+          }
         }
       }
     }
@@ -7037,7 +7077,11 @@ ${implicitVariables
     argExprs: Expr[];
     callerEnv: Environment;
     context: EvaluatorContext;
-  }): { values: (Value | undefined)[]; pathCollection: PathCollection } {
+  }): {
+    values: (Value | undefined)[];
+    pathCollection: PathCollection;
+    callerEnv: Environment;
+  } {
     if (argExprs.length > memberElements.length) {
       throw this.formatErrorMessage(
         functionCallExpr.token,
@@ -7119,13 +7163,17 @@ ${tupleElementToString(paramElement_)}`
         },
       });
 
-      const argType = evaluatedArgExpr.$?.type;
-      if (!argType) {
+      if (!evaluatedArgExpr.$) {
         throw this.formatErrorMessage(
           argExpr.token,
           `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
         );
       }
+      // Set the argExpr as consumed
+      callerEnv = setExprAsConsumed(evaluatedArgExpr, evaluatedArgExpr.$.env);
+
+      // Get the type of the evaluated arg expr
+      const argType = evaluatedArgExpr.$.type;
 
       // Check the borrowings
       if (evaluatedArgExpr.$ && (isMutRefType(argType) || isRefType(argType))) {
@@ -7157,9 +7205,9 @@ Got:   ${typeToString(argType)}`
       }
 
       // Set the values
-      // if (memberElement.isCompileTimeOnly) {
-      values[memberElementPositionIndex] = evaluatedArgExpr.$?.value;
-      // }
+      if (memberElement.isCompileTimeOnly) {
+        values[memberElementPositionIndex] = evaluatedArgExpr.$?.value;
+      }
       checkedMemberElements.add(memberElement);
     }
 
@@ -7174,9 +7222,10 @@ Got:   ${typeToString(argType)}`
           );
         } else {
           // Set the default value to values
-          // if (memberElement.isCompileTimeOnly) {
-          values[i] = memberElement.defaultValue ?? memberElement.assignedValue;
-          // }
+          if (memberElement.isCompileTimeOnly) {
+            values[i] =
+              memberElement.defaultValue ?? memberElement.assignedValue;
+          }
         }
       }
     }
@@ -7192,7 +7241,7 @@ Got:   ${typeToString(argType)}`
       });
     }
 
-    return { values, pathCollection };
+    return { values, pathCollection, callerEnv };
   }
 
   private tryToCallArrayWithArguments({
@@ -8699,7 +8748,7 @@ Got:   ${typeToString(argType)}`
       if (tupleElement.exprs.defaultValueExpr) {
         throw this.formatErrorMessage(
           tupleElement.exprs.defaultValueExpr!.token,
-          `Tuple elements cannot have default value.`
+          `Tuple type cannot have default value.`
         );
       }
     });

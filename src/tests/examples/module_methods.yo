@@ -26,14 +26,14 @@ receiver :: MyAdd.Self; // i32
 main :: (()-> unit) {
   // Call function from module:
   x := MyAdd.my_add(1, 2);
-  x := MyAdd.new_self();
-  x := MyAdd.new_self2(true);
+  x2 := MyAdd.new_self();
+  x3 := MyAdd.new_self2(true);
   
   // Or use the method call
-  x := (1).my_add(2);
+  x4 := (1).my_add(2);
   
   // Explict call
-  x := (1).(MyAdd.my_add)(2);
+  x5 := (1).(MyAdd.my_add)(2);
 
   // This is prohibited because `boolean` is not the receiver type of MyAdd interface
   // (true).new_self2(); // not ok
@@ -41,9 +41,9 @@ main :: (()-> unit) {
   MyAdd.new_self2(false); // ok
   
   // Function returning an module
-  Id :: ((compt(Self): Type) -> compt(Type))
-    module
-      (Self: Type) = Self,
+  Id :: ((@(Self_): Type) -> @(Type))
+    struct
+      (@(Self): Type) = Self_,
       id: ((x: Self)-> Self)
   ;
 
@@ -51,7 +51,7 @@ main :: (()-> unit) {
     id:
       fn(x)-> x;
   receiver :: IdI32.Self; // i32
-  x := IdI32.id(1);
-  x := (13).id();
-  x := (13).(IdI32.id)();
+  x6 := IdI32.id(1);
+  x7 := (13).id();
+  x8 := (13).(IdI32.id)();
 };

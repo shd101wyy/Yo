@@ -1,24 +1,17 @@
+Shape :: enum
+  Circle(radius: i32),
+  Rectangle(width: i32, height: i32),
+  Triangle(base: i32, height: i32),
+
+  Self.new_circle = (
+    ((radius: i32) -> Self)
+      .Circle(radius)
+  ),
+  Self.id = (((self: Self)-> Self)
+    self
+  )
+;
 main :: (()-> unit) {
-  // Different types of data structures
-  SomeStruct :: struct(x: i32, y: boolean);
-  Complex :: Tuple(SomeStruct);
-
-  (d : Tuple(a: i32, b: SomeStruct)) = (1, SomeStruct(2, false));
-
-  // Support destructuring struct
-  {
-    (a, _(x, y)) := d;
-  };
-  /// or
-  {
-    (a, {x, y}) := d;
-    /// or
-    (another_a, {y: another_y, x: another_x}) := d;
-
-  };
-  /// or
-  {
-    // (a, Complex.0(x, y)) := d; // This is not supported
-    (b: _(x, y), a: another_a) := d;
-  };
-}; 
+  c := Shape.new_circle(5);
+  d := c.id();
+};

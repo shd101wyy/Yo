@@ -376,7 +376,7 @@ export function popEnvFrame(
             errorMessage: `${
               isTempVariableName(env.modulePath, variable.name)
                 ? "Value"
-                : "Variable"
+                : `Variable "${variable.name}"`
             } is "Linear" type but is not consumed:
 ${typeToString(variable.type)}`,
           };
@@ -523,6 +523,7 @@ export function printEnvVarNames(env: Environment) {
         isMutable: variable.isMutable,
         isImplicit: variable.isImplicit,
         isUndefined: variable.isUndefined,
+        isConsumed: !!variable.consumedAtToken,
       }));
     })
   );

@@ -428,16 +428,12 @@ export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
         inputString: env.inputString,
         tokenAndErrorList: [
           {
-            token: variableToConsume.token,
+            token: expr.token,
             errorMessage: `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`,
           },
           {
             token: variableToConsume.consumedAtToken,
             errorMessage: `Previously consumed here:`,
-          },
-          {
-            token: expr.token,
-            errorMessage: `Trying to be used again there:`,
           },
         ],
       });

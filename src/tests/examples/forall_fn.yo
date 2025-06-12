@@ -21,11 +21,11 @@ id_func ::
   xxx
 };
 
-x := id_func(12);
-x := id_func(true);
-x := id_func(forall(i32), 12);
-x := id_func(forall(T: i32), 12);
-x := id_func(forall(_), 12);
+x3 := id_func(12);
+x4 := id_func(true);
+x5 := id_func(forall(i32), 12);
+x6 := id_func(forall(T: i32), 12);
+x7 := id_func(forall(_), 12);
 // x := id_func(forall(undefined), 12); // <= This is supposed to give error
 
 // Anonymous function
@@ -34,17 +34,18 @@ anonymous_func :
     x: T)-> T;
 anonymous_func =
   fn(a)-> a;
-x := anonymous_func(12);
-x := anonymous_func(true);
+x8 := anonymous_func(12);
+x9 := anonymous_func(true);
 
 
 // tuple
 tuple_func ::
-  ((forall(compt(T): Type, compt(Y): Type), 
-    x: (T, Y), a: T, b: Y)-> (T, Y))
+  ((forall(compt(T): Type, compt(Y): Type),
+    x: Tuple(T, Y), a: T, b: Y)-> Tuple(T, Y)) {
+  consume(x);
   (a, b)
-;
-x := tuple_func((12, true), 1, false);
+};
+x10 := tuple_func((12, true), 1, false);
 
 
 // struct
@@ -55,14 +56,15 @@ Container ::
 
 use_container ::
   ((forall(compt(X): Type), 
-    c: Container(X), x: X)-> X)
+    c: Container(X), x: X)-> X) {
+  consume(c);
   x
-;
+};
 
 i32_container_value := Container(i32)(12);
-x := use_container(i32_container_value, 13);
-x := use_container(Container(i32)(13), 12);
-x := use_container(Container(boolean)(true), false);
+x11 := use_container(i32_container_value, 13);
+x12 := use_container(Container(i32)(13), 12);
+x13 := use_container(Container(boolean)(true), false);
 
 // Parameter contains function type
 generic_fn ::

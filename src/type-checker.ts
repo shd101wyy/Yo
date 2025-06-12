@@ -1745,20 +1745,14 @@ export function functionParameterToString(
     label = `@(${label})`;
   }
 
-  const typeStr = parameter.exprs.typeExpr
-    ? exprToString(parameter.exprs.typeExpr)
-    : "";
+  const typeStr = typeToString(parameter.type);
 
   const defaultValueStr = parameter.exprs.defaultValueExpr
     ? exprToString(parameter.exprs.defaultValueExpr)
     : "";
 
   if (defaultValueStr) {
-    if (typeStr) {
-      return `(${label}: ${typeStr}) ?= ${defaultValueStr}`;
-    } else {
-      return `${label} ?= ${defaultValueStr}`;
-    }
+    return `(${label}: ${typeStr}) ?= ${defaultValueStr}`;
   } else {
     // typeStr is always defined here
     return `${label}: ${typeStr}`;

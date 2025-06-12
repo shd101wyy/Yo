@@ -2,10 +2,10 @@ Box :: ((@(B): Type)-> @(Type))
   struct(value: B)
 ;
 
-Point :: ((@(T): Type)-> @(Type))
+Point :: ((@(P): Type)-> @(Type))
   struct
-    x: T,
-    y: T
+    x: P,
+    y: P
 ;
 
 Id ::
@@ -40,8 +40,11 @@ IdBox ::
   flag :: are_types_compatible(Box(X), Box(X));
   Id(Box(X))
     id:
-      fn(p) ->
-        Box(X)(I.id(p.value))
+      fn(p) -> {
+        { value } := p;
+        Box(X)(value)
+        // Box(X)(I.id(value))
+      }
   }
   ;
 
@@ -51,8 +54,10 @@ IdPoint ::
   )-> @(Id(Point(X))))
   Id(Point(X))
     id:
-      fn(p) ->
-        Point(X)(I.id(p.x), I.id(p.y))
+      fn(p) -> {
+        { x, y } := p;
+        Point(X)(I.id(x), I.id(y))
+      }
   ;
 
 id(IdInt, 13);
