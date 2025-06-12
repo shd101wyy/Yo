@@ -1,37 +1,24 @@
-// Spread operator in structs
-_2DPoint :: struct(
-  x : i32,
-  y : i32
-);
+main :: (()-> unit) {
+  // Different types of data structures
+  SomeStruct :: struct(x: i32, y: boolean);
+  Complex :: Tuple(SomeStruct);
 
-_3DPoint :: struct(
-  ...(_2DPoint),
-  z : i32
-);
+  (d : Tuple(a: i32, b: SomeStruct)) = (1, SomeStruct(2, false));
 
-p :: _3DPoint(3, 4, 5);
+  // Support destructuring struct
+  {
+    (a, _(x, y)) := d;
+  };
+  /// or
+  {
+    (a, {x, y}) := d;
+    /// or
+    (another_a, {y: another_y, x: another_x}) := d;
 
-anonymous_struct := { x: 1, y: 2 };
-another_anonymous_struct := { ...(anonymous_struct), z: 3 };
-
-ModuleA :: module {
-  a :: 1;
-  export a;
-};
-
-ModuleB :: module {
-  b :: 2;
-  export b;
-};
-
-ModuleC :: module {
-  export
-    ...(ModuleA),
-    ...(ModuleB)
-  ;
-};
-
-Combined :: {
-  ...(ModuleA),
-  ...(ModuleB)
-};
+  };
+  /// or
+  {
+    // (a, Complex.0(x, y)) := d; // This is not supported
+    (b: _(x, y), a: another_a) := d;
+  };
+}; 
