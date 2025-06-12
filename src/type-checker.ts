@@ -614,6 +614,19 @@ export interface UnionType extends Type {
   tag: TypeTag.Union;
 
   /**
+   * The unique identifier for this struct.
+   */
+  typeId: string;
+
+  /**
+   * The name of the struct.
+   * eg:
+   *   Point := struct(i32, i32);
+   * Point is the name of the struct.
+   */
+  typeName?: string;
+
+  /**
    * The elements of the union.
    */
   elements: TupleElement[];
@@ -848,7 +861,8 @@ export function createEnumType(
 
 export function createUnionType(
   elements: TupleElement[],
-  methods: TypeMethod[] = []
+  methods: TypeMethod[] = [],
+  typeId?: string
 ): UnionType {
   /*
   let maxSize = 0;
@@ -868,6 +882,7 @@ export function createUnionType(
     // size: maxSize, // Changed from totalSize to maxSize as unions use the size of largest variant
     elements,
     methods,
+    typeId: typeId ?? `union_${randomId()}`,
   };
 }
 
@@ -1905,8 +1920,11 @@ export function typeToString(type: Type): string {
     }
 
     case TypeTag.Union: {
-      const elements = (type as UnionType).elements;
-      return `union(${elements
+      const unionType = type as UnionType;
+      const elements = unionType.elements;
+      return `${unionType.typeName ? `(${unionType.typeName}) ` : ""}${
+        unionType.typeName ? "union" : unionType.typeId
+      }(${elements
         .map(
           (element) =>
             `${element.label ? `${element.label}:` : ""}${typeToString(

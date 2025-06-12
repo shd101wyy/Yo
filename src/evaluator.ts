@@ -50,6 +50,7 @@ import {
   createRefType,
   createStructType,
   createTupleType,
+  createUnionType,
   EnumType,
   EnumVariant,
   FunctionParameter,
@@ -2407,7 +2408,9 @@ ${exprToString(expr)}`
       const rhsValue = rhs.$?.value;
       if (
         isTypeValue(rhsValue) &&
-        (isStructType(rhsValue.value) || isEnumType(rhsValue.value)) &&
+        (isStructType(rhsValue.value) ||
+          isEnumType(rhsValue.value) ||
+          isUnionType(rhsValue.value)) &&
         !rhsValue.value.typeName
       ) {
         rhsValue.value.typeName = lhs.token.value;
@@ -4652,7 +4655,7 @@ ${typeToString(returnType)}`
         if (typeMethods.length > 0) {
           throw this.formatErrorMessage(
             arg.token,
-            `Struct element must be defined before type methods.`
+            `Struct fields must be defined before type methods.`
           );
         }
 
@@ -4664,18 +4667,16 @@ ${typeToString(returnType)}`
         });
 
         // Check if there is duplicate labels
-        if (type.label) {
-          const duplicateLabel = elements.find(
-            (element) => element.label === type.label
+        const duplicateLabel = elements.find(
+          (element) => element.label === type.label
+        );
+        if (duplicateLabel) {
+          throw this.formatErrorMessage(
+            exprIsFunctionCall(arg)
+              ? (arg.args[0]?.token ?? arg.token)
+              : arg.token,
+            `Duplicate label "${type.label}" in struct`
           );
-          if (duplicateLabel) {
-            throw this.formatErrorMessage(
-              exprIsFunctionCall(arg)
-                ? (arg.args[0]?.token ?? arg.token)
-                : arg.token,
-              `Duplicate label "${type.label}" in tuple`
-            );
-          }
         }
 
         elements.push(type);
@@ -4922,6 +4923,176 @@ ${typeToString(returnType)}`
     };
 
     // Append more information to "enum" token.
+    expr.func.$ = expr.$;
+    return expr;
+  }
+
+  private evaluateUnionType({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.union)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "union", got:\n${exprToString(expr)}`
+      );
+    }
+
+    // Create unionType with empty elements
+    const unionType = createUnionType([]);
+
+    const elements: TupleElement[] = [];
+    const typeMethods: TypeMethod[] = [];
+    unionType.elements = elements;
+    unionType.methods = typeMethods;
+
+    const args = expr.args;
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+
+      // type method
+      // eg:
+      //   Self.new = (((lhs: Self, rhs: i32) -> i32) {})
+      if (
+        exprIsFunctionCall(arg) &&
+        exprIsFunctionCallOf(arg, "=", 2) &&
+        exprIsFunctionCall(arg.args[0]) &&
+        exprIsFunctionCallOf(arg.args[0], ".", 2)
+      ) {
+        // NOTE: We currently only support the use of "Self"
+        if (!exprIsAtomOf(arg.args[0].args[0]!, "Self")) {
+          throw this.formatErrorMessage(
+            arg.args[0].args[0]!.token,
+            `Expected "Self" for type method, got ${exprToString(arg.args[0].args[0]!)}`
+          );
+        }
+
+        const methodNameExpr = arg.args[0].args[1]!;
+        const rhsExpr = arg.args[1]!;
+
+        // Expect methodNameExpr to be an identifier or operator
+        if (!this.isValidVariableName(methodNameExpr)) {
+          throw this.formatErrorMessage(
+            methodNameExpr.token,
+            `Expected identifier or operator for type method, got ${exprToString(
+              methodNameExpr
+            )}`
+          );
+        }
+
+        // Evaluate the rhsExpr
+        const evaluatedRhs = this.evaluateExpression({
+          expr: rhsExpr,
+          env,
+          context: {
+            ...context,
+            SelfType: unionType,
+          },
+        });
+        if (!evaluatedRhs.$) {
+          throw this.formatErrorMessage(
+            rhsExpr.token,
+            `Failed to evaluate the type method expression: ${exprToString(rhsExpr)}`
+          );
+        }
+
+        // Expect it has function value
+        const funcValue = evaluatedRhs.$.value;
+        if (!isFunctionValue(funcValue)) {
+          throw this.formatErrorMessage(
+            rhsExpr.token,
+            `Expected function value for type method, got ${valueToString(funcValue)}`
+          );
+        }
+
+        const funcType = funcValue.type;
+        if (!isFunctionType(funcType)) {
+          throw this.formatErrorMessage(
+            rhsExpr.token,
+            `Expected function type for type method, got ${typeToString(
+              funcType
+            )}`
+          );
+        }
+
+        // Check label doesn't exist in typeMethods and struct elements
+        const label = methodNameExpr.token.value;
+        if (typeMethods.some((method) => method.label === label)) {
+          throw this.formatErrorMessage(
+            methodNameExpr.token,
+            `Duplicate type method label "${label}" in struct.`
+          );
+        }
+        if (elements.some((element) => element.label === label)) {
+          throw this.formatErrorMessage(
+            methodNameExpr.token,
+            `Member label "${label}" already exists.`
+          );
+        }
+
+        typeMethods.push({
+          label,
+          type: funcType,
+          value: funcValue,
+        });
+      }
+      // tuple element
+      else {
+        if (typeMethods.length > 0) {
+          throw this.formatErrorMessage(
+            arg.token,
+            `Union fields must be defined before type methods.`
+          );
+        }
+
+        const { type, env: nextEnv } = this.evaluateTupleElementType({
+          expr: arg,
+          env,
+          tupleElementIndex: i,
+          context: { ...context, SelfType: unionType },
+        });
+
+        // Check if there is duplicate labels
+        const duplicateLabel = elements.find(
+          (element) => element.label === type.label
+        );
+        if (duplicateLabel) {
+          throw this.formatErrorMessage(
+            exprIsFunctionCall(arg)
+              ? (arg.args[0]?.token ?? arg.token)
+              : arg.token,
+            `Duplicate label "${type.label}" in tuple`
+          );
+        }
+
+        // Check if any field is compile-time only
+        if (type.isCompileTimeOnly) {
+          throw this.formatErrorMessage(
+            type.exprs.expr.token,
+            `Union type cannot have compile-time only fields.`
+          );
+        }
+
+        elements.push(type);
+        env = nextEnv;
+      }
+    }
+
+    const unionTypeValue = createTypeValue(unionType);
+    expr.$ = {
+      env,
+      value: unionTypeValue,
+      type: unionTypeValue.type,
+      isMutable: false,
+      pathCollection: [],
+    };
+
+    // Append more information to "union" token.
     expr.func.$ = expr.$;
     return expr;
   }
@@ -5798,6 +5969,21 @@ ${typeToString(returnType)}`
             }
           }
         }
+        // union value
+        else if (isTypeValue(value) && isUnionType(value.value)) {
+          try {
+            this.tryToCallTypeWithArguments({
+              memberElements: value.value.elements,
+              functionCallExpr: func,
+              argExprs: args,
+              callerEnv: env,
+              context: { ...context },
+              isUnionType: true,
+            });
+          } catch (error) {
+            functionToCall.error = error;
+          }
+        }
         // function
         else if (isTypeValue(value) && isFunctionType(value.value)) {
           const functionType = value.value;
@@ -5830,7 +6016,7 @@ ${typeToString(returnType)}`
           functionToCall.error = this.formatErrorMessage(
             func.token,
             `Invalid function call on type:
-${typeToString(functionToCall.type)}`
+${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.type)}`
           );
         }
         return functionToCall;
@@ -5998,7 +6184,7 @@ ${functionsWithMatchingTypes
           pathCollection,
           callerEnv,
         } = this.tryToCallTypeWithArguments({
-          memberElements: value.value.elements,
+          memberElements: structType.elements,
           functionCallExpr: func,
           argExprs: args,
           callerEnv: env,
@@ -6074,6 +6260,40 @@ ${functionsWithMatchingTypes
           );
           expr.$.value = enumValue;
         }
+        expr.$.pathCollection = pathCollection;
+        expr.$.env = env;
+
+        // Attach necessary info to the func
+        func.$ = {
+          env,
+          type: value.type,
+          value: value,
+          isMutable: false,
+          pathCollection: [],
+        };
+        return expr;
+      }
+      // union value
+      else if (isTypeValue(value) && isUnionType(value.value)) {
+        const unionType = value.value;
+        expr.$ = {
+          env,
+          type: unionType,
+          isMutable: false,
+          pathCollection: [],
+        };
+        const { pathCollection, callerEnv } = this.tryToCallTypeWithArguments({
+          memberElements: unionType.elements,
+          functionCallExpr: func,
+          argExprs: args,
+          callerEnv: env,
+          context: {
+            ...context,
+          },
+          isUnionType: true,
+        });
+        env = callerEnv;
+        expr.$.value = undefined;
         expr.$.pathCollection = pathCollection;
         expr.$.env = env;
 
@@ -7071,12 +7291,14 @@ ${implicitVariables
     argExprs,
     callerEnv,
     context,
+    isUnionType,
   }: {
     memberElements: TupleElement[];
     functionCallExpr: Expr;
     argExprs: Expr[];
     callerEnv: Environment;
     context: EvaluatorContext;
+    isUnionType?: boolean;
   }): {
     values: (Value | undefined)[];
     pathCollection: PathCollection;
@@ -7086,6 +7308,12 @@ ${implicitVariables
       throw this.formatErrorMessage(
         functionCallExpr.token,
         `Failed to call the type. Too many members provided. Expected ${memberElements.length} arguments, got ${argExprs.length}.`
+      );
+    }
+    if (isUnionType && argExprs.length !== 1) {
+      throw this.formatErrorMessage(
+        functionCallExpr.token,
+        `Failed to call the union type. Expected exactly one argument, got ${argExprs.length}.`
       );
     }
 
@@ -7211,20 +7439,22 @@ Got:   ${typeToString(argType)}`
       checkedMemberElements.add(memberElement);
     }
 
-    // Check if any unchecked member elements have no default value
-    for (let i = 0; i < memberElements.length; i++) {
-      const memberElement = memberElements[i]!;
-      if (!checkedMemberElements.has(memberElement)) {
-        if (!memberElement.defaultValue && !memberElement.assignedValue) {
-          throw this.formatErrorMessage(
-            functionCallExpr.token,
-            `Type member "${memberElement.label}" is not provided and has no default value or assigned value.`
-          );
-        } else {
-          // Set the default value to values
-          if (memberElement.isCompileTimeOnly) {
-            values[i] =
-              memberElement.defaultValue ?? memberElement.assignedValue;
+    if (!isUnionType) {
+      // Check if any unchecked member elements have no default value
+      for (let i = 0; i < memberElements.length; i++) {
+        const memberElement = memberElements[i]!;
+        if (!checkedMemberElements.has(memberElement)) {
+          if (!memberElement.defaultValue && !memberElement.assignedValue) {
+            throw this.formatErrorMessage(
+              functionCallExpr.token,
+              `Type member "${memberElement.label}" is not provided and has no default value or assigned value.`
+            );
+          } else {
+            // Set the default value to values
+            if (memberElement.isCompileTimeOnly) {
+              values[i] =
+                memberElement.defaultValue ?? memberElement.assignedValue;
+            }
           }
         }
       }
@@ -9121,6 +9351,9 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.enum)) {
         // enum
         return this.evaluateEnumType({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.union)) {
+        // union
+        return this.evaluateUnionType({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, ".")) {
         // property access
         return this.evaluatePropertyAccess({
