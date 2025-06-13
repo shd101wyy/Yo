@@ -1,15 +1,21 @@
+{ Eq } :: import "./eq.yo";
+
 Ordering :: enum
   Less,
   Equal,
   Greater
 ;
 
-fn Ord((Self : Type) <: Eq), interface {
-  compare: (fn(self: &(Self), other: &(Self)) -> Ordering),
-  lt: (fn(self: &(Self), other: &(Self)) -> boolean),
-  gt: (fn(self: &(Self), other: &(Self)) -> boolean),
-  le: (fn(self: &(Self), other: &(Self)) -> boolean),
-  ge: (fn(self: &(Self), other: &(Self)) -> boolean)
-};
+Ord :: (((@(Self) : Type), implicit(@(EqSelf) : Eq(Self))) -> @(Type))
+  module
+    compare: (fn(self: &(Self), other: &(Self)) -> Ordering),
+    lt: (fn(self: &(Self), other: &(Self)) -> boolean),
+    gt: (fn(self: &(Self), other: &(Self)) -> boolean),
+    le: (fn(self: &(Self), other: &(Self)) -> boolean),
+    ge: (fn(self: &(Self), other: &(Self)) -> boolean)
+;
 
-{ Ordering, Ord }
+export 
+  Ordering, 
+  Ord
+;

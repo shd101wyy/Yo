@@ -1,35 +1,49 @@
-fn LogicalAnd(Lhs: Type, Rhs = Lhs), interface {
-  (&&): (fn(lhs: Lhs, rhs: Rhs)-> boolean)
-};
+LogicalAnd :: ((@(Lhs): Type, @(Rhs) ?= Lhs)-> @(Type))
+  module
+    Self  :: Lhs,
+    @(&&) : ((lhs: Lhs, rhs: Rhs)-> boolean)
+;
 
-fn LogicalOr(Lhs: Type, Rhs = Lhs), interface {
-  (||): (fn(lhs: Lhs, rhs: Rhs)-> boolean)
-};
+LogicalOr :: ((@(Lhs): Type, @(Rhs) ?= Lhs)-> @(Type))
+  module
+    Self  :: Lhs,
+    @(||) : ((lhs: Lhs, rhs: Rhs)-> boolean)
+;
 
-fn LogicalNot(Self: Type), interface {
-  (!): (fn(self: Self)-> boolean)
-};
+LogicalNot :: ((@(Self): Type) -> @(Type))
+  module
+    Self :: Self,
+    @(!) : ((self: Self)-> boolean)
+;
 
-fn BitNot(Self: Type), interface {
-  (~): (fn(self: Self)-> Self)
-};
+BitNot :: ((@(Self): Type) -> @(Type))
+  module
+    Self :: Self,
+    @(~) : ((self: Self)-> Self)
+;
 
-fn BitAnd(Lhs: Type, Rhs = Lhs), interface {
-  (Output: Type) = Lhs,
-  (&): (fn(lhs: Lhs, rhs: Rhs)-> this.Output)
-};
+BitAnd :: ((@(Lhs): Type, @(Rhs) ?= Lhs) -> @(Type)) 
+  module
+    Self :: Lhs,
+    @(Output) ?= Lhs,
+    @(&): ((lhs: Lhs, rhs: Rhs)-> Output)
+;
 
-fn BitOr(Lhs: Type, Rhs = Lhs), interface {
-  (Output: Type) = Lhs,
-  (|): (fn(lhs: Lhs, rhs: Rhs)-> this.Output)
-};
+BitOr :: ((@(Lhs): Type, @(Rhs) ?= Lhs) -> @(Type))
+  module
+    Self :: Lhs,
+    @(Output) ?= Lhs,
+    (|): ((lhs: Lhs, rhs: Rhs)-> Output)
+;
 
-fn BitXor(Lhs: Type, Rhs = Lhs), interface {
-  (Output: Type) = Lhs,
-  (^): (fn(lhs: Lhs, rhs: Rhs)-> this.Output)
-};
+BitXor :: ((@(Lhs): Type, @(Rhs) ?= Lhs) -> @(Type)) 
+  module
+    Self :: Lhs,
+    @(Output) ?= Lhs,
+    @(^): ((lhs: Lhs, rhs: Rhs)-> Output)
+;
 
-{ 
+export
   LogicalAnd,
   LogicalOr,
   LogicalNot,
@@ -37,4 +51,4 @@ fn BitXor(Lhs: Type, Rhs = Lhs), interface {
   BitAnd,
   BitOr,
   BitXor
-}
+;

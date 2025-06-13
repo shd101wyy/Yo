@@ -1,33 +1,7 @@
-extern
-  add: 
-    (x: i32, y: i32)-> i32
+IdModule :: ((@(Self): Type)-> @(Type))
+  module
+    Self :: Self,
+    id: ((self: Self) -> Self)
 ;
 
-Point :: struct(i32);
-
-MY_ADD :: module
-  (@(Self): Type) = i32,
-  @(AnotherType): Type,
-  my_add: ((x: Self, y: Self)-> Self),
-  new: ((flag: AnotherType)-> Self)
-;
-
-MyAdd :: MY_ADD(
-  AnotherType : boolean, 
-  my_add:
-    fn(a, b)-> add(a, b),
-  new: 
-    fn(x) -> { consume(x); 0 }
-);
-
-
-receiver :: MyAdd.Self; // i32
-another_type :: MyAdd.AnotherType; // boolean
-my_add :: MyAdd.my_add;
-
-main :: (()-> unit) {
-  // Call function from module:
-  x := my_add(1, 2);
-  y := MyAdd.new(false);
-  ()
-};
+I32Id :: IdModule(i32);

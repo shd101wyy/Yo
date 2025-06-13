@@ -601,6 +601,39 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
         );
       }
       label = labelExpr.token.value;
+    } else if (
+      exprIsFunctionCall(expr_) &&
+      exprIsFunctionCallOf(expr_, BuiltinKeywords.compt, 1)
+    ) {
+      if (isCompileTimeOnly) {
+        throw this.formatErrorMessage(
+          expr_.token,
+          `Cannot combine the use of "compt" (or "@") with "::"`
+        );
+      }
+
+      isCompileTimeOnly = true;
+      labelExpr = expr_.args[0]!;
+
+      // Check isImplicit
+      if (
+        exprIsFunctionCall(labelExpr) &&
+        exprIsFunctionCallOf(labelExpr, BuiltinKeywords.implicit, 1)
+      ) {
+        isImplicit = true;
+        labelExpr = labelExpr.args[0]!;
+      }
+
+      // Check if labelExpr is an atom
+      if (!exprIsAtom(labelExpr) && !this.isValidVariableName(labelExpr)) {
+        throw this.formatErrorMessage(
+          labelExpr.token,
+          `Expected identifier for tuple element label, got ${exprToString(
+            labelExpr
+          )}`
+        );
+      }
+      label = labelExpr.token.value;
     } else if (!defaultValueExpr && !assignedValueExpr) {
       // Prevent the case such as:
       //   Self :: i32
@@ -674,7 +707,8 @@ ${typeToString(expectedType)}`
       if (!isCompileTimeOnly) {
         throw this.formatErrorMessage(
           assignedValueExpr.token,
-          `Assigned value expression is only allowed for compile-time only.`
+          `Assigned value expression is only allowed for compile-time only.
+Please consider adding "compt" (or "@") modifier to the field label.`
         );
       }
 
@@ -802,6 +836,13 @@ Given type: ${typeToString(defaultValueType)}`
       throw this.formatErrorMessage(
         expr.token,
         `Failed to infer the element type`
+      );
+    }
+
+    if (typeRequiresComptModifier(elementType) && !isCompileTimeOnly) {
+      throw this.formatErrorMessage(
+        labelExpr?.token ?? expr.token,
+        `Expected "compt" (or "@") modifier for compile-time known value binding.`
       );
     }
 
@@ -2241,7 +2282,7 @@ ${typeToString(expectedTupleType)}`
     if (typeRequiresComptModifier(userDefinedType) && !isCompileTimeOnly) {
       throw this.formatErrorMessage(
         lhs.token,
-        `Expected "compt" (or "@") to for compile-time known ${
+        `Expected "compt" (or "@") for compile-time known ${
           isTypeHierarchyType(userDefinedType) ? "type" : "module"
         } value binding.`
       );
@@ -3866,6 +3907,13 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     let labelExpr: Expr | undefined = undefined;
     let defaultValueExpr: Expr | undefined = undefined;
 
+    if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, "=")) {
+      throw this.formatErrorMessage(
+        expr_.func.token,
+        `Please use "?=" for default parameter value, not "=".`
+      );
+    }
+
     // Check if there is defaultValue
     // eg:
     //   (x = 12)
@@ -4649,7 +4697,10 @@ ${typeToString(returnType)}`
           value: funcValue,
         });
       }
-      // spread operator for extending another struct
+      // spread operator for extending another struct type
+      // NOTE: Let's disable this for now.
+      //       Maybe the spread operator should only work with struct value, not struct type.
+      //       It also causes confusion. Like should we extend the type methods there?
       else if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
         if (typeMethods.length > 0) {
           throw this.formatErrorMessage(
@@ -5138,6 +5189,14 @@ ${typeToString(returnType)}`
           throw this.formatErrorMessage(
             type.exprs.expr.token,
             `Union type cannot have compile-time only fields.`
+          );
+        }
+
+        // Disallow to have the default value for union type fields.
+        if (type.defaultValue) {
+          throw this.formatErrorMessage(
+            type.exprs.defaultValueExpr?.token ?? type.exprs.expr.token,
+            `Union type cannot have default value for its elements.`
           );
         }
 
@@ -8422,7 +8481,7 @@ Got:   ${typeToString(argType)}`
           context: {
             ...context,
             expectedType: undefined,
-            SelfType: moduleType,
+            SelfType: undefined, // NOTE: Module doesn't have SelfType
           },
         });
         if (evaluatedExpr.$?.env) {
@@ -8674,7 +8733,7 @@ Got:   ${typeToString(argType)}`
     // Import the module
     const modulePath = moduleArg.token.value.slice(1, -1); // Remove the quotes
 
-    if (!modulePath.startsWith("./")) {
+    if (!modulePath.startsWith(".")) {
       throw this.formatErrorMessage(
         moduleArg.token,
         "Only local relative path is supported for now"

@@ -1,13 +1,19 @@
-fn Eq(Lhs: Type, Rhs = Lhs), interface {
-  eq: (fn(lhs: &(Lhs), rhs: &(Rhs)) -> boolean),
-  (ne: (fn(lhs: &(Lhs), rhs: &(Rhs)) -> boolean)) = (fn(lhs, rhs) -> {
-    !(lhs.eq(rhs))
-    // or
-    // !(Eq(Lhs, Rhs).eq(lhs, rhs))
-    // or
-    // !(this.eq(lhs, rhs))
-  })
-};
+Eq :: 
+  ((@(Lhs): Type, @(Rhs) ?= Lhs) -> @(Type))
+  module
+    Self :: Lhs,
+    eq: ((lhs: &(Lhs), rhs: &(Rhs)) -> boolean)
+    /*
+    (ne: ((lhs: &(Lhs), rhs: &(Rhs)) -> boolean)) ?= 
+      (fn(lhs, rhs) -> {
+        !(lhs.eq(rhs))
+        // or
+        // !(Eq(Lhs, Rhs).eq(lhs, rhs))
+        // or
+        // !(this.eq(lhs, rhs))
+    })
+    */
+;
 
 // x == y
 // automatically converted to
@@ -20,4 +26,4 @@ export macro (==) <Lhs, Rhs>(lhs: Expr<Lhs>, rhs: Expr<Rhs>): Expr<boolean> {
 }
 */
 
-{ Eq }
+export Eq;
