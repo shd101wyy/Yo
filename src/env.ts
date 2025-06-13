@@ -2,13 +2,14 @@ import { formatErrorMessages } from "./error";
 import { Token } from "./token";
 import {
   areTypesCompatible,
-  getStructReceiverType,
+  getModuleReceiverType,
   isEnumType,
   isFunctionType,
   isLinearOrType0Type,
+  isModuleType,
   isStructType,
   isUnionType,
-  StructType,
+  ModuleType,
   Type,
   typeOfType,
   typeToString,
@@ -16,7 +17,7 @@ import {
 import { generateVarialeId, isTempVariableName } from "./utils";
 import {
   createUnknownValue,
-  isStructValue,
+  isModuleValue,
   isUnknownValue,
   Value,
   valueToString,
@@ -536,14 +537,14 @@ export function getMethodsByNameFromEnv(
 ): { type: Type; value: Value | undefined }[] {
   const methods: { type: Type; value: Value | undefined }[] = [];
 
-  function checkModule(structType: StructType, structValue: Value) {
-    const structReceiverType = getStructReceiverType(structType);
+  function checkModule(moduleType: ModuleType, moduleValue: Value) {
+    const structReceiverType = getModuleReceiverType(moduleType);
     if (!structReceiverType) {
       // NOTE: We require receiverType to be defined with "This"
       return;
     }
 
-    const method = structType.elements.find(
+    const method = moduleType.elements.find(
       (element) =>
         areTypesCompatible(
           { type: structReceiverType, env },
@@ -560,13 +561,13 @@ export function getMethodsByNameFromEnv(
     );
     if (method) {
       let value: Value | undefined = undefined;
-      if (isUnknownValue(structValue)) {
+      if (isUnknownValue(moduleValue)) {
         value = createUnknownValue(method.type, method.label);
-      } else if (isStructValue(structValue)) {
-        const index = structType.elements.findIndex(
+      } else if (isModuleValue(moduleValue)) {
+        const index = moduleType.elements.findIndex(
           (element) => element.label === method.label
         );
-        value = structValue.elements[index];
+        value = moduleValue.elements[index];
       }
 
       methods.push({ type: method.type, value });
@@ -602,14 +603,14 @@ export function getMethodsByNameFromEnv(
     const frame = env.frames[i]!;
     for (let j = frame.variables.length - 1; j >= 0; j--) {
       const variable = frame.variables[j]!;
-      const structType = variable.type;
-      const structValue = variable.value;
+      const moduleType = variable.type;
+      const moduleValue = variable.value;
       if (
         // Find the module value
-        isStructType(structType) &&
-        structValue
+        isModuleType(moduleType) &&
+        moduleValue
       ) {
-        checkModule(structType, structValue);
+        checkModule(moduleType, moduleValue);
       }
     }
   }

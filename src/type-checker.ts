@@ -559,6 +559,39 @@ export interface StructType extends Type {
   methods: TypeMethod[];
 }
 
+export interface ModuleType extends Type {
+  tag: TypeTag.Module;
+
+  /**
+   * The unique identifier for this module.
+   */
+  typeId: string;
+
+  /**
+   * The name of the module.
+   * eg:
+   *   Point := struct(i32, i32);
+   * Point is the name of the struct.
+   */
+  typeName?: string;
+
+  /**
+   * The function that returns the struct.
+   * eg:
+   *   def Container:
+   *     (compt(T): Type)-> compt(Type),
+   *     module(x: T, y: T)
+   * ;
+   * "Container" is the function that returns the struct.
+   */
+  functionValue?: FunctionValue;
+
+  /**
+   * The elements of the module.
+   */
+  elements: TupleElement[];
+}
+
 export interface EnumVariant {
   /**
    * Without `.` prefix
@@ -630,6 +663,11 @@ export interface UnionType extends Type {
    * The elements of the union.
    */
   elements: TupleElement[];
+
+  /**
+   * The function that returns the union.
+   */
+  functionValue?: FunctionValue;
 
   /**
    * The methods implemented for this type
@@ -817,6 +855,17 @@ export function createStructType(
   };
 }
 
+export function createModuleType(
+  elements: TupleElement[],
+  typeId?: string
+): ModuleType {
+  return {
+    tag: TypeTag.Module,
+    elements,
+    typeId: typeId ?? `module_${randomId()}`,
+  };
+}
+
 export function createEnumType(
   variants: EnumVariant[],
   methods: TypeMethod[] = [],
@@ -916,8 +965,8 @@ export function createFunctionType({
   };
 }
 
-export function getStructReceiverType(structType: StructType): Type | null {
-  const receiverType = structType.elements.find(
+export function getModuleReceiverType(moduleType: ModuleType): Type | null {
+  const receiverType = moduleType.elements.find(
     (element) => element.label === "Self" && element.isCompileTimeOnly
   );
   if (!receiverType || !receiverType.assignedValue) {
@@ -1054,6 +1103,8 @@ export function typeOfType(t: Type): Type {
   } else if (isUnionType(t)) {
     // For unions, check all member types
     return determineTypeUniverse(t.elements.map((element) => element.type));
+  } else if (isModuleType(t)) {
+    return TFree;
   } else if (isSomeType(t)) {
     return t.parentType;
   } else if (isMutLinearPtrType(t) || isLinearPtrType(t)) {
@@ -1469,6 +1520,38 @@ export function areTypesCompatible(
     return true;
   }
 
+  if (isModuleType(expected.type) && isModuleType(given.type)) {
+    // Modules must have same elements and compatible types
+    if (
+      expected.type.elements.length !== given.type.elements.length ||
+      (expected.type.typeId !== given.type.typeId &&
+        !typeContainsSomeType(expected.type) &&
+        !typeContainsSomeType(given.type))
+    ) {
+      return false;
+    }
+
+    if (expected.type.typeId === given.type.typeId) {
+      return true;
+    }
+
+    for (let i = 0; i < expected.type.elements.length; i++) {
+      const expectedElement = expected.type.elements[i]!;
+      const givenElement = given.type.elements[i]!;
+
+      if (
+        expectedElement.label !== givenElement.label ||
+        !areTypesCompatible(
+          { type: expectedElement.type, env: expected.env },
+          { type: givenElement.type, env: given.env }
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   if (isFunctionType(expected.type) && isFunctionType(given.type)) {
     return areFunctionTypesCompatible(
       { type: expected.type, env: expected.env },
@@ -1612,6 +1695,10 @@ export function isStructType(type?: Type): type is StructType {
   return type?.tag === TypeTag.Struct;
 }
 
+export function isModuleType(type?: Type): type is ModuleType {
+  return type?.tag === TypeTag.Module;
+}
+
 export function isFunctionType(type?: Type): type is FunctionType {
   return type?.tag === TypeTag.Function;
 }
@@ -1690,10 +1777,7 @@ export function isRefType(type?: Type): type is RefType {
 export function typeRequiresComptModifier(type?: Type): boolean {
   return (
     isTypeHierarchyType(type) ||
-    // If it's struct type, and it has compile-time only elements,
-    // then it cannot be assigned to a runtime variable.
-    (isStructType(type) &&
-      type.elements.some((element) => element.isCompileTimeOnly)) ||
+    isModuleType(type) ||
     isComptIntType(type) ||
     isComptFloatType(type) ||
     isComptStringType(type)
@@ -1730,6 +1814,10 @@ export function typeContainsReference(type?: Type): boolean {
       return (type as UnionType).elements.some((element) =>
         typeContainsReference(element.type)
       );
+    case TypeTag.Module:
+      return (type as ModuleType).elements.some((element) =>
+        typeContainsReference(element.type)
+      );
     default:
       return false; // For other types, no references are present
   }
@@ -1763,6 +1851,10 @@ export function typeContainsSomeType(type?: Type): boolean {
       );
     case TypeTag.Union:
       return (type as UnionType).elements.some((element) =>
+        typeContainsSomeType(element.type)
+      );
+    case TypeTag.Module:
+      return (type as ModuleType).elements.some((element) =>
         typeContainsSomeType(element.type)
       );
     default:
@@ -1918,14 +2010,14 @@ export function typeToString(type: Type): string {
     }
 
     case TypeTag.Struct: {
-      const struct = type as StructType;
-      if (struct.typeName) {
-        return struct.typeName;
+      const structType = type as StructType;
+      if (structType.typeName) {
+        return structType.typeName;
       }
 
-      return `${struct.typeName ? `(${struct.typeName}) ` : ""}${
-        struct.typeName ? "struct" : struct.typeId
-      }(${struct.elements.map(tupleElementToString).join(", ")})`;
+      return `${structType.typeName ? `(${structType.typeName}) ` : ""}${
+        structType.typeName ? "struct" : structType.typeId
+      }(${structType.elements.map(tupleElementToString).join(", ")})`;
     }
 
     case TypeTag.Enum: {
@@ -1952,14 +2044,14 @@ export function typeToString(type: Type): string {
       const elements = unionType.elements;
       return `${unionType.typeName ? `(${unionType.typeName}) ` : ""}${
         unionType.typeName ? "union" : unionType.typeId
-      }(${elements
-        .map(
-          (element) =>
-            `${element.label ? `${element.label}:` : ""}${typeToString(
-              element.type
-            )}`
-        )
-        .join(", ")})`;
+      }(${elements.map(tupleElementToString).join(", ")})`;
+    }
+
+    case TypeTag.Module: {
+      const moduleType = type as ModuleType;
+      return `${
+        moduleType.typeName ? `(${moduleType.typeName}) ` : ""
+      }${moduleType.typeName ? "module" : moduleType.typeId}(${moduleType.elements.map(tupleElementToString).join(", ")})`;
     }
 
     case TypeTag.Function: {

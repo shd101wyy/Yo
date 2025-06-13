@@ -5,6 +5,7 @@ import {
   ArrayType,
   EnumType,
   isTypeHierarchyType,
+  ModuleType,
   SomeType,
   StructType,
   TBoolean,
@@ -68,15 +69,13 @@ export type BooleanValue = {
 export type TupleValue = {
   tag: ValueTag.Tuple;
   type: TupleType;
-  // If element is undefined, it means the field is a runtime value.
-  elements: (Value | undefined)[];
+  elements: Value[];
 };
 
 export type StructValue = {
   tag: ValueTag.Struct;
   type: StructType;
-  // If element is undefined, it means the field is a runtime value.
-  elements: (Value | undefined)[];
+  elements: Value[];
 };
 
 export type EnumValue = {
@@ -84,6 +83,15 @@ export type EnumValue = {
   type: EnumType;
   variantName: string;
   elements: Value[];
+};
+
+export type ModuleValue = {
+  tag: ValueTag.Module;
+  type: ModuleType;
+  /**
+   * undefined element means runtime value.
+   */
+  elements: (Value | undefined)[];
 };
 
 export type ArrayValue = {
@@ -107,6 +115,7 @@ export type Value =
   | TupleValue
   | StructValue
   | EnumValue
+  | ModuleValue
   | FunctionValue
   | UnknownValue;
 
@@ -181,6 +190,14 @@ export function valueToString(value?: Value): string {
     case ValueTag.Function: {
       return `<function>`;
     }
+    case ValueTag.Module: {
+      return `${value.type.typeName ?? "_"}(${value.elements
+        .map((element, index) => {
+          const label = value.type.elements[index]!.label;
+          return `${label}: ${valueToString(element)}`;
+        })
+        .join(", ")})`;
+    }
     case ValueTag.Unit: {
       return `()`;
     }
@@ -254,6 +271,10 @@ export function isArrayValue(value?: Value): value is ArrayValue {
 
 export function isEnumValue(value?: Value): value is EnumValue {
   return value?.tag === ValueTag.Enum;
+}
+
+export function isModuleValue(value?: Value): value is ModuleValue {
+  return value?.tag === ValueTag.Module;
 }
 
 export function createTypeValue(value: Type): TypeValue {
@@ -346,10 +367,32 @@ export function createUnknownValue(
 
 export function createStructValue(
   type: StructType,
-  elements: (Value | undefined)[]
+  elements: Value[]
 ): StructValue {
   return {
     tag: ValueTag.Struct,
+    type,
+    elements,
+  };
+}
+
+export function createModuleValue(
+  type: ModuleType,
+  elements: (Value | undefined)[]
+): ModuleValue {
+  return {
+    tag: ValueTag.Module,
+    type,
+    elements,
+  };
+}
+
+export function createTupleValue(
+  type: TupleType,
+  elements: Value[]
+): TupleValue {
+  return {
+    tag: ValueTag.Tuple,
     type,
     elements,
   };
@@ -443,7 +486,7 @@ export function areValuesEqual(
     return true;
   } else if (isStructValue(value1) && isStructValue(value2)) {
     if (
-      value1.elements.length !== (value2 as StructValue).elements.length ||
+      value1.elements.length !== value2.elements.length ||
       !areTypesCompatible(
         { type: value1.type, env: expected.env },
         { type: value2.type, env: given.env }
@@ -470,6 +513,27 @@ export function areValuesEqual(
         { type: value2.type, env: given.env }
       ) ||
       value1.variantName !== (value2 as EnumValue).variantName
+    ) {
+      return false;
+    }
+    for (let i = 0; i < value1.elements.length; i++) {
+      if (
+        !areValuesEqual(
+          { value: value1.elements[i], env: expected.env },
+          { value: value2.elements[i], env: given.env }
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
+  } else if (isModuleValue(value1) && isModuleValue(value2)) {
+    if (
+      value1.elements.length !== value2.elements.length ||
+      !areTypesCompatible(
+        { type: value1.type, env: expected.env },
+        { type: value2.type, env: given.env }
+      )
     ) {
       return false;
     }

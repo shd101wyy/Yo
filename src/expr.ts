@@ -218,6 +218,7 @@ export const BuiltinKeywords = {
   union: ["union"],
   module: ["module"],
   begin: ["begin"],
+  module_begin: ["module_begin"],
   import: ["import"],
   export: ["export"],
   borrow: ["borrow"],

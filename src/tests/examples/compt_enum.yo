@@ -4,13 +4,20 @@ main :: (()-> unit) {
     Rectangle(width: i32, height: i32)
   ;
 
-  c :: Shape.Circle(12);
+  {
+    c :: Shape.Circle(12); // allowed
+  };
+
+  {
+    mut(x) := 12;
+    c := Shape.Circle(x); // not allowed, because x is runtime known.
+  };
+
   c1 := Shape.Circle(12);
 
   runt_value := 13;
-
   // c :: Shape.Circle(runt_value); // Expected error
-  c2 := Shape.Circle(runt_value); // Expected error
+  c2 := Shape.Circle(runt_value);
 
   Color :: enum
     Red, Green, Blue

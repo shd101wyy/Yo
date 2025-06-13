@@ -29,7 +29,7 @@
 {
   // Basic module
   Id :: ((@(T): Type)-> @(Type))
-    struct(
+    module(
       // Self :: T, // Override `Self` to be `T`.
       // After the override, it's no longer avaible to define the type method.
       //  Or:
@@ -48,9 +48,9 @@
   ()
 };
 
-// NOTE: struct with comptime fields cannot be assigned to a runtime variable.
 {
-  Config :: struct(
+  // Module value can only be assigned to a comptime variable.
+  Config :: module(
     @(version) : usize, // comptime field
     enabled: boolean    // runtime field
   );
@@ -62,5 +62,9 @@
     );
   };
   
-  runtime_config :: Config(1, true); // Allowed.
+  config :: Config(1, true); // Allowed.
+
+  compt_expect_error(
+    runt_config := Config(1, true)
+  );
 };

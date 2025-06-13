@@ -43,6 +43,7 @@ import {
   createEnumType,
   createFunctionType,
   createLinearPtrType,
+  createModuleType,
   createMutLinearPtrType,
   createMutPtrType,
   createMutRefType,
@@ -65,6 +66,7 @@ import {
   isFunctionTypeAndIsTypeFunction,
   isLinearOrType0Type,
   isLinearPtrType,
+  isModuleType,
   isMutLinearPtrType,
   isMutPtrType,
   isMutRefType,
@@ -75,6 +77,7 @@ import {
   isTupleType,
   isTypeHierarchyType,
   isUnionType,
+  ModuleType,
   StructType,
   TBoolean,
   TComptFloat,
@@ -117,18 +120,22 @@ import {
   createBooleanValue,
   createComptStringValue,
   createEnumValue,
+  createModuleValue,
   createNumberValue,
   createStructValue,
+  createTupleValue,
   createTypeValue,
   createUnknownValue,
   isBooleanValue,
   isComptStringValue,
   isFunctionValue,
+  isModuleValue,
   isNumberValue,
   isStructValue,
   isTupleValue,
   isTypeValue,
   isUnknownValue,
+  ModuleValue,
   StructValue,
   TupleValue,
   Value,
@@ -173,15 +180,15 @@ export default class Evaluator {
   private parser: Parser;
   private program: Expr[];
   private tokens: Token[];
-  private moduleValue: StructValue;
-  private loadModule: (modulePath: string) => StructValue;
+  private moduleValue: ModuleValue;
+  private loadModule: (modulePath: string) => ModuleValue;
 
   constructor({
     modulePath,
     loadModule,
   }: {
     modulePath: string;
-    loadModule: (modulePath: string) => StructValue;
+    loadModule: (modulePath: string) => ModuleValue;
   }) {
     this.modulePath = modulePath;
     this.loadModule = loadModule;
@@ -605,26 +612,20 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
     const expectedType = context.expectedType?.type;
     let expectedTupleElementType: Type | undefined = undefined;
     if (expectedType) {
-      if (isTupleType(expectedType)) {
+      if (
+        isTupleType(expectedType) ||
+        isStructType(expectedType) ||
+        isModuleType(expectedType)
+      ) {
         const tupleElement = expectedType.elements[tupleElementIndex];
         if (!tupleElement) {
           throw this.formatErrorMessage(
             expr.token,
-            `Failed to get the tuple element at index ${tupleElementIndex}`
+            `Failed to get the field at index ${tupleElementIndex}`
           );
         }
 
         expectedTupleElementType = tupleElement.type;
-      } else if (isStructType(expectedType)) {
-        const structMember = expectedType.elements[tupleElementIndex];
-        if (!structMember) {
-          throw this.formatErrorMessage(
-            expr.token,
-            `Failed to get the struct member at index ${tupleElementIndex}`
-          );
-        }
-
-        expectedTupleElementType = structMember.type;
       } else {
         /*
         throw this.formatErrorMessage(
@@ -1005,11 +1006,7 @@ ${typeToString(expectedTupleType)}`
     const value: Value | undefined = tupleValues.some((v) => !v)
       ? // ^ Meaning some element value is not compile-time known.
         undefined
-      : {
-          tag: ValueTag.Tuple,
-          type: tupleType,
-          elements: tupleValues as Value[],
-        };
+      : createTupleValue(tupleType, tupleValues as Value[]);
 
     return {
       type: tupleType,
@@ -1213,6 +1210,46 @@ ${typeToString(expectedTupleType)}`
           given.env = givenEnv;
         }
       }
+    } else if (
+      isModuleType(expected.type) &&
+      isModuleType(given.type) &&
+      (expected.type.typeId === given.type.typeId ||
+        (expected.type.functionValue &&
+          given.type.functionValue &&
+          expected.type.functionValue === given.type.functionValue))
+      // NOTE: The typeId might not match
+      // They might be different structs that both are returned from the same function.
+    ) {
+      for (let i = 0; i < expected.type.elements.length; i++) {
+        const expectedElement = expected.type.elements[i]!;
+        const givenElement = given.type.elements[i]!;
+        const { expectedEnv, givenEnv } = this.synthesizeTypes(
+          { type: expectedElement.type, env: expected.env },
+          { type: givenElement.type, env: given.env }
+        );
+        expected.env = expectedEnv;
+        given.env = givenEnv;
+
+        if (
+          expectedElement.assignedValue &&
+          givenElement.assignedValue &&
+          isTypeValue(expectedElement.assignedValue) &&
+          isTypeValue(givenElement.assignedValue)
+        ) {
+          const { expectedEnv, givenEnv } = this.synthesizeTypes(
+            {
+              type: expectedElement.assignedValue.value,
+              env: expected.env,
+            },
+            {
+              type: givenElement.assignedValue.value,
+              env: given.env,
+            }
+          );
+          expected.env = expectedEnv;
+          given.env = givenEnv;
+        }
+      }
     } else {
       /*
       console.log(
@@ -1288,7 +1325,7 @@ ${typeToString(expectedTupleType)}`
     // Handle the _ case
     else if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, "_")) {
       // Check if type is a struct type
-      if (isStructType(type)) {
+      if (isStructType(type) || isUnionType(type) || isModuleType(type)) {
         const funcCallExpr = this.evaluateFunctionCall({
           expr,
           env,
@@ -1477,7 +1514,9 @@ ${typeToString(expectedTupleType)}`
 
     // Handle struct destructuring
     if (
-      (isStructType(rhsType) || isUnionType(rhsType)) &&
+      (isStructType(rhsType) ||
+        isUnionType(rhsType) ||
+        isModuleType(rhsType)) &&
       exprIsFunctionCall(lhs)
     ) {
       return this.handleMemberDestructuring({
@@ -1611,7 +1650,9 @@ ${typeToString(expectedTupleType)}`
               continue;
             }
             const elementValue =
-              isTupleValue(rhsValue) || isStructValue(rhsValue)
+              isTupleValue(rhsValue) ||
+              isStructValue(rhsValue) ||
+              isModuleValue(rhsValue)
                 ? rhsValue.elements[j]
                 : undefined;
 
@@ -1661,10 +1702,10 @@ ${typeToString(expectedTupleType)}`
         lhsElement.args.length === 1 &&
         exprIsAtomOf(lhsElement.args[0]!, BuiltinKeywords.implicit)
       ) {
-        if (!isStructType(rhsType) || !isStructValue(rhsValue)) {
+        if (!isModuleType(rhsType) || !isModuleValue(rhsValue)) {
           throw this.formatErrorMessage(
             lhsElement.token,
-            `Expected struct value for destructuring with implicit members, got ${typeToString(
+            `Expected module value for destructuring with implicit members, got ${typeToString(
               rhsType
             )}`
           );
@@ -1764,6 +1805,8 @@ ${typeToString(expectedTupleType)}`
           nestedValue = rhsValue.elements[elementIndex];
         } else if (isStructValue(rhsValue)) {
           nestedValue = rhsValue.elements[elementIndex];
+        } else if (isModuleValue(rhsValue)) {
+          nestedValue = rhsValue.elements[elementIndex];
         }
         elementValue = nestedValue;
 
@@ -1840,10 +1883,10 @@ ${typeToString(expectedTupleType)}`
             );
           }
 
-          if (!isStructType(nestedRhsType)) {
+          if (!isStructType(nestedRhsType) && !isModuleType(nestedRhsType)) {
             throw this.formatErrorMessage(
               lhsElement.token,
-              `Expected struct for nested destructuring, got ${typeToString(
+              `Expected struct/module for nested destructuring, got ${typeToString(
                 nestedRhsType
               )}`
             );
@@ -1924,6 +1967,8 @@ ${typeToString(expectedTupleType)}`
           nestedValue = rhsValue.elements[elementIndex];
         } else if (isStructValue(rhsValue)) {
           nestedValue = rhsValue.elements[elementIndex];
+        } else if (isModuleValue(rhsValue)) {
+          nestedValue = rhsValue.elements[elementIndex];
         }
         elementValue = nestedValue;
 
@@ -1979,7 +2024,7 @@ ${typeToString(expectedTupleType)}`
               )}`
             );
           }
-          if (!isStructType(nestedRhsType)) {
+          if (!isStructType(nestedRhsType) && !isModuleType(nestedRhsType)) {
             throw this.formatErrorMessage(
               lhsElement.token,
               `Expected struct/module for nested destructuring, got ${typeToString(
@@ -2031,6 +2076,8 @@ ${typeToString(expectedTupleType)}`
         if (isTupleValue(rhsValue)) {
           elementValue = rhsValue.elements[elementIndex];
         } else if (isStructValue(rhsValue)) {
+          elementValue = rhsValue.elements[elementIndex];
+        } else if (isModuleValue(rhsValue)) {
           elementValue = rhsValue.elements[elementIndex];
         }
 
@@ -2436,7 +2483,8 @@ ${exprToString(expr)}`
         isTypeValue(rhsValue) &&
         (isStructType(rhsValue.value) ||
           isEnumType(rhsValue.value) ||
-          isUnionType(rhsValue.value)) &&
+          isUnionType(rhsValue.value) ||
+          isModuleType(rhsValue.value)) &&
         !rhsValue.value.typeName
       ) {
         rhsValue.value.typeName = lhs.token.value;
@@ -3596,35 +3644,17 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     // Self
     else if (
       identifier === "Self" &&
-      // NOTE: If `Self` is used inside struct/enum/union
-      // then it means the type itself.
+      context.SelfType &&
       (isStructType(context.SelfType) ||
         isEnumType(context.SelfType) ||
         isUnionType(context.SelfType))
     ) {
-      // Check if there is an element named "Self"
-      if (isStructType(context.SelfType)) {
-        const existingSelfElement = context.SelfType.elements.find(
-          (e) => e.label === "Self" && isTypeValue(e.assignedValue)
-        );
-        if (existingSelfElement) {
-          const typeValue = existingSelfElement.assignedValue as TypeValue;
-          expr.$ = {
-            env,
-            type: typeValue.type,
-            value: typeValue,
-            isMutable: false,
-            pathCollection: [],
-          };
-          return expr;
-        }
-      }
+      const typeValue = createTypeValue(context.SelfType);
 
-      const value = createTypeValue(context.SelfType);
       expr.$ = {
         env,
-        type: value.type,
-        value: value,
+        type: typeValue.type,
+        value: typeValue,
         isMutable: false,
         pathCollection: [],
       };
@@ -4705,6 +4735,13 @@ ${typeToString(returnType)}`
           );
         }
 
+        // Only allow runtime field
+        if (type.isCompileTimeOnly) {
+          throw this.formatErrorMessage(
+            type.exprs.expr.token,
+            `Struct type cannot have compile-time only fields.`
+          );
+        }
         elements.push(type);
         env = nextEnv;
       }
@@ -5096,7 +5133,7 @@ ${typeToString(returnType)}`
           );
         }
 
-        // Check if any field is compile-time only
+        // Only allow runtime field
         if (type.isCompileTimeOnly) {
           throw this.formatErrorMessage(
             type.exprs.expr.token,
@@ -5119,6 +5156,175 @@ ${typeToString(returnType)}`
     };
 
     // Append more information to "union" token.
+    expr.func.$ = expr.$;
+    return expr;
+  }
+
+  private evaluateModuleType({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "module", got:\n${exprToString(expr)}`
+      );
+    }
+
+    // Create moduleType with empty elements
+    const moduleType = createModuleType([]);
+    const elements: TupleElement[] = [];
+    moduleType.elements = elements;
+
+    // Push env frame
+    env = pushEnvFrame(env);
+
+    const args = expr.args;
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+
+      // NOTE: Type methods are not allowed in module types.
+      // spread operator for extending another struct
+      if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
+        const extendedStructExpr = arg.args[0]!;
+        // Evaluate the extended struct expression
+        const evaluatedExtendedModuleExpr = this.evaluateExpression({
+          expr: extendedStructExpr,
+          env,
+          context: {
+            ...context,
+            SelfType: undefined, // No SelfType in module context
+          },
+        });
+        if (!evaluatedExtendedModuleExpr.$) {
+          throw this.formatErrorMessage(
+            extendedStructExpr.token,
+            `Failed to evaluate the extended struct expression: ${exprToString(extendedStructExpr)}`
+          );
+        }
+
+        // Check if it's a module type
+        const extendedModuleTypeValue = evaluatedExtendedModuleExpr.$.value;
+        if (
+          !isTypeValue(extendedModuleTypeValue) ||
+          !isModuleType(extendedModuleTypeValue.value)
+        ) {
+          throw this.formatErrorMessage(
+            extendedStructExpr.token,
+            `Expected a struct type for extending, got ${exprToString(
+              extendedStructExpr
+            )}`
+          );
+        }
+        const extendedModuleType = extendedModuleTypeValue.value;
+
+        // Iterate over the elements of the extended struct
+        for (const extendedModuleElement of extendedModuleType.elements) {
+          // Check if there is duplicate labels
+          // If yes, then override the element
+          const duplicateLabelIndex = elements.findIndex(
+            (e) => e.label === extendedModuleElement.label
+          );
+          if (duplicateLabelIndex >= 0) {
+            throw this.formatErrorMessage(
+              extendedStructExpr.token,
+              `Duplicate label "${extendedModuleElement.label}" in module`
+            );
+          } else {
+            // Add the element to the struct
+            elements.push(extendedModuleElement);
+
+            // Add the element to the environment
+            const { env: nextEnv } = addVariableToEnv({
+              env,
+              variable: {
+                name: extendedModuleElement.label,
+                type: extendedModuleElement.type,
+                value: extendedModuleElement.isCompileTimeOnly
+                  ? (extendedModuleElement.assignedValue ??
+                    createUnknownValue(
+                      extendedModuleElement.type,
+                      extendedModuleElement.label
+                    ))
+                  : undefined,
+                isCompileTimeOnly: extendedModuleElement.isCompileTimeOnly,
+                isImplicit: extendedModuleElement.isImplicit,
+                isMutable: false,
+                isUndefined: false,
+                token: extendedModuleElement.exprs.expr.token,
+              },
+            });
+            env = nextEnv;
+          }
+        }
+      }
+      // tuple element
+      else {
+        const { type: element, env: nextEnv } = this.evaluateTupleElementType({
+          expr: arg,
+          env,
+          tupleElementIndex: i,
+          context: {
+            ...context,
+            SelfType: undefined, // No SelfType in module context
+          },
+        });
+
+        // Check if there is duplicate labels
+        const duplicateLabel = elements.find(
+          (elem) => elem.label === element.label
+        );
+        if (duplicateLabel) {
+          throw this.formatErrorMessage(
+            exprIsFunctionCall(arg)
+              ? (arg.args[0]?.token ?? arg.token)
+              : arg.token,
+            `Duplicate label "${element.label}" in module`
+          );
+        }
+
+        elements.push(element);
+        env = nextEnv;
+
+        // Add element to env
+        const { env: nextNextEnv } = addVariableToEnv({
+          env,
+          variable: {
+            name: element.label,
+            type: element.type,
+            value: element.isCompileTimeOnly
+              ? (element.assignedValue ??
+                createUnknownValue(element.type, element.label))
+              : undefined,
+            isCompileTimeOnly: element.isCompileTimeOnly,
+            isImplicit: element.isImplicit,
+            isMutable: false,
+            isUndefined: false,
+            token: element.exprs.expr.token,
+          },
+        });
+        env = nextNextEnv;
+      }
+    }
+
+    // Pop env frame
+    env = popEnvFrame(env);
+
+    const moduleTypeValue = createTypeValue(moduleType);
+    expr.$ = {
+      env,
+      value: moduleTypeValue,
+      type: moduleTypeValue.type,
+      isMutable: false,
+      pathCollection: [],
+    };
+
+    // Append more information to "module" token.
     expr.func.$ = expr.$;
     return expr;
   }
@@ -5411,7 +5617,8 @@ ${typeToString(returnType)}`
     if (
       isTupleType(objectExpr.$?.type) ||
       isStructType(objectExpr.$?.type) ||
-      isUnionType(objectExpr.$?.type)
+      isUnionType(objectExpr.$?.type) ||
+      isModuleType(objectExpr.$?.type)
     ) {
       const elements: TupleElement[] = objectExpr.$.type.elements;
       const objectExprValue = objectExpr.$.value;
@@ -5461,6 +5668,8 @@ ${typeToString(returnType)}`
               values = objectExprValue.elements;
             } else if (isStructValue(objectExprValue)) {
               values = objectExprValue.elements;
+            } else if (isModuleValue(objectExprValue)) {
+              values = objectExprValue.elements;
             }
             expr.$.value = values?.[index];
           }
@@ -5507,19 +5716,25 @@ ${typeToString(returnType)}`
             // TODO: Support comptime value
             // expr.value = ...
             if (objectExprValue) {
-              let values: (Value | undefined)[] = [];
-              if (isTupleValue(objectExprValue)) {
-                values = objectExprValue.elements;
-              } else if (isStructValue(objectExprValue)) {
-                values = objectExprValue.elements;
-              }
+              if (isUnknownValue(objectExprValue)) {
+                expr.$.value = createUnknownValue(tupleElement.type);
+              } else {
+                let values: (Value | undefined)[] = [];
+                if (isTupleValue(objectExprValue)) {
+                  values = objectExprValue.elements;
+                } else if (isStructValue(objectExprValue)) {
+                  values = objectExprValue.elements;
+                } else if (isModuleValue(objectExprValue)) {
+                  values = objectExprValue.elements;
+                }
 
-              let value = values?.[tupleElementIndex];
-              if (!value && tupleElement.isCompileTimeOnly) {
-                value = createUnknownValue(tupleElement.type);
-              }
+                let value = values?.[tupleElementIndex];
+                if (!value && tupleElement.isCompileTimeOnly) {
+                  value = createUnknownValue(tupleElement.type);
+                }
 
-              expr.$.value = value;
+                expr.$.value = value;
+              }
             }
             return expr;
           }
@@ -5692,7 +5907,9 @@ ${typeToString(returnType)}`
 
     // Check if it's comptime value
     let structValue: StructValue | undefined = undefined;
-    structValue = createStructValue(structType, values);
+    structValue = values.some((value) => !value)
+      ? undefined
+      : createStructValue(structType, values as Value[]);
 
     expr.$ = {
       env,
@@ -6014,6 +6231,20 @@ ${typeToString(returnType)}`
             functionToCall.error = error;
           }
         }
+        // module value
+        else if (isTypeValue(value) && isModuleType(value.value)) {
+          try {
+            this.tryToCallTypeWithArguments({
+              memberElements: value.value.elements,
+              functionCallExpr: func,
+              argExprs: args,
+              callerEnv: env,
+              context: { ...context },
+            });
+          } catch (error) {
+            functionToCall.error = error;
+          }
+        }
         // function
         else if (isTypeValue(value) && isFunctionType(value.value)) {
           const functionType = value.value;
@@ -6173,6 +6404,8 @@ ${functionsWithMatchingTypes
           // TODO: expr.value should be available for comptime function.
           // We should evaluate its body.
           expr.$.value = createUnknownValue(returnType);
+        } else {
+          expr.$.value = undefined;
         }
 
         // Set temp variable which holds the result of the function call
@@ -6229,7 +6462,9 @@ ${functionsWithMatchingTypes
             `Error evaluating struct call.`
           );
         }
-        const structValue = createStructValue(structType, memberValues);
+        const structValue = memberValues.some((value) => !value)
+          ? undefined
+          : createStructValue(structType, memberValues as Value[]);
         expr.$.value = structValue;
         expr.$.pathCollection = pathCollection;
         expr.$.env = env;
@@ -6324,6 +6559,54 @@ ${functionsWithMatchingTypes
         });
         env = callerEnv;
         expr.$.value = undefined;
+        expr.$.pathCollection = pathCollection;
+        expr.$.env = env;
+
+        // Attach necessary info to the func
+        func.$ = {
+          env,
+          type: value.type,
+          value: value,
+          isMutable: false,
+          pathCollection: [],
+        };
+        return expr;
+      }
+      // module value
+      else if (isTypeValue(value) && isModuleType(value.value)) {
+        const moduleType = value.value;
+        expr.$ = {
+          env,
+          type: moduleType,
+          isMutable: false,
+          pathCollection: [],
+        };
+        // FIXME: Support to set value for comptime
+        const {
+          values: memberValues,
+          pathCollection,
+          callerEnv,
+        } = this.tryToCallTypeWithArguments({
+          memberElements: moduleType.elements,
+          functionCallExpr: func,
+          argExprs: args,
+          callerEnv: env,
+          context: {
+            ...context,
+          },
+        });
+        env = callerEnv;
+        if (!memberValues) {
+          throw this.formatErrorMessage(
+            func.token,
+            `Error evaluating struct call.`
+          );
+        }
+        const moduleValue = createModuleValue(
+          moduleType,
+          memberValues as Value[]
+        );
+        expr.$.value = moduleValue;
         expr.$.pathCollection = pathCollection;
         expr.$.env = env;
 
@@ -6765,8 +7048,9 @@ ${exprToString(expr)}`
     let calleeEnv = pushEnvFrame(functionType.env);
 
     if (functionType.SelfType) {
+      /*
       let typeValue: TypeValue;
-      if (isStructType(functionType.SelfType)) {
+      if (isModuleType(functionType.SelfType)) {
         const existingSelfElement = functionType.SelfType.elements.find(
           (e) => e.label === "Self" && isTypeValue(e.assignedValue)
         );
@@ -6778,6 +7062,8 @@ ${exprToString(expr)}`
       } else {
         typeValue = createTypeValue(functionType.SelfType);
       }
+      */
+      const typeValue = createTypeValue(functionType.SelfType);
 
       // Add "Self" to the calleeEnv
       // console.log("(11) addVariableToEnv");
@@ -7433,6 +7719,11 @@ ${tupleElementToString(paramElement_)}`
       // Get the type of the evaluated arg expr
       const argType = evaluatedArgExpr.$.type;
 
+      // Attach information to labelExpr
+      if (labelExpr) {
+        labelExpr.$ = evaluatedArgExpr.$;
+      }
+
       // Check the borrowings
       if (evaluatedArgExpr.$ && (isMutRefType(argType) || isRefType(argType))) {
         checkBorrowings(borrowings, evaluatedArgExpr);
@@ -7463,9 +7754,9 @@ Got:   ${typeToString(argType)}`
       }
 
       // Set the values
-      if (memberElement.isCompileTimeOnly) {
-        values[memberElementPositionIndex] = evaluatedArgExpr.$?.value;
-      }
+      // if (memberElement.isCompileTimeOnly) {
+      values[memberElementPositionIndex] = evaluatedArgExpr.$?.value;
+      // }
       checkedMemberElements.add(memberElement);
     }
 
@@ -7481,10 +7772,10 @@ Got:   ${typeToString(argType)}`
             );
           } else {
             // Set the default value to values
-            if (memberElement.isCompileTimeOnly) {
-              values[i] =
-                memberElement.defaultValue ?? memberElement.assignedValue;
-            }
+            // if (memberElement.isCompileTimeOnly) {
+            values[i] =
+              memberElement.defaultValue ?? memberElement.assignedValue;
+            // }
           }
         }
       }
@@ -7666,6 +7957,15 @@ Got:   ${typeToString(argType)}`
 - Given  : ${typeToString(functionBodyReturnType)}`
       );
     }
+    if (
+      functionType.return.isCompileTimeOnly &&
+      !evaluatedFunctionBody.$.value
+    ) {
+      throw this.formatErrorMessage(
+        functionType.return.expr.token,
+        `Expected to  return a compile-time value, but got runtime value.`
+      );
+    }
 
     // Pop the env frame
     env = popEnvFrame(env);
@@ -7792,7 +8092,12 @@ Got:   ${typeToString(argType)}`
       );
     }
     const returnType = returnValue.value;
-    if (isStructType(returnType) || isEnumType(returnType)) {
+    if (
+      isStructType(returnType) ||
+      isEnumType(returnType) ||
+      isUnionType(returnType) ||
+      isModuleType(returnType)
+    ) {
       if (!returnType.typeName && functionValue.funcName) {
         returnType.typeName =
           functionValue.funcName +
@@ -7946,9 +8251,9 @@ Got:   ${typeToString(argType)}`
     beginExprs: Expr[];
     env: Environment;
     context: EvaluatorContext;
-  }): { moduleValue: StructValue; moduleType: StructType; env: Environment } {
+  }): { moduleValue: ModuleValue; moduleType: ModuleType; env: Environment } {
     // Create module type
-    const moduleType = createStructType([]);
+    const moduleType = createModuleType([]);
     const moduleElementValues: (Value | undefined)[] = [];
 
     // Push new frame to the env
@@ -7971,35 +8276,35 @@ Got:   ${typeToString(argType)}`
             exprIsFunctionCall(exportExpr) &&
             exprIsFunctionCallOf(exportExpr, "...", 1)
           ) {
-            const extendedStructExpr = exportExpr.args[0]!;
+            const extendedModuleExpr = exportExpr.args[0]!;
             // Evaluate the extended struct expression
-            const evaluatedExtendedStructExpr = this.evaluateExpression({
-              expr: extendedStructExpr,
+            const evaluatedExtendedModuleExpr = this.evaluateExpression({
+              expr: extendedModuleExpr,
               env,
               context: {
                 ...context,
               },
             });
-            if (!evaluatedExtendedStructExpr.$) {
+            if (!evaluatedExtendedModuleExpr.$) {
               throw this.formatErrorMessage(
-                extendedStructExpr.token,
-                `Failed to evaluate the extended struct expression:\n${exprToString(extendedStructExpr)}`
+                extendedModuleExpr.token,
+                `Failed to evaluate the extended struct expression:\n${exprToString(extendedModuleExpr)}`
               );
             }
-            const extendedStructType = evaluatedExtendedStructExpr.$.type;
-            if (!isStructType(extendedStructType)) {
+            const extendedModuleType = evaluatedExtendedModuleExpr.$.type;
+            if (!isModuleType(extendedModuleType)) {
               throw this.formatErrorMessage(
-                extendedStructExpr.token,
-                `Expected struct type for export, got:\n${typeToString(extendedStructType)}`
+                extendedModuleExpr.token,
+                `Expected struct type for export, got:\n${typeToString(extendedModuleType)}`
               );
             }
-            const extendedStructValue = evaluatedExtendedStructExpr.$.value as
-              | StructValue
+            const extendedModuleValue = evaluatedExtendedModuleExpr.$.value as
+              | ModuleValue
               | undefined;
 
             // Iterate over the elements of the extended struct
-            for (let i = 0; i < extendedStructType.elements.length; i++) {
-              const extendedStructElement = extendedStructType.elements[i]!;
+            for (let i = 0; i < extendedModuleType.elements.length; i++) {
+              const extendedStructElement = extendedModuleType.elements[i]!;
               // Check if there is duplicate labels
               // If yes, then throw an error
               const existingElementIndex = moduleType.elements.findIndex(
@@ -8031,8 +8336,8 @@ Got:   ${typeToString(argType)}`
                 });
 
                 // Add the value to the module element values
-                if (extendedStructValue) {
-                  moduleElementValues.push(extendedStructValue.elements[i]);
+                if (extendedModuleValue) {
+                  moduleElementValues.push(extendedModuleValue.elements[i]);
                 } else {
                   moduleElementValues.push(undefined);
                 }
@@ -8041,8 +8346,8 @@ Got:   ${typeToString(argType)}`
                 exportExpr.$ = {
                   env,
                   type: extendedStructElement.type,
-                  value: extendedStructValue
-                    ? extendedStructValue.elements[i]
+                  value: extendedModuleValue
+                    ? extendedModuleValue.elements[i]
                     : undefined,
                   isMutable: false, // TODO: Check if the element is mutable
                   pathCollection: [],
@@ -8130,7 +8435,7 @@ Got:   ${typeToString(argType)}`
     env = popEnvFrame(env);
 
     // Create the module value
-    const moduleValue = createStructValue(moduleType, moduleElementValues);
+    const moduleValue = createModuleValue(moduleType, moduleElementValues);
 
     return {
       moduleValue,
@@ -8223,10 +8528,7 @@ Got:   ${typeToString(argType)}`
     ) {
       return this.evaluateAnonymousModule({ expr, env, context });
     } else {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "module" with "begin" expression, got:\n${exprToString(expr)}`
-      );
+      return this.evaluateModuleType({ expr, env, context });
     }
   }
 
@@ -9523,7 +9825,7 @@ ${exprToString(expr)}`
     this.moduleValue = moduleValue;
   }
 
-  public getModuleValue(): StructValue {
+  public getModuleValue(): ModuleValue {
     if (!this.moduleValue) {
       throw new Error("Module value is not set");
     }
