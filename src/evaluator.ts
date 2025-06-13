@@ -8089,6 +8089,14 @@ Got:   ${typeToString(argType)}`
           );
         }
 
+        // Check if label exists in the module type
+        if (!moduleType.elements.find((e) => e.label === label)) {
+          throw this.formatErrorMessage(
+            labelExpr.token,
+            `Module member with label "${label}" does not exist in the module type.`
+          );
+        }
+
         if (moduleElement.label === label) {
           foundArgExpr = true;
 

@@ -9,72 +9,86 @@
  */
 implicit(I32Add) :: Add(i32, i32)
   Output : i32,
-  (+): (fn(a, b)-> recur(a, b))
+  (+): (fn(a, b)-> {
+    compt_codegen_inline("(((int32_t)$1) + ((int32_t)$2))");
+    recur(a, b)
+  })
 ;
 
-impl Sub(i32, i32), {
-  Output: i32;
+implicit(I32Sub) :: Sub(i32, i32)
+  Output: i32,
   (-): (fn(a, b)-> {
-    codegen_inline(C="(((int32_t)$1) - ((int32_t)$2))");
+    compt_codegen_inline("(((int32_t)$1) - ((int32_t)$2))");
     recur(a, b)
   })
-};
+;
 
-impl Mul(i32, i32), {
-  Output: i32;
+implicit(I32Mul) :: Mul(i32, i32)
+  Output: i32,
   (*): (fn(a, b)-> {
-    codegen_inline(C="(((int32_t)$1) * ((int32_t)$2))");
+    compt_codegen_inline("(((int32_t)$1) * ((int32_t)$2))");
     recur(a, b)
   })
-};
+;
 
-impl Div(i32, i32), {
-  Output: i32;
+implicit(I32Div) :: Div(i32, i32)
+  Output: i32,
   (/): (fn(a, b)-> {
-    codegen_inline(C="(((int32_t)$1) / ((int32_t)$2))");
+    compt_codegen_inline("(((int32_t)$1) / ((int32_t)$2))");
     recur(a, b)
   })
-};
+;
 
-impl Mod(i32, i32), {
-  Output: i32;
+implicit(I32Mod) :: Mod(i32, i32)
+  Output: i32,
   (%): (fn(a, b)-> {
-    codegen_inline(C="(((int32_t)$1) % ((int32_t)$2))");
+    compt_codegen_inline("(((int32_t)$1) % ((int32_t)$2))");
     recur(a, b)
   })
-};
+;
 
 /**
  * logic
  */
-impl LogicalNot(i32), {
-  Output: i32;
-
+implicit(I32LogicalNot) :: LogicalNot(i32)
   (!): (fn(a)-> {
-    codegen_inline(C="!((int32_t)$1)");
+    compt_codegen_inline("!((int32_t)$1)");
     recur(a)
   })
-};
+;
 
 
 /**
  * eq
  */
-impl Eq(i32, i32), {
+implicit(I32Eq) :: Eq(i32, i32)
   eq: (fn(a, b)-> {
-    codegen_inline(C="(((int32_t)*$1) == ((int32_t)*$2))");
+    compt_codegen_inline("(((int32_t)*$1) == ((int32_t)*$2))");
     recur(a, b)
-  });
+  })/*,
   ne: (fn(a, b)-> {
-    codegen_inline(C="(((int32_t)*$1) != ((int32_t)*$2))");
+    compt_codegen_inline("(((int32_t)*$1) != ((int32_t)*$2))");
     recur(a, b)
-  })
-};
+  })*/
+;
 
 /**
  * drop
  */
-impl Drop(i32), {
-  // ignored by the compiler when generating C code
-  drop: noop()
-}
+implicit(I32Drop) :: Drop(i32)
+  drop : (fn(a)-> {
+    compt_codegen_inline("((int32_t)$1)");
+    recur(a)
+  })
+;
+
+export
+  I32Add,
+  I32Sub,
+  I32Mul,
+  I32Div,
+  I32Mod,
+  I32LogicalNot,
+  I32Eq,
+  I32Drop
+;
