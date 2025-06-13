@@ -1,19 +1,16 @@
-// let { codegen_inline } =  @import("../../builtins.yo");
-{ Add, Sub, Mul, Div, Mod } := import "../../classes/arithmetic.yo";
-{ LogicalNot } := import "../../classes/logic.yo";
-{ Eq } := import "../../classes/eq.yo";
-{ Drop } := import "../../classes/common.yo";
+{ compt_codegen_inline } :: import("../../builtins.yo");
+{ Add, Sub, Mul, Div, Mod } :: import "../../modules/arithmetic.yo";
+{ LogicalNot } :: import "../../modules/logic.yo";
+{ Eq } :: import "../../modules/eq.yo";
+{ Drop } :: import "../../modules/common.yo";
 
 /**
  * arithmetic
  */
-impl Add(i32, i32), {
-  Output: i32,
-  (+): (fn(a, b)-> {
-    codegen_inline(C="(((int32_t)$1) + ((int32_t)$2))");
-    recur(a, b)
-  })
-};
+implicit(I32Add) :: Add(i32, i32)
+  Output : i32,
+  (+): (fn(a, b)-> recur(a, b))
+;
 
 impl Sub(i32, i32), {
   Output: i32;

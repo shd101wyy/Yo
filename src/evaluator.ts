@@ -840,10 +840,13 @@ Given type: ${typeToString(defaultValueType)}`
     }
 
     if (typeRequiresComptModifier(elementType) && !isCompileTimeOnly) {
-      throw this.formatErrorMessage(
-        labelExpr?.token ?? expr.token,
-        `Expected "compt" (or "@") modifier for compile-time known value binding.`
-      );
+      elementType = convertComptTypeToRuntimeType(elementType);
+      if (typeRequiresComptModifier(elementType)) {
+        throw this.formatErrorMessage(
+          labelExpr?.token ?? expr.token,
+          `Expected "compt" (or "@") modifier for compile-time known value binding.`
+        );
+      }
     }
 
     if (labelExpr) {
@@ -4026,12 +4029,16 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
           env,
           context: { ...context },
         });
-        if (evaluatedRhs.$?.env) {
-          env = evaluatedRhs.$?.env;
+        if (!evaluatedRhs.$) {
+          throw this.formatErrorMessage(
+            typeExpr.token,
+            `Failed to evaluate type expression: ${exprToString(typeExpr)}`
+          );
         }
+        env = evaluatedRhs.$.env;
 
         // Expected the evaluatedRhs to be a type
-        const typeValue = evaluatedRhs.$?.value;
+        const typeValue = evaluatedRhs.$.value;
         if (!isTypeValue(typeValue)) {
           throw this.formatErrorMessage(
             typeExpr.token,
@@ -5236,7 +5243,7 @@ ${typeToString(returnType)}`
     }
 
     // Create moduleType with empty elements
-    const moduleType = createModuleType([]);
+    const moduleType = createModuleType([], env);
     const elements: TupleElement[] = [];
     moduleType.elements = elements;
 
@@ -6292,10 +6299,11 @@ ${typeToString(returnType)}`
         }
         // module value
         else if (isTypeValue(value) && isModuleType(value.value)) {
+          const moduleType = value.value;
           try {
-            this.tryToCallTypeWithArguments({
-              memberElements: value.value.elements,
-              functionCallExpr: func,
+            this.tryToImplementModuleWithArguments({
+              moduleExpr: func,
+              moduleType: moduleType,
               argExprs: args,
               callerEnv: env,
               context: { ...context },
@@ -6633,41 +6641,25 @@ ${functionsWithMatchingTypes
       }
       // module value
       else if (isTypeValue(value) && isModuleType(value.value)) {
-        const moduleType = value.value;
+        const { moduleValue, callerEnv } =
+          this.tryToImplementModuleWithArguments({
+            moduleExpr: func,
+            moduleType: value.value,
+            argExprs: args,
+            callerEnv: env,
+            context: {
+              ...context,
+            },
+          });
+        env = callerEnv;
+
         expr.$ = {
           env,
-          type: moduleType,
+          type: moduleValue.type,
+          value: moduleValue,
           isMutable: false,
           pathCollection: [],
         };
-        // FIXME: Support to set value for comptime
-        const {
-          values: memberValues,
-          pathCollection,
-          callerEnv,
-        } = this.tryToCallTypeWithArguments({
-          memberElements: moduleType.elements,
-          functionCallExpr: func,
-          argExprs: args,
-          callerEnv: env,
-          context: {
-            ...context,
-          },
-        });
-        env = callerEnv;
-        if (!memberValues) {
-          throw this.formatErrorMessage(
-            func.token,
-            `Error evaluating struct call.`
-          );
-        }
-        const moduleValue = createModuleValue(
-          moduleType,
-          memberValues as Value[]
-        );
-        expr.$.value = moduleValue;
-        expr.$.pathCollection = pathCollection;
-        expr.$.env = env;
 
         // Attach necessary info to the func
         func.$ = {
@@ -8041,6 +8033,245 @@ Got:   ${typeToString(argType)}`
     return expr;
   }
 
+  private tryToImplementModuleWithArguments({
+    moduleExpr,
+    moduleType,
+    argExprs,
+    callerEnv,
+    context,
+  }: {
+    moduleExpr: Expr;
+    moduleType: ModuleType;
+    argExprs: Expr[];
+    callerEnv: Environment;
+    context: EvaluatorContext;
+  }): { moduleValue: ModuleValue; callerEnv: Environment } {
+    if (argExprs.length > moduleType.elements.length) {
+      throw this.formatErrorMessage(
+        moduleExpr.token,
+        `Failed to implement the module. Too many fields provided.`
+      );
+    }
+
+    callerEnv = pushEnvFrame(callerEnv);
+
+    const elements: (Value | undefined)[] = Array(
+      moduleType.elements.length
+    ).fill(undefined);
+    for (let i = 0; i < moduleType.elements.length; i++) {
+      const moduleElement = moduleType.elements[i]!;
+      let foundArgExpr = false;
+      let label: string | undefined = undefined;
+      // Traverse over argExprs to see if there is label for the member
+      for (let j = 0; j < argExprs.length; j++) {
+        let argExpr = argExprs[j]!;
+
+        // Check if it's a label
+        let labelExpr: Expr | undefined;
+        if (
+          exprIsFunctionCall(argExpr) &&
+          exprIsFunctionCallOf(argExpr, ":", 2)
+        ) {
+          labelExpr = argExpr.args[0]!;
+          argExpr = argExpr.args[1]!;
+
+          if (!exprIsAtom(labelExpr)) {
+            throw this.formatErrorMessage(
+              labelExpr.token,
+              `Expected identifier for label, got:\n${exprToString(labelExpr)}`
+            );
+          }
+          label = labelExpr.token.value;
+        } else {
+          throw this.formatErrorMessage(
+            argExpr.token,
+            `Expected member label, but got:\n${exprToString(argExpr)}`
+          );
+        }
+
+        if (moduleElement.label === label) {
+          foundArgExpr = true;
+
+          if (moduleElement.assignedValue) {
+            throw this.formatErrorMessage(
+              argExpr.token,
+              `Module member "${
+                moduleElement.label
+              }" already has a assigned value:
+${valueToString(moduleElement.assignedValue)}`
+            );
+          }
+
+          // evaluate the module member type again.
+          // Check evaluateFunctionParameterType function
+          // They should be similar
+          let moduleElementType: Type;
+          const typeExpr = moduleElement.exprs.typeExpr;
+          const defaultValueExpr = moduleElement.exprs.defaultValueExpr;
+          if (typeExpr) {
+            const evaluatedModuleMember = this.evaluateExpression({
+              expr: cloneExpr(typeExpr),
+              env: pushEnvFrame(
+                moduleType.env,
+                callerEnv.frames[callerEnv.frames.length - 1]
+              ),
+              context: {
+                ...context,
+                expectedType: undefined,
+                SelfType: undefined,
+              },
+            });
+            const evaluatedModuleMemberTypeValue =
+              evaluatedModuleMember.$?.value;
+            if (!isTypeValue(evaluatedModuleMemberTypeValue)) {
+              throw this.formatErrorMessage(
+                argExpr.token,
+                `Failed to evaluate the module member "${label}"`
+              );
+            }
+            moduleElementType = evaluatedModuleMemberTypeValue.value;
+          } else if (defaultValueExpr) {
+            const evaluatedValueExpr = this.evaluateExpression({
+              expr: cloneExpr(defaultValueExpr),
+              env: pushEnvFrame(
+                moduleType.env,
+                callerEnv.frames[callerEnv.frames.length - 1]
+              ),
+              context: {
+                ...context,
+                expectedType: undefined,
+                SelfType: undefined,
+              },
+            });
+            const value = evaluatedValueExpr.$?.value;
+            if (!value) {
+              throw this.formatErrorMessage(
+                argExpr.token,
+                `Failed to evaluate the module member "${label}"`
+              );
+            }
+            moduleElementType = value.type;
+          } else {
+            throw this.formatErrorMessage(
+              argExpr.token,
+              `Module member "${label}" has no type or default value or assigned value.`
+            );
+          }
+
+          // evaluate the argExpr
+          const evaluatedArgExpr = this.evaluateExpression({
+            expr: argExpr,
+            env: callerEnv,
+            context: {
+              ...context,
+              expectedType: { type: moduleElementType, env: callerEnv },
+              SelfType: moduleType,
+            },
+          });
+          const argType = evaluatedArgExpr.$?.type;
+          if (!argType) {
+            throw this.formatErrorMessage(
+              argExpr.token,
+              `Failed to evaluate the module member "${label}"`
+            );
+          }
+          if (evaluatedArgExpr.$?.env) {
+            callerEnv = evaluatedArgExpr.$.env;
+          }
+
+          // Compare the types
+          if (
+            !areTypesCompatible(
+              { type: moduleElementType, env: callerEnv },
+              { type: argType, env: callerEnv }
+            )
+          ) {
+            throw this.formatErrorMessage(
+              argExpr.token,
+              `Type mismatch for the module member "${label}":
+Expected: ${typeToString(moduleElementType)}
+Got:   ${typeToString(argType)}`
+            );
+          }
+          const argValue = evaluatedArgExpr.$?.value;
+
+          // Save the value to the members
+          elements[i] = argValue;
+          // Add to the env
+          const { env: nextEnv } = addVariableToEnv({
+            env: callerEnv,
+            variable: {
+              name: label,
+              type: argType,
+              isMutable: false,
+              isCompileTimeOnly: true,
+              token: argExpr.token,
+              isUndefined: false,
+              isImplicit: false,
+              value: argValue,
+            },
+            skipCheckingFunctionOverloading: true,
+          });
+          callerEnv = nextEnv;
+
+          // Add the type information to argExpr
+          argExpr.$ = {
+            env: callerEnv,
+            type: argType,
+            value: argValue,
+            isMutable: false,
+            pathCollection: [],
+          };
+          if (labelExpr) {
+            labelExpr.$ = argExpr.$;
+          }
+          break;
+        }
+      }
+
+      if (!foundArgExpr) {
+        const defaultValue = moduleElement.defaultValue;
+        const assignedValue = moduleElement.assignedValue;
+        // Check if moduleMember has default or required value
+        if (!defaultValue && !assignedValue) {
+          throw this.formatErrorMessage(
+            moduleExpr.token,
+            `Module member "${moduleElement.label}" is not provided and has no required/default value.`
+          );
+        }
+
+        if (defaultValue) {
+          elements[i] = defaultValue;
+        }
+        if (assignedValue) {
+          elements[i] = assignedValue;
+        }
+
+        // Add to the env
+        const { env: nextEnv } = addVariableToEnv({
+          env: callerEnv,
+          variable: {
+            name: moduleElement.label,
+            type: moduleElement.type,
+            isMutable: false,
+            isCompileTimeOnly: true,
+            token: moduleExpr.token,
+            isUndefined: false,
+            isImplicit: false,
+            value: defaultValue ?? assignedValue,
+          },
+        });
+        callerEnv = nextEnv;
+      }
+    }
+
+    callerEnv = popEnvFrame(callerEnv);
+
+    // Create the module value
+    const moduleValue = createModuleValue(moduleType, elements);
+    return { moduleValue, callerEnv };
+  }
+
   private evaluateTypeFunctionCall({
     functionCallExpr,
     functionType,
@@ -8312,7 +8543,7 @@ Got:   ${typeToString(argType)}`
     context: EvaluatorContext;
   }): { moduleValue: ModuleValue; moduleType: ModuleType; env: Environment } {
     // Create module type
-    const moduleType = createModuleType([]);
+    const moduleType = createModuleType([], env);
     const moduleElementValues: (Value | undefined)[] = [];
 
     // Push new frame to the env
@@ -8695,6 +8926,7 @@ Got:   ${typeToString(argType)}`
   private evaluateImport({
     expr,
     env,
+    context,
   }: {
     expr: FuncCallExpr;
     env: Environment;
@@ -8708,7 +8940,6 @@ Got:   ${typeToString(argType)}`
     }
 
     const moduleArg = expr.args[0]!;
-    /*
     // TODO: Support comptime string
     // Evaluate the moduleArg
     const evaluatedModuleArg = this.evaluateExpression({
@@ -8716,22 +8947,19 @@ Got:   ${typeToString(argType)}`
       env,
       context: {
         ...context,
-        isEvaluatingExprAsType: false,
-        expectedType: undefined,
-        SelfType: undefined,
       },
     });
-    const value = evaluatedModuleArg.value;
-    */
-    if (moduleArg.token.type !== TokenType.String) {
+    const value = evaluatedModuleArg.$?.value;
+
+    if (!isComptStringValue(value)) {
       throw this.formatErrorMessage(
         moduleArg.token,
-        `Expected string for module path, got:\n${exprToString(moduleArg)}`
+        `Expected compt_string for module path, got:\n${exprToString(moduleArg)}`
       );
     }
 
     // Import the module
-    const modulePath = moduleArg.token.value.slice(1, -1); // Remove the quotes
+    const modulePath = value.value; // Remove the quotes
 
     if (!modulePath.startsWith(".")) {
       throw this.formatErrorMessage(

@@ -590,6 +590,13 @@ export interface ModuleType extends Type {
    * The elements of the module.
    */
   elements: TupleElement[];
+
+  /**
+   * The env when the function type is created.
+   * The env shouldn't contain the frame that have the parameters.
+   * The env is also useful to show the frame level at which the function is defined.
+   */
+  env: Environment;
 }
 
 export interface EnumVariant {
@@ -857,11 +864,13 @@ export function createStructType(
 
 export function createModuleType(
   elements: TupleElement[],
+  env: Environment,
   typeId?: string
 ): ModuleType {
   return {
     tag: TypeTag.Module,
     elements,
+    env,
     typeId: typeId ?? `module_${randomId()}`,
   };
 }
