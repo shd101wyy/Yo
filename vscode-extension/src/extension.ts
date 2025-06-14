@@ -5,7 +5,13 @@ import * as vscode from "vscode";
 // This assumes your extension can access the Yo project code
 import { getVariablesFromEnv } from "@yo/env";
 import { MoLexerError, MoParserError } from "@yo/error";
-import { AtomExpr, Expr, exprIsAtom, exprToString } from "@yo/expr";
+import {
+  AtomExpr,
+  Expr,
+  exprIsAtom,
+  exprToString,
+  FuncCallExpr,
+} from "@yo/expr";
 import { ModuleManager } from "@yo/module-manager";
 import { stringIsOperator, TokenType } from "@yo/token";
 import { typeOfType, typeToString } from "@yo/type-checker";
@@ -272,6 +278,212 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   context.subscriptions.push(hoverProvider);
+
+  // Register completion provider for Yo language
+  const completionProvider = vscode.languages.registerCompletionItemProvider(
+    "yo",
+    {
+      provideCompletionItems(document, position) {
+        const filePath = document.uri.fsPath;
+        const modulePath = "file://" + filePath;
+
+        // Get the module evaluator
+        const module = moduleManager.modules.get(modulePath);
+        if (!module) {
+          // If no module is available, provide basic language keywords
+          return getBasicCompletionItems(document, position);
+        }
+
+        // Get the word at the current position to filter suggestions
+        const range = document.getWordRangeAtPosition(position);
+        const prefix = range ? document.getText(range) : "";
+
+        // Collect all variables and functions from the parsed program
+        const completionItems: vscode.CompletionItem[] = [];
+        const addedItems = new Set<string>(); // Prevent duplicates
+
+        // Helper function to add completion items
+        const addCompletionItem = (
+          name: string,
+          kind: vscode.CompletionItemKind,
+          detail?: string,
+          documentation?: string
+        ) => {
+          if (
+            !addedItems.has(name) &&
+            name.toLowerCase().includes(prefix.toLowerCase())
+          ) {
+            addedItems.add(name);
+            const item = new vscode.CompletionItem(name, kind);
+            if (detail) item.detail = detail;
+            if (documentation) item.documentation = documentation;
+
+            // Sort priority: items starting with prefix get higher priority
+            if (name.toLowerCase().startsWith(prefix.toLowerCase())) {
+              item.sortText = `0_${name}`;
+            } else {
+              item.sortText = `1_${name}`;
+            }
+
+            completionItems.push(item);
+          }
+        };
+
+        try {
+          // Get all expressions from the program
+          const program = module.evaluator.getProgram();
+
+          // Extract variable names from expressions
+          const extractVariables = (expr: Expr) => {
+            if (exprIsAtom(expr)) {
+              const atomExpr = expr as AtomExpr;
+              if (atomExpr.token.type === TokenType.Identifier) {
+                let detail = "";
+                let documentation = "";
+
+                // Try to get type information if available
+                if (atomExpr.$?.type) {
+                  try {
+                    detail = typeToString(atomExpr.$.type);
+                  } catch (error) {
+                    // Ignore type conversion errors
+                  }
+                }
+
+                if (atomExpr.$?.value) {
+                  try {
+                    documentation = `Value: ${valueToString(atomExpr.$.value)}`;
+                  } catch (error) {
+                    // Ignore value conversion errors
+                  }
+                }
+
+                // Determine the kind based on the variable type or name
+                let kind = vscode.CompletionItemKind.Variable;
+                if (detail.includes("->")) {
+                  kind = vscode.CompletionItemKind.Function;
+                }
+
+                addCompletionItem(
+                  atomExpr.token.value,
+                  kind,
+                  detail,
+                  documentation
+                );
+              }
+            } else if (expr.tag === "FuncCall") {
+              // Recursively extract from function calls
+              const funcCallExpr = expr as FuncCallExpr;
+              extractVariables(funcCallExpr.func);
+              for (const arg of funcCallExpr.args) {
+                extractVariables(arg);
+              }
+            }
+          };
+
+          // Extract variables from all expressions in the program
+          for (const expr of program) {
+            extractVariables(expr);
+          }
+
+          // Add built-in functions and keywords
+          const builtins = [
+            "extern",
+            "let",
+            "mut",
+            "if",
+            "else",
+            "match",
+            "return",
+            "struct",
+            "enum",
+            "interface",
+            "module",
+            "import",
+            "export",
+            "i32",
+            "i64",
+            "f32",
+            "f64",
+            "bool",
+            "string",
+            "unit",
+            "add",
+          ];
+
+          for (const builtin of builtins) {
+            addCompletionItem(builtin, vscode.CompletionItemKind.Keyword);
+          }
+        } catch (error) {
+          // If we can't parse the program, provide basic language keywords
+          return getBasicCompletionItems(document, position);
+        }
+
+        return completionItems;
+      },
+    },
+    // Trigger characters for completion
+    ".",
+    ":",
+    "("
+  );
+
+  // Helper function to provide basic completion items
+  const getBasicCompletionItems = (
+    document: vscode.TextDocument,
+    position: vscode.Position
+  ) => {
+    const range = document.getWordRangeAtPosition(position);
+    const prefix = range ? document.getText(range) : "";
+
+    const basicKeywords = [
+      "extern",
+      "let",
+      "mut",
+      "if",
+      "else",
+      "match",
+      "return",
+      "struct",
+      "enum",
+      "interface",
+      "module",
+      "import",
+      "export",
+      "i32",
+      "i64",
+      "f32",
+      "f64",
+      "bool",
+      "string",
+      "unit",
+      "add",
+    ];
+
+    const completionItems: vscode.CompletionItem[] = [];
+
+    for (const keyword of basicKeywords) {
+      if (keyword.toLowerCase().includes(prefix.toLowerCase())) {
+        const item = new vscode.CompletionItem(
+          keyword,
+          vscode.CompletionItemKind.Keyword
+        );
+
+        // Sort priority: items starting with prefix get higher priority
+        if (keyword.toLowerCase().startsWith(prefix.toLowerCase())) {
+          item.sortText = `0_${keyword}`;
+        } else {
+          item.sortText = `1_${keyword}`;
+        }
+
+        completionItems.push(item);
+      }
+    }
+
+    return completionItems;
+  };
+
+  context.subscriptions.push(completionProvider);
 
   // Register event handlers
 
