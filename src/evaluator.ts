@@ -181,14 +181,21 @@ export default class Evaluator {
   private program: Expr[];
   private tokens: Token[];
   private moduleValue: ModuleValue;
-  private loadModule: (modulePath: string) => ModuleValue;
+  private moduleError: Error | undefined;
+  private loadModule: (modulePath: string) => {
+    moduleValue: ModuleValue;
+    moduleError: Error | undefined;
+  };
 
   constructor({
     modulePath,
     loadModule,
   }: {
     modulePath: string;
-    loadModule: (modulePath: string) => ModuleValue;
+    loadModule: (modulePath: string) => {
+      moduleValue: ModuleValue;
+      moduleError: Error | undefined;
+    };
   }) {
     this.modulePath = modulePath;
     this.loadModule = loadModule;
@@ -8545,14 +8552,28 @@ Got:   ${typeToString(argType)}`
     beginExprs,
     env,
     context,
+    allowPartialModule = false,
   }: {
     beginExprs: Expr[];
     env: Environment;
     context: EvaluatorContext;
-  }): { moduleValue: ModuleValue; moduleType: ModuleType; env: Environment } {
+    /**
+     * This is mainly used for the vscode extension
+     * Even though the module failed to evaluate completely,
+     * we still want to return the moduleValue so the hoverProvider and completionProvider can work.
+     */
+    allowPartialModule?: boolean;
+  }): {
+    moduleValue: ModuleValue;
+    moduleType: ModuleType;
+    env: Environment;
+    partialModuleError?: Error;
+  } {
     // Create module type
     const moduleType = createModuleType([], env);
     const moduleElementValues: (Value | undefined)[] = [];
+
+    let partialModuleError: Error | undefined = undefined;
 
     // Push new frame to the env
     env = pushEnvFrame(env);
@@ -8560,70 +8581,138 @@ Got:   ${typeToString(argType)}`
     // Evaluate each expression in the begin
     for (let i = 0; i < beginExprs.length; i++) {
       const expr = beginExprs[i]!;
-      // Export
-      if (
-        exprIsFunctionCall(expr) &&
-        exprIsFunctionCallOf(expr, BuiltinKeywords.export)
-      ) {
-        const exportExprs = expr.args;
-        for (let i = 0; i < exportExprs.length; i++) {
-          const exportExpr = exportExprs[i]!;
+      try {
+        // Export
+        if (
+          exprIsFunctionCall(expr) &&
+          exprIsFunctionCallOf(expr, BuiltinKeywords.export)
+        ) {
+          const exportExprs = expr.args;
+          for (let i = 0; i < exportExprs.length; i++) {
+            const exportExpr = exportExprs[i]!;
 
-          // spread operator for export all elements in another module
-          if (
-            exprIsFunctionCall(exportExpr) &&
-            exprIsFunctionCallOf(exportExpr, "...", 1)
-          ) {
-            const extendedModuleExpr = exportExpr.args[0]!;
-            // Evaluate the extended struct expression
-            const evaluatedExtendedModuleExpr = this.evaluateExpression({
-              expr: extendedModuleExpr,
-              env,
-              context: {
-                ...context,
-              },
-            });
-            if (!evaluatedExtendedModuleExpr.$) {
-              throw this.formatErrorMessage(
-                extendedModuleExpr.token,
-                `Failed to evaluate the extended struct expression:\n${exprToString(extendedModuleExpr)}`
-              );
-            }
-            const extendedModuleType = evaluatedExtendedModuleExpr.$.type;
-            if (!isModuleType(extendedModuleType)) {
-              throw this.formatErrorMessage(
-                extendedModuleExpr.token,
-                `Expected struct type for export, got:\n${typeToString(extendedModuleType)}`
-              );
-            }
-            const extendedModuleValue = evaluatedExtendedModuleExpr.$.value as
-              | ModuleValue
-              | undefined;
+            // spread operator for export all elements in another module
+            if (
+              exprIsFunctionCall(exportExpr) &&
+              exprIsFunctionCallOf(exportExpr, "...", 1)
+            ) {
+              const extendedModuleExpr = exportExpr.args[0]!;
+              // Evaluate the extended struct expression
+              const evaluatedExtendedModuleExpr = this.evaluateExpression({
+                expr: extendedModuleExpr,
+                env,
+                context: {
+                  ...context,
+                },
+              });
+              if (!evaluatedExtendedModuleExpr.$) {
+                throw this.formatErrorMessage(
+                  extendedModuleExpr.token,
+                  `Failed to evaluate the extended struct expression:\n${exprToString(extendedModuleExpr)}`
+                );
+              }
+              const extendedModuleType = evaluatedExtendedModuleExpr.$.type;
+              if (!isModuleType(extendedModuleType)) {
+                throw this.formatErrorMessage(
+                  extendedModuleExpr.token,
+                  `Expected struct type for export, got:\n${typeToString(extendedModuleType)}`
+                );
+              }
+              const extendedModuleValue = evaluatedExtendedModuleExpr.$
+                .value as ModuleValue | undefined;
 
-            // Iterate over the elements of the extended struct
-            for (let i = 0; i < extendedModuleType.elements.length; i++) {
-              const extendedStructElement = extendedModuleType.elements[i]!;
-              // Check if there is duplicate labels
-              // If yes, then throw an error
-              const existingElementIndex = moduleType.elements.findIndex(
-                (e) => e.label === extendedStructElement.label
-              );
-              if (existingElementIndex >= 0) {
+              // Iterate over the elements of the extended struct
+              for (let i = 0; i < extendedModuleType.elements.length; i++) {
+                const extendedStructElement = extendedModuleType.elements[i]!;
+                // Check if there is duplicate labels
+                // If yes, then throw an error
+                const existingElementIndex = moduleType.elements.findIndex(
+                  (e) => e.label === extendedStructElement.label
+                );
+                if (existingElementIndex >= 0) {
+                  throw this.formatErrorMessage(
+                    exportExpr.token,
+                    `Element "${extendedStructElement.label}" is already exported in the module.`
+                  );
+                } else {
+                  // Add the element to the module type
+                  moduleType.elements.push({
+                    label: extendedStructElement.label,
+                    type: extendedStructElement.type,
+                    isCompileTimeOnly: extendedStructElement.isCompileTimeOnly,
+                    isImplicit: extendedStructElement.isImplicit,
+                    assignedValue: extendedStructElement.isCompileTimeOnly
+                      ? extendedStructElement.assignedValue
+                      : undefined,
+                    defaultValue: extendedStructElement.defaultValue,
+                    exprs: {
+                      expr: exportExpr,
+                      labelExpr: undefined,
+                      typeExpr: undefined,
+                      assignedValueExpr: undefined,
+                      defaultValueExpr: undefined,
+                    },
+                  });
+
+                  // Add the value to the module element values
+                  if (extendedModuleValue) {
+                    moduleElementValues.push(extendedModuleValue.elements[i]);
+                  } else {
+                    moduleElementValues.push(undefined);
+                  }
+
+                  // Add information to exportExpr
+                  exportExpr.$ = {
+                    env,
+                    type: extendedStructElement.type,
+                    value: extendedModuleValue
+                      ? extendedModuleValue.elements[i]
+                      : undefined,
+                    isMutable: false, // TODO: Check if the element is mutable
+                    pathCollection: [],
+                  };
+                }
+              }
+            } else {
+              if (!this.isValidVariableName(exportExpr)) {
                 throw this.formatErrorMessage(
                   exportExpr.token,
-                  `Element "${extendedStructElement.label}" is already exported in the module.`
+                  `Expected identifier for export, got:\n${exprToString(exportExpr)}`
+                );
+              }
+
+              const variableName = exportExpr.token.value;
+              // Get the variable from the env
+              const variables = getVariablesFromEnv(env, variableName);
+              if (variables.length === 0) {
+                throw this.formatErrorMessage(
+                  exportExpr.token,
+                  `Variable "${variableName}" is not defined in the module.`
+                );
+              }
+              const variable = variables[variables.length - 1]!;
+
+              // Check if the same variable is already exported
+              const existingElementIndex = moduleType.elements.findIndex(
+                (e) => e.label === variableName
+              );
+              if (existingElementIndex >= 0) {
+                // Throw error if the variable is already exported
+                throw this.formatErrorMessage(
+                  exportExpr.token,
+                  `Variable "${variableName}" is already exported in the module.`
                 );
               } else {
-                // Add the element to the module type
+                // Add the variable to the module type
                 moduleType.elements.push({
-                  label: extendedStructElement.label,
-                  type: extendedStructElement.type,
-                  isCompileTimeOnly: extendedStructElement.isCompileTimeOnly,
-                  isImplicit: extendedStructElement.isImplicit,
-                  assignedValue: extendedStructElement.isCompileTimeOnly
-                    ? extendedStructElement.assignedValue
+                  label: variableName,
+                  type: variable.type,
+                  isCompileTimeOnly: variable.isCompileTimeOnly,
+                  isImplicit: variable.isImplicit,
+                  assignedValue: variable.isCompileTimeOnly
+                    ? variable.value
                     : undefined,
-                  defaultValue: extendedStructElement.defaultValue,
+                  defaultValue: undefined,
                   exprs: {
                     expr: exportExpr,
                     labelExpr: undefined,
@@ -8632,99 +8721,39 @@ Got:   ${typeToString(argType)}`
                     defaultValueExpr: undefined,
                   },
                 });
-
-                // Add the value to the module element values
-                if (extendedModuleValue) {
-                  moduleElementValues.push(extendedModuleValue.elements[i]);
-                } else {
-                  moduleElementValues.push(undefined);
-                }
+                moduleElementValues.push(variable.value);
 
                 // Add information to exportExpr
                 exportExpr.$ = {
                   env,
-                  type: extendedStructElement.type,
-                  value: extendedModuleValue
-                    ? extendedModuleValue.elements[i]
-                    : undefined,
-                  isMutable: false, // TODO: Check if the element is mutable
+                  type: variable.type,
+                  value: variable.value,
+                  isMutable: variable.isMutable,
                   pathCollection: [],
                 };
               }
             }
-          } else {
-            if (!this.isValidVariableName(exportExpr)) {
-              throw this.formatErrorMessage(
-                exportExpr.token,
-                `Expected identifier for export, got:\n${exprToString(exportExpr)}`
-              );
-            }
-
-            const variableName = exportExpr.token.value;
-            // Get the variable from the env
-            const variables = getVariablesFromEnv(env, variableName);
-            if (variables.length === 0) {
-              throw this.formatErrorMessage(
-                exportExpr.token,
-                `Variable "${variableName}" is not defined in the module.`
-              );
-            }
-            const variable = variables[variables.length - 1]!;
-
-            // Check if the same variable is already exported
-            const existingElementIndex = moduleType.elements.findIndex(
-              (e) => e.label === variableName
-            );
-            if (existingElementIndex >= 0) {
-              // Throw error if the variable is already exported
-              throw this.formatErrorMessage(
-                exportExpr.token,
-                `Variable "${variableName}" is already exported in the module.`
-              );
-            } else {
-              // Add the variable to the module type
-              moduleType.elements.push({
-                label: variableName,
-                type: variable.type,
-                isCompileTimeOnly: variable.isCompileTimeOnly,
-                isImplicit: variable.isImplicit,
-                assignedValue: variable.isCompileTimeOnly
-                  ? variable.value
-                  : undefined,
-                defaultValue: undefined,
-                exprs: {
-                  expr: exportExpr,
-                  labelExpr: undefined,
-                  typeExpr: undefined,
-                  assignedValueExpr: undefined,
-                  defaultValueExpr: undefined,
-                },
-              });
-              moduleElementValues.push(variable.value);
-
-              // Add information to exportExpr
-              exportExpr.$ = {
-                env,
-                type: variable.type,
-                value: variable.value,
-                isMutable: variable.isMutable,
-                pathCollection: [],
-              };
-            }
+          }
+        } else {
+          const evaluatedExpr = this.evaluateExpression({
+            expr,
+            env,
+            context: {
+              ...context,
+              expectedType: undefined,
+              SelfType: undefined, // NOTE: Module doesn't have SelfType
+            },
+          });
+          if (evaluatedExpr.$?.env) {
+            env = evaluatedExpr.$?.env;
           }
         }
-      } else {
-        const evaluatedExpr = this.evaluateExpression({
-          expr,
-          env,
-          context: {
-            ...context,
-            expectedType: undefined,
-            SelfType: undefined, // NOTE: Module doesn't have SelfType
-          },
-        });
-        if (evaluatedExpr.$?.env) {
-          env = evaluatedExpr.$?.env;
+      } catch (error) {
+        if (allowPartialModule) {
+          partialModuleError = error;
+          break;
+        } else {
+          throw error;
         }
       }
     }
@@ -8739,6 +8768,7 @@ Got:   ${typeToString(argType)}`
       moduleValue,
       moduleType,
       env,
+      partialModuleError,
     };
   }
 
@@ -8991,7 +9021,7 @@ Got:   ${typeToString(argType)}`
 
     try {
       // Load the module
-      const moduleValue = this.loadModule(moduleAbsolutePath);
+      const { moduleValue } = this.loadModule(moduleAbsolutePath);
       expr.$ = {
         env,
         type: moduleValue.type,
@@ -10106,18 +10136,23 @@ ${exprToString(expr)}`
       inputString: this.inputString,
     });
 
-    const { moduleValue, env: nextEnv } =
-      this.evaluateAnonymousModuleBeginExprs({
-        beginExprs: this.program,
-        env,
-        context: {
-          expectedType: undefined,
-          SelfType: undefined,
-          borrowings: [],
-        },
-      });
+    const {
+      moduleValue,
+      env: nextEnv,
+      partialModuleError,
+    } = this.evaluateAnonymousModuleBeginExprs({
+      beginExprs: this.program,
+      env,
+      context: {
+        expectedType: undefined,
+        SelfType: undefined,
+        borrowings: [],
+      },
+      allowPartialModule: true,
+    });
     env = nextEnv;
     this.moduleValue = moduleValue;
+    this.moduleError = partialModuleError;
   }
 
   public getModuleValue(): ModuleValue {
@@ -10125,5 +10160,9 @@ ${exprToString(expr)}`
       throw new Error("Module value is not set");
     }
     return this.moduleValue;
+  }
+
+  public getModuleError(): Error | undefined {
+    return this.parser.getParserError() ?? this.moduleError;
   }
 }

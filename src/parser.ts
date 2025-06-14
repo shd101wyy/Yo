@@ -26,6 +26,7 @@ export default class Parser {
   private modulePath: string;
   private tokens: Token[];
   private program: Expr[];
+  private parserError: Error | undefined;
 
   constructor({
     modulePath,
@@ -887,13 +888,17 @@ or ) to end the function call`
       if (index >= tokens.length) {
         break;
       }
-
-      const { expr, index: nextIndex } = this.parseExpression({
-        tokens,
-        index,
-      });
-      exprs.push(expr);
-      index = nextIndex;
+      try {
+        const { expr, index: nextIndex } = this.parseExpression({
+          tokens,
+          index,
+        });
+        exprs.push(expr);
+        index = nextIndex;
+      } catch (error) {
+        this.parserError = error;
+        break;
+      }
     }
 
     // Check if the last token is a semicolon
@@ -925,6 +930,9 @@ or ) to end the function call`
 
   public getProgram() {
     return this.program;
+  }
+  public getParserError() {
+    return this.parserError;
   }
   public getTokens() {
     return this.tokens;

@@ -8,12 +8,19 @@ export class ModuleManager {
    */
   public modules: Map<
     string,
-    { moduleValue: ModuleValue; evaluator: Evaluator }
+    {
+      moduleValue: ModuleValue;
+      moduleError: Error | undefined;
+      evaluator: Evaluator;
+    }
   > = new Map();
 
   constructor() {}
 
-  public loadModule(modulePath: string): ModuleValue {
+  public loadModule(modulePath: string): {
+    moduleValue: ModuleValue;
+    moduleError: Error | undefined;
+  } {
     if (!modulePath.match(/^file:\/\//)) {
       throw new Error(
         `Invalid file protocol: ${modulePath}. Only file:// is supported for now.  `
@@ -22,7 +29,10 @@ export class ModuleManager {
 
     const module = this.modules.get(modulePath);
     if (module) {
-      return module.moduleValue;
+      return {
+        moduleValue: module.moduleValue,
+        moduleError: module.moduleError,
+      };
     }
 
     const evaluator = new Evaluator({
@@ -32,8 +42,9 @@ export class ModuleManager {
       },
     });
     const moduleValue = evaluator.getModuleValue();
-    this.modules.set(modulePath, { moduleValue, evaluator });
-    return moduleValue;
+    const moduleError = evaluator.getModuleError();
+    this.modules.set(modulePath, { moduleValue, moduleError, evaluator });
+    return { moduleValue, moduleError };
   }
 
   public deleteModule(modulePath: string): void {

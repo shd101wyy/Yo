@@ -48,7 +48,10 @@ export function activate(context: vscode.ExtensionContext) {
       moduleManager.deleteModule(modulePath);
 
       // Load the module again
-      moduleManager.loadModule(modulePath);
+      const { moduleError } = moduleManager.loadModule(modulePath);
+      if (moduleError) {
+        throw moduleError;
+      }
 
       // If we get here, there were no errors
     } catch (error) {
