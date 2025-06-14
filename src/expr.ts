@@ -222,6 +222,7 @@ export const BuiltinKeywords = {
   import: ["import"],
   export: ["export"],
   borrow: ["borrow"],
+  open: ["open"],
 
   // values
   undefined: ["undefined"],
@@ -378,8 +379,6 @@ export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
     isLinearOrType0Type(typeOfType(expr.$.type))
   ) {
     throw formatErrorMessages({
-      modulePath: env.modulePath,
-      inputString: env.inputString,
       tokenAndErrorList: [
         {
           token: expr.token,
@@ -409,8 +408,6 @@ export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
   const variables = getVariablesFromEnv(env, nameOfVariableToConsume);
   if (variables.length === 0) {
     throw formatErrorMessages({
-      modulePath: env.modulePath,
-      inputString: env.inputString,
       tokenAndErrorList: [
         {
           token: expr.token,
@@ -425,8 +422,6 @@ export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
     // Check if the variable is already consumed
     if (variableToConsume.consumedAtToken) {
       throw formatErrorMessages({
-        modulePath: env.modulePath,
-        inputString: env.inputString,
         tokenAndErrorList: [
           {
             token: expr.token,

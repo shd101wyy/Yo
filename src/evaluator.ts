@@ -8584,7 +8584,6 @@ Got:   ${typeToString(argType)}`
     context,
     allowPartialModule = false,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    loadPrelude = false,
   }: {
     beginExprs: Expr[];
     env: Environment;
@@ -8595,10 +8594,6 @@ Got:   ${typeToString(argType)}`
      * we still want to return the moduleValue so the hoverProvider and completionProvider can work.
      */
     allowPartialModule?: boolean;
-    /**
-     * Whether to load the std/prelude module or not.
-     */
-    loadPrelude?: boolean;
   }): {
     moduleValue: ModuleValue;
     moduleType: ModuleType;
@@ -8613,41 +8608,6 @@ Got:   ${typeToString(argType)}`
 
     // Push new frame to the env
     env = pushEnvFrame(env);
-
-    if (loadPrelude) {
-      // Load the std/prelude.yo
-      if (
-        !this.modulePath.startsWith(`file://${this.stdPath}`) &&
-        !this.skipPrelude
-      ) {
-        const { moduleValue, moduleError } = this.loadModule(
-          `file://${this.stdPath}/prelude.yo`
-        );
-        if (moduleError) {
-          throw moduleError;
-        }
-        const moduleType = moduleValue.type;
-        // Add all the variables from the prelude module to the env
-        for (let i = 0; i < moduleValue.elements.length; i++) {
-          const elementValue = moduleValue.elements[i]!;
-          const element = moduleType.elements[i]!;
-          const { env: nextEnv } = addVariableToEnv({
-            env,
-            variable: {
-              name: element.label,
-              type: element.type,
-              isMutable: false,
-              isCompileTimeOnly: element.isCompileTimeOnly,
-              isImplicit: element.isImplicit,
-              token: element.exprs.labelExpr?.token ?? element.exprs.expr.token,
-              isUndefined: false,
-              value: elementValue,
-            },
-          });
-          env = nextEnv;
-        }
-      }
-    }
 
     // Evaluate each expression in the begin
     for (let i = 0; i < beginExprs.length; i++) {
@@ -9118,6 +9078,11 @@ Got:   ${typeToString(argType)}`
     return expr;
   }
 
+  /**
+   *
+   * Import a module
+   *
+   */
   private evaluateImport({
     expr,
     env,
@@ -9163,6 +9128,12 @@ Got:   ${typeToString(argType)}`
         path.dirname(this.modulePath.replace(/^file:\/\//, "")),
         path.resolve(this.stdPath, modulePath.replace("std/", "./"))
       );
+    } else if (modulePath === "std") {
+      // std library
+      modulePath = path.relative(
+        path.dirname(this.modulePath.replace(/^file:\/\//, "")),
+        path.resolve(this.stdPath, "./prelude.yo")
+      ); // Let's set prelude.yo as the default for now
     }
 
     if (!modulePath.startsWith(".")) {
@@ -9203,6 +9174,84 @@ Got:   ${typeToString(argType)}`
         `Failed to import module "${modulePath}":\n${error instanceof Error ? error.message : String(error)}`
       );
     }
+  }
+
+  /**
+   *
+   * Import everything from a module
+   *
+   */
+  private evaluateOpen({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    const moduleArg = expr.args[0];
+    if (!moduleArg) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "using" with 1 argument, got:\n${exprToString(expr)}`
+      );
+    }
+
+    // Evaluate the module
+    const evaluatedModuleArg = this.evaluateExpression({
+      expr: moduleArg,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!evaluatedModuleArg.$) {
+      throw this.formatErrorMessage(
+        moduleArg.token,
+        `Failed to evaluate the module argument:\n${exprToString(moduleArg)}`
+      );
+    }
+
+    const moduleValue = evaluatedModuleArg.$.value;
+    if (!isModuleValue(moduleValue)) {
+      throw this.formatErrorMessage(
+        moduleArg.token,
+        `Expected module value for "using", got:\n${exprToString(moduleArg)}`
+      );
+    }
+
+    const moduleType = moduleValue.type;
+
+    // Import everything from the module
+    for (let i = 0; i < moduleType.elements.length; i++) {
+      const value = moduleValue.elements[i]!;
+      const element = moduleType.elements[i]!;
+      const { env: nextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name: element.label,
+          type: element.type,
+          isMutable: false,
+          isCompileTimeOnly: element.isCompileTimeOnly,
+          isImplicit: element.isImplicit,
+          token: element.exprs.labelExpr?.token ?? element.exprs.expr.token,
+          isUndefined: false,
+          value: value,
+        },
+      });
+      env = nextEnv;
+    }
+
+    expr.$ = {
+      env,
+      value: VUnit,
+      type: VUnit.type,
+      isMutable: false,
+      pathCollection: [],
+    };
+
+    return expr;
   }
 
   /*
@@ -10203,6 +10252,9 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
         // import
         return this.evaluateImport({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.open)) {
+        // open
+        return this.evaluateOpen({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.borrow)) {
         // borrow
         return this.evaluateBorrow({ expr, env, context: { ...context } });
@@ -10315,7 +10367,6 @@ ${exprToString(expr)}`
         borrowings: [],
       },
       allowPartialModule: true,
-      loadPrelude: true,
     });
     env = nextEnv;
     this.moduleValue = moduleValue;
