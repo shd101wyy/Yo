@@ -5,8 +5,10 @@ extern "C",
 
 test :: (()-> unit) {
   mut(x) := malloc();
-  y := (x = malloc());
-
   consume(x);
-  consume(y);
+  compt_expect_error({
+  y := (
+    x = malloc());
+    consume(x);
+  }, "x is already consumed, so cannot mutate again");
 };

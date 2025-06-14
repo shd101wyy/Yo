@@ -2664,14 +2664,23 @@ ${exprToString(rhs)}`
       let variableName: string;
       if (exprIsAtom(lhs)) {
         // x = 12;
-        if (!this.isValidVariableName(lhs)) {
+        const evaluatedLhs = this.evaluateIdentifierAndOperator({
+          expr: lhs,
+          env,
+          context: { ...context },
+        });
+        if (!evaluatedLhs.$) {
           throw this.formatErrorMessage(
             lhs.token,
-            `Invalid assignment to ${lhs.token.value}, expected identifier or operator`
+            `Failed to evaluate left-hand side of assignment: ${exprToString(lhs)}`
           );
         }
+        env = evaluatedLhs.$.env;
+
+        requireExprNotConsumed(evaluatedLhs, env);
 
         // Check if the variable exists in the environment
+        lhs = evaluatedLhs;
         variableName = lhs.token.value;
       } else {
         // (x: i32) = 12;

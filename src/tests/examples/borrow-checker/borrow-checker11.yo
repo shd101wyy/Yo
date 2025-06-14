@@ -1,13 +1,14 @@
-type Data: Linear;
-extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> unit;
-}
+extern "C",
+  @(malloc) :
+    ()-> ^(i32)
+;
 
-
-let test = ()-> {
-  var x = malloc();
+test :: (()-> unit) {
+  mut(x) := malloc();
   consume(x);
-  let y = (x = malloc()); // y == ()
-  consume(x);
-}
+  compt_expect_error({
+  y := (
+    x = malloc());
+    consume(x);
+  }, "x is already consumed, so cannot mutate again");
+};
