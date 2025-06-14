@@ -5,7 +5,7 @@ import { charIsOperator, IdentifierRegex, Token, TokenType } from "./token";
  * Lexer
  * @param input
  */
-export function tokenize(input: string): Token[] {
+export function tokenize(input: string, modulePath: string): Token[] {
   const tokens: Token[] = [];
   let line = 0;
   let totalCharacters = 0;
@@ -47,6 +47,8 @@ export function tokenize(input: string): Token[] {
             column: characterColumn,
             character: characterIndex,
           },
+          modulePath,
+          inputString: input,
         });
         tokens.push({
           type: TokenType.Operator,
@@ -56,6 +58,8 @@ export function tokenize(input: string): Token[] {
             column: characterColumn + 1,
             character: characterIndex + 1,
           },
+          modulePath,
+          inputString: input,
         });
         i = j - 1; // Move the index to the end of the operator
         continue;
@@ -68,6 +72,8 @@ export function tokenize(input: string): Token[] {
             column: characterColumn,
             character: characterIndex,
           },
+          modulePath,
+          inputString: input,
         });
         i = j - 1;
         continue;
@@ -103,6 +109,8 @@ export function tokenize(input: string): Token[] {
             column: characterColumn,
             character: characterIndex,
           },
+          modulePath,
+          inputString: input,
         });
         i = j - 1;
         break;
@@ -126,6 +134,8 @@ export function tokenize(input: string): Token[] {
               column: characterColumn,
               character: characterIndex,
             },
+            modulePath,
+            inputString: input,
           });
           i = j - 1;
         } else if (input[i + 1] === "*") {
@@ -181,6 +191,8 @@ export function tokenize(input: string): Token[] {
               column: characterColumn,
               character: characterIndex,
             },
+            modulePath,
+            inputString: input,
           });
           i = j - 1;
         } else {
@@ -200,6 +212,8 @@ export function tokenize(input: string): Token[] {
             column: characterColumn,
             character: characterIndex,
           },
+          modulePath,
+          inputString: input,
         });
         break;
 
@@ -212,6 +226,8 @@ export function tokenize(input: string): Token[] {
             column: characterColumn,
             character: characterIndex,
           },
+          modulePath,
+          inputString: input,
         });
         break;
 
@@ -224,6 +240,8 @@ export function tokenize(input: string): Token[] {
             column: characterColumn,
             character: characterIndex,
           },
+          modulePath,
+          inputString: input,
         });
         break;
 
@@ -236,6 +254,8 @@ export function tokenize(input: string): Token[] {
             column: characterColumn,
             character: characterIndex,
           },
+          modulePath,
+          inputString: input,
         });
         break;
 
@@ -248,6 +268,8 @@ export function tokenize(input: string): Token[] {
             column: characterColumn,
             character: characterIndex,
           },
+          modulePath,
+          inputString: input,
         });
         break;
 
@@ -260,6 +282,8 @@ export function tokenize(input: string): Token[] {
             column: characterColumn,
             character: characterIndex,
           },
+          modulePath,
+          inputString: input,
         });
         break;
       // char
@@ -291,6 +315,8 @@ export function tokenize(input: string): Token[] {
               column: characterColumn,
               character: characterIndex,
             },
+            modulePath,
+            inputString: input,
           });
         } else {
           throw new MoLexerError({
@@ -328,6 +354,8 @@ export function tokenize(input: string): Token[] {
             column: characterColumn,
             character: characterIndex,
           },
+          modulePath,
+          inputString: input,
         });
 
         break;
@@ -365,6 +393,8 @@ export function tokenize(input: string): Token[] {
             column: characterColumn,
             character: characterIndex,
           },
+          modulePath,
+          inputString: input,
         });
 
         break;
@@ -379,6 +409,8 @@ export function tokenize(input: string): Token[] {
             column: characterColumn,
             character: characterIndex,
           },
+          modulePath,
+          inputString: input,
         });
         break;
       case ";":
@@ -390,6 +422,8 @@ export function tokenize(input: string): Token[] {
             column: characterColumn,
             character: characterIndex,
           },
+          modulePath,
+          inputString: input,
         });
         break;
 
@@ -427,6 +461,8 @@ export function tokenize(input: string): Token[] {
                 column: characterColumn,
                 character: characterIndex,
               },
+              modulePath,
+              inputString: input,
             });
             i = i - 1;
           } else {
@@ -438,6 +474,8 @@ export function tokenize(input: string): Token[] {
                 column: characterColumn,
                 character: characterIndex,
               },
+              modulePath,
+              inputString: input,
             });
             i = i - 1;
           }
@@ -489,6 +527,8 @@ export function tokenize(input: string): Token[] {
                       column: characterColumn,
                       character: characterIndex,
                     },
+                    modulePath,
+                    inputString: input,
                   });
                   break;
                 // identifier
@@ -501,6 +541,8 @@ export function tokenize(input: string): Token[] {
                       column: characterColumn,
                       character: characterIndex,
                     },
+                    modulePath,
+                    inputString: input,
                   });
                   break;
               }

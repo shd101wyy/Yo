@@ -117,7 +117,23 @@ export function activate(context: vscode.ExtensionContext) {
 
         diagnostics.push(diagnostic);
       } else {
-        // Don't handle the error type we don't know
+        // Create a range for the error
+        // at the end of the document
+        const range = new vscode.Range(
+          document.lineCount - 1,
+          document.lineAt(document.lineCount - 1).text.length,
+          document.lineCount - 1,
+          document.lineAt(document.lineCount - 1).text.length + 1
+        );
+
+        // Create a diagnostic
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          error.toString(),
+          vscode.DiagnosticSeverity.Error
+        );
+
+        diagnostics.push(diagnostic);
       }
 
       // Set the diagnostics for the file

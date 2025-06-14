@@ -1,3 +1,20 @@
-main :: (()-> unit) {
-  x := (1 + 2);
-};
+// Default parameters
+// The default value for a parameter has to be compile-time known.
+MyAdd ::
+  (( @(Lhs): Type, 
+    (@(Rhs): Type) ?= Lhs, 
+    @(Output) ?= Lhs
+  )-> @(Type))
+  module
+    (@(Self): Type) = Lhs,
+    (+): ((lhs: Lhs, rhs: Rhs)-> Output)
+;
+
+// _ is used as the inferred, not the default value.
+// Default value is only used when the parameter is not provided.
+IntAdd :: MyAdd(i32);
+IntAdd2 :: MyAdd(i32, undefined);
+IntAdd3 :: MyAdd(i32, undefined, undefined);
+BoolAdd :: MyAdd(boolean);
+BoolAdd2 :: MyAdd(boolean, undefined);
+BoolAdd3 :: MyAdd(boolean, undefined, undefined);

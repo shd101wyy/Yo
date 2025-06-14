@@ -37,7 +37,7 @@ export default class Parser {
   }) {
     this.modulePath = modulePath;
     this.inputString = inputString;
-    this.tokens = tokenize(inputString);
+    this.tokens = tokenize(inputString, modulePath);
     this.program = [];
 
     this.parse(this.tokens);
@@ -53,8 +53,6 @@ export default class Parser {
     return formatErrorMessage({
       token,
       errorMessage,
-      modulePath: this.modulePath,
-      inputString: this.inputString,
     });
   }
 
@@ -120,6 +118,8 @@ export default class Parser {
               type: TokenType.Identifier,
               value: BuiltinKeywords.tuple,
               position: tokens[index]!.position,
+              modulePath: this.modulePath,
+              inputString: this.inputString,
             },
           },
           args: [],
@@ -175,6 +175,8 @@ export default class Parser {
               type: TokenType.Identifier,
               value: BuiltinKeywords.tuple,
               position: tokens[startIndex]!.position,
+              modulePath: this.modulePath,
+              inputString: this.inputString,
             },
           },
           args,
@@ -232,6 +234,8 @@ export default class Parser {
               type: TokenType.Identifier,
               value: BuiltinKeywords.array,
               position: tokens[startIndex]!.position,
+              modulePath: this.modulePath,
+              inputString: this.inputString,
             },
           },
           args,
@@ -305,6 +309,8 @@ export default class Parser {
             type: TokenType.Identifier,
             value: BuiltinKeywords.tuple,
             position: lastNonWhiteSpaceToken.position,
+            modulePath: this.modulePath,
+            inputString: this.inputString,
           };
           // Push unit
           args.push({
@@ -342,6 +348,8 @@ export default class Parser {
             type: TokenType.Operator,
             value: ":",
             position: tokens[startIndex]!.position,
+            modulePath: this.modulePath,
+            inputString: this.inputString,
           };
           const newArg: FuncCallExpr = {
             tag: ExprTag.FuncCall,
@@ -366,6 +374,8 @@ export default class Parser {
             // QUESTION: Should we take _ out as an individual token type?
             value: "_",
             position: tokens[startIndex]!.position,
+            modulePath: this.modulePath,
+            inputString: this.inputString,
           },
         },
         args,
@@ -385,6 +395,8 @@ export default class Parser {
               type: TokenType.Identifier,
               value: BuiltinKeywords.begin[0]!, // begin block
               position: tokens[startIndex]!.position,
+              modulePath: this.modulePath,
+              inputString: this.inputString,
             },
           },
           args,
@@ -912,6 +924,8 @@ or ) to end the function call`
         type: TokenType.Identifier,
         value: BuiltinKeywords.tuple,
         position: lastNonWhiteSpaceToken.position,
+        modulePath: this.modulePath,
+        inputString: this.inputString,
       };
       // Add unit
       exprs.push({

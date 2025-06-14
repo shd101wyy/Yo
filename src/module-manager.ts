@@ -1,3 +1,4 @@
+import path from "node:path";
 import Evaluator from "./evaluator";
 import { ModuleValue } from "./value";
 
@@ -15,6 +16,7 @@ export class ModuleManager {
     }
   > = new Map();
 
+  public stdPath = path.join(__dirname, "../std");
   constructor() {}
 
   public loadModule(modulePath: string): {
@@ -37,6 +39,7 @@ export class ModuleManager {
 
     const evaluator = new Evaluator({
       modulePath,
+      stdPath: this.stdPath,
       loadModule: (modulePath: string) => {
         return this.loadModule(modulePath);
       },

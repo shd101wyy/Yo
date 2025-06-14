@@ -39,6 +39,10 @@ export enum TokenType {
 }
 
 export interface Token {
+  // Some metadata about the token in the module file.
+  modulePath: string;
+  inputString: string;
+
   type: TokenType;
   value: string;
   position: {
@@ -59,6 +63,8 @@ export interface Token {
 }
 
 export const PlaceholderToken: Token = {
+  modulePath: "_",
+  inputString: "_",
   type: TokenType.Identifier,
   value: "_",
   position: {

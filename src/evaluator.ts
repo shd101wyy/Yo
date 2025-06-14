@@ -177,6 +177,8 @@ interface EvaluatorContext {
 export default class Evaluator {
   private inputString: string;
   private modulePath: string;
+  private stdPath: string;
+  private skipPrelude: boolean = false;
   private parser: Parser;
   private program: Expr[];
   private tokens: Token[];
@@ -189,35 +191,44 @@ export default class Evaluator {
 
   constructor({
     modulePath,
+    stdPath,
+    skipPrelude = false,
     loadModule,
   }: {
     modulePath: string;
+    stdPath: string;
+    skipPrelude?: boolean;
     loadModule: (modulePath: string) => {
       moduleValue: ModuleValue;
       moduleError: Error | undefined;
     };
   }) {
     this.modulePath = modulePath;
+    this.stdPath = stdPath;
     this.loadModule = loadModule;
+    this.skipPrelude = skipPrelude;
 
     if (!this.modulePath.match(/^file:\/\//)) {
       throw new Error(
         `Invalid file protocol: ${this.modulePath}. Only file:// is supported for now.  `
       );
     }
+    try {
+      this.inputString = readFileSync(
+        modulePath.replace(/^file:\/\//, ""), // NOTE: We only support local file for now
+        "utf-8"
+      );
 
-    this.inputString = readFileSync(
-      modulePath.replace(/^file:\/\//, ""), // NOTE: We only support local file for now
-      "utf-8"
-    );
+      // Parse the module
+      this.parser = new Parser({ modulePath, inputString: this.inputString });
+      this.program = this.parser.getProgram();
+      this.tokens = this.parser.getTokens();
 
-    // Parse the module
-    this.parser = new Parser({ modulePath, inputString: this.inputString });
-    this.program = this.parser.getProgram();
-    this.tokens = this.parser.getTokens();
-
-    // Evaluate the program
-    this.evaluateProgram();
+      // Evaluate the program
+      this.evaluateProgram();
+    } catch (error) {
+      throw new Error(`Failed to import module: ${this.modulePath}\n${error}`);
+    }
   }
 
   // Add a public method to get the program
@@ -234,8 +245,6 @@ export default class Evaluator {
     return formatErrorMessage({
       token,
       errorMessage,
-      modulePath: this.modulePath,
-      inputString: this.inputString,
     });
   }
 
@@ -8574,6 +8583,8 @@ Got:   ${typeToString(argType)}`
     env,
     context,
     allowPartialModule = false,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    loadPrelude = false,
   }: {
     beginExprs: Expr[];
     env: Environment;
@@ -8584,6 +8595,10 @@ Got:   ${typeToString(argType)}`
      * we still want to return the moduleValue so the hoverProvider and completionProvider can work.
      */
     allowPartialModule?: boolean;
+    /**
+     * Whether to load the std/prelude module or not.
+     */
+    loadPrelude?: boolean;
   }): {
     moduleValue: ModuleValue;
     moduleType: ModuleType;
@@ -8598,6 +8613,41 @@ Got:   ${typeToString(argType)}`
 
     // Push new frame to the env
     env = pushEnvFrame(env);
+
+    if (loadPrelude) {
+      // Load the std/prelude.yo
+      if (
+        !this.modulePath.startsWith(`file://${this.stdPath}`) &&
+        !this.skipPrelude
+      ) {
+        const { moduleValue, moduleError } = this.loadModule(
+          `file://${this.stdPath}/prelude.yo`
+        );
+        if (moduleError) {
+          throw moduleError;
+        }
+        const moduleType = moduleValue.type;
+        // Add all the variables from the prelude module to the env
+        for (let i = 0; i < moduleValue.elements.length; i++) {
+          const elementValue = moduleValue.elements[i]!;
+          const element = moduleType.elements[i]!;
+          const { env: nextEnv } = addVariableToEnv({
+            env,
+            variable: {
+              name: element.label,
+              type: element.type,
+              isMutable: false,
+              isCompileTimeOnly: element.isCompileTimeOnly,
+              isImplicit: element.isImplicit,
+              token: element.exprs.labelExpr?.token ?? element.exprs.expr.token,
+              isUndefined: false,
+              value: elementValue,
+            },
+          });
+          env = nextEnv;
+        }
+      }
+    }
 
     // Evaluate each expression in the begin
     for (let i = 0; i < beginExprs.length; i++) {
@@ -9104,7 +9154,16 @@ Got:   ${typeToString(argType)}`
     }
 
     // Import the module
-    const modulePath = value.value; // Remove the quotes
+    let modulePath = value.value; // Remove the quotes
+
+    // Handle the std library path
+    if (modulePath.startsWith("std/")) {
+      // std library
+      modulePath = path.relative(
+        path.dirname(this.modulePath.replace(/^file:\/\//, "")),
+        path.resolve(this.stdPath, modulePath.replace("std/", "./"))
+      );
+    }
 
     if (!modulePath.startsWith(".")) {
       throw this.formatErrorMessage(
@@ -10256,6 +10315,7 @@ ${exprToString(expr)}`
         borrowings: [],
       },
       allowPartialModule: true,
+      loadPrelude: true,
     });
     env = nextEnv;
     this.moduleValue = moduleValue;

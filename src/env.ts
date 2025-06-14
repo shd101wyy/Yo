@@ -148,8 +148,6 @@ export function addVariableToEnv({
     );
     if (existingFunctionVariables.length > 0) {
       throw formatErrorMessages({
-        modulePath: env.modulePath,
-        inputString: env.inputString,
         tokenAndErrorList: [
           {
             token: variable.token,
@@ -191,7 +189,6 @@ export function addVariableToEnv({
 
 // let someIdIndex = 0;
 export function addVariableToFrame({
-  env,
   frame,
   variable,
   preventDuplicate,
@@ -205,8 +202,6 @@ export function addVariableToFrame({
   // If yes, then report an error
   if (frame.variables.some((value) => value.name === variable.name)) {
     throw formatErrorMessages({
-      modulePath: env.modulePath,
-      inputString: env.inputString,
       tokenAndErrorList: [
         {
           token: variable.token,
@@ -240,8 +235,6 @@ export function addVariableToFrame({
     );
     if (existingVariable) {
       throw formatErrorMessages({
-        modulePath: env.modulePath,
-        inputString: env.inputString,
         tokenAndErrorList: [
           {
             token: variable.token,
@@ -369,8 +362,6 @@ export function popEnvFrame(
     if (unconsumedLinearVariables.length > 0) {
       // TODO: Restore the block of the code below
       throw formatErrorMessages({
-        modulePath: env.modulePath,
-        inputString: env.inputString,
         tokenAndErrorList: unconsumedLinearVariables.map((variable) => {
           return {
             token: variable.token,
@@ -385,8 +376,6 @@ ${typeToString(variable.type)}`,
       });
     } else if (undefinedVariables.length > 0) {
       throw formatErrorMessages({
-        modulePath: env.modulePath,
-        inputString: env.inputString,
         tokenAndErrorList: undefinedVariables.map((value) => {
           return {
             token: value.token,
@@ -471,8 +460,6 @@ export function setEnvVariableAsConsumed({
   const variables = getVariablesFromEnv(env, variableName);
   if (variables.length === 0) {
     throw formatErrorMessages({
-      modulePath: env.modulePath,
-      inputString: env.inputString,
       tokenAndErrorList: [
         {
           token: consumedAtToken,
@@ -488,8 +475,6 @@ export function setEnvVariableAsConsumed({
     // Check if the variable is already consumed.
     if (variable.consumedAtToken) {
       throw formatErrorMessages({
-        modulePath: env.modulePath,
-        inputString: env.inputString,
         tokenAndErrorList: [
           {
             token: consumedAtToken,
