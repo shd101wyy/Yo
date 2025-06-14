@@ -2917,81 +2917,94 @@ ${exprToString(rhs)}`
       );
     }
 
-    for (let i = 0; i < expr.args.length; i++) {
-      const arg = expr.args[i]!;
-      if (!exprIsFunctionCall(arg) || !exprIsFunctionCallOf(arg, ":", 2)) {
+    let language: "c" | "yo" = "c";
+    let args = expr.args;
+    if (expr.args[0] && exprIsAtom(expr.args[0])) {
+      // Evaluate the language argument
+      const langArg = expr.args[0]!;
+      args = expr.args.slice(1);
+
+      const evaluatedLang = this.evaluateExpression({
+        expr: langArg,
+        env,
+        context: {
+          ...context,
+        },
+      });
+      if (!evaluatedLang.$ || !evaluatedLang.$.value) {
         throw this.formatErrorMessage(
-          arg.token,
-          `Expected ":" for extern argument, got ${arg.tag}`
+          langArg.token,
+          `Failed to evaluate language argument: ${exprToString(langArg)}`
         );
       }
-      let lhs = arg.args[0]!;
-      const rhs = arg.args[1]!;
-
-      // Check if lhs is implicit
-      let isImplicit = false;
-      if (
-        exprIsFunctionCall(lhs) &&
-        exprIsFunctionCallOf(lhs, BuiltinKeywords.implicit, 1)
-      ) {
-        lhs = lhs.args[0]!;
-        isImplicit = true;
-      }
-
-      if (!this.isValidVariableName(lhs)) {
+      env = evaluatedLang.$.env;
+      const langValue = evaluatedLang.$.value;
+      if (!isComptStringValue(langValue)) {
         throw this.formatErrorMessage(
-          lhs.token,
-          `Invalid extern argument name "${lhs.token.value}", expected identifier`
+          langArg.token,
+          `Expected string for language argument, got ${exprToString(langArg)}`
         );
+      }
+      if (langValue.value.toLocaleLowerCase() === "yo") {
+        language = "yo";
+      } else if (langValue.value.toLocaleLowerCase() === "c") {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        language = "c";
       } else {
-        const variableName = lhs.token.value;
-
-        // Evaluate rhs type
-        const evaluatedRhs = this.evaluateExpression({
-          expr: rhs,
-          env,
-          context: {
-            ...context,
-          },
-        });
-        if (evaluatedRhs.$?.env) {
-          env = evaluatedRhs.$?.env;
-        }
-        if (!isTypeValue(evaluatedRhs.$?.value)) {
-          throw this.formatErrorMessage(
-            rhs.token,
-            `Expected type for extern argument, got ${exprToString(rhs)}`
-          );
-        } else {
-          const typeValue = evaluatedRhs.$?.value;
-          const userDefinedType = typeValue.value;
-
-          // Add the variable to the env
-          // console.log("(7) addVariableToEnv");
-          const { env: nextEnv } = addVariableToEnv({
-            env,
-            variable: {
-              name: variableName,
-              token: lhs.token,
-              type: userDefinedType,
-              isMutable: false,
-              isCompileTimeOnly: true,
-              isUndefined: false,
-              isImplicit,
-              value: createUnknownValue(userDefinedType),
-            },
-          });
-          env = nextEnv;
-
-          // Attach the user defined type to the lhs
-          lhs.$ = {
-            env,
-            type: userDefinedType,
-            isMutable: false,
-            pathCollection: [],
-          };
-        }
+        throw this.formatErrorMessage(
+          langArg.token,
+          `Unsupported language "${langValue.value}" for extern, expected "c" or "yo"`
+        );
       }
+    }
+
+    const elements: TupleElement[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+      const { type: element, env: nextEnv } = this.evaluateTupleElementType({
+        expr: arg,
+        env,
+        tupleElementIndex: i,
+        context: {
+          ...context,
+          SelfType: undefined, // No SelfType in module context
+        },
+      });
+
+      // Check if there is duplicate labels
+      const duplicateLabel = elements.find(
+        (elem) => elem.label === element.label
+      );
+      if (duplicateLabel) {
+        throw this.formatErrorMessage(
+          exprIsFunctionCall(arg)
+            ? (arg.args[0]?.token ?? arg.token)
+            : arg.token,
+          `Duplicate label "${element.label}" in module`
+        );
+      }
+
+      elements.push(element);
+      env = nextEnv;
+
+      // Add element to env
+      const { env: nextNextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name: element.label,
+          type: element.type,
+          value: element.isCompileTimeOnly
+            ? (element.assignedValue ??
+              createUnknownValue(element.type, element.label))
+            : undefined,
+          isCompileTimeOnly: element.isCompileTimeOnly,
+          isImplicit: element.isImplicit,
+          isMutable: false,
+          isUndefined: false,
+          token: element.exprs.expr.token,
+        },
+      });
+      env = nextNextEnv;
     }
 
     expr.$ = {
