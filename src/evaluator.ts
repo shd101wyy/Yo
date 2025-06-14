@@ -2418,6 +2418,7 @@ ${typeToString(expectedTupleType)}`
         expectedType: undefined,
       },
     });
+
     if (rhs.$?.env) {
       env = rhs.$?.env;
     }
@@ -2445,7 +2446,7 @@ ${exprToString(rhs)}`
         if (!rhsType) {
           throw this.formatErrorMessage(
             rhs.token,
-            `(2) Expected type for right-hand side, got ${exprToString(rhs)}`
+            `Failed to evaluate, got ${exprToString(rhs)}`
           );
         }
 
@@ -5767,7 +5768,14 @@ ${typeToString(returnType)}`
               (element) => element.label === label
             );
             if (tupleElementIndex < 0) {
-              // It could be interface method call
+              if (isModuleType(objectExpr.$?.type)) {
+                throw this.formatErrorMessage(
+                  propertyExpr.token,
+                  `Module element "${label}" not found in module type`
+                );
+              }
+
+              // It could be method call
               expr.$ = undefined;
               return expr;
             }
@@ -8594,9 +8602,10 @@ Got:   ${typeToString(argType)}`
             // spread operator for export all elements in another module
             if (
               exprIsFunctionCall(exportExpr) &&
-              exprIsFunctionCallOf(exportExpr, "...", 1)
+              exprIsFunctionCallOf(exportExpr, "...")
             ) {
               const extendedModuleExpr = exportExpr.args[0]!;
+              let excludeMembersExpr = exportExpr.args[1];
               // Evaluate the extended struct expression
               const evaluatedExtendedModuleExpr = this.evaluateExpression({
                 expr: extendedModuleExpr,
@@ -8621,9 +8630,94 @@ Got:   ${typeToString(argType)}`
               const extendedModuleValue = evaluatedExtendedModuleExpr.$
                 .value as ModuleValue | undefined;
 
+              const excludedLabels: Set<string> = new Set();
+              if (excludeMembersExpr) {
+                if (
+                  exprIsFunctionCall(excludeMembersExpr) &&
+                  exprIsFunctionCallOf(excludeMembersExpr, ":", 2) &&
+                  exprIsAtomOf(excludeMembersExpr.args[0]!, "exclude")
+                ) {
+                  excludeMembersExpr = excludeMembersExpr.args[1]!;
+                }
+                if (exprIsAtom(excludeMembersExpr)) {
+                  const label = excludeMembersExpr.token.value;
+                  // Check if the label is in the extended module type
+                  const existingElement = extendedModuleType.elements.find(
+                    (e) => e.label === label
+                  );
+                  if (!existingElement) {
+                    throw this.formatErrorMessage(
+                      excludeMembersExpr.token,
+                      `Label "${label}" is not found in the extended module type.`
+                    );
+                  }
+                  // Add the label to the excluded labels
+                  excludedLabels.add(label);
+                  excludeMembersExpr.$ = {
+                    env,
+                    type: existingElement.type,
+                    value: existingElement.assignedValue,
+                    isMutable: false,
+                    pathCollection: [],
+                  };
+                } else {
+                  // Check if it's a tuple
+                  if (
+                    exprIsFunctionCall(excludeMembersExpr) &&
+                    exprIsFunctionCallOf(
+                      excludeMembersExpr,
+                      BuiltinKeywords.tuple
+                    )
+                  ) {
+                    // Iterate over the elements of the tuple
+                    for (const memberExpr of excludeMembersExpr.args) {
+                      if (!exprIsAtom(memberExpr)) {
+                        throw this.formatErrorMessage(
+                          memberExpr.token,
+                          `Expected identifier for excluded label, got:\n${exprToString(memberExpr)}`
+                        );
+                      }
+                      const label = memberExpr.token.value;
+                      // Check if the label is in the extended module type
+                      const existingElement = extendedModuleType.elements.find(
+                        (e) => e.label === label
+                      );
+                      if (!existingElement) {
+                        throw this.formatErrorMessage(
+                          memberExpr.token,
+                          `Label "${label}" is not found in the extended module type.`
+                        );
+                      }
+                      // Add the label to the excluded labels
+                      excludedLabels.add(label);
+                      memberExpr.$ = {
+                        env,
+                        type: existingElement.type,
+                        value: existingElement.assignedValue,
+                        isMutable: false,
+                        pathCollection: [],
+                      };
+                    }
+                  } else {
+                    throw this.formatErrorMessage(
+                      excludeMembersExpr.token,
+                      `Expected identifier or tuple for excluded labels, got:\n${exprToString(
+                        excludeMembersExpr
+                      )}`
+                    );
+                  }
+                }
+              }
+
               // Iterate over the elements of the extended struct
               for (let i = 0; i < extendedModuleType.elements.length; i++) {
                 const extendedStructElement = extendedModuleType.elements[i]!;
+                // Check if the element is excluded
+                if (excludedLabels.has(extendedStructElement.label)) {
+                  // Skip the element if it's excluded
+                  continue;
+                }
+
                 // Check if there is duplicate labels
                 // If yes, then throw an error
                 const existingElementIndex = moduleType.elements.findIndex(

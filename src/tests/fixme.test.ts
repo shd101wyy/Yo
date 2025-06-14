@@ -2,15 +2,16 @@ import * as path from "path";
 import { ModuleManager } from "../module-manager";
 
 describe("Evaluate fixme.yo", () => {
-  beforeAll(() => {
-    const testFileName = "fixme.yo";
-    const moduleManager = new ModuleManager();
-    moduleManager.loadModule(
-      "file://" + path.join(__dirname, `examples/${testFileName}`)
-    );
-  });
+  beforeAll(() => {});
 
   it("should evaluate learn_mo.yo correctly", () => {
-    expect(true).toBe(true);
+    const moduleManager = new ModuleManager();
+    const testFileName = "fixme.yo";
+    const { moduleError } = moduleManager.loadModule(
+      "file://" + path.join(__dirname, `examples/${testFileName}`)
+    );
+    if (moduleError) {
+      throw moduleError;
+    }
   });
 });

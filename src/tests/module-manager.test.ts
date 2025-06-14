@@ -9,8 +9,12 @@ describe("Module Manager Tests", () => {
   files.forEach((file) => {
     it(`should load and evaluate ${file} correctly`, () => {
       const moduleManager = new ModuleManager();
-      moduleManager.loadModule("file://" + path.join(examplesDir, file));
-      // Optionally add assertions here if needed
+      const { moduleError } = moduleManager.loadModule(
+        "file://" + path.join(examplesDir, file)
+      );
+      if (moduleError) {
+        throw moduleError;
+      }
     });
   });
 });

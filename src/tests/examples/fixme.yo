@@ -1,12 +1,35 @@
+// Just declare variables
 extern
-  add3:
-    (x: i32, y: i32)-> i32,
-  add2:
-    (x: boolean, y: boolean)-> boolean
+  add:
+    (x: i32, y: i32)-> i32
 ;
 
-main :: (() -> unit) {
-  x := 1;
-  y := 2;
-  z := add3(x, y);
+// Define a module type
+MyModule :: module
+  Self :: i32,
+  // or
+  // (@(Self): Type) = i32,
+
+  @(my_add):
+    (x: i32, y: i32)-> i32,
+  @(id):
+    (x: Self)-> Self
+;
+
+I32Module :: MyModule
+  my_add :
+    fn(x, y)->
+      add(x, y),
+  id:
+    fn(x) -> x
+;  
+
+SomeModule :: module {
+  export
+    ...(I32Module, exclude: (id,));
 };
+compt_expect_error(
+  id :: SomeModule.id,
+  "id is not exported from SomeModule"
+);
+my_add :: SomeModule.my_add;

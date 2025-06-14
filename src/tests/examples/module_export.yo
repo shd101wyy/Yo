@@ -26,12 +26,21 @@ MyModule :: module
     fn(x) -> x
 ;
 
+SomeModule :: module {
+  export
+    ...(my_module, exclude: (id,));
+};
+compt_expect_error(
+  id :: SomeModule.id,
+  "id is not exported from SomeModule"
+);
+my_add :: SomeModule.my_add;
+
 some_func ::
   ((@(my_module): MyModule, x: i32)-> i32) {
-  my_add :: my_module.my_add;
-  my_add(x, 1)
-}
-;
+  my_add2 :: my_module.my_add;
+  my_add2(x, 1)
+};
 
 export
   MyModule,
