@@ -2654,6 +2654,9 @@ ${exprToString(rhs)}`
     let lhs = expr.args[0]!;
     let rhs = expr.args[1]!;
 
+    // Something like
+    // - (x : i32) = 12;
+    // - x = 12;
     if (
       exprIsAtom(lhs) ||
       (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ":", 2))
@@ -2712,6 +2715,9 @@ ${exprToString(rhs)}`
         env = rhs.$?.env;
       }
 
+      // Set rhs as consumed
+      env = setExprAsConsumed(rhs, env);
+
       let rhsType = rhs.$?.type;
       if (!rhsType) {
         // Try synthesize the type
@@ -2756,6 +2762,7 @@ ${exprToString(rhs)}`
         );
       }
 
+      let isMutatingExistingVariable = false;
       if (variable.isUndefined) {
         env = updateExistingVariable(env, variable, {
           ...variable,
@@ -2770,6 +2777,7 @@ ${exprToString(rhs)}`
           value: variable.isCompileTimeOnly ? rhs.$?.value : undefined,
           // type: rhsType,
         });
+        isMutatingExistingVariable = true;
       } else {
         throw this.formatErrorMessage(
           lhs.token,
@@ -2787,16 +2795,38 @@ ${exprToString(rhs)}`
       // Check the borrowings
       checkBorrowings(context.borrowings, lhs);
 
-      expr.$ = {
-        env,
-        value: VUnit,
-        type: VUnit.type,
-        isMutable: false,
-        pathCollection: [],
-      };
+      if (!isMutatingExistingVariable) {
+        expr.$ = {
+          env,
+          value: VUnit,
+          type: VUnit.type,
+          isMutable: variable.isMutable,
+          pathCollection: [],
+        };
+      } else {
+        console.log(
+          "Enter here: ",
+          typeToString(variable.type),
+          valueToString(variable.value)
+        );
+        expr.$ = {
+          // NOTE: This should return the original value of lhs
+          env,
+          value: variable.value,
+          type: variable.type,
+          isMutable: variable.isMutable,
+          pathCollection: [],
+        };
+
+        // This temp variable is used to hold the old value of lhs
+        attachTempVariableToExpr(expr);
+      }
 
       return expr;
-    } else {
+    }
+    // Something like
+    // x.a = 12;
+    else {
       // Evaluate the lhs
       const evaluatedLhs = this.evaluateExpression({
         expr: lhs,
@@ -2836,6 +2866,10 @@ ${exprToString(rhs)}`
       if (rhs.$?.env) {
         env = rhs.$?.env;
       }
+
+      // Set rhs as consumed
+      env = setExprAsConsumed(rhs, env);
+
       let rhsType = rhs.$?.type;
       if (!rhsType) {
         // Try synthesize the type
@@ -2887,7 +2921,7 @@ ${exprToString(rhs)}`
 
       // Attach the updated env to expr
       expr.$ = {
-        // FIXME: This should return the original value of lhs
+        // NOTE: This should return the original value of lhs
         env,
         value: evaluatedLhs.$.value,
         type: evaluatedLhs.$.type,
@@ -9065,7 +9099,10 @@ Got:   ${typeToString(argType)}`
         `Expected "Linear" type for consume argument, got:\n${exprToString(consumeArgExpr)}`
       );
     }
+    // Check if the consume argument is already borrowed
+    checkBorrowings(context.borrowings, evaluatedConsumeArgExpr);
 
+    // Set the consume argument as consumed
     env = evaluatedConsumeArgExpr.$.env;
     env = setExprAsConsumed(evaluatedConsumeArgExpr, env);
 

@@ -1,18 +1,12 @@
-open import("std");
-
 extern "C",
   @(malloc) :
     ()-> ^(i32)
 ;
 
-
 test :: (()-> unit) {
-  x := malloc();
+  mut(x) := malloc();
+  y := (x = malloc());
+
   consume(x);
-  compt_expect_error(
-    borrow &(x), x_ref -> {
-      ();
-    },
-    "error: `x` is already consumed, so it cannot be borrowed as a reference"
-  );
-}
+  consume(y);
+};

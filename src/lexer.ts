@@ -18,9 +18,28 @@ export function tokenize(input: string, modulePath: string): Token[] {
     // Check operators
     let operator: string = "";
     let j = i;
-    while (charIsOperator(input[j]!)) {
-      operator += input[j];
-      j = j + 1;
+
+    // dot "." can only form operator with dot itself, not with other operators
+    // For example, `..`, `...` are valid operators.
+    //
+    // expression x.*.* will be split into:
+    // - `.`
+    // - `*`
+    // - `.`
+    // - `*`
+    //
+    // Special handling for dot operators
+    if (input[j] === ".") {
+      while (input[j] === ".") {
+        operator += input[j];
+        j = j + 1;
+      }
+    } else {
+      // Handle other operators (excluding dots)
+      while (charIsOperator(input[j]!) && input[j] !== ".") {
+        operator += input[j];
+        j = j + 1;
+      }
     }
 
     if (
@@ -29,55 +48,19 @@ export function tokenize(input: string, modulePath: string): Token[] {
       !operator.startsWith("//") &&
       !operator.startsWith("/*")
     ) {
-      // Check if the first character is a dot
-      // If so, then split the operator into two parts
-      // For example, .* in x.* should split into two tokens:
-      // - `.`
-      // - `*`
-      //
-      if (operator[0] === "." && operator.length > 1 && operator[1] !== ".") {
-        // Split the operator into two parts
-        const firstPart = operator[0];
-        const secondPart = operator.slice(1);
-        tokens.push({
-          type: TokenType.Dot,
-          value: firstPart,
-          position: {
-            row: line,
-            column: characterColumn,
-            character: characterIndex,
-          },
-          modulePath,
-          inputString: input,
-        });
-        tokens.push({
-          type: TokenType.Operator,
-          value: secondPart,
-          position: {
-            row: line,
-            column: characterColumn + 1,
-            character: characterIndex + 1,
-          },
-          modulePath,
-          inputString: input,
-        });
-        i = j - 1; // Move the index to the end of the operator
-        continue;
-      } else {
-        tokens.push({
-          type: operator === "." ? TokenType.Dot : TokenType.Operator,
-          value: operator,
-          position: {
-            row: line,
-            column: characterColumn,
-            character: characterIndex,
-          },
-          modulePath,
-          inputString: input,
-        });
-        i = j - 1;
-        continue;
-      }
+      tokens.push({
+        type: operator === "." ? TokenType.Dot : TokenType.Operator,
+        value: operator,
+        position: {
+          row: line,
+          column: characterColumn,
+          character: characterIndex,
+        },
+        modulePath,
+        inputString: input,
+      });
+      i = j - 1;
+      continue;
     }
 
     switch (char) {

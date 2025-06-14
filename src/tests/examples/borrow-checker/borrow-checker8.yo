@@ -1,12 +1,16 @@
+extern "C",
+  @(malloc) :
+    ()-> ^(i32)
+;
 
-type Data: Linear;
-extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> unit;
-}
-
-let test = ()-> {
-  let x = malloc();
-  let y = &x;
-  consume(x); // Error: x is borrowed
-}
+test :: (()-> unit) {
+  x := malloc();
+  borrow &(x), x_ref -> {
+    y := x_ref.*.*;
+    compt_expect_error(
+      consume(x),
+      "error: x is borrowed"
+    );
+  };
+  consume(x); // allowed
+};

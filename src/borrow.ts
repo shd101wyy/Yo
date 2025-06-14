@@ -48,15 +48,13 @@ export function checkBorrowings(borrowings: Borrowing[], expr?: Expr): void {
         }
 
         throw formatErrorMessages({
-          modulePath: borrowing.expr.$!.env.modulePath,
-          inputString: borrowing.expr.$!.env.inputString,
           tokenAndErrorList: [
             {
               errorMessage: `Borrow conflict detected`,
               token: borrowing2.expr.token,
             },
             {
-              errorMessage: `Previous borrowed`,
+              errorMessage: `Previous borrowed at`,
               token: borrowing1.expr.token,
             },
           ],
@@ -76,15 +74,13 @@ export function checkBorrowings(borrowings: Borrowing[], expr?: Expr): void {
         )
       ) {
         throw formatErrorMessages({
-          modulePath: expr.$!.env.modulePath,
-          inputString: expr.$!.env.inputString,
           tokenAndErrorList: [
             {
               errorMessage: `Borrow conflict detected`,
               token: expr.token,
             },
             {
-              errorMessage: `Previous borrowed`,
+              errorMessage: `Previous borrowed at`,
               token: borrowing.expr.token,
             },
           ],
