@@ -7,7 +7,10 @@ extern "C",
 test :: (()-> unit) {
   x := malloc();
   consume(x);
-  borrow &(x), x_ref -> {
-    ();
-  };
+  compt_expect_error(
+    borrow &(x), x_ref -> {
+      ();
+    },
+    "error: `x` is already consumed, so it cannot be borrowed as a reference"
+  );
 }

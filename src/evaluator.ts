@@ -29,6 +29,7 @@ import {
   exprToString,
   FuncCallExpr,
   PathCollection,
+  requireExprNotConsumed,
   setExprAsConsumed,
 } from "./expr";
 import { FunctionValue } from "./function-value";
@@ -9786,6 +9787,9 @@ Got:   ${typeToString(argType)}`
       };
       return expr;
     } else {
+      // The arg cannot be consumed.
+      requireExprNotConsumed(evaluatedArgExpr, env);
+
       const argType = evaluatedArgExpr.$.type;
       const referenceType =
         referenceTypeKind === TypeTag.Ref
@@ -10031,6 +10035,9 @@ Got:\n${exprToString(expr)}`
       };
       return expr;
     } else {
+      // The arg cannot be consumed.
+      requireExprNotConsumed(evaluatedArgExpr, env);
+
       const argType = evaluatedArgExpr.$.type;
       const pointerType =
         pointerTypeKind === TypeTag.Ptr

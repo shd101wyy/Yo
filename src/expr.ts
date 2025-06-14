@@ -442,3 +442,46 @@ export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
   }
   return env;
 }
+
+/**
+ *
+ * Require the given "expr" is not consumed,
+ * if it is consumed, then throw an error.
+ */
+export function requireExprNotConsumed(expr: Expr, env: Environment): void {
+  const nameOfVariableToConsume = expr.$?.variableName;
+  if (!nameOfVariableToConsume) {
+    return;
+  }
+
+  const variables = getVariablesFromEnv(env, nameOfVariableToConsume);
+  if (variables.length === 0) {
+    throw formatErrorMessages({
+      tokenAndErrorList: [
+        {
+          token: expr.token,
+          errorMessage: `Variable "${nameOfVariableToConsume}" is not defined.`,
+        },
+      ],
+    });
+  }
+
+  const variableToConsume = variables[variables.length - 1]!;
+  if (isLinearOrType0Type(typeOfType(variableToConsume.type))) {
+    // Check if the variable is already consumed
+    if (variableToConsume.consumedAtToken) {
+      throw formatErrorMessages({
+        tokenAndErrorList: [
+          {
+            token: expr.token,
+            errorMessage: `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`,
+          },
+          {
+            token: variableToConsume.consumedAtToken,
+            errorMessage: `Previously consumed here:`,
+          },
+        ],
+      });
+    }
+  }
+}
