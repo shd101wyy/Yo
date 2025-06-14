@@ -1,12 +1,10 @@
+extern "C",
+  @(malloc) :
+    ()-> ^(i32)
+;
 
-type Data: Linear;
-extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> unit;
-}
-
-let test = ()-> Data {
-  let x = malloc();
+test :: (()-> ^(i32)) {
+  x := malloc();
   consume(malloc());
   x
-}
+};
