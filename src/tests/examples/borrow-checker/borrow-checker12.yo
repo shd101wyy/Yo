@@ -1,17 +1,28 @@
-type Data: Linear;
-extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> unit;
-}
+extern "C",
+  @(malloc) :
+    ()-> ^(i32)
+;
+test :: ((flag: boolean)-> unit) {
+  x := malloc();
+  cond
+    flag -> consume(x),
+    true -> consume(x)
+  ;
+  compt_expect_error(
+    consume(x), "error: 'x' is already consumed."
+  );
+};
 
-
-let test = (flag: boolean)-> {
-  let x = malloc();
-  if (flag) {
-    consume(x);
-  } else {
-    consume(x);
-  }
-
-  // consume(x); // error
-}
+compt_expect_error(
+  test2 :: ((flag: boolean)-> unit) {
+    x := malloc();
+    cond
+      flag -> {
+        consume(x);
+        ()
+      },
+      true -> ()
+    ;
+  },
+  "error: 'x' is only consumed in the first branch, but not all branches."
+);

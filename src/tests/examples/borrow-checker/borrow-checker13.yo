@@ -1,26 +1,44 @@
-type Data: Linear;
-extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> unit;
-}
-enum Color {
+extern "C",
+  @(malloc) :
+    ()-> ^(i32)
+;
+
+Color :: enum
   Red,
   Green,
-  Blue,
-}
+  Blue
+;
 
 
-let test = (color: Color)-> {
-  let x = malloc();
-  match (color) {
-    Red -> {
+test :: ((color: Color)-> unit) {
+  x := malloc();
+  match (color),
+    .Red -> {
+      consume(x);
+    },
+    .Green -> {
+      consume(x);
+    },
+    .Blue -> {
       consume(x);
     }
-    Green -> {
-      consume(x);
-    }
-    Blue -> {
-      consume(x);
-    }
-  }
-}
+  ;
+};
+
+compt_expect_error(
+  test2 :: ((color: Color)-> unit) {
+    x := malloc();
+    match (color),
+      .Red -> {
+        consume(x);
+      },
+      .Green -> {
+        a := 12;
+      },
+      .Blue -> {
+        consume(x);
+      }
+    ;
+  },
+  "error: 'x' is only consumed in some branches, but not all branches."
+);

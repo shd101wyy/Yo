@@ -28,6 +28,7 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
+  mergeAndCheckEnvs,
   PathCollection,
   requireExprNotConsumed,
   setExprAsConsumed,
@@ -3107,9 +3108,15 @@ ${exprToString(rhs)}`
     // Evaluate each statement
     // condition -> value.
     // expect each value to be the same type.
-    let valueType: Type | undefined = undefined;
+    const bodies: Expr[] = [];
+    let valueType: { type: Type; env: Environment } | undefined = undefined;
     for (let i = 0; i < statements.length; i++) {
       const statement = statements[i]!;
+
+      // NOTE: We shouldn't use the parent `env` here
+      // instead, we should create new env.
+      let caseEnv = env;
+
       if (
         !exprIsFunctionCall(statement) ||
         !exprIsFunctionCallOf(statement, "->", 2)
@@ -3125,17 +3132,22 @@ ${exprToString(rhs)}`
       // Expect condExpr to be a boolean
       const evaluatedCond = this.evaluateExpression({
         expr: condExpr,
-        env,
+        env: caseEnv,
         context: {
           ...context,
         },
       });
 
       // TODO: Check comptime value if exists
-      if (evaluatedCond.$?.env) {
-        env = evaluatedCond.$?.env;
+      if (!evaluatedCond.$) {
+        throw this.formatErrorMessage(
+          condExpr.token,
+          `Failed to evaluate condition expression: ${exprToString(condExpr)}`
+        );
       }
-      if (!evaluatedCond.$?.type || !isBooleanType(evaluatedCond.$?.type)) {
+      caseEnv = evaluatedCond.$.env;
+
+      if (!isBooleanType(evaluatedCond.$.type)) {
         throw this.formatErrorMessage(
           condExpr.token,
           `Expected boolean for cond statement, got ${exprToString(condExpr)}`
@@ -3145,7 +3157,7 @@ ${exprToString(rhs)}`
       // Evaluate the valueExpr
       const evaluatedValue = this.evaluateExpression({
         expr: valueExpr,
-        env,
+        env: caseEnv,
         context: {
           ...context,
         },
@@ -3161,36 +3173,39 @@ ${exprToString(rhs)}`
           `Expected type for cond statement, got ${exprToString(valueExpr)}`
         );
       }
+      caseEnv = evaluatedValue.$.env;
+      bodies.push(evaluatedValue);
+
       if (!valueType) {
-        valueType = evaluatedValue.$?.type;
+        valueType = { type: evaluatedValue.$?.type, env: caseEnv };
       } else {
         // Check if the types are compatible
         if (
           !areTypesCompatible(
-            { type: valueType, env },
-            { type: evaluatedValue.$.type, env }
+            { type: valueType.type, env: valueType.env },
+            { type: evaluatedValue.$.type, env: caseEnv }
           )
         ) {
           // Check if the types match when converting to runtime type
           if (
             areTypesCompatible(
               {
-                type: convertComptTypeToRuntimeType(valueType),
-                env,
+                type: convertComptTypeToRuntimeType(valueType.type),
+                env: valueType.env,
               },
               {
                 type: evaluatedValue.$.type,
-                env,
+                env: caseEnv,
               }
             )
           ) {
-            valueType = evaluatedValue.$.type;
+            valueType = { type: evaluatedValue.$.type, env: caseEnv };
           } else {
             throw this.formatErrorMessage(
               valueExpr.token,
               `Incompatible types:
-- Previous: ${typeToString(valueType)}
-- Current : ${typeToString(evaluatedValue.$?.type)}`
+- Previous: ${typeToString(valueType.type)}
+- Current : ${typeToString(evaluatedValue.$.type)}`
             );
           }
         }
@@ -3204,9 +3219,12 @@ ${exprToString(rhs)}`
       );
     }
 
+    // Merge and check all environments
+    env = mergeAndCheckEnvs(env, bodies);
+
     expr.$ = {
       env,
-      type: valueType,
+      type: valueType.type,
       // TODO: set .value to support compile-time value.
       // Right now the createUnknownValue below is wrong
       value: undefined, // valueType ? createUnknownValue(valueType) : undefined;
@@ -3251,12 +3269,16 @@ ${exprToString(rhs)}`
       },
     });
 
-    if (evaluatedValue.$?.env) {
-      env = evaluatedValue.$?.env;
+    if (!evaluatedValue.$) {
+      throw this.formatErrorMessage(
+        valueExpr.token,
+        `Failed to evaluate the match value expression: ${exprToString(valueExpr)}`
+      );
     }
+    env = evaluatedValue.$?.env;
 
     // Check if the value is an enum type
-    if (!evaluatedValue.$?.type || !isEnumType(evaluatedValue.$?.type)) {
+    if (!isEnumType(evaluatedValue.$?.type)) {
       throw this.formatErrorMessage(
         valueExpr.token,
         `Expected enum type for match expression, got ${
@@ -3267,13 +3289,21 @@ ${exprToString(rhs)}`
       );
     }
 
-    const enumType = evaluatedValue.$?.type;
+    const enumType = evaluatedValue.$.type;
     const patterns = args.slice(1);
-    let resultType: Type | undefined = undefined;
 
-    // Process each pattern
+    // Evaluate each statement
+    // condition -> value.
+    // expect each value to be the same type.
+    const bodies: Expr[] = [];
+    let resultType: { type: Type; env: Environment } | undefined = undefined;
+
     for (let i = 0; i < patterns.length; i++) {
       const pattern = patterns[i]!;
+
+      // NOTE: We shouldn't use the parent `env` here
+      // instead, we should create new env.
+      let caseEnv = env;
 
       // Check if the pattern is a valid match arm
       if (
@@ -3318,10 +3348,9 @@ ${exprToString(rhs)}`
         }
 
         // Evaluate the result expression
-        const tempEnv = pushEnvFrame(env);
         const evaluatedResult = this.evaluateExpression({
           expr: resultExpr,
-          env: tempEnv,
+          env: caseEnv,
           context: {
             ...context,
           },
@@ -3336,22 +3365,40 @@ ${exprToString(rhs)}`
             )}`
           );
         }
+        caseEnv = evaluatedResult.$.env;
+        bodies.push(evaluatedResult);
 
         // Set or verify the result type consistency
         if (!resultType) {
-          resultType = evaluatedResult.$?.type;
+          resultType = { type: evaluatedResult.$?.type, env: caseEnv };
         } else if (
           !areTypesCompatible(
-            { type: resultType, env },
+            { type: resultType.type, env: caseEnv },
             { type: evaluatedResult.$?.type, env }
           )
         ) {
-          throw this.formatErrorMessage(
-            resultExpr.token,
-            `Incompatible types in match arms:
-- Previous: ${typeToString(resultType)}
-- Current : ${typeToString(evaluatedResult.$?.type)}`
-          );
+          // Check if the types match when converting to runtime type
+          if (
+            areTypesCompatible(
+              {
+                type: convertComptTypeToRuntimeType(resultType.type),
+                env: resultType.env,
+              },
+              {
+                type: evaluatedResult.$.type,
+                env: caseEnv,
+              }
+            )
+          ) {
+            resultType = { type: evaluatedResult.$.type, env: caseEnv };
+          } else {
+            throw this.formatErrorMessage(
+              valueExpr.token,
+              `Incompatible types:
+- Previous: ${typeToString(resultType.type)}
+- Current : ${typeToString(evaluatedResult.$.type)}`
+            );
+          }
         }
       }
       // For patterns with destructuring like Shape.Circle(r)
@@ -3390,9 +3437,6 @@ ${exprToString(rhs)}`
           );
         }
 
-        // Push a new environment frame for this pattern
-        const patternEnv = pushEnvFrame(env);
-
         // Check if the pattern arguments match the variant parameters
         const patternElements = patternExpr.args;
         if (patternElements.length > variant.elements.length) {
@@ -3421,7 +3465,7 @@ ${exprToString(rhs)}`
 
           // Assign the proper type from the variant parameter to this variable
           patternElement.$ = {
-            env,
+            env: caseEnv,
             type: variantElement.type,
             isMutable: false,
             pathCollection: [],
@@ -3429,7 +3473,7 @@ ${exprToString(rhs)}`
 
           // console.log("(8) addVariableToEnv");
           const { env: updatedEnv } = addVariableToEnv({
-            env: patternEnv,
+            env: caseEnv,
             variable: {
               name: patternElement.token.value,
               token: patternElement.token,
@@ -3442,13 +3486,13 @@ ${exprToString(rhs)}`
           });
 
           // Update our local environment
-          Object.assign(patternEnv, updatedEnv);
+          caseEnv = updatedEnv;
         }
 
         // Evaluate the result expression in the pattern's environment
         const evaluatedResult = this.evaluateExpression({
           expr: resultExpr,
-          env: patternEnv,
+          env: caseEnv,
           context: {
             ...context,
           },
@@ -3465,19 +3509,35 @@ ${exprToString(rhs)}`
 
         // Set or verify the result type consistency
         if (!resultType) {
-          resultType = evaluatedResult.$?.type;
+          resultType = { type: evaluatedResult.$.type, env: caseEnv };
         } else if (
           !areTypesCompatible(
-            { type: resultType, env },
+            { type: resultType.type, env: resultType.env },
             { type: evaluatedResult.$?.type, env }
           )
         ) {
-          throw this.formatErrorMessage(
-            resultExpr.token,
-            `Incompatible types in match arms:
-- Previous: ${typeToString(resultType)}
-- Current: ${typeToString(evaluatedResult.$?.type)}`
-          );
+          // Check if the types match when converting to runtime type
+          if (
+            areTypesCompatible(
+              {
+                type: convertComptTypeToRuntimeType(resultType.type),
+                env: resultType.env,
+              },
+              {
+                type: evaluatedResult.$.type,
+                env: caseEnv,
+              }
+            )
+          ) {
+            resultType = { type: evaluatedResult.$.type, env: caseEnv };
+          } else {
+            throw this.formatErrorMessage(
+              valueExpr.token,
+              `Incompatible types:
+- Previous: ${typeToString(resultType.type)}
+- Current : ${typeToString(evaluatedResult.$.type)}`
+            );
+          }
         }
       } else {
         throw this.formatErrorMessage(
@@ -3495,10 +3555,13 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       );
     }
 
+    // Merge and check all environments
+    env = mergeAndCheckEnvs(env, bodies);
+
     // Set the type and value of the match expression
     expr.$ = {
       env,
-      type: resultType,
+      type: resultType.type,
       // TODO: Support the compile-time value.
       // For compile-time evaluation, we'd determine which arm matches and set the value
       value: undefined, // createUnknownValue(resultType),

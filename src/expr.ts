@@ -4,10 +4,16 @@ import {
   Environment,
   getVariablesFromEnv,
   updateExistingVariable,
+  Variable,
 } from "./env";
 import { formatErrorMessages } from "./error";
 import { Token, TokenType } from "./token";
-import { isLinearOrType0Type, Type, typeOfType } from "./type-checker";
+import {
+  isFreeType,
+  isLinearOrType0Type,
+  Type,
+  typeOfType,
+} from "./type-checker";
 import { generateNewTempVariableName } from "./utils";
 import { Value } from "./value";
 
@@ -484,4 +490,221 @@ export function requireExprNotConsumed(expr: Expr, env: Environment): void {
       });
     }
   }
+}
+
+/**
+ * Update `env` based on multiple envs in different cases.
+ * @param env the base env, before entering cond/match cases.
+ * @param bodies the bodies of the cases, not including the condition/case.
+ */
+export function mergeAndCheckEnvs(
+  env: Environment,
+  bodies: Expr[]
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // tempVariableName: string
+): Environment {
+  const maxFrameLevel = env.frames.length - 1;
+  const caseEnvs: Environment[] = [];
+  for (let i = 0; i < bodies.length; i++) {
+    const body = bodies[i]!;
+    if (!body.$) {
+      throw formatErrorMessages({
+        tokenAndErrorList: [
+          {
+            token: body.token,
+            errorMessage: `Expected the body of the case to be evaluated, but it is not.`,
+          },
+        ],
+      });
+    }
+
+    const caseEnv = body.$.env;
+    caseEnvs.push(caseEnv);
+  }
+
+  // Check if the frame level is the same for all cases
+  for (let i = 0; i < caseEnvs.length; i++) {
+    const caseEnv = caseEnvs[i]!;
+    if (caseEnv.frames.length - 1 !== maxFrameLevel) {
+      throw formatErrorMessages({
+        tokenAndErrorList: [
+          {
+            token: bodies[i]!.token,
+            errorMessage: `Frame level is different for different cases.`,
+          },
+        ],
+      });
+    }
+  }
+
+  // Check each frame
+  for (let i = 0; i <= maxFrameLevel; i++) {
+    const frame = env.frames[i]!;
+    const frameVariables = frame.variables;
+
+    // Build the consumedAtToken matrix
+    // that has 1 + caseEnvs.length rows
+    // and frameVariables.length columns
+    // each cell is consumedAtToken of the value
+    const matrix: (Token | undefined)[][] = [[]];
+    frameVariables.forEach((value) => {
+      matrix[0]!.push(value.consumedAtToken);
+    });
+
+    for (let j = 0; j < caseEnvs.length; j++) {
+      const caseEnv = caseEnvs[j]!;
+      const caseEnvFrame = caseEnv.frames[i]!;
+      const caseEnvFrameVariables = caseEnvFrame.variables;
+
+      // Check if the number of values is the same
+      if (frameVariables.length !== caseEnvFrameVariables.length) {
+        throw formatErrorMessages({
+          tokenAndErrorList: [
+            {
+              token: bodies[j]!.token,
+              errorMessage: `Frame level ${i} has different number of values for different cases.`,
+            },
+          ],
+        });
+      }
+
+      // Check if the variable names are the same
+      for (let k = 0; k < frameVariables.length; k++) {
+        const frameVariable = frameVariables[k]!;
+        const caseEnvFrameValue = caseEnvFrameVariables[k]!;
+        if (frameVariable.name !== caseEnvFrameValue.name) {
+          throw formatErrorMessages({
+            tokenAndErrorList: [
+              {
+                token: bodies[j]!.token,
+                errorMessage: `Frame level ${i} has different variable names for different cases.`,
+              },
+            ],
+          });
+        }
+      }
+
+      // TODO: Check type, but I think it's unnecessary here.
+
+      // Check the consumedAtToken
+      matrix.push([]);
+      caseEnvFrameVariables.forEach((value) => {
+        matrix[matrix.length - 1]!.push(value.consumedAtToken);
+      });
+    }
+
+    // Check the matrix column to make sure that
+    // for each variable:
+    // 1. If there is only one case, and it's not consumed in env, but consumed in the case, then throw error.
+    // 2. If have consumed in all cases, then set it as consumed in env.
+    // 3. If some are consumed in some cases, then throw error.
+    const rows = matrix.length;
+    const cols = matrix[0]!.length;
+    for (let i = 0; i < cols; i++) {
+      const variableName = frameVariables[i]!.name;
+      const tokens: (Token | undefined)[] = [];
+      for (let j = 1; j < rows; j++) {
+        tokens.push(matrix[j]![i]);
+      }
+
+      // Check the "Free" values.
+      // If any case consumed (used) the "Free" value, then we set it as consumed in env.
+      if (isFreeType(typeOfType(frameVariables[i]!.type))) {
+        const consumed = tokens.filter((t) => !!t) as Token[];
+        if (consumed.length > 0) {
+          const newVariableValue: Variable = {
+            ...frameVariables[i]!,
+            consumedAtToken: tokens[0],
+          };
+          env = updateExistingVariable(
+            env,
+            frameVariables[i]!,
+            newVariableValue
+          );
+        }
+        continue;
+      }
+
+      // case 1
+      if (tokens.length === 1) {
+        if (!!tokens[0] && !frameVariables[i]!.consumedAtToken) {
+          throw formatErrorMessages({
+            tokenAndErrorList: [
+              {
+                token: frameVariables[i]!.token,
+                errorMessage: `Variable "${variableName}" might not be consumed in all cases:`,
+              },
+              {
+                token: tokens[0],
+                errorMessage: `Might be consumed here:`,
+              },
+            ],
+          });
+        }
+      }
+      // case 2
+      else if (tokens.every((t) => !!t)) {
+        const newVariableValue: Variable = {
+          ...frameVariables[i]!,
+          consumedAtToken: tokens[0],
+        };
+        env = updateExistingVariable(env, frameVariables[i]!, newVariableValue);
+      } else {
+        // case 3
+        const consumed = tokens.filter((t) => !!t) as Token[];
+        const notConsumed = tokens.filter((t) => !t);
+        if (consumed.length > 0 && notConsumed.length > 0) {
+          throw formatErrorMessages({
+            errorMessage: `Variable "${variableName}" might be consumed in some cases but not consumed in other cases:\n`,
+            tokenAndErrorList: tokens.map((token, index) => {
+              return {
+                errorMessage: token
+                  ? "Might be consumed here:"
+                  : "Not consumed here:",
+                token: token ?? bodies[index]!.token,
+              };
+            }),
+          });
+        }
+      }
+    }
+  }
+
+  // FIXME: This part of code is not correct.
+  /*
+  // Update the tempVariable to host the shortest lifetime
+  const tempVariables = getEnvVariableValueByVariableName(
+    env,
+    tempVariableName
+  );
+  let tempVariable = tempVariables[0];
+  // console.log("tempVariable: ", tempVariable);
+
+
+  for (let i = 0; i < caseEnvs.length; i++) {
+    const caseEnv = caseEnvs[i];
+    const caseTempVariables = getEnvVariableValueByVariableName(
+      caseEnv,
+      tempVariableName
+    );
+    const caseTempVariable = caseTempVariables[0];
+    if (caseTempVariable.referedVariable) {
+      if (
+        !tempVariable.referedVariable ||
+        tempVariable.order < caseTempVariable.order
+      ) {
+        const newTempVariable: VariableValue = {
+          ...tempVariable,
+          referedVariable: caseTempVariable.referedVariable,
+          order: caseTempVariable.order,
+        };
+        env = updateExistingVariableValue(env, tempVariable, newTempVariable);
+        tempVariable = newTempVariable;
+      }
+    }
+    // console.log("caseTempVariable: ", caseTempVariable);
+  }
+  */
+
+  return env;
 }
