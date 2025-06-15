@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { Borrowing, checkBorrowings } from "./borrow";
+import { Borrowing, borrowingsToString, checkBorrowings } from "./borrow";
 import {
   addVariableToEnv,
   createNewEnv,
@@ -2814,11 +2814,6 @@ ${exprToString(rhs)}`
           pathCollection: [],
         };
       } else {
-        console.log(
-          "Enter here: ",
-          typeToString(variable.type),
-          valueToString(variable.value)
-        );
         expr.$ = {
           // NOTE: This should return the original value of lhs
           env,
@@ -6151,7 +6146,7 @@ ${typeToString(returnType)}`
     givenFunc?: { type: Type; value: TypeValue };
     context: EvaluatorContext;
   }): FuncCallExpr {
-    const func = expr.func;
+    let func = expr.func;
     let args = expr.args;
 
     // For module method call
@@ -6164,7 +6159,7 @@ ${typeToString(returnType)}`
     }[] = [];
     if (givenFunc) {
       functions = [givenFunc];
-    } else if (exprIsFunctionCall(func)) {
+    } else {
       const functionToCall = this.evaluateExpression({
         expr: func,
         env,
@@ -6172,84 +6167,96 @@ ${typeToString(returnType)}`
           ...context,
         },
       });
-      // Check if . property access for module method call
-      if (!functionToCall.$?.type) {
-        if (
-          exprIsFunctionCall(functionToCall) &&
-          exprIsFunctionCallOf(functionToCall, ".", 2)
-        ) {
-          const receiverArg = functionToCall.args[0]!;
-          methodExpr = functionToCall.args[1]!;
+      func = functionToCall;
 
-          // The receiverArg should already be evaluated in the previous step
-          // so it should have a type
-          const receiverType = receiverArg.$?.type;
-          if (!receiverType) {
-            throw this.formatErrorMessage(
-              receiverArg.token,
-              `Expected to be evaluated.`
-            );
-          }
+      // Check borrowings
+      // NOTE: This is necessary for function like array accessing element by index
+      // for example:
+      //   mut(xs) := [1, 2, 3];
+      //   borrow &!(xs), xs_ref -> {
+      //     first_element := xs(0); // here `xs` is already borrowed, so we cannot use it.
+      //   }
+      checkBorrowings(context.borrowings, functionToCall);
 
-          // The methodExpr should also be evaluated already
-          // so it should have a type
-          if (exprIsAtom(methodExpr)) {
-            // 1.add(3);
-            const methodName = methodExpr.token.value;
-            // Get the method with the same name in the interface in the env
-            const methods = getMethodsByNameFromEnv(
-              env,
-              methodName,
-              receiverType
-            );
-            functions = methods.map((method) => ({
-              type: method.type,
-              value: method.value,
-            }));
-            // TODO: Autocase to reference/immutable reference
-            args = [receiverArg, ...args];
-          } else {
-            // 1.(Add.add)(3);
-            // Try to evaluate the methodExpr
-            const nextExpr = this.evaluateExpression({
-              expr: methodExpr,
-              env,
-              context: {
-                ...context,
-              },
-            });
-            if (nextExpr.$?.env) {
-              env = nextExpr.$?.env;
-            }
-            methodExpr = nextExpr;
+      if (exprIsFunctionCall(func)) {
+        // Check if . property access for module method call
+        if (!functionToCall.$?.type) {
+          if (
+            exprIsFunctionCall(functionToCall) &&
+            exprIsFunctionCallOf(functionToCall, ".", 2)
+          ) {
+            const receiverArg = functionToCall.args[0]!;
+            methodExpr = functionToCall.args[1]!;
 
-            const methodType = methodExpr.$?.type;
-            const methodValue = methodExpr.$?.value;
-            if (!methodType) {
+            // The receiverArg should already be evaluated in the previous step
+            // so it should have a type
+            const receiverType = receiverArg.$?.type;
+            if (!receiverType) {
               throw this.formatErrorMessage(
-                methodExpr.token,
-                `Expected to be a function.`
+                receiverArg.token,
+                `Expected to be evaluated.`
               );
             }
-            functions = [
-              {
-                type: methodType,
-                value: methodValue,
-              },
-            ];
-            // TODO: Autocase to reference/immutable reference
-            args = [receiverArg, ...args];
-          }
-        } else {
-          throw this.formatErrorMessage(
-            func.token,
-            `Expected type for function call, got ${exprToString(
-              functionToCall
-            )}`
-          );
-        }
 
-        /*
+            // The methodExpr should also be evaluated already
+            // so it should have a type
+            if (exprIsAtom(methodExpr)) {
+              // 1.add(3);
+              const methodName = methodExpr.token.value;
+              // Get the method with the same name in the interface in the env
+              const methods = getMethodsByNameFromEnv(
+                env,
+                methodName,
+                receiverType
+              );
+              functions = methods.map((method) => ({
+                type: method.type,
+                value: method.value,
+              }));
+              // TODO: Autocase to reference/immutable reference
+              args = [receiverArg, ...args];
+            } else {
+              // 1.(Add.add)(3);
+              // Try to evaluate the methodExpr
+              const nextExpr = this.evaluateExpression({
+                expr: methodExpr,
+                env,
+                context: {
+                  ...context,
+                },
+              });
+              if (nextExpr.$?.env) {
+                env = nextExpr.$?.env;
+              }
+              methodExpr = nextExpr;
+
+              const methodType = methodExpr.$?.type;
+              const methodValue = methodExpr.$?.value;
+              if (!methodType) {
+                throw this.formatErrorMessage(
+                  methodExpr.token,
+                  `Expected to be a function.`
+                );
+              }
+              functions = [
+                {
+                  type: methodType,
+                  value: methodValue,
+                },
+              ];
+              // TODO: Autocase to reference/immutable reference
+              args = [receiverArg, ...args];
+            }
+          } else {
+            throw this.formatErrorMessage(
+              func.token,
+              `Expected type for function call, got ${exprToString(
+                functionToCall
+              )}`
+            );
+          }
+
+          /*
       // Check uniform function call syntax
         functionToCall = this.evaluateExpression({
           expr: functionToCall.args[1],
@@ -6261,110 +6268,112 @@ ${typeToString(returnType)}`
         });
         args = [receiverArg, ...args];
         */
+        } else {
+          functions = [
+            {
+              type: functionToCall.$.type,
+              value: functionToCall.$.value,
+            },
+          ];
+        }
       } else {
-        functions = [
-          {
-            type: functionToCall.$?.type,
-            value: functionToCall.$?.value,
-          },
-        ];
-      }
-    } else {
-      const functionName =
-        func.token.type === TokenType.BacktickIdentifier
-          ? func.token.value.slice(1, -1) // Convert `add` to add
-          : func.token.value;
+        const functionName =
+          func.token.type === TokenType.BacktickIdentifier
+            ? func.token.value.slice(1, -1) // Convert `add` to add
+            : func.token.value;
 
-      // Check _ function
-      if (functionName === "_") {
-        const expectedType = context.expectedType;
-        if (!expectedType) {
-          // throw this.formatErrorMessage(
-          //   func.token,
-          //   `Failed to infer type for _ function`
-          // );
+        // Check _ function
+        if (functionName === "_") {
+          const expectedType = context.expectedType;
+          if (!expectedType) {
+            // throw this.formatErrorMessage(
+            //   func.token,
+            //   `Failed to infer type for _ function`
+            // );
 
-          // Make it as an anonymous struct
-          return this.evaluateAnonymousStructValue({
-            expr,
+            // Make it as an anonymous struct
+            return this.evaluateAnonymousStructValue({
+              expr,
+              env,
+              context,
+            });
+          }
+          functions = [
+            {
+              type: typeOfType(expectedType.type),
+              value: createTypeValue(expectedType.type),
+            },
+          ];
+
+          // Add info to the func token
+          func.$ = {
             env,
-            context,
+            type: functions[0]!.type,
+            value: functions[0]!.value,
+            isMutable: false,
+            pathCollection: [],
+          };
+        }
+        // Infix operator is taken as an interface method call
+        else if (stringIsOperator(functionName) && expr.isInfix) {
+          const firstArg = args[0];
+          if (!firstArg) {
+            throw this.formatErrorMessage(
+              func.token,
+              `Expected first argument for operator, got:\n${exprToString(func)}`
+            );
+          }
+          // Evaluate the first argument to get its type
+          const evaluatedFirstArg = this.evaluateExpression({
+            expr: firstArg,
+            env,
+            context: {
+              ...context,
+            },
           });
-        }
-        functions = [
-          {
-            type: typeOfType(expectedType.type),
-            value: createTypeValue(expectedType.type),
-          },
-        ];
-
-        // Add info to the func token
-        func.$ = {
-          env,
-          type: functions[0]!.type,
-          value: functions[0]!.value,
-          isMutable: false,
-          pathCollection: [],
-        };
-      }
-      // Infix operator is taken as an interface method call
-      else if (stringIsOperator(functionName) && expr.isInfix) {
-        const firstArg = args[0];
-        if (!firstArg) {
-          throw this.formatErrorMessage(
-            func.token,
-            `Expected first argument for operator, got:\n${exprToString(func)}`
+          const receiverType = evaluatedFirstArg.$?.type;
+          if (!receiverType) {
+            throw this.formatErrorMessage(
+              firstArg.token,
+              `Expected to be evaluated.`
+            );
+          }
+          const methodName = functionName;
+          methodExpr = func;
+          // Get the method with the same name in the interface in the env
+          const moduleMethods = getMethodsByNameFromEnv(
+            env,
+            methodName,
+            receiverType
           );
+          functions = moduleMethods.map((method) => ({
+            type: method.type,
+            value: method.value,
+          }));
+          // No need to change the args
         }
-        // Evaluate the first argument to get its type
-        const evaluatedFirstArg = this.evaluateExpression({
-          expr: firstArg,
-          env,
-          context: {
-            ...context,
-          },
-        });
-        const receiverType = evaluatedFirstArg.$?.type;
-        if (!receiverType) {
-          throw this.formatErrorMessage(
-            firstArg.token,
-            `Expected to be evaluated.`
-          );
+        // Self function call
+        else if (functionName === "Self" && context.SelfType) {
+          const value = createTypeValue(context.SelfType);
+          functions = [
+            {
+              type: value.type,
+              value: value,
+            },
+          ];
         }
-        const methodName = functionName;
-        methodExpr = func;
-        // Get the method with the same name in the interface in the env
-        const moduleMethods = getMethodsByNameFromEnv(
-          env,
-          methodName,
-          receiverType
-        );
-        functions = moduleMethods.map((method) => ({
-          type: method.type,
-          value: method.value,
-        }));
-        // No need to change the args
-      }
-      // Self function call
-      else if (functionName === "Self" && context.SelfType) {
-        const value = createTypeValue(context.SelfType);
-        functions = [
-          {
-            type: value.type,
-            value: value,
-          },
-        ];
-      }
-      // Normal function call
-      else {
-        /**
-         * functionVariables might be of FunctionType, StructType, UnionType, and EnumVariant
-         */
-        const functionVariables = getVariablesFromEnv(env, functionName);
-        functions = functionVariables.map((variable) => ({
-          type: variable.type,
-          value: variable.value,
-        }));
+        // Normal function call
+        else {
+          /**
+           * functionVariables might be of FunctionType, StructType, UnionType, and EnumVariant
+           */
+          const functionVariables = getVariablesFromEnv(env, functionName);
+          functions = functionVariables.map((variable) => ({
+            type: variable.type,
+            value: variable.value,
+            isMutable: variable.isMutable,
+          }));
+        }
       }
     }
 
@@ -6847,8 +6856,17 @@ ${functionsWithMatchingTypes
           env,
           type: arrayType.elementType,
           value: value,
-          isMutable: false,
-          pathCollection: [],
+          /**
+           * NOTE: Here func is the array value itself.
+           * We read the isMutable and pathCollection from it.
+           * This is mainly used for array, for example:
+           *   mut(xs) := [1, 2, 3];
+           *   borrow &!(xs(0)), xs_ref -> {
+           *     //      ^ calling here, it is mutable.
+           *   }
+           */
+          isMutable: Boolean(func.$?.isMutable),
+          pathCollection: func.$?.pathCollection ?? [],
         };
 
         // Attach necessary info to the func
@@ -6856,8 +6874,8 @@ ${functionsWithMatchingTypes
           env,
           type: functionToCall.type,
           value: functionToCall.value,
-          isMutable: false,
-          pathCollection: [],
+          isMutable: Boolean(func.$?.isMutable),
+          pathCollection: func.$?.pathCollection ?? [],
         };
         return expr;
       }
@@ -9473,6 +9491,7 @@ Got:   ${typeToString(argType)}`
         pathCollection: evaluatedBorrowedValueExpr.$.pathCollection,
       });
       checkBorrowings([...context.borrowings, ...borrowings]);
+      console.log(borrowingsToString([...context.borrowings, ...borrowings]));
     }
 
     // Add the borrow bindings to the env
