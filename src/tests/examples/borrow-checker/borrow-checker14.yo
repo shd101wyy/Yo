@@ -1,17 +1,23 @@
-type Data: Linear;
-extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> unit;
-}
+extern "C",
+  @(malloc) :
+    ()-> ^(i32)
+;
 
+test :: ((flag: boolean)-> unit) {
+  x := malloc();
 
-let test = (flag: boolean)-> {
-  let x = malloc();
-  defer consume(x);
+  cond 
+    flag -> {
+      borrow &(x), (ref1)-> {
+        ();
+      };
+    },
+    true -> {
+      borrow &(x), (ref2)-> {
+        ();
+      };
+    }
+  ;
 
-  if (flag) {
-    let ref1 = &x;
-  } else {
-    let ref2 = &x;
-  }
-}
+  consume(x);
+};

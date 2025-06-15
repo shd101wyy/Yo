@@ -1,14 +1,29 @@
-extern "C",
-  @(malloc) :
-    ()-> ^(i32)
+Coord :: struct
+  x: i32,
+  y: i32
 ;
 
-test :: ((flag: boolean)-> unit) {
-  x := malloc();
-  cond
-    flag -> consume(x),
-    true -> consume(x)
-  ;
+main :: (()-> unit) {
+  mut(p) := Coord(1, 2);
+  
+  borrow &!(p), p_ref -> {
+    compt_expect_error(
+      p.x = 12,
+      "cannot assign to `p.x` because it is borrowed"
+    );
 
-  // consume(x); // error
+    compt_expect_error(
+      borrow &(p), p_ref2 -> {
+        ();
+      },
+      "error: p is already borrowed"
+    );
+
+    compt_expect_error(
+      borrow &!(p.y), p_ref2 -> {
+        ();
+      },
+      "error: p is already borrowed"
+    );
+  };
 };

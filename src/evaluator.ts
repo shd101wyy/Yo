@@ -2772,7 +2772,7 @@ ${exprToString(rhs)}`
         );
       }
 
-      let isMutatingExistingVariable = false;
+      let isMutatingDefinedVariable = false;
       if (variable.isUndefined) {
         env = updateExistingVariable(env, variable, {
           ...variable,
@@ -2787,7 +2787,7 @@ ${exprToString(rhs)}`
           value: variable.isCompileTimeOnly ? rhs.$?.value : undefined,
           // type: rhsType,
         });
-        isMutatingExistingVariable = true;
+        isMutatingDefinedVariable = true;
       } else {
         throw this.formatErrorMessage(
           lhs.token,
@@ -2805,7 +2805,7 @@ ${exprToString(rhs)}`
       // Check the borrowings
       checkBorrowings(context.borrowings, lhs);
 
-      if (!isMutatingExistingVariable) {
+      if (!isMutatingDefinedVariable) {
         expr.$ = {
           env,
           value: VUnit,
@@ -9472,7 +9472,7 @@ Got:   ${typeToString(argType)}`
         type: evaluatedBorrowedValueExpr.$.type,
         pathCollection: evaluatedBorrowedValueExpr.$.pathCollection,
       });
-      checkBorrowings(borrowings);
+      checkBorrowings([...context.borrowings, ...borrowings]);
     }
 
     // Add the borrow bindings to the env

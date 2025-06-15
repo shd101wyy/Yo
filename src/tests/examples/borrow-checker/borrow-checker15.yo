@@ -1,10 +1,29 @@
-type Coord = {
+Coord :: struct
   x: i32,
   y: i32
-}
+;
 
-let main = ()-> {
-  var p: Coord = { x: 1, y: 2 };
-  let pRef = &!p;
-  let pRef2 = &!p.y; // error: p is already borrowed
-}
+main :: (()-> unit) {
+  mut(p) := Coord(1, 2);
+  
+  borrow &!(p), p_ref -> {
+    compt_expect_error(
+      p.x = 12,
+      "cannot assign to `p.x` because it is borrowed"
+    );
+
+    compt_expect_error(
+      borrow &(p), p_ref2 -> {
+        ();
+      },
+      "error: p is already borrowed"
+    );
+
+    compt_expect_error(
+      borrow &!(p.y), p_ref2 -> {
+        ();
+      },
+      "error: p is already borrowed"
+    );
+  };
+};

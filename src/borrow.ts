@@ -1,14 +1,32 @@
 import { formatErrorMessages } from "./error";
 import {
   Expr,
+  exprToString,
   PathCollection,
   pathCollectionConflictsWithPathCollection,
 } from "./expr";
-import { isMutRefType, MutRefType, RefType } from "./type-checker";
+import {
+  isMutRefType,
+  MutRefType,
+  RefType,
+  typeToString,
+} from "./type-checker";
 
 export interface Borrowing {
+  /**
+   * The experssion that is borrowing a value. For example
+   *   &(x), &!(p.x)
+   */
   expr: Expr;
+
+  /**
+   * The type of the borrowing. It can be a reference type or a mutable reference type.
+   */
   type: RefType | MutRefType;
+
+  /**
+   * Path collection of the borrowing. It represents the paths that are borrowed.
+   */
   pathCollection: PathCollection;
 }
 
@@ -88,4 +106,17 @@ export function checkBorrowings(borrowings: Borrowing[], expr?: Expr): void {
       }
     }
   }
+}
+
+function pathCollectionToString(pathCollection: PathCollection): string {
+  return pathCollection.map((p) => p.join(" -> ")).join("; ");
+}
+
+export function borrowingsToString(borrowings: Borrowing[]): string {
+  return borrowings
+    .map(
+      (b) =>
+        `Borrowing: ${exprToString(b.expr)} as ${typeToString(b.type)} at ${pathCollectionToString(b.pathCollection)}`
+    )
+    .join("\n");
 }
