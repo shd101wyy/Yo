@@ -1,11 +1,18 @@
-let increase = <R: Region>(x: &!<i32, R>)-> {
-  *x = *x + 1;
-}
+extern "C",
+  @(add):
+    (x: i32, y: i32)-> i32
+;
+
+
+increase :: ((x : &!(i32))-> unit) {
+  x.* = (x.* `add` 1);
+};
 
 // https://stackoverflow.com/questions/75809087/in-rust-what-the-mechanism-of-transferring-a-mutable-reference-into-a-function
-let main = ()-> {
-  var x = 0;
-  let xRef = &!x;
-  increase(xRef);
-  increase(xRef); // error: xRef is already consumed.  
-}
+main :: (()-> unit) {
+  mut(x) := 0;
+  borrow &!(x), x_ref-> {
+    increase(x_ref);
+    increase(x_ref);
+  };
+};

@@ -265,7 +265,8 @@ export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
     expr.tag === "FuncCall" &&
       expr.isInfix &&
       expr.func.tag === "Atom" &&
-      expr.func.token.type === TokenType.Operator &&
+      (expr.func.token.type === TokenType.Operator ||
+        expr.func.token.type === TokenType.BacktickIdentifier) &&
       expr.args.length === 2
   );
 }
@@ -388,7 +389,7 @@ export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
       tokenAndErrorList: [
         {
           token: expr.token,
-          errorMessage: `Cannot consume a property to a "Linear" value.`,
+          errorMessage: `Cannot consume a property of a "Linear" value.`,
         },
       ],
     });
@@ -440,6 +441,7 @@ export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
         ],
       });
     }
+
     // Set the variable as consumed
     env = updateExistingVariable(env, variableToConsume, {
       ...variableToConsume,
@@ -556,8 +558,11 @@ export function mergeAndCheckEnvs(
       const caseEnvFrame = caseEnv.frames[i]!;
       const caseEnvFrameVariables = caseEnvFrame.variables;
 
-      // Check if the number of values is the same
-      if (frameVariables.length !== caseEnvFrameVariables.length) {
+      // Check if the number of variables is the same
+      if (
+        i !== maxFrameLevel &&
+        frameVariables.length !== caseEnvFrameVariables.length
+      ) {
         throw formatErrorMessages({
           tokenAndErrorList: [
             {

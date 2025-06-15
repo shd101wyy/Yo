@@ -285,7 +285,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         if (foundVariable && isUndefined) {
-          markdownContent.appendMarkdown(`\nNot initialized`);
+          markdownContent.appendMarkdown(`\nundefined`);
         } else {
           // Add value if available
           const valueString = valueToString(expr.$?.value);

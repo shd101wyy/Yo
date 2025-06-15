@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { Borrowing, borrowingsToString, checkBorrowings } from "./borrow";
+import { Borrowing, checkBorrowings } from "./borrow";
 import {
   addVariableToEnv,
   createNewEnv,
@@ -229,7 +229,9 @@ export default class Evaluator {
       // Evaluate the program
       this.evaluateProgram();
     } catch (error) {
-      throw new Error(`Failed to import module: ${this.modulePath}\n${error}`);
+      throw new Error(
+        `Failed to import module "${modulePath}":\n${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -431,6 +433,9 @@ export default class Evaluator {
         );
       }
       env = evaluatedElement.$.env;
+
+      // Set the evaluatedElement as consumed
+      env = setExprAsConsumed(evaluatedElement, env);
 
       // Save value
       arrayElementValues.push(evaluatedElement.$.value);
@@ -977,24 +982,29 @@ ${typeToString(expectedTupleType)}`
           : undefined,
       },
     });
-    if (evaluatedRhs.$?.env) {
-      env = evaluatedRhs.$?.env;
+
+    if (!evaluatedRhs.$) {
+      throw this.formatErrorMessage(
+        rhsExpr.token,
+        `Failed to evaluate the tuple element: ${exprToString(rhsExpr)}`
+      );
     }
+    env = evaluatedRhs.$.env;
 
     // Set the evaluatedRhs as consumed
     env = setExprAsConsumed(evaluatedRhs, env);
 
-    const value = evaluatedRhs.$?.value;
-    if (value && isTypeValue(evaluatedRhs.$?.value)) {
+    const value = evaluatedRhs.$.value;
+    if (value && isTypeValue(evaluatedRhs.$.value)) {
       throw this.formatErrorMessage(
         rhsExpr.token,
-        `Cannot store a type value in tuple while not in "type" context:
+        `Cannot store a type value in tuple, please use module instead:
   ${exprToString(rhsExpr)}`
       );
     }
 
     // Expected the evaluatedRhs to be a value
-    elementType = evaluatedRhs.$?.type;
+    elementType = evaluatedRhs.$.type;
     if (!elementType) {
       throw this.formatErrorMessage(
         evaluatedRhs.token,
@@ -2251,11 +2261,16 @@ ${typeToString(expectedTupleType)}`
         ...context,
       },
     });
-    if (evaluatedRhs.$?.env) {
-      env = evaluatedRhs.$?.env;
+    if (!evaluatedRhs.$) {
+      throw this.formatErrorMessage(
+        rhs.token,
+        `Failed to evaluate rhs expression:
+${exprToString(rhs)}`
+      );
     }
+    env = evaluatedRhs.$.env;
 
-    const typeValue = evaluatedRhs.$?.value;
+    const typeValue = evaluatedRhs.$.value;
     if (!isTypeValue(typeValue)) {
       throw this.formatErrorMessage(
         rhs.token,
@@ -2344,6 +2359,7 @@ ${typeToString(expectedTupleType)}`
       isMutable: false,
       pathCollection: [],
     };
+
     return { expr, variableExpr: lhs, variableName };
   }
 
@@ -2433,6 +2449,9 @@ ${typeToString(expectedTupleType)}`
     if (rhs.$?.env) {
       env = rhs.$?.env;
     }
+
+    // Set the rhs as consumed
+    env = setExprAsConsumed(rhs, env);
 
     // If rhs is type value, then it cannot be mutable
     if (isTypeValue(rhs.$?.value) && isMutable) {
@@ -2573,6 +2592,7 @@ ${exprToString(rhs)}`
         isMutable,
         pathCollection: [],
       };
+
       // Add variable to env
       // Attach the updated env to expr
       // console.log("(6) addVariableToEnv");
@@ -2590,9 +2610,6 @@ ${exprToString(rhs)}`
         },
       });
       env = nextEnv;
-
-      // Set the rhs as consumed
-      env = setExprAsConsumed(rhs, env);
 
       lhs.$.env = env;
       expr.$ = {
@@ -2620,8 +2637,7 @@ ${exprToString(rhs)}`
         context: { ...context },
       });
 
-      // Set the rhs as consumed
-      env = setExprAsConsumed(rhs, env);
+      // NOTE: rhs is already set as consumed above
 
       expr.$ = {
         env,
@@ -2669,6 +2685,7 @@ ${exprToString(rhs)}`
           expr: lhs,
           env,
           context: { ...context },
+          throwErrorOnUndefined: false,
         });
         if (!evaluatedLhs.$) {
           throw this.formatErrorMessage(
@@ -3571,12 +3588,18 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     expr,
     env,
     context,
+    throwErrorOnUndefined,
   }: {
     expr: AtomExpr;
     env: Environment;
     context: EvaluatorContext;
+    throwErrorOnUndefined: boolean;
   }): AtomExpr {
-    const identifier = expr.token.value;
+    const identifier =
+      expr.token.type === TokenType.BacktickIdentifier
+        ? expr.token.value.slice(1, -1) // Remove backticks
+        : expr.token.value;
+
     // Free
     if (identifier === TypeTag.Free) {
       const value = createTypeValue(TFree);
@@ -3846,7 +3869,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
         );
       } else {
         const variable = variables[variables.length - 1]!;
-        if (variable.isUndefined) {
+        if (variable.isUndefined && throwErrorOnUndefined) {
           throw this.formatErrorMessage(
             expr.token,
             `Variable "${identifier}" is undefined`
@@ -6160,25 +6183,25 @@ ${typeToString(returnType)}`
     if (givenFunc) {
       functions = [givenFunc];
     } else {
-      const functionToCall = this.evaluateExpression({
-        expr: func,
-        env,
-        context: {
-          ...context,
-        },
-      });
-      func = functionToCall;
-
-      // Check borrowings
-      // NOTE: This is necessary for function like array accessing element by index
-      // for example:
-      //   mut(xs) := [1, 2, 3];
-      //   borrow &!(xs), xs_ref -> {
-      //     first_element := xs(0); // here `xs` is already borrowed, so we cannot use it.
-      //   }
-      checkBorrowings(context.borrowings, functionToCall);
-
       if (exprIsFunctionCall(func)) {
+        const functionToCall = this.evaluateExpression({
+          expr: func,
+          env,
+          context: {
+            ...context,
+          },
+        });
+        func = functionToCall;
+
+        // Check borrowings
+        // NOTE: This is necessary for function like array accessing element by index
+        // for example:
+        //   mut(xs) := [1, 2, 3];
+        //   borrow &!(xs), xs_ref -> {
+        //     first_element := xs(0); // here `xs` is already borrowed, so we cannot use it.
+        //   }
+        checkBorrowings(context.borrowings, functionToCall);
+
         // Check if . property access for module method call
         if (!functionToCall.$?.type) {
           if (
@@ -6364,6 +6387,24 @@ ${typeToString(returnType)}`
         }
         // Normal function call
         else {
+          const functionToCall = this.evaluateExpression({
+            expr: func,
+            env,
+            context: {
+              ...context,
+            },
+          });
+          func = functionToCall;
+
+          // Check borrowings
+          // NOTE: This is necessary for function like array accessing element by index
+          // for example:
+          //   mut(xs) := [1, 2, 3];
+          //   borrow &!(xs), xs_ref -> {
+          //     first_element := xs(0); // here `xs` is already borrowed, so we cannot use it.
+          //   }
+          checkBorrowings(context.borrowings, functionToCall);
+
           /**
            * functionVariables might be of FunctionType, StructType, UnionType, and EnumVariant
            */
@@ -6867,6 +6908,11 @@ ${functionsWithMatchingTypes
            */
           isMutable: Boolean(func.$?.isMutable),
           pathCollection: func.$?.pathCollection ?? [],
+          /**
+           * NOTE: We need to set isAccessingProperty to true here
+           * to prevent getting an array element of Linear type.
+           */
+          isAccessingProperty: true,
         };
 
         // Attach necessary info to the func
@@ -6876,6 +6922,7 @@ ${functionsWithMatchingTypes
           value: functionToCall.value,
           isMutable: Boolean(func.$?.isMutable),
           pathCollection: func.$?.pathCollection ?? [],
+          isAccessingProperty: true,
         };
         return expr;
       }
@@ -9001,7 +9048,17 @@ Got:   ${typeToString(argType)}`
     }
 
     // Pop the env frame
-    env = popEnvFrame(env);
+    try {
+      // NOTE: Pop the env frame here might fail,
+      // For example, for any uninitialized variable, or unconsumed linear variables.
+      env = popEnvFrame(env);
+    } catch (error) {
+      if (allowPartialModule) {
+        partialModuleError = error;
+      } else {
+        throw error;
+      }
+    }
 
     // Create the module value
     const moduleValue = createModuleValue(moduleType, moduleElementValues);
@@ -9182,6 +9239,8 @@ Got:   ${typeToString(argType)}`
       );
     }
 
+    /*
+    // QUESTION: Should we limit the consume argument to Linear type?
     const argType = evaluatedConsumeArgExpr.$.type;
     if (!isLinearOrType0Type(typeOfType(argType))) {
       throw this.formatErrorMessage(
@@ -9189,6 +9248,7 @@ Got:   ${typeToString(argType)}`
         `Expected "Linear" type for consume argument, got:\n${exprToString(consumeArgExpr)}`
       );
     }
+    */
     // Check if the consume argument is already borrowed
     checkBorrowings(context.borrowings, evaluatedConsumeArgExpr);
 
@@ -9491,7 +9551,6 @@ Got:   ${typeToString(argType)}`
         pathCollection: evaluatedBorrowedValueExpr.$.pathCollection,
       });
       checkBorrowings([...context.borrowings, ...borrowings]);
-      console.log(borrowingsToString([...context.borrowings, ...borrowings]));
     }
 
     // Add the borrow bindings to the env
@@ -10273,11 +10332,13 @@ Got:\n${exprToString(expr)}`
     if (exprIsAtom(expr)) {
       switch (expr.token.type) {
         case TokenType.Identifier:
-        case TokenType.Operator: {
+        case TokenType.Operator:
+        case TokenType.BacktickIdentifier: {
           return this.evaluateIdentifierAndOperator({
             expr,
             env,
             context: { ...context },
+            throwErrorOnUndefined: true,
           });
         }
         case TokenType.Integer: {

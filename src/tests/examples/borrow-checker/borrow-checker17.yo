@@ -1,18 +1,18 @@
-type Data: Linear;
-extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> unit;
-}
-type Person = {
-  age: i32,
-  name: Data,
-  job: Data,
-}
+extern "C",
+  @(malloc) :
+    ()-> ^(i32)
+;
 
-let test = (p: Person)-> {
-  let age = p.age;
-  let {name, job} = p;
+Person :: struct
+  age: i32,
+  name: ^(i32),
+  job: ^(i32)
+;
+
+test :: ((p: Person)-> unit) {
+  age := p.age;
+  { name, job } := p;
 
   consume(name);
   consume(job);
-}
+};

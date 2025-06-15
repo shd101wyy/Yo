@@ -1,16 +1,22 @@
-type Data: Linear;
-extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data[])-> unit;
-}
+extern "C",
+  @(malloc) :
+    ()-> ^(i32)
+;
 
 
-let test = (linearArray: Data[], freeArray: i32[])-> {
-  let x = freeArray[0]; // Access Free value is allowed.  
+test :: ((linear_array: Array(^(i32), 2), free_array: Array(i32, 2))-> unit) {
+  x := free_array(0); // Access Free value is allowed.  
   {
-    // let z = linearArray[0]; // Access Linear value is not allowed, 
-    let y = &linearArray[0];   // but reference is allowed.
-                             
-  }
-  consume(linearArray)
-}
+    // Access Linear value is not allowed, 
+    compt_expect_error(
+      z := linear_array(0),
+      "error: cannot access linear value in an array"  
+    );
+
+    // but reference is allowed.
+    borrow &(linear_array(0)), first_element_ref -> {
+      ();
+    };
+  };
+  consume(linear_array);
+};

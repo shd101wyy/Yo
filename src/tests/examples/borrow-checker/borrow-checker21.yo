@@ -1,28 +1,34 @@
-type Data: Linear;
-extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> unit;
-}
-type Person = {
-  age: i32,
-  name: Data,
-  job: Data,
-}
+extern "C",
+  @(malloc) :
+    ()-> ^(i32)
+;
 
-let test = (mut p: Person)-> Person {
-  let age = p.age;
-  {
-    let nameRef = &!p.name;
-    let oldName = (*nameRef = malloc());
-    consume(oldName);
-  }
-  {
-    let oldName = (p.name = malloc());
-    consume(oldName);
-  }
-  {
-    let oldName = (*(&!p.name) = malloc());
-    consume(oldName);
-  }
+Person :: struct
+  age: i32,
+  name: ^(i32),
+  job: ^(i32)
+;
+
+test0 :: ((p: Person)-> Person)
   p
-}
+;
+
+test :: ((p: Person)-> Person) {
+  mut(p) := p;
+
+  age := p.age;
+
+  {
+    borrow &!(p.name), name_ref-> {
+      old_name := (name_ref.* = malloc());
+      consume(old_name);
+    };
+  };
+
+  {
+    oldName := (p.name = malloc());
+    consume(oldName);
+  };
+
+  p
+};

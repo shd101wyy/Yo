@@ -1,18 +1,23 @@
-type Data: Linear;
-extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> unit;
-}
-type Person = {
-  age: i32,
-  name: Data,
-}
+extern "C",
+  @(malloc) :
+    ()-> ^(i32)
+;
 
-let test = ()-> {
-  let name = malloc();
-  let p: Person = {
-    age: 12,
-    name: name,
-  }
-  let ref = &name; // error: `name` is already consumed by `p`
-}
+Person :: struct
+  age: i32,
+  name: ^(i32)
+;
+
+test :: (()-> unit) {
+  name := malloc();
+  p := Person(age: 12, name: name);
+
+  compt_expect_error(
+    borrow &(name), name_ref -> {
+      ();
+    },
+    "error: 'name' is already consumed in the struct 'p'"
+  );
+
+  consume(p);
+};

@@ -1,17 +1,24 @@
-type Data: Linear;
-extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> unit;
-}
+extern "C",
+  @(malloc) :
+    ()-> ^(i32)
+;
 
-let returnRef = <R:Region>(ref: &<Data, R>)-> &<Data, R> {
+return_ref :: ((ref: &(^(i32))) -> &(^(i32)))
   ref
-}
+;
 
-let test = ()-> {
-  let x = malloc();
+test :: (()-> unit) {
+  x := malloc();
   {
-    let ref = returnRef(&x); // This should give error
-  }
+    borrow return_ref(&(x)), x_ref-> {
+
+      // x is borrowed here, so we cannot use it.
+      compt_expect_error(
+        x_2 := x
+      );
+
+      ();
+    };
+  };
   consume(x);
-}
+};

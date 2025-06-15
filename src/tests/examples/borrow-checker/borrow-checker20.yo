@@ -1,12 +1,33 @@
-type Data: Linear;
-extern "C" {
-  malloc: ()-> Data;
-  consume: (x: Data)-> unit;
-}
+extern "C",
+  @(malloc) :
+    ()-> ^(i32)
+;
 
 
-let test = ()-> {
-  let name = malloc();
-  let arr: Data[] = [name];
-  let ref = &name; // error: `name` is already consumed by `arr`
-}
+test :: (()-> unit) {
+  name := malloc();
+  arr := [name]; // 'name' is consumed in the array 'arr'.
+  
+  compt_expect_error(
+    borrow &(name), name_ref-> {
+      ();
+    },
+    "error: 'name' is already consumed in the array 'arr'"
+  );
+
+  consume(arr);
+};
+
+test2 :: (()-> unit) {
+  name := malloc();
+  tup := (name,);
+
+  compt_expect_error(
+    borrow &(name), name_ref-> {
+      ();
+    },
+    "error: 'name' is already consumed in the array 'arr'"
+  );
+
+  consume(tup);
+};

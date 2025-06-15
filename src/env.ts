@@ -376,10 +376,10 @@ ${typeToString(variable.type)}`,
       });
     } else if (undefinedVariables.length > 0) {
       throw formatErrorMessages({
-        tokenAndErrorList: undefinedVariables.map((value) => {
+        tokenAndErrorList: undefinedVariables.map((variable) => {
           return {
-            token: value.token,
-            errorMessage: `Variable is not initialized.`,
+            token: variable.token,
+            errorMessage: `Variable "${variable.name}" is undefined.`,
           };
         }),
       });
@@ -398,26 +398,6 @@ ${typeToString(variable.type)}`,
       );
     }*/
   }
-
-  /*
-  TODO: Restore the block of the code below
-  const topFrame = env.frames[env.frames.length - 1];
-  const references = topFrame.variables.filter((value) =>
-    typeIsReference(value.type)
-  );
-  if (references.length) {
-    for (let i = 0; i < references.length; i++) {
-      const referedVariable = references[i].referedVariable;
-      if (referedVariable) {
-        // decrement the reference count
-        env = decrementVariableReferenceCount({
-          env,
-          referedVariable,
-        });
-      }
-    }
-  }
-  */
 
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
@@ -445,56 +425,6 @@ export function updateExistingVariable(
     frames,
     modulePath: env.modulePath,
     inputString: env.inputString,
-  };
-}
-
-export function setEnvVariableAsConsumed({
-  env,
-  variableName,
-  consumedAtToken,
-}: {
-  env: Environment;
-  variableName: string;
-  consumedAtToken: Token;
-}): { env: Environment /* referedVariable?: ReferedVariable */ } {
-  const variables = getVariablesFromEnv(env, variableName);
-  if (variables.length === 0) {
-    throw formatErrorMessages({
-      tokenAndErrorList: [
-        {
-          token: consumedAtToken,
-          errorMessage: `Variable ${variableName} is not defined.`,
-        },
-      ],
-    });
-  }
-  const variable = variables[variables.length - 1]!;
-
-  // Check if it's linear type
-  if (isLinearOrType0Type(typeOfType(variable.type))) {
-    // Check if the variable is already consumed.
-    if (variable.consumedAtToken) {
-      throw formatErrorMessages({
-        tokenAndErrorList: [
-          {
-            token: consumedAtToken,
-            errorMessage: `Variable "${variable.name}" is already consumed and cannot be used again.`,
-          },
-          {
-            token: variable.consumedAtToken,
-            errorMessage: `Previously consumed here:`,
-          },
-        ],
-      });
-    }
-  }
-
-  // const referedVariable = variable.referedVariable;
-
-  const newVariableValue: Variable = { ...variable, consumedAtToken };
-  return {
-    env: updateExistingVariable(env, variable, newVariableValue),
-    // referedVariable,
   };
 }
 
