@@ -1,6 +1,29 @@
-anonymous_func :
-  (forall(compt(T): Type),
-    x: T)-> T;
+// RAII
+// automatically call .drop() function on unconsumed linear variables.
+extern "C",
+  @(malloc) :
+    ()-> ^(i32)
+;
 
-anonymous_func =
-  fn(a)-> a;
+// The Drop module
+Drop :: ((@(Self): Type) -> @(Type))
+  module
+    Self :: Self,
+    @(drop) :
+      (self: Self)-> unit
+;
+
+I32PointerDrop :: Drop(^(i32))
+  drop :
+    fn(self)-> consume(self)
+;
+
+main :: (()-> unit) {
+  x := malloc();
+  y := malloc();
+
+  // y should be dropped first
+  // x should be dropped after y
+  // y.drop();
+  // x.drop();
+};

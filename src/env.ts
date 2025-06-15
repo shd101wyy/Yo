@@ -1,5 +1,5 @@
 import { formatErrorMessages } from "./error";
-import { Token } from "./token";
+import { PlaceholderToken, Token } from "./token";
 import {
   areTypesCompatible,
   getModuleReceiverType,
@@ -12,6 +12,7 @@ import {
   ModuleType,
   Type,
   typeOfType,
+  TypeTag,
   typeToString,
 } from "./type-checker";
 import { generateVarialeId, isTempVariableName } from "./utils";
@@ -360,20 +361,32 @@ export function popEnvFrame(
       (variable) => variable.isUndefined
     );
     if (unconsumedLinearVariables.length > 0) {
-      // TODO: Restore the block of the code below
-      throw formatErrorMessages({
-        tokenAndErrorList: unconsumedLinearVariables.map((variable) => {
-          return {
-            token: variable.token,
-            errorMessage: `${
-              isTempVariableName(env.modulePath, variable.name)
-                ? "Value"
-                : `Variable "${variable.name}"`
-            } is "Linear" type but is not consumed:
-${typeToString(variable.type)}`,
-          };
-        }),
-      });
+      // RAII
+      // check if we can call the `drop: ((self: Self)-> unit)`
+      // method on the linear value to consume it.
+      // for example:
+      //    ptr := malloc();
+      //    ptr.drop(); // <= this is the method we are looking for
+      const errors: { token: Token; errorMessage: string }[] = [];
+      for (let i = unconsumedLinearVariables.length - 1; i >= 0; i--) {
+        const variable = unconsumedLinearVariables[i]!;
+        const { error, env: nextEnv } = canCallDropMethodOnVariable(
+          variable,
+          env
+        );
+        if (error) {
+          errors.push(error);
+        } else {
+          // console.log(`Consumed ${variable.name}`);
+          env = nextEnv;
+        }
+      }
+
+      if (errors.length > 0) {
+        throw formatErrorMessages({
+          tokenAndErrorList: errors,
+        });
+      }
     } else if (undefinedVariables.length > 0) {
       throw formatErrorMessages({
         tokenAndErrorList: undefinedVariables.map((variable) => {
@@ -507,6 +520,7 @@ export function getMethodsByNameFromEnv(
       }
     }
   }
+  // NOTE:
   // Type methods have higher priority than module methods,
   // so we check the module methods only if there are no type methods.
   if (methods.length > 0) {
@@ -552,4 +566,74 @@ export function keepComptimeVariablesFromEnv(env: Environment): Environment {
     modulePath: env.modulePath,
     inputString: env.inputString,
   };
+}
+
+/**
+ * Check if we can call the `drop` method on the variable.
+ * The drop method is used to consume the linear value.
+ * It should have signature like this:
+ *
+ *   (self: Self) -> unit
+ *
+ * where `Self` is the type of the variable.
+ */
+function canCallDropMethodOnVariable(
+  variable: Variable,
+  env: Environment
+): {
+  error?: { token: Token; errorMessage: string };
+  env: Environment;
+} {
+  const variableType = variable.type;
+  const methods = getMethodsByNameFromEnv(env, "drop", variableType).filter(
+    (method) => {
+      return (
+        isFunctionType(method.type) &&
+        method.type.parameters.length === 1 &&
+        method.type.return.type.tag === TypeTag.Unit
+      );
+    }
+  );
+  if (methods.length === 0) {
+    return {
+      error: {
+        token: variable.token,
+        errorMessage: `${
+          isTempVariableName(env.modulePath, variable.name)
+            ? "Value"
+            : `Variable "${variable.name}"`
+        } is "Linear" type but is not consumed.
+No "drop" method found for type, so it cannot be consumed automatically:
+
+  ${typeToString(variableType)}`,
+      },
+      env,
+    };
+  } else if (methods.length === 1) {
+    // QUESTION: Do we really need to perform this action?
+    // Update the variable to mark it as consumed
+    env = updateExistingVariable(env, variable, {
+      ...variable,
+      consumedAtToken: PlaceholderToken, // QUESTION: What should be the correct token here
+    });
+
+    return { error: undefined, env: env };
+  } else {
+    return {
+      error: {
+        token: variable.token,
+        errorMessage: `Failed to consume ${
+          isTempVariableName(env.modulePath, variable.name)
+            ? "Value"
+            : `Variable "${variable.name}"`
+        }.
+Found multiple "drop" methods for type:
+
+  ${typeToString(variable.type)}
+  
+Please specify the method explicitly.`,
+      },
+      env: env,
+    };
+  }
 }

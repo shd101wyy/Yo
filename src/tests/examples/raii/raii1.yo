@@ -1,0 +1,80 @@
+// RAII
+// automatically call .drop() function on unconsumed linear variables.
+// the .drop() might be type methods, or module methods.
+// when there are multiple .drop() methods available,
+// the compiler requires explicit method call.
+
+extern "C",
+  @(malloc) :
+    ()-> ^(i32)
+;
+
+// The Drop module
+Drop :: ((@(Self): Type) -> @(Type))
+  module
+    Self :: Self,
+    @(drop) :
+      (self: Self)-> unit
+;
+
+I32PointerDrop :: Drop(^(i32))
+  drop :
+    fn(self)-> consume(self)
+;
+
+main :: (() -> unit) {
+  {
+    x := malloc();
+    y := malloc();
+
+    // y should be dropped first
+    // x should be dropped after y
+    // y.drop();
+    // x.drop();
+  };
+
+  {
+    mut(x) := malloc();
+    x = malloc(); // the old value of "x" is dropped automatically
+  };
+};
+
+test :: (() -> unit) {
+  // Define another Drop instance for i32 pointers
+  I32PointerDrop2 :: Drop(^(i32))
+    drop :
+      fn(self)-> consume(self)
+  ;
+
+  compt_expect_error(
+  {
+    x := malloc(); // There are multiple ".drop" methods available
+                   // so it requires explicit method call.
+  
+  });
+
+  {
+    x := malloc();
+    I32PointerDrop2.drop(x); // Explicitly call the drop method
+
+    compt_expect_error(
+      y := x.*,
+      "Cannot use 'x' after it has been dropped"
+    );
+
+    compt_expect_error(
+      borrow &(x), x_ref-> {
+        ();
+      },
+      "Cannot borrow 'x' after it has been dropped"
+    );
+  };
+
+  {
+    mut(x) := malloc();
+    old := (x = malloc());
+
+    I32PointerDrop.drop(old); // Explicitly call the drop method
+    I32PointerDrop.drop(x); // Explicitly call the drop method
+  };
+};

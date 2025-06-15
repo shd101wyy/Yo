@@ -5666,6 +5666,10 @@ ${typeToString(returnType)}`
       env = objectExpr.$?.env;
     }
 
+    // Check if the object expression is already consumed
+    // If yes, then throw an error due to using a consumed expression.
+    requireExprNotConsumed(objectExpr, env);
+
     // Check if it's .* for dereference
     if (exprIsAtom(propertyExpr) && propertyExpr.token.value === "*") {
       if (isPtrType(objectExpr.$?.type) || isMutPtrType(objectExpr.$?.type)) {
