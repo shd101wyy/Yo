@@ -79,8 +79,6 @@ export enum TypeTag {
   Module = "Module",
 
   // Pointer & Reference
-  MutLinearPtr = "MutLinearPtr",
-  LinearPtr = "LinearPtr",
   MutPtr = "MutPtr",
   Ptr = "Ptr",
   MutRef = "MutRef",
@@ -804,22 +802,6 @@ export interface FunctionType extends Type {
   SelfType?: Type;
 }
 
-export interface MutLinearPtrType extends Type {
-  tag: TypeTag.MutLinearPtr;
-  /**
-   * The type of the pointer.
-   */
-  type: Type;
-}
-
-export interface LinearPtrType extends Type {
-  tag: TypeTag.LinearPtr;
-  /**
-   * The type of the pointer.
-   */
-  type: Type;
-}
-
 export interface MutPtrType extends Type {
   tag: TypeTag.MutPtr;
   /**
@@ -1055,24 +1037,6 @@ export function getModuleReceiverType(moduleType: ModuleType): Type | null {
   return typeValue.value;
 }
 
-export function createMutLinearPtrType(type: Type): MutLinearPtrType {
-  return {
-    tag: TypeTag.MutLinearPtr,
-    // size: getPtrSize() * 8,
-    type,
-    methods: [],
-  };
-}
-
-export function createLinearPtrType(type: Type): LinearPtrType {
-  return {
-    tag: TypeTag.LinearPtr,
-    // size: getPtrSize() * 8,
-    type,
-    methods: [],
-  };
-}
-
 export function createMutPtrType(type: Type): MutPtrType {
   return {
     tag: TypeTag.MutPtr,
@@ -1191,8 +1155,6 @@ export function typeOfType(t: Type): Type {
     return createFreeType();
   } else if (isSomeType(t)) {
     return t.parentType;
-  } else if (isMutLinearPtrType(t) || isLinearPtrType(t)) {
-    return createLinearType();
   } else if (
     isMutPtrType(t) ||
     isPtrType(t) ||
@@ -1661,34 +1623,10 @@ export function areTypesCompatible(
     );
   }
 
-  // ^
-  if (
-    isLinearPtrType(expected.type) &&
-    (isLinearPtrType(given.type) || isMutLinearPtrType(given.type))
-  ) {
-    // Linear pointers must have the same type
-    return areTypesCompatible(
-      { type: expected.type.type, env: expected.env },
-      { type: given.type.type, env: given.env }
-    );
-  }
-
-  // ^!
-  if (isMutLinearPtrType(expected.type) && isMutLinearPtrType(given.type)) {
-    // MutLinear pointers must have the same type
-    return areTypesCompatible(
-      { type: expected.type.type, env: expected.env },
-      { type: given.type.type, env: given.env }
-    );
-  }
-
   // *
   if (
     isPtrType(expected.type) &&
-    (isPtrType(given.type) ||
-      isMutPtrType(given.type) ||
-      isLinearPtrType(given.type) ||
-      isMutLinearPtrType(given.type))
+    (isPtrType(given.type) || isMutPtrType(given.type))
   ) {
     // Pointers must have the same type
     return areTypesCompatible(
@@ -1698,10 +1636,7 @@ export function areTypesCompatible(
   }
 
   // *!
-  if (
-    isMutPtrType(expected.type) &&
-    (isMutPtrType(given.type) || isMutLinearPtrType(given.type))
-  ) {
+  if (isMutPtrType(expected.type) && isMutPtrType(given.type)) {
     // Mut pointers must have the same type
     return areTypesCompatible(
       { type: expected.type.type, env: expected.env },
@@ -1835,14 +1770,6 @@ export function isLinearOrType0Type(type?: Type): boolean {
 
 export function isSomeType(type?: Type): type is SomeType {
   return type?.tag === TypeTag.SomeType;
-}
-
-export function isMutLinearPtrType(type?: Type): type is MutLinearPtrType {
-  return type?.tag === TypeTag.MutLinearPtr;
-}
-
-export function isLinearPtrType(type?: Type): type is LinearPtrType {
-  return type?.tag === TypeTag.LinearPtr;
 }
 
 export function isMutPtrType(type?: Type): type is MutPtrType {
@@ -2190,14 +2117,6 @@ export function typeToString(type: Type): string {
       return someType.name;
       // return `${someType.name}(${someType.typeId})`;
       // return `some(${parentType.tag})`;
-    }
-
-    case TypeTag.LinearPtr: {
-      return `^(${typeToString((type as LinearPtrType).type)})`;
-    }
-
-    case TypeTag.MutLinearPtr: {
-      return `^!(${typeToString((type as MutLinearPtrType).type)})`;
     }
 
     case TypeTag.Ptr: {

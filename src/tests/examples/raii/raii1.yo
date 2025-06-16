@@ -5,8 +5,9 @@
 // the compiler requires explicit method call.
 
 extern "C",
-  malloc  :
-    ()-> ^(i32)
+  Data   : Linear,
+  malloc :
+    ()-> Data
 ;
 
 // The Drop module
@@ -17,7 +18,7 @@ Drop :: ((@(Self): Type) -> @(Type))
       (self: Self)-> unit
 ;
 
-I32PointerDrop :: Drop(^(i32))
+DataDrop :: Drop(Data)
   drop :
     fn(self)-> consume(self)
 ;
@@ -41,7 +42,7 @@ main :: (() -> unit) {
 
 test :: (() -> unit) {
   // Define another Drop instance for i32 pointers
-  I32PointerDrop2 :: Drop(^(i32))
+  DataDrop2 :: Drop(Data)
     drop :
       fn(self)-> consume(self)
   ;
@@ -55,7 +56,7 @@ test :: (() -> unit) {
 
   {
     x := malloc();
-    I32PointerDrop2.drop(x); // Explicitly call the drop method
+    DataDrop2.drop(x); // Explicitly call the drop method
 
     compt_expect_error(
       y := x.*,
@@ -74,7 +75,7 @@ test :: (() -> unit) {
     mut(x) := malloc();
     old := (x = malloc());
 
-    I32PointerDrop.drop(old); // Explicitly call the drop method
-    I32PointerDrop.drop(x); // Explicitly call the drop method
+    DataDrop.drop(old); // Explicitly call the drop method
+    DataDrop.drop(x); // Explicitly call the drop method
   };
 };

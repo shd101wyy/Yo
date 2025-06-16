@@ -237,8 +237,8 @@ export const BuiltinKeywords = {
   false: ["false"],
 
   // data types
-  LinearPtr: ["^"],
-  MutLinearPtr: ["^!"],
+  // LinearPtr: ["^"],     // <= deprecated
+  // MutLinearPtr: ["^!"], // <= deprecated
   Ptr: ["*"],
   MutPtr: ["*!"],
   Ref: ["&"],
@@ -389,7 +389,7 @@ export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
       tokenAndErrorList: [
         {
           token: expr.token,
-          errorMessage: `Cannot consume a property of a "Linear" value.`,
+          errorMessage: `Cannot consume a property which is "Linear" value.`,
         },
       ],
     });

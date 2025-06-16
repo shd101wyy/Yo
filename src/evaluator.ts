@@ -56,10 +56,8 @@ import {
   createI64Type,
   createI8Type,
   createIsizeType,
-  createLinearPtrType,
   createLinearType,
   createModuleType,
-  createMutLinearPtrType,
   createMutPtrType,
   createMutRefType,
   createPtrType,
@@ -88,10 +86,8 @@ import {
   isFunctionType,
   isFunctionTypeAndIsTypeFunction,
   isLinearOrType0Type,
-  isLinearPtrType,
   isLinearType,
   isModuleType,
-  isMutLinearPtrType,
   isMutPtrType,
   isMutRefType,
   isPtrType,
@@ -6082,21 +6078,6 @@ ${typeToString(returnType)}`
         };
         return expr;
       } else if (
-        isLinearPtrType(objectExpr.$?.type) ||
-        isMutLinearPtrType(objectExpr.$?.type)
-      ) {
-        const linearPtrType = objectExpr.$.type;
-        const baseType = linearPtrType.type;
-        expr.$ = {
-          env,
-          type: baseType,
-          value: undefined,
-          isMutable: isMutLinearPtrType(linearPtrType),
-          isAccessingProperty: true,
-          pathCollection: [],
-        };
-        return expr;
-      } else if (
         isRefType(objectExpr.$?.type) ||
         isMutRefType(objectExpr.$?.type)
       ) {
@@ -10663,73 +10644,6 @@ Got:\n${exprToString(expr)}`
     }
   }
 
-  /**
-   * Evaluate a linear pointer call
-   * For example:
-   *
-   *
-   */
-  private evaluateLinearPointerCall({
-    expr,
-    env,
-    context,
-  }: {
-    expr: FuncCallExpr;
-    env: Environment;
-    context: EvaluatorContext;
-  }): FuncCallExpr {
-    const pointerTypeKind: TypeTag.LinearPtr | TypeTag.MutLinearPtr =
-      exprIsFunctionCallOf(expr, BuiltinKeywords.LinearPtr)
-        ? TypeTag.LinearPtr
-        : TypeTag.MutLinearPtr;
-
-    const argExpr = expr.args[0]!;
-    const evaluatedArgExpr = this.evaluateExpression({
-      expr: argExpr,
-      env,
-      context: {
-        ...context,
-        expectedType: undefined,
-        SelfType: undefined,
-      },
-    });
-
-    if (!evaluatedArgExpr.$) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Failed to evaluate the argument expression for pointer:\n${exprToString(
-          argExpr
-        )}`
-      );
-    }
-    env = evaluatedArgExpr.$.env;
-
-    // Check if the argExpr is a type
-    if (isTypeValue(evaluatedArgExpr.$.value)) {
-      const typeValue = evaluatedArgExpr.$.value;
-      const baseType = typeValue.value;
-      // Create the pointer type
-      const pointerType =
-        pointerTypeKind === TypeTag.LinearPtr
-          ? createLinearPtrType(baseType)
-          : createMutLinearPtrType(baseType);
-      const typeValueForPointer = createTypeValue(pointerType);
-      expr.$ = {
-        env,
-        type: typeValueForPointer.type,
-        value: typeValueForPointer,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    } else {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected type for linear pointer, got:\n${exprToString(argExpr)}`
-      );
-    }
-  }
-
   private evaluateExpression({
     expr,
     env,
@@ -10870,16 +10784,6 @@ ${exprToString(expr)}`
       ) {
         // * or *! raw pointers
         return this.evaluateRawPointerCall({
-          expr,
-          env,
-          context: { ...context },
-        });
-      } else if (
-        exprIsFunctionCallOf(expr, BuiltinKeywords.LinearPtr, 1) ||
-        exprIsFunctionCallOf(expr, BuiltinKeywords.MutLinearPtr, 1)
-      ) {
-        // ^ or ^! linear pointers
-        return this.evaluateLinearPointerCall({
           expr,
           env,
           context: { ...context },
