@@ -74,6 +74,18 @@ export const PlaceholderToken: Token = {
   },
 };
 
+export const RAIIToken: Token = {
+  modulePath: "drop",
+  inputString: "drop",
+  type: TokenType.Identifier,
+  value: "drop",
+  position: {
+    row: 0, // NOTE: Set to -1 will cause error in some cases
+    column: 0, // NOTE: Set to -1 will cause error in some cases
+    character: 0, // NOTE: Set to -1 will cause error in some cases
+  },
+};
+
 export const Operators = [
   "=",
   "+",

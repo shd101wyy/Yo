@@ -233,6 +233,9 @@ export const BuiltinKeywords = {
   drop: ["drop"],
   break: ["break"],
   continue: ["continue"],
+  while: ["while"],
+  for: ["for"],
+  if: ["if"],
 
   // values
   undefined: ["undefined"],

@@ -4,6 +4,10 @@ main :: (()-> unit) {
   // Use $ to create a special Rc type:
   SomeType :: $(String);
   // ^ It will convert any Linear type to a Free type.
+  // The $ also implements the "copy" and "drop" methods for the type.
+  // The "copy" method will increase the reference count.
+  // The "drop" method will decrease the reference count.
+  // They are automatically called when the value is copied or dropped.
 
   (x: SomeType) = $(String.from("Hello, world!"));
   y = x; // Increase the reference count.
@@ -14,7 +18,3 @@ main :: (()-> unit) {
   // unnecessary calculations on reference counter.  
   ()
 };
-
-
-
-

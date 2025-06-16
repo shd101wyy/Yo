@@ -355,7 +355,6 @@ export function createUnknownValue(
       name: variableName,
       parentType: type,
       size: undefined,
-      methods: [],
     };
     return createTypeValue(someType);
   }

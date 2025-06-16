@@ -1,14 +1,15 @@
 import { formatErrorMessages } from "./error";
-import { PlaceholderToken, Token } from "./token";
+import { RAIIToken, Token } from "./token";
 import {
   areTypesCompatible,
   getModuleReceiverType,
+  isEnumType,
   isFunctionType,
-  isLinearOrType0Type,
   isModuleType,
+  isStructType,
+  isUnionType,
   ModuleType,
   Type,
-  typeOfType,
   TypeTag,
   typeToString,
 } from "./type-checker";
@@ -338,11 +339,12 @@ export function popEnvFrame(
   if (!ignoreCheck) {
     const frameToPop = env.frames[env.frames.length - 1]!;
     // Check if there is any value in the frame that is not consumed or uninitialized
-    const unconsumedLinearVariables = frameToPop.variables.filter(
+    // NOTE: We should count both Free and Linear variables,
+    // because Free variables might also implement the "drop" method.
+    const unconsumedVariables = frameToPop.variables.filter(
       (variable) =>
-        isLinearOrType0Type(typeOfType(variable.type)) &&
-        !variable.consumedAtToken &&
-        !variable.isCompileTimeOnly // We only check for runtime variables
+        // isLinearOrType0Type(typeOfType(variable.type)) &&
+        !variable.consumedAtToken && !variable.isCompileTimeOnly // We only check for runtime variables
     );
     /*
     const unusedFreeValues = frameToPop.values.filter(
@@ -357,16 +359,16 @@ export function popEnvFrame(
     const undefinedVariables = frameToPop.variables.filter(
       (variable) => variable.isUndefined
     );
-    if (unconsumedLinearVariables.length > 0) {
+    if (unconsumedVariables.length > 0) {
       // RAII
       // check if we can call the `drop: ((self: Self)-> unit)`
       // method on the linear value to consume it.
       // for example:
       //    ptr := malloc();
-      //    ptr.drop(); // <= this is the method we are looking for
+      //    drop(ptr); // <= this is the method we are looking for
       const errors: { token: Token; errorMessage: string }[] = [];
-      for (let i = unconsumedLinearVariables.length - 1; i >= 0; i--) {
-        const variable = unconsumedLinearVariables[i]!;
+      for (let i = unconsumedVariables.length - 1; i >= 0; i--) {
+        const variable = unconsumedVariables[i]!;
 
         // calling drop on it
         env = updateExistingVariable(env, variable, {
@@ -473,8 +475,8 @@ export function getMethodsByNameFromEnv(
   const methods: { type: Type; value: Value | undefined }[] = [];
 
   function checkModule(moduleType: ModuleType, moduleValue: Value) {
-    const structReceiverType = getModuleReceiverType(moduleType);
-    if (!structReceiverType) {
+    const moduleReceiverType = getModuleReceiverType(moduleType);
+    if (!moduleReceiverType) {
       // NOTE: We require receiverType to be defined with "This"
       return;
     }
@@ -482,17 +484,20 @@ export function getMethodsByNameFromEnv(
     const method = moduleType.elements.find(
       (element) =>
         areTypesCompatible(
-          { type: structReceiverType, env },
+          { type: moduleReceiverType, env },
           { type: receiverType, env }
         ) &&
         element.label === methodName &&
         isFunctionType(element.type) &&
-        element.type.parameters.length > 0 &&
+        element.type.parameters.length > 0
+      /* &&
         // TODO: support autocast to reference/immutable reference.
         areTypesCompatible(
           { type: element.type.parameters[0]!.type, env },
           { type: receiverType, env }
         )
+        // NOTE: Let's make evaluateFunctionCall to handle this autocast
+        */
     );
     if (method) {
       let value: Value | undefined = undefined;
@@ -510,15 +515,34 @@ export function getMethodsByNameFromEnv(
   }
 
   // Check if the receiverType itself has method that can be called
-  if (receiverType.methods.length > 0) {
-    const typeMethods = receiverType.methods.filter(
-      (method) =>
-        method.label === methodName && method.type.parameters.length > 0
+  if (
+    isStructType(receiverType) ||
+    isEnumType(receiverType) ||
+    isUnionType(receiverType)
+  ) {
+    const typeMethods = receiverType.elements.filter(
+      (element) =>
+        element.isCompileTimeOnly &&
+        element.label === methodName &&
+        isFunctionType(element.type) &&
+        element.type.parameters.length > 0
+      /* &&
+        // TODO: support autocast to reference/immutable reference.
+        areTypesCompatible(
+          { type: element.type.parameters[0]!.type, env },
+          { type: receiverType, env }
+        )
+        // NOTE: Let's make evaluateFunctionCall to handle this autocast
+        */
     );
     for (let i = 0; i < typeMethods.length; i++) {
       const method = typeMethods[i]!;
-      if (!methods.some((m) => m.value === method.value)) {
-        methods.push({ type: method.type, value: method.value });
+      const functionValue = method.assignedValue;
+      if (!functionValue) {
+        continue;
+      }
+      if (!methods.some((m) => m.value === functionValue)) {
+        methods.push({ type: method.type, value: functionValue });
       }
     }
   }
@@ -626,7 +650,7 @@ No "drop" method found for type, so it cannot be consumed automatically:
     // Update the variable to mark it as consumed
     env = updateExistingVariable(env, variable, {
       ...variable,
-      consumedAtToken: PlaceholderToken, // QUESTION: What should be the correct token here
+      consumedAtToken: RAIIToken, // QUESTION: What should be the correct token here
     });
 
     return { error: undefined, env: env };

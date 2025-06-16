@@ -104,7 +104,6 @@ import {
   TupleType,
   Type,
   typeContainsReference,
-  TypeMethod,
   typeOfType,
   typeRequiresComptModifier,
   TypeTag,
@@ -5187,114 +5186,35 @@ ${typeToString(returnType)}`
     return expr;
   }
 
-  private evaluateStructElementsType({
-    args,
+  private evaluateStructType({
+    expr,
     env,
     context,
-    structType,
   }: {
-    args: Expr[];
+    expr: FuncCallExpr;
     env: Environment;
     context: EvaluatorContext;
-    structType: StructType;
-  }): {
-    type: StructType;
-    env: Environment;
-  } {
-    const elements: TupleElement[] = [];
-    const typeMethods: TypeMethod[] = [];
-    structType.elements = elements;
-    structType.methods = typeMethods;
+  }): FuncCallExpr {
+    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "struct", got:\n${exprToString(expr)}`
+      );
+    }
 
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i]!;
+    // Create structType with empty elements
+    // This is used as the SelfType for the following evaluations.
+    const structType = createStructType([]);
+    const elements = structType.elements;
 
-      // type method
-      // eg:
-      //   ~~Self.new = (((lhs: Self, rhs: i32) -> i32) {})~~
-      //   new :: (((lhs: Self, rhs: i32) -> i32) {})
-      if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "::", 2)) {
-        const methodNameExpr = arg.args[0]!;
-        const rhsExpr = arg.args[1]!;
+    for (let i = 0; i < expr.args.length; i++) {
+      const arg = expr.args[i]!;
 
-        // Expect methodNameExpr to be an identifier or operator
-        if (!this.isValidVariableName(methodNameExpr)) {
-          throw this.formatErrorMessage(
-            methodNameExpr.token,
-            `Expected identifier or operator for type method, got ${exprToString(
-              methodNameExpr
-            )}`
-          );
-        }
-
-        // Evaluate the rhsExpr
-        const evaluatedRhs = this.evaluateExpression({
-          expr: rhsExpr,
-          env,
-          context: {
-            ...context,
-            SelfType: structType,
-          },
-        });
-        if (!evaluatedRhs.$) {
-          throw this.formatErrorMessage(
-            rhsExpr.token,
-            `Failed to evaluate the type method expression: ${exprToString(rhsExpr)}`
-          );
-        }
-
-        // Expect it has function value
-        const funcValue = evaluatedRhs.$.value;
-        if (!isFunctionValue(funcValue)) {
-          throw this.formatErrorMessage(
-            rhsExpr.token,
-            `Expected function value for type method, got ${valueToString(funcValue)}`
-          );
-        }
-
-        const funcType = funcValue.type;
-        if (!isFunctionType(funcType)) {
-          throw this.formatErrorMessage(
-            rhsExpr.token,
-            `Expected function type for type method, got ${typeToString(
-              funcType
-            )}`
-          );
-        }
-
-        // Check label doesn't exist in typeMethods and struct elements
-        const label = methodNameExpr.token.value;
-        if (typeMethods.some((method) => method.label === label)) {
-          throw this.formatErrorMessage(
-            methodNameExpr.token,
-            `Duplicate type method label "${label}" in struct.`
-          );
-        }
-        if (elements.some((element) => element.label === label)) {
-          throw this.formatErrorMessage(
-            methodNameExpr.token,
-            `Member label "${label}" already exists.`
-          );
-        }
-
-        typeMethods.push({
-          label,
-          type: funcType,
-          value: funcValue,
-        });
-      }
       // spread operator for extending another struct type
       // NOTE: Let's disable this for now.
       //       Maybe the spread operator should only work with struct value, not struct type.
       //       It also causes confusion. Like should we extend the type methods there?
-      else if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
-        if (typeMethods.length > 0) {
-          throw this.formatErrorMessage(
-            arg.token,
-            `Struct element must be defined before type methods.`
-          );
-        }
-
+      if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
         const extendedStructExpr = arg.args[0]!;
         // Evaluate the extended struct expression
         const evaluatedExtendedStruct = this.evaluateExpression({
@@ -5345,13 +5265,6 @@ ${typeToString(returnType)}`
       }
       // tuple element
       else {
-        if (typeMethods.length > 0) {
-          throw this.formatErrorMessage(
-            arg.token,
-            `Struct fields must be defined before type methods.`
-          );
-        }
-
         const { type, env: nextEnv } = this.evaluateTupleElementType({
           expr: arg,
           env,
@@ -5372,53 +5285,18 @@ ${typeToString(returnType)}`
           );
         }
 
-        // Only allow runtime field
-        if (type.isCompileTimeOnly) {
+        // Compile-time field must have an assigned value
+        if (type.isCompileTimeOnly && !type.assignedValue) {
           throw this.formatErrorMessage(
             type.exprs.expr.token,
-            `Struct type cannot have compile-time only fields.`
+            `Compile-time only field "${type.label}" must have an assigned value.`
           );
         }
+
         elements.push(type);
         env = nextEnv;
       }
     }
-
-    return {
-      type: structType,
-      env,
-    };
-  }
-
-  private evaluateStructType({
-    expr,
-    env,
-    context,
-  }: {
-    expr: FuncCallExpr;
-    env: Environment;
-    context: EvaluatorContext;
-  }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "struct", got:\n${exprToString(expr)}`
-      );
-    }
-
-    // Create structType with empty elements
-    // This is used as the SelfType for the following evaluations.
-    let structType = createStructType([]);
-
-    const { type: nextStructType, env: nextEnv } =
-      this.evaluateStructElementsType({
-        args: expr.args,
-        env,
-        structType,
-        context: { ...context },
-      });
-    env = nextEnv;
-    structType = nextStructType;
 
     const structTypeValue = createTypeValue(structType);
     expr.$ = {
@@ -5454,90 +5332,76 @@ ${typeToString(returnType)}`
     const enumType = createEnumType([]);
 
     // Evaluate the variants
-    const variants: EnumVariant[] = [];
-    const typeMethods: TypeMethod[] = [];
-    enumType.variants = variants;
-    enumType.methods = typeMethods;
+    const variants: EnumVariant[] = enumType.variants;
+    const comptElements: TupleElement[] = enumType.elements;
 
     for (let i = 0; i < expr.args.length; i++) {
       const enumArg = expr.args[i]!;
 
-      // type method
+      // comptime fields
       // eg:
       //   ~~Self.new = (((lhs: Self, rhs: i32) -> i32) {})~~
       //   new :: (((lhs: Self, rhs: i32) -> i32) {})
       if (
         exprIsFunctionCall(enumArg) &&
-        exprIsFunctionCallOf(enumArg, "::", 2)
+        (exprIsFunctionCallOf(enumArg, "::", 2) ||
+          exprIsFunctionCallOf(enumArg, "=", 2) ||
+          exprIsFunctionCallOf(enumArg, "?=", 2))
       ) {
-        const methodNameExpr = enumArg.args[0]!;
-        const rhsExpr = enumArg.args[1]!;
-
-        // Expect methodNameExpr to be an identifier or operator
-        if (!this.isValidVariableName(methodNameExpr)) {
-          throw this.formatErrorMessage(
-            methodNameExpr.token,
-            `Expected identifier or operator for type method, got ${exprToString(
-              methodNameExpr
-            )}`
-          );
-        }
-
-        // Evaluate the rhsExpr
-        const evaluatedRhs = this.evaluateExpression({
-          expr: rhsExpr,
+        const arg = enumArg;
+        const { type, env: nextEnv } = this.evaluateTupleElementType({
+          expr: arg,
           env,
-          context: {
-            ...context,
-            SelfType: enumType,
-          },
+          tupleElementIndex: i,
+          context: { ...context, SelfType: enumType },
         });
-        if (!evaluatedRhs.$) {
+
+        // Check if there is duplicate labels
+        const duplicateLabel = comptElements.find(
+          (element) => element.label === type.label
+        );
+        if (duplicateLabel) {
           throw this.formatErrorMessage(
-            rhsExpr.token,
-            `Failed to evaluate the type method expression: ${exprToString(rhsExpr)}`
+            arg.token,
+            `Duplicate label "${type.label}" in enum`
           );
         }
 
-        // Expect it has function value
-        const funcValue = evaluatedRhs.$.value;
-        if (!isFunctionValue(funcValue)) {
+        // Check if it duplicates with the existing variant names
+        if (variants.some((v) => v.name === type.label)) {
           throw this.formatErrorMessage(
-            rhsExpr.token,
-            `Expected function value for type method, got ${valueToString(funcValue)}`
+            arg.token,
+            `Duplicate label "${type.label}" in enum variants`
           );
         }
 
-        const funcType = funcValue.type;
-        if (!isFunctionType(funcType)) {
+        if (!type.isCompileTimeOnly) {
           throw this.formatErrorMessage(
-            rhsExpr.token,
-            `Expected function type for type method, got ${typeToString(
-              funcType
+            arg.token,
+            `Expected compile-time only field, got:\n${exprToString(
+              type.exprs.expr
             )}`
           );
         }
 
-        // Check label doesn't exist in typeMethods and variants
-        const label = methodNameExpr.token.value;
-        if (typeMethods.some((method) => method.label === label)) {
+        // Compile-time field must have an assigned value
+        if (type.isCompileTimeOnly && !type.assignedValue) {
           throw this.formatErrorMessage(
-            methodNameExpr.token,
-            `Duplicate type method label "${label}" in enum.`
-          );
-        }
-        if (enumType.variants.some((variant) => variant.name === label)) {
-          throw this.formatErrorMessage(
-            methodNameExpr.token,
-            `Variant "${label}" already exists.`
+            type.exprs.expr.token,
+            `Compile-time only field "${type.label}" must have an assigned value.`
           );
         }
 
-        typeMethods.push({
-          label,
-          type: funcType,
-          value: funcValue,
-        });
+        // Disallow to have the default value for union type fields.
+        if (type.defaultValue) {
+          throw this.formatErrorMessage(
+            type.exprs.defaultValueExpr?.token ?? type.exprs.expr.token,
+            `Union type cannot have default value for its elements.`
+          );
+        }
+
+        comptElements.push(type);
+        env = nextEnv;
       }
 
       // Enum variant
@@ -5555,6 +5419,8 @@ ${typeToString(returnType)}`
           variants.push({
             name: variantName,
           });
+
+          // TODO: Check duplicates
         } else {
           if (exprIsFunctionCallOf(enumArg, ":")) {
             throw this.formatErrorMessage(
@@ -5587,6 +5453,8 @@ ${typeToString(returnType)}`
           // Because enum variant fields cannot be marked as compile-time only.
           for (let i = 0; i < tupleType.elements.length; i++) {
             const element = tupleType.elements[i]!;
+            // QUESTION: Should we allow compile-time only field in enum variant?
+            // If yes, should we require it to have assignedValue?
             if (element.isCompileTimeOnly) {
               throw this.formatErrorMessage(
                 element.exprs.expr.token,
@@ -5639,136 +5507,50 @@ ${typeToString(returnType)}`
     const unionType = createUnionType([]);
 
     const elements: TupleElement[] = [];
-    const typeMethods: TypeMethod[] = [];
     unionType.elements = elements;
-    unionType.methods = typeMethods;
 
     const args = expr.args;
     for (let i = 0; i < args.length; i++) {
       const arg = args[i]!;
 
-      // type method
-      // eg:
-      //   ~~Self.new = (((lhs: Self, rhs: i32) -> i32) {})~~
-      //   new :: (((lhs: Self, rhs: i32) -> i32) {})
-      if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "::", 2)) {
-        const methodNameExpr = arg.args[0]!;
-        const rhsExpr = arg.args[1]!;
+      const { type, env: nextEnv } = this.evaluateTupleElementType({
+        expr: arg,
+        env,
+        tupleElementIndex: i,
+        context: { ...context, SelfType: unionType },
+      });
 
-        // Expect methodNameExpr to be an identifier or operator
-        if (!this.isValidVariableName(methodNameExpr)) {
-          throw this.formatErrorMessage(
-            methodNameExpr.token,
-            `Expected identifier or operator for type method, got ${exprToString(
-              methodNameExpr
-            )}`
-          );
-        }
-
-        // Evaluate the rhsExpr
-        const evaluatedRhs = this.evaluateExpression({
-          expr: rhsExpr,
-          env,
-          context: {
-            ...context,
-            SelfType: unionType,
-          },
-        });
-        if (!evaluatedRhs.$) {
-          throw this.formatErrorMessage(
-            rhsExpr.token,
-            `Failed to evaluate the type method expression: ${exprToString(rhsExpr)}`
-          );
-        }
-
-        // Expect it has function value
-        const funcValue = evaluatedRhs.$.value;
-        if (!isFunctionValue(funcValue)) {
-          throw this.formatErrorMessage(
-            rhsExpr.token,
-            `Expected function value for type method, got ${valueToString(funcValue)}`
-          );
-        }
-
-        const funcType = funcValue.type;
-        if (!isFunctionType(funcType)) {
-          throw this.formatErrorMessage(
-            rhsExpr.token,
-            `Expected function type for type method, got ${typeToString(
-              funcType
-            )}`
-          );
-        }
-
-        // Check label doesn't exist in typeMethods and struct elements
-        const label = methodNameExpr.token.value;
-        if (typeMethods.some((method) => method.label === label)) {
-          throw this.formatErrorMessage(
-            methodNameExpr.token,
-            `Duplicate type method label "${label}" in struct.`
-          );
-        }
-        if (elements.some((element) => element.label === label)) {
-          throw this.formatErrorMessage(
-            methodNameExpr.token,
-            `Member label "${label}" already exists.`
-          );
-        }
-
-        typeMethods.push({
-          label,
-          type: funcType,
-          value: funcValue,
-        });
-      }
-      // tuple element
-      else {
-        if (typeMethods.length > 0) {
-          throw this.formatErrorMessage(
-            arg.token,
-            `Union fields must be defined before type methods.`
-          );
-        }
-
-        const { type, env: nextEnv } = this.evaluateTupleElementType({
-          expr: arg,
-          env,
-          tupleElementIndex: i,
-          context: { ...context, SelfType: unionType },
-        });
-
-        // Check if there is duplicate labels
-        const duplicateLabel = elements.find(
-          (element) => element.label === type.label
+      // Check if there is duplicate labels
+      const duplicateLabel = elements.find(
+        (element) => element.label === type.label
+      );
+      if (duplicateLabel) {
+        throw this.formatErrorMessage(
+          exprIsFunctionCall(arg)
+            ? (arg.args[0]?.token ?? arg.token)
+            : arg.token,
+          `Duplicate label "${type.label}" in tuple`
         );
-        if (duplicateLabel) {
-          throw this.formatErrorMessage(
-            exprIsFunctionCall(arg)
-              ? (arg.args[0]?.token ?? arg.token)
-              : arg.token,
-            `Duplicate label "${type.label}" in tuple`
-          );
-        }
-
-        // Only allow runtime field
-        if (type.isCompileTimeOnly) {
-          throw this.formatErrorMessage(
-            type.exprs.expr.token,
-            `Union type cannot have compile-time only fields.`
-          );
-        }
-
-        // Disallow to have the default value for union type fields.
-        if (type.defaultValue) {
-          throw this.formatErrorMessage(
-            type.exprs.defaultValueExpr?.token ?? type.exprs.expr.token,
-            `Union type cannot have default value for its elements.`
-          );
-        }
-
-        elements.push(type);
-        env = nextEnv;
       }
+
+      // Compile-time field must have an assigned value
+      if (type.isCompileTimeOnly && !type.assignedValue) {
+        throw this.formatErrorMessage(
+          type.exprs.expr.token,
+          `Compile-time only field "${type.label}" must have an assigned value.`
+        );
+      }
+
+      // Disallow to have the default value for union type fields.
+      if (type.defaultValue) {
+        throw this.formatErrorMessage(
+          type.exprs.defaultValueExpr?.token ?? type.exprs.expr.token,
+          `Union type cannot have default value for its elements.`
+        );
+      }
+
+      elements.push(type);
+      env = nextEnv;
     }
 
     const unionTypeValue = createTypeValue(unionType);
@@ -6126,17 +5908,17 @@ ${typeToString(returnType)}`
           );
         }
 
-        // Check if it's type method
+        // Check if it's accessing comptime field
         {
-          const methodName = propertyExpr.token.value;
-          const method = typeValue.value.methods.find(
-            (method) => method.label === methodName
+          const propertyName = propertyExpr.token.value;
+          const field = typeValue.value.elements.find(
+            (method) => method.label === propertyName
           );
-          if (method) {
+          if (field) {
             expr.$ = {
               env,
-              type: method.type,
-              value: method.value,
+              type: field.type,
+              value: field.assignedValue!,
               isMutable: false,
               pathCollection: [],
               isAccessingProperty: true,
@@ -6210,16 +5992,17 @@ ${typeToString(returnType)}`
             )}`
           );
         }
-        const methodName = propertyExpr.token.value;
+        const propertyName = propertyExpr.token.value;
         // Check if the type method exists
-        const method = typeValue.value.methods.find(
-          (method) => method.label === methodName
+        const field = typeValue.value.elements.find(
+          (property) =>
+            property.isCompileTimeOnly && property.label === propertyName
         );
-        if (method) {
+        if (field) {
           expr.$ = {
             env,
-            type: method.type,
-            value: method.value,
+            type: field.type,
+            value: field.assignedValue!,
             isMutable: false,
             pathCollection: [],
             isAccessingProperty: true,
@@ -6229,7 +6012,7 @@ ${typeToString(returnType)}`
         } else {
           throw this.formatErrorMessage(
             propertyExpr.token,
-            `Struct type method "${methodName}" not found in struct type`
+            `Struct type property "${propertyName}" not found in struct type`
           );
         }
       }
@@ -6238,8 +6021,7 @@ ${typeToString(returnType)}`
     if (
       isTupleType(objectExpr.$?.type) ||
       isStructType(objectExpr.$?.type) ||
-      isUnionType(objectExpr.$?.type) ||
-      isModuleType(objectExpr.$?.type)
+      isUnionType(objectExpr.$?.type)
     ) {
       const elements: TupleElement[] = objectExpr.$.type.elements;
       const objectExprValue = objectExpr.$.value;
@@ -6258,7 +6040,12 @@ ${typeToString(returnType)}`
               )}`
             );
           }
-          if (index < 0 || index >= elements.length) {
+
+          const runtimeElementsCount = elements.filter(
+            (element) => !element.isCompileTimeOnly
+          ).length;
+
+          if (index < 0 || index >= runtimeElementsCount) {
             throw this.formatErrorMessage(
               propertyExpr.token,
               `Index out of bounds: ${index} for accessing element in:\n${typeToString(
@@ -6289,30 +6076,17 @@ ${typeToString(returnType)}`
               values = objectExprValue.elements;
             } else if (isStructValue(objectExprValue)) {
               values = objectExprValue.elements;
-            } else if (isModuleValue(objectExprValue)) {
-              values = objectExprValue.elements;
             }
             expr.$.value = values?.[index];
           }
           return expr;
         } else if (this.isValidVariableName(propertyExpr)) {
           const label = propertyExpr.token.value;
-          /*
-          // Check if the type method exists
-          const method = (objectExpr.type.methods ?? []).find(
-            (method) => method.label === label
-          );
-          if (method) {
-            expr.value = undefined; // NOTE: Set it to `undefined` so the `evaluateFunctionCall` will handle this.
-            expr.type = undefined; // NOTE: Set it to `undefined` so the `evaluateFunctionCall` will handle this.
-            propertyExpr.value = method.value;
-            propertyExpr.type = method.type;
-            return expr;
-          } else
-          */
           {
             const tupleElementIndex = elements.findIndex(
-              (element) => element.label === label
+              // NOTE: To access comptime only field, use the type instead, not the value.
+              // The value can only access runtime fields.
+              (element) => element.label === label && !element.isCompileTimeOnly
             );
             if (tupleElementIndex < 0) {
               if (isModuleType(objectExpr.$?.type)) {
@@ -6352,7 +6126,76 @@ ${typeToString(returnType)}`
                   values = objectExprValue.elements;
                 } else if (isStructValue(objectExprValue)) {
                   values = objectExprValue.elements;
-                } else if (isModuleValue(objectExprValue)) {
+                }
+
+                let value = values?.[tupleElementIndex];
+                if (!value && tupleElement.isCompileTimeOnly) {
+                  value = createUnknownValue(tupleElement.type);
+                }
+
+                expr.$.value = value;
+              }
+            }
+            return expr;
+          }
+        }
+      }
+    } else if (isModuleType(objectExpr.$?.type)) {
+      const elements: TupleElement[] = objectExpr.$.type.elements;
+      const objectExprValue = objectExpr.$.value;
+
+      // Check if it's accessing the tuple element by
+      // - label name:   SomeModule.some_function
+      if (exprIsAtom(propertyExpr)) {
+        if (propertyExpr.token.type === TokenType.Integer) {
+          throw this.formatErrorMessage(
+            propertyExpr.token,
+            `Accessomg module field by index is not allowed, got:\n${exprToString(
+              propertyExpr
+            )}`
+          );
+        } else if (this.isValidVariableName(propertyExpr)) {
+          const label = propertyExpr.token.value;
+
+          {
+            const tupleElementIndex = elements.findIndex(
+              (element) => element.label === label
+            );
+            if (tupleElementIndex < 0) {
+              if (isModuleType(objectExpr.$?.type)) {
+                throw this.formatErrorMessage(
+                  propertyExpr.token,
+                  `Module element "${label}" not found in module type`
+                );
+              }
+
+              // It could be method call
+              expr.$ = undefined;
+              return expr;
+            }
+            const tupleElement = elements[tupleElementIndex]!;
+            expr.$ = {
+              env,
+              type: tupleElement.type,
+              isMutable: objectExpr.$.isMutable,
+              isAccessingProperty: true,
+              pathCollection: [
+                [
+                  objectExpr.$.variableName ?? "?", // FIXME
+                  propertyExpr.token.value,
+                ],
+              ],
+            };
+            propertyExpr.$ = expr.$;
+
+            // TODO: Support comptime value
+            // expr.value = ...
+            if (objectExprValue) {
+              if (isUnknownValue(objectExprValue)) {
+                expr.$.value = createUnknownValue(tupleElement.type);
+              } else {
+                let values: (Value | undefined)[] = [];
+                if (isModuleValue(objectExprValue)) {
                   values = objectExprValue.elements;
                 }
 
@@ -6369,6 +6212,7 @@ ${typeToString(returnType)}`
         }
       }
     }
+
     // TODO: Evaluate the interface method call
     // Since we fail to evaluate the property access
     // it could be an ~~uniform function call~~ interface method call.
@@ -10377,6 +10221,67 @@ Got:   ${typeToString(argType)}`
     return expr;
   }
 
+  /**
+   * While loop
+   *
+   * while condition, step, body
+   * while condition, body
+   */
+  /*
+  private evaluateWhile({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    let conditionExpr: Expr | undefined;
+    let stepExpr: Expr | undefined;
+    let bodyExpr: Expr | undefined;
+
+    if (expr.args.length === 2) {
+      // while condition, body
+      conditionExpr = expr.args[0]!;
+      bodyExpr = expr.args[1]!;
+    } else if (expr.args === 3) {
+      // while condition, step, body
+      conditionExpr = expr.args[0]!;
+      stepExpr = expr.args[1]!;
+      bodyExpr = expr.args[2]!;
+    } else {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected "while" with 2 or 3 arguments, got:\n${exprToString(expr)}`
+      );
+    }
+
+    // Evaluate the condition expression
+    const evaluatedConditionExpr = this.evaluateExpression({
+      expr: conditionExpr,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!evaluatedConditionExpr.$) {
+      throw this.formatErrorMessage(
+        conditionExpr.token,
+        `Failed to evaluate the condition expression:\n${exprToString(conditionExpr)}`
+      );
+    }
+    if (!isBooleanType(evaluatedConditionExpr.$.type)) {
+      throw this.formatErrorMessage(
+        conditionExpr.token,
+        `Expected boolean type for condition expression, got:\n${exprToString(
+          conditionExpr
+        )}`
+      );
+    }
+  }
+  */
+
   private evaluateReferenceCall({
     expr,
     env,
@@ -10907,6 +10812,11 @@ ${exprToString(expr)}`
         // drop
         return this.evaluateDrop({ expr, env, context: { ...context } });
       } else {
+        /* else if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
+        // while
+        return this.evaluateWhile({ expr, env, context: { ...context } });
+      }
+      */
         /*
       else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {
         // exists

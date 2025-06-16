@@ -118,14 +118,19 @@ export interface Type {
   typeName?: string;
 
   /**
-   * The methods implemented for this type
-   */
-  methods: TypeMethod[];
-
-  /**
    * Force this type to be treated as a linear type.
    */
   forceLinear?: boolean;
+
+  /**
+   *  Whether this type is a dynamic sized type.
+   *  Dynamic sized types are types whose size cannot be determined at compile time.
+   *  For example:
+   *  - Slice
+   *  - str
+   *  - dyn Module (dynamic dispatch object)
+   */
+  isDynamicSized?: boolean;
 }
 
 // NOTE: This is not actually used now.
@@ -197,7 +202,6 @@ export function createFreeType(): TypeHierarchyType {
     tag: TypeTag.Free,
     // size: 0, // Types themselves don't have runtime size
     level: 0,
-    methods: [],
   };
 }
 
@@ -206,7 +210,6 @@ export function createLinearType(): TypeHierarchyType {
     tag: TypeTag.Linear,
     // size: 0, // Types themselves don't have runtime size
     level: 0,
-    methods: [],
   };
 }
 
@@ -215,7 +218,6 @@ export function createTypeType(): TypeHierarchyType {
     tag: TypeTag.Type,
     // size: 0, // Types themselves don't have runtime size
     level: 0,
-    methods: [],
   };
 }
 
@@ -257,7 +259,6 @@ export function createComptIntType(): Type {
   return {
     tag: TypeTag.ComptInt,
     // size: 0, // Size of compt_int is not available at runtime
-    methods: [],
   };
 }
 
@@ -265,7 +266,6 @@ export function createComptFloatType(): Type {
   return {
     tag: TypeTag.ComptFloat,
     // size: 0, // Size of compt_float is not available at runtime
-    methods: [],
   };
 }
 
@@ -273,14 +273,12 @@ export function createComptStringType(): Type {
   return {
     tag: TypeTag.ComptString,
     // size: 0, // Size of compt_string is not available at runtime
-    methods: [],
   };
 }
 
 export function createBooleanType(): Type {
   return {
     tag: TypeTag.Boolean,
-    methods: [],
   };
 }
 
@@ -291,7 +289,6 @@ export function createCharType(): Type {
   return {
     tag: TypeTag.Char,
     // size: 4 * 8, // 4 bytes for unicode character
-    methods: [],
   };
 }
 
@@ -299,7 +296,6 @@ export function createUsizeType(): Type {
   return {
     tag: TypeTag.Usize,
     // size: getPtrSize() * 8, // Size of usize is the size of a pointer
-    methods: [],
   };
 }
 
@@ -307,7 +303,6 @@ export function createIsizeType(): Type {
   return {
     tag: TypeTag.Isize,
     // size: getPtrSize() * 8, // Size of isize is the size of a pointer
-    methods: [],
   };
 }
 
@@ -315,21 +310,18 @@ export function createU8Type(): Type {
   return {
     tag: TypeTag.U8,
     // size: 1 * 8, // 1 byte for u8
-    methods: [],
   };
 }
 export function createI8Type(): Type {
   return {
     tag: TypeTag.I8,
     // size: 1 * 8, // 1 byte for i8
-    methods: [],
   };
 }
 export function createU16Type(): Type {
   return {
     tag: TypeTag.U16,
     // size: 2 * 8, // 2 bytes for u16
-    methods: [],
   };
 }
 
@@ -337,7 +329,6 @@ export function createI16Type(): Type {
   return {
     tag: TypeTag.I16,
     // size: 2 * 8, // 2 bytes for i16
-    methods: [],
   };
 }
 
@@ -345,14 +336,12 @@ export function createU32Type(): Type {
   return {
     tag: TypeTag.U32,
     // size: 4 * 8, // 4 bytes for u32
-    methods: [],
   };
 }
 export function createI32Type(): Type {
   return {
     tag: TypeTag.I32,
     // size: 4 * 8, // 4 bytes for i32
-    methods: [],
   };
 }
 
@@ -360,7 +349,6 @@ export function createU64Type(): Type {
   return {
     tag: TypeTag.U64,
     // size: 8 * 8, // 8 bytes for u64
-    methods: [],
   };
 }
 
@@ -368,7 +356,6 @@ export function createI64Type(): Type {
   return {
     tag: TypeTag.I64,
     // size: 8 * 8, // 8 bytes for i64
-    methods: [],
   };
 }
 
@@ -376,7 +363,6 @@ export function createF32Type(): Type {
   return {
     tag: TypeTag.F32,
     // size: 4 * 8, // 4 bytes for f32
-    methods: [],
   };
 }
 
@@ -384,7 +370,6 @@ export function createF64Type(): Type {
   return {
     tag: TypeTag.F64,
     // size: 8 * 8, // 8 bytes for f64
-    methods: [],
   };
 }
 
@@ -392,7 +377,6 @@ export function createUnitType(): Type {
   return {
     tag: TypeTag.Unit,
     // size: 0, // Unit has no runtime size
-    methods: [],
   };
 }
 
@@ -636,11 +620,6 @@ export interface StructType extends Type {
    * The elements of the struct.
    */
   elements: TupleElement[];
-
-  /**
-   * The methods implemented for this type
-   */
-  methods: TypeMethod[];
 }
 
 export interface ModuleType extends Type {
@@ -703,6 +682,12 @@ export interface EnumType extends Type {
   variants: EnumVariant[];
 
   /**
+   * The tuple elements of the enum, whose fields require to be compile-time known.
+   * This is used to store the type methods, properties, etc.
+   */
+  elements: TupleElement[];
+
+  /**
    * The size of the tag in bits.
    */
   // tagSize: number;
@@ -711,11 +696,6 @@ export interface EnumType extends Type {
    * The name of the selected variant.
    */
   selectedVariantName?: string;
-
-  /**
-   * The methods implemented for this type
-   */
-  methods: TypeMethod[];
 }
 
 export interface UnionType extends Type {
@@ -735,11 +715,6 @@ export interface UnionType extends Type {
    * The function that returns the union.
    */
   functionValue?: FunctionValue;
-
-  /**
-   * The methods implemented for this type
-   */
-  methods: TypeMethod[];
 }
 
 export interface FunctionReturn {
@@ -839,7 +814,6 @@ export function createTypeHierarchy(level: number): TypeHierarchyType {
     tag: TypeTag.Type,
     // size: 0,
     level,
-    methods: [],
   };
 }
 
@@ -859,7 +833,6 @@ Element type size is undefined.`
     // size: elementType.size * length,
     elementType,
     length,
-    methods: [],
   };
 }
 
@@ -879,13 +852,11 @@ export function createTupleType(elements: TupleElement[]): TupleType {
     tag: TypeTag.Tuple,
     // size: totalSize,
     elements,
-    methods: [],
   };
 }
 
 export function createStructType(
   elements: TupleElement[],
-  methods: TypeMethod[] = [],
   typeId?: string
 ): StructType {
   /*
@@ -904,7 +875,6 @@ export function createStructType(
     tag: TypeTag.Struct,
     // size: totalSize,
     elements,
-    methods,
     typeId: typeId ?? `struct_${randomId()}`,
   };
 }
@@ -919,13 +889,12 @@ export function createModuleType(
     elements,
     env,
     typeId: typeId ?? `module_${randomId()}`,
-    methods: [],
   };
 }
 
 export function createEnumType(
   variants: EnumVariant[],
-  methods: TypeMethod[] = [],
+  elements: TupleElement[] = [],
   typeId?: string
 ): EnumType {
   /*
@@ -959,7 +928,7 @@ export function createEnumType(
     tag: TypeTag.Enum,
     // size: typeof totalSize === "number" ? totalSize + tagSize : undefined,
     variants,
-    methods,
+    elements,
     // tagSize,
     typeId: typeId ?? `enum_${randomId()}`,
   };
@@ -967,7 +936,6 @@ export function createEnumType(
 
 export function createUnionType(
   elements: TupleElement[],
-  methods: TypeMethod[] = [],
   typeId?: string
 ): UnionType {
   /*
@@ -987,7 +955,6 @@ export function createUnionType(
     tag: TypeTag.Union,
     // size: maxSize, // Changed from totalSize to maxSize as unions use the size of largest variant
     elements,
-    methods,
     typeId: typeId ?? `union_${randomId()}`,
   };
 }
@@ -1019,7 +986,6 @@ export function createFunctionType({
     env,
     parametersFrame,
     SelfType,
-    methods: [],
   };
 }
 
@@ -1042,7 +1008,6 @@ export function createMutPtrType(type: Type): MutPtrType {
     tag: TypeTag.MutPtr,
     // size: getPtrSize() * 8,
     type,
-    methods: [],
   };
 }
 
@@ -1051,7 +1016,6 @@ export function createPtrType(type: Type): PtrType {
     tag: TypeTag.Ptr,
     // size: getPtrSize() * 8,
     type,
-    methods: [],
   };
 }
 
@@ -1060,7 +1024,6 @@ export function createMutRefType(type: Type): MutRefType {
     tag: TypeTag.MutRef,
     // size: getPtrSize() * 8,
     type,
-    methods: [],
   };
 }
 
@@ -1069,7 +1032,6 @@ export function createRefType(type: Type): RefType {
     tag: TypeTag.Ref,
     // size: getPtrSize() * 8,
     type,
-    methods: [],
   };
 }
 
