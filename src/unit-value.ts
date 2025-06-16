@@ -1,4 +1,4 @@
-import { TUnit, Type } from "./type-checker";
+import { createUnitType, Type } from "./type-checker";
 import { ValueTag } from "./value-tag";
 
 export type UnitValue = {
@@ -8,5 +8,5 @@ export type UnitValue = {
 
 export const VUnit: UnitValue = {
   tag: ValueTag.Unit,
-  type: TUnit,
+  type: createUnitType(),
 };

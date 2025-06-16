@@ -3,28 +3,28 @@ import { FunctionValue } from "./function-value";
 import {
   areTypesCompatible,
   ArrayType,
+  createBooleanType,
+  createComptFloatType,
+  createComptIntType,
+  createComptStringType,
+  createF32Type,
+  createF64Type,
+  createI16Type,
+  createI32Type,
+  createI64Type,
+  createI8Type,
+  createIsizeType,
+  createU16Type,
+  createU32Type,
+  createU64Type,
+  createU8Type,
+  createUsizeType,
   EnumType,
   isTypeHierarchyType,
   ModuleType,
   SomeType,
   StructType,
-  TBoolean,
-  TComptFloat,
-  TComptInt,
-  TComptString,
-  TF32,
-  TF64,
-  TI16,
-  TI32,
-  TI64,
-  TI8,
-  TIsize,
-  TU16,
-  TU32,
-  TU64,
-  TU8,
   TupleType,
-  TUsize,
   Type,
   typeOfType,
   TypeTag,
@@ -288,7 +288,7 @@ export function createTypeValue(value: Type): TypeValue {
 export function createComptStringValue(value: string): ComptStringValue {
   return {
     tag: ValueTag.ComptString,
-    type: TComptString,
+    type: createComptStringType(),
     value,
   };
 }
@@ -296,33 +296,33 @@ export function createComptStringValue(value: string): ComptStringValue {
 export function createNumberValue(tag: NumberValue["tag"], value: number) {
   let numberType: Type;
   if (tag === ValueTag.ComptInt) {
-    numberType = TComptInt;
+    numberType = createComptIntType();
   } else if (tag === ValueTag.ComptFloat) {
-    numberType = TComptFloat;
+    numberType = createComptFloatType();
   } else if (tag === ValueTag.U8) {
-    numberType = TU8;
+    numberType = createU8Type();
   } else if (tag === ValueTag.I8) {
-    numberType = TI8;
+    numberType = createI8Type();
   } else if (tag === ValueTag.U16) {
-    numberType = TU16;
+    numberType = createU16Type();
   } else if (tag === ValueTag.I16) {
-    numberType = TI16;
+    numberType = createI16Type();
   } else if (tag === ValueTag.U32) {
-    numberType = TU32;
+    numberType = createU32Type();
   } else if (tag === ValueTag.I32) {
-    numberType = TI32;
+    numberType = createI32Type();
   } else if (tag === ValueTag.U64) {
-    numberType = TU64;
+    numberType = createU64Type();
   } else if (tag === ValueTag.I64) {
-    numberType = TI64;
+    numberType = createI64Type();
   } else if (tag === ValueTag.F32) {
-    numberType = TF32;
+    numberType = createF32Type();
   } else if (tag === ValueTag.F64) {
-    numberType = TF64;
+    numberType = createF64Type();
   } else if (tag === ValueTag.Usize) {
-    numberType = TUsize;
+    numberType = createUsizeType();
   } else if (tag === ValueTag.Isize) {
-    numberType = TIsize;
+    numberType = createIsizeType();
   } else {
     throw new Error(`createNumberValue: Unsupported tag: ${tag}`);
   }
@@ -337,7 +337,7 @@ export function createNumberValue(tag: NumberValue["tag"], value: number) {
 export function createBooleanValue(value: boolean): BooleanValue {
   return {
     tag: ValueTag.Boolean,
-    type: TBoolean,
+    type: createBooleanType(),
     value,
   };
 }
@@ -355,6 +355,7 @@ export function createUnknownValue(
       name: variableName,
       parentType: type,
       size: undefined,
+      methods: [],
     };
     return createTypeValue(someType);
   }

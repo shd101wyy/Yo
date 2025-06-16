@@ -1,4 +1,4 @@
-import { Type } from "./type-checker";
+import { setTypeAsLinear, Type, typeOfType } from "./type-checker";
 import { ValueTag } from "./value-tag";
 
 export type TypeValue = {
@@ -21,3 +21,12 @@ export type TypeValue = {
    */
   value: Type;
 };
+
+export function setTypeValueAsLinear(typeValue: TypeValue): TypeValue {
+  const value = setTypeAsLinear(typeValue.value);
+  return {
+    ...typeValue,
+    type: typeOfType(value),
+    value: value,
+  };
+}

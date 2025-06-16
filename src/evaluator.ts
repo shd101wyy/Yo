@@ -42,9 +42,22 @@ import {
   ArrayType,
   convertComptTypeToRuntimeType,
   createArrayType,
+  createBooleanType,
+  createComptFloatType,
+  createComptIntType,
+  createComptStringType,
   createEnumType,
+  createF32Type,
+  createF64Type,
+  createFreeType,
   createFunctionType,
+  createI16Type,
+  createI32Type,
+  createI64Type,
+  createI8Type,
+  createIsizeType,
   createLinearPtrType,
+  createLinearType,
   createModuleType,
   createMutLinearPtrType,
   createMutPtrType,
@@ -53,7 +66,14 @@ import {
   createRefType,
   createStructType,
   createTupleType,
+  createTypeType,
+  createU16Type,
+  createU32Type,
+  createU64Type,
+  createU8Type,
   createUnionType,
+  createUnitType,
+  createUsizeType,
   EnumType,
   EnumVariant,
   FunctionParameter,
@@ -64,10 +84,12 @@ import {
   isArrayType,
   isBooleanType,
   isEnumType,
+  isFreeType,
   isFunctionType,
   isFunctionTypeAndIsTypeFunction,
   isLinearOrType0Type,
   isLinearPtrType,
+  isLinearType,
   isModuleType,
   isMutLinearPtrType,
   isMutPtrType,
@@ -81,29 +103,9 @@ import {
   isUnionType,
   ModuleType,
   StructType,
-  TBoolean,
-  TComptFloat,
-  TComptInt,
-  TComptString,
-  TF32,
-  TF64,
-  TFree,
-  TI16,
-  TI32,
-  TI64,
-  TI8,
-  TIsize,
-  TLinear,
-  TType,
-  TU16,
-  TU32,
-  TU64,
-  TU8,
-  TUnit,
   TupleElement,
   tupleElementToString,
   TupleType,
-  TUsize,
   Type,
   typeContainsReference,
   TypeMethod,
@@ -112,7 +114,7 @@ import {
   TypeTag,
   typeToString,
 } from "./type-checker";
-import { TypeValue } from "./type-value";
+import { setTypeValueAsLinear, TypeValue } from "./type-value";
 import { VUnit } from "./unit-value";
 import { generateNewTempVariableName, randomId } from "./utils";
 import {
@@ -2708,6 +2710,13 @@ ${exprToString(rhs)}`
       );
     }
 
+    if (isTypeHierarchyType(userDefinedType) && isMutable) {
+      throw this.formatErrorMessage(
+        lhs.token,
+        `Unexpected "mut" (or "!") for type hierarchy value binding. Type hierarchy values are immutable.`
+      );
+    }
+
     const variableName = lhs.token.value;
     // Add the variable to the env
     // console.log("(5) addVariableToEnv");
@@ -2944,18 +2953,29 @@ ${exprToString(expr)}`
       checkBorrowings(context.borrowings, rhs);
 
       // Add .typeName info if necessary
-      const rhsValue = rhs.$?.value;
+      let rhsValue = rhs.$?.value;
       if (
         isTypeValue(rhsValue) &&
+        /*
         (isStructType(rhsValue.value) ||
           isEnumType(rhsValue.value) ||
           isUnionType(rhsValue.value) ||
           isModuleType(rhsValue.value)) &&
+        */
         !rhsValue.value.typeName
       ) {
         rhsValue.value.typeName = lhs.token.value;
       } else if (isFunctionValue(rhsValue) && !rhsValue.funcName) {
         rhsValue.funcName = lhs.token.value;
+      }
+
+      // Check if it's assigning Free to Linear
+      if (
+        isTypeValue(rhsValue) &&
+        isFreeType(typeOfType(rhsValue.value)) &&
+        isLinearType(lhs.$.type)
+      ) {
+        rhsValue = setTypeValueAsLinear(rhsValue);
       }
 
       // Prohibit assigning runtime value to comptime-only variable
@@ -2972,7 +2992,9 @@ ${exprToString(rhs)}`
       lhs.$ = {
         env,
         type: lhs.$.type,
-        value: isCompileTimeOnly ? rhsValue : undefined,
+        value: isCompileTimeOnly
+          ? (rhsValue ?? createUnknownValue(lhs.$.type, lhs.token.value))
+          : undefined,
         isMutable,
         pathCollection: [],
       };
@@ -2990,7 +3012,7 @@ ${exprToString(rhs)}`
           isCompileTimeOnly,
           isUndefined: false,
           isImplicit,
-          value: lhs.$?.value,
+          value: lhs.$.value,
         },
       });
       env = nextEnv;
@@ -3173,19 +3195,36 @@ ${exprToString(rhs)}`
         );
       }
 
+      // Add .typeName info if necessary
+      let rhsValue = rhs.$?.value;
+      if (isTypeValue(rhsValue) && !rhsValue.value.typeName) {
+        rhsValue.value.typeName = variableName;
+      } else if (isFunctionValue(rhsValue) && !rhsValue.funcName) {
+        rhsValue.funcName = variableName;
+      }
+
+      // Check if it's assigning Free to Linear
+      if (
+        isTypeValue(rhsValue) &&
+        isFreeType(typeOfType(rhsValue.value)) &&
+        isLinearType(variable.type)
+      ) {
+        rhsValue = setTypeValueAsLinear(rhsValue);
+      }
+
       let isMutatingDefinedVariable = false;
       if (variable.isUndefined) {
         env = updateExistingVariable(env, variable, {
           ...variable,
           isUndefined: false,
-          value: variable.isCompileTimeOnly ? rhs.$?.value : undefined,
+          value: variable.isCompileTimeOnly ? rhsValue : undefined,
           // type: rhsType,
         });
       } else if (variable.isMutable) {
         // Update the variable value
         env = updateExistingVariable(env, variable, {
           ...variable,
-          value: variable.isCompileTimeOnly ? rhs.$?.value : undefined,
+          value: variable.isCompileTimeOnly ? rhsValue : undefined,
           // type: rhsType,
         });
         isMutatingDefinedVariable = true;
@@ -3199,7 +3238,7 @@ ${exprToString(rhs)}`
       lhs.$ = {
         env,
         type: variable.type, // NOTE: It shouldn't be the rhsType.
-        value: variable.isCompileTimeOnly ? rhs.$?.value : undefined,
+        value: variable.isCompileTimeOnly ? rhsValue : undefined,
         isMutable: variable.isMutable,
         pathCollection: [[variableName]],
       };
@@ -3993,7 +4032,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
 
     // Free
     if (identifier === TypeTag.Free) {
-      const value = createTypeValue(TFree);
+      const value = createTypeValue(createFreeType());
       expr.$ = {
         env,
         type: value.type,
@@ -4005,7 +4044,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // Linear
     else if (identifier === TypeTag.Linear) {
-      const value = createTypeValue(TLinear);
+      const value = createTypeValue(createLinearType());
       expr.$ = {
         env,
         type: value.type,
@@ -4017,7 +4056,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // Type
     else if (identifier === TypeTag.Type) {
-      const value = createTypeValue(TType);
+      const value = createTypeValue(createTypeType());
       expr.$ = {
         env,
         type: value.type,
@@ -4029,7 +4068,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // unit
     else if (identifier === TypeTag.Unit) {
-      const value = createTypeValue(TUnit);
+      const value = createTypeValue(createUnitType());
       expr.$ = {
         env,
         type: value.type,
@@ -4041,7 +4080,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // compt_int
     else if (identifier === TypeTag.ComptInt) {
-      const value = createTypeValue(TComptInt);
+      const value = createTypeValue(createComptIntType());
       expr.$ = {
         env,
         type: value.type,
@@ -4053,7 +4092,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // compt_float
     else if (identifier === TypeTag.ComptFloat) {
-      const value = createTypeValue(TComptFloat);
+      const value = createTypeValue(createComptFloatType());
       expr.$ = {
         env,
         type: value.type,
@@ -4065,7 +4104,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // compt_string
     else if (identifier === TypeTag.ComptString) {
-      const value = createTypeValue(TComptString);
+      const value = createTypeValue(createComptStringType());
       expr.$ = {
         env,
         type: value.type,
@@ -4077,7 +4116,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // boolean
     else if (identifier === TypeTag.Boolean) {
-      const value = createTypeValue(TBoolean);
+      const value = createTypeValue(createBooleanType());
       expr.$ = {
         env,
         type: value.type,
@@ -4089,7 +4128,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // usize
     else if (identifier === TypeTag.Usize) {
-      const value = createTypeValue(TUsize);
+      const value = createTypeValue(createUsizeType());
       expr.$ = {
         env,
         type: value.type,
@@ -4101,7 +4140,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // isize
     else if (identifier === TypeTag.Isize) {
-      const value = createTypeValue(TIsize);
+      const value = createTypeValue(createIsizeType());
       expr.$ = {
         env,
         type: value.type,
@@ -4113,7 +4152,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // u8
     else if (identifier === TypeTag.U8) {
-      const value = createTypeValue(TU8);
+      const value = createTypeValue(createU8Type());
       expr.$ = {
         env,
         type: value.type,
@@ -4125,7 +4164,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // i8
     else if (identifier === TypeTag.I8) {
-      const value = createTypeValue(TI8);
+      const value = createTypeValue(createI8Type());
       expr.$ = {
         env,
         type: value.type,
@@ -4137,7 +4176,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // u16
     else if (identifier === TypeTag.U16) {
-      const value = createTypeValue(TU16);
+      const value = createTypeValue(createU16Type());
       expr.$ = {
         env,
         type: value.type,
@@ -4149,7 +4188,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // i16
     else if (identifier === TypeTag.I16) {
-      const value = createTypeValue(TI16);
+      const value = createTypeValue(createI16Type());
       expr.$ = {
         env,
         type: value.type,
@@ -4161,7 +4200,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // u32
     else if (identifier === TypeTag.U32) {
-      const value = createTypeValue(TU32);
+      const value = createTypeValue(createU32Type());
       expr.$ = {
         env,
         type: value.type,
@@ -4173,7 +4212,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // i32
     else if (identifier === TypeTag.I32) {
-      const value = createTypeValue(TI32);
+      const value = createTypeValue(createI32Type());
       expr.$ = {
         env,
         type: value.type,
@@ -4185,7 +4224,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // u64
     else if (identifier === TypeTag.U64) {
-      const value = createTypeValue(TU64);
+      const value = createTypeValue(createU64Type());
       expr.$ = {
         env,
         type: value.type,
@@ -4197,7 +4236,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // i64
     else if (identifier === TypeTag.I64) {
-      const value = createTypeValue(TI64);
+      const value = createTypeValue(createI64Type());
       expr.$ = {
         env,
         type: value.type,
@@ -4209,7 +4248,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // f32
     else if (identifier === TypeTag.F32) {
-      const value = createTypeValue(TF32);
+      const value = createTypeValue(createF32Type());
       expr.$ = {
         env,
         type: value.type,
@@ -4221,7 +4260,7 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
     }
     // f64
     else if (identifier === TypeTag.F64) {
-      const value = createTypeValue(TF64);
+      const value = createTypeValue(createF64Type());
       expr.$ = {
         env,
         type: value.type,
@@ -8460,7 +8499,7 @@ Got:   ${typeToString(argType)}`
     if (
       !areTypesCompatible(
         {
-          type: TUsize,
+          type: createUsizeType(),
           env: callerEnv,
         },
         {
@@ -10389,7 +10428,7 @@ Got:   ${typeToString(argType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (expr.args.length === 0) {
-      const value = createTypeValue(TUnit);
+      const value = createTypeValue(createUnitType());
       expr.$ = {
         env,
         value,
@@ -10488,7 +10527,7 @@ Got:\n${exprToString(expr)}`
     if (
       !areTypesCompatible(
         {
-          type: TUsize,
+          type: createUsizeType(),
           env,
         },
         {
@@ -10513,7 +10552,7 @@ Got:\n${exprToString(expr)}`
     if (isUnknownValue(lengthValue)) {
       // QUESTION: Should we do it this way?
       // Change its type to usize
-      lengthValue.type = TUsize;
+      lengthValue.type = createUsizeType();
     }
 
     const arrayType = createArrayType(elementType, lengthValue);

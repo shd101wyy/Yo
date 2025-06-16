@@ -106,8 +106,31 @@ export interface Type {
    * If not specified, the size is unknown.
    */
   // size?: number;
+
+  /**
+   * The name of the struct.
+   * eg:
+   *   Point :: struct(i32, i32);
+   * Point is the name of the struct.
+   *
+   * eg:
+   *   (@(LinearI32) : Linear) = i32;
+   * LinearI32 is the name of the type.
+   */
+  typeName?: string;
+
+  /**
+   * The methods implemented for this type
+   */
+  methods: TypeMethod[];
+
+  /**
+   * Force this type to be treated as a linear type.
+   */
+  forceLinear?: boolean;
 }
 
+// NOTE: This is not actually used now.
 export interface LiteralType extends Type {
   tag: TypeTag.Literal;
   /**
@@ -171,23 +194,32 @@ export interface TypeHierarchyType extends Type {
   // TODO: Implemented interfaces
 }
 
-export const TFree: TypeHierarchyType = {
-  tag: TypeTag.Free,
-  // size: 0, // Types themselves don't have runtime size
-  level: 0,
-};
+export function createFreeType(): TypeHierarchyType {
+  return {
+    tag: TypeTag.Free,
+    // size: 0, // Types themselves don't have runtime size
+    level: 0,
+    methods: [],
+  };
+}
 
-export const TLinear: TypeHierarchyType = {
-  tag: TypeTag.Linear,
-  // size: 0, // Types themselves don't have runtime size
-  level: 0,
-};
+export function createLinearType(): TypeHierarchyType {
+  return {
+    tag: TypeTag.Linear,
+    // size: 0, // Types themselves don't have runtime size
+    level: 0,
+    methods: [],
+  };
+}
 
-export const TType: TypeHierarchyType = {
-  tag: TypeTag.Type,
-  // size: 0, // Types themselves don't have runtime size
-  level: 0,
-};
+export function createTypeType(): TypeHierarchyType {
+  return {
+    tag: TypeTag.Type,
+    // size: 0, // Types themselves don't have runtime size
+    level: 0,
+    methods: [],
+  };
+}
 
 /**
  * SomeType is a type that is not known.
@@ -223,86 +255,148 @@ export interface SomeType extends Type {
   size: undefined;
 }
 
-export const TComptInt: Type = {
-  tag: TypeTag.ComptInt,
-  // size: 0, // Size of compt_int is not available at runtime
-};
+export function createComptIntType(): Type {
+  return {
+    tag: TypeTag.ComptInt,
+    // size: 0, // Size of compt_int is not available at runtime
+    methods: [],
+  };
+}
 
-export const TComptFloat: Type = {
-  tag: TypeTag.ComptFloat,
-  // size: 0, // Size of compt_float is not available at runtime
-};
+export function createComptFloatType(): Type {
+  return {
+    tag: TypeTag.ComptFloat,
+    // size: 0, // Size of compt_float is not available at runtime
+    methods: [],
+  };
+}
 
-export const TComptString: Type = {
-  tag: TypeTag.ComptString,
-  // size: 0, // Size of compt_string is not avaiable at runtime
-};
+export function createComptStringType(): Type {
+  return {
+    tag: TypeTag.ComptString,
+    // size: 0, // Size of compt_string is not available at runtime
+    methods: [],
+  };
+}
 
-export const TBoolean: Type = {
-  tag: TypeTag.Boolean,
-  // size: 8,
-};
+export function createBooleanType(): Type {
+  return {
+    tag: TypeTag.Boolean,
+    methods: [],
+  };
+}
 
 /**
  * 4 bytes unicode
  */
-export const TChar: Type = {
-  tag: TypeTag.Char,
-  // size: 4 * 8,
-};
+export function createCharType(): Type {
+  return {
+    tag: TypeTag.Char,
+    // size: 4 * 8, // 4 bytes for unicode character
+    methods: [],
+  };
+}
 
-export const TUsize: Type = {
-  tag: TypeTag.Usize,
-  // size: getPtrSize() * 8,
-};
-export const TIsize: Type = {
-  tag: TypeTag.Isize,
-  // size: getPtrSize() * 8,
-};
-export const TU8: Type = {
-  tag: TypeTag.U8,
-  // size: 1 * 8,
-};
-export const TU16: Type = {
-  tag: TypeTag.U16,
-  // size: 2 * 8,
-};
-export const TU32: Type = {
-  tag: TypeTag.U32,
-  // size: 4 * 8,
-};
-export const TU64: Type = {
-  tag: TypeTag.U64,
-  // size: 8 * 8,
-};
-export const TI8: Type = {
-  tag: TypeTag.I8,
-  // size: 1 * 8,
-};
-export const TI16: Type = {
-  tag: TypeTag.I16,
-  // size: 2 * 8,
-};
-export const TI32: Type = {
-  tag: TypeTag.I32,
-  // size: 4 * 8,
-};
-export const TI64: Type = {
-  tag: TypeTag.I64,
-  // size: 8 * 8,
-};
-export const TF32: Type = {
-  tag: TypeTag.F32,
-  // size: 4 * 8,
-};
-export const TF64: Type = {
-  tag: TypeTag.F64,
-  // size: 8 * 8,
-};
-export const TUnit: Type = {
-  tag: TypeTag.Unit,
-  // size: 0,
-};
+export function createUsizeType(): Type {
+  return {
+    tag: TypeTag.Usize,
+    // size: getPtrSize() * 8, // Size of usize is the size of a pointer
+    methods: [],
+  };
+}
+
+export function createIsizeType(): Type {
+  return {
+    tag: TypeTag.Isize,
+    // size: getPtrSize() * 8, // Size of isize is the size of a pointer
+    methods: [],
+  };
+}
+
+export function createU8Type(): Type {
+  return {
+    tag: TypeTag.U8,
+    // size: 1 * 8, // 1 byte for u8
+    methods: [],
+  };
+}
+export function createI8Type(): Type {
+  return {
+    tag: TypeTag.I8,
+    // size: 1 * 8, // 1 byte for i8
+    methods: [],
+  };
+}
+export function createU16Type(): Type {
+  return {
+    tag: TypeTag.U16,
+    // size: 2 * 8, // 2 bytes for u16
+    methods: [],
+  };
+}
+
+export function createI16Type(): Type {
+  return {
+    tag: TypeTag.I16,
+    // size: 2 * 8, // 2 bytes for i16
+    methods: [],
+  };
+}
+
+export function createU32Type(): Type {
+  return {
+    tag: TypeTag.U32,
+    // size: 4 * 8, // 4 bytes for u32
+    methods: [],
+  };
+}
+export function createI32Type(): Type {
+  return {
+    tag: TypeTag.I32,
+    // size: 4 * 8, // 4 bytes for i32
+    methods: [],
+  };
+}
+
+export function createU64Type(): Type {
+  return {
+    tag: TypeTag.U64,
+    // size: 8 * 8, // 8 bytes for u64
+    methods: [],
+  };
+}
+
+export function createI64Type(): Type {
+  return {
+    tag: TypeTag.I64,
+    // size: 8 * 8, // 8 bytes for i64
+    methods: [],
+  };
+}
+
+export function createF32Type(): Type {
+  return {
+    tag: TypeTag.F32,
+    // size: 4 * 8, // 4 bytes for f32
+    methods: [],
+  };
+}
+
+export function createF64Type(): Type {
+  return {
+    tag: TypeTag.F64,
+    // size: 8 * 8, // 8 bytes for f64
+    methods: [],
+  };
+}
+
+export function createUnitType(): Type {
+  return {
+    tag: TypeTag.Unit,
+    // size: 0, // Unit has no runtime size
+    methods: [],
+  };
+}
 
 // Extended Type interface for compound types
 export interface ArrayType extends Type {
@@ -530,14 +624,6 @@ export interface StructType extends Type {
   typeId: string;
 
   /**
-   * The name of the struct.
-   * eg:
-   *   Point := struct(i32, i32);
-   * Point is the name of the struct.
-   */
-  typeName?: string;
-
-  /**
    * The function that returns the struct.
    * eg:
    *   def Container:
@@ -566,14 +652,6 @@ export interface ModuleType extends Type {
    * The unique identifier for this module.
    */
   typeId: string;
-
-  /**
-   * The name of the module.
-   * eg:
-   *   Point := struct(i32, i32);
-   * Point is the name of the struct.
-   */
-  typeName?: string;
 
   /**
    * The function that returns the struct.
@@ -617,14 +695,6 @@ export interface EnumType extends Type {
   typeId: string;
 
   /**
-   * The name of the struct.
-   * eg:
-   *   Point := struct(i32, i32);
-   * Point is the name of the struct.
-   */
-  typeName?: string;
-
-  /**
    * The function that returns the enum.
    */
   functionValue?: FunctionValue;
@@ -657,14 +727,6 @@ export interface UnionType extends Type {
    * The unique identifier for this struct.
    */
   typeId: string;
-
-  /**
-   * The name of the struct.
-   * eg:
-   *   Point := struct(i32, i32);
-   * Point is the name of the struct.
-   */
-  typeName?: string;
 
   /**
    * The elements of the union.
@@ -795,6 +857,7 @@ export function createTypeHierarchy(level: number): TypeHierarchyType {
     tag: TypeTag.Type,
     // size: 0,
     level,
+    methods: [],
   };
 }
 
@@ -814,6 +877,7 @@ Element type size is undefined.`
     // size: elementType.size * length,
     elementType,
     length,
+    methods: [],
   };
 }
 
@@ -833,6 +897,7 @@ export function createTupleType(elements: TupleElement[]): TupleType {
     tag: TypeTag.Tuple,
     // size: totalSize,
     elements,
+    methods: [],
   };
 }
 
@@ -872,6 +937,7 @@ export function createModuleType(
     elements,
     env,
     typeId: typeId ?? `module_${randomId()}`,
+    methods: [],
   };
 }
 
@@ -971,6 +1037,7 @@ export function createFunctionType({
     env,
     parametersFrame,
     SelfType,
+    methods: [],
   };
 }
 
@@ -993,6 +1060,7 @@ export function createMutLinearPtrType(type: Type): MutLinearPtrType {
     tag: TypeTag.MutLinearPtr,
     // size: getPtrSize() * 8,
     type,
+    methods: [],
   };
 }
 
@@ -1001,6 +1069,7 @@ export function createLinearPtrType(type: Type): LinearPtrType {
     tag: TypeTag.LinearPtr,
     // size: getPtrSize() * 8,
     type,
+    methods: [],
   };
 }
 
@@ -1009,6 +1078,7 @@ export function createMutPtrType(type: Type): MutPtrType {
     tag: TypeTag.MutPtr,
     // size: getPtrSize() * 8,
     type,
+    methods: [],
   };
 }
 
@@ -1017,6 +1087,7 @@ export function createPtrType(type: Type): PtrType {
     tag: TypeTag.Ptr,
     // size: getPtrSize() * 8,
     type,
+    methods: [],
   };
 }
 
@@ -1025,6 +1096,7 @@ export function createMutRefType(type: Type): MutRefType {
     tag: TypeTag.MutRef,
     // size: getPtrSize() * 8,
     type,
+    methods: [],
   };
 }
 
@@ -1033,6 +1105,7 @@ export function createRefType(type: Type): RefType {
     tag: TypeTag.Ref,
     // size: getPtrSize() * 8,
     type,
+    methods: [],
   };
 }
 
@@ -1059,30 +1132,32 @@ function determineTypeUniverse(types: Type[]): Type {
     return createTypeHierarchy(maxTypeLevel);
   }
   if (meetTypeTag) {
-    return TType;
+    return createTypeType();
   }
 
   // If we found any linear but no type, return linear
   if (hasLinear) {
-    return TLinear;
+    return createLinearType();
   }
 
   // Otherwise all are free
-  return TFree;
+  return createFreeType();
 }
 
 // Update typeOfType function
 export function typeOfType(t: Type): Type {
-  /*if (t.tag === TypeTag.Undefined) {
-    return TFree; // Undefined is in the free type universe
-  } else */ if (isPrimitiveType(t)) {
-    return TFree;
+  if (t.forceLinear) {
+    return createLinearType(); // Force linear type
+  }
+
+  if (isPrimitiveType(t)) {
+    return createFreeType(); // Primitive types are free types
   } else if (isTypeHierarchyType(t)) {
     return createTypeHierarchy((t as TypeHierarchyType).level + 1);
   } else if (isComptIntType(t) || isComptFloatType(t) || isComptStringType(t)) {
-    return TFree;
+    return createFreeType();
   } else if (t.tag === TypeTag.Function) {
-    return TFree;
+    return createFreeType();
   } else if (isArrayType(t)) {
     // For arrays, check the element type
     return typeOfType(t.elementType);
@@ -1113,18 +1188,18 @@ export function typeOfType(t: Type): Type {
     // For unions, check all member types
     return determineTypeUniverse(t.elements.map((element) => element.type));
   } else if (isModuleType(t)) {
-    return TFree;
+    return createFreeType();
   } else if (isSomeType(t)) {
     return t.parentType;
   } else if (isMutLinearPtrType(t) || isLinearPtrType(t)) {
-    return TLinear;
+    return createLinearType();
   } else if (
     isMutPtrType(t) ||
     isPtrType(t) ||
     isMutRefType(t) ||
     isRefType(t)
   ) {
-    return TFree;
+    return createFreeType();
   } else {
     throw new Error(`Unknown type tag: ${t}`);
   }
@@ -1569,6 +1644,15 @@ export function areTypesCompatible(
   }
 
   if (isTypeHierarchyType(expected.type) && isTypeHierarchyType(given.type)) {
+    // Free can be assigned to Linear,
+    // but not the other way around.
+    if (
+      expected.type.tag === TypeTag.Linear &&
+      given.type.tag === TypeTag.Free
+    ) {
+      return true;
+    }
+
     // Check if the given type is a subtype of the expected type
     return (
       given.type.level === expected.type.level &&
@@ -1746,7 +1830,7 @@ export function isType0(type?: Type): boolean {
 }
 
 export function isLinearOrType0Type(type?: Type): boolean {
-  return isLinearType(type) || isType0(type);
+  return isLinearType(type) || isType0(type) || Boolean(type?.forceLinear);
 }
 
 export function isSomeType(type?: Type): type is SomeType {
@@ -1938,6 +2022,10 @@ export function tupleElementToString(element: TupleElement): string {
 export function typeToString(type: Type): string {
   if (!type) {
     return "unknown";
+  }
+
+  if (type.typeName) {
+    return type.typeName;
   }
 
   switch (type.tag) {
@@ -2171,9 +2259,9 @@ export function getSizeString(type: Type): string {
 
 export function convertComptTypeToRuntimeType(type: Type): Type {
   if (isComptIntType(type)) {
-    return TI32;
+    return createI32Type();
   } else if (isComptFloatType(type)) {
-    return TF32;
+    return createF64Type();
   } else if (isArrayType(type)) {
     type.elementType = convertComptTypeToRuntimeType(type.elementType);
     return type;
@@ -2210,4 +2298,11 @@ export function convertComptTypeToRuntimeType(type: Type): Type {
     // No change
     return type;
   }
+}
+
+export function setTypeAsLinear(type: Type): Type {
+  return {
+    ...type,
+    forceLinear: true,
+  };
 }
