@@ -4767,30 +4767,10 @@ ${typeToString(returnType)}`
 
       // type method
       // eg:
-      //   Self.new = (((lhs: Self, rhs: i32) -> i32) {})
-      if (
-        exprIsFunctionCall(arg) &&
-        exprIsFunctionCallOf(arg, "=", 2) &&
-        exprIsFunctionCall(arg.args[0]) &&
-        exprIsFunctionCallOf(arg.args[0], ".", 2)
-      ) {
-        // NOTE: We currently only support the use of "Self"
-        if (!exprIsAtomOf(arg.args[0].args[0]!, "Self")) {
-          throw this.formatErrorMessage(
-            arg.args[0].args[0]!.token,
-            `Expected "Self" for type method, got ${exprToString(arg.args[0].args[0]!)}`
-          );
-        }
-
-        // Check if the struct already has a member `Self`
-        if (elements.some((element) => element.label === "Self")) {
-          throw this.formatErrorMessage(
-            arg.args[0].args[0]!.token,
-            `Cannot define type method because "Self" is overridden as receiver of the struct.`
-          );
-        }
-
-        const methodNameExpr = arg.args[0].args[1]!;
+      //   ~~Self.new = (((lhs: Self, rhs: i32) -> i32) {})~~
+      //   new :: (((lhs: Self, rhs: i32) -> i32) {})
+      if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "::", 2)) {
+        const methodNameExpr = arg.args[0]!;
         const rhsExpr = arg.args[1]!;
 
         // Expect methodNameExpr to be an identifier or operator
@@ -5040,21 +5020,13 @@ ${typeToString(returnType)}`
 
       // type method
       // eg:
-      //   Self.new = (((lhs: Self, rhs: i32) -> i32) {})
+      //   ~~Self.new = (((lhs: Self, rhs: i32) -> i32) {})~~
+      //   new :: (((lhs: Self, rhs: i32) -> i32) {})
       if (
         exprIsFunctionCall(enumArg) &&
-        exprIsFunctionCallOf(enumArg, "=", 2) &&
-        exprIsFunctionCall(enumArg.args[0]) &&
-        exprIsFunctionCallOf(enumArg.args[0], ".", 2)
+        exprIsFunctionCallOf(enumArg, "::", 2)
       ) {
-        // NOTE: We currently only support the use of "Self"
-        if (!exprIsAtomOf(enumArg.args[0].args[0]!, "Self")) {
-          throw this.formatErrorMessage(
-            enumArg.args[0].args[0]!.token,
-            `Expected "Self" for type method, got ${exprToString(enumArg.args[0].args[0]!)}`
-          );
-        }
-        const methodNameExpr = enumArg.args[0].args[1]!;
+        const methodNameExpr = enumArg.args[0]!;
         const rhsExpr = enumArg.args[1]!;
 
         // Expect methodNameExpr to be an identifier or operator
@@ -5233,22 +5205,10 @@ ${typeToString(returnType)}`
 
       // type method
       // eg:
-      //   Self.new = (((lhs: Self, rhs: i32) -> i32) {})
-      if (
-        exprIsFunctionCall(arg) &&
-        exprIsFunctionCallOf(arg, "=", 2) &&
-        exprIsFunctionCall(arg.args[0]) &&
-        exprIsFunctionCallOf(arg.args[0], ".", 2)
-      ) {
-        // NOTE: We currently only support the use of "Self"
-        if (!exprIsAtomOf(arg.args[0].args[0]!, "Self")) {
-          throw this.formatErrorMessage(
-            arg.args[0].args[0]!.token,
-            `Expected "Self" for type method, got ${exprToString(arg.args[0].args[0]!)}`
-          );
-        }
-
-        const methodNameExpr = arg.args[0].args[1]!;
+      //   ~~Self.new = (((lhs: Self, rhs: i32) -> i32) {})~~
+      //   new :: (((lhs: Self, rhs: i32) -> i32) {})
+      if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "::", 2)) {
+        const methodNameExpr = arg.args[0]!;
         const rhsExpr = arg.args[1]!;
 
         // Expect methodNameExpr to be an identifier or operator
