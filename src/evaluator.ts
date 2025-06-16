@@ -8,7 +8,7 @@ import {
   getMethodsByNameFromEnv,
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
-  keepComptimeVariablesFromEnv,
+  keepTopLevelFrameAndComptimeVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
   updateExistingVariable,
@@ -8527,7 +8527,8 @@ Got:   ${typeToString(argType)}`
     // Add parameters to the env new frame
     let env = pushEnvFrame(
       // QUESTION: Allow to keep the comptime variables, but not the runtime ones?
-      keepComptimeVariablesFromEnv(callerEnv),
+      // We should also keep the very top (the first) frame, including comptime and runtime variables.
+      keepTopLevelFrameAndComptimeVariablesFromEnv(callerEnv),
       functionType.parametersFrame
     );
 

@@ -548,11 +548,18 @@ export function getMethodsByNameFromEnv(
 }
 
 /**
- * This function will remove all runtime variables from the environment.
+ * This function will remove all runtime variables from the environment,
+ * except for the first (top) frame.
  * @param env Environment
  */
-export function keepComptimeVariablesFromEnv(env: Environment): Environment {
-  const newFrames = env.frames.map((frame) => {
+export function keepTopLevelFrameAndComptimeVariablesFromEnv(
+  env: Environment
+): Environment {
+  const newFrames = env.frames.map((frame, index) => {
+    if (index === 0) {
+      return frame; // Keep the first frame as is
+    }
+
     const newVariables = frame.variables.filter(
       (variable) => variable.isCompileTimeOnly
     );
