@@ -1,0 +1,66 @@
+extern
+  Data : Free
+;
+
+// drop is the function that destroys the value and frees the memory
+// It does nothing for the Free value
+test :: (() -> unit) {
+  x := 1;
+  drop(x);
+  x2 := x;
+
+  y := true;
+  drop(y);
+};
+
+
+(@(LinearI32) : Linear) = i32;
+Box :: struct(
+  value : LinearI32
+  
+  /*
+   * the drop method here automatically created like this if it's not specified:
+   * 
+   *  drop :: ((self: Self)-> unit) {
+   *    { _ } := self;
+   *    // destructuring everything in the struct
+   *    // recursively call drop on all fields automatically.
+   *  };
+   */
+);
+
+/**
+ * Not for union type, the "drop" method is not automatically created 
+ * if the union contains "Linear" field.  
+ * You need to define it manually in such case. 
+ * 
+ * For enum type, the "drop" method is automatically created.
+ * It should be used to destructure all variants and call drop on the fields. 
+ *
+ */
+
+Box2 :: struct(
+  value : LinearI32,
+
+  // override the default drop method
+  drop :: ((self: Self)-> unit) {
+    { value } := self;    
+    // drop(value);
+  }
+);
+
+test2 :: (() -> unit) {
+  b := Box(1);
+  drop(b);
+  compt_expect_error(
+    b2 := b,
+    "'b' is already consumed, cannot be used again"
+  );
+
+  b3 := Box2(2);
+  drop(b3);
+  compt_expect_error(
+    b4 := b3,
+    "'b3' is already consumed, cannot be used again"
+  );
+};

@@ -229,6 +229,10 @@ export const BuiltinKeywords = {
   export: ["export"],
   borrow: ["borrow"],
   open: ["open"],
+  // pass: ["paas"], // pass is the same as noop
+  drop: ["drop"],
+  break: ["break"],
+  continue: ["continue"],
 
   // values
   undefined: ["undefined"],
@@ -606,7 +610,7 @@ export function mergeAndCheckEnvs(
     const rows = matrix.length;
     const cols = matrix[0]!.length;
     for (let i = 0; i < cols; i++) {
-      const variableName = frameVariables[i]!.name;
+      // const variableName = frameVariables[i]!.name;
       const tokens: (Token | undefined)[] = [];
       for (let j = 1; j < rows; j++) {
         tokens.push(matrix[j]![i]);
@@ -633,6 +637,7 @@ export function mergeAndCheckEnvs(
       // case 1
       if (tokens.length === 1) {
         if (!!tokens[0] && !frameVariables[i]!.consumedAtToken) {
+          /*
           throw formatErrorMessages({
             tokenAndErrorList: [
               {
@@ -645,6 +650,12 @@ export function mergeAndCheckEnvs(
               },
             ],
           });
+          */
+          // RAII, call "drop" on variable if it is not consumed.
+          env = updateExistingVariable(env, frameVariables[i]!, {
+            ...frameVariables[i]!,
+            consumedAtToken: tokens[0],
+          });
         }
       }
       // case 2
@@ -656,9 +667,11 @@ export function mergeAndCheckEnvs(
         env = updateExistingVariable(env, frameVariables[i]!, newVariableValue);
       } else {
         // case 3
+
         const consumed = tokens.filter((t) => !!t) as Token[];
         const notConsumed = tokens.filter((t) => !t);
         if (consumed.length > 0 && notConsumed.length > 0) {
+          /*
           throw formatErrorMessages({
             errorMessage: `Variable "${variableName}" might be consumed in some cases but not consumed in other cases:\n`,
             tokenAndErrorList: tokens.map((token, index) => {
@@ -670,46 +683,17 @@ export function mergeAndCheckEnvs(
               };
             }),
           });
+          */
+
+          // RAII, call "drop" on variable if it is not consumed.
+          env = updateExistingVariable(env, frameVariables[i]!, {
+            ...frameVariables[i]!,
+            consumedAtToken: consumed[0],
+          });
         }
       }
     }
   }
-
-  // FIXME: This part of code is not correct.
-  /*
-  // Update the tempVariable to host the shortest lifetime
-  const tempVariables = getEnvVariableValueByVariableName(
-    env,
-    tempVariableName
-  );
-  let tempVariable = tempVariables[0];
-  // console.log("tempVariable: ", tempVariable);
-
-
-  for (let i = 0; i < caseEnvs.length; i++) {
-    const caseEnv = caseEnvs[i];
-    const caseTempVariables = getEnvVariableValueByVariableName(
-      caseEnv,
-      tempVariableName
-    );
-    const caseTempVariable = caseTempVariables[0];
-    if (caseTempVariable.referedVariable) {
-      if (
-        !tempVariable.referedVariable ||
-        tempVariable.order < caseTempVariable.order
-      ) {
-        const newTempVariable: VariableValue = {
-          ...tempVariable,
-          referedVariable: caseTempVariable.referedVariable,
-          order: caseTempVariable.order,
-        };
-        env = updateExistingVariableValue(env, tempVariable, newTempVariable);
-        tempVariable = newTempVariable;
-      }
-    }
-    // console.log("caseTempVariable: ", caseTempVariable);
-  }
-  */
 
   return env;
 }

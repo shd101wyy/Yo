@@ -3,12 +3,9 @@ import { PlaceholderToken, Token } from "./token";
 import {
   areTypesCompatible,
   getModuleReceiverType,
-  isEnumType,
   isFunctionType,
   isLinearOrType0Type,
   isModuleType,
-  isStructType,
-  isUnionType,
   ModuleType,
   Type,
   typeOfType,
@@ -370,6 +367,14 @@ export function popEnvFrame(
       const errors: { token: Token; errorMessage: string }[] = [];
       for (let i = unconsumedLinearVariables.length - 1; i >= 0; i--) {
         const variable = unconsumedLinearVariables[i]!;
+
+        // calling drop on it
+        env = updateExistingVariable(env, variable, {
+          ...variable,
+          consumedAtToken: variable.token,
+        });
+
+        /*
         const { error, env: nextEnv } = canCallDropMethodOnVariable(
           variable,
           env
@@ -380,6 +385,7 @@ export function popEnvFrame(
           // console.log(`Consumed ${variable.name}`);
           env = nextEnv;
         }
+        */
       }
 
       if (errors.length > 0) {
@@ -461,7 +467,8 @@ export function printEnvVarNames(env: Environment) {
 export function getMethodsByNameFromEnv(
   env: Environment,
   methodName: string,
-  receiverType: Type
+  receiverType: Type,
+  onlyFromTypeMethods = false
 ): { type: Type; value: Value | undefined }[] {
   const methods: { type: Type; value: Value | undefined }[] = [];
 
@@ -503,12 +510,7 @@ export function getMethodsByNameFromEnv(
   }
 
   // Check if the receiverType itself has method that can be called
-  if (
-    (isStructType(receiverType) ||
-      isEnumType(receiverType) ||
-      isUnionType(receiverType)) &&
-    receiverType.methods.length > 0
-  ) {
+  if (receiverType.methods.length > 0) {
     const typeMethods = receiverType.methods.filter(
       (method) =>
         method.label === methodName && method.type.parameters.length > 0
@@ -523,7 +525,7 @@ export function getMethodsByNameFromEnv(
   // NOTE:
   // Type methods have higher priority than module methods,
   // so we check the module methods only if there are no type methods.
-  if (methods.length > 0) {
+  if (methods.length > 0 || onlyFromTypeMethods) {
     return methods;
   }
 
@@ -584,7 +586,7 @@ export function keepTopLevelFrameAndComptimeVariablesFromEnv(
  *
  * where `Self` is the type of the variable.
  */
-function canCallDropMethodOnVariable(
+export function canCallDropMethodOnVariable(
   variable: Variable,
   env: Environment
 ): {
@@ -592,15 +594,18 @@ function canCallDropMethodOnVariable(
   env: Environment;
 } {
   const variableType = variable.type;
-  const methods = getMethodsByNameFromEnv(env, "drop", variableType).filter(
-    (method) => {
-      return (
-        isFunctionType(method.type) &&
-        method.type.parameters.length === 1 &&
-        method.type.return.type.tag === TypeTag.Unit
-      );
-    }
-  );
+  const methods = getMethodsByNameFromEnv(
+    env,
+    "drop",
+    variableType,
+    true
+  ).filter((method) => {
+    return (
+      isFunctionType(method.type) &&
+      method.type.parameters.length === 1 &&
+      method.type.return.type.tag === TypeTag.Unit
+    );
+  });
   if (methods.length === 0) {
     return {
       error: {

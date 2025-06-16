@@ -1,27 +1,15 @@
 // RAII
 // automatically call .drop() function on unconsumed linear variables.
-// the .drop() might be type methods, or module methods.
-// when there are multiple .drop() methods available,
-// the compiler requires explicit method call.
+// the .drop() might be type methods, ~~or module methods~~.
+// CORRECTION: the .drop() is always a type method.  
 
-extern "C",
+
+extern "Yo",
   Data   : Linear,
   malloc :
     ()-> Data
 ;
 
-// The Drop module
-Drop :: ((@(Self): Type) -> @(Type))
-  module
-    Self := Self,
-    drop :
-      (self: Self)-> unit
-;
-
-DataDrop :: Drop(Data)
-  drop :
-    fn(self)-> consume(self)
-;
 
 main :: (() -> unit) {
   {
@@ -30,52 +18,12 @@ main :: (() -> unit) {
 
     // y should be dropped first
     // x should be dropped after y
-    // y.drop();
-    // x.drop();
+    // drop(y);
+    // drop(x);
   };
 
   {
     mut(x) := malloc();
     x = malloc(); // the old value of "x" is dropped automatically
-  };
-};
-
-test :: (() -> unit) {
-  // Define another Drop instance for i32 pointers
-  DataDrop2 :: Drop(Data)
-    drop :
-      fn(self)-> consume(self)
-  ;
-
-  compt_expect_error(
-  {
-    x := malloc(); // There are multiple ".drop" methods available
-                   // so it requires explicit method call.
-  
-  });
-
-  {
-    x := malloc();
-    DataDrop2.drop(x); // Explicitly call the drop method
-
-    compt_expect_error(
-      y := x.*,
-      "Cannot use 'x' after it has been dropped"
-    );
-
-    compt_expect_error(
-      borrow &(x), x_ref-> {
-        ();
-      },
-      "Cannot borrow 'x' after it has been dropped"
-    );
-  };
-
-  {
-    mut(x) := malloc();
-    old := (x = malloc());
-
-    DataDrop.drop(old); // Explicitly call the drop method
-    DataDrop.drop(x); // Explicitly call the drop method
   };
 };

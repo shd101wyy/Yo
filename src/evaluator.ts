@@ -3480,6 +3480,24 @@ ${exprToString(rhs)}`
       elements.push(element);
       env = nextEnv;
 
+      // Prevent having Linear variables in "c" extern modules
+      if (language === "c" && isLinearOrType0Type(element.type)) {
+        throw this.formatErrorMessage(
+          arg.token,
+          `Cannot have "Linear" or "Type" type in "c" extern module.
+Only "Free" is allowed.
+Got ${typeToString(element.type)}`
+        );
+      }
+      if (language === "c" && isLinearOrType0Type(typeOfType(element.type))) {
+        throw this.formatErrorMessage(
+          arg.token,
+          `Cannot have "Linear" or "Type" value in "c" extern module.
+Only "Free" is allowed.
+Got ${typeToString(typeOfType(element.type))}`
+        );
+      }
+
       // Add element to env
       const { env: nextNextEnv } = addVariableToEnv({
         env,
@@ -10311,6 +10329,54 @@ Got:   ${typeToString(argType)}`
     }
   }
 
+  /**
+   * Explicitly drop a value.
+   * This function is related with RAII.
+   */
+  private evaluateDrop({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    const argExpr = expr.args[0]!;
+    const evaluatedArgExpr = this.evaluateExpression({
+      expr: argExpr,
+      env,
+      context: {
+        ...context,
+      },
+    });
+
+    if (!evaluatedArgExpr.$) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Failed to evaluate the argument expression for "drop":\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    env = evaluatedArgExpr.$.env;
+
+    // Set the expression as consumed
+    env = setExprAsConsumed(evaluatedArgExpr, env);
+
+    // TODO: Handle calling drop function.
+    // In theory, the Free values will be ignored.
+
+    expr.$ = {
+      env,
+      type: VUnit.type,
+      value: VUnit,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
+
   private evaluateReferenceCall({
     expr,
     env,
@@ -10837,6 +10903,9 @@ ${exprToString(expr)}`
           env,
           context: { ...context },
         });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.drop, 1)) {
+        // drop
+        return this.evaluateDrop({ expr, env, context: { ...context } });
       } else {
         /*
       else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {
