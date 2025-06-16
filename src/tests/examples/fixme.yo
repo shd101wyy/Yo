@@ -1,29 +1,6 @@
-// RAII
-// automatically call .drop() function on unconsumed linear variables.
-extern "C",
-  @(malloc) :
-    ()-> ^(i32)
-;
-
-// The Drop module
-Drop :: ((@(Self): Type) -> @(Type))
+BitNot :: ((@(Self): Type) -> @(Type))
   module
-    Self :: Self,
-    @(drop) :
-      (self: Self)-> unit
+    Self   := Self,
+    Output ?= Self,
+    (~)  : ((self: Self)-> Output)
 ;
-
-I32PointerDrop :: Drop(^(i32))
-  drop :
-    fn(self)-> consume(self)
-;
-
-main :: (()-> unit) {
-  x := malloc();
-  y := malloc();
-
-  // y should be dropped first
-  // x should be dropped after y
-  // y.drop();
-  // x.drop();
-};
