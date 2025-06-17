@@ -98,6 +98,10 @@ import {
   isTypeHierarchyType,
   isUnionType,
   ModuleType,
+  MutPtrType,
+  MutRefType,
+  PtrType,
+  RefType,
   TupleElement,
   tupleElementToString,
   TupleType,
@@ -3836,19 +3840,41 @@ Got ${typeToString(typeOfType(element.type))}`
     // Consume the value expression
     env = setExprAsConsumed(evaluatedMatchValue, env);
 
+    const matchValueType = evaluatedMatchValue.$.type;
+
+    // Check if it's a pointer/reference type
+    // If yes, then automatically dereference one-level of it.
+    let ptrOrRefType:
+      | TypeTag.Ptr
+      | TypeTag.MutPtr
+      | TypeTag.Ref
+      | TypeTag.MutRef
+      | undefined = undefined;
+
+    let enumType: Type;
+
+    if (
+      isPtrType(matchValueType) ||
+      isMutPtrType(matchValueType) ||
+      isRefType(matchValueType) ||
+      isMutRefType(matchValueType)
+    ) {
+      enumType = matchValueType.type;
+      ptrOrRefType = matchValueType.tag;
+    } else {
+      enumType = matchValueType;
+    }
+
     // Check if the value is an enum type
-    if (!isEnumType(evaluatedMatchValue.$.type)) {
+    if (!isEnumType(enumType)) {
       throw this.formatErrorMessage(
         valueExpr.token,
         `Expected enum type for match expression, got ${
-          evaluatedMatchValue.$.type
-            ? typeToString(evaluatedMatchValue.$.type)
-            : "unknown type"
+          matchValueType ? typeToString(matchValueType) : "unknown type"
         }`
       );
     }
 
-    const enumType = evaluatedMatchValue.$.type;
     const patterns = args.slice(1);
 
     // Evaluate each statement
@@ -3913,6 +3939,24 @@ Got ${typeToString(typeOfType(element.type))}`
           ...enumType,
           selectedVariantName: variantName,
         };
+        let variableType:
+          | EnumType
+          | PtrType
+          | MutPtrType
+          | RefType
+          | MutRefType = newEnumType;
+        if (ptrOrRefType) {
+          if (ptrOrRefType === TypeTag.Ptr) {
+            variableType = createPtrType(newEnumType);
+          } else if (ptrOrRefType === TypeTag.MutPtr) {
+            variableType = createMutPtrType(newEnumType);
+          } else if (ptrOrRefType === TypeTag.Ref) {
+            variableType = createRefType(newEnumType);
+          } else if (ptrOrRefType === TypeTag.MutRef) {
+            variableType = createMutRefType(newEnumType);
+          }
+        }
+
         // Create a new environment for the case
         //   .VariantName => ((variable) => body)
         if (
@@ -3937,7 +3981,7 @@ Got ${typeToString(typeOfType(element.type))}`
             variable: {
               name: variableName,
               token: variableExpr.token,
-              type: newEnumType,
+              type: variableType,
               isMutable: evaluatedMatchValue.$.isMutable,
               isUndefined: false, // Set as initialized
               isCompileTimeOnly: false,
@@ -3950,7 +3994,7 @@ Got ${typeToString(typeOfType(element.type))}`
           // Add information to variableExpr
           variableExpr.$ = {
             env: caseEnv,
-            type: newEnumType,
+            type: variableType,
             value: evaluatedMatchValue.$.value,
             isMutable: evaluatedMatchValue.$.isMutable,
             pathCollection: [[variableName]],
@@ -3975,7 +4019,7 @@ Got ${typeToString(typeOfType(element.type))}`
               variable: {
                 name: variableName,
                 token: evaluatedMatchValue.token,
-                type: newEnumType,
+                type: variableType,
                 isMutable: evaluatedMatchValue.$.isMutable,
                 isUndefined: false, // Set as initialized
                 isCompileTimeOnly: false,
