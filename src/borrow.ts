@@ -109,14 +109,15 @@ export function checkBorrowings(borrowings: Borrowing[], expr?: Expr): void {
 }
 
 function pathCollectionToString(pathCollection: PathCollection): string {
-  return pathCollection.map((p) => p.join(" -> ")).join("; ");
+  return "- " + pathCollection.map((p) => p.join(" -> ")).join(";\n- ");
 }
 
 export function borrowingsToString(borrowings: Borrowing[]): string {
   return borrowings
     .map(
       (b) =>
-        `Borrowing: ${exprToString(b.expr)} as ${typeToString(b.type)} at ${pathCollectionToString(b.pathCollection)}`
+        `Borrowing: ${exprToString(b.expr)} as ${typeToString(b.type)} at:
+${pathCollectionToString(b.pathCollection)}`
     )
     .join("\n");
 }

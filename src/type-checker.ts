@@ -1950,7 +1950,7 @@ export function typeToString(type: Type): string {
       return `${type.typeName} (${
         type.requiredVariantNames
           ? `${type.requiredVariantNames.map((name) => `.${name}`).join(" | ")} required`
-          : `.${type.selectedVariantName} current`
+          : `.${type.selectedVariantName} selected`
       })`;
     }
 

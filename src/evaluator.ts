@@ -3875,6 +3875,16 @@ Got ${typeToString(typeOfType(element.type))}`
       );
     }
 
+    // Check if there is already selected variant,
+    // If yes, then we disallow to use enum because we already know the selected variant.
+    if (enumType.selectedVariantName) {
+      throw this.formatErrorMessage(
+        valueExpr.token,
+        `Enum type ${typeToString(enumType)} already has selected variant "${enumType.selectedVariantName}".\n` +
+          `You cannot use "match" on it, because it already has a selected variant.`
+      );
+    }
+
     const patterns = args.slice(1);
 
     // Evaluate each statement
@@ -5989,6 +5999,15 @@ ${typeToString(returnType)}`
     // If yes, then throw an error due to using a consumed expression.
     requireExprNotConsumed(objectExpr, env);
 
+    // NOTE: We shouldn't check borrowings here,
+    // because it might be like:
+    //   &(point.x); // point.x is borrowed
+    //
+    //   &(point.y) here objectExpr is Point, if we check borrowing here it will throw error.
+    //
+    // Check borrowings
+    // checkBorrowings(context.borrowings, objectExpr);
+
     // Check if it's .* for dereference
     if (exprIsAtom(propertyExpr) && propertyExpr.token.value === "*") {
       if (isPtrType(objectExpr.$?.type) || isMutPtrType(objectExpr.$?.type)) {
@@ -6392,8 +6411,13 @@ ${typeToString(returnType)}`
             env,
             type: field.type,
             value: undefined,
-            isMutable: false,
-            pathCollection: [],
+            isMutable: objectExpr.$!.isMutable,
+            pathCollection: [
+              [
+                objectExpr.$!.variableName ?? "?", // FIXME
+                propertyExpr.token.value,
+              ],
+            ],
             isAccessingProperty: true,
           };
 
@@ -10021,19 +10045,20 @@ Got:   ${typeToString(argType)}`
         );
       }
       const bindingName = bindingExpr.token.value;
+      const borrowing = borrowings[i]!;
       // Add the binding to the env
       // console.log("(16) addVariableToEnv");
       const { env: nextEnv } = addVariableToEnv({
         env,
         variable: {
           name: bindingName,
-          type: borrowings[i]!.type,
-          isMutable: isMutRefType(borrowings[i]!.type),
+          type: borrowing.type,
+          isMutable: isMutRefType(borrowing.type),
           isCompileTimeOnly: false,
           token: bindingExpr.token,
           isUndefined: false,
           isImplicit: false,
-          value: undefined, // borrowings[i]!.value,
+          value: undefined, // borrowing.value,
         },
         skipCheckingFunctionOverloading: true,
       });
@@ -10042,9 +10067,9 @@ Got:   ${typeToString(argType)}`
       // Add the info to the bindingExpr
       bindingExpr.$ = {
         env,
-        type: borrowings[i]!.type,
-        isMutable: isMutRefType(borrowings[i]!.type),
-        pathCollection: borrowings[i]!.pathCollection,
+        type: borrowing.type,
+        isMutable: isMutRefType(borrowing.type),
+        pathCollection: borrowing.pathCollection,
         isAccessingProperty: false, // TODO: Set it to true if it's accessing a property
       };
     }
@@ -10789,6 +10814,9 @@ Got:\n${exprToString(expr)}`
     } else {
       // The arg cannot be consumed.
       requireExprNotConsumed(evaluatedArgExpr, env);
+
+      // Check borrowings
+      checkBorrowings(context.borrowings, evaluatedArgExpr);
 
       const argType = evaluatedArgExpr.$.type;
       const pointerType =
