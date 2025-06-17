@@ -111,7 +111,7 @@ import {
 } from "./type-checker";
 import { setTypeValueAsLinear, TypeValue } from "./type-value";
 import { VUnit } from "./unit-value";
-import { generateNewTempVariableName, randomId } from "./utils";
+import { randomId } from "./utils";
 import {
   areValuesEqual,
   ArrayValue,
@@ -511,11 +511,13 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
     tupleElementIndex,
     env,
     context,
+    forType,
   }: {
     expr: Expr;
     tupleElementIndex: number;
     env: Environment;
     context: EvaluatorContext;
+    forType: "tuple" | "struct" | "enum" | "union";
   }): { type: TupleElement; env: Environment } {
     let label: string | undefined = undefined;
     let expr_ = expr;
@@ -867,6 +869,13 @@ Given type: ${typeToString(defaultValueType)}`
           `Expected "compt" (or "@") modifier for compile-time known value binding.`
         );
       }
+    }
+
+    if (forType !== "tuple" && !labelExpr) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected label for ${forType} field, got ${exprToString(expr_)}`
+      );
     }
 
     if (labelExpr) {
@@ -1472,10 +1481,12 @@ ${typeToString(expectedTupleType)}`
     args,
     env,
     context,
+    forType,
   }: {
     args: Expr[];
     env: Environment;
     context: EvaluatorContext;
+    forType: "tuple" | "struct" | "enum" | "union";
   }): {
     type: TupleType;
     env: Environment;
@@ -1489,6 +1500,7 @@ ${typeToString(expectedTupleType)}`
         env,
         tupleElementIndex: i,
         context: { ...context },
+        forType,
       });
 
       // Check if there is duplicate labels
@@ -4715,8 +4727,13 @@ ${typeToString(parameterType)}`
       }
     }
 
+    // We require to have label for function parameters
     if (!label) {
-      label = generateNewTempVariableName(this.modulePath);
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected a label for function parameter, got ${exprToString(expr)}`
+      );
+      // label = generateNewTempVariableName(this.modulePath);
     }
 
     const value = isCompileTimeOnly
@@ -5270,6 +5287,7 @@ ${typeToString(returnType)}`
           env,
           tupleElementIndex: i,
           context: { ...context, SelfType: structType },
+          forType: "struct",
         });
 
         // Check if there is duplicate labels
@@ -5354,6 +5372,7 @@ ${typeToString(returnType)}`
           env,
           tupleElementIndex: i,
           context: { ...context, SelfType: enumType },
+          forType: "enum",
         });
 
         // Check if there is duplicate labels
@@ -5446,6 +5465,7 @@ ${typeToString(returnType)}`
                 ...context,
                 SelfType: enumType,
               },
+              forType: "enum",
             });
           env = nextEnv;
 
@@ -5518,6 +5538,7 @@ ${typeToString(returnType)}`
         env,
         tupleElementIndex: i,
         context: { ...context, SelfType: unionType },
+        forType: "union",
       });
 
       // Check if there is duplicate labels
@@ -6031,6 +6052,14 @@ ${typeToString(returnType)}`
       // - label name:   point.x
       if (exprIsAtom(propertyExpr)) {
         if (propertyExpr.token.type === TokenType.Integer) {
+          // Accessing by index is only allowed for tuples.
+          if (!isTupleType(objectExpr.$?.type)) {
+            throw this.formatErrorMessage(
+              propertyExpr.token,
+              `Accessing tuple element by index is only allowed for tuples.`
+            );
+          }
+
           const index = parseInt(propertyExpr.token.value, 10);
           if (isNaN(index)) {
             throw this.formatErrorMessage(
@@ -10395,6 +10424,7 @@ Got:   ${typeToString(argType)}`
       args: expr.args,
       env,
       context: { ...context },
+      forType: "tuple",
     });
     env = nextEnv;
 
