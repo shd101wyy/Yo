@@ -482,23 +482,24 @@ export function requireExprNotConsumed(expr: Expr, env: Environment): void {
   }
 
   const variableToConsume = variables[variables.length - 1]!;
-  if (isLinearOrType0Type(typeOfType(variableToConsume.type))) {
-    // Check if the variable is already consumed
-    if (variableToConsume.consumedAtToken) {
-      throw formatErrorMessages({
-        tokenAndErrorList: [
-          {
-            token: expr.token,
-            errorMessage: `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`,
-          },
-          {
-            token: variableToConsume.consumedAtToken,
-            errorMessage: `Previously consumed here:`,
-          },
-        ],
-      });
-    }
+  // NOTE: We also allow Free value to be consumed now.
+  // if (isLinearOrType0Type(typeOfType(variableToConsume.type))) {
+  // Check if the variable is already consumed
+  if (variableToConsume.consumedAtToken) {
+    throw formatErrorMessages({
+      tokenAndErrorList: [
+        {
+          token: expr.token,
+          errorMessage: `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`,
+        },
+        {
+          token: variableToConsume.consumedAtToken,
+          errorMessage: `Previously consumed here:`,
+        },
+      ],
+    });
   }
+  // }
 }
 
 /**

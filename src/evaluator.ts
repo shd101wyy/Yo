@@ -1976,6 +1976,17 @@ ${typeToString(expectedTupleType)}`
         `(1) Expected type for right-hand side, got ${exprToString(rhs)}`
       );
     }
+    const rhsValue = rhs.$!.value;
+
+    let dereferencedRhsType: Type | undefined = rhsType;
+    while (
+      isPtrType(dereferencedRhsType) ||
+      isMutPtrType(dereferencedRhsType) ||
+      isRefType(dereferencedRhsType) ||
+      isMutRefType(dereferencedRhsType)
+    ) {
+      dereferencedRhsType = dereferencedRhsType.type;
+    }
 
     // Handle struct destructuring
     if (
@@ -1988,8 +1999,8 @@ ${typeToString(expectedTupleType)}`
         lhsFunc: lhs.func,
         lhsElements: lhs.args,
         rhsElements: rhsType.elements,
-        rhsValue: rhs.$?.value,
-        rhsType,
+        rhsValue: rhsValue,
+        rhsType: rhsType,
         lhs,
         env,
         context: { ...context },
@@ -2006,8 +2017,8 @@ ${typeToString(expectedTupleType)}`
         lhsFunc: lhs.func,
         lhsElements: lhs.args,
         rhsElements: rhsType.elements,
-        rhsValue: rhs.$?.value,
-        rhsType,
+        rhsValue: rhsValue,
+        rhsType: rhsType,
         lhs,
         env,
         context: { ...context },
@@ -2015,12 +2026,29 @@ ${typeToString(expectedTupleType)}`
       });
     }
 
-    throw this.formatErrorMessage(
-      lhs.token,
-      `Destructuring assignment not supported for this pattern: ${exprToString(
-        lhs
-      )}`
-    );
+    // Error:
+    if (
+      !(
+        isTupleType(rhsType) ||
+        isStructType(rhsType) ||
+        isUnionType(rhsType) ||
+        isModuleType(rhsType)
+      )
+    ) {
+      throw this.formatErrorMessage(
+        rhs.token,
+        `Destructuring assignment not supported for the right-hand type:
+
+  ${typeToString(rhsType)}`
+      );
+    } else {
+      throw this.formatErrorMessage(
+        lhs.token,
+        `Destructuring assignment not supported for the left-hand pattern:
+  
+      ${exprToString(lhs)}`
+      );
+    }
   }
 
   // Modified to handle member destructuring directly
@@ -2039,6 +2067,10 @@ ${typeToString(expectedTupleType)}`
     lhsElements: Expr[];
     rhsElements: { label?: string; type: Type }[];
     rhsValue: Value | undefined;
+    /**
+     * The rhsType might be pointer or reference,
+     * in this case, the rhsElements are the dereferenced elements.
+     */
     rhsType: Type;
     lhs: Expr;
     env: Environment;
@@ -5897,6 +5929,7 @@ ${typeToString(returnType)}`
           isAccessingProperty: true,
           pathCollection: [],
         };
+        propertyExpr.$ = expr.$;
         return expr;
       } else if (
         isRefType(objectExpr.$?.type) ||
@@ -5912,6 +5945,7 @@ ${typeToString(returnType)}`
           isAccessingProperty: true,
           pathCollection: [],
         };
+        propertyExpr.$ = expr.$;
         return expr;
       }
     }
@@ -6039,13 +6073,26 @@ ${typeToString(returnType)}`
       }
     }
 
-    if (
-      isTupleType(objectExpr.$?.type) ||
-      isStructType(objectExpr.$?.type) ||
-      isUnionType(objectExpr.$?.type)
+    let objectType = objectExpr.$?.type;
+    // QUESTION: Should we allow only one round here? Like zig.
+    while (
+      objectType &&
+      (isPtrType(objectType) ||
+        isMutPtrType(objectType) ||
+        isRefType(objectType) ||
+        isMutPtrType(objectType))
     ) {
-      const elements: TupleElement[] = objectExpr.$.type.elements;
-      const objectExprValue = objectExpr.$.value;
+      // Dereference the pointer or reference type
+      objectType = objectType.type;
+    }
+
+    if (
+      isTupleType(objectType) ||
+      isStructType(objectType) ||
+      isUnionType(objectType)
+    ) {
+      const elements: TupleElement[] = objectType.elements;
+      const objectExprValue = objectExpr.$!.value;
 
       // Check if it's accessing the tuple element by
       // - number index: point.0
@@ -6133,11 +6180,11 @@ ${typeToString(returnType)}`
             expr.$ = {
               env,
               type: tupleElement.type,
-              isMutable: objectExpr.$.isMutable,
+              isMutable: objectExpr.$!.isMutable,
               isAccessingProperty: true,
               pathCollection: [
                 [
-                  objectExpr.$.variableName ?? "?", // FIXME
+                  objectExpr.$!.variableName ?? "?", // FIXME
                   propertyExpr.token.value,
                 ],
               ],
@@ -6169,9 +6216,9 @@ ${typeToString(returnType)}`
           }
         }
       }
-    } else if (isModuleType(objectExpr.$?.type)) {
-      const elements: TupleElement[] = objectExpr.$.type.elements;
-      const objectExprValue = objectExpr.$.value;
+    } else if (isModuleType(objectType)) {
+      const elements: TupleElement[] = objectType.elements;
+      const objectExprValue = objectExpr.$!.value;
 
       // Check if it's accessing the tuple element by
       // - label name:   SomeModule.some_function
@@ -6206,11 +6253,11 @@ ${typeToString(returnType)}`
             expr.$ = {
               env,
               type: tupleElement.type,
-              isMutable: objectExpr.$.isMutable,
+              isMutable: objectExpr.$!.isMutable,
               isAccessingProperty: true,
               pathCollection: [
                 [
-                  objectExpr.$.variableName ?? "?", // FIXME
+                  objectExpr.$!.variableName ?? "?", // FIXME
                   propertyExpr.token.value,
                 ],
               ],
