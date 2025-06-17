@@ -181,7 +181,6 @@ export default class Evaluator {
   private inputString: string;
   private modulePath: string;
   private stdPath: string;
-  private skipPrelude: boolean = false;
   private parser: Parser;
   private program: Expr[];
   private tokens: Token[];
@@ -195,12 +194,10 @@ export default class Evaluator {
   constructor({
     modulePath,
     stdPath,
-    skipPrelude = false,
     loadModule,
   }: {
     modulePath: string;
     stdPath: string;
-    skipPrelude?: boolean;
     loadModule: (modulePath: string) => {
       moduleValue: ModuleValue;
       moduleError: Error | undefined;
@@ -209,7 +206,6 @@ export default class Evaluator {
     this.modulePath = modulePath;
     this.stdPath = stdPath;
     this.loadModule = loadModule;
-    this.skipPrelude = skipPrelude;
 
     if (!this.modulePath.match(/^file:\/\//)) {
       throw new Error(
@@ -10529,8 +10525,6 @@ Got:   ${typeToString(argType)}`
       env,
       context: {
         ...context,
-        expectedType: undefined,
-        SelfType: undefined,
       },
     });
 
@@ -10778,8 +10772,6 @@ Got:\n${exprToString(expr)}`
       env,
       context: {
         ...context,
-        expectedType: undefined,
-        SelfType: undefined,
       },
     });
 

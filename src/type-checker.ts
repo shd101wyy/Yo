@@ -4,6 +4,7 @@ import {
   Frame,
   getVariablesFromEnv,
 } from "./env";
+import { formatErrorMessage } from "./error";
 import { Expr, exprToString } from "./expr";
 import { FunctionValue } from "./function-value";
 import { Token } from "./token";
@@ -1054,14 +1055,38 @@ export function createRefType(type: Type): RefType {
 }
 
 // Helper function to determine the type universe of a list of types
-function determineTypeUniverse(types: Type[]): Type {
+function determineTypeUniverse(
+  elements: TupleElement[],
+  /**
+   * checkedType is used to prevent infinite recursion
+   * when the type is a recursive type.
+   * For example:
+   *
+   *   Recursive :: struct
+   *     next : Self
+   *   ;
+   */
+  checkedTupleElements: TupleElement[]
+): Type {
   let hasLinear = false;
   let meetTypeTag = false;
   let maxTypeLevel = 0;
 
-  for (const type of types) {
+  for (const element of elements) {
+    const type = element.type;
+    if (checkedTupleElements.includes(element)) {
+      throw formatErrorMessage({
+        token:
+          checkedTupleElements[checkedTupleElements.length - 1]!.exprs.expr
+            .token,
+        errorMessage: `Recursive type has infinite size in field "${checkedTupleElements[checkedTupleElements.length - 1]!.label}"
+Insert some indirection (e.g., a pointer '*' or reference '&') to break the cycle.`,
+      });
+    }
     // For non-universe types, recursively check their type
-    const typeOfSubType = typeOfType(type);
+    checkedTupleElements.push(element);
+    const typeOfSubType = typeOfType(type, checkedTupleElements);
+
     if (isTypeHierarchyType(typeOfSubType)) {
       maxTypeLevel = Math.max(maxTypeLevel, typeOfSubType.level);
       if (typeOfSubType.tag === TypeTag.Linear) {
@@ -1089,7 +1114,19 @@ function determineTypeUniverse(types: Type[]): Type {
 }
 
 // Update typeOfType function
-export function typeOfType(t: Type): Type {
+export function typeOfType(
+  t: Type,
+  /**
+   * checkedType is used to prevent infinite recursion
+   * when the type is a recursive type.
+   * For example:
+   *
+   *   Recursive :: struct
+   *     next : Self
+   *   ;
+   */
+  checkedTupleElements: TupleElement[] = []
+): Type {
   if (t.forceLinear) {
     return createLinearType(); // Force linear type
   }
@@ -1108,36 +1145,30 @@ export function typeOfType(t: Type): Type {
   } else if (isTupleType(t)) {
     // For tuples, check all element types
     return determineTypeUniverse(
-      t.elements
-        .filter((element) => !element.isCompileTimeOnly)
-        .map((element) => element.type)
+      t.elements.filter((element) => !element.isCompileTimeOnly),
+      checkedTupleElements
     );
   } else if (isStructType(t)) {
-    // For structs, check all member types
     return determineTypeUniverse(
-      t.elements
-        .filter((element) => !element.isCompileTimeOnly)
-        .map((element) => element.type)
+      t.elements.filter((element) => !element.isCompileTimeOnly),
+      checkedTupleElements
     );
   } else if (isEnumType(t)) {
     // For enums, check all variant
-    const types: Type[] = [];
+    const elements: TupleElement[] = [];
     for (const variant of t.variants) {
       if (variant.elements) {
-        types.push(
-          ...variant.elements
-            .filter((element) => !element.isCompileTimeOnly)
-            .map((element) => element.type)
+        elements.push(
+          ...variant.elements.filter((element) => !element.isCompileTimeOnly)
         );
       }
     }
-    return determineTypeUniverse(types);
+    return determineTypeUniverse(elements, checkedTupleElements);
   } else if (isUnionType(t)) {
     // For unions, check all member types
     return determineTypeUniverse(
-      t.elements
-        .filter((element) => !element.isCompileTimeOnly)
-        .map((element) => element.type)
+      t.elements.filter((element) => !element.isCompileTimeOnly),
+      checkedTupleElements
     );
   } else if (isModuleType(t)) {
     return createFreeType();
