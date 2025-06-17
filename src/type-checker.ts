@@ -696,6 +696,24 @@ export interface EnumType extends Type {
    * The name of the selected variant.
    */
   selectedVariantName?: string;
+
+  /**
+   * The required variant of the enum type.
+   * For example:
+   *
+   *   Shape :: enum
+   *     Circle(radius: i32),
+   *     Rectangle(width: i32, height: i32)
+   *   ;
+   *
+   *   Circle :: (Shape `require` Circle);
+   *
+   *   Circle here has requiredVariantName as "Circle".
+   *
+   *   This could be used for pattern matching or type checking.
+   *
+   */
+  requiredVariantNames?: string[];
 }
 
 export interface UnionType extends Type {
@@ -1106,13 +1124,21 @@ export function typeOfType(t: Type): Type {
     const types: Type[] = [];
     for (const variant of t.variants) {
       if (variant.elements) {
-        types.push(...variant.elements.map((param) => param.type));
+        types.push(
+          ...variant.elements
+            .filter((element) => !element.isCompileTimeOnly)
+            .map((element) => element.type)
+        );
       }
     }
     return determineTypeUniverse(types);
   } else if (isUnionType(t)) {
     // For unions, check all member types
-    return determineTypeUniverse(t.elements.map((element) => element.type));
+    return determineTypeUniverse(
+      t.elements
+        .filter((element) => !element.isCompileTimeOnly)
+        .map((element) => element.type)
+    );
   } else if (isModuleType(t)) {
     return createFreeType();
   } else if (isSomeType(t)) {
@@ -1484,9 +1510,12 @@ export function areTypesCompatible(
     }
 
     if (
-      expected.type.selectedVariantName &&
-      given.type.selectedVariantName &&
-      expected.type.selectedVariantName !== given.type.selectedVariantName
+      expected.type.requiredVariantNames &&
+      ((given.type.selectedVariantName &&
+        !expected.type.requiredVariantNames.includes(
+          given.type.selectedVariantName
+        )) ||
+        !given.type.selectedVariantName)
     ) {
       return false;
     } else if (!expected.type.selectedVariantName) {
@@ -1914,6 +1943,17 @@ export function typeToString(type: Type): string {
   }
 
   if (type.typeName) {
+    if (
+      isEnumType(type) &&
+      (type.requiredVariantNames ?? type.selectedVariantName)
+    ) {
+      return `${type.typeName} (${
+        type.requiredVariantNames
+          ? `${type.requiredVariantNames.map((name) => `.${name}`).join(" | ")} required`
+          : `.${type.selectedVariantName} current`
+      })`;
+    }
+
     return type.typeName;
   }
 

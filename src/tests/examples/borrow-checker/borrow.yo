@@ -16,7 +16,7 @@ main :: (()-> unit) {
     }
   );
 
-  borrow (&(x)), (x_ref)-> {
+  borrow (&(x)), (x_ref) => {
     y := x_ref.*;
     compt_expect_error(
       z := x // error, because `x` is borrowed.
@@ -33,7 +33,7 @@ main :: (()-> unit) {
   );
   mut(p) := Point(1, 2);
 
-  borrow (&(p.x)), (p_x_ref) -> {
+  borrow (&(p.x)), (p_x_ref) => {
     x := p_x_ref.*;
     
     compt_expect_error(
@@ -91,14 +91,14 @@ main :: (()-> unit) {
     x
   };
 
-  borrow return_param(&(x)), (x_ref)-> {
+  borrow return_param(&(x)), (x_ref) => {
     a := x_ref.*;
     compt_expect_error(
       x = 12 // Not allowed, because `x` is borrowed.
     );
   };
 
-  borrow return_param(&(p.x)), (p_x_ref)-> {
+  borrow return_param(&(p.x)), (p_x_ref) => {
     a := p_x_ref.*;
     p.y = 12; // Allowed.
 
@@ -139,10 +139,10 @@ main :: (()-> unit) {
     (mut(y) : i32) = 13;
     largest :: ((x: &(i32), y: &(i32))-> &(i32))
       cond
-        (x.* `gt` y.*) -> x,
-        true -> y
+        (x.* `gt` y.*) => x,
+        true => y
     ;
-    borrow largest(&(x), &(y)), largest -> {
+    borrow largest(&(x), &(y)), largest => {
       (a : i32) = 12;
       compt_expect_error(x = 13);
       compt_expect_error(y = 13);

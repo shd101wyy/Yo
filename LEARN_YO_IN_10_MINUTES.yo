@@ -374,9 +374,9 @@ MyExpr :: ((compt(T): Type)-> compt(Type))
   ;
 my_eval :: ((compt(T): Type, expr: MyExpr(T))-> T)
   match expr,
-    .IntExpr(i) -> i,
-    .BoolExpr(b) -> b,
-    .EqExpr(a, b) -> (my_eval(a) == my_eval(b))
+    .IntExpr   => expr.i,
+    .BoolExpr  => expr.b,
+    .EqExpr => (my_eval(expr.a) == my_eval(expr.b))
 ;
 
 // higher kinded types
@@ -631,11 +631,13 @@ do {
 // ^Type or ^!(Type) is a pointer type which is Linear.
 (ptr : Option(^!(i32))) = malloc(sizeof(i32)); // allocate memory for i32
 match ptr,
-  .Some(p) -> {
+  .Some =>
+    (ptr) => {
+    { p } := ptr;
     p.* = 42; // dereference the pointer
     std.println(p.*); // print the value
   },
-  .None -> std.println("Memory allocation failed");
+  .None => std.println("Memory allocation failed");
 free(ptr); // free the memory
 
 // cast reference to pointer using `as` function
@@ -697,14 +699,14 @@ for 0..=10, (x)-> std.println(x); // NOTE: The last argument is **NOT** a functi
 
 // Pattern matching
 match x,
-  1 -> std.println("x is 1"),
-  2 -> std.println("x is 2"),
-  _ -> std.println("x is not 1 or 2")
+  1 => std.println("x is 1"),
+  2 => std.println("x is 2"),
+  _ => std.println("x is not 1 or 2")
 
 x := Option(i32).Some(12);
 match x,
-  .Some(y) -> std.println("x is Some with value " + y),
-  .None -> std.println("x is None")
+  .Some => std.println("x is Some with value " + x.value),
+  .None => std.println("x is None")
 
 // Error Handling
 // Yo uses the Result type for operations that may fail
@@ -733,8 +735,8 @@ safe_div ::
 // Pattern matching for error handling
 division_result := safe_div(10, 2);
 match division_result,
-  .Ok(value) -> std.println("Result: " + value.to_string()),
-  .Err(.DivideByZero) -> std.println("Error: Cannot divide by zero");
+  .Ok  => std.println("Result: " + division_result.value.to_string()),
+  .Err => std.println("Error: Cannot divide by zero");
 
 // Macro function definition
 // all of its parameters and return type are Expr

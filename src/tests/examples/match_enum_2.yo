@@ -1,0 +1,64 @@
+(@(LinearI32) : Linear) = i32;
+
+Shape :: enum
+  Circle(radius: i32),
+  Rectangle(width: i32, height: i32),
+  Triangle(base: i32, height: i32),
+  LinearShape(width: LinearI32, height: LinearI32)
+;
+
+Circle :: Shape.Circle;
+
+test :: (()-> unit) {
+  shape := Shape.Circle(5);
+
+  // Accessing the field is now allowed,
+  // as we know shape is a Circle.
+  radius := shape.radius;
+  
+  // Destructure assignment is also allowed:
+  {
+    { radius } := shape;
+  };
+
+  linear_shape := Shape.LinearShape(3, 4);
+  {
+    { width, height } := linear_shape; // linear_shape is consumed here
+    
+    compt_expect_error(
+      drop(linear_shape),
+      "error: linear_shape is already consumed"
+    );
+  };
+};
+
+test_match :: ((shape: Shape) -> unit) {
+  match shape,
+    .Circle =>
+      (shape) => {
+        radius := shape.radius;
+        ();
+      },
+    .Rectangle =>
+      (shape) => {
+        { width, height } := shape;
+      },
+    .Triangle =>
+      (shape) => {
+        ();
+      },
+    .LinearShape =>
+      (shape) => {
+        { width, height } := shape;
+        compt_expect_error(
+          drop(shape),
+          "error: shape is already consumed in match"
+        );
+      }
+  ;
+
+  compt_expect_error(
+    drop(shape),
+    "error: shape is already consumed in match"
+  );
+};

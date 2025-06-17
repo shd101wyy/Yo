@@ -6,21 +6,21 @@ Coord :: struct
 main :: (()-> unit) {
   mut(p) := Coord(1, 2);
   
-  borrow &!(p), p_ref -> {
+  borrow &!(p), p_ref => {
     compt_expect_error(
       p.x = 12,
       "cannot assign to `p.x` because it is borrowed"
     );
 
     compt_expect_error(
-      borrow &(p), p_ref2 -> {
+      borrow &(p), p_ref2 => {
         ();
       },
       "error: p is already borrowed"
     );
 
     compt_expect_error(
-      borrow &!(p.y), p_ref2 -> {
+      borrow &!(p.y), p_ref2 => {
         ();
       },
       "error: p is already borrowed"

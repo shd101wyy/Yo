@@ -7,8 +7,8 @@ extern "Yo",
 test :: ((flag: boolean)-> unit) {
   x := malloc();
   cond
-    flag -> consume(x),
-    true -> consume(x)
+    flag => consume(x),
+    true => consume(x)
   ;
   compt_expect_error(
     consume(x), "error: 'x' is already consumed."
@@ -19,11 +19,11 @@ compt_expect_error(
   test2 :: ((flag: boolean)-> unit) {
     x := malloc();
     cond
-      flag -> {
+      flag => {
         consume(x);
         ()
       },
-      true -> ()
+      true => ()
     ;
   },
   "error: 'x' is only consumed in the first branch, but not all branches."

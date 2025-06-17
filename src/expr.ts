@@ -535,7 +535,9 @@ export function mergeAndCheckEnvs(
   // Check if the frame level is the same for all cases
   for (let i = 0; i < caseEnvs.length; i++) {
     const caseEnv = caseEnvs[i]!;
-    if (caseEnv.frames.length - 1 !== maxFrameLevel) {
+    // right now each cond/match case will push new env frame
+    // so it needs to - 2, instead of - 1.
+    if (caseEnv.frames.length - 2 !== maxFrameLevel) {
       throw formatErrorMessages({
         tokenAndErrorList: [
           {

@@ -98,7 +98,6 @@ import {
   isTypeHierarchyType,
   isUnionType,
   ModuleType,
-  StructType,
   TupleElement,
   tupleElementToString,
   TupleType,
@@ -127,6 +126,7 @@ import {
   createUnknownValue,
   isBooleanValue,
   isComptStringValue,
+  isEnumValue,
   isFunctionValue,
   isModuleValue,
   isNumberValue,
@@ -1969,24 +1969,14 @@ ${typeToString(expectedTupleType)}`
     isCompileTimeOnly: boolean;
     context: EvaluatorContext;
   }): Environment {
-    const rhsType = rhs.$?.type;
-    if (!rhsType) {
+    if (!rhs.$?.type) {
       throw this.formatErrorMessage(
         rhs.token,
         `(1) Expected type for right-hand side, got ${exprToString(rhs)}`
       );
     }
-    const rhsValue = rhs.$!.value;
-
-    let dereferencedRhsType: Type | undefined = rhsType;
-    while (
-      isPtrType(dereferencedRhsType) ||
-      isMutPtrType(dereferencedRhsType) ||
-      isRefType(dereferencedRhsType) ||
-      isMutRefType(dereferencedRhsType)
-    ) {
-      dereferencedRhsType = dereferencedRhsType.type;
-    }
+    const rhsType = rhs.$.type;
+    const rhsValue = rhs.$.value;
 
     // Handle struct destructuring
     if (
@@ -2017,6 +2007,44 @@ ${typeToString(expectedTupleType)}`
         lhsFunc: lhs.func,
         lhsElements: lhs.args,
         rhsElements: rhsType.elements,
+        rhsValue: rhsValue,
+        rhsType: rhsType,
+        lhs,
+        env,
+        context: { ...context },
+        isCompileTimeOnly,
+      });
+    }
+    // Handle enum variant destructuring
+    else if (isEnumType(rhsType) && exprIsFunctionCall(lhs)) {
+      const selectedVariantName = rhsType.selectedVariantName;
+      if (!selectedVariantName) {
+        throw this.formatErrorMessage(
+          rhs.token,
+          `Expected enum variant name to be determined, got ${typeToString(rhsType)}`
+        );
+      }
+
+      const selectedVariant = rhsType.variants.find(
+        (variant) => variant.name === selectedVariantName
+      );
+      if (!selectedVariant) {
+        throw this.formatErrorMessage(
+          rhs.token,
+          `Expected enum variant "${selectedVariantName}" to be defined, got ${typeToString(rhsType)}`
+        );
+      }
+      if (!selectedVariant.elements) {
+        throw this.formatErrorMessage(
+          rhs.token,
+          `Cannot destructure enum variant "${selectedVariantName}" without elements, got ${typeToString(rhsType)}`
+        );
+      }
+
+      return this.handleMemberDestructuring({
+        lhsFunc: lhs.func,
+        lhsElements: lhs.args,
+        rhsElements: selectedVariant.elements,
         rhsValue: rhsValue,
         rhsType: rhsType,
         lhs,
@@ -2060,7 +2088,7 @@ ${typeToString(expectedTupleType)}`
     rhsType,
     lhs,
     env,
-    context,
+    // context,
     isCompileTimeOnly,
   }: {
     lhsFunc: Expr;
@@ -2149,7 +2177,8 @@ ${typeToString(expectedTupleType)}`
             const elementValue =
               isTupleValue(rhsValue) ||
               isStructValue(rhsValue) ||
-              isModuleValue(rhsValue)
+              isModuleValue(rhsValue) ||
+              isEnumValue(rhsValue)
                 ? rhsValue.elements[j]
                 : undefined;
 
@@ -2256,7 +2285,8 @@ ${typeToString(expectedTupleType)}`
         return env;
       }
 
-      // Handle labeled nested destructuring pattern like:
+      // Handle labeled destructuring pattern like:
+      // - (c : x)
       // - (c: (x, y))
       // - (c: _(x, y))
       else if (
@@ -2294,7 +2324,7 @@ ${typeToString(expectedTupleType)}`
         elementIndex = matchingMemberIndex;
         rhsElement = rhsElements[elementIndex]!;
         destructuredRhsElementSet.add(rhsElement);
-        const nestedRhsType = rhsElement.type;
+        // const nestedRhsType = rhsElement.type;
 
         // Get the nested value
         let nestedValue: Value | undefined = undefined;
@@ -2304,9 +2334,13 @@ ${typeToString(expectedTupleType)}`
           nestedValue = rhsValue.elements[elementIndex];
         } else if (isModuleValue(rhsValue)) {
           nestedValue = rhsValue.elements[elementIndex];
+        } else if (isEnumValue(rhsValue)) {
+          nestedValue = rhsValue.elements[elementIndex];
         }
         elementValue = nestedValue;
 
+        // NOTE: Let's disable the nested destructuring for now
+        /*
         // Check if the right side is a tuple for nested destructuring (c: (x, y))
         if (
           exprIsFunctionCall(rightSide) &&
@@ -2433,7 +2467,9 @@ ${typeToString(expectedTupleType)}`
         }
 
         // Variable rename case like (a: m)
-        else if (exprIsAtom(rightSide) && this.isValidVariableName(rightSide)) {
+        else 
+        */
+        if (exprIsAtom(rightSide) && this.isValidVariableName(rightSide)) {
           renameExpr = rightSide;
           variableName = rightSide.token.value;
           variableToken = rightSide.token;
@@ -2442,17 +2478,26 @@ ${typeToString(expectedTupleType)}`
         else {
           throw this.formatErrorMessage(
             rightSide.token,
-            `Expected tuple or variable name for destructuring pattern, got ${exprToString(
-              rightSide
-            )}`
+            `Nested destructuring is not supported:
+
+  ${exprToString(rightSide)}`
           );
         }
       }
 
       // Handle nested struct/module destructuring pattern like:
-      // - (a, (x, y))
-      // - (a, _(x, y))
+      // - ((x, y), )
+      // - (_(x, y) )
       else if (exprIsFunctionCall(lhsElement)) {
+        // NOTE: Let's disable the nested destructuring for now
+        throw this.formatErrorMessage(
+          lhsElement.token,
+          `Nested destructuring is not supported:
+  
+  ${exprToString(lhsElement)}`
+        );
+
+        /*
         // Get the right-hand side value at this position
         rhsElement = rhsElements[elementIndex]!;
         destructuredRhsElementSet.add(rhsElement);
@@ -2555,6 +2600,7 @@ ${typeToString(expectedTupleType)}`
           };
           continue;
         }
+        */
       }
 
       // Handle positional destructuring
@@ -2573,6 +2619,8 @@ ${typeToString(expectedTupleType)}`
         if (isTupleValue(rhsValue)) {
           elementValue = rhsValue.elements[elementIndex];
         } else if (isStructValue(rhsValue)) {
+          elementValue = rhsValue.elements[elementIndex];
+        } else if (isEnumValue(rhsValue)) {
           elementValue = rhsValue.elements[elementIndex];
         } else if (isModuleValue(rhsValue)) {
           elementValue = rhsValue.elements[elementIndex];
@@ -3605,7 +3653,7 @@ Got ${typeToString(typeOfType(element.type))}`
     }
 
     // Evaluate each statement
-    // condition -> value.
+    // condition => value.
     // expect each value to be the same type.
     const bodies: Expr[] = [];
     let valueType: { type: Type; env: Environment } | undefined = undefined;
@@ -3614,15 +3662,15 @@ Got ${typeToString(typeOfType(element.type))}`
 
       // NOTE: We shouldn't use the parent `env` here
       // instead, we should create new env.
-      let caseEnv = env;
+      let caseEnv = pushEnvFrame(env);
 
       if (
         !exprIsFunctionCall(statement) ||
-        !exprIsFunctionCallOf(statement, "->", 2)
+        !exprIsFunctionCallOf(statement, "=>", 2)
       ) {
         throw this.formatErrorMessage(
           statement.token,
-          `Expected -> for cond statement, got ${statement.tag}`
+          `Expected => for cond statement, got ${statement.tag}`
         );
       }
       const condExpr = statement.args[0]!;
@@ -3734,6 +3782,15 @@ Got ${typeToString(typeOfType(element.type))}`
     return expr;
   }
 
+  /**
+   *
+   *
+   * match shape // shape will be consumed here and moved to `s` in each condition.
+   *   .Circle => ((s) => s.radius),
+   *   .Square => ((s) => s.side),
+   *   .Rectangle => ((s) => s.width + s.height)
+   * ;
+   */
   private evaluateMatch({
     expr,
     env,
@@ -3760,7 +3817,7 @@ Got ${typeToString(typeOfType(element.type))}`
 
     // Evaluate the value to be matched
     const valueExpr = args[0]!;
-    const evaluatedValue = this.evaluateExpression({
+    const evaluatedMatchValue = this.evaluateExpression({
       expr: valueExpr,
       env,
       context: {
@@ -3768,55 +3825,58 @@ Got ${typeToString(typeOfType(element.type))}`
       },
     });
 
-    if (!evaluatedValue.$) {
+    if (!evaluatedMatchValue.$) {
       throw this.formatErrorMessage(
         valueExpr.token,
         `Failed to evaluate the match value expression: ${exprToString(valueExpr)}`
       );
     }
-    env = evaluatedValue.$?.env;
+    env = evaluatedMatchValue.$.env;
+
+    // Consume the value expression
+    env = setExprAsConsumed(evaluatedMatchValue, env);
 
     // Check if the value is an enum type
-    if (!isEnumType(evaluatedValue.$?.type)) {
+    if (!isEnumType(evaluatedMatchValue.$.type)) {
       throw this.formatErrorMessage(
         valueExpr.token,
         `Expected enum type for match expression, got ${
-          evaluatedValue.$?.type
-            ? typeToString(evaluatedValue.$?.type)
+          evaluatedMatchValue.$.type
+            ? typeToString(evaluatedMatchValue.$.type)
             : "unknown type"
         }`
       );
     }
 
-    const enumType = evaluatedValue.$.type;
+    const enumType = evaluatedMatchValue.$.type;
     const patterns = args.slice(1);
 
     // Evaluate each statement
-    // condition -> value.
     // expect each value to be the same type.
     const bodies: Expr[] = [];
     let resultType: { type: Type; env: Environment } | undefined = undefined;
+    const checkedVariantNames: Set<string> = new Set();
 
     for (let i = 0; i < patterns.length; i++) {
       const pattern = patterns[i]!;
 
       // NOTE: We shouldn't use the parent `env` here
       // instead, we should create new env.
-      let caseEnv = env;
+      let caseEnv = pushEnvFrame(env);
 
       // Check if the pattern is a valid match arm
       if (
         !exprIsFunctionCall(pattern) ||
-        !exprIsFunctionCallOf(pattern, "->", 2)
+        !exprIsFunctionCallOf(pattern, "=>", 2)
       ) {
         throw this.formatErrorMessage(
           pattern.token,
-          `Expected -> for match pattern, got ${exprToString(pattern)}`
+          `Expected ":" for match pattern, got ${exprToString(pattern)}`
         );
       }
 
       const patternExpr = pattern.args[0]!;
-      const resultExpr = pattern.args[1]!;
+      const rhsExpr = pattern.args[1]!;
 
       // Check if the pattern is a valid enum variant
       if (
@@ -3845,10 +3905,91 @@ Got ${typeToString(typeOfType(element.type))}`
             )}`
           );
         }
+        checkedVariantNames.add(variantName);
+
+        let bodyExpr: Expr;
+        // Update the enum type to set the selectedVariantName
+        const newEnumType = {
+          ...enumType,
+          selectedVariantName: variantName,
+        };
+        // Create a new environment for the case
+        //   .VariantName => ((variable) => body)
+        if (
+          exprIsFunctionCall(rhsExpr) &&
+          exprIsFunctionCallOf(rhsExpr, "=>", 2)
+        ) {
+          const variableExpr = rhsExpr.args[0]!;
+          bodyExpr = rhsExpr.args[1]!;
+
+          if (!this.isValidVariableName(variableExpr)) {
+            throw this.formatErrorMessage(
+              variableExpr.token,
+              `Invalid variable name in match arm: ${variableExpr.token.value}`
+            );
+          }
+
+          const variableName = variableExpr.token.value;
+
+          // Add the new variable to env
+          const { env: nextEnv } = addVariableToEnv({
+            env: caseEnv,
+            variable: {
+              name: variableName,
+              token: variableExpr.token,
+              type: newEnumType,
+              isMutable: evaluatedMatchValue.$.isMutable,
+              isUndefined: false, // Set as initialized
+              isCompileTimeOnly: false,
+              isImplicit: false,
+              value: evaluatedMatchValue.$.value,
+            },
+          });
+          caseEnv = nextEnv;
+
+          // Add information to variableExpr
+          variableExpr.$ = {
+            env: caseEnv,
+            type: newEnumType,
+            value: evaluatedMatchValue.$.value,
+            isMutable: evaluatedMatchValue.$.isMutable,
+            pathCollection: [[variableName]],
+          };
+        }
+        //   .VariantName => body;
+        //  this is for case like:
+        //
+        //  match color // < color here is a valid variable name
+        //    .Red => {
+        //       another_color := color; // we can use the "new" `color` here.
+        //    },
+        else {
+          bodyExpr = rhsExpr;
+
+          if (this.isValidVariableName(evaluatedMatchValue)) {
+            const variableName = evaluatedMatchValue.token.value;
+
+            // Add the new variable to env
+            const { env: nextEnv } = addVariableToEnv({
+              env: caseEnv,
+              variable: {
+                name: variableName,
+                token: evaluatedMatchValue.token,
+                type: newEnumType,
+                isMutable: evaluatedMatchValue.$.isMutable,
+                isUndefined: false, // Set as initialized
+                isCompileTimeOnly: false,
+                isImplicit: false,
+                value: evaluatedMatchValue.$.value,
+              },
+            });
+            caseEnv = nextEnv;
+          }
+        }
 
         // Evaluate the result expression
         const evaluatedResult = this.evaluateExpression({
-          expr: resultExpr,
+          expr: bodyExpr,
           env: caseEnv,
           context: {
             ...context,
@@ -3858,9 +3999,9 @@ Got ${typeToString(typeOfType(element.type))}`
 
         if (!evaluatedResult.$?.type) {
           throw this.formatErrorMessage(
-            resultExpr.token,
+            bodyExpr.token,
             `Expected type for match result expression, got ${exprToString(
-              resultExpr
+              bodyExpr
             )}`
           );
         }
@@ -3901,148 +4042,23 @@ Got ${typeToString(typeOfType(element.type))}`
         }
       }
       // For patterns with destructuring like Shape.Circle(r)
+      // NOTE: This is no longer supported
       else if (
         exprIsFunctionCall(patternExpr) &&
         exprIsFunctionCall(patternExpr.func) &&
         exprIsFunctionCallOf(patternExpr.func, ".", 1)
       ) {
-        const variantExpr = patternExpr.func;
-        const variantNameExpr = variantExpr.args[0]!;
-        if (!exprIsAtom(variantNameExpr)) {
-          throw this.formatErrorMessage(
-            variantExpr.token,
-            `Expected identifier for enum variant, got ${exprToString(
-              variantNameExpr
-            )}`
-          );
-        }
-
-        const variantName = variantNameExpr.token.value;
-        // Check if variant exists in enum
-        const variant = enumType.variants.find((v) => v.name === variantName);
-        if (!variant) {
-          throw this.formatErrorMessage(
-            patternExpr.token,
-            `Enum variant "${variantName}" not found in ${typeToString(
-              enumType
-            )}`
-          );
-        }
-
-        if (!variant.elements) {
-          throw this.formatErrorMessage(
-            patternExpr.token,
-            `Enum variant "${variantName}" does not have elements but got pattern with elements`
-          );
-        }
-
-        // Check if the pattern arguments match the variant parameters
-        const patternElements = patternExpr.args;
-        if (patternElements.length > variant.elements.length) {
-          throw this.formatErrorMessage(
-            patternExpr.token,
-            `Too many parameters in pattern. Expected ${variant.elements.length}, got ${patternElements.length}`
-          );
-        }
-
-        // Add each element to environment as local variable
-        for (let j = 0; j < patternElements.length; j++) {
-          const patternElement = patternElements[j]!;
-          const variantElement = variant.elements[j]!;
-
-          if (
-            !exprIsAtom(patternElement) ||
-            !this.isValidVariableName(patternElement)
-          ) {
-            throw this.formatErrorMessage(
-              patternElement.token,
-              `Expected identifier for parameter, got ${exprToString(
-                patternElement
-              )}`
-            );
-          }
-
-          // Assign the proper type from the variant parameter to this variable
-          patternElement.$ = {
-            env: caseEnv,
-            type: variantElement.type,
-            isMutable: false,
-            pathCollection: [],
-          };
-
-          // console.log("(8) addVariableToEnv");
-          const { env: updatedEnv } = addVariableToEnv({
-            env: caseEnv,
-            variable: {
-              name: patternElement.token.value,
-              token: patternElement.token,
-              type: variantElement.type,
-              isMutable: false,
-              isUndefined: false,
-              isImplicit: false,
-              isCompileTimeOnly: false,
-            },
-          });
-
-          // Update our local environment
-          caseEnv = updatedEnv;
-        }
-
-        // Evaluate the result expression in the pattern's environment
-        const evaluatedResult = this.evaluateExpression({
-          expr: resultExpr,
-          env: caseEnv,
-          context: {
-            ...context,
-          },
-        });
-
-        if (!evaluatedResult.$?.type) {
-          throw this.formatErrorMessage(
-            resultExpr.token,
-            `Expected type for match result expression, got ${exprToString(
-              resultExpr
-            )}`
-          );
-        }
-
-        // Set or verify the result type consistency
-        if (!resultType) {
-          resultType = { type: evaluatedResult.$.type, env: caseEnv };
-        } else if (
-          !areTypesCompatible(
-            { type: resultType.type, env: resultType.env },
-            { type: evaluatedResult.$?.type, env }
-          )
-        ) {
-          // Check if the types match when converting to runtime type
-          if (
-            areTypesCompatible(
-              {
-                type: convertComptTypeToRuntimeType(resultType.type),
-                env: resultType.env,
-              },
-              {
-                type: evaluatedResult.$.type,
-                env: caseEnv,
-              }
-            )
-          ) {
-            resultType = { type: evaluatedResult.$.type, env: caseEnv };
-          } else {
-            throw this.formatErrorMessage(
-              valueExpr.token,
-              `Incompatible types:
-- Previous: ${typeToString(resultType.type)}
-- Current : ${typeToString(evaluatedResult.$.type)}`
-            );
-          }
-        }
+        throw this.formatErrorMessage(
+          patternExpr.token,
+          `Destructuring enum variant elements is not supported in match expressions.
+Please use .variantName for destructuring enum variants,
+then destructure the value in the case body expression.`
+        );
       } else {
         throw this.formatErrorMessage(
           patternExpr.token,
           `Invalid pattern in match expression: ${exprToString(patternExpr)}
-Please use .variantName or .variantName(args) for destructuring enum variants.`
+Please use .variantName for destructuring enum variants.`
         );
       }
     }
@@ -4051,6 +4067,19 @@ Please use .variantName or .variantName(args) for destructuring enum variants.`
       throw this.formatErrorMessage(
         expr.token,
         `Could not determine result type for match expression`
+      );
+    }
+
+    // Perform exhaustiveness check
+    const missingVariants = enumType.variants.filter(
+      (variant) => !checkedVariantNames.has(variant.name)
+    );
+    if (missingVariants.length > 0) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Match expression is not exhaustive. Missing cases for variants:
+        
+- ${missingVariants.map((v) => v.name).join("\n- ")}`
       );
     }
 
@@ -5951,7 +5980,7 @@ ${typeToString(returnType)}`
     }
 
     if (isTypeValue(objectExpr.$?.value)) {
-      const typeValue = objectExpr.$?.value;
+      const typeValue = objectExpr.$.value;
       if (isEnumType(typeValue.value)) {
         // Expect propertyExpr to be a symbol atom
         if (!exprIsAtom(propertyExpr)) {
@@ -6003,7 +6032,7 @@ ${typeToString(returnType)}`
         /**
          * This is for case like
          * Color :: enum Red, Green, Blue;
-         * r := Color.Red;
+         * Red :: Color.Red;
          */
         if (!variant.elements) {
           expr.$ = {
@@ -6037,7 +6066,7 @@ ${typeToString(returnType)}`
         }
         return expr;
       }
-      // type methods
+      // Accessing compt fields of a struct/union type.
       else if (isStructType(typeValue.value) || isUnionType(typeValue.value)) {
         if (!this.isValidVariableName(propertyExpr)) {
           throw this.formatErrorMessage(
@@ -6287,11 +6316,64 @@ ${typeToString(returnType)}`
           }
         }
       }
+    } else if (isEnumType(objectType)) {
+      if (exprIsAtom(propertyExpr)) {
+        if (!this.isValidVariableName(propertyExpr)) {
+          throw this.formatErrorMessage(
+            propertyExpr.token,
+            `Expected identifier for enum variant property, got:\n${exprToString(
+              propertyExpr
+            )}`
+          );
+        }
+
+        const propertyName = propertyExpr.token.value;
+        const selectedVariant = objectType.variants.find(
+          (variant) => variant.name === objectType.selectedVariantName
+        );
+        if (selectedVariant) {
+          // Check if the property exists in the selected variant
+          const fieldIndex = (selectedVariant.elements ?? []).findIndex(
+            (property) => property.label === propertyName
+          );
+          if (fieldIndex < 0) {
+            throw this.formatErrorMessage(
+              propertyExpr.token,
+              `Enum variant property "${propertyName}" not found in enum variant "${objectType.selectedVariantName}"`
+            );
+          }
+          const field = (selectedVariant.elements ?? [])[fieldIndex]!;
+
+          expr.$ = {
+            env,
+            type: field.type,
+            value: undefined,
+            isMutable: false,
+            pathCollection: [],
+            isAccessingProperty: true,
+          };
+
+          // handle comptime value
+          const variantValue = objectExpr.$?.value;
+          if (
+            variantValue &&
+            isEnumValue(variantValue) &&
+            variantValue.variantName === selectedVariant.name
+          ) {
+            expr.$.value = variantValue.elements[fieldIndex];
+          }
+
+          propertyExpr.$ = expr.$;
+          return expr;
+        } else {
+          // It could be enum method call, so we ignore here.
+        }
+      }
     }
 
-    // TODO: Evaluate the interface method call
+    // TODO: Evaluate the module method call
     // Since we fail to evaluate the property access
-    // it could be an ~~uniform function call~~ interface method call.
+    // it could be an ~~uniform function call~~ module method call.
     expr.$ = undefined;
     return expr;
   }
@@ -6517,7 +6599,7 @@ ${typeToString(returnType)}`
         // NOTE: This is necessary for function like array accessing element by index
         // for example:
         //   mut(xs) := [1, 2, 3];
-        //   borrow &!(xs), xs_ref -> {
+        //   borrow &!(xs), xs_ref => {
         //     first_element := xs(0); // here `xs` is already borrowed, so we cannot use it.
         //   }
         checkBorrowings(context.borrowings, functionToCall);
@@ -6720,7 +6802,7 @@ ${typeToString(returnType)}`
           // NOTE: This is necessary for function like array accessing element by index
           // for example:
           //   mut(xs) := [1, 2, 3];
-          //   borrow &!(xs), xs_ref -> {
+          //   borrow &!(xs), xs_ref => {
           //     first_element := xs(0); // here `xs` is already borrowed, so we cannot use it.
           //   }
           checkBorrowings(context.borrowings, functionToCall);
@@ -7222,7 +7304,7 @@ ${functionsWithMatchingTypes
            * We read the isMutable and pathCollection from it.
            * This is mainly used for array, for example:
            *   mut(xs) := [1, 2, 3];
-           *   borrow &!(xs(0)), xs_ref -> {
+           *   borrow &!(xs(0)), xs_ref => {
            *     //      ^ calling here, it is mutable.
            *   }
            */
@@ -9773,7 +9855,7 @@ Got:   ${typeToString(argType)}`
 
   /*
   eg:
-    borrow((borrowed_values), (borrow_bindings)-> {
+    borrow((borrowed_values), (borrow_bindings)=> {
       let y = x_ref.*;
       y + 1
     });
@@ -9813,11 +9895,11 @@ Got:   ${typeToString(argType)}`
     const secondExpr = expr.args[1]!;
     if (
       !exprIsFunctionCall(secondExpr) ||
-      !exprIsFunctionCallOf(secondExpr, "->", 2)
+      !exprIsFunctionCallOf(secondExpr, "=>", 2)
     ) {
       throw this.formatErrorMessage(
         secondExpr.token,
-        `Expected "->" with 2 arguments, got:\n${exprToString(secondExpr)}`
+        `Expected "=>" with 2 arguments, got:\n${exprToString(secondExpr)}`
       );
     }
     const borrowBindingExprs: Expr[] = [];
