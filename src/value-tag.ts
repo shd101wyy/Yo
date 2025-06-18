@@ -23,5 +23,6 @@ export enum ValueTag {
   Struct = "Struct",
   Enum = "Enum",
   Module = "Module",
+  Expr = "Expr",
   Unknown = "Unknown",
 }

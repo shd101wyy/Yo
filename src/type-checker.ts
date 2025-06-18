@@ -84,6 +84,9 @@ export enum TypeTag {
   Ptr = "Ptr",
   MutRef = "MutRef",
   Ref = "Ref",
+
+  // Expr (for macro/metaprogramming)
+  Expr = "Expr",
 }
 
 export interface TypeMethod {
@@ -148,6 +151,10 @@ export interface LiteralType extends Type {
   type: Type;
 }
 
+export interface ExprType extends Type {
+  tag: TypeTag.Expr;
+}
+
 export function isPrimitiveType(type: Type): boolean {
   return (
     type.tag === TypeTag.Unit ||
@@ -169,6 +176,10 @@ export function isPrimitiveType(type: Type): boolean {
   );
 }
 
+export function isUnitType(type?: Type): boolean {
+  return type?.tag === TypeTag.Unit;
+}
+
 export function isComptIntType(type?: Type): boolean {
   return type?.tag === TypeTag.ComptInt;
 }
@@ -181,8 +192,12 @@ export function isComptStringType(type?: Type): boolean {
   return type?.tag === TypeTag.ComptString;
 }
 
-export function isBooleanType(type: Type): boolean {
-  return type.tag === TypeTag.Boolean;
+export function isBooleanType(type?: Type): boolean {
+  return type?.tag === TypeTag.Boolean;
+}
+
+export function isExprType(type?: Type): boolean {
+  return type?.tag === TypeTag.Expr;
 }
 
 // Add missing kind field to all Type constants
@@ -280,6 +295,12 @@ export function createComptStringType(): Type {
 export function createBooleanType(): Type {
   return {
     tag: TypeTag.Boolean,
+  };
+}
+
+export function createExprType(): ExprType {
+  return {
+    tag: TypeTag.Expr,
   };
 }
 
@@ -1137,7 +1158,9 @@ export function typeOfType(
     return createTypeHierarchy((t as TypeHierarchyType).level + 1);
   } else if (isComptIntType(t) || isComptFloatType(t) || isComptStringType(t)) {
     return createFreeType();
-  } else if (t.tag === TypeTag.Function) {
+  } else if (isExprType(t)) {
+    return createFreeType();
+  } else if (isFunctionType(t)) {
     return createFreeType();
   } else if (isArrayType(t)) {
     // For arrays, check the element type
@@ -1822,7 +1845,8 @@ export function typeRequiresComptModifier(type?: Type): boolean {
     isModuleType(type) ||
     isComptIntType(type) ||
     isComptFloatType(type) ||
-    isComptStringType(type)
+    isComptStringType(type) ||
+    isExprType(type)
   );
 }
 
@@ -2166,6 +2190,10 @@ export function typeToString(type: Type): string {
 
     case TypeTag.MutRef: {
       return `&!(${typeToString((type as MutRefType).type)})`;
+    }
+
+    case TypeTag.Expr: {
+      return "Expr";
     }
 
     default: {

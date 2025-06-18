@@ -2,7 +2,9 @@ Eq ::
   ((@(Lhs): Type, @(Rhs) ?= Lhs) -> @(Type))
   module
     Self := Lhs,
+
     eq: ((lhs: &(Lhs), rhs: &(Rhs)) -> boolean),
+
     (ne: ((lhs: &(Lhs), rhs: &(Rhs)) -> boolean)) ?= 
       (fn(lhs, rhs) ->
         not(eq(lhs, rhs))
@@ -15,9 +17,10 @@ Eq ::
 // or
 // x.eq(&y)
 /*
-export macro (==) <Lhs, Rhs>(lhs: Expr<Lhs>, rhs: Expr<Rhs>): Expr<boolean> {
-  Eq.eq(&lhs, &rhs)
-}
+(==) :: (( quote(lhs) : Expr, quote(rhs) : Expr)-> unquote(Expr))
+  quote(
+    Eq(typeof(unquote(lhs))).eq(&(unquote(lhs)), &(unquote(rhs)))
+  )
 */
 
 export Eq;

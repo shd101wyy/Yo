@@ -1,4 +1,5 @@
 import { Environment } from "./env";
+import { Expr, exprToString } from "./expr";
 import { FunctionValue } from "./function-value";
 import {
   areTypesCompatible,
@@ -7,6 +8,7 @@ import {
   createComptFloatType,
   createComptIntType,
   createComptStringType,
+  createExprType,
   createF32Type,
   createF64Type,
   createI16Type,
@@ -20,6 +22,7 @@ import {
   createU8Type,
   createUsizeType,
   EnumType,
+  ExprType,
   isTypeHierarchyType,
   ModuleType,
   SomeType,
@@ -100,6 +103,12 @@ export type ArrayValue = {
   elements: Value[];
 };
 
+export type ExprValue = {
+  tag: ValueTag.Expr;
+  type: ExprType;
+  value: Expr;
+};
+
 export type UnknownValue = {
   tag: ValueTag.Unknown;
   type: Type;
@@ -117,6 +126,7 @@ export type Value =
   | EnumValue
   | ModuleValue
   | FunctionValue
+  | ExprValue
   | UnknownValue;
 
 /**
@@ -201,6 +211,9 @@ export function valueToString(value?: Value): string {
     case ValueTag.Unit: {
       return `()`;
     }
+    case ValueTag.Expr: {
+      return exprToString(value.value);
+    }
     case ValueTag.Unknown: {
       return `<compt ${typeToString(value.type)}>`;
     }
@@ -275,6 +288,10 @@ export function isEnumValue(value?: Value): value is EnumValue {
 
 export function isModuleValue(value?: Value): value is ModuleValue {
   return value?.tag === ValueTag.Module;
+}
+
+export function isExprValue(value?: Value): value is ExprValue {
+  return value?.tag === ValueTag.Expr;
 }
 
 export function createTypeValue(value: Type): TypeValue {
@@ -422,6 +439,14 @@ export function createArrayValue(
   };
 }
 
+export function createExprValue(expr: Expr): ExprValue {
+  return {
+    tag: ValueTag.Expr,
+    type: createExprType(),
+    value: expr,
+  };
+}
+
 export function areValuesEqual(
   expected: {
     value: Value | undefined;
@@ -548,6 +573,8 @@ export function areValuesEqual(
       }
     }
     return true;
+  } else if (isExprValue(value1) && isExprValue(value2)) {
+    return value1.value === value2.value;
   } else {
     return false;
   }

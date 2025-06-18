@@ -231,6 +231,7 @@ export const BuiltinKeywords = {
   open: ["open"],
   // pass: ["paas"], // pass is the same as noop
   drop: ["drop"],
+  clone: ["clone"],
   break: ["break"],
   continue: ["continue"],
   while: ["while"],

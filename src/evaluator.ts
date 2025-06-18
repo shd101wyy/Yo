@@ -82,6 +82,7 @@ import {
   isArrayType,
   isBooleanType,
   isEnumType,
+  isExprType,
   isFreeType,
   isFunctionType,
   isFunctionTypeAndIsTypeFunction,
@@ -97,6 +98,7 @@ import {
   isTupleType,
   isTypeHierarchyType,
   isUnionType,
+  isUnitType,
   ModuleType,
   MutPtrType,
   MutRefType,
@@ -123,6 +125,7 @@ import {
   createBooleanValue,
   createComptStringValue,
   createEnumValue,
+  createExprValue,
   createModuleValue,
   createNumberValue,
   createStructValue,
@@ -132,6 +135,7 @@ import {
   isBooleanValue,
   isComptStringValue,
   isEnumValue,
+  isExprValue,
   isFunctionValue,
   isModuleValue,
   isNumberValue,
@@ -10557,7 +10561,6 @@ Got:   ${typeToString(argType)}`
    * while condition, step, body
    * while condition, body
    */
-  /*
   private evaluateWhile({
     expr,
     env,
@@ -10575,7 +10578,7 @@ Got:   ${typeToString(argType)}`
       // while condition, body
       conditionExpr = expr.args[0]!;
       bodyExpr = expr.args[1]!;
-    } else if (expr.args === 3) {
+    } else if (expr.args.length === 3) {
       // while condition, step, body
       conditionExpr = expr.args[0]!;
       stepExpr = expr.args[1]!;
@@ -10609,8 +10612,165 @@ Got:   ${typeToString(argType)}`
         )}`
       );
     }
+
+    // Evaluate the body
+    const evaluatedBodyExpr = this.evaluateExpression({
+      expr: bodyExpr,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!evaluatedBodyExpr.$) {
+      throw this.formatErrorMessage(
+        bodyExpr.token,
+        `Failed to evaluate the body expression:\n${exprToString(bodyExpr)}`
+      );
+    }
+    if (!isUnitType(evaluatedBodyExpr.$.type)) {
+      throw this.formatErrorMessage(
+        bodyExpr.token,
+        `Expected the while loop body to return unit, but got:\n${typeToString(evaluatedBodyExpr.$.type)}`
+      );
+    }
+
+    // Evaluate the step
+    if (stepExpr) {
+      const evaluatedStepExpr = this.evaluateExpression({
+        expr: stepExpr,
+        env,
+        context: {
+          ...context,
+        },
+      });
+      if (!evaluatedStepExpr.$) {
+        throw this.formatErrorMessage(
+          stepExpr.token,
+          `Failed to evaluate the step expression:\n${exprToString(stepExpr)}`
+        );
+      }
+    }
+
+    // return the expr
+    expr.$ = {
+      env: env,
+      isMutable: false,
+      pathCollection: [],
+      type: VUnit.type,
+      value: VUnit,
+    };
+    return expr;
   }
-  */
+
+  private processUnquotesInExpr({
+    expr,
+    env,
+    context,
+  }: {
+    expr: Expr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): Expr {
+    if (exprIsAtom(expr)) {
+      return expr;
+    } else {
+      // If it's a function call, we need to check the args and func
+      const func = expr.func;
+      const args = expr.args;
+
+      if (
+        exprIsAtom(func) &&
+        exprIsAtomOf(func, BuiltinKeywords.unquote) &&
+        args.length === 1
+      ) {
+        // If the function is `unquote`, we need to evaluate the first argument
+        const arg = args[0]!;
+        const evaluatedArg = this.evaluateExpression({
+          expr: arg,
+          env,
+          context: {
+            ...context,
+          },
+        });
+        if (
+          !evaluatedArg.$ ||
+          !isExprType(evaluatedArg.$.type) ||
+          !evaluatedArg.$.value
+        ) {
+          throw this.formatErrorMessage(
+            arg.token,
+            `Expected expression type for "unquote" argument, got:\n${exprToString(arg)}`
+          );
+        }
+        const exprValue = evaluatedArg.$.value;
+        if (isUnknownValue(exprValue)) {
+          // If the value is unknown, we return the original expr
+          return expr;
+        } else if (isExprValue(exprValue)) {
+          // If the value is an expression, we return the expression
+          return exprValue.value;
+        } else {
+          // If the value is not an expression, we throw an error
+          throw this.formatErrorMessage(
+            arg.token,
+            `Expected expression value for "unquote" argument, got:\n${valueToString(exprValue)}`
+          );
+        }
+      } else {
+        // If it's not a function call of `unquote`, we need to process the func and args
+        const newFunc = this.processUnquotesInExpr({
+          expr: func,
+          env,
+          context: {
+            ...context,
+          },
+        });
+        const newArgs = args.map((arg) =>
+          this.processUnquotesInExpr({
+            expr: arg,
+            env,
+            context: {
+              ...context,
+            },
+          })
+        );
+        const newExpr = {
+          ...expr,
+          func: newFunc,
+          args: newArgs,
+        };
+        return newExpr;
+      }
+    }
+  }
+
+  private evaluateQuote({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    const quotedExpr = this.processUnquotesInExpr({
+      expr: expr.args[0]!,
+      env: env,
+      context: {
+        ...context,
+      },
+    });
+
+    const exprValue = createExprValue(quotedExpr);
+    expr.$ = {
+      env,
+      type: exprValue.type,
+      value: exprValue,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
 
   private evaluateReferenceCall({
     expr,
@@ -11150,6 +11310,9 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.drop, 1)) {
         // drop
         return this.evaluateDrop({ expr, env, context: { ...context } });
+      } // metaprogramming
+      else if (exprIsFunctionCallOf(expr, BuiltinKeywords.quote, 1)) {
+        return this.evaluateQuote({ expr, env, context: { ...context } });
       } else {
         /* else if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
         // while
@@ -11165,7 +11328,8 @@ ${exprToString(expr)}`
         /* else if (exprIsFunctionCallOf(expr, ".", 1)) {
         // variant
         return this.evaluateVariant({ expr, env, context });
-      } */
+      } 
+      */
         // Function call
         return this.evaluateFunctionCall({
           expr,

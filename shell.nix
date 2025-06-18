@@ -5,11 +5,11 @@ let
 in
 mkShell rec {
   buildInputs = [
-    pkgsUnstable.bun
-    python3
-    cmake
-    llvmPackages_14.llvm
-    clang
+    pkgs.bun
+    # python3
+    # cmake
+    # llvmPackages_14.llvm
+    # clang
   ];
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
   # where to find libgcc
