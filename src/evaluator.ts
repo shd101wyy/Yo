@@ -118,6 +118,7 @@ import { randomId } from "./utils";
 import {
   areValuesEqual,
   ArrayValue,
+  BooleanValue,
   createArrayValue,
   createBooleanValue,
   createComptStringValue,
@@ -10396,6 +10397,112 @@ Got:   ${typeToString(argType)}`
     }
   }
 
+  private evaluateNot({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    const notArg = expr.args[0]!;
+
+    // Evaluate the argument expression
+    const evaluatedNotArg = this.evaluateExpression({
+      expr: notArg,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!evaluatedNotArg.$ || !isBooleanType(evaluatedNotArg.$.type)) {
+      throw this.formatErrorMessage(
+        notArg.token,
+        `Expected boolean type for "not" argument, got:\n${exprToString(notArg)}`
+      );
+    }
+
+    let value = evaluatedNotArg.$.value;
+    if (isBooleanValue(value)) {
+      value = createBooleanValue(!value.value);
+    }
+
+    expr.$ = {
+      env: evaluatedNotArg.$.env,
+      type: createBooleanType(),
+      value,
+      isMutable: false,
+      pathCollection: [],
+      isAccessingProperty: false,
+    };
+    return expr;
+  }
+
+  private evaluateAndOr({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    const kind = expr.func.token.value === "and" ? "and" : "or";
+    const args = expr.args;
+
+    // Evaluate all args
+    const values: (Value | undefined)[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+
+      const evaluatedArg = this.evaluateExpression({
+        expr: arg,
+        env,
+        context: {
+          ...context,
+        },
+      });
+      if (!evaluatedArg.$ || !isBooleanType(evaluatedArg.$.type)) {
+        throw this.formatErrorMessage(
+          arg.token,
+          `Expected boolean type for "${kind}" argument, got:\n${exprToString(arg)}`
+        );
+      }
+      values.push(evaluatedArg.$.value);
+      env = evaluatedArg.$.env;
+    }
+
+    let value: Value | undefined = undefined;
+    if (values.every((val) => isBooleanValue(val))) {
+      value = createBooleanValue(
+        kind === "and"
+          ? values.reduce(
+              (acc, val) => acc && (val as BooleanValue).value,
+              true
+            )
+          : values.reduce(
+              (acc, val) => acc || (val as BooleanValue).value,
+              false
+            )
+      );
+    } else if (values.some((val) => isUnknownValue(val))) {
+      value = createUnknownValue(createBooleanType());
+    } else {
+      value = undefined; // runtime value
+    }
+
+    expr.$ = {
+      env: env,
+      type: createBooleanType(),
+      value,
+      isMutable: false,
+      pathCollection: [],
+      isAccessingProperty: false,
+    };
+    return expr;
+  }
+
   /**
    * Explicitly drop a value.
    * This function is related with RAII.
@@ -11031,6 +11138,15 @@ ${exprToString(expr)}`
           env,
           context: { ...context },
         });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.not, 1)) {
+        // not
+        return this.evaluateNot({ expr, env, context: { ...context } });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinKeywords.and) ||
+        exprIsFunctionCallOf(expr, BuiltinKeywords.or)
+      ) {
+        // and/or
+        return this.evaluateAndOr({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.drop, 1)) {
         // drop
         return this.evaluateDrop({ expr, env, context: { ...context } });

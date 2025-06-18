@@ -236,6 +236,9 @@ export const BuiltinKeywords = {
   while: ["while"],
   for: ["for"],
   if: ["if"],
+  and: ["and"],
+  or: ["or"],
+  not: ["not"],
 
   // values
   undefined: ["undefined"],
@@ -253,6 +256,7 @@ export const BuiltinKeywords = {
   Rc: ["$"], // Everthing comes with a cost.
   Tuple: ["Tuple"],
   Array: ["Array"],
+  anyopaque: ["anyopaque"], // Any opaque type, which is not known at compile time.
 
   // data values
   tuple: "tuple",
