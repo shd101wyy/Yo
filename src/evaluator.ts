@@ -174,7 +174,10 @@ interface EvaluatorContext {
   /**
    * This is used for calling the `recur` function.
    */
-  isEvaluatingFunctionBodyOfType?: FunctionType;
+  isEvaluatingFunctionBody?: {
+    type: FunctionType;
+    value?: FunctionValue;
+  };
 
   /**
    * The innermost struct, enum, or union that this function call is inside.
@@ -191,6 +194,122 @@ interface EvaluatorContext {
    * The borrowings.
    */
   borrowings: Borrowing[];
+}
+
+interface FunctionCallResult {
+  calleeEnv: Environment;
+  callerEnv: Environment;
+  pathCollection: PathCollection;
+  returnType: Type;
+}
+
+interface TypeCallResult {
+  values: (Value | undefined)[];
+  pathCollection: PathCollection;
+  callerEnv: Environment;
+}
+
+interface ModuleTypeCallResult {
+  moduleValue: ModuleValue;
+  callerEnv: Environment;
+}
+
+interface ArrayCallResult {
+  value: Value | undefined;
+}
+
+interface FunctionToCall {
+  type: Type;
+  value?: Value;
+  result:
+    | {
+        /**
+         * This is the result from calling:
+         *
+         *   this.tryToCallFunctionWithArguments
+         */
+        kind: "function";
+        result: FunctionCallResult;
+      }
+    | {
+        /**
+         * This is the result from calling:
+         *
+         *   this.tryToCallTypeWithArguments
+         */
+        kind: "type";
+        result: TypeCallResult;
+      }
+    | {
+        /**
+         * This is the result from calling:
+         *
+         *   this.tryToImplementFunctionByFunctionType
+         */
+        kind: "function-type";
+      }
+    | {
+        /**
+         * This is the result from calling:
+         *
+         *   this.tryToImplementModuleWithArguments
+         */
+        kind: "module-type";
+        result: ModuleTypeCallResult;
+      }
+    | {
+        /**
+         * This is the result from calling:
+         *
+         *   this.tryToCallArrayWithArguments
+         */
+        kind: "array";
+        result: ArrayCallResult;
+      }
+    | {
+        kind: "error";
+        error: Error | MoParserError;
+      };
+}
+
+function getFunctionCallResult(
+  functionToCall: FunctionToCall
+): FunctionCallResult {
+  if (functionToCall.result.kind !== "function") {
+    throw new Error(
+      `Expected function call result, got ${functionToCall.result.kind}`
+    );
+  }
+  return functionToCall.result.result;
+}
+
+function getTypeCallResult(functionToCall: FunctionToCall): TypeCallResult {
+  if (functionToCall.result.kind !== "type") {
+    throw new Error(
+      `Expected type call result, got ${functionToCall.result.kind}`
+    );
+  }
+  return functionToCall.result.result;
+}
+
+function getModuleTypeCallResult(
+  functionToCall: FunctionToCall
+): ModuleTypeCallResult {
+  if (functionToCall.result.kind !== "module-type") {
+    throw new Error(
+      `Expected module type call result, got ${functionToCall.result.kind}`
+    );
+  }
+  return functionToCall.result.result;
+}
+
+function getArrayCallResult(functionToCall: FunctionToCall): ArrayCallResult {
+  if (functionToCall.result.kind !== "array") {
+    throw new Error(
+      `Expected array call result, got ${functionToCall.result.kind}`
+    );
+  }
+  return functionToCall.result.result;
 }
 
 /**
@@ -3770,6 +3889,15 @@ Got ${typeToString(typeOfType(element.type))}`
     // expect each value to be the same type.
     const bodies: Expr[] = [];
     let valueType: { type: Type; env: Environment } | undefined = undefined;
+
+    /**
+     * BooleanValue means the condition could be evaluated at compile-time and we got a concrete boolean value.
+     * UnknownValue means the condition could be evaluated at compile-time, but we don't know the value yet.
+     * undefined means the condition could not be evaluated at compile-time, and it's runtime only.
+     */
+    const condValues: (BooleanValue | UnknownValue | undefined)[] = [];
+    const caseBodyValues: (Value | undefined)[] = [];
+
     for (let i = 0; i < statements.length; i++) {
       const statement = statements[i]!;
 
@@ -3786,11 +3914,11 @@ Got ${typeToString(typeOfType(element.type))}`
           `Expected => for cond statement, got ${statement.tag}`
         );
       }
-      const condExpr = statement.args[0]!;
-      const valueExpr = statement.args[1]!;
+      let condExpr = statement.args[0]!;
+      let caseBodyExpr = statement.args[1]!;
 
       // Expect condExpr to be a boolean
-      const evaluatedCond = this.evaluateExpression({
+      condExpr = this.evaluateExpression({
         expr: condExpr,
         env: caseEnv,
         context: {
@@ -3799,51 +3927,53 @@ Got ${typeToString(typeOfType(element.type))}`
       });
 
       // TODO: Check comptime value if exists
-      if (!evaluatedCond.$) {
+      if (!condExpr.$) {
         throw this.formatErrorMessage(
           condExpr.token,
           `Failed to evaluate condition expression: ${exprToString(condExpr)}`
         );
       }
-      caseEnv = evaluatedCond.$.env;
+      caseEnv = condExpr.$.env;
 
-      if (!isBooleanType(evaluatedCond.$.type)) {
+      if (!isBooleanType(condExpr.$.type)) {
         throw this.formatErrorMessage(
           condExpr.token,
           `Expected boolean for cond statement, got ${exprToString(condExpr)}`
         );
       }
 
-      // Evaluate the valueExpr
-      const evaluatedValue = this.evaluateExpression({
-        expr: valueExpr,
+      // Check if it's comptime false
+      const condValue = condExpr.$.value;
+      if (isBooleanValue(condValue) && condValue.value === false) {
+        continue; // No need to evaluate the case body
+      }
+
+      // Evaluate the caseBodyExpr
+      caseBodyExpr = this.evaluateExpression({
+        expr: caseBodyExpr,
         env: caseEnv,
         context: {
           ...context,
         },
       });
 
-      // QUESTION: Should we update the env here?
-      // if (evaluatedValue.env) {
-      //   env = evaluatedValue.env;
-      //}
-      if (!evaluatedValue.$?.type) {
+      if (!caseBodyExpr.$?.type) {
         throw this.formatErrorMessage(
-          valueExpr.token,
-          `Expected type for cond statement, got ${exprToString(valueExpr)}`
+          caseBodyExpr.token,
+          `Expected type for cond statement, got ${exprToString(caseBodyExpr)}`
         );
       }
-      caseEnv = evaluatedValue.$.env;
-      bodies.push(evaluatedValue);
+      caseEnv = caseBodyExpr.$.env;
+      bodies.push(caseBodyExpr);
 
       if (!valueType) {
-        valueType = { type: evaluatedValue.$?.type, env: caseEnv };
+        valueType = { type: caseBodyExpr.$.type, env: caseEnv };
       } else {
         // Check if the types are compatible
         if (
           !areTypesCompatible(
             { type: valueType.type, env: valueType.env },
-            { type: evaluatedValue.$.type, env: caseEnv }
+            { type: caseBodyExpr.$.type, env: caseEnv }
           )
         ) {
           // Check if the types match when converting to runtime type
@@ -3854,21 +3984,28 @@ Got ${typeToString(typeOfType(element.type))}`
                 env: valueType.env,
               },
               {
-                type: evaluatedValue.$.type,
+                type: caseBodyExpr.$.type,
                 env: caseEnv,
               }
             )
           ) {
-            valueType = { type: evaluatedValue.$.type, env: caseEnv };
+            valueType = { type: caseBodyExpr.$.type, env: caseEnv };
           } else {
             throw this.formatErrorMessage(
-              valueExpr.token,
+              caseBodyExpr.token,
               `Incompatible types:
 - Previous: ${typeToString(valueType.type)}
-- Current : ${typeToString(evaluatedValue.$.type)}`
+- Current : ${typeToString(caseBodyExpr.$.type)}`
             );
           }
         }
+      }
+
+      // Check if the condValue is true
+      condValues.push(condValue as BooleanValue | UnknownValue | undefined);
+      caseBodyValues.push(caseBodyExpr.$.value);
+      if (isBooleanValue(condValue) && condValue.value === true) {
+        break; // We found the first true condition, no need to evaluate further
       }
     }
 
@@ -3882,12 +4019,25 @@ Got ${typeToString(typeOfType(element.type))}`
     // Merge and check all environments
     env = mergeAndCheckEnvs(env, bodies);
 
+    let value: Value | undefined = undefined;
+    if (caseBodyValues.some((val) => val === undefined)) {
+      // contains runtime value
+      value = undefined;
+    } else {
+      const lastCondValue = condValues[condValues.length - 1]!;
+      if (isBooleanValue(lastCondValue) && lastCondValue.value === true) {
+        value = caseBodyValues[caseBodyValues.length - 1]!;
+      } else {
+        value = createUnknownValue(valueType.type);
+      }
+    }
+
     expr.$ = {
       env,
       type: valueType.type,
       // TODO: set .value to support compile-time value.
       // Right now the createUnknownValue below is wrong
-      value: undefined, // valueType ? createUnknownValue(valueType) : undefined;
+      value: value, // valueType ? createUnknownValue(valueType) : undefined;
       isMutable: false,
       pathCollection: [],
     };
@@ -4656,7 +4806,7 @@ Please use .variantName for destructuring enum variants.`
       env,
       context: {
         ...context,
-        isEvaluatingFunctionBodyOfType: functionType,
+        isEvaluatingFunctionBody: { type: functionType },
       },
     });
 
@@ -4712,7 +4862,7 @@ Please use .variantName for destructuring enum variants.`
     context: EvaluatorContext;
   }): FuncCallExpr {
     const isEvaluatingFunctionBodyOfType =
-      context.isEvaluatingFunctionBodyOfType;
+      context.isEvaluatingFunctionBody?.type;
     if (!isEvaluatingFunctionBodyOfType) {
       throw this.formatErrorMessage(
         expr.token,
@@ -4725,12 +4875,14 @@ Please use .variantName for destructuring enum variants.`
         `Expected recur, got:\n${exprToString(expr)}`
       );
     }
+
     return this.evaluateFunctionCall({
-      expr,
+      expr: expr,
       env,
       givenFunc: {
         type: isEvaluatingFunctionBodyOfType,
-        value: createTypeValue(isEvaluatingFunctionBodyOfType),
+        value: context.isEvaluatingFunctionBody?.value ?? undefined,
+        // createTypeValue(isEvaluatingFunctionBodyOfType),
       },
       context: { ...context },
     });
@@ -6772,7 +6924,7 @@ ${typeToString(returnType)}`
   }: {
     expr: FuncCallExpr;
     env: Environment;
-    givenFunc?: { type: Type; value: TypeValue };
+    givenFunc?: { type: Type; value: TypeValue | FunctionValue | undefined };
     context: EvaluatorContext;
   }): FuncCallExpr {
     let func = expr.func;
@@ -7025,139 +7177,244 @@ ${typeToString(returnType)}`
     }
 
     // Find the functions whose parameters match the arguments
-    const functionsToCall = functions.map((functionToCall) => {
-      if (isFunctionType(functionToCall.type)) {
-        try {
-          this.tryToCallFunctionWithArguments({
-            functionValue: functionToCall.value as FunctionValue | undefined,
-            functionType: functionToCall.type,
-            functionCallExpr: func,
-            argExprs: args,
-            callerEnv: env,
-            context: { ...context },
-          });
-        } catch (error) {
-          functionToCall.error = error;
-        }
-        return functionToCall;
-      } else {
-        const value = functionToCall.value;
-
-        // struct value
-        if (isTypeValue(value) && isStructType(value.value)) {
+    const functionsToCall: FunctionToCall[] = functions.map(
+      (functionToCall) => {
+        if (isFunctionType(functionToCall.type)) {
           try {
-            this.tryToCallTypeWithArguments({
-              memberElements: value.value.elements,
+            const result = this.tryToCallFunctionWithArguments({
+              functionValue: functionToCall.value as FunctionValue | undefined,
+              functionType: functionToCall.type,
               functionCallExpr: func,
               argExprs: args,
               callerEnv: env,
               context: { ...context },
             });
+            return {
+              ...functionToCall,
+              result: {
+                kind: "function",
+                result,
+              },
+            };
           } catch (error) {
-            functionToCall.error = error;
+            return {
+              ...functionToCall,
+              result: {
+                kind: "error",
+                error: error,
+              },
+            };
           }
-        }
-        // enum value
-        else if (isTypeValue(value) && isEnumType(value.value)) {
-          const enumType = value.value;
-          const selectedVariant = enumType.variants.find(
-            (variant) => variant.name === enumType.selectedVariantName
-          );
-          if (!selectedVariant) {
-            functionToCall.error = this.formatErrorMessage(
-              expr.token,
-              `Enum variant not selected for enum type`
-            );
-          } else {
+        } else {
+          const value = functionToCall.value;
+
+          // struct value
+          if (isTypeValue(value) && isStructType(value.value)) {
             try {
-              this.tryToCallTypeWithArguments({
-                memberElements: selectedVariant.elements || [],
+              const result = this.tryToCallTypeWithArguments({
+                memberElements: value.value.elements,
                 functionCallExpr: func,
                 argExprs: args,
                 callerEnv: env,
                 context: { ...context },
               });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "type",
+                  result,
+                },
+              };
             } catch (error) {
-              functionToCall.error = error;
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
             }
           }
-        }
-        // union value
-        else if (isTypeValue(value) && isUnionType(value.value)) {
-          try {
-            this.tryToCallTypeWithArguments({
-              memberElements: value.value.elements,
-              functionCallExpr: func,
-              argExprs: args,
-              callerEnv: env,
-              context: { ...context },
-              isUnionType: true,
-            });
-          } catch (error) {
-            functionToCall.error = error;
+          // enum value
+          else if (isTypeValue(value) && isEnumType(value.value)) {
+            const enumType = value.value;
+            const selectedVariant = enumType.variants.find(
+              (variant) => variant.name === enumType.selectedVariantName
+            );
+            if (!selectedVariant) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: this.formatErrorMessage(
+                    expr.token,
+                    `Enum variant not selected for enum type`
+                  ),
+                },
+              };
+            } else {
+              try {
+                const result = this.tryToCallTypeWithArguments({
+                  memberElements: selectedVariant.elements || [],
+                  functionCallExpr: func,
+                  argExprs: args,
+                  callerEnv: env,
+                  context: { ...context },
+                });
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "type",
+                    result,
+                  },
+                };
+              } catch (error) {
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "error",
+                    error: error,
+                  },
+                };
+              }
+            }
           }
-        }
-        // module value
-        else if (isTypeValue(value) && isModuleType(value.value)) {
-          const moduleType = value.value;
-          try {
-            this.tryToImplementModuleWithArguments({
-              moduleExpr: func,
-              moduleType: moduleType,
-              argExprs: args,
-              callerEnv: env,
-              context: { ...context },
-            });
-          } catch (error) {
-            functionToCall.error = error;
+          // union value
+          else if (isTypeValue(value) && isUnionType(value.value)) {
+            try {
+              const result = this.tryToCallTypeWithArguments({
+                memberElements: value.value.elements,
+                functionCallExpr: func,
+                argExprs: args,
+                callerEnv: env,
+                context: { ...context },
+                isUnionType: true,
+              });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "type",
+                  result,
+                },
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
+            }
           }
-        }
-        // function
-        else if (isTypeValue(value) && isFunctionType(value.value)) {
-          const functionType = value.value;
-          try {
-            this.tryToImplementFunctionByFunctionType({
-              expr: expr,
-              functionType: functionType,
-              callerEnv: env,
-              context: { ...context },
-            });
-          } catch (error) {
-            functionToCall.error = error;
+          // module value
+          else if (isTypeValue(value) && isModuleType(value.value)) {
+            const moduleType = value.value;
+            try {
+              const result = this.tryToImplementModuleWithArguments({
+                moduleExpr: func,
+                moduleType: moduleType,
+                argExprs: args,
+                callerEnv: env,
+                context: { ...context },
+              });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "module-type",
+                  result,
+                },
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
+            }
           }
-        }
-        // array
-        else if (isArrayType(functionToCall.type)) {
-          try {
-            this.tryToCallArrayWithArguments({
-              expr,
-              arrayType: functionToCall.type,
-              arrayValue: functionToCall.value as ArrayValue | undefined,
-              argExprs: args,
-              callerEnv: env,
-              context: { ...context },
-            });
-          } catch (error) {
-            functionToCall.error = error;
+          // function
+          else if (isTypeValue(value) && isFunctionType(value.value)) {
+            const functionType = value.value;
+            try {
+              this.tryToImplementFunctionByFunctionType({
+                expr: expr,
+                functionType: functionType,
+                callerEnv: env,
+                context: { ...context },
+              });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "function-type",
+                },
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
+            }
           }
-        } else {
-          functionToCall.error = this.formatErrorMessage(
-            func.token,
-            `Invalid function call on type:
+          // array
+          else if (isArrayType(functionToCall.type)) {
+            try {
+              const result = this.tryToCallArrayWithArguments({
+                expr,
+                arrayType: functionToCall.type,
+                arrayValue: functionToCall.value as ArrayValue | undefined,
+                argExprs: args,
+                callerEnv: env,
+                context: { ...context },
+              });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "array",
+                  result,
+                },
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
+            }
+          } else {
+            return {
+              ...functionToCall,
+              result: {
+                kind: "error",
+                error: this.formatErrorMessage(
+                  func.token,
+                  `Invalid function call on type:
 ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.type)}`
-          );
+                ),
+              },
+            };
+          }
         }
-        return functionToCall;
       }
-    });
+    );
 
     const functionsWithMatchingTypes = functionsToCall.filter(
-      (functionToCall) => !functionToCall.error
+      (functionToCall) => functionToCall.result.kind !== "error"
     );
 
     if (functionsWithMatchingTypes.length === 0) {
-      if (functionsToCall.length === 1) {
-        throw functionsToCall[0]!.error!; // NOTE: It should have error here.
+      if (
+        functionsToCall.length === 1 &&
+        functionsToCall[0]!.result.kind === "error"
+      ) {
+        throw functionsToCall[0]!.result.error!; // NOTE: It should have error here.
       }
 
       throw this.formatErrorMessage(
@@ -7167,7 +7424,8 @@ ${exprToString(expr)}
 
 ${functionsToCall.length ? "Available functions:\n" : ""}${functionsToCall
           .map((func) => {
-            const error = func.error;
+            const error =
+              func.result.kind === "error" ? func.result.error : undefined;
             if (error) {
               const errorMessage = error.message;
               // Append 2 spaces ahead each line of the errorMessage
@@ -7214,13 +7472,17 @@ ${functionsWithMatchingTypes
             `Function value is not defined`
           );
         }
+
+        const { callerEnv, calleeEnv } = getFunctionCallResult(functionToCall);
+
         const { value: returnValue, callerEnv: nextEnv } =
           this.evaluateTypeFunctionCall({
             functionCallExpr: expr,
             functionType,
             functionValue,
             argExprs: args,
-            callerEnv: env,
+            callerEnv,
+            calleeEnv,
             context: {
               ...context,
             },
@@ -7249,17 +7511,7 @@ ${functionsWithMatchingTypes
         // - Function returns comptime value
         // For function returns comptime value, we can evaluate the function body.
         const { returnType, callerEnv, calleeEnv, pathCollection } =
-          this.tryToCallFunctionWithArguments({
-            functionCallExpr: expr,
-            functionValue: functionToCall.value as FunctionValue | undefined,
-            functionType,
-            argExprs: args,
-            callerEnv: env,
-            context: {
-              ...context,
-              SelfType: functionType.SelfType,
-            },
-          });
+          getFunctionCallResult(functionToCall);
 
         const functionValue = functionToCall.value;
         if (
@@ -7343,15 +7595,7 @@ ${functionsWithMatchingTypes
           values: memberValues,
           pathCollection,
           callerEnv,
-        } = this.tryToCallTypeWithArguments({
-          memberElements: structType.elements,
-          functionCallExpr: func,
-          argExprs: args,
-          callerEnv: env,
-          context: {
-            ...context,
-          },
-        });
+        } = getTypeCallResult(functionToCall);
         env = callerEnv;
         if (!memberValues) {
           throw this.formatErrorMessage(
@@ -7399,13 +7643,7 @@ ${functionsWithMatchingTypes
           values: memberValues,
           pathCollection,
           callerEnv,
-        } = this.tryToCallTypeWithArguments({
-          memberElements: selectedVariant.elements || [],
-          functionCallExpr: func,
-          argExprs: args,
-          callerEnv: env,
-          context: { ...context },
-        });
+        } = getTypeCallResult(functionToCall);
         env = callerEnv;
 
         if (!memberValues) {
@@ -7444,16 +7682,7 @@ ${functionsWithMatchingTypes
           isMutable: false,
           pathCollection: [],
         };
-        const { pathCollection, callerEnv } = this.tryToCallTypeWithArguments({
-          memberElements: unionType.elements,
-          functionCallExpr: func,
-          argExprs: args,
-          callerEnv: env,
-          context: {
-            ...context,
-          },
-          isUnionType: true,
-        });
+        const { pathCollection, callerEnv } = getTypeCallResult(functionToCall);
         env = callerEnv;
         expr.$.value = undefined;
         expr.$.pathCollection = pathCollection;
@@ -7472,15 +7701,7 @@ ${functionsWithMatchingTypes
       // module value
       else if (isTypeValue(value) && isModuleType(value.value)) {
         const { moduleValue, callerEnv } =
-          this.tryToImplementModuleWithArguments({
-            moduleExpr: func,
-            moduleType: value.value,
-            argExprs: args,
-            callerEnv: env,
-            context: {
-              ...context,
-            },
-          });
+          getModuleTypeCallResult(functionToCall);
         env = callerEnv;
 
         expr.$ = {
@@ -7504,6 +7725,7 @@ ${functionsWithMatchingTypes
       // function value
       else if (isTypeValue(value) && isFunctionType(value.value)) {
         // This should already be evaluated.
+        /*
         if (!expr.$ || !expr.$.value) {
           throw this.formatErrorMessage(
             func.token,
@@ -7512,22 +7734,13 @@ ${functionsWithMatchingTypes
             )}`
           );
         }
+        */
         return expr;
       }
       // array
       else if (isArrayType(functionToCall.type)) {
         const arrayType = functionToCall.type;
-        const arrayValue = functionToCall.value as ArrayValue | undefined;
-        const { value } = this.tryToCallArrayWithArguments({
-          expr,
-          arrayType,
-          arrayValue,
-          argExprs: args,
-          callerEnv: env,
-          context: {
-            ...context,
-          },
-        });
+        const { value } = getArrayCallResult(functionToCall);
 
         expr.$ = {
           env,
@@ -7885,12 +8098,7 @@ ${exprToString(expr)}`
     argExprs: Expr[];
     callerEnv: Environment;
     context: EvaluatorContext;
-  }): {
-    calleeEnv: Environment;
-    callerEnv: Environment;
-    pathCollection: PathCollection;
-    returnType: Type;
-  } {
+  }): FunctionCallResult {
     const initialBorrowings = [...context.borrowings];
 
     let forallArgsExpr: FuncCallExpr | undefined = undefined;
@@ -8511,11 +8719,7 @@ ${implicitVariables
     callerEnv: Environment;
     context: EvaluatorContext;
     isUnionType?: boolean;
-  }): {
-    values: (Value | undefined)[];
-    pathCollection: PathCollection;
-    callerEnv: Environment;
-  } {
+  }): TypeCallResult {
     if (argExprs.length > memberElements.length) {
       throw this.formatErrorMessage(
         functionCallExpr.token,
@@ -8705,7 +8909,7 @@ Got:   ${typeToString(argType)}`
     argExprs: Expr[];
     callerEnv: Environment;
     context: EvaluatorContext;
-  }): { value: Value | undefined } {
+  }): ArrayCallResult {
     if (argExprs.length !== 1) {
       throw this.formatErrorMessage(
         expr.func.token,
@@ -8824,7 +9028,7 @@ Got:   ${typeToString(argType)}`
       env,
       context: {
         ...context,
-        isEvaluatingFunctionBodyOfType: functionType,
+        isEvaluatingFunctionBody: { type: functionType },
         expectedType: {
           type: functionType.return.type,
           env: env, // QUESTION: What should be the env here?
@@ -8891,7 +9095,7 @@ Got:   ${typeToString(argType)}`
     argExprs: Expr[];
     callerEnv: Environment;
     context: EvaluatorContext;
-  }): { moduleValue: ModuleValue; callerEnv: Environment } {
+  }): ModuleTypeCallResult {
     if (argExprs.length > moduleType.elements.length) {
       throw this.formatErrorMessage(
         moduleExpr.token,
@@ -9131,10 +9335,11 @@ Got:   ${typeToString(argType)}`
    */
   private evaluateTypeFunctionCall({
     functionCallExpr,
-    functionType,
+    // unctionType,
     functionValue,
     argExprs,
     callerEnv,
+    calleeEnv,
     context,
   }: {
     functionCallExpr: Expr;
@@ -9142,21 +9347,9 @@ Got:   ${typeToString(argType)}`
     functionValue: FunctionValue;
     argExprs: Expr[];
     callerEnv: Environment;
+    calleeEnv: Environment;
     context: EvaluatorContext;
   }): { value: TypeValue; callerEnv: Environment } {
-    // This will push a new frame to the function env and
-    // add the parameters to the env
-    const { calleeEnv, callerEnv: nextCallerEnv } =
-      this.tryToCallFunctionWithArguments({
-        functionValue,
-        functionType,
-        functionCallExpr,
-        argExprs,
-        callerEnv,
-        context: { ...context },
-      });
-    callerEnv = nextCallerEnv;
-
     // FIXME: The argValues below should be returned from this.tryToCallFunctionWithArguments
     // argExprs should be evaluated now
     const argValues: Value[] = [];
@@ -9273,7 +9466,7 @@ Got:   ${typeToString(argType)}`
 
   private evaluateFunctionCallThatReturnsComptimeValue({
     functionCallExpr,
-    // functionType,
+    functionType,
     functionValue,
     argExprs,
     callerEnv,
@@ -9309,7 +9502,13 @@ Got:   ${typeToString(argType)}`
     const evaluatedFunctionBody = this.evaluateBeginExpression({
       expr: cloneExpr(functionBodyExpr), // NOTE: Clone here is necessary
       env: calleeEnv,
-      context: { ...context },
+      context: {
+        ...context,
+        isEvaluatingFunctionBody: {
+          type: functionType,
+          value: functionValue,
+        },
+      },
     });
     if (!evaluatedFunctionBody.$) {
       throw this.formatErrorMessage(

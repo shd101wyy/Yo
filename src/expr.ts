@@ -161,6 +161,20 @@ export function cloneExpr(expr: Expr): Expr {
   }
 }
 
+export function cloneExprWithoutEvaluatedData(expr: Expr): Expr {
+  switch (expr.tag) {
+    case ExprTag.Atom:
+      return { ...expr, $: undefined };
+    case ExprTag.FuncCall:
+      return {
+        ...expr,
+        func: cloneExprWithoutEvaluatedData(expr.func),
+        args: expr.args.map(cloneExprWithoutEvaluatedData),
+        $: undefined,
+      };
+  }
+}
+
 export type Expr = AtomExpr | FuncCallExpr;
 
 export function exprIsFunctionCall(
