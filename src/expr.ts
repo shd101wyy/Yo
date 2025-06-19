@@ -240,6 +240,7 @@ export const BuiltinKeywords = {
   and: ["and"],
   or: ["or"],
   not: ["not"],
+  gensym: ["gensym"],
 
   // values
   undefined: ["undefined"],

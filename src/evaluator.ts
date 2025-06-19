@@ -26,6 +26,7 @@ import {
   exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  ExprTag,
   exprToString,
   FuncCallExpr,
   mergeAndCheckEnvs,
@@ -10772,6 +10773,76 @@ Got:   ${typeToString(argType)}`
     return expr;
   }
 
+  private evaluateGensym({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    const prefixArg = expr.args[0];
+    let prefix: string = "";
+    if (prefixArg) {
+      if (expr.args.length > 1) {
+        throw this.formatErrorMessage(
+          expr.args[1]!.token,
+          `Expected "gensym" with 0 or 1 argument, got: ${expr.args.length}`
+        );
+      }
+
+      // evaluate the prefix argument
+      const evaluatedPrefixArg = this.evaluateExpression({
+        expr: prefixArg,
+        env,
+        context: {
+          ...context,
+        },
+      });
+      if (!evaluatedPrefixArg.$) {
+        throw this.formatErrorMessage(
+          prefixArg.token,
+          `Failed to evaluate the prefix argument for "gensym":\n${exprToString(
+            prefixArg
+          )}`
+        );
+      }
+      if (!isComptStringValue(evaluatedPrefixArg.$.value)) {
+        throw this.formatErrorMessage(
+          prefixArg.token,
+          `Expected compt_string for prefix argument, got:\n${exprToString(
+            prefixArg
+          )}`
+        );
+      }
+      const prefixArgValue = evaluatedPrefixArg.$.value;
+      prefix = prefixArgValue.value;
+    }
+
+    const symbol = prefix + randomId();
+    const atomExpr: AtomExpr = {
+      tag: ExprTag.Atom,
+      token: {
+        modulePath: this.modulePath,
+        inputString: this.inputString,
+        type: TokenType.Identifier,
+        position: expr.func.token.position,
+        value: symbol,
+      },
+    };
+    const atomExprValue = createExprValue(atomExpr);
+
+    expr.$ = {
+      env,
+      isMutable: false,
+      pathCollection: [],
+      type: atomExprValue.type,
+      value: atomExprValue,
+    };
+    return expr;
+  }
+
   private evaluateReferenceCall({
     expr,
     env,
@@ -11310,9 +11381,12 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.drop, 1)) {
         // drop
         return this.evaluateDrop({ expr, env, context: { ...context } });
-      } // metaprogramming
-      else if (exprIsFunctionCallOf(expr, BuiltinKeywords.quote, 1)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.quote, 1)) {
+        // metaprogramming
+        // quote
         return this.evaluateQuote({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.gensym)) {
+        return this.evaluateGensym({ expr, env, context: { ...context } });
       } else {
         /* else if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
         // while
