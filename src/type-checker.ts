@@ -87,6 +87,7 @@ export enum TypeTag {
 
   // Expr (for macro/metaprogramming)
   Expr = "Expr",
+  ExprList = "ExprList",
 }
 
 export interface TypeMethod {
@@ -192,6 +193,10 @@ export function isComptStringType(type?: Type): boolean {
   return type?.tag === TypeTag.ComptString;
 }
 
+export function isExprListType(type?: Type): boolean {
+  return type?.tag === TypeTag.ExprList;
+}
+
 export function isBooleanType(type?: Type): boolean {
   return type?.tag === TypeTag.Boolean;
 }
@@ -289,6 +294,13 @@ export function createComptStringType(): Type {
   return {
     tag: TypeTag.ComptString,
     // size: 0, // Size of compt_string is not available at runtime
+  };
+}
+
+export function createExprListType(): Type {
+  return {
+    tag: TypeTag.ExprList,
+    // size: 0, // Size of compt_list is not available at runtime
   };
 }
 
@@ -1156,7 +1168,12 @@ export function typeOfType(
     return createFreeType(); // Primitive types are free types
   } else if (isTypeHierarchyType(t)) {
     return createTypeHierarchy((t as TypeHierarchyType).level + 1);
-  } else if (isComptIntType(t) || isComptFloatType(t) || isComptStringType(t)) {
+  } else if (
+    isComptIntType(t) ||
+    isComptFloatType(t) ||
+    isComptStringType(t) ||
+    isExprListType(t)
+  ) {
     return createFreeType();
   } else if (isExprType(t)) {
     return createFreeType();
@@ -1442,6 +1459,14 @@ export function areTypesCompatible(
   // - Array(u8, N); // Fixed-length array of u8.
   // - &(str); // Rust-style string slice, fat pointer.
   if (isComptStringType(expected.type) && isComptStringType(given.type)) {
+    return true;
+  }
+
+  if (isExprType(expected.type) && isExprType(given.type)) {
+    return true;
+  }
+
+  if (isExprListType(expected.type) && isExprListType(given.type)) {
     return true;
   }
 
@@ -1846,6 +1871,7 @@ export function typeRequiresComptModifier(type?: Type): boolean {
     isComptIntType(type) ||
     isComptFloatType(type) ||
     isComptStringType(type) ||
+    isExprListType(type) ||
     isExprType(type)
   );
 }

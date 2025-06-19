@@ -1,3 +1,4 @@
+n :: quote(5);
 a :: quote(5 + 10);
 b :: quote(add(3, 4));
 c :: quote(add(3, unquote(a)));
@@ -5,19 +6,108 @@ c :: quote(add(3, unquote(a)));
 d :: gensym("TEMP_");
 e :: quote(add(3, unquote(d)));
 
+implicit(ExprMethods) :: module {
+  Self :: Expr;
+
+  is_atom :: ((@(self): Expr)-> @(boolean))
+    __yo_expr_is_atom(self)
+  ;
+
+  is_fn_call :: ((@(self): Expr)-> @(boolean))
+    __yo_expr_is_fn_call(self)
+  ;
+
+  get_callee :: ((@(self): Expr)-> @(Expr))
+    __yo_expr_get_callee(self)
+  ;
+
+  get_args :: ((@(self): Expr)-> @(ExprList))
+    __yo_expr_get_args(self)
+  ;
+
+  cons :: ((@(self): Expr, @(rest): ExprList) -> @(ExprList))
+    __yo_expr_list_cons(self, rest)
+  ;
+
+  export 
+    Self,
+    is_atom,
+    is_fn_call,
+    get_callee,
+    get_args,
+    cons
+  ;
+};
+
+ExprListMethods :: module {
+  Self :: ExprList;
+
+  car :: ((@(self) : ExprList) -> @(Expr))
+    __yo_expr_list_car(self)
+  ;
+
+  cdr :: ((@(self) : ExprList) -> @(ExprList))
+    __yo_expr_list_cdr(self)
+  ;
+
+  first :: car;
+
+  rest :: cdr;
+
+  append :: ((@(self) : ExprList, @(another) : ExprList) -> @(ExprList))
+    __yo_expr_list_append(self, another)
+  ;
+
+  length :: ((@(self) : ExprList) -> @(usize))
+    __yo_expr_list_length(self)
+  ;
+
+  export
+    Self,
+    car,
+    cdr,
+    first,
+    rest,
+    append,
+    length
+  ;
+};
+
+flag  :: __yo_expr_is_atom(d);
+flag2 :: d.is_atom();
+flag3 :: ExprMethods.is_atom(d);
+
+l :: expr_list(n, a);
+
+fn1 :: __yo_expr_get_callee(b);
+fn1_args :: __yo_expr_get_args(b);
+
+fn2 :: b.get_callee();
+fn2_args :: b.get_args();
+
+{
+  arg1 :: fn1_args.car();
+  arg2 :: fn1_args.cdr().car();
+};
+
+{
+  arg1 :: fn2_args.first();
+  arg2 :: fn2_args.rest().first();
+};
+
+{
+  l :: n.cons(fn1_args);
+  ll :: fn1_args.append(fn2_args);
+
+  arg_length :: ll.length();
+};
+
+
 /*
-is_atom a;
-
-is_fn_call b;
-
-add_fn :: get_fn b;
-
-add_fn_args :: get_fn_args b;
-
 // if macro
 if ::
   ( quote(condition) : Expr, 
-    quote(then) : Expr, 
+    quote(then) : Expr,
     (quote(else) : Expr) ?= quote(())
   ) -> unquote(Expr)
   quote(

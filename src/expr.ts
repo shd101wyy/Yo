@@ -212,6 +212,7 @@ export const BuiltinKeywords = {
 
   quote: ["quote", ":"],
   unquote: ["unquote", "#"],
+  unquote_splice: ["unquote_splice", "...#"],
 
   recur: ["recur"],
   fn: ["fn"],
@@ -263,6 +264,7 @@ export const BuiltinKeywords = {
   // data values
   tuple: "tuple",
   array: "array",
+  expr_list: "expr_list", // expr_list
 };
 
 export const BuiltinFunctions = {
@@ -271,6 +273,21 @@ export const BuiltinFunctions = {
   typeof: ["typeof"],
   consume: ["consume"],
   compt_assert: ["compt_assert"],
+
+  // expr related functions
+  // __yo_expr_is_expr: ["__yo_expr_is_expr"],
+  __yo_expr_is_atom: ["__yo_expr_is_atom"],
+  __yo_expr_is_fn_call: ["__yo_expr_is_fn_call"],
+  __yo_expr_get_callee: ["__yo_expr_get_callee"],
+  __yo_expr_get_args: ["__yo_expr_get_args"],
+
+  // expr_list related functions
+  // __yo_expr_list_is_expr_list: ["__yo_expr_list_is_expr_list"],
+  __yo_expr_list_car: ["__yo_expr_list_car"],
+  __yo_expr_list_cdr: ["__yo_expr_list_cdr"],
+  __yo_expr_list_cons: ["__yo_expr_list_cons"],
+  __yo_expr_list_append: ["__yo_expr_list_append"],
+  __yo_expr_list_length: ["__yo_expr_list_length"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {

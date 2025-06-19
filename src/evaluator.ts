@@ -48,6 +48,8 @@ import {
   createComptIntType,
   createComptStringType,
   createEnumType,
+  createExprListType,
+  createExprType,
   createF32Type,
   createF64Type,
   createFreeType,
@@ -83,6 +85,7 @@ import {
   isArrayType,
   isBooleanType,
   isEnumType,
+  isExprListType,
   isExprType,
   isFreeType,
   isFunctionType,
@@ -126,6 +129,7 @@ import {
   createBooleanValue,
   createComptStringValue,
   createEnumValue,
+  createExprListValue,
   createExprValue,
   createModuleValue,
   createNumberValue,
@@ -133,9 +137,11 @@ import {
   createTupleValue,
   createTypeValue,
   createUnknownValue,
+  ExprValue,
   isBooleanValue,
   isComptStringValue,
   isEnumValue,
+  isExprListValue,
   isExprValue,
   isFunctionValue,
   isModuleValue,
@@ -147,6 +153,7 @@ import {
   ModuleValue,
   StructValue,
   TupleValue,
+  UnknownValue,
   Value,
   valueToString,
 } from "./value";
@@ -253,6 +260,37 @@ export default class Evaluator {
       token,
       errorMessage,
     });
+  }
+
+  private expectExprToBeFunctionCallOf(
+    expr: Expr,
+    expectedFunctionName: string | string[],
+    expectedArgCount?: number
+  ) {
+    if (!exprIsFunctionCall(expr)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected function call, got atom:\n${exprToString(expr)}`
+      );
+    }
+    if (!exprIsFunctionCallOf(expr, expectedFunctionName)) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected function call of ${Array.isArray(expectedFunctionName) ? expectedFunctionName.map((fn) => `"${fn}"`).join(" or ") : `"${expectedFunctionName}"`}, got:\n${exprToString(expr)}`
+      );
+    }
+
+    if (
+      expectedArgCount !== undefined &&
+      expr.args.length !== expectedArgCount
+    ) {
+      throw this.formatErrorMessage(
+        expr.token,
+        `Expected ${expectedArgCount} arguments, got ${expr.args.length}:\n${exprToString(
+          expr
+        )}`
+      );
+    }
   }
 
   private evaluateIntegerLiteral(expr: AtomExpr, env: Environment): AtomExpr {
@@ -500,6 +538,63 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
       type: arrayType,
       value: arrayValue,
       isMutable: true,
+      pathCollection: [],
+    };
+    return expr;
+  }
+
+  private evaluateExprListValue({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    const elements: (ExprValue | UnknownValue)[] = [];
+    const args = expr.args;
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+      const evaluatedArg = this.evaluateExpression({
+        expr: arg,
+        env,
+        context: {
+          ...context,
+        },
+      });
+      if (
+        !evaluatedArg.$ ||
+        !isExprType(evaluatedArg.$.type) ||
+        !evaluatedArg.$.value
+      ) {
+        throw this.formatErrorMessage(
+          arg.token,
+          `Failed to evaluate expr_list element. Expected compile-time known expr value:\n${exprToString(arg)}`
+        );
+      }
+      env = evaluatedArg.$.env;
+      const value = evaluatedArg.$.value;
+
+      if (
+        isExprValue(value) ||
+        (isUnknownValue(value) && isExprType(value.type))
+      ) {
+        elements.push(value);
+      } else {
+        throw this.formatErrorMessage(
+          arg.token,
+          `Expected compile-time known expr value, got ${valueToString(value)}`
+        );
+      }
+    }
+
+    const exprListValue = createExprListValue(elements);
+    expr.$ = {
+      env,
+      type: exprListValue.type,
+      value: exprListValue,
+      isMutable: false,
       pathCollection: [],
     };
     return expr;
@@ -4412,6 +4507,30 @@ Please use .variantName for destructuring enum variants.`
       };
       return expr;
     }
+    // Expr
+    else if (identifier === TypeTag.Expr) {
+      const value = createTypeValue(createExprType());
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
+        isMutable: false,
+        pathCollection: [],
+      };
+      return expr;
+    }
+    // ExprList
+    else if (identifier === TypeTag.ExprList) {
+      const value = createTypeValue(createExprListType());
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
+        isMutable: false,
+        pathCollection: [],
+      };
+      return expr;
+    }
     // Self
     else if (
       identifier === "Self" &&
@@ -7111,9 +7230,10 @@ ${functionsWithMatchingTypes
         };
       } else {
         // It's
-        // - Runtime function
-        // - Comptime function
-        const { returnType, callerEnv, pathCollection } =
+        // - Function returns runtime value
+        // - Function returns comptime value
+        // For function returns comptime value, we can evaluate the function body.
+        const { returnType, callerEnv, calleeEnv, pathCollection } =
           this.tryToCallFunctionWithArguments({
             functionCallExpr: expr,
             functionValue: functionToCall.value as FunctionValue | undefined,
@@ -7125,20 +7245,49 @@ ${functionsWithMatchingTypes
               SelfType: functionType.SelfType,
             },
           });
-        env = popEnvFrame(callerEnv);
-        expr.$ = {
-          env,
-          type: returnType,
-          isMutable: false,
-          pathCollection: pathCollection,
-        };
 
-        if (functionType.return.isCompileTimeOnly) {
-          // TODO: expr.value should be available for comptime function.
-          // We should evaluate its body.
-          expr.$.value = createUnknownValue(returnType);
+        const functionValue = functionToCall.value;
+        if (
+          functionType.return.isCompileTimeOnly &&
+          isFunctionValue(functionValue)
+        ) {
+          const { value: returnValue, callerEnv: nextEnv } =
+            this.evaluateFunctionCallThatReturnsComptimeValue({
+              functionCallExpr: expr,
+              functionType,
+              functionValue,
+              argExprs: args,
+              callerEnv: callerEnv,
+              calleeEnv: calleeEnv,
+              context: {
+                ...context,
+              },
+            });
+
+          env = popEnvFrame(nextEnv);
+          expr.$ = {
+            env,
+            type: returnType,
+            value: returnValue,
+            isMutable: false,
+            pathCollection: pathCollection,
+          };
         } else {
-          expr.$.value = undefined;
+          env = popEnvFrame(callerEnv);
+          expr.$ = {
+            env,
+            type: returnType,
+            isMutable: false,
+            pathCollection: pathCollection,
+          };
+
+          if (functionType.return.isCompileTimeOnly) {
+            // TODO: expr.value should be available for comptime function.
+            // We should evaluate its body.
+            expr.$.value = createUnknownValue(returnType);
+          } else {
+            expr.$.value = undefined;
+          }
         }
 
         // Set temp variable which holds the result of the function call
@@ -7174,7 +7323,7 @@ ${functionsWithMatchingTypes
           isMutable: false,
           pathCollection: [],
         };
-        // FIXME: Support to set value for comptime
+
         const {
           values: memberValues,
           pathCollection,
@@ -8962,6 +9111,9 @@ Got:   ${typeToString(argType)}`
     return { moduleValue, callerEnv };
   }
 
+  /**
+   * Calling function that returns Type will cache the result.
+   */
   private evaluateTypeFunctionCall({
     functionCallExpr,
     functionType,
@@ -9097,6 +9249,68 @@ Got:   ${typeToString(argType)}`
       env: evaluatedFunctionBody.$.env,
     });
     functionValue.calledTypeFunctionCaches = caches;
+
+    return {
+      value: returnValue,
+      callerEnv: callerEnv,
+    };
+  }
+
+  private evaluateFunctionCallThatReturnsComptimeValue({
+    functionCallExpr,
+    // functionType,
+    functionValue,
+    argExprs,
+    callerEnv,
+    calleeEnv,
+    context,
+  }: {
+    functionCallExpr: Expr;
+    functionType: FunctionType;
+    functionValue: FunctionValue;
+    argExprs: Expr[];
+    callerEnv: Environment;
+    calleeEnv: Environment;
+    context: EvaluatorContext;
+  }): { value: Value; callerEnv: Environment } {
+    // FIXME: The argValues below should be returned from this.tryToCallFunctionWithArguments
+    // argExprs should be evaluated now
+    const argValues: Value[] = [];
+    for (let i = 0; i < argExprs.length; i++) {
+      const argExpr = argExprs[i]!;
+      const argValue = argExpr.$?.value;
+      if (!argValue || isUnknownValue(argValue)) {
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Argument for type function is not evaluated correctly`
+        );
+      }
+      argValues.push(argValue);
+    }
+
+    // Evaluate the functionValue.body with the function env;
+    const functionBodyExpr = functionValue.body;
+    // NOTE: We should use the env from the function, not the current env.
+    const evaluatedFunctionBody = this.evaluateBeginExpression({
+      expr: cloneExpr(functionBodyExpr), // NOTE: Clone here is necessary
+      env: calleeEnv,
+      context: { ...context },
+    });
+    if (!evaluatedFunctionBody.$) {
+      throw this.formatErrorMessage(
+        functionCallExpr.token,
+        `Function body is not evaluated correctly`
+      );
+    }
+
+    // Get the return type value
+    const returnValue = evaluatedFunctionBody.$.value;
+    if (!returnValue) {
+      throw this.formatErrorMessage(
+        functionCallExpr.token,
+        `Function body is not evaluated correctly. Expected to return a compile-time known value.`
+      );
+    }
 
     return {
       value: returnValue,
@@ -10843,6 +11057,722 @@ Got:   ${typeToString(argType)}`
     return expr;
   }
 
+  private evaluateYoExprIsAtom({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    this.expectExprToBeFunctionCallOf(
+      expr,
+      BuiltinFunctions.__yo_expr_is_atom,
+      1
+    );
+
+    const argExpr = expr.args[0]!;
+    const evaluatedArgExpr = this.evaluateExpression({
+      expr: argExpr,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!evaluatedArgExpr.$) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    if (!isExprType(evaluatedArgExpr.$.type)) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    const exprValue = evaluatedArgExpr.$.value;
+    if (!exprValue) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+
+    const booleanValue = isExprValue(exprValue)
+      ? createBooleanValue(exprIsAtom(exprValue.value))
+      : createUnknownValue(createBooleanType());
+
+    expr.$ = {
+      env: evaluatedArgExpr.$.env,
+      type: booleanValue.type,
+      value: booleanValue,
+      isMutable: false,
+      pathCollection: [],
+      isAccessingProperty: false,
+    };
+    return expr;
+  }
+
+  private evaluateYoExprIsFnCall({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    this.expectExprToBeFunctionCallOf(
+      expr,
+      BuiltinFunctions.__yo_expr_is_fn_call,
+      1
+    );
+
+    const argExpr = expr.args[0]!;
+    const evaluatedArgExpr = this.evaluateExpression({
+      expr: argExpr,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!evaluatedArgExpr.$) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    if (!isExprType(evaluatedArgExpr.$.type)) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    const exprValue = evaluatedArgExpr.$.value;
+    if (!exprValue) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+
+    const booleanValue = isExprValue(exprValue)
+      ? createBooleanValue(exprIsFunctionCall(exprValue.value))
+      : createUnknownValue(createBooleanType());
+
+    expr.$ = {
+      env: evaluatedArgExpr.$.env,
+      type: booleanValue.type,
+      value: booleanValue,
+      isMutable: false,
+      pathCollection: [],
+      isAccessingProperty: false,
+    };
+    return expr;
+  }
+
+  private evaluateYoExprGetFn({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    this.expectExprToBeFunctionCallOf(
+      expr,
+      BuiltinFunctions.__yo_expr_get_callee,
+      1
+    );
+
+    const argExpr = expr.args[0]!;
+    const evaluatedArgExpr = this.evaluateExpression({
+      expr: argExpr,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!evaluatedArgExpr.$) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    if (!isExprType(evaluatedArgExpr.$.type)) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    const exprValue = evaluatedArgExpr.$.value;
+    if (!exprValue) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+
+    expr.$ = {
+      env: evaluatedArgExpr.$.env,
+      type: createExprType(),
+      value: createUnknownValue(createExprType()), // Will be updated later
+      isMutable: false,
+      pathCollection: [],
+      isAccessingProperty: false,
+    };
+
+    if (isExprValue(exprValue)) {
+      if (exprIsFunctionCall(exprValue.value)) {
+        const fn = exprValue.value.func;
+        const fnExprValue = createExprValue(fn);
+        expr.$.value = fnExprValue;
+      } else {
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Expected function call expression for argument, got:\n${exprToString(
+            expr
+          )}`
+        );
+      }
+    }
+
+    return expr;
+  }
+
+  private evaluateYoExprGetArgs({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    this.expectExprToBeFunctionCallOf(
+      expr,
+      BuiltinFunctions.__yo_expr_get_args,
+      1
+    );
+
+    const argExpr = expr.args[0]!;
+    const evaluatedArgExpr = this.evaluateExpression({
+      expr: argExpr,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!evaluatedArgExpr.$) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    if (!isExprType(evaluatedArgExpr.$.type)) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    const exprValue = evaluatedArgExpr.$.value;
+    if (!exprValue) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+
+    expr.$ = {
+      env: evaluatedArgExpr.$.env,
+      type: createExprListType(),
+      value: createUnknownValue(createExprListType()), // Will be updated later
+      isMutable: false,
+      pathCollection: [],
+      isAccessingProperty: false,
+    };
+
+    if (isExprValue(exprValue)) {
+      if (exprIsFunctionCall(exprValue.value)) {
+        const fnArgs = exprValue.value.args;
+        const fnArgsValue = createExprListValue(
+          fnArgs.map((arg) => createExprValue(arg))
+        );
+        expr.$.value = fnArgsValue;
+      } else {
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Expected function call expression for argument, got:\n${exprToString(
+            expr
+          )}`
+        );
+      }
+    }
+
+    return expr;
+  }
+
+  private evaluateYoExprListCar({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    this.expectExprToBeFunctionCallOf(
+      expr,
+      BuiltinFunctions.__yo_expr_list_car,
+      1
+    );
+
+    const argExpr = expr.args[0]!;
+    const evaluatedArgExpr = this.evaluateExpression({
+      expr: argExpr,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!evaluatedArgExpr.$) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    if (!isExprListType(evaluatedArgExpr.$.type)) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected ExprList type for "${expr.func.token.value}" argument, got:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    const exprValue = evaluatedArgExpr.$.value;
+    if (!exprValue) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected ExprList value for "${expr.func.token.value}" argument, got:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+
+    expr.$ = {
+      env: evaluatedArgExpr.$.env,
+      type: createExprType(),
+      value: createUnknownValue(createExprType()), // Will be updated later
+      isMutable: false,
+      pathCollection: [],
+      isAccessingProperty: false,
+    };
+
+    if (isExprListValue(exprValue)) {
+      const elements = exprValue.elements;
+      if (elements.length > 0) {
+        expr.$.value = elements[0]!;
+      } else {
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Unexpected empty ExprList for "${expr.func.token.value}" argument`
+        );
+      }
+    }
+
+    return expr;
+  }
+
+  private evaluateYoExprListCdr({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    this.expectExprToBeFunctionCallOf(
+      expr,
+      BuiltinFunctions.__yo_expr_list_cdr,
+      1
+    );
+
+    const argExpr = expr.args[0]!;
+    const evaluatedArgExpr = this.evaluateExpression({
+      expr: argExpr,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!evaluatedArgExpr.$) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    if (!isExprListType(evaluatedArgExpr.$.type)) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected ExprList type for "${expr.func.token.value}" argument, got:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    const exprValue = evaluatedArgExpr.$.value;
+    if (!exprValue) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected ExprList value for "${expr.func.token.value}" argument, got:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+
+    expr.$ = {
+      env: evaluatedArgExpr.$.env,
+      type: createExprListType(),
+      value: createUnknownValue(createExprListType()), // Will be updated later
+      isMutable: false,
+      pathCollection: [],
+      isAccessingProperty: false,
+    };
+
+    if (isExprListValue(exprValue)) {
+      const elements = exprValue.elements;
+      if (elements.length > 0) {
+        expr.$.value = createExprListValue([...elements.slice(1)]);
+      } else {
+        throw this.formatErrorMessage(
+          argExpr.token,
+          `Unexpected empty ExprList for "${expr.func.token.value}" argument`
+        );
+      }
+    }
+
+    return expr;
+  }
+
+  private evaluateYoExprListCons({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    this.expectExprToBeFunctionCallOf(
+      expr,
+      BuiltinFunctions.__yo_expr_list_cons,
+      2
+    );
+
+    const carArg = this.evaluateExpression({
+      expr: expr.args[0]!,
+      env,
+      context: {
+        ...context,
+      },
+    });
+
+    // car
+    if (!carArg.$) {
+      throw this.formatErrorMessage(
+        carArg.token,
+        `Failed to evaluate the first argument expression for "${expr.func.token.value}":\n${exprToString(
+          carArg
+        )}`
+      );
+    }
+    env = carArg.$.env;
+    if (!isExprType(carArg.$.type)) {
+      throw this.formatErrorMessage(
+        carArg.token,
+        `Expected Expr type for "${expr.func.token.value}" first argument, got:\n${exprToString(
+          carArg
+        )}`
+      );
+    }
+    const carValue = carArg.$.value;
+    if (!carValue) {
+      throw this.formatErrorMessage(
+        carArg.token,
+        `Expected Expr value for "${expr.func.token.value}" first argument, got:\n${exprToString(
+          carArg
+        )}`
+      );
+    }
+
+    const cdrArg = this.evaluateExpression({
+      expr: expr.args[1]!,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!cdrArg.$) {
+      throw this.formatErrorMessage(
+        cdrArg.token,
+        `Failed to evaluate the second argument expression for "${expr.func.token.value}":\n${exprToString(
+          cdrArg
+        )}`
+      );
+    }
+    env = cdrArg.$.env;
+    if (!isExprListType(cdrArg.$.type)) {
+      throw this.formatErrorMessage(
+        cdrArg.token,
+        `Expected ExprList type for "${expr.func.token.value}" second argument, got:\n${exprToString(
+          cdrArg
+        )}`
+      );
+    }
+    const cdrValue = cdrArg.$.value;
+    if (!cdrValue) {
+      throw this.formatErrorMessage(
+        cdrArg.token,
+        `Expected ExprList value for "${expr.func.token.value}" second argument, got:\n${exprToString(
+          cdrArg
+        )}`
+      );
+    }
+
+    expr.$ = {
+      env: env,
+      type: createExprListType(),
+      value: createUnknownValue(createExprListType()), // Will be updated later
+      isMutable: false,
+      pathCollection: [],
+      isAccessingProperty: false,
+    };
+
+    if (isExprValue(carValue)) {
+      if (isExprListValue(cdrValue)) {
+        // Create a new ExprListValue with the car as the first element
+        const newElements = [carValue, ...cdrValue.elements];
+        expr.$.value = createExprListValue(newElements);
+      } else {
+        // cdrValue is unknown
+      }
+    } else {
+      // unknown value;
+    }
+
+    return expr;
+  }
+
+  private evaluateYoExprListAppend({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    this.expectExprToBeFunctionCallOf(
+      expr,
+      BuiltinFunctions.__yo_expr_list_append,
+      2
+    );
+
+    const firstListArg = this.evaluateExpression({
+      expr: expr.args[0]!,
+      env,
+      context: {
+        ...context,
+      },
+    });
+
+    // car
+    if (!firstListArg.$) {
+      throw this.formatErrorMessage(
+        firstListArg.token,
+        `Failed to evaluate the first argument expression for "${expr.func.token.value}":\n${exprToString(
+          firstListArg
+        )}`
+      );
+    }
+    env = firstListArg.$.env;
+    if (!isExprListType(firstListArg.$.type)) {
+      throw this.formatErrorMessage(
+        firstListArg.token,
+        `Expected ExprList type for "${expr.func.token.value}" first argument, got:\n${exprToString(
+          firstListArg
+        )}`
+      );
+    }
+    const firstListValue = firstListArg.$.value;
+    if (!firstListValue) {
+      throw this.formatErrorMessage(
+        firstListArg.token,
+        `Expected Expr value for "${expr.func.token.value}" first argument, got:\n${exprToString(
+          firstListArg
+        )}`
+      );
+    }
+
+    const secondListArg = this.evaluateExpression({
+      expr: expr.args[1]!,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!secondListArg.$) {
+      throw this.formatErrorMessage(
+        secondListArg.token,
+        `Failed to evaluate the second argument expression for "${expr.func.token.value}":\n${exprToString(
+          secondListArg
+        )}`
+      );
+    }
+    env = secondListArg.$.env;
+    if (!isExprListType(secondListArg.$.type)) {
+      throw this.formatErrorMessage(
+        secondListArg.token,
+        `Expected ExprList type for "${expr.func.token.value}" second argument, got:\n${exprToString(
+          secondListArg
+        )}`
+      );
+    }
+    const secondListValue = secondListArg.$.value;
+    if (!secondListValue) {
+      throw this.formatErrorMessage(
+        secondListArg.token,
+        `Expected ExprList value for "${expr.func.token.value}" second argument, got:\n${exprToString(
+          secondListArg
+        )}`
+      );
+    }
+
+    expr.$ = {
+      env: env,
+      type: createExprListType(),
+      value: createUnknownValue(createExprListType()), // Will be updated later
+      isMutable: false,
+      pathCollection: [],
+      isAccessingProperty: false,
+    };
+
+    if (isExprListValue(firstListValue)) {
+      if (isExprListValue(secondListValue)) {
+        // merge two ExprList values
+        const newElements = [
+          ...firstListValue.elements,
+          ...secondListValue.elements,
+        ];
+        expr.$.value = createExprListValue(newElements);
+      } else {
+        // cdrValue is unknown
+      }
+    } else {
+      // unknown value;
+    }
+
+    return expr;
+  }
+
+  private evaluateYoExprListLength({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    this.expectExprToBeFunctionCallOf(
+      expr,
+      BuiltinFunctions.__yo_expr_list_length,
+      1
+    );
+
+    const argExpr = expr.args[0]!;
+    const evaluatedArgExpr = this.evaluateExpression({
+      expr: argExpr,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!evaluatedArgExpr.$) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    if (!isExprListType(evaluatedArgExpr.$.type)) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected ExprList type for "${expr.func.token.value}" argument, got:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+    const exprListValue = evaluatedArgExpr.$.value;
+    if (!exprListValue) {
+      throw this.formatErrorMessage(
+        argExpr.token,
+        `Expected ExprList value for "${expr.func.token.value}" argument, got:\n${exprToString(
+          argExpr
+        )}`
+      );
+    }
+
+    expr.$ = {
+      env: evaluatedArgExpr.$.env,
+      type: createUsizeType(),
+      value: createUnknownValue(createUsizeType()), // Will be updated later
+      isMutable: false,
+      pathCollection: [],
+      isAccessingProperty: false,
+    };
+
+    if (isExprListValue(exprListValue)) {
+      const length = exprListValue.elements.length;
+      const lengthValue = createNumberValue(ValueTag.Usize, length);
+      expr.$.value = lengthValue;
+    }
+
+    return expr;
+  }
+
   private evaluateReferenceCall({
     expr,
     env,
@@ -11269,6 +12199,13 @@ ${exprToString(expr)}`
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.array)) {
         // array
         return this.evaluateArrayValue({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.expr_list)) {
+        // expr_list
+        return this.evaluateExprListValue({
+          expr,
+          env,
+          context: { ...context },
+        });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
         // struct
         return this.evaluateStructType({ expr, env, context: { ...context } });
@@ -11387,6 +12324,86 @@ ${exprToString(expr)}`
         return this.evaluateQuote({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.gensym)) {
         return this.evaluateGensym({ expr, env, context: { ...context } });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_is_atom)
+      ) {
+        return this.evaluateYoExprIsAtom({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_is_fn_call)
+      ) {
+        // __yo_expr_is_fn_call
+        return this.evaluateYoExprIsFnCall({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_get_callee)
+      ) {
+        // __yo_expr_get_callee
+        return this.evaluateYoExprGetFn({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_get_args)
+      ) {
+        // __yo_expr_get_args
+        return this.evaluateYoExprGetArgs({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_list_car)
+      ) {
+        // __yo_expr_list_car
+        return this.evaluateYoExprListCar({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_list_cdr)
+      ) {
+        // __yo_expr_list_cdr
+        return this.evaluateYoExprListCdr({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_list_cons)
+      ) {
+        // __yo_expr_list_cons
+        return this.evaluateYoExprListCons({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_list_append)
+      ) {
+        // __yo_expr_list_append
+        return this.evaluateYoExprListAppend({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_list_length)
+      ) {
+        // __yo_expr_list_length
+        return this.evaluateYoExprListLength({
+          expr,
+          env,
+          context: { ...context },
+        });
       } else {
         /* else if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
         // while

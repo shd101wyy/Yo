@@ -8,6 +8,7 @@ import {
   createComptFloatType,
   createComptIntType,
   createComptStringType,
+  createExprListType,
   createExprType,
   createF32Type,
   createF64Type,
@@ -109,6 +110,13 @@ export type ExprValue = {
   value: Expr;
 };
 
+export type ExprListValue = {
+  tag: ValueTag.ExprList;
+  type: Type;
+  // The UnknownValue here should have a type of ExprType
+  elements: (ExprValue | UnknownValue)[];
+};
+
 export type UnknownValue = {
   tag: ValueTag.Unknown;
   type: Type;
@@ -117,6 +125,7 @@ export type UnknownValue = {
 export type Value =
   | TypeValue
   | ComptStringValue
+  | ExprListValue
   | NumberValue
   | UnitValue
   | BooleanValue
@@ -147,6 +156,9 @@ export function valueToString(value?: Value): string {
     }
     case ValueTag.ComptString: {
       return JSON.stringify(value.value);
+    }
+    case ValueTag.ExprList: {
+      return `expr_list(${value.elements.map(valueToString).join(", ")})`;
     }
     case ValueTag.U8:
     case ValueTag.I8:
@@ -239,6 +251,10 @@ export function isComptStringValue(value?: Value): value is ComptStringValue {
   return value?.tag === ValueTag.ComptString;
 }
 
+export function isExprListValue(value?: Value): value is ExprListValue {
+  return value?.tag === ValueTag.ExprList;
+}
+
 export function isNumberValue(value?: Value): value is NumberValue {
   return (
     value?.tag === ValueTag.ComptInt ||
@@ -307,6 +323,16 @@ export function createComptStringValue(value: string): ComptStringValue {
     tag: ValueTag.ComptString,
     type: createComptStringType(),
     value,
+  };
+}
+
+export function createExprListValue(
+  elements: (ExprValue | UnknownValue)[]
+): ExprListValue {
+  return {
+    tag: ValueTag.ExprList,
+    type: createExprListType(),
+    elements,
   };
 }
 
@@ -475,6 +501,21 @@ export function areValuesEqual(
     );
   } else if (isComptStringValue(value1) && isComptStringValue(value2)) {
     return value1.value === (value2 as ComptStringValue).value;
+  } else if (isExprListvalue(value1) && isExprListvalue(value2)) {
+    if (value1.elements.length !== (value2 as ExprListValue).elements.length) {
+      return false;
+    }
+    for (let i = 0; i < value1.elements.length; i++) {
+      if (
+        !areValuesEqual(
+          { value: value1.elements[i], env: expected.env },
+          { value: value2.elements[i], env: given.env }
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
   } else if (isNumberValue(value1) && isNumberValue(value2)) {
     return value1.value === (value2 as NumberValue).value;
   } else if (isBooleanValue(value1) && isBooleanValue(value2)) {
