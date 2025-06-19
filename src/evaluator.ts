@@ -196,11 +196,18 @@ interface EvaluatorContext {
   borrowings: Borrowing[];
 }
 
+interface ArgValues {
+  forallArgs: Value[];
+  args: (Value | undefined)[];
+  implicitArgs: (Value | undefined)[];
+}
+
 interface FunctionCallResult {
   calleeEnv: Environment;
   callerEnv: Environment;
   pathCollection: PathCollection;
   returnType: Type;
+  argValues: ArgValues;
 }
 
 interface TypeCallResult {
@@ -7473,16 +7480,17 @@ ${functionsWithMatchingTypes
           );
         }
 
-        const { callerEnv, calleeEnv } = getFunctionCallResult(functionToCall);
+        const { callerEnv, calleeEnv, argValues } =
+          getFunctionCallResult(functionToCall);
 
         const { value: returnValue, callerEnv: nextEnv } =
           this.evaluateTypeFunctionCall({
             functionCallExpr: expr,
             functionType,
             functionValue,
-            argExprs: args,
             callerEnv,
             calleeEnv,
+            argValues,
             context: {
               ...context,
             },
@@ -7510,7 +7518,7 @@ ${functionsWithMatchingTypes
         // - Function returns runtime value
         // - Function returns comptime value
         // For function returns comptime value, we can evaluate the function body.
-        const { returnType, callerEnv, calleeEnv, pathCollection } =
+        const { returnType, callerEnv, calleeEnv, argValues, pathCollection } =
           getFunctionCallResult(functionToCall);
 
         const functionValue = functionToCall.value;
@@ -7523,7 +7531,7 @@ ${functionsWithMatchingTypes
               functionCallExpr: expr,
               functionType,
               functionValue,
-              argExprs: args,
+              argValues,
               callerEnv: callerEnv,
               calleeEnv: calleeEnv,
               context: {
@@ -7872,6 +7880,7 @@ ${exprToString(expr)}`
     calleeEnv: Environment;
     callerEnv: Environment;
     context: EvaluatorContext;
+    argValue: Value | undefined;
   } {
     // NOTE: We don't support named argument.
     // But we support to use label for readibility.
@@ -8077,7 +8086,12 @@ ${exprToString(expr)}`
     Got:   ${typeToString(argType)}`
       );
     }
-    return { calleeEnv, callerEnv, context: { ...context, borrowings } };
+    return {
+      calleeEnv,
+      callerEnv,
+      context: { ...context, borrowings },
+      argValue,
+    };
   }
 
   /**
@@ -8103,6 +8117,10 @@ ${exprToString(expr)}`
 
     let forallArgsExpr: FuncCallExpr | undefined = undefined;
     let implicitArgExprs: Expr[] = [];
+
+    const forallArgValues: Value[] = [];
+    const argValues: (Value | undefined)[] = [];
+    const implicitArgValues: (Value | undefined)[] = [];
 
     // Check if there is `forall(...)` argument zone.
     // If yes, then it should be the first argument
@@ -8369,6 +8387,9 @@ Got:   ${typeToString(typeValue.type)}`
             calleeEnv = nextEnv;
           }
         }
+
+        // Save to forallArgValues
+        forallArgValues.push(typeValue);
       }
     }
 
@@ -8380,6 +8401,7 @@ Got:   ${typeToString(typeValue.type)}`
         calleeEnv: nextCalleeEnv,
         callerEnv: nextCallerEnv,
         context: nextContext,
+        argValue,
       } = this.checkIfFunctionParameterMatchesArgument({
         functionValue,
         parameter,
@@ -8391,6 +8413,8 @@ Got:   ${typeToString(typeValue.type)}`
       calleeEnv = nextCalleeEnv;
       callerEnv = nextCallerEnv;
       context = nextContext;
+
+      argValues.push(argValue);
     }
 
     // Synthesize the returnType if context.expectedType is giving
@@ -8674,6 +8698,9 @@ ${implicitVariables
         skipCheckingFunctionOverloading: true,
       });
       calleeEnv = nextEnv;
+
+      // Add the implicit variable value to the implicitArgValues
+      implicitArgValues.push(implicitVariable.value);
     }
 
     // Evaluate the function return type again
@@ -8702,7 +8729,17 @@ ${implicitVariables
         });
       });
     }
-    return { returnType, calleeEnv, callerEnv, pathCollection };
+    return {
+      returnType,
+      calleeEnv,
+      callerEnv,
+      pathCollection,
+      argValues: {
+        args: argValues,
+        forallArgs: forallArgValues,
+        implicitArgs: implicitArgValues,
+      },
+    };
   }
 
   private tryToCallTypeWithArguments({
@@ -9337,7 +9374,7 @@ Got:   ${typeToString(argType)}`
     functionCallExpr,
     // unctionType,
     functionValue,
-    argExprs,
+    argValues: argValues_,
     callerEnv,
     calleeEnv,
     context,
@@ -9345,25 +9382,23 @@ Got:   ${typeToString(argType)}`
     functionCallExpr: Expr;
     functionType: FunctionType;
     functionValue: FunctionValue;
-    argExprs: Expr[];
+    argValues: ArgValues;
     callerEnv: Environment;
     calleeEnv: Environment;
     context: EvaluatorContext;
   }): { value: TypeValue; callerEnv: Environment } {
-    // FIXME: The argValues below should be returned from this.tryToCallFunctionWithArguments
-    // argExprs should be evaluated now
-    const argValues: Value[] = [];
-    for (let i = 0; i < argExprs.length; i++) {
-      const argExpr = argExprs[i]!;
-      const argValue = argExpr.$?.value;
-      if (!argValue /*|| isUnknownValue(argValue)*/) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Argument for type function is not evaluated correctly`
-        );
-      }
-      argValues.push(argValue);
+    const unfilteredArgValues: (Value | undefined)[] = [
+      ...argValues_.forallArgs,
+      ...argValues_.args,
+      ...argValues_.implicitArgs,
+    ];
+    if (unfilteredArgValues.some((val) => !val)) {
+      throw this.formatErrorMessage(
+        functionCallExpr.token,
+        `Failed to call the type function. Some arguments are not compile-time evaluated correctly.`
+      );
     }
+    const argValues: Value[] = unfilteredArgValues as Value[];
 
     // Check if it's in calledTypeFunctions
     const funcId = functionValue.funcId;
@@ -9468,7 +9503,7 @@ Got:   ${typeToString(argType)}`
     functionCallExpr,
     functionType,
     functionValue,
-    argExprs,
+    argValues: argValues_,
     callerEnv,
     calleeEnv,
     context,
@@ -9476,24 +9511,21 @@ Got:   ${typeToString(argType)}`
     functionCallExpr: Expr;
     functionType: FunctionType;
     functionValue: FunctionValue;
-    argExprs: Expr[];
+    argValues: ArgValues;
     callerEnv: Environment;
     calleeEnv: Environment;
     context: EvaluatorContext;
   }): { value: Value; callerEnv: Environment } {
-    // FIXME: The argValues below should be returned from this.tryToCallFunctionWithArguments
-    // argExprs should be evaluated now
-    const argValues: Value[] = [];
-    for (let i = 0; i < argExprs.length; i++) {
-      const argExpr = argExprs[i]!;
-      const argValue = argExpr.$?.value;
-      if (!argValue /*|| isUnknownValue(argValue)*/) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Argument for compt function is not evaluated correctly`
-        );
-      }
-      argValues.push(argValue);
+    const unfilteredArgValues: (Value | undefined)[] = [
+      ...argValues_.forallArgs,
+      ...argValues_.args,
+      ...argValues_.implicitArgs,
+    ];
+    if (unfilteredArgValues.some((val) => !val)) {
+      throw this.formatErrorMessage(
+        functionCallExpr.token,
+        `Failed to call the function. Some arguments are not compile-time evaluated correctly.`
+      );
     }
 
     // Evaluate the functionValue.body with the function env;
