@@ -827,6 +827,11 @@ export interface FunctionType extends Type {
    * Under which interface/struct/enum/union this function is defined.
    */
   SelfType?: Type;
+
+  /**
+   * Under which module this function is defined.
+   */
+  ModuleType?: ModuleType;
 }
 
 export interface MutPtrType extends Type {
@@ -1019,6 +1024,7 @@ export function createFunctionType({
   env,
   parametersFrame,
   SelfType,
+  ModuleType,
 }: {
   parameters: FunctionParameter[];
   typeParameters: FunctionParameter[];
@@ -1027,6 +1033,7 @@ export function createFunctionType({
   env: Environment;
   parametersFrame: Frame;
   SelfType?: Type;
+  ModuleType?: ModuleType;
 }): FunctionType {
   return {
     tag: TypeTag.Function,
@@ -1038,6 +1045,7 @@ export function createFunctionType({
     env,
     parametersFrame,
     SelfType,
+    ModuleType,
   };
 }
 
@@ -2185,7 +2193,8 @@ export function typeToString(type: Type): string {
       const paramsString = [typeParams, params, implicitParams]
         .filter((x) => !!x)
         .join(", ");
-      return `(${paramsString}) -> ${returnTypeString}`;
+      const from = func.SelfType?.typeName ?? func.ModuleType?.typeName;
+      return `${from ? `(${from}) ` : ""}(${paramsString}) -> ${returnTypeString}`;
     }
 
     case TypeTag.Literal: {

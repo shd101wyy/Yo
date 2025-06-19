@@ -239,7 +239,7 @@ export function isTypeValue(value?: Value): value is TypeValue {
   return value?.tag === ValueTag.Type;
 }
 
-export function isComptIntValue(value?: Value): boolean {
+export function isComptIntValue(value?: Value): value is NumberValue {
   return value?.tag === ValueTag.ComptInt;
 }
 
@@ -377,6 +377,14 @@ export function createNumberValue(tag: NumberValue["tag"], value: number) {
   };
 }
 
+export function createComptIntValue(value: number): NumberValue {
+  return createNumberValue(ValueTag.ComptInt, value);
+}
+
+export function createComptFloatValue(value: number): NumberValue {
+  return createNumberValue(ValueTag.ComptFloat, value);
+}
+
 export function createBooleanValue(value: boolean): BooleanValue {
   return {
     tag: ValueTag.Boolean,
@@ -501,7 +509,7 @@ export function areValuesEqual(
     );
   } else if (isComptStringValue(value1) && isComptStringValue(value2)) {
     return value1.value === (value2 as ComptStringValue).value;
-  } else if (isExprListvalue(value1) && isExprListvalue(value2)) {
+  } else if (isExprListValue(value1) && isExprListValue(value2)) {
     if (value1.elements.length !== (value2 as ExprListValue).elements.length) {
       return false;
     }

@@ -288,6 +288,40 @@ export const BuiltinFunctions = {
   __yo_expr_list_cons: ["__yo_expr_list_cons"],
   __yo_expr_list_append: ["__yo_expr_list_append"],
   __yo_expr_list_length: ["__yo_expr_list_length"],
+
+  // compt_int related functions
+  __yo_compt_int_add: ["__yo_compt_int_add"],
+  __yo_compt_int_sub: ["__yo_compt_int_sub"],
+  __yo_compt_int_mul: ["__yo_compt_int_mul"],
+  __yo_compt_int_div: ["__yo_compt_int_div"],
+  __yo_compt_int_mod: ["__yo_compt_int_mod"],
+  __yo_compt_int_neg: ["__yo_compt_int_neg"],
+  __yo_compt_int_eq: ["__yo_compt_int_eq"],
+  __yo_compt_int_neq: ["__yo_compt_int_neq"],
+  __yo_compt_int_lt: ["__yo_compt_int_lt"],
+  __yo_compt_int_lte: ["__yo_compt_int_lte"],
+  __yo_compt_int_gt: ["__yo_compt_int_gt"],
+  __yo_compt_int_gte: ["__yo_compt_int_gte"],
+
+  // compt_float related functions
+  __yo_compt_float_add: ["__yo_compt_float_add"],
+  __yo_compt_float_sub: ["__yo_compt_float_sub"],
+  __yo_compt_float_mul: ["__yo_compt_float_mul"],
+  __yo_compt_float_div: ["__yo_compt_float_div"],
+  __yo_compt_float_neg: ["__yo_compt_float_neg"],
+  __yo_compt_float_eq: ["__yo_compt_float_eq"],
+  __yo_compt_float_neq: ["__yo_compt_float_neq"],
+  __yo_compt_float_lt: ["__yo_compt_float_lt"],
+  __yo_compt_float_lte: ["__yo_compt_float_lte"],
+  __yo_compt_float_gt: ["__yo_compt_float_gt"],
+  __yo_compt_float_gte: ["__yo_compt_float_gte"],
+
+  // Type related functions
+  __yo_type_to_string: ["__yo_type_to_string"],
+  __yo_type_is_linear: ["__yo_type_is_linear"],
+  __yo_type_is_free: ["__yo_type_is_free"],
+  __yo_type_is_type0: ["__yo_type_is_type0"],
+  __yo_type_is_compatible_with: ["__yo_type_is_compatible_with"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {

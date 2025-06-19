@@ -84,6 +84,7 @@ import {
   getValueOfSomeTypeFromEnv,
   isArrayType,
   isBooleanType,
+  isComptIntType,
   isEnumType,
   isExprListType,
   isExprType,
@@ -127,6 +128,7 @@ import {
   BooleanValue,
   createArrayValue,
   createBooleanValue,
+  createComptIntValue,
   createComptStringValue,
   createEnumValue,
   createExprListValue,
@@ -139,6 +141,7 @@ import {
   createUnknownValue,
   ExprValue,
   isBooleanValue,
+  isComptIntValue,
   isComptStringValue,
   isEnumValue,
   isExprListValue,
@@ -174,10 +177,15 @@ interface EvaluatorContext {
   isEvaluatingFunctionBodyOfType?: FunctionType;
 
   /**
-   * The innermost interface, struct, enum, or union that this function call is inside.
+   * The innermost struct, enum, or union that this function call is inside.
    * This can be useful for an anonymous struct that needs to refer to itself
    */
   SelfType?: Type;
+
+  /**
+   * The innermost module that this function call is inside.
+   */
+  ModuleType?: ModuleType;
 
   /**
    * The borrowings.
@@ -3155,6 +3163,8 @@ ${exprToString(expr)}`
         rhsValue.value.typeName = lhs.token.value;
       } else if (isFunctionValue(rhsValue) && !rhsValue.funcName) {
         rhsValue.funcName = lhs.token.value;
+      } else if (isModuleValue(rhsValue) && !rhsValue.type.typeName) {
+        rhsValue.type.typeName = lhs.token.value;
       }
 
       // Check if it's assigning Free to Linear
@@ -3389,6 +3399,8 @@ ${exprToString(rhs)}`
         rhsValue.value.typeName = variableName;
       } else if (isFunctionValue(rhsValue) && !rhsValue.funcName) {
         rhsValue.funcName = variableName;
+      } else if (isModuleValue(rhsValue) && !rhsValue.type.typeName) {
+        rhsValue.type.typeName = variableName;
       }
 
       // Check if it's assigning Free to Linear
@@ -5423,6 +5435,7 @@ ${typeToString(returnType)}`
       env: popEnvFrame(env, true),
       parametersFrame: env.frames[env.frames.length - 1]!,
       SelfType: context.SelfType,
+      ModuleType: context.ModuleType,
     });
 
     // Pop the environment frame
@@ -5863,6 +5876,7 @@ ${typeToString(returnType)}`
           context: {
             ...context,
             SelfType: undefined, // No SelfType in module context
+            ModuleType: moduleType,
           },
         });
         if (!evaluatedExtendedModuleExpr.$) {
@@ -5936,6 +5950,7 @@ ${typeToString(returnType)}`
           context: {
             ...context,
             SelfType: undefined, // No SelfType in module context
+            ModuleType: moduleType,
           },
         });
 
@@ -8845,7 +8860,7 @@ Got:   ${typeToString(argType)}`
     ) {
       throw this.formatErrorMessage(
         functionType.return.expr.token,
-        `Expected to  return a compile-time value, but got runtime value.`
+        `Expected to return a compile-time value, but got runtime value.`
       );
     }
 
@@ -9148,7 +9163,7 @@ Got:   ${typeToString(argType)}`
     for (let i = 0; i < argExprs.length; i++) {
       const argExpr = argExprs[i]!;
       const argValue = argExpr.$?.value;
-      if (!argValue || isUnknownValue(argValue)) {
+      if (!argValue /*|| isUnknownValue(argValue)*/) {
         throw this.formatErrorMessage(
           argExpr.token,
           `Argument for type function is not evaluated correctly`
@@ -9279,10 +9294,10 @@ Got:   ${typeToString(argType)}`
     for (let i = 0; i < argExprs.length; i++) {
       const argExpr = argExprs[i]!;
       const argValue = argExpr.$?.value;
-      if (!argValue || isUnknownValue(argValue)) {
+      if (!argValue /*|| isUnknownValue(argValue)*/) {
         throw this.formatErrorMessage(
           argExpr.token,
-          `Argument for type function is not evaluated correctly`
+          `Argument for compt function is not evaluated correctly`
         );
       }
       argValues.push(argValue);
@@ -9494,6 +9509,8 @@ Got:   ${typeToString(argType)}`
                 env,
                 context: {
                   ...context,
+                  SelfType: undefined, // NOTE: Module doesn't have SelfType
+                  ModuleType: moduleType,
                 },
               });
               if (!evaluatedExtendedModuleExpr.$) {
@@ -9726,6 +9743,7 @@ Got:   ${typeToString(argType)}`
               ...context,
               expectedType: undefined,
               SelfType: undefined, // NOTE: Module doesn't have SelfType
+              ModuleType: moduleType,
             },
           });
           if (evaluatedExpr.$?.env) {
@@ -11773,6 +11791,301 @@ Got:   ${typeToString(argType)}`
     return expr;
   }
 
+  private evaluateYoComptIntArithmetic({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_neg)) {
+      const arg = this.evaluateExpression({
+        expr: expr.args[0]!,
+        env,
+        context: {
+          ...context,
+        },
+      });
+
+      if (!arg.$ || !isComptIntType(arg.$.type) || !arg.$.value) {
+        throw this.formatErrorMessage(
+          arg.token,
+          `Expected compt_int type for "${expr.func.token.value}" argument, got:\n${exprToString(
+            arg
+          )}`
+        );
+      }
+      env = arg.$.env;
+
+      let value: Value;
+      // -(x)
+      if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_neg)) {
+        if (isComptIntValue(arg.$.value)) {
+          value = createComptIntValue(-arg.$.value.value);
+        } else {
+          value = createUnknownValue(createComptIntType());
+        }
+      } else {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Unexpected function call for "${expr.func.token.value}", expected "__yo_compt_int_neg
+          " function`
+        );
+      }
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
+        isMutable: false,
+        pathCollection: [],
+      };
+    } else {
+      const lhs = this.evaluateExpression({
+        expr: expr.args[0]!,
+        env,
+        context: {
+          ...context,
+        },
+      });
+
+      if (!lhs.$ || !isComptIntType(lhs.$.type) || !lhs.$.value) {
+        throw this.formatErrorMessage(
+          lhs.token,
+          `Expected compt_int type for "${expr.func.token.value}" first argument, got:\n${exprToString(
+            lhs
+          )}`
+        );
+      }
+      env = lhs.$.env;
+
+      const rhs = this.evaluateExpression({
+        expr: expr.args[1]!,
+        env,
+        context: {
+          ...context,
+        },
+      });
+
+      if (!rhs.$ || !isComptIntType(rhs.$.type) || !rhs.$.value) {
+        throw this.formatErrorMessage(
+          rhs.token,
+          `Expected compt_int type for "${expr.func.token.value}" second argument, got:\n${exprToString(
+            rhs
+          )}`
+        );
+      }
+      env = rhs.$.env;
+
+      const lhsValue = lhs.$.value;
+      const rhsValue = rhs.$.value;
+
+      let value: Value;
+
+      // x + y
+      if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_add)) {
+        if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
+          value = createComptIntValue(lhsValue.value + rhsValue.value);
+        } else {
+          value = createUnknownValue(createComptIntType());
+        }
+      }
+      // x - y
+      else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_sub)
+      ) {
+        if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
+          value = createComptIntValue(lhsValue.value - rhsValue.value);
+        } else {
+          value = createUnknownValue(createComptIntType());
+        }
+      }
+      // x * y
+      else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_mul)
+      ) {
+        if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
+          value = createComptIntValue(lhsValue.value * rhsValue.value);
+        } else {
+          value = createUnknownValue(createComptIntType());
+        }
+      }
+      // x / y
+      else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_div)
+      ) {
+        if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
+          if (rhsValue.value === 0) {
+            throw this.formatErrorMessage(
+              rhs.token,
+              `Division by zero in "${expr.func.token.value}" operation`
+            );
+          }
+
+          value = createComptIntValue(
+            Math.floor(lhsValue.value / rhsValue.value)
+          );
+        } else {
+          value = createUnknownValue(createComptIntType());
+        }
+      }
+      // x % y
+      else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_mod)
+      ) {
+        if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
+          if (rhsValue.value === 0) {
+            throw this.formatErrorMessage(
+              rhs.token,
+              `Modulo by zero in "${expr.func.token.value}" operation`
+            );
+          }
+
+          value = createComptIntValue(
+            Math.floor(lhsValue.value % rhsValue.value)
+          );
+        } else {
+          value = createUnknownValue(createComptIntType());
+        }
+      }
+      // x == y
+      else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_eq)) {
+        if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
+          value = createBooleanValue(lhsValue.value == rhsValue.value);
+        } else {
+          value = createUnknownValue(createBooleanType());
+        }
+      }
+      // x != y
+      else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_neq)
+      ) {
+        if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
+          value = createBooleanValue(lhsValue.value != rhsValue.value);
+        } else {
+          value = createUnknownValue(createBooleanType());
+        }
+      }
+      // x < y
+      else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_lt)) {
+        if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
+          value = createBooleanValue(lhsValue.value < rhsValue.value);
+        } else {
+          value = createUnknownValue(createBooleanType());
+        }
+      }
+      // x <= y
+      else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_lte)
+      ) {
+        if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
+          value = createBooleanValue(lhsValue.value <= rhsValue.value);
+        } else {
+          value = createUnknownValue(createBooleanType());
+        }
+      }
+      // x > y
+      else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_gt)) {
+        if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
+          value = createBooleanValue(lhsValue.value > rhsValue.value);
+        } else {
+          value = createUnknownValue(createBooleanType());
+        }
+      }
+      // x >= y
+      else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_gte)
+      ) {
+        if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
+          value = createBooleanValue(lhsValue.value >= rhsValue.value);
+        } else {
+          value = createUnknownValue(createBooleanType());
+        }
+      } else {
+        throw this.formatErrorMessage(
+          expr.token,
+          `Unexpected function call for compt_int arithmetic: ${exprToString(
+            expr
+          )}`
+        );
+      }
+
+      expr.$ = {
+        env,
+        type: value.type,
+        value: value,
+        isMutable: false,
+        pathCollection: [],
+      };
+    }
+
+    return expr;
+  }
+
+  private evaluateYoTypeToString({
+    expr,
+    env,
+    context,
+  }: {
+    expr: FuncCallExpr;
+    env: Environment;
+    context: EvaluatorContext;
+  }): FuncCallExpr {
+    this.expectExprToBeFunctionCallOf(
+      expr,
+      BuiltinFunctions.__yo_type_to_string,
+      1
+    );
+
+    const arg = this.evaluateExpression({
+      expr: expr.args[0]!,
+      env,
+      context: {
+        ...context,
+      },
+    });
+    if (!arg.$) {
+      throw this.formatErrorMessage(
+        arg.token,
+        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+          arg
+        )}`
+      );
+    }
+    if (!isTypeHierarchyType(arg.$.type)) {
+      throw this.formatErrorMessage(
+        arg.token,
+        `Expected TypeHierarchy type for "${expr.func.token.value}" argument, got:\n${exprToString(
+          arg
+        )}`
+      );
+    }
+    const typeValue = arg.$.value;
+    if (!typeValue) {
+      throw this.formatErrorMessage(
+        arg.token,
+        `Expected type value for "${expr.func.token.value}" argument, got:\n${exprToString(
+          arg
+        )}`
+      );
+    }
+
+    expr.$ = {
+      env: arg.$.env,
+      type: createComptStringType(),
+      value: createUnknownValue(createComptStringType()), // Will be updated later
+      isMutable: false,
+      pathCollection: [],
+      isAccessingProperty: false,
+    };
+
+    if (isTypeValue(typeValue)) {
+      expr.$.value = createComptStringValue(typeToString(typeValue.value));
+    }
+    return expr;
+  }
+
   private evaluateReferenceCall({
     expr,
     env,
@@ -12400,6 +12713,38 @@ ${exprToString(expr)}`
       ) {
         // __yo_expr_list_length
         return this.evaluateYoExprListLength({
+          expr,
+          env,
+          context: { ...context },
+        });
+      }
+      // compt_int related arithmetic functions
+      else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_add, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_sub, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_mul, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_div, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_mod, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_neg, 1) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_eq, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_neq, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_lt, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_lte, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_gt, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_gte, 2)
+      ) {
+        return this.evaluateYoComptIntArithmetic({
+          expr,
+          env,
+          context: { ...context },
+        });
+      }
+      // Type related functions
+      else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_to_string, 1)
+      ) {
+        // __yo_type_to_string
+        return this.evaluateYoTypeToString({
           expr,
           env,
           context: { ...context },
