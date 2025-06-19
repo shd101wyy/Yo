@@ -7478,6 +7478,7 @@ ${functionsWithMatchingTypes
           getFunctionCallResult(functionToCall);
 
         const functionValue = functionToCall.value;
+
         if (
           functionType.return.isCompileTimeOnly &&
           isFunctionValue(functionValue)
@@ -8647,11 +8648,12 @@ ${implicitVariables
 
       // Add the implicit variable to the function env
       const implicitVariable = implicitVariables[0]!;
+
       // console.log("(15) addVariableToEnv");
       const { env: nextEnv } = addVariableToEnv({
         env: calleeEnv,
         variable: {
-          name: implicitVariable.name,
+          name: implicitParameter.label,
           type: implicitVariable.type,
           isMutable: implicitVariable.isMutable,
           isCompileTimeOnly: implicitVariable.isCompileTimeOnly,

@@ -1,16 +1,44 @@
-open import "std";
-
-compt_factorial :: ((@(x) : compt_int) -> @(compt_int))
-  cond
-    (x @== 0) => 1,
-    true =>
-      x @* recur(x @- 1)
+Point ::
+  ((@(P): Type)-> @(Type))
+  struct
+    x: P,
+    y: P
 ;
 
-// a :: compt_factorial(5);
+Id ::
+  ((@(Self): Type)-> @(Type))
+  module
+    (Self: Type) = Self,
+    id:
+      (self: Self)-> Self
+;
 
-run_compt_factorial :: ((@(x) : compt_int) -> @(compt_int)) {
-  x :: compt_factorial(x);
-  x
+id ::
+  ((forall(@(T): Type), x: T, implicit(@(I): Id(T)))-> T)
+  I.id(x)
+;
+
+implicit(IdInt) ::
+  Id(i32)
+    id:
+      fn(x) -> x
+;
+
+implicit(IdPoint) ::
+  (( forall(@(IP): Type), 
+    implicit(@(I): Id(IP))
+  )-> @(Id(Point(IP))))
+  Id(Point(IP))
+    id:
+      fn(p) -> {
+        { x, y } := p;
+        Point(IP)(I.id(x), I.id(y))
+      }
+;
+
+main :: (()-> unit) {
+  // // QUESTION: How to implement the following?
+  x5 := id(Point(i32)(1, 2)); // Implicit call
+  x6 := id(Point(i32)(1, 2), implicit(IdPoint())); // Implicit call 2
+  // x7 := id(Point(i32)(1, 2), implicit(IdPoint(implicit(IdInt)))); // Explicit call
 }
-;
