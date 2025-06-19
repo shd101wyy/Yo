@@ -1,15 +1,14 @@
 import { Environment } from "./env";
 import { Expr } from "./expr";
 import { FunctionType, Type } from "./type-checker";
-import { TypeValue } from "./type-value";
 import type { Value } from "./value";
 import { ValueTag } from "./value-tag";
 
-export interface CalledTypeFunctionCache {
+export interface CalledComptFunctionCache {
   funcId: string;
   argValues: Value[];
   env: Environment;
-  typeValue: TypeValue;
+  value: Value;
 }
 
 export type FunctionValue = {
@@ -36,8 +35,9 @@ export type FunctionValue = {
   SelfType?: Type;
 
   /**
-   * This is used to cache the result of the call to the type function (a function that returns a Type)
-   * If the function is not a type function, this will be empty.
+   * This is used to cache the result of the call to the function that returns a compt type value.
+   * For example, a function returns a Type.
+   * If the function is not a compt function, this will be empty.
    */
-  calledTypeFunctionCaches: CalledTypeFunctionCache[];
+  calledComptFunctionCaches: CalledComptFunctionCache[];
 };

@@ -624,6 +624,14 @@ export function areValuesEqual(
     return true;
   } else if (isExprValue(value1) && isExprValue(value2)) {
     return value1.value === value2.value;
+  }
+  // QUESTION: How should we handle UnknownValue?
+  else if (isUnknownValue(value1) && isUnknownValue(value2)) {
+    // return value1 === value2;
+    return areTypesCompatible(
+      { type: value1.type, env: expected.env },
+      { type: value2.type, env: given.env }
+    );
   } else {
     return false;
   }

@@ -34,7 +34,7 @@ import {
   requireExprNotConsumed,
   setExprAsConsumed,
 } from "./expr";
-import { FunctionValue } from "./function-value";
+import { CalledComptFunctionCache, FunctionValue } from "./function-value";
 import * as logger from "./logger";
 import Parser from "./parser";
 import { PlaceholderToken, stringIsOperator, Token, TokenType } from "./token";
@@ -90,7 +90,6 @@ import {
   isExprType,
   isFreeType,
   isFunctionType,
-  isFunctionTypeAndIsTypeFunction,
   isLinearOrType0Type,
   isLinearType,
   isModuleType,
@@ -4850,7 +4849,7 @@ Please use .variantName for destructuring enum variants.`
         body: functionBodyExpr,
         frameLevel: env.frames.length - 1,
         funcId: `fn_${randomId()}`,
-        calledTypeFunctionCaches: [],
+        calledComptFunctionCaches: [],
         SelfType: context.SelfType,
       },
       isMutable: false,
@@ -7470,50 +7469,7 @@ ${functionsWithMatchingTypes
     if (isFunctionType(functionToCall.type)) {
       const functionType = functionToCall.type;
 
-      // It is type function
-      if (isFunctionTypeAndIsTypeFunction(functionType)) {
-        const functionValue = functionToCall.value;
-        if (!isFunctionValue(functionValue)) {
-          throw this.formatErrorMessage(
-            expr.token,
-            `Function value is not defined`
-          );
-        }
-
-        const { callerEnv, calleeEnv, argValues } =
-          getFunctionCallResult(functionToCall);
-
-        const { value: returnValue, callerEnv: nextEnv } =
-          this.evaluateTypeFunctionCall({
-            functionCallExpr: expr,
-            functionType,
-            functionValue,
-            callerEnv,
-            calleeEnv,
-            argValues,
-            context: {
-              ...context,
-            },
-          });
-
-        env = popEnvFrame(nextEnv);
-        expr.$ = {
-          env,
-          type: returnValue.type,
-          value: returnValue,
-          isMutable: false,
-          pathCollection: [],
-        };
-
-        // Attach necessary info to the func
-        func.$ = {
-          env,
-          type: functionToCall.type,
-          value: functionToCall.value,
-          isMutable: false,
-          pathCollection: [],
-        };
-      } else {
+      {
         // It's
         // - Function returns runtime value
         // - Function returns comptime value
@@ -7526,8 +7482,17 @@ ${functionsWithMatchingTypes
           functionType.return.isCompileTimeOnly &&
           isFunctionValue(functionValue)
         ) {
+          // if (!isFunctionValue(functionValue)) {
+          //   throw this.formatErrorMessage(
+          //     func.token,
+          //     `Expected function value for function call, got:\n${exprToString(
+          //       func
+          //     )}`
+          //   );
+          // }
+
           const { value: returnValue, callerEnv: nextEnv } =
-            this.evaluateFunctionCallThatReturnsComptimeValue({
+            this.evaluateComptFunctionCall({
               functionCallExpr: expr,
               functionType,
               functionValue,
@@ -9055,7 +9020,7 @@ Got:   ${typeToString(argType)}`
       frameLevel: env.frames.length - 1,
       funcName: undefined,
       funcId: `fn_${randomId()}`,
-      calledTypeFunctionCaches: [],
+      calledComptFunctionCaches: [],
       SelfType: context.SelfType, // In theory, this should be undefined.
     };
 
@@ -9368,138 +9333,10 @@ Got:   ${typeToString(argType)}`
   }
 
   /**
-   * Calling function that returns Type will cache the result.
+   * Calling function that returns compile-time known value.
+   * The return value will be cached.
    */
-  private evaluateTypeFunctionCall({
-    functionCallExpr,
-    // unctionType,
-    functionValue,
-    argValues: argValues_,
-    callerEnv,
-    calleeEnv,
-    context,
-  }: {
-    functionCallExpr: Expr;
-    functionType: FunctionType;
-    functionValue: FunctionValue;
-    argValues: ArgValues;
-    callerEnv: Environment;
-    calleeEnv: Environment;
-    context: EvaluatorContext;
-  }): { value: TypeValue; callerEnv: Environment } {
-    const unfilteredArgValues: (Value | undefined)[] = [
-      ...argValues_.forallArgs,
-      ...argValues_.args,
-      ...argValues_.implicitArgs,
-    ];
-    if (unfilteredArgValues.some((val) => !val)) {
-      throw this.formatErrorMessage(
-        functionCallExpr.token,
-        `Failed to call the type function. Some arguments are not compile-time evaluated correctly.`
-      );
-    }
-    const argValues: Value[] = unfilteredArgValues as Value[];
-
-    // Check if it's in calledTypeFunctions
-    const funcId = functionValue.funcId;
-    const calledTypeFunctions = functionValue.calledTypeFunctionCaches;
-    if (calledTypeFunctions) {
-      // Check if the function is already called.
-      const calledTypeFunction = calledTypeFunctions.find((cache) => {
-        return (
-          cache.argValues.length === argValues.length &&
-          cache.argValues.every((argValue, index) => {
-            const givenArgValue = argValues[index];
-
-            // If argValue is some type, and givenArgValue is not some type,
-            // we return false.
-            // For example:
-            // - Point(T)
-            // - Point(i32)
-            // given T = i32 in env, areValuesEqual returns true.
-            // We don't want to use the cache there.
-            if (isTypeValue(argValue) && isTypeValue(givenArgValue)) {
-              if (
-                isSomeType(argValue.value) &&
-                !isSomeType(givenArgValue.value)
-              ) {
-                return false;
-              }
-            }
-
-            return areValuesEqual(
-              { value: argValue, env: cache.env },
-              { value: givenArgValue, env: callerEnv }
-            );
-          })
-        ); // Check if the values are equal
-      });
-      if (calledTypeFunction) {
-        // Find the cache
-        return {
-          callerEnv: callerEnv,
-          value: calledTypeFunction.typeValue,
-        };
-      }
-    }
-
-    // Evaluate functionValue.body with the function env
-    const functionBodyExpr = functionValue.body;
-    // NOTE: We should use the env from the function, not the current env.
-    const evaluatedFunctionBody = this.evaluateBeginExpression({
-      expr: cloneExpr(functionBodyExpr), // NOTE: Clone here is necessary
-      env: calleeEnv,
-      context: { ...context },
-    });
-    if (!evaluatedFunctionBody.$) {
-      throw this.formatErrorMessage(
-        functionCallExpr.token,
-        `Function body is not evaluated correctly`
-      );
-    }
-
-    // Get the return type value
-    const returnValue = evaluatedFunctionBody.$.value;
-    if (!isTypeValue(returnValue)) {
-      throw this.formatErrorMessage(
-        functionCallExpr.token,
-        `Function body is not evaluated correctly. Expected to return a type.`
-      );
-    }
-    const returnType = returnValue.value;
-    if (
-      isStructType(returnType) ||
-      isEnumType(returnType) ||
-      isUnionType(returnType) ||
-      isModuleType(returnType)
-    ) {
-      if (!returnType.typeName && functionValue.funcName) {
-        returnType.typeName =
-          functionValue.funcName +
-          `(${argValues.map((v) => valueToString(v)).join(", ")})`;
-      }
-
-      if (!returnType.functionValue) {
-        returnType.functionValue = functionValue;
-      }
-    }
-
-    // Cache the function call
-    const caches = (calledTypeFunctions ?? []).concat({
-      funcId,
-      argValues,
-      typeValue: returnValue,
-      env: evaluatedFunctionBody.$.env,
-    });
-    functionValue.calledTypeFunctionCaches = caches;
-
-    return {
-      value: returnValue,
-      callerEnv: callerEnv,
-    };
-  }
-
-  private evaluateFunctionCallThatReturnsComptimeValue({
+  private evaluateComptFunctionCall({
     functionCallExpr,
     functionType,
     functionValue,
@@ -9524,12 +9361,67 @@ Got:   ${typeToString(argType)}`
     if (unfilteredArgValues.some((val) => !val)) {
       throw this.formatErrorMessage(
         functionCallExpr.token,
-        `Failed to call the function. Some arguments are not compile-time evaluated correctly.`
+        `Failed to call the type function. Some arguments are not compile-time evaluated correctly.`
       );
     }
+    const argValues: Value[] = unfilteredArgValues as Value[];
 
-    // Evaluate the functionValue.body with the function env;
+    // Check if it's in the cache
+    const funcId = functionValue.funcId;
+    const calledComptFunctions = functionValue.calledComptFunctionCaches;
+    // Check if the function is already called.
+    const calledComptFunction = calledComptFunctions.find((cache) => {
+      return (
+        cache.argValues.length === argValues.length &&
+        cache.argValues.every((argValue, index) => {
+          const givenArgValue = argValues[index];
+
+          // If argValue is some type, and givenArgValue is not some type,
+          // we return false.
+          // For example:
+          // - Point(T)
+          // - Point(i32)
+          // given T = i32 in env, areValuesEqual returns true.
+          // We don't want to use the cache there.
+          if (isTypeValue(argValue) && isTypeValue(givenArgValue)) {
+            if (
+              isSomeType(argValue.value) &&
+              !isSomeType(givenArgValue.value)
+            ) {
+              return false;
+            }
+          }
+
+          return areValuesEqual(
+            { value: argValue, env: cache.env },
+            { value: givenArgValue, env: callerEnv }
+          );
+        })
+      ); // Check if the values are equal
+    });
+    if (calledComptFunction) {
+      // Find the cache
+      return {
+        callerEnv: callerEnv,
+        value: calledComptFunction.value,
+      };
+    }
+
+    // Evaluate functionValue.body with the function env
     const functionBodyExpr = functionValue.body;
+
+    // Create a temporary environment for the function call
+    // This is to prevent the infinite loop of calling the same function
+    const tempCache: CalledComptFunctionCache = {
+      funcId,
+      argValues,
+      value: createUnknownValue(functionType.return.type),
+      env: calleeEnv,
+    };
+    const caches = [...calledComptFunctions, tempCache];
+    const tempCacheIndex = caches.length - 1;
+    functionValue.calledComptFunctionCaches = caches;
+
     // NOTE: We should use the env from the function, not the current env.
     const evaluatedFunctionBody = this.evaluateBeginExpression({
       expr: cloneExpr(functionBodyExpr), // NOTE: Clone here is necessary
@@ -9557,6 +9449,33 @@ Got:   ${typeToString(argType)}`
         `Function body is not evaluated correctly. Expected to return a compile-time known value.`
       );
     }
+    if (isTypeValue(returnValue)) {
+      const returnType = returnValue.value;
+      if (
+        isStructType(returnType) ||
+        isEnumType(returnType) ||
+        isUnionType(returnType) ||
+        isModuleType(returnType)
+      ) {
+        if (!returnType.typeName && functionValue.funcName) {
+          returnType.typeName =
+            functionValue.funcName +
+            `(${argValues.map((v) => valueToString(v)).join(", ")})`;
+        }
+
+        if (!returnType.functionValue) {
+          returnType.functionValue = functionValue;
+        }
+      }
+    }
+
+    // Update the cache
+    caches[tempCacheIndex] = {
+      funcId,
+      argValues,
+      value: returnValue,
+      env: evaluatedFunctionBody.$.env,
+    };
 
     return {
       value: returnValue,
