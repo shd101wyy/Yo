@@ -1,7 +1,7 @@
 import { Borrowing } from "../borrow";
 import { Environment } from "../env";
 import { MoParserError } from "../error";
-import { PathCollection } from "../expr";
+import { Expr, PathCollection } from "../expr";
 import { FunctionValue } from "../function-value";
 import { FunctionType, ModuleType, Type } from "../type-checker";
 import { ModuleValue, Value } from "../value";
@@ -38,6 +38,8 @@ export interface EvaluatorContext {
    * The borrowings.
    */
   borrowings: Borrowing[];
+
+  evaluateExpression: EvaluateExpression;
 }
 
 export interface ArgValues {
@@ -158,3 +160,13 @@ export function getArrayCallResult(
   }
   return functionToCall.result.result;
 }
+
+export type EvaluateExpression = ({
+  expr,
+  env,
+  context,
+}: {
+  expr: Expr;
+  env: Environment;
+  context: EvaluatorContext;
+}) => Expr;
