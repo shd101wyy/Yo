@@ -44,21 +44,10 @@ import {
   convertComptTypeToRuntimeType,
   createArrayType,
   createBooleanType,
-  createComptFloatType,
   createComptIntType,
   createComptStringType,
-  createEnumType,
   createExprListType,
   createExprType,
-  createF32Type,
-  createF64Type,
-  createFreeType,
-  createI16Type,
-  createI32Type,
-  createI64Type,
-  createI8Type,
-  createIsizeType,
-  createLinearType,
   createModuleType,
   createMutPtrType,
   createMutRefType,
@@ -66,16 +55,8 @@ import {
   createRefType,
   createStructType,
   createTupleType,
-  createTypeType,
-  createU16Type,
-  createU32Type,
-  createU64Type,
-  createU8Type,
-  createUnionType,
-  createUnitType,
   createUsizeType,
   EnumType,
-  EnumVariant,
   FunctionParameter,
   FunctionType,
   getValueOfSomeTypeFromEnv,
@@ -159,6 +140,8 @@ import {
 import { ValueTag } from "../value-tag";
 
 // Import extracted evaluator functions
+import { evaluateRawPointerCall } from "./calls/pointer";
+import { evaluateReferenceCall } from "./calls/reference";
 import {
   ArgValues,
   ArrayCallResult,
@@ -173,20 +156,19 @@ import {
   TypeCallResult,
 } from "./context";
 import { evaluateBeginExpression } from "./exprs/begin";
-import {
-  evaluateBooleanLiteral,
-  evaluateFloatLiteral,
-  evaluateIntegerLiteral,
-  evaluateStringLiteral,
-} from "./literals";
+import { evaluateIdentifierAndOperator } from "./exprs/identifer_and_operator";
+import { evaluateArrayType } from "./types/array";
+import { evaluateEnumType } from "./types/enum";
 import { evaluateFunctionType } from "./types/function";
-import {
-  evaluateTupleElementsType,
-  evaluateTupleElementType,
-  evaluateTupleType,
-} from "./types/tuple";
+import { evaluateStructType } from "./types/struct";
+import { evaluateTupleType } from "./types/tuple";
+import { evaluateUnionType } from "./types/union";
 import { isValidVariableName } from "./utils";
 import { evaluateAnonymousFunctionImplementation } from "./values/anonymos_function";
+import { evaluateBooleanLiteral } from "./values/boolean";
+import { evaluateFloatLiteral } from "./values/float";
+import { evaluateIntegerLiteral } from "./values/integer";
+import { evaluateStringLiteral } from "./values/string";
 
 /**
  * This class is responsible for:
@@ -2715,7 +2697,7 @@ ${exprToString(rhs)}`,
       let variableName: string;
       if (exprIsAtom(lhs)) {
         // x = 12;
-        const evaluatedLhs = this.evaluateIdentifierAndOperator({
+        const evaluatedLhs = evaluateIdentifierAndOperator({
           expr: lhs,
           env,
           context: { ...context },
@@ -3725,334 +3707,6 @@ Please use .variantName for destructuring enum variants.`,
     return expr;
   }
 
-  private evaluateIdentifierAndOperator({
-    expr,
-    env,
-    context,
-    throwErrorOnUndefined,
-  }: {
-    expr: AtomExpr;
-    env: Environment;
-    context: EvaluatorContext;
-    throwErrorOnUndefined: boolean;
-  }): AtomExpr {
-    const identifier =
-      expr.token.type === TokenType.BacktickIdentifier
-        ? expr.token.value.slice(1, -1) // Remove backticks
-        : expr.token.value;
-
-    // Free
-    if (identifier === TypeTag.Free) {
-      const value = createTypeValue(createFreeType());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // Linear
-    else if (identifier === TypeTag.Linear) {
-      const value = createTypeValue(createLinearType());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // Type
-    else if (identifier === TypeTag.Type) {
-      const value = createTypeValue(createTypeType());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // unit
-    else if (identifier === TypeTag.Unit) {
-      const value = createTypeValue(createUnitType());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // compt_int
-    else if (identifier === TypeTag.ComptInt) {
-      const value = createTypeValue(createComptIntType());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // compt_float
-    else if (identifier === TypeTag.ComptFloat) {
-      const value = createTypeValue(createComptFloatType());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // compt_string
-    else if (identifier === TypeTag.ComptString) {
-      const value = createTypeValue(createComptStringType());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // boolean
-    else if (identifier === TypeTag.Boolean) {
-      const value = createTypeValue(createBooleanType());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // usize
-    else if (identifier === TypeTag.Usize) {
-      const value = createTypeValue(createUsizeType());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // isize
-    else if (identifier === TypeTag.Isize) {
-      const value = createTypeValue(createIsizeType());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // u8
-    else if (identifier === TypeTag.U8) {
-      const value = createTypeValue(createU8Type());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // i8
-    else if (identifier === TypeTag.I8) {
-      const value = createTypeValue(createI8Type());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // u16
-    else if (identifier === TypeTag.U16) {
-      const value = createTypeValue(createU16Type());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // i16
-    else if (identifier === TypeTag.I16) {
-      const value = createTypeValue(createI16Type());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // u32
-    else if (identifier === TypeTag.U32) {
-      const value = createTypeValue(createU32Type());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // i32
-    else if (identifier === TypeTag.I32) {
-      const value = createTypeValue(createI32Type());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // u64
-    else if (identifier === TypeTag.U64) {
-      const value = createTypeValue(createU64Type());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // i64
-    else if (identifier === TypeTag.I64) {
-      const value = createTypeValue(createI64Type());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // f32
-    else if (identifier === TypeTag.F32) {
-      const value = createTypeValue(createF32Type());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // f64
-    else if (identifier === TypeTag.F64) {
-      const value = createTypeValue(createF64Type());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // Expr
-    else if (identifier === TypeTag.Expr) {
-      const value = createTypeValue(createExprType());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // ExprList
-    else if (identifier === TypeTag.ExprList) {
-      const value = createTypeValue(createExprListType());
-      expr.$ = {
-        env,
-        type: value.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // Self
-    else if (
-      identifier === "Self" &&
-      context.SelfType &&
-      (isStructType(context.SelfType) ||
-        isEnumType(context.SelfType) ||
-        isUnionType(context.SelfType))
-    ) {
-      const typeValue = createTypeValue(context.SelfType);
-
-      expr.$ = {
-        env,
-        type: typeValue.type,
-        value: typeValue,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    }
-    // variable
-    else {
-      const variables = getVariablesFromEnv(env, identifier);
-      if (!variables.length) {
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `Variable "${identifier}" not found`,
-        });
-      } else {
-        const variable = variables[variables.length - 1]!;
-        if (variable.isUndefined && throwErrorOnUndefined) {
-          throw formatErrorMessage({
-            token: expr.token,
-            errorMessage: `Variable "${identifier}" is undefined`,
-          });
-        }
-        expr.$ = {
-          env,
-          type: variable.type,
-          value: variable.value,
-          isMutable: variable.isMutable,
-          variableName: variable.name, // NOTE: The tempVariableName here is the variable name itself.
-          pathCollection: [[variable.name]],
-        };
-        return expr;
-      }
-    }
-  }
-
   private evaluateRecur({
     expr,
     env,
@@ -4121,390 +3775,6 @@ Please use .variantName for destructuring enum variants.`,
     return expr;
   }
   */
-
-  private evaluateStructType({
-    expr,
-    env,
-    context,
-  }: {
-    expr: FuncCallExpr;
-    env: Environment;
-    context: EvaluatorContext;
-  }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
-      throw formatErrorMessage({
-        token: expr.token,
-        errorMessage: `Expected "struct", got:\n${exprToString(expr)}`,
-      });
-    }
-
-    // Create structType with empty elements
-    // This is used as the SelfType for the following evaluations.
-    const structType = createStructType([]);
-    const elements = structType.elements;
-
-    for (let i = 0; i < expr.args.length; i++) {
-      const arg = expr.args[i]!;
-
-      // spread operator for extending another struct type
-      // NOTE: Let's disable this for now.
-      //       Maybe the spread operator should only work with struct value, not struct type.
-      //       It also causes confusion. Like should we extend the type methods there?
-      if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
-        const extendedStructExpr = arg.args[0]!;
-        // Evaluate the extended struct expression
-        const evaluatedExtendedStruct = this.evaluateExpression({
-          expr: extendedStructExpr,
-          env,
-          context: {
-            ...context,
-            SelfType: structType,
-          },
-        });
-        if (!evaluatedExtendedStruct.$) {
-          throw formatErrorMessage({
-            token: extendedStructExpr.token,
-            errorMessage: `Failed to evaluate the extended struct expression: ${exprToString(extendedStructExpr)}`,
-          });
-        }
-
-        // Check if it's a struct type
-        const extendedStructTypeValue = evaluatedExtendedStruct.$.value;
-        if (
-          !isTypeValue(extendedStructTypeValue) ||
-          !isStructType(extendedStructTypeValue.value)
-        ) {
-          throw formatErrorMessage({
-            token: extendedStructExpr.token,
-            errorMessage: `Expected a struct type for extending, got ${exprToString(
-              extendedStructExpr
-            )}`,
-          });
-        }
-        const extendedStructType = extendedStructTypeValue.value;
-
-        // Iterate over the elements of the extended struct
-        for (const extendedStructElement of extendedStructType.elements) {
-          // Check if there is duplicate labels
-          // If yes, then override the element
-          const duplicateLabelIndex = elements.findIndex(
-            (e) => e.label === extendedStructElement.label
-          );
-          if (duplicateLabelIndex >= 0) {
-            // Override the existing one.
-            elements[duplicateLabelIndex] = extendedStructElement;
-          } else {
-            // Add the element to the struct
-            elements.push(extendedStructElement);
-          }
-        }
-      }
-      // tuple element
-      else {
-        const { type, env: nextEnv } = evaluateTupleElementType({
-          expr: arg,
-          env,
-          tupleElementIndex: i,
-          context: { ...context, SelfType: structType },
-          forType: "struct",
-        });
-
-        // Check if there is duplicate labels
-        const duplicateLabel = elements.find(
-          (element) => element.label === type.label
-        );
-        if (duplicateLabel) {
-          throw formatErrorMessage({
-            token: exprIsFunctionCall(arg)
-              ? (arg.args[0]?.token ?? arg.token)
-              : arg.token,
-            errorMessage: `Duplicate label "${type.label}" in struct`,
-          });
-        }
-
-        // Compile-time field must have an assigned value
-        if (type.isCompileTimeOnly && !type.assignedValue) {
-          throw formatErrorMessage({
-            token: type.exprs.expr.token,
-            errorMessage: `Compile-time only field "${type.label}" must have an assigned value.`,
-          });
-        }
-
-        elements.push(type);
-        env = nextEnv;
-      }
-    }
-
-    const structTypeValue = createTypeValue(structType);
-    expr.$ = {
-      env,
-      type: structTypeValue.type,
-      value: structTypeValue,
-      isMutable: false,
-      pathCollection: [],
-    };
-
-    // Append more information to "struct" token.
-    expr.func.$ = expr.$;
-    return expr;
-  }
-
-  private evaluateEnumType({
-    expr,
-    env,
-    context,
-  }: {
-    expr: FuncCallExpr;
-    env: Environment;
-    context: EvaluatorContext;
-  }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.enum)) {
-      throw formatErrorMessage({
-        token: expr.token,
-        errorMessage: `Expected "enum", got:\n${exprToString(expr)}`,
-      });
-    }
-
-    // Create enumType with empty variants
-    const enumType = createEnumType([]);
-
-    // Evaluate the variants
-    const variants: EnumVariant[] = enumType.variants;
-    const comptElements: TupleElement[] = enumType.elements;
-
-    for (let i = 0; i < expr.args.length; i++) {
-      const enumArg = expr.args[i]!;
-
-      // comptime fields
-      // eg:
-      //   ~~Self.new = (((lhs: Self, rhs: i32) -> i32) {})~~
-      //   new :: (((lhs: Self, rhs: i32) -> i32) {})
-      if (
-        exprIsFunctionCall(enumArg) &&
-        (exprIsFunctionCallOf(enumArg, "::", 2) ||
-          exprIsFunctionCallOf(enumArg, "=", 2) ||
-          exprIsFunctionCallOf(enumArg, "?=", 2))
-      ) {
-        const arg = enumArg;
-        const { type, env: nextEnv } = evaluateTupleElementType({
-          expr: arg,
-          env,
-          tupleElementIndex: i,
-          context: { ...context, SelfType: enumType },
-          forType: "enum",
-        });
-
-        // Check if there is duplicate labels
-        const duplicateLabel = comptElements.find(
-          (element) => element.label === type.label
-        );
-        if (duplicateLabel) {
-          throw formatErrorMessage({
-            token: arg.token,
-            errorMessage: `Duplicate label "${type.label}" in enum`,
-          });
-        }
-
-        // Check if it duplicates with the existing variant names
-        if (variants.some((v) => v.name === type.label)) {
-          throw formatErrorMessage({
-            token: arg.token,
-            errorMessage: `Duplicate label "${type.label}" in enum variants`,
-          });
-        }
-
-        if (!type.isCompileTimeOnly) {
-          throw formatErrorMessage({
-            token: arg.token,
-            errorMessage: `Expected compile-time only field, got:\n${exprToString(
-              type.exprs.expr
-            )}`,
-          });
-        }
-
-        // Compile-time field must have an assigned value
-        if (type.isCompileTimeOnly && !type.assignedValue) {
-          throw formatErrorMessage({
-            token: type.exprs.expr.token,
-            errorMessage: `Compile-time only field "${type.label}" must have an assigned value.`,
-          });
-        }
-
-        // Disallow to have the default value for union type fields.
-        if (type.defaultValue) {
-          throw formatErrorMessage({
-            token: type.exprs.defaultValueExpr?.token ?? type.exprs.expr.token,
-            errorMessage: `Union type cannot have default value for its elements.`,
-          });
-        }
-
-        comptElements.push(type);
-        env = nextEnv;
-      }
-
-      // Enum variant
-      else {
-        if (exprIsAtom(enumArg)) {
-          const variantName = enumArg.token.value;
-          if (!isValidVariableName(enumArg)) {
-            throw formatErrorMessage({
-              token: enumArg.token,
-              errorMessage: `Expected identifier for enum variant, got:\n${exprToString(
-                enumArg
-              )}`,
-            });
-          }
-          variants.push({
-            name: variantName,
-          });
-
-          // TODO: Check duplicates
-        } else {
-          if (exprIsFunctionCallOf(enumArg, ":")) {
-            throw formatErrorMessage({
-              token: enumArg.token,
-              errorMessage: `Enum variant with : is not implemented yet`,
-            });
-          }
-          if (!isValidVariableName(enumArg.func)) {
-            throw formatErrorMessage({
-              token: enumArg.func.token,
-              errorMessage: `Expected identifier for enum variant, got:\n${exprToString(
-                enumArg.func
-              )}`,
-            });
-          }
-          const variantName = enumArg.func.token.value;
-
-          const { type: tupleType, env: nextEnv } = evaluateTupleElementsType({
-            args: enumArg.args,
-            env,
-            context: {
-              ...context,
-              SelfType: enumType,
-            },
-            forType: "enum",
-          });
-          env = nextEnv;
-
-          // We disallow to have isCompileTimeOnly for enum variant elements.
-          // Because enum variant fields cannot be marked as compile-time only.
-          for (let i = 0; i < tupleType.elements.length; i++) {
-            const element = tupleType.elements[i]!;
-            // QUESTION: Should we allow compile-time only field in enum variant?
-            // If yes, should we require it to have assignedValue?
-            if (element.isCompileTimeOnly) {
-              throw formatErrorMessage({
-                token: element.exprs.expr.token,
-                errorMessage: `Enum variant element cannot be compile-time only, got:\n${exprToString(
-                  element.exprs.expr
-                )}`,
-              });
-            }
-          }
-
-          variants.push({
-            name: variantName,
-            elements: tupleType.elements,
-          });
-        }
-      }
-    }
-
-    const enumTypeValue = createTypeValue(enumType);
-    expr.$ = {
-      env,
-      value: enumTypeValue,
-      type: enumTypeValue.type,
-      isMutable: false,
-      pathCollection: [],
-    };
-
-    // Append more information to "enum" token.
-    expr.func.$ = expr.$;
-    return expr;
-  }
-
-  private evaluateUnionType({
-    expr,
-    env,
-    context,
-  }: {
-    expr: FuncCallExpr;
-    env: Environment;
-    context: EvaluatorContext;
-  }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.union)) {
-      throw formatErrorMessage({
-        token: expr.token,
-        errorMessage: `Expected "union", got:\n${exprToString(expr)}`,
-      });
-    }
-
-    // Create unionType with empty elements
-    const unionType = createUnionType([]);
-
-    const elements: TupleElement[] = [];
-    unionType.elements = elements;
-
-    const args = expr.args;
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i]!;
-
-      const { type, env: nextEnv } = evaluateTupleElementType({
-        expr: arg,
-        env,
-        tupleElementIndex: i,
-        context: { ...context, SelfType: unionType },
-        forType: "union",
-      });
-
-      // Check if there is duplicate labels
-      const duplicateLabel = elements.find(
-        (element) => element.label === type.label
-      );
-      if (duplicateLabel) {
-        throw formatErrorMessage({
-          token: exprIsFunctionCall(arg)
-            ? (arg.args[0]?.token ?? arg.token)
-            : arg.token,
-          errorMessage: `Duplicate label "${type.label}" in tuple`,
-        });
-      }
-
-      // Compile-time field must have an assigned value
-      if (type.isCompileTimeOnly && !type.assignedValue) {
-        throw formatErrorMessage({
-          token: type.exprs.expr.token,
-          errorMessage: `Compile-time only field "${type.label}" must have an assigned value.`,
-        });
-      }
-
-      // Disallow to have the default value for union type fields.
-      if (type.defaultValue) {
-        throw formatErrorMessage({
-          token: type.exprs.defaultValueExpr?.token ?? type.exprs.expr.token,
-          errorMessage: `Union type cannot have default value for its elements.`,
-        });
-      }
-
-      elements.push(type);
-      env = nextEnv;
-    }
-
-    const unionTypeValue = createTypeValue(unionType);
-    expr.$ = {
-      env,
-      value: unionTypeValue,
-      type: unionTypeValue.type,
-      isMutable: false,
-      pathCollection: [],
-    };
-
-    // Append more information to "union" token.
-    expr.func.$ = expr.$;
-    return expr;
-  }
 
   private evaluateModuleType({
     expr,
@@ -10632,290 +9902,6 @@ Got:   ${typeToString(argType)}`,
     return expr;
   }
 
-  private evaluateReferenceCall({
-    expr,
-    env,
-    context,
-  }: {
-    expr: FuncCallExpr;
-    env: Environment;
-    context: EvaluatorContext;
-  }): FuncCallExpr {
-    const referenceTypeKind: TypeTag.Ref | TypeTag.MutRef =
-      exprIsFunctionCallOf(expr, BuiltinKeywords.Ref)
-        ? TypeTag.Ref
-        : TypeTag.MutRef;
-
-    const argExpr = expr.args[0]!;
-    const evaluatedArgExpr = this.evaluateExpression({
-      expr: argExpr,
-      env,
-      context: {
-        ...context,
-      },
-    });
-
-    if (!evaluatedArgExpr.$) {
-      throw formatErrorMessage({
-        token: argExpr.token,
-        errorMessage: `Failed to evaluate the argument expression for reference:\n${exprToString(
-          argExpr
-        )}`,
-      });
-    }
-    env = evaluatedArgExpr.$.env;
-
-    // Check if the argExpr is a type
-    if (isTypeValue(evaluatedArgExpr.$.value)) {
-      const typeValue = evaluatedArgExpr.$.value;
-      const baseType = typeValue.value;
-      // Create the pointer type
-      const referenceType =
-        referenceTypeKind === TypeTag.Ref
-          ? createRefType(baseType)
-          : createMutRefType(baseType);
-      const typeValueForPointer = createTypeValue(referenceType);
-      expr.$ = {
-        env,
-        type: typeValueForPointer.type,
-        value: typeValueForPointer,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    } else {
-      // The arg cannot be consumed.
-      requireExprNotConsumed(evaluatedArgExpr, env);
-
-      const argType = evaluatedArgExpr.$.type;
-      const referenceType =
-        referenceTypeKind === TypeTag.Ref
-          ? createRefType(argType)
-          : createMutRefType(argType);
-
-      // Check if we are creating a mutable pointer to an immutable value
-      if (
-        referenceTypeKind === TypeTag.MutRef &&
-        !evaluatedArgExpr.$.isMutable
-      ) {
-        throw formatErrorMessage({
-          token: argExpr.token,
-          errorMessage: `Cannot create a mutable reference to the immutable:\n${exprToString(
-            argExpr
-          )}`,
-        });
-      }
-
-      expr.$ = {
-        env,
-        type: referenceType,
-        value: undefined, // reference is only available for runtime
-        isMutable: referenceTypeKind === TypeTag.MutRef,
-        pathCollection: evaluatedArgExpr.$.pathCollection,
-      };
-      attachTempVariableToExpr(expr);
-      return expr;
-    }
-  }
-
-  private evaluateArrayType({
-    expr,
-    env,
-    context,
-  }: {
-    expr: FuncCallExpr;
-    env: Environment;
-    context: EvaluatorContext;
-  }): FuncCallExpr {
-    if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Array, 2)) {
-      throw formatErrorMessage({
-        token: expr.token,
-        errorMessage: `Expected "Array(@(Type), @(usize))" with 2 arguments, like "Array(i32, 10)"
-Got:\n${exprToString(expr)}`,
-      });
-    }
-
-    const elementTypeExpr = expr.args[0]!;
-    const lengthExpr = expr.args[1]!;
-
-    // Evaluate the element type expression
-    const evaluatedElementTypeExpr = this.evaluateExpression({
-      expr: elementTypeExpr,
-      env,
-      context: {
-        ...context,
-      },
-    });
-    if (!evaluatedElementTypeExpr.$) {
-      throw formatErrorMessage({
-        token: elementTypeExpr.token,
-        errorMessage: `Failed to evaluate the element type expression:\n${exprToString(
-          elementTypeExpr
-        )}`,
-      });
-    }
-    if (!isTypeValue(evaluatedElementTypeExpr.$.value)) {
-      throw formatErrorMessage({
-        token: elementTypeExpr.token,
-        errorMessage: `Expected type for element type, got:\n${exprToString(elementTypeExpr)}`,
-      });
-    }
-    const elementType = evaluatedElementTypeExpr.$.value.value;
-
-    // Evaluate the length expression
-    const evaluatedLengthExpr = this.evaluateExpression({
-      expr: lengthExpr,
-      env,
-      context: {
-        ...context,
-      },
-    });
-    if (!evaluatedLengthExpr.$) {
-      throw formatErrorMessage({
-        token: lengthExpr.token,
-        errorMessage: `Failed to evaluate the length expression:\n${exprToString(lengthExpr)}`,
-      });
-    }
-    if (
-      !areTypesCompatible(
-        {
-          type: createUsizeType(),
-          env,
-        },
-        {
-          type: evaluatedLengthExpr.$.type,
-          env,
-        }
-      )
-    ) {
-      throw formatErrorMessage({
-        token: lengthExpr.token,
-        errorMessage: `Expected usize for length, got:\n${exprToString(lengthExpr)}`,
-      });
-    }
-
-    const lengthValue = evaluatedLengthExpr.$.value;
-    if (!lengthValue) {
-      throw formatErrorMessage({
-        token: lengthExpr.token,
-        errorMessage: `Expected compile-time known value for length, got:\n${exprToString(lengthExpr)}`,
-      });
-    }
-    if (isUnknownValue(lengthValue)) {
-      // QUESTION: Should we do it this way?
-      // Change its type to usize
-      lengthValue.type = createUsizeType();
-    }
-
-    const arrayType = createArrayType(elementType, lengthValue);
-    const arrayValue = createTypeValue(arrayType);
-
-    expr.$ = {
-      env: evaluatedLengthExpr.$.env,
-      type: arrayValue.type,
-      value: arrayValue,
-      isMutable: false,
-      pathCollection: [],
-    };
-    return expr;
-  }
-
-  /**
-   * Evaluate a raw pointer call
-   * For example:
-   *
-   * I32Ptr :: *(i32);
-   * x := 1;
-   * p := *(x); // p: *(i32)
-   */
-  private evaluateRawPointerCall({
-    expr,
-    env,
-    context,
-  }: {
-    expr: FuncCallExpr;
-    env: Environment;
-    context: EvaluatorContext;
-  }): FuncCallExpr {
-    const pointerTypeKind: TypeTag.Ptr | TypeTag.MutPtr = exprIsFunctionCallOf(
-      expr,
-      BuiltinKeywords.Ptr
-    )
-      ? TypeTag.Ptr
-      : TypeTag.MutPtr;
-
-    const argExpr = expr.args[0]!;
-    const evaluatedArgExpr = this.evaluateExpression({
-      expr: argExpr,
-      env,
-      context: {
-        ...context,
-      },
-    });
-
-    if (!evaluatedArgExpr.$) {
-      throw formatErrorMessage({
-        token: argExpr.token,
-        errorMessage: `Failed to evaluate the argument expression for pointer:\n${exprToString(
-          argExpr
-        )}`,
-      });
-    }
-    env = evaluatedArgExpr.$.env;
-
-    // Check if the argExpr is a type
-    if (isTypeValue(evaluatedArgExpr.$.value)) {
-      const typeValue = evaluatedArgExpr.$.value;
-      const baseType = typeValue.value;
-      // Create the pointer type
-      const pointerType =
-        pointerTypeKind === TypeTag.Ptr
-          ? createPtrType(baseType)
-          : createMutPtrType(baseType);
-      const typeValueForPointer = createTypeValue(pointerType);
-      expr.$ = {
-        env,
-        type: typeValueForPointer.type,
-        value: typeValueForPointer,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    } else {
-      // The arg cannot be consumed.
-      requireExprNotConsumed(evaluatedArgExpr, env);
-
-      // Check borrowings
-      checkBorrowings(context.borrowings, evaluatedArgExpr);
-
-      const argType = evaluatedArgExpr.$.type;
-      const pointerType =
-        pointerTypeKind === TypeTag.Ptr
-          ? createPtrType(argType)
-          : createMutPtrType(argType);
-
-      // Check if we are creating a mutable pointer to an immutable value
-      if (pointerTypeKind === TypeTag.MutPtr && !evaluatedArgExpr.$.isMutable) {
-        throw formatErrorMessage({
-          token: argExpr.token,
-          errorMessage: `Cannot create a mutable pointer to the immutable:\n${exprToString(
-            argExpr
-          )}`,
-        });
-      }
-
-      expr.$ = {
-        env,
-        type: pointerType,
-        value: undefined, // pointer is only available for runtime
-        isMutable: pointerTypeKind === TypeTag.MutPtr,
-        pathCollection: [],
-      };
-      attachTempVariableToExpr(expr);
-      return expr;
-    }
-  }
-
   private evaluateExpression({
     expr,
     env,
@@ -10930,7 +9916,7 @@ Got:\n${exprToString(expr)}`,
         case TokenType.Identifier:
         case TokenType.Operator:
         case TokenType.BacktickIdentifier: {
-          return this.evaluateIdentifierAndOperator({
+          return evaluateIdentifierAndOperator({
             expr,
             env,
             context: { ...context },
@@ -11018,13 +10004,13 @@ ${exprToString(expr)}`,
         });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
         // struct
-        return this.evaluateStructType({ expr, env, context: { ...context } });
+        return evaluateStructType({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.enum)) {
         // enum
-        return this.evaluateEnumType({ expr, env, context: { ...context } });
+        return evaluateEnumType({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.union)) {
         // union
-        return this.evaluateUnionType({ expr, env, context: { ...context } });
+        return evaluateUnionType({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, ".")) {
         // property access
         return this.evaluatePropertyAccess({
@@ -11062,7 +10048,7 @@ ${exprToString(expr)}`,
         exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1)
       ) {
         // * or *! raw pointers
-        return this.evaluateRawPointerCall({
+        return evaluateRawPointerCall({
           expr,
           env,
           context: { ...context },
@@ -11072,7 +10058,7 @@ ${exprToString(expr)}`,
         exprIsFunctionCallOf(expr, BuiltinKeywords.Ref, 1)
       ) {
         // & or &! references
-        return this.evaluateReferenceCall({
+        return evaluateReferenceCall({
           expr,
           env,
           context: { ...context },
@@ -11086,7 +10072,7 @@ ${exprToString(expr)}`,
         });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Array)) {
         // Array type
-        return this.evaluateArrayType({
+        return evaluateArrayType({
           expr,
           env,
           context: { ...context },

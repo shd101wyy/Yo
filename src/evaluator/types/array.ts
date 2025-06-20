@@ -1,0 +1,117 @@
+import { Environment } from "../../env";
+import { formatErrorMessage } from "../../error";
+import {
+  BuiltinKeywords,
+  exprIsFunctionCallOf,
+  exprToString,
+  FuncCallExpr,
+} from "../../expr";
+import {
+  areTypesCompatible,
+  createArrayType,
+  createUsizeType,
+} from "../../type-checker";
+import { createTypeValue, isTypeValue, isUnknownValue } from "../../value";
+import { EvaluatorContext } from "../context";
+
+export function evaluateArrayType({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FuncCallExpr {
+  if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Array, 2)) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expected "Array(@(Type), @(usize))" with 2 arguments, like "Array(i32, 10)"
+Got:\n${exprToString(expr)}`,
+    });
+  }
+
+  const elementTypeExpr = expr.args[0]!;
+  const lengthExpr = expr.args[1]!;
+
+  // Evaluate the element type expression
+  const evaluatedElementTypeExpr = context.evaluateExpression({
+    expr: elementTypeExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+  if (!evaluatedElementTypeExpr.$) {
+    throw formatErrorMessage({
+      token: elementTypeExpr.token,
+      errorMessage: `Failed to evaluate the element type expression:\n${exprToString(
+        elementTypeExpr
+      )}`,
+    });
+  }
+  if (!isTypeValue(evaluatedElementTypeExpr.$.value)) {
+    throw formatErrorMessage({
+      token: elementTypeExpr.token,
+      errorMessage: `Expected type for element type, got:\n${exprToString(elementTypeExpr)}`,
+    });
+  }
+  const elementType = evaluatedElementTypeExpr.$.value.value;
+
+  // Evaluate the length expression
+  const evaluatedLengthExpr = context.evaluateExpression({
+    expr: lengthExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+  if (!evaluatedLengthExpr.$) {
+    throw formatErrorMessage({
+      token: lengthExpr.token,
+      errorMessage: `Failed to evaluate the length expression:\n${exprToString(lengthExpr)}`,
+    });
+  }
+  if (
+    !areTypesCompatible(
+      {
+        type: createUsizeType(),
+        env,
+      },
+      {
+        type: evaluatedLengthExpr.$.type,
+        env,
+      }
+    )
+  ) {
+    throw formatErrorMessage({
+      token: lengthExpr.token,
+      errorMessage: `Expected usize for length, got:\n${exprToString(lengthExpr)}`,
+    });
+  }
+
+  const lengthValue = evaluatedLengthExpr.$.value;
+  if (!lengthValue) {
+    throw formatErrorMessage({
+      token: lengthExpr.token,
+      errorMessage: `Expected compile-time known value for length, got:\n${exprToString(lengthExpr)}`,
+    });
+  }
+  if (isUnknownValue(lengthValue)) {
+    // QUESTION: Should we do it this way?
+    // Change its type to usize
+    lengthValue.type = createUsizeType();
+  }
+
+  const arrayType = createArrayType(elementType, lengthValue);
+  const arrayValue = createTypeValue(arrayType);
+
+  expr.$ = {
+    env: evaluatedLengthExpr.$.env,
+    type: arrayValue.type,
+    value: arrayValue,
+    isMutable: false,
+    pathCollection: [],
+  };
+  return expr;
+}
