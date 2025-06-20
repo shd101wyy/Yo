@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { Borrowing, checkBorrowings } from "./borrow";
+import { Borrowing, checkBorrowings } from "../borrow";
 import {
   addVariableToEnv,
   createNewEnv,
@@ -13,8 +13,8 @@ import {
   pushEnvFrame,
   updateExistingVariable,
   Variable,
-} from "./env";
-import { formatErrorMessage, MoParserError } from "./error";
+} from "../env";
+import { formatErrorMessage, MoParserError } from "../error";
 import {
   AtomExpr,
   attachTempVariableToExpr,
@@ -33,11 +33,11 @@ import {
   PathCollection,
   requireExprNotConsumed,
   setExprAsConsumed,
-} from "./expr";
-import { CalledComptFunctionCache, FunctionValue } from "./function-value";
-import * as logger from "./logger";
-import Parser from "./parser";
-import { PlaceholderToken, stringIsOperator, Token, TokenType } from "./token";
+} from "../expr";
+import { CalledComptFunctionCache, FunctionValue } from "../function-value";
+import * as logger from "../logger";
+import Parser from "../parser";
+import { PlaceholderToken, stringIsOperator, Token, TokenType } from "../token";
 import {
   areTypesCompatible,
   ArrayType,
@@ -117,10 +117,10 @@ import {
   typeRequiresComptModifier,
   TypeTag,
   typeToString,
-} from "./type-checker";
-import { setTypeValueAsLinear, TypeValue } from "./type-value";
-import { VUnit } from "./unit-value";
-import { randomId } from "./utils";
+} from "../type-checker";
+import { setTypeValueAsLinear, TypeValue } from "../type-value";
+import { VUnit } from "../unit-value";
+import { randomId } from "../utils";
 import {
   areValuesEqual,
   ArrayValue,
@@ -158,165 +158,29 @@ import {
   UnknownValue,
   Value,
   valueToString,
-} from "./value";
-import { ValueTag } from "./value-tag";
+} from "../value";
+import { ValueTag } from "../value-tag";
 
-interface EvaluatorContext {
-  /**
-   *
-   */
-  expectedType?: {
-    type: Type;
-    env: Environment;
-  };
-
-  /**
-   * This is used for calling the `recur` function.
-   */
-  isEvaluatingFunctionBody?: {
-    type: FunctionType;
-    value?: FunctionValue;
-  };
-
-  /**
-   * The innermost struct, enum, or union that this function call is inside.
-   * This can be useful for an anonymous struct that needs to refer to itself
-   */
-  SelfType?: Type;
-
-  /**
-   * The innermost module that this function call is inside.
-   */
-  ModuleType?: ModuleType;
-
-  /**
-   * The borrowings.
-   */
-  borrowings: Borrowing[];
-}
-
-interface ArgValues {
-  forallArgs: Value[];
-  args: (Value | undefined)[];
-  implicitArgs: (Value | undefined)[];
-}
-
-interface FunctionCallResult {
-  calleeEnv: Environment;
-  callerEnv: Environment;
-  pathCollection: PathCollection;
-  returnType: Type;
-  argValues: ArgValues;
-}
-
-interface TypeCallResult {
-  values: (Value | undefined)[];
-  pathCollection: PathCollection;
-  callerEnv: Environment;
-}
-
-interface ModuleTypeCallResult {
-  moduleValue: ModuleValue;
-  callerEnv: Environment;
-}
-
-interface ArrayCallResult {
-  value: Value | undefined;
-}
-
-interface FunctionToCall {
-  type: Type;
-  value?: Value;
-  result:
-    | {
-        /**
-         * This is the result from calling:
-         *
-         *   this.tryToCallFunctionWithArguments
-         */
-        kind: "function";
-        result: FunctionCallResult;
-      }
-    | {
-        /**
-         * This is the result from calling:
-         *
-         *   this.tryToCallTypeWithArguments
-         */
-        kind: "type";
-        result: TypeCallResult;
-      }
-    | {
-        /**
-         * This is the result from calling:
-         *
-         *   this.tryToImplementFunctionByFunctionType
-         */
-        kind: "function-type";
-      }
-    | {
-        /**
-         * This is the result from calling:
-         *
-         *   this.tryToImplementModuleWithArguments
-         */
-        kind: "module-type";
-        result: ModuleTypeCallResult;
-      }
-    | {
-        /**
-         * This is the result from calling:
-         *
-         *   this.tryToCallArrayWithArguments
-         */
-        kind: "array";
-        result: ArrayCallResult;
-      }
-    | {
-        kind: "error";
-        error: Error | MoParserError;
-      };
-}
-
-function getFunctionCallResult(
-  functionToCall: FunctionToCall
-): FunctionCallResult {
-  if (functionToCall.result.kind !== "function") {
-    throw new Error(
-      `Expected function call result, got ${functionToCall.result.kind}`
-    );
-  }
-  return functionToCall.result.result;
-}
-
-function getTypeCallResult(functionToCall: FunctionToCall): TypeCallResult {
-  if (functionToCall.result.kind !== "type") {
-    throw new Error(
-      `Expected type call result, got ${functionToCall.result.kind}`
-    );
-  }
-  return functionToCall.result.result;
-}
-
-function getModuleTypeCallResult(
-  functionToCall: FunctionToCall
-): ModuleTypeCallResult {
-  if (functionToCall.result.kind !== "module-type") {
-    throw new Error(
-      `Expected module type call result, got ${functionToCall.result.kind}`
-    );
-  }
-  return functionToCall.result.result;
-}
-
-function getArrayCallResult(functionToCall: FunctionToCall): ArrayCallResult {
-  if (functionToCall.result.kind !== "array") {
-    throw new Error(
-      `Expected array call result, got ${functionToCall.result.kind}`
-    );
-  }
-  return functionToCall.result.result;
-}
+// Import extracted evaluator functions
+import {
+  ArgValues,
+  ArrayCallResult,
+  EvaluatorContext,
+  FunctionCallResult,
+  FunctionToCall,
+  getArrayCallResult,
+  getFunctionCallResult,
+  getModuleTypeCallResult,
+  getTypeCallResult,
+  ModuleTypeCallResult,
+  TypeCallResult,
+} from "./context";
+import {
+  evaluateBooleanLiteral,
+  evaluateFloatLiteral,
+  evaluateIntegerLiteral,
+  evaluateStringLiteral,
+} from "./literals";
 
 /**
  * This class is responsible for:
@@ -388,121 +252,51 @@ export default class Evaluator {
     return this.tokens;
   }
 
-  private formatErrorMessage(token: Token, errorMessage: string) {
-    return formatErrorMessage({
-      token,
-      errorMessage,
-    });
-  }
-
   private expectExprToBeFunctionCallOf(
     expr: Expr,
     expectedFunctionName: string | string[],
     expectedArgCount?: number
   ) {
     if (!exprIsFunctionCall(expr)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected function call, got atom:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected function call, got atom:\n${exprToString(expr)}`,
+      });
     }
     if (!exprIsFunctionCallOf(expr, expectedFunctionName)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected function call of ${Array.isArray(expectedFunctionName) ? expectedFunctionName.map((fn) => `"${fn}"`).join(" or ") : `"${expectedFunctionName}"`}, got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected function call of ${Array.isArray(expectedFunctionName) ? expectedFunctionName.map((fn) => `"${fn}"`).join(" or ") : `"${expectedFunctionName}"`}, got:\n${exprToString(expr)}`,
+      });
     }
 
     if (
       expectedArgCount !== undefined &&
       expr.args.length !== expectedArgCount
     ) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected ${expectedArgCount} arguments, got ${expr.args.length}:\n${exprToString(
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected ${expectedArgCount} arguments, got ${expr.args.length}:\n${exprToString(
           expr
-        )}`
-      );
+        )}`,
+      });
     }
   }
 
   private evaluateIntegerLiteral(expr: AtomExpr, env: Environment): AtomExpr {
-    if (expr.token.type === TokenType.Integer) {
-      const integerValue = parseInt(expr.token.value, 10);
-      const value = createNumberValue(ValueTag.ComptInt, integerValue);
-      expr.$ = {
-        env,
-        value,
-        type: value.type,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    } else {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected integer literal, got ${expr.tag}`
-      );
-    }
+    return evaluateIntegerLiteral(expr, env);
   }
 
   private evaluateFloatLiteral(expr: AtomExpr, env: Environment): AtomExpr {
-    if (expr.token.type === TokenType.Float) {
-      const floatValue = parseFloat(expr.token.value);
-      const value = createNumberValue(ValueTag.ComptFloat, floatValue);
-      expr.$ = {
-        env,
-        value,
-        type: value.type,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    } else {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected float literal, got ${expr.tag}`
-      );
-    }
+    return evaluateFloatLiteral(expr, env);
   }
 
   private evaluateStringLiteral(expr: AtomExpr, env: Environment): AtomExpr {
-    if (expr.token.type === TokenType.String) {
-      const value = createComptStringValue(JSON.parse(expr.token.value));
-      expr.$ = {
-        env,
-        value,
-        type: value.type,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    } else {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected string literal, got ${expr.tag}`
-      );
-    }
+    return evaluateStringLiteral(expr, env);
   }
 
   private evaluateBooleanLiteral(expr: AtomExpr, env: Environment): AtomExpr {
-    if (expr.token.type === TokenType.Boolean) {
-      const booleanValue = expr.token.value === "true";
-      const value: Value = createBooleanValue(booleanValue);
-      expr.$ = {
-        env,
-        value,
-        type: value.type,
-        isMutable: false,
-        pathCollection: [],
-      };
-      return expr;
-    } else {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected boolean literal, got ${expr.tag}`
-      );
-    }
+    return evaluateBooleanLiteral(expr, env);
   }
 
   private evaluateTupleValue({
@@ -515,10 +309,10 @@ export default class Evaluator {
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.tuple)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected tuple, got ${expr.tag}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected tuple, got ${expr.tag}`,
+      });
     }
 
     if (expr.args.length === 0) {
@@ -544,17 +338,17 @@ export default class Evaluator {
     // We disallow the tuple value to have labels. Only the tuple type can have labels.
     tupleType.elements.forEach((tupleElement) => {
       if (tupleElement.exprs.defaultValueExpr) {
-        throw this.formatErrorMessage(
-          tupleElement.exprs.defaultValueExpr!.token,
-          `Tuple type cannot have default value.`
-        );
+        throw formatErrorMessage({
+          token: tupleElement.exprs.defaultValueExpr!.token,
+          errorMessage: `Tuple type cannot have default value.`,
+        });
       }
 
       if (tupleElement.exprs.labelExpr) {
-        throw this.formatErrorMessage(
-          tupleElement.exprs.labelExpr!.token,
-          `Tuple value cannot have labels.`
-        );
+        throw formatErrorMessage({
+          token: tupleElement.exprs.labelExpr!.token,
+          errorMessage: `Tuple value cannot have labels.`,
+        });
       }
     });
 
@@ -581,10 +375,10 @@ export default class Evaluator {
 
     // NOTE: We disallow the empty array for now.
     if (arrayElementExprs.length === 0) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected at least one element in array, got ${arrayElementExprs.length}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected at least one element in array, got ${arrayElementExprs.length}`,
+      });
     }
 
     const arrayLength = arrayElementExprs.length;
@@ -601,10 +395,10 @@ export default class Evaluator {
       });
 
       if (!evaluatedElement.$) {
-        throw this.formatErrorMessage(
-          arrayElementExpr.token,
-          `Failed to evaluate array element: ${exprToString(arrayElementExpr)}`
-        );
+        throw formatErrorMessage({
+          token: arrayElementExpr.token,
+          errorMessage: `Failed to evaluate array element: ${exprToString(arrayElementExpr)}`,
+        });
       }
       env = evaluatedElement.$.env;
 
@@ -646,12 +440,12 @@ export default class Evaluator {
           ) {
             arrayElementType = evaluatedElement.$.type;
           } else {
-            throw this.formatErrorMessage(
-              arrayElementExpr.token,
-              `Array element type mismatch:
+            throw formatErrorMessage({
+              token: arrayElementExpr.token,
+              errorMessage: `Array element type mismatch:
 Expected type: ${typeToString(arrayElementType)}
-Given type: ${typeToString(evaluatedElement.$.type)}`
-            );
+Given type: ${typeToString(evaluatedElement.$.type)}`,
+            });
           }
         }
       }
@@ -701,10 +495,10 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
         !isExprType(evaluatedArg.$.type) ||
         !evaluatedArg.$.value
       ) {
-        throw this.formatErrorMessage(
-          arg.token,
-          `Failed to evaluate expr_list element. Expected compile-time known expr value:\n${exprToString(arg)}`
-        );
+        throw formatErrorMessage({
+          token: arg.token,
+          errorMessage: `Failed to evaluate expr_list element. Expected compile-time known expr value:\n${exprToString(arg)}`,
+        });
       }
       env = evaluatedArg.$.env;
       const value = evaluatedArg.$.value;
@@ -715,10 +509,10 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
       ) {
         elements.push(value);
       } else {
-        throw this.formatErrorMessage(
-          arg.token,
-          `Expected compile-time known expr value, got ${valueToString(value)}`
-        );
+        throw formatErrorMessage({
+          token: arg.token,
+          errorMessage: `Expected compile-time known expr value, got ${valueToString(value)}`,
+        });
       }
     }
 
@@ -797,12 +591,12 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
         }
 
         if (!this.isValidVariableName(labelExpr)) {
-          throw this.formatErrorMessage(
-            labelExpr.token,
-            `Expected identifier for tuple element label, got ${exprToString(
+          throw formatErrorMessage({
+            token: labelExpr.token,
+            errorMessage: `Expected identifier for tuple element label, got ${exprToString(
               labelExpr
-            )}`
-          );
+            )}`,
+          });
         }
         label = labelExpr.token.value;
       }
@@ -813,10 +607,10 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
 
     // Cannot have both defaultValueExpr and assignedValueExpr
     if (defaultValueExpr && assignedValueExpr) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Cannot have both default value and required value for tuple element.`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Cannot have both default value and required value for tuple element.`,
+      });
     }
 
     // Parse the lhs expr
@@ -830,10 +624,10 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
         exprIsFunctionCallOf(labelExpr, BuiltinKeywords.compt, 1)
       ) {
         if (isCompileTimeOnly) {
-          throw this.formatErrorMessage(
-            labelExpr.token,
-            `Cannot combine the use of "compt" (or "@") with ::`
-          );
+          throw formatErrorMessage({
+            token: labelExpr.token,
+            errorMessage: `Cannot combine the use of "compt" (or "@") with ::`,
+          });
         }
         isCompileTimeOnly = true;
         labelExpr = labelExpr.args[0]!;
@@ -849,12 +643,12 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
       }
 
       if (!exprIsAtom(labelExpr) && !this.isValidVariableName(labelExpr)) {
-        throw this.formatErrorMessage(
-          labelExpr.token,
-          `Expected identifier for tuple element label, got ${exprToString(
+        throw formatErrorMessage({
+          token: labelExpr.token,
+          errorMessage: `Expected identifier for tuple element label, got ${exprToString(
             labelExpr
-          )}`
-        );
+          )}`,
+        });
       }
       label = labelExpr.token.value;
     } else if (
@@ -862,10 +656,10 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
       exprIsFunctionCallOf(expr_, BuiltinKeywords.compt, 1)
     ) {
       if (isCompileTimeOnly) {
-        throw this.formatErrorMessage(
-          expr_.token,
-          `Cannot combine the use of "compt" (or "@") with "::"`
-        );
+        throw formatErrorMessage({
+          token: expr_.token,
+          errorMessage: `Cannot combine the use of "compt" (or "@") with "::"`,
+        });
       }
 
       isCompileTimeOnly = true;
@@ -882,12 +676,12 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
 
       // Check if labelExpr is an atom
       if (!exprIsAtom(labelExpr) && !this.isValidVariableName(labelExpr)) {
-        throw this.formatErrorMessage(
-          labelExpr.token,
-          `Expected identifier for tuple element label, got ${exprToString(
+        throw formatErrorMessage({
+          token: labelExpr.token,
+          errorMessage: `Expected identifier for tuple element label, got ${exprToString(
             labelExpr
-          )}`
-        );
+          )}`,
+        });
       }
       label = labelExpr.token.value;
     } else if (!defaultValueExpr && !assignedValueExpr) {
@@ -908,20 +702,20 @@ Given type: ${typeToString(evaluatedElement.$.type)}`
       ) {
         const tupleElement = expectedType.elements[tupleElementIndex];
         if (!tupleElement) {
-          throw this.formatErrorMessage(
-            expr.token,
-            `Failed to get the field at index ${tupleElementIndex}`
-          );
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Failed to get the field at index ${tupleElementIndex}`,
+          });
         }
 
         expectedTupleElementType = tupleElement.type;
       } else {
         /*
-        throw this.formatErrorMessage(
-          expr.token,
-          `(1) Failed to evaluate the tuple elements. Expected type to be:
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `(1) Failed to evaluate the tuple elements. Expected type to be:
 ${typeToString(expectedType)}`
-        );
+        });
         */
         // NOTE: Don't throw error here
       }
@@ -949,10 +743,10 @@ ${typeToString(expectedType)}`
       // Expected the evaluatedTypeExpr to be a type
       const typeValue = evaluatedTypeExpr.$?.value;
       if (!isTypeValue(typeValue)) {
-        throw this.formatErrorMessage(
-          typeExpr.token,
-          `(1) Expected type for tuple element, got ${exprToString(typeExpr)}`
-        );
+        throw formatErrorMessage({
+          token: typeExpr.token,
+          errorMessage: `(1) Expected type for tuple element, got ${exprToString(typeExpr)}`,
+        });
       }
       elementType = typeValue.value;
     }
@@ -961,11 +755,11 @@ ${typeToString(expectedType)}`
     if (assignedValueExpr) {
       // Assigned value only works for compile-time only
       if (!isCompileTimeOnly) {
-        throw this.formatErrorMessage(
-          assignedValueExpr.token,
-          `Assigned value expression is only allowed for compile-time only.
-Please consider adding "compt" (or "@") modifier to the field label.`
-        );
+        throw formatErrorMessage({
+          token: assignedValueExpr.token,
+          errorMessage: `Assigned value expression is only allowed for compile-time only.
+Please consider adding "compt" (or "@") modifier to the field label.`,
+        });
       }
 
       const expectedType = elementType
@@ -985,23 +779,23 @@ Please consider adding "compt" (or "@") modifier to the field label.`
         },
       });
       if (!evaluatedAssignedValueExpr.$) {
-        throw this.formatErrorMessage(
-          assignedValueExpr.token,
-          `Failed to evaluate required value expression: ${exprToString(
+        throw formatErrorMessage({
+          token: assignedValueExpr.token,
+          errorMessage: `Failed to evaluate required value expression: ${exprToString(
             assignedValueExpr
-          )}`
-        );
+          )}`,
+        });
       }
       env = evaluatedAssignedValueExpr.$?.env;
 
       assignedValue = evaluatedAssignedValueExpr.$.value;
       if (!assignedValue) {
-        throw this.formatErrorMessage(
-          assignedValueExpr.token,
-          `Expected compile-time known value for required value, got ${exprToString(
+        throw formatErrorMessage({
+          token: assignedValueExpr.token,
+          errorMessage: `Expected compile-time known value for required value, got ${exprToString(
             assignedValueExpr
-          )}`
-        );
+          )}`,
+        });
       }
 
       const assignedValueType = evaluatedAssignedValueExpr.$.type;
@@ -1014,12 +808,12 @@ Please consider adding "compt" (or "@") modifier to the field label.`
             { type: assignedValueType, env }
           )
         ) {
-          throw this.formatErrorMessage(
-            assignedValueExpr.token,
-            `Assigned value type mismatch:
+          throw formatErrorMessage({
+            token: assignedValueExpr.token,
+            errorMessage: `Assigned value type mismatch:
 Expected type: ${typeToString(expectedType.type)}
-Given type: ${typeToString(assignedValueType)}`
-          );
+Given type: ${typeToString(assignedValueType)}`,
+          });
         }
         elementType = expectedType.type;
       } else {
@@ -1046,23 +840,23 @@ Given type: ${typeToString(assignedValueType)}`
         },
       });
       if (!evaluatedDefaultValueExpr.$) {
-        throw this.formatErrorMessage(
-          defaultValueExpr.token,
-          `Failed to evaluate default value expression: ${exprToString(
+        throw formatErrorMessage({
+          token: defaultValueExpr.token,
+          errorMessage: `Failed to evaluate default value expression: ${exprToString(
             defaultValueExpr
-          )}`
-        );
+          )}`,
+        });
       }
       env = evaluatedDefaultValueExpr.$.env;
 
       defaultValue = evaluatedDefaultValueExpr.$?.value;
       if (!defaultValue) {
-        throw this.formatErrorMessage(
-          defaultValueExpr.token,
-          `Expected compile-time known value for default value, got ${exprToString(
+        throw formatErrorMessage({
+          token: defaultValueExpr.token,
+          errorMessage: `Expected compile-time known value for default value, got ${exprToString(
             defaultValueExpr
-          )}`
-        );
+          )}`,
+        });
       }
 
       const defaultValueType = evaluatedDefaultValueExpr.$.type;
@@ -1075,12 +869,12 @@ Given type: ${typeToString(assignedValueType)}`
             { type: defaultValueType, env }
           )
         ) {
-          throw this.formatErrorMessage(
-            defaultValueExpr.token,
-            `Default value type mismatch:
+          throw formatErrorMessage({
+            token: defaultValueExpr.token,
+            errorMessage: `Default value type mismatch:
 Expected type: ${typeToString(expectedType.type)}
-Given type: ${typeToString(defaultValueType)}`
-          );
+Given type: ${typeToString(defaultValueType)}`,
+          });
         }
         elementType = expectedType.type;
       } else {
@@ -1089,27 +883,27 @@ Given type: ${typeToString(defaultValueType)}`
     }
 
     if (!elementType) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Failed to infer the element type`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Failed to infer the element type`,
+      });
     }
 
     if (typeRequiresComptModifier(elementType) && !isCompileTimeOnly) {
       elementType = convertComptTypeToRuntimeType(elementType);
       if (typeRequiresComptModifier(elementType)) {
-        throw this.formatErrorMessage(
-          labelExpr?.token ?? expr.token,
-          `Expected "compt" (or "@") modifier for compile-time known value binding.`
-        );
+        throw formatErrorMessage({
+          token: labelExpr?.token ?? expr.token,
+          errorMessage: `Expected "compt" (or "@") modifier for compile-time known value binding.`,
+        });
       }
     }
 
     if (forType !== "tuple" && !labelExpr) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected label for ${forType} field, got ${exprToString(expr_)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected label for ${forType} field, got ${exprToString(expr_)}`,
+      });
     }
 
     if (labelExpr) {
@@ -1200,11 +994,11 @@ Given type: ${typeToString(defaultValueType)}`
         exprIsFunctionCallOf(expr_, ":=", 2))
     ) {
       if (exprIsFunctionCallOf(expr_, "::", 2)) {
-        throw this.formatErrorMessage(
-          expr_.token,
-          `Cannot use "::" for module element. Use ":=" instead.
-All module elements are compile-time only by default.`
-        );
+        throw formatErrorMessage({
+          token: expr_.token,
+          errorMessage: `Cannot use "::" for module element. Use ":=" instead.
+All module elements are compile-time only by default.`,
+        });
       }
 
       assignedValueExpr = expr_.args[1]!;
@@ -1213,10 +1007,10 @@ All module elements are compile-time only by default.`
 
     // Cannot have both defaultValueExpr and assignedValueExpr
     if (defaultValueExpr && assignedValueExpr) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Cannot have both default value and required value for tuple element.`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Cannot have both default value and required value for tuple element.`,
+      });
     }
 
     // Parse the lhs expr
@@ -1229,10 +1023,10 @@ All module elements are compile-time only by default.`
         exprIsFunctionCall(labelExpr) &&
         exprIsFunctionCallOf(labelExpr, BuiltinKeywords.compt, 1)
       ) {
-        throw this.formatErrorMessage(
-          labelExpr.token,
-          `No need to use "compt" (or "@") modifier. All module elements are compile-time only by default.`
-        );
+        throw formatErrorMessage({
+          token: labelExpr.token,
+          errorMessage: `No need to use "compt" (or "@") modifier. All module elements are compile-time only by default.`,
+        });
       }
 
       // Check isImplicit
@@ -1245,27 +1039,27 @@ All module elements are compile-time only by default.`
       }
 
       if (!exprIsAtom(labelExpr) && !this.isValidVariableName(labelExpr)) {
-        throw this.formatErrorMessage(
-          labelExpr.token,
-          `Expected identifier for tuple element label, got ${exprToString(
+        throw formatErrorMessage({
+          token: labelExpr.token,
+          errorMessage: `Expected identifier for tuple element label, got ${exprToString(
             labelExpr
-          )}`
-        );
+          )}`,
+        });
       }
       label = labelExpr.token.value;
     } else if (
       exprIsFunctionCall(expr_) &&
       exprIsFunctionCallOf(expr_, BuiltinKeywords.compt, 1)
     ) {
-      throw this.formatErrorMessage(
-        expr_.token,
-        `No need to use "compt" (or "@") modifier. All module elements are compile-time only by default.`
-      );
+      throw formatErrorMessage({
+        token: expr_.token,
+        errorMessage: `No need to use "compt" (or "@") modifier. All module elements are compile-time only by default.`,
+      });
     } else if (!defaultValueExpr && !assignedValueExpr) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected label for module field, got ${exprToString(expr_)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected label for module field, got ${exprToString(expr_)}`,
+      });
     } else {
       //  eg:
       //    Output ?= Self
@@ -1281,20 +1075,20 @@ All module elements are compile-time only by default.`
       }
 
       if (!this.isValidVariableName(labelExpr)) {
-        throw this.formatErrorMessage(
-          labelExpr.token,
-          `Expected identifier for tuple element label, got ${exprToString(
+        throw formatErrorMessage({
+          token: labelExpr.token,
+          errorMessage: `Expected identifier for tuple element label, got ${exprToString(
             labelExpr
-          )}`
-        );
+          )}`,
+        });
       }
       if (!exprIsAtom(labelExpr) && !this.isValidVariableName(labelExpr)) {
-        throw this.formatErrorMessage(
-          labelExpr.token,
-          `Expected identifier for tuple element label, got ${exprToString(
+        throw formatErrorMessage({
+          token: labelExpr.token,
+          errorMessage: `Expected identifier for tuple element label, got ${exprToString(
             labelExpr
-          )}`
-        );
+          )}`,
+        });
       }
       label = labelExpr.token.value;
     }
@@ -1306,16 +1100,16 @@ All module elements are compile-time only by default.`
       if (isModuleType(expectedType)) {
         const tupleElement = expectedType.elements[tupleElementIndex];
         if (!tupleElement) {
-          throw this.formatErrorMessage(
-            expr.token,
-            `Failed to get the field at index ${tupleElementIndex}`
-          );
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Failed to get the field at index ${tupleElementIndex}`,
+          });
         }
 
         expectedTupleElementType = tupleElement.type;
       } else {
         /*
-        throw this.formatErrorMessage(
+        throw formatErrorMessage(
           expr.token,
           `(1) Failed to evaluate the tuple elements. Expected type to be:
 ${typeToString(expectedType)}`
@@ -1347,10 +1141,10 @@ ${typeToString(expectedType)}`
       // Expected the evaluatedTypeExpr to be a type
       const typeValue = evaluatedTypeExpr.$?.value;
       if (!isTypeValue(typeValue)) {
-        throw this.formatErrorMessage(
-          typeExpr.token,
-          `(1) Expected type for tuple element, got ${exprToString(typeExpr)}`
-        );
+        throw formatErrorMessage({
+          token: typeExpr.token,
+          errorMessage: `(1) Expected type for tuple element, got ${exprToString(typeExpr)}`,
+        });
       }
       elementType = typeValue.value;
     }
@@ -1374,23 +1168,23 @@ ${typeToString(expectedType)}`
         },
       });
       if (!evaluatedAssignedValueExpr.$) {
-        throw this.formatErrorMessage(
-          assignedValueExpr.token,
-          `Failed to evaluate required value expression: ${exprToString(
+        throw formatErrorMessage({
+          token: assignedValueExpr.token,
+          errorMessage: `Failed to evaluate required value expression: ${exprToString(
             assignedValueExpr
-          )}`
-        );
+          )}`,
+        });
       }
       env = evaluatedAssignedValueExpr.$?.env;
 
       assignedValue = evaluatedAssignedValueExpr.$.value;
       if (!assignedValue) {
-        throw this.formatErrorMessage(
-          assignedValueExpr.token,
-          `Expected compile-time known value for required value, got ${exprToString(
+        throw formatErrorMessage({
+          token: assignedValueExpr.token,
+          errorMessage: `Expected compile-time known value for required value, got ${exprToString(
             assignedValueExpr
-          )}`
-        );
+          )}`,
+        });
       }
 
       const assignedValueType = evaluatedAssignedValueExpr.$.type;
@@ -1403,12 +1197,12 @@ ${typeToString(expectedType)}`
             { type: assignedValueType, env }
           )
         ) {
-          throw this.formatErrorMessage(
-            assignedValueExpr.token,
-            `Assigned value type mismatch:
+          throw formatErrorMessage({
+            token: assignedValueExpr.token,
+            errorMessage: `Assigned value type mismatch:
 Expected type: ${typeToString(expectedType.type)}
-Given type: ${typeToString(assignedValueType)}`
-          );
+Given type: ${typeToString(assignedValueType)}`,
+          });
         }
         elementType = expectedType.type;
       } else {
@@ -1435,23 +1229,23 @@ Given type: ${typeToString(assignedValueType)}`
         },
       });
       if (!evaluatedDefaultValueExpr.$) {
-        throw this.formatErrorMessage(
-          defaultValueExpr.token,
-          `Failed to evaluate default value expression: ${exprToString(
+        throw formatErrorMessage({
+          token: defaultValueExpr.token,
+          errorMessage: `Failed to evaluate default value expression: ${exprToString(
             defaultValueExpr
-          )}`
-        );
+          )}`,
+        });
       }
       env = evaluatedDefaultValueExpr.$.env;
 
       defaultValue = evaluatedDefaultValueExpr.$?.value;
       if (!defaultValue) {
-        throw this.formatErrorMessage(
-          defaultValueExpr.token,
-          `Expected compile-time known value for default value, got ${exprToString(
+        throw formatErrorMessage({
+          token: defaultValueExpr.token,
+          errorMessage: `Expected compile-time known value for default value, got ${exprToString(
             defaultValueExpr
-          )}`
-        );
+          )}`,
+        });
       }
 
       const defaultValueType = evaluatedDefaultValueExpr.$.type;
@@ -1464,12 +1258,12 @@ Given type: ${typeToString(assignedValueType)}`
             { type: defaultValueType, env }
           )
         ) {
-          throw this.formatErrorMessage(
-            defaultValueExpr.token,
-            `Default value type mismatch:
+          throw formatErrorMessage({
+            token: defaultValueExpr.token,
+            errorMessage: `Default value type mismatch:
 Expected type: ${typeToString(expectedType.type)}
-Given type: ${typeToString(defaultValueType)}`
-          );
+Given type: ${typeToString(defaultValueType)}`,
+          });
         }
         elementType = expectedType.type;
       } else {
@@ -1478,17 +1272,17 @@ Given type: ${typeToString(defaultValueType)}`
     }
 
     if (!elementType) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Failed to infer the element type`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Failed to infer the element type`,
+      });
     }
 
     /*
     if (typeRequiresComptModifier(elementType) && !isCompileTimeOnly) {
       elementType = convertComptTypeToRuntimeType(elementType);
       if (typeRequiresComptModifier(elementType)) {
-        throw this.formatErrorMessage(
+        throw formatErrorMessage(
           labelExpr?.token ?? expr.token,
           `Expected "compt" (or "@") modifier for compile-time known value binding.`
         );
@@ -1565,10 +1359,10 @@ Given type: ${typeToString(defaultValueType)}`
     if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":", 2)) {
       const lhsExpr = expr_.args[0]!;
 
-      throw this.formatErrorMessage(
-        lhsExpr.token,
-        `Labelled element is not allowed in tuple value.`
-      );
+      throw formatErrorMessage({
+        token: lhsExpr.token,
+        errorMessage: `Labelled element is not allowed in tuple value.`,
+      });
     }
 
     // Check expectedType
@@ -1576,18 +1370,18 @@ Given type: ${typeToString(defaultValueType)}`
     let expectedTupleElementType: Type | undefined = undefined;
     if (expectedTupleType) {
       if (!isTupleType(expectedTupleType)) {
-        throw this.formatErrorMessage(
-          expr.token,
-          `(2) Failed to evaluate the tuple elements. Expected type to be:
-${typeToString(expectedTupleType)}`
-        );
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `(2) Failed to evaluate the tuple elements. Expected type to be:
+${typeToString(expectedTupleType)}`,
+        });
       }
       const tupleElement = expectedTupleType.elements[tupleElementIndex];
       if (!tupleElement) {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Failed to get the tuple element at index ${tupleElementIndex}`
-        );
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Failed to get the tuple element at index ${tupleElementIndex}`,
+        });
       }
       expectedTupleElementType = tupleElement.type;
     }
@@ -1608,10 +1402,10 @@ ${typeToString(expectedTupleType)}`
     });
 
     if (!evaluatedRhs.$) {
-      throw this.formatErrorMessage(
-        rhsExpr.token,
-        `Failed to evaluate the tuple element: ${exprToString(rhsExpr)}`
-      );
+      throw formatErrorMessage({
+        token: rhsExpr.token,
+        errorMessage: `Failed to evaluate the tuple element: ${exprToString(rhsExpr)}`,
+      });
     }
     env = evaluatedRhs.$.env;
 
@@ -1620,20 +1414,20 @@ ${typeToString(expectedTupleType)}`
 
     const value = evaluatedRhs.$.value;
     if (value && isTypeValue(evaluatedRhs.$.value)) {
-      throw this.formatErrorMessage(
-        rhsExpr.token,
-        `Cannot store a type value in tuple, please use module instead:
-  ${exprToString(rhsExpr)}`
-      );
+      throw formatErrorMessage({
+        token: rhsExpr.token,
+        errorMessage: `Cannot store a type value in tuple, please use module instead:
+  ${exprToString(rhsExpr)}`,
+      });
     }
 
     // Expected the evaluatedRhs to be a value
     elementType = evaluatedRhs.$.type;
     if (!elementType) {
-      throw this.formatErrorMessage(
-        evaluatedRhs.token,
-        `Failed to evaluate the tuple element.`
-      );
+      throw formatErrorMessage({
+        token: evaluatedRhs.token,
+        errorMessage: `Failed to evaluate the tuple element.`,
+      });
     }
 
     expr.$ = {
@@ -1743,12 +1537,12 @@ ${typeToString(expectedTupleType)}`
           (element) => element.label === type.label
         );
         if (duplicateLabel) {
-          throw this.formatErrorMessage(
-            exprIsFunctionCall(arg)
+          throw formatErrorMessage({
+            token: exprIsFunctionCall(arg)
               ? (arg.args[0]?.token ?? arg.token)
               : arg.token,
-            `Duplicate label "${type.label}" in tuple`
-          );
+            errorMessage: `Duplicate label "${type.label}" in tuple`,
+          });
         }
       }
 
@@ -1987,10 +1781,10 @@ ${typeToString(expectedTupleType)}`
       exprIsFunctionCallOf(expr, BuiltinKeywords.tuple)
     ) {
       if (type.elements.length !== expr.args.length) {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Tuple size mismatch: expected ${type.elements.length} elements, got ${expr.args.length}`
-        );
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Tuple size mismatch: expected ${type.elements.length} elements, got ${expr.args.length}`,
+        });
       }
 
       // Recursively synthesize each tuple element
@@ -2036,12 +1830,12 @@ ${typeToString(expectedTupleType)}`
         });
 
         if (!funcCallExpr.$?.type || !funcCallExpr.$?.env) {
-          throw this.formatErrorMessage(
-            expr.token,
-            `Failed to evaluate expr and type for struct:\n${exprToString(
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Failed to evaluate expr and type for struct:\n${exprToString(
               expr
-            )}`
-          );
+            )}`,
+          });
         }
 
         // Attach information to the "_"
@@ -2054,12 +1848,12 @@ ${typeToString(expectedTupleType)}`
           env: funcCallExpr.$?.env,
         };
       } else {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Cannot use _ with type ${typeToString(
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Cannot use _ with type ${typeToString(
             type
-          )}. Only supported with struct types.`
-        );
+          )}. Only supported with struct types.`,
+        });
       }
     }
     // Handle the . case for enum variant
@@ -2068,22 +1862,22 @@ ${typeToString(expectedTupleType)}`
       if (isEnumType(type)) {
         const variantNameExpr = expr.args[0]!;
         if (!exprIsAtom(variantNameExpr)) {
-          throw this.formatErrorMessage(
-            expr.token,
-            `Expected identifier for enum variant, got ${exprToString(
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Expected identifier for enum variant, got ${exprToString(
               variantNameExpr
-            )}`
-          );
+            )}`,
+          });
         }
         const variantName = variantNameExpr.token.value;
         const variant = type.variants.find(
           (variant) => variant.name === variantName
         );
         if (!variant) {
-          throw this.formatErrorMessage(
-            expr.token,
-            `Enum variant "${variantName}" not found in ${typeToString(type)}`
-          );
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Enum variant "${variantName}" not found in ${typeToString(type)}`,
+          });
         }
 
         const newEnumType = { ...type, selectedVariantName: variantName };
@@ -2101,12 +1895,12 @@ ${typeToString(expectedTupleType)}`
           env: env,
         };
       } else {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Cannot use . with type ${typeToString(
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Cannot use . with type ${typeToString(
             type
-          )}. Only supported with enum types.`
-        );
+          )}. Only supported with enum types.`,
+        });
       }
     }
     // Handle the . case for enum variant call
@@ -2119,12 +1913,12 @@ ${typeToString(expectedTupleType)}`
         const variantExpr = expr.func;
         const variantNameExpr = variantExpr.args[0]!;
         if (!exprIsAtom(variantNameExpr)) {
-          throw this.formatErrorMessage(
-            variantExpr.token,
-            `Expected identifier for enum variant, got ${exprToString(
+          throw formatErrorMessage({
+            token: variantExpr.token,
+            errorMessage: `Expected identifier for enum variant, got ${exprToString(
               variantNameExpr
-            )}`
-          );
+            )}`,
+          });
         }
 
         const variantName = variantNameExpr.token.value;
@@ -2132,10 +1926,10 @@ ${typeToString(expectedTupleType)}`
           (variant) => variant.name === variantName
         );
         if (!variant) {
-          throw this.formatErrorMessage(
-            expr.token,
-            `Enum variant "${variantName}" not found in ${typeToString(type)}`
-          );
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Enum variant "${variantName}" not found in ${typeToString(type)}`,
+          });
         }
 
         const newEnumType = { ...type, selectedVariantName: variantName };
@@ -2149,12 +1943,12 @@ ${typeToString(expectedTupleType)}`
           context: { ...context },
         });
         if (!funcCallExpr.$?.type || !funcCallExpr.$?.env) {
-          throw this.formatErrorMessage(
-            expr.token,
-            `Failed to evaluate expr and type for enum variant:\n${exprToString(
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Failed to evaluate expr and type for enum variant:\n${exprToString(
               expr
-            )}`
-          );
+            )}`,
+          });
         }
 
         return {
@@ -2163,12 +1957,12 @@ ${typeToString(expectedTupleType)}`
           env: funcCallExpr.$?.env,
         };
       } else {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Cannot use . with type ${typeToString(
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Cannot use . with type ${typeToString(
             type
-          )}. Only supported with enum types.`
-        );
+          )}. Only supported with enum types.`,
+        });
       }
     }
     // If both expr and type are already set, return them
@@ -2180,10 +1974,10 @@ ${typeToString(expectedTupleType)}`
         env,
       };
     } else {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Failed to synthesize the type and expr: ${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Failed to synthesize the type and expr: ${exprToString(expr)}`,
+      });
     }
   }
 
@@ -2204,10 +1998,10 @@ ${typeToString(expectedTupleType)}`
     context: EvaluatorContext;
   }): Environment {
     if (!rhs.$?.type) {
-      throw this.formatErrorMessage(
-        rhs.token,
-        `(1) Expected type for right-hand side, got ${exprToString(rhs)}`
-      );
+      throw formatErrorMessage({
+        token: rhs.token,
+        errorMessage: `(1) Expected type for right-hand side, got ${exprToString(rhs)}`,
+      });
     }
     const rhsType = rhs.$.type;
     const rhsValue = rhs.$.value;
@@ -2253,26 +2047,26 @@ ${typeToString(expectedTupleType)}`
     else if (isEnumType(rhsType) && exprIsFunctionCall(lhs)) {
       const selectedVariantName = rhsType.selectedVariantName;
       if (!selectedVariantName) {
-        throw this.formatErrorMessage(
-          rhs.token,
-          `Expected enum variant name to be determined, got ${typeToString(rhsType)}`
-        );
+        throw formatErrorMessage({
+          token: rhs.token,
+          errorMessage: `Expected enum variant name to be determined, got ${typeToString(rhsType)}`,
+        });
       }
 
       const selectedVariant = rhsType.variants.find(
         (variant) => variant.name === selectedVariantName
       );
       if (!selectedVariant) {
-        throw this.formatErrorMessage(
-          rhs.token,
-          `Expected enum variant "${selectedVariantName}" to be defined, got ${typeToString(rhsType)}`
-        );
+        throw formatErrorMessage({
+          token: rhs.token,
+          errorMessage: `Expected enum variant "${selectedVariantName}" to be defined, got ${typeToString(rhsType)}`,
+        });
       }
       if (!selectedVariant.elements) {
-        throw this.formatErrorMessage(
-          rhs.token,
-          `Cannot destructure enum variant "${selectedVariantName}" without elements, got ${typeToString(rhsType)}`
-        );
+        throw formatErrorMessage({
+          token: rhs.token,
+          errorMessage: `Cannot destructure enum variant "${selectedVariantName}" without elements, got ${typeToString(rhsType)}`,
+        });
       }
 
       return this.handleMemberDestructuring({
@@ -2297,19 +2091,19 @@ ${typeToString(expectedTupleType)}`
         isModuleType(rhsType)
       )
     ) {
-      throw this.formatErrorMessage(
-        rhs.token,
-        `Destructuring assignment not supported for the right-hand type:
+      throw formatErrorMessage({
+        token: rhs.token,
+        errorMessage: `Destructuring assignment not supported for the right-hand type:
 
-  ${typeToString(rhsType)}`
-      );
+  ${typeToString(rhsType)}`,
+      });
     } else {
-      throw this.formatErrorMessage(
-        lhs.token,
-        `Destructuring assignment not supported for the left-hand pattern:
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Destructuring assignment not supported for the left-hand pattern:
   
-      ${exprToString(lhs)}`
-      );
+      ${exprToString(lhs)}`,
+      });
     }
   }
 
@@ -2345,29 +2139,29 @@ ${typeToString(expectedTupleType)}`
     // ~~Verify the struct type name matches if specified~~
     // We force to use _ for destructuring
     if (requireUnderscore && lhsFuncName !== "_") {
-      throw this.formatErrorMessage(
-        lhsFunc.token,
-        `Expected "_" for non-tuple destructuring, got "${lhsFuncName}"`
-      );
+      throw formatErrorMessage({
+        token: lhsFunc.token,
+        errorMessage: `Expected "_" for non-tuple destructuring, got "${lhsFuncName}"`,
+      });
     }
 
     // Check if it's destructuring a union type
     if (isUnionType(rhsType)) {
       // Expect lhsElements to be a single element
       if (lhsElements.length !== 1) {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Destructuring union type requires a single element, got ${lhsElements.length}`
-        );
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Destructuring union type requires a single element, got ${lhsElements.length}`,
+        });
       }
     }
 
     // Check if we have enough elements
     if (lhsElements.length > rhsElements.length) {
-      throw this.formatErrorMessage(
-        lhs.token,
-        `Too many elements in destructuring pattern. Expected at most ${rhsElements.length}, got ${lhsElements.length}`
-      );
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Too many elements in destructuring pattern. Expected at most ${rhsElements.length}, got ${lhsElements.length}`,
+      });
     }
 
     const destructuredRhsElementSet = new Set<{ label?: string; type: Type }>();
@@ -2394,10 +2188,10 @@ ${typeToString(expectedTupleType)}`
         (exprIsAtom(lhsElement) && lhsElement.token.value === "_")
       ) {
         if (isUnionType(rhsType)) {
-          throw this.formatErrorMessage(
-            lhsElement.token,
-            `Cannot destructure union type with _, got ${typeToString(rhsType)}`
-          );
+          throw formatErrorMessage({
+            token: lhsElement.token,
+            errorMessage: `Cannot destructure union type with _, got ${typeToString(rhsType)}`,
+          });
         }
 
         // If it's a single _, we destructure all elements
@@ -2446,10 +2240,10 @@ ${typeToString(expectedTupleType)}`
           // Done with destructuring, return the environment
           return env;
         } else {
-          throw this.formatErrorMessage(
-            lhsElement.token,
-            `Destructuring with _ requires a single element, got ${lhsElements.length}`
-          );
+          throw formatErrorMessage({
+            token: lhsElement.token,
+            errorMessage: `Destructuring with _ requires a single element, got ${lhsElements.length}`,
+          });
         }
       }
 
@@ -2463,12 +2257,12 @@ ${typeToString(expectedTupleType)}`
         exprIsAtomOf(lhsElement.args[0]!, BuiltinKeywords.implicit)
       ) {
         if (!isModuleType(rhsType) || !isModuleValue(rhsValue)) {
-          throw this.formatErrorMessage(
-            lhsElement.token,
-            `Expected module value for destructuring with implicit members, got ${typeToString(
+          throw formatErrorMessage({
+            token: lhsElement.token,
+            errorMessage: `Expected module value for destructuring with implicit members, got ${typeToString(
               rhsType
-            )}`
-          );
+            )}`,
+          });
         }
 
         // We can destructure all elements
@@ -2532,12 +2326,12 @@ ${typeToString(expectedTupleType)}`
 
         // The left side should be an identifier
         if (!exprIsAtom(leftSide) || !this.isValidVariableName(leftSide)) {
-          throw this.formatErrorMessage(
-            leftSide.token,
-            `Expected identifier for label in destructuring pattern, got ${exprToString(
+          throw formatErrorMessage({
+            token: leftSide.token,
+            errorMessage: `Expected identifier for label in destructuring pattern, got ${exprToString(
               leftSide
-            )}`
-          );
+            )}`,
+          });
         }
 
         labelExpr = leftSide;
@@ -2549,10 +2343,10 @@ ${typeToString(expectedTupleType)}`
         );
 
         if (matchingMemberIndex === -1) {
-          throw this.formatErrorMessage(
-            lhsElement.token,
-            `Label "${label}" being destructured not found.`
-          );
+          throw formatErrorMessage({
+            token: lhsElement.token,
+            errorMessage: `Label "${label}" being destructured not found.`,
+          });
         }
 
         elementIndex = matchingMemberIndex;
@@ -2582,7 +2376,7 @@ ${typeToString(expectedTupleType)}`
         ) {
           // Ensure the member we're destructuring is a tuple or struct
           if (!isTupleType(nestedRhsType)) {
-            throw this.formatErrorMessage(
+            throw formatErrorMessage(
               lhsElement.token,
               `Expected tuple for nested destructuring, got ${typeToString(
                 nestedRhsType
@@ -2640,7 +2434,7 @@ ${typeToString(expectedTupleType)}`
         // Check if the right side is a struct/module for nested destructuring (c: _(x, y))
         else if (exprIsFunctionCall(rightSide)) {
           if (!exprIsFunctionCallOf(rightSide, "_")) {
-            throw this.formatErrorMessage(
+            throw formatErrorMessage(
               rightSide.token,
               `Expected "_" for nested destructuring, got ${exprToString(
                 rightSide
@@ -2649,7 +2443,7 @@ ${typeToString(expectedTupleType)}`
           }
 
           if (!isStructType(nestedRhsType) && !isModuleType(nestedRhsType)) {
-            throw this.formatErrorMessage(
+            throw formatErrorMessage(
               lhsElement.token,
               `Expected struct/module for nested destructuring, got ${typeToString(
                 nestedRhsType
@@ -2710,12 +2504,12 @@ ${typeToString(expectedTupleType)}`
         }
         // Other patterns that don't match previous conditions
         else {
-          throw this.formatErrorMessage(
-            rightSide.token,
-            `Nested destructuring is not supported:
+          throw formatErrorMessage({
+            token: rightSide.token,
+            errorMessage: `Nested destructuring is not supported:
 
-  ${exprToString(rightSide)}`
-          );
+  ${exprToString(rightSide)}`,
+          });
         }
       }
 
@@ -2724,12 +2518,12 @@ ${typeToString(expectedTupleType)}`
       // - (_(x, y) )
       else if (exprIsFunctionCall(lhsElement)) {
         // NOTE: Let's disable the nested destructuring for now
-        throw this.formatErrorMessage(
-          lhsElement.token,
-          `Nested destructuring is not supported:
+        throw formatErrorMessage({
+          token: lhsElement.token,
+          errorMessage: `Nested destructuring is not supported:
   
-  ${exprToString(lhsElement)}`
-        );
+  ${exprToString(lhsElement)}`,
+        });
 
         /*
         // Get the right-hand side value at this position
@@ -2755,7 +2549,7 @@ ${typeToString(expectedTupleType)}`
         ) {
           // Ensure the member we're destructuring is a tuple or struct
           if (!isTupleType(nestedRhsType)) {
-            throw this.formatErrorMessage(
+            throw formatErrorMessage(
               lhsElement.token,
               `Expected tuple for nested destructuring, got ${typeToString(
                 nestedRhsType
@@ -2793,7 +2587,7 @@ ${typeToString(expectedTupleType)}`
         // Check if the right side is a struct/module for nested destructuring (a, _(x, y))
         else {
           if (!exprIsFunctionCallOf(lhsElement, "_")) {
-            throw this.formatErrorMessage(
+            throw formatErrorMessage(
               lhsElement.token,
               `Expected "_" for nested destructuring, got ${exprToString(
                 lhsElement
@@ -2801,7 +2595,7 @@ ${typeToString(expectedTupleType)}`
             );
           }
           if (!isStructType(nestedRhsType) && !isModuleType(nestedRhsType)) {
-            throw this.formatErrorMessage(
+            throw formatErrorMessage(
               lhsElement.token,
               `Expected struct/module for nested destructuring, got ${typeToString(
                 nestedRhsType
@@ -2840,12 +2634,12 @@ ${typeToString(expectedTupleType)}`
       // Handle positional destructuring
       else if (exprIsAtom(lhsElement) && this.isValidVariableName(lhsElement)) {
         if (isUnionType(rhsType)) {
-          throw this.formatErrorMessage(
-            lhsElement.token,
-            `Cannot destructure union type with positional destructuring, got ${typeToString(
+          throw formatErrorMessage({
+            token: lhsElement.token,
+            errorMessage: `Cannot destructure union type with positional destructuring, got ${typeToString(
               rhsType
-            )}`
-          );
+            )}`,
+          });
         }
 
         destructuredRhsElementSet.add(rhsElement);
@@ -2866,10 +2660,10 @@ ${typeToString(expectedTupleType)}`
 
       // Throw error
       else {
-        throw this.formatErrorMessage(
-          lhsElement.token,
-          `Unsupported destructuring pattern for: ${exprToString(lhsElement)}`
-        );
+        throw formatErrorMessage({
+          token: lhsElement.token,
+          errorMessage: `Unsupported destructuring pattern for: ${exprToString(lhsElement)}`,
+        });
       }
 
       // After determining variableName and variableToken, add to environment
@@ -2929,12 +2723,12 @@ ${typeToString(expectedTupleType)}`
       if (!destructuredRhsElementSet.has(rhsElement)) {
         if (isLinearOrType0Type(typeOfType(rhsElement.type))) {
           // If it's a linear type, we should throw an error
-          throw this.formatErrorMessage(
-            lhs.token,
-            `Linear value ${rhsElement.label ? `"${rhsElement.label}" ` : ""}of type ${typeToString(
+          throw formatErrorMessage({
+            token: lhs.token,
+            errorMessage: `Linear value ${rhsElement.label ? `"${rhsElement.label}" ` : ""}of type ${typeToString(
               rhsElement.type
-            )} is not destructured.`
-          );
+            )} is not destructured.`,
+          });
         }
       }
     }
@@ -2952,10 +2746,10 @@ ${typeToString(expectedTupleType)}`
     context: EvaluatorContext;
   }): { expr: FuncCallExpr; variableExpr: Expr; variableName: string } {
     if (!exprIsFunctionCallOf(expr, ":", 2)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected ":" for variable binding.`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected ":" for variable binding.`,
+      });
     }
     let lhs = expr.args[0]!;
     const rhs = expr.args[1]!;
@@ -2969,20 +2763,20 @@ ${typeToString(expectedTupleType)}`
       },
     });
     if (!evaluatedRhs.$) {
-      throw this.formatErrorMessage(
-        rhs.token,
-        `Failed to evaluate rhs expression:
-${exprToString(rhs)}`
-      );
+      throw formatErrorMessage({
+        token: rhs.token,
+        errorMessage: `Failed to evaluate rhs expression:
+${exprToString(rhs)}`,
+      });
     }
     env = evaluatedRhs.$.env;
 
     const typeValue = evaluatedRhs.$.value;
     if (!isTypeValue(typeValue)) {
-      throw this.formatErrorMessage(
-        rhs.token,
-        `Expected type for rhs, got ${exprToString(rhs)}`
-      );
+      throw formatErrorMessage({
+        token: rhs.token,
+        errorMessage: `Expected type for rhs, got ${exprToString(rhs)}`,
+      });
     }
     const userDefinedType = typeValue.value;
 
@@ -2995,10 +2789,10 @@ ${exprToString(rhs)}`
     ) {
       isCompileTimeOnly = true;
       if (lhs.args.length !== 1) {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Expected one argument for "compt" (or "@"), got ${lhs.args.length}`
-        );
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Expected one argument for "compt" (or "@"), got ${lhs.args.length}`,
+        });
       }
       lhs = lhs.args[0]!;
     }
@@ -3008,34 +2802,34 @@ ${exprToString(rhs)}`
     ) {
       isMutable = true;
       if (lhs.args.length !== 1) {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Expected one argument for mut, got ${lhs.args.length}`
-        );
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Expected one argument for mut, got ${lhs.args.length}`,
+        });
       }
       lhs = lhs.args[0]!;
     }
     if (!this.isValidVariableName(lhs)) {
-      throw this.formatErrorMessage(
-        lhs.token,
-        `Invalid binding to ${lhs.token.value}, expected identifier or operator`
-      );
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Invalid binding to ${lhs.token.value}, expected identifier or operator`,
+      });
     }
 
     if (typeRequiresComptModifier(userDefinedType) && !isCompileTimeOnly) {
-      throw this.formatErrorMessage(
-        lhs.token,
-        `Expected "compt" (or "@") for compile-time known ${
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Expected "compt" (or "@") for compile-time known ${
           isTypeHierarchyType(userDefinedType) ? "type" : "module"
-        } value binding.`
-      );
+        } value binding.`,
+      });
     }
 
     if (isTypeHierarchyType(userDefinedType) && isMutable) {
-      throw this.formatErrorMessage(
-        lhs.token,
-        `Unexpected "mut" (or "!") for type hierarchy value binding. Type hierarchy values are immutable.`
-      );
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Unexpected "mut" (or "!") for type hierarchy value binding. Type hierarchy values are immutable.`,
+      });
     }
 
     const variableName = lhs.token.value;
@@ -3095,10 +2889,10 @@ ${exprToString(rhs)}`
       !exprIsFunctionCallOf(expr, ":=", 2) &&
       !exprIsFunctionCallOf(expr, "::", 2)
     ) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected ":=" or "::" for initialization assignment.`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected ":=" or "::" for initialization assignment.`,
+      });
     }
     const isCompileTimeOnly = exprIsFunctionCallOf(expr, "::");
     let isMutable = false;
@@ -3115,10 +2909,10 @@ ${exprToString(rhs)}`
       isImplicit = true;
       // Check if the lhs is a variable
       if (lhs.args.length !== 1) {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Expected one argument for implicit, got ${lhs.args.length}`
-        );
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Expected one argument for implicit, got ${lhs.args.length}`,
+        });
       }
       lhs = lhs.args[0]!;
     }
@@ -3131,23 +2925,23 @@ ${exprToString(rhs)}`
       isMutable = true;
       // Check if the lhs is a variable
       if (lhs.args.length !== 1) {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Expected one argument for mut, got ${lhs.args.length}`
-        );
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Expected one argument for mut, got ${lhs.args.length}`,
+        });
       }
       lhs = lhs.args[0]!;
     }
 
     // Prevent declaring variable type using :: or :=
     if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ":")) {
-      throw this.formatErrorMessage(
-        lhs.token,
-        `Unexpected use of ":" in type declaration with "${
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Unexpected use of ":" in type declaration with "${
           expr.token.value
         }". Please consider using "=":
-(${exprToString(lhs)}) = ${exprToString(rhs)}`
-      );
+(${exprToString(lhs)}) = ${exprToString(rhs)}`,
+      });
     }
 
     // Evaluate the rhs expression
@@ -3169,29 +2963,29 @@ ${exprToString(rhs)}`
 
     // If rhs is type value, then it cannot be mutable
     if (isTypeValue(rhs.$?.value) && isMutable) {
-      throw this.formatErrorMessage(
-        lhs.token,
-        `Unexpected "mut" (or "!") for type value:
-${exprToString(rhs)}`
-      );
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Unexpected "mut" (or "!") for type value:
+${exprToString(rhs)}`,
+      });
     }
 
     if (exprIsAtom(lhs)) {
       if (!this.isValidVariableName(lhs)) {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Invalid assignment to ${lhs.token.value}, expected identifier or operator`
-        );
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Invalid assignment to ${lhs.token.value}, expected identifier or operator`,
+        });
       }
 
       // Set the variable type
       let rhsType = rhs.$?.type;
       if (!lhs.$?.type) {
         if (!rhsType) {
-          throw this.formatErrorMessage(
-            rhs.token,
-            `Failed to evaluate, got ${exprToString(rhs)}`
-          );
+          throw formatErrorMessage({
+            token: rhs.token,
+            errorMessage: `Failed to evaluate, got ${exprToString(rhs)}`,
+          });
         }
 
         // If it's runtime, then we convert
@@ -3229,12 +3023,12 @@ ${exprToString(rhs)}`
           // as it is actually lhs.type if not synthesized.
           env = nextEnv;
         } catch (e) {
-          throw this.formatErrorMessage(
-            rhs.token,
-            `(evaluateInitializationAssignment) Failed to synthesize type for expression: ${exprToString(
+          throw formatErrorMessage({
+            token: rhs.token,
+            errorMessage: `(evaluateInitializationAssignment) Failed to synthesize type for expression: ${exprToString(
               rhs
-            )}\n${e}`
-          );
+            )}\n${e}`,
+          });
         }
 
         // Check if the type is compatible
@@ -3244,30 +3038,30 @@ ${exprToString(rhs)}`
             { type: rhsType, env }
           )
         ) {
-          throw this.formatErrorMessage(
-            lhs.token,
-            `Incompatible types:
+          throw formatErrorMessage({
+            token: lhs.token,
+            errorMessage: `Incompatible types:
 - Defined: ${typeToString(lhs.$?.type)}
-- Given  : ${typeToString(rhsType)}`
-          );
+- Given  : ${typeToString(rhsType)}`,
+          });
         }
       }
 
       // Check some value that requires compile-time only
       if (!isCompileTimeOnly && typeRequiresComptModifier(lhs.$.type)) {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Expected "::" instead of ":=" for compile-time known value assignment:
-${exprToString(expr)}`
-        );
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Expected "::" instead of ":=" for compile-time known value assignment:
+${exprToString(expr)}`,
+        });
       }
 
       // Check if the rhsType contains reference
       if (typeContainsReference(rhsType)) {
-        throw this.formatErrorMessage(
-          rhs.token,
-          `Assigning reference to variable is not allowed.`
-        );
+        throw formatErrorMessage({
+          token: rhs.token,
+          errorMessage: `Assigning reference to variable is not allowed.`,
+        });
       }
 
       // Check the borrowings
@@ -3303,12 +3097,12 @@ ${exprToString(expr)}`
 
       // Prohibit assigning runtime value to comptime-only variable
       if (!rhsValue && isCompileTimeOnly) {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Expected compile-time value for "${lhs.token.value}".
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Expected compile-time value for "${lhs.token.value}".
 Got runtime value. Please consider using ":=" instead of "::":
-${exprToString(rhs)}`
-        );
+${exprToString(rhs)}`,
+        });
       }
 
       // Set the variable value
@@ -3352,11 +3146,11 @@ ${exprToString(rhs)}`
     } else {
       // Evaluate the destructuring assignment
       if (!rhs.$) {
-        throw this.formatErrorMessage(
-          rhs.token,
-          `Failed to evaluate the right-hand side expression:
-${exprToString(rhs)}`
-        );
+        throw formatErrorMessage({
+          token: rhs.token,
+          errorMessage: `Failed to evaluate the right-hand side expression:
+${exprToString(rhs)}`,
+        });
       }
       env = this.evaluateDestructuringAssignment({
         lhs,
@@ -3394,7 +3188,10 @@ ${exprToString(rhs)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, "=", 2)) {
-      throw this.formatErrorMessage(expr.token, `Expected "=" for assignment.`);
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "=" for assignment.`,
+      });
     }
 
     let lhs = expr.args[0]!;
@@ -3417,10 +3214,10 @@ ${exprToString(rhs)}`
           throwErrorOnUndefined: false,
         });
         if (!evaluatedLhs.$) {
-          throw this.formatErrorMessage(
-            lhs.token,
-            `Failed to evaluate left-hand side of assignment: ${exprToString(lhs)}`
-          );
+          throw formatErrorMessage({
+            token: lhs.token,
+            errorMessage: `Failed to evaluate left-hand side of assignment: ${exprToString(lhs)}`,
+          });
         }
         env = evaluatedLhs.$.env;
 
@@ -3451,10 +3248,10 @@ ${exprToString(rhs)}`
 
       const variables = getVariablesFromEnv(env, variableName);
       if (!variables.length) {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Variable ${variableName} not found in the environment`
-        );
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Variable ${variableName} not found in the environment`,
+        });
       }
       const variable = variables[variables.length - 1]!;
 
@@ -3494,12 +3291,12 @@ ${exprToString(rhs)}`
           // as it is actually lhs.type if not synthesized.
           env = nextEnv;
         } catch (e) {
-          throw this.formatErrorMessage(
-            rhs.token,
-            `(evaluateAssignment) Failed to synthesize type for expression: ${exprToString(
+          throw formatErrorMessage({
+            token: rhs.token,
+            errorMessage: `(evaluateAssignment) Failed to synthesize type for expression: ${exprToString(
               rhs
-            )}\n${e}`
-          );
+            )}\n${e}`,
+          });
         }
       }
 
@@ -3510,12 +3307,12 @@ ${exprToString(rhs)}`
           { type: rhsType, env }
         )
       ) {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Incompatible types:
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Incompatible types:
 - Expected: ${typeToString(variable.type)}
-- Given   : ${typeToString(rhsType)}`
-        );
+- Given   : ${typeToString(rhsType)}`,
+        });
       }
 
       // Add .typeName info if necessary
@@ -3554,10 +3351,10 @@ ${exprToString(rhs)}`
         });
         isMutatingDefinedVariable = true;
       } else {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Cannot assign to immutable variable "${variableName}"`
-        );
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Cannot assign to immutable variable "${variableName}"`,
+        });
       }
 
       lhs.$ = {
@@ -3607,16 +3404,16 @@ ${exprToString(rhs)}`
         },
       });
       if (!evaluatedLhs.$) {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Failed to evaluate left-hand side of assignment: ${exprToString(lhs)}`
-        );
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Failed to evaluate left-hand side of assignment: ${exprToString(lhs)}`,
+        });
       }
       if (!evaluatedLhs.$.isMutable) {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Cannot assign value to the immutable: ${exprToString(lhs)}`
-        );
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Cannot assign value to the immutable: ${exprToString(lhs)}`,
+        });
       }
 
       // Check the borrowings
@@ -3660,33 +3457,33 @@ ${exprToString(rhs)}`
           // as it is actually lhs.type if not synthesized.
           env = nextEnv;
         } catch (e) {
-          throw this.formatErrorMessage(
-            rhs.token,
-            `(evaluateAssignment) Failed to synthesize type for expression: ${exprToString(
+          throw formatErrorMessage({
+            token: rhs.token,
+            errorMessage: `(evaluateAssignment) Failed to synthesize type for expression: ${exprToString(
               rhs
-            )}\n${e}`
-          );
+            )}\n${e}`,
+          });
         }
       }
 
       // Check if the rhsType contains reference
       if (typeContainsReference(rhsType)) {
-        throw this.formatErrorMessage(
-          rhs.token,
-          `Assigning reference to variable is not allowed.`
-        );
+        throw formatErrorMessage({
+          token: rhs.token,
+          errorMessage: `Assigning reference to variable is not allowed.`,
+        });
       }
 
       // Check if the type matches
       if (
         !areTypesCompatible({ type: expectedType, env }, { type: rhsType, env })
       ) {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Incompatible types:
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Incompatible types:
 - Expected: ${typeToString(expectedType)}
-- Given   : ${typeToString(rhsType)}`
-        );
+- Given   : ${typeToString(rhsType)}`,
+        });
       }
 
       // Attach the updated env to expr
@@ -3725,10 +3522,10 @@ ${exprToString(rhs)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.extern)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected extern, got ${expr.tag}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected extern, got ${expr.tag}`,
+      });
     }
 
     let language: "c" | "yo" = "c";
@@ -3746,18 +3543,18 @@ ${exprToString(rhs)}`
         },
       });
       if (!evaluatedLang.$ || !evaluatedLang.$.value) {
-        throw this.formatErrorMessage(
-          langArg.token,
-          `Failed to evaluate language argument: ${exprToString(langArg)}`
-        );
+        throw formatErrorMessage({
+          token: langArg.token,
+          errorMessage: `Failed to evaluate language argument: ${exprToString(langArg)}`,
+        });
       }
       env = evaluatedLang.$.env;
       const langValue = evaluatedLang.$.value;
       if (!isComptStringValue(langValue)) {
-        throw this.formatErrorMessage(
-          langArg.token,
-          `Expected string for language argument, got ${exprToString(langArg)}`
-        );
+        throw formatErrorMessage({
+          token: langArg.token,
+          errorMessage: `Expected string for language argument, got ${exprToString(langArg)}`,
+        });
       }
       if (langValue.value.toLocaleLowerCase() === "yo") {
         language = "yo";
@@ -3765,10 +3562,10 @@ ${exprToString(rhs)}`
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         language = "c";
       } else {
-        throw this.formatErrorMessage(
-          langArg.token,
-          `Unsupported language "${langValue.value}" for extern, expected "c" or "yo"`
-        );
+        throw formatErrorMessage({
+          token: langArg.token,
+          errorMessage: `Unsupported language "${langValue.value}" for extern, expected "c" or "yo"`,
+        });
       }
     }
 
@@ -3790,20 +3587,20 @@ ${exprToString(rhs)}`
         (elem) => elem.label === element.label
       );
       if (duplicateLabel) {
-        throw this.formatErrorMessage(
-          exprIsFunctionCall(arg)
+        throw formatErrorMessage({
+          token: exprIsFunctionCall(arg)
             ? (arg.args[0]?.token ?? arg.token)
             : arg.token,
-          `Duplicate label "${element.label}" in module`
-        );
+          errorMessage: `Duplicate label "${element.label}" in module`,
+        });
       }
 
       // Expect element to be compile-time only
       if (!element.isCompileTimeOnly) {
-        throw this.formatErrorMessage(
-          arg.token,
-          `Expected compile-time only element for extern module, got ${exprToString(arg)}`
-        );
+        throw formatErrorMessage({
+          token: arg.token,
+          errorMessage: `Expected compile-time only element for extern module, got ${exprToString(arg)}`,
+        });
       }
 
       elements.push(element);
@@ -3811,20 +3608,20 @@ ${exprToString(rhs)}`
 
       // Prevent having Linear variables in "c" extern modules
       if (language === "c" && isLinearOrType0Type(element.type)) {
-        throw this.formatErrorMessage(
-          arg.token,
-          `Cannot have "Linear" or "Type" type in "c" extern module.
+        throw formatErrorMessage({
+          token: arg.token,
+          errorMessage: `Cannot have "Linear" or "Type" type in "c" extern module.
 Only "Free" is allowed.
-Got ${typeToString(element.type)}`
-        );
+Got ${typeToString(element.type)}`,
+        });
       }
       if (language === "c" && isLinearOrType0Type(typeOfType(element.type))) {
-        throw this.formatErrorMessage(
-          arg.token,
-          `Cannot have "Linear" or "Type" value in "c" extern module.
+        throw formatErrorMessage({
+          token: arg.token,
+          errorMessage: `Cannot have "Linear" or "Type" value in "c" extern module.
 Only "Free" is allowed.
-Got ${typeToString(typeOfType(element.type))}`
-        );
+Got ${typeToString(typeOfType(element.type))}`,
+        });
       }
 
       // Add element to env
@@ -3876,18 +3673,18 @@ Got ${typeToString(typeOfType(element.type))}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "cond", got ${expr.tag}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "cond", got ${expr.tag}`,
+      });
     }
 
     const statements = expr.args;
     if (statements.length === 0) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected at least one statement in "cond", got ${statements.length}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected at least one statement in "cond", got ${statements.length}`,
+      });
     }
 
     // Evaluate each statement
@@ -3915,10 +3712,10 @@ Got ${typeToString(typeOfType(element.type))}`
         !exprIsFunctionCall(statement) ||
         !exprIsFunctionCallOf(statement, "=>", 2)
       ) {
-        throw this.formatErrorMessage(
-          statement.token,
-          `Expected => for cond statement, got ${statement.tag}`
-        );
+        throw formatErrorMessage({
+          token: statement.token,
+          errorMessage: `Expected => for cond statement, got ${statement.tag}`,
+        });
       }
       let condExpr = statement.args[0]!;
       let caseBodyExpr = statement.args[1]!;
@@ -3934,18 +3731,18 @@ Got ${typeToString(typeOfType(element.type))}`
 
       // TODO: Check comptime value if exists
       if (!condExpr.$) {
-        throw this.formatErrorMessage(
-          condExpr.token,
-          `Failed to evaluate condition expression: ${exprToString(condExpr)}`
-        );
+        throw formatErrorMessage({
+          token: condExpr.token,
+          errorMessage: `Failed to evaluate condition expression: ${exprToString(condExpr)}`,
+        });
       }
       caseEnv = condExpr.$.env;
 
       if (!isBooleanType(condExpr.$.type)) {
-        throw this.formatErrorMessage(
-          condExpr.token,
-          `Expected boolean for cond statement, got ${exprToString(condExpr)}`
-        );
+        throw formatErrorMessage({
+          token: condExpr.token,
+          errorMessage: `Expected boolean for cond statement, got ${exprToString(condExpr)}`,
+        });
       }
 
       // Check if it's comptime false
@@ -3964,10 +3761,10 @@ Got ${typeToString(typeOfType(element.type))}`
       });
 
       if (!caseBodyExpr.$?.type) {
-        throw this.formatErrorMessage(
-          caseBodyExpr.token,
-          `Expected type for cond statement, got ${exprToString(caseBodyExpr)}`
-        );
+        throw formatErrorMessage({
+          token: caseBodyExpr.token,
+          errorMessage: `Expected type for cond statement, got ${exprToString(caseBodyExpr)}`,
+        });
       }
       caseEnv = caseBodyExpr.$.env;
       bodies.push(caseBodyExpr);
@@ -3997,12 +3794,12 @@ Got ${typeToString(typeOfType(element.type))}`
           ) {
             valueType = { type: caseBodyExpr.$.type, env: caseEnv };
           } else {
-            throw this.formatErrorMessage(
-              caseBodyExpr.token,
-              `Incompatible types:
+            throw formatErrorMessage({
+              token: caseBodyExpr.token,
+              errorMessage: `Incompatible types:
 - Previous: ${typeToString(valueType.type)}
-- Current : ${typeToString(caseBodyExpr.$.type)}`
-            );
+- Current : ${typeToString(caseBodyExpr.$.type)}`,
+            });
           }
         }
       }
@@ -4016,10 +3813,10 @@ Got ${typeToString(typeOfType(element.type))}`
     }
 
     if (!valueType) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Failed to determine the type of value from the cond.`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Failed to determine the type of value from the cond.`,
+      });
     }
 
     // Merge and check all environments
@@ -4070,18 +3867,18 @@ Got ${typeToString(typeOfType(element.type))}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "match", got ${expr.tag}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "match", got ${expr.tag}`,
+      });
     }
 
     const args = expr.args;
     if (args.length < 2) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected at least 2 arguments for "match", got ${args.length}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected at least 2 arguments for "match", got ${args.length}`,
+      });
     }
 
     // Evaluate the value to be matched
@@ -4095,10 +3892,10 @@ Got ${typeToString(typeOfType(element.type))}`
     });
 
     if (!evaluatedMatchValue.$) {
-      throw this.formatErrorMessage(
-        valueExpr.token,
-        `Failed to evaluate the match value expression: ${exprToString(valueExpr)}`
-      );
+      throw formatErrorMessage({
+        token: valueExpr.token,
+        errorMessage: `Failed to evaluate the match value expression: ${exprToString(valueExpr)}`,
+      });
     }
     env = evaluatedMatchValue.$.env;
 
@@ -4132,22 +3929,23 @@ Got ${typeToString(typeOfType(element.type))}`
 
     // Check if the value is an enum type
     if (!isEnumType(enumType)) {
-      throw this.formatErrorMessage(
-        valueExpr.token,
-        `Expected enum type for match expression, got ${
+      throw formatErrorMessage({
+        token: valueExpr.token,
+        errorMessage: `Expected enum type for match expression, got ${
           matchValueType ? typeToString(matchValueType) : "unknown type"
-        }`
-      );
+        }`,
+      });
     }
 
     // Check if there is already selected variant,
     // If yes, then we disallow to use enum because we already know the selected variant.
     if (enumType.selectedVariantName) {
-      throw this.formatErrorMessage(
-        valueExpr.token,
-        `Enum type ${typeToString(enumType)} already has selected variant "${enumType.selectedVariantName}".\n` +
-          `You cannot use "match" on it, because it already has a selected variant.`
-      );
+      throw formatErrorMessage({
+        token: valueExpr.token,
+        errorMessage:
+          `Enum type ${typeToString(enumType)} already has selected variant "${enumType.selectedVariantName}".\n` +
+          `You cannot use "match" on it, because it already has a selected variant.`,
+      });
     }
 
     const patterns = args.slice(1);
@@ -4170,10 +3968,10 @@ Got ${typeToString(typeOfType(element.type))}`
         !exprIsFunctionCall(pattern) ||
         !exprIsFunctionCallOf(pattern, "=>", 2)
       ) {
-        throw this.formatErrorMessage(
-          pattern.token,
-          `Expected ":" for match pattern, got ${exprToString(pattern)}`
-        );
+        throw formatErrorMessage({
+          token: pattern.token,
+          errorMessage: `Expected ":" for match pattern, got ${exprToString(pattern)}`,
+        });
       }
 
       const patternExpr = pattern.args[0]!;
@@ -4187,24 +3985,24 @@ Got ${typeToString(typeOfType(element.type))}`
         // For patterns like .Red
         const variantNameExpr = patternExpr.args[0]!;
         if (!exprIsAtom(variantNameExpr)) {
-          throw this.formatErrorMessage(
-            patternExpr.token,
-            `Expected identifier for enum variant, got ${exprToString(
+          throw formatErrorMessage({
+            token: patternExpr.token,
+            errorMessage: `Expected identifier for enum variant, got ${exprToString(
               variantNameExpr
-            )}`
-          );
+            )}`,
+          });
         }
 
         const variantName = variantNameExpr.token.value;
         // Check if variant exists in enum
         const variant = enumType.variants.find((v) => v.name === variantName);
         if (!variant) {
-          throw this.formatErrorMessage(
-            patternExpr.token,
-            `Enum variant "${variantName}" not found in ${typeToString(
+          throw formatErrorMessage({
+            token: patternExpr.token,
+            errorMessage: `Enum variant "${variantName}" not found in ${typeToString(
               enumType
-            )}`
-          );
+            )}`,
+          });
         }
         checkedVariantNames.add(variantName);
 
@@ -4242,10 +4040,10 @@ Got ${typeToString(typeOfType(element.type))}`
           bodyExpr = rhsExpr.args[1]!;
 
           if (!this.isValidVariableName(variableExpr)) {
-            throw this.formatErrorMessage(
-              variableExpr.token,
-              `Invalid variable name in match arm: ${variableExpr.token.value}`
-            );
+            throw formatErrorMessage({
+              token: variableExpr.token,
+              errorMessage: `Invalid variable name in match arm: ${variableExpr.token.value}`,
+            });
           }
 
           const variableName = variableExpr.token.value;
@@ -4317,12 +4115,12 @@ Got ${typeToString(typeOfType(element.type))}`
         // We don't update the original env here since each pattern has its own scope
 
         if (!evaluatedResult.$?.type) {
-          throw this.formatErrorMessage(
-            bodyExpr.token,
-            `Expected type for match result expression, got ${exprToString(
+          throw formatErrorMessage({
+            token: bodyExpr.token,
+            errorMessage: `Expected type for match result expression, got ${exprToString(
               bodyExpr
-            )}`
-          );
+            )}`,
+          });
         }
         caseEnv = evaluatedResult.$.env;
         bodies.push(evaluatedResult);
@@ -4351,12 +4149,12 @@ Got ${typeToString(typeOfType(element.type))}`
           ) {
             resultType = { type: evaluatedResult.$.type, env: caseEnv };
           } else {
-            throw this.formatErrorMessage(
-              valueExpr.token,
-              `Incompatible types:
+            throw formatErrorMessage({
+              token: valueExpr.token,
+              errorMessage: `Incompatible types:
 - Previous: ${typeToString(resultType.type)}
-- Current : ${typeToString(evaluatedResult.$.type)}`
-            );
+- Current : ${typeToString(evaluatedResult.$.type)}`,
+            });
           }
         }
       }
@@ -4367,26 +4165,26 @@ Got ${typeToString(typeOfType(element.type))}`
         exprIsFunctionCall(patternExpr.func) &&
         exprIsFunctionCallOf(patternExpr.func, ".", 1)
       ) {
-        throw this.formatErrorMessage(
-          patternExpr.token,
-          `Destructuring enum variant elements is not supported in match expressions.
+        throw formatErrorMessage({
+          token: patternExpr.token,
+          errorMessage: `Destructuring enum variant elements is not supported in match expressions.
 Please use .variantName for destructuring enum variants,
-then destructure the value in the case body expression.`
-        );
+then destructure the value in the case body expression.`,
+        });
       } else {
-        throw this.formatErrorMessage(
-          patternExpr.token,
-          `Invalid pattern in match expression: ${exprToString(patternExpr)}
-Please use .variantName for destructuring enum variants.`
-        );
+        throw formatErrorMessage({
+          token: patternExpr.token,
+          errorMessage: `Invalid pattern in match expression: ${exprToString(patternExpr)}
+Please use .variantName for destructuring enum variants.`,
+        });
       }
     }
 
     if (!resultType) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Could not determine result type for match expression`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Could not determine result type for match expression`,
+      });
     }
 
     // Perform exhaustiveness check
@@ -4394,12 +4192,12 @@ Please use .variantName for destructuring enum variants.`
       (variant) => !checkedVariantNames.has(variant.name)
     );
     if (missingVariants.length > 0) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Match expression is not exhaustive. Missing cases for variants:
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Match expression is not exhaustive. Missing cases for variants:
         
-- ${missingVariants.map((v) => v.name).join("\n- ")}`
-      );
+- ${missingVariants.map((v) => v.name).join("\n- ")}`,
+      });
     }
 
     // Merge and check all environments
@@ -4722,17 +4520,17 @@ Please use .variantName for destructuring enum variants.`
     else {
       const variables = getVariablesFromEnv(env, identifier);
       if (!variables.length) {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Variable "${identifier}" not found`
-        );
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Variable "${identifier}" not found`,
+        });
       } else {
         const variable = variables[variables.length - 1]!;
         if (variable.isUndefined && throwErrorOnUndefined) {
-          throw this.formatErrorMessage(
-            expr.token,
-            `Variable "${identifier}" is undefined`
-          );
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Variable "${identifier}" is undefined`,
+          });
         }
         expr.$ = {
           env,
@@ -4758,23 +4556,23 @@ Please use .variantName for destructuring enum variants.`
   }): FuncCallExpr {
     const functionType = context.expectedType?.type;
     if (!functionType) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected a function type, got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected a function type, got:\n${exprToString(expr)}`,
+      });
     }
     if (!isFunctionType(functionType)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected a function type, got:\n${typeToString(functionType)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected a function type, got:\n${typeToString(functionType)}`,
+      });
     }
 
     if (!exprIsFunctionCallOf(expr, "->", 2)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected -> for anonymous function, got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected -> for anonymous function, got:\n${exprToString(expr)}`,
+      });
     }
     const functionDeclarationExpr = expr.args[0]!;
     const functionBodyExpr = expr.args[1]!;
@@ -4783,12 +4581,12 @@ Please use .variantName for destructuring enum variants.`
       !exprIsFunctionCall(functionDeclarationExpr) ||
       !exprIsFunctionCallOf(functionDeclarationExpr, BuiltinKeywords.fn)
     ) {
-      throw this.formatErrorMessage(
-        functionDeclarationExpr.token,
-        `Expected "fn" for anonymous function, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: functionDeclarationExpr.token,
+        errorMessage: `Expected "fn" for anonymous function, got:\n${exprToString(
           functionDeclarationExpr
-        )}`
-      );
+        )}`,
+      });
     }
 
     // NOTE: We disallow to define function signature for anonymous function anymore.
@@ -4825,12 +4623,12 @@ Please use .variantName for destructuring enum variants.`
         { type: evaluatedBodyReturnType, env }
       )
     ) {
-      throw this.formatErrorMessage(
-        functionBodyExpr.token,
-        `Incompatible return type:
+      throw formatErrorMessage({
+        token: functionBodyExpr.token,
+        errorMessage: `Incompatible return type:
 - Expected: ${typeToString(functionType.return.type)}
-- Got     : ${typeToString(evaluatedBodyReturnType)}`
-      );
+- Got     : ${typeToString(evaluatedBodyReturnType)}`,
+      });
     }
 
     if (evaluatedBody.$?.env) {
@@ -4870,16 +4668,16 @@ Please use .variantName for destructuring enum variants.`
     const isEvaluatingFunctionBodyOfType =
       context.isEvaluatingFunctionBody?.type;
     if (!isEvaluatingFunctionBodyOfType) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected a function type for recur, got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected a function type for recur, got:\n${exprToString(expr)}`,
+      });
     }
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected recur, got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected recur, got:\n${exprToString(expr)}`,
+      });
     }
 
     return this.evaluateFunctionCall({
@@ -4927,10 +4725,10 @@ Please use .variantName for destructuring enum variants.`
     let defaultValueExpr: Expr | undefined = undefined;
 
     if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, "=")) {
-      throw this.formatErrorMessage(
-        expr_.func.token,
-        `Please use "?=" for default parameter value, not "=".`
-      );
+      throw formatErrorMessage({
+        token: expr_.func.token,
+        errorMessage: `Please use "?=" for default parameter value, not "=".`,
+      });
     }
 
     // Check if there is defaultValue
@@ -4939,10 +4737,10 @@ Please use .variantName for destructuring enum variants.`
     //   ((x: i32) ?= 13)
     if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, "?=", 2)) {
       if (expectedParameter) {
-        throw this.formatErrorMessage(
-          expr_.token,
-          `Not allowed to define default parameter value for anonymous function implementation.`
-        );
+        throw formatErrorMessage({
+          token: expr_.token,
+          errorMessage: `Not allowed to define default parameter value for anonymous function implementation.`,
+        });
       }
 
       rhsExpr = expr_.args[1]!;
@@ -4956,10 +4754,10 @@ Please use .variantName for destructuring enum variants.`
     //   (x: i32)
     if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":", 2)) {
       if (expectedParameter) {
-        throw this.formatErrorMessage(
-          expr_.token,
-          `Not allowed to define parameter type for anonymous function implementation.`
-        );
+        throw formatErrorMessage({
+          token: expr_.token,
+          errorMessage: `Not allowed to define parameter type for anonymous function implementation.`,
+        });
       }
 
       rhsExpr = expr_.args[1]!;
@@ -4986,10 +4784,10 @@ Please use .variantName for destructuring enum variants.`
       ) {
         isCompileTimeOnly = true;
         if (lhsExpr.args.length !== 1) {
-          throw this.formatErrorMessage(
-            lhsExpr.token,
-            `Expected one argument for "compt" (or "@"), got ${lhsExpr.args.length}`
-          );
+          throw formatErrorMessage({
+            token: lhsExpr.token,
+            errorMessage: `Expected one argument for "compt" (or "@"), got ${lhsExpr.args.length}`,
+          });
         }
         lhsExpr = lhsExpr.args[0]!;
       }
@@ -4999,20 +4797,20 @@ Please use .variantName for destructuring enum variants.`
       ) {
         isMutable = true;
         if (lhsExpr.args.length !== 1) {
-          throw this.formatErrorMessage(
-            lhsExpr.token,
-            `Expected one argument for "mut" (or "!"), got ${lhsExpr.args.length}`
-          );
+          throw formatErrorMessage({
+            token: lhsExpr.token,
+            errorMessage: `Expected one argument for "mut" (or "!"), got ${lhsExpr.args.length}`,
+          });
         }
         lhsExpr = lhsExpr.args[0]!;
       }
       if (!exprIsAtom(lhsExpr) && !this.isValidVariableName(lhsExpr)) {
-        throw this.formatErrorMessage(
-          lhsExpr.token,
-          `Expected identifier for parameter label, got ${exprToString(
+        throw formatErrorMessage({
+          token: lhsExpr.token,
+          errorMessage: `Expected identifier for parameter label, got ${exprToString(
             lhsExpr
-          )}`
-        );
+          )}`,
+        });
       }
       label = lhsExpr.token.value;
       labelExpr = lhsExpr;
@@ -5027,12 +4825,12 @@ Please use .variantName for destructuring enum variants.`
       lhsExpr = expr; // Use the original expr
 
       if (!exprIsAtom(lhsExpr) && !this.isValidVariableName(lhsExpr)) {
-        throw this.formatErrorMessage(
-          lhsExpr.token,
-          `Expected identifier for parameter label, got ${exprToString(
+        throw formatErrorMessage({
+          token: lhsExpr.token,
+          errorMessage: `Expected identifier for parameter label, got ${exprToString(
             lhsExpr
-          )}`
-        );
+          )}`,
+        });
       }
       label = lhsExpr.token.value;
       labelExpr = lhsExpr;
@@ -5046,22 +4844,22 @@ Please use .variantName for destructuring enum variants.`
           context: { ...context },
         });
         if (!evaluatedRhs.$) {
-          throw this.formatErrorMessage(
-            typeExpr.token,
-            `Failed to evaluate type expression: ${exprToString(typeExpr)}`
-          );
+          throw formatErrorMessage({
+            token: typeExpr.token,
+            errorMessage: `Failed to evaluate type expression: ${exprToString(typeExpr)}`,
+          });
         }
         env = evaluatedRhs.$.env;
 
         // Expected the evaluatedRhs to be a type
         const typeValue = evaluatedRhs.$.value;
         if (!isTypeValue(typeValue)) {
-          throw this.formatErrorMessage(
-            typeExpr.token,
-            `Expected type for function parameter, got ${exprToString(
+          throw formatErrorMessage({
+            token: typeExpr.token,
+            errorMessage: `Expected type for function parameter, got ${exprToString(
               typeExpr
-            )}`
-          );
+            )}`,
+          });
         }
         parameterType = typeValue.value;
       }
@@ -5082,12 +4880,12 @@ Please use .variantName for destructuring enum variants.`
         // Check the compile-time known value which has to exist
         defaultValue = evaluatedDefaultValue.$?.value;
         if (!defaultValue) {
-          throw this.formatErrorMessage(
-            defaultValueExpr.token,
-            `Expected a compile-time known value for default parameter, got ${exprToString(
+          throw formatErrorMessage({
+            token: defaultValueExpr.token,
+            errorMessage: `Expected a compile-time known value for default parameter, got ${exprToString(
               defaultValueExpr
-            )}`
-          );
+            )}`,
+          });
         }
 
         if (!parameterType) {
@@ -5100,22 +4898,22 @@ Please use .variantName for destructuring enum variants.`
               { type: defaultValue.type, env }
             )
           ) {
-            throw this.formatErrorMessage(
-              defaultValueExpr.token,
-              `Incompatible default value type:
+            throw formatErrorMessage({
+              token: defaultValueExpr.token,
+              errorMessage: `Incompatible default value type:
 - Expected: ${typeToString(parameterType)}
-- Got     : ${typeToString(defaultValue.type)}`
-            );
+- Got     : ${typeToString(defaultValue.type)}`,
+            });
           }
         }
       }
 
       // Check the parameterType
       if (!parameterType) {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Expected type for function parameter}`
-        );
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Expected type for function parameter}`,
+        });
       }
       if (typeRequiresComptModifier(parameterType) && !isCompileTimeOnly) {
         // Try converting to runtime type first
@@ -5124,21 +4922,21 @@ Please use .variantName for destructuring enum variants.`
         // If it still requires compt modifier,
         // then throw an error
         if (typeRequiresComptModifier(parameterType)) {
-          throw this.formatErrorMessage(
-            lhsExpr?.token ?? expr.token,
-            `Expected a "compt" (or "@") for parameter to be compile-time only. Given type:
-${typeToString(parameterType)}`
-          );
+          throw formatErrorMessage({
+            token: lhsExpr?.token ?? expr.token,
+            errorMessage: `Expected a "compt" (or "@") for parameter to be compile-time only. Given type:
+${typeToString(parameterType)}`,
+          });
         }
       }
     }
 
     // We require to have label for function parameters
     if (!label) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected a label for function parameter, got ${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected a label for function parameter, got ${exprToString(expr)}`,
+      });
       // label = generateNewTempVariableName(this.modulePath);
     }
 
@@ -5237,10 +5035,10 @@ ${typeToString(parameterType)}`
         exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.forall)
       ) {
         if (i !== 0) {
-          throw this.formatErrorMessage(
-            parameterExpr.token,
-            `Expected type parameters to be the first argument, got ${i + 1}`
-          );
+          throw formatErrorMessage({
+            token: parameterExpr.token,
+            errorMessage: `Expected type parameters to be the first argument, got ${i + 1}`,
+          });
         }
         const typeParameterExprs = parameterExpr.args;
 
@@ -5251,10 +5049,10 @@ ${typeToString(parameterType)}`
           expectedFunctionType.typeParameters.length !==
             typeParameterExprs.length
         ) {
-          throw this.formatErrorMessage(
-            parameterExpr.token,
-            `Expected ${expectedFunctionType.typeParameters.length} type parameters, got ${typeParameterExprs.length}`
-          );
+          throw formatErrorMessage({
+            token: parameterExpr.token,
+            errorMessage: `Expected ${expectedFunctionType.typeParameters.length} type parameters, got ${typeParameterExprs.length}`,
+          });
         }
 
         for (let j = 0; j < typeParameterExprs.length; j++) {
@@ -5273,20 +5071,21 @@ ${typeToString(parameterType)}`
             (element) => element.label === parameter.label
           );
           if (duplicateLabel) {
-            throw this.formatErrorMessage(
-              typeParameterExpr.token,
-              `Duplicate label "${parameter.label}" in type parameter`
-            );
+            throw formatErrorMessage({
+              token: typeParameterExpr.token,
+              errorMessage: `Duplicate label "${parameter.label}" in type parameter`,
+            });
           }
 
           // Require parameter to be compile-time only
           if (!parameter.isCompileTimeOnly) {
-            throw this.formatErrorMessage(
-              parameter.exprs.labelExpr?.token ?? typeParameterExpr.token,
-              `Expected type parameter to be compile-time only, got ${exprToString(
+            throw formatErrorMessage({
+              token:
+                parameter.exprs.labelExpr?.token ?? typeParameterExpr.token,
+              errorMessage: `Expected type parameter to be compile-time only, got ${exprToString(
                 typeParameterExpr
-              )}`
-            );
+              )}`,
+            });
           }
 
           typeParameters.push(parameter);
@@ -5299,10 +5098,10 @@ ${typeToString(parameterType)}`
         exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.implicit)
       ) {
         if (i !== parameterExprs.length - 1) {
-          throw this.formatErrorMessage(
-            parameterExpr.token,
-            `Expected implicit parameters to be the last argument, got ${i + 1}`
-          );
+          throw formatErrorMessage({
+            token: parameterExpr.token,
+            errorMessage: `Expected implicit parameters to be the last argument, got ${i + 1}`,
+          });
         }
 
         const implicitParameterExprs = parameterExpr.args;
@@ -5314,10 +5113,10 @@ ${typeToString(parameterType)}`
           expectedFunctionType.implicitParameters.length !==
             implicitParameterExprs.length
         ) {
-          throw this.formatErrorMessage(
-            parameterExpr.token,
-            `Expected ${expectedFunctionType.implicitParameters.length} implicit parameters, got ${implicitParameterExprs.length}`
-          );
+          throw formatErrorMessage({
+            token: parameterExpr.token,
+            errorMessage: `Expected ${expectedFunctionType.implicitParameters.length} implicit parameters, got ${implicitParameterExprs.length}`,
+          });
         }
 
         for (let j = 0; j < implicitParameterExprs.length; j++) {
@@ -5333,12 +5132,12 @@ ${typeToString(parameterType)}`
 
           // Implicit parameter cannot have default value
           if (parameter.exprs.defaultValueExpr) {
-            throw this.formatErrorMessage(
-              implicitParameterExpr.token,
-              `Implicit parameter cannot have default value, got ${exprToString(
+            throw formatErrorMessage({
+              token: implicitParameterExpr.token,
+              errorMessage: `Implicit parameter cannot have default value, got ${exprToString(
                 implicitParameterExpr
-              )}`
-            );
+              )}`,
+            });
           }
 
           // Check if there is duplicate labels
@@ -5346,10 +5145,10 @@ ${typeToString(parameterType)}`
             (element) => element.label === parameter.label
           );
           if (duplicateLabel) {
-            throw this.formatErrorMessage(
-              implicitParameterExpr.token,
-              `Duplicate label "${parameter.label}" in implicit parameter`
-            );
+            throw formatErrorMessage({
+              token: implicitParameterExpr.token,
+              errorMessage: `Duplicate label "${parameter.label}" in implicit parameter`,
+            });
           }
 
           // If parameter is compile-time only, then
@@ -5359,10 +5158,10 @@ ${typeToString(parameterType)}`
               (p) => !p.isCompileTimeOnly
             );
             if (runtimeImplicitParameters.length > 0) {
-              throw this.formatErrorMessage(
-                implicitParameterExpr.token,
-                `Compile-time parameters must appear first in the implicit parameter list.`
-              );
+              throw formatErrorMessage({
+                token: implicitParameterExpr.token,
+                errorMessage: `Compile-time parameters must appear first in the implicit parameter list.`,
+              });
             }
           }
 
@@ -5386,12 +5185,12 @@ ${typeToString(parameterType)}`
           (element) => element.label === parameter.label
         );
         if (duplicateLabel) {
-          throw this.formatErrorMessage(
-            exprIsFunctionCall(parameterExpr)
+          throw formatErrorMessage({
+            token: exprIsFunctionCall(parameterExpr)
               ? (parameterExpr.args[0]?.token ?? parameterExpr.token)
               : parameterExpr.token,
-            `Duplicate label "${parameter.label}" in function parameter`
-          );
+            errorMessage: `Duplicate label "${parameter.label}" in function parameter`,
+          });
         }
 
         // If parameter is compile-time only, then
@@ -5401,10 +5200,10 @@ ${typeToString(parameterType)}`
             (p) => !p.isCompileTimeOnly
           );
           if (runtimeParameters.length > 0) {
-            throw this.formatErrorMessage(
-              parameterExpr.token,
-              `Compile-time parameters must appear first in the parameter list.`
-            );
+            throw formatErrorMessage({
+              token: parameterExpr.token,
+              errorMessage: `Compile-time parameters must appear first in the parameter list.`,
+            });
           }
         }
 
@@ -5463,10 +5262,10 @@ ${typeToString(parameterType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, "->", 2)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected -> for function type, got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected -> for function type, got:\n${exprToString(expr)}`,
+      });
     }
 
     const argListExpr = expr.args[0]!;
@@ -5483,7 +5282,7 @@ ${typeToString(parameterType)}`
     } else {
       argList = [argListExpr];
     } /* else {
-      throw this.formatErrorMessage(
+      throw formatErrorMessage(
         argListExpr.token,
         `Expected tuple for function parameters, got:\n${exprToString(
           argListExpr
@@ -5514,10 +5313,10 @@ ${typeToString(parameterType)}`
     ) {
       isReturnTypeCompileTimeOnly = true;
       if (returnTypeExpr.args.length !== 1) {
-        throw this.formatErrorMessage(
-          returnTypeExpr.token,
-          `Expected one argument for "compt" (or "@"), got ${returnTypeExpr.args.length}`
-        );
+        throw formatErrorMessage({
+          token: returnTypeExpr.token,
+          errorMessage: `Expected one argument for "compt" (or "@"), got ${returnTypeExpr.args.length}`,
+        });
       }
       returnTypeExpr = returnTypeExpr.args[0]!;
     }
@@ -5531,12 +5330,12 @@ ${typeToString(parameterType)}`
 
     // Check that the return type is indeed a type
     if (!isTypeValue(evaluatedReturnType.$?.value)) {
-      throw this.formatErrorMessage(
-        returnTypeExpr.token,
-        `Expected a type for function return type, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: returnTypeExpr.token,
+        errorMessage: `Expected a type for function return type, got:\n${exprToString(
           returnTypeExpr
-        )}`
-      );
+        )}`,
+      });
     }
 
     let returnType = evaluatedReturnType.$?.value.value;
@@ -5546,14 +5345,14 @@ ${typeToString(parameterType)}`
       // If it still requires compt modifier,
       // then throw an error
       if (typeRequiresComptModifier(returnType)) {
-        throw this.formatErrorMessage(
-          returnTypeExpr.token,
-          `Expected a "compt" (or "@") for return type, like:\n
+        throw formatErrorMessage({
+          token: returnTypeExpr.token,
+          errorMessage: `Expected a "compt" (or "@") for return type, like:\n
 compt(${exprToString(returnTypeExpr)})
 
 Given type:
-${typeToString(returnType)}`
-        );
+${typeToString(returnType)}`,
+        });
       }
     }
 
@@ -5562,20 +5361,20 @@ ${typeToString(returnType)}`
     if (isReturnTypeCompileTimeOnly) {
       for (const parameter of parameters) {
         if (!parameter.isCompileTimeOnly) {
-          throw this.formatErrorMessage(
-            getFunctionParameterToken(parameter),
-            `Expected all parameters to be compile time only given the return type is compile time only.`
-          );
+          throw formatErrorMessage({
+            token: getFunctionParameterToken(parameter),
+            errorMessage: `Expected all parameters to be compile time only given the return type is compile time only.`,
+          });
         }
       }
 
       // Check if all implicitParameters are compile time only
       for (const parameter of implicitParameters) {
         if (!parameter.isCompileTimeOnly) {
-          throw this.formatErrorMessage(
-            getFunctionParameterToken(parameter),
-            `Expected all implicit parameters to be compile time only given the return type is compile time only.`
-          );
+          throw formatErrorMessage({
+            token: getFunctionParameterToken(parameter),
+            errorMessage: `Expected all implicit parameters to be compile time only given the return type is compile time only.`,
+          });
         }
       }
     }
@@ -5620,10 +5419,10 @@ ${typeToString(returnType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "struct", got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "struct", got:\n${exprToString(expr)}`,
+      });
     }
 
     // Create structType with empty elements
@@ -5650,10 +5449,10 @@ ${typeToString(returnType)}`
           },
         });
         if (!evaluatedExtendedStruct.$) {
-          throw this.formatErrorMessage(
-            extendedStructExpr.token,
-            `Failed to evaluate the extended struct expression: ${exprToString(extendedStructExpr)}`
-          );
+          throw formatErrorMessage({
+            token: extendedStructExpr.token,
+            errorMessage: `Failed to evaluate the extended struct expression: ${exprToString(extendedStructExpr)}`,
+          });
         }
 
         // Check if it's a struct type
@@ -5662,12 +5461,12 @@ ${typeToString(returnType)}`
           !isTypeValue(extendedStructTypeValue) ||
           !isStructType(extendedStructTypeValue.value)
         ) {
-          throw this.formatErrorMessage(
-            extendedStructExpr.token,
-            `Expected a struct type for extending, got ${exprToString(
+          throw formatErrorMessage({
+            token: extendedStructExpr.token,
+            errorMessage: `Expected a struct type for extending, got ${exprToString(
               extendedStructExpr
-            )}`
-          );
+            )}`,
+          });
         }
         const extendedStructType = extendedStructTypeValue.value;
 
@@ -5702,20 +5501,20 @@ ${typeToString(returnType)}`
           (element) => element.label === type.label
         );
         if (duplicateLabel) {
-          throw this.formatErrorMessage(
-            exprIsFunctionCall(arg)
+          throw formatErrorMessage({
+            token: exprIsFunctionCall(arg)
               ? (arg.args[0]?.token ?? arg.token)
               : arg.token,
-            `Duplicate label "${type.label}" in struct`
-          );
+            errorMessage: `Duplicate label "${type.label}" in struct`,
+          });
         }
 
         // Compile-time field must have an assigned value
         if (type.isCompileTimeOnly && !type.assignedValue) {
-          throw this.formatErrorMessage(
-            type.exprs.expr.token,
-            `Compile-time only field "${type.label}" must have an assigned value.`
-          );
+          throw formatErrorMessage({
+            token: type.exprs.expr.token,
+            errorMessage: `Compile-time only field "${type.label}" must have an assigned value.`,
+          });
         }
 
         elements.push(type);
@@ -5747,10 +5546,10 @@ ${typeToString(returnType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.enum)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "enum", got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "enum", got:\n${exprToString(expr)}`,
+      });
     }
 
     // Create enumType with empty variants
@@ -5787,43 +5586,43 @@ ${typeToString(returnType)}`
           (element) => element.label === type.label
         );
         if (duplicateLabel) {
-          throw this.formatErrorMessage(
-            arg.token,
-            `Duplicate label "${type.label}" in enum`
-          );
+          throw formatErrorMessage({
+            token: arg.token,
+            errorMessage: `Duplicate label "${type.label}" in enum`,
+          });
         }
 
         // Check if it duplicates with the existing variant names
         if (variants.some((v) => v.name === type.label)) {
-          throw this.formatErrorMessage(
-            arg.token,
-            `Duplicate label "${type.label}" in enum variants`
-          );
+          throw formatErrorMessage({
+            token: arg.token,
+            errorMessage: `Duplicate label "${type.label}" in enum variants`,
+          });
         }
 
         if (!type.isCompileTimeOnly) {
-          throw this.formatErrorMessage(
-            arg.token,
-            `Expected compile-time only field, got:\n${exprToString(
+          throw formatErrorMessage({
+            token: arg.token,
+            errorMessage: `Expected compile-time only field, got:\n${exprToString(
               type.exprs.expr
-            )}`
-          );
+            )}`,
+          });
         }
 
         // Compile-time field must have an assigned value
         if (type.isCompileTimeOnly && !type.assignedValue) {
-          throw this.formatErrorMessage(
-            type.exprs.expr.token,
-            `Compile-time only field "${type.label}" must have an assigned value.`
-          );
+          throw formatErrorMessage({
+            token: type.exprs.expr.token,
+            errorMessage: `Compile-time only field "${type.label}" must have an assigned value.`,
+          });
         }
 
         // Disallow to have the default value for union type fields.
         if (type.defaultValue) {
-          throw this.formatErrorMessage(
-            type.exprs.defaultValueExpr?.token ?? type.exprs.expr.token,
-            `Union type cannot have default value for its elements.`
-          );
+          throw formatErrorMessage({
+            token: type.exprs.defaultValueExpr?.token ?? type.exprs.expr.token,
+            errorMessage: `Union type cannot have default value for its elements.`,
+          });
         }
 
         comptElements.push(type);
@@ -5835,12 +5634,12 @@ ${typeToString(returnType)}`
         if (exprIsAtom(enumArg)) {
           const variantName = enumArg.token.value;
           if (!this.isValidVariableName(enumArg)) {
-            throw this.formatErrorMessage(
-              enumArg.token,
-              `Expected identifier for enum variant, got:\n${exprToString(
+            throw formatErrorMessage({
+              token: enumArg.token,
+              errorMessage: `Expected identifier for enum variant, got:\n${exprToString(
                 enumArg
-              )}`
-            );
+              )}`,
+            });
           }
           variants.push({
             name: variantName,
@@ -5849,18 +5648,18 @@ ${typeToString(returnType)}`
           // TODO: Check duplicates
         } else {
           if (exprIsFunctionCallOf(enumArg, ":")) {
-            throw this.formatErrorMessage(
-              enumArg.token,
-              `Enum variant with : is not implemented yet`
-            );
+            throw formatErrorMessage({
+              token: enumArg.token,
+              errorMessage: `Enum variant with : is not implemented yet`,
+            });
           }
           if (!this.isValidVariableName(enumArg.func)) {
-            throw this.formatErrorMessage(
-              enumArg.func.token,
-              `Expected identifier for enum variant, got:\n${exprToString(
+            throw formatErrorMessage({
+              token: enumArg.func.token,
+              errorMessage: `Expected identifier for enum variant, got:\n${exprToString(
                 enumArg.func
-              )}`
-            );
+              )}`,
+            });
           }
           const variantName = enumArg.func.token.value;
 
@@ -5883,12 +5682,12 @@ ${typeToString(returnType)}`
             // QUESTION: Should we allow compile-time only field in enum variant?
             // If yes, should we require it to have assignedValue?
             if (element.isCompileTimeOnly) {
-              throw this.formatErrorMessage(
-                element.exprs.expr.token,
-                `Enum variant element cannot be compile-time only, got:\n${exprToString(
+              throw formatErrorMessage({
+                token: element.exprs.expr.token,
+                errorMessage: `Enum variant element cannot be compile-time only, got:\n${exprToString(
                   element.exprs.expr
-                )}`
-              );
+                )}`,
+              });
             }
           }
 
@@ -5924,10 +5723,10 @@ ${typeToString(returnType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.union)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "union", got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "union", got:\n${exprToString(expr)}`,
+      });
     }
 
     // Create unionType with empty elements
@@ -5953,28 +5752,28 @@ ${typeToString(returnType)}`
         (element) => element.label === type.label
       );
       if (duplicateLabel) {
-        throw this.formatErrorMessage(
-          exprIsFunctionCall(arg)
+        throw formatErrorMessage({
+          token: exprIsFunctionCall(arg)
             ? (arg.args[0]?.token ?? arg.token)
             : arg.token,
-          `Duplicate label "${type.label}" in tuple`
-        );
+          errorMessage: `Duplicate label "${type.label}" in tuple`,
+        });
       }
 
       // Compile-time field must have an assigned value
       if (type.isCompileTimeOnly && !type.assignedValue) {
-        throw this.formatErrorMessage(
-          type.exprs.expr.token,
-          `Compile-time only field "${type.label}" must have an assigned value.`
-        );
+        throw formatErrorMessage({
+          token: type.exprs.expr.token,
+          errorMessage: `Compile-time only field "${type.label}" must have an assigned value.`,
+        });
       }
 
       // Disallow to have the default value for union type fields.
       if (type.defaultValue) {
-        throw this.formatErrorMessage(
-          type.exprs.defaultValueExpr?.token ?? type.exprs.expr.token,
-          `Union type cannot have default value for its elements.`
-        );
+        throw formatErrorMessage({
+          token: type.exprs.defaultValueExpr?.token ?? type.exprs.expr.token,
+          errorMessage: `Union type cannot have default value for its elements.`,
+        });
       }
 
       elements.push(type);
@@ -6005,10 +5804,10 @@ ${typeToString(returnType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "module", got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "module", got:\n${exprToString(expr)}`,
+      });
     }
 
     // Create moduleType with empty elements
@@ -6038,10 +5837,10 @@ ${typeToString(returnType)}`
           },
         });
         if (!evaluatedExtendedModuleExpr.$) {
-          throw this.formatErrorMessage(
-            extendedStructExpr.token,
-            `Failed to evaluate the extended struct expression: ${exprToString(extendedStructExpr)}`
-          );
+          throw formatErrorMessage({
+            token: extendedStructExpr.token,
+            errorMessage: `Failed to evaluate the extended struct expression: ${exprToString(extendedStructExpr)}`,
+          });
         }
 
         // Check if it's a module type
@@ -6050,12 +5849,12 @@ ${typeToString(returnType)}`
           !isTypeValue(extendedModuleTypeValue) ||
           !isModuleType(extendedModuleTypeValue.value)
         ) {
-          throw this.formatErrorMessage(
-            extendedStructExpr.token,
-            `Expected a struct type for extending, got ${exprToString(
+          throw formatErrorMessage({
+            token: extendedStructExpr.token,
+            errorMessage: `Expected a struct type for extending, got ${exprToString(
               extendedStructExpr
-            )}`
-          );
+            )}`,
+          });
         }
         const extendedModuleType = extendedModuleTypeValue.value;
 
@@ -6067,10 +5866,10 @@ ${typeToString(returnType)}`
             (e) => e.label === extendedModuleElement.label
           );
           if (duplicateLabelIndex >= 0) {
-            throw this.formatErrorMessage(
-              extendedStructExpr.token,
-              `Duplicate label "${extendedModuleElement.label}" in module`
-            );
+            throw formatErrorMessage({
+              token: extendedStructExpr.token,
+              errorMessage: `Duplicate label "${extendedModuleElement.label}" in module`,
+            });
           } else {
             // Add the element to the struct
             elements.push(extendedModuleElement);
@@ -6117,12 +5916,12 @@ ${typeToString(returnType)}`
           (elem) => elem.label === element.label
         );
         if (duplicateLabel) {
-          throw this.formatErrorMessage(
-            exprIsFunctionCall(arg)
+          throw formatErrorMessage({
+            token: exprIsFunctionCall(arg)
               ? (arg.args[0]?.token ?? arg.token)
               : arg.token,
-            `Duplicate label "${element.label}" in module`
-          );
+            errorMessage: `Duplicate label "${element.label}" in module`,
+          });
         }
 
         elements.push(element);
@@ -6130,10 +5929,10 @@ ${typeToString(returnType)}`
 
         // Expect element to be compile-time only
         if (!element.isCompileTimeOnly) {
-          throw this.formatErrorMessage(
-            arg.token,
-            `Expected compile-time only element for extern module, got ${exprToString(arg)}`
-          );
+          throw formatErrorMessage({
+            token: arg.token,
+            errorMessage: `Expected compile-time only element for extern module, got ${exprToString(arg)}`,
+          });
         }
 
         // Add element to env
@@ -6183,10 +5982,10 @@ ${typeToString(returnType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, ".")) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "." for property access, got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "." for property access, got:\n${exprToString(expr)}`,
+      });
     }
 
     if (exprIsFunctionCallOf(expr, ".", 1)) {
@@ -6196,20 +5995,20 @@ ${typeToString(returnType)}`
         !exprIsAtom(propertyExpr) &&
         !this.isValidVariableName(propertyExpr)
       ) {
-        throw this.formatErrorMessage(
-          propertyExpr.token,
-          `Expected identifier for enum variant access, got:\n${exprToString(
+        throw formatErrorMessage({
+          token: propertyExpr.token,
+          errorMessage: `Expected identifier for enum variant access, got:\n${exprToString(
             propertyExpr
-          )}`
-        );
+          )}`,
+        });
       }
 
       const expectedEnumType = context.expectedType?.type;
       if (!isEnumType(expectedEnumType)) {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Failed to infer enum variant type.`
-        );
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Failed to infer enum variant type.`,
+        });
       }
       const variantName = propertyExpr.token.value;
       const enumType = expectedEnumType;
@@ -6218,10 +6017,10 @@ ${typeToString(returnType)}`
         (variant) => variant.name === variantName
       );
       if (!variant) {
-        throw this.formatErrorMessage(
-          propertyExpr.token,
-          `Enum variant "${variantName}" not found in enum`
-        );
+        throw formatErrorMessage({
+          token: propertyExpr.token,
+          errorMessage: `Enum variant "${variantName}" not found in enum`,
+        });
       }
       const newEnumType: EnumType = {
         ...enumType,
@@ -6270,10 +6069,10 @@ ${typeToString(returnType)}`
     }
 
     if (!exprIsFunctionCallOf(expr, ".", 2)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "." with 2 arguments, got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "." with 2 arguments, got:\n${exprToString(expr)}`,
+      });
     }
 
     let objectExpr = expr.args[0]!;
@@ -6341,12 +6140,12 @@ ${typeToString(returnType)}`
       if (isEnumType(typeValue.value)) {
         // Expect propertyExpr to be a symbol atom
         if (!exprIsAtom(propertyExpr)) {
-          throw this.formatErrorMessage(
-            propertyExpr.token,
-            `Expected identifier for enum variant, got:\n${exprToString(
+          throw formatErrorMessage({
+            token: propertyExpr.token,
+            errorMessage: `Expected identifier for enum variant, got:\n${exprToString(
               propertyExpr
-            )}`
-          );
+            )}`,
+          });
         }
 
         // Check if it's accessing comptime field
@@ -6376,10 +6175,10 @@ ${typeToString(returnType)}`
           (variant) => variant.name === variantName
         );
         if (!variant) {
-          throw this.formatErrorMessage(
-            propertyExpr.token,
-            `Enum variant "${variantName}" not found in enum`
-          );
+          throw formatErrorMessage({
+            token: propertyExpr.token,
+            errorMessage: `Enum variant "${variantName}" not found in enum`,
+          });
         }
         const newEnumType: EnumType = {
           ...enumType,
@@ -6426,12 +6225,12 @@ ${typeToString(returnType)}`
       // Accessing compt fields of a struct/union type.
       else if (isStructType(typeValue.value) || isUnionType(typeValue.value)) {
         if (!this.isValidVariableName(propertyExpr)) {
-          throw this.formatErrorMessage(
-            propertyExpr.token,
-            `Expected identifier for struct type method, got:\n${exprToString(
+          throw formatErrorMessage({
+            token: propertyExpr.token,
+            errorMessage: `Expected identifier for struct type method, got:\n${exprToString(
               propertyExpr
-            )}`
-          );
+            )}`,
+          });
         }
         const propertyName = propertyExpr.token.value;
         // Check if the type method exists
@@ -6451,10 +6250,10 @@ ${typeToString(returnType)}`
           propertyExpr.$ = expr.$;
           return expr;
         } else {
-          throw this.formatErrorMessage(
-            propertyExpr.token,
-            `Struct type property "${propertyName}" not found in struct type`
-          );
+          throw formatErrorMessage({
+            token: propertyExpr.token,
+            errorMessage: `Struct type property "${propertyName}" not found in struct type`,
+          });
         }
       }
     }
@@ -6487,20 +6286,20 @@ ${typeToString(returnType)}`
         if (propertyExpr.token.type === TokenType.Integer) {
           // Accessing by index is only allowed for tuples.
           if (!isTupleType(objectExpr.$?.type)) {
-            throw this.formatErrorMessage(
-              propertyExpr.token,
-              `Accessing tuple element by index is only allowed for tuples.`
-            );
+            throw formatErrorMessage({
+              token: propertyExpr.token,
+              errorMessage: `Accessing tuple element by index is only allowed for tuples.`,
+            });
           }
 
           const index = parseInt(propertyExpr.token.value, 10);
           if (isNaN(index)) {
-            throw this.formatErrorMessage(
-              propertyExpr.token,
-              `Expected integer for tuple index, got:\n${exprToString(
+            throw formatErrorMessage({
+              token: propertyExpr.token,
+              errorMessage: `Expected integer for tuple index, got:\n${exprToString(
                 propertyExpr
-              )}`
-            );
+              )}`,
+            });
           }
 
           const runtimeElementsCount = elements.filter(
@@ -6508,12 +6307,12 @@ ${typeToString(returnType)}`
           ).length;
 
           if (index < 0 || index >= runtimeElementsCount) {
-            throw this.formatErrorMessage(
-              propertyExpr.token,
-              `Index out of bounds: ${index} for accessing element in:\n${typeToString(
+            throw formatErrorMessage({
+              token: propertyExpr.token,
+              errorMessage: `Index out of bounds: ${index} for accessing element in:\n${typeToString(
                 objectExpr.$?.type
-              )}`
-            );
+              )}`,
+            });
           }
           const tupleElement = elements[index]!;
           expr.$ = {
@@ -6552,10 +6351,10 @@ ${typeToString(returnType)}`
             );
             if (tupleElementIndex < 0) {
               if (isModuleType(objectExpr.$?.type)) {
-                throw this.formatErrorMessage(
-                  propertyExpr.token,
-                  `Module element "${label}" not found in module type`
-                );
+                throw formatErrorMessage({
+                  token: propertyExpr.token,
+                  errorMessage: `Module element "${label}" not found in module type`,
+                });
               }
 
               // It could be method call
@@ -6610,12 +6409,12 @@ ${typeToString(returnType)}`
       // - label name:   SomeModule.some_function
       if (exprIsAtom(propertyExpr)) {
         if (propertyExpr.token.type === TokenType.Integer) {
-          throw this.formatErrorMessage(
-            propertyExpr.token,
-            `Accessomg module field by index is not allowed, got:\n${exprToString(
+          throw formatErrorMessage({
+            token: propertyExpr.token,
+            errorMessage: `Accessomg module field by index is not allowed, got:\n${exprToString(
               propertyExpr
-            )}`
-          );
+            )}`,
+          });
         } else if (this.isValidVariableName(propertyExpr)) {
           const label = propertyExpr.token.value;
 
@@ -6625,10 +6424,10 @@ ${typeToString(returnType)}`
             );
             if (tupleElementIndex < 0) {
               if (isModuleType(objectExpr.$?.type)) {
-                throw this.formatErrorMessage(
-                  propertyExpr.token,
-                  `Module element "${label}" not found in module type`
-                );
+                throw formatErrorMessage({
+                  token: propertyExpr.token,
+                  errorMessage: `Module element "${label}" not found in module type`,
+                });
               }
 
               // It could be method call
@@ -6676,12 +6475,12 @@ ${typeToString(returnType)}`
     } else if (isEnumType(objectType)) {
       if (exprIsAtom(propertyExpr)) {
         if (!this.isValidVariableName(propertyExpr)) {
-          throw this.formatErrorMessage(
-            propertyExpr.token,
-            `Expected identifier for enum variant property, got:\n${exprToString(
+          throw formatErrorMessage({
+            token: propertyExpr.token,
+            errorMessage: `Expected identifier for enum variant property, got:\n${exprToString(
               propertyExpr
-            )}`
-          );
+            )}`,
+          });
         }
 
         const propertyName = propertyExpr.token.value;
@@ -6694,10 +6493,10 @@ ${typeToString(returnType)}`
             (property) => property.label === propertyName
           );
           if (fieldIndex < 0) {
-            throw this.formatErrorMessage(
-              propertyExpr.token,
-              `Enum variant property "${propertyName}" not found in enum variant "${objectType.selectedVariantName}"`
-            );
+            throw formatErrorMessage({
+              token: propertyExpr.token,
+              errorMessage: `Enum variant property "${propertyName}" not found in enum variant "${objectType.selectedVariantName}"`,
+            });
           }
           const field = (selectedVariant.elements ?? [])[fieldIndex]!;
 
@@ -6754,10 +6553,10 @@ ${typeToString(returnType)}`
 
     // func should be "_"
     if (!exprIsAtom(func) || func.token.value !== "_") {
-      throw this.formatErrorMessage(
-        func.token,
-        `Expected "_" for anonymous struct, got:\n${exprToString(func)}`
-      );
+      throw formatErrorMessage({
+        token: func.token,
+        errorMessage: `Expected "_" for anonymous struct, got:\n${exprToString(func)}`,
+      });
     }
 
     const elements: TupleElement[] = [];
@@ -6774,12 +6573,12 @@ ${typeToString(returnType)}`
         valueExpr = arg.args[1]!;
 
         if (!this.isValidVariableName(labelExpr)) {
-          throw this.formatErrorMessage(
-            labelExpr.token,
-            `Expected identifier for anonymous struct element label, got:\n${exprToString(
+          throw formatErrorMessage({
+            token: labelExpr.token,
+            errorMessage: `Expected identifier for anonymous struct element label, got:\n${exprToString(
               labelExpr
-            )}`
-          );
+            )}`,
+          });
         }
         label = labelExpr.token.value;
       }
@@ -6796,10 +6595,10 @@ ${typeToString(returnType)}`
           },
         });
         if (!evaluatedExtendedStruct.$) {
-          throw this.formatErrorMessage(
-            extendedStructExpr.token,
-            `Failed to evaluate the extended struct expression: ${exprToString(extendedStructExpr)}`
-          );
+          throw formatErrorMessage({
+            token: extendedStructExpr.token,
+            errorMessage: `Failed to evaluate the extended struct expression: ${exprToString(extendedStructExpr)}`,
+          });
         }
         const extendedDataType = evaluatedExtendedStruct.$.type;
         if (isStructType(extendedDataType)) {
@@ -6840,12 +6639,12 @@ ${typeToString(returnType)}`
             }
           }
         } else {
-          throw this.formatErrorMessage(
-            extendedStructExpr.token,
-            `Expected a struct value for extending, got ${exprToString(
+          throw formatErrorMessage({
+            token: extendedStructExpr.token,
+            errorMessage: `Expected a struct value for extending, got ${exprToString(
               extendedStructExpr
-            )}`
-          );
+            )}`,
+          });
         }
       }
       // Normal element
@@ -6858,12 +6657,12 @@ ${typeToString(returnType)}`
           },
         });
         if (!evaluatedArg.$) {
-          throw this.formatErrorMessage(
-            valueExpr.token,
-            `Failed to evaluate the anonymous struct element expression: ${exprToString(
+          throw formatErrorMessage({
+            token: valueExpr.token,
+            errorMessage: `Failed to evaluate the anonymous struct element expression: ${exprToString(
               valueExpr
-            )}`
-          );
+            )}`,
+          });
         }
         env = evaluatedArg.$.env;
         const type = evaluatedArg.$.type;
@@ -6979,10 +6778,10 @@ ${typeToString(returnType)}`
             // so it should have a type
             const receiverType = receiverArg.$?.type;
             if (!receiverType) {
-              throw this.formatErrorMessage(
-                receiverArg.token,
-                `Expected to be evaluated.`
-              );
+              throw formatErrorMessage({
+                token: receiverArg.token,
+                errorMessage: `Expected to be evaluated.`,
+              });
             }
 
             // The methodExpr should also be evaluated already
@@ -7020,10 +6819,10 @@ ${typeToString(returnType)}`
               const methodType = methodExpr.$?.type;
               const methodValue = methodExpr.$?.value;
               if (!methodType) {
-                throw this.formatErrorMessage(
-                  methodExpr.token,
-                  `Expected to be a function.`
-                );
+                throw formatErrorMessage({
+                  token: methodExpr.token,
+                  errorMessage: `Expected to be a function.`,
+                });
               }
               functions = [
                 {
@@ -7035,12 +6834,12 @@ ${typeToString(returnType)}`
               args = [receiverArg, ...args];
             }
           } else {
-            throw this.formatErrorMessage(
-              func.token,
-              `Expected type for function call, got ${exprToString(
+            throw formatErrorMessage({
+              token: func.token,
+              errorMessage: `Expected type for function call, got ${exprToString(
                 functionToCall
-              )}`
-            );
+              )}`,
+            });
           }
 
           /*
@@ -7073,7 +6872,7 @@ ${typeToString(returnType)}`
         if (functionName === "_") {
           const expectedType = context.expectedType;
           if (!expectedType) {
-            // throw this.formatErrorMessage(
+            // throw formatErrorMessage(
             //   func.token,
             //   `Failed to infer type for _ function`
             // );
@@ -7105,10 +6904,10 @@ ${typeToString(returnType)}`
         else if (stringIsOperator(functionName) && expr.isInfix) {
           const firstArg = args[0];
           if (!firstArg) {
-            throw this.formatErrorMessage(
-              func.token,
-              `Expected first argument for operator, got:\n${exprToString(func)}`
-            );
+            throw formatErrorMessage({
+              token: func.token,
+              errorMessage: `Expected first argument for operator, got:\n${exprToString(func)}`,
+            });
           }
           // Evaluate the first argument to get its type
           const evaluatedFirstArg = this.evaluateExpression({
@@ -7120,10 +6919,10 @@ ${typeToString(returnType)}`
           });
           const receiverType = evaluatedFirstArg.$?.type;
           if (!receiverType) {
-            throw this.formatErrorMessage(
-              firstArg.token,
-              `Expected to be evaluated.`
-            );
+            throw formatErrorMessage({
+              token: firstArg.token,
+              errorMessage: `Expected to be evaluated.`,
+            });
           }
           const methodName = functionName;
           methodExpr = func;
@@ -7252,10 +7051,10 @@ ${typeToString(returnType)}`
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: this.formatErrorMessage(
-                    expr.token,
-                    `Enum variant not selected for enum type`
-                  ),
+                  error: formatErrorMessage({
+                    token: expr.token,
+                    errorMessage: `Enum variant not selected for enum type`,
+                  }),
                 },
               };
             } else {
@@ -7399,11 +7198,11 @@ ${typeToString(returnType)}`
               ...functionToCall,
               result: {
                 kind: "error",
-                error: this.formatErrorMessage(
-                  func.token,
-                  `Invalid function call on type:
-${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.type)}`
-                ),
+                error: formatErrorMessage({
+                  token: func.token,
+                  errorMessage: `Invalid function call on type:
+${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.type)}`,
+                }),
               },
             };
           }
@@ -7423,9 +7222,9 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
         throw functionsToCall[0]!.result.error!; // NOTE: It should have error here.
       }
 
-      throw this.formatErrorMessage(
-        func.token,
-        `No matching call found with arguments:
+      throw formatErrorMessage({
+        token: func.token,
+        errorMessage: `No matching call found with arguments:
 ${exprToString(expr)}
 
 ${functionsToCall.length ? "Available functions:\n" : ""}${functionsToCall
@@ -7448,21 +7247,21 @@ ${errorMessageWithIndent}`;
             }
           })
           .join("\n")}
-`
-      );
+`,
+      });
     }
     if (functionsWithMatchingTypes.length > 1) {
-      throw this.formatErrorMessage(
-        func.token,
-        `Ambiguous call with arguments:
+      throw formatErrorMessage({
+        token: func.token,
+        errorMessage: `Ambiguous call with arguments:
 ${exprToString(expr)}
 
 Found ${functionsWithMatchingTypes.length} matching calls:
 ${functionsWithMatchingTypes
   .map((func) => `${typeToString(func.type)}`)
   .join("\n")}
-`
-      );
+`,
+      });
     }
 
     const functionToCall = functionsWithMatchingTypes[0]!; // Found the only one function to call
@@ -7484,7 +7283,7 @@ ${functionsWithMatchingTypes
           isFunctionValue(functionValue)
         ) {
           // if (!isFunctionValue(functionValue)) {
-          //   throw this.formatErrorMessage(
+          //   throw formatErrorMessage(
           //     func.token,
           //     `Expected function value for function call, got:\n${exprToString(
           //       func
@@ -7572,10 +7371,10 @@ ${functionsWithMatchingTypes
         } = getTypeCallResult(functionToCall);
         env = callerEnv;
         if (!memberValues) {
-          throw this.formatErrorMessage(
-            func.token,
-            `Error evaluating struct call.`
-          );
+          throw formatErrorMessage({
+            token: func.token,
+            errorMessage: `Error evaluating struct call.`,
+          });
         }
         const structValue = memberValues.some((value) => !value)
           ? undefined
@@ -7608,10 +7407,10 @@ ${functionsWithMatchingTypes
           (variant) => variant.name === enumType.selectedVariantName
         );
         if (!selectedVariant) {
-          throw this.formatErrorMessage(
-            expr.token,
-            `Enum variant not selected for enum type`
-          );
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Enum variant not selected for enum type`,
+          });
         }
         const {
           values: memberValues,
@@ -7621,10 +7420,10 @@ ${functionsWithMatchingTypes
         env = callerEnv;
 
         if (!memberValues) {
-          throw this.formatErrorMessage(
-            func.token,
-            `Error evaluating enum call.`
-          );
+          throw formatErrorMessage({
+            token: func.token,
+            errorMessage: `Error evaluating enum call.`,
+          });
         }
         if (memberValues.every((v) => !!v)) {
           const enumValue = createEnumValue(
@@ -7701,7 +7500,7 @@ ${functionsWithMatchingTypes
         // This should already be evaluated.
         /*
         if (!expr.$ || !expr.$.value) {
-          throw this.formatErrorMessage(
+          throw formatErrorMessage(
             func.token,
             `Expected function value for function call, got:\n${exprToString(
               expr
@@ -7751,11 +7550,11 @@ ${functionsWithMatchingTypes
       }
     }
 
-    throw this.formatErrorMessage(
-      expr.token,
-      `Function call is not implemented yet:
-${exprToString(expr)}`
-    );
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Function call is not implemented yet:
+${exprToString(expr)}`,
+    });
   }
 
   private evaluateFunctionParameterType({
@@ -7782,10 +7581,10 @@ ${exprToString(expr)}`
         },
       });
       if (!isTypeValue(evaluatedTypeExpr.$?.value)) {
-        throw this.formatErrorMessage(
-          typeExpr.token,
-          `Expected type for parameter, got:\n${exprToString(evaluatedTypeExpr)}`
-        );
+        throw formatErrorMessage({
+          token: typeExpr.token,
+          errorMessage: `Expected type for parameter, got:\n${exprToString(evaluatedTypeExpr)}`,
+        });
       }
       if (evaluatedTypeExpr.$?.env) {
         calleeEnv = evaluatedTypeExpr.$?.env;
@@ -7807,10 +7606,10 @@ ${exprToString(expr)}`
       });
       const value = evaluatedDefaultValueExpr.$?.value;
       if (!value) {
-        throw this.formatErrorMessage(
-          defaultValueExpr.token,
-          `Expected value for parameter, got:\n${exprToString(defaultValueExpr)}`
-        );
+        throw formatErrorMessage({
+          token: defaultValueExpr.token,
+          errorMessage: `Expected value for parameter, got:\n${exprToString(defaultValueExpr)}`,
+        });
       }
       if (evaluatedDefaultValueExpr.$?.env) {
         calleeEnv = evaluatedDefaultValueExpr.$?.env;
@@ -7861,21 +7660,21 @@ ${exprToString(expr)}`
       argExpr = argExpr.args[1]!;
 
       if (!exprIsAtom(labelExpr)) {
-        throw this.formatErrorMessage(
-          labelExpr.token,
-          `Expected identifier for label, got:\n${exprToString(labelExpr)}`
-        );
+        throw formatErrorMessage({
+          token: labelExpr.token,
+          errorMessage: `Expected identifier for label, got:\n${exprToString(labelExpr)}`,
+        });
       }
 
       const label = labelExpr.token.value;
       if (parameter.label !== label) {
-        throw this.formatErrorMessage(
-          labelExpr.token,
-          `Named argument is not supported. Label is only used for readibility.
+        throw formatErrorMessage({
+          token: labelExpr.token,
+          errorMessage: `Named argument is not supported. Label is only used for readibility.
     Expected ${
       parameter ? `label "${parameter.label}"` : `no label`
-    } at the argument position, but got "${label}".`
-        );
+    } at the argument position, but got "${label}".`,
+        });
       }
     }
 
@@ -7931,10 +7730,10 @@ ${exprToString(expr)}`
             argExpr.$ = evaluatedArgExpr.$;
           }
         } else {
-          throw this.formatErrorMessage(
-            argExpr?.token ?? PlaceholderToken,
-            `Expected default value for parameter "${parameter.label}"`
-          );
+          throw formatErrorMessage({
+            token: argExpr?.token ?? PlaceholderToken,
+            errorMessage: `Expected default value for parameter "${parameter.label}"`,
+          });
         }
       } else {
         evaluatedArgExpr = this.evaluateExpression({
@@ -7955,10 +7754,10 @@ ${exprToString(expr)}`
       throw error;
     }
     if (!evaluatedArgExpr.$) {
-      throw this.formatErrorMessage(
-        argExpr?.token ?? PlaceholderToken,
-        `Failed to evaluate argument expression.`
-      );
+      throw formatErrorMessage({
+        token: argExpr?.token ?? PlaceholderToken,
+        errorMessage: `Failed to evaluate argument expression.`,
+      });
     }
 
     // Check the borrowings
@@ -7983,12 +7782,12 @@ ${exprToString(expr)}`
 
     // Cannot assign runtime parameter to compt parameter
     if (!evaluatedArgExpr.$?.value && parameter.isCompileTimeOnly) {
-      throw this.formatErrorMessage(
-        argExpr?.token ?? PlaceholderToken,
-        `Cannot assign runtime argument to compile-time parameter:\n${
+      throw formatErrorMessage({
+        token: argExpr?.token ?? PlaceholderToken,
+        errorMessage: `Cannot assign runtime argument to compile-time parameter:\n${
           argExpr ? exprToString(argExpr) : ""
-        }`
-      );
+        }`,
+      });
     }
 
     // Add the arg to the environment
@@ -8045,12 +7844,12 @@ ${exprToString(expr)}`
         { type: argType, env: callerEnv }
       )
     ) {
-      throw this.formatErrorMessage(
-        argExpr?.token ?? PlaceholderToken,
-        `Type mismatch for parameter "${parameter.label}":
+      throw formatErrorMessage({
+        token: argExpr?.token ?? PlaceholderToken,
+        errorMessage: `Type mismatch for parameter "${parameter.label}":
     Expected: ${typeToString(parameterType)}
-    Got:   ${typeToString(argType)}`
-      );
+    Got:   ${typeToString(argType)}`,
+      });
     }
     return {
       calleeEnv,
@@ -8101,12 +7900,12 @@ ${exprToString(expr)}`
         exprIsFunctionCallOf(argExpr, BuiltinKeywords.forall)
       ) {
         if (i !== 0) {
-          throw this.formatErrorMessage(
-            argExpr.token,
-            `Expected forall argument to be the first argument, got:\n${exprToString(
+          throw formatErrorMessage({
+            token: argExpr.token,
+            errorMessage: `Expected forall argument to be the first argument, got:\n${exprToString(
               argExpr
-            )}`
-          );
+            )}`,
+          });
         }
         forallArgsExpr = argExpr;
         continue;
@@ -8117,10 +7916,10 @@ ${exprToString(expr)}`
         exprIsFunctionCallOf(argExpr, BuiltinKeywords.implicit)
       ) {
         if (i !== argExprs.length - 1) {
-          throw this.formatErrorMessage(
-            argExpr.token,
-            `Expected implicit argument to be the last argument, got:\n${exprToString(argExpr)}`
-          );
+          throw formatErrorMessage({
+            token: argExpr.token,
+            errorMessage: `Expected implicit argument to be the last argument, got:\n${exprToString(argExpr)}`,
+          });
         }
         implicitArgExprs = argExpr.args;
         break;
@@ -8210,18 +8009,18 @@ ${exprToString(expr)}`
 
           // Check if the label is valid
           if (!exprIsAtom(labelExpr)) {
-            throw this.formatErrorMessage(
-              labelExpr.token,
-              `Expected identifier for type parameter label, got:\n${exprToString(labelExpr)}`
-            );
+            throw formatErrorMessage({
+              token: labelExpr.token,
+              errorMessage: `Expected identifier for type parameter label, got:\n${exprToString(labelExpr)}`,
+            });
           }
 
           // Check if the label matches the type parameter label
           if (typeParameter.label !== labelExpr.token.value) {
-            throw this.formatErrorMessage(
-              labelExpr.token,
-              `Expected type parameter label "${typeParameter.label}", got "${labelExpr.token.value}".`
-            );
+            throw formatErrorMessage({
+              token: labelExpr.token,
+              errorMessage: `Expected type parameter label "${typeParameter.label}", got "${labelExpr.token.value}".`,
+            });
           }
         }
 
@@ -8256,23 +8055,25 @@ ${exprToString(expr)}`
             }
 
             if (!isTypeValue(evaluatedArgExpr.$?.value)) {
-              throw this.formatErrorMessage(
-                forallArgExpr?.token ??
+              throw formatErrorMessage({
+                token:
+                  forallArgExpr?.token ??
                   functionCallExpr?.token ??
                   PlaceholderToken,
-                forallArgExpr
+                errorMessage: forallArgExpr
                   ? `Expected type for default value, got:\n${exprToString(forallArgExpr)}`
-                  : `Expected type for default value.`
-              );
+                  : `Expected type for default value.`,
+              });
             }
             typeValue = evaluatedArgExpr.$?.value;
           } else {
-            throw this.formatErrorMessage(
-              forallArgExpr?.token ??
+            throw formatErrorMessage({
+              token:
+                forallArgExpr?.token ??
                 functionCallExpr?.token ??
                 PlaceholderToken,
-              `Type parameter does not have default value.`
-            );
+              errorMessage: `Type parameter does not have default value.`,
+            });
           }
         } else {
           // Evaluate forallArgExpr
@@ -8288,10 +8089,10 @@ ${exprToString(expr)}`
             callerEnv = evaluatedTypeExpr.$.env;
           }
           if (!isTypeValue(evaluatedTypeExpr.$?.value)) {
-            throw this.formatErrorMessage(
-              forallArgExpr.token,
-              `Expected type for argument, got:\n${exprToString(forallArgExpr)}`
-            );
+            throw formatErrorMessage({
+              token: forallArgExpr.token,
+              errorMessage: `Expected type for argument, got:\n${exprToString(forallArgExpr)}`,
+            });
           }
           typeValue = evaluatedTypeExpr.$?.value;
         }
@@ -8313,12 +8114,15 @@ ${exprToString(expr)}`
             { type: typeValue.type, env: callerEnv }
           )
         ) {
-          throw this.formatErrorMessage(
-            forallArgExpr?.token ?? functionCallExpr?.token ?? PlaceholderToken,
-            `Type mismatch for type parameter "${typeParameter.label}":
+          throw formatErrorMessage({
+            token:
+              forallArgExpr?.token ??
+              functionCallExpr?.token ??
+              PlaceholderToken,
+            errorMessage: `Type mismatch for type parameter "${typeParameter.label}":
 Expected: ${typeToString(typeParameter.type)}
-Got:   ${typeToString(typeValue.type)}`
-          );
+Got:   ${typeToString(typeValue.type)}`,
+          });
         }
 
         // Add the type to the env
@@ -8431,18 +8235,18 @@ Got:   ${typeToString(typeValue.type)}`
 
         // Check if the label is valid
         if (!exprIsAtom(labelExpr)) {
-          throw this.formatErrorMessage(
-            labelExpr.token,
-            `Expected identifier for type parameter label, got:\n${exprToString(labelExpr)}`
-          );
+          throw formatErrorMessage({
+            token: labelExpr.token,
+            errorMessage: `Expected identifier for type parameter label, got:\n${exprToString(labelExpr)}`,
+          });
         }
 
         // Check if the label matches the type parameter label
         if (implicitParameter.label !== labelExpr.token.value) {
-          throw this.formatErrorMessage(
-            labelExpr.token,
-            `Expected type parameter label "${implicitParameter.label}", got "${labelExpr.token.value}".`
-          );
+          throw formatErrorMessage({
+            token: labelExpr.token,
+            errorMessage: `Expected type parameter label "${implicitParameter.label}", got "${labelExpr.token.value}".`,
+          });
         }
       }
 
@@ -8470,10 +8274,10 @@ Got:   ${typeToString(typeValue.type)}`
         }
         const argType = evaluatedImplicitArg.$?.type;
         if (!argType) {
-          throw this.formatErrorMessage(
-            implicitArgExpr.token,
-            `Failed to evaluate implicit argument expression:\n${exprToString(implicitArgExpr)}`
-          );
+          throw formatErrorMessage({
+            token: implicitArgExpr.token,
+            errorMessage: `Failed to evaluate implicit argument expression:\n${exprToString(implicitArgExpr)}`,
+          });
         }
 
         // Add the arg to the environment
@@ -8526,12 +8330,12 @@ Got:   ${typeToString(typeValue.type)}`
             { type: argType, env: callerEnv }
           )
         ) {
-          throw this.formatErrorMessage(
-            implicitArgExpr.token,
-            `Type mismatch for implicit parameter "${implicitParameter.label}":
+          throw formatErrorMessage({
+            token: implicitArgExpr.token,
+            errorMessage: `Type mismatch for implicit parameter "${implicitParameter.label}":
 Expected: ${typeToString(implicitParameterType)}
-Got:   ${typeToString(argType)}`
-          );
+Got:   ${typeToString(argType)}`,
+          });
         }
         continue; // Found the correct implicit argument
       }
@@ -8623,17 +8427,17 @@ Got:   ${typeToString(argType)}`
       );
 
       if (implicitVariables.length === 0) {
-        throw this.formatErrorMessage(
-          functionCallExpr?.token ?? PlaceholderToken,
-          `Implicit parameter is not provided. Expected:
-${implicitParameter.label ? `implicit(${implicitParameter.label}) :\n  ${typeToString(implicitParameterType)}` : `implicit ${typeToString(implicitParameterType)}`}`
-        );
+        throw formatErrorMessage({
+          token: functionCallExpr?.token ?? PlaceholderToken,
+          errorMessage: `Implicit parameter is not provided. Expected:
+${implicitParameter.label ? `implicit(${implicitParameter.label}) :\n  ${typeToString(implicitParameterType)}` : `implicit ${typeToString(implicitParameterType)}`}`,
+        });
       }
 
       if (implicitVariables.length > 1) {
-        throw this.formatErrorMessage(
-          functionCallExpr?.token ?? PlaceholderToken,
-          `Ambiguous implicit parameter:
+        throw formatErrorMessage({
+          token: functionCallExpr?.token ?? PlaceholderToken,
+          errorMessage: `Ambiguous implicit parameter:
 ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implicitParameterType)})` : typeToString(implicitParameterType)}
 
 Found:
@@ -8642,8 +8446,8 @@ ${implicitVariables
     return `- ${variable.name} : ${typeToString(variable.type)}`;
   })
   .join("\n")}
-`
-        );
+`,
+        });
       }
 
       // Add the implicit variable to the function env
@@ -8679,10 +8483,10 @@ ${implicitVariables
 
     const functionReturnTypeValue = evaluatedFunctionReturnExpr.$?.value;
     if (!isTypeValue(functionReturnTypeValue)) {
-      throw this.formatErrorMessage(
-        functionCallExpr?.token ?? PlaceholderToken,
-        `Function body is not evaluated correctly. Expected to return a type.`
-      );
+      throw formatErrorMessage({
+        token: functionCallExpr?.token ?? PlaceholderToken,
+        errorMessage: `Function body is not evaluated correctly. Expected to return a type.`,
+      });
     }
     const returnType = functionReturnTypeValue.value;
 
@@ -8725,16 +8529,16 @@ ${implicitVariables
     isUnionType?: boolean;
   }): TypeCallResult {
     if (argExprs.length > memberElements.length) {
-      throw this.formatErrorMessage(
-        functionCallExpr.token,
-        `Failed to call the type. Too many members provided. Expected ${memberElements.length} arguments, got ${argExprs.length}.`
-      );
+      throw formatErrorMessage({
+        token: functionCallExpr.token,
+        errorMessage: `Failed to call the type. Too many members provided. Expected ${memberElements.length} arguments, got ${argExprs.length}.`,
+      });
     }
     if (isUnionType && argExprs.length !== 1) {
-      throw this.formatErrorMessage(
-        functionCallExpr.token,
-        `Failed to call the union type. Expected exactly one argument, got ${argExprs.length}.`
-      );
+      throw formatErrorMessage({
+        token: functionCallExpr.token,
+        errorMessage: `Failed to call the union type. Expected exactly one argument, got ${argExprs.length}.`,
+      });
     }
 
     const initialBorrowings: Borrowing[] = [...context.borrowings];
@@ -8761,10 +8565,10 @@ ${implicitVariables
         argExpr = argExpr.args[1]!;
 
         if (!exprIsAtom(labelExpr)) {
-          throw this.formatErrorMessage(
-            labelExpr.token,
-            `Expected identifier for label, got:\n${exprToString(labelExpr)}`
-          );
+          throw formatErrorMessage({
+            token: labelExpr.token,
+            errorMessage: `Expected identifier for label, got:\n${exprToString(labelExpr)}`,
+          });
         }
       }
 
@@ -8775,16 +8579,16 @@ ${implicitVariables
           (element) => element.label === label
         );
         if (!paramElement_) {
-          throw this.formatErrorMessage(
-            argExpr.token,
-            `Failed to find "${label}" in the type.`
-          );
+          throw formatErrorMessage({
+            token: argExpr.token,
+            errorMessage: `Failed to find "${label}" in the type.`,
+          });
         } else if (paramElement_.assignedValue) {
-          throw this.formatErrorMessage(
-            argExpr.token,
-            `Cannot use label "${label}" for already assigned value:
-${tupleElementToString(paramElement_)}`
-          );
+          throw formatErrorMessage({
+            token: argExpr.token,
+            errorMessage: `Cannot use label "${label}" for already assigned value:
+${tupleElementToString(paramElement_)}`,
+          });
         } else {
           memberElement = paramElement_;
         }
@@ -8793,10 +8597,10 @@ ${tupleElementToString(paramElement_)}`
       if (checkedMemberElements.has(memberElement)) {
         // Already checked this element
         // We cannot have duplicate labels
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Type member "${memberElement.label}" is already implemented.`
-        );
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Type member "${memberElement.label}" is already implemented.`,
+        });
       }
       const memberElementPositionIndex = memberElements.indexOf(memberElement);
 
@@ -8812,10 +8616,10 @@ ${tupleElementToString(paramElement_)}`
       });
 
       if (!evaluatedArgExpr.$) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
-        );
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Failed to evaluate argument expression:\n${exprToString(argExpr)}`,
+        });
       }
       // Set the argExpr as consumed
       callerEnv = setExprAsConsumed(evaluatedArgExpr, evaluatedArgExpr.$.env);
@@ -8849,12 +8653,12 @@ ${tupleElementToString(paramElement_)}`
           { type: argType, env: callerEnv }
         )
       ) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Type mismatch for type member "${memberElement.label}":
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Type mismatch for type member "${memberElement.label}":
 Expected: ${typeToString(memberElement.type)}
-Got:   ${typeToString(argType)}`
-        );
+Got:   ${typeToString(argType)}`,
+        });
       }
 
       // Set the values
@@ -8870,10 +8674,10 @@ Got:   ${typeToString(argType)}`
         const memberElement = memberElements[i]!;
         if (!checkedMemberElements.has(memberElement)) {
           if (!memberElement.defaultValue && !memberElement.assignedValue) {
-            throw this.formatErrorMessage(
-              functionCallExpr.token,
-              `Type member "${memberElement.label}" is not provided and has no default value or assigned value.`
-            );
+            throw formatErrorMessage({
+              token: functionCallExpr.token,
+              errorMessage: `Type member "${memberElement.label}" is not provided and has no default value or assigned value.`,
+            });
           } else {
             // Set the default value to values
             // if (memberElement.isCompileTimeOnly) {
@@ -8915,10 +8719,10 @@ Got:   ${typeToString(argType)}`
     context: EvaluatorContext;
   }): ArrayCallResult {
     if (argExprs.length !== 1) {
-      throw this.formatErrorMessage(
-        expr.func.token,
-        `Expect 1 argument for accessing array element, got ${argExprs.length}.`
-      );
+      throw formatErrorMessage({
+        token: expr.func.token,
+        errorMessage: `Expect 1 argument for accessing array element, got ${argExprs.length}.`,
+      });
     }
 
     // Evaluate the first argument
@@ -8931,10 +8735,10 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedArgExpr.$) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Failed to evaluate argument expression:\n${exprToString(argExpr)}`
-      );
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Failed to evaluate argument expression:\n${exprToString(argExpr)}`,
+      });
     }
 
     // Check if the argType matches the usize
@@ -8951,10 +8755,10 @@ Got:   ${typeToString(argType)}`
         }
       )
     ) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected usize for array index, got:\n${typeToString(argType)}`
-      );
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected usize for array index, got:\n${typeToString(argType)}`,
+      });
     }
 
     // It's compile time known value
@@ -8962,10 +8766,10 @@ Got:   ${typeToString(argType)}`
       if (isNumberValue(evaluatedArgExpr.$.value)) {
         const index = evaluatedArgExpr.$.value.value;
         if (index < 0 || index >= arrayValue.elements.length) {
-          throw this.formatErrorMessage(
-            argExpr.token,
-            `Array index out of bounds: ${index}. Expected index in range [0, ${arrayValue.elements.length - 1}].`
-          );
+          throw formatErrorMessage({
+            token: argExpr.token,
+            errorMessage: `Array index out of bounds: ${index}. Expected index in range [0, ${arrayValue.elements.length - 1}].`,
+          });
         }
         const value = arrayValue.elements[index]!;
         return { value };
@@ -8999,10 +8803,10 @@ Got:   ${typeToString(argType)}`
     const functionTypeExpr = expr.func;
     const argExprs = expr.args;
     if (argExprs.length !== 1) {
-      throw this.formatErrorMessage(
-        functionTypeExpr.token,
-        `Failed to implement the function. Expected 1 argument for the function body, got ${argExprs.length}.`
-      );
+      throw formatErrorMessage({
+        token: functionTypeExpr.token,
+        errorMessage: `Failed to implement the function. Expected 1 argument for the function body, got ${argExprs.length}.`,
+      });
     }
     const functionBodyExpr = argExprs[0]!;
 
@@ -9040,10 +8844,10 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedFunctionBody.$) {
-      throw this.formatErrorMessage(
-        functionBodyExpr.token,
-        `Failed to evaluate the function body.`
-      );
+      throw formatErrorMessage({
+        token: functionBodyExpr.token,
+        errorMessage: `Failed to evaluate the function body.`,
+      });
     }
     env = evaluatedFunctionBody.$.env;
 
@@ -9055,21 +8859,21 @@ Got:   ${typeToString(argType)}`
         { type: functionBodyReturnType, env }
       )
     ) {
-      throw this.formatErrorMessage(
-        functionType.return.expr.token,
-        `Incompatible function return type:
+      throw formatErrorMessage({
+        token: functionType.return.expr.token,
+        errorMessage: `Incompatible function return type:
 - Expected: ${typeToString(functionType.return.type)}
-- Given  : ${typeToString(functionBodyReturnType)}`
-      );
+- Given  : ${typeToString(functionBodyReturnType)}`,
+      });
     }
     if (
       functionType.return.isCompileTimeOnly &&
       !evaluatedFunctionBody.$.value
     ) {
-      throw this.formatErrorMessage(
-        functionType.return.expr.token,
-        `Expected to return a compile-time value, but got runtime value.`
-      );
+      throw formatErrorMessage({
+        token: functionType.return.expr.token,
+        errorMessage: `Expected to return a compile-time value, but got runtime value.`,
+      });
     }
 
     // Pop the env frame
@@ -9101,10 +8905,10 @@ Got:   ${typeToString(argType)}`
     context: EvaluatorContext;
   }): ModuleTypeCallResult {
     if (argExprs.length > moduleType.elements.length) {
-      throw this.formatErrorMessage(
-        moduleExpr.token,
-        `Failed to implement the module. Too many fields provided.`
-      );
+      throw formatErrorMessage({
+        token: moduleExpr.token,
+        errorMessage: `Failed to implement the module. Too many fields provided.`,
+      });
     }
 
     callerEnv = pushEnvFrame(callerEnv);
@@ -9130,38 +8934,38 @@ Got:   ${typeToString(argType)}`
           argExpr = argExpr.args[1]!;
 
           if (!exprIsAtom(labelExpr)) {
-            throw this.formatErrorMessage(
-              labelExpr.token,
-              `Expected identifier for label, got:\n${exprToString(labelExpr)}`
-            );
+            throw formatErrorMessage({
+              token: labelExpr.token,
+              errorMessage: `Expected identifier for label, got:\n${exprToString(labelExpr)}`,
+            });
           }
           label = labelExpr.token.value;
         } else {
-          throw this.formatErrorMessage(
-            argExpr.token,
-            `Expected member label, but got:\n${exprToString(argExpr)}`
-          );
+          throw formatErrorMessage({
+            token: argExpr.token,
+            errorMessage: `Expected member label, but got:\n${exprToString(argExpr)}`,
+          });
         }
 
         // Check if label exists in the module type
         if (!moduleType.elements.find((e) => e.label === label)) {
-          throw this.formatErrorMessage(
-            labelExpr.token,
-            `Module member with label "${label}" does not exist in the module type.`
-          );
+          throw formatErrorMessage({
+            token: labelExpr.token,
+            errorMessage: `Module member with label "${label}" does not exist in the module type.`,
+          });
         }
 
         if (moduleElement.label === label) {
           foundArgExpr = true;
 
           if (moduleElement.assignedValue) {
-            throw this.formatErrorMessage(
-              argExpr.token,
-              `Module member "${
+            throw formatErrorMessage({
+              token: argExpr.token,
+              errorMessage: `Module member "${
                 moduleElement.label
               }" already has a assigned value:
-${valueToString(moduleElement.assignedValue)}`
-            );
+${valueToString(moduleElement.assignedValue)}`,
+            });
           }
 
           // evaluate the module member type again.
@@ -9186,10 +8990,10 @@ ${valueToString(moduleElement.assignedValue)}`
             const evaluatedModuleMemberTypeValue =
               evaluatedModuleMember.$?.value;
             if (!isTypeValue(evaluatedModuleMemberTypeValue)) {
-              throw this.formatErrorMessage(
-                argExpr.token,
-                `Failed to evaluate the module member "${label}"`
-              );
+              throw formatErrorMessage({
+                token: argExpr.token,
+                errorMessage: `Failed to evaluate the module member "${label}"`,
+              });
             }
             moduleElementType = evaluatedModuleMemberTypeValue.value;
           } else if (defaultValueExpr) {
@@ -9207,17 +9011,17 @@ ${valueToString(moduleElement.assignedValue)}`
             });
             const value = evaluatedValueExpr.$?.value;
             if (!value) {
-              throw this.formatErrorMessage(
-                argExpr.token,
-                `Failed to evaluate the module member "${label}"`
-              );
+              throw formatErrorMessage({
+                token: argExpr.token,
+                errorMessage: `Failed to evaluate the module member "${label}"`,
+              });
             }
             moduleElementType = value.type;
           } else {
-            throw this.formatErrorMessage(
-              argExpr.token,
-              `Module member "${label}" has no type or default value or assigned value.`
-            );
+            throw formatErrorMessage({
+              token: argExpr.token,
+              errorMessage: `Module member "${label}" has no type or default value or assigned value.`,
+            });
           }
 
           // evaluate the argExpr
@@ -9232,10 +9036,10 @@ ${valueToString(moduleElement.assignedValue)}`
           });
           const argType = evaluatedArgExpr.$?.type;
           if (!argType) {
-            throw this.formatErrorMessage(
-              argExpr.token,
-              `Failed to evaluate the module member "${label}"`
-            );
+            throw formatErrorMessage({
+              token: argExpr.token,
+              errorMessage: `Failed to evaluate the module member "${label}"`,
+            });
           }
           if (evaluatedArgExpr.$?.env) {
             callerEnv = evaluatedArgExpr.$.env;
@@ -9248,12 +9052,12 @@ ${valueToString(moduleElement.assignedValue)}`
               { type: argType, env: callerEnv }
             )
           ) {
-            throw this.formatErrorMessage(
-              argExpr.token,
-              `Type mismatch for the module member "${label}":
+            throw formatErrorMessage({
+              token: argExpr.token,
+              errorMessage: `Type mismatch for the module member "${label}":
 Expected: ${typeToString(moduleElementType)}
-Got:   ${typeToString(argType)}`
-            );
+Got:   ${typeToString(argType)}`,
+            });
           }
           const argValue = evaluatedArgExpr.$?.value;
 
@@ -9296,10 +9100,10 @@ Got:   ${typeToString(argType)}`
         const assignedValue = moduleElement.assignedValue;
         // Check if moduleMember has default or required value
         if (!defaultValue && !assignedValue) {
-          throw this.formatErrorMessage(
-            moduleExpr.token,
-            `Module member "${moduleElement.label}" is not provided and has no required/default value.`
-          );
+          throw formatErrorMessage({
+            token: moduleExpr.token,
+            errorMessage: `Module member "${moduleElement.label}" is not provided and has no required/default value.`,
+          });
         }
 
         if (defaultValue) {
@@ -9361,10 +9165,10 @@ Got:   ${typeToString(argType)}`
       ...argValues_.implicitArgs,
     ];
     if (unfilteredArgValues.some((val) => !val)) {
-      throw this.formatErrorMessage(
-        functionCallExpr.token,
-        `Failed to call the type function. Some arguments are not compile-time evaluated correctly.`
-      );
+      throw formatErrorMessage({
+        token: functionCallExpr.token,
+        errorMessage: `Failed to call the type function. Some arguments are not compile-time evaluated correctly.`,
+      });
     }
     const argValues: Value[] = unfilteredArgValues as Value[];
 
@@ -9437,19 +9241,19 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedFunctionBody.$) {
-      throw this.formatErrorMessage(
-        functionCallExpr.token,
-        `Function body is not evaluated correctly`
-      );
+      throw formatErrorMessage({
+        token: functionCallExpr.token,
+        errorMessage: `Function body is not evaluated correctly`,
+      });
     }
 
     // Get the return type value
     const returnValue = evaluatedFunctionBody.$.value;
     if (!returnValue) {
-      throw this.formatErrorMessage(
-        functionCallExpr.token,
-        `Function body is not evaluated correctly. Expected to return a compile-time known value.`
-      );
+      throw formatErrorMessage({
+        token: functionCallExpr.token,
+        errorMessage: `Function body is not evaluated correctly. Expected to return a compile-time known value.`,
+      });
     }
     if (isTypeValue(returnValue)) {
       const returnType = returnValue.value;
@@ -9538,10 +9342,10 @@ Got:   ${typeToString(argType)}`
     }
     const lastExpr = beginExpressions[beginExpressions.length - 1]!;
     if (!lastExpr.$) {
-      throw this.formatErrorMessage(
-        lastExpr.token,
-        `Last expression in "begin" is not evaluated correctly:\n${exprToString(lastExpr)}`
-      );
+      throw formatErrorMessage({
+        token: lastExpr.token,
+        errorMessage: `Last expression in "begin" is not evaluated correctly:\n${exprToString(lastExpr)}`,
+      });
     }
 
     // Prevent return reference to the local variable.
@@ -9555,10 +9359,10 @@ Got:   ${typeToString(argType)}`
         if (variableName) {
           const variables = getVariablesFromEnv(env, variableName);
           if (!variables.length) {
-            throw this.formatErrorMessage(
-              lastExpr.token,
-              `Invalid path detected. It could be a bug of the compiler.`
-            );
+            throw formatErrorMessage({
+              token: lastExpr.token,
+              errorMessage: `Invalid path detected. It could be a bug of the compiler.`,
+            });
           }
           const variable = variables[variables.length - 1]!;
           if (
@@ -9567,21 +9371,21 @@ Got:   ${typeToString(argType)}`
             env.frames.length - 1
           ) {
             // If the variable is a local variable, we cannot return a reference to it
-            throw this.formatErrorMessage(
-              lastExpr.token,
-              `Cannot return value containing reference to the local variable "${variableName}".`
-            );
+            throw formatErrorMessage({
+              token: lastExpr.token,
+              errorMessage: `Cannot return value containing reference to the local variable "${variableName}".`,
+            });
           } else if (
             // Otherwise, expect it to be reference type.
             !(isMutRefType(variable.type) || isRefType(variable.type))
           ) {
             // If the variable is not a reference type, we cannot return a reference to it
-            throw this.formatErrorMessage(
-              lastExpr.token,
-              `Cannot return value containing reference to the variable "${variableName}" of type "${typeToString(
+            throw formatErrorMessage({
+              token: lastExpr.token,
+              errorMessage: `Cannot return value containing reference to the variable "${variableName}" of type "${typeToString(
                 variable.type
-              )}". Expected reference type.`
-            );
+              )}". Expected reference type.`,
+            });
           }
         }
       }
@@ -9666,17 +9470,17 @@ Got:   ${typeToString(argType)}`
                 },
               });
               if (!evaluatedExtendedModuleExpr.$) {
-                throw this.formatErrorMessage(
-                  extendedModuleExpr.token,
-                  `Failed to evaluate the extended struct expression:\n${exprToString(extendedModuleExpr)}`
-                );
+                throw formatErrorMessage({
+                  token: extendedModuleExpr.token,
+                  errorMessage: `Failed to evaluate the extended struct expression:\n${exprToString(extendedModuleExpr)}`,
+                });
               }
               const extendedModuleType = evaluatedExtendedModuleExpr.$.type;
               if (!isModuleType(extendedModuleType)) {
-                throw this.formatErrorMessage(
-                  extendedModuleExpr.token,
-                  `Expected struct type for export, got:\n${typeToString(extendedModuleType)}`
-                );
+                throw formatErrorMessage({
+                  token: extendedModuleExpr.token,
+                  errorMessage: `Expected struct type for export, got:\n${typeToString(extendedModuleType)}`,
+                });
               }
               const extendedModuleValue = evaluatedExtendedModuleExpr.$
                 .value as ModuleValue | undefined;
@@ -9697,10 +9501,10 @@ Got:   ${typeToString(argType)}`
                     (e) => e.label === label
                   );
                   if (!existingElement) {
-                    throw this.formatErrorMessage(
-                      excludeMembersExpr.token,
-                      `Label "${label}" is not found in the extended module type.`
-                    );
+                    throw formatErrorMessage({
+                      token: excludeMembersExpr.token,
+                      errorMessage: `Label "${label}" is not found in the extended module type.`,
+                    });
                   }
                   // Add the label to the excluded labels
                   excludedLabels.add(label);
@@ -9723,10 +9527,10 @@ Got:   ${typeToString(argType)}`
                     // Iterate over the elements of the tuple
                     for (const memberExpr of excludeMembersExpr.args) {
                       if (!exprIsAtom(memberExpr)) {
-                        throw this.formatErrorMessage(
-                          memberExpr.token,
-                          `Expected identifier for excluded label, got:\n${exprToString(memberExpr)}`
-                        );
+                        throw formatErrorMessage({
+                          token: memberExpr.token,
+                          errorMessage: `Expected identifier for excluded label, got:\n${exprToString(memberExpr)}`,
+                        });
                       }
                       const label = memberExpr.token.value;
                       // Check if the label is in the extended module type
@@ -9734,10 +9538,10 @@ Got:   ${typeToString(argType)}`
                         (e) => e.label === label
                       );
                       if (!existingElement) {
-                        throw this.formatErrorMessage(
-                          memberExpr.token,
-                          `Label "${label}" is not found in the extended module type.`
-                        );
+                        throw formatErrorMessage({
+                          token: memberExpr.token,
+                          errorMessage: `Label "${label}" is not found in the extended module type.`,
+                        });
                       }
                       // Add the label to the excluded labels
                       excludedLabels.add(label);
@@ -9750,12 +9554,12 @@ Got:   ${typeToString(argType)}`
                       };
                     }
                   } else {
-                    throw this.formatErrorMessage(
-                      excludeMembersExpr.token,
-                      `Expected identifier or tuple for excluded labels, got:\n${exprToString(
+                    throw formatErrorMessage({
+                      token: excludeMembersExpr.token,
+                      errorMessage: `Expected identifier or tuple for excluded labels, got:\n${exprToString(
                         excludeMembersExpr
-                      )}`
-                    );
+                      )}`,
+                    });
                   }
                 }
               }
@@ -9775,10 +9579,10 @@ Got:   ${typeToString(argType)}`
                   (e) => e.label === extendedStructElement.label
                 );
                 if (existingElementIndex >= 0) {
-                  throw this.formatErrorMessage(
-                    exportExpr.token,
-                    `Element "${extendedStructElement.label}" is already exported in the module.`
-                  );
+                  throw formatErrorMessage({
+                    token: exportExpr.token,
+                    errorMessage: `Element "${extendedStructElement.label}" is already exported in the module.`,
+                  });
                 } else {
                   // Add the element to the module type
                   moduleType.elements.push({
@@ -9820,20 +9624,20 @@ Got:   ${typeToString(argType)}`
               }
             } else {
               if (!this.isValidVariableName(exportExpr)) {
-                throw this.formatErrorMessage(
-                  exportExpr.token,
-                  `Expected identifier for export, got:\n${exprToString(exportExpr)}`
-                );
+                throw formatErrorMessage({
+                  token: exportExpr.token,
+                  errorMessage: `Expected identifier for export, got:\n${exprToString(exportExpr)}`,
+                });
               }
 
               const variableName = exportExpr.token.value;
               // Get the variable from the env
               const variables = getVariablesFromEnv(env, variableName);
               if (variables.length === 0) {
-                throw this.formatErrorMessage(
-                  exportExpr.token,
-                  `Variable "${variableName}" is not defined in the module.`
-                );
+                throw formatErrorMessage({
+                  token: exportExpr.token,
+                  errorMessage: `Variable "${variableName}" is not defined in the module.`,
+                });
               }
               const variable = variables[variables.length - 1]!;
 
@@ -9843,17 +9647,17 @@ Got:   ${typeToString(argType)}`
               );
               if (existingElementIndex >= 0) {
                 // Throw error if the variable is already exported
-                throw this.formatErrorMessage(
-                  exportExpr.token,
-                  `Variable "${variableName}" is already exported in the module.`
-                );
+                throw formatErrorMessage({
+                  token: exportExpr.token,
+                  errorMessage: `Variable "${variableName}" is already exported in the module.`,
+                });
               } else {
                 // Prevent exporting runtime variable
                 if (!variable.isCompileTimeOnly) {
-                  throw this.formatErrorMessage(
-                    exportExpr.token,
-                    `Variable "${variableName}" is not a compile-time variable and cannot be exported.`
-                  );
+                  throw formatErrorMessage({
+                    token: exportExpr.token,
+                    errorMessage: `Variable "${variableName}" is not a compile-time variable and cannot be exported.`,
+                  });
                 }
 
                 // Add the variable to the module type
@@ -9946,26 +9750,26 @@ Got:   ${typeToString(argType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "module", got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "module", got:\n${exprToString(expr)}`,
+      });
     }
     if (expr.args.length !== 1) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "module" with 1 argument, got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "module" with 1 argument, got:\n${exprToString(expr)}`,
+      });
     }
     const moduleBodyExpr = expr.args[0]!;
     if (
       !exprIsFunctionCall(moduleBodyExpr) ||
       !exprIsFunctionCallOf(moduleBodyExpr, BuiltinKeywords.begin)
     ) {
-      throw this.formatErrorMessage(
-        moduleBodyExpr.token,
-        `Expected "begin", got:\n${exprToString(moduleBodyExpr)}`
-      );
+      throw formatErrorMessage({
+        token: moduleBodyExpr.token,
+        errorMessage: `Expected "begin", got:\n${exprToString(moduleBodyExpr)}`,
+      });
     }
 
     const beginExprs = moduleBodyExpr.args;
@@ -10007,10 +9811,10 @@ Got:   ${typeToString(argType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "module", got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "module", got:\n${exprToString(expr)}`,
+      });
     }
 
     if (
@@ -10034,10 +9838,10 @@ Got:   ${typeToString(argType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinFunctions.typeof, 1)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "typeof" with 1 argument, got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "typeof" with 1 argument, got:\n${exprToString(expr)}`,
+      });
     }
     const typeExpr = expr.args[0]!;
 
@@ -10055,10 +9859,10 @@ Got:   ${typeToString(argType)}`
 
     // Check if the expression has a type
     if (!evaluatedExpr.$?.type) {
-      throw this.formatErrorMessage(
-        typeExpr.token,
-        `Expected type for expression, got:\n${exprToString(typeExpr)}`
-      );
+      throw formatErrorMessage({
+        token: typeExpr.token,
+        errorMessage: `Expected type for expression, got:\n${exprToString(typeExpr)}`,
+      });
     }
     const type = evaluatedExpr.$.type;
     const value = createTypeValue(type);
@@ -10082,10 +9886,10 @@ Got:   ${typeToString(argType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinFunctions.consume, 1)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "consume" with 1 argument, got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "consume" with 1 argument, got:\n${exprToString(expr)}`,
+      });
     }
     const consumeArgExpr = expr.args[0]!;
 
@@ -10098,17 +9902,17 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedConsumeArgExpr.$) {
-      throw this.formatErrorMessage(
-        consumeArgExpr.token,
-        `Failed to evaluate the consume argument:\n${exprToString(consumeArgExpr)}`
-      );
+      throw formatErrorMessage({
+        token: consumeArgExpr.token,
+        errorMessage: `Failed to evaluate the consume argument:\n${exprToString(consumeArgExpr)}`,
+      });
     }
 
     /*
     // QUESTION: Should we limit the consume argument to Linear type?
     const argType = evaluatedConsumeArgExpr.$.type;
     if (!isLinearOrType0Type(typeOfType(argType))) {
-      throw this.formatErrorMessage(
+      throw formatErrorMessage(
         consumeArgExpr.token,
         `Expected "Linear" type for consume argument, got:\n${exprToString(consumeArgExpr)}`
       );
@@ -10146,10 +9950,10 @@ Got:   ${typeToString(argType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.import, 1)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "import" with 1 argument, got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "import" with 1 argument, got:\n${exprToString(expr)}`,
+      });
     }
 
     const moduleArg = expr.args[0]!;
@@ -10165,10 +9969,10 @@ Got:   ${typeToString(argType)}`
     const value = evaluatedModuleArg.$?.value;
 
     if (!isComptStringValue(value)) {
-      throw this.formatErrorMessage(
-        moduleArg.token,
-        `Expected compt_string for module path, got:\n${exprToString(moduleArg)}`
-      );
+      throw formatErrorMessage({
+        token: moduleArg.token,
+        errorMessage: `Expected compt_string for module path, got:\n${exprToString(moduleArg)}`,
+      });
     }
 
     // Import the module
@@ -10190,10 +9994,10 @@ Got:   ${typeToString(argType)}`
     }
 
     if (!modulePath.startsWith(".")) {
-      throw this.formatErrorMessage(
-        moduleArg.token,
-        "Only local relative path is supported for now"
-      );
+      throw formatErrorMessage({
+        token: moduleArg.token,
+        errorMessage: "Only local relative path is supported for now",
+      });
     }
     // FIXME: Support other protocol like https://
     let moduleAbsolutePath =
@@ -10222,10 +10026,10 @@ Got:   ${typeToString(argType)}`
       return expr;
     } catch (error) {
       // Failed to load the module
-      throw this.formatErrorMessage(
-        moduleArg.token,
-        `Failed to import module "${modulePath}":\n${error instanceof Error ? error.message : String(error)}`
-      );
+      throw formatErrorMessage({
+        token: moduleArg.token,
+        errorMessage: `Failed to import module "${modulePath}":\n${error instanceof Error ? error.message : String(error)}`,
+      });
     }
   }
 
@@ -10245,10 +10049,10 @@ Got:   ${typeToString(argType)}`
   }): FuncCallExpr {
     const moduleArg = expr.args[0];
     if (!moduleArg) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "using" with 1 argument, got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "using" with 1 argument, got:\n${exprToString(expr)}`,
+      });
     }
 
     // Evaluate the module
@@ -10260,18 +10064,18 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedModuleArg.$) {
-      throw this.formatErrorMessage(
-        moduleArg.token,
-        `Failed to evaluate the module argument:\n${exprToString(moduleArg)}`
-      );
+      throw formatErrorMessage({
+        token: moduleArg.token,
+        errorMessage: `Failed to evaluate the module argument:\n${exprToString(moduleArg)}`,
+      });
     }
 
     const moduleValue = evaluatedModuleArg.$.value;
     if (!isModuleValue(moduleValue)) {
-      throw this.formatErrorMessage(
-        moduleArg.token,
-        `Expected module value for "using", got:\n${exprToString(moduleArg)}`
-      );
+      throw formatErrorMessage({
+        token: moduleArg.token,
+        errorMessage: `Expected module value for "using", got:\n${exprToString(moduleArg)}`,
+      });
     }
 
     const moduleType = moduleValue.type;
@@ -10329,10 +10133,10 @@ Got:   ${typeToString(argType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.borrow, 2)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "borrow" with 2 arguments, got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "borrow" with 2 arguments, got:\n${exprToString(expr)}`,
+      });
     }
 
     const firstExpr = expr.args[0]!;
@@ -10351,10 +10155,10 @@ Got:   ${typeToString(argType)}`
       !exprIsFunctionCall(secondExpr) ||
       !exprIsFunctionCallOf(secondExpr, "=>", 2)
     ) {
-      throw this.formatErrorMessage(
-        secondExpr.token,
-        `Expected "=>" with 2 arguments, got:\n${exprToString(secondExpr)}`
-      );
+      throw formatErrorMessage({
+        token: secondExpr.token,
+        errorMessage: `Expected "=>" with 2 arguments, got:\n${exprToString(secondExpr)}`,
+      });
     }
     const borrowBindingExprs: Expr[] = [];
     if (
@@ -10368,10 +10172,10 @@ Got:   ${typeToString(argType)}`
     const borrowBlockExpr = secondExpr.args[1]!;
 
     if (borrowedValueExprs.length !== borrowBindingExprs.length) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Borrowed ${borrowedValueExprs.length} references, but used ${borrowBindingExprs.length}.`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Borrowed ${borrowedValueExprs.length} references, but used ${borrowBindingExprs.length}.`,
+      });
     }
 
     // Evaluate each borrow arguments
@@ -10389,12 +10193,12 @@ Got:   ${typeToString(argType)}`
         },
       });
       if (!evaluatedBorrowedValueExpr.$) {
-        throw this.formatErrorMessage(
-          borrowedValueExpr.token,
-          `Failed to evaluate the borrowed value:\n${exprToString(
+        throw formatErrorMessage({
+          token: borrowedValueExpr.token,
+          errorMessage: `Failed to evaluate the borrowed value:\n${exprToString(
             borrowedValueExpr
-          )}`
-        );
+          )}`,
+        });
       }
 
       // Check if it's a reference type
@@ -10402,12 +10206,12 @@ Got:   ${typeToString(argType)}`
         !isRefType(evaluatedBorrowedValueExpr.$.type) &&
         !isMutRefType(evaluatedBorrowedValueExpr.$.type)
       ) {
-        throw this.formatErrorMessage(
-          borrowedValueExpr.token,
-          `Expected reference type for borrowed value, got:\n${typeToString(
+        throw formatErrorMessage({
+          token: borrowedValueExpr.token,
+          errorMessage: `Expected reference type for borrowed value, got:\n${typeToString(
             evaluatedBorrowedValueExpr.$.type
-          )}`
-        );
+          )}`,
+        });
       }
 
       borrowings.push({
@@ -10423,12 +10227,12 @@ Got:   ${typeToString(argType)}`
     for (let i = 0; i < borrowBindingExprs.length; i++) {
       const bindingExpr = borrowBindingExprs[i]!;
       if (!exprIsAtom(bindingExpr) || !this.isValidVariableName(bindingExpr)) {
-        throw this.formatErrorMessage(
-          bindingExpr.token,
-          `Expected identifier for borrow binding, got:\n${exprToString(
+        throw formatErrorMessage({
+          token: bindingExpr.token,
+          errorMessage: `Expected identifier for borrow binding, got:\n${exprToString(
             bindingExpr
-          )}`
-        );
+          )}`,
+        });
       }
       const bindingName = bindingExpr.token.value;
       const borrowing = borrowings[i]!;
@@ -10472,10 +10276,10 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedBorrowBlock.$) {
-      throw this.formatErrorMessage(
-        borrowBlockExpr.token,
-        `Failed to evaluate the borrow block:\n${exprToString(borrowBlockExpr)}`
-      );
+      throw formatErrorMessage({
+        token: borrowBlockExpr.token,
+        errorMessage: `Failed to evaluate the borrow block:\n${exprToString(borrowBlockExpr)}`,
+      });
     }
     const returnType = evaluatedBorrowBlock.$.type;
     const returnValue = evaluatedBorrowBlock.$.value;
@@ -10506,7 +10310,7 @@ Got:   ${typeToString(argType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {
-      throw this.formatErrorMessage(
+      throw formatErrorMessage(
         expr.token,
         `Expected "exists" (or "∃"), got:\n${exprToString(expr)}`
       );
@@ -10523,7 +10327,7 @@ Got:   ${typeToString(argType)}`
       }
 
       if (labelExpr && !exprIsAtom(labelExpr)) {
-        throw this.formatErrorMessage(
+        throw formatErrorMessage(
           labelExpr.token,
           `Expected identifier for label, got:\n${exprToString(labelExpr)}`
         );
@@ -10546,7 +10350,7 @@ Got:   ${typeToString(argType)}`
 
       const typeValue = evaluatedTypeExpr.value;
       if (!isTypeValue(typeValue)) {
-        throw this.formatErrorMessage(
+        throw formatErrorMessage(
           typeExpr.token,
           `Expected type, got:\n${exprToString(typeExpr)}`
         );
@@ -10617,10 +10421,10 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!isTypeValue(evaluatedExpectedTypeArg.$?.value)) {
-      throw this.formatErrorMessage(
-        expectedTypeArg.token,
-        `Expected type, got:\n${exprToString(expectedTypeArg)}`
-      );
+      throw formatErrorMessage({
+        token: expectedTypeArg.token,
+        errorMessage: `Expected type, got:\n${exprToString(expectedTypeArg)}`,
+      });
     }
     const expectedType = evaluatedExpectedTypeArg.$.value.value;
     env = evaluatedExpectedTypeArg.$.env;
@@ -10635,10 +10439,10 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!isTypeValue(evaluatedGivenTypeArg.$?.value)) {
-      throw this.formatErrorMessage(
-        givenTypeArg.token,
-        `Expected type, got:\n${exprToString(givenTypeArg)}`
-      );
+      throw formatErrorMessage({
+        token: givenTypeArg.token,
+        errorMessage: `Expected type, got:\n${exprToString(givenTypeArg)}`,
+      });
     }
     const givenType = evaluatedGivenTypeArg.$.value.value;
     env = evaluatedGivenTypeArg.$.env;
@@ -10706,20 +10510,20 @@ Got:   ${typeToString(argType)}`
         },
       });
       if (evaluatedMessageExpr.$?.value) {
-        throw this.formatErrorMessage(
-          expr.token,
+        throw formatErrorMessage({
+          token: expr.token,
 
-          isComptStringValue(evaluatedMessageExpr.$.value)
+          errorMessage: isComptStringValue(evaluatedMessageExpr.$.value)
             ? evaluatedMessageExpr.$.value.value
-            : valueToString(evaluatedMessageExpr.$.value)
-        );
+            : valueToString(evaluatedMessageExpr.$.value),
+        });
       }
     }
 
-    throw this.formatErrorMessage(
-      expr.token,
-      `Expected compile error, but the expression was evaluated successfully:\n${exprToString(argExpr)}`
-    );
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expected compile error, but the expression was evaluated successfully:\n${exprToString(argExpr)}`,
+    });
   }
 
   private evaluateComptAssert({
@@ -10743,10 +10547,10 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedArgExpr.$ || !isBooleanValue(evaluatedArgExpr.$.value)) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected boolean value for "compt_assert", got:\n${exprToString(argExpr)}`
-      );
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected boolean value for "compt_assert", got:\n${exprToString(argExpr)}`,
+      });
     }
     const booleanValue = evaluatedArgExpr.$.value;
     if (booleanValue.value) {
@@ -10769,20 +10573,20 @@ Got:   ${typeToString(argType)}`
           },
         });
         if (evaluatedMessageExpr.$?.value) {
-          throw this.formatErrorMessage(
-            expr.token,
+          throw formatErrorMessage({
+            token: expr.token,
 
-            isComptStringValue(evaluatedMessageExpr.$.value)
+            errorMessage: isComptStringValue(evaluatedMessageExpr.$.value)
               ? evaluatedMessageExpr.$.value.value
-              : valueToString(evaluatedMessageExpr.$.value)
-          );
+              : valueToString(evaluatedMessageExpr.$.value),
+          });
         }
       }
 
-      throw this.formatErrorMessage(
-        expr.token,
-        `Assertion failed for "compt_assert":\n${exprToString(argExpr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Assertion failed for "compt_assert":\n${exprToString(argExpr)}`,
+      });
     }
   }
 
@@ -10806,10 +10610,10 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedNotArg.$ || !isBooleanType(evaluatedNotArg.$.type)) {
-      throw this.formatErrorMessage(
-        notArg.token,
-        `Expected boolean type for "not" argument, got:\n${exprToString(notArg)}`
-      );
+      throw formatErrorMessage({
+        token: notArg.token,
+        errorMessage: `Expected boolean type for "not" argument, got:\n${exprToString(notArg)}`,
+      });
     }
 
     let value = evaluatedNotArg.$.value;
@@ -10853,10 +10657,10 @@ Got:   ${typeToString(argType)}`
         },
       });
       if (!evaluatedArg.$ || !isBooleanType(evaluatedArg.$.type)) {
-        throw this.formatErrorMessage(
-          arg.token,
-          `Expected boolean type for "${kind}" argument, got:\n${exprToString(arg)}`
-        );
+        throw formatErrorMessage({
+          token: arg.token,
+          errorMessage: `Expected boolean type for "${kind}" argument, got:\n${exprToString(arg)}`,
+        });
       }
       values.push(evaluatedArg.$.value);
       env = evaluatedArg.$.env;
@@ -10915,12 +10719,12 @@ Got:   ${typeToString(argType)}`
     });
 
     if (!evaluatedArgExpr.$) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Failed to evaluate the argument expression for "drop":\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Failed to evaluate the argument expression for "drop":\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     env = evaluatedArgExpr.$.env;
 
@@ -10969,10 +10773,10 @@ Got:   ${typeToString(argType)}`
       stepExpr = expr.args[1]!;
       bodyExpr = expr.args[2]!;
     } else {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "while" with 2 or 3 arguments, got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "while" with 2 or 3 arguments, got:\n${exprToString(expr)}`,
+      });
     }
 
     // Evaluate the condition expression
@@ -10984,18 +10788,18 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedConditionExpr.$) {
-      throw this.formatErrorMessage(
-        conditionExpr.token,
-        `Failed to evaluate the condition expression:\n${exprToString(conditionExpr)}`
-      );
+      throw formatErrorMessage({
+        token: conditionExpr.token,
+        errorMessage: `Failed to evaluate the condition expression:\n${exprToString(conditionExpr)}`,
+      });
     }
     if (!isBooleanType(evaluatedConditionExpr.$.type)) {
-      throw this.formatErrorMessage(
-        conditionExpr.token,
-        `Expected boolean type for condition expression, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: conditionExpr.token,
+        errorMessage: `Expected boolean type for condition expression, got:\n${exprToString(
           conditionExpr
-        )}`
-      );
+        )}`,
+      });
     }
 
     // Evaluate the body
@@ -11007,16 +10811,16 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedBodyExpr.$) {
-      throw this.formatErrorMessage(
-        bodyExpr.token,
-        `Failed to evaluate the body expression:\n${exprToString(bodyExpr)}`
-      );
+      throw formatErrorMessage({
+        token: bodyExpr.token,
+        errorMessage: `Failed to evaluate the body expression:\n${exprToString(bodyExpr)}`,
+      });
     }
     if (!isUnitType(evaluatedBodyExpr.$.type)) {
-      throw this.formatErrorMessage(
-        bodyExpr.token,
-        `Expected the while loop body to return unit, but got:\n${typeToString(evaluatedBodyExpr.$.type)}`
-      );
+      throw formatErrorMessage({
+        token: bodyExpr.token,
+        errorMessage: `Expected the while loop body to return unit, but got:\n${typeToString(evaluatedBodyExpr.$.type)}`,
+      });
     }
 
     // Evaluate the step
@@ -11029,10 +10833,10 @@ Got:   ${typeToString(argType)}`
         },
       });
       if (!evaluatedStepExpr.$) {
-        throw this.formatErrorMessage(
-          stepExpr.token,
-          `Failed to evaluate the step expression:\n${exprToString(stepExpr)}`
-        );
+        throw formatErrorMessage({
+          token: stepExpr.token,
+          errorMessage: `Failed to evaluate the step expression:\n${exprToString(stepExpr)}`,
+        });
       }
     }
 
@@ -11082,10 +10886,10 @@ Got:   ${typeToString(argType)}`
           !isExprType(evaluatedArg.$.type) ||
           !evaluatedArg.$.value
         ) {
-          throw this.formatErrorMessage(
-            arg.token,
-            `Expected expression type for "unquote" argument, got:\n${exprToString(arg)}`
-          );
+          throw formatErrorMessage({
+            token: arg.token,
+            errorMessage: `Expected expression type for "unquote" argument, got:\n${exprToString(arg)}`,
+          });
         }
         const exprValue = evaluatedArg.$.value;
         if (isUnknownValue(exprValue)) {
@@ -11096,10 +10900,10 @@ Got:   ${typeToString(argType)}`
           return exprValue.value;
         } else {
           // If the value is not an expression, we throw an error
-          throw this.formatErrorMessage(
-            arg.token,
-            `Expected expression value for "unquote" argument, got:\n${valueToString(exprValue)}`
-          );
+          throw formatErrorMessage({
+            token: arg.token,
+            errorMessage: `Expected expression value for "unquote" argument, got:\n${valueToString(exprValue)}`,
+          });
         }
       } else {
         // If it's not a function call of `unquote`, we need to process the func and args
@@ -11170,10 +10974,10 @@ Got:   ${typeToString(argType)}`
     let prefix: string = "";
     if (prefixArg) {
       if (expr.args.length > 1) {
-        throw this.formatErrorMessage(
-          expr.args[1]!.token,
-          `Expected "gensym" with 0 or 1 argument, got: ${expr.args.length}`
-        );
+        throw formatErrorMessage({
+          token: expr.args[1]!.token,
+          errorMessage: `Expected "gensym" with 0 or 1 argument, got: ${expr.args.length}`,
+        });
       }
 
       // evaluate the prefix argument
@@ -11185,20 +10989,20 @@ Got:   ${typeToString(argType)}`
         },
       });
       if (!evaluatedPrefixArg.$) {
-        throw this.formatErrorMessage(
-          prefixArg.token,
-          `Failed to evaluate the prefix argument for "gensym":\n${exprToString(
+        throw formatErrorMessage({
+          token: prefixArg.token,
+          errorMessage: `Failed to evaluate the prefix argument for "gensym":\n${exprToString(
             prefixArg
-          )}`
-        );
+          )}`,
+        });
       }
       if (!isComptStringValue(evaluatedPrefixArg.$.value)) {
-        throw this.formatErrorMessage(
-          prefixArg.token,
-          `Expected compt_string for prefix argument, got:\n${exprToString(
+        throw formatErrorMessage({
+          token: prefixArg.token,
+          errorMessage: `Expected compt_string for prefix argument, got:\n${exprToString(
             prefixArg
-          )}`
-        );
+          )}`,
+        });
       }
       const prefixArgValue = evaluatedPrefixArg.$.value;
       prefix = prefixArgValue.value;
@@ -11251,29 +11055,29 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedArgExpr.$) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     if (!isExprType(evaluatedArgExpr.$.type)) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     const exprValue = evaluatedArgExpr.$.value;
     if (!exprValue) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
 
     const booleanValue = isExprValue(exprValue)
@@ -11315,29 +11119,29 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedArgExpr.$) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     if (!isExprType(evaluatedArgExpr.$.type)) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     const exprValue = evaluatedArgExpr.$.value;
     if (!exprValue) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
 
     const booleanValue = isExprValue(exprValue)
@@ -11379,29 +11183,29 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedArgExpr.$) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     if (!isExprType(evaluatedArgExpr.$.type)) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     const exprValue = evaluatedArgExpr.$.value;
     if (!exprValue) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
 
     expr.$ = {
@@ -11419,12 +11223,12 @@ Got:   ${typeToString(argType)}`
         const fnExprValue = createExprValue(fn);
         expr.$.value = fnExprValue;
       } else {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Expected function call expression for argument, got:\n${exprToString(
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Expected function call expression for argument, got:\n${exprToString(
             expr
-          )}`
-        );
+          )}`,
+        });
       }
     }
 
@@ -11455,29 +11259,29 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedArgExpr.$) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     if (!isExprType(evaluatedArgExpr.$.type)) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     const exprValue = evaluatedArgExpr.$.value;
     if (!exprValue) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
 
     expr.$ = {
@@ -11497,12 +11301,12 @@ Got:   ${typeToString(argType)}`
         );
         expr.$.value = fnArgsValue;
       } else {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Expected function call expression for argument, got:\n${exprToString(
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Expected function call expression for argument, got:\n${exprToString(
             expr
-          )}`
-        );
+          )}`,
+        });
       }
     }
 
@@ -11533,29 +11337,29 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedArgExpr.$) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     if (!isExprListType(evaluatedArgExpr.$.type)) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected ExprList type for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected ExprList type for "${expr.func.token.value}" argument, got:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     const exprValue = evaluatedArgExpr.$.value;
     if (!exprValue) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected ExprList value for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected ExprList value for "${expr.func.token.value}" argument, got:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
 
     expr.$ = {
@@ -11572,10 +11376,10 @@ Got:   ${typeToString(argType)}`
       if (elements.length > 0) {
         expr.$.value = elements[0]!;
       } else {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Unexpected empty ExprList for "${expr.func.token.value}" argument`
-        );
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Unexpected empty ExprList for "${expr.func.token.value}" argument`,
+        });
       }
     }
 
@@ -11606,29 +11410,29 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedArgExpr.$) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     if (!isExprListType(evaluatedArgExpr.$.type)) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected ExprList type for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected ExprList type for "${expr.func.token.value}" argument, got:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     const exprValue = evaluatedArgExpr.$.value;
     if (!exprValue) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected ExprList value for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected ExprList value for "${expr.func.token.value}" argument, got:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
 
     expr.$ = {
@@ -11645,10 +11449,10 @@ Got:   ${typeToString(argType)}`
       if (elements.length > 0) {
         expr.$.value = createExprListValue([...elements.slice(1)]);
       } else {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Unexpected empty ExprList for "${expr.func.token.value}" argument`
-        );
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Unexpected empty ExprList for "${expr.func.token.value}" argument`,
+        });
       }
     }
 
@@ -11680,30 +11484,30 @@ Got:   ${typeToString(argType)}`
 
     // car
     if (!carArg.$) {
-      throw this.formatErrorMessage(
-        carArg.token,
-        `Failed to evaluate the first argument expression for "${expr.func.token.value}":\n${exprToString(
+      throw formatErrorMessage({
+        token: carArg.token,
+        errorMessage: `Failed to evaluate the first argument expression for "${expr.func.token.value}":\n${exprToString(
           carArg
-        )}`
-      );
+        )}`,
+      });
     }
     env = carArg.$.env;
     if (!isExprType(carArg.$.type)) {
-      throw this.formatErrorMessage(
-        carArg.token,
-        `Expected Expr type for "${expr.func.token.value}" first argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: carArg.token,
+        errorMessage: `Expected Expr type for "${expr.func.token.value}" first argument, got:\n${exprToString(
           carArg
-        )}`
-      );
+        )}`,
+      });
     }
     const carValue = carArg.$.value;
     if (!carValue) {
-      throw this.formatErrorMessage(
-        carArg.token,
-        `Expected Expr value for "${expr.func.token.value}" first argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: carArg.token,
+        errorMessage: `Expected Expr value for "${expr.func.token.value}" first argument, got:\n${exprToString(
           carArg
-        )}`
-      );
+        )}`,
+      });
     }
 
     const cdrArg = this.evaluateExpression({
@@ -11714,30 +11518,30 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!cdrArg.$) {
-      throw this.formatErrorMessage(
-        cdrArg.token,
-        `Failed to evaluate the second argument expression for "${expr.func.token.value}":\n${exprToString(
+      throw formatErrorMessage({
+        token: cdrArg.token,
+        errorMessage: `Failed to evaluate the second argument expression for "${expr.func.token.value}":\n${exprToString(
           cdrArg
-        )}`
-      );
+        )}`,
+      });
     }
     env = cdrArg.$.env;
     if (!isExprListType(cdrArg.$.type)) {
-      throw this.formatErrorMessage(
-        cdrArg.token,
-        `Expected ExprList type for "${expr.func.token.value}" second argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: cdrArg.token,
+        errorMessage: `Expected ExprList type for "${expr.func.token.value}" second argument, got:\n${exprToString(
           cdrArg
-        )}`
-      );
+        )}`,
+      });
     }
     const cdrValue = cdrArg.$.value;
     if (!cdrValue) {
-      throw this.formatErrorMessage(
-        cdrArg.token,
-        `Expected ExprList value for "${expr.func.token.value}" second argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: cdrArg.token,
+        errorMessage: `Expected ExprList value for "${expr.func.token.value}" second argument, got:\n${exprToString(
           cdrArg
-        )}`
-      );
+        )}`,
+      });
     }
 
     expr.$ = {
@@ -11789,30 +11593,30 @@ Got:   ${typeToString(argType)}`
 
     // car
     if (!firstListArg.$) {
-      throw this.formatErrorMessage(
-        firstListArg.token,
-        `Failed to evaluate the first argument expression for "${expr.func.token.value}":\n${exprToString(
+      throw formatErrorMessage({
+        token: firstListArg.token,
+        errorMessage: `Failed to evaluate the first argument expression for "${expr.func.token.value}":\n${exprToString(
           firstListArg
-        )}`
-      );
+        )}`,
+      });
     }
     env = firstListArg.$.env;
     if (!isExprListType(firstListArg.$.type)) {
-      throw this.formatErrorMessage(
-        firstListArg.token,
-        `Expected ExprList type for "${expr.func.token.value}" first argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: firstListArg.token,
+        errorMessage: `Expected ExprList type for "${expr.func.token.value}" first argument, got:\n${exprToString(
           firstListArg
-        )}`
-      );
+        )}`,
+      });
     }
     const firstListValue = firstListArg.$.value;
     if (!firstListValue) {
-      throw this.formatErrorMessage(
-        firstListArg.token,
-        `Expected Expr value for "${expr.func.token.value}" first argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: firstListArg.token,
+        errorMessage: `Expected Expr value for "${expr.func.token.value}" first argument, got:\n${exprToString(
           firstListArg
-        )}`
-      );
+        )}`,
+      });
     }
 
     const secondListArg = this.evaluateExpression({
@@ -11823,30 +11627,30 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!secondListArg.$) {
-      throw this.formatErrorMessage(
-        secondListArg.token,
-        `Failed to evaluate the second argument expression for "${expr.func.token.value}":\n${exprToString(
+      throw formatErrorMessage({
+        token: secondListArg.token,
+        errorMessage: `Failed to evaluate the second argument expression for "${expr.func.token.value}":\n${exprToString(
           secondListArg
-        )}`
-      );
+        )}`,
+      });
     }
     env = secondListArg.$.env;
     if (!isExprListType(secondListArg.$.type)) {
-      throw this.formatErrorMessage(
-        secondListArg.token,
-        `Expected ExprList type for "${expr.func.token.value}" second argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: secondListArg.token,
+        errorMessage: `Expected ExprList type for "${expr.func.token.value}" second argument, got:\n${exprToString(
           secondListArg
-        )}`
-      );
+        )}`,
+      });
     }
     const secondListValue = secondListArg.$.value;
     if (!secondListValue) {
-      throw this.formatErrorMessage(
-        secondListArg.token,
-        `Expected ExprList value for "${expr.func.token.value}" second argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: secondListArg.token,
+        errorMessage: `Expected ExprList value for "${expr.func.token.value}" second argument, got:\n${exprToString(
           secondListArg
-        )}`
-      );
+        )}`,
+      });
     }
 
     expr.$ = {
@@ -11900,29 +11704,29 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!evaluatedArgExpr.$) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     if (!isExprListType(evaluatedArgExpr.$.type)) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected ExprList type for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected ExprList type for "${expr.func.token.value}" argument, got:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     const exprListValue = evaluatedArgExpr.$.value;
     if (!exprListValue) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Expected ExprList value for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Expected ExprList value for "${expr.func.token.value}" argument, got:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
 
     expr.$ = {
@@ -11962,12 +11766,12 @@ Got:   ${typeToString(argType)}`
       });
 
       if (!arg.$ || !isComptIntType(arg.$.type) || !arg.$.value) {
-        throw this.formatErrorMessage(
-          arg.token,
-          `Expected compt_int type for "${expr.func.token.value}" argument, got:\n${exprToString(
+        throw formatErrorMessage({
+          token: arg.token,
+          errorMessage: `Expected compt_int type for "${expr.func.token.value}" argument, got:\n${exprToString(
             arg
-          )}`
-        );
+          )}`,
+        });
       }
       env = arg.$.env;
 
@@ -11980,11 +11784,11 @@ Got:   ${typeToString(argType)}`
           value = createUnknownValue(createComptIntType());
         }
       } else {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Unexpected function call for "${expr.func.token.value}", expected "__yo_compt_int_neg
-          " function`
-        );
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Unexpected function call for "${expr.func.token.value}", expected "__yo_compt_int_neg
+          " function`,
+        });
       }
       expr.$ = {
         env,
@@ -12003,12 +11807,12 @@ Got:   ${typeToString(argType)}`
       });
 
       if (!lhs.$ || !isComptIntType(lhs.$.type) || !lhs.$.value) {
-        throw this.formatErrorMessage(
-          lhs.token,
-          `Expected compt_int type for "${expr.func.token.value}" first argument, got:\n${exprToString(
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Expected compt_int type for "${expr.func.token.value}" first argument, got:\n${exprToString(
             lhs
-          )}`
-        );
+          )}`,
+        });
       }
       env = lhs.$.env;
 
@@ -12021,12 +11825,12 @@ Got:   ${typeToString(argType)}`
       });
 
       if (!rhs.$ || !isComptIntType(rhs.$.type) || !rhs.$.value) {
-        throw this.formatErrorMessage(
-          rhs.token,
-          `Expected compt_int type for "${expr.func.token.value}" second argument, got:\n${exprToString(
+        throw formatErrorMessage({
+          token: rhs.token,
+          errorMessage: `Expected compt_int type for "${expr.func.token.value}" second argument, got:\n${exprToString(
             rhs
-          )}`
-        );
+          )}`,
+        });
       }
       env = rhs.$.env;
 
@@ -12069,10 +11873,10 @@ Got:   ${typeToString(argType)}`
       ) {
         if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
           if (rhsValue.value === 0) {
-            throw this.formatErrorMessage(
-              rhs.token,
-              `Division by zero in "${expr.func.token.value}" operation`
-            );
+            throw formatErrorMessage({
+              token: rhs.token,
+              errorMessage: `Division by zero in "${expr.func.token.value}" operation`,
+            });
           }
 
           value = createComptIntValue(
@@ -12088,10 +11892,10 @@ Got:   ${typeToString(argType)}`
       ) {
         if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
           if (rhsValue.value === 0) {
-            throw this.formatErrorMessage(
-              rhs.token,
-              `Modulo by zero in "${expr.func.token.value}" operation`
-            );
+            throw formatErrorMessage({
+              token: rhs.token,
+              errorMessage: `Modulo by zero in "${expr.func.token.value}" operation`,
+            });
           }
 
           value = createComptIntValue(
@@ -12155,12 +11959,12 @@ Got:   ${typeToString(argType)}`
           value = createUnknownValue(createBooleanType());
         }
       } else {
-        throw this.formatErrorMessage(
-          expr.token,
-          `Unexpected function call for compt_int arithmetic: ${exprToString(
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Unexpected function call for compt_int arithmetic: ${exprToString(
             expr
-          )}`
-        );
+          )}`,
+        });
       }
 
       expr.$ = {
@@ -12198,29 +12002,29 @@ Got:   ${typeToString(argType)}`
       },
     });
     if (!arg.$) {
-      throw this.formatErrorMessage(
-        arg.token,
-        `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+      throw formatErrorMessage({
+        token: arg.token,
+        errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
           arg
-        )}`
-      );
+        )}`,
+      });
     }
     if (!isTypeHierarchyType(arg.$.type)) {
-      throw this.formatErrorMessage(
-        arg.token,
-        `Expected TypeHierarchy type for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: arg.token,
+        errorMessage: `Expected TypeHierarchy type for "${expr.func.token.value}" argument, got:\n${exprToString(
           arg
-        )}`
-      );
+        )}`,
+      });
     }
     const typeValue = arg.$.value;
     if (!typeValue) {
-      throw this.formatErrorMessage(
-        arg.token,
-        `Expected type value for "${expr.func.token.value}" argument, got:\n${exprToString(
+      throw formatErrorMessage({
+        token: arg.token,
+        errorMessage: `Expected type value for "${expr.func.token.value}" argument, got:\n${exprToString(
           arg
-        )}`
-      );
+        )}`,
+      });
     }
 
     expr.$ = {
@@ -12262,12 +12066,12 @@ Got:   ${typeToString(argType)}`
     });
 
     if (!evaluatedArgExpr.$) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Failed to evaluate the argument expression for reference:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Failed to evaluate the argument expression for reference:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     env = evaluatedArgExpr.$.env;
 
@@ -12304,12 +12108,12 @@ Got:   ${typeToString(argType)}`
         referenceTypeKind === TypeTag.MutRef &&
         !evaluatedArgExpr.$.isMutable
       ) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Cannot create a mutable reference to the immutable:\n${exprToString(
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Cannot create a mutable reference to the immutable:\n${exprToString(
             argExpr
-          )}`
-        );
+          )}`,
+        });
       }
 
       expr.$ = {
@@ -12356,10 +12160,10 @@ Got:   ${typeToString(argType)}`
     // We disallow the tuple elements to have defaultValue for the tuple type
     tupleType.elements.forEach((tupleElement) => {
       if (tupleElement.exprs.defaultValueExpr) {
-        throw this.formatErrorMessage(
-          tupleElement.exprs.defaultValueExpr!.token,
-          `Tuple type cannot have default value.`
-        );
+        throw formatErrorMessage({
+          token: tupleElement.exprs.defaultValueExpr!.token,
+          errorMessage: `Tuple type cannot have default value.`,
+        });
       }
     });
 
@@ -12383,11 +12187,11 @@ Got:   ${typeToString(argType)}`
     context: EvaluatorContext;
   }): FuncCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Array, 2)) {
-      throw this.formatErrorMessage(
-        expr.token,
-        `Expected "Array(@(Type), @(usize))" with 2 arguments, like "Array(i32, 10)"
-Got:\n${exprToString(expr)}`
-      );
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected "Array(@(Type), @(usize))" with 2 arguments, like "Array(i32, 10)"
+Got:\n${exprToString(expr)}`,
+      });
     }
 
     const elementTypeExpr = expr.args[0]!;
@@ -12402,18 +12206,18 @@ Got:\n${exprToString(expr)}`
       },
     });
     if (!evaluatedElementTypeExpr.$) {
-      throw this.formatErrorMessage(
-        elementTypeExpr.token,
-        `Failed to evaluate the element type expression:\n${exprToString(
+      throw formatErrorMessage({
+        token: elementTypeExpr.token,
+        errorMessage: `Failed to evaluate the element type expression:\n${exprToString(
           elementTypeExpr
-        )}`
-      );
+        )}`,
+      });
     }
     if (!isTypeValue(evaluatedElementTypeExpr.$.value)) {
-      throw this.formatErrorMessage(
-        elementTypeExpr.token,
-        `Expected type for element type, got:\n${exprToString(elementTypeExpr)}`
-      );
+      throw formatErrorMessage({
+        token: elementTypeExpr.token,
+        errorMessage: `Expected type for element type, got:\n${exprToString(elementTypeExpr)}`,
+      });
     }
     const elementType = evaluatedElementTypeExpr.$.value.value;
 
@@ -12426,10 +12230,10 @@ Got:\n${exprToString(expr)}`
       },
     });
     if (!evaluatedLengthExpr.$) {
-      throw this.formatErrorMessage(
-        lengthExpr.token,
-        `Failed to evaluate the length expression:\n${exprToString(lengthExpr)}`
-      );
+      throw formatErrorMessage({
+        token: lengthExpr.token,
+        errorMessage: `Failed to evaluate the length expression:\n${exprToString(lengthExpr)}`,
+      });
     }
     if (
       !areTypesCompatible(
@@ -12443,18 +12247,18 @@ Got:\n${exprToString(expr)}`
         }
       )
     ) {
-      throw this.formatErrorMessage(
-        lengthExpr.token,
-        `Expected usize for length, got:\n${exprToString(lengthExpr)}`
-      );
+      throw formatErrorMessage({
+        token: lengthExpr.token,
+        errorMessage: `Expected usize for length, got:\n${exprToString(lengthExpr)}`,
+      });
     }
 
     const lengthValue = evaluatedLengthExpr.$.value;
     if (!lengthValue) {
-      throw this.formatErrorMessage(
-        lengthExpr.token,
-        `Expected compile-time known value for length, got:\n${exprToString(lengthExpr)}`
-      );
+      throw formatErrorMessage({
+        token: lengthExpr.token,
+        errorMessage: `Expected compile-time known value for length, got:\n${exprToString(lengthExpr)}`,
+      });
     }
     if (isUnknownValue(lengthValue)) {
       // QUESTION: Should we do it this way?
@@ -12509,12 +12313,12 @@ Got:\n${exprToString(expr)}`
     });
 
     if (!evaluatedArgExpr.$) {
-      throw this.formatErrorMessage(
-        argExpr.token,
-        `Failed to evaluate the argument expression for pointer:\n${exprToString(
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Failed to evaluate the argument expression for pointer:\n${exprToString(
           argExpr
-        )}`
-      );
+        )}`,
+      });
     }
     env = evaluatedArgExpr.$.env;
 
@@ -12551,12 +12355,12 @@ Got:\n${exprToString(expr)}`
 
       // Check if we are creating a mutable pointer to an immutable value
       if (pointerTypeKind === TypeTag.MutPtr && !evaluatedArgExpr.$.isMutable) {
-        throw this.formatErrorMessage(
-          argExpr.token,
-          `Cannot create a mutable pointer to the immutable:\n${exprToString(
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Cannot create a mutable pointer to the immutable:\n${exprToString(
             argExpr
-          )}`
-        );
+          )}`,
+        });
       }
 
       expr.$ = {
@@ -12605,11 +12409,11 @@ Got:\n${exprToString(expr)}`
           return this.evaluateBooleanLiteral(expr, env);
         }
         default: {
-          throw this.formatErrorMessage(
-            expr.token,
-            `(1) Evaluating the expression below is not implemented:
-${exprToString(expr)}`
-          );
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `(1) Evaluating the expression below is not implemented:
+${exprToString(expr)}`,
+          });
         }
       }
     } else {

@@ -1,0 +1,160 @@
+import { Borrowing } from "../borrow";
+import { Environment } from "../env";
+import { MoParserError } from "../error";
+import { PathCollection } from "../expr";
+import { FunctionValue } from "../function-value";
+import { FunctionType, ModuleType, Type } from "../type-checker";
+import { ModuleValue, Value } from "../value";
+
+export interface EvaluatorContext {
+  /**
+   *
+   */
+  expectedType?: {
+    type: Type;
+    env: Environment;
+  };
+
+  /**
+   * This is used for calling the `recur` function.
+   */
+  isEvaluatingFunctionBody?: {
+    type: FunctionType;
+    value?: FunctionValue;
+  };
+
+  /**
+   * The innermost struct, enum, or union that this function call is inside.
+   * This can be useful for an anonymous struct that needs to refer to itself
+   */
+  SelfType?: Type;
+
+  /**
+   * The innermost module that this function call is inside.
+   */
+  ModuleType?: ModuleType;
+
+  /**
+   * The borrowings.
+   */
+  borrowings: Borrowing[];
+}
+
+export interface ArgValues {
+  forallArgs: Value[];
+  args: (Value | undefined)[];
+  implicitArgs: (Value | undefined)[];
+}
+
+export interface FunctionCallResult {
+  calleeEnv: Environment;
+  callerEnv: Environment;
+  pathCollection: PathCollection;
+  returnType: Type;
+  argValues: ArgValues;
+}
+
+export interface TypeCallResult {
+  values: (Value | undefined)[];
+  pathCollection: PathCollection;
+  callerEnv: Environment;
+}
+
+export interface ModuleTypeCallResult {
+  moduleValue: ModuleValue;
+  callerEnv: Environment;
+}
+
+export interface ArrayCallResult {
+  value: Value | undefined;
+}
+
+export interface FunctionToCall {
+  type: Type;
+  value?: Value;
+  result:
+    | {
+        /**
+         * This is the result from calling:
+         *
+         *   this.tryToCallFunctionWithArguments
+         */
+        kind: "function";
+        result: FunctionCallResult;
+      }
+    | {
+        /**
+         * This is the result from calling:
+         *
+         *   this.tryToCallTypeWithArguments
+         */
+        kind: "type";
+        result: TypeCallResult;
+      }
+    | {
+        /**
+         * This is the result from calling:
+         *
+         *   this.tryToImplementFunctionByFunctionType
+         */
+        kind: "function-type";
+      }
+    | {
+        /**
+         * This is the result from calling:
+         *
+         *   this.tryToImplementModuleWithArguments
+         */
+        kind: "module-type";
+        result: ModuleTypeCallResult;
+      }
+    | {
+        /**
+         * This is the result from calling:
+         *
+         *   this.tryToCallArrayWithArguments
+         */
+        kind: "array";
+        result: ArrayCallResult;
+      }
+    | {
+        kind: "error";
+        error: Error | MoParserError;
+      };
+}
+
+export function getFunctionCallResult(
+  functionToCall: FunctionToCall
+): FunctionCallResult {
+  if (functionToCall.result.kind !== "function") {
+    throw new Error("Expected function call result");
+  }
+  return functionToCall.result.result;
+}
+
+export function getTypeCallResult(
+  functionToCall: FunctionToCall
+): TypeCallResult {
+  if (functionToCall.result.kind !== "type") {
+    throw new Error("Expected type call result");
+  }
+  return functionToCall.result.result;
+}
+
+export function getModuleTypeCallResult(
+  functionToCall: FunctionToCall
+): ModuleTypeCallResult {
+  if (functionToCall.result.kind !== "module-type") {
+    throw new Error("Expected module type call result");
+  }
+  return functionToCall.result.result;
+}
+
+export function getArrayCallResult(
+  functionToCall: FunctionToCall
+): ArrayCallResult {
+  if (functionToCall.result.kind !== "array") {
+    throw new Error("Expected array call result");
+  }
+  return functionToCall.result.result;
+}

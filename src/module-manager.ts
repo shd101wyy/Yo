@@ -1,5 +1,5 @@
 import path from "node:path";
-import Evaluator from "./evaluator";
+import Evaluator from "./evaluator/index";
 import { ModuleValue } from "./value";
 
 export class ModuleManager {

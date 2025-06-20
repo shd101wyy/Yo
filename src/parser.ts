@@ -49,13 +49,6 @@ export default class Parser {
   }
   */
 
-  private formatErrorMessage(token: Token, errorMessage: string) {
-    return formatErrorMessage({
-      token,
-      errorMessage,
-    });
-  }
-
   private skipWhitespace(tokens: Token[], index: number): number {
     while (
       tokens[index] &&
@@ -105,7 +98,10 @@ export default class Parser {
   }): ParserReturn {
     const startIndex = index;
     if (tokens[index]!.type !== TokenType.LParen) {
-      throw this.formatErrorMessage(tokens[index]!, "Expected left paren");
+      throw formatErrorMessage({
+        token: tokens[index]!,
+        errorMessage: "Expected left paren",
+      });
     }
     if (tokens[index + 1]?.type === TokenType.RParen) {
       // unit type
@@ -145,10 +141,10 @@ export default class Parser {
       const args = [expr];
       while (true) {
         if (!tokens[index]) {
-          throw this.formatErrorMessage(
-            tokens[index - 1]!,
-            "Expected ) or , for tuple"
-          );
+          throw formatErrorMessage({
+            token: tokens[index - 1]!,
+            errorMessage: "Expected ) or , for tuple",
+          });
         }
         if (tokens[index]!.type === TokenType.Comma) {
           index = index + 1;
@@ -196,7 +192,10 @@ export default class Parser {
   }): ParserReturn {
     const startIndex = index;
     if (tokens[index]!.type !== TokenType.LBracket) {
-      throw this.formatErrorMessage(tokens[index]!, "Expected left bracket");
+      throw formatErrorMessage({
+        token: tokens[index]!,
+        errorMessage: "Expected left bracket",
+      });
     }
     index = index + 1;
     {
@@ -204,10 +203,10 @@ export default class Parser {
       const args: Expr[] = [];
       while (true) {
         if (!tokens[index]) {
-          throw this.formatErrorMessage(
-            tokens[index - 1]!,
-            "Expected ] or , for array"
-          );
+          throw formatErrorMessage({
+            token: tokens[index - 1]!,
+            errorMessage: "Expected ] or , for array",
+          });
         }
         if (tokens[index]!.type === TokenType.Comma) {
           index = index + 1;
@@ -255,10 +254,10 @@ export default class Parser {
   }): ParserReturn {
     const startIndex = index;
     if (tokens[index]!.type !== TokenType.LCurlyBracket) {
-      throw this.formatErrorMessage(
-        tokens[index]!,
-        "Expected left curly bracket"
-      );
+      throw formatErrorMessage({
+        token: tokens[index]!,
+        errorMessage: "Expected left curly bracket",
+      });
     }
     const args: Expr[] = [];
     let separator: TokenType.Semicolon | TokenType.Comma | undefined =
@@ -267,29 +266,30 @@ export default class Parser {
     while (true) {
       index = this.skipWhitespace(tokens, index);
       if (!tokens[index]) {
-        throw this.formatErrorMessage(
-          tokens[index - 1]!,
-          'Unexpected end of curly bracket. Expected "}" or "," or ";"'
-        );
+        throw formatErrorMessage({
+          token: tokens[index - 1]!,
+          errorMessage:
+            'Unexpected end of curly bracket. Expected "}" or "," or ";"',
+        });
       }
       if (tokens[index]!.type === TokenType.Comma) {
         if (!separator || separator === TokenType.Comma) {
           separator = TokenType.Comma;
         } else {
-          throw this.formatErrorMessage(
-            tokens[index]!,
-            'Cannot mix "," with ";" as separator in {...}'
-          );
+          throw formatErrorMessage({
+            token: tokens[index]!,
+            errorMessage: 'Cannot mix "," with ";" as separator in {...}',
+          });
         }
         index = index + 1;
       } else if (tokens[index]!.type === TokenType.Semicolon) {
         if (!separator || separator === TokenType.Semicolon) {
           separator = TokenType.Semicolon;
         } else {
-          throw this.formatErrorMessage(
-            tokens[index]!,
-            'Cannot mix ";" with "," as separator in {...}'
-          );
+          throw formatErrorMessage({
+            token: tokens[index]!,
+            errorMessage: 'Cannot mix ";" with "," as separator in {...}',
+          });
         }
         index = index + 1;
       }
@@ -417,10 +417,10 @@ export default class Parser {
     index = this.skipWhitespace(tokens, index);
     const token = tokens[index];
     if (!token) {
-      throw this.formatErrorMessage(
-        PlaceholderToken,
-        "Unexpected end of input"
-      );
+      throw formatErrorMessage({
+        token: PlaceholderToken,
+        errorMessage: "Unexpected end of input",
+      });
     }
     let returnValue: ParserReturn | null = null;
 
@@ -474,7 +474,10 @@ export default class Parser {
         break;
       }
       default: {
-        throw this.formatErrorMessage(token, `Unexpected token: ${token.type}`);
+        throw formatErrorMessage({
+          token: token,
+          errorMessage: `Unexpected token: ${token.type}`,
+        });
       }
     }
 
@@ -641,7 +644,10 @@ Or use newline after "${token.value}" to confirm the right-associativity.
           // Check if the "rhs" most-left-side token is on the right side of the
           // "primaryExpr" most-left-side token
         } else {
-          throw this.formatErrorMessage(token, ambiguityErrorMessage);
+          throw formatErrorMessage({
+            token: token,
+            errorMessage: ambiguityErrorMessage,
+          });
         }
       }
 
@@ -713,16 +719,16 @@ Or use newline after "${token.value}" to confirm the right-associativity.
           index: returnValue.index,
         });
       } else {
-        throw this.formatErrorMessage(
-          token,
-          `Ambiguous function call ${exprToString(primaryExpr)}${token.value} 
+        throw formatErrorMessage({
+          token: token,
+          errorMessage: `Ambiguous function call ${exprToString(primaryExpr)}${token.value} 
 Please use parentheses to clarify:
 
 ${exprToString(primaryExpr)}(${token.value}, ...)
 // or 
 (${exprToString(primaryExpr)} ${token.value}, ...)
-`
-        );
+`,
+        });
       }
     } else {
       // Function call like
@@ -739,7 +745,7 @@ ${exprToString(primaryExpr)}(${token.value}, ...)
         primaryExpr.type === "Atom" &&
         primaryExpr.token.type === TokenType.Operator
       ) {
-        throw this.formatErrorMessage(
+        throw formatErrorMessage(
           primaryExpr.token,
           `Ambiguous operator function call ${primaryExpr.token.value}.
 Please use parentheses to clarify:
@@ -805,14 +811,13 @@ ${exprToString(returnValue.expr)}`
           index: hasWhitespace ? index : index + 1,
         };
       } else {
-        throw this.formatErrorMessage(
-          token,
-
-          hasWhitespace
+        throw formatErrorMessage({
+          token: token,
+          errorMessage: hasWhitespace
             ? "Expected ; to end the function call"
             : `Expected , to separate arguments
-or ) to end the function call`
-        );
+or ) to end the function call`,
+        });
       }
     }
   }
