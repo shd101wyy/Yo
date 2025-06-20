@@ -1,0 +1,326 @@
+import { checkBorrowings } from "../../borrow";
+import { addVariableToEnv, Environment } from "../../env";
+import { formatErrorMessage } from "../../error";
+import {
+  BuiltinKeywords,
+  cloneExpr,
+  Expr,
+  exprIsAtom,
+  exprIsAtomOf,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
+  exprToString,
+  setExprAsConsumed,
+} from "../../expr";
+import { FunctionValue } from "../../function-value";
+import { PlaceholderToken } from "../../token";
+import {
+  areTypesCompatible,
+  FunctionParameter,
+  isFunctionType,
+  isMutRefType,
+  isRefType,
+  Type,
+  typeToString,
+} from "../../type-checker";
+import { isTypeValue, Value } from "../../value";
+import { EvaluatorContext } from "../context";
+import { synthesizeTypes } from "../types/synthesizer";
+
+export function evaluateFunctionParameterType({
+  parameter,
+  calleeEnv,
+  context,
+  functionValue,
+}: {
+  parameter: FunctionParameter;
+  calleeEnv: Environment;
+  context: EvaluatorContext;
+  functionValue: FunctionValue | undefined;
+}): { parameterType: Type; calleeEnv: Environment } {
+  const typeExpr = parameter.exprs.typeExpr;
+  const defaultValueExpr = parameter.exprs.defaultValueExpr;
+  if (typeExpr) {
+    const evaluatedTypeExpr = context.evaluateExpression({
+      expr: cloneExpr(typeExpr),
+      env: calleeEnv,
+      context: {
+        ...context,
+        expectedType: undefined,
+        SelfType: functionValue?.SelfType,
+      },
+    });
+    if (!isTypeValue(evaluatedTypeExpr.$?.value)) {
+      throw formatErrorMessage({
+        token: typeExpr.token,
+        errorMessage: `Expected type for parameter, got:\n${exprToString(evaluatedTypeExpr)}`,
+      });
+    }
+    if (evaluatedTypeExpr.$?.env) {
+      calleeEnv = evaluatedTypeExpr.$?.env;
+    }
+    const parameterType = evaluatedTypeExpr.$?.value.value;
+    return {
+      parameterType,
+      calleeEnv,
+    };
+  } else if (defaultValueExpr) {
+    const evaluatedDefaultValueExpr = context.evaluateExpression({
+      expr: cloneExpr(defaultValueExpr),
+      env: calleeEnv,
+      context: {
+        ...context,
+        expectedType: undefined,
+        SelfType: functionValue?.SelfType,
+      },
+    });
+    const value = evaluatedDefaultValueExpr.$?.value;
+    if (!value) {
+      throw formatErrorMessage({
+        token: defaultValueExpr.token,
+        errorMessage: `Expected value for parameter, got:\n${exprToString(defaultValueExpr)}`,
+      });
+    }
+    if (evaluatedDefaultValueExpr.$?.env) {
+      calleeEnv = evaluatedDefaultValueExpr.$?.env;
+    }
+    const parameterType = value.type;
+    return {
+      parameterType,
+      calleeEnv,
+    };
+  } else {
+    throw new Error(`Expected either type expr or default value expr`);
+  }
+}
+
+export function checkIfFunctionParameterMatchesArgument({
+  functionValue,
+  parameter,
+  argExpr,
+  calleeEnv,
+  callerEnv,
+  context,
+}: {
+  functionValue?: FunctionValue;
+  /**
+   * It could be typeParameters, parameters, or implicitParameters
+   */
+  parameter: FunctionParameter;
+  argExpr: Expr | undefined;
+  calleeEnv: Environment;
+  callerEnv: Environment;
+  context: EvaluatorContext;
+}): {
+  calleeEnv: Environment;
+  callerEnv: Environment;
+  context: EvaluatorContext;
+  argValue: Value | undefined;
+} {
+  // NOTE: We don't support named argument.
+  // But we support to use label for readibility.
+  // eg: add(1, 2) vs add(x: 1, y: 2)
+  let labelExpr: Expr | undefined = undefined;
+  if (
+    argExpr &&
+    exprIsFunctionCall(argExpr) &&
+    exprIsFunctionCallOf(argExpr, ":", 2)
+  ) {
+    labelExpr = argExpr.args[0]!;
+    argExpr = argExpr.args[1]!;
+
+    if (!exprIsAtom(labelExpr)) {
+      throw formatErrorMessage({
+        token: labelExpr.token,
+        errorMessage: `Expected identifier for label, got:\n${exprToString(labelExpr)}`,
+      });
+    }
+
+    const label = labelExpr.token.value;
+    if (parameter.label !== label) {
+      throw formatErrorMessage({
+        token: labelExpr.token,
+        errorMessage: `Named argument is not supported. Label is only used for readibility.
+    Expected ${
+      parameter ? `label "${parameter.label}"` : `no label`
+    } at the argument position, but got "${label}".`,
+      });
+    }
+  }
+
+  let parameterType = parameter.type;
+  if (isFunctionType(parameterType)) {
+    // Evaluate the parameter type again.
+    // This is for anonymous function type that contains type parameter
+    // for example:
+    //    (forall(@(T): Type), x: T, callback: ((v: T)-> T))-> T
+    // and we call it:
+    //    generic_fn(1, fn(x)-> add(x, 1));
+    // We can infer `T` is `i32`,
+    // But when we evaluate `callback`, we need to evaluate its type again
+    // before we evluate the arg
+
+    const { parameterType: newParameterType, calleeEnv: nextCalleeEnv } =
+      evaluateFunctionParameterType({
+        parameter,
+        calleeEnv,
+        context: {
+          ...context,
+        },
+        functionValue,
+      });
+    parameterType = newParameterType;
+    calleeEnv = nextCalleeEnv;
+  }
+
+  // Evaluate the argExpr
+  let evaluatedArgExpr: Expr | undefined = undefined;
+  let borrowings = context.borrowings;
+  let evaluatedDefaultValueExpr: Expr | undefined = undefined;
+
+  if (
+    !argExpr ||
+    (exprIsAtom(argExpr) && exprIsAtomOf(argExpr, BuiltinKeywords.undefined))
+  ) {
+    // Use the default value
+    if (parameter.exprs.defaultValueExpr) {
+      evaluatedArgExpr = context.evaluateExpression({
+        expr: cloneExpr(parameter.exprs.defaultValueExpr),
+        env: calleeEnv,
+        context: {
+          ...context,
+        },
+      });
+      evaluatedDefaultValueExpr = evaluatedArgExpr;
+      if (evaluatedArgExpr.$?.env) {
+        calleeEnv = evaluatedArgExpr.$?.env;
+      }
+      if (argExpr) {
+        argExpr.$ = evaluatedArgExpr.$;
+      }
+    } else {
+      throw formatErrorMessage({
+        token: argExpr?.token ?? PlaceholderToken,
+        errorMessage: `Expected default value for parameter "${parameter.label}"`,
+      });
+    }
+  } else {
+    evaluatedArgExpr = context.evaluateExpression({
+      expr: argExpr,
+      env: callerEnv,
+      context: {
+        ...context,
+        // isEvaluatingExprAsType: false,
+        expectedType: { type: parameterType, env: calleeEnv },
+      },
+    });
+    if (evaluatedArgExpr.$?.env) {
+      callerEnv = evaluatedArgExpr.$?.env;
+    }
+  }
+
+  if (!evaluatedArgExpr.$) {
+    throw formatErrorMessage({
+      token: argExpr?.token ?? PlaceholderToken,
+      errorMessage: `Failed to evaluate argument expression.`,
+    });
+  }
+
+  // Check the borrowings
+  if (
+    evaluatedArgExpr.$.type &&
+    (isMutRefType(evaluatedArgExpr.$.type) ||
+      isRefType(evaluatedArgExpr.$.type))
+  ) {
+    checkBorrowings(context.borrowings, evaluatedArgExpr);
+
+    // Add evaluated arg expr to the borrowings
+    borrowings = borrowings.concat([
+      {
+        expr: evaluatedArgExpr,
+        type: evaluatedArgExpr.$.type,
+        pathCollection: evaluatedArgExpr.$.pathCollection,
+      },
+    ]);
+  }
+
+  const argType = evaluatedArgExpr.$.type;
+
+  // Cannot assign runtime parameter to compt parameter
+  if (!evaluatedArgExpr.$?.value && parameter.isCompileTimeOnly) {
+    throw formatErrorMessage({
+      token: argExpr?.token ?? PlaceholderToken,
+      errorMessage: `Cannot assign runtime argument to compile-time parameter:\n${
+        argExpr ? exprToString(argExpr) : ""
+      }`,
+    });
+  }
+
+  // Add the arg to the environment
+  // console.log("(10) addVariableToEnv");
+  const argValue = evaluatedArgExpr.$.value;
+  const { env: nextEnv } = addVariableToEnv({
+    env: calleeEnv,
+    variable: {
+      name: parameter.label,
+      type: argType,
+      isMutable: parameter.isMutable,
+      isCompileTimeOnly: parameter.isCompileTimeOnly,
+      token: argExpr?.token ?? PlaceholderToken,
+      isUndefined: false,
+      isImplicit: false,
+      value: argValue,
+    },
+  });
+  calleeEnv = nextEnv;
+
+  // Set the arg expr as consumed
+  // NOTE: If we evaluated the default value expression,
+  // then we don't set the arg expr as consumed,
+  // because that's the expression from parameter.exprs.defaultValueExpr
+  if (!evaluatedDefaultValueExpr) {
+    callerEnv = setExprAsConsumed(evaluatedArgExpr, callerEnv);
+  }
+
+  // Synthesize the types
+  const { expectedEnv, givenEnv } = synthesizeTypes(
+    { type: parameterType, env: calleeEnv },
+    { type: argType, env: callerEnv }
+  );
+  calleeEnv = expectedEnv;
+  callerEnv = givenEnv;
+
+  // Evaluate the parameter type again
+  const { parameterType: newParameterType, calleeEnv: nextCalleeEnv } =
+    evaluateFunctionParameterType({
+      parameter,
+      calleeEnv,
+      context: {
+        ...context,
+      },
+      functionValue,
+    });
+  parameterType = newParameterType;
+  calleeEnv = nextCalleeEnv;
+
+  // Compare the types
+  if (
+    !areTypesCompatible(
+      { type: parameterType, env: calleeEnv },
+      { type: argType, env: callerEnv }
+    )
+  ) {
+    throw formatErrorMessage({
+      token: argExpr?.token ?? PlaceholderToken,
+      errorMessage: `Type mismatch for parameter "${parameter.label}":
+    Expected: ${typeToString(parameterType)}
+    Got:   ${typeToString(argType)}`,
+    });
+  }
+  return {
+    calleeEnv,
+    callerEnv,
+    context: { ...context, borrowings },
+    argValue,
+  };
+}

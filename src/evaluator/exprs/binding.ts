@@ -1,0 +1,153 @@
+import { addVariableToEnv, Environment } from "../../env";
+import { formatErrorMessage } from "../../error";
+import {
+  BuiltinKeywords,
+  Expr,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
+  exprToString,
+  FuncCallExpr,
+} from "../../expr";
+import {
+  isTypeHierarchyType,
+  typeRequiresComptModifier,
+} from "../../type-checker";
+import { VUnit } from "../../unit-value";
+import { createUnknownValue, isTypeValue } from "../../value";
+import { EvaluatorContext } from "../context";
+import { isValidVariableName } from "../utils";
+
+export function evaluateBinding({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): { expr: FuncCallExpr; variableExpr: Expr; variableName: string } {
+  if (!exprIsFunctionCallOf(expr, ":", 2)) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expected ":" for variable binding.`,
+    });
+  }
+  let lhs = expr.args[0]!;
+  const rhs = expr.args[1]!;
+
+  // Evaluate the rhs expression
+  const evaluatedRhs = context.evaluateExpression({
+    expr: rhs,
+    env,
+    context: {
+      ...context,
+    },
+  });
+  if (!evaluatedRhs.$) {
+    throw formatErrorMessage({
+      token: rhs.token,
+      errorMessage: `Failed to evaluate rhs expression:
+${exprToString(rhs)}`,
+    });
+  }
+  env = evaluatedRhs.$.env;
+
+  const typeValue = evaluatedRhs.$.value;
+  if (!isTypeValue(typeValue)) {
+    throw formatErrorMessage({
+      token: rhs.token,
+      errorMessage: `Expected type for rhs, got ${exprToString(rhs)}`,
+    });
+  }
+  const userDefinedType = typeValue.value;
+
+  // Evaluate the lhs expression
+  let isCompileTimeOnly = false;
+  let isMutable = false;
+  if (
+    exprIsFunctionCall(lhs) &&
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.compt)
+  ) {
+    isCompileTimeOnly = true;
+    if (lhs.args.length !== 1) {
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Expected one argument for "compt" (or "@"), got ${lhs.args.length}`,
+      });
+    }
+    lhs = lhs.args[0]!;
+  }
+  if (
+    exprIsFunctionCall(lhs) &&
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.mut)
+  ) {
+    isMutable = true;
+    if (lhs.args.length !== 1) {
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Expected one argument for mut, got ${lhs.args.length}`,
+      });
+    }
+    lhs = lhs.args[0]!;
+  }
+  if (!isValidVariableName(lhs)) {
+    throw formatErrorMessage({
+      token: lhs.token,
+      errorMessage: `Invalid binding to ${lhs.token.value}, expected identifier or operator`,
+    });
+  }
+
+  if (typeRequiresComptModifier(userDefinedType) && !isCompileTimeOnly) {
+    throw formatErrorMessage({
+      token: lhs.token,
+      errorMessage: `Expected "compt" (or "@") for compile-time known ${
+        isTypeHierarchyType(userDefinedType) ? "type" : "module"
+      } value binding.`,
+    });
+  }
+
+  if (isTypeHierarchyType(userDefinedType) && isMutable) {
+    throw formatErrorMessage({
+      token: lhs.token,
+      errorMessage: `Unexpected "mut" (or "!") for type hierarchy value binding. Type hierarchy values are immutable.`,
+    });
+  }
+
+  const variableName = lhs.token.value;
+  // Add the variable to the env
+  // console.log("(5) addVariableToEnv");
+  const { env: nextEnv } = addVariableToEnv({
+    env,
+    variable: {
+      name: variableName,
+      token: lhs.token,
+      type: userDefinedType,
+      isMutable,
+      isUndefined: true,
+      isCompileTimeOnly,
+      isImplicit: false,
+      value: isCompileTimeOnly
+        ? createUnknownValue(userDefinedType)
+        : undefined,
+    },
+  });
+  env = nextEnv;
+
+  // Attach the user defined type to the lhs
+  lhs.$ = {
+    env,
+    type: userDefinedType,
+    isMutable,
+    pathCollection: [[variableName]],
+  };
+
+  expr.$ = {
+    env,
+    type: VUnit.type,
+    value: VUnit,
+    isMutable: false,
+    pathCollection: [],
+  };
+
+  return { expr, variableExpr: lhs, variableName };
+}
