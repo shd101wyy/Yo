@@ -7,11 +7,11 @@ extern "Yo",
 test :: ((flag: boolean)-> unit) {
   x := malloc();
   cond
-    flag => consume(x),
-    true => consume(x)
+    flag => drop(x),
+    true => drop(x)
   ;
   compt_expect_error(
-    consume(x), "error: 'x' is already consumed."
+    drop(x), "error: 'x' is already consumed."
   );
 };
 
@@ -20,7 +20,7 @@ compt_expect_error(
     x := malloc();
     cond
       flag => {
-        consume(x);
+        drop(x);
         ()
       },
       true => ()
