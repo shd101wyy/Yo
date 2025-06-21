@@ -40,6 +40,11 @@ export interface EvaluatorContext {
   borrowings: Borrowing[];
 
   evaluateExpression: EvaluateExpression;
+
+  loadModule: (modulePath: string) => {
+    moduleValue: ModuleValue;
+    moduleError: Error | undefined;
+  };
 }
 
 export interface ArgValues {

@@ -6,7 +6,7 @@ import {
   updateExistingVariable,
   Variable,
 } from "./env";
-import { formatErrorMessages } from "./error";
+import { formatErrorMessage, formatErrorMessages } from "./error";
 import { Token, TokenType } from "./token";
 import {
   isFreeType,
@@ -214,6 +214,34 @@ export function exprIsFunctionCallOf(
   );
 }
 
+export function expectExprToBeFunctionCallOf(
+  expr: Expr,
+  expectedFunctionName: string | string[],
+  expectedArgCount?: number
+) {
+  if (!exprIsFunctionCall(expr)) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expected function call, got atom:\n${exprToString(expr)}`,
+    });
+  }
+  if (!exprIsFunctionCallOf(expr, expectedFunctionName)) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expected function call of ${Array.isArray(expectedFunctionName) ? expectedFunctionName.map((fn) => `"${fn}"`).join(" or ") : `"${expectedFunctionName}"`}, got:\n${exprToString(expr)}`,
+    });
+  }
+
+  if (expectedArgCount !== undefined && expr.args.length !== expectedArgCount) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expected ${expectedArgCount} arguments, got ${expr.args.length}:\n${exprToString(
+        expr
+      )}`,
+    });
+  }
+}
+
 export const BuiltinKeywords = {
   compt: ["compt", "@"],
   mut: ["mut", "!"],
@@ -282,7 +310,7 @@ export const BuiltinKeywords = {
 };
 
 export const BuiltinFunctions = {
-  are_types_compatible: ["are_types_compatible"],
+  __yo_are_types_compatible: ["__yo_are_types_compatible"],
   compt_expect_error: ["compt_expect_error"],
   typeof: ["typeof"],
   consume: ["consume"],

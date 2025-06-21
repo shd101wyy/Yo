@@ -1,21 +1,21 @@
-flag1 :: are_types_compatible(i32, i32); // true
-flag2 :: are_types_compatible(i32, i64); // false
-flag3 :: are_types_compatible(i64, i32); // false
+flag1 :: __yo_are_types_compatible(i32, i32); // true
+flag2 :: __yo_are_types_compatible(i32, i64); // false
+flag3 :: __yo_are_types_compatible(i64, i32); // false
 
 // Functions
-flag4 :: are_types_compatible( // true
+flag4 :: __yo_are_types_compatible( // true
   (x: i32, y: i32)-> i32,
   (a: i32, y: i32)-> i32
 );
-flag5 :: are_types_compatible( // true
+flag5 :: __yo_are_types_compatible( // true
   (forall(@(T): Type), x: T, y: T)-> T,
   (forall(@(Z): Type), a: Z, b: Z)-> Z
 );
-flag6 :: are_types_compatible( // false
+flag6 :: __yo_are_types_compatible( // false
   (forall(@(T): Type), x: T, y: T)-> T,
   (a: i32, b: i32)-> i32
 );
-flag7 :: are_types_compatible( // false
+flag7 :: __yo_are_types_compatible( // false
   (a: i32, b: i32)-> i32,
   (forall(@(T): Type), x: T, y: T)-> T
 );
@@ -25,7 +25,7 @@ Box :: ((@(T): Type)-> @(Type))
             // So it's using a generated label. Box(T) and Box(Z) generated different labels.  
             // QUESTION: Should we always require label for struct fields?
 ;
-flag8 :: are_types_compatible( // false
+flag8 :: __yo_are_types_compatible( // false
   (forall(@(T): Type), x: T)-> Box(T),
   (forall(@(Z): Type), a: Z)-> Box(Z)
 );
@@ -33,7 +33,7 @@ flag8 :: are_types_compatible( // false
 Box2 :: ((@(T): Type)-> @(Type))
   struct(x: T)
 ;
-flag8_1 :: are_types_compatible( // true
+flag8_1 :: __yo_are_types_compatible( // true
   (forall(@(T): Type), x: T)-> Box2(T),
   (forall(@(Z): Type), a: Z)-> Box2(Z)
 );
@@ -41,7 +41,7 @@ flag8_1 :: are_types_compatible( // true
 Point :: ((@(T): Type)-> @(Type))
   struct(x: T, y: T)
 ;
-flag9 :: are_types_compatible( // true
+flag9 :: __yo_are_types_compatible( // true
   (forall(@(T): Type), x: T, y: T)-> Point(T),
   (forall(@(Z): Type), a: Z, b: Z)-> Point(Z)
 );
