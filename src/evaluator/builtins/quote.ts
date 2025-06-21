@@ -5,12 +5,15 @@ import {
   Expr,
   exprIsAtom,
   exprIsAtomOf,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { isExprType } from "../../type-checker";
+import { isExprListType, isExprType } from "../../type-checker";
 import {
   createExprValue,
+  isExprListValue,
   isExprValue,
   isUnknownValue,
   valueToString,
@@ -80,15 +83,74 @@ export function processUnquotesInExpr({
           ...context,
         },
       });
-      const newArgs = args.map((arg) =>
-        processUnquotesInExpr({
-          expr: arg,
-          env,
-          context: {
-            ...context,
-          },
-        })
-      );
+      const newArgs: Expr[] = [];
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i]!;
+
+        if (
+          exprIsFunctionCall(arg) &&
+          exprIsFunctionCallOf(arg, BuiltinKeywords.unquote_splicing)
+        ) {
+          let unquoteSplicingArgs: Expr[] | undefined = undefined;
+
+          // Evaluate the unquote_splicing arguments
+          // and flatten them into the newArgs array
+          if (arg.args.length !== 1) {
+            throw formatErrorMessage({
+              token: arg.token,
+              errorMessage: `Expected exactly one argument for "unquote_splicing", got ${arg.args.length}`,
+            });
+          }
+          const unquoteSplicingArg = arg.args[0]!;
+          const evaluatedUnquoteSplicingArg = context.evaluateExpression({
+            expr: unquoteSplicingArg,
+            env,
+            context: {
+              ...context,
+            },
+          });
+          if (
+            !evaluatedUnquoteSplicingArg.$ ||
+            !isExprListType(evaluatedUnquoteSplicingArg.$.type) ||
+            !evaluatedUnquoteSplicingArg.$.value
+          ) {
+            throw formatErrorMessage({
+              token: unquoteSplicingArg.token,
+              errorMessage: `Expected ExprList for "unquote_splicing" argument, got:\n${exprToString(unquoteSplicingArg)}`,
+            });
+          }
+
+          const exprListValue = evaluatedUnquoteSplicingArg.$.value;
+          if (isExprListValue(exprListValue)) {
+            if (exprListValue.elements.every((el) => isExprValue(el))) {
+              unquoteSplicingArgs = exprListValue.elements.map(
+                (el) => el.value
+              );
+            }
+          } else {
+            // TODO: exprListValue is unknown value.
+          }
+          if (unquoteSplicingArgs) {
+            unquoteSplicingArgs.forEach((arg) => {
+              newArgs.push(arg);
+            });
+          } else {
+            // Meet unknown value, we just ignore it
+            newArgs.push(arg);
+          }
+        } else {
+          newArgs.push(
+            processUnquotesInExpr({
+              expr: arg,
+              env,
+              context: {
+                ...context,
+              },
+            })
+          );
+        }
+      }
+
       const newExpr = {
         ...expr,
         func: newFunc,

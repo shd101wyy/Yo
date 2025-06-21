@@ -253,8 +253,8 @@ export const BuiltinKeywords = {
   // In: ["in", "∈"],
 
   quote: ["quote", ":"],
-  unquote: ["unquote", "#"],
-  unquote_splice: ["unquote_splice", "...#"],
+  unquote: ["unquote", "~"],
+  unquote_splicing: ["unquote_splicing", "~@"],
 
   recur: ["recur"],
   fn: ["fn"],
