@@ -1,7 +1,6 @@
 import { formatErrorMessages } from "./error";
 import { RAIIToken, Token } from "./token";
 import {
-  areTypesCompatible,
   isEnumType,
   isFunctionType,
   isModuleType,
@@ -497,7 +496,11 @@ export function getMethodsByNameFromEnv(
       (element) =>
         element.label === methodName &&
         isFunctionType(element.type) &&
-        element.type.parameters.length > 0 &&
+        element.type.parameters.length > 0
+
+      /*
+        // NOTE: No need to compare the types here.
+        // Let's leave the evaluateFunctionCall function to handle this.
         areTypesCompatible(
           {
             type: element.type.parameters[0]!.type,
@@ -505,7 +508,7 @@ export function getMethodsByNameFromEnv(
           },
           { type: receiverType, env }
         )
-      // NOTE: Let's make evaluateFunctionCall to handle this autocast
+        */
     );
     if (method) {
       let value: Value | undefined = undefined;
