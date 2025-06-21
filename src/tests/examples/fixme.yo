@@ -1,102 +1,55 @@
 /**
- * Uniform Function Call Syntax (UFCS) in Yo Language
+ * Macro
  *
- * UFCS allows calling module functions using dot notation (receiver.method()).
- * Requirements:
- * 1. The function must be defined and exported from a module
- * 2. The receiver's type must match the first parameter's type
- * 3. The module must define a 'Self' type alias for the receiver type
- * 
- * Type matching considers ownership:
- * - &(T).method() requires first parameter: &(T) 
- * - T.method() requires first parameter: T
- * 
- * Examples:
- * - x.copy() calls LinearI32Methods.copy(&(x)) when x: &(LinearI32)
- * - x.consume() calls LinearI32Methods.consume(x) when x: LinearI32
  */
+open import "std";
 
-(@(LinearI32) : Linear) = i32;
+x :: quote(3);
+y :: expr_list(quote(4), quote(5));
+add :: quote(
+  unquote(x) + unquote(y.first())
+);
+str :: x.to_string()
 
-LinearI32Methods :: module {
-  Self :: LinearI32;
+/*
+if :: ((quote(condition) : Expr,
+        quote(then) : Expr,
+        quote(else) : Expr ) -> unquote(Expr))
+  quote(
+    cond
+      unquote(condition) => unquote(then),
+      true => unquote(else)
+  )
+;
+*/
 
-  copy ::
-    ((self: &(Self)) -> i32)
-      999
-  ;
+/*
+TODO: Another Idea
+QUESTION: Should we make module type a structural type, instead of nominal?
 
-  add ::
-    ((lhs: &(Self), rhs: &(Self))-> i32)
-      666
-  ;
-  (+) ::
-    ((lhs: &(Self), rhs: &(Self))-> i32)
-      888
-  ;
+Clone ::
+  ((@(Self): Type)-> @(Type))
+  module
+    Self  := Self,
+    clone : 
+      (self: &(Self)) -> Self
+;
 
-  consume ::
-    ((self: Self)-> unit)
-    ()
-  ;
+Point :: struct
+  x : i32,
+  y : i32
 
-  export
-    Self,
-    copy,
-    add,
-    +,
-    consume
-  ;
-};
+  clone :: ((self: &(Self)) -> Self)
+    Point(x: self.x, y: self.y)
+;
 
-test_refs :: ((x: &(LinearI32), y: &(LinearI32)) -> unit) {
-  a := LinearI32Methods.copy(x); // allowed
+some_func :: (( forall(@(Self) : Type ), 
+                self : &(Self),
+                implicit(@(CloneMethod) : Clone(Self))
+              ) -> unit)
+  CloneMethod.clone(self)
+;
 
-  b := x.copy(); // allowed
-
-  c := x.add(y); // allowed
-
-  d := (x + y); // allowed
-
-  e := x.(+)(y); // allowed
-
-  compt_expect_error(
-    x.consume()
-  ); // not allowed
-};
-
-test_ownerships :: ((x : LinearI32, y : LinearI32) -> unit) {
-  a := LinearI32Methods.copy(&(x)); // allowed;
-
-  b := &(x).copy(); // allowed;
-  compt_expect_error(
-    b1 := x.copy()
-  ); // not allowed;
-
-  c := &(x).add(&(y)); // allowed;
-  compt_expect_error(
-    c1 := x.add(&(y))
-  ); // not allowed;
-  compt_expect_error(
-    c2 := x.add(y)
-  ); // not allowed;
-
-  d := (&(x) + &(y)); // allowed;
-  compt_expect_error(
-    d1 := (x + &(y))
-  ); // not allowed;
-  compt_expect_error(
-    d2 := (x + y)
-  ); // not allowed;
-
-  e := &(x).(+)(&(y)); // allowed;
-  compt_expect_error(
-    e1 := x.(+)(&(y))
-  ); // not allowed;
-  compt_expect_error(
-    e2 := x.(+)(y)
-  ); // not allowed;
-
-  x.consume(); // allowed;
-  y.consume(); // allowed;
-};
+point := Point(3, 4);
+some_func(point, implicit(Point)); // This should work. We can say Point also implements Clone(Point) because it has a clone method.
+*/

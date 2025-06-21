@@ -22,15 +22,18 @@ import { evaluateYoComptIntArithmetic } from "./builtins/compt_int_fns";
 import { evaluateDrop } from "./builtins/drop";
 import {
   evaluateYoExprGetArgs,
-  evaluateYoExprGetFn,
+  evaluateYoExprGetCallee,
   evaluateYoExprIsAtom,
   evaluateYoExprIsFnCall,
+  evaluateYoExprToString,
+} from "./builtins/expr_fns";
+import {
   evaluateYoExprListAppend,
   evaluateYoExprListCar,
   evaluateYoExprListCdr,
   evaluateYoExprListCons,
   evaluateYoExprListLength,
-} from "./builtins/expr_fns";
+} from "./builtins/expr_list_fns";
 import { evaluateGensym } from "./builtins/gensym";
 import { evaluateNot } from "./builtins/not";
 import { evaluateQuote } from "./builtins/quote";
@@ -376,7 +379,7 @@ ${exprToString(expr)}`,
         exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_get_callee)
       ) {
         // __yo_expr_get_callee
-        return evaluateYoExprGetFn({
+        return evaluateYoExprGetCallee({
           expr,
           env,
           context: { ...context },
@@ -386,6 +389,15 @@ ${exprToString(expr)}`,
       ) {
         // __yo_expr_get_args
         return evaluateYoExprGetArgs({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_to_string)
+      ) {
+        // __yo_expr_to_string
+        return evaluateYoExprToString({
           expr,
           env,
           context: { ...context },

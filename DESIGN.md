@@ -162,8 +162,8 @@ The **Yo** language is heavily inspired by:
   - Module system
 - [Koka](https://koka-lang.github.io/)
   - ~~Brace elision~~
-  - ~~Dot notation (Uniform Function Call Syntax)~~
-  - ~~Perceus and reuse~~
+  - Dot notation (Uniform Function Call Syntax)
+  - Perceus and reuse
   - ~~Algebraic effects~~
 - [Rust](https://www.rust-lang.org/)
   - ~~Borrow checker~~
@@ -175,7 +175,9 @@ The **Yo** language is heavily inspired by:
 - [Haskell](https://www.haskell.org/)
   - ~~Type and typeclass~~
 - [OCaml](https://ocaml.org/)
-  - Module system
+  - Module system (Modular implicits)
+- [Go](https://go.dev/)
+  - Interface and method call
 - [Python](https://python.org/)
   - Keyword arguments
 - [C++](https://isocpp.org/)
@@ -186,11 +188,11 @@ The **Yo** language is heavily inspired by:
 - [Jai](https://github.com/Ivo-Balbaert/The_Way_to_Jai), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/)
   - Syntax
   - Compile time execution
-  - `defer`
+  - ~~`defer`~~
 - [Elixir](https://elixir-lang.org/)
   - [Meta-programming (Macros)](https://hexdocs.pm/elixir/quote-and-unquote.html)
 - [Nim](https://nim-lang.org/)
-  - [Custom Operators](https://nim-lang.org/docs/manual.html#lexical-analysis-operators)
+  - ~~[Custom Operators](https://nim-lang.org/docs/manual.html#lexical-analysis-operators)~~
 - [Io](https://iolanguage.org/)
   - Minimal syntax and semantic
 

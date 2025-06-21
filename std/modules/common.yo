@@ -1,19 +1,24 @@
 Clone ::
-  ((@(Self): Linear)-> @(Type))
+  ((@(Self): Type)-> @(Type))
   module
     Self  := Self,
     clone : 
       (self: &(Self))-> Self
 ;
 
+clone :: (( forall(@(Self): Type),
+            self : &(Self), 
+            implicit(@(CloneMethod) : Clone(Self))
+          ) -> Self)
+  CloneMethod.clone(self)
+;
 
-/*
-// QUESTION: What should be the parameter type here
-fn Copy(T: Free), interface {
-  copy: (fn(self: T)-> T)
-};
-*/
+% :: clone; // IDEA: two circles and a slash perfectly represent clone!
+
+// IDEA: For struct that implements the `clone` method, we regard it as `Clone(StructType)` as well.
 
 export 
-  Clone
+  Clone,
+  clone,
+  %
 ;

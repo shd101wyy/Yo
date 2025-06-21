@@ -274,7 +274,7 @@ export const BuiltinKeywords = {
   open: ["open"],
   // pass: ["paas"], // pass is the same as noop
   drop: ["drop"],
-  clone: ["clone"],
+  clone: ["clone", "%"], // IDEA: two circles and a slash perfectly represent clone!
   break: ["break"],
   continue: ["continue"],
   while: ["while"],
@@ -322,6 +322,7 @@ export const BuiltinFunctions = {
   __yo_expr_is_fn_call: ["__yo_expr_is_fn_call"],
   __yo_expr_get_callee: ["__yo_expr_get_callee"],
   __yo_expr_get_args: ["__yo_expr_get_args"],
+  __yo_expr_to_string: ["__yo_expr_to_string"],
 
   // expr_list related functions
   // __yo_expr_list_is_expr_list: ["__yo_expr_list_is_expr_list"],
