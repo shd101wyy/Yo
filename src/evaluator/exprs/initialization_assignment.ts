@@ -57,6 +57,17 @@ export function evaluateInitializationAssignment({
     });
   }
   const isCompileTimeOnly = exprIsFunctionCallOf(expr, "::");
+
+  if (
+    !isCompileTimeOnly &&
+    context.isEvaluatingFunctionBody?.type.return.isCompileTimeOnly
+  ) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Unexpected runtime variable declaration in a compile-time only function body.`,
+    });
+  }
+
   let isMutable = false;
   let isImplicit = false;
 

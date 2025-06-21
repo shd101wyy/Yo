@@ -77,6 +77,17 @@ ${exprToString(rhs)}`,
     }
     lhs = lhs.args[0]!;
   }
+
+  if (
+    !isCompileTimeOnly &&
+    context.isEvaluatingFunctionBody?.type.return.isCompileTimeOnly
+  ) {
+    throw formatErrorMessage({
+      token: lhs.token,
+      errorMessage: `Unexpected runtime variable binding in a compile-time only function body.`,
+    });
+  }
+
   if (
     exprIsFunctionCall(lhs) &&
     exprIsFunctionCallOf(lhs, BuiltinKeywords.mut)
