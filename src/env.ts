@@ -2,7 +2,6 @@ import { formatErrorMessages } from "./error";
 import { RAIIToken, Token } from "./token";
 import {
   areTypesCompatible,
-  getModuleReceiverType,
   isEnumType,
   isFunctionType,
   isModuleType,
@@ -466,6 +465,17 @@ export function printEnvVarNames(env: Environment) {
   );
 }
 
+/**
+ *
+ * This is the uniform function call, which only allows calling
+ * methods from a module value.
+ *
+ * @param env
+ * @param methodName
+ * @param receiverType
+ * @param onlyFromTypeMethods
+ * @returns
+ */
 export function getMethodsByNameFromEnv(
   env: Environment,
   methodName: string,
@@ -475,29 +485,27 @@ export function getMethodsByNameFromEnv(
   const methods: { type: Type; value: Value | undefined }[] = [];
 
   function checkModule(moduleType: ModuleType, moduleValue: Value) {
-    const moduleReceiverType = getModuleReceiverType(moduleType);
-    if (!moduleReceiverType) {
-      // NOTE: We require receiverType to be defined with "This"
-      return;
-    }
+    // NOTE: We stop checking the moduleReceiverType
+    //       It is only used for dynamic dispatching now.
+    // const moduleReceiverType = getModuleReceiverType(moduleType);
+    // if (!moduleReceiverType) {
+    //   // NOTE: We require receiverType to be defined with "This"
+    //   return;
+    // }
 
     const method = moduleType.elements.find(
       (element) =>
-        areTypesCompatible(
-          { type: moduleReceiverType, env },
-          { type: receiverType, env }
-        ) &&
         element.label === methodName &&
         isFunctionType(element.type) &&
-        element.type.parameters.length > 0
-      /* &&
-        // TODO: support autocast to reference/immutable reference.
+        element.type.parameters.length > 0 &&
         areTypesCompatible(
-          { type: element.type.parameters[0]!.type, env },
+          {
+            type: element.type.parameters[0]!.type,
+            env, // QUESTION: What should be the env here?
+          },
           { type: receiverType, env }
         )
-        // NOTE: Let's make evaluateFunctionCall to handle this autocast
-        */
+      // NOTE: Let's make evaluateFunctionCall to handle this autocast
     );
     if (method) {
       let value: Value | undefined = undefined;
@@ -526,14 +534,6 @@ export function getMethodsByNameFromEnv(
         element.label === methodName &&
         isFunctionType(element.type) &&
         element.type.parameters.length > 0
-      /* &&
-        // TODO: support autocast to reference/immutable reference.
-        areTypesCompatible(
-          { type: element.type.parameters[0]!.type, env },
-          { type: receiverType, env }
-        )
-        // NOTE: Let's make evaluateFunctionCall to handle this autocast
-        */
     );
     for (let i = 0; i < typeMethods.length; i++) {
       const method = typeMethods[i]!;

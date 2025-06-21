@@ -835,19 +835,6 @@ export function evaluateFunctionCall({
             )}`,
           });
         }
-
-        /*
-      // Check uniform function call syntax
-        functionToCall = evaluateExpression({
-          expr: functionToCall.args[1],
-          env,
-          context: {
-            ...context,
-            isEvaluatingExprAsType: false,
-          },
-        });
-        args = [receiverArg, ...args];
-        */
       } else {
         functions = [
           {

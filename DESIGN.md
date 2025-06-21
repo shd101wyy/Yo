@@ -901,7 +901,7 @@ defn main(), {
 
 ### Uniform Function Call Syntax
 
-DEPRECATED: Use traits instead.
+Can only be used for the functions defined in `module`.
 IDEA: Actually let's still keep it. For the functions define in `impl` or `trait`, we don't allow to extract them and we force to call these functions with `.`.
 
 ```rust
