@@ -1,0 +1,37 @@
+/**
+ * Macro
+ *
+ */
+open import "std";
+
+x :: quote(3); // quote function will return an expression, and not evaluate it.
+y :: expr_list(quote(4), quote(5 + 6));
+add :: quote(
+  unquote(x) + unquote(y.first())
+);
+z :: quote(7 + 8);
+str :: x.to_string(); // expr to string
+
+another_add :: quote(
+  add(unquote(x), unquote_splicing(y), unquote(z))
+);
+
+if :: ((quote(condition) : Expr,
+        quote(then) : Expr,
+        quote(else) : Expr ) -> unquote(Expr))
+  quote(
+    cond
+      unquote(condition) => unquote(then),
+      true => unquote(else)
+  )
+;
+
+expanded ::
+  macro_expand quote 
+    if true, 
+      then : (1 @+ unquote(x)), 
+      else: 2
+;
+
+a ::
+  3 @+ 4;

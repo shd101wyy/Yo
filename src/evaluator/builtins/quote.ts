@@ -87,6 +87,7 @@ export function processUnquotesInExpr({
       for (let i = 0; i < args.length; i++) {
         const arg = args[i]!;
 
+        // Handle unquote_splicing
         if (
           exprIsFunctionCall(arg) &&
           exprIsFunctionCallOf(arg, BuiltinKeywords.unquote_splicing)

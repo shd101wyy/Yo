@@ -35,6 +35,7 @@ import {
   evaluateYoExprListLength,
 } from "./builtins/expr_list_fns";
 import { evaluateGensym } from "./builtins/gensym";
+import { evaluateMacroExpand } from "./builtins/macro_expand";
 import { evaluateNot } from "./builtins/not";
 import { evaluateQuote } from "./builtins/quote";
 import {
@@ -335,6 +336,13 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.compt_assert)) {
         // compt_assert
         return evaluateComptAssert({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.macro_expand)) {
+        // macro_expand
+        return evaluateMacroExpand({
           expr,
           env,
           context: { ...context },

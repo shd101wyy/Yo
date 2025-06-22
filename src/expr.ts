@@ -315,6 +315,7 @@ export const BuiltinFunctions = {
   typeof: ["typeof"],
   consume: ["consume"],
   compt_assert: ["compt_assert"],
+  macro_expand: ["macro_expand"],
 
   // expr related functions
   // __yo_expr_is_expr: ["__yo_expr_is_expr"],

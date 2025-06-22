@@ -28,6 +28,7 @@ import { FunctionValue } from "../../function-value";
 import { PlaceholderToken, stringIsOperator, TokenType } from "../../token";
 import {
   areTypesCompatible,
+  createExprType,
   FunctionType,
   isArrayType,
   isEnumType,
@@ -751,11 +752,13 @@ export function evaluateFunctionCall({
   env,
   context,
   givenFunc,
+  forMacroExpansion,
 }: {
   expr: FuncCallExpr;
   env: Environment;
-  givenFunc?: { type: Type; value: TypeValue | FunctionValue | undefined };
   context: EvaluatorContext;
+  givenFunc?: { type: Type; value: TypeValue | FunctionValue | undefined };
+  forMacroExpansion?: boolean;
 }): Expr {
   let func = expr.func;
   let args = expr.args;
@@ -1275,6 +1278,37 @@ ${functionsWithMatchingTypes
   }
 
   const functionToCall = functionsWithMatchingTypes[0]!; // Found the only one function to call
+
+  // This function call is for macro expansion.
+  // So we just return the expr we expanded.
+  if (forMacroExpansion) {
+    // It is macro function call
+    if (
+      isFunctionType(functionToCall.type) &&
+      functionToCall.type.return.isUnquote
+    ) {
+      const { returnValue, callerEnv, pathCollection } =
+        getFunctionCallResult(functionToCall);
+
+      env = popEnvFrame(callerEnv);
+
+      expr.$ = {
+        env,
+        type: createExprType(),
+        value: returnValue,
+        isMutable: false,
+        pathCollection: pathCollection,
+      };
+
+      return expr;
+    } else {
+      throw formatErrorMessage({
+        token: func.token,
+        errorMessage: `Expected macro function call for macro_expand.`,
+      });
+    }
+  }
+
   if (isFunctionType(functionToCall.type)) {
     const functionType = functionToCall.type;
     {
