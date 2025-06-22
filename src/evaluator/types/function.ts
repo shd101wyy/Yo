@@ -22,6 +22,7 @@ import {
   FunctionType,
   getFunctionParameterExprs,
   getFunctionParameterToken,
+  isExprType,
   Type,
   typeOfType,
   typeRequiresComptModifier,
@@ -57,6 +58,7 @@ export function evaluateFunctionParameter({
   let label: string | undefined = undefined;
   let isMutable: boolean = false;
   let isCompileTimeOnly: boolean = false;
+  let isQuote: boolean = false;
 
   let lhsExpr: Expr | undefined = undefined;
   let rhsExpr: Expr | undefined = undefined;
@@ -136,6 +138,7 @@ export function evaluateFunctionParameter({
       }
       lhsExpr = lhsExpr.args[0]!;
     }
+
     if (
       exprIsFunctionCall(lhsExpr) &&
       exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.mut)
@@ -149,6 +152,30 @@ export function evaluateFunctionParameter({
       }
       lhsExpr = lhsExpr.args[0]!;
     }
+
+    if (
+      exprIsFunctionCall(lhsExpr) &&
+      exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.quote)
+    ) {
+      isQuote = true;
+      if (lhsExpr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: lhsExpr.token,
+          errorMessage: `Expected one argument for "quote" (or ":"), got ${lhsExpr.args.length}`,
+        });
+      }
+
+      if (isCompileTimeOnly) {
+        throw formatErrorMessage({
+          token: lhsExpr.token,
+          errorMessage: `Cannot use "compt" (or "@") with "quote" (or ":"). "quote" parameters means compile-time only, so "compt" is redundant.`,
+        });
+      }
+      isCompileTimeOnly = true;
+
+      lhsExpr = lhsExpr.args[0]!;
+    }
+
     if (!exprIsAtom(lhsExpr) && !isValidVariableName(lhsExpr)) {
       throw formatErrorMessage({
         token: lhsExpr.token,
@@ -276,6 +303,23 @@ ${typeToString(parameterType)}`,
     }
   }
 
+  // If it's isQuote, then it has to be Expr type
+  if (isQuote && !isExprType(parameterType)) {
+    throw formatErrorMessage({
+      token: lhsExpr?.token ?? expr.token,
+      errorMessage: `Expected Expr type for "quote" (or ":") parameter, got ${typeToString(parameterType)}`,
+    });
+  }
+  // We disallow default value for quote parameters
+  if (isQuote && defaultValueExpr) {
+    throw formatErrorMessage({
+      token: defaultValueExpr.token,
+      errorMessage: `"quote" (or ":") parameter cannot have default value, got ${exprToString(
+        defaultValueExpr
+      )}`,
+    });
+  }
+
   // We require to have label for function parameters
   if (!label) {
     throw formatErrorMessage({
@@ -341,6 +385,7 @@ ${typeToString(parameterType)}`,
       }),
       isMutable,
       isCompileTimeOnly,
+      isQuote,
     },
     env,
   };
@@ -617,6 +662,7 @@ export function evaluateFunctionType({
 
   /// Check if the function is returning compile-time only value.
   let isReturnTypeCompileTimeOnly = false;
+  let isReturnTypeUnquote = false;
   if (
     exprIsFunctionCall(returnTypeExpr) &&
     exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.compt)
@@ -629,6 +675,36 @@ export function evaluateFunctionType({
       });
     }
     returnTypeExpr = returnTypeExpr.args[0]!;
+  }
+  if (
+    exprIsFunctionCall(returnTypeExpr) &&
+    exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.unquote)
+  ) {
+    isReturnTypeUnquote = true;
+    if (returnTypeExpr.args.length !== 1) {
+      throw formatErrorMessage({
+        token: returnTypeExpr.token,
+        errorMessage: `Expected one argument for "unquote" (or "~"), got ${returnTypeExpr.args.length}`,
+      });
+    }
+    if (isReturnTypeCompileTimeOnly) {
+      throw formatErrorMessage({
+        token: returnTypeExpr.token,
+        errorMessage: `Cannot use "compt" (or "@") with "unquote" (or "~"). "unquote" return type means compile-time only, so "compt" is redundant.`,
+      });
+    }
+    isReturnTypeCompileTimeOnly = true;
+
+    returnTypeExpr = returnTypeExpr.args[0]!;
+  }
+  if (
+    exprIsFunctionCall(returnTypeExpr) &&
+    exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.quote)
+  ) {
+    throw formatErrorMessage({
+      token: returnTypeExpr.token,
+      errorMessage: `To define a macro function, please use "unquote" (or "~") for the return type, not "quote" (or ":").`,
+    });
   }
 
   // Evaluate the return type expression
@@ -689,6 +765,17 @@ ${typeToString(returnType)}`,
     }
   }
 
+  // If the returnType is unquote, then
+  // we need to make sure it's returning an Expr type
+  if (isReturnTypeUnquote && !isExprType(returnType)) {
+    throw formatErrorMessage({
+      token: returnTypeExpr.token,
+      errorMessage: `Expected Expr type for "unquote" (or "~") return type, got ${typeToString(
+        returnType
+      )}`,
+    });
+  }
+
   // Create the function type
   const functionType = createFunctionType({
     parameters,
@@ -698,6 +785,7 @@ ${typeToString(returnType)}`,
       type: returnType,
       expr: returnTypeExpr,
       isCompileTimeOnly: isReturnTypeCompileTimeOnly,
+      isUnquote: isReturnTypeUnquote,
     },
     env: popEnvFrame(env, true),
     parametersFrame: env.frames[env.frames.length - 1]!,

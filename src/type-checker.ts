@@ -617,6 +617,13 @@ export interface FunctionParameter {
    * If the parameter is compile-time only or not.
    */
   isCompileTimeOnly: boolean;
+
+  /**
+   * Whether we apply the quote(xxx) to the parameter
+   * for defining a macro function.
+   * isQuote also means it's isCompileTimeOnly.
+   */
+  isQuote: boolean;
 }
 
 export function getFunctionParameterToken(parameter: FunctionParameter): Token {
@@ -783,7 +790,14 @@ export interface FunctionReturn {
   /**
    * Whether the value of the function return can be used for compile-time only or not.
    */
-  isCompileTimeOnly?: boolean;
+  isCompileTimeOnly: boolean;
+
+  /**
+   * Whether the value of the function return is unquoted or not.
+   * This is used for defining the macro function.
+   * isUnquote also means it's isCompileTimeOnly.
+   */
+  isUnquote: boolean;
 }
 
 export interface FunctionType extends Type {
@@ -1816,6 +1830,12 @@ export function isFunctionTypeAndIsTypeFunction(type?: Type) {
   );
 }
 
+export function isFunctionTypeAndIsMacroFunction(type?: Type) {
+  return (
+    type?.tag === TypeTag.Function && (type as FunctionType).return.isUnquote
+  );
+}
+
 export function isLiteralType(type?: Type): type is LiteralType {
   return type?.tag === TypeTag.Literal;
 }
@@ -1976,8 +1996,10 @@ export function functionParameterToString(
   if (parameter.isMutable) {
     label = `mut(${label})`;
   }
-  if (parameter.isCompileTimeOnly) {
-    label = `@(${label})`;
+  if (parameter.isQuote) {
+    label = `quote(${label})`;
+  } else if (parameter.isCompileTimeOnly) {
+    label = `compt(${label})`;
   }
 
   const typeStr = typeToString(parameter.type);
@@ -2187,9 +2209,12 @@ export function typeToString(type: Type): string {
           : "";
 
       let returnTypeString = typeToString(func.return.type);
-      if (func.return.isCompileTimeOnly) {
+      if (func.return.isUnquote) {
+        returnTypeString = `unquote(${returnTypeString})`;
+      } else if (func.return.isCompileTimeOnly) {
         returnTypeString = `compt(${returnTypeString})`;
       }
+
       const paramsString = [typeParams, params, implicitParams]
         .filter((x) => !!x)
         .join(", ");

@@ -16,6 +16,7 @@ import { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
+  createExprType,
   FunctionParameter,
   isFunctionType,
   isMutRefType,
@@ -23,7 +24,7 @@ import {
   Type,
   typeToString,
 } from "../../type-checker";
-import { isTypeValue, Value } from "../../value";
+import { createExprValue, isTypeValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
 import { synthesizeTypes } from "../types/synthesizer";
 
@@ -205,17 +206,31 @@ export function checkIfFunctionParameterMatchesArgument({
       });
     }
   } else {
-    evaluatedArgExpr = context.evaluateExpression({
-      expr: argExpr,
-      env: callerEnv,
-      context: {
-        ...context,
-        // isEvaluatingExprAsType: false,
-        expectedType: { type: parameterType, env: calleeEnv },
-      },
-    });
-    if (evaluatedArgExpr.$?.env) {
-      callerEnv = evaluatedArgExpr.$?.env;
+    // This is for macro function, no need to evaluate the argExpr
+    if (parameter.isQuote) {
+      evaluatedArgExpr = cloneExpr(argExpr);
+      evaluatedArgExpr.$ = {
+        type: createExprType(),
+        value: createExprValue(argExpr),
+        env: callerEnv,
+        pathCollection: [],
+        isMutable: false,
+      };
+    }
+    // This is normal function call parameter
+    else {
+      evaluatedArgExpr = context.evaluateExpression({
+        expr: argExpr,
+        env: callerEnv,
+        context: {
+          ...context,
+          // isEvaluatingExprAsType: false,
+          expectedType: { type: parameterType, env: calleeEnv },
+        },
+      });
+      if (evaluatedArgExpr.$?.env) {
+        callerEnv = evaluatedArgExpr.$?.env;
+      }
     }
   }
 

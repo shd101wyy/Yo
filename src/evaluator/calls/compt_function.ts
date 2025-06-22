@@ -2,6 +2,7 @@ import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { cloneExpr, Expr } from "../../expr";
 import { CalledComptFunctionCache, FunctionValue } from "../../function-value";
+import { PlaceholderToken } from "../../token";
 import {
   FunctionType,
   isEnumType,
@@ -33,7 +34,7 @@ export function evaluateComptFunctionCall({
   calleeEnv,
   context,
 }: {
-  functionCallExpr: Expr;
+  functionCallExpr: Expr | undefined;
   functionType: FunctionType;
   functionValue: FunctionValue;
   argValues: ArgValues;
@@ -48,8 +49,8 @@ export function evaluateComptFunctionCall({
   ];
   if (unfilteredArgValues.some((val) => !val)) {
     throw formatErrorMessage({
-      token: functionCallExpr.token,
-      errorMessage: `Failed to call the type function. Some arguments are not compile-time evaluated correctly.`,
+      token: functionCallExpr?.token ?? PlaceholderToken,
+      errorMessage: `Failed to call the function for compile-time. Some arguments are not compile-time evaluated correctly.`,
     });
   }
   const argValues: Value[] = unfilteredArgValues as Value[];
@@ -121,7 +122,7 @@ export function evaluateComptFunctionCall({
   });
   if (!evaluatedFunctionBody.$) {
     throw formatErrorMessage({
-      token: functionCallExpr.token,
+      token: functionValue.body.token,
       errorMessage: `Function body is not evaluated correctly`,
     });
   }
@@ -130,7 +131,7 @@ export function evaluateComptFunctionCall({
   const returnValue = evaluatedFunctionBody.$.value;
   if (!returnValue) {
     throw formatErrorMessage({
-      token: functionCallExpr.token,
+      token: functionValue.body.token,
       errorMessage: `Function body is not evaluated correctly. Expected to return a compile-time known value.`,
     });
   }

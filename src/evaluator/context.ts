@@ -58,6 +58,7 @@ export interface FunctionCallResult {
   callerEnv: Environment;
   pathCollection: PathCollection;
   returnType: Type;
+  returnValue: Value | undefined;
   argValues: ArgValues;
 }
 
@@ -76,6 +77,12 @@ export interface ArrayCallResult {
   value: Value | undefined;
 }
 
+export interface MacroFunctionCallResult {
+  calleeEnv: Environment;
+  callerEnv: Environment;
+  returnExpr: Expr;
+}
+
 export interface FunctionToCall {
   type: Type;
   value?: Value;
@@ -84,7 +91,7 @@ export interface FunctionToCall {
         /**
          * This is the result from calling:
          *
-         *   this.tryToCallFunctionWithArguments
+         *   tryToCallFunctionWithArguments
          */
         kind: "function";
         result: FunctionCallResult;
@@ -93,7 +100,7 @@ export interface FunctionToCall {
         /**
          * This is the result from calling:
          *
-         *   this.tryToCallTypeWithArguments
+         *   tryToCallTypeWithArguments
          */
         kind: "type";
         result: TypeCallResult;
@@ -102,7 +109,7 @@ export interface FunctionToCall {
         /**
          * This is the result from calling:
          *
-         *   this.tryToImplementFunctionByFunctionType
+         *   tryToImplementFunctionByFunctionType
          */
         kind: "function-type";
       }
@@ -110,7 +117,7 @@ export interface FunctionToCall {
         /**
          * This is the result from calling:
          *
-         *   this.tryToImplementModuleWithArguments
+         *   tryToImplementModuleWithArguments
          */
         kind: "module-type";
         result: ModuleTypeCallResult;
@@ -119,7 +126,7 @@ export interface FunctionToCall {
         /**
          * This is the result from calling:
          *
-         *   this.tryToCallArrayWithArguments
+         *   tryToCallArrayWithArguments
          */
         kind: "array";
         result: ArrayCallResult;

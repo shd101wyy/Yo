@@ -46,11 +46,14 @@ import {
   createStructValue,
   createTypeValue,
   createUnknownValue,
+  isExprValue,
   isFunctionValue,
   isTypeValue,
   Value,
+  valueToString,
 } from "../../value";
 import {
+  ArgValues,
   EvaluatorContext,
   FunctionCallResult,
   FunctionToCall,
@@ -702,16 +705,44 @@ ${implicitVariables
       });
     });
   }
+
+  const argValues_: ArgValues = {
+    args: argValues,
+    forallArgs: forallArgValues,
+    implicitArgs: implicitArgValues,
+  };
+
+  // Check if we need to evaluate the compt function call
+  // such as the type function, macro function, or function that returns compt value.
+  let returnValue: Value | undefined = undefined;
+  if (functionType.return.isCompileTimeOnly) {
+    if (isFunctionValue(functionValue)) {
+      const { value: nextReturnValue, callerEnv: nextEnv } =
+        evaluateComptFunctionCall({
+          functionCallExpr,
+          functionType,
+          functionValue,
+          argValues: argValues_,
+          callerEnv: callerEnv,
+          calleeEnv: calleeEnv,
+          context: {
+            ...context,
+          },
+        });
+      returnValue = nextReturnValue;
+      callerEnv = nextEnv;
+    } else {
+      returnValue = createUnknownValue(returnType);
+    }
+  }
+
   return {
     returnType,
     calleeEnv,
     callerEnv,
     pathCollection,
-    argValues: {
-      args: argValues,
-      forallArgs: forallArgValues,
-      implicitArgs: implicitArgValues,
-    },
+    argValues: argValues_,
+    returnValue,
   };
 }
 
@@ -725,7 +756,7 @@ export function evaluateFunctionCall({
   env: Environment;
   givenFunc?: { type: Type; value: TypeValue | FunctionValue | undefined };
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): Expr {
   let func = expr.func;
   let args = expr.args;
 
@@ -1246,69 +1277,50 @@ ${functionsWithMatchingTypes
   const functionToCall = functionsWithMatchingTypes[0]!; // Found the only one function to call
   if (isFunctionType(functionToCall.type)) {
     const functionType = functionToCall.type;
-
     {
       // It's
       // - Function returns runtime value
       // - Function returns comptime value
       // For function returns comptime value, we can evaluate the function body.
-      const { returnType, callerEnv, calleeEnv, argValues, pathCollection } =
-        getFunctionCallResult(functionToCall);
+      const {
+        returnType,
+        returnValue,
+        callerEnv,
+        // calleeEnv,
+        // argValues,
+        pathCollection,
+      } = getFunctionCallResult(functionToCall);
 
-      const functionValue = functionToCall.value;
+      env = popEnvFrame(callerEnv);
 
-      if (
-        functionType.return.isCompileTimeOnly &&
-        isFunctionValue(functionValue)
-      ) {
-        // if (!isFunctionValue(functionValue)) {
-        //   throw formatErrorMessage(
-        //     func.token,
-        //     `Expected function value for function call, got:\n${exprToString(
-        //       func
-        //     )}`
-        //   );
-        // }
-
-        const { value: returnValue, callerEnv: nextEnv } =
-          evaluateComptFunctionCall({
-            functionCallExpr: expr,
-            functionType,
-            functionValue,
-            argValues,
-            callerEnv: callerEnv,
-            calleeEnv: calleeEnv,
+      // Check if it's a macro function call,
+      // if yes, then we continue to evaluate the returnValue which should be an Expr value.
+      if (functionType.return.isUnquote) {
+        if (isExprValue(returnValue)) {
+          return context.evaluateExpression({
+            expr: returnValue.value,
+            env,
             context: {
               ...context,
             },
           });
-
-        env = popEnvFrame(nextEnv);
-        expr.$ = {
-          env,
-          type: returnType,
-          value: returnValue,
-          isMutable: false,
-          pathCollection: pathCollection,
-        };
-      } else {
-        env = popEnvFrame(callerEnv);
-        expr.$ = {
-          env,
-          type: returnType,
-          isMutable: false,
-          pathCollection: pathCollection,
-        };
-
-        if (functionType.return.isCompileTimeOnly) {
-          // TODO: expr.value should be available for comptime function.
-          // We should evaluate its body.
-          expr.$.value = createUnknownValue(returnType);
         } else {
-          expr.$.value = undefined;
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Expected macro function to return an Expr value, got:\n${valueToString(
+              returnValue
+            )}`,
+          });
         }
       }
 
+      expr.$ = {
+        env,
+        type: returnType,
+        value: returnValue,
+        isMutable: false,
+        pathCollection: pathCollection,
+      };
       // Set temp variable which holds the result of the function call
       attachTempVariableToExpr(expr);
 
