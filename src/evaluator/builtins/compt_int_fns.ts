@@ -8,19 +8,23 @@ import {
 } from "../../expr";
 import {
   createBooleanType,
+  createComptFloatType,
   createComptIntType,
+  createComptStringType,
   isComptIntType,
 } from "../../type-checker";
 import {
   createBooleanValue,
+  createComptFloatValue,
   createComptIntValue,
+  createComptStringValue,
   createUnknownValue,
   isComptIntValue,
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
 
-export function evaluateYoComptIntArithmetic({
+export function evaluateYoComptIntFunctions({
   expr,
   env,
   context,
@@ -29,7 +33,11 @@ export function evaluateYoComptIntArithmetic({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_neg)) {
+  if (
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_neg) ||
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_to_float) ||
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_to_string)
+  ) {
     const arg = context.evaluateExpression({
       expr: expr.args[0]!,
       env,
@@ -55,6 +63,26 @@ export function evaluateYoComptIntArithmetic({
         value = createComptIntValue(-arg.$.value.value);
       } else {
         value = createUnknownValue(createComptIntType());
+      }
+    }
+    // to_float(x)
+    else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_to_float)
+    ) {
+      if (isComptIntValue(arg.$.value)) {
+        value = createComptFloatValue(arg.$.value.value);
+      } else {
+        value = createUnknownValue(createComptFloatType());
+      }
+    }
+    // to_string(x)
+    else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_to_string)
+    ) {
+      if (isComptIntValue(arg.$.value)) {
+        value = createComptStringValue(arg.$.value.value.toString());
+      } else {
+        value = createUnknownValue(createComptStringType());
       }
     } else {
       throw formatErrorMessage({

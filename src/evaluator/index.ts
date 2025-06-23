@@ -18,7 +18,7 @@ import { ModuleValue } from "../value";
 import { evaluateAndOr } from "./builtins/and_or";
 import { evaluateComptAssert } from "./builtins/compt_assert";
 import { evaluateComptExpectError } from "./builtins/compt_expect_error";
-import { evaluateYoComptIntArithmetic } from "./builtins/compt_int_fns";
+import { evaluateYoComptIntFunctions } from "./builtins/compt_int_fns";
 import { evaluateDrop } from "./builtins/drop";
 import {
   evaluateYoExprGetArgs,
@@ -463,15 +463,21 @@ ${exprToString(expr)}`,
         exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_mul, 2) ||
         exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_div, 2) ||
         exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_mod, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_neg, 1) ||
         exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_eq, 2) ||
         exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_neq, 2) ||
         exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_lt, 2) ||
         exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_lte, 2) ||
         exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_gt, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_gte, 2)
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_gte, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_neg, 1) ||
+        exprIsFunctionCallOf(
+          expr,
+          BuiltinFunctions.__yo_compt_int_to_float,
+          1
+        ) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_to_string, 1)
       ) {
-        return evaluateYoComptIntArithmetic({
+        return evaluateYoComptIntFunctions({
           expr,
           env,
           context: { ...context },
