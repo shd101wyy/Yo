@@ -1,0 +1,15 @@
+/**
+ * Macro
+ *
+ */
+open import "std";
+
+x := 16;
+y := 18;
+
+add :: ((quote(x) : Expr, quote(rest): ExprList) -> unquote(Expr)) {
+  z :: quote(20);
+  quote add(unquote(x), unquote_splicing(rest), unquote(z))
+};
+
+expanded :: macro_expand quote(add(1, 2, x, y));

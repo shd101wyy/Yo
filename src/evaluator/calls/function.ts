@@ -376,7 +376,6 @@ Got:   ${typeToString(typeValue.type)}`,
   // Check if the parameters match the arguments
   for (let i = 0; i < functionType.parameters.length; i++) {
     const parameter = functionType.parameters[i]!;
-    const argExpr: Expr | undefined = argExprs[i];
     const {
       calleeEnv: nextCalleeEnv,
       callerEnv: nextCallerEnv,
@@ -385,7 +384,8 @@ Got:   ${typeToString(typeValue.type)}`,
     } = checkIfFunctionParameterMatchesArgument({
       functionValue,
       parameter,
-      argExpr,
+      argExprs,
+      argIndex: i,
       callerEnv,
       calleeEnv,
       context,

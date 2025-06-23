@@ -1,50 +1,14 @@
-Clone :: ((@(Self): Type) -> @(Module))
-  module
-    Self := Self,
-    clone :
-      (self: &(Self)) -> Self
+/**
+ * Macro
+ *
+ */
+open import "std";
+
+x := 16;
+y := 18;
+
+add :: ((quote(x) : Expr, quote(rest): ExprList) -> unquote(Expr))
+  quote add(unquote(x), unquote_splicing(rest))
 ;
 
-?(Point) :: struct
-  x : i32,
-  y : i32,
-
-  // Type method to implement Clone
-  clone :: ((self: &(Self)) -> Self)
-    Self(x: self.x, y: self.y)
-;
-SelfType :: Point.Self;
-
-CloneI32 :: Clone(i32);
-(@(I32Clone) : Clone(i32)) = module {
-  Self :: i32;
-
-  clone :: ((self: &(Self)) -> Self)
-    self.*
-  ;
-
-  copy :: ((self: &(Self)) -> Self)
-    self.*
-  ;
-
-  export Self, clone;
-};
-
-ClonePoint :: Clone(Point);
-(@(PointClone) : Clone(Point)) = Point; // This should work, Point implements Clone(Point) because it has a clone method, and its "Self" type also matches.
-PointClone.clone(&(Point(x: 1, 2))); // This should work, we can clone a Point using the module method.
-Point.clone(&(Point(1, 2))); // This should also work, we can clone a Point using the type method.
-
-
-some_func :: (( forall(@(Self) : Type ), 
-                self : &(Self),
-                implicit(@(CloneMethod) : Clone(Self))
-              ) -> unit)
-  CloneMethod.clone(self)
-;
-
-point := Point(3, 4);
-some_func(&(point), implicit(Point)); // This should work. We can say Point also implements Clone(Point) because it has a clone method.
-some_func(&(point), implicit(_));
-some_func(&(point), implicit());
-some_func(&(point));
+expanded :: macro_expand quote(add(1, 2, x, y));

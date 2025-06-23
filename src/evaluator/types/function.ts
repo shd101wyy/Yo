@@ -22,6 +22,7 @@ import {
   FunctionType,
   getFunctionParameterExprs,
   getFunctionParameterToken,
+  isExprListType,
   isExprType,
   Type,
   typeOfType,
@@ -304,10 +305,10 @@ ${typeToString(parameterType)}`,
   }
 
   // If it's isQuote, then it has to be Expr type
-  if (isQuote && !isExprType(parameterType)) {
+  if (isQuote && !isExprType(parameterType) && !isExprListType(parameterType)) {
     throw formatErrorMessage({
       token: lhsExpr?.token ?? expr.token,
-      errorMessage: `Expected Expr type for "quote" (or ":") parameter, got ${typeToString(parameterType)}`,
+      errorMessage: `Expected Expr or ExprList type for "quote" (or ":") parameter, got ${typeToString(parameterType)}`,
     });
   }
   // We disallow default value for quote parameters
@@ -379,6 +380,7 @@ ${typeToString(parameterType)}`,
       label: label,
       type: parameterType,
       exprs: getFunctionParameterExprs({
+        expr,
         labelExpr,
         typeExpr,
         defaultValueExpr,
@@ -599,6 +601,20 @@ export function evaluateFunctionParameters({
       env = nextEnv;
     }
   }
+
+  // Check if the parameters has ExprList type
+  // If yes then it must be the last parameter
+  parameters.forEach((parameter, index) => {
+    if (isExprListType(parameter.type)) {
+      if (index !== parameters.length - 1) {
+        throw formatErrorMessage({
+          token: parameter.exprs.expr.token,
+          errorMessage: `Expected ExprList type to be the last parameter, got ${parameter.label}`,
+        });
+      }
+    }
+  });
+
   return {
     parameters,
     typeParameters,

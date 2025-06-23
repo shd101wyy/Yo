@@ -18,13 +18,19 @@ import {
   areTypesCompatible,
   createExprType,
   FunctionParameter,
+  isExprType,
   isFunctionType,
   isMutRefType,
   isRefType,
   Type,
   typeToString,
 } from "../../type-checker";
-import { createExprValue, isTypeValue, Value } from "../../value";
+import {
+  createExprListValue,
+  createExprValue,
+  isTypeValue,
+  Value,
+} from "../../value";
 import { EvaluatorContext } from "../context";
 import { synthesizeTypes } from "../types/synthesizer";
 
@@ -98,7 +104,8 @@ export function evaluateFunctionParameterType({
 export function checkIfFunctionParameterMatchesArgument({
   functionValue,
   parameter,
-  argExpr,
+  argExprs,
+  argIndex,
   calleeEnv,
   callerEnv,
   context,
@@ -108,7 +115,8 @@ export function checkIfFunctionParameterMatchesArgument({
    * It could be typeParameters, parameters, or implicitParameters
    */
   parameter: FunctionParameter;
-  argExpr: Expr | undefined;
+  argExprs: Expr[];
+  argIndex: number;
   calleeEnv: Environment;
   callerEnv: Environment;
   context: EvaluatorContext;
@@ -118,6 +126,8 @@ export function checkIfFunctionParameterMatchesArgument({
   context: EvaluatorContext;
   argValue: Value | undefined;
 } {
+  let argExpr: Expr | undefined = argExprs[argIndex];
+
   // NOTE: We don't support named argument.
   // But we support to use label for readibility.
   // eg: add(1, 2) vs add(x: 1, y: 2)
@@ -208,14 +218,29 @@ export function checkIfFunctionParameterMatchesArgument({
   } else {
     // This is for macro function, no need to evaluate the argExpr
     if (parameter.isQuote) {
-      evaluatedArgExpr = cloneExpr(argExpr);
-      evaluatedArgExpr.$ = {
-        type: createExprType(),
-        value: createExprValue(argExpr),
-        env: callerEnv,
-        pathCollection: [],
-        isMutable: false,
-      };
+      if (isExprType(parameterType)) {
+        evaluatedArgExpr = cloneExpr(argExpr);
+        evaluatedArgExpr.$ = {
+          type: createExprType(),
+          value: createExprValue(argExpr),
+          env: callerEnv,
+          pathCollection: [],
+          isMutable: false,
+        };
+      } else {
+        // ExprList
+        evaluatedArgExpr = cloneExpr(argExpr);
+        evaluatedArgExpr.$ = {
+          type: parameterType,
+          value: createExprListValue([
+            createExprValue(argExpr),
+            ...argExprs.slice(argIndex + 1).map(createExprValue),
+          ]),
+          env: callerEnv,
+          pathCollection: [],
+          isMutable: false,
+        };
+      }
     }
     // This is normal function call parameter
     else {

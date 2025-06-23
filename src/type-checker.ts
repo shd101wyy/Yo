@@ -570,34 +570,40 @@ export interface TupleType extends Type {
 export type FunctionParameterExprs =
   | {
       // (i32)
+      expr: Expr;
       labelExpr: undefined;
       typeExpr: Expr;
       defaultValueExpr: undefined;
     }
   | {
       // (x: i32)
+      expr: Expr;
       labelExpr: Expr;
       typeExpr: Expr;
       defaultValueExpr: undefined;
     }
   | {
-      // ((x : i32) = 14)
+      // ((x : i32) ?= 14)
+      expr: Expr;
       labelExpr: Expr;
       typeExpr: Expr;
       defaultValueExpr: Expr;
     }
   | {
-      // (x = 15)
+      // (x ?= 15)
+      expr: Expr;
       labelExpr: Expr;
       typeExpr: undefined;
       defaultValueExpr: Expr;
     };
 
 export function getFunctionParameterExprs({
+  expr,
   labelExpr,
   typeExpr,
   defaultValueExpr,
 }: {
+  expr: Expr;
   labelExpr: Expr | undefined;
   typeExpr: Expr | undefined;
   defaultValueExpr: Expr | undefined;
@@ -612,7 +618,12 @@ export function getFunctionParameterExprs({
       `Expected either typeExpr or defaultValueExpr to be defined`
     );
   }
-  return { labelExpr, typeExpr, defaultValueExpr } as FunctionParameterExprs;
+  return {
+    expr,
+    labelExpr,
+    typeExpr,
+    defaultValueExpr,
+  } as FunctionParameterExprs;
 }
 
 export interface FunctionParameter {
