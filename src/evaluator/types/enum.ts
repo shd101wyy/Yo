@@ -8,11 +8,12 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { createEnumType, EnumVariant, TupleElement } from "../../type-checker";
+import { createEnumType, EnumVariant, ModuleElement } from "../../type-checker";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
-import { evaluateTupleElementsType, evaluateTupleElementType } from "./tuple";
+import { evaluateElementType } from "./element";
+import { evaluateTupleElementsType } from "./tuple";
 
 export function evaluateEnumType({
   expr,
@@ -31,11 +32,11 @@ export function evaluateEnumType({
   }
 
   // Create enumType with empty variants
-  const enumType = createEnumType([], [], env);
+  const enumType = createEnumType(env);
 
   // Evaluate the variants
   const variants: EnumVariant[] = enumType.variants;
-  const comptElements: TupleElement[] = enumType.elements;
+  const moduleElements: ModuleElement[] = enumType.module.elements;
 
   for (let i = 0; i < expr.args.length; i++) {
     const enumArg = expr.args[i]!;
@@ -51,7 +52,7 @@ export function evaluateEnumType({
         exprIsFunctionCallOf(enumArg, "?=", 2))
     ) {
       const arg = enumArg;
-      const { type, env: nextEnv } = evaluateTupleElementType({
+      const { type, env: nextEnv } = evaluateElementType({
         expr: arg,
         env,
         tupleElementIndex: i,
@@ -60,7 +61,7 @@ export function evaluateEnumType({
       });
 
       // Check if there is duplicate labels
-      const duplicateLabel = comptElements.find(
+      const duplicateLabel = moduleElements.find(
         (element) => element.label === type.label
       );
       if (duplicateLabel) {
@@ -103,7 +104,7 @@ export function evaluateEnumType({
         });
       }
 
-      comptElements.push(type);
+      moduleElements.push(type as ModuleElement);
       env = nextEnv;
     }
 

@@ -19,6 +19,7 @@ import {
   isStructType,
   isTupleType,
   isUnionType,
+  ModuleElement,
   TupleElement,
   typeToString,
 } from "../../type-checker";
@@ -213,7 +214,7 @@ export function evaluatePropertyAccess({
       // Check if it's accessing comptime field
       {
         const propertyName = propertyExpr.token.value;
-        const field = typeValue.value.elements.find(
+        const field = typeValue.value.module.elements.find(
           (method) => method.label === propertyName
         );
         if (field) {
@@ -296,9 +297,8 @@ export function evaluatePropertyAccess({
       }
       const propertyName = propertyExpr.token.value;
       // Check if the type method exists
-      const field = typeValue.value.elements.find(
-        (property) =>
-          property.isCompileTimeOnly && property.label === propertyName
+      const field = typeValue.value.module.elements.find(
+        (property) => property.label === propertyName
       );
       if (field) {
         expr.$ = {
@@ -409,7 +409,7 @@ export function evaluatePropertyAccess({
           const tupleElementIndex = elements.findIndex(
             // NOTE: To access comptime only field, use the type instead, not the value.
             // The value can only access runtime fields.
-            (element) => element.label === label && !element.isCompileTimeOnly
+            (element) => element.label === label
           );
           if (tupleElementIndex < 0) {
             if (isModuleType(objectExpr.$?.type)) {
@@ -452,7 +452,7 @@ export function evaluatePropertyAccess({
               }
 
               let value = values?.[tupleElementIndex];
-              if (!value && tupleElement.isCompileTimeOnly) {
+              if (!value) {
                 value = createUnknownValue(tupleElement.type);
               }
 
@@ -464,7 +464,7 @@ export function evaluatePropertyAccess({
       }
     }
   } else if (isModuleType(objectType)) {
-    const elements: TupleElement[] = objectType.elements;
+    const elements: ModuleElement[] = objectType.elements;
     const objectExprValue = objectExpr.$!.value;
 
     // Check if it's accessing the tuple element by

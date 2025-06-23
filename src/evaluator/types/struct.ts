@@ -7,10 +7,15 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { createStructType, isStructType } from "../../type-checker";
+import {
+  createStructType,
+  isStructType,
+  ModuleElement,
+  TupleElement,
+} from "../../type-checker";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
-import { evaluateTupleElementType } from "./tuple";
+import { evaluateElementType } from "./element";
 
 export function evaluateStructType({
   expr,
@@ -30,7 +35,7 @@ export function evaluateStructType({
 
   // Create structType with empty elements
   // This is used as the SelfType for the following evaluations.
-  const structType = createStructType([], env);
+  const structType = createStructType(env);
   const elements = structType.elements;
 
   for (let i = 0; i < expr.args.length; i++) {
@@ -91,7 +96,7 @@ export function evaluateStructType({
     }
     // tuple element
     else {
-      const { type, env: nextEnv } = evaluateTupleElementType({
+      const { type, env: nextEnv } = evaluateElementType({
         expr: arg,
         env,
         tupleElementIndex: i,
@@ -120,7 +125,12 @@ export function evaluateStructType({
         });
       }
 
-      elements.push(type);
+      if (type.isCompileTimeOnly) {
+        structType.module.elements.push(type as ModuleElement);
+      } else {
+        elements.push(type as TupleElement);
+      }
+
       env = nextEnv;
     }
   }

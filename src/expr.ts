@@ -301,6 +301,10 @@ export const BuiltinKeywords = {
   Rc: ["$"], // Everthing comes with a cost.
   Tuple: ["Tuple"],
   Array: ["Array"],
+  Free: ["Free"],
+  Linear: ["Linear"],
+  Type: ["Type"],
+  Module: ["Module"],
   anyopaque: ["anyopaque"], // Any opaque type, which is not known at compile time.
 
   // data values

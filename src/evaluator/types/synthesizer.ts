@@ -18,6 +18,10 @@ import {
   getValueOfSomeTypeFromEnv,
   isEnumType,
   isModuleType,
+  isMutPtrType,
+  isMutRefType,
+  isPtrType,
+  isRefType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -392,10 +396,9 @@ export function synthesizeTypes(
   } else if (
     isModuleType(expected.type) &&
     isModuleType(given.type) &&
-    (expected.type.typeId === given.type.typeId ||
-      (expected.type.functionValue &&
-        given.type.functionValue &&
-        expected.type.functionValue === given.type.functionValue))
+    expected.type.functionValue &&
+    given.type.functionValue &&
+    expected.type.functionValue === given.type.functionValue
     // NOTE: The typeId might not match
     // They might be different structs that both are returned from the same function.
   ) {
@@ -429,7 +432,29 @@ export function synthesizeTypes(
         given.env = givenEnv;
       }
     }
-  } else {
+  } else if (
+    (isRefType(expected.type) &&
+      (isRefType(given.type) || isMutRefType(given.type))) ||
+    (isMutRefType(expected.type) && isMutRefType(given.type)) ||
+    (isPtrType(expected.type) &&
+      (isPtrType(given.type) || isMutRefType(given.type))) ||
+    (isMutPtrType(expected.type) && isMutPtrType(given.type))
+  ) {
+    const { expectedEnv, givenEnv } = synthesizeTypes(
+      {
+        type: expected.type.type,
+        env: expected.env,
+      },
+      {
+        type: given.type.type,
+        env: given.env,
+      }
+    );
+    expected.env = expectedEnv;
+    given.env = givenEnv;
+  }
+  // TODO: Array type?
+  else {
     /*
       console.log(
         "Failed to synthesize: ",

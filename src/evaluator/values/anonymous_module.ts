@@ -48,7 +48,7 @@ export function evaluateAnonymousModuleBeginExprs({
   partialModuleError?: Error;
 } {
   // Create module type
-  const moduleType = createModuleType([], env);
+  const moduleType = createModuleType(env);
   const moduleElementValues: (Value | undefined)[] = [];
 
   let partialModuleError: Error | undefined = undefined;

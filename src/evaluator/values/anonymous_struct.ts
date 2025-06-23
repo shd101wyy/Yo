@@ -45,7 +45,7 @@ export function evaluateAnonymousStructValue({
   }
 
   // Create structType
-  const structType = createStructType([], env);
+  const structType = createStructType(env);
   const elements: TupleElement[] = structType.elements;
   const values: (Value | undefined)[] = [];
 

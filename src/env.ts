@@ -531,9 +531,8 @@ export function getMethodsByNameFromEnv(
     isEnumType(receiverType) ||
     isUnionType(receiverType)
   ) {
-    const typeMethods = receiverType.elements.filter(
+    const typeMethods = receiverType.module.elements.filter(
       (element) =>
-        element.isCompileTimeOnly &&
         element.label === methodName &&
         isFunctionType(element.type) &&
         element.type.parameters.length > 0

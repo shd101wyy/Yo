@@ -466,7 +466,7 @@ export type ElementExprs = {
   assignedValueExpr?: Expr;
 };
 
-export interface TupleElement {
+export interface ElementType {
   /**
    * The type of the element.
    * eg: i32
@@ -489,14 +489,13 @@ export interface TupleElement {
 
   /**
    * Whether it's a compile-time only element or runtime.
-   * If it's compile-time only, then it means it's type methods/properties.
    */
   isCompileTimeOnly: boolean;
 
   /**
    * If the element is implicit or not.
    */
-  isImplicit: false;
+  isImplicit: boolean;
 
   /**
    * The default value of the element, define using the ?= operator.
@@ -539,6 +538,25 @@ export interface TupleElement {
    * The expression of the element.
    */
   exprs: ElementExprs;
+}
+
+export interface TupleElement extends ElementType {
+  /**
+   * The tuple element has to be runtime known.
+   */
+  isCompileTimeOnly: false;
+
+  /**
+   * The tuple element cannot be implicit;
+   */
+  isImplicit: false;
+}
+
+export interface ModuleElement extends ElementType {
+  /**
+   * The module element of the module has to be compile-time known.
+   */
+  isCompileTimeOnly: true;
 }
 
 export interface TupleType extends Type {
@@ -674,6 +692,12 @@ export interface StructType extends Type {
    * The elements of the struct.
    */
   elements: TupleElement[];
+
+  /**
+   * The module of the struct, which contains
+   * the compile-time methods, properties, etc.
+   */
+  module: ModuleType;
 
   /**
    * The env when the struct type is created.
@@ -813,10 +837,10 @@ export interface EnumType extends Type {
   variants: EnumVariant[];
 
   /**
-   * The tuple elements of the enum, whose fields require to be compile-time known.
-   * This is used to store the type methods, properties, etc.
+   * The module of the struct, which contains
+   * the compile-time methods, properties, etc.
    */
-  elements: TupleElement[];
+  module: ModuleType;
 
   /**
    * The env when the enum type is created.
@@ -865,6 +889,12 @@ export interface UnionType extends Type {
    * The elements of the union.
    */
   elements: TupleElement[];
+
+  /**
+   * The module of the struct, which contains
+   * the compile-time methods, properties, etc.
+   */
+  module: ModuleType;
 
   /**
    * The env when the union type is created.
@@ -1033,7 +1063,6 @@ export function createTupleType(elements: TupleElement[]): TupleType {
 }
 
 export function createStructType(
-  elements: TupleElement[],
   env: Environment,
   typeId?: string
 ): StructType {
@@ -1049,54 +1078,47 @@ export function createStructType(
   }
   */
 
+  const module = createModuleType(env);
+
   const structType: StructType = {
     tag: TypeTag.Struct,
     // size: totalSize,
-    elements,
+    elements: [],
+    module,
     env,
     typeId: typeId ?? `struct_${randomId()}`,
   };
 
-  // Add "Self" to struct type if not already present
-  if (!structType.elements.some((element) => element.label === "Self")) {
-    const typeValue = createTypeValue(structType);
-    const selfElement: TupleElement = {
-      type: typeValue.type,
-      label: "Self",
-      isCompileTimeOnly: true,
-      isImplicit: false,
-      defaultValue: undefined,
-      assignedValue: typeValue,
-      exprs: {
-        expr: {
-          tag: ExprTag.Atom,
-          token: PlaceholderToken,
-        },
+  // Add "Self" to struct type module if not already present
+  const typeValue = createTypeValue(structType);
+  const selfElement: ModuleElement = {
+    type: typeValue.type,
+    label: "Self",
+    isCompileTimeOnly: true,
+    isImplicit: false,
+    defaultValue: undefined,
+    assignedValue: typeValue,
+    exprs: {
+      expr: {
+        tag: ExprTag.Atom,
+        token: PlaceholderToken,
       },
-    };
-    elements.push(selfElement);
-  }
+    },
+  };
+  module.elements.push(selfElement);
 
   return structType;
 }
 
-export function createModuleType(
-  elements: ModuleElement[],
-  env: Environment
-): ModuleType {
+export function createModuleType(env: Environment): ModuleType {
   return {
     tag: TypeTag.Module,
-    elements,
+    elements: [],
     env,
   };
 }
 
-export function createEnumType(
-  variants: EnumVariant[],
-  elements: TupleElement[],
-  env: Environment,
-  typeId?: string
-): EnumType {
+export function createEnumType(env: Environment, typeId?: string): EnumType {
   /*
   let totalSize: undefined | number = 0;
   for (let i = 0; i < variants.length; i++) {
@@ -1124,44 +1146,40 @@ export function createEnumType(
       : 0;
   */
 
+  const module = createModuleType(env);
+
   const enumType: EnumType = {
     tag: TypeTag.Enum,
     // size: typeof totalSize === "number" ? totalSize + tagSize : undefined,
-    variants,
-    elements,
+    variants: [],
+    module,
     env,
     // tagSize,
     typeId: typeId ?? `enum_${randomId()}`,
   };
 
   // Add "Self" to enum type if not already present
-  if (!enumType.elements.some((element) => element.label === "Self")) {
-    const typeValue = createTypeValue(enumType);
-    const selfElement: TupleElement = {
-      type: typeValue.type,
-      label: "Self",
-      isCompileTimeOnly: true,
-      isImplicit: false,
-      defaultValue: undefined,
-      assignedValue: typeValue,
-      exprs: {
-        expr: {
-          tag: ExprTag.Atom,
-          token: PlaceholderToken,
-        },
+  const typeValue = createTypeValue(enumType);
+  const selfElement: ModuleElement = {
+    type: typeValue.type,
+    label: "Self",
+    isCompileTimeOnly: true,
+    isImplicit: false,
+    defaultValue: undefined,
+    assignedValue: typeValue,
+    exprs: {
+      expr: {
+        tag: ExprTag.Atom,
+        token: PlaceholderToken,
       },
-    };
-    elements.push(selfElement);
-  }
+    },
+  };
+  module.elements.push(selfElement);
 
   return enumType;
 }
 
-export function createUnionType(
-  elements: TupleElement[],
-  env: Environment,
-  typeId?: string
-): UnionType {
+export function createUnionType(env: Environment, typeId?: string): UnionType {
   /*
   let maxSize = 0;
   for (let i = 0; i < elements.length; i++) {
@@ -1175,33 +1193,34 @@ export function createUnionType(
   }
   */
 
+  const module: ModuleType = createModuleType(env);
+
   const unionType: UnionType = {
     tag: TypeTag.Union,
     // size: maxSize, // Changed from totalSize to maxSize as unions use the size of largest variant
-    elements,
+    elements: [],
+    module,
     env,
     typeId: typeId ?? `union_${randomId()}`,
   };
 
   // Add "Self" to struct type if not already present
-  if (!unionType.elements.some((element) => element.label === "Self")) {
-    const typeValue = createTypeValue(unionType);
-    const selfElement: TupleElement = {
-      type: typeValue.type,
-      label: "Self",
-      isCompileTimeOnly: true,
-      isImplicit: false,
-      defaultValue: undefined,
-      assignedValue: typeValue,
-      exprs: {
-        expr: {
-          tag: ExprTag.Atom,
-          token: PlaceholderToken,
-        },
+  const typeValue = createTypeValue(unionType);
+  const selfElement: ModuleElement = {
+    type: typeValue.type,
+    label: "Self",
+    isCompileTimeOnly: true,
+    isImplicit: false,
+    defaultValue: undefined,
+    assignedValue: typeValue,
+    exprs: {
+      expr: {
+        tag: ExprTag.Atom,
+        token: PlaceholderToken,
       },
-    };
-    elements.push(selfElement);
-  }
+    },
+  };
+  module.elements.push(selfElement);
 
   return unionType;
 }
@@ -1853,9 +1872,7 @@ export function areTypesCompatible(
         isEnumType(given.type.baseType) ||
         isUnionType(given.type.baseType))
     ) {
-      givenElements = given.type.baseType.elements.filter(
-        (element) => !!element.isCompileTimeOnly
-      ) as ModuleElement[];
+      givenElements = given.type.baseType.module.elements;
     }
 
     if (givenElements) {

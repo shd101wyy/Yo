@@ -7,10 +7,14 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { createUnionType, TupleElement } from "../../type-checker";
+import {
+  createUnionType,
+  ModuleElement,
+  TupleElement,
+} from "../../type-checker";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
-import { evaluateTupleElementType } from "./tuple";
+import { evaluateElementType } from "./element";
 
 export function evaluateUnionType({
   expr,
@@ -29,7 +33,7 @@ export function evaluateUnionType({
   }
 
   // Create unionType with empty elements
-  const unionType = createUnionType([], env);
+  const unionType = createUnionType(env);
 
   const elements: TupleElement[] = [];
   unionType.elements = elements;
@@ -38,7 +42,7 @@ export function evaluateUnionType({
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
 
-    const { type, env: nextEnv } = evaluateTupleElementType({
+    const { type, env: nextEnv } = evaluateElementType({
       expr: arg,
       env,
       tupleElementIndex: i,
@@ -75,7 +79,11 @@ export function evaluateUnionType({
       });
     }
 
-    elements.push(type);
+    if (type.isCompileTimeOnly) {
+      unionType.module.elements.push(type as ModuleElement);
+    } else {
+      elements.push(type as TupleElement);
+    }
     env = nextEnv;
   }
 

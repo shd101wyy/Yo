@@ -1,9 +1,4 @@
-import {
-  addVariableToEnv,
-  Environment,
-  popEnvFrame,
-  pushEnvFrame,
-} from "../../env";
+import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -12,46 +7,44 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
 } from "../../expr";
 import {
   areTypesCompatible,
-  createModuleType,
+  convertComptTypeToRuntimeType,
+  ElementType,
   isModuleType,
-  ModuleElement,
+  isStructType,
+  isTupleType,
   Type,
+  typeRequiresComptModifier,
   typeToString,
 } from "../../type-checker";
 import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
-import {
-  createTypeValue,
-  createUnknownValue,
-  isTypeValue,
-  Value,
-} from "../../value";
+import { isTypeValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
 
 /**
- * Evaluate the element in module rvalue
+ * Evaluate the element in rvalue
  *
  * type:
- * (x: i32) in module(x: i32, ...)
- *
- * All fields in module are compile-time only by default.
+ * i32 in (i32, ...)
+ * (x: i32) in (x: i32, ...)
  */
-export function evaluateModuleElementType({
+export function evaluateElementType({
   expr,
-  moduleElementIndex,
+  tupleElementIndex,
   env,
   context,
+  forType,
 }: {
   expr: Expr;
-  moduleElementIndex: number;
+  tupleElementIndex: number;
   env: Environment;
   context: EvaluatorContext;
-}): { type: ModuleElement; env: Environment } {
+  forType: "tuple" | "struct" | "enum" | "union";
+}): { type: ElementType; env: Environment } {
   let label: string | undefined = undefined;
   let expr_ = expr;
 
@@ -64,6 +57,7 @@ export function evaluateModuleElementType({
   let assignedValueExpr: Expr | undefined = undefined;
   let assignedValue: Value | undefined = undefined;
 
+  let isCompileTimeOnly = false;
   let isImplicit = false;
 
   let elementType: Type | undefined = undefined;
@@ -78,15 +72,31 @@ export function evaluateModuleElementType({
   if (
     exprIsFunctionCall(expr_) &&
     (exprIsFunctionCallOf(expr_, "=", 2) ||
-      exprIsFunctionCallOf(expr_, "::", 2) ||
-      exprIsFunctionCallOf(expr_, ":=", 2))
+      exprIsFunctionCallOf(expr_, "::", 2))
   ) {
     if (exprIsFunctionCallOf(expr_, "::", 2)) {
-      throw formatErrorMessage({
-        token: expr_.token,
-        errorMessage: `Cannot use "::" for module element. Use ":=" instead.
-All module elements are compile-time only by default.`,
-      });
+      isCompileTimeOnly = true;
+
+      labelExpr = expr_.args[0]!;
+
+      // Check isImplicit
+      if (
+        exprIsFunctionCall(labelExpr) &&
+        exprIsFunctionCallOf(labelExpr, BuiltinKeywords.implicit, 1)
+      ) {
+        isImplicit = true;
+        labelExpr = labelExpr.args[0]!;
+      }
+
+      if (!isValidVariableName(labelExpr)) {
+        throw formatErrorMessage({
+          token: labelExpr.token,
+          errorMessage: `Expected identifier for tuple element label, got ${exprToString(
+            labelExpr
+          )}`,
+        });
+      }
+      label = labelExpr.token.value;
     }
 
     assignedValueExpr = expr_.args[1]!;
@@ -111,10 +121,14 @@ All module elements are compile-time only by default.`,
       exprIsFunctionCall(labelExpr) &&
       exprIsFunctionCallOf(labelExpr, BuiltinKeywords.compt, 1)
     ) {
-      throw formatErrorMessage({
-        token: labelExpr.token,
-        errorMessage: `No need to use "compt" (or "@") modifier. All module elements are compile-time only by default.`,
-      });
+      if (isCompileTimeOnly) {
+        throw formatErrorMessage({
+          token: labelExpr.token,
+          errorMessage: `Cannot combine the use of "compt" (or "@") with ::`,
+        });
+      }
+      isCompileTimeOnly = true;
+      labelExpr = labelExpr.args[0]!;
     }
 
     // Check isImplicit
@@ -139,19 +153,15 @@ All module elements are compile-time only by default.`,
     exprIsFunctionCall(expr_) &&
     exprIsFunctionCallOf(expr_, BuiltinKeywords.compt, 1)
   ) {
-    throw formatErrorMessage({
-      token: expr_.token,
-      errorMessage: `No need to use "compt" (or "@") modifier. All module elements are compile-time only by default.`,
-    });
-  } else if (!defaultValueExpr && !assignedValueExpr) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Expected label for module field, got ${exprToString(expr_)}`,
-    });
-  } else {
-    //  eg:
-    //    Output ?= Self
-    labelExpr = expr_;
+    if (isCompileTimeOnly) {
+      throw formatErrorMessage({
+        token: expr_.token,
+        errorMessage: `Cannot combine the use of "compt" (or "@") with "::"`,
+      });
+    }
+
+    isCompileTimeOnly = true;
+    labelExpr = expr_.args[0]!;
 
     // Check isImplicit
     if (
@@ -162,14 +172,7 @@ All module elements are compile-time only by default.`,
       labelExpr = labelExpr.args[0]!;
     }
 
-    if (!isValidVariableName(labelExpr)) {
-      throw formatErrorMessage({
-        token: labelExpr.token,
-        errorMessage: `Expected identifier for tuple element label, got ${exprToString(
-          labelExpr
-        )}`,
-      });
-    }
+    // Check if labelExpr is an atom
     if (!exprIsAtom(labelExpr) && !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
@@ -179,29 +182,38 @@ All module elements are compile-time only by default.`,
       });
     }
     label = labelExpr.token.value;
+  } else if (!defaultValueExpr && !assignedValueExpr) {
+    // Prevent the case such as:
+    //   Self :: i32
+    // typeExpr shouldn't be "Self"
+    typeExpr = expr_;
   }
 
   // Check expectedType
   const expectedType = context.expectedType?.type;
   let expectedTupleElementType: Type | undefined = undefined;
   if (expectedType) {
-    if (isModuleType(expectedType)) {
-      const moduleElement = expectedType.elements[moduleElementIndex];
-      if (!moduleElement) {
+    if (
+      isTupleType(expectedType) ||
+      isStructType(expectedType) ||
+      isModuleType(expectedType)
+    ) {
+      const tupleElement = expectedType.elements[tupleElementIndex];
+      if (!tupleElement) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Failed to get the field at index ${moduleElementIndex}`,
+          errorMessage: `Failed to get the field at index ${tupleElementIndex}`,
         });
       }
 
-      expectedTupleElementType = moduleElement.type;
+      expectedTupleElementType = tupleElement.type;
     } else {
       /*
-        throw formatErrorMessage(
-          expr.token,
-          `(1) Failed to evaluate the tuple elements. Expected type to be:
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `(1) Failed to evaluate the tuple elements. Expected type to be:
 ${typeToString(expectedType)}`
-        );
+        });
         */
       // NOTE: Don't throw error here
     }
@@ -239,6 +251,15 @@ ${typeToString(expectedType)}`
 
   // Evaluate assignedValueExpr if it exists
   if (assignedValueExpr) {
+    // Assigned value only works for compile-time only
+    if (!isCompileTimeOnly) {
+      throw formatErrorMessage({
+        token: assignedValueExpr.token,
+        errorMessage: `Assigned value expression is only allowed for compile-time only.
+Please consider adding "compt" (or "@") modifier to the field label.`,
+      });
+    }
+
     const expectedType = elementType
       ? { type: elementType, env }
       : expectedTupleElementType
@@ -366,17 +387,22 @@ Given type: ${typeToString(defaultValueType)}`,
     });
   }
 
-  /*
-    if (typeRequiresComptModifier(elementType) && !isCompileTimeOnly) {
-      elementType = convertComptTypeToRuntimeType(elementType);
-      if (typeRequiresComptModifier(elementType)) {
-        throw formatErrorMessage(
-          labelExpr?.token ?? expr.token,
-          `Expected "compt" (or "@") modifier for compile-time known value binding.`
-        );
-      }
+  if (typeRequiresComptModifier(elementType) && !isCompileTimeOnly) {
+    elementType = convertComptTypeToRuntimeType(elementType);
+    if (typeRequiresComptModifier(elementType)) {
+      throw formatErrorMessage({
+        token: labelExpr?.token ?? expr.token,
+        errorMessage: `Expected "compt" (or "@") modifier for compile-time known value binding.`,
+      });
     }
-    */
+  }
+
+  if (forType !== "tuple" && !labelExpr) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expected label for ${forType} field, got ${exprToString(expr_)}`,
+    });
+  }
 
   if (labelExpr) {
     labelExpr.$ = {
@@ -408,189 +434,11 @@ Given type: ${typeToString(defaultValueType)}`,
         defaultValueExpr,
         assignedValueExpr,
       },
-      isCompileTimeOnly: true,
+      isCompileTimeOnly,
       isImplicit,
       defaultValue,
       assignedValue,
     },
     env,
   };
-}
-
-export function evaluateModuleType({
-  expr,
-  env,
-  context,
-}: {
-  expr: FuncCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FuncCallExpr {
-  if (!exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Expected "module", got:\n${exprToString(expr)}`,
-    });
-  }
-
-  // Create moduleType with empty elements
-  const moduleType = createModuleType(env);
-  const elements: ModuleElement[] = [];
-  moduleType.elements = elements;
-
-  // Push env frame
-  env = pushEnvFrame(env);
-
-  const args = expr.args;
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]!;
-
-    // NOTE: Type methods are not allowed in module types.
-    // spread operator for extending another module
-    if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
-      const extendedStructExpr = arg.args[0]!;
-      // Evaluate the extended struct expression
-      const evaluatedExtendedModuleExpr = context.evaluateExpression({
-        expr: extendedStructExpr,
-        env,
-        context: {
-          ...context,
-          SelfType: undefined, // No SelfType in module context
-          ModuleType: moduleType,
-        },
-      });
-      if (!evaluatedExtendedModuleExpr.$) {
-        throw formatErrorMessage({
-          token: extendedStructExpr.token,
-          errorMessage: `Failed to evaluate the extended struct expression: ${exprToString(extendedStructExpr)}`,
-        });
-      }
-
-      // Check if it's a module type
-      const extendedModuleTypeValue = evaluatedExtendedModuleExpr.$.value;
-      if (
-        !isTypeValue(extendedModuleTypeValue) ||
-        !isModuleType(extendedModuleTypeValue.value)
-      ) {
-        throw formatErrorMessage({
-          token: extendedStructExpr.token,
-          errorMessage: `Expected a struct type for extending, got ${exprToString(
-            extendedStructExpr
-          )}`,
-        });
-      }
-      const extendedModuleType = extendedModuleTypeValue.value;
-
-      // Iterate over the elements of the extended struct
-      for (const extendedModuleElement of extendedModuleType.elements) {
-        // Check if there is duplicate labels
-        // If yes, then override the element
-        const duplicateLabelIndex = elements.findIndex(
-          (e) => e.label === extendedModuleElement.label
-        );
-        if (duplicateLabelIndex >= 0) {
-          throw formatErrorMessage({
-            token: extendedStructExpr.token,
-            errorMessage: `Duplicate label "${extendedModuleElement.label}" in module`,
-          });
-        } else {
-          // Add the element to the struct
-          elements.push(extendedModuleElement);
-
-          // Add the element to the environment
-          const { env: nextEnv } = addVariableToEnv({
-            env,
-            variable: {
-              name: extendedModuleElement.label,
-              type: extendedModuleElement.type,
-              value: extendedModuleElement.isCompileTimeOnly
-                ? (extendedModuleElement.assignedValue ??
-                  createUnknownValue(
-                    extendedModuleElement.type,
-                    extendedModuleElement.label
-                  ))
-                : undefined,
-              isCompileTimeOnly: extendedModuleElement.isCompileTimeOnly,
-              isImplicit: extendedModuleElement.isImplicit,
-              isMutable: false,
-              isUndefined: false,
-              token: extendedModuleElement.exprs.expr.token,
-            },
-          });
-          env = nextEnv;
-        }
-      }
-    }
-    // tuple element
-    else {
-      const { type: element, env: nextEnv } = evaluateModuleElementType({
-        expr: arg,
-        env,
-        moduleElementIndex: i,
-        context: {
-          ...context,
-          SelfType: undefined, // No SelfType in module context
-          ModuleType: moduleType,
-        },
-      });
-
-      // Check if there is duplicate labels
-      const duplicateLabel = elements.find(
-        (elem) => elem.label === element.label
-      );
-      if (duplicateLabel) {
-        throw formatErrorMessage({
-          token: exprIsFunctionCall(arg)
-            ? (arg.args[0]?.token ?? arg.token)
-            : arg.token,
-          errorMessage: `Duplicate label "${element.label}" in module`,
-        });
-      }
-
-      elements.push(element);
-      env = nextEnv;
-
-      // Expect element to be compile-time only
-      if (!element.isCompileTimeOnly) {
-        throw formatErrorMessage({
-          token: arg.token,
-          errorMessage: `Expected compile-time only element for extern module, got ${exprToString(arg)}`,
-        });
-      }
-
-      // Add element to env
-      const { env: nextNextEnv } = addVariableToEnv({
-        env,
-        variable: {
-          name: element.label,
-          type: element.type,
-          value:
-            element.assignedValue ??
-            createUnknownValue(element.type, element.label),
-          isCompileTimeOnly: element.isCompileTimeOnly,
-          isImplicit: element.isImplicit,
-          isMutable: false,
-          isUndefined: false,
-          token: element.exprs.expr.token,
-        },
-      });
-      env = nextNextEnv;
-    }
-  }
-
-  // Pop env frame
-  env = popEnvFrame(env);
-
-  const moduleTypeValue = createTypeValue(moduleType);
-  expr.$ = {
-    env,
-    value: moduleTypeValue,
-    type: moduleTypeValue.type,
-    isMutable: false,
-    pathCollection: [],
-  };
-
-  // Append more information to "module" token.
-  expr.func.$ = expr.$;
-  return expr;
 }
