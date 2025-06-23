@@ -63,6 +63,7 @@ export function tryToCallTypeWithArguments({
   );
   for (let i = 0; i < memberElements.length; i++) {
     let memberElement = memberElements[i]!;
+
     let argExpr = argExprs[i];
     if (!argExpr) {
       break;

@@ -19,6 +19,7 @@ import {
   areTypesCompatible,
   isFreeType,
   isLinearType,
+  isTypeHierarchyType,
   typeContainsReference,
   typeOfType,
   typeToString,
@@ -174,6 +175,11 @@ export function evaluateAssignment({
     let rhsValue = rhs.$?.value;
     if (isTypeValue(rhsValue) && !rhsValue.value.typeName) {
       rhsValue.value.typeName = variableName;
+
+      if (isTypeHierarchyType(variable.type) && !variable.type.baseType) {
+        // If the variable type is a type hierarchy, set the base type
+        variable.type.baseType = rhsValue.value;
+      }
     } else if (isFunctionValue(rhsValue) && !rhsValue.funcName) {
       rhsValue.funcName = variableName;
     } else if (isModuleValue(rhsValue) && !rhsValue.type.typeName) {

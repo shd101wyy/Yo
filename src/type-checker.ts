@@ -5,13 +5,14 @@ import {
   getVariablesFromEnv,
 } from "./env";
 import { formatErrorMessage } from "./error";
-import { Expr, exprToString } from "./expr";
+import { Expr, ExprTag, exprToString } from "./expr";
 import { FunctionValue } from "./function-value";
-import { Token } from "./token";
+import { PlaceholderToken, Token } from "./token";
 import { TypeValue } from "./type-value";
 import { randomId } from "./utils";
 import {
   areValuesEqual,
+  createTypeValue,
   createUnknownValue,
   isTypeValue,
   Value,
@@ -213,32 +214,43 @@ export function isExprType(type?: Type): boolean {
 
 export interface TypeHierarchyType extends Type {
   tag: TypeTag.Free | TypeTag.Linear | TypeTag.Type;
+
+  /**
+   * Level of the type in the hierarchy.
+   * For example, Free/Linear/Type types are at level 0.
+   * Type of Type    = Type(1) is at level 1.
+   * Type of Type(1) = Type(2) is at level 2.
+   */
   level: number;
 
-  // TODO: Implemented interfaces
+  // The base type of this hierarchy type.
+  baseType?: Type;
 }
 
-export function createFreeType(): TypeHierarchyType {
+export function createFreeType(baseType?: Type): TypeHierarchyType {
   return {
     tag: TypeTag.Free,
     // size: 0, // Types themselves don't have runtime size
     level: 0,
+    baseType,
   };
 }
 
-export function createLinearType(): TypeHierarchyType {
+export function createLinearType(baseType?: Type): TypeHierarchyType {
   return {
     tag: TypeTag.Linear,
     // size: 0, // Types themselves don't have runtime size
     level: 0,
+    baseType,
   };
 }
 
-export function createTypeType(): TypeHierarchyType {
+export function createTypeType(baseType?: Type): TypeHierarchyType {
   return {
     tag: TypeTag.Type,
     // size: 0, // Types themselves don't have runtime size
     level: 0,
+    baseType,
   };
 }
 
@@ -421,9 +433,9 @@ export interface ArrayType extends Type {
   length: Value; // Compile-time known usize compatible value.
 }
 
-export type TupleElementExprs = {
+export type ElementExprs = {
   /**
-   * The expression of the tuple element.
+   * The expression of the element.
    */
   expr: Expr;
   /**
@@ -476,14 +488,15 @@ export interface TupleElement {
   label: string;
 
   /**
-   * If the element is compile time only or not
+   * Whether it's a compile-time only element or runtime.
+   * If it's compile-time only, then it means it's type methods/properties.
    */
   isCompileTimeOnly: boolean;
 
   /**
    * If the element is implicit or not.
    */
-  isImplicit: boolean;
+  isImplicit: false;
 
   /**
    * The default value of the element, define using the ?= operator.
@@ -525,7 +538,7 @@ export interface TupleElement {
   /**
    * The expression of the element.
    */
-  exprs: TupleElementExprs;
+  exprs: ElementExprs;
 }
 
 export interface TupleType extends Type {
@@ -661,36 +674,113 @@ export interface StructType extends Type {
    * The elements of the struct.
    */
   elements: TupleElement[];
+
+  /**
+   * The env when the struct type is created.
+   * The env is also useful to show the frame level at which the struct is defined.
+   */
+  env: Environment;
 }
 
+export interface ModuleElement {
+  /**
+   * The type of the element.
+   * eg: i32
+   * i32 is the type of the element.
+   */
+  type: Type;
+
+  /**
+   * label of the element,
+   * eg: x: i32
+   * x is the label of the element.
+   *
+   * For the element that is not labelled, we generate temporary label for it.
+   * For example:
+   *  i32
+   * This is a element without label.
+   * We generate a temporary label for it, like $element_12345
+   */
+  label: string;
+
+  /**
+   * The module element of the module has to be compile-time known.
+   */
+  isCompileTimeOnly: true;
+
+  /**
+   * If the element is implicit or not.
+   */
+  isImplicit: boolean;
+
+  /**
+   * The default value of the element, define using the ?= operator.
+   * Which has to be compile-time known.
+   * For example:
+   *  (T: Type) ?= i32
+   */
+  defaultValue?: Value;
+
+  /**
+   * The assigned value of the element.
+   * Which has to be compile-time known.
+   * For example:
+   *  (T: Type) = i32;
+   *
+   * Once this is set, we cannot assign/change the value.
+   *
+   * For example:
+   *
+   *    ```
+   *    Id :: ((@(T): Type)-> @(Type))
+   *      struct:
+   *        (@(Self) : Type) = T,
+   *        // or
+   *        // Self :: T,
+   *
+   *        id:
+   *          (x: Self)-> Self
+   *    ;
+   *    MyId :: Id(i32)
+   *      // Self: i32, // <- This line is not allowed
+   *      id:
+   *        fn(x)-> x
+   *    ;
+   *    ```
+   */
+  assignedValue?: Value;
+
+  /**
+   * The expression of the element.
+   */
+  exprs: ElementExprs;
+}
+
+/**
+ * ModuleType is a structural type that represents a module. It's not a nominal type like Struct/Enum/Union.
+ */
 export interface ModuleType extends Type {
   tag: TypeTag.Module;
 
   /**
-   * The unique identifier for this module.
-   */
-  typeId: string;
-
-  /**
-   * The function that returns the struct.
+   * The function that returns the module.
    * eg:
    *   def Container:
    *     (compt(T): Type)-> compt(Type),
    *     module(x: T, y: T)
    * ;
-   * "Container" is the function that returns the struct.
+   * "Container" is the function that returns the module.
    */
   functionValue?: FunctionValue;
 
   /**
    * The elements of the module.
    */
-  elements: TupleElement[];
+  elements: ModuleElement[];
 
   /**
-   * The env when the function type is created.
-   * The env shouldn't contain the frame that have the parameters.
-   * The env is also useful to show the frame level at which the function is defined.
+   * The env when the module type is created.
+   * The env is also useful to show the frame level at which the module is defined.
    */
   env: Environment;
 }
@@ -727,6 +817,12 @@ export interface EnumType extends Type {
    * This is used to store the type methods, properties, etc.
    */
   elements: TupleElement[];
+
+  /**
+   * The env when the enum type is created.
+   * The env is also useful to show the frame level at which the enum is defined.
+   */
+  env: Environment;
 
   /**
    * The size of the tag in bits.
@@ -769,6 +865,12 @@ export interface UnionType extends Type {
    * The elements of the union.
    */
   elements: TupleElement[];
+
+  /**
+   * The env when the union type is created.
+   * The env is also useful to show the frame level at which the union is defined.
+   */
+  env: Environment;
 
   /**
    * The function that returns the union.
@@ -880,11 +982,15 @@ export interface RefType extends Type {
   type: Type;
 }
 
-export function createTypeHierarchy(level: number): TypeHierarchyType {
+export function createTypeHierarchy(
+  level: number,
+  baseType?: Type
+): TypeHierarchyType {
   return {
     tag: TypeTag.Type,
     // size: 0,
     level,
+    baseType,
   };
 }
 
@@ -928,6 +1034,7 @@ export function createTupleType(elements: TupleElement[]): TupleType {
 
 export function createStructType(
   elements: TupleElement[],
+  env: Environment,
   typeId?: string
 ): StructType {
   /*
@@ -942,30 +1049,52 @@ export function createStructType(
   }
   */
 
-  return {
+  const structType: StructType = {
     tag: TypeTag.Struct,
     // size: totalSize,
     elements,
+    env,
     typeId: typeId ?? `struct_${randomId()}`,
   };
+
+  // Add "Self" to struct type if not already present
+  if (!structType.elements.some((element) => element.label === "Self")) {
+    const typeValue = createTypeValue(structType);
+    const selfElement: TupleElement = {
+      type: typeValue.type,
+      label: "Self",
+      isCompileTimeOnly: true,
+      isImplicit: false,
+      defaultValue: undefined,
+      assignedValue: typeValue,
+      exprs: {
+        expr: {
+          tag: ExprTag.Atom,
+          token: PlaceholderToken,
+        },
+      },
+    };
+    elements.push(selfElement);
+  }
+
+  return structType;
 }
 
 export function createModuleType(
-  elements: TupleElement[],
-  env: Environment,
-  typeId?: string
+  elements: ModuleElement[],
+  env: Environment
 ): ModuleType {
   return {
     tag: TypeTag.Module,
     elements,
     env,
-    typeId: typeId ?? `module_${randomId()}`,
   };
 }
 
 export function createEnumType(
   variants: EnumVariant[],
-  elements: TupleElement[] = [],
+  elements: TupleElement[],
+  env: Environment,
   typeId?: string
 ): EnumType {
   /*
@@ -995,18 +1124,42 @@ export function createEnumType(
       : 0;
   */
 
-  return {
+  const enumType: EnumType = {
     tag: TypeTag.Enum,
     // size: typeof totalSize === "number" ? totalSize + tagSize : undefined,
     variants,
     elements,
+    env,
     // tagSize,
     typeId: typeId ?? `enum_${randomId()}`,
   };
+
+  // Add "Self" to enum type if not already present
+  if (!enumType.elements.some((element) => element.label === "Self")) {
+    const typeValue = createTypeValue(enumType);
+    const selfElement: TupleElement = {
+      type: typeValue.type,
+      label: "Self",
+      isCompileTimeOnly: true,
+      isImplicit: false,
+      defaultValue: undefined,
+      assignedValue: typeValue,
+      exprs: {
+        expr: {
+          tag: ExprTag.Atom,
+          token: PlaceholderToken,
+        },
+      },
+    };
+    elements.push(selfElement);
+  }
+
+  return enumType;
 }
 
 export function createUnionType(
   elements: TupleElement[],
+  env: Environment,
   typeId?: string
 ): UnionType {
   /*
@@ -1022,12 +1175,35 @@ export function createUnionType(
   }
   */
 
-  return {
+  const unionType: UnionType = {
     tag: TypeTag.Union,
     // size: maxSize, // Changed from totalSize to maxSize as unions use the size of largest variant
     elements,
+    env,
     typeId: typeId ?? `union_${randomId()}`,
   };
+
+  // Add "Self" to struct type if not already present
+  if (!unionType.elements.some((element) => element.label === "Self")) {
+    const typeValue = createTypeValue(unionType);
+    const selfElement: TupleElement = {
+      type: typeValue.type,
+      label: "Self",
+      isCompileTimeOnly: true,
+      isImplicit: false,
+      defaultValue: undefined,
+      assignedValue: typeValue,
+      exprs: {
+        expr: {
+          tag: ExprTag.Atom,
+          token: PlaceholderToken,
+        },
+      },
+    };
+    elements.push(selfElement);
+  }
+
+  return unionType;
 }
 
 export function createFunctionType({
@@ -1111,6 +1287,7 @@ export function createRefType(type: Type): RefType {
 
 // Helper function to determine the type universe of a list of types
 function determineTypeUniverse(
+  baseType: Type,
   elements: TupleElement[],
   /**
    * checkedType is used to prevent infinite recursion
@@ -1156,16 +1333,16 @@ Insert some indirection (e.g., a pointer '*' or reference '&') to break the cycl
     return createTypeHierarchy(maxTypeLevel);
   }
   if (meetTypeTag) {
-    return createTypeType();
+    return createTypeType(baseType);
   }
 
   // If we found any linear but no type, return linear
   if (hasLinear) {
-    return createLinearType();
+    return createLinearType(baseType);
   }
 
   // Otherwise all are free
-  return createFreeType();
+  return createFreeType(baseType);
 }
 
 // Update typeOfType function
@@ -1183,11 +1360,11 @@ export function typeOfType(
   checkedTupleElements: TupleElement[] = []
 ): Type {
   if (t.forceLinear) {
-    return createLinearType(); // Force linear type
+    return createLinearType(t); // Force linear type
   }
 
   if (isPrimitiveType(t)) {
-    return createFreeType(); // Primitive types are free types
+    return createFreeType(t); // Primitive types are free types
   } else if (isTypeHierarchyType(t)) {
     return createTypeHierarchy((t as TypeHierarchyType).level + 1);
   } else if (
@@ -1196,22 +1373,24 @@ export function typeOfType(
     isComptStringType(t) ||
     isExprListType(t)
   ) {
-    return createFreeType();
+    return createFreeType(t);
   } else if (isExprType(t)) {
-    return createFreeType();
+    return createFreeType(t);
   } else if (isFunctionType(t)) {
-    return createFreeType();
+    return createFreeType(t);
   } else if (isArrayType(t)) {
     // For arrays, check the element type
     return typeOfType(t.elementType);
   } else if (isTupleType(t)) {
     // For tuples, check all element types
     return determineTypeUniverse(
+      t,
       t.elements.filter((element) => !element.isCompileTimeOnly),
       checkedTupleElements
     );
   } else if (isStructType(t)) {
     return determineTypeUniverse(
+      t,
       t.elements.filter((element) => !element.isCompileTimeOnly),
       checkedTupleElements
     );
@@ -1225,15 +1404,19 @@ export function typeOfType(
         );
       }
     }
-    return determineTypeUniverse(elements, checkedTupleElements);
+    return determineTypeUniverse(t, elements, checkedTupleElements);
   } else if (isUnionType(t)) {
     // For unions, check all member types
     return determineTypeUniverse(
+      t,
       t.elements.filter((element) => !element.isCompileTimeOnly),
       checkedTupleElements
     );
   } else if (isModuleType(t)) {
-    return createFreeType();
+    return createTypeHierarchy(1, t);
+    // Modules are treated as type hierarchies
+    // It's the same level as Type(1)
+    // Module type itself has the same level as Free/Linear/Type
   } else if (isSomeType(t)) {
     return t.parentType;
   } else if (
@@ -1242,7 +1425,7 @@ export function typeOfType(
     isMutRefType(t) ||
     isRefType(t)
   ) {
-    return createFreeType();
+    return createFreeType(t);
   } else {
     throw new Error(`Unknown type tag: ${t}`);
   }
@@ -1658,36 +1841,61 @@ export function areTypesCompatible(
     return true;
   }
 
-  if (isModuleType(expected.type) && isModuleType(given.type)) {
-    // Modules must have same elements and compatible types
-    if (
-      expected.type.elements.length !== given.type.elements.length ||
-      (expected.type.typeId !== given.type.typeId &&
-        !typeContainsSomeType(expected.type) &&
-        !typeContainsSomeType(given.type))
+  // NOTE: Module type is a structural type.
+  if (isModuleType(expected.type)) {
+    let givenElements: ModuleElement[] | undefined = undefined;
+    if (isModuleType(given.type)) {
+      givenElements = given.type.elements;
+    } else if (
+      isTypeHierarchyType(given.type) &&
+      given.type.baseType &&
+      (isStructType(given.type.baseType) ||
+        isEnumType(given.type.baseType) ||
+        isUnionType(given.type.baseType))
     ) {
-      return false;
+      givenElements = given.type.baseType.elements.filter(
+        (element) => !!element.isCompileTimeOnly
+      ) as ModuleElement[];
     }
 
-    if (expected.type.typeId === given.type.typeId) {
+    if (givenElements) {
+      // Modules must have same elements and compatible types
+      for (let i = 0; i < expected.type.elements.length; i++) {
+        const expectedElement = expected.type.elements[i]!;
+
+        const givenElement = givenElements.find(
+          (element) => element.label === expectedElement.label
+        );
+        if (!givenElement) {
+          return false;
+        }
+        if (
+          !areTypesCompatible(
+            { type: expectedElement.type, env: expected.env },
+            { type: givenElement.type, env: given.env }
+          )
+        ) {
+          return false;
+        }
+        if (expectedElement.assignedValue && givenElement.assignedValue) {
+          if (
+            !areValuesEqual(
+              {
+                value: expectedElement.assignedValue,
+                env: expected.env,
+              },
+              {
+                value: givenElement.assignedValue,
+                env: given.env,
+              }
+            )
+          ) {
+            return false;
+          }
+        }
+      }
       return true;
     }
-
-    for (let i = 0; i < expected.type.elements.length; i++) {
-      const expectedElement = expected.type.elements[i]!;
-      const givenElement = given.type.elements[i]!;
-
-      if (
-        expectedElement.label !== givenElement.label ||
-        !areTypesCompatible(
-          { type: expectedElement.type, env: expected.env },
-          { type: givenElement.type, env: given.env }
-        )
-      ) {
-        return false;
-      }
-    }
-    return true;
   }
 
   if (isFunctionType(expected.type) && isFunctionType(given.type)) {
@@ -2045,6 +2253,31 @@ export function tupleElementToString(element: TupleElement): string {
   return `${label}: ${typeToString(element.type)}`;
 }
 
+function moduleElementToString(element: ModuleElement): string {
+  let label = element.label;
+  if (element.isImplicit) {
+    label = `?${label}`;
+  }
+
+  const defaultValueStr = element.defaultValue
+    ? valueToString(element.defaultValue)
+    : "";
+
+  const assignedValueStr = element.assignedValue
+    ? valueToString(element.assignedValue)
+    : "";
+
+  if (defaultValueStr) {
+    return `(${label}: ${typeToString(element.type)}) ?= ${defaultValueStr}`;
+  }
+
+  if (assignedValueStr) {
+    return `(${label}: ${typeToString(element.type)}) = ${assignedValueStr}`;
+  }
+
+  return `${label}: ${typeToString(element.type)}`;
+}
+
 /**
  * Convert a Type object to a human-readable string representation
  */
@@ -2188,7 +2421,7 @@ export function typeToString(type: Type): string {
       const moduleType = type as ModuleType;
       return `${
         moduleType.typeName ? `(${moduleType.typeName}) ` : ""
-      }${moduleType.typeName ? "module" : moduleType.typeId}(${moduleType.elements.map(tupleElementToString).join(", ")})`;
+      }module(${moduleType.elements.map(moduleElementToString).join(", ")})`;
     }
 
     case TypeTag.Function: {

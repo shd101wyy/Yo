@@ -29,7 +29,7 @@ export function evaluateUnionType({
   }
 
   // Create unionType with empty elements
-  const unionType = createUnionType([]);
+  const unionType = createUnionType([], env);
 
   const elements: TupleElement[] = [];
   unionType.elements = elements;

@@ -30,7 +30,7 @@ export function evaluateStructType({
 
   // Create structType with empty elements
   // This is used as the SelfType for the following evaluations.
-  const structType = createStructType([]);
+  const structType = createStructType([], env);
   const elements = structType.elements;
 
   for (let i = 0; i < expr.args.length; i++) {

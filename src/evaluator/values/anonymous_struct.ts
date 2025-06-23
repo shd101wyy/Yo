@@ -44,7 +44,9 @@ export function evaluateAnonymousStructValue({
     });
   }
 
-  const elements: TupleElement[] = [];
+  // Create structType
+  const structType = createStructType([], env);
+  const elements: TupleElement[] = structType.elements;
   const values: (Value | undefined)[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -77,6 +79,7 @@ export function evaluateAnonymousStructValue({
         env,
         context: {
           ...context,
+          SelfType: structType,
         },
       });
       if (!evaluatedExtendedStruct.$) {
@@ -139,6 +142,7 @@ export function evaluateAnonymousStructValue({
         env,
         context: {
           ...context,
+          SelfType: structType,
         },
       });
       if (!evaluatedArg.$) {
@@ -177,9 +181,6 @@ export function evaluateAnonymousStructValue({
       }
     }
   }
-
-  // Create structType
-  const structType = createStructType(elements);
 
   // Check if it's comptime value
   let structValue: StructValue | undefined = undefined;

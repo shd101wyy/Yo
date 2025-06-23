@@ -1,61 +1,40 @@
-/**
- * Macro
- *
- */
-open import "std";
-
-x :: quote(3); // quote function will return an expression, and not evaluate it.
-y :: expr_list(quote(4), quote(5 + 6));
-add :: quote(
-  unquote(x) + unquote(y.first())
-);
-z :: quote(7 + 8);
-str :: x.to_string(); // expr to string
-
-another_add :: quote(
-  add(unquote(x), unquote_splicing(y), unquote(z))
-);
-
-if :: ((quote(condition) : Expr,
-        quote(then) : Expr,
-        quote(else) : Expr ) -> unquote(Expr))
-  quote(
-    cond
-      unquote(condition) => unquote(then),
-      true => unquote(else)
-  )
-;
-
-expanded ::
-  macro_expand quote 
-    if true, 
-      then :
-        1 @+ unquote(x),
-      else : 2
-;
-
-a ::
-  3 @+ 4;
-
-/*
-TODO: Another Idea
-QUESTION: Should we make module type a structural type, instead of nominal?
-
-Clone ::
-  ((@(Self): Type)-> @(Type))
+Clone :: ((@(Self): Type) -> @(Module))
   module
-    Self  := Self,
-    clone : 
+    Self := Self,
+    clone :
       (self: &(Self)) -> Self
 ;
 
 Point :: struct
   x : i32,
-  y : i32
+  y : i32,
+
+  // Type method to implement Clone
+  clone :: ((self: &(Self)) -> Self)
+    Self(x: self.x, y: self.y)
+;
+SelfType :: Point.Self;
+
+CloneI32 :: Clone(i32);
+(@(I32Clone) : Clone(i32)) = module {
+  Self :: i32;
 
   clone :: ((self: &(Self)) -> Self)
-    Point(x: self.x, y: self.y)
-;
+    self.*
+  ;
+
+  copy :: ((self: &(Self)) -> Self)
+    self.*
+  ;
+
+  export Self, clone;
+};
+
+ClonePoint :: Clone(Point);
+(@(PointClone) : Clone(Point)) = Point; // This should work, Point implements Clone(Point) because it has a clone method, and its "Self" type also matches.
+PointClone.clone(&(Point(x: 1, 2))); // This should work, we can clone a Point using the module method.
+Point.clone(&(Point(1, 2))); // This should also work, we can clone a Point using the type method.
+
 
 some_func :: (( forall(@(Self) : Type ), 
                 self : &(Self),
@@ -66,4 +45,3 @@ some_func :: (( forall(@(Self) : Type ),
 
 point := Point(3, 4);
 some_func(point, implicit(Point)); // This should work. We can say Point also implements Clone(Point) because it has a clone method.
-*/

@@ -18,6 +18,7 @@ import {
   createI8Type,
   createIsizeType,
   createLinearType,
+  createTypeHierarchy,
   createTypeType,
   createU16Type,
   createU32Type,
@@ -76,6 +77,18 @@ export function evaluateIdentifierAndOperator({
   // Type
   else if (identifier === TypeTag.Type) {
     const value = createTypeValue(createTypeType());
+    expr.$ = {
+      env,
+      type: value.type,
+      value: value,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
+  // Module
+  else if (identifier === "Module") {
+    const value = createTypeValue(createTypeHierarchy(1));
     expr.$ = {
       env,
       type: value.type,

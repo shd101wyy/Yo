@@ -31,7 +31,7 @@ export function evaluateEnumType({
   }
 
   // Create enumType with empty variants
-  const enumType = createEnumType([]);
+  const enumType = createEnumType([], [], env);
 
   // Evaluate the variants
   const variants: EnumVariant[] = enumType.variants;

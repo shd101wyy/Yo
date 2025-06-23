@@ -18,7 +18,7 @@ import {
   areTypesCompatible,
   createModuleType,
   isModuleType,
-  TupleElement,
+  ModuleElement,
   Type,
   typeToString,
 } from "../../type-checker";
@@ -43,15 +43,15 @@ import { isValidVariableName } from "../utils";
  */
 export function evaluateModuleElementType({
   expr,
-  tupleElementIndex,
+  moduleElementIndex,
   env,
   context,
 }: {
   expr: Expr;
-  tupleElementIndex: number;
+  moduleElementIndex: number;
   env: Environment;
   context: EvaluatorContext;
-}): { type: TupleElement; env: Environment } {
+}): { type: ModuleElement; env: Environment } {
   let label: string | undefined = undefined;
   let expr_ = expr;
 
@@ -186,15 +186,15 @@ All module elements are compile-time only by default.`,
   let expectedTupleElementType: Type | undefined = undefined;
   if (expectedType) {
     if (isModuleType(expectedType)) {
-      const tupleElement = expectedType.elements[tupleElementIndex];
-      if (!tupleElement) {
+      const moduleElement = expectedType.elements[moduleElementIndex];
+      if (!moduleElement) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Failed to get the field at index ${tupleElementIndex}`,
+          errorMessage: `Failed to get the field at index ${moduleElementIndex}`,
         });
       }
 
-      expectedTupleElementType = tupleElement.type;
+      expectedTupleElementType = moduleElement.type;
     } else {
       /*
         throw formatErrorMessage(
@@ -435,7 +435,7 @@ export function evaluateModuleType({
 
   // Create moduleType with empty elements
   const moduleType = createModuleType([], env);
-  const elements: TupleElement[] = [];
+  const elements: ModuleElement[] = [];
   moduleType.elements = elements;
 
   // Push env frame
@@ -526,7 +526,7 @@ export function evaluateModuleType({
       const { type: element, env: nextEnv } = evaluateModuleElementType({
         expr: arg,
         env,
-        tupleElementIndex: i,
+        moduleElementIndex: i,
         context: {
           ...context,
           SelfType: undefined, // No SelfType in module context
