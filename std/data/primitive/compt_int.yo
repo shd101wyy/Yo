@@ -21,10 +21,6 @@ implicit(ComptIntMethods) :: module {
     __yo_compt_int_mod(lhs, rhs)
   ;
 
-  neg :: ((@(x): Self) -> @(Self))
-    __yo_compt_int_neg(x)
-  ;
-
   (@==) :: ((@(lhs): Self, @(rhs): Self) -> @(boolean))
     __yo_compt_int_eq(lhs, rhs)
   ;
@@ -49,6 +45,12 @@ implicit(ComptIntMethods) :: module {
     __yo_compt_int_gte(lhs, rhs)
   ;
 
+  neg :: ((@(x): Self) -> @(Self))
+    __yo_compt_int_neg(x)
+  ;
+
+  @~- :: neg;
+
   (to_float) :: ((@(x): Self) -> @(compt_float))
     __yo_compt_int_to_float(x)
   ;
@@ -56,8 +58,6 @@ implicit(ComptIntMethods) :: module {
   (to_string) :: ((@(x): Self) -> @(compt_string))
     __yo_compt_int_to_string(x)
   ;
-
-  s :: __yo_type_to_string(typeof(@>=));
 
   export
     Self,
@@ -72,7 +72,9 @@ implicit(ComptIntMethods) :: module {
     @<,
     @<=,
     @>,
-    @>=
+    @>=,
+    to_float,
+    to_string
   ;
 };
 

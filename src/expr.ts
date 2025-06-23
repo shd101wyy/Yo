@@ -372,6 +372,32 @@ export const BuiltinFunctions = {
   __yo_compt_float_to_int: ["__yo_compt_float_to_int"],
   __yo_compt_float_to_string: ["__yo_compt_float_to_string"],
 
+  // compt_boolean related functions
+  /// 2 args
+  __yo_compt_boolean_and: ["__yo_compt_boolean_and"],
+  __yo_compt_boolean_or: ["__yo_compt_boolean_or"],
+  __yo_compt_boolean_eq: ["__yo_compt_boolean_eq"],
+  __yo_compt_boolean_neq: ["__yo_compt_boolean_neq"],
+  // 1 arg
+  __yo_compt_boolean_not: ["__yo_compt_boolean_not"],
+  __yo_compt_boolean_to_string: ["__yo_compt_boolean_to_string"],
+
+  // compt_string related functions
+  /// 2 args
+  __yo_compt_string_concat: ["__yo_compt_string_concat"],
+  __yo_compt_string_eq: ["__yo_compt_string_eq"],
+  __yo_compt_string_neq: ["__yo_compt_string_neq"],
+  __yo_compt_string_lt: ["__yo_compt_string_lt"],
+  __yo_compt_string_lte: ["__yo_compt_string_lte"],
+  __yo_compt_string_gt: ["__yo_compt_string_gt"],
+  __yo_compt_string_gte: ["__yo_compt_string_gte"],
+  // 1 arg
+  __yo_compt_string_length: ["__yo_compt_string_length"],
+  __yo_compt_string_to_upper: ["__yo_compt_string_to_upper"],
+  __yo_compt_string_to_lower: ["__yo_compt_string_to_lower"],
+  // 2-3 args (string, start, optional end)
+  __yo_compt_string_slice: ["__yo_compt_string_slice"],
+
   // Type related functions
   __yo_type_to_string: ["__yo_type_to_string"],
   __yo_type_is_linear: ["__yo_type_is_linear"],

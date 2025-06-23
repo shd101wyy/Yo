@@ -181,7 +181,8 @@ The **Yo** language is heavily inspired by:
 - [Python](https://python.org/)
   - Keyword arguments
 - [C++](https://isocpp.org/)
-  - Reference
+  - ~~Reference~~
+  - RAII
 - [Scheme (Lisp)](https://www.scheme.com/)
   - `set!`
   - [Meta-programming (Macros)](https://docs.racket-lang.org/reference/quasiquote.html)

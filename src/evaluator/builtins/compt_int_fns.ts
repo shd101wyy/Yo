@@ -175,7 +175,7 @@ export function evaluateYoComptIntFunctions({
         }
 
         value = createComptIntValue(
-          Math.floor(lhsValue.value / rhsValue.value)
+          Math.trunc(lhsValue.value / rhsValue.value)
         );
       } else {
         value = createUnknownValue(createComptIntType());
@@ -191,9 +191,7 @@ export function evaluateYoComptIntFunctions({
           });
         }
 
-        value = createComptIntValue(
-          Math.floor(lhsValue.value % rhsValue.value)
-        );
+        value = createComptIntValue(lhsValue.value % rhsValue.value);
       } else {
         value = createUnknownValue(createComptIntType());
       }

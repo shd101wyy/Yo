@@ -17,9 +17,11 @@ import { ModuleValue } from "../value";
 // Import extracted evaluator functions
 import { evaluateAndOr } from "./builtins/and_or";
 import { evaluateComptAssert } from "./builtins/compt_assert";
+import { evaluateYoComptBooleanFunctions } from "./builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "./builtins/compt_expect_error";
 import { evaluateYoComptFloatFunctions } from "./builtins/compt_float_fns";
 import { evaluateYoComptIntFunctions } from "./builtins/compt_int_fns";
+import { evaluateYoComptStringFunctions } from "./builtins/compt_string_fns";
 import { evaluateDrop } from "./builtins/drop";
 import {
   evaluateYoExprGetArgs,
@@ -509,6 +511,73 @@ ${exprToString(expr)}`,
         )
       ) {
         return evaluateYoComptFloatFunctions({
+          expr,
+          env,
+          context: { ...context },
+        });
+      }
+      // compt_boolean related functions
+      else if (
+        exprIsFunctionCallOf(
+          expr,
+          BuiltinFunctions.__yo_compt_boolean_and,
+          2
+        ) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_or, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_eq, 2) ||
+        exprIsFunctionCallOf(
+          expr,
+          BuiltinFunctions.__yo_compt_boolean_neq,
+          2
+        ) ||
+        exprIsFunctionCallOf(
+          expr,
+          BuiltinFunctions.__yo_compt_boolean_not,
+          1
+        ) ||
+        exprIsFunctionCallOf(
+          expr,
+          BuiltinFunctions.__yo_compt_boolean_to_string,
+          1
+        )
+      ) {
+        return evaluateYoComptBooleanFunctions({
+          expr,
+          env,
+          context: { ...context },
+        });
+      }
+      // compt_string related functions
+      else if (
+        exprIsFunctionCallOf(
+          expr,
+          BuiltinFunctions.__yo_compt_string_concat,
+          2
+        ) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_eq, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_neq, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_lt, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_lte, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_gt, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_gte, 2) ||
+        exprIsFunctionCallOf(
+          expr,
+          BuiltinFunctions.__yo_compt_string_length,
+          1
+        ) ||
+        exprIsFunctionCallOf(
+          expr,
+          BuiltinFunctions.__yo_compt_string_to_upper,
+          1
+        ) ||
+        exprIsFunctionCallOf(
+          expr,
+          BuiltinFunctions.__yo_compt_string_to_lower,
+          1
+        ) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_slice)
+      ) {
+        return evaluateYoComptStringFunctions({
           expr,
           env,
           context: { ...context },
