@@ -81,6 +81,15 @@ export function evaluateFunctionParameterType({
         SelfType: functionValue?.SelfType,
       },
     });
+    if (!evaluatedDefaultValueExpr.$) {
+      throw formatErrorMessage({
+        token: defaultValueExpr.token,
+        errorMessage: `Failed to evaluate default value expression:\n${exprToString(defaultValueExpr)}`,
+      });
+    }
+    calleeEnv = evaluatedDefaultValueExpr.$?.env;
+
+    /*
     const value = evaluatedDefaultValueExpr.$?.value;
     if (!value) {
       throw formatErrorMessage({
@@ -88,10 +97,12 @@ export function evaluateFunctionParameterType({
         errorMessage: `Expected value for parameter, got:\n${exprToString(defaultValueExpr)}`,
       });
     }
-    if (evaluatedDefaultValueExpr.$?.env) {
-      calleeEnv = evaluatedDefaultValueExpr.$?.env;
-    }
-    const parameterType = value.type;
+    */
+
+    const parameterType = evaluatedDefaultValueExpr.$.type; // value.type;
+    // NOTE: Using value.type is wrong here.
+    // value might be i32,
+    // but expr type is Type, not Free.
     return {
       parameterType,
       calleeEnv,
