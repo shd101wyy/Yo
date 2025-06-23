@@ -243,7 +243,7 @@ export function isComptIntValue(value?: Value): value is NumberValue {
   return value?.tag === ValueTag.ComptInt;
 }
 
-export function isComptFloatValue(value?: Value): boolean {
+export function isComptFloatValue(value?: Value): value is NumberValue {
   return value?.tag === ValueTag.ComptFloat;
 }
 

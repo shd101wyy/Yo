@@ -605,11 +605,11 @@ export function evaluateFunctionParameters({
   // Check if the parameters has ExprList type
   // If yes then it must be the last parameter
   parameters.forEach((parameter, index) => {
-    if (isExprListType(parameter.type)) {
+    if (parameter.isQuote && isExprListType(parameter.type)) {
       if (index !== parameters.length - 1) {
         throw formatErrorMessage({
           token: parameter.exprs.expr.token,
-          errorMessage: `Expected ExprList type to be the last parameter, got ${parameter.label}`,
+          errorMessage: `Expected ExprList type to be the last parameter.`,
         });
       }
     }

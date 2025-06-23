@@ -18,6 +18,7 @@ import { ModuleValue } from "../value";
 import { evaluateAndOr } from "./builtins/and_or";
 import { evaluateComptAssert } from "./builtins/compt_assert";
 import { evaluateComptExpectError } from "./builtins/compt_expect_error";
+import { evaluateYoComptFloatFunctions } from "./builtins/compt_float_fns";
 import { evaluateYoComptIntFunctions } from "./builtins/compt_int_fns";
 import { evaluateDrop } from "./builtins/drop";
 import {
@@ -478,6 +479,36 @@ ${exprToString(expr)}`,
         exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_to_string, 1)
       ) {
         return evaluateYoComptIntFunctions({
+          expr,
+          env,
+          context: { ...context },
+        });
+      }
+      // compt_float related arithmetic functions
+      else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_add, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_sub, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_mul, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_div, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_eq, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_neq, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_lt, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_lte, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_gt, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_gte, 2) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_neg, 1) ||
+        exprIsFunctionCallOf(
+          expr,
+          BuiltinFunctions.__yo_compt_float_to_int,
+          1
+        ) ||
+        exprIsFunctionCallOf(
+          expr,
+          BuiltinFunctions.__yo_compt_float_to_string,
+          1
+        )
+      ) {
+        return evaluateYoComptFloatFunctions({
           expr,
           env,
           context: { ...context },
