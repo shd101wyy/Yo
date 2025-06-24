@@ -691,15 +691,21 @@ export function mergeAndCheckEnvs(
   // Check each frame
   for (let i = 0; i <= maxFrameLevel; i++) {
     const frame = env.frames[i]!;
-    const frameVariables = frame.variables;
+    const frameVariables = [...frame.variables];
 
     // Build the consumedAtToken matrix
     // that has 1 + caseEnvs.length rows
     // and frameVariables.length columns
     // each cell is consumedAtToken of the value
-    const matrix: (Token | undefined)[][] = [[]];
-    frameVariables.forEach((value) => {
-      matrix[0]!.push(value.consumedAtToken);
+    const matrix: {
+      consumedAtToken: Token | undefined;
+      isUndefined: boolean;
+    }[][] = [[]];
+    frameVariables.forEach((variale) => {
+      matrix[0]!.push({
+        consumedAtToken: variale.consumedAtToken,
+        isUndefined: variale.isUndefined,
+      });
     });
 
     for (let j = 0; j < caseEnvs.length; j++) {
@@ -742,8 +748,11 @@ export function mergeAndCheckEnvs(
 
       // Check the consumedAtToken
       matrix.push([]);
-      caseEnvFrameVariables.forEach((value) => {
-        matrix[matrix.length - 1]!.push(value.consumedAtToken);
+      caseEnvFrameVariables.forEach((variable) => {
+        matrix[matrix.length - 1]!.push({
+          consumedAtToken: variable.consumedAtToken,
+          isUndefined: variable.isUndefined,
+        });
       });
     }
 
@@ -757,8 +766,10 @@ export function mergeAndCheckEnvs(
     for (let i = 0; i < cols; i++) {
       // const variableName = frameVariables[i]!.name;
       const tokens: (Token | undefined)[] = [];
+      const undefinedList: boolean[] = [];
       for (let j = 1; j < rows; j++) {
-        tokens.push(matrix[j]![i]);
+        tokens.push(matrix[j]![i]!.consumedAtToken);
+        undefinedList.push(matrix[j]![i]!.isUndefined);
       }
 
       // Check the "Free" values.
@@ -766,23 +777,19 @@ export function mergeAndCheckEnvs(
       if (isFreeType(typeOfType(frameVariables[i]!.type))) {
         const consumed = tokens.filter((t) => !!t) as Token[];
         if (consumed.length > 0) {
-          const newVariableValue: Variable = {
+          const newVariable: Variable = {
             ...frameVariables[i]!,
             consumedAtToken: tokens[0],
           };
-          env = updateExistingVariable(
-            env,
-            frameVariables[i]!,
-            newVariableValue
-          );
+          env = updateExistingVariable(env, frameVariables[i]!, newVariable);
+          frameVariables[i] = newVariable;
         }
-        continue;
-      }
-
-      // case 1
-      if (tokens.length === 1) {
-        if (!!tokens[0] && !frameVariables[i]!.consumedAtToken) {
-          /*
+      } else {
+        // consumedAtToken
+        // case 1
+        if (tokens.length === 1) {
+          if (!!tokens[0] && !frameVariables[i]!.consumedAtToken) {
+            /*
           throw formatErrorMessages({
             tokenAndErrorList: [
               {
@@ -796,27 +803,30 @@ export function mergeAndCheckEnvs(
             ],
           });
           */
-          // RAII, call "drop" on variable if it is not consumed.
-          env = updateExistingVariable(env, frameVariables[i]!, {
+            // RAII, call "drop" on variable if it is not consumed.
+            const newVariable: Variable = {
+              ...frameVariables[i]!,
+              consumedAtToken: tokens[0],
+            };
+            env = updateExistingVariable(env, frameVariables[i]!, newVariable);
+            frameVariables[i] = newVariable;
+          }
+        }
+        // case 2
+        else if (tokens.every((t) => !!t)) {
+          const newVariable: Variable = {
             ...frameVariables[i]!,
             consumedAtToken: tokens[0],
-          });
+          };
+          env = updateExistingVariable(env, frameVariables[i]!, newVariable);
+          frameVariables[i] = newVariable;
         }
-      }
-      // case 2
-      else if (tokens.every((t) => !!t)) {
-        const newVariableValue: Variable = {
-          ...frameVariables[i]!,
-          consumedAtToken: tokens[0],
-        };
-        env = updateExistingVariable(env, frameVariables[i]!, newVariableValue);
-      } else {
         // case 3
-
-        const consumed = tokens.filter((t) => !!t) as Token[];
-        const notConsumed = tokens.filter((t) => !t);
-        if (consumed.length > 0 && notConsumed.length > 0) {
-          /*
+        else {
+          const consumed = tokens.filter((t) => !!t) as Token[];
+          const notConsumed = tokens.filter((t) => !t);
+          if (consumed.length > 0 && notConsumed.length > 0) {
+            /*
           throw formatErrorMessages({
             errorMessage: `Variable "${variableName}" might be consumed in some cases but not consumed in other cases:\n`,
             tokenAndErrorList: tokens.map((token, index) => {
@@ -830,10 +840,56 @@ export function mergeAndCheckEnvs(
           });
           */
 
-          // RAII, call "drop" on variable if it is not consumed.
-          env = updateExistingVariable(env, frameVariables[i]!, {
-            ...frameVariables[i]!,
-            consumedAtToken: consumed[0],
+            // RAII, call "drop" on variable if it is not consumed.
+            const newVariable: Variable = {
+              ...frameVariables[i]!,
+              consumedAtToken: consumed[0],
+            };
+            env = updateExistingVariable(env, frameVariables[i]!, newVariable);
+            frameVariables[i] = newVariable;
+          }
+        }
+      }
+
+      // isUndefined
+      // case 1
+      if (undefinedList.length === 1) {
+        if (!undefinedList[0] && frameVariables[i]!.isUndefined) {
+          throw formatErrorMessages({
+            tokenAndErrorList: [
+              {
+                token: frameVariables[i]!.token,
+                errorMessage: `Variable "${frameVariables[i]!.name}" is marked as undefined, but it is initialized in the case.`,
+              },
+            ],
+          });
+        }
+      }
+      // case 2
+      // variable is undefined outside, but all cases make it defined.
+      else if (
+        frameVariables[i]!.isUndefined &&
+        undefinedList.every((u) => !u)
+      ) {
+        const newVariable: Variable = {
+          ...frameVariables[i]!,
+          isUndefined: false,
+        };
+        env = updateExistingVariable(env, frameVariables[i]!, newVariable);
+        frameVariables[i] = newVariable;
+      }
+      // case 3
+      else {
+        const undefined_ = undefinedList.filter((u) => !!u);
+        const notUndefined = undefinedList.filter((u) => !u);
+        if (undefined_.length > 0 && notUndefined.length > 0) {
+          throw formatErrorMessages({
+            tokenAndErrorList: [
+              {
+                token: frameVariables[i]!.token,
+                errorMessage: `Variable "${frameVariables[i]!.name}" is marked as undefined in some cases but not in others.`,
+              },
+            ],
           });
         }
       }
