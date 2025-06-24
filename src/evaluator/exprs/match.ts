@@ -192,6 +192,12 @@ export function evaluateMatch({
         });
       }
       checkedVariantNames.add(variantName);
+      if (
+        enumType.selectedVariantName &&
+        enumType.selectedVariantName !== variantName
+      ) {
+        continue; // No need to continue if the variant is not selected
+      }
 
       let bodyExpr: Expr;
       // Update the enum type to set the selectedVariantName
