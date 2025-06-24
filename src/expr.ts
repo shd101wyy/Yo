@@ -204,12 +204,23 @@ export function exprIsFunctionCallOf(
   funcNames: string | string[],
   argumentCount?: number
 ): boolean {
+  if (expr.tag !== ExprTag.FuncCall) {
+    return false;
+  }
+  if (expr.func.tag !== ExprTag.Atom) {
+    return false;
+  }
+  let funcName = expr.func.token.value;
+  if (expr.func.token.type === TokenType.BacktickIdentifier) {
+    funcName = funcName.slice(1, -1); // Remove backticks
+  }
+
   return (
     expr.tag === ExprTag.FuncCall &&
     expr.func.tag === ExprTag.Atom &&
     (typeof funcNames === "string"
-      ? expr.func.token.value === funcNames
-      : funcNames.includes(expr.func.token.value)) &&
+      ? funcName === funcNames
+      : funcNames.includes(funcName)) &&
     (argumentCount === undefined || expr.args.length === argumentCount)
   );
 }
