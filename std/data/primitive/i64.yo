@@ -1,58 +1,62 @@
-implicit(ComptFloatMethods) :: module {
-  Self :: compt_float;
+implicit(ComptI64Methods) :: module {
+  Self :: i64;
 
   (@+) :: ((@(lhs): Self, @(rhs): Self) -> @(Self))
-    __yo_compt_float_add(lhs, rhs)
+    __yo_i64_add(lhs, rhs)
   ;
 
   (@-) :: ((@(lhs): Self, @(rhs): Self) -> @(Self))
-    __yo_compt_float_sub(lhs, rhs)
+    __yo_i64_sub(lhs, rhs)
   ;
 
   (@*) :: ((@(lhs): Self, @(rhs): Self) -> @(Self))
-    __yo_compt_float_mul(lhs, rhs)
+    __yo_i64_mul(lhs, rhs)
   ;
 
   (@/) :: ((@(lhs): Self, @(rhs): Self) -> @(Self))
-    __yo_compt_float_div(lhs, rhs)
+    __yo_i64_div(lhs, rhs)
   ;
 
+  (@%) :: ((@(lhs): Self, @(rhs): Self) -> @(Self))
+    __yo_i64_mod(lhs, rhs)
+  ;
 
   (@==) :: ((@(lhs): Self, @(rhs): Self) -> @(boolean))
-    __yo_compt_float_eq(lhs, rhs)
+    __yo_i64_eq(lhs, rhs)
   ;
 
   (@!=) :: ((@(lhs): Self, @(rhs): Self) -> @(boolean))
-    __yo_compt_float_neq(lhs, rhs)
+    __yo_i64_neq(lhs, rhs)
   ;
 
   (@<) :: ((@(lhs): Self, @(rhs): Self) -> @(boolean))
-    __yo_compt_float_lt(lhs, rhs)
+    __yo_i64_lt(lhs, rhs)
   ;
 
   (@<=) :: ((@(lhs): Self, @(rhs): Self) -> @(boolean))
-    __yo_compt_float_lte(lhs, rhs)
+    __yo_i64_lte(lhs, rhs)
   ;
 
   (@>) :: ((@(lhs): Self, @(rhs): Self) -> @(boolean))
-    __yo_compt_float_gt(lhs, rhs)
+    __yo_i64_gt(lhs, rhs)
   ;
 
   (@>=) :: ((@(lhs): Self, @(rhs): Self) -> @(boolean))
-    __yo_compt_float_gte(lhs, rhs)
+    __yo_i64_gte(lhs, rhs)
   ;
 
-
-  neg :: ((@(x): Self) -> @(Self))
-    __yo_compt_float_neg(x)
+  neg :: ((@(self): Self) -> @(Self))
+    __yo_i64_neg(self)
   ;
+
+  @~- :: neg;
 
   (as) :: ((@(self): Self, @(Target): Type) -> @(Target))
-    __yo_compt_float_as(self, Target)
+    __yo_i64_as(self, Target)
   ;
 
-  (to_string) :: ((@(x): Self) -> @(compt_string))
-    __yo_compt_float_to_string(x)
+  (to_string) :: ((@(self): Self) -> @(compt_string))
+    __yo_i64_to_string(self)
   ;
 
   export
@@ -61,17 +65,18 @@ implicit(ComptFloatMethods) :: module {
     @-,
     @*,
     @/,
+    @%,
+    neg,
     @==,
     @!=,
     @<,
     @<=,
     @>,
     @>=,
-    neg,
     as,
     to_string
   ;
 };
 
 export
-  ComptFloatMethods;
+  ComptI64Methods;

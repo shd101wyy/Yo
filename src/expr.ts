@@ -362,6 +362,7 @@ export const BuiltinFunctions = {
   __yo_compt_int_lte: ["__yo_compt_int_lte"],
   __yo_compt_int_gt: ["__yo_compt_int_gt"],
   __yo_compt_int_gte: ["__yo_compt_int_gte"],
+  __yo_compt_int_as: ["__yo_compt_int_as"], // Convert to a different integer type
   // 1 arg
   __yo_compt_int_neg: ["__yo_compt_int_neg"],
   __yo_compt_int_to_float: ["__yo_compt_int_to_float"],
@@ -379,10 +380,202 @@ export const BuiltinFunctions = {
   __yo_compt_float_lte: ["__yo_compt_float_lte"],
   __yo_compt_float_gt: ["__yo_compt_float_gt"],
   __yo_compt_float_gte: ["__yo_compt_float_gte"],
+  __yo_compt_float_as: ["__yo_compt_float_as"], // Convert to a different float type
   // 1 arg
   __yo_compt_float_neg: ["__yo_compt_float_neg"],
   __yo_compt_float_to_int: ["__yo_compt_float_to_int"],
   __yo_compt_float_to_string: ["__yo_compt_float_to_string"],
+
+  // Numeric type functions (u8, i8, u16, i16, u32, i32, u64, i64, usize, isize, f32, f64)
+  // u8 functions
+  __yo_u8_add: ["__yo_u8_add"],
+  __yo_u8_sub: ["__yo_u8_sub"],
+  __yo_u8_mul: ["__yo_u8_mul"],
+  __yo_u8_div: ["__yo_u8_div"],
+  __yo_u8_mod: ["__yo_u8_mod"],
+  __yo_u8_eq: ["__yo_u8_eq"],
+  __yo_u8_neq: ["__yo_u8_neq"],
+  __yo_u8_lt: ["__yo_u8_lt"],
+  __yo_u8_lte: ["__yo_u8_lte"],
+  __yo_u8_gt: ["__yo_u8_gt"],
+  __yo_u8_gte: ["__yo_u8_gte"],
+  __yo_u8_neg: ["__yo_u8_neg"],
+  __yo_u8_to_string: ["__yo_u8_to_string"],
+  __yo_u8_as: ["__yo_u8_as"], // Convert to a different number type
+
+  // i8 functions
+  __yo_i8_add: ["__yo_i8_add"],
+  __yo_i8_sub: ["__yo_i8_sub"],
+  __yo_i8_mul: ["__yo_i8_mul"],
+  __yo_i8_div: ["__yo_i8_div"],
+  __yo_i8_mod: ["__yo_i8_mod"],
+  __yo_i8_eq: ["__yo_i8_eq"],
+  __yo_i8_neq: ["__yo_i8_neq"],
+  __yo_i8_lt: ["__yo_i8_lt"],
+  __yo_i8_lte: ["__yo_i8_lte"],
+  __yo_i8_gt: ["__yo_i8_gt"],
+  __yo_i8_gte: ["__yo_i8_gte"],
+  __yo_i8_neg: ["__yo_i8_neg"],
+  __yo_i8_to_string: ["__yo_i8_to_string"],
+  __yo_i8_as: ["__yo_i8_as"], // Convert to a different number type
+
+  // u16 functions
+  __yo_u16_add: ["__yo_u16_add"],
+  __yo_u16_sub: ["__yo_u16_sub"],
+  __yo_u16_mul: ["__yo_u16_mul"],
+  __yo_u16_div: ["__yo_u16_div"],
+  __yo_u16_mod: ["__yo_u16_mod"],
+  __yo_u16_eq: ["__yo_u16_eq"],
+  __yo_u16_neq: ["__yo_u16_neq"],
+  __yo_u16_lt: ["__yo_u16_lt"],
+  __yo_u16_lte: ["__yo_u16_lte"],
+  __yo_u16_gt: ["__yo_u16_gt"],
+  __yo_u16_gte: ["__yo_u16_gte"],
+  __yo_u16_neg: ["__yo_u16_neg"],
+  __yo_u16_to_string: ["__yo_u16_to_string"],
+  __yo_u16_as: ["__yo_u16_as"], // Convert to a different number type
+
+  // i16 functions
+  __yo_i16_add: ["__yo_i16_add"],
+  __yo_i16_sub: ["__yo_i16_sub"],
+  __yo_i16_mul: ["__yo_i16_mul"],
+  __yo_i16_div: ["__yo_i16_div"],
+  __yo_i16_mod: ["__yo_i16_mod"],
+  __yo_i16_eq: ["__yo_i16_eq"],
+  __yo_i16_neq: ["__yo_i16_neq"],
+  __yo_i16_lt: ["__yo_i16_lt"],
+  __yo_i16_lte: ["__yo_i16_lte"],
+  __yo_i16_gt: ["__yo_i16_gt"],
+  __yo_i16_gte: ["__yo_i16_gte"],
+  __yo_i16_neg: ["__yo_i16_neg"],
+  __yo_i16_to_string: ["__yo_i16_to_string"],
+  __yo_i16_as: ["__yo_i16_as"], // Convert to a different number type
+
+  // u32 functions
+  __yo_u32_add: ["__yo_u32_add"],
+  __yo_u32_sub: ["__yo_u32_sub"],
+  __yo_u32_mul: ["__yo_u32_mul"],
+  __yo_u32_div: ["__yo_u32_div"],
+  __yo_u32_mod: ["__yo_u32_mod"],
+  __yo_u32_eq: ["__yo_u32_eq"],
+  __yo_u32_neq: ["__yo_u32_neq"],
+  __yo_u32_lt: ["__yo_u32_lt"],
+  __yo_u32_lte: ["__yo_u32_lte"],
+  __yo_u32_gt: ["__yo_u32_gt"],
+  __yo_u32_gte: ["__yo_u32_gte"],
+  __yo_u32_neg: ["__yo_u32_neg"],
+  __yo_u32_to_string: ["__yo_u32_to_string"],
+  __yo_u32_as: ["__yo_u32_as"], // Convert to a different number type
+
+  // i32 functions
+  __yo_i32_add: ["__yo_i32_add"],
+  __yo_i32_sub: ["__yo_i32_sub"],
+  __yo_i32_mul: ["__yo_i32_mul"],
+  __yo_i32_div: ["__yo_i32_div"],
+  __yo_i32_mod: ["__yo_i32_mod"],
+  __yo_i32_eq: ["__yo_i32_eq"],
+  __yo_i32_neq: ["__yo_i32_neq"],
+  __yo_i32_lt: ["__yo_i32_lt"],
+  __yo_i32_lte: ["__yo_i32_lte"],
+  __yo_i32_gt: ["__yo_i32_gt"],
+  __yo_i32_gte: ["__yo_i32_gte"],
+  __yo_i32_neg: ["__yo_i32_neg"],
+  __yo_i32_to_string: ["__yo_i32_to_string"],
+  __yo_i32_as: ["__yo_i32_as"], // Convert to a different number type
+
+  // u64 functions
+  __yo_u64_add: ["__yo_u64_add"],
+  __yo_u64_sub: ["__yo_u64_sub"],
+  __yo_u64_mul: ["__yo_u64_mul"],
+  __yo_u64_div: ["__yo_u64_div"],
+  __yo_u64_mod: ["__yo_u64_mod"],
+  __yo_u64_eq: ["__yo_u64_eq"],
+  __yo_u64_neq: ["__yo_u64_neq"],
+  __yo_u64_lt: ["__yo_u64_lt"],
+  __yo_u64_lte: ["__yo_u64_lte"],
+  __yo_u64_gt: ["__yo_u64_gt"],
+  __yo_u64_gte: ["__yo_u64_gte"],
+  __yo_u64_neg: ["__yo_u64_neg"],
+  __yo_u64_to_string: ["__yo_u64_to_string"],
+  __yo_u64_as: ["__yo_u64_as"], // Convert to a different number type
+
+  // i64 functions
+  __yo_i64_add: ["__yo_i64_add"],
+  __yo_i64_sub: ["__yo_i64_sub"],
+  __yo_i64_mul: ["__yo_i64_mul"],
+  __yo_i64_div: ["__yo_i64_div"],
+  __yo_i64_mod: ["__yo_i64_mod"],
+  __yo_i64_eq: ["__yo_i64_eq"],
+  __yo_i64_neq: ["__yo_i64_neq"],
+  __yo_i64_lt: ["__yo_i64_lt"],
+  __yo_i64_lte: ["__yo_i64_lte"],
+  __yo_i64_gt: ["__yo_i64_gt"],
+  __yo_i64_gte: ["__yo_i64_gte"],
+  __yo_i64_neg: ["__yo_i64_neg"],
+  __yo_i64_to_string: ["__yo_i64_to_string"],
+  __yo_i64_as: ["__yo_i64_as"], // Convert to a different number type
+
+  // usize functions
+  __yo_usize_add: ["__yo_usize_add"],
+  __yo_usize_sub: ["__yo_usize_sub"],
+  __yo_usize_mul: ["__yo_usize_mul"],
+  __yo_usize_div: ["__yo_usize_div"],
+  __yo_usize_mod: ["__yo_usize_mod"],
+  __yo_usize_eq: ["__yo_usize_eq"],
+  __yo_usize_neq: ["__yo_usize_neq"],
+  __yo_usize_lt: ["__yo_usize_lt"],
+  __yo_usize_lte: ["__yo_usize_lte"],
+  __yo_usize_gt: ["__yo_usize_gt"],
+  __yo_usize_gte: ["__yo_usize_gte"],
+  __yo_usize_neg: ["__yo_usize_neg"],
+  __yo_usize_to_string: ["__yo_usize_to_string"],
+  __yo_usize_as: ["__yo_usize_as"], // Convert to a different number type
+
+  // isize functions
+  __yo_isize_add: ["__yo_isize_add"],
+  __yo_isize_sub: ["__yo_isize_sub"],
+  __yo_isize_mul: ["__yo_isize_mul"],
+  __yo_isize_div: ["__yo_isize_div"],
+  __yo_isize_mod: ["__yo_isize_mod"],
+  __yo_isize_eq: ["__yo_isize_eq"],
+  __yo_isize_neq: ["__yo_isize_neq"],
+  __yo_isize_lt: ["__yo_isize_lt"],
+  __yo_isize_lte: ["__yo_isize_lte"],
+  __yo_isize_gt: ["__yo_isize_gt"],
+  __yo_isize_gte: ["__yo_isize_gte"],
+  __yo_isize_neg: ["__yo_isize_neg"],
+  __yo_isize_to_string: ["__yo_isize_to_string"],
+  __yo_isize_as: ["__yo_isize_as"], // Convert to a different number type
+
+  // f32 functions
+  __yo_f32_add: ["__yo_f32_add"],
+  __yo_f32_sub: ["__yo_f32_sub"],
+  __yo_f32_mul: ["__yo_f32_mul"],
+  __yo_f32_div: ["__yo_f32_div"],
+  __yo_f32_eq: ["__yo_f32_eq"],
+  __yo_f32_neq: ["__yo_f32_neq"],
+  __yo_f32_lt: ["__yo_f32_lt"],
+  __yo_f32_lte: ["__yo_f32_lte"],
+  __yo_f32_gt: ["__yo_f32_gt"],
+  __yo_f32_gte: ["__yo_f32_gte"],
+  __yo_f32_neg: ["__yo_f32_neg"],
+  __yo_f32_to_string: ["__yo_f32_to_string"],
+  __yo_f32_as: ["__yo_f32_as"], // Convert to a different number type
+
+  // f64 functions
+  __yo_f64_add: ["__yo_f64_add"],
+  __yo_f64_sub: ["__yo_f64_sub"],
+  __yo_f64_mul: ["__yo_f64_mul"],
+  __yo_f64_div: ["__yo_f64_div"],
+  __yo_f64_eq: ["__yo_f64_eq"],
+  __yo_f64_neq: ["__yo_f64_neq"],
+  __yo_f64_lt: ["__yo_f64_lt"],
+  __yo_f64_lte: ["__yo_f64_lte"],
+  __yo_f64_gt: ["__yo_f64_gt"],
+  __yo_f64_gte: ["__yo_f64_gte"],
+  __yo_f64_neg: ["__yo_f64_neg"],
+  __yo_f64_to_string: ["__yo_f64_to_string"],
+  __yo_f64_as: ["__yo_f64_as"], // Convert to a different number type
 
   // compt_boolean related functions
   /// 2 args

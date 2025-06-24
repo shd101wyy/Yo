@@ -2609,3 +2609,89 @@ export function setTypeAsLinear(type: Type): Type {
     forceLinear: true,
   };
 }
+
+export function isIntegerType(type?: Type): boolean {
+  return (
+    type?.tag === TypeTag.U8 ||
+    type?.tag === TypeTag.I8 ||
+    type?.tag === TypeTag.U16 ||
+    type?.tag === TypeTag.I16 ||
+    type?.tag === TypeTag.U32 ||
+    type?.tag === TypeTag.I32 ||
+    type?.tag === TypeTag.U64 ||
+    type?.tag === TypeTag.I64 ||
+    type?.tag === TypeTag.Usize ||
+    type?.tag === TypeTag.Isize
+  );
+}
+
+export function isFloatType(type?: Type): boolean {
+  return type?.tag === TypeTag.F32 || type?.tag === TypeTag.F64;
+}
+
+export function isSignedIntegerType(type?: Type): boolean {
+  return (
+    type?.tag === TypeTag.I8 ||
+    type?.tag === TypeTag.I16 ||
+    type?.tag === TypeTag.I32 ||
+    type?.tag === TypeTag.I64 ||
+    type?.tag === TypeTag.Isize
+  );
+}
+
+export function isUnsignedIntegerType(type?: Type): boolean {
+  return (
+    type?.tag === TypeTag.U8 ||
+    type?.tag === TypeTag.U16 ||
+    type?.tag === TypeTag.U32 ||
+    type?.tag === TypeTag.U64 ||
+    type?.tag === TypeTag.Usize
+  );
+}
+
+export function getIntegerTypeBits(type: Type): number {
+  switch (type.tag) {
+    case TypeTag.U8:
+    case TypeTag.I8:
+      return 8;
+    case TypeTag.U16:
+    case TypeTag.I16:
+      return 16;
+    case TypeTag.U32:
+    case TypeTag.I32:
+      return 32;
+    case TypeTag.U64:
+    case TypeTag.I64:
+      return 64;
+    case TypeTag.Usize:
+    case TypeTag.Isize:
+      return getPtrSize() * 8; // Platform dependent
+    default:
+      throw new Error(`Not an integer type: ${type.tag}`);
+  }
+}
+
+export function getIntegerTypeRange(type: Type): { min: bigint; max: bigint } {
+  const bits = getIntegerTypeBits(type);
+
+  if (isUnsignedIntegerType(type)) {
+    return {
+      min: 0n,
+      max: (1n << BigInt(bits)) - 1n,
+    };
+  } else {
+    const maxPositive = (1n << BigInt(bits - 1)) - 1n;
+    return {
+      min: -(1n << BigInt(bits - 1)),
+      max: maxPositive,
+    };
+  }
+}
+
+export function canComptIntCastTo(targetType: Type): boolean {
+  return isIntegerType(targetType) || isComptIntType(targetType);
+}
+
+export function canComptFloatCastTo(targetType: Type): boolean {
+  return isFloatType(targetType) || isComptFloatType(targetType);
+}

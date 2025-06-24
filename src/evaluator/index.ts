@@ -8,7 +8,9 @@ import {
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  ExprTag,
   exprToString,
+  FuncCallExpr,
 } from "../expr";
 import Parser from "../parser";
 import { Token, TokenType } from "../token";
@@ -19,8 +21,6 @@ import { evaluateAndOr } from "./builtins/and_or";
 import { evaluateComptAssert } from "./builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "./builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "./builtins/compt_expect_error";
-import { evaluateYoComptFloatFunctions } from "./builtins/compt_float_fns";
-import { evaluateYoComptIntFunctions } from "./builtins/compt_int_fns";
 import { evaluateYoComptStringFunctions } from "./builtins/compt_string_fns";
 import { evaluateDrop } from "./builtins/drop";
 import {
@@ -40,6 +40,7 @@ import {
 import { evaluateGensym } from "./builtins/gensym";
 import { evaluateMacroExpand } from "./builtins/macro_expand";
 import { evaluateNot } from "./builtins/not";
+import { evaluateYoNumericFunctions } from "./builtins/numeric_fns";
 import { evaluateQuote } from "./builtins/quote";
 import {
   evaluateYoAreTypesCompatible,
@@ -465,59 +466,28 @@ ${exprToString(expr)}`,
           context: { ...context },
         });
       }
-      // compt_int related arithmetic functions
+      // All numeric type functions (u8, i8, u16, i16, u32, i32, u64, i64, usize, isize, f32, f64, compt_int, compt_float)
       else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_add, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_sub, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_mul, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_div, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_mod, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_eq, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_neq, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_lt, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_lte, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_gt, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_gte, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_neg, 1) ||
-        exprIsFunctionCallOf(
-          expr,
-          BuiltinFunctions.__yo_compt_int_to_float,
-          1
-        ) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_to_string, 1)
+        exprIsFunctionCall(expr) &&
+        expr.func.tag === ExprTag.Atom &&
+        typeof expr.func.token.value === "string" &&
+        (expr.func.token.value.startsWith("__yo_u8_") ||
+          expr.func.token.value.startsWith("__yo_i8_") ||
+          expr.func.token.value.startsWith("__yo_u16_") ||
+          expr.func.token.value.startsWith("__yo_i16_") ||
+          expr.func.token.value.startsWith("__yo_u32_") ||
+          expr.func.token.value.startsWith("__yo_i32_") ||
+          expr.func.token.value.startsWith("__yo_u64_") ||
+          expr.func.token.value.startsWith("__yo_i64_") ||
+          expr.func.token.value.startsWith("__yo_usize_") ||
+          expr.func.token.value.startsWith("__yo_isize_") ||
+          expr.func.token.value.startsWith("__yo_f32_") ||
+          expr.func.token.value.startsWith("__yo_f64_") ||
+          expr.func.token.value.startsWith("__yo_compt_int_") ||
+          expr.func.token.value.startsWith("__yo_compt_float_"))
       ) {
-        return evaluateYoComptIntFunctions({
-          expr,
-          env,
-          context: { ...context },
-        });
-      }
-      // compt_float related arithmetic functions
-      else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_add, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_sub, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_mul, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_div, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_eq, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_neq, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_lt, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_lte, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_gt, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_gte, 2) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_float_neg, 1) ||
-        exprIsFunctionCallOf(
-          expr,
-          BuiltinFunctions.__yo_compt_float_to_int,
-          1
-        ) ||
-        exprIsFunctionCallOf(
-          expr,
-          BuiltinFunctions.__yo_compt_float_to_string,
-          1
-        )
-      ) {
-        return evaluateYoComptFloatFunctions({
-          expr,
+        return evaluateYoNumericFunctions({
+          expr: expr as FuncCallExpr,
           env,
           context: { ...context },
         });

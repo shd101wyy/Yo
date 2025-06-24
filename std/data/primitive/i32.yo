@@ -71,6 +71,85 @@ implicit(I32Eq) :: Eq(i32, i32)
   })*/
 ;
 
+implicit(ComptI32Methods) :: module {
+  Self :: i32;
+
+  (@+) :: ((@(lhs): Self, @(rhs): Self) -> @(Self))
+    __yo_i32_add(lhs, rhs)
+  ;
+
+  (@-) :: ((@(lhs): Self, @(rhs): Self) -> @(Self))
+    __yo_i32_sub(lhs, rhs)
+  ;
+
+  (@*) :: ((@(lhs): Self, @(rhs): Self) -> @(Self))
+    __yo_i32_mul(lhs, rhs)
+  ;
+
+  (@/) :: ((@(lhs): Self, @(rhs): Self) -> @(Self))
+    __yo_i32_div(lhs, rhs)
+  ;
+
+  (@%) :: ((@(lhs): Self, @(rhs): Self) -> @(Self))
+    __yo_i32_mod(lhs, rhs)
+  ;
+
+  (@==) :: ((@(lhs): Self, @(rhs): Self) -> @(boolean))
+    __yo_i32_eq(lhs, rhs)
+  ;
+
+  (@!=) :: ((@(lhs): Self, @(rhs): Self) -> @(boolean))
+    __yo_i32_neq(lhs, rhs)
+  ;
+
+  (@<) :: ((@(lhs): Self, @(rhs): Self) -> @(boolean))
+    __yo_i32_lt(lhs, rhs)
+  ;
+
+  (@<=) :: ((@(lhs): Self, @(rhs): Self) -> @(boolean))
+    __yo_i32_lte(lhs, rhs)
+  ;
+
+  (@>) :: ((@(lhs): Self, @(rhs): Self) -> @(boolean))
+    __yo_i32_gt(lhs, rhs)
+  ;
+
+  (@>=) :: ((@(lhs): Self, @(rhs): Self) -> @(boolean))
+    __yo_i32_gte(lhs, rhs)
+  ;
+
+  neg :: ((@(self): Self) -> @(Self))
+    __yo_i32_neg(self)
+  ;
+
+  @~- :: neg;
+
+  (as) :: ((@(self): Self, @(Target): Type) -> @(Target))
+    __yo_i32_as(self, Target)
+  ;
+
+  (to_string) :: ((@(self): Self) -> @(compt_string))
+    __yo_i32_to_string(self)
+  ;
+
+  export
+    Self,
+    @+,
+    @-,
+    @*,
+    @/,
+    @%,
+    neg,
+    @==,
+    @!=,
+    @<,
+    @<=,
+    @>,
+    @>=,
+    as,
+    to_string
+  ;
+};
 
 export
   I32Add,
@@ -79,5 +158,6 @@ export
   I32Div,
   I32Mod,
   I32LogicalNot,
-  I32Eq
+  I32Eq,
+  ComptI32Methods
 ;
