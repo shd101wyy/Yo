@@ -154,10 +154,11 @@ export function evaluateBorrow({
         type: borrowing.type,
         isMutable: isMutRefType(borrowing.type),
         isCompileTimeOnly: false,
-        token: bindingExpr.token,
-        isUndefined: false,
         isImplicit: false,
         value: undefined, // borrowing.value,
+        token: bindingExpr.token,
+        initializedAtToken: bindingExpr.token,
+        consumedAtToken: undefined,
       },
       skipCheckingFunctionOverloading: true,
     });

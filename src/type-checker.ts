@@ -1564,9 +1564,10 @@ export function areFunctionTypesCompatible(
           type: typeValue.type,
           isCompileTimeOnly: true,
           isImplicit: false,
-          isUndefined: false,
           isMutable: false,
           token: getFunctionParameterToken(expectedTypeParam),
+          initializedAtToken: getFunctionParameterToken(expectedTypeParam),
+          consumedAtToken: undefined,
         },
       });
       expected.env = nextEnv;
@@ -1580,9 +1581,10 @@ export function areFunctionTypesCompatible(
           type: typeValue.type,
           isCompileTimeOnly: true,
           isImplicit: false,
-          isUndefined: false,
           isMutable: false,
           token: getFunctionParameterToken(givenTypeParam),
+          initializedAtToken: getFunctionParameterToken(givenTypeParam),
+          consumedAtToken: undefined,
         },
       });
       given.env = nextEnv2;

@@ -516,7 +516,8 @@ ${exprToString(expr)}`);
       isMutable,
       isCompileTimeOnly: Boolean(value),
       isImplicit: false,
-      isUndefined: false,
+      initializedAtToken: expr.token,
+      consumedAtToken: undefined,
       token: expr.token,
     },
   });
@@ -699,12 +700,12 @@ export function mergeAndCheckEnvs(
     // each cell is consumedAtToken of the value
     const matrix: {
       consumedAtToken: Token | undefined;
-      isUndefined: boolean;
+      initializedAtToken: Token | undefined;
     }[][] = [[]];
     frameVariables.forEach((variale) => {
       matrix[0]!.push({
         consumedAtToken: variale.consumedAtToken,
-        isUndefined: variale.isUndefined,
+        initializedAtToken: variale.initializedAtToken,
       });
     });
 
@@ -751,7 +752,7 @@ export function mergeAndCheckEnvs(
       caseEnvFrameVariables.forEach((variable) => {
         matrix[matrix.length - 1]!.push({
           consumedAtToken: variable.consumedAtToken,
-          isUndefined: variable.isUndefined,
+          initializedAtToken: variable.initializedAtToken,
         });
       });
     }
@@ -764,22 +765,22 @@ export function mergeAndCheckEnvs(
     const rows = matrix.length;
     const cols = matrix[0]!.length;
     for (let i = 0; i < cols; i++) {
-      // const variableName = frameVariables[i]!.name;
-      const tokens: (Token | undefined)[] = [];
-      const undefinedList: boolean[] = [];
+      const variableName = frameVariables[i]!.name;
+      const consumedAtTokens: (Token | undefined)[] = [];
+      const initializedAtTokens: (Token | undefined)[] = [];
       for (let j = 1; j < rows; j++) {
-        tokens.push(matrix[j]![i]!.consumedAtToken);
-        undefinedList.push(matrix[j]![i]!.isUndefined);
+        consumedAtTokens.push(matrix[j]![i]!.consumedAtToken);
+        initializedAtTokens.push(matrix[j]![i]!.initializedAtToken);
       }
 
       // Check the "Free" values.
       // If any case consumed (used) the "Free" value, then we set it as consumed in env.
       if (isFreeType(typeOfType(frameVariables[i]!.type))) {
-        const consumed = tokens.filter((t) => !!t) as Token[];
+        const consumed = consumedAtTokens.filter((t) => !!t) as Token[];
         if (consumed.length > 0) {
           const newVariable: Variable = {
             ...frameVariables[i]!,
-            consumedAtToken: tokens[0],
+            consumedAtToken: consumedAtTokens[0],
           };
           env = updateExistingVariable(env, frameVariables[i]!, newVariable);
           frameVariables[i] = newVariable;
@@ -787,8 +788,8 @@ export function mergeAndCheckEnvs(
       } else {
         // consumedAtToken
         // case 1
-        if (tokens.length === 1) {
-          if (!!tokens[0] && !frameVariables[i]!.consumedAtToken) {
+        if (consumedAtTokens.length === 1) {
+          if (!!consumedAtTokens[0] && !frameVariables[i]!.consumedAtToken) {
             /*
           throw formatErrorMessages({
             tokenAndErrorList: [
@@ -806,30 +807,30 @@ export function mergeAndCheckEnvs(
             // RAII, call "drop" on variable if it is not consumed.
             const newVariable: Variable = {
               ...frameVariables[i]!,
-              consumedAtToken: tokens[0],
+              consumedAtToken: consumedAtTokens[0],
             };
             env = updateExistingVariable(env, frameVariables[i]!, newVariable);
             frameVariables[i] = newVariable;
           }
         }
         // case 2
-        else if (tokens.every((t) => !!t)) {
+        else if (consumedAtTokens.every((t) => !!t)) {
           const newVariable: Variable = {
             ...frameVariables[i]!,
-            consumedAtToken: tokens[0],
+            consumedAtToken: consumedAtTokens[0],
           };
           env = updateExistingVariable(env, frameVariables[i]!, newVariable);
           frameVariables[i] = newVariable;
         }
         // case 3
         else {
-          const consumed = tokens.filter((t) => !!t) as Token[];
-          const notConsumed = tokens.filter((t) => !t);
+          const consumed = consumedAtTokens.filter((t) => !!t) as Token[];
+          const notConsumed = consumedAtTokens.filter((t) => !t);
           if (consumed.length > 0 && notConsumed.length > 0) {
             /*
           throw formatErrorMessages({
             errorMessage: `Variable "${variableName}" might be consumed in some cases but not consumed in other cases:\n`,
-            tokenAndErrorList: tokens.map((token, index) => {
+            tokenAndErrorList: consumedAtTokens.map((token, index) => {
               return {
                 errorMessage: token
                   ? "Might be consumed here:"
@@ -851,15 +852,22 @@ export function mergeAndCheckEnvs(
         }
       }
 
-      // isUndefined
+      // Check initializedAtToken
       // case 1
-      if (undefinedList.length === 1) {
-        if (!undefinedList[0] && frameVariables[i]!.isUndefined) {
+      if (initializedAtTokens.length === 1) {
+        if (
+          !!initializedAtTokens[0] &&
+          !frameVariables[i]!.initializedAtToken
+        ) {
           throw formatErrorMessages({
             tokenAndErrorList: [
               {
                 token: frameVariables[i]!.token,
-                errorMessage: `Variable "${frameVariables[i]!.name}" is marked as undefined, but it is initialized in the case.`,
+                errorMessage: `Variable "${frameVariables[i]!.name}" might not be initialized in all cases.`,
+              },
+              {
+                token: initializedAtTokens[0]!,
+                errorMessage: `Might be initialized here:`,
               },
             ],
           });
@@ -868,28 +876,31 @@ export function mergeAndCheckEnvs(
       // case 2
       // variable is undefined outside, but all cases make it defined.
       else if (
-        frameVariables[i]!.isUndefined &&
-        undefinedList.every((u) => !u)
+        !frameVariables[i]!.initializedAtToken &&
+        initializedAtTokens.every((u) => u)
       ) {
         const newVariable: Variable = {
           ...frameVariables[i]!,
-          isUndefined: false,
+          initializedAtToken: initializedAtTokens[0]!,
         };
         env = updateExistingVariable(env, frameVariables[i]!, newVariable);
         frameVariables[i] = newVariable;
       }
       // case 3
       else {
-        const undefined_ = undefinedList.filter((u) => !!u);
-        const notUndefined = undefinedList.filter((u) => !u);
-        if (undefined_.length > 0 && notUndefined.length > 0) {
+        const initialized = initializedAtTokens.filter((u) => !!u);
+        const notInitialized = initializedAtTokens.filter((u) => !u);
+        if (initialized.length > 0 && notInitialized.length > 0) {
           throw formatErrorMessages({
-            tokenAndErrorList: [
-              {
-                token: frameVariables[i]!.token,
-                errorMessage: `Variable "${frameVariables[i]!.name}" is marked as undefined in some cases but not in others.`,
-              },
-            ],
+            errorMessage: `Variable "${variableName}" might be initialized in some cases but not initialized in other cases:\n`,
+            tokenAndErrorList: initializedAtTokens.map((token, index) => {
+              return {
+                errorMessage: token
+                  ? "Might be initialized here:"
+                  : "Not initialized here:",
+                token: token ?? bodies[index]!.token,
+              };
+            }),
           });
         }
       }

@@ -259,7 +259,7 @@ export function activate(context: vscode.ExtensionContext) {
           isUndefined =
             variables &&
             variables.length > 0 &&
-            !!variables[variables.length - 1]!.isUndefined;
+            !variables[variables.length - 1]!.initializedAtToken;
 
           if (isMutable) {
             tokenText = `mut(${tokenText})`;

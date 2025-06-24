@@ -355,10 +355,10 @@ export function evaluateIdentifierAndOperator({
       });
     } else {
       const variable = variables[variables.length - 1]!;
-      if (variable.isUndefined && throwErrorOnUndefined) {
+      if (!variable.initializedAtToken && throwErrorOnUndefined) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Variable "${identifier}" is undefined`,
+          errorMessage: `Variable "${identifier}" is not initialized`,
         });
       }
       expr.$ = {

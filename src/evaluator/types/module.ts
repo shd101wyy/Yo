@@ -513,8 +513,9 @@ export function evaluateModuleType({
               isCompileTimeOnly: extendedModuleElement.isCompileTimeOnly,
               isImplicit: extendedModuleElement.isImplicit,
               isMutable: false,
-              isUndefined: false,
               token: extendedModuleElement.exprs.expr.token,
+              initializedAtToken: extendedModuleElement.exprs.expr.token,
+              consumedAtToken: undefined,
             },
           });
           env = nextEnv;
@@ -570,8 +571,9 @@ export function evaluateModuleType({
           isCompileTimeOnly: element.isCompileTimeOnly,
           isImplicit: element.isImplicit,
           isMutable: false,
-          isUndefined: false,
           token: element.exprs.expr.token,
+          initializedAtToken: element.exprs.expr.token,
+          consumedAtToken: undefined,
         },
       });
       env = nextNextEnv;

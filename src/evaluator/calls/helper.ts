@@ -317,10 +317,11 @@ export function checkIfFunctionParameterMatchesArgument({
       type: argType,
       isMutable: parameter.isMutable,
       isCompileTimeOnly: parameter.isCompileTimeOnly,
-      token: argExpr?.token ?? PlaceholderToken,
-      isUndefined: false,
       isImplicit: false,
       value: argValue,
+      token: argExpr?.token ?? PlaceholderToken,
+      initializedAtToken: argExpr?.token ?? PlaceholderToken,
+      consumedAtToken: undefined,
     },
   });
   calleeEnv = nextEnv;

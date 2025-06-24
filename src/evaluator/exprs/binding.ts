@@ -131,15 +131,16 @@ ${exprToString(rhs)}`,
     env,
     variable: {
       name: variableName,
-      token: lhs.token,
       type: userDefinedType,
       isMutable,
-      isUndefined: true,
       isCompileTimeOnly,
       isImplicit: false,
       value: isCompileTimeOnly
         ? createUnknownValue(userDefinedType)
         : undefined,
+      token: lhs.token,
+      initializedAtToken: undefined, // The variable is not initialized yet
+      consumedAtToken: undefined,
     },
   });
   env = nextEnv;

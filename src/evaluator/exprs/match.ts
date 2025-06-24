@@ -242,13 +242,14 @@ export function evaluateMatch({
           env: caseEnv,
           variable: {
             name: variableName,
-            token: variableExpr.token,
             type: variableType,
             isMutable: evaluatedMatchValue.$.isMutable,
-            isUndefined: false, // Set as initialized
             isCompileTimeOnly: false,
             isImplicit: false,
             value: evaluatedMatchValue.$.value,
+            token: variableExpr.token,
+            initializedAtToken: variableExpr.token, // Set as initialized
+            consumedAtToken: undefined,
           },
         });
         caseEnv = nextEnv;
@@ -280,13 +281,14 @@ export function evaluateMatch({
             env: caseEnv,
             variable: {
               name: variableName,
-              token: evaluatedMatchValue.token,
               type: variableType,
               isMutable: evaluatedMatchValue.$.isMutable,
-              isUndefined: false, // Set as initialized
               isCompileTimeOnly: false,
               isImplicit: false,
               value: evaluatedMatchValue.$.value,
+              token: evaluatedMatchValue.token,
+              initializedAtToken: evaluatedMatchValue.token, // Set as initialized
+              consumedAtToken: undefined, // Not consumed yet
             },
           });
           caseEnv = nextEnv;

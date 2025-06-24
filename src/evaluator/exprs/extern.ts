@@ -10,7 +10,7 @@ import {
 } from "../../expr";
 import {
   isLinearOrType0Type,
-  TupleElement,
+  ModuleElement,
   typeOfType,
   typeToString,
 } from "../../type-checker";
@@ -76,13 +76,13 @@ export function evaluateExtern({
     }
   }
 
-  const elements: TupleElement[] = [];
+  const elements: ModuleElement[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     const { type: element, env: nextEnv } = evaluateModuleElementType({
       expr: arg,
       env,
-      tupleElementIndex: i,
+      moduleElementIndex: i,
       context: {
         ...context,
         SelfType: undefined, // No SelfType in module context
@@ -143,8 +143,9 @@ Got ${typeToString(typeOfType(element.type))}`,
         isCompileTimeOnly: element.isCompileTimeOnly,
         isImplicit: element.isImplicit,
         isMutable: false,
-        isUndefined: false,
         token: element.exprs.expr.token,
+        initializedAtToken: element.exprs.expr.token,
+        consumedAtToken: undefined, // Not consumed yet
       },
     });
     env = nextNextEnv;

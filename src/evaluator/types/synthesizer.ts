@@ -298,11 +298,12 @@ export function synthesizeTypes(
             name: expected.type.name,
             value: value,
             type: value.type,
-            token: PlaceholderToken, // FIXME: What should be `token` here?
             isMutable: false,
             isCompileTimeOnly: true,
-            isUndefined: false,
             isImplicit: false,
+            token: PlaceholderToken, // FIXME: What should be `token` here?
+            initializedAtToken: PlaceholderToken, // Set as initialized
+            consumedAtToken: undefined, // Not consumed yet
           },
         });
         expected.env = nextEnv;

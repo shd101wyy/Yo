@@ -196,10 +196,11 @@ export function evaluateAssignment({
     }
 
     let isMutatingDefinedVariable = false;
-    if (variable.isUndefined) {
+    if (!variable.initializedAtToken) {
+      // Initialize the variable
       env = updateExistingVariable(env, variable, {
         ...variable,
-        isUndefined: false,
+        initializedAtToken: lhs.token,
         value: variable.isCompileTimeOnly ? rhsValue : undefined,
         // type: rhsType,
       });

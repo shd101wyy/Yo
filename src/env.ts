@@ -67,15 +67,18 @@ export interface Variable {
    * Whether the variable is implicit or not.
    */
   isImplicit: boolean;
+
   /**
-   * If the variable is initialized.
+   * Then token at which the variable is initialized.
+   * If such token exists, then it means the variable is initialized at that point.
    */
-  isUndefined: boolean;
+  initializedAtToken: Token | undefined;
 
   /**
    * Check linear type consumption.
+   * The token at which the variable is consumed.
    */
-  consumedAtToken?: Token;
+  consumedAtToken: Token | undefined;
 
   /* This is only used for temp variable, check the
    * tempVariableName of the ReferenceExpr of AstType.Reference
@@ -87,8 +90,9 @@ export interface Variable {
    * It's zero-based.
    */
   frameLevel: number;
+
   /**
-   * At which token the variable is defined.
+   * At which token the variable is declared.
    */
   token: Token;
 }
@@ -219,7 +223,7 @@ export function addVariableToFrame({
   // Check if there is already a value with the same variableName
   // but is uninitialized
   const existingUndefinedVariableIndex = frame.variables.findIndex(
-    (value_) => value_.name === variable.name && value_.isUndefined
+    (value_) => value_.name === variable.name && !value_.initializedAtToken
   );
   if (existingUndefinedVariableIndex > -1) {
     const newVariables = frame.variables.slice();
@@ -358,7 +362,7 @@ export function popEnvFrame(
     */
 
     const undefinedVariables = frameToPop.variables.filter(
-      (variable) => variable.isUndefined
+      (variable) => !variable.initializedAtToken
     );
     if (unconsumedVariables.length > 0) {
       // RAII
@@ -460,7 +464,7 @@ export function printEnvVarNames(env: Environment) {
         isCompileTimeOnly: variable.isCompileTimeOnly,
         isMutable: variable.isMutable,
         isImplicit: variable.isImplicit,
-        isUndefined: variable.isUndefined,
+        isUndefined: !variable.initializedAtToken,
         isConsumed: !!variable.consumedAtToken,
       }));
     })

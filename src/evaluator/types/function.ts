@@ -341,17 +341,18 @@ ${typeToString(parameterType)}`,
     env,
     variable: {
       name: label,
-      token: lhsExpr?.token ?? expr.token,
       type: parameterType,
       isMutable: isMutable,
       isCompileTimeOnly: isCompileTimeOnly,
-      isUndefined: false, // Set as initialized
       isImplicit: false,
       value:
         // defaultValue ?? // NOTE: No need to use the default value here.
         isCompileTimeOnly
           ? createUnknownValue(parameterType, label)
           : undefined,
+      token: lhsExpr?.token ?? expr.token,
+      initializedAtToken: lhsExpr?.token ?? expr.token, // Set as initialized
+      consumedAtToken: undefined, // Not consumed yet
     },
     skipCheckingFunctionOverloading: true,
   });

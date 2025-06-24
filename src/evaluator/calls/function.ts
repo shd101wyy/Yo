@@ -178,7 +178,8 @@ export function tryToCallFunctionWithArguments({
         type: typeValue.type,
         isMutable: false,
         isCompileTimeOnly: true,
-        isUndefined: false, // Set as initialized
+        initializedAtToken: PlaceholderToken, // Set as initialized
+        consumedAtToken: undefined,
         isImplicit: false,
         value: typeValue,
       },
@@ -198,13 +199,14 @@ export function tryToCallFunctionWithArguments({
         env: calleeEnv,
         variable: {
           name: typeParameter.label,
-          token: typeParameter.exprs.labelExpr.token,
           type: typeParameter.type,
           isMutable: false,
           isCompileTimeOnly: true,
-          isUndefined: false, // Set as initialized
           isImplicit: false,
           value: createUnknownValue(typeParameter.type, typeParameter.label),
+          token: typeParameter.exprs.labelExpr.token,
+          initializedAtToken: typeParameter.exprs.labelExpr.token, // Set as initialized
+          consumedAtToken: undefined,
         },
       });
       calleeEnv = nextEnv;
@@ -348,20 +350,20 @@ Got:   ${typeToString(typeValue.type)}`,
             value: typeValue,
           });
         } else {
+          const token =
+            forallArgExpr?.token ?? functionCallExpr?.token ?? PlaceholderToken;
           const { env: nextEnv } = addVariableToEnv({
             env: calleeEnv,
             variable: {
               name: typeParameter.label,
-              token:
-                forallArgExpr?.token ??
-                functionCallExpr?.token ??
-                PlaceholderToken,
               type: typeValue.type,
               isMutable: false,
               isCompileTimeOnly: true,
-              isUndefined: false, // Set as initialized
               isImplicit: false,
               value: typeValue,
+              token: token,
+              initializedAtToken: token, // Set as initialized
+              consumedAtToken: undefined,
             },
           });
           calleeEnv = nextEnv;
@@ -501,10 +503,11 @@ Got:   ${typeToString(typeValue.type)}`,
             type: argType,
             isMutable: implicitParameter.isMutable,
             isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
-            token: implicitArgExpr.token,
-            isUndefined: false,
             isImplicit: false,
             value: argValue,
+            token: implicitArgExpr.token,
+            initializedAtToken: implicitArgExpr.token, // Set as initialized
+            consumedAtToken: undefined, // Not consumed yet
           },
         });
         calleeEnv = nextEnv;
@@ -667,10 +670,11 @@ ${implicitVariables
         type: implicitVariable.type,
         isMutable: implicitVariable.isMutable,
         isCompileTimeOnly: implicitVariable.isCompileTimeOnly,
-        token: functionCallExpr?.token ?? PlaceholderToken,
-        isUndefined: false,
         isImplicit: false,
         value: implicitVariable.value,
+        token: functionCallExpr?.token ?? PlaceholderToken,
+        initializedAtToken: functionCallExpr?.token ?? PlaceholderToken, // Set as initialized
+        consumedAtToken: undefined, // Not consumed yet
       },
       skipCheckingFunctionOverloading: true,
     });

@@ -293,13 +293,14 @@ ${exprToString(rhs)}`,
       env,
       variable: {
         name: lhs.token.value,
-        token: lhs.token,
         type: lhs.$.type,
         isMutable,
         isCompileTimeOnly,
-        isUndefined: false,
         isImplicit,
         value: lhs.$.value,
+        token: lhs.token,
+        initializedAtToken: lhs.token,
+        consumedAtToken: undefined, // Not consumed yet
       },
     });
     env = nextEnv;

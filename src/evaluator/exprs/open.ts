@@ -64,9 +64,11 @@ export function evaluateOpen({
         isMutable: false,
         isCompileTimeOnly: element.isCompileTimeOnly,
         isImplicit: element.isImplicit,
-        token: element.exprs.labelExpr?.token ?? element.exprs.expr.token,
-        isUndefined: false,
         value: value,
+        token: element.exprs.labelExpr?.token ?? element.exprs.expr.token,
+        initializedAtToken:
+          element.exprs.labelExpr?.token ?? element.exprs.expr.token,
+        consumedAtToken: undefined,
       },
     });
     env = nextEnv;

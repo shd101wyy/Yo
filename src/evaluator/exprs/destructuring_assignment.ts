@@ -142,11 +142,12 @@ export function handleMemberDestructuring({
               name: element.label,
               value: elementValue,
               type: element.type,
-              token: lhsElement.token,
               isMutable: false,
               isCompileTimeOnly,
-              isUndefined: false,
               isImplicit: false,
+              token: lhsElement.token,
+              initializedAtToken: lhsElement.token,
+              consumedAtToken: undefined,
             },
           });
           env = nextEnv;
@@ -214,11 +215,12 @@ export function handleMemberDestructuring({
             name: element.label,
             value: memberValue,
             type: element.type,
-            token: lhsElement.token,
             isMutable: false,
             isCompileTimeOnly,
-            isUndefined: false,
             isImplicit: false,
+            token: lhsElement.token,
+            initializedAtToken: lhsElement.token,
+            consumedAtToken: undefined,
           },
         });
         env = nextEnv;
@@ -598,13 +600,14 @@ export function handleMemberDestructuring({
         env,
         variable: {
           name: variableName,
-          token: variableToken,
           type: rhsElement.type,
           isMutable: false,
-          isUndefined: false,
           isImplicit: false,
           isCompileTimeOnly: isCompileTimeOnly,
           value: elementValue,
+          token: variableToken,
+          initializedAtToken: variableToken,
+          consumedAtToken: undefined, // Not consumed yet
         },
       });
 
