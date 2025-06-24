@@ -403,7 +403,7 @@ export const BuiltinFunctions = {
   __yo_type_is_linear: ["__yo_type_is_linear"],
   __yo_type_is_free: ["__yo_type_is_free"],
   __yo_type_is_type0: ["__yo_type_is_type0"],
-  __yo_type_is_compatible_with: ["__yo_type_is_compatible_with"],
+  __yo_type_contains_reference: ["__yo_type_contains_reference"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {

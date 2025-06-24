@@ -43,6 +43,9 @@ import { evaluateNot } from "./builtins/not";
 import { evaluateQuote } from "./builtins/quote";
 import {
   evaluateYoAreTypesCompatible,
+  evaluateYoTypeContainsReference,
+  evaluateYoTypeIsFree,
+  evaluateYoTypeIsLinear,
   evaluateYoTypeToString,
 } from "./builtins/type_fns";
 import { evaluateFunctionCall } from "./calls/function";
@@ -602,6 +605,37 @@ ${exprToString(expr)}`,
       ) {
         // __yo_are_types_compatible
         return evaluateYoAreTypesCompatible({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_is_free, 1)
+      ) {
+        // __yo_type_if_free;
+        return evaluateYoTypeIsFree({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_is_linear, 1)
+      ) {
+        // __yo_type_is_linear;
+        return evaluateYoTypeIsLinear({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(
+          expr,
+          BuiltinFunctions.__yo_type_contains_reference,
+          1
+        )
+      ) {
+        // __yo_type_contains_reference;
+        return evaluateYoTypeContainsReference({
           expr,
           env,
           context: { ...context },
