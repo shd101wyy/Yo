@@ -1,0 +1,107 @@
+// Test cases for the `as` builtin function
+
+main :: (()-> unit) {
+  // Test 1: Simple integer type casting (compatible types)
+  {
+    x := 12;
+    y := (x `as` i64);
+    z := as(x, i64);
+    
+    // Both should work and have the same result
+    compt_assert(y == z);
+  };
+
+  // Test 2: Compile-time integer casting
+  {
+    x :: 42;
+    y :: (x `as` i32);
+    z :: as(x, i32);
+    
+    compt_assert(y == z);
+  };
+
+  // Test 3: Float casting
+  {
+    x := 3.14;
+    y := (x `as` f64);
+    z := as(x, f64);
+    
+    compt_assert(y == z);
+  };
+
+  // Test 4: String casting
+  {
+    x := "hello";
+    y := (x `as` compt_string);
+    z := as(x, compt_string);
+    
+    compt_assert(y == z);
+  };
+
+  // Test 5: Boolean casting
+  {
+    x := true;
+    y := (x `as` boolean);
+    z := as(x, boolean);
+    
+    compt_assert(y == z);
+  };
+
+  // Test 6: Error case - incompatible types
+  {
+    x := 42;
+    compt_expect_error(
+      y := (x `as` boolean)  // Should fail: cannot cast i32 to boolean
+    );
+    compt_expect_error(
+      z := as(x, boolean)  // Should fail: cannot cast i32 to boolean
+    );
+  };
+
+  // Test 7: Error case - wrong number of arguments
+  {
+    x := 42;
+    compt_expect_error(
+      y := as(x)  // Should fail: not enough arguments
+    );
+    compt_expect_error(
+      z := as(x, i32, i64)  // Should fail: too many arguments
+    );
+  };
+
+  // Test 8: Error case - second argument is not a type
+  {
+    x := 42;
+    y := 64;
+    compt_expect_error(
+      z := as(x, y)  // Should fail: second argument must be a type
+    );
+  };
+
+  // Test 9: Struct type casting (if compatible)
+  {
+    Point :: struct
+      x: i32,
+      y: i32
+    ;
+    
+    p1 := Point(1, 2);
+    p2 := (p1 `as` Point);  // Should work (same type)
+    p3 := as(p1, Point);
+    
+    compt_assert(p2.x == p1.x);
+    compt_assert(p2.y == p1.y);
+    compt_assert(p3.x == p1.x);
+    compt_assert(p3.y == p1.y);
+  };
+
+  // Test 10: Array type casting
+  {
+    arr1 := [1, 2, 3];
+    arr2 := (arr1 `as` Array(i32, 3));
+    arr3 := as(arr1, Array(i32, 3));
+    
+    compt_assert(arr2(0) == arr1(0));
+    compt_assert(arr3(0) == arr1(0));
+  };
+};

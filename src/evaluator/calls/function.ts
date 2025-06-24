@@ -919,7 +919,7 @@ export function evaluateFunctionCall({
           pathCollection: [],
         };
       }
-      // Infix operator is taken as an interface method call
+      // Infix operator is taken as an method call
       else if (stringIsOperator(functionName) && expr.isInfix) {
         const firstArg = args[0];
         if (!firstArg) {
