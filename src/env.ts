@@ -125,14 +125,14 @@ export function addVariableToEnv({
   env,
   variable,
   deltaFrame,
-  preventDuplicate,
+  allowDuplicate,
   variableId,
   skipCheckingFunctionOverloading,
 }: {
   env: Environment;
   variable: Omit<Variable, "id" | "frameLevel">;
   deltaFrame?: number;
-  preventDuplicate?: boolean;
+  allowDuplicate?: boolean;
   variableId?: string;
   skipCheckingFunctionOverloading?: boolean;
 }): { env: Environment; variable: Variable } {
@@ -169,7 +169,7 @@ export function addVariableToEnv({
     env,
     frame,
     variable: newVariable,
-    preventDuplicate,
+    allowDuplicate,
   });
   const newFrames = env.frames.slice();
   newFrames[frameLevel] = newFrame;
@@ -188,16 +188,19 @@ export function addVariableToEnv({
 export function addVariableToFrame({
   frame,
   variable,
-  preventDuplicate,
+  allowDuplicate,
 }: {
   env: Environment;
   frame: Frame;
   variable: Variable;
-  preventDuplicate?: boolean;
+  allowDuplicate?: boolean;
 }): Frame {
   // Check if variable already exists in the frame
   // If yes, then report an error
-  if (frame.variables.some((value) => value.name === variable.name)) {
+  if (
+    !allowDuplicate &&
+    frame.variables.some((value) => value.name === variable.name)
+  ) {
     throw formatErrorMessages({
       tokenAndErrorList: [
         {
@@ -226,7 +229,7 @@ export function addVariableToFrame({
     };
   }
 
-  if (preventDuplicate) {
+  if (!allowDuplicate) {
     const existingVariable = frame.variables.find(
       (value) => value.name === variable.name
     );
@@ -674,4 +677,15 @@ Please specify the method explicitly.`,
       env: env,
     };
   }
+}
+
+export function variableExistsInEnvTopFrame(
+  env: Environment,
+  variableName: string
+): boolean {
+  if (env.frames.length === 0) {
+    return false;
+  }
+  const topFrame = env.frames[env.frames.length - 1]!;
+  return topFrame.variables.some((variable) => variable.name === variableName);
 }

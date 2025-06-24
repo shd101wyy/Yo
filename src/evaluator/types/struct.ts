@@ -13,7 +13,12 @@ import {
   ModuleElement,
   TupleElement,
 } from "../../type-checker";
-import { createTypeValue, isTypeValue } from "../../value";
+import {
+  areValuesEqual,
+  createTypeValue,
+  isModuleValue,
+  isTypeValue,
+} from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateElementType } from "./element";
 
@@ -41,57 +46,110 @@ export function evaluateStructType({
   for (let i = 0; i < expr.args.length; i++) {
     const arg = expr.args[i]!;
 
-    // spread operator for extending another struct type
-    // NOTE: Let's disable this for now.
-    //       Maybe the spread operator should only work with struct value, not struct type.
-    //       It also causes confusion. Like should we extend the type methods there?
+    // spread operator for extending another struct type or module value.
     if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
-      const extendedStructExpr = arg.args[0]!;
+      const extendedExpr = arg.args[0]!;
       // Evaluate the extended struct expression
-      const evaluatedExtendedStruct = context.evaluateExpression({
-        expr: extendedStructExpr,
+
+      console.log("before evaluating extended expr");
+      const evaluatedExtendedExpr = context.evaluateExpression({
+        expr: extendedExpr,
         env,
         context: {
           ...context,
           SelfType: structType,
         },
       });
-      if (!evaluatedExtendedStruct.$) {
+      console.log("evaluated extended expr");
+
+      if (!evaluatedExtendedExpr.$) {
         throw formatErrorMessage({
-          token: extendedStructExpr.token,
-          errorMessage: `Failed to evaluate the extended struct expression: ${exprToString(extendedStructExpr)}`,
+          token: extendedExpr.token,
+          errorMessage: `Failed to evaluate the extended expression: ${exprToString(extendedExpr)}`,
         });
       }
 
-      // Check if it's a struct type
-      const extendedStructTypeValue = evaluatedExtendedStruct.$.value;
+      // Check if it's a struct type or module value
+      const extendedExprValue = evaluatedExtendedExpr.$.value;
+
       if (
-        !isTypeValue(extendedStructTypeValue) ||
-        !isStructType(extendedStructTypeValue.value)
+        isTypeValue(extendedExprValue) &&
+        isStructType(extendedExprValue.value)
       ) {
+        const extendedStructType = extendedExprValue.value;
+
+        // Iterate over the elements of the extended struct
+        for (const extendedStructElement of extendedStructType.elements) {
+          // Check if there is duplicate labels
+          // If yes, then override the element
+          const duplicateLabelIndex = elements.findIndex(
+            (e) => e.label === extendedStructElement.label
+          );
+          if (duplicateLabelIndex >= 0) {
+            // Override the existing one.
+            elements[duplicateLabelIndex] = extendedStructElement;
+          } else {
+            // Add the element to the struct
+            elements.push(extendedStructElement);
+          }
+        }
+      } else if (isModuleValue(extendedExprValue)) {
+        const moduleValue = extendedExprValue;
+        const moduleType = moduleValue.type;
+        for (let i = 0; i < moduleType.elements.length; i++) {
+          const element = moduleType.elements[i]!;
+          // Check if there is duplicate labels
+          // If yes, then override the element
+          let duplicateLabelIndex = elements.findIndex(
+            (e) => e.label === element.label
+          );
+          if (duplicateLabelIndex >= 0) {
+            throw formatErrorMessage({
+              token: extendedExpr.token,
+              errorMessage: `Duplicate label "${element.label}" in struct extension from module value`,
+            });
+          }
+
+          duplicateLabelIndex = structType.module.elements.findIndex(
+            (e) => e.label === element.label
+          );
+          if (duplicateLabelIndex >= 0) {
+            const existingModuleElement =
+              structType.module.elements[duplicateLabelIndex];
+
+            // Meet the same module element, so we skip
+            if (
+              existingModuleElement?.assignedValue &&
+              element.assignedValue &&
+              areValuesEqual(
+                {
+                  value: existingModuleElement.assignedValue,
+                  env: env,
+                },
+                { value: element.assignedValue, env: env }
+              )
+            ) {
+              continue;
+            }
+
+            throw formatErrorMessage({
+              token: extendedExpr.token,
+              errorMessage: `Duplicate label "${element.label}" in struct extension from module value`,
+            });
+          }
+
+          structType.module.elements.push({
+            ...element,
+            assignedValue: moduleValue.elements[i],
+          });
+        }
+      } else {
         throw formatErrorMessage({
-          token: extendedStructExpr.token,
-          errorMessage: `Expected a struct type for extending, got ${exprToString(
-            extendedStructExpr
+          token: extendedExpr.token,
+          errorMessage: `Expected a struct type or module value for extending, got ${exprToString(
+            extendedExpr
           )}`,
         });
-      }
-      const extendedStructType = extendedStructTypeValue.value;
-
-      // Iterate over the elements of the extended struct
-      for (const extendedStructElement of extendedStructType.elements) {
-        // Check if there is duplicate labels
-        // If yes, then override the element
-        const duplicateLabelIndex = elements.findIndex(
-          (e) => e.label === extendedStructElement.label
-        );
-        if (duplicateLabelIndex >= 0) {
-          // Override the existing one.
-          elements[duplicateLabelIndex] = extendedStructElement;
-        } else {
-          // Add the element to the struct
-          elements.push(extendedStructElement);
-        }
       }
     }
     // tuple element

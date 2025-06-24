@@ -65,17 +65,15 @@ export function evaluateAnonymousFunctionImplementation({
   // NOTE: We disallow to define function signature for anonymous function anymore.
   // Evaluate the parameter list
   // env = pushEnvFrame(env); // < this is done in evaluateFunctionParameters function.
-  {
-    const { env: nextEnv } = evaluateFunctionParameters({
-      parameterExprs: functionDeclarationExpr.args,
-      expectedFunctionType: functionType,
-      env,
-      context: {
-        ...context,
-      },
-    });
-    env = nextEnv;
-  }
+  const { env: nextEnv } = evaluateFunctionParameters({
+    parameterExprs: functionDeclarationExpr.args,
+    expectedFunctionType: functionType,
+    env,
+    context: {
+      ...context,
+    },
+  });
+  env = nextEnv;
 
   // Evaluate the function body
   const evaluatedBody = evaluateBeginExpression({

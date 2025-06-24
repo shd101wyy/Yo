@@ -2,6 +2,7 @@ import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
+  Expr,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
@@ -17,7 +18,7 @@ export function evaluateRecur({
   expr: FuncCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): Expr {
   const isEvaluatingFunctionBodyOfType = context.isEvaluatingFunctionBody?.type;
   if (!isEvaluatingFunctionBodyOfType) {
     throw formatErrorMessage({

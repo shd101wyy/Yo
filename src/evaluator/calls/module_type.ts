@@ -166,7 +166,7 @@ ${valueToString(moduleElement.assignedValue)}`,
           context: {
             ...context,
             expectedType: { type: moduleElementType, env: callerEnv },
-            SelfType: moduleType,
+            SelfType: context.SelfType,
           },
         });
         const argType = evaluatedArgExpr.$?.type;

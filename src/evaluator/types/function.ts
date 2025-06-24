@@ -177,7 +177,7 @@ export function evaluateFunctionParameter({
       lhsExpr = lhsExpr.args[0]!;
     }
 
-    if (!exprIsAtom(lhsExpr) && !isValidVariableName(lhsExpr)) {
+    if (!exprIsAtom(lhsExpr) || !isValidVariableName(lhsExpr)) {
       throw formatErrorMessage({
         token: lhsExpr.token,
         errorMessage: `Expected identifier for parameter label, got ${exprToString(
@@ -195,6 +195,7 @@ export function evaluateFunctionParameter({
     // such as:
     // fn(a, b) -> a + b;
     parameterType = expectedParameter.type;
+
     lhsExpr = expr; // Use the original expr
 
     if (!exprIsAtom(lhsExpr) && !isValidVariableName(lhsExpr)) {
