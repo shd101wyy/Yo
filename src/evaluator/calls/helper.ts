@@ -120,6 +120,7 @@ export function checkIfFunctionParameterMatchesArgument({
   calleeEnv,
   callerEnv,
   context,
+  isMethodCall,
 }: {
   functionValue?: FunctionValue;
   /**
@@ -131,6 +132,7 @@ export function checkIfFunctionParameterMatchesArgument({
   calleeEnv: Environment;
   callerEnv: Environment;
   context: EvaluatorContext;
+  isMethodCall: boolean;
 }): {
   calleeEnv: Environment;
   callerEnv: Environment;
@@ -359,7 +361,9 @@ export function checkIfFunctionParameterMatchesArgument({
   if (
     !areTypesCompatible(
       { type: parameterType, env: calleeEnv },
-      { type: argType, env: callerEnv }
+      { type: argType, env: callerEnv },
+      // It's the receiver:
+      argIndex === 0 && isMethodCall
     )
   ) {
     throw formatErrorMessage({

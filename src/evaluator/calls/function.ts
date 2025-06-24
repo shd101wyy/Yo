@@ -86,6 +86,7 @@ export function tryToCallFunctionWithArguments({
   argExprs,
   callerEnv,
   context,
+  isMethodCall,
 }: {
   functionValue?: FunctionValue;
   functionType: FunctionType;
@@ -93,6 +94,7 @@ export function tryToCallFunctionWithArguments({
   argExprs: Expr[];
   callerEnv: Environment;
   context: EvaluatorContext;
+  isMethodCall: boolean;
 }): FunctionCallResult {
   const initialBorrowings = [...context.borrowings];
 
@@ -391,6 +393,7 @@ Got:   ${typeToString(typeValue.type)}`,
       callerEnv,
       calleeEnv,
       context,
+      isMethodCall,
     });
     calleeEnv = nextCalleeEnv;
     callerEnv = nextCallerEnv;
@@ -612,6 +615,7 @@ Got:   ${typeToString(argType)}`,
                     env: calleeEnv,
                   },
                 },
+                isMethodCall: false,
               });
               return areTypesCompatible(
                 { type: returnType, env: nextCallerEnv },
@@ -1011,6 +1015,7 @@ export function evaluateFunctionCall({
           argExprs: args,
           callerEnv: env,
           context: { ...context },
+          isMethodCall: Boolean(methodExpr),
         });
         return {
           ...functionToCall,

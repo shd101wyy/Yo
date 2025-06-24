@@ -51,7 +51,6 @@ export function evaluateStructType({
       const extendedExpr = arg.args[0]!;
       // Evaluate the extended struct expression
 
-      console.log("before evaluating extended expr");
       const evaluatedExtendedExpr = context.evaluateExpression({
         expr: extendedExpr,
         env,
@@ -60,7 +59,6 @@ export function evaluateStructType({
           SelfType: structType,
         },
       });
-      console.log("evaluated extended expr");
 
       if (!evaluatedExtendedExpr.$) {
         throw formatErrorMessage({

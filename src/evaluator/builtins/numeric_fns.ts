@@ -442,7 +442,10 @@ export function evaluateYoNumericFunctions({
         });
       }
       value = performArithmeticOp(lhsValue, rhsValue, numericType, (a, b) => {
-        return isIntegerType(numericType) ? Math.trunc(a / b) : a / b;
+        return isIntegerType(numericType) ||
+          numericType.tag === TypeTag.ComptInt
+          ? Math.trunc(a / b)
+          : a / b;
       });
       resultType = numericType;
       break;

@@ -1641,7 +1641,8 @@ export function areTypesCompatible(
   given: {
     type: Type;
     env: Environment;
-  }
+  },
+  exactNumericTypeMatch = false
 ): boolean {
   if (isPrimitiveType(expected.type) && isPrimitiveType(given.type)) {
     return expected.type.tag === given.type.tag;
@@ -1673,6 +1674,11 @@ export function areTypesCompatible(
       expected.type.tag === TypeTag.Isize) &&
     isComptIntType(given.type)
   ) {
+    if (exactNumericTypeMatch && !isComptIntType(expected.type)) {
+      // If exact match is required, compt_int cannot be converted to other numeric types
+      return false;
+    }
+
     return true;
   }
 
@@ -1686,6 +1692,11 @@ export function areTypesCompatible(
       expected.type.tag === TypeTag.F64) &&
     isComptFloatType(given.type)
   ) {
+    if (exactNumericTypeMatch && !isComptFloatType(expected.type)) {
+      // If exact match is required, compt_float cannot be converted to other numeric types
+      return false;
+    }
+
     return true;
   }
 

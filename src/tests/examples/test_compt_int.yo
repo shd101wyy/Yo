@@ -38,7 +38,7 @@ main :: (()-> unit) {
   gte_equal :: (a @>= c); // true (10 >= 10)
   
   // Type conversion operations
-  int_to_float :: a.to_float();   // 10.0
+  int_to_float :: a.as(f64);   // 10.0
   int_to_string :: a.to_string(); // "10"
   
   // Test with compile-time assertions
@@ -172,7 +172,7 @@ main :: (()-> unit) {
   // Test conversion consistency
   {
     num :: 42;
-    float_conv :: num.to_float();
+    float_conv :: num.as(f64);
     string_conv :: num.to_string();
     
     // Convert back through different paths
@@ -181,7 +181,7 @@ main :: (()-> unit) {
     
     // Test negative conversion
     neg_num :: @-(42);
-    neg_float :: neg_num.to_float();
+    neg_float :: neg_num.as(f64);
     neg_string :: neg_num.to_string();
     
     compt_assert(neg_float @== @-(42.0));
