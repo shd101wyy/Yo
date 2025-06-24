@@ -1,21 +1,26 @@
-Clone :: ((@(Self): Type) -> @(Module))
-  module
-    Self  := Self,
-    clone :
-      (( self: &(Self) ) -> Self)
+extern "Yo",
+  Data: Linear,
+  malloc  :
+    ()-> Data
 ;
 
-Point :: struct
-  x : i32,
-  y : i32,
-
-  // Implement the Clone module
-  ...(
-    Clone(Self)(
-      clone : 
-        fn(self) ->
-          Self(self.x, self.y)
-    ))
+some_condition :: (()-> boolean)
+  true
 ;
 
-Point.clone(&(Point(1, 2)));
+test :: (()-> unit) {
+  x := malloc();
+  cond
+    some_condition() =>
+      y := x,
+    true => {
+      ();
+    }
+  ;
+
+  // x is already consumed
+  compt_expect_error(
+    z := x,
+    "Variable 'x' is already consumed, cannot be used again."
+  );
+};

@@ -49,26 +49,15 @@ export function evaluateCond({
     });
   }
 
-  // Evaluate each statement
-  // condition => value.
-  // expect each value to be the same type.
-  const bodies: Expr[] = [];
-  let valueType: { type: Type; env: Environment } | undefined = undefined;
-
-  /**
-   * BooleanValue means the condition could be evaluated at compile-time and we got a concrete boolean value.
-   * UnknownValue means the condition could be evaluated at compile-time, but we don't know the value yet.
-   * undefined means the condition could not be evaluated at compile-time, and it's runtime only.
-   */
-  const condValues: (BooleanValue | UnknownValue | undefined)[] = [];
-  const caseBodyValues: (Value | undefined)[] = [];
+  // First, parse and validate all statements
+  const parsedStatements: Array<{
+    condExpr: Expr;
+    caseBodyExpr: Expr;
+    caseEnv: Environment;
+  }> = [];
 
   for (let i = 0; i < statements.length; i++) {
     const statement = statements[i]!;
-
-    // NOTE: We shouldn't use the parent `env` here
-    // instead, we should create new env.
-    let caseEnv = pushEnvFrame(env);
 
     if (
       !exprIsFunctionCall(statement) ||
@@ -79,11 +68,25 @@ export function evaluateCond({
         errorMessage: `Expected => for cond statement, got ${statement.tag}`,
       });
     }
-    let condExpr = statement.args[0]!;
-    let caseBodyExpr = statement.args[1]!;
 
-    // Expect condExpr to be a boolean
-    condExpr = context.evaluateExpression({
+    const condExpr = statement.args[0]!;
+    const caseBodyExpr = statement.args[1]!;
+    const caseEnv = pushEnvFrame(env);
+
+    parsedStatements.push({ condExpr, caseBodyExpr, caseEnv });
+  }
+
+  // Second, evaluate all conditions
+  const evaluatedConditions: Array<{
+    condExpr: Expr;
+    caseBodyExpr: Expr;
+    caseEnv: Environment;
+    condValue: BooleanValue | UnknownValue | undefined;
+  }> = [];
+
+  for (const { condExpr, caseBodyExpr, caseEnv } of parsedStatements) {
+    // Evaluate condition
+    const evaluatedCondExpr = context.evaluateExpression({
       expr: condExpr,
       env: caseEnv,
       context: {
@@ -91,30 +94,65 @@ export function evaluateCond({
       },
     });
 
-    // TODO: Check comptime value if exists
-    if (!condExpr.$) {
+    if (!evaluatedCondExpr.$) {
       throw formatErrorMessage({
-        token: condExpr.token,
-        errorMessage: `Failed to evaluate condition expression: ${exprToString(condExpr)}`,
-      });
-    }
-    caseEnv = condExpr.$.env;
-
-    if (!isBooleanType(condExpr.$.type)) {
-      throw formatErrorMessage({
-        token: condExpr.token,
-        errorMessage: `Expected boolean for cond statement, got ${exprToString(condExpr)}`,
+        token: evaluatedCondExpr.token,
+        errorMessage: `Failed to evaluate condition expression: ${exprToString(evaluatedCondExpr)}`,
       });
     }
 
-    // Check if it's comptime false
-    const condValue = condExpr.$.value;
-    if (isBooleanValue(condValue) && condValue.value === false) {
-      continue; // No need to evaluate the case body
+    if (!isBooleanType(evaluatedCondExpr.$.type)) {
+      throw formatErrorMessage({
+        token: evaluatedCondExpr.token,
+        errorMessage: `Expected boolean for cond statement, got ${exprToString(evaluatedCondExpr)}`,
+      });
     }
 
-    // Evaluate the caseBodyExpr
-    caseBodyExpr = context.evaluateExpression({
+    const condValue = evaluatedCondExpr.$.value;
+    const updatedCaseEnv = evaluatedCondExpr.$.env;
+
+    evaluatedConditions.push({
+      condExpr: evaluatedCondExpr,
+      caseBodyExpr,
+      caseEnv: updatedCaseEnv,
+      condValue: condValue as BooleanValue | UnknownValue | undefined,
+    });
+
+    if (isBooleanValue(condValue) && condValue.value === true) {
+      break; // Stop evaluating further conditions if we found a compile-time true condition
+    }
+  }
+
+  // Third, find the first compile-time true condition (if any)
+  let firstTrueIndex = -1;
+  for (let i = 0; i < evaluatedConditions.length; i++) {
+    const { condValue } = evaluatedConditions[i]!;
+    if (
+      isBooleanValue(condValue) &&
+      condValue.value === true &&
+      // Ensure all previous conditions were compile-time false
+      evaluatedConditions
+        .slice(0, i)
+        .every(
+          ({ condValue: prevCondValue }) =>
+            isBooleanValue(prevCondValue) && prevCondValue.value === false
+        )
+    ) {
+      firstTrueIndex = i;
+      break;
+    }
+  }
+
+  // Fourth, evaluate bodies based on the analysis
+  const bodies: Expr[] = [];
+  const caseBodyValues: (Value | undefined)[] = [];
+  let valueType: { type: Type; env: Environment } | undefined = undefined;
+
+  if (firstTrueIndex !== -1) {
+    // We found a compile-time true condition, only evaluate its body
+    const { caseBodyExpr, caseEnv } = evaluatedConditions[firstTrueIndex]!;
+
+    const evaluatedCaseBodyExpr = context.evaluateExpression({
       expr: caseBodyExpr,
       env: caseEnv,
       context: {
@@ -122,55 +160,88 @@ export function evaluateCond({
       },
     });
 
-    if (!caseBodyExpr.$?.type) {
+    if (!evaluatedCaseBodyExpr.$?.type) {
       throw formatErrorMessage({
-        token: caseBodyExpr.token,
-        errorMessage: `Expected type for cond statement, got ${exprToString(caseBodyExpr)}`,
+        token: evaluatedCaseBodyExpr.token,
+        errorMessage: `Expected type for cond statement, got ${exprToString(evaluatedCaseBodyExpr)}`,
       });
     }
-    caseEnv = caseBodyExpr.$.env;
-    bodies.push(caseBodyExpr);
 
-    if (!valueType) {
-      valueType = { type: caseBodyExpr.$.type, env: caseEnv };
-    } else {
-      // Check if the types are compatible
-      if (
-        !areTypesCompatible(
-          { type: valueType.type, env: valueType.env },
-          { type: caseBodyExpr.$.type, env: caseEnv }
-        )
-      ) {
-        // Check if the types match when converting to runtime type
+    bodies.push(evaluatedCaseBodyExpr);
+    caseBodyValues.push(evaluatedCaseBodyExpr.$.value);
+    valueType = {
+      type: evaluatedCaseBodyExpr.$.type,
+      env: evaluatedCaseBodyExpr.$.env,
+    };
+  } else {
+    // No compile-time true condition found, evaluate all bodies except compile-time false ones
+    for (const { condValue, caseBodyExpr, caseEnv } of evaluatedConditions) {
+      // Skip compile-time false conditions
+      if (isBooleanValue(condValue) && condValue.value === false) {
+        continue;
+      }
+
+      const evaluatedCaseBodyExpr = context.evaluateExpression({
+        expr: caseBodyExpr,
+        env: caseEnv,
+        context: {
+          ...context,
+        },
+      });
+
+      if (!evaluatedCaseBodyExpr.$?.type) {
+        throw formatErrorMessage({
+          token: evaluatedCaseBodyExpr.token,
+          errorMessage: `Expected type for cond statement, got ${exprToString(evaluatedCaseBodyExpr)}`,
+        });
+      }
+
+      bodies.push(evaluatedCaseBodyExpr);
+      caseBodyValues.push(evaluatedCaseBodyExpr.$.value);
+
+      if (!valueType) {
+        valueType = {
+          type: evaluatedCaseBodyExpr.$.type,
+          env: evaluatedCaseBodyExpr.$.env,
+        };
+      } else {
+        // Check if the types are compatible
         if (
-          areTypesCompatible(
+          !areTypesCompatible(
+            { type: valueType.type, env: valueType.env },
             {
-              type: convertComptTypeToRuntimeType(valueType.type),
-              env: valueType.env,
-            },
-            {
-              type: caseBodyExpr.$.type,
-              env: caseEnv,
+              type: evaluatedCaseBodyExpr.$.type,
+              env: evaluatedCaseBodyExpr.$.env,
             }
           )
         ) {
-          valueType = { type: caseBodyExpr.$.type, env: caseEnv };
-        } else {
-          throw formatErrorMessage({
-            token: caseBodyExpr.token,
-            errorMessage: `Incompatible types:
+          // Check if the types match when converting to runtime type
+          if (
+            areTypesCompatible(
+              {
+                type: convertComptTypeToRuntimeType(valueType.type),
+                env: valueType.env,
+              },
+              {
+                type: evaluatedCaseBodyExpr.$.type,
+                env: evaluatedCaseBodyExpr.$.env,
+              }
+            )
+          ) {
+            valueType = {
+              type: evaluatedCaseBodyExpr.$.type,
+              env: evaluatedCaseBodyExpr.$.env,
+            };
+          } else {
+            throw formatErrorMessage({
+              token: evaluatedCaseBodyExpr.token,
+              errorMessage: `Incompatible types:
 - Previous: ${typeToString(valueType.type)}
-- Current : ${typeToString(caseBodyExpr.$.type)}`,
-          });
+- Current : ${typeToString(evaluatedCaseBodyExpr.$.type)}`,
+            });
+          }
         }
       }
-    }
-
-    // Check if the condValue is true
-    condValues.push(condValue as BooleanValue | UnknownValue | undefined);
-    caseBodyValues.push(caseBodyExpr.$.value);
-    if (isBooleanValue(condValue) && condValue.value === true) {
-      break; // We found the first true condition, no need to evaluate further
     }
   }
 
@@ -184,25 +255,23 @@ export function evaluateCond({
   // Merge and check all environments
   env = mergeAndCheckEnvs(env, bodies);
 
+  // Determine the compile-time value
   let value: Value | undefined = undefined;
-  if (caseBodyValues.some((val) => val === undefined)) {
-    // contains runtime value
+  if (firstTrueIndex !== -1) {
+    // We have a compile-time true condition, use its body value
+    value = caseBodyValues[0]; // Only one body was evaluated
+  } else if (caseBodyValues.some((val) => val === undefined)) {
+    // Contains runtime value
     value = undefined;
   } else {
-    const lastCondValue = condValues[condValues.length - 1]!;
-    if (isBooleanValue(lastCondValue) && lastCondValue.value === true) {
-      value = caseBodyValues[caseBodyValues.length - 1]!;
-    } else {
-      value = createUnknownValue(valueType.type);
-    }
+    // All evaluated conditions were not compile-time true, so result is unknown
+    value = createUnknownValue(valueType.type);
   }
 
   expr.$ = {
     env,
     type: valueType.type,
-    // TODO: set .value to support compile-time value.
-    // Right now the createUnknownValue below is wrong
-    value: value, // valueType ? createUnknownValue(valueType) : undefined;
+    value: value,
     isMutable: false,
     pathCollection: [],
   };

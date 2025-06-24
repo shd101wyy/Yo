@@ -1,0 +1,40 @@
+// filepath: /home/yiyiwang/Workspace/Yo/src/tests/examples/cond_compile_time.yo
+
+// Test compile-time evaluation and optimization
+
+extern
+  add : ((x: i32, y: i32)-> i32),
+  sub : ((x: i32, y: i32)-> i32),
+  eq  : ((x: i32, y: i32)-> boolean)
+;
+
+// Test: First condition is compile-time true, subsequent bodies should not be evaluated
+test_early_exit :: (()-> i32) 
+  cond
+    true => 42,
+    // The following should never be evaluated due to compile-time optimization
+    true => undefined_function_call(),
+    false => another_undefined_function();
+
+// Test: All conditions are compile-time false except the last
+test_skip_false :: (()-> i32)
+  cond
+    false => undefined_function_1(),
+    false => undefined_function_2(),
+    false => undefined_function_3(),
+    true => 99;
+
+// Test: Only evaluate runtime conditions when no compile-time true is found
+test_mixed_conditions :: ((x: i32)-> i32)
+  cond
+    false => 10, // Skip this
+    (x `eq` 5) => 20, // Evaluate this condition
+    (x `eq` 10) => 30, // Evaluate this condition
+    true => 40; // Fallback
+
+// Execute the tests
+test_early_exit(); // Should return 42 without errors
+test_skip_false(); // Should return 99 without errors  
+test_mixed_conditions(x: 5); // Should return 20
+test_mixed_conditions(x: 10); // Should return 30
+test_mixed_conditions(x: 15); // Should return 40
