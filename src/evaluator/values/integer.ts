@@ -13,7 +13,7 @@ export function evaluateIntegerLiteral(
   env: Environment
 ): AtomExpr {
   if (expr.token.type === TokenType.Integer) {
-    let numberValue = expr.token.value;
+    let numberValue = expr.token.value.replace(/_/g, ""); // Remove underscores for readability
     let radix = 10;
     if (numberValue.match(/^0x/i)) {
       radix = 16; // Hexadecimal
