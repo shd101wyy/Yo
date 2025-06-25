@@ -13,7 +13,20 @@ export function evaluateIntegerLiteral(
   env: Environment
 ): AtomExpr {
   if (expr.token.type === TokenType.Integer) {
-    const integerValue = parseInt(expr.token.value, 10);
+    let numberValue = expr.token.value;
+    let radix = 10;
+    if (numberValue.match(/^0x/i)) {
+      radix = 16; // Hexadecimal
+      numberValue = numberValue.slice(2); // Remove '0x' prefix
+    } else if (numberValue.match(/^0b/i)) {
+      radix = 2; // Binary
+      numberValue = numberValue.slice(2); // Remove '0b' prefix
+    } else if (numberValue.match(/^0o/i)) {
+      radix = 8; // Octal
+      numberValue = numberValue.slice(2); // Remove '0o' prefix
+    }
+
+    const integerValue = parseInt(numberValue, radix);
     const value = createNumberValue(ValueTag.ComptInt, integerValue);
     expr.$ = {
       env,

@@ -418,7 +418,29 @@ export function tokenize(input: string, modulePath: string): Token[] {
           let value = char;
           i = i + 1;
 
-          while (typeof input[i] === "string" && /[0-9]/.test(input[i]!)) {
+          let regex = /[0-9_]/;
+          if (input[i - 1] === "0" && typeof input[i] === "string") {
+            // hexdecimal
+            if (input[i] === "x" || input[i] === "X") {
+              value += input[i];
+              i = i + 1;
+              regex = /[0-9A-Fa-f]/;
+            }
+            // binary
+            else if (input[i] === "b" || input[i] === "B") {
+              value += input[i];
+              i = i + 1;
+              regex = /[01]/;
+            }
+            // octal
+            else if (input[i] === "o" || input[i] === "O") {
+              value += input[i];
+              i = i + 1;
+              regex = /[0-7]/;
+            }
+          }
+
+          while (typeof input[i] === "string" && regex.test(input[i]!)) {
             value += input[i];
             i = i + 1;
           }
@@ -431,9 +453,32 @@ export function tokenize(input: string, modulePath: string): Token[] {
             value += input[i];
             i = i + 1;
 
-            while (typeof input[i] === "string" && /[0-9]/.test(input[i]!)) {
+            while (typeof input[i] === "string" && /[0-9_]/.test(input[i]!)) {
               value += input[i];
               i = i + 1;
+            }
+
+            // Check if it's e-notation behind
+            // such:
+            // - > 1.0e-10
+            // - > 1.0e10
+            if (
+              (input[i] === "e" || input[i] === "E") &&
+              typeof input[i + 1] === "string" &&
+              (input[i + 1] === "+" ||
+                input[i + 1] === "-" ||
+                /[0-9]/.test(input[i + 1]!))
+            ) {
+              value += input[i];
+              i = i + 1;
+              if (input[i] === "+" || input[i] === "-") {
+                value += input[i];
+                i = i + 1;
+              }
+              while (typeof input[i] === "string" && /[0-9_]/.test(input[i]!)) {
+                value += input[i];
+                i = i + 1;
+              }
             }
 
             tokens.push({
@@ -449,6 +494,29 @@ export function tokenize(input: string, modulePath: string): Token[] {
             });
             i = i - 1;
           } else {
+            // Check if it's e-notation behind
+            // such:
+            // - > 1.0e-10
+            // - > 1.0e10
+            if (
+              (input[i] === "e" || input[i] === "E") &&
+              typeof input[i + 1] === "string" &&
+              (input[i + 1] === "+" ||
+                input[i + 1] === "-" ||
+                /[0-9]/.test(input[i + 1]!))
+            ) {
+              value += input[i];
+              i = i + 1;
+              if (input[i] === "+" || input[i] === "-") {
+                value += input[i];
+                i = i + 1;
+              }
+              while (typeof input[i] === "string" && /[0-9_]/.test(input[i]!)) {
+                value += input[i];
+                i = i + 1;
+              }
+            }
+
             tokens.push({
               type: TokenType.Integer,
               value,
