@@ -702,34 +702,41 @@ Or use newline after "${token.value}" to confirm the right-associativity.
         index: nextIndex,
       });
     }
-      */
-    else if (!hasWhitespaceForward) {
-      if (token.type === TokenType.LParen) {
-        // Function call like
-        // add(3, 4)
-        const returnValue = this.parseFunctionCall({
-          func: primaryExpr,
-          tokens,
-          index: index + 1,
-          hasWhitespace: false,
-        });
-        return this.parsePrimaryEnd({
-          primaryExpr: returnValue.expr,
-          tokens,
-          index: returnValue.index,
-        });
-      } else {
-        throw formatErrorMessage({
-          token: token,
-          errorMessage: `Ambiguous function call ${exprToString(primaryExpr)}${token.value} 
-Please use parentheses to clarify:
-
-${exprToString(primaryExpr)}(${token.value}, ...)
-// or 
-(${exprToString(primaryExpr)} ${token.value}, ...)
-`,
-        });
-      }
+    */
+    else if (
+      !hasWhitespaceForward &&
+      // NOTE: We added the condition below to support parsing:
+      //
+      //   (-12)
+      //
+      token.type === TokenType.LParen
+    ) {
+      //if (token.type === TokenType.LParen) {
+      // Function call like
+      // add(3, 4)
+      const returnValue = this.parseFunctionCall({
+        func: primaryExpr,
+        tokens,
+        index: index + 1,
+        hasWhitespace: false,
+      });
+      return this.parsePrimaryEnd({
+        primaryExpr: returnValue.expr,
+        tokens,
+        index: returnValue.index,
+      });
+      //       //} else {
+      //         throw formatErrorMessage({
+      //           token: token,
+      //           errorMessage: `Ambiguous function call ${exprToString(primaryExpr)}${token.value}
+      // Please use parentheses to clarify:
+      //
+      // ${exprToString(primaryExpr)}(${token.value}, ...)
+      // // or
+      // (${exprToString(primaryExpr)} ${token.value}, ...)
+      // `,
+      //         });
+      //       }
     } else {
       // Function call like
       // add 3, 4
