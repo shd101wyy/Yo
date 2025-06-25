@@ -1,0 +1,86 @@
+open import "std";
+
+compt_assert(sizeof(Type) == 0);
+compt_assert(sizeof(Free) == 0);
+compt_assert(sizeof(Linear) == 0);
+compt_assert(sizeof(compt_int) == 0);
+compt_assert(sizeof(compt_float) == 0);
+
+compt_assert(sizeof(unit) == 0);
+
+compt_assert(sizeof(u8) == 1);
+compt_assert(sizeof(u16) == 2);
+compt_assert(sizeof(u32) == 4);
+compt_assert(sizeof(u64) == 8);
+compt_assert(sizeof(i8) == 1);
+compt_assert(sizeof(i16) == 2);
+compt_assert(sizeof(i32) == 4);
+compt_assert(sizeof(i64) == 8);
+compt_assert(sizeof(f32) == 4);
+compt_assert(sizeof(f64) == 8);
+compt_assert(sizeof(boolean) == 1);
+
+MyTuple :: Tuple(
+  u8,
+  u16,
+  u32,
+  u64,
+  i8,
+  i16,
+  i32,
+  i64,
+  f32,
+  f64
+);
+compt_assert(sizeof(MyTuple) == 42);
+
+MyArray :: Array(u8, 10);
+compt_assert(sizeof(MyArray) == 10);
+
+Point :: struct(
+  x : i32,
+  y : i32
+);
+compt_assert(sizeof(Point) == 8);
+
+Color :: enum(
+  Red,
+  Green,
+  Blue
+);
+compt_assert(sizeof(Color) == 1);
+
+Shape :: enum(
+  Circle(radius : f32),
+  Rectangle(width : f32, height : f32)
+);
+compt_assert(sizeof(Shape) == 9);
+
+MyUnion :: union(
+  a : u8,
+  b : u16,
+  c : u32,
+  d : u64,
+  e : i8,
+  f : i16,
+  g : i32,
+  h : i64,
+  i : f32,
+  j : f64
+);
+compt_assert(sizeof(MyUnion) == 8);
+
+test :: ((@(T): Type) -> unit) {
+  x :: sizeof(T);
+};
+compt_assert(sizeof(test) == 8);
+
+compt_assert(sizeof(*(i32)) == 8);
+compt_assert(sizeof(*(f32)) == 8);
+compt_assert(sizeof(*!(u8)) == 8);
+compt_assert(sizeof(*!(i32)) == 8);
+
+compt_assert(sizeof(&(f32)) == 8);
+compt_assert(sizeof(&(i32)) == 8);
+compt_assert(sizeof(&!(u8)) == 8);
+compt_assert(sizeof(&!(i32)) == 8);

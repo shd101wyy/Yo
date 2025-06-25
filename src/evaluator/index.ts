@@ -42,6 +42,7 @@ import { evaluateMacroExpand } from "./builtins/macro_expand";
 import { evaluateNot } from "./builtins/not";
 import { evaluateYoNumericFunctions } from "./builtins/numeric_fns";
 import { evaluateQuote } from "./builtins/quote";
+import { evaluateSizeOf } from "./builtins/sizeof";
 import {
   evaluateYoAreTypesCompatible,
   evaluateYoTypeContainsReference,
@@ -283,6 +284,9 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.typeof)) {
         // typeof
         return evaluateTypeOf({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.sizeof)) {
+        // sizeof
+        return evaluateSizeOf({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
         // import
         return evaluateImport({

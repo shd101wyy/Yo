@@ -1,0 +1,72 @@
+import { Environment } from "../../env";
+import { formatErrorMessage } from "../../error";
+import {
+  BuiltinFunctions,
+  expectExprToBeFunctionCallOf,
+  FuncCallExpr,
+} from "../../expr";
+import { createComptIntType, getSizeOfType, Type } from "../../types";
+import {
+  createNumberValue,
+  createUnknownValue,
+  isTypeValue,
+  Value,
+} from "../../value";
+import { ValueTag } from "../../value-tag";
+import { EvaluatorContext } from "../context";
+
+export function evaluateSizeOf({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FuncCallExpr {
+  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.sizeof, 1);
+
+  const typeExpr = expr.args[0]!;
+  // Evaluate the expression
+  const evaluatedExpr = context.evaluateExpression({
+    expr: typeExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+  if (!evaluatedExpr.$) {
+    throw formatErrorMessage({
+      token: typeExpr.token,
+      errorMessage: `Failed to evaluate expression.`,
+    });
+  }
+  env = evaluatedExpr.$.env;
+
+  // Check if it's a type value
+  let typeToCheck: Type;
+  if (evaluatedExpr.$.value && isTypeValue(evaluatedExpr.$.value)) {
+    typeToCheck = evaluatedExpr.$.value.value;
+  } else {
+    typeToCheck = evaluatedExpr.$.type;
+  }
+  const typeSizeInBits = getSizeOfType(typeToCheck);
+  let typeSizeValue: Value;
+  if (typeSizeInBits === null) {
+    typeSizeValue = createUnknownValue(createComptIntType());
+  } else {
+    typeSizeValue = createNumberValue(
+      ValueTag.ComptInt,
+      Math.ceil(typeSizeInBits / 8) // Convert bits to bytes
+    );
+  }
+
+  expr.$ = {
+    env,
+    type: createComptIntType(),
+    value: typeSizeValue,
+    isMutable: false,
+    pathCollection: [],
+  };
+  return expr;
+}

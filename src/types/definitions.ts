@@ -46,19 +46,21 @@ export interface Type {
   isDynamicSized?: boolean;
 }
 
+/*
 // NOTE: This is not actually used now.
 export interface LiteralType extends Type {
   tag: TypeTag.Literal;
-  /**
-   * The value of the singleton type.
-   * This is also used to represent the value of a variable.
-   */
+  //
+  // The value of the singleton type.
+  // This is also used to represent the value of a variable.
+  //
   value: unknown;
-  /**
-   * The type of the value.
-   */
+  //
+  // The type of the value.
+  //
   type: Type;
 }
+*/
 
 export interface ExprType extends Type {
   tag: TypeTag.Expr;

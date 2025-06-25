@@ -336,6 +336,7 @@ export function createExprListValue(
   };
 }
 
+// TODO: Check the value boundaries for number values
 export function createNumberValue(tag: NumberValue["tag"], value: number) {
   let numberType: Type;
   if (tag === ValueTag.ComptInt) {

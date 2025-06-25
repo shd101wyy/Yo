@@ -1,7 +1,7 @@
 import { Environment, getVariablesFromEnv } from "../env";
 import { exprToString } from "../expr";
 import { TypeValue } from "../type-value";
-import { valueToString } from "../value";
+import { isNumberValue, valueToString } from "../value";
 import { ValueTag } from "../value-tag";
 import { createF64Type, createI32Type } from "./creators";
 import {
@@ -9,7 +9,6 @@ import {
   EnumType,
   FunctionParameter,
   FunctionType,
-  LiteralType,
   ModuleElement,
   ModuleType,
   MutPtrType,
@@ -25,21 +24,39 @@ import {
 } from "./definitions";
 import {
   isArrayType,
+  isBooleanType,
   isComptFloatType,
   isComptIntType,
   isComptStringType,
   isEnumType,
   isExprListType,
   isExprType,
+  isF32Type,
+  isF64Type,
   isFloatType,
+  isFunctionType,
+  isI16Type,
+  isI32Type,
+  isI64Type,
+  isI8Type,
   isIntegerType,
+  isIsizeType,
   isModuleType,
+  isMutPtrType,
   isMutRefType,
+  isPtrType,
   isRefType,
   isSomeType,
   isStructType,
   isTupleType,
   isTypeHierarchyType,
+  isU16Type,
+  isU32Type,
+  isU64Type,
+  isU8Type,
+  isUnionType,
+  isUnitType,
+  isUsizeType,
 } from "./guards";
 import { TypeTag } from "./tags";
 
@@ -423,9 +440,11 @@ export function typeToString(type: Type): string {
     case TypeTag.Boolean: {
       return "boolean";
     }
+    /*
     case TypeTag.Char: {
       return "char";
     }
+    */
     case TypeTag.Usize: {
       return "usize";
     }
@@ -569,10 +588,12 @@ export function typeToString(type: Type): string {
       return `${from ? `(${from}) ` : ""}(${paramsString}) -> ${returnTypeString}`;
     }
 
+    /*
     case TypeTag.Literal: {
       const literal = type as LiteralType;
       return `${literal.value}:${typeToString(literal.type)}`;
     }
+    */
 
     case TypeTag.SomeType: {
       const someType = type as SomeType;
@@ -607,4 +628,166 @@ export function typeToString(type: Type): string {
       return `${type.tag}`;
     }
   }
+}
+
+export function getPtrSize(): number {
+  // Assuming a pointer size of 64 bits (8 bytes) for most modern systems
+  return 64;
+}
+
+function getArrayTypeSize(type: ArrayType): number | null {
+  const elementSize = getSizeOfType(type.elementType);
+  if (elementSize === null) {
+    return null; // If the element size is unknown, return null
+  }
+  if (elementSize === -1) {
+    return -1; // If the element size is dynamic, return -1
+  }
+
+  const lengthValue = type.length;
+  if (isNumberValue(lengthValue)) {
+    const length = BigInt(lengthValue.value);
+    if (length < 0) {
+      throw new Error("Array length cannot be negative");
+    }
+    return Number(length) * elementSize; // Return total size in bits
+  }
+  // If the length is not a number, return null to represent an unknown size
+  return null;
+}
+
+function getTupleTypeSize(type: TupleType): number | null {
+  let totalSize = 0;
+  for (const element of type.elements) {
+    const elementSize = getSizeOfType(element.type);
+    if (elementSize === null) {
+      return null; // If any element size is unknown, return null
+    }
+    if (elementSize === -1) {
+      return -1; // If any element size is dynamic, return -1
+    }
+    totalSize += elementSize; // Accumulate the size of each element
+  }
+  return totalSize; // Return total size in bits
+}
+
+function getStructTypeSize(type: StructType): number | null {
+  let totalSize = 0;
+  for (const element of type.elements) {
+    const elementSize = getSizeOfType(element.type);
+    if (elementSize === null) {
+      return null; // If any element size is unknown, return null
+    }
+    if (elementSize === -1) {
+      return -1; // If any element size is dynamic, return -1
+    }
+    totalSize += elementSize; // Accumulate the size of each element
+  }
+  return totalSize; // Return total size in bits
+}
+
+function getEnumTypeSize(type: EnumType): number | null {
+  let maxSize = 0;
+  for (const variant of type.variants) {
+    let variantSize: number = 0;
+    if (variant.elements) {
+      for (const param of variant.elements) {
+        const paramSize = getSizeOfType(param.type);
+        if (paramSize === null) {
+          return null; // If any parameter size is unknown, return null
+        }
+        if (paramSize === -1) {
+          return -1; // If any parameter size is dynamic, return -1
+        }
+        variantSize += paramSize; // Accumulate the size of each parameter
+      }
+    }
+    maxSize = Math.max(maxSize, variantSize); // Track the maximum size of variants
+  }
+
+  const tagSize = Math.ceil(Math.ceil(Math.log2(type.variants.length)) / 8) * 8; // Size of the tag in bits
+  return maxSize + tagSize; // Return total size in bits (max variant size + tag size)
+}
+
+function getUnionType(type: UnionType): number | null {
+  let maxSize = 0;
+  for (const element of type.elements) {
+    const elementSize = getSizeOfType(element.type);
+    if (elementSize === null) {
+      return null; // If any element size is unknown, return null
+    }
+    if (elementSize === -1) {
+      return -1; // If any element size is dynamic, return -1
+    }
+    maxSize = Math.max(maxSize, elementSize); // Find the maximum size among elements
+  }
+  return maxSize; // Return the maximum size in bits
+}
+
+/**
+ *
+ *  Get the size of a type in bits.
+ *  null = unknown/indeterminate size.
+ *  -1   = dynamic/runtime-determined size.
+ *  0    = zero size or no runtime size.
+ * @param type
+ */
+export function getSizeOfType(type: Type): number | null {
+  if (type.isDynamicSized) {
+    return -1; // Dynamic sized types have size -1
+  }
+  if (isSomeType(type)) {
+    // SomeType is a placeholder, so it has unknown size
+    return null;
+  }
+
+  if (
+    isUnitType(type) || // Unit type has no size
+    isTypeHierarchyType(type) ||
+    isComptIntType(type) ||
+    isComptFloatType(type) ||
+    isComptStringType(type) ||
+    isModuleType(type) ||
+    isExprType(type) ||
+    isExprListType(type) // ^ disallowed in the runtime
+  ) {
+    return 0;
+  } else if (isBooleanType(type)) {
+    return 8; // Assuming boolean is represented as 1 byte (8 bits)
+  } else if (isUsizeType(type) || isIsizeType(type)) {
+    return getPtrSize(); // Pointer size (usually 64 bits)
+  } else if (isU8Type(type) || isI8Type(type)) {
+    return 8; // 1 byte (8 bits)
+  } else if (isU16Type(type) || isI16Type(type)) {
+    return 16; // 2 bytes (16 bits)
+  } else if (isU32Type(type) || isI32Type(type)) {
+    return 32; // 4 bytes (32 bits)
+  } else if (isU64Type(type) || isI64Type(type)) {
+    return 64; // 8 bytes (64 bits)
+  } else if (isF32Type(type)) {
+    return 32; // 4 bytes (32 bits)
+  } else if (isF64Type(type)) {
+    return 64; // 8 bytes (64 bits)
+  } else if (isArrayType(type)) {
+    return getArrayTypeSize(type);
+  } else if (isTupleType(type)) {
+    return getTupleTypeSize(type);
+  } else if (isStructType(type)) {
+    return getStructTypeSize(type);
+  } else if (isEnumType(type)) {
+    return getEnumTypeSize(type);
+  } else if (isUnionType(type)) {
+    return getUnionType(type);
+  } else if (isFunctionType(type)) {
+    return getPtrSize(); // Functions are treated as pointers, so return pointer size
+  } else if (
+    isMutPtrType(type) ||
+    isPtrType(type) ||
+    isMutRefType(type) ||
+    isRefType(type)
+  ) {
+    return getPtrSize(); // Pointer and reference types have pointer size
+  }
+
+  return null;
 }

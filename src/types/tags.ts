@@ -5,7 +5,7 @@ export enum TypeTag {
   // Primitive types
   Unit = "unit",
   Boolean = "boolean",
-  Char = "char",
+  /// Char = "char",
   Usize = "usize",
   Isize = "isize",
   U8 = "u8",
@@ -45,7 +45,7 @@ export enum TypeTag {
   SomeType = "SomeType",
 
   // Value
-  Literal = "Literal",
+  // Literal = "Literal",
 
   // Module
   Module = "Module",

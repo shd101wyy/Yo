@@ -2,7 +2,6 @@ import {
   ArrayType,
   EnumType,
   FunctionType,
-  LiteralType,
   ModuleType,
   MutPtrType,
   MutRefType,
@@ -22,7 +21,7 @@ export function isPrimitiveType(type: Type): boolean {
   return (
     type.tag === TypeTag.Unit ||
     type.tag === TypeTag.Boolean ||
-    type.tag === TypeTag.Char ||
+    // type.tag === TypeTag.Char ||
     type.tag === TypeTag.Usize ||
     type.tag === TypeTag.Isize ||
     type.tag === TypeTag.U8 ||
@@ -60,6 +59,54 @@ export function isExprListType(type?: Type): boolean {
 
 export function isBooleanType(type?: Type): boolean {
   return type?.tag === TypeTag.Boolean;
+}
+
+export function isUsizeType(type?: Type): boolean {
+  return type?.tag === TypeTag.Usize;
+}
+
+export function isIsizeType(type?: Type): boolean {
+  return type?.tag === TypeTag.Isize;
+}
+
+export function isU8Type(type?: Type): boolean {
+  return type?.tag === TypeTag.U8;
+}
+
+export function isI8Type(type?: Type): boolean {
+  return type?.tag === TypeTag.I8;
+}
+
+export function isU16Type(type?: Type): boolean {
+  return type?.tag === TypeTag.U16;
+}
+
+export function isI16Type(type?: Type): boolean {
+  return type?.tag === TypeTag.I16;
+}
+
+export function isU32Type(type?: Type): boolean {
+  return type?.tag === TypeTag.U32;
+}
+
+export function isI32Type(type?: Type): boolean {
+  return type?.tag === TypeTag.I32;
+}
+
+export function isU64Type(type?: Type): boolean {
+  return type?.tag === TypeTag.U64;
+}
+
+export function isI64Type(type?: Type): boolean {
+  return type?.tag === TypeTag.I64;
+}
+
+export function isF32Type(type?: Type): boolean {
+  return type?.tag === TypeTag.F32;
+}
+
+export function isF64Type(type?: Type): boolean {
+  return type?.tag === TypeTag.F64;
 }
 
 export function isExprType(type?: Type): boolean {
@@ -108,9 +155,11 @@ export function isFunctionTypeAndIsMacroFunction(type?: Type) {
   );
 }
 
+/*
 export function isLiteralType(type?: Type): type is LiteralType {
   return type?.tag === TypeTag.Literal;
 }
+  */
 
 // Type hierarchy guards
 export function isTypeHierarchyType(type?: Type): type is TypeHierarchyType {
