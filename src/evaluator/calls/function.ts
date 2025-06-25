@@ -1232,9 +1232,22 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
     }
   });
 
-  const functionsWithMatchingTypes = functionsToCall.filter(
+  let functionsWithMatchingTypes = functionsToCall.filter(
     (functionToCall) => functionToCall.result.kind !== "error"
   );
+
+  // Check if there is only one compt function call,
+  // If yes, then we use that function.
+  // Compt function call has higher priority than normal function call.
+  // So this way we eagerly evaluate the function call that can be done at the compile-time.
+  const comptFunctionCalls = functionsWithMatchingTypes.filter(
+    (functionToCall) =>
+      isFunctionType(functionToCall.type) &&
+      functionToCall.type.return.isCompileTimeOnly // TODO: How about other type calls?
+  );
+  if (comptFunctionCalls.length === 1) {
+    functionsWithMatchingTypes = comptFunctionCalls;
+  }
 
   if (functionsWithMatchingTypes.length === 0) {
     if (

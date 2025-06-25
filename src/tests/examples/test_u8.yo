@@ -16,100 +16,100 @@ main :: (()-> unit) {
   one :: 1.as(u8);
   
   // Arithmetic operations
-  sum :: (a @+ b);        // 13
-  diff :: (a @- b);       // 7
-  prod :: (a @* b);       // 30
-  quot :: (a @/ b);       // 3 (integer division)
-  remainder :: (a @% b);  // 1
+  sum :: (a + b);        // 13
+  diff :: (a - b);       // 7
+  prod :: (a * b);       // 30
+  quot :: (a / b);       // 3 (integer division)
+  remainder :: (a % b);  // 1
   
   // Comparison operations
-  eq_test :: (a @== c);   // true (10 == 10)
-  eq_false :: (a @== b);  // false (10 == 3)
-  neq_test :: (a @!= b);  // true (10 != 3)
-  neq_false :: (a @!= c); // false (10 != 10)
-  lt_test :: (b @< a);    // true (3 < 10)
-  lt_false :: (a @< b);   // false (10 < 3)
-  lte_test :: (b @<= a);  // true (3 <= 10)
-  lte_equal :: (a @<= c); // true (10 <= 10)
-  gt_test :: (a @> b);    // true (10 > 3)
-  gt_false :: (b @> a);   // false (3 > 10)
-  gte_test :: (a @>= b);  // true (10 >= 3)
-  gte_equal :: (a @>= c); // true (10 >= 10)
+  eq_test :: (a == c);   // true (10 == 10)
+  eq_false :: (a == b);  // false (10 == 3)
+  neq_test :: (a != b);  // true (10 != 3)
+  neq_false :: (a != c); // false (10 != 10)
+  lt_test :: (b < a);    // true (3 < 10)
+  lt_false :: (a < b);   // false (10 < 3)
+  lte_test :: (b <= a);  // true (3 <= 10)
+  lte_equal :: (a <= c); // true (10 <= 10)
+  gt_test :: (a > b);    // true (10 > 3)
+  gt_false :: (b > a);   // false (3 > 10)
+  gte_test :: (a >= b);  // true (10 >= 3)
+  gte_equal :: (a >= c); // true (10 >= 10)
   
   // Type conversion operations
   u8_to_string :: a.to_string(); // "10"
   
   // Test with compile-time assertions
   // Arithmetic
-  compt_assert(sum @== (13.as(u8)));
-  compt_assert(diff @== (7.as(u8)));
-  compt_assert(prod @== (30.as(u8)));
-  compt_assert(quot @== (3.as(u8)));
-  compt_assert(remainder @== (1.as(u8)));
+  compt_assert(sum == (13.as(u8)));
+  compt_assert(diff == (7.as(u8)));
+  compt_assert(prod == (30.as(u8)));
+  compt_assert(quot == (3.as(u8)));
+  compt_assert(remainder == (1.as(u8)));
   
   // Comparisons
-  compt_assert(eq_test @== true);
-  compt_assert(eq_false @== false);
-  compt_assert(neq_test @== true);
-  compt_assert(neq_false @== false);
-  compt_assert(lt_test @== true);
-  compt_assert(lt_false @== false);
-  compt_assert(lte_test @== true);
-  compt_assert(lte_equal @== true);
-  compt_assert(gt_test @== true);
-  compt_assert(gt_false @== false);
-  compt_assert(gte_test @== true);
-  compt_assert(gte_equal @== true);
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
   
   // Type conversions
-  compt_assert(u8_to_string @== "10");
+  compt_assert(u8_to_string == "10");
   
   // Test u8 boundary conditions
   {
     // Zero operations
-    zero_sum :: (zero @+ a);      // 10
-    zero_diff1 :: (a @- zero);    // 10
-    zero_prod :: (zero @* a);     // 0
+    zero_sum :: (zero + a);      // 10
+    zero_diff1 :: (a - zero);    // 10
+    zero_prod :: (zero * a);     // 0
     
-    compt_assert(zero_sum @== (10.as(u8)));
-    compt_assert(zero_diff1 @== (10.as(u8)));
-    compt_assert(zero_prod @== (0.as(u8)));
+    compt_assert(zero_sum == (10.as(u8)));
+    compt_assert(zero_diff1 == (10.as(u8)));
+    compt_assert(zero_prod == (0.as(u8)));
     
     // Max value operations
-    max_minus_one :: (max_u8 @- one);      // 254
-    max_div_two :: (max_u8 @/ (2.as(u8)));    // 127
-    max_mod_ten :: (max_u8 @% (10.as(u8)));   // 5 (255 % 10 = 5)
+    max_minus_one :: (max_u8 - one);      // 254
+    max_div_two :: (max_u8 / (2.as(u8)));    // 127
+    max_mod_ten :: (max_u8 % (10.as(u8)));   // 5 (255 % 10 = 5)
     
-    compt_assert(max_minus_one @== (254.as(u8)));
-    compt_assert(max_div_two @== (127.as(u8)));
-    compt_assert(max_mod_ten @== (5.as(u8)));
+    compt_assert(max_minus_one == (254.as(u8)));
+    compt_assert(max_div_two == (127.as(u8)));
+    compt_assert(max_mod_ten == (5.as(u8)));
     
     // Test max value comparisons
-    max_gt_zero :: (max_u8 @> zero);       // true
-    max_eq_255 :: (max_u8 @== (255.as(u8)));  // true
-    zero_lt_max :: (zero @< max_u8);       // true
+    max_gt_zero :: (max_u8 > zero);       // true
+    max_eq_255 :: (max_u8 == (255.as(u8)));  // true
+    zero_lt_max :: (zero < max_u8);       // true
     
-    compt_assert(max_gt_zero @== true);
-    compt_assert(max_eq_255 @== true);
-    compt_assert(zero_lt_max @== true);
+    compt_assert(max_gt_zero == true);
+    compt_assert(max_eq_255 == true);
+    compt_assert(zero_lt_max == true);
   };
   
   // Test identity operations
   {
-    identity_sum :: (a @+ zero);  // 10
-    identity_prod :: (a @* one);  // 10
+    identity_sum :: (a + zero);  // 10
+    identity_prod :: (a * one);  // 10
     
-    compt_assert(identity_sum @== (10.as(u8)));
-    compt_assert(identity_prod @== (10.as(u8)));
+    compt_assert(identity_sum == (10.as(u8)));
+    compt_assert(identity_prod == (10.as(u8)));
     
     // Self operations
-    self_sub :: (a @- a);         // 0
-    self_div :: (a @/ a);         // 1
-    self_mod :: (a @% a);         // 0
+    self_sub :: (a - a);         // 0
+    self_div :: (a / a);         // 1
+    self_mod :: (a % a);         // 0
     
-    compt_assert(self_sub @== (0.as(u8)));
-    compt_assert(self_div @== (1.as(u8)));
-    compt_assert(self_mod @== (0.as(u8)));
+    compt_assert(self_sub == (0.as(u8)));
+    compt_assert(self_div == (1.as(u8)));
+    compt_assert(self_mod == (0.as(u8)));
   };
   
   // Test medium-sized numbers within u8 range
@@ -117,43 +117,43 @@ main :: (()-> unit) {
     med1 :: (100.as(u8));
     med2 :: (50.as(u8));
     
-    med_sum :: (med1 @+ med2);        // 150
-    med_diff :: (med1 @- med2);       // 50
-    med_prod :: (med2 @* (2.as(u8)));    // 100
-    med_div :: (med1 @/ (5.as(u8)));     // 20
-    med_mod :: (med1 @% (7.as(u8)));     // 2 (100 % 7 = 2)
+    med_sum :: (med1 + med2);        // 150
+    med_diff :: (med1 - med2);       // 50
+    med_prod :: (med2 * (2.as(u8)));    // 100
+    med_div :: (med1 / (5.as(u8)));     // 20
+    med_mod :: (med1 % (7.as(u8)));     // 2 (100 % 7 = 2)
     
-    compt_assert(med_sum @== (150.as(u8)));
-    compt_assert(med_diff @== (50.as(u8)));
-    compt_assert(med_prod @== (100.as(u8)));
-    compt_assert(med_div @== (20.as(u8)));
-    compt_assert(med_mod @== (2.as(u8)));
+    compt_assert(med_sum == (150.as(u8)));
+    compt_assert(med_diff == (50.as(u8)));
+    compt_assert(med_prod == (100.as(u8)));
+    compt_assert(med_div == (20.as(u8)));
+    compt_assert(med_mod == (2.as(u8)));
     
     // String conversion of medium numbers
     med_str :: med1.to_string();
-    compt_assert(med_str @== "100");
+    compt_assert(med_str == "100");
   };
   
   // Test modulo with different numbers
   {
-    mod_tests1 :: ((17.as(u8)) @% (5.as(u8)));    // 2
-    mod_tests2 :: ((20.as(u8)) @% (4.as(u8)));    // 0
-    mod_tests3 :: ((7.as(u8)) @% (10.as(u8)));    // 7
+    mod_tests1 :: ((17.as(u8)) % (5.as(u8)));    // 2
+    mod_tests2 :: ((20.as(u8)) % (4.as(u8)));    // 0
+    mod_tests3 :: ((7.as(u8)) % (10.as(u8)));    // 7
     
-    compt_assert(mod_tests1 @== (2.as(u8)));
-    compt_assert(mod_tests2 @== (0.as(u8)));
-    compt_assert(mod_tests3 @== (7.as(u8)));
+    compt_assert(mod_tests1 == (2.as(u8)));
+    compt_assert(mod_tests2 == (0.as(u8)));
+    compt_assert(mod_tests3 == (7.as(u8)));
   };
   
   // Test chained operations
   {
-    chain1 :: ((a @+ b) @* (2.as(u8)));        // (10 + 3) * 2 = 26
-    chain2 :: (a @+ (b @* (2.as(u8))));        // 10 + (3 * 2) = 16
-    chain3 :: ((a @/ b) @+ one);            // (10 / 3) + 1 = 3 + 1 = 4
+    chain1 :: ((a + b) * (2.as(u8)));        // (10 + 3) * 2 = 26
+    chain2 :: (a + (b * (2.as(u8))));        // 10 + (3 * 2) = 16
+    chain3 :: ((a / b) + one);            // (10 / 3) + 1 = 3 + 1 = 4
     
-    compt_assert(chain1 @== (26.as(u8)));
-    compt_assert(chain2 @== (16.as(u8)));
-    compt_assert(chain3 @== (4.as(u8)));
+    compt_assert(chain1 == (26.as(u8)));
+    compt_assert(chain2 == (16.as(u8)));
+    compt_assert(chain3 == (4.as(u8)));
   };
   
   // Test conversion consistency
@@ -161,34 +161,34 @@ main :: (()-> unit) {
     num :: (42.as(u8));
     string_conv :: num.to_string();
     
-    compt_assert(string_conv @== "42");
+    compt_assert(string_conv == "42");
     
     // Test max value string conversion
     max_string :: max_u8.to_string();
-    compt_assert(max_string @== "255");
+    compt_assert(max_string == "255");
     
     // Test zero string conversion
     zero_string :: zero.to_string();
-    compt_assert(zero_string @== "0");
+    compt_assert(zero_string == "0");
   };
   
   // Test division edge cases
   {
     // Various divisions
-    div1 :: ((15.as(u8)) @/ (3.as(u8)));    // 5
-    div2 :: ((16.as(u8)) @/ (3.as(u8)));    // 5 (integer division)
-    div3 :: ((2.as(u8)) @/ (5.as(u8)));     // 0
+    div1 :: ((15.as(u8)) / (3.as(u8)));    // 5
+    div2 :: ((16.as(u8)) / (3.as(u8)));    // 5 (integer division)
+    div3 :: ((2.as(u8)) / (5.as(u8)));     // 0
     
-    compt_assert(div1 @== (5.as(u8)));
-    compt_assert(div2 @== (5.as(u8)));
-    compt_assert(div3 @== (0.as(u8)));
+    compt_assert(div1 == (5.as(u8)));
+    compt_assert(div2 == (5.as(u8)));
+    compt_assert(div3 == (0.as(u8)));
     
     // Test max value divisions
-    max_div_max :: (max_u8 @/ max_u8);    // 1
-    max_div_one :: (max_u8 @/ one);       // 255
+    max_div_max :: (max_u8 / max_u8);    // 1
+    max_div_one :: (max_u8 / one);       // 255
     
-    compt_assert(max_div_max @== (1.as(u8)));
-    compt_assert(max_div_one @== (255.as(u8)));
+    compt_assert(max_div_max == (1.as(u8)));
+    compt_assert(max_div_one == (255.as(u8)));
   };
   
   // Test boundary arithmetic that should wrap/saturate
@@ -197,15 +197,15 @@ main :: (()-> unit) {
     // For u8, values should wrap around or be clamped to 0-255 range
     
     near_max :: (250.as(u8));
-    small_add :: (near_max @+ (3.as(u8)));     // Should be 253
+    small_add :: (near_max + (3.as(u8)));     // Should be 253
     
-    compt_assert(small_add @== (253.as(u8)));
+    compt_assert(small_add == (253.as(u8)));
     
     // Test subtraction near zero
     small_val :: (3.as(u8));
-    small_sub :: (small_val @- (2.as(u8)));    // Should be 1
+    small_sub :: (small_val - (2.as(u8)));    // Should be 1
     
-    compt_assert(small_sub @== (1.as(u8)));
+    compt_assert(small_sub == (1.as(u8)));
   };
   
   ()
