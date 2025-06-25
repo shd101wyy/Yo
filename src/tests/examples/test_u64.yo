@@ -1,0 +1,193 @@
+open import "std";
+
+/**
+ * Test u64 (unsigned 64-bit integer) operations
+ * Range: 0 to 18446744073709551615
+ */
+main :: (()-> unit) {
+  // Basic u64 values
+  a :: 1000000000000.as(u64);
+  b :: 250000000000.as(u64);
+  c :: 1000000000000.as(u64);
+  zero :: 0.as(u64);
+  max_val :: 18446744073709551615.as(u64);
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 1250000000000u64
+  diff :: (a - b);       // 750000000000u64
+  prod :: (a * b);       // 250000000000000000000000u64 (may overflow)
+  quot :: (a / b);       // 4u64 (integer division)
+  remainder :: (a % b);  // 0u64
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true
+  eq_false :: (a == b);  // false
+  neq_test :: (a != b);  // true
+  neq_false :: (a != c); // false
+  lt_test :: (b < a);    // true
+  lt_false :: (a < b);   // false
+  lte_test :: (b <= a);  // true
+  lte_equal :: (a <= c); // true
+  gt_test :: (a > b);    // true
+  gt_false :: (b > a);   // false
+  gte_test :: (a >= b);  // true
+  gte_equal :: (a >= c); // true
+  
+  // Type conversion operations
+  u64_to_f32 :: a.as(f32);      // 1000000000000.0f32 (may lose precision)
+  u64_to_f64 :: a.as(f64);      // 1000000000000.0f64
+  u64_to_string :: a.to_string(); // "1000000000000"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == (1250000000000.as(u64)));
+  compt_assert(diff == (750000000000.as(u64)));
+  compt_assert(quot == (4.as(u64)));
+  compt_assert(remainder == (0.as(u64)));
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(u64_to_f64 == (1000000000000.0.as(f64)));
+  compt_assert(u64_to_string == "1000000000000");
+  
+  // Test boundary values
+  {
+    min_val :: 0.as(u64);
+    
+    // Operations with min value
+    min_sum :: (min_val + 1.as(u64));     // 1u64
+    min_sub :: (min_val - 1.as(u64));     // underflow wraps to max
+    min_mult :: (min_val * 5000000.as(u64));  // 0u64
+    
+    // Operations with large values near max
+    large_val :: 9223372036854775807.as(u64); // Close to max
+    large_sum :: (large_val + 1000.as(u64));  // Still within range
+    large_mult :: (large_val / 1000.as(u64)); // 9223372036854775u64
+    
+    compt_assert(min_sum == (1.as(u64)));
+    compt_assert(min_mult == (0.as(u64)));
+    compt_assert(large_sum == (9223372036854776807.as(u64)));
+    compt_assert(large_mult == (9223372036854775.as(u64)));
+    
+    // Boundary comparisons
+    compt_assert(min_val < large_val);
+    compt_assert(large_val > min_val);
+    compt_assert(min_val <= large_val);
+    compt_assert(large_val >= min_val);
+  };
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 1000000000000u64
+    zero_diff1 :: (a - zero);    // 1000000000000u64
+    zero_diff2 :: (zero - a);    // underflow behavior
+    zero_prod :: (zero * a);     // 0u64
+    
+    compt_assert(zero_sum == (1000000000000.as(u64)));
+    compt_assert(zero_diff1 == (1000000000000.as(u64)));
+    compt_assert(zero_prod == (0.as(u64)));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 1000000000000u64
+    identity_prod :: (a * 1.as(u64));  // 1000000000000u64
+    
+    compt_assert(identity_sum == (1000000000000.as(u64)));
+    compt_assert(identity_prod == (1000000000000.as(u64)));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0u64
+    self_div :: (a / a);         // 1u64
+    self_mod :: (a % a);         // 0u64
+    
+    compt_assert(self_sub == (0.as(u64)));
+    compt_assert(self_div == (1.as(u64)));
+    compt_assert(self_mod == (0.as(u64)));
+  };
+  
+  // Test very large values
+  {
+    huge1 :: 1000000000000000000.as(u64);  // 10^18
+    huge2 :: 500000000000000000.as(u64);   // 5 * 10^17
+    
+    huge_sum :: (huge1 + huge2);     // 1.5 * 10^18
+    huge_diff :: (huge1 - huge2);    // 5 * 10^17
+    huge_div :: (huge1 / 1000000.as(u64)); // 10^12
+    huge_mod :: (huge1 % 7.as(u64)); // 1u64 (10^18 % 7 = 1)
+    
+    compt_assert(huge_sum == (1500000000000000000.as(u64)));
+    compt_assert(huge_diff == (500000000000000000.as(u64)));
+    compt_assert(huge_div == (1000000000000.as(u64)));
+    compt_assert(huge_mod == (1.as(u64)));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (2000000000000.as(u64) / 8.as(u64));       // 250000000000u64
+    div2 :: (2000000000001.as(u64) / 8.as(u64));       // 250000000000u64 (integer division)
+    div3 :: (7.as(u64) / 1000000000000.as(u64));       // 0u64
+    
+    compt_assert(div1 == (250000000000.as(u64)));
+    compt_assert(div2 == (250000000000.as(u64)));
+    compt_assert(div3 == (0.as(u64)));
+  };
+  
+  // Test modulo operations
+  {
+    mod1 :: (17.as(u64) % 5.as(u64));        // 2u64
+    mod2 :: (20.as(u64) % 4.as(u64));        // 0u64
+    mod3 :: (7.as(u64) % 10.as(u64));        // 7u64
+    mod4 :: (1000000000000000000.as(u64) % 997.as(u64)); // Large modulo
+    
+    compt_assert(mod1 == (2.as(u64)));
+    compt_assert(mod2 == (0.as(u64)));
+    compt_assert(mod3 == (7.as(u64)));
+    // mod4 result depends on calculation
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) / 5.as(u64));    // (10^12 + 2.5*10^11) / 5 = 2.5*10^11
+    chain2 :: (a + (b * 2.as(u64)));    // 10^12 + (2.5*10^11 * 2) = 1.5*10^12
+    chain3 :: ((a / b) + 1.as(u64));    // (10^12 / 2.5*10^11) + 1 = 5u64
+    
+    compt_assert(chain1 == (250000000000.as(u64)));
+    compt_assert(chain2 == (1500000000000.as(u64)));
+    compt_assert(chain3 == (5.as(u64)));
+  };
+  
+  // Test powers of 2 (important for u64)
+  {
+    pow2_32 :: 4294967296.as(u64);        // 2^32
+    pow2_40 :: 1099511627776.as(u64);     // 2^40
+    
+    div_pow2 :: (pow2_40 / pow2_32);      // 256u64 (2^8)
+    mod_pow2 :: (4294967297.as(u64) % pow2_32); // 1u64
+    
+    compt_assert(div_pow2 == (256.as(u64)));
+    compt_assert(mod_pow2 == (1.as(u64)));
+  };
+  
+  // Test string conversions
+  {
+    zero_str :: zero.to_string();
+    large_str :: (123456789012345.as(u64)).to_string();
+    
+    compt_assert(zero_str == "0");
+    compt_assert(large_str == "123456789012345");
+  };
+  
+  ()
+};

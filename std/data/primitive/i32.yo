@@ -1,5 +1,5 @@
 { compt_codegen_inline } :: import("../../builtins.yo");
-{ Add, Sub, Mul, Div, Mod } :: import "../../modules/arithmetic.yo";
+{ Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
 { LogicalNot } :: import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 
@@ -43,6 +43,14 @@ implicit(I32Mod) :: Mod(i32, i32)
   (%): (fn(a, b)-> {
     compt_codegen_inline("(((int32_t)$1) % ((int32_t)$2))");
     recur(a, b)
+  })
+;
+
+implicit(I32Negate) :: Negate(i32, i32)
+  Output: i32,
+  (neg): (fn(a)-> {
+    compt_codegen_inline("(-((int32_t)$1))");
+    recur(a)
   })
 ;
 
@@ -122,8 +130,6 @@ implicit(ComptI32Methods) :: module {
     __yo_i32_neg(self)
   ;
 
-  @~- :: neg;
-
   (as) :: ((@(self): Self, @(Target): Type) -> @(Target))
     __yo_i32_as(self, Target)
   ;
@@ -157,6 +163,7 @@ export
   I32Mul,
   I32Div,
   I32Mod,
+  I32Negate,
   I32LogicalNot,
   I32Eq,
   ComptI32Methods

@@ -310,11 +310,13 @@ export function areTypesCompatible(
         if (
           !areTypesCompatible(
             { type: expectedElement.type, env: expected.env },
-            { type: givenElement.type, env: given.env }
+            { type: givenElement.type, env: given.env },
+            true // exactNumericTypeMatch
           )
         ) {
           return false;
         }
+
         if (expectedElement.assignedValue && givenElement.assignedValue) {
           if (
             !areValuesEqual(
@@ -339,7 +341,8 @@ export function areTypesCompatible(
   if (isFunctionType(expected.type) && isFunctionType(given.type)) {
     return areFunctionTypesCompatible(
       { type: expected.type, env: expected.env },
-      { type: given.type, env: given.env }
+      { type: given.type, env: given.env },
+      exactNumericTypeMatch
     );
   }
 
@@ -453,7 +456,8 @@ export function areFunctionTypesCompatible(
   given: {
     type: FunctionType;
     env: Environment;
-  }
+  },
+  exactNumericTypeMatch = false
 ): boolean {
   // Check if the type parameters have the same count
   if (expected.type.parameters.length !== given.type.parameters.length) {
@@ -489,7 +493,8 @@ export function areFunctionTypesCompatible(
     if (
       !areTypesCompatible(
         { type: expectedTypeParam.type, env: expected.env },
-        { type: givenTypeParam.type, env: given.env }
+        { type: givenTypeParam.type, env: given.env },
+        exactNumericTypeMatch
       )
     ) {
       return false;
@@ -547,7 +552,8 @@ export function areFunctionTypesCompatible(
         {
           type: given.type.parameters[i]!.type,
           env: given.env,
-        }
+        },
+        exactNumericTypeMatch
       )
     ) {
       return false;
@@ -564,7 +570,8 @@ export function areFunctionTypesCompatible(
         givenImplicitParam.isCompileTimeOnly ||
       !areTypesCompatible(
         { type: expectedImplicitParam.type, env: expected.env },
-        { type: givenImplicitParam.type, env: given.env }
+        { type: givenImplicitParam.type, env: given.env },
+        exactNumericTypeMatch
       )
     ) {
       return false;
@@ -573,6 +580,7 @@ export function areFunctionTypesCompatible(
 
   return areTypesCompatible(
     { type: expected.type.return.type, env: expected.env },
-    { type: given.type.return.type, env: given.env }
+    { type: given.type.return.type, env: given.env },
+    exactNumericTypeMatch
   );
 }

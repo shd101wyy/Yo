@@ -1,0 +1,248 @@
+open import "std";
+
+/**
+ * Test isize (platform-dependent signed integer) operations
+ * Range: platform-dependent minimum to maximum (typically -2^31 to 2^31-1 or -2^63 to 2^63-1)
+ */
+main :: (()-> unit) {
+  // Basic isize values
+  a :: 100000.as(isize);
+  b :: 25000.as(isize);
+  c :: 100000.as(isize);
+  zero :: 0.as(isize);
+  neg_val :: (-50000).as(isize);
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 125000isize
+  diff :: (a - b);       // 75000isize
+  prod :: (a * b);       // 2500000000isize
+  quot :: (a / b);       // 4isize (integer division)
+  remainder :: (a % b);  // 0isize (100000 % 25000 = 0)
+  
+  // Unary operations
+  neg_a :: -(a);         // -100000isize
+  neg_zero :: -(zero);   // 0isize
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true (100000isize == 100000isize)
+  eq_false :: (a == b);  // false (100000isize == 25000isize)
+  neq_test :: (a != b);  // true (100000isize != 25000isize)
+  neq_false :: (a != c); // false (100000isize != 100000isize)
+  lt_test :: (b < a);    // true (25000isize < 100000isize)
+  lt_false :: (a < b);   // false (100000isize < 25000isize)
+  lte_test :: (b <= a);  // true (25000isize <= 100000isize)
+  lte_equal :: (a <= c); // true (100000isize <= 100000isize)
+  gt_test :: (a > b);    // true (100000isize > 25000isize)
+  gt_false :: (b > a);   // false (25000isize > 100000isize)
+  gte_test :: (a >= b);  // true (100000isize >= 25000isize)
+  gte_equal :: (a >= c); // true (100000isize >= 100000isize)
+  
+  // Type conversion operations
+  isize_to_i64 :: a.as(i64);      // 100000i64
+  isize_to_u64 :: a.as(u64);      // 100000u64
+  isize_to_f32 :: a.as(f32);      // 100000.0f32
+  isize_to_f64 :: a.as(f64);      // 100000.0f64
+  isize_to_string :: a.to_string(); // "100000"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == (125000.as(isize)));
+  compt_assert(diff == (75000.as(isize)));
+  compt_assert(prod == (2500000000.as(isize)));
+  compt_assert(quot == (4.as(isize)));
+  compt_assert(remainder == (0.as(isize)));
+  
+  // Unary operations
+  compt_assert(neg_a == ((-100000).as(isize)));
+  compt_assert(neg_zero == (0.as(isize)));
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(isize_to_i64 == (100000.as(i64)));
+  compt_assert(isize_to_u64 == (100000.as(u64)));
+  compt_assert(isize_to_f32 == (100000.0.as(f32)));
+  compt_assert(isize_to_f64 == (100000.0.as(f64)));
+  compt_assert(isize_to_string == "100000");
+  
+  // Test with negative numbers
+  {
+    neg_sum :: (neg_val + a);     // -50000 + 100000 = 50000isize
+    neg_diff :: (neg_val - a);    // -50000 - 100000 = -150000isize
+    neg_prod :: (neg_val * 2.as(isize)); // -50000 * 2 = -100000isize
+    neg_quot :: (neg_val / 10.as(isize)); // -50000 / 10 = -5000isize
+    
+    // Comparisons with negatives
+    neg_lt :: (neg_val < a);      // true (-50000 < 100000)
+    neg_gt :: (a > neg_val);      // true (100000 > -50000)
+    
+    compt_assert(neg_sum == (50000.as(isize)));
+    compt_assert(neg_diff == ((-150000).as(isize)));
+    compt_assert(neg_prod == ((-100000).as(isize)));
+    compt_assert(neg_quot == ((-5000).as(isize)));
+    compt_assert(neg_lt == true);
+    compt_assert(neg_gt == true);
+  };
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 100000isize
+    zero_diff1 :: (a - zero);    // 100000isize
+    zero_diff2 :: (zero - a);    // -100000isize
+    zero_prod :: (zero * a);     // 0isize
+    
+    compt_assert(zero_sum == (100000.as(isize)));
+    compt_assert(zero_diff1 == (100000.as(isize)));
+    compt_assert(zero_diff2 == ((-100000).as(isize)));
+    compt_assert(zero_prod == (0.as(isize)));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 100000isize
+    identity_prod :: (a * 1.as(isize));  // 100000isize
+    
+    compt_assert(identity_sum == (100000.as(isize)));
+    compt_assert(identity_prod == (100000.as(isize)));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0isize
+    self_div :: (a / a);         // 1isize
+    self_mod :: (a % a);         // 0isize
+    
+    compt_assert(self_sub == (0.as(isize)));
+    compt_assert(self_div == (1.as(isize)));
+    compt_assert(self_mod == (0.as(isize)));
+  };
+  
+  // Test larger values (safe on all platforms)
+  {
+    large1 :: 1000000.as(isize);
+    large2 :: 500000.as(isize);
+    
+    large_sum :: (large1 + large2);     // 1500000isize
+    large_diff :: (large1 - large2);    // 500000isize
+    large_div :: (large1 / 1000.as(isize)); // 1000isize
+    large_mod :: (large1 % 7.as(isize));  // 6isize (1000000 % 7 = 6)
+    
+    compt_assert(large_sum == (1500000.as(isize)));
+    compt_assert(large_diff == (500000.as(isize)));
+    compt_assert(large_div == (1000.as(isize)));
+    compt_assert(large_mod == (6.as(isize)));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (200000.as(isize) / 8.as(isize));       // 25000isize
+    div2 :: (200001.as(isize) / 8.as(isize));       // 25000isize (integer division)
+    div3 :: (7.as(isize) / 1000.as(isize));         // 0isize
+    
+    // Negative divisions
+    div4 :: ((-200000).as(isize) / 8.as(isize));    // -25000isize
+    div5 :: (200000.as(isize) / (-8).as(isize));    // -25000isize
+    div6 :: ((-200000).as(isize) / (-8).as(isize)); // 25000isize
+    
+    compt_assert(div1 == (25000.as(isize)));
+    compt_assert(div2 == (25000.as(isize)));
+    compt_assert(div3 == (0.as(isize)));
+    compt_assert(div4 == ((-25000).as(isize)));
+    compt_assert(div5 == ((-25000).as(isize)));
+    compt_assert(div6 == (25000.as(isize)));
+  };
+  
+  // Test modulo operations
+  {
+    mod1 :: (17.as(isize) % 5.as(isize));        // 2isize
+    mod2 :: (20.as(isize) % 4.as(isize));        // 0isize
+    mod3 :: (7.as(isize) % 10.as(isize));        // 7isize
+    
+    // Negative modulo
+    mod4 :: ((-17).as(isize) % 5.as(isize));     // behavior depends on implementation
+    mod5 :: (17.as(isize) % (-5).as(isize));     // behavior depends on implementation
+    
+    compt_assert(mod1 == (2.as(isize)));
+    compt_assert(mod2 == (0.as(isize)));
+    compt_assert(mod3 == (7.as(isize)));
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) / 5.as(isize));    // (100000isize + 25000isize) / 5isize = 25000isize
+    chain2 :: (a + (b * 2.as(isize)));    // 100000isize + (25000isize * 2isize) = 150000isize
+    chain3 :: ((a / b) + 1.as(isize));    // (100000isize / 25000isize) + 1isize = 5isize
+    
+    compt_assert(chain1 == (25000.as(isize)));
+    compt_assert(chain2 == (150000.as(isize)));
+    compt_assert(chain3 == (5.as(isize)));
+  };
+  
+  // Test powers of 2 (common for pointer arithmetic)
+  {
+    pow2_10 :: 1024.as(isize);           // 2^10
+    pow2_16 :: 65536.as(isize);          // 2^16
+    
+    div_pow2 :: (pow2_16 / pow2_10);     // 64isize (2^6)
+    mod_pow2 :: (1025.as(isize) % pow2_10); // 1isize
+    
+    compt_assert(div_pow2 == (64.as(isize)));
+    compt_assert(mod_pow2 == (1.as(isize)));
+  };
+  
+  // Test offset calculations (typical use case for isize)
+  {
+    base_offset :: 1000.as(isize);
+    positive_offset :: 500.as(isize);
+    negative_offset :: (-200).as(isize);
+    
+    forward_pos :: (base_offset + positive_offset);   // 1500isize
+    forward_neg :: (base_offset + negative_offset);   // 800isize
+    backward_pos :: (base_offset - positive_offset);  // 500isize
+    backward_neg :: (base_offset - negative_offset);  // 1200isize
+    
+    compt_assert(forward_pos == (1500.as(isize)));
+    compt_assert(forward_neg == (800.as(isize)));
+    compt_assert(backward_pos == (500.as(isize)));
+    compt_assert(backward_neg == (1200.as(isize)));
+  };
+  
+  // Test difference calculations (common for pointer arithmetic)
+  {
+    ptr1 :: 1000.as(isize);
+    ptr2 :: 1500.as(isize);
+    ptr3 :: 800.as(isize);
+    
+    diff1 :: (ptr2 - ptr1);    // 500isize (positive difference)
+    diff2 :: (ptr1 - ptr2);    // -500isize (negative difference)
+    diff3 :: (ptr1 - ptr3);    // 200isize (positive difference)
+    
+    abs_diff1 :: (diff2 * (-1).as(isize)); // 500isize (absolute value simulation)
+    
+    compt_assert(diff1 == (500.as(isize)));
+    compt_assert(diff2 == ((-500).as(isize)));
+    compt_assert(diff3 == (200.as(isize)));
+    compt_assert(abs_diff1 == (500.as(isize)));
+  };
+  
+  // Test string conversions
+  {
+    zero_str :: zero.to_string();
+    neg_str :: neg_val.to_string();
+    large_str :: (123456.as(isize)).to_string();
+    
+    compt_assert(zero_str == "0");
+    compt_assert(neg_str == "-50000");
+    compt_assert(large_str == "123456");
+  };
+  
+  ()
+};

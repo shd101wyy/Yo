@@ -1,0 +1,240 @@
+open import "std";
+
+/**
+ * Test i32 (signed 32-bit integer) operations
+ * Range: -2147483648 to 2147483647
+ */
+main :: (()-> unit) {
+  // Basic i32 values
+  a :: 100000.as(i32);
+  b :: 25000.as(i32);
+  c :: 100000.as(i32);
+  zero :: 0.as(i32);
+  neg_val :: -(50000).as(i32);
+  max_val :: 2147483647.as(i32);
+  min_val :: -(2147483648).as(i32);
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 125000i32
+  diff :: (a - b);       // 75000i32
+  prod :: (a * b);       // 2500000000i32
+  quot :: (a / b);       // 4i32 (integer division)
+  remainder :: (a % b);  // 0i32 (100000 % 25000 = 0)
+  
+  // Unary operations
+  neg_a :: -(a);         // -100000i32
+  neg_zero :: -(zero);   // 0i32
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true (100000i32 == 100000i32)
+  eq_false :: (a == b);  // false (100000i32 == 25000i32)
+  neq_test :: (a != b);  // true (100000i32 != 25000i32)
+  neq_false :: (a != c); // false (100000i32 != 100000i32)
+  lt_test :: (b < a);    // true (25000i32 < 100000i32)
+  lt_false :: (a < b);   // false (100000i32 < 25000i32)
+  lte_test :: (b <= a);  // true (25000i32 <= 100000i32)
+  lte_equal :: (a <= c); // true (100000i32 <= 100000i32)
+  gt_test :: (a > b);    // true (100000i32 > 25000i32)
+  gt_false :: (b > a);   // false (25000i32 > 100000i32)
+  gte_test :: (a >= b);  // true (100000i32 >= 25000i32)
+  gte_equal :: (a >= c); // true (100000i32 >= 100000i32)
+  
+  // Type conversion operations
+  i32_to_i64 :: a.as(i64);      // 100000i64
+  i32_to_u64 :: a.as(u64);      // 100000u64
+  i32_to_f32 :: a.as(f32);      // 100000.0f32
+  i32_to_f64 :: a.as(f64);      // 100000.0f64
+  i32_to_string :: a.to_string(); // "100000"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == (125000.as(i32)));
+  compt_assert(diff == (75000.as(i32)));
+  compt_assert(prod == (2500000000.as(i32)));
+  compt_assert(quot == (4.as(i32)));
+  compt_assert(remainder == (0.as(i32)));
+  
+  // Unary operations
+  compt_assert(neg_a == (-(100000).as(i32)));
+  compt_assert(neg_zero == (0.as(i32)));
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(i32_to_i64 == (100000.as(i64)));
+  compt_assert(i32_to_u64 == (100000.as(u64)));
+  compt_assert(i32_to_f32 == (100000.0.as(f32)));
+  compt_assert(i32_to_f64 == (100000.0.as(f64)));
+  compt_assert(i32_to_string == "100000");
+  
+  // Test with negative numbers
+  {
+    neg_sum :: (neg_val + a);     // -50000 + 100000 = 50000i32
+    neg_diff :: (neg_val - a);    // -50000 - 100000 = -150000i32
+    neg_prod :: (neg_val * 2.as(i32)); // -50000 * 2 = -100000i32
+    neg_quot :: (neg_val / 10.as(i32)); // -50000 / 10 = -5000i32
+    
+    // Comparisons with negatives
+    neg_lt :: (neg_val < a);      // true (-50000 < 100000)
+    neg_gt :: (a > neg_val);      // true (100000 > -50000)
+    
+    compt_assert(neg_sum == (50000.as(i32)));
+    compt_assert(neg_diff == (-(150000).as(i32)));
+    compt_assert(neg_prod == (-(100000).as(i32)));
+    compt_assert(neg_quot == (-(5000).as(i32)));
+    compt_assert(neg_lt == true);
+    compt_assert(neg_gt == true);
+  };
+  
+  // Test boundary values
+  {
+    // Operations with min value
+    min_sum :: (min_val + 1.as(i32));     // -2147483647i32
+    min_sub :: (min_val - 1.as(i32));     // overflow behavior
+    min_neg :: -(min_val);               // overflow: -(-2147483648) should be handled
+    
+    // Operations with max value
+    max_sum :: (max_val + 1.as(i32));     // overflow
+    max_sub :: (max_val - 1.as(i32));     // 2147483646i32
+    max_neg :: -(max_val);               // -2147483647i32
+    
+    compt_assert(min_sum == (-(2147483647).as(i32)));
+    compt_assert(max_sub == (2147483646.as(i32)));
+    compt_assert(max_neg == (-(2147483647).as(i32)));
+    
+    // Boundary comparisons
+    compt_assert(min_val < max_val);
+    compt_assert(max_val > min_val);
+    compt_assert(min_val <= max_val);
+    compt_assert(max_val >= min_val);
+  };
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 100000i32
+    zero_diff1 :: (a - zero);    // 100000i32
+    zero_diff2 :: (zero - a);    // -100000i32
+    zero_prod :: (zero * a);     // 0i32
+    
+    compt_assert(zero_sum == (100000.as(i32)));
+    compt_assert(zero_diff1 == (100000.as(i32)));
+    compt_assert(zero_diff2 == (-(100000).as(i32)));
+    compt_assert(zero_prod == (0.as(i32)));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 100000i32
+    identity_prod :: (a * 1.as(i32));  // 100000i32
+    
+    compt_assert(identity_sum == (100000.as(i32)));
+    compt_assert(identity_prod == (100000.as(i32)));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0i32
+    self_div :: (a / a);         // 1i32
+    self_mod :: (a % a);         // 0i32
+    
+    compt_assert(self_sub == (0.as(i32)));
+    compt_assert(self_div == (1.as(i32)));
+    compt_assert(self_mod == (0.as(i32)));
+  };
+  
+  // Test large values
+  {
+    large1 :: 1000000000.as(i32);
+    large2 :: 500000000.as(i32);
+    
+    large_sum :: (large1 + large2);     // 1500000000i32
+    large_diff :: (large1 - large2);    // 500000000i32
+    large_div :: (large1 / 1000.as(i32)); // 1000000i32
+    large_mod :: (large1 % 7.as(i32));  // 6i32 (1000000000 % 7 = 6)
+    
+    compt_assert(large_sum == (1500000000.as(i32)));
+    compt_assert(large_diff == (500000000.as(i32)));
+    compt_assert(large_div == (1000000.as(i32)));
+    compt_assert(large_mod == (6.as(i32)));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (200000.as(i32) / 8.as(i32));       // 25000i32
+    div2 :: (200001.as(i32) / 8.as(i32));       // 25000i32 (integer division)
+    div3 :: (7.as(i32) / 1000.as(i32));         // 0i32
+    
+    // Negative divisions
+    div4 :: (-(200000).as(i32) / 8.as(i32));    // -25000i32
+    div5 :: (200000.as(i32) / -(8).as(i32));    // -25000i32
+    div6 :: (-(200000).as(i32) / -(8).as(i32)); // 25000i32
+    
+    compt_assert(div1 == (25000.as(i32)));
+    compt_assert(div2 == (25000.as(i32)));
+    compt_assert(div3 == (0.as(i32)));
+    compt_assert(div4 == (-(25000).as(i32)));
+    compt_assert(div5 == (-(25000).as(i32)));
+    compt_assert(div6 == (25000.as(i32)));
+  };
+  
+  // Test modulo operations
+  {
+    mod1 :: (17.as(i32) % 5.as(i32));        // 2i32
+    mod2 :: (20.as(i32) % 4.as(i32));        // 0i32
+    mod3 :: (7.as(i32) % 10.as(i32));        // 7i32
+    
+    // Negative modulo
+    mod4 :: (-(17).as(i32) % 5.as(i32));     // behavior depends on implementation
+    mod5 :: (17.as(i32) % -(5).as(i32));     // behavior depends on implementation
+    
+    compt_assert(mod1 == (2.as(i32)));
+    compt_assert(mod2 == (0.as(i32)));
+    compt_assert(mod3 == (7.as(i32)));
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) / 5.as(i32));    // (100000i32 + 25000i32) / 5i32 = 25000i32
+    chain2 :: (a + (b * 2.as(i32)));    // 100000i32 + (25000i32 * 2i32) = 150000i32
+    chain3 :: ((a / b) + 1.as(i32));    // (100000i32 / 25000i32) + 1i32 = 5i32
+    
+    compt_assert(chain1 == (25000.as(i32)));
+    compt_assert(chain2 == (150000.as(i32)));
+    compt_assert(chain3 == (5.as(i32)));
+  };
+  
+  // Test powers of 2 (common in systems programming)
+  {
+    pow2_10 :: 1024.as(i32);           // 2^10
+    pow2_20 :: 1048576.as(i32);        // 2^20
+    
+    div_pow2 :: (pow2_20 / pow2_10);   // 1024i32
+    mod_pow2 :: (1025.as(i32) % pow2_10); // 1i32
+    
+    compt_assert(div_pow2 == (1024.as(i32)));
+    compt_assert(mod_pow2 == (1.as(i32)));
+  };
+  
+  // Test string conversions
+  {
+    zero_str :: zero.to_string();
+    neg_str :: neg_val.to_string();
+    max_str :: max_val.to_string();
+    min_str :: min_val.to_string();
+    
+    compt_assert(zero_str == "0");
+    compt_assert(neg_str == "-50000");
+    compt_assert(max_str == "2147483647");
+    compt_assert(min_str == "-2147483648");
+  };
+  
+  ()
+};

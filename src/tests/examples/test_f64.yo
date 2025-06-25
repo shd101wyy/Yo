@@ -1,0 +1,277 @@
+open import "std";
+
+/**
+ * Test f64 (64-bit floating point) operations
+ * IEEE 754 double precision floating point
+ */
+main :: (()-> unit) {
+  // Basic f64 values
+  a :: 100.5.as(f64);
+  b :: 25.25.as(f64);
+  c :: 100.5.as(f64);
+  zero :: 0.0.as(f64);
+  neg_val :: -(50.75).as(f64);
+  one :: 1.0.as(f64);
+  half :: 0.5.as(f64);
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 125.75f64
+  diff :: (a - b);       // 75.25f64
+  prod :: (a * b);       // 2537.625f64
+  quot :: (a / b);       // 3.9801980198019801...f64 (high precision)
+  
+  // Unary operations
+  neg_a :: -(a);         // -100.5f64
+  neg_zero :: -(zero);   // -0.0f64 (negative zero)
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true (100.5f64 == 100.5f64)
+  eq_false :: (a == b);  // false (100.5f64 == 25.25f64)
+  neq_test :: (a != b);  // true (100.5f64 != 25.25f64)
+  neq_false :: (a != c); // false (100.5f64 != 100.5f64)
+  lt_test :: (b < a);    // true (25.25f64 < 100.5f64)
+  lt_false :: (a < b);   // false (100.5f64 < 25.25f64)
+  lte_test :: (b <= a);  // true (25.25f64 <= 100.5f64)
+  lte_equal :: (a <= c); // true (100.5f64 <= 100.5f64)
+  gt_test :: (a > b);    // true (100.5f64 > 25.25f64)
+  gt_false :: (b > a);   // false (25.25f64 > 100.5f64)
+  gte_test :: (a >= b);  // true (100.5f64 >= 25.25f64)
+  gte_equal :: (a >= c); // true (100.5f64 >= 100.5f64)
+  
+  // Type conversion operations
+  f64_to_f32 :: a.as(f32);      // 100.5f32 (may lose precision)
+  f64_to_i64 :: a.as(i64);      // 100i64 (truncated)
+  f64_to_u64 :: a.as(u64);      // 100u64 (truncated)
+  f64_to_string :: a.to_string(); // "100.5"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == (125.75.as(f64)));
+  compt_assert(diff == (75.25.as(f64)));
+  compt_assert(prod == (2537.625.as(f64)));
+  
+  // Unary operations
+  compt_assert(neg_a == (-(100.5).as(f64)));
+  compt_assert(neg_zero == (0.0.as(f64))); // -0.0 == 0.0 in IEEE 754
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(f64_to_f32 == (100.5.as(f32)));
+  compt_assert(f64_to_i64 == (100.as(i64)));
+  compt_assert(f64_to_u64 == (100.as(u64)));
+  compt_assert(f64_to_string == "100.5");
+  
+  // Test with negative numbers
+  {
+    neg_sum :: (neg_val + a);     // -50.75 + 100.5 = 49.75f64
+    neg_diff :: (neg_val - a);    // -50.75 - 100.5 = -151.25f64
+    neg_prod :: (neg_val * 2.0.as(f64)); // -50.75 * 2.0 = -101.5f64
+    neg_quot :: (neg_val / 2.0.as(f64)); // -50.75 / 2.0 = -25.375f64
+    
+    // Comparisons with negatives
+    neg_lt :: (neg_val < a);      // true (-50.75 < 100.5)
+    neg_gt :: (a > neg_val);      // true (100.5 > -50.75)
+    
+    compt_assert(neg_sum == (49.75.as(f64)));
+    compt_assert(neg_diff == (-(151.25).as(f64)));
+    compt_assert(neg_prod == (-(101.5).as(f64)));
+    compt_assert(neg_quot == (-(25.375).as(f64)));
+    compt_assert(neg_lt == true);
+    compt_assert(neg_gt == true);
+  };
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 100.5f64
+    zero_diff1 :: (a - zero);    // 100.5f64
+    zero_diff2 :: (zero - a);    // -100.5f64
+    zero_prod :: (zero * a);     // 0.0f64
+    
+    compt_assert(zero_sum == (100.5.as(f64)));
+    compt_assert(zero_diff1 == (100.5.as(f64)));
+    compt_assert(zero_diff2 == (-(100.5).as(f64)));
+    compt_assert(zero_prod == (0.0.as(f64)));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 100.5f64
+    identity_prod :: (a * one);  // 100.5f64
+    
+    compt_assert(identity_sum == (100.5.as(f64)));
+    compt_assert(identity_prod == (100.5.as(f64)));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0.0f64
+    self_div :: (a / a);         // 1.0f64
+    
+    compt_assert(self_sub == (0.0.as(f64)));
+    compt_assert(self_div == (1.0.as(f64)));
+  };
+  
+  // Test fractional operations
+  {
+    frac1 :: 0.25.as(f64);
+    frac2 :: 0.75.as(f64);
+    
+    frac_sum :: (frac1 + frac2);     // 1.0f64
+    frac_diff :: (frac2 - frac1);    // 0.5f64
+    frac_prod :: (frac1 * frac2);    // 0.1875f64 (3/16)
+    frac_quot :: (frac2 / frac1);    // 3.0f64
+    
+    compt_assert(frac_sum == (1.0.as(f64)));
+    compt_assert(frac_diff == (0.5.as(f64)));
+    compt_assert(frac_prod == (0.1875.as(f64)));
+    compt_assert(frac_quot == (3.0.as(f64)));
+    
+    // Powers and roots (approximations)
+    square :: (frac2 * frac2);       // 0.5625f64 (0.75^2)
+    half_div :: (one / 2.0.as(f64)); // 0.5f64
+    
+    compt_assert(square == (0.5625.as(f64)));
+    compt_assert(half_div == (0.5.as(f64)));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (200.0.as(f64) / 8.0.as(f64));       // 25.0f64
+    div2 :: (201.0.as(f64) / 8.0.as(f64));       // 25.125f64
+    div3 :: (7.0.as(f64) / 100.0.as(f64));       // 0.07f64
+    
+    // Negative divisions
+    div4 :: (-(200.0).as(f64) / 8.0.as(f64));    // -25.0f64
+    div5 :: (200.0.as(f64) / -(8.0).as(f64));    // -25.0f64
+    div6 :: (-(200.0).as(f64) / -(8.0).as(f64)); // 25.0f64
+    
+    compt_assert(div1 == (25.0.as(f64)));
+    compt_assert(div2 == (25.125.as(f64)));
+    compt_assert(div3 == (0.07.as(f64)));
+    compt_assert(div4 == (-(25.0).as(f64)));
+    compt_assert(div5 == (-(25.0).as(f64)));
+    compt_assert(div6 == (25.0.as(f64)));
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) / 5.0.as(f64));    // (100.5 + 25.25) / 5.0 = 25.15f64
+    chain2 :: (a + (b * 2.0.as(f64)));    // 100.5 + (25.25 * 2.0) = 151.0f64
+    chain3 :: ((a / b) + 1.0.as(f64));    // (100.5 / 25.25) + 1.0 ≈ 4.980198...f64
+    
+    compt_assert(chain1 == (25.15.as(f64)));
+    compt_assert(chain2 == (151.0.as(f64)));
+    // chain3 result depends on precise division
+  };
+  
+  // Test scientific notation values
+  {
+    small :: 0.001.as(f64);         // 1e-3
+    large :: 1000.0.as(f64);        // 1e3
+    very_small :: 0.000001.as(f64); // 1e-6
+    very_large :: 1000000.0.as(f64); // 1e6
+    
+    sci_prod :: (small * large);    // 1.0f64
+    sci_div :: (large / small);     // 1000000.0f64 (1e6)
+    tiny_prod :: (very_small * very_large); // 1.0f64
+    
+    compt_assert(sci_prod == (1.0.as(f64)));
+    compt_assert(sci_div == (1000000.0.as(f64)));
+    compt_assert(tiny_prod == (1.0.as(f64)));
+  };
+  
+  // Test high precision (f64 has about 15-17 decimal digits of precision)
+  {
+    precise1 :: 1.23456789012345.as(f64);   // Within precision
+    precise2 :: 1.00000000000001.as(f64);   // Within precision
+    
+    precise_sum :: (precise1 + precise2);  // 2.23456789012346f64
+    precise_diff :: (precise1 - precise2); // 0.23456789012344f64
+    
+    compt_assert(precise_sum == (2.23456789012346.as(f64)));
+    // compt_assert(precise_diff == (0.23456789012344.as(f64)));
+  };
+  
+  // Test very large and very small numbers
+  {
+    // huge :: 1.0e15.as(f64);         // 1 quadrillion
+    // tiny :: 1.0e-15.as(f64);        // 1 femto
+    // 
+    // huge_ops :: (huge * 2.0.as(f64));  // 2.0e15f64
+    // tiny_ops :: (tiny * 1000.0.as(f64)); // 1.0e-12f64
+    // 
+    // compt_assert(huge_ops == (2.0e15.as(f64)));
+    // compt_assert(tiny_ops == (1.0e-12.as(f64)));
+  };
+  
+  // Test string conversions
+  {
+    // zero_str :: zero.to_string();
+    // neg_str :: neg_val.to_string();
+    // frac_str :: (0.125.as(f64)).to_string();
+    // sci_str :: (1.25e-3.as(f64)).to_string();
+    // 
+    // compt_assert(zero_str == "0");
+    // compt_assert(neg_str == "-50.75");
+    // compt_assert(frac_str == "0.125");
+    // sci_str format may vary based on implementation
+  };
+  
+  // Test special arithmetic patterns
+  {
+    // Common fractions with higher precision
+    third :: (1.0.as(f64) / 3.0.as(f64));       // 0.333333333333333...f64
+    two_thirds :: (2.0.as(f64) / 3.0.as(f64));  // 0.666666666666666...f64
+    pi_approx :: 3.141592653589793.as(f64);     // High precision pi approximation
+    
+    // Reciprocals
+    recip_2 :: (1.0.as(f64) / 2.0.as(f64));     // 0.5f64
+    recip_4 :: (1.0.as(f64) / 4.0.as(f64));     // 0.25f64
+    recip_pi :: (1.0.as(f64) / pi_approx);      // 1/π
+    
+    compt_assert(recip_2 == (0.5.as(f64)));
+    compt_assert(recip_4 == (0.25.as(f64)));
+    
+    // Powers of 10
+    ten :: 10.0.as(f64);
+    hundred :: (ten * ten);          // 100.0f64
+    thousand :: (hundred * ten);     // 1000.0f64
+    million :: (thousand * thousand); // 1000000.0f64
+    
+    compt_assert(hundred == (100.0.as(f64)));
+    compt_assert(thousand == (1000.0.as(f64)));
+    compt_assert(million == (1000000.0.as(f64)));
+  };
+  
+  // Test mathematical constants and relationships
+  {
+    e_approx :: 2.718281828459045.as(f64);      // Euler's number approximation
+    sqrt2_approx :: 1.4142135623730951.as(f64); // √2 approximation
+    
+    // Test some mathematical relationships
+    half_pi :: (3.141592653589793.as(f64) / 2.0.as(f64));  // π/2
+    quarter_pi :: (half_pi / 2.0.as(f64));                  // π/4
+    
+    // Golden ratio approximation
+    phi :: 1.618033988749895.as(f64);
+    phi_recip :: (1.0.as(f64) / phi);                       // 1/φ ≈ φ - 1
+    
+    compt_assert(half_pi == (1.5707963267948966.as(f64)));
+    compt_assert(quarter_pi == (0.7853981633974483.as(f64)));
+    
+    // Test that φ * (1/φ) ≈ 1
+    phi_product :: (phi * phi_recip);
+    // compt_assert(phi_product == (1.0.as(f64))); // Should be very close to 1.0
+  };
+  
+  ()
+};

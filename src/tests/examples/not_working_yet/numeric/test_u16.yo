@@ -1,0 +1,188 @@
+open import "std";
+
+/**
+ * Test u16 (unsigned 16-bit integer) operations
+ * Range: 0 to 65535
+ */
+main :: (()-> unit) {
+  // Basic u16 values
+  a :: 1000.as(u16);
+  b :: 250.as(u16);
+  c :: 1000.as(u16);
+  zero :: 0.as(u16);
+  max_val :: 65535.as(u16);
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 1250u16
+  diff :: (a - b);       // 750u16
+  prod :: (a * b);       // 250000u16 (may overflow and wrap)
+  quot :: (a / b);       // 4u16 (integer division)
+  remainder :: (a % b);  // 0u16 (1000 % 250 = 0)
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true (1000u16 == 1000u16)
+  eq_false :: (a == b);  // false (1000u16 == 250u16)
+  neq_test :: (a != b);  // true (1000u16 != 250u16)
+  neq_false :: (a != c); // false (1000u16 != 1000u16)
+  lt_test :: (b < a);    // true (250u16 < 1000u16)
+  lt_false :: (a < b);   // false (1000u16 < 250u16)
+  lte_test :: (b <= a);  // true (250u16 <= 1000u16)
+  lte_equal :: (a <= c); // true (1000u16 <= 1000u16)
+  gt_test :: (a > b);    // true (1000u16 > 250u16)
+  gt_false :: (b > a);   // false (250u16 > 1000u16)
+  gte_test :: (a >= b);  // true (1000u16 >= 250u16)
+  gte_equal :: (a >= c); // true (1000u16 >= 1000u16)
+  
+  // Type conversion operations
+  u16_to_u32 :: a.as(u32);      // 1000u32
+  u16_to_i32 :: a.as(i32);      // 1000i32
+  u16_to_f32 :: a.as(f32);      // 1000.0f32
+  u16_to_string :: a.to_string(); // "1000"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == (1250.as(u16)));
+  compt_assert(diff == (750.as(u16)));
+  compt_assert(quot == (4.as(u16)));
+  compt_assert(remainder == (0.as(u16)));
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(u16_to_u32 == (1000.as(u32)));
+  compt_assert(u16_to_i32 == (1000.as(i32)));
+  compt_assert(u16_to_f32 == (1000.0.as(f32)));
+  compt_assert(u16_to_string == "1000");
+  
+  // Test boundary values
+  {
+    min_val :: 0.as(u16);
+    
+    // Operations with min value
+    min_sum :: (min_val + 1.as(u16));     // 1u16
+    min_sub :: (min_val - 1.as(u16));     // 65535u16 (underflow wraps)
+    min_mult :: (min_val * 500.as(u16));  // 0u16
+    
+    // Operations with max value
+    max_sum :: (max_val + 1.as(u16));     // 0u16 (overflow wraps)
+    max_sub :: (max_val - 1.as(u16));     // 65534u16
+    max_div :: (max_val / 13.as(u16));    // 5041u16
+    max_mod :: (max_val % 100.as(u16));   // 35u16 (65535 % 100 = 35)
+    
+    compt_assert(min_sum == (1.as(u16)));
+    compt_assert(min_mult == (0.as(u16)));
+    compt_assert(max_sub == (65534.as(u16)));
+    compt_assert(max_div == (5041.as(u16)));
+    compt_assert(max_mod == (35.as(u16)));
+    
+    // Boundary comparisons
+    compt_assert(min_val < max_val);
+    compt_assert(max_val > min_val);
+    compt_assert(min_val <= max_val);
+    compt_assert(max_val >= min_val);
+  };
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 1000u16
+    zero_diff1 :: (a - zero);    // 1000u16
+    zero_diff2 :: (zero - a);    // underflow behavior
+    zero_prod :: (zero * a);     // 0u16
+    
+    compt_assert(zero_sum == (1000.as(u16)));
+    compt_assert(zero_diff1 == (1000.as(u16)));
+    compt_assert(zero_prod == (0.as(u16)));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 1000u16
+    identity_prod :: (a * 1.as(u16));  // 1000u16
+    
+    compt_assert(identity_sum == (1000.as(u16)));
+    compt_assert(identity_prod == (1000.as(u16)));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0u16
+    self_div :: (a / a);         // 1u16
+    self_mod :: (a % a);         // 0u16
+    
+    compt_assert(self_sub == (0.as(u16)));
+    compt_assert(self_div == (1.as(u16)));
+    compt_assert(self_mod == (0.as(u16)));
+  };
+  
+  // Test large values
+  {
+    large1 :: 50000.as(u16);
+    large2 :: 15000.as(u16);
+    
+    large_sum :: (large1 + large2);     // 65000u16
+    large_diff :: (large1 - large2);    // 35000u16
+    large_div :: (large1 / 10.as(u16)); // 5000u16
+    large_mod :: (large1 % 7.as(u16));  // 1u16 (50000 % 7 = 1)
+    
+    compt_assert(large_sum == (65000.as(u16)));
+    compt_assert(large_diff == (35000.as(u16)));
+    compt_assert(large_div == (5000.as(u16)));
+    compt_assert(large_mod == (1.as(u16)));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (2000.as(u16) / 8.as(u16));       // 250u16
+    div2 :: (2001.as(u16) / 8.as(u16));       // 250u16 (integer division)
+    div3 :: (7.as(u16) / 100.as(u16));        // 0u16
+    
+    compt_assert(div1 == (250.as(u16)));
+    compt_assert(div2 == (250.as(u16)));
+    compt_assert(div3 == (0.as(u16)));
+  };
+  
+  // Test modulo operations
+  {
+    mod1 :: (17.as(u16) % 5.as(u16));        // 2u16
+    mod2 :: (20.as(u16) % 4.as(u16));        // 0u16
+    mod3 :: (7.as(u16) % 10.as(u16));        // 7u16
+    mod4 :: (65535.as(u16) % 256.as(u16));   // 255u16
+    
+    compt_assert(mod1 == (2.as(u16)));
+    compt_assert(mod2 == (0.as(u16)));
+    compt_assert(mod3 == (7.as(u16)));
+    compt_assert(mod4 == (255.as(u16)));
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) * 2.as(u16));   // (1000u16 + 250u16) * 2u16 = 2500u16
+    chain2 :: (a + (b * 2.as(u16)));   // 1000u16 + (250u16 * 2u16) = 1500u16
+    chain3 :: ((a / b) + 1.as(u16));   // (1000u16 / 250u16) + 1u16 = 5u16
+    
+    compt_assert(chain1 == (2500.as(u16)));
+    compt_assert(chain2 == (1500.as(u16)));
+    compt_assert(chain3 == (5.as(u16)));
+  };
+  
+  // Test string conversions
+  {
+    zero_str :: zero.to_string();
+    max_str :: max_val.to_string();
+    large_str :: (12345.as(u16)).to_string();
+    
+    compt_assert(zero_str == "0");
+    compt_assert(max_str == "65535");
+    compt_assert(large_str == "12345");
+  };
+  
+  ()
+};

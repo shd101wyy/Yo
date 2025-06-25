@@ -26,6 +26,7 @@ import {
 } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken, stringIsOperator, TokenType } from "../../token";
+import { TypeValue } from "../../type-value";
 import {
   areTypesCompatible,
   createExprType,
@@ -41,7 +42,6 @@ import {
   typeOfType,
   typeToString,
 } from "../../types";
-import { TypeValue } from "../../type-value";
 import {
   ArrayValue,
   createEnumValue,
