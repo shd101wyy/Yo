@@ -11,6 +11,8 @@ AddModule :: module(
     ((x : i32, y : i32) -> i32),
   add3 :
     ((x : i32, y : i32, z : i32) -> i32),
+  add4 :
+    ((x : i32, y : i32, z : i32, w : i32) -> i32), // This function is not used in the example.
   // Self := add1,
   Self := (add1, add2, add3) // This allows the module to be called like normal function.
 );
@@ -21,7 +23,9 @@ add :: AddModule(
   add2 :
     fn(x, y) -> (x + y),
   add3 :
-    fn(x, y, z) -> ((x + y) + z)
+    fn(x, y, z) -> ((x + y) + z),
+  add4 :
+    fn(x, y, z, w) -> (((x + y) + z) + w)
 );
 
 // Calling a module will try to call all of its functions with the given arguments.
@@ -29,3 +33,6 @@ add :: AddModule(
 add(1);
 add(2, 3);
 add(3, 4, 5);
+compt_expect_error(
+add(4, 5, 6, 7) // This will not work because add4 is not used in "Self".
+);

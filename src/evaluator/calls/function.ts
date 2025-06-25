@@ -32,6 +32,7 @@ import {
   FunctionType,
   isArrayType,
   isEnumType,
+  isExprListType,
   isFunctionType,
   isModuleType,
   isStructType,
@@ -49,6 +50,7 @@ import {
   createUnknownValue,
   isExprValue,
   isFunctionValue,
+  isTupleValue,
   isTypeValue,
   Value,
   valueToString,
@@ -374,6 +376,26 @@ Got:   ${typeToString(typeValue.type)}`,
 
       // Save to forallArgValues
       forallArgValues.push(typeValue);
+    }
+  }
+
+  if (argExprs.length > functionType.parameters.length) {
+    // Check if the last function parameter is quote with ExprList
+    // If not then we throw error
+    const lastParameter = functionType.parameters.at(-1);
+    if (
+      lastParameter &&
+      lastParameter.isQuote &&
+      isExprListType(lastParameter.type)
+    ) {
+      // Allowed to have more args here
+    } else {
+      throw formatErrorMessage({
+        token: functionCallExpr?.token ?? PlaceholderToken,
+        errorMessage: `Too many arguments for function call:
+Expected: ${functionType.parameters.length} arguments
+Got:   ${argExprs.length} arguments`,
+      });
     }
   }
 
@@ -991,15 +1013,54 @@ export function evaluateFunctionCall({
         //   }
         checkBorrowings(context.borrowings, functionToCall);
 
-        /**
-         * functionVariables might be of FunctionType, StructType, UnionType, and EnumVariant
-         */
-        const functionVariables = getVariablesFromEnv(env, functionName);
-        functions = functionVariables.map((variable) => ({
-          type: variable.type,
-          value: variable.value,
-          isMutable: variable.isMutable,
-        }));
+        // Check if func is a module value,
+        // If yes, then we extract the Self from it.
+        if (isModuleType(functionToCall.$?.type)) {
+          const moduleType = functionToCall.$.type;
+          const SelfIndex = moduleType.elements.findIndex(
+            (e) => e.label === "Self"
+          );
+          if (SelfIndex < 0) {
+            throw formatErrorMessage({
+              token: func.token,
+              errorMessage: `Calling a module value which does not have "Self" element is not allowed.`,
+            });
+          }
+          const SelfType = moduleType.elements[SelfIndex]!;
+          if (SelfType.assignedValue) {
+            const SelfValue = SelfType.assignedValue;
+            if (isTupleValue(SelfValue)) {
+              functions = SelfValue.elements.map((element) => {
+                return {
+                  type: element.type,
+                  value: element,
+                };
+              });
+            } else {
+              functions = [
+                {
+                  type: SelfValue.type,
+                  value: SelfValue,
+                },
+              ];
+            }
+          } else {
+            throw formatErrorMessage({
+              token: func.token,
+              errorMessage: `Calling a module value whose "Self" element doesn't have assigned value is not allowed.`,
+            });
+          }
+        } else {
+          /**
+           * functionVariables might be of FunctionType, StructType, UnionType, and EnumVariant
+           */
+          const functionVariables = getVariablesFromEnv(env, functionName);
+          functions = functionVariables.map((variable) => ({
+            type: variable.type,
+            value: variable.value,
+            isMutable: variable.isMutable,
+          }));
+        }
       }
     }
   }

@@ -82,6 +82,10 @@ export function evaluateAnonymousFunctionImplementation({
     context: {
       ...context,
       isEvaluatingFunctionBody: { type: functionType },
+      expectedType: {
+        type: functionType.return.type,
+        env: env,
+      },
     },
   });
 

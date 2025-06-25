@@ -2706,3 +2706,28 @@ export function canComptIntCastTo(targetType: Type): boolean {
 export function canComptFloatCastTo(targetType: Type): boolean {
   return isFloatType(targetType) || isComptFloatType(targetType);
 }
+
+/**
+ * IDEA:
+ * Check if we can define a new variable/member to overload the existing one.
+ * We only support limited form of function overloading, by checking the arity.
+ * We only check the number of runtime parameters without default values.
+ * If two functions have the same number of runtime parameters without default values, then we disallow overloading.
+ * @param existingType
+ * @param givenType
+ */
+/*
+export function canOverload(existingType: Type, givenType): boolean {
+  if (isFunctionType(existingType) && isFunctionType(givenType)) {
+    const existingRuntimeParameters = existingType.parameters.filter(
+      (param) => !param.exprs.defaultValueExpr && !param.isCompileTimeOnly
+    );
+    const givenRuntimeParameters = givenType.parameters.filter(
+      (param) => !param.exprs.defaultValueExpr && !param.isCompileTimeOnly
+    );
+    return existingRuntimeParameters.length !== givenRuntimeParameters.length;
+  } else {
+    return false; // No overloading for other types.
+  }
+}
+*/
