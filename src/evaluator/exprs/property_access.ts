@@ -22,7 +22,7 @@ import {
   ModuleElement,
   TupleElement,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import {
   createEnumValue,
   createTypeValue,

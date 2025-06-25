@@ -5,12 +5,7 @@ import {
   PathCollection,
   pathCollectionConflictsWithPathCollection,
 } from "./expr";
-import {
-  isMutRefType,
-  MutRefType,
-  RefType,
-  typeToString,
-} from "./type-checker";
+import { isMutRefType, MutRefType, RefType, typeToString } from "./types";
 
 export interface Borrowing {
   /**

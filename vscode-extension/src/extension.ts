@@ -16,7 +16,7 @@ import {
 } from "@yo/expr";
 import { ModuleManager } from "@yo/module-manager";
 import { stringIsOperator, TokenType } from "@yo/token";
-import { isFunctionType, typeOfType, typeToString } from "@yo/type-checker";
+import { isFunctionType, typeOfType, typeToString } from "@yo/types";
 import { valueToString } from "@yo/value";
 import { ValueTag } from "@yo/value-tag";
 

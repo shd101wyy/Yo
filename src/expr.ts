@@ -8,12 +8,7 @@ import {
 } from "./env";
 import { formatErrorMessage, formatErrorMessages } from "./error";
 import { Token, TokenType } from "./token";
-import {
-  isFreeType,
-  isLinearOrType0Type,
-  Type,
-  typeOfType,
-} from "./type-checker";
+import { isFreeType, isLinearOrType0Type, Type, typeOfType } from "./types";
 import { generateNewTempVariableName } from "./utils";
 import { Value } from "./value";
 

@@ -11,7 +11,7 @@ import {
   areTypesCompatible,
   isFunctionType,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";

@@ -1,7 +1,7 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, FuncCallExpr } from "../../expr";
-import { createBooleanType, isBooleanType } from "../../type-checker";
+import { createBooleanType, isBooleanType } from "../../types";
 import {
   BooleanValue,
   createBooleanValue,

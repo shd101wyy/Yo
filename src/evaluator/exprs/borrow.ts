@@ -15,7 +15,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { isMutRefType, isRefType, typeToString } from "../../type-checker";
+import { isMutRefType, isRefType, typeToString } from "../../types";
 import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
 import { evaluateBeginExpression } from "./begin";

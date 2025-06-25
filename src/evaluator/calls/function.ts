@@ -40,7 +40,7 @@ import {
   Type,
   typeOfType,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import { TypeValue } from "../../type-value";
 import {
   ArrayValue,

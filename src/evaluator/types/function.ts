@@ -28,7 +28,7 @@ import {
   typeOfType,
   typeRequiresComptModifier,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import { VUnit } from "../../unit-value";
 import {
   createTypeValue,

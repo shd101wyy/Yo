@@ -12,7 +12,7 @@ import {
   isStructType,
   ModuleElement,
   TupleElement,
-} from "../../type-checker";
+} from "../../types";
 import {
   areValuesEqual,
   createTypeValue,

@@ -18,7 +18,7 @@ import {
   isRefType,
   typeContainsReference,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 

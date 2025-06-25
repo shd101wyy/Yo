@@ -2,7 +2,7 @@ import { checkBorrowings } from "../../borrow";
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, FuncCallExpr } from "../../expr";
-import { createBooleanType, isBooleanType } from "../../type-checker";
+import { createBooleanType, isBooleanType } from "../../types";
 import { createBooleanValue, isBooleanValue } from "../../value";
 import { EvaluatorContext } from "../context";
 

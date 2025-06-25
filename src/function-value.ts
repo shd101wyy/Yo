@@ -1,6 +1,6 @@
 import { Environment } from "./env";
 import { Expr } from "./expr";
-import { FunctionType, Type } from "./type-checker";
+import { FunctionType, Type } from "./types";
 import type { Value } from "./value";
 import { ValueTag } from "./value-tag";
 

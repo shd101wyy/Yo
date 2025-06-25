@@ -30,7 +30,7 @@ import {
   isStructType,
   isUnionType,
   TypeTag,
-} from "../../type-checker";
+} from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 

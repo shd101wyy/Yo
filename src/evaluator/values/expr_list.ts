@@ -1,7 +1,7 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, FuncCallExpr } from "../../expr";
-import { isExprType } from "../../type-checker";
+import { isExprType } from "../../types";
 import {
   createExprListValue,
   ExprValue,

@@ -17,7 +17,7 @@ import {
   TupleElement,
   tupleElementToString,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import { Value } from "../../value";
 import { EvaluatorContext, TypeCallResult } from "../context";
 

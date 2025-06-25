@@ -18,7 +18,7 @@ import {
   Type,
   typeRequiresComptModifier,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
 import { isTypeValue, Value } from "../../value";

@@ -11,7 +11,7 @@ import {
 import {
   isTypeHierarchyType,
   typeRequiresComptModifier,
-} from "../../type-checker";
+} from "../../types";
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";

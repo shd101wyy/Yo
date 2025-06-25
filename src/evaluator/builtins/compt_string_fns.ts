@@ -12,7 +12,7 @@ import {
   createComptStringType,
   isComptIntType,
   isComptStringType,
-} from "../../type-checker";
+} from "../../types";
 import {
   createBooleanValue,
   createComptIntValue,

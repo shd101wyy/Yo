@@ -7,7 +7,7 @@ import {
   createArrayType,
   Type,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import { createArrayValue, createNumberValue, Value } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";

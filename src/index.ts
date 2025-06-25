@@ -1,5 +1,5 @@
-export * from "./code-generation";
+// export * from "./code-generation";
+export * from "./evaluator";
 export * from "./lexer";
-export * from "./old/ast";
-export * from "./old_parser";
+export * from "./parser";
 export * from "./token";

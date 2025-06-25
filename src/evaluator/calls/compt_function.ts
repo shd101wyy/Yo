@@ -10,7 +10,7 @@ import {
   isSomeType,
   isStructType,
   isUnionType,
-} from "../../type-checker";
+} from "../../types";
 import {
   areValuesEqual,
   createUnknownValue,

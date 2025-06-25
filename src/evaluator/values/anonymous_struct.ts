@@ -13,7 +13,7 @@ import {
   isStructType,
   TupleElement,
   typeOfType,
-} from "../../type-checker";
+} from "../../types";
 import { randomId } from "../../utils";
 import {
   createStructValue,

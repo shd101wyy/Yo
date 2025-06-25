@@ -29,7 +29,7 @@ import {
   Type,
   typeOfType,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";

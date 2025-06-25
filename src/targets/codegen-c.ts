@@ -35,7 +35,7 @@ import {
   typeContainsTypeParameterThatDoesntHaveAppliedType,
   typeParametersToString,
   typeToString,
-} from "../type-checker";
+} from "../types";
 
 export class CodeGeneratorC {
   private emitter: Emitter;

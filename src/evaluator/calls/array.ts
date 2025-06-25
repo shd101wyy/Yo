@@ -6,7 +6,7 @@ import {
   ArrayType,
   createUsizeType,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import { ArrayValue, createUnknownValue, isNumberValue } from "../../value";
 import { ArrayCallResult, EvaluatorContext } from "../context";
 

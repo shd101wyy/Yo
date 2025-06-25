@@ -19,7 +19,7 @@ import {
   typeOfType,
   typeRequiresComptModifier,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import { setTypeValueAsLinear } from "../../type-value";
 import { VUnit } from "../../unit-value";
 import {

@@ -24,7 +24,7 @@ import {
   isRefType,
   Type,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import {
   createExprListValue,
   createExprValue,

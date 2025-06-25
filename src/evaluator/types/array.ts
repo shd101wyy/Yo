@@ -10,7 +10,7 @@ import {
   areTypesCompatible,
   createArrayType,
   createUsizeType,
-} from "../../type-checker";
+} from "../../types";
 import { createTypeValue, isTypeValue, isUnknownValue } from "../../value";
 import { EvaluatorContext } from "../context";
 

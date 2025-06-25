@@ -8,7 +8,7 @@ import {
   FuncCallExpr,
   requireExprNotConsumed,
 } from "../../expr";
-import { createMutRefType, createRefType, TypeTag } from "../../type-checker";
+import { createMutRefType, createRefType, TypeTag } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 

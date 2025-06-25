@@ -20,7 +20,7 @@ import {
   isModuleType,
   ModuleType,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import { createModuleValue, ModuleValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";

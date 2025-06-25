@@ -13,7 +13,7 @@ import {
   ModuleElement,
   typeOfType,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isComptStringValue } from "../../value";
 import { EvaluatorContext } from "../context";

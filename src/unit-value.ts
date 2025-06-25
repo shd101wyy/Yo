@@ -1,4 +1,4 @@
-import { createUnitType, Type } from "./type-checker";
+import { createUnitType, Type } from "./types";
 import { ValueTag } from "./value-tag";
 
 export type UnitValue = {

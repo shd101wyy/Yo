@@ -10,7 +10,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { isExprListType, isExprType } from "../../type-checker";
+import { isExprListType, isExprType } from "../../types";
 import {
   createExprValue,
   isExprListValue,

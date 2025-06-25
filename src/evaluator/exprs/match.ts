@@ -31,7 +31,7 @@ import {
   Type,
   TypeTag,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
 

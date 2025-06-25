@@ -10,7 +10,7 @@ import {
   Type,
   TypeTag,
   typeToString,
-} from "./type-checker";
+} from "./types";
 import { generateVarialeId, isTempVariableName } from "./utils";
 import {
   createUnknownValue,

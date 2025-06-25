@@ -1,0 +1,460 @@
+import { Environment, Frame } from "../env";
+import { Expr } from "../expr";
+import { FunctionValue } from "../function-value";
+import { Value } from "../value";
+import { TypeTag } from "./tags";
+
+export interface Type {
+  /**
+   * The tag to identify the type of type.
+   */
+  tag: TypeTag;
+
+  /**
+   * The size of the type in bits, not bytes.
+   * For example, a 32-bit integer has a size of 4 bytes.
+   * A 64-bit integer has a size of 8 bytes.
+   * If not specified, the size is unknown.
+   */
+  // size?: number;
+
+  /**
+   * The name of the struct.
+   * eg:
+   *   Point :: struct(i32, i32);
+   * Point is the name of the struct.
+   *
+   * eg:
+   *   (@(LinearI32) : Linear) = i32;
+   * LinearI32 is the name of the type.
+   */
+  typeName?: string;
+
+  /**
+   * Force this type to be treated as a linear type.
+   */
+  forceLinear?: boolean;
+
+  /**
+   *  Whether this type is a dynamic sized type.
+   *  Dynamic sized types are types whose size cannot be determined at compile time.
+   *  For example:
+   *  - Slice
+   *  - str
+   *  - dyn Module (dynamic dispatch object)
+   */
+  isDynamicSized?: boolean;
+}
+
+// NOTE: This is not actually used now.
+export interface LiteralType extends Type {
+  tag: TypeTag.Literal;
+  /**
+   * The value of the singleton type.
+   * This is also used to represent the value of a variable.
+   */
+  value: unknown;
+  /**
+   * The type of the value.
+   */
+  type: Type;
+}
+
+export interface ExprType extends Type {
+  tag: TypeTag.Expr;
+}
+
+export interface TypeHierarchyType extends Type {
+  tag: TypeTag.Free | TypeTag.Linear | TypeTag.Type;
+
+  /**
+   * Level of the type in the hierarchy.
+   * For example, Free/Linear/Type types are at level 0.
+   * Type of Type    = Type(1) is at level 1.
+   * Type of Type(1) = Type(2) is at level 2.
+   */
+  level: number;
+
+  // The base type of this hierarchy type.
+  baseType?: Type;
+}
+
+/**
+ * SomeType is a type that is not known.
+ *
+ * MyType: (Type <: Display)
+ * - type: (Type <: Display)
+ * - value: SomeType(Type <: Display)
+ *
+ * The value here is the SomeType itself.
+ */
+export interface SomeType extends Type {
+  tag: TypeTag.SomeType;
+
+  /**
+   * The name of the SomeType.
+   * eg: T: Type
+   * T is the name of the SomeType.
+   */
+  name: string;
+
+  /**
+   * The unique identifier for this SomeType.
+   */
+  typeId: string;
+
+  /**
+   * The parent type of the SomeType.
+   */
+  parentType: TypeHierarchyType;
+  /**
+   * size is unknown for SomeType
+   */
+  size: undefined;
+}
+
+// Extended Type interface for compound types
+export interface ArrayType extends Type {
+  tag: TypeTag.Array;
+  elementType: Type;
+  length: Value; // Compile-time known usize compatible value.
+}
+
+export type ElementExprs = {
+  /**
+   * The expression of the element.
+   */
+  expr: Expr;
+  /**
+   * For example:
+   *   x in (x: i32)
+   */
+  labelExpr?: Expr;
+  /**
+   * For example:
+   *   i32 in (x: i32)
+   */
+  typeExpr?: Expr;
+  /**
+   * For example:
+   *   x ?= 10
+   *
+   * defaultValueExpr is:
+   *   10
+   */
+  defaultValueExpr?: Expr;
+  /**
+   * For example:
+   *   x = 20
+   *
+   * assignedValueExpr is:
+   *  20
+   */
+  assignedValueExpr?: Expr;
+};
+
+export interface ElementType {
+  type: Type;
+  label: string;
+  isCompileTimeOnly: boolean;
+  isImplicit: boolean;
+
+  // The default value and assigned value are compile-time known.
+  // eg:
+  //   Point(x ?= 10, y = 20)
+  // Here,
+  //   `x ?= 10` has a default value of 10.
+  //   `y = 20` has an assigned value of 20.
+  //     So the struct will be
+  //   Point(x: i32 ?= 10, y: i32 = 20)
+  //     which is Point(y: i32)
+  defaultValue?: Value;
+  assignedValue?: Value;
+
+  exprs: ElementExprs;
+}
+
+export interface TupleElement extends ElementType {
+  // Additional tuple-specific properties can be added here if needed
+}
+
+export interface TupleType extends Type {
+  tag: TypeTag.Tuple;
+  elements: TupleElement[];
+}
+
+export type FunctionParameterExprs = {
+  expr: Expr;
+  labelExpr?: Expr;
+  typeExpr?: Expr;
+  defaultValueExpr?: Expr;
+};
+
+export interface FunctionParameter {
+  label: string;
+  type: Type;
+  isMutable: boolean;
+  isCompileTimeOnly: boolean;
+  isQuote: boolean;
+  exprs: FunctionParameterExprs;
+}
+
+export interface StructType extends Type {
+  tag: TypeTag.Struct;
+
+  /**
+   * The unique identifier for this struct.
+   */
+  typeId: string;
+
+  /**
+   * The function that returns the struct.
+   * eg:
+   *   Point :: struct(x: i32, y: i32)
+   *
+   * The struct Point is the function that returns the struct.
+   */
+  functionValue?: FunctionValue;
+
+  /**
+   * The elements of the struct.
+   */
+  elements: TupleElement[];
+
+  /**
+   * The module of the struct, which contains
+   * the compile-time methods, properties, etc.
+   */
+  module: ModuleType;
+
+  /**
+   * The env when the struct type is created.
+   * The env is also useful to show the frame level at which the struct is defined.
+   */
+  env: Environment;
+}
+
+export interface ModuleElement {
+  type: Type;
+  label: string;
+  isCompileTimeOnly: boolean;
+  isImplicit: boolean;
+
+  // The default value and assigned value are compile-time known.
+  defaultValue?: Value;
+  assignedValue?: Value;
+
+  exprs: ElementExprs;
+}
+
+/**
+ * ModuleType is a structural type that represents a module. It's not a nominal type like Struct/Enum/Union.
+ */
+export interface ModuleType extends Type {
+  tag: TypeTag.Module;
+
+  /**
+   * The function that returns the module.
+   * eg:
+   *   def Container:
+   *     (compt(T): Type)-> compt(Type),
+   *     module(x: T, y: T)
+   * ;
+   * "Container" is the function that returns the module.
+   */
+  functionValue?: FunctionValue;
+
+  /**
+   * The elements of the module.
+   */
+  elements: ModuleElement[];
+
+  /**
+   * The env when the module type is created.
+   * The env is also useful to show the frame level at which the module is defined.
+   */
+  env: Environment;
+}
+
+export interface EnumVariant {
+  /**
+   * Without `.` prefix
+   */
+  name: string;
+  elements?: TupleElement[]; // Changed from TupleElement[] to TupleType for consistency
+  // TODO: return type? For GADT
+}
+
+export interface EnumType extends Type {
+  tag: TypeTag.Enum;
+
+  /**
+   * The unique identifier for this struct.
+   */
+  typeId: string;
+
+  /**
+   * The function that returns the enum.
+   */
+  functionValue?: FunctionValue;
+
+  /**
+   * The variants of the enum.
+   */
+  variants: EnumVariant[];
+
+  /**
+   * The module of the struct, which contains
+   * the compile-time methods, properties, etc.
+   */
+  module: ModuleType;
+
+  /**
+   * The env when the enum type is created.
+   * The env is also useful to show the frame level at which the enum is defined.
+   */
+  env: Environment;
+
+  /**
+   * The size of the tag in bits.
+   */
+  // tagSize: number;
+
+  /**
+   * The name of the selected variant.
+   */
+  selectedVariantName?: string;
+
+  /**
+   * The required variant of the enum type.
+   * For example:
+   *
+   *   Shape :: enum
+   *     Circle(radius: i32),
+   *     Square(side: i32)
+   *   ;
+   *
+   *   circle : Shape(.Circle required) = Shape.Circle(10);
+   *
+   * Here, the type of circle is Shape(.Circle required).
+   */
+  requiredVariantNames?: string[];
+}
+
+export interface UnionType extends Type {
+  tag: TypeTag.Union;
+
+  /**
+   * The unique identifier for this union.
+   */
+  typeId: string;
+
+  /**
+   * The function that returns the union.
+   */
+  functionValue?: FunctionValue;
+
+  /**
+   * The elements of the union.
+   */
+  elements: TupleElement[];
+
+  /**
+   * The module of the union, which contains
+   * the compile-time methods, properties, etc.
+   */
+  module: ModuleType;
+
+  /**
+   * The env when the union type is created.
+   * The env is also useful to show the frame level at which the union is defined.
+   */
+  env: Environment;
+}
+
+export interface FunctionReturn {
+  type: Type;
+  expr: Expr;
+  isCompileTimeOnly: boolean;
+  isUnquote: boolean;
+}
+
+export interface FunctionType extends Type {
+  tag: TypeTag.Function;
+  /**
+   * The normal parameters of the function.
+   */
+  parameters: FunctionParameter[];
+
+  /**
+   * The type parameters, usually defined in forall(...):
+   * eg:
+   *   (forall(@(T): Type), x: T)-> T;
+   */
+  typeParameters: FunctionParameter[];
+
+  /**
+   * The implicit parameters (aka contextual parameters), usually define in implicit(...):
+   * eg:
+   *   (@(T): Type, p: Point(T), implicit(Show(T)))-> String
+   */
+  implicitParameters: FunctionParameter[];
+
+  /**
+   * The return information of the function.
+   */
+  return: FunctionReturn;
+  /**
+   * The env when the function type is created.
+   * The env shouldn't contain the frame that have the parameters.
+   * The env is also useful to show the frame level at which the function is defined.
+   */
+  env: Environment;
+
+  /**
+   * The frame that contains the parameters
+   */
+  parametersFrame: Frame;
+
+  /**
+   * Under which interface/struct/enum/union this function is defined.
+   */
+  SelfType?: Type;
+
+  /**
+   * Under which module this function is defined.
+   */
+  ModuleType?: ModuleType;
+}
+
+export interface MutPtrType extends Type {
+  tag: TypeTag.MutPtr;
+  /**
+   * The type of the pointer.
+   */
+  type: Type;
+}
+
+export interface PtrType extends Type {
+  tag: TypeTag.Ptr;
+  /**
+   * The type of the pointer.
+   */
+  type: Type;
+}
+
+export interface MutRefType extends Type {
+  tag: TypeTag.MutRef;
+  /**
+   * The type of the reference.
+   */
+  type: Type;
+}
+
+export interface RefType extends Type {
+  tag: TypeTag.Ref;
+  /**
+   * The type of the reference.
+   */
+  type: Type;
+}

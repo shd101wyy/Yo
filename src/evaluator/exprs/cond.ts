@@ -15,7 +15,7 @@ import {
   isBooleanType,
   Type,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import {
   BooleanValue,
   createUnknownValue,

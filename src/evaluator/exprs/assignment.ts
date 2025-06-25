@@ -23,7 +23,7 @@ import {
   typeContainsReference,
   typeOfType,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import { setTypeValueAsLinear } from "../../type-value";
 import { VUnit } from "../../unit-value";
 import { isFunctionValue, isModuleValue, isTypeValue } from "../../value";

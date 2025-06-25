@@ -67,12 +67,6 @@ Negate ::
     (-): ((self: Self)-> Output)
 ;
 
-(-) :: (( forall(@(Self) : Type), 
-          self : Self, 
-          implicit(@(NegateMethod): Negate(Self, Self))
-        ) -> Self)
-  NegateMethod.(-)(self)
-;
 
 ComptNegate ::
   ((@(Self): Type)-> @(Module))
@@ -81,12 +75,30 @@ ComptNegate ::
     (neg) : ((@(self): Self)-> @(Self))
 ;
 
-(@-) :: ((forall(@(Self) : Type), 
+(-) :: module {
+  (neg) :: (( forall(@(Self) : Type), 
+            self : Self, 
+            implicit(@(NegateMethod): Negate(Self, Self))
+          ) -> Self)
+    NegateMethod.(-)(self)
+  ;
+
+  (compt_neg) :: ((forall(@(Self) : Type), 
           @(self) : Self,
           implicit(@(NegateMethod): ComptNegate(Self))
         ) -> @(Self))
-  NegateMethod.neg(self)
-;
+    NegateMethod.neg(self)
+  ;
+
+  Self :: (neg, compt_neg);
+
+  export
+    neg,
+    compt_neg,
+    Self
+  ;
+};
+
 
 export
   Add,
@@ -98,6 +110,5 @@ export
   BitRightShift,
   Exponentiation,
   Negate,
-  (-),
-  (@-)
+  (-)
 ;

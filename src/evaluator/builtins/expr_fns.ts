@@ -14,7 +14,7 @@ import {
   createExprListType,
   createExprType,
   isExprType,
-} from "../../type-checker";
+} from "../../types";
 import {
   createBooleanValue,
   createComptStringValue,

@@ -3,7 +3,7 @@ import { Environment } from "../env";
 import { MoParserError } from "../error";
 import { Expr, PathCollection } from "../expr";
 import { FunctionValue } from "../function-value";
-import { FunctionType, ModuleType, Type } from "../type-checker";
+import { FunctionType, ModuleType, Type } from "../types";
 import { ModuleValue, Value } from "../value";
 
 export interface EvaluatorContext {

@@ -6,7 +6,7 @@ import {
   exprIsFunctionCall,
   FuncCallExpr,
 } from "../../expr";
-import { createExprType, isExprType, typeToString } from "../../type-checker";
+import { createExprType, isExprType, typeToString } from "../../types";
 import { isExprValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";

@@ -16,7 +16,7 @@ import {
   TupleType,
   Type,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
 import { createTupleValue, isTypeValue, TupleValue, Value } from "../../value";

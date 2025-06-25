@@ -8,7 +8,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { createEnumType, EnumVariant, ModuleElement } from "../../type-checker";
+import { createEnumType, EnumVariant, ModuleElement } from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";

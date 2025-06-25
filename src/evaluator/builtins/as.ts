@@ -2,7 +2,7 @@ import { checkBorrowings } from "../../borrow";
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, FuncCallExpr, setExprAsConsumed } from "../../expr";
-import { areTypesCompatible, typeToString } from "../../type-checker";
+import { areTypesCompatible, typeToString } from "../../types";
 import { TypeValue } from "../../type-value";
 import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";

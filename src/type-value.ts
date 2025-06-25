@@ -1,4 +1,4 @@
-import { setTypeAsLinear, Type, typeOfType } from "./type-checker";
+import { setTypeAsLinear, Type, typeOfType } from "./types";
 import { ValueTag } from "./value-tag";
 
 export type TypeValue = {

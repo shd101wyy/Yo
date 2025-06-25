@@ -14,7 +14,7 @@ import {
   isTypeHierarchyType,
   typeContainsReference,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import {
   createBooleanValue,
   createComptStringValue,

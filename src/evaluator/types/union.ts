@@ -11,7 +11,7 @@ import {
   createUnionType,
   ModuleElement,
   TupleElement,
-} from "../../type-checker";
+} from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateElementType } from "./element";

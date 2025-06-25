@@ -1,6 +1,7 @@
 import { Environment } from "./env";
 import { Expr, exprToString } from "./expr";
 import { FunctionValue } from "./function-value";
+import { TypeValue } from "./type-value";
 import {
   areTypesCompatible,
   ArrayType,
@@ -33,8 +34,7 @@ import {
   typeOfType,
   TypeTag,
   typeToString,
-} from "./type-checker";
-import { TypeValue } from "./type-value";
+} from "./types";
 import { UnitValue } from "./unit-value";
 import { ValueTag } from "./value-tag";
 

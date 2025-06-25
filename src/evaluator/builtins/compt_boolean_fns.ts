@@ -10,7 +10,7 @@ import {
   createBooleanType,
   createComptStringType,
   isBooleanType,
-} from "../../type-checker";
+} from "../../types";
 import {
   createBooleanValue,
   createComptStringValue,

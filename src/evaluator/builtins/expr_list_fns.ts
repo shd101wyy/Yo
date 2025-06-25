@@ -12,7 +12,7 @@ import {
   createUsizeType,
   isExprListType,
   isExprType,
-} from "../../type-checker";
+} from "../../types";
 import {
   createExprListValue,
   createNumberValue,

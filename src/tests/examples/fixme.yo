@@ -1,31 +1,17 @@
-// Arity
-// Function overloading
-// We allow functions to be overloaded based on the number of runtime arguments (without default value) they take.
+main :: (()-> unit) {
+  SomeStruct :: ((@(T): Type) -> @(Type))
+    struct(x: T)
+  ;
 
-open import "std";
 
-AddModule :: module(
-  add1 :
-    ((x : i32) -> i32),
-  add2 :
-    ((x : i32, y : i32) -> i32),
-  add3 :
-    ((x : i32, y : i32, z : i32) -> i32),
-  // Self := add1,
-  Self := (add1, add2, add3) // This allows the module to be called like normal function.
-);
+  (x: SomeStruct(i32)) = SomeStruct(i32)(1);
+  (x2: SomeStruct(i32)) = _(1);
+  (y: SomeStruct(i32)) = x;
 
-add :: AddModule(
-  add1 :
-    fn(x) -> x,
-  add2 :
-    fn(x, y) -> (x + y),
-  add3 :
-    fn(x, y, z) -> ((x + y) + z)
-);
 
-// Calling a module will try to call all of its functions with the given arguments.
-// Nice idea!
-add(1);
-add(2, 3);
-add(3, 4, 5);
+  AnotherStruct :: ((@(T): Type) -> @(Type))
+    struct(x: T)
+  ;
+  // (z: AnotherStruct(i32)) = x; // Should give error as the struct is nominal type in Yo
+
+};

@@ -9,7 +9,7 @@ import {
   FuncCallExpr,
   requireExprNotConsumed,
 } from "../../expr";
-import { createMutPtrType, createPtrType, TypeTag } from "../../type-checker";
+import { createMutPtrType, createPtrType, TypeTag } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 

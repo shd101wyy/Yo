@@ -9,7 +9,7 @@ import {
   isFloatType,
   isIntegerType,
   isTypeHierarchyType,
-} from "../../type-checker";
+} from "../../types";
 import {
   NumberValue,
   Value,

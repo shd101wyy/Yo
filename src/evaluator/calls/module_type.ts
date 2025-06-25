@@ -18,7 +18,7 @@ import {
   ModuleType,
   Type,
   typeToString,
-} from "../../type-checker";
+} from "../../types";
 import {
   createModuleValue,
   isTypeValue,
