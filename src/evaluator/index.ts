@@ -488,7 +488,8 @@ ${exprToString(expr)}`,
           expr.func.token.value.startsWith("__yo_f32_") ||
           expr.func.token.value.startsWith("__yo_f64_") ||
           expr.func.token.value.startsWith("__yo_compt_int_") ||
-          expr.func.token.value.startsWith("__yo_compt_float_"))
+          expr.func.token.value.startsWith("__yo_compt_float_") ||
+          expr.func.token.value.startsWith("__yo_c_")) // C compatible types
       ) {
         return evaluateYoNumericFunctions({
           expr: expr as FuncCallExpr,

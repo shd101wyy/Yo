@@ -33,7 +33,18 @@ export function isPrimitiveType(type: Type): boolean {
     type.tag === TypeTag.U64 ||
     type.tag === TypeTag.I64 ||
     type.tag === TypeTag.F32 ||
-    type.tag === TypeTag.F64
+    type.tag === TypeTag.F64 ||
+    // C compatible types
+    type.tag === TypeTag.CChar ||
+    type.tag === TypeTag.CShort ||
+    type.tag === TypeTag.CUShort ||
+    type.tag === TypeTag.CInt ||
+    type.tag === TypeTag.CUInt ||
+    type.tag === TypeTag.CLong ||
+    type.tag === TypeTag.CULong ||
+    type.tag === TypeTag.CLongLong ||
+    type.tag === TypeTag.CULongLong ||
+    type.tag === TypeTag.CLongDouble
   );
 }
 
@@ -246,5 +257,63 @@ export function isUnsignedIntegerType(type?: Type): boolean {
     type?.tag === TypeTag.U32 ||
     type?.tag === TypeTag.U64 ||
     type?.tag === TypeTag.Usize
+  );
+}
+
+// C Compatible types
+export function isCCharType(type?: Type): boolean {
+  return type?.tag === TypeTag.CChar;
+}
+
+export function isCShortType(type?: Type): boolean {
+  return type?.tag === TypeTag.CShort;
+}
+
+export function isCUShortType(type?: Type): boolean {
+  return type?.tag === TypeTag.CUShort;
+}
+
+export function isCIntType(type?: Type): boolean {
+  return type?.tag === TypeTag.CInt;
+}
+
+export function isCUIntType(type?: Type): boolean {
+  return type?.tag === TypeTag.CUInt;
+}
+
+export function isCLongType(type?: Type): boolean {
+  return type?.tag === TypeTag.CLong;
+}
+
+export function isCULongType(type?: Type): boolean {
+  return type?.tag === TypeTag.CULong;
+}
+
+export function isCLongLongType(type?: Type): boolean {
+  return type?.tag === TypeTag.CLongLong;
+}
+
+export function isCULongLongType(type?: Type): boolean {
+  return type?.tag === TypeTag.CULongLong;
+}
+
+export function isCLongDoubleType(type?: Type): boolean {
+  return type?.tag === TypeTag.CLongDouble;
+}
+
+// Helper function to check if a type is a C compatible type
+export function isCCompatibleType(type?: Type): boolean {
+  return (
+    !!type &&
+    (type.tag === TypeTag.CChar ||
+      type.tag === TypeTag.CShort ||
+      type.tag === TypeTag.CUShort ||
+      type.tag === TypeTag.CInt ||
+      type.tag === TypeTag.CUInt ||
+      type.tag === TypeTag.CLong ||
+      type.tag === TypeTag.CULong ||
+      type.tag === TypeTag.CLongLong ||
+      type.tag === TypeTag.CULongLong ||
+      type.tag === TypeTag.CLongDouble)
   );
 }

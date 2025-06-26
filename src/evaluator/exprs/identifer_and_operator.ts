@@ -4,9 +4,18 @@ import { AtomExpr } from "../../expr";
 import { TokenType } from "../../token";
 import {
   createBooleanType,
+  createCCharType,
+  createCIntType,
+  createCLongDoubleType,
+  createCLongLongType,
+  createCLongType,
   createComptFloatType,
   createComptIntType,
   createComptStringType,
+  createCShortType,
+  createCUIntType,
+  createCULongLongType,
+  createCULongType,
   createExprListType,
   createExprType,
   createF32Type,
@@ -293,6 +302,126 @@ export function evaluateIdentifierAndOperator({
   // f64
   else if (identifier === TypeTag.F64) {
     const value = createTypeValue(createF64Type());
+    expr.$ = {
+      env,
+      type: value.type,
+      value: value,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
+  // c_char
+  else if (identifier === "c_char") {
+    const value = createTypeValue(createCCharType());
+    expr.$ = {
+      env,
+      type: value.type,
+      value: value,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
+  // c_short
+  else if (identifier === "c_short") {
+    const value = createTypeValue(createCShortType());
+    expr.$ = {
+      env,
+      type: value.type,
+      value: value,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
+  //  c_ushort
+  else if (identifier === "c_ushort") {
+    const value = createTypeValue(createCShortType());
+    expr.$ = {
+      env,
+      type: value.type,
+      value: value,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
+  // c_int
+  else if (identifier === "c_int") {
+    const value = createTypeValue(createCIntType());
+    expr.$ = {
+      env,
+      type: value.type,
+      value: value,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
+  // c_uint
+  else if (identifier === "c_uint") {
+    const value = createTypeValue(createCUIntType());
+    expr.$ = {
+      env,
+      type: value.type,
+      value: value,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
+  // c_long
+  else if (identifier === "c_long") {
+    const value = createTypeValue(createCLongType());
+    expr.$ = {
+      env,
+      type: value.type,
+      value: value,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
+  // c_ulong
+  else if (identifier === "c_ulong") {
+    const value = createTypeValue(createCULongType());
+    expr.$ = {
+      env,
+      type: value.type,
+      value: value,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
+  // c_longlong
+  else if (identifier === "c_longlong") {
+    const value = createTypeValue(createCLongLongType());
+    expr.$ = {
+      env,
+      type: value.type,
+      value: value,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
+  // c_ulonglong
+  else if (identifier === "c_ulonglong") {
+    const value = createTypeValue(createCULongLongType());
+    expr.$ = {
+      env,
+      type: value.type,
+      value: value,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
+  // c_longdouble
+  else if (identifier === "c_longdouble") {
+    const value = createTypeValue(createCLongDoubleType());
     expr.$ = {
       env,
       type: value.type,

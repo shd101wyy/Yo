@@ -5,7 +5,32 @@ import {
   Type,
   TypeTag,
   createBooleanType,
+  createCCharType,
+  createCIntType,
+  createCLongDoubleType,
+  createCLongLongType,
+  createCLongType,
+  createCShortType,
+  createCUIntType,
+  createCULongLongType,
+  createCULongType,
+  createCUShortType,
+  createComptFloatType,
+  createComptIntType,
   createComptStringType,
+  createF32Type,
+  createF64Type,
+  createI16Type,
+  createI32Type,
+  createI64Type,
+  createI8Type,
+  createIsizeType,
+  createU16Type,
+  createU32Type,
+  createU64Type,
+  createU8Type,
+  createUsizeType,
+  isCCompatibleType,
   isFloatType,
   isIntegerType,
   isTypeHierarchyType,
@@ -28,11 +53,10 @@ import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
 
 // Helper function to extract numeric value from a Value
-function extractNumericValue(value: Value): number | null {
+function extractNumericValue(value?: Value): number | null {
   if (
-    isComptIntValue(value) ||
-    isComptFloatValue(value) ||
-    isNumberValue(value)
+    value &&
+    (isComptIntValue(value) || isComptFloatValue(value) || isNumberValue(value))
   ) {
     return value.value;
   }
@@ -40,13 +64,18 @@ function extractNumericValue(value: Value): number | null {
 }
 
 // Helper function to create a numeric value of the given type
-function createNumericValue(value: number, type: Type): Value {
+function createNumericValue(value: number, type: Type): Value | undefined {
   // Handle compt_int and compt_float separately
   if (type.tag === TypeTag.ComptInt) {
     return createComptIntValue(value);
   }
   if (type.tag === TypeTag.ComptFloat) {
     return createComptFloatValue(value);
+  }
+
+  // C compatible types return unknown value
+  if (isCCompatibleType(type)) {
+    return createUnknownValue(type);
   }
 
   // Handle other numeric types
@@ -82,6 +111,7 @@ function getValueTagFromType(type: Type): ValueTag {
       return ValueTag.F32;
     case TypeTag.F64:
       return ValueTag.F64;
+    // C compatible types don't have corresponding ValueTags since they're runtime-only
     default:
       throw new Error(`Unsupported numeric type: ${type.tag}`);
   }
@@ -132,7 +162,9 @@ function performArithmeticOp(
     return createUnknownValue(resultType);
   }
 
-  return createNumericValue(op(lhs, rhs), resultType);
+  const result = createNumericValue(op(lhs, rhs), resultType);
+  // For C compatible types, createNumericValue returns undefined (runtime-only)
+  return result ?? createUnknownValue(resultType);
 }
 
 // Generic comparison operation
@@ -163,7 +195,9 @@ function performUnaryOp(
     return createUnknownValue(resultType);
   }
 
-  return createNumericValue(op(num), resultType);
+  const result = createNumericValue(op(num), resultType);
+  // For C compatible types, createNumericValue returns undefined (runtime-only)
+  return result ?? createUnknownValue(resultType);
 }
 
 export function evaluateYoNumericFunctions({
@@ -179,7 +213,7 @@ export function evaluateYoNumericFunctions({
 
   // Check if this is a numeric function by pattern matching
   const numericFnPattern =
-    /^__yo_(u8|i8|u16|i16|u32|i32|u64|i64|usize|isize|f32|f64|compt_int|compt_float)_(add|sub|mul|div|mod|eq|neq|lt|lte|gt|gte|neg|to_string|as)$/;
+    /^__yo_(u8|i8|u16|i16|u32|i32|u64|i64|usize|isize|f32|f64|compt_int|compt_float|c_(?:char|short|ushort|int|uint|long|ulong|longlong|ulonglong|longdouble))_(add|sub|mul|div|mod|eq|neq|lt|lte|gt|gte|neg|to_string|as)$/;
   const match = funcName.match(numericFnPattern);
 
   if (!match) {
@@ -195,33 +229,53 @@ export function evaluateYoNumericFunctions({
   const getType = (): Type => {
     switch (typeStr) {
       case "u8":
-        return { tag: TypeTag.U8 };
+        return createU8Type();
       case "i8":
-        return { tag: TypeTag.I8 };
+        return createI8Type();
       case "u16":
-        return { tag: TypeTag.U16 };
+        return createU16Type();
       case "i16":
-        return { tag: TypeTag.I16 };
+        return createI16Type();
       case "u32":
-        return { tag: TypeTag.U32 };
+        return createU32Type();
       case "i32":
-        return { tag: TypeTag.I32 };
+        return createI32Type();
       case "u64":
-        return { tag: TypeTag.U64 };
+        return createU64Type();
       case "i64":
-        return { tag: TypeTag.I64 };
+        return createI64Type();
       case "usize":
-        return { tag: TypeTag.Usize };
+        return createUsizeType();
       case "isize":
-        return { tag: TypeTag.Isize };
+        return createIsizeType();
       case "f32":
-        return { tag: TypeTag.F32 };
+        return createF32Type();
       case "f64":
-        return { tag: TypeTag.F64 };
+        return createF64Type();
+      case "c_char":
+        return createCCharType();
+      case "c_short":
+        return createCShortType();
+      case "c_ushort":
+        return createCUShortType();
+      case "c_int":
+        return createCIntType();
+      case "c_uint":
+        return createCUIntType();
+      case "c_long":
+        return createCLongType();
+      case "c_ulong":
+        return createCULongType();
+      case "c_longlong":
+        return createCLongLongType();
+      case "c_ulonglong":
+        return createCULongLongType();
+      case "c_longdouble":
+        return createCLongDoubleType();
       case "compt_int":
-        return { tag: TypeTag.ComptInt };
+        return createComptIntType();
       case "compt_float":
-        return { tag: TypeTag.ComptFloat };
+        return createComptFloatType();
       default:
         throw new Error(`Unknown numeric type: ${typeStr}`);
     }
@@ -290,7 +344,7 @@ export function evaluateYoNumericFunctions({
       context: { ...context },
     });
 
-    if (!valueArg.$ || !valueArg.$.value) {
+    if (!valueArg.$) {
       throw formatErrorMessage({
         token: valueArg.token,
         errorMessage: `Expected numeric value for "${funcName}" first argument, got:\n${exprToString(valueArg)}`,
@@ -338,7 +392,7 @@ export function evaluateYoNumericFunctions({
     const targetType = typeValue.value;
     const sourceValue = extractNumericValue(valueArg.$.value);
 
-    let convertedValue: Value;
+    let convertedValue: Value | undefined;
     let resultType: Type;
 
     /* if (targetType === null) {

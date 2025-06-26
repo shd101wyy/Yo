@@ -26,6 +26,7 @@ import {
   isExprType,
   Type,
   typeOfType,
+  typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
 } from "../../types";
@@ -302,6 +303,14 @@ export function evaluateFunctionParameter({
 ${typeToString(parameterType)}`,
         });
       }
+    }
+    if (isCompileTimeOnly && typeProhibitsComptModifier(parameterType)) {
+      throw formatErrorMessage({
+        token: lhsExpr?.token ?? expr.token,
+        errorMessage: `Unexpected "compt" (or "@") for parameter of type ${typeToString(
+          parameterType
+        )} which can only be used at runtime.`,
+      });
     }
   }
 
@@ -587,6 +596,7 @@ export function evaluateFunctionParameters({
 
       // If parameter is compile-time only, then
       // require there is no runtime parameters before it
+      /*
       if (parameter.isCompileTimeOnly) {
         const runtimeParameters = parameters.filter(
           (p) => !p.isCompileTimeOnly
@@ -598,6 +608,7 @@ export function evaluateFunctionParameters({
           });
         }
       }
+      */
 
       parameters.push(parameter);
       env = nextEnv;
@@ -758,6 +769,15 @@ Given type:
 ${typeToString(returnType)}`,
       });
     }
+  }
+
+  if (isReturnTypeCompileTimeOnly && typeProhibitsComptModifier(returnType)) {
+    throw formatErrorMessage({
+      token: returnTypeExpr.token,
+      errorMessage: `Unexpected "compt" (or "@") for return type of ${typeToString(
+        returnType
+      )} which can only be used at runtime.`,
+    });
   }
 
   // If the returnType is compile time only, then

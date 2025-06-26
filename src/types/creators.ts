@@ -184,6 +184,67 @@ export function createUnitType(): Type {
   };
 }
 
+// C Compatible types
+export function createCCharType(): Type {
+  return {
+    tag: TypeTag.CChar,
+  };
+}
+
+export function createCShortType(): Type {
+  return {
+    tag: TypeTag.CShort,
+  };
+}
+
+export function createCUShortType(): Type {
+  return {
+    tag: TypeTag.CUShort,
+  };
+}
+
+export function createCIntType(): Type {
+  return {
+    tag: TypeTag.CInt,
+  };
+}
+
+export function createCUIntType(): Type {
+  return {
+    tag: TypeTag.CUInt,
+  };
+}
+
+export function createCLongType(): Type {
+  return {
+    tag: TypeTag.CLong,
+  };
+}
+
+export function createCULongType(): Type {
+  return {
+    tag: TypeTag.CULong,
+  };
+}
+
+export function createCLongLongType(): Type {
+  return {
+    tag: TypeTag.CLongLong,
+  };
+}
+
+export function createCULongLongType(): Type {
+  return {
+    tag: TypeTag.CULongLong,
+  };
+}
+
+export function createCLongDoubleType(): Type {
+  return {
+    tag: TypeTag.CLongDouble,
+  };
+}
+
 // Type constructor functions (need to be updated to include kind)
 export function createArrayType(elementType: Type, length: Value): ArrayType {
   return {

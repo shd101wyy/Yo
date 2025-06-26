@@ -16,6 +16,7 @@ import {
   isStructType,
   isTupleType,
   Type,
+  typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
 } from "../../types";
@@ -395,6 +396,12 @@ Given type: ${typeToString(defaultValueType)}`,
         errorMessage: `Expected "compt" (or "@") modifier for compile-time known value binding.`,
       });
     }
+  }
+  if (isCompileTimeOnly && typeProhibitsComptModifier(elementType)) {
+    throw formatErrorMessage({
+      token: labelExpr?.token ?? expr.token,
+      errorMessage: `Unexpected "compt" (or "@") modifier for ${typeToString(elementType)} which can only be used at runtime.`,
+    });
   }
 
   if (forType !== "tuple" && !labelExpr) {

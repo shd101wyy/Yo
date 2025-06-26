@@ -16,7 +16,7 @@ import {
 } from "@yo/expr";
 import { ModuleManager } from "@yo/module-manager";
 import { stringIsOperator, TokenType } from "@yo/token";
-import { isFunctionType, typeOfType, typeToString } from "@yo/types";
+import { isFunctionType, typeOfType, TypeTag, typeToString } from "@yo/types";
 import { valueToString } from "@yo/value";
 import { ValueTag } from "@yo/value-tag";
 
@@ -26,6 +26,9 @@ for (const keyword in BuiltinKeywords) {
 }
 for (const keyword in BuiltinFunctions) {
   basicKeywords.push(...BuiltinFunctions[keyword]);
+}
+for (const key in TypeTag) {
+  basicKeywords.push(TypeTag[key]);
 }
 
 export function activate(context: vscode.ExtensionContext) {

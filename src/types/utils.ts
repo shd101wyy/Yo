@@ -25,6 +25,7 @@ import {
 import {
   isArrayType,
   isBooleanType,
+  isCCompatibleType,
   isComptFloatType,
   isComptIntType,
   isComptStringType,
@@ -76,6 +77,10 @@ export function typeRequiresComptModifier(type?: Type): boolean {
     isExprListType(type) ||
     isExprType(type)
   );
+}
+
+export function typeProhibitsComptModifier(type?: Type): boolean {
+  return isCCompatibleType(type);
 }
 
 /**
@@ -417,6 +422,7 @@ export function typeToString(type: Type): string {
     return "unknown";
   }
 
+  /*
   if (type.typeName) {
     if (
       isEnumType(type) &&
@@ -431,6 +437,7 @@ export function typeToString(type: Type): string {
 
     return type.typeName;
   }
+  */
 
   switch (type.tag) {
     // Primitive types
@@ -525,7 +532,16 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Enum: {
       const enumType = type as EnumType;
+
       if (enumType.typeName) {
+        if (enumType.requiredVariantNames ?? enumType.selectedVariantName) {
+          return `${enumType.typeName} (${
+            enumType.requiredVariantNames
+              ? `${enumType.requiredVariantNames.map((name) => `.${name}`).join(" | ")} required`
+              : `.${enumType.selectedVariantName} selected`
+          })`;
+        }
+
         return enumType.typeName;
       }
 
@@ -544,6 +560,10 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Union: {
       const unionType = type as UnionType;
+      if (unionType.typeName) {
+        return unionType.typeName;
+      }
+
       const elements = unionType.elements;
       return `${unionType.typeName ? `(${unionType.typeName}) ` : ""}${
         unionType.typeName ? "union" : unionType.typeId

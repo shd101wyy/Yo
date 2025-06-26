@@ -24,6 +24,21 @@ export enum TypeTag {
   ComptFloat = "compt_float",
   ComptString = "compt_string",
 
+  // C Compatible types
+  // NOTE: C Compatible types cannot be used for compile-time known value.
+  //       They can only used for runtime, as their size and representation
+  //       may vary depending on the platform.
+  CChar = "c_char",
+  CShort = "c_short",
+  CUShort = "c_ushort",
+  CInt = "c_int",
+  CUInt = "c_uint",
+  CLong = "c_long",
+  CULong = "c_ulong",
+  CLongLong = "c_longlong",
+  CULongLong = "c_ulonglong",
+  CLongDouble = "c_longdouble",
+
   // Add Undefined type
   // Undefined = "Undefined",
 

@@ -573,6 +573,18 @@ export const BuiltinFunctions = {
   __yo_f64_to_string: ["__yo_f64_to_string"],
   __yo_f64_as: ["__yo_f64_as"], // Convert to a different number type
 
+  // C compatible types
+  __yo_c_char_as: ["__yo_c_char_as"],
+  __yo_c_short_as: ["__yo_c_short_as"],
+  __yo_c_ushort_as: ["__yo_c_ushort_as"],
+  __yo_c_int_as: ["__yo_c_int_as"],
+  __yo_c_uint_as: ["__yo_c_uint_as"],
+  __yo_c_long_as: ["__yo_c_long_as"],
+  __yo_c_ulong_as: ["__yo_c_ulong_as"],
+  __yo_c_longlong_as: ["__yo_c_longlong_as"],
+  __yo_c_ulonglong_as: ["__yo_c_ulonglong_as"],
+  __yo_c_longdouble_as: ["__yo_c_longdouble_as"],
+
   // compt_boolean related functions
   /// 2 args
   __yo_compt_boolean_and: ["__yo_compt_boolean_and"],

@@ -10,7 +10,9 @@ import {
 } from "../../expr";
 import {
   isTypeHierarchyType,
+  typeProhibitsComptModifier,
   typeRequiresComptModifier,
+  typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isTypeValue } from "../../value";
@@ -114,6 +116,13 @@ ${exprToString(rhs)}`,
       errorMessage: `Expected "compt" (or "@") for compile-time known ${
         isTypeHierarchyType(userDefinedType) ? "type" : "module"
       } value binding.`,
+    });
+  }
+
+  if (typeProhibitsComptModifier(userDefinedType) && isCompileTimeOnly) {
+    throw formatErrorMessage({
+      token: lhs.token,
+      errorMessage: `Unexpected "compt" (or "@") for ${typeToString(userDefinedType)} which can only be used at runtime.`,
     });
   }
 

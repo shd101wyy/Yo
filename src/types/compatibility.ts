@@ -4,6 +4,7 @@ import { areValuesEqual, createUnknownValue } from "../value";
 import { FunctionType, ModuleElement, Type } from "./definitions";
 import {
   isArrayType,
+  isCCompatibleType,
   isComptFloatType,
   isComptIntType,
   isComptStringType,
@@ -105,6 +106,12 @@ export function areTypesCompatible(
   // - &(str); // Rust-style string slice, fat pointer.
   if (isComptStringType(expected.type) && isComptStringType(given.type)) {
     return true;
+  }
+
+  // C compatible types can be converted to each other
+  if (isCCompatibleType(expected.type) && isCCompatibleType(given.type)) {
+    // C compatible types are compatible if they have the same tag
+    return expected.type.tag === given.type.tag;
   }
 
   if (isExprType(expected.type) && isExprType(given.type)) {

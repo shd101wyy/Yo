@@ -10,6 +10,7 @@ import {
   FuncCallExpr,
   setExprAsConsumed,
 } from "../../expr";
+import { setTypeValueAsLinear } from "../../type-value";
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
@@ -17,10 +18,10 @@ import {
   isLinearType,
   typeContainsReference,
   typeOfType,
+  typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
 } from "../../types";
-import { setTypeValueAsLinear } from "../../type-value";
 import { VUnit } from "../../unit-value";
 import {
   createUnknownValue,
@@ -222,6 +223,13 @@ ${exprToString(rhs)}`,
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Expected "::" instead of ":=" for compile-time known value assignment:
+${exprToString(expr)}`,
+      });
+    }
+    if (isCompileTimeOnly && typeProhibitsComptModifier(lhs.$.type)) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected ":=" instead of "::" for value type "${typeToString(lhs.$.type)}" which can only be used at the runtime:
 ${exprToString(expr)}`,
       });
     }
