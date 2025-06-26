@@ -1,5 +1,6 @@
 // The Rc in Yo tries to use the Perceus garbage collection algorithm.  
 // NOTE: It doesn't prevent the circular references, so you should be careful with it.
+// How QuickJS handle cyclic detection: https://medium.com/@landerlyoung/anatomy-of-quickjs-garbage-collection-algorithm-fc02f6813ba1
 main :: (()-> unit) {
   // Use $ to create a special Rc type:
   SomeType :: $(String);
@@ -10,8 +11,8 @@ main :: (()-> unit) {
   // They are automatically called when the value is copied or dropped.
 
   (x: SomeType) = $(String.from("Hello, world!"));
-  y = x; // Increase the reference count.
-  z = x; // Increase the reference count again.
+  y = %(x); // Increase the reference count.
+  z = %(x); // Increase the reference count again.
 
   // The reference counter works automatically.
   // Yo also uses the compile-time reference counting to try to eliminate

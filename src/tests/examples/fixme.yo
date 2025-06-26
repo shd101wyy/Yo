@@ -1,8 +1,17 @@
 open import "std";
 
-main :: (()-> unit) {
-  x := 12.as(c_int);
-  y := x.as(c_short);
-  z := x.as(i32);
-};
+ID :: ((@(T): Type) -> @(Module))
+  module
+    Self := T,
+    id : 
+      (self : Self) -> Self
+;
 
+I32Id :: ID(i32)
+  id :
+    fn(self) -> {
+      x := self;
+      y := self;
+      (x + y)
+    }
+  ;
