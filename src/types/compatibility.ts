@@ -69,7 +69,8 @@ export function areTypesCompatible(
       expected.type.tag === TypeTag.U64 ||
       expected.type.tag === TypeTag.I64 ||
       expected.type.tag === TypeTag.Usize ||
-      expected.type.tag === TypeTag.Isize) &&
+      expected.type.tag === TypeTag.Isize ||
+      isCCompatibleType(expected.type)) &&
     isComptIntType(given.type)
   ) {
     if (exactNumericTypeMatch && !isComptIntType(expected.type)) {
