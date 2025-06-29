@@ -206,6 +206,15 @@ export function evaluateMatch({
         ...enumType,
         selectedVariantName: variantName,
       };
+      /// Add the newEnumType with selectedVariantName to the variantNameExpr
+      variantNameExpr.$ = {
+        env: caseEnv,
+        type: newEnumType,
+        value: undefined,
+        isMutable: false,
+        pathCollection: [],
+      };
+
       let variableType: EnumType | PtrType | MutPtrType | RefType | MutRefType =
         newEnumType;
       if (ptrOrRefType) {

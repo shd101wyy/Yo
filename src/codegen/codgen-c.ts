@@ -462,6 +462,11 @@ export class CodeGeneratorC {
         return this.generateCondExpressionAsValue(expr);
       }
 
+      // Handle match expressions
+      if (funcName === "match") {
+        return this.generateMatchExpressionAsValue(expr);
+      }
+
       // Handle recur - convert to recursive call to current function
       if (funcName === "recur") {
         return this.generateRecurAsExpression(expr);
@@ -1315,7 +1320,7 @@ export class CodeGeneratorC {
   }
 
   /**
-   * Generate field access for structs and unions
+   * Generate field access for structs, unions, and enums
    */
   private generateFieldAccess(expr: FuncCallExpr): string {
     if (expr.args.length !== 2) {
@@ -1334,11 +1339,200 @@ export class CodeGeneratorC {
     if (fieldExpr.tag === "Atom" && fieldExpr.token.type === "identifier") {
       const fieldName = fieldExpr.token.value;
 
-      // For C unions, access fields directly (not through .data)
-      return `${objectCode}.${fieldName}`;
+      // Check if the object is an enum type
+      if (objectExpr.$ && objectExpr.$.type && isEnumType(objectExpr.$.type)) {
+        const enumType = objectExpr.$.type;
+
+        // For enum field access, we need to determine which variant contains this field
+        // and generate the appropriate path: object.data.VariantName.fieldName
+        for (const variant of enumType.variants) {
+          if (variant.elements) {
+            for (const element of variant.elements) {
+              if (element.label === fieldName) {
+                // Found the field in this variant
+                const variantName = variant.name;
+                return `${objectCode}.data.${variantName}.${fieldName}`;
+              }
+            }
+          }
+        }
+
+        return `/* ERROR: field ${fieldName} not found in enum ${enumType.typeName} */`;
+      } else {
+        // For C structs and unions, access fields directly
+        return `${objectCode}.${fieldName}`;
+      }
     }
 
     return "/* ERROR: field name must be an identifier */";
+  }
+
+  /**
+   * Generate a match expression as a value (C switch statement)
+   */
+  private generateMatchExpressionAsValue(expr: FuncCallExpr): string {
+    if (expr.args.length < 2) {
+      return "/* ERROR: match requires at least 2 arguments */";
+    }
+
+    // Check if the match expression has been evaluated and has a variable name
+    if (expr.$ && expr.$.variableName) {
+      const tempVar = expr.$.variableName;
+      const varType = this.getTypeString(expr.$.type);
+
+      // The first argument is the value to match
+      const matchValue = expr.args[0];
+      if (!matchValue) {
+        return "/* ERROR: match value is missing */";
+      }
+
+      // Generate the variable declaration and the switch statement
+      this.emitter.emitLine(`  ${varType} ${tempVar};`);
+
+      // Generate the match value
+      const matchValueCode = this.generateExpressionAsCode(matchValue);
+      this.emitter.emitLine(`  switch (${matchValueCode}.tag) {`);
+
+      // Process each case (starting from args[1])
+      for (let i = 1; i < expr.args.length; i++) {
+        const caseArg = expr.args[i];
+        if (
+          caseArg &&
+          caseArg.tag === "FuncCall" &&
+          caseArg.func.tag === "Atom" &&
+          caseArg.func.token.value === "=>"
+        ) {
+          // This is a pattern => value pair
+          const pattern = caseArg.args[0];
+          const value = caseArg.args[1];
+
+          if (pattern && value) {
+            const caseLabel = this.generateMatchCaseLabel(pattern, matchValue);
+            const valueCode = this.generateExpressionAsCode(value);
+
+            this.emitter.emitLine(`    case ${caseLabel}:`);
+            this.emitter.emitLine(`      ${tempVar} = ${valueCode};`);
+            this.emitter.emitLine(`      break;`);
+          }
+        }
+      }
+
+      // Add a default case for safety
+      this.emitter.emitLine(`    default:`);
+      this.emitter.emitLine(
+        `      ${tempVar} = 0; /* ERROR: unhandled match case */`
+      );
+      this.emitter.emitLine(`      break;`);
+      this.emitter.emitLine(`  }`);
+
+      return tempVar;
+    }
+
+    // Fallback for non-evaluated expressions
+    return "/* TODO: match as expression */";
+  }
+
+  /**
+   * Generate the case label for a match pattern
+   */
+  private generateMatchCaseLabel(pattern: Expr, matchValue: Expr): string {
+    if (pattern.tag === "Atom" && pattern.token.type === "identifier") {
+      const variantName = pattern.token.value;
+
+      // Remove the leading dot if present (.Circle -> Circle)
+      const cleanVariantName = variantName.startsWith(".")
+        ? variantName.slice(1)
+        : variantName;
+
+      // Get the enum type from the match value
+      if (matchValue.$ && matchValue.$.type && isEnumType(matchValue.$.type)) {
+        const enumType = matchValue.$.type;
+        const cTypeName =
+          this.typeNameMap.get(enumType.typeName || "") || enumType.typeName;
+
+        if (cTypeName) {
+          return `${cTypeName.toUpperCase()}_${cleanVariantName.toUpperCase()}`;
+        }
+      }
+
+      return `/* ERROR: Cannot generate case label for ${cleanVariantName} - no enum type found */`;
+    } else if (
+      pattern.tag === "FuncCall" &&
+      pattern.func.tag === "Atom" &&
+      pattern.func.token.value === "."
+    ) {
+      // Handle enum variant pattern like .Circle (single argument to ".")
+      if (pattern.args.length === 1) {
+        const variantExpr = pattern.args[0];
+
+        if (
+          variantExpr?.tag === "Atom" &&
+          variantExpr.token.type === "identifier"
+        ) {
+          const variantName = variantExpr.token.value;
+
+          // Get the enum type from the match value
+          if (
+            matchValue.$ &&
+            matchValue.$.type &&
+            isEnumType(matchValue.$.type)
+          ) {
+            const enumType = matchValue.$.type;
+            const cTypeName =
+              this.typeNameMap.get(enumType.typeName || "") ||
+              enumType.typeName;
+
+            if (cTypeName) {
+              return `${cTypeName.toUpperCase()}_${variantName.toUpperCase()}`;
+            }
+          }
+        }
+      }
+
+      // Legacy handling for field access pattern like (.enumType.Circle) - if we encounter it
+      if (pattern.args.length === 2) {
+        const variantExpr = pattern.args[1];
+
+        if (
+          variantExpr &&
+          variantExpr.tag === "Atom" &&
+          variantExpr.token.type === "identifier"
+        ) {
+          const variantName = variantExpr.token.value;
+
+          // Get the enum type from the match value
+          if (
+            matchValue.$ &&
+            matchValue.$.type &&
+            isEnumType(matchValue.$.type)
+          ) {
+            const enumType = matchValue.$.type;
+            const cTypeName =
+              this.typeNameMap.get(enumType.typeName || "") ||
+              enumType.typeName;
+
+            console.log(
+              `DEBUG: Found enum type: ${enumType.typeName}, cTypeName: ${cTypeName}`
+            );
+
+            if (cTypeName) {
+              const result = `${cTypeName.toUpperCase()}_${variantName.toUpperCase()}`;
+              console.log(`DEBUG: Generated case label: ${result}`);
+              return result;
+            }
+          }
+        }
+      }
+
+      return `/* ERROR: Invalid field access pattern */`;
+    }
+
+    // Add debug information to help understand the pattern structure
+    const patternStr =
+      pattern.tag === "Atom"
+        ? `Atom(${pattern.token.type}: "${pattern.token.value}")`
+        : `${pattern.tag}`;
+    return `/* ERROR: Invalid match pattern: ${patternStr} */`;
   }
 
   public print(): string {

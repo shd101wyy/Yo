@@ -1,4 +1,3 @@
-/*
 extern "C",
   add :
     (x : i32, y : i32) -> i32,
@@ -15,20 +14,31 @@ extern "C",
   ge  :
     (x : i32, y : i32) -> boolean
 ;
-*/
 
 Shape :: enum
-  Circle(radius : f64),
-  Square(side : i64),
+  Circle(radius : i32),
+  Square(side : i32),
   Rectangle(width : i32, height : i32)
 ;
 
+area :: ((shape : Shape) -> i32) {
+  result :=
+    match(shape,
+      .Circle => mul(mul(3, shape.radius), shape.radius),
+      .Square => mul(shape.side, shape.side),
+      .Rectangle => mul(shape.width,shape.height)
+    )
+  ;
+  
+  add(result, 0) // do nothing here basically
+};
+
 main :: (() -> i32) {
-  c := Shape.Circle(3.2);
+  c := Shape.Circle(3);
   s := Shape.Square(side : 5);
   r1 := Shape.Rectangle(4, 6);
   r2 := Shape.Rectangle(height : 8, width: 10);
-  0
+  area(r1)
 };
 
 // `export` here is required. Otherwise no functions will be compiled.
