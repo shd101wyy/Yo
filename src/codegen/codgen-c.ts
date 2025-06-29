@@ -2,8 +2,8 @@ import { Emitter } from "../emitter";
 import { getVariablesFromEnv } from "../env";
 import { AtomExpr, Expr, FuncCallExpr } from "../expr";
 import { FunctionValue } from "../function-value";
-import { FunctionType, StructType, Type, UnionType } from "../types";
-import { isStructType, isUnionType } from "../types/guards";
+import { EnumType, FunctionType, StructType, Type, UnionType } from "../types";
+import { isEnumType, isStructType, isUnionType } from "../types/guards";
 import { typeToString } from "../types/utils";
 import { generateModuleId } from "../utils";
 import { ModuleValue, isFunctionValue } from "../value";
@@ -128,10 +128,6 @@ export class CodeGeneratorC {
                     functionVariable.value.body,
                     moduleValue
                   );
-
-                  console.log(
-                    `Found call to non-exported function: ${funcName} -> ${cFunctionName} (funcId: ${functionVariable.value.funcId})`
-                  );
                 } else if (
                   functionVariable.type &&
                   functionVariable.type.tag === "Function"
@@ -140,8 +136,6 @@ export class CodeGeneratorC {
                   const functionType = functionVariable.type as FunctionType;
                   this.functionNameMap.set(funcName, funcName); // extern functions keep their original names
                   this.externFunctions.set(funcName, functionType);
-
-                  console.log(`Found call to extern function: ${funcName}`);
                 }
               }
             }
@@ -458,6 +452,8 @@ export class CodeGeneratorC {
           return this.generateStructConstructorExpression(expr, userType);
         } else if (userType && isUnionType(userType)) {
           return this.generateUnionConstructorExpression(expr, userType);
+        } else if (userType && isEnumType(userType)) {
+          return this.generateEnumConstructorExpression(expr, userType);
         }
       }
 
@@ -485,6 +481,13 @@ export class CodeGeneratorC {
         .join(", ");
 
       return `${cFunctionName}(${args})`;
+    } else if (
+      expr.func.tag === "FuncCall" &&
+      expr.func.func.tag === "Atom" &&
+      expr.func.func.token.value === "."
+    ) {
+      // Handle enum variant constructor calls like Shape.Circle(3.2)
+      return this.generateEnumVariantConstructor(expr);
     }
 
     return "/* TODO: complex function call */";
@@ -684,19 +687,17 @@ export class CodeGeneratorC {
       const cTypeName = `yo_struct_${type.typeId}`;
       this.typeNameMap.set(type.typeName, cTypeName);
       this.collectedTypes.set(type.typeName, type);
-      console.log(
-        `Collected struct type: ${type.typeName} -> ${cTypeName} (typeId: ${type.typeId})`
-      );
     } else if (isUnionType(type) && type.typeName) {
       // Use the union's typeId to generate a mangled C type name
       const cTypeName = `yo_union_${type.typeId}`;
       this.typeNameMap.set(type.typeName, cTypeName);
       this.collectedTypes.set(type.typeName, type);
-      console.log(
-        `Collected union type: ${type.typeName} -> ${cTypeName} (typeId: ${type.typeId})`
-      );
+    } else if (isEnumType(type) && type.typeName) {
+      // Use the enum's typeId to generate a mangled C type name
+      const cTypeName = `yo_enum_${type.typeId}`;
+      this.typeNameMap.set(type.typeName, cTypeName);
+      this.collectedTypes.set(type.typeName, type);
     }
-    // TODO: Add support for other user-defined types (enum, etc.)
   }
 
   /**
@@ -708,8 +709,9 @@ export class CodeGeneratorC {
         this.generateStructDeclaration(type);
       } else if (isUnionType(type)) {
         this.generateUnionDeclaration(type);
+      } else if (isEnumType(type)) {
+        this.generateEnumDeclaration(type);
       }
-      // TODO: Add support for other types (enum, etc.)
     }
   } /**
    * Generate a struct declaration
@@ -726,7 +728,9 @@ export class CodeGeneratorC {
       return;
     }
 
-    this.emitter.emitDeclarationLine(`typedef struct {`);
+    this.emitter.emitDeclarationLine(
+      `typedef struct { // ${structType.typeName} : ${typeToString(structType)}`
+    );
 
     for (const element of structType.elements) {
       const fieldTypeStr = this.getTypeString(element.type);
@@ -754,7 +758,9 @@ export class CodeGeneratorC {
     }
 
     // Generate C union (not tagged union)
-    this.emitter.emitDeclarationLine(`typedef union {`);
+    this.emitter.emitDeclarationLine(
+      `typedef union { // ${unionType.typeName} : ${typeToString(unionType)}`
+    );
 
     for (const element of unionType.elements) {
       const fieldTypeStr = this.getTypeString(element.type);
@@ -762,6 +768,71 @@ export class CodeGeneratorC {
       this.emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
     }
 
+    this.emitter.emitDeclarationLine(`} ${cTypeName};`);
+    this.emitter.emitDeclarationLine(""); // Add blank line for readability
+  }
+
+  /**
+   * Generate an enum declaration (tagged union)
+   */
+  private generateEnumDeclaration(enumType: EnumType): void {
+    if (!enumType.typeName) {
+      console.warn("Cannot generate declaration for unnamed enum");
+      return;
+    }
+
+    const cTypeName = this.typeNameMap.get(enumType.typeName);
+    if (!cTypeName) {
+      console.warn(`No C type name found for enum ${enumType.typeName}`);
+      return;
+    }
+
+    // Generate tag enum for discriminant
+    const tagEnumName = `${cTypeName}_tag`;
+    this.emitter.emitDeclarationLine(`typedef enum {`);
+
+    for (let i = 0; i < enumType.variants.length; i++) {
+      const variant = enumType.variants[i];
+      if (variant) {
+        // Use fully mangled names for enum tags to avoid global scope conflicts
+        const tagName = `${cTypeName.toUpperCase()}_${variant.name.toUpperCase()}`;
+        const comma = i < enumType.variants.length - 1 ? "," : "";
+        this.emitter.emitDeclarationLine(`  ${tagName} = ${i}${comma}`);
+      }
+    }
+
+    this.emitter.emitDeclarationLine(`} ${tagEnumName};`);
+    this.emitter.emitDeclarationLine("");
+
+    // Generate union for variant data
+    const variantUnionName = `${cTypeName}_data`;
+    this.emitter.emitDeclarationLine(`typedef union {`);
+
+    for (const variant of enumType.variants) {
+      if (variant.elements && variant.elements.length > 0) {
+        // Variant has data - create a struct for its fields using just the variant name
+        const variantStructName = variant.name;
+        this.emitter.emitDeclarationLine(`  struct {`);
+
+        for (const element of variant.elements) {
+          const fieldTypeStr = this.getTypeString(element.type);
+          const fieldName = element.label || "field";
+          this.emitter.emitDeclarationLine(`    ${fieldTypeStr} ${fieldName};`);
+        }
+
+        this.emitter.emitDeclarationLine(`  } ${variantStructName};`);
+      }
+    }
+
+    this.emitter.emitDeclarationLine(`} ${variantUnionName};`);
+    this.emitter.emitDeclarationLine("");
+
+    // Generate the main tagged union struct
+    this.emitter.emitDeclarationLine(
+      `typedef struct { // ${enumType.typeName} : ${typeToString(enumType)}`
+    );
+    this.emitter.emitDeclarationLine(`  ${tagEnumName} tag;`);
+    this.emitter.emitDeclarationLine(`  ${variantUnionName} data;`);
     this.emitter.emitDeclarationLine(`} ${cTypeName};`);
     this.emitter.emitDeclarationLine(""); // Add blank line for readability
   }
@@ -800,6 +871,13 @@ export class CodeGeneratorC {
           return cTypeName || type.typeName;
         }
         return "union_unknown";
+      case "Enum":
+        // For enum types, use the mangled type name
+        if (isEnumType(type) && type.typeName) {
+          const cTypeName = this.typeNameMap.get(type.typeName);
+          return cTypeName || type.typeName;
+        }
+        return "enum_unknown";
       default:
         return "int32_t"; // fallback
     }
@@ -877,6 +955,156 @@ export class CodeGeneratorC {
 
     // Fallback for unrecognized patterns
     return `/* TODO: Union constructor for ${cTypeName} with complex args */`;
+  }
+
+  /**
+   * Generate enum constructor as an expression (for direct enum type calls)
+   */
+  private generateEnumConstructorExpression(
+    expr: FuncCallExpr,
+    enumType: EnumType
+  ): string {
+    // This would handle direct enum type calls, but typically enums are called via variants
+    const enumTypeName = enumType.typeName || "UnknownEnum";
+    const cTypeName = this.typeNameMap.get(enumTypeName) || enumTypeName;
+    return `/* TODO: Direct enum constructor for ${cTypeName} */`;
+  }
+
+  /**
+   * Generate enum variant constructor (for calls like Shape.Circle(3.2))
+   */
+  private generateEnumVariantConstructor(expr: FuncCallExpr): string {
+    // expr.func should be a field access like Shape.Circle
+    if (
+      expr.func.tag !== "FuncCall" ||
+      expr.func.func.tag !== "Atom" ||
+      expr.func.func.token.value !== "."
+    ) {
+      return "/* ERROR: Invalid enum variant constructor */";
+    }
+
+    const fieldAccessExpr = expr.func;
+    if (fieldAccessExpr.args.length !== 2) {
+      return "/* ERROR: Field access requires exactly 2 arguments */";
+    }
+
+    const enumTypeExpr = fieldAccessExpr.args[0];
+    const variantExpr = fieldAccessExpr.args[1];
+
+    if (!enumTypeExpr || !variantExpr) {
+      return "/* ERROR: Invalid enum variant constructor arguments */";
+    }
+
+    // Get the enum type name
+    if (
+      enumTypeExpr.tag !== "Atom" ||
+      enumTypeExpr.token.type !== "identifier"
+    ) {
+      return "/* ERROR: Enum type must be an identifier */";
+    }
+
+    // Get the variant name
+    if (variantExpr.tag !== "Atom" || variantExpr.token.type !== "identifier") {
+      return "/* ERROR: Variant name must be an identifier */";
+    }
+
+    const enumTypeName = enumTypeExpr.token.value;
+    const variantName = variantExpr.token.value;
+
+    // Check if this is a known enum type
+    if (!this.collectedTypes.has(enumTypeName)) {
+      return `/* ERROR: Unknown enum type ${enumTypeName} */`;
+    }
+
+    const enumType = this.collectedTypes.get(enumTypeName);
+    if (!enumType || !isEnumType(enumType)) {
+      return `/* ERROR: ${enumTypeName} is not an enum type */`;
+    }
+
+    const cTypeName = this.typeNameMap.get(enumTypeName) || enumTypeName;
+
+    // Find the variant
+    const variant = enumType.variants.find((v) => v.name === variantName);
+    if (!variant) {
+      return `/* ERROR: Variant ${variantName} not found in enum ${enumTypeName} */`;
+    }
+
+    // Generate the tag name using the fully mangled naming scheme
+    const tagName = `${cTypeName.toUpperCase()}_${variantName.toUpperCase()}`;
+
+    // Handle variant data
+    if (variant.elements && variant.elements.length > 0) {
+      // Variant has data fields
+      if (expr.args.length === 0) {
+        return `/* ERROR: Variant ${variantName} requires arguments */`;
+      }
+
+      // Check if we have positional or named arguments
+      const hasNamedArgs = expr.args.some(
+        (arg) =>
+          arg.tag === "FuncCall" &&
+          arg.func.tag === "Atom" &&
+          arg.func.token.value === ":"
+      );
+
+      if (hasNamedArgs) {
+        // Named field initialization
+        const fieldAssignments: string[] = [];
+
+        for (const arg of expr.args) {
+          if (
+            arg.tag === "FuncCall" &&
+            arg.func.tag === "Atom" &&
+            arg.func.token.value === ":"
+          ) {
+            const fieldNameExpr = arg.args[0];
+            const valueExpr = arg.args[1];
+
+            if (
+              fieldNameExpr?.tag === "Atom" &&
+              fieldNameExpr.token.type === "identifier" &&
+              valueExpr
+            ) {
+              const fieldName = fieldNameExpr.token.value;
+              const valueCode = this.generateExpressionAsCode(valueExpr);
+              fieldAssignments.push(`.${fieldName} = ${valueCode}`);
+            }
+          }
+        }
+
+        const variantDataName = variantName;
+        return `((${cTypeName}){.tag = ${tagName}, .data.${variantDataName} = {${fieldAssignments.join(", ")}}})`;
+      } else {
+        // Positional initialization
+        const values = expr.args.map((arg) =>
+          this.generateExpressionAsCode(arg)
+        );
+
+        if (variant.elements.length === 1) {
+          // Single field variant - use same pattern as multi-field for consistency
+          const fieldName = variant.elements[0]?.label || "field";
+          const variantDataName = variantName;
+          return `((${cTypeName}){.tag = ${tagName}, .data.${variantDataName} = {.${fieldName} = ${values[0]}}})`;
+        } else {
+          // Multiple field variant - use positional assignment
+          const fieldAssignments = variant.elements.map((element, index) => {
+            const fieldName = element.label || `field${index}`;
+            const value = values[index] || "0";
+            return `.${fieldName} = ${value}`;
+          });
+
+          const variantDataName = variantName;
+          return `((${cTypeName}){.tag = ${tagName}, .data.${variantDataName} = {${fieldAssignments.join(", ")}}})`;
+        }
+      }
+    } else {
+      // Variant has no data - just the tag
+      if (expr.args.length > 0) {
+        return `/* ERROR: Variant ${variantName} does not accept arguments */`;
+      }
+
+      return `((${cTypeName}){.tag = ${tagName}})`;
+    }
   }
 
   /**
