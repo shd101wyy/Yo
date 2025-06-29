@@ -2,8 +2,8 @@ import { Emitter } from "../emitter";
 import { getVariablesFromEnv } from "../env";
 import { AtomExpr, Expr, FuncCallExpr } from "../expr";
 import { FunctionValue } from "../function-value";
-import { FunctionType, StructType, Type } from "../types";
-import { isStructType } from "../types/guards";
+import { FunctionType, StructType, Type, UnionType } from "../types";
+import { isStructType, isUnionType } from "../types/guards";
 import { typeToString } from "../types/utils";
 import { generateModuleId } from "../utils";
 import { ModuleValue, isFunctionValue } from "../value";
@@ -368,12 +368,16 @@ export class CodeGeneratorC {
     if (expr.func.tag === "Atom") {
       const funcName = expr.func.token.value;
 
-      // Check if this is a struct constructor call
+      // Check if this is a struct or union constructor call
       if (this.collectedTypes.has(funcName)) {
-        const structType = this.collectedTypes.get(funcName);
-        if (structType && isStructType(structType)) {
+        const userType = this.collectedTypes.get(funcName);
+        if (userType && isStructType(userType)) {
           // This is a struct constructor - handle it specially
-          this.handleStructConstructor(expr, indent, structType);
+          this.handleStructConstructor(expr, indent, userType);
+          return;
+        } else if (userType && isUnionType(userType)) {
+          // This is a union constructor - handle it specially
+          this.handleUnionConstructor(expr, indent, userType);
           return;
         }
       }
@@ -447,11 +451,13 @@ export class CodeGeneratorC {
     if (expr.func.tag === "Atom") {
       const funcName = expr.func.token.value;
 
-      // Check if this is a struct constructor call
+      // Check if this is a struct or union constructor call
       if (this.collectedTypes.has(funcName)) {
-        const structType = this.collectedTypes.get(funcName);
-        if (structType && isStructType(structType)) {
-          return this.generateStructConstructorExpression(expr, structType);
+        const userType = this.collectedTypes.get(funcName);
+        if (userType && isStructType(userType)) {
+          return this.generateStructConstructorExpression(expr, userType);
+        } else if (userType && isUnionType(userType)) {
+          return this.generateUnionConstructorExpression(expr, userType);
         }
       }
 
@@ -463,6 +469,11 @@ export class CodeGeneratorC {
       // Handle recur - convert to recursive call to current function
       if (funcName === "recur") {
         return this.generateRecurAsExpression(expr);
+      }
+
+      // Handle field access operator
+      if (funcName === ".") {
+        return this.generateFieldAccess(expr);
       }
 
       // Use the correct C function name (could be mangled)
@@ -676,8 +687,16 @@ export class CodeGeneratorC {
       console.log(
         `Collected struct type: ${type.typeName} -> ${cTypeName} (typeId: ${type.typeId})`
       );
+    } else if (isUnionType(type) && type.typeName) {
+      // Use the union's typeId to generate a mangled C type name
+      const cTypeName = `yo_union_${type.typeId}`;
+      this.typeNameMap.set(type.typeName, cTypeName);
+      this.collectedTypes.set(type.typeName, type);
+      console.log(
+        `Collected union type: ${type.typeName} -> ${cTypeName} (typeId: ${type.typeId})`
+      );
     }
-    // TODO: Add support for other user-defined types (enum, union, etc.)
+    // TODO: Add support for other user-defined types (enum, etc.)
   }
 
   /**
@@ -687,8 +706,10 @@ export class CodeGeneratorC {
     for (const [, type] of this.collectedTypes.entries()) {
       if (isStructType(type)) {
         this.generateStructDeclaration(type);
+      } else if (isUnionType(type)) {
+        this.generateUnionDeclaration(type);
       }
-      // TODO: Add support for other types (enum, union, etc.)
+      // TODO: Add support for other types (enum, etc.)
     }
   } /**
    * Generate a struct declaration
@@ -708,6 +729,34 @@ export class CodeGeneratorC {
     this.emitter.emitDeclarationLine(`typedef struct {`);
 
     for (const element of structType.elements) {
+      const fieldTypeStr = this.getTypeString(element.type);
+      const fieldName = element.label || "field";
+      this.emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
+    }
+
+    this.emitter.emitDeclarationLine(`} ${cTypeName};`);
+    this.emitter.emitDeclarationLine(""); // Add blank line for readability
+  }
+
+  /**
+   * Generate a union declaration
+   */
+  private generateUnionDeclaration(unionType: UnionType): void {
+    if (!unionType.typeName) {
+      console.warn("Cannot generate declaration for unnamed union");
+      return;
+    }
+
+    const cTypeName = this.typeNameMap.get(unionType.typeName);
+    if (!cTypeName) {
+      console.warn(`No C type name found for union ${unionType.typeName}`);
+      return;
+    }
+
+    // Generate C union (not tagged union)
+    this.emitter.emitDeclarationLine(`typedef union {`);
+
+    for (const element of unionType.elements) {
       const fieldTypeStr = this.getTypeString(element.type);
       const fieldName = element.label || "field";
       this.emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
@@ -744,6 +793,13 @@ export class CodeGeneratorC {
           return cTypeName || type.typeName;
         }
         return "struct_unknown";
+      case "Union":
+        // For union types, use the mangled type name
+        if (isUnionType(type) && type.typeName) {
+          const cTypeName = this.typeNameMap.get(type.typeName);
+          return cTypeName || type.typeName;
+        }
+        return "union_unknown";
       default:
         return "int32_t"; // fallback
     }
@@ -763,6 +819,64 @@ export class CodeGeneratorC {
     this.emitter.emitLine(
       `${indent}// TODO: Struct constructor for ${structName} with ${expr.args.length} arguments`
     );
+  }
+
+  /**
+   * Handle union constructor calls
+   */
+  private handleUnionConstructor(
+    expr: FuncCallExpr,
+    indent: string,
+    unionType: UnionType
+  ): void {
+    // This method is called when we detect a union constructor call
+    // For now, we'll treat it as a comment until we implement full union initialization
+    const unionName = unionType.typeName || "UnknownUnion";
+    this.emitter.emitLine(
+      `${indent}// TODO: Union constructor for ${unionName} with ${expr.args.length} arguments`
+    );
+  }
+
+  /**
+   * Generate union constructor as an expression
+   */
+  private generateUnionConstructorExpression(
+    expr: FuncCallExpr,
+    unionType: UnionType
+  ): string {
+    const unionTypeName = unionType.typeName || "UnknownUnion";
+    const cTypeName = this.typeNameMap.get(unionTypeName) || unionTypeName;
+
+    // Parse the constructor arguments - expect "fieldName : value" pattern
+    if (expr.args.length === 1) {
+      const arg = expr.args[0];
+      if (
+        arg &&
+        arg.tag === "FuncCall" &&
+        arg.func.tag === "Atom" &&
+        arg.func.token.value === ":"
+      ) {
+        // This is a named field constructor: "fieldName : value"
+        const fieldNameExpr = arg.args[0];
+        const valueExpr = arg.args[1];
+
+        if (
+          fieldNameExpr &&
+          fieldNameExpr.tag === "Atom" &&
+          fieldNameExpr.token.type === "identifier" &&
+          valueExpr
+        ) {
+          const fieldName = fieldNameExpr.token.value;
+          const valueCode = this.generateExpressionAsCode(valueExpr);
+
+          // Generate C union compound literal (not tagged union)
+          return `((${cTypeName}){.${fieldName} = ${valueCode}})`;
+        }
+      }
+    }
+
+    // Fallback for unrecognized patterns
+    return `/* TODO: Union constructor for ${cTypeName} with complex args */`;
   }
 
   /**
@@ -940,6 +1054,8 @@ export class CodeGeneratorC {
           return expr.token.value;
         } else if (expr.token.type === "integer") {
           return expr.token.value;
+        } else if (expr.token.type === "float") {
+          return expr.token.value;
         } else if (expr.token.value === "true") {
           return "true";
         } else if (expr.token.value === "false") {
@@ -968,6 +1084,33 @@ export class CodeGeneratorC {
       .join(", ");
 
     return `${this.currentFunctionName}(${args})`;
+  }
+
+  /**
+   * Generate field access for structs and unions
+   */
+  private generateFieldAccess(expr: FuncCallExpr): string {
+    if (expr.args.length !== 2) {
+      return "/* ERROR: field access requires exactly 2 arguments */";
+    }
+
+    const objectExpr = expr.args[0];
+    const fieldExpr = expr.args[1];
+
+    if (!objectExpr || !fieldExpr) {
+      return "/* ERROR: invalid field access arguments */";
+    }
+
+    const objectCode = this.generateExpressionAsCode(objectExpr);
+
+    if (fieldExpr.tag === "Atom" && fieldExpr.token.type === "identifier") {
+      const fieldName = fieldExpr.token.value;
+
+      // For C unions, access fields directly (not through .data)
+      return `${objectCode}.${fieldName}`;
+    }
+
+    return "/* ERROR: field name must be an identifier */";
   }
 
   public print(): string {
