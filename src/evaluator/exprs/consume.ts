@@ -1,13 +1,7 @@
 import { checkBorrowings } from "../../borrow";
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import {
-  BuiltinFunctions,
-  exprIsFunctionCallOf,
-  exprToString,
-  FuncCallExpr,
-  setExprAsConsumed,
-} from "../../expr";
+import { exprToString, FuncCallExpr, setExprAsConsumed } from "../../expr";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 
@@ -23,12 +17,14 @@ export function evaluateConsume({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
+  /*
   if (!exprIsFunctionCallOf(expr, BuiltinFunctions.consume, 1)) {
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `Expected "consume" with 1 argument, got:\n${exprToString(expr)}`,
     });
   }
+  */
   const consumeArgExpr = expr.args[0]!;
 
   // Evaluate the consume argument

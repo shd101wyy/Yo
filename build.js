@@ -16,6 +16,7 @@ const sharedConfig = {
     "os",
     "vm",
     "stream",
+    "node:fs",
     "node:fs/promises",
     "url",
     "crypto",

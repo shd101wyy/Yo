@@ -1,3 +1,8 @@
+# Some Ideas
+
+- Disallow to pass reference into closure struct?
+- Allow $ only for immutable data structure?
+
 # CPS transformation for effect handlers
 
 ```typescript

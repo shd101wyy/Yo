@@ -26,14 +26,6 @@ import {
 } from "./definitions";
 import { TypeTag } from "./tags";
 
-// FIXME: We need to determine the ptr size based on the givenType architecture.
-/**
- * @returns The size of a pointer in bytes.
- */
-export function getPtrSize(): number {
-  return 8;
-}
-
 export function createFreeType(baseType?: Type): TypeHierarchyType {
   return {
     tag: TypeTag.Free,

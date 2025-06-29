@@ -2,7 +2,7 @@ import * as fs from "fs";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import packageJson from "../package.json";
-import { CodeGenerator } from "./index";
+import { ModuleManager } from "./module-manager";
 
 yargs(hideBin(process.argv))
   .usage(
@@ -37,7 +37,7 @@ yo run <script>                  Run a script defined in 'yo.json'
     describe: "C Compiler to use",
     type: "string",
     demandOption: false,
-    default: "clang",
+    default: "cc",
   })
   .option("t", {
     alias: "target",
@@ -46,32 +46,14 @@ yo run <script>                  Run a script defined in 'yo.json'
     demandOption: false,
     default: "c",
   })
-  .option("print-tokens", {
-    describe: "Print tokens generated from lexer",
-    type: "boolean",
-    demandOption: false,
-    default: false,
-  })
-  .option("print-ast", {
-    describe: "Print AST generated from parser",
-    type: "boolean",
-    demandOption: false,
-    default: false,
-  })
-  .option("skip-prelude", {
-    describe: "Skip importing prelude module",
-    type: "boolean",
-    demandOption: false,
-    default: false,
-  })
   .option("print-c", {
-    describe: "Print C code generated from AST",
+    describe: "Print C code generated.",
     type: "boolean",
     demandOption: false,
     default: false,
   })
   .option("skip-codegen", {
-    describe: "Do not compile the code",
+    describe: "Do not compile the code.",
     type: "boolean",
     demandOption: false,
     default: false,
@@ -97,14 +79,29 @@ yo run <script>                  Run a script defined in 'yo.json'
       const absolutePath = `file://` + fs.realpathSync(file);
       // Add file:// to the path
 
-      const compiler = new CodeGenerator();
-      compiler.loadModule(absolutePath, {
-        printTokens: argv.printTokens,
-        printAst: argv.printAst,
-        printC: argv.printC,
-        skipCodegen: argv.skipCodegen,
-        skipPrelude: argv.skipPrelude,
-      });
+      const moduleManager = new ModuleManager();
+
+      if (!argv.skipCodegen) {
+        moduleManager.compileModule(absolutePath, { printC: argv.printC });
+
+        // Get the generated C code
+        const compiledCode = moduleManager.getGeneratedCode();
+
+        // Write the C code to a file
+        const outputFile = argv.output as string;
+        const tempCFile = outputFile + ".c";
+        fs.writeFileSync(tempCFile, compiledCode);
+
+        console.log(`Generated C code written to ${tempCFile}`);
+
+        // TODO: Add actual C compilation with the specified compiler
+      } else {
+        // Just load the module to check for errors
+        const result = moduleManager.loadModule(absolutePath);
+        if (result.moduleError) {
+          throw result.moduleError;
+        }
+      }
     }
   )
   .help()
