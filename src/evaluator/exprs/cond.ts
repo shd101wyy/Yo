@@ -1,6 +1,7 @@
 import { Environment, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   BuiltinKeywords,
   Expr,
   exprIsFunctionCall,
@@ -275,6 +276,7 @@ export function evaluateCond({
     isMutable: false,
     pathCollection: [],
   };
+  attachTempVariableToExpr(expr);
 
   return expr;
 }

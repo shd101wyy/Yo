@@ -371,6 +371,9 @@ export class CodeGeneratorC {
         for (const arg of expr.args) {
           this.generateExpr(arg, indent);
         }
+      } else if (funcName === "cond") {
+        // Handle conditional expression - convert to if-else chain
+        this.generateCondExpression(expr, indent);
       } else if (funcName === ":=" && expr.isInfix) {
         // Handle assignment
         if (expr.args.length >= 2) {
@@ -438,6 +441,11 @@ export class CodeGeneratorC {
         if (structType && isStructType(structType)) {
           return this.generateStructConstructorExpression(expr, structType);
         }
+      }
+
+      // Handle special functions
+      if (funcName === "cond") {
+        return this.generateCondExpressionAsValue(expr);
       }
 
       // Use the correct C function name (could be mangled)
@@ -833,6 +841,107 @@ export class CodeGeneratorC {
         // For other functions, return the expression
         this.generateReturnStatement(expr, indent);
       }
+    }
+  } /**
+   * Generate a conditional expression (cond) as an if-else chain
+   */
+  private generateCondExpression(expr: FuncCallExpr, indent: string): void {
+    // If the cond expression has been evaluated and has a variable name,
+    // we need to generate the actual cond logic that assigns to that variable
+    if (expr.$ && expr.$.variableName) {
+      const tempVar = expr.$.variableName;
+      const varType = this.getTypeString(expr.$.type);
+
+      // Generate the conditional logic
+      // For now, let's implement a simple if-else based on the debug info we saw
+      this.emitter.emitLine(`${indent}${varType} ${tempVar};`);
+      this.emitter.emitLine(
+        `${indent}// TODO: Generate actual cond logic here`
+      );
+      this.emitter.emitLine(
+        `${indent}// This should be an if-else chain based on the => patterns`
+      );
+
+      return;
+    }
+
+    // Fallback for non-evaluated expressions
+    this.emitter.emitLine(
+      `${indent}// TODO: Implement cond expression properly`
+    );
+    this.emitter.emitLine(
+      `${indent}// cond with ${expr.args.length} arguments`
+    );
+  }
+
+  /**
+   * Generate a conditional expression (cond) as a value expression
+   */
+  private generateCondExpressionAsValue(expr: FuncCallExpr): string {
+    // Check if the cond expression has been evaluated and has a variable name
+    if (expr.$ && expr.$.variableName) {
+      const tempVar = expr.$.variableName;
+      const varType = this.getTypeString(expr.$.type);
+
+      // Generate the conditional logic as statements before this expression
+      // We need to declare the variable and generate the if-else logic
+      this.emitter.emitLine(`  ${varType} ${tempVar};`);
+
+      // Generate if-else chain for each condition => value pair
+      for (let i = 0; i < expr.args.length; i++) {
+        const arg = expr.args[i];
+        if (
+          arg &&
+          arg.tag === "FuncCall" &&
+          arg.func.tag === "Atom" &&
+          arg.func.token.value === "=>"
+        ) {
+          // This is a condition => value pair
+          const condition = arg.args[0];
+          const value = arg.args[1];
+
+          if (condition && value) {
+            const ifKeyword = i === 0 ? "if" : "else if";
+
+            // Generate condition
+            const conditionCode = this.generateExpressionAsCode(condition);
+            const valueCode = this.generateExpressionAsCode(value);
+
+            this.emitter.emitLine(`  ${ifKeyword} (${conditionCode}) {`);
+            this.emitter.emitLine(`    ${tempVar} = ${valueCode};`);
+            this.emitter.emitLine(`  }`);
+          }
+        }
+      }
+
+      return tempVar;
+    }
+
+    // Fallback for non-evaluated expressions
+    return "/* TODO: cond as expression */";
+  }
+
+  /**
+   * Generate an expression as C code (returns string, doesn't emit)
+   */
+  private generateExpressionAsCode(expr: Expr): string {
+    switch (expr.tag) {
+      case "Atom":
+        if (expr.token.type === "identifier") {
+          return expr.token.value;
+        } else if (expr.token.type === "integer") {
+          return expr.token.value;
+        } else if (expr.token.value === "true") {
+          return "true";
+        } else if (expr.token.value === "false") {
+          return "false";
+        } else {
+          return `/* TODO: atom ${expr.token.value} */`;
+        }
+      case "FuncCall":
+        return this.generateFuncCallAsExpression(expr);
+      default:
+        return "/* TODO: complex expression */";
     }
   }
 

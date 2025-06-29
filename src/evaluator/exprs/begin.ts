@@ -6,6 +6,7 @@ import {
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   BuiltinKeywords,
   Expr,
   exprIsFunctionCall,
@@ -138,5 +139,6 @@ export function evaluateBeginExpression({
     isMutable: false,
     pathCollection: [],
   };
+  attachTempVariableToExpr(expr);
   return expr;
 }

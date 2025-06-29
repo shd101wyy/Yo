@@ -1,6 +1,7 @@
 import { addVariableToEnv, Environment, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   BuiltinKeywords,
   Expr,
   exprIsAtom,
@@ -404,6 +405,7 @@ Please use .variantName for destructuring enum variants.`,
     isMutable: false,
     pathCollection: [],
   };
+  attachTempVariableToExpr(expr);
 
   return expr;
 }
