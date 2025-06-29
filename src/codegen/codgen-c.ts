@@ -4,6 +4,7 @@ import { AtomExpr, Expr, FuncCallExpr } from "../expr";
 import { FunctionValue } from "../function-value";
 import { FunctionType, StructType, Type } from "../types";
 import { isStructType } from "../types/guards";
+import { typeToString } from "../types/utils";
 import { generateModuleId } from "../utils";
 import { ModuleValue, isFunctionValue } from "../value";
 
@@ -14,6 +15,7 @@ export class CodeGeneratorC {
   private collectedTypes: Map<string, Type> = new Map(); // store collected user-defined types (struct, enum, union, etc.)
   private typeNameMap: Map<string, string> = new Map(); // yo type name -> C type name
   private externFunctions: Map<string, FunctionType> = new Map(); // store extern function signatures
+  private currentFunctionName: string = ""; // track the current function being generated for recur
 
   constructor() {
     this.emitter = new Emitter();
@@ -206,15 +208,17 @@ export class CodeGeneratorC {
     cFunctionName: string
   ): void {
     const isMain = label === "main";
+    const functionType = functionValue.type;
 
     if (isMain) {
       // For main function, use the actual return type from the function
-      const functionType = functionValue.type;
       const returnTypeStr = this.getTypeString(functionType.return.type);
-      this.emitter.emitDeclarationLine(`${returnTypeStr} ${cFunctionName}();`);
+      const yoTypeStr = typeToString(functionType);
+      this.emitter.emitDeclarationLine(
+        `${returnTypeStr} ${cFunctionName}(); // ${label} : ${yoTypeStr}`
+      );
     } else {
       // For non-main functions, generate based on function type
-      const functionType = functionValue.type;
       const returnTypeStr = this.getTypeString(functionType.return.type);
 
       // Generate parameter list
@@ -226,8 +230,9 @@ export class CodeGeneratorC {
         })
         .join(", ");
 
+      const yoTypeStr = typeToString(functionType);
       this.emitter.emitDeclarationLine(
-        `${returnTypeStr} ${cFunctionName}(${params});`
+        `${returnTypeStr} ${cFunctionName}(${params}); // ${label} : ${yoTypeStr}`
       );
     }
   }
@@ -324,8 +329,15 @@ export class CodeGeneratorC {
       // Special handling for id function - it should return its parameter
       this.emitter.emitLine(`  return x;`);
     } else {
+      // Set current function name for recur support
+      const previousFunctionName = this.currentFunctionName;
+      this.currentFunctionName = functionName;
+
       // Generate function body with proper return handling
       this.generateFunctionBody(functionValue.body, functionType, isMain, "  ");
+
+      // Restore previous function name
+      this.currentFunctionName = previousFunctionName;
     }
 
     this.emitter.emitLine(`}`);
@@ -448,20 +460,17 @@ export class CodeGeneratorC {
         return this.generateCondExpressionAsValue(expr);
       }
 
+      // Handle recur - convert to recursive call to current function
+      if (funcName === "recur") {
+        return this.generateRecurAsExpression(expr);
+      }
+
       // Use the correct C function name (could be mangled)
       const cFunctionName = this.functionNameMap.get(funcName) || funcName;
 
-      // Generate arguments
+      // Generate arguments - improved to handle complex expressions
       const args = expr.args
-        .map((arg) => {
-          if (arg.tag === "Atom" && arg.token.type === "integer") {
-            return arg.token.value;
-          } else if (arg.tag === "Atom" && arg.token.type === "identifier") {
-            return arg.token.value;
-          } else {
-            return "/* TODO: complex arg */";
-          }
-        })
+        .map((arg) => this.generateExpressionAsCode(arg))
         .join(", ");
 
       return `${cFunctionName}(${args})`;
@@ -943,6 +952,22 @@ export class CodeGeneratorC {
       default:
         return "/* TODO: complex expression */";
     }
+  }
+
+  /**
+   * Generate a recur call as an expression (recursive call to current function)
+   */
+  private generateRecurAsExpression(expr: FuncCallExpr): string {
+    if (!this.currentFunctionName) {
+      return "/* ERROR: recur called outside function */";
+    }
+
+    // Generate arguments for the recursive call
+    const args = expr.args
+      .map((arg) => this.generateExpressionAsCode(arg))
+      .join(", ");
+
+    return `${this.currentFunctionName}(${args})`;
   }
 
   public print(): string {

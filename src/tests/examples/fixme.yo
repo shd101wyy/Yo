@@ -1,25 +1,32 @@
 extern "C",
   add :
     (x : i32, y : i32) -> i32,
+  sub :
+    (x : i32, y : i32) -> i32,
+  mul :
+    (x : i32, y : i32) -> i32,
+  div :
+    (x : i32, y : i32) -> i32,
+  eq  :
+    (x : i32, y : i32) -> boolean,
   gt  :
+    (x : i32, y : i32) -> boolean,
+  ge  :
     (x : i32, y : i32) -> boolean
 ;
 
-max :: ((x : i32, y : i32) -> i32) {
+factorial :: ((n : i32) -> i32) {
   result :=
     cond
-      gt(x, y) => x,
-      true     => y
+      eq(n, 0) => 1,
+      true     => mul(n, recur(sub(n, 1)))
   ;
   result // return result
 };
 
 main :: (() -> i32) {
-  x := 15;
-  y := 13;
-  z := add(x, y);
-  m := max(x, y);
-  m
+  x := 4;
+  factorial(x)
 };
 
 // `export` here is required. Otherwise no functions will be compiled.
