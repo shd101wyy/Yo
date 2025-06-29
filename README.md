@@ -29,25 +29,25 @@ The dev environment is defined in [shell.nix](./shell.nix). You can also manuall
 $ cd Yo
 $ direnv allow # Run this command to activate the nix shell.
                # You only need to run it once.
-$ yarn install # Install necessary dependencies.
+$ bun install # Install necessary dependencies.
 ```
 
 Run the following command to watch for changes and build the project:
 
 ```bash
-$ yarn dev
+$ bun run dev
 ```
 
 Run the following command to build the project:
 
 ```bash
-$ yarn build
+$ bun run build
 ```
 
-Test some local yo program:
+Test some local yo-cli:
 
 ```bash
-$ node --enable-source-maps ./out/cjs/yo-cli.cjs examples/generic/generic2.yo --print-ast --skip-codegen --skip-prelude
+$ bun run src/yo-cli.ts src/tests/examples/fixme.yo --print-c
 ```
 
 ## License
