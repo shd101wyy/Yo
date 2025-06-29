@@ -13,6 +13,7 @@ export class CodeGeneratorC {
   private collectedFunctions: Map<string, FunctionValue> = new Map(); // store collected function values
   private collectedTypes: Map<string, Type> = new Map(); // store collected user-defined types (struct, enum, union, etc.)
   private typeNameMap: Map<string, string> = new Map(); // yo type name -> C type name
+  private externFunctions: Map<string, FunctionType> = new Map(); // store extern function signatures
 
   constructor() {
     this.emitter = new Emitter();
@@ -110,11 +111,12 @@ export class CodeGeneratorC {
               if (functionVariables.length > 0) {
                 const functionVariable =
                   functionVariables[functionVariables.length - 1]!; // Get the latest one
+
                 if (
                   functionVariable.value &&
                   isFunctionValue(functionVariable.value)
                 ) {
-                  // Use the function's funcId as the C function name
+                  // Regular user-defined function
                   const cFunctionName = `yo_${functionVariable.value.funcId}`;
                   this.functionNameMap.set(funcName, cFunctionName);
                   this.collectedFunctions.set(funcName, functionVariable.value);
@@ -128,6 +130,16 @@ export class CodeGeneratorC {
                   console.log(
                     `Found call to non-exported function: ${funcName} -> ${cFunctionName} (funcId: ${functionVariable.value.funcId})`
                   );
+                } else if (
+                  functionVariable.type &&
+                  functionVariable.type.tag === "Function"
+                ) {
+                  // This might be an extern function (has type but no implementation)
+                  const functionType = functionVariable.type as FunctionType;
+                  this.functionNameMap.set(funcName, funcName); // extern functions keep their original names
+                  this.externFunctions.set(funcName, functionType);
+
+                  console.log(`Found call to extern function: ${funcName}`);
                 }
               }
             }
@@ -156,6 +168,11 @@ export class CodeGeneratorC {
    */
   private generateFunctionDeclarations(moduleValue: ModuleValue): void {
     this.emitter.emitDeclarationLine(`\n// Function declarations`);
+
+    // Generate declarations for extern functions first
+    for (const [funcName, functionType] of this.externFunctions.entries()) {
+      this.generateExternFunctionDeclaration(funcName, functionType);
+    }
 
     // Generate declarations for exported functions
     for (let i = 0; i < moduleValue.elements.length; i++) {
@@ -191,7 +208,10 @@ export class CodeGeneratorC {
     const isMain = label === "main";
 
     if (isMain) {
-      this.emitter.emitDeclarationLine(`int ${cFunctionName}();`);
+      // For main function, use the actual return type from the function
+      const functionType = functionValue.type;
+      const returnTypeStr = this.getTypeString(functionType.return.type);
+      this.emitter.emitDeclarationLine(`${returnTypeStr} ${cFunctionName}();`);
     } else {
       // For non-main functions, generate based on function type
       const functionType = functionValue.type;
@@ -210,6 +230,30 @@ export class CodeGeneratorC {
         `${returnTypeStr} ${cFunctionName}(${params});`
       );
     }
+  }
+
+  /**
+   * Generate an extern function declaration
+   */
+  private generateExternFunctionDeclaration(
+    funcName: string,
+    functionType: FunctionType
+  ): void {
+    const returnTypeStr = this.getTypeString(functionType.return.type);
+
+    // Generate parameter list
+    const params = functionType.parameters
+      .map((param, index) => {
+        const paramTypeStr = this.getTypeString(param.type);
+        const paramName = param.label || `param${index}`;
+        return `${paramTypeStr} ${paramName}`;
+      })
+      .join(", ");
+
+    // Generate extern declaration with C linkage
+    this.emitter.emitDeclarationLine(
+      `extern ${returnTypeStr} ${funcName}(${params});`
+    );
   }
 
   /**
@@ -248,24 +292,28 @@ export class CodeGeneratorC {
     // Use provided C function name or default to label
     const functionName = cFunctionName || label;
     const isMain = label === "main";
+    const functionType = functionValue.type;
 
-    // Generate function signature
-    if (isMain) {
+    // Generate function signature based on actual function type
+    const returnTypeStr = this.getTypeString(functionType.return.type);
+
+    // Generate parameter list
+    const params = functionType.parameters
+      .map((param) => {
+        const paramTypeStr = this.getTypeString(param.type);
+        const paramName = param.label || "param";
+        return `${paramTypeStr} ${paramName}`;
+      })
+      .join(", ");
+
+    // For main function, use standard C main signature if it returns c_int with no params
+    if (
+      isMain &&
+      functionType.return.type.tag === "c_int" &&
+      functionType.parameters.length === 0
+    ) {
       this.emitter.emitLine(`int ${functionName}() {`);
     } else {
-      // For non-main functions, generate based on function type
-      const functionType = functionValue.type;
-      const returnTypeStr = this.getTypeString(functionType.return.type);
-
-      // Generate parameter list
-      const params = functionType.parameters
-        .map((param) => {
-          const paramTypeStr = this.getTypeString(param.type);
-          const paramName = param.label || "param";
-          return `${paramTypeStr} ${paramName}`;
-        })
-        .join(", ");
-
       this.emitter.emitLine(`${returnTypeStr} ${functionName}(${params}) {`);
     }
 
@@ -276,11 +324,8 @@ export class CodeGeneratorC {
       // Special handling for id function - it should return its parameter
       this.emitter.emitLine(`  return x;`);
     } else {
-      this.generateExpr(functionValue.body, "  ");
-
-      if (isMain) {
-        this.emitter.emitLine(`  return 0;`);
-      }
+      // Generate function body with proper return handling
+      this.generateFunctionBody(functionValue.body, functionType, isMain, "  ");
     }
 
     this.emitter.emitLine(`}`);
@@ -701,6 +746,94 @@ export class CodeGeneratorC {
     this.emitter.emitLine(
       `${indent}// TODO: Struct constructor for ${structName} with ${expr.args.length} arguments`
     );
+  }
+
+  /**
+   * Generate a return statement for a function body expression
+   */
+  private generateReturnStatement(expr: Expr, indent: string): void {
+    switch (expr.tag) {
+      case "Atom":
+        if (expr.token.type === "identifier") {
+          // Return the identifier value
+          this.emitter.emitLine(`${indent}return ${expr.token.value};`);
+        } else if (expr.token.type === "integer") {
+          // Return the integer value
+          this.emitter.emitLine(`${indent}return ${expr.token.value};`);
+        } else {
+          this.emitter.emitLine(`${indent}return /* TODO: atom return */;`);
+        }
+        break;
+      case "FuncCall": {
+        // Return the result of a function call
+        const funcCallCode = this.generateFuncCallAsExpression(expr);
+        this.emitter.emitLine(`${indent}return ${funcCallCode};`);
+        break;
+      }
+      default:
+        this.emitter.emitLine(`${indent}return /* TODO: complex return */;`);
+    }
+  }
+
+  /**
+   * Generate function body with proper return handling
+   */
+  private generateFunctionBody(
+    expr: Expr,
+    functionType: FunctionType,
+    isMain: boolean,
+    indent: string
+  ): void {
+    if (
+      expr.tag === "FuncCall" &&
+      expr.func.tag === "Atom" &&
+      expr.func.token.value === "begin"
+    ) {
+      // Handle begin block - generate all statements except the last, then return the last
+      const args = expr.args;
+
+      // Generate all expressions except the last as statements
+      for (let i = 0; i < args.length - 1; i++) {
+        const arg = args[i];
+        if (arg) {
+          this.generateExpr(arg, indent);
+        }
+      }
+
+      // Generate the last expression as a return statement
+      if (args.length > 0) {
+        const lastExpr = args[args.length - 1];
+
+        if (lastExpr && functionType.return.type.tag === "unit") {
+          // For unit/void functions, just generate the expression but don't return
+          this.generateExpr(lastExpr, indent);
+        } else if (
+          lastExpr &&
+          isMain &&
+          functionType.return.type.tag === "c_int"
+        ) {
+          // For main with c_int return, generate the expression and return 0
+          this.generateExpr(lastExpr, indent);
+          this.emitter.emitLine(`${indent}return 0;`);
+        } else if (lastExpr) {
+          // For other functions, return the last expression
+          this.generateReturnStatement(lastExpr, indent);
+        }
+      }
+    } else {
+      // Single expression function body
+      if (functionType.return.type.tag === "unit") {
+        // For unit/void functions, just generate the expression
+        this.generateExpr(expr, indent);
+      } else if (isMain && functionType.return.type.tag === "c_int") {
+        // For main with c_int return, generate the expression and return 0
+        this.generateExpr(expr, indent);
+        this.emitter.emitLine(`${indent}return 0;`);
+      } else {
+        // For other functions, return the expression
+        this.generateReturnStatement(expr, indent);
+      }
+    }
   }
 
   public print(): string {

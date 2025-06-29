@@ -1,21 +1,22 @@
-Point :: struct
-  x : i32,
-  y : i32
+extern "C",
+  add :
+    (x : i32, y : i32) -> i32,
+  gt  :
+    (x : i32, y : i32) -> boolean
 ;
 
-id :: ((x : i32) -> i32)
-  x
+max :: ((x : i32, y : i32) -> i32)
+  cond
+    gt(x, y) => x,
+    true     => y
 ;
 
-main :: (() -> c_int) {
+main :: (() -> i32) {
   x := 12;
-  y := id(13);
-  z := id(14);
-
-  p1 := Point(3, 4);
-  p2 := Point(y : 5, x: 6);
-  
-  0
+  y := 13;
+  z := add(x, y);
+  m := max(x, y);
+  m
 };
 
 // `export` here is required. Otherwise no functions will be compiled.
