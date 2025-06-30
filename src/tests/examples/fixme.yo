@@ -1,3 +1,4 @@
+/*
 extern "C",
   add :
     (x : i32, y : i32) -> i32,
@@ -14,16 +15,19 @@ extern "C",
   ge  :
     (x : i32, y : i32) -> boolean
 ;
+*/
+
+generic_id :: ((@(T): Type, val: T) -> T) val;
+
 
 main :: (() -> i32) {
-  result := mul({
-    x := 1;
-    div(add(x, 2), 3)
-  }, cond(true => {
-    x := 2;
-    sub(x, 3)
-  }, true => 1));
-  result
+  Point :: struct(x: i32, y: i32);
+
+  x := generic_id(i32, 2);
+  y := generic_id(f64, 3.4);
+  p := generic_id(Point, Point(x: 1, y: 2));
+
+  x
 };
 
 // `export` here is required. Otherwise no functions will be compiled.

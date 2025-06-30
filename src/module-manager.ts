@@ -67,7 +67,7 @@ export class ModuleManager {
 
   public compileModule(
     modulePath: string,
-    { printC }: { printC?: boolean } = {}
+    { emitC }: { emitC?: boolean } = {}
   ) {
     console.log(`= Compiling module ${modulePath}`);
     const { moduleValue, moduleError } = this.loadModule(modulePath);
@@ -98,7 +98,7 @@ export class ModuleManager {
     }
 
     this.codeGenratorC.compileModule(modulePath, moduleValue);
-    if (printC) {
+    if (emitC) {
       console.log(this.codeGenratorC.print());
     }
   }

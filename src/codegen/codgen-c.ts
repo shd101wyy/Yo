@@ -319,20 +319,15 @@ export class CodeGeneratorC {
     // Generate function body
     this.emitter.emitLine(`  // Function body compilation`);
 
-    if (!isMain && label === "id") {
-      // Special handling for id function - it should return its parameter
-      this.emitter.emitLine(`  return x;`);
-    } else {
-      // Set current function name for recur support
-      const previousFunctionName = this.currentFunctionName;
-      this.currentFunctionName = functionName;
+    // Set current function name for recur support
+    const previousFunctionName = this.currentFunctionName;
+    this.currentFunctionName = functionName;
 
-      // Generate function body with proper return handling
-      this.generateFunctionBody(functionValue.body, functionType, isMain, "  ");
+    // Generate function body with proper return handling
+    this.generateFunctionBody(functionValue.body, functionType, isMain, "  ");
 
-      // Restore previous function name
-      this.currentFunctionName = previousFunctionName;
-    }
+    // Restore previous function name
+    this.currentFunctionName = previousFunctionName;
 
     this.emitter.emitLine(`}`);
   }
@@ -376,7 +371,17 @@ export class CodeGeneratorC {
         }
       }
 
-      if (funcName === "begin") {
+      if (funcName === "tuple") {
+        // Handle tuple() calls - for unit values, generate nothing
+        if (expr.args.length === 0) {
+          // Empty tuple represents unit value - generate no C code
+          return;
+        } else {
+          // Non-empty tuples - TODO: implement proper tuple handling
+          this.emitter.emitLine(`${indent}// TODO: Handle non-empty tuple`);
+          return;
+        }
+      } else if (funcName === "begin") {
         // Handle begin block - just generate each argument in sequence
         for (const arg of expr.args) {
           this.generateExpr(arg, indent);
@@ -433,6 +438,34 @@ export class CodeGeneratorC {
             } else {
               this.emitter.emitLine(
                 `${indent}${varType} ${varName} = /* TODO: compile value expression */;`
+              );
+            }
+          }
+        }
+      } else if (funcName === "::" && expr.isInfix) {
+        // Handle compile-time type definition
+        if (expr.args.length >= 2) {
+          const typeNameExpr = expr.args[0];
+          const typeDefExpr = expr.args[1];
+
+          if (
+            typeNameExpr &&
+            typeNameExpr.tag === "Atom" &&
+            typeNameExpr.token.type === "identifier"
+          ) {
+            const typeName = typeNameExpr.token.value;
+
+            if (
+              typeDefExpr &&
+              typeDefExpr.tag === "FuncCall" &&
+              typeDefExpr.func.tag === "Atom" &&
+              typeDefExpr.func.token.value === "struct"
+            ) {
+              // Generate struct definition
+              this.generateStructDefinition(typeName, typeDefExpr, indent);
+            } else {
+              this.emitter.emitLine(
+                `${indent}// TODO: Handle type definition for ${typeName}`
               );
             }
           }
@@ -918,6 +951,8 @@ export class CodeGeneratorC {
         return "double";
       case "boolean":
         return "bool";
+      case "unit":
+        return "void";
       case "Struct":
         // For struct types, use the mangled type name
         if (isStructType(type) && type.typeName) {
@@ -1796,6 +1831,19 @@ export class CodeGeneratorC {
    * Generate statements for complex expressions (begin, cond, match) that are used as function arguments
    */
   private generateArgStatementsIfNeeded(expr: Expr, indent: string): void {
+    // Handle field access expressions (.operator)
+    if (
+      expr.tag === "FuncCall" &&
+      expr.func.tag === "Atom" &&
+      expr.func.token.value === "."
+    ) {
+      // For field access, recursively handle the object expression
+      if (expr.args.length >= 1 && expr.args[0]) {
+        this.generateArgStatementsIfNeeded(expr.args[0], indent);
+      }
+      return;
+    }
+
     // Check if this expression has been pre-evaluated and has a variable name
     if (expr.$ && expr.$.variableName) {
       const varName = expr.$.variableName;
@@ -1830,6 +1878,27 @@ export class CodeGeneratorC {
         }
       }
     }
+  }
+
+  /**
+   * Generate struct definition from Yo source (Point :: struct(x: i32, y: i32))
+   */
+  private generateStructDefinition(
+    typeName: string,
+    structExpr: FuncCallExpr,
+    indent: string
+  ): void {
+    // This is a compile-time definition, so it shouldn't generate runtime code
+    // Instead, we need to register the struct type and generate the C typedef
+
+    // For now, let's just add a comment indicating the struct definition
+    this.emitter.emitLine(
+      `${indent}// Struct definition: ${typeName} :: struct(...)`
+    );
+
+    // TODO: Parse the struct fields and create proper StructType
+    // TODO: Register with collectedTypes
+    // TODO: Generate C typedef declaration
   }
 
   public print(): string {

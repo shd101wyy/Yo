@@ -19,9 +19,9 @@ yo --help                        Show this help message
 yo --version                     Show version number
 
 yo install                       Install all packages
-yo install <package>             Install a package
-yo install <package>@<version>   Install a specific version of a package
-yo uninstall <package>           Uninstall a package
+yo add <package>                 Install a package
+yo add <package>@<version>       Install a specific version of a package
+yo remove <package>              Uninstall a package
 
 yo run <script>                  Run a script defined in 'yo.json'
 `
@@ -47,7 +47,7 @@ yo run <script>                  Run a script defined in 'yo.json'
     demandOption: false,
     default: "c",
   })
-  .option("print-c", {
+  .option("emit-c", {
     describe: "Print C code generated.",
     type: "boolean",
     demandOption: false,
@@ -58,6 +58,18 @@ yo run <script>                  Run a script defined in 'yo.json'
     type: "boolean",
     demandOption: false,
     default: false,
+  })
+  .option("skip-c-compiler", {
+    describe: "Generate C code but skip running the C compiler.",
+    type: "boolean",
+    demandOption: false,
+    default: false,
+  })
+  .option("extern", {
+    describe: "External C files to link with. eg: --extern extern1.c extern2.c",
+    type: "array",
+    demandOption: false,
+    default: [],
   })
   .command(
     "$0 <file> [options]",
@@ -83,7 +95,7 @@ yo run <script>                  Run a script defined in 'yo.json'
       const moduleManager = new ModuleManager();
 
       if (!argv.skipCodegen) {
-        moduleManager.compileModule(absolutePath, { printC: argv.printC });
+        moduleManager.compileModule(absolutePath, { emitC: argv.emitC });
 
         // Get the generated C code
         const compiledCode = moduleManager.getGeneratedCode();
@@ -95,32 +107,42 @@ yo run <script>                  Run a script defined in 'yo.json'
 
         console.log(`Generated C code written to ${tempCFile}`);
 
-        // Compile the C code with the specified compiler
-        const compiler = argv.cc as string;
-        const compileArgs = [
-          "-std=c11",
-          "-Wall",
-          "-Wextra",
-          tempCFile,
-          "-o",
-          outputFile,
-        ];
+        // Compile the C code with the specified compiler (unless skipped)
+        if (!argv.skipCCompiler) {
+          const compiler = argv.cc as string;
+          const compileArgs = [
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            tempCFile,
+            "-o",
+            outputFile,
+          ];
 
-        // Check if extern.c exists and add it to compilation
-        const externCFile = "extern.c";
-        if (fs.existsSync(externCFile)) {
-          compileArgs.splice(-2, 0, externCFile); // Insert before -o outputFile
-        }
+          // Add external files from --extern option
+          const externalFiles = argv.extern as string[];
+          externalFiles.forEach((externFile) => {
+            if (fs.existsSync(externFile)) {
+              compileArgs.splice(-2, 0, externFile); // Insert before -o outputFile
+            } else {
+              console.warn(
+                `External file ${externFile} does not exist and will be ignored`
+              );
+            }
+          });
 
-        console.log(`Compiling with: ${compiler} ${compileArgs.join(" ")}`);
+          console.log(`Compiling with: ${compiler} ${compileArgs.join(" ")}`);
 
-        const result = spawnSync(compiler, compileArgs, { stdio: "inherit" });
+          const result = spawnSync(compiler, compileArgs, { stdio: "inherit" });
 
-        if (result.status === 0) {
-          console.log(`Successfully compiled to ${outputFile}`);
+          if (result.status === 0) {
+            console.log(`Successfully compiled to ${outputFile}`);
+          } else {
+            console.error(`Compilation failed with exit code ${result.status}`);
+            process.exit(result.status || 1);
+          }
         } else {
-          console.error(`Compilation failed with exit code ${result.status}`);
-          process.exit(result.status || 1);
+          console.log("Skipping C compiler (--skip-c-compiler flag set)");
         }
       } else {
         // Just load the module to check for errors
