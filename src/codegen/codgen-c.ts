@@ -578,13 +578,67 @@ export class CodeGeneratorC {
       // Check if this is a generic function call and get the monomorphized name
       const functionValue = this.collectedFunctions.get(funcName);
       if (functionValue && this.isGenericFunction(functionValue)) {
-        const compileTimeParams = functionValue.type.parameters.filter(
-          (p) => p.isCompileTimeOnly
-        );
-        const typeArgs = expr.args.slice(0, compileTimeParams.length);
+        // Extract compile-time arguments based on their actual positions
+        const allParams = functionValue.type.parameters;
+        const compileTimeArgs: Expr[] = [];
 
-        const typeSignature = typeArgs
+        // Map each parameter to its corresponding argument
+        for (let i = 0; i < allParams.length && i < expr.args.length; i++) {
+          const param = allParams[i];
+          const arg = expr.args[i];
+
+          if (param && arg && param.isCompileTimeOnly) {
+            compileTimeArgs.push(arg);
+          }
+        }
+
+        const typeSignature = compileTimeArgs
           .map((arg) => {
+            // Use the evaluated compile-time value from $.value if available
+            if (arg.$ && arg.$.value !== undefined) {
+              const value = arg.$.value;
+
+              if (value.tag === "Type" && value.value) {
+                // For type values, use the type name
+                if (value.value.tag) {
+                  return value.value.tag;
+                } else if (value.value.typeName) {
+                  return value.value.typeName;
+                }
+              } else if (
+                value.tag === "ComptInt" ||
+                value.tag === "ComptFloat"
+              ) {
+                // For compile-time numbers, use the string representation
+                return value.value.toString();
+              } else if (value.tag === "ComptString") {
+                // For compile-time strings, use the string value
+                return value.value;
+              } else if (value.tag === "Boolean") {
+                // For compile-time booleans
+                return value.value.toString();
+              }
+
+              // Handle other numeric value types
+              if (
+                value.tag === "I32" ||
+                value.tag === "F64" ||
+                value.tag === "F32" ||
+                value.tag === "I64" ||
+                value.tag === "U32" ||
+                value.tag === "U64" ||
+                value.tag === "I16" ||
+                value.tag === "U16" ||
+                value.tag === "I8" ||
+                value.tag === "U8" ||
+                value.tag === "Isize" ||
+                value.tag === "Usize"
+              ) {
+                return value.value.toString();
+              }
+            }
+
+            // Fallback to token value for simple cases
             if (arg.tag === "Atom") {
               return arg.token.value;
             }
@@ -605,13 +659,20 @@ export class CodeGeneratorC {
 
       if (functionType) {
         // Filter arguments to only include those for runtime parameters
-        const runtimeParamCount = functionType.parameters.filter(
-          (p) => !p.isCompileTimeOnly
-        ).length;
-        const runtimeArgs = expr.args.slice(-runtimeParamCount); // Take the last N args (runtime args come after compile-time args)
-        filteredArgs = runtimeArgs.map((arg) =>
-          this.generateExpressionAsCode(arg)
-        );
+        const allParams = functionType.parameters;
+        const runtimeArgs: string[] = [];
+
+        // Map each parameter to its corresponding argument, keeping only runtime args
+        for (let i = 0; i < allParams.length && i < expr.args.length; i++) {
+          const param = allParams[i];
+          const arg = expr.args[i];
+
+          if (param && arg && !param.isCompileTimeOnly) {
+            runtimeArgs.push(this.generateExpressionAsCode(arg));
+          }
+        }
+
+        filteredArgs = runtimeArgs;
       } else {
         // Fallback: use all arguments if we don't have function type info
         filteredArgs = expr.args.map((arg) =>
@@ -2066,17 +2127,74 @@ export class CodeGeneratorC {
     funcName: string,
     functionValue: FunctionValue
   ): void {
-    // Extract compile-time type arguments (assuming they come first)
-    const compileTimeParams = functionValue.type.parameters.filter(
-      (p) => p.isCompileTimeOnly
-    );
-    const typeArgs = expr.args.slice(0, compileTimeParams.length);
+    // Extract compile-time arguments based on their actual positions
+    const allParams = functionValue.type.parameters;
+    const compileTimeArgs: Expr[] = [];
+
+    // Map each parameter to its corresponding argument
+    for (let i = 0; i < allParams.length && i < expr.args.length; i++) {
+      const param = allParams[i]!;
+      const arg = expr.args[i]!;
+
+      if (param.isCompileTimeOnly) {
+        compileTimeArgs.push(arg);
+      }
+    }
 
     // Create type signature for this instantiation
-    const typeSignature = typeArgs
+    const typeSignature = compileTimeArgs
       .map((arg) => {
-        // For now, use a simple string representation of the type
-        // In a full implementation, this would need to be more sophisticated
+        console.log(`🔍 Processing compile-time arg:`, {
+          tag: arg.tag,
+          token: arg.tag === "Atom" ? arg.token.value : "not-atom",
+          hasMetadata: !!arg.$,
+          valueTag: arg.$?.value?.tag,
+          value: arg.$?.value,
+        });
+
+        // Use the evaluated compile-time value from $.value if available
+        if (arg.$ && arg.$.value !== undefined) {
+          // Handle different types of compile-time values
+          const value = arg.$.value;
+
+          if (value.tag === "Type" && value.value) {
+            // For type values, use the type name
+            if (value.value.tag) {
+              return value.value.tag; // e.g., "i32", "f64", etc.
+            } else if (value.value.typeName) {
+              return value.value.typeName; // e.g., "Point" for struct types
+            }
+          } else if (value.tag === "ComptInt" || value.tag === "ComptFloat") {
+            // For compile-time numbers, use the string representation
+            return value.value.toString();
+          } else if (value.tag === "ComptString") {
+            // For compile-time strings, use the string value
+            return value.value;
+          } else if (value.tag === "Boolean") {
+            // For compile-time booleans
+            return value.value.toString();
+          }
+
+          // Handle other numeric value types
+          if (
+            value.tag === "I32" ||
+            value.tag === "F64" ||
+            value.tag === "F32" ||
+            value.tag === "I64" ||
+            value.tag === "U32" ||
+            value.tag === "U64" ||
+            value.tag === "I16" ||
+            value.tag === "U16" ||
+            value.tag === "I8" ||
+            value.tag === "U8" ||
+            value.tag === "Isize" ||
+            value.tag === "Usize"
+          ) {
+            return value.value.toString();
+          }
+        }
+
+        // Fallback to token value for simple cases
         if (arg.tag === "Atom") {
           return arg.token.value;
         }
@@ -2099,7 +2217,7 @@ export class CodeGeneratorC {
     }
 
     // Store type signature strings for comment generation
-    const typeArgStrings = typeArgs.map((arg) => {
+    const typeArgStrings = compileTimeArgs.map((arg) => {
       if (arg.tag === "Atom") {
         return arg.token.value;
       }
@@ -2114,7 +2232,7 @@ export class CodeGeneratorC {
     // Store the monomorphized function for later generation with type information
     this.storeMonomorphizedFunction(
       funcName,
-      typeArgs,
+      compileTimeArgs,
       mangledName,
       functionValue
     );
@@ -2192,28 +2310,22 @@ export class CodeGeneratorC {
   ): void {
     const functionType = originalFunction.type;
 
-    // Extract the concrete type from the mangled name
-    const concreteType = this.extractConcreteTypeFromMangledName(mangledName);
-    const concreteCType = this.getCTypeForConcreteType(concreteType);
-
-    // Create specialized function type with concrete types
+    // Only runtime parameters should appear in the C signature
     const runtimeParams = functionType.parameters.filter(
       (param) => !param.isCompileTimeOnly
     );
 
-    // Generate function signature with specialized types
-    // For generic_id, the return type and parameter type should be the same (T)
+    // Generate function signature with only runtime parameters
     const params = runtimeParams
       .map((param) => {
-        // Use concrete type for parameters that were generic (T)
-        const paramTypeStr = concreteCType; // Assume the parameter type is T
+        const paramTypeStr = this.getTypeString(param.type);
         const paramName = param.label || "param";
         return `${paramTypeStr} ${paramName}`;
       })
       .join(", ");
 
-    // Use concrete type for return type (assuming return type is T)
-    const returnTypeStr = concreteCType;
+    // Get return type
+    const returnTypeStr = this.getTypeString(functionType.return.type);
 
     this.emitter.emitLine(`${returnTypeStr} ${mangledName}(${params}) {`);
     this.emitter.emitLine(`  // Monomorphized function body`);
@@ -2222,7 +2334,7 @@ export class CodeGeneratorC {
     const previousFunctionName = this.currentFunctionName;
     this.currentFunctionName = mangledName;
 
-    // Generate function body
+    // Generate function body - compile-time values should be substituted in the body
     this.generateFunctionBody(originalFunction.body, functionType, false, "  ");
 
     // Restore previous function name
@@ -2256,28 +2368,37 @@ export class CodeGeneratorC {
           (param) => !param.isCompileTimeOnly
         );
 
-        // Extract concrete type and use it for specialized signature
-        const concreteType =
-          this.extractConcreteTypeFromMangledName(mangledName);
-        const concreteCType = this.getCTypeForConcreteType(concreteType);
-
-        const returnTypeStr = concreteCType; // Use concrete type for return
+        // Generate function signature with only runtime parameters
+        const returnTypeStr = this.getTypeString(functionType.return.type);
         const params = runtimeParams
           .map((param) => {
-            const paramTypeStr = concreteCType; // Use concrete type for parameters
+            const paramTypeStr = this.getTypeString(param.type);
             const paramName = param.label || "param";
             return `${paramTypeStr} ${paramName}`;
           })
           .join(", ");
 
-        // Build monomorphized signature comment: "generic_id : (i32, val: i32) -> i32"
-        const allParamStrs = typeArgs.concat(
-          runtimeParams.map((param) => {
+        // Build monomorphized signature comment in correct parameter order
+        const allParams = functionType.parameters;
+        const allParamStrs: string[] = [];
+        let typeArgIndex = 0;
+
+        for (const param of allParams) {
+          if (param.isCompileTimeOnly) {
+            // Use the concrete compile-time value
+            if (typeArgIndex < typeArgs.length) {
+              allParamStrs.push(typeArgs[typeArgIndex] || "unknown");
+              typeArgIndex++;
+            } else {
+              allParamStrs.push("unknown");
+            }
+          } else {
+            // Use the runtime parameter with its type
             const typeStr = typeToString(param.type);
             const paramName = param.label || "param";
-            return `${paramName}: ${typeStr}`;
-          })
-        );
+            allParamStrs.push(`${paramName}: ${typeStr}`);
+          }
+        }
 
         const returnTypeYoStr = typeToString(functionType.return.type);
         const monomorphizedSig = `${funcName} : (${allParamStrs.join(", ")}) -> ${returnTypeYoStr}`;
@@ -2329,6 +2450,42 @@ export class CodeGeneratorC {
         return typeName; // fallback
       }
     }
+  }
+
+  /**
+   * Check if a string represents a compile-time value (number) vs a compile-time type
+   */
+  private isCompileTimeValue(str: string): boolean {
+    // Check if it's a number (integer or float)
+    return /^-?\d+(\.\d+)?$/.test(str);
+  }
+
+  /**
+   * Extract compile-time information from mangled name, distinguishing types vs values
+   */
+  private extractCompileTimeInfoFromMangledName(mangledName: string): {
+    isValue: boolean;
+    value: string;
+    baseType?: string;
+  } {
+    const parts = mangledName.split("_");
+    if (parts.length > 0) {
+      const lastPart = parts[parts.length - 1] || "unknown";
+
+      if (this.isCompileTimeValue(lastPart)) {
+        return {
+          isValue: true,
+          value: lastPart,
+          baseType: "i32", // For now, assume i32 for integer values
+        };
+      } else {
+        return {
+          isValue: false,
+          value: lastPart,
+        };
+      }
+    }
+    return { isValue: false, value: "unknown" };
   }
 
   public print(): string {
