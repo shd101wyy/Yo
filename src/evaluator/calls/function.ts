@@ -24,7 +24,7 @@ import {
   FuncCallExpr,
   PathCollection,
 } from "../../expr";
-import { FunctionValue } from "../../function-value";
+import { FunctionValue, SpecializedFunctionCache } from "../../function-value";
 import { PlaceholderToken, stringIsOperator, TokenType } from "../../token";
 import { TypeValue } from "../../type-value";
 import {
@@ -34,6 +34,7 @@ import {
   isArrayType,
   isEnumType,
   isExprListType,
+  isFunctionSpecializable,
   isFunctionType,
   isModuleType,
   isStructType,
@@ -43,6 +44,7 @@ import {
   typeToString,
 } from "../../types";
 import {
+  areValuesEqual,
   ArrayValue,
   createEnumValue,
   createStructValue,
@@ -767,6 +769,20 @@ ${implicitVariables
     }
   }
 
+  // Check if function has compile-time parameters and create specialized version if needed
+  let specializedFunctionValue: FunctionValue | undefined = undefined;
+
+  if (functionValue && isFunctionSpecializable(functionType)) {
+    specializedFunctionValue = createSpecializedFunctionInline({
+      originalFunction: functionValue,
+      functionType,
+      argValues: argValues_,
+      calleeEnv: calleeEnv,
+      callerEnv: callerEnv,
+      context,
+    });
+  }
+
   return {
     returnType,
     calleeEnv,
@@ -774,6 +790,7 @@ ${implicitVariables
     pathCollection,
     argValues: argValues_,
     returnValue,
+    specializedFunctionValue,
   };
 }
 
@@ -1406,6 +1423,7 @@ ${functionsWithMatchingTypes
         // calleeEnv,
         // argValues,
         pathCollection,
+        specializedFunctionValue,
       } = getFunctionCallResult(functionToCall);
 
       env = popEnvFrame(callerEnv);
@@ -1445,7 +1463,7 @@ ${functionsWithMatchingTypes
       func.$ = {
         env,
         type: functionToCall.type,
-        value: functionToCall.value,
+        value: specializedFunctionValue || functionToCall.value,
         isMutable: false,
         pathCollection: [],
       };
@@ -1453,7 +1471,7 @@ ${functionsWithMatchingTypes
         methodExpr.$ = {
           env,
           type: functionToCall.type,
-          value: functionToCall.value,
+          value: specializedFunctionValue || functionToCall.value,
           isMutable: false,
           pathCollection: [],
         };
@@ -1663,4 +1681,157 @@ ${functionsWithMatchingTypes
     errorMessage: `Function call is not implemented yet:
 ${exprToString(expr)}`,
   });
+}
+
+/**
+ * Create a specialized function inline within tryToCallFunctionWithArguments
+ */
+function createSpecializedFunctionInline({
+  originalFunction,
+  functionType,
+  argValues,
+  calleeEnv,
+  callerEnv,
+  context,
+}: {
+  originalFunction: FunctionValue;
+  functionType: FunctionType;
+  argValues: ArgValues;
+  calleeEnv: Environment;
+  callerEnv: Environment;
+  context: EvaluatorContext;
+}): FunctionValue {
+  // Extract compile-time argument values for caching
+  const compileTimeArgValues: Value[] = [];
+
+  // Add forall type arguments (always compile-time)
+  if (argValues.forallArgs) {
+    compileTimeArgValues.push(...argValues.forallArgs);
+  }
+
+  // Add regular compile-time parameters
+  functionType.parameters.forEach((param, index) => {
+    if (param.isCompileTimeOnly && index < argValues.args.length) {
+      const arg = argValues.args[index];
+      if (arg) {
+        compileTimeArgValues.push(arg);
+      }
+    }
+  });
+
+  // Add implicit compile-time parameters
+  if (argValues.implicitArgs) {
+    functionType.implicitParameters.forEach((param, index) => {
+      if (param.isCompileTimeOnly && index < argValues.implicitArgs!.length) {
+        const implicitArg = argValues.implicitArgs![index];
+        if (implicitArg) {
+          compileTimeArgValues.push(implicitArg);
+        }
+      }
+    });
+  }
+
+  // Check if we already have a specialized version in cache
+  const existingCache = originalFunction.specializedFunctionCaches.find(
+    (cache) =>
+      cache.compileTimeArgValues.length === compileTimeArgValues.length &&
+      cache.compileTimeArgValues.every((cachedValue, index) => {
+        const currentValue = compileTimeArgValues[index];
+        if (!currentValue) return false;
+
+        // Use areValuesEqual for robust comparison
+        return areValuesEqual(
+          { value: cachedValue, env: callerEnv },
+          { value: currentValue, env: callerEnv }
+        );
+      })
+  );
+
+  if (existingCache) {
+    return existingCache.specializedFunction;
+  }
+
+  // Create specialized environment with compile-time arguments bound
+  const specializedEnv = calleeEnv;
+
+  // Clone the function body and evaluate it in the specialized environment
+  const clonedBody = cloneExpr(originalFunction.body);
+
+  // Evaluate the function body in the specialized environment
+  const specializedBody = context.evaluateExpression({
+    expr: clonedBody,
+    env: specializedEnv,
+    context: {
+      ...context,
+      expectedType: undefined,
+    },
+  });
+
+  // Create signature for the specialized function
+  const compileTimeSignatureParts: string[] = [];
+
+  // Include forall type arguments
+  if (argValues.forallArgs) {
+    compileTimeSignatureParts.push(
+      ...argValues.forallArgs.map((arg) => valueToString(arg))
+    );
+  }
+
+  // Include compile-time regular parameters
+  functionType.parameters.forEach((param, index) => {
+    if (param.isCompileTimeOnly && index < argValues.args.length) {
+      const arg = argValues.args[index];
+      if (arg) {
+        compileTimeSignatureParts.push(valueToString(arg));
+      } else {
+        compileTimeSignatureParts.push("unknown");
+      }
+    }
+  });
+
+  // Include compile-time implicit parameters
+  if (argValues.implicitArgs) {
+    functionType.implicitParameters.forEach((param, index) => {
+      if (param.isCompileTimeOnly && index < argValues.implicitArgs!.length) {
+        const implicitArg = argValues.implicitArgs![index];
+        if (implicitArg) {
+          compileTimeSignatureParts.push(valueToString(implicitArg));
+        } else {
+          compileTimeSignatureParts.push("unknown");
+        }
+      }
+    });
+  }
+
+  const compileTimeSignature = compileTimeSignatureParts.join("_");
+
+  // Create a new specialized function value with the evaluated body
+  const specializedFunction: FunctionValue = {
+    ...originalFunction,
+    body: specializedBody,
+    // Use a signature-based ID for the specialized function
+    funcId: compileTimeSignature
+      ? `${originalFunction.funcId}_${compileTimeSignature}`
+      : `${originalFunction.funcId}_specialized_${Date.now()}`,
+    funcName: compileTimeSignature
+      ? `${originalFunction.funcName}_${compileTimeSignature}`
+      : `${originalFunction.funcName}_specialized_${Date.now()}`,
+    // Initialize cache arrays for the specialized function
+    calledComptFunctionCaches: [],
+    specializedFunctionCaches: [],
+  };
+
+  // Cache the specialized function in the original function's cache
+  const newCache: SpecializedFunctionCache = {
+    funcId: originalFunction.funcId,
+    compileTimeArgValues,
+    specializedFunction,
+  };
+
+  originalFunction.specializedFunctionCaches = [
+    ...originalFunction.specializedFunctionCaches,
+    newCache,
+  ];
+
+  return specializedFunction;
 }

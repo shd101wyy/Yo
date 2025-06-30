@@ -60,6 +60,12 @@ export interface FunctionCallResult {
   returnType: Type;
   returnValue: Value | undefined;
   argValues: ArgValues;
+  /**
+   * If the function has compile-time parameters and was specialized,
+   * this contains the specialized function value with the evaluated body.
+   * Otherwise, this is undefined.
+   */
+  specializedFunctionValue?: FunctionValue;
 }
 
 export interface TypeCallResult {

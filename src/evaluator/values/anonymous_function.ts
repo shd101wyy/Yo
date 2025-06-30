@@ -7,11 +7,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import {
-  areTypesCompatible,
-  isFunctionType,
-  typeToString,
-} from "../../types";
+import { areTypesCompatible, isFunctionType, typeToString } from "../../types";
 import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
@@ -123,6 +119,7 @@ export function evaluateAnonymousFunctionImplementation({
       frameLevel: env.frames.length - 1,
       funcId: `fn_${randomId()}`,
       calledComptFunctionCaches: [],
+      specializedFunctionCaches: [],
       SelfType: context.SelfType,
     },
     isMutable: false,

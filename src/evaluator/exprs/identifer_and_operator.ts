@@ -490,6 +490,7 @@ export function evaluateIdentifierAndOperator({
           errorMessage: `Variable "${identifier}" is not initialized`,
         });
       }
+
       expr.$ = {
         env,
         type: variable.type,

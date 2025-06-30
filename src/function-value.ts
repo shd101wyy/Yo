@@ -8,7 +8,13 @@ export interface CalledComptFunctionCache {
   funcId: string;
   argValues: Value[];
   env: Environment;
+  /**
+   * The return value of the compt function call
+   */
   value: Value;
+  /**
+   * Evaluated function body with the given argValues and env.
+   */
   body: Expr;
 }
 
@@ -41,4 +47,16 @@ export type FunctionValue = {
    * If the function is not a compt function, this will be empty.
    */
   calledComptFunctionCaches: CalledComptFunctionCache[];
+
+  /**
+   * This is used to cache specialized versions of generic functions with compile-time parameters.
+   * Each cache entry stores a specialized function for a specific set of compile-time arguments.
+   */
+  specializedFunctionCaches: SpecializedFunctionCache[];
 };
+
+export interface SpecializedFunctionCache {
+  funcId: string;
+  compileTimeArgValues: Value[]; // Only compile-time arguments
+  specializedFunction: FunctionValue; // The specialized function with evaluated body
+}

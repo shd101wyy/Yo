@@ -317,3 +317,31 @@ export function isCCompatibleType(type?: Type): boolean {
       type.tag === TypeTag.CLongDouble)
   );
 }
+
+/**
+ * Checks if a function is specializable (generic) based on its type.
+ * A function is specializable if it has:
+ * - Compile-time only parameters
+ * - Type parameters
+ * - Compile-time only implicit parameters
+ * And its return type is not compile-time only.
+ */
+export function isFunctionSpecializable(functionType: FunctionType): boolean {
+  if (!functionType) {
+    return false;
+  }
+
+  // If the return type is compile-time only, this function is not specializable
+  // for runtime code generation
+  if (functionType.return?.isCompileTimeOnly) {
+    return false;
+  }
+
+  // Check if this function has compile-time parameters and needs specialization
+  const hasCompileTimeParams =
+    functionType.parameters.some((p) => p.isCompileTimeOnly) ||
+    functionType.typeParameters.length > 0 ||
+    functionType.implicitParameters.some((p) => p.isCompileTimeOnly);
+
+  return hasCompileTimeParams;
+}

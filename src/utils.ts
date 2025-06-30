@@ -55,3 +55,7 @@ export function generateVarialeId(
   IdMap.set(id, count);
   return id + (count == 0 ? "" : `_${count}`);
 }
+
+export function hashString(input: string): string {
+  return createHash("sha1").update(input).digest("hex").slice(0, 10);
+}

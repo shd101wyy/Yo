@@ -7,11 +7,7 @@ import {
 import { formatErrorMessage } from "../../error";
 import { Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
-import {
-  areTypesCompatible,
-  FunctionType,
-  typeToString,
-} from "../../types";
+import { areTypesCompatible, FunctionType, typeToString } from "../../types";
 import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
@@ -59,6 +55,7 @@ export function tryToImplementFunctionByFunctionType({
     funcName: undefined,
     funcId: `fn_${randomId()}`,
     calledComptFunctionCaches: [],
+    specializedFunctionCaches: [],
     SelfType: context.SelfType, // In theory, this should be undefined.
   };
 

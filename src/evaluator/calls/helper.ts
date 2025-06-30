@@ -316,7 +316,8 @@ export function checkIfFunctionParameterMatchesArgument({
     env: calleeEnv,
     variable: {
       name: parameter.label,
-      type: argType,
+      type: argType, // QUESTION: Should we use parameterType here or argType?
+      // This might affect assigning Free type arg to Type parameter
       isMutable: parameter.isMutable,
       isCompileTimeOnly: parameter.isCompileTimeOnly,
       isImplicit: false,
