@@ -9,7 +9,7 @@ mkShell rec {
     # python3
     # cmake
     # llvmPackages_14.llvm
-    # clang
+    clang
   ];
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
   # where to find libgcc

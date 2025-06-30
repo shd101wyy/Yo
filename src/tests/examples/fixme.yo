@@ -15,30 +15,15 @@ extern "C",
     (x : i32, y : i32) -> boolean
 ;
 
-Shape :: enum
-  Circle(radius : i32),
-  Square(side : i32),
-  Rectangle(width : i32, height : i32)
-;
-
-area :: ((shape : Shape) -> i32) {
-  result :=
-    match(shape,
-      .Circle => mul(mul(3, shape.radius), shape.radius),
-      .Square => mul(shape.side, shape.side),
-      .Rectangle => mul(shape.width,shape.height)
-    )
-  ;
-  
-  add(result, 0) // do nothing here basically
-};
-
 main :: (() -> i32) {
-  c := Shape.Circle(3);
-  s := Shape.Square(side : 5);
-  r1 := Shape.Rectangle(4, 6);
-  r2 := Shape.Rectangle(height : 8, width: 10);
-  area(r1)
+  result := mul({
+    x := 1;
+    div(add(x, 2), 3)
+  }, cond(true => {
+    x := 2;
+    sub(x, 3)
+  }, true => 1));
+  result
 };
 
 // `export` here is required. Otherwise no functions will be compiled.

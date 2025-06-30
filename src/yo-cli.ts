@@ -1,3 +1,4 @@
+import { spawnSync } from "child_process";
 import * as fs from "fs";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
@@ -37,7 +38,7 @@ yo run <script>                  Run a script defined in 'yo.json'
     describe: "C Compiler to use",
     type: "string",
     demandOption: false,
-    default: "cc",
+    default: "clang",
   })
   .option("t", {
     alias: "target",
@@ -94,7 +95,33 @@ yo run <script>                  Run a script defined in 'yo.json'
 
         console.log(`Generated C code written to ${tempCFile}`);
 
-        // TODO: Add actual C compilation with the specified compiler
+        // Compile the C code with the specified compiler
+        const compiler = argv.cc as string;
+        const compileArgs = [
+          "-std=c11",
+          "-Wall",
+          "-Wextra",
+          tempCFile,
+          "-o",
+          outputFile,
+        ];
+
+        // Check if extern.c exists and add it to compilation
+        const externCFile = "extern.c";
+        if (fs.existsSync(externCFile)) {
+          compileArgs.splice(-2, 0, externCFile); // Insert before -o outputFile
+        }
+
+        console.log(`Compiling with: ${compiler} ${compileArgs.join(" ")}`);
+
+        const result = spawnSync(compiler, compileArgs, { stdio: "inherit" });
+
+        if (result.status === 0) {
+          console.log(`Successfully compiled to ${outputFile}`);
+        } else {
+          console.error(`Compilation failed with exit code ${result.status}`);
+          process.exit(result.status || 1);
+        }
       } else {
         // Just load the module to check for errors
         const result = moduleManager.loadModule(absolutePath);

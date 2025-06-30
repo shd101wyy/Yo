@@ -420,6 +420,11 @@ export class CodeGeneratorC {
                 `${indent}${varType} ${varName} = ${value};`
               );
             } else if (valueExpr && valueExpr.tag === "FuncCall") {
+              // Generate assignments for any complex arguments first
+              for (const arg of valueExpr.args) {
+                this.generateArgStatementsIfNeeded(arg, indent);
+              }
+
               // Handle function call as value
               const funcCallCode = this.generateFuncCallAsExpression(valueExpr);
               this.emitter.emitLine(
@@ -433,9 +438,20 @@ export class CodeGeneratorC {
           }
         }
       } else {
-        this.emitter.emitLine(
-          `${indent}// TODO: Handle function call: ${funcName}`
-        );
+        // Handle regular function calls
+        if (expr.$ && expr.$.variableName) {
+          // This function call should be assigned to a temporary variable
+          const varName = expr.$.variableName;
+          const varType = this.getTypeString(expr.$.type);
+          const funcCallCode = this.generateFuncCallAsExpression(expr);
+          this.emitter.emitLine(
+            `${indent}${varType} ${varName} = ${funcCallCode};`
+          );
+        } else {
+          // Function call without assignment (rare case)
+          const funcCallCode = this.generateFuncCallAsExpression(expr);
+          this.emitter.emitLine(`${indent}${funcCallCode};`);
+        }
       }
     }
   } /**
@@ -457,7 +473,7 @@ export class CodeGeneratorC {
         }
       }
 
-      // Handle special functions
+      // Handle special functions (fallback if no variable name available)
       if (funcName === "cond") {
         return this.generateCondExpressionAsValue(expr);
       }
@@ -493,6 +509,46 @@ export class CodeGeneratorC {
     ) {
       // Handle enum variant constructor calls like Shape.Circle(3.2)
       return this.generateEnumVariantConstructor(expr);
+    }
+
+    return "/* TODO: complex function call */";
+  }
+
+  /**
+   * Generate a function call as an expression without using pre-evaluated variable names
+   */
+  private generateFuncCallAsExpressionWithoutVariables(
+    expr: FuncCallExpr
+  ): string {
+    if (expr.func.tag === "Atom") {
+      const funcName = expr.func.token.value;
+
+      // Check if this is a struct or union constructor call
+      if (this.collectedTypes.has(funcName)) {
+        const userType = this.collectedTypes.get(funcName);
+        if (userType && isStructType(userType)) {
+          return this.generateStructConstructorExpression(expr, userType);
+        } else if (userType && isUnionType(userType)) {
+          return this.generateUnionConstructorExpression(expr, userType);
+        } else if (userType && isEnumType(userType)) {
+          return this.generateEnumConstructorExpression(expr, userType);
+        }
+      }
+
+      // Handle field access operator
+      if (funcName === ".") {
+        return this.generateFieldAccess(expr);
+      }
+
+      // Use the correct C function name (could be mangled)
+      const cFunctionName = this.functionNameMap.get(funcName) || funcName;
+
+      // Generate arguments - use pre-evaluated variables if they exist
+      const args = expr.args
+        .map((arg) => this.generateExpressionAsCode(arg))
+        .join(", ");
+
+      return `${cFunctionName}(${args})`;
     }
 
     return "/* TODO: complex function call */";
@@ -1129,6 +1185,11 @@ export class CodeGeneratorC {
         }
         break;
       case "FuncCall": {
+        // Generate assignments for any complex arguments first
+        for (const arg of expr.args) {
+          this.generateArgStatementsIfNeeded(arg, indent);
+        }
+
         // Return the result of a function call
         const funcCallCode = this.generateFuncCallAsExpression(expr);
         this.emitter.emitLine(`${indent}return ${funcCallCode};`);
@@ -1281,6 +1342,11 @@ export class CodeGeneratorC {
    * Generate an expression as C code (returns string, doesn't emit)
    */
   private generateExpressionAsCode(expr: Expr): string {
+    // Check if this expression has been pre-evaluated and has a variable name
+    if (expr.$ && expr.$.variableName) {
+      return expr.$.variableName;
+    }
+
     switch (expr.tag) {
       case "Atom":
         if (expr.token.type === "identifier") {
@@ -1533,6 +1599,237 @@ export class CodeGeneratorC {
         ? `Atom(${pattern.token.type}: "${pattern.token.value}")`
         : `${pattern.tag}`;
     return `/* ERROR: Invalid match pattern: ${patternStr} */`;
+  }
+
+  /**
+   * Generate assignment statements for expressions that have been evaluated to variables
+   */
+  private generateVariableAssignments(expr: Expr, indent: string): void {
+    // If this expression has a variable name, generate its assignment statement
+    if (expr.$ && expr.$.variableName) {
+      // First, recursively generate assignments for any sub-expressions
+      this.generateVariableAssignmentsRecursive(expr, indent);
+
+      // Then generate the assignment for this expression
+      const varName = expr.$.variableName;
+      const varType = this.getTypeString(expr.$.type);
+
+      if (
+        expr.tag === "FuncCall" &&
+        expr.func.tag === "Atom" &&
+        expr.func.token.value === "begin"
+      ) {
+        // For begin expressions, generate the begin block logic
+        this.generateBeginAssignment(expr, varName, varType, indent);
+      } else {
+        // For other expressions, generate a direct assignment
+        const exprCode = this.generateExpressionAsCode(expr);
+        this.emitter.emitLine(`${indent}${varType} ${varName} = ${exprCode};`);
+      }
+    }
+  }
+
+  /**
+   * Recursively generate variable assignments for sub-expressions
+   */
+  private generateVariableAssignmentsRecursive(
+    expr: Expr,
+    indent: string
+  ): void {
+    if (expr.tag === "FuncCall") {
+      // Check all arguments for variable assignments
+      for (const arg of expr.args) {
+        if (arg) {
+          this.generateVariableAssignments(arg, indent);
+        }
+      }
+    }
+  }
+
+  /**
+   * Generate assignment for a begin expression
+   */
+  private generateBeginAssignment(
+    expr: FuncCallExpr,
+    varName: string,
+    varType: string,
+    indent: string
+  ): void {
+    const args = expr.args;
+
+    // Declare the result variable first
+    this.emitter.emitLine(`${indent}${varType} ${varName};`);
+
+    // Create a scoped block for the begin expression
+    this.emitter.emitLine(`${indent}{`);
+    const innerIndent = indent + "  ";
+
+    // Generate all expressions except the last as statements
+    for (let i = 0; i < args.length - 1; i++) {
+      const arg = args[i];
+      if (arg) {
+        this.generateExpr(arg, innerIndent);
+      }
+    }
+
+    // Generate assignment for the last expression
+    if (args.length > 0) {
+      const lastExpr = args[args.length - 1];
+      if (lastExpr) {
+        if (lastExpr.tag === "FuncCall") {
+          // Generate assignments for any complex arguments first
+          for (const arg of lastExpr.args) {
+            this.generateArgStatementsIfNeeded(arg, innerIndent);
+          }
+
+          const funcCallCode = this.generateFuncCallAsExpression(lastExpr);
+          this.emitter.emitLine(`${innerIndent}${varName} = ${funcCallCode};`);
+        } else {
+          const lastCode = this.generateExpressionAsCode(lastExpr);
+          this.emitter.emitLine(`${innerIndent}${varName} = ${lastCode};`);
+        }
+      }
+    }
+
+    this.emitter.emitLine(`${indent}}`);
+  }
+
+  /**
+   * Generate assignment for a cond expression
+   */
+  private generateCondAssignment(
+    expr: FuncCallExpr,
+    varName: string,
+    varType: string,
+    indent: string
+  ): void {
+    const args = expr.args;
+
+    // Declare the result variable first
+    this.emitter.emitLine(`${indent}${varType} ${varName};`);
+
+    // Generate if-else chain for each condition => value pair
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (
+        arg &&
+        arg.tag === "FuncCall" &&
+        arg.func.tag === "Atom" &&
+        arg.func.token.value === "=>"
+      ) {
+        // This is a condition => value pair
+        const condition = arg.args[0];
+        const value = arg.args[1];
+
+        if (condition && value) {
+          const ifKeyword = i === 0 ? "if" : "else if";
+
+          // For simple conditions like "true", just generate the code directly
+          let conditionCode: string;
+          if (condition.tag === "Atom" && condition.token.value === "true") {
+            conditionCode = "true";
+          } else if (
+            condition.tag === "Atom" &&
+            condition.token.value === "false"
+          ) {
+            conditionCode = "false";
+          } else {
+            conditionCode = this.generateExpressionAsCode(condition);
+          }
+
+          this.emitter.emitLine(`${indent}${ifKeyword} (${conditionCode}) {`);
+
+          // Generate the value assignment
+          if (
+            value.tag === "FuncCall" &&
+            value.func.tag === "Atom" &&
+            value.func.token.value === "begin"
+          ) {
+            // Handle begin block as value
+            const innerIndent = indent + "  ";
+
+            // Generate all expressions except the last as statements
+            for (let j = 0; j < value.args.length - 1; j++) {
+              const valArg = value.args[j];
+              if (valArg) {
+                this.generateExpr(valArg, innerIndent);
+              }
+            }
+
+            // Generate assignment for the last expression
+            if (value.args.length > 0) {
+              const lastExpr = value.args[value.args.length - 1];
+              if (lastExpr) {
+                if (lastExpr.tag === "FuncCall") {
+                  const funcCallCode =
+                    this.generateFuncCallAsExpression(lastExpr);
+                  this.emitter.emitLine(
+                    `${innerIndent}${varName} = ${funcCallCode};`
+                  );
+                } else {
+                  const lastCode = this.generateExpressionAsCode(lastExpr);
+                  this.emitter.emitLine(
+                    `${innerIndent}${varName} = ${lastCode};`
+                  );
+                }
+              }
+            }
+          } else {
+            // Simple value assignment
+            if (value.tag === "Atom" && value.token.type === "integer") {
+              this.emitter.emitLine(
+                `${indent}  ${varName} = ${value.token.value};`
+              );
+            } else {
+              const valueCode = this.generateExpressionAsCode(value);
+              this.emitter.emitLine(`${indent}  ${varName} = ${valueCode};`);
+            }
+          }
+
+          this.emitter.emitLine(`${indent}}`);
+        }
+      }
+    }
+  }
+
+  /**
+   * Generate statements for complex expressions (begin, cond, match) that are used as function arguments
+   */
+  private generateArgStatementsIfNeeded(expr: Expr, indent: string): void {
+    // Check if this expression has been pre-evaluated and has a variable name
+    if (expr.$ && expr.$.variableName) {
+      const varName = expr.$.variableName;
+      const varType = this.getTypeString(expr.$.type);
+
+      // Generate the assignment based on the expression type
+      if (expr.tag === "FuncCall" && expr.func.tag === "Atom") {
+        const funcName = expr.func.token.value;
+
+        if (funcName === "begin") {
+          // Generate begin block assignment
+          this.generateBeginAssignment(expr, varName, varType, indent);
+        } else if (funcName === "cond") {
+          // Generate cond assignment
+          this.generateCondAssignment(expr, varName, varType, indent);
+        } else if (funcName === "match") {
+          // Generate match assignment - for now just declare the variable
+          this.emitter.emitLine(
+            `${indent}${varType} ${varName}; // TODO: match logic`
+          );
+        } else {
+          // Regular function call - generate assignment
+          // First generate assignments for any complex arguments
+          for (const arg of expr.args) {
+            this.generateArgStatementsIfNeeded(arg, indent);
+          }
+
+          const funcCallCode = this.generateFuncCallAsExpression(expr);
+          this.emitter.emitLine(
+            `${indent}${varType} ${varName} = ${funcCallCode};`
+          );
+        }
+      }
+    }
   }
 
   public print(): string {
