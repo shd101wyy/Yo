@@ -103,6 +103,7 @@ export function evaluateComptFunctionCall({
     argValues,
     value: createUnknownValue(functionType.return.type),
     env: calleeEnv,
+    body: cloneExpr(functionBodyExpr), // NOTE: Clone here is necessary
   };
   const caches = [...calledComptFunctions, tempCache];
   const tempCacheIndex = caches.length - 1;
@@ -110,7 +111,7 @@ export function evaluateComptFunctionCall({
 
   // NOTE: We should use the env from the function, not the current env.
   const evaluatedFunctionBody = evaluateBeginExpression({
-    expr: cloneExpr(functionBodyExpr), // NOTE: Clone here is necessary
+    expr: tempCache.body,
     env: calleeEnv,
     context: {
       ...context,
@@ -161,6 +162,7 @@ export function evaluateComptFunctionCall({
     argValues,
     value: returnValue,
     env: evaluatedFunctionBody.$.env,
+    body: evaluatedFunctionBody,
   };
 
   return {

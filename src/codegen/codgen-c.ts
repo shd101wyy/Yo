@@ -17,6 +17,12 @@ export class CodeGeneratorC {
   private externFunctions: Map<string, FunctionType> = new Map(); // store extern function signatures
   private currentFunctionName: string = ""; // track the current function being generated for recur
 
+  // Store generic function instantiations: "funcName" -> typeSignature -> {mangledName, typeArgs}
+  private genericInstantiations: Map<
+    string,
+    Map<string, { mangledName: string; typeArgs: string[] }>
+  > = new Map();
+
   constructor() {
     this.emitter = new Emitter();
 
@@ -40,14 +46,19 @@ export class CodeGeneratorC {
     this.collectRequiredFunctions(moduleValue);
     this.collectRequiredTypes(moduleValue);
 
-    // Second pass: Generate type declarations
+    // Second pass: Collect generic function instantiations
+    this.collectGenericInstantiations(moduleValue);
+
+    // Third pass: Generate type declarations
     this.generateTypeDeclarations();
 
-    // Third pass: Generate function declarations (prototypes)
+    // Fourth pass: Generate function declarations (prototypes) including monomorphized functions
     this.generateFunctionDeclarations(moduleValue);
+    this.generateMonomorphizedFunctionDeclarations();
 
-    // Fourth pass: Generate all collected functions
+    // Fifth pass: Generate all collected functions including monomorphized ones
     this.generateAllFunctions(moduleValue);
+    this.generateMonomorphizedFunctions();
   }
 
   /**
@@ -177,6 +188,12 @@ export class CodeGeneratorC {
 
       if (element && moduleElement && isFunctionValue(element)) {
         const label = moduleElement.label;
+
+        // Skip generic functions - they will be handled via monomorphization
+        if (this.isGenericFunction(element)) {
+          continue;
+        }
+
         const cFunctionName = this.functionNameMap.get(label) || label;
         this.generateFunctionDeclaration(element, label, cFunctionName);
       }
@@ -184,6 +201,16 @@ export class CodeGeneratorC {
 
     // Generate declarations for non-exported functions that were collected
     for (const [funcName, functionValue] of this.collectedFunctions.entries()) {
+      // Skip monomorphized functions - they will be handled separately
+      if (funcName.startsWith("yo_fn_mono_")) {
+        continue;
+      }
+
+      // Skip generic functions - only monomorphized versions should be declared
+      if (this.isGenericFunction(functionValue)) {
+        continue;
+      }
+
       const cFunctionName = this.functionNameMap.get(funcName);
       if (cFunctionName) {
         this.generateFunctionDeclaration(
@@ -215,8 +242,11 @@ export class CodeGeneratorC {
       // For non-main functions, generate based on function type
       const returnTypeStr = this.getTypeString(functionType.return.type);
 
-      // Generate parameter list
-      const params = functionType.parameters
+      // Generate parameter list (excluding compile-time parameters)
+      const runtimeParams = functionType.parameters.filter(
+        (param) => !param.isCompileTimeOnly
+      );
+      const params = runtimeParams
         .map((param, index) => {
           const paramTypeStr = this.getTypeString(param.type);
           const paramName = param.label || `param${index}`;
@@ -240,8 +270,11 @@ export class CodeGeneratorC {
   ): void {
     const returnTypeStr = this.getTypeString(functionType.return.type);
 
-    // Generate parameter list
-    const params = functionType.parameters
+    // Generate parameter list (excluding compile-time parameters)
+    const runtimeParams = functionType.parameters.filter(
+      (param) => !param.isCompileTimeOnly
+    );
+    const params = runtimeParams
       .map((param, index) => {
         const paramTypeStr = this.getTypeString(param.type);
         const paramName = param.label || `param${index}`;
@@ -271,8 +304,18 @@ export class CodeGeneratorC {
       }
     }
 
-    // Generate non-exported functions that were collected
+    // Generate non-exported functions that were collected (but skip generic functions)
     for (const [funcName, functionValue] of this.collectedFunctions.entries()) {
+      // Skip if this is a generic function (it will be handled via monomorphization)
+      if (this.isGenericFunction(functionValue)) {
+        continue;
+      }
+
+      // Skip if this is a monomorphized function (it will be generated separately)
+      if (funcName.includes("yo_fn_mono_")) {
+        continue;
+      }
+
       const cFunctionName = this.functionNameMap.get(funcName);
       if (cFunctionName) {
         this.generateFunction(functionValue, funcName, cFunctionName);
@@ -296,8 +339,11 @@ export class CodeGeneratorC {
     // Generate function signature based on actual function type
     const returnTypeStr = this.getTypeString(functionType.return.type);
 
-    // Generate parameter list
-    const params = functionType.parameters
+    // Generate parameter list (excluding compile-time parameters)
+    const runtimeParams = functionType.parameters.filter(
+      (param) => !param.isCompileTimeOnly
+    );
+    const params = runtimeParams
       .map((param) => {
         const paramTypeStr = this.getTypeString(param.type);
         const paramName = param.label || "param";
@@ -305,11 +351,11 @@ export class CodeGeneratorC {
       })
       .join(", ");
 
-    // For main function, use standard C main signature if it returns c_int with no params
+    // For main function, use standard C main signature if it returns c_int with no runtime params
     if (
       isMain &&
       functionType.return.type.tag === "c_int" &&
-      functionType.parameters.length === 0
+      runtimeParams.length === 0
     ) {
       this.emitter.emitLine(`int ${functionName}() {`);
     } else {
@@ -527,13 +573,53 @@ export class CodeGeneratorC {
       }
 
       // Use the correct C function name (could be mangled)
-      const cFunctionName = this.functionNameMap.get(funcName) || funcName;
+      let cFunctionName = this.functionNameMap.get(funcName) || funcName;
 
-      // Generate arguments - improved to handle complex expressions
-      const args = expr.args
-        .map((arg) => this.generateExpressionAsCode(arg))
-        .join(", ");
+      // Check if this is a generic function call and get the monomorphized name
+      const functionValue = this.collectedFunctions.get(funcName);
+      if (functionValue && this.isGenericFunction(functionValue)) {
+        const compileTimeParams = functionValue.type.parameters.filter(
+          (p) => p.isCompileTimeOnly
+        );
+        const typeArgs = expr.args.slice(0, compileTimeParams.length);
 
+        const typeSignature = typeArgs
+          .map((arg) => {
+            if (arg.tag === "Atom") {
+              return arg.token.value;
+            }
+            return "unknown";
+          })
+          .join("_");
+
+        const instantiations = this.genericInstantiations.get(funcName);
+        const instantiationInfo = instantiations?.get(typeSignature);
+        if (instantiationInfo) {
+          cFunctionName = instantiationInfo.mangledName;
+        }
+      }
+
+      // Get function type to filter out compile-time arguments
+      const functionType = this.getFunctionTypeByName(funcName);
+      let filteredArgs: string[];
+
+      if (functionType) {
+        // Filter arguments to only include those for runtime parameters
+        const runtimeParamCount = functionType.parameters.filter(
+          (p) => !p.isCompileTimeOnly
+        ).length;
+        const runtimeArgs = expr.args.slice(-runtimeParamCount); // Take the last N args (runtime args come after compile-time args)
+        filteredArgs = runtimeArgs.map((arg) =>
+          this.generateExpressionAsCode(arg)
+        );
+      } else {
+        // Fallback: use all arguments if we don't have function type info
+        filteredArgs = expr.args.map((arg) =>
+          this.generateExpressionAsCode(arg)
+        );
+      }
+
+      const args = filteredArgs.join(", ");
       return `${cFunctionName}(${args})`;
     } else if (
       expr.func.tag === "FuncCall" &&
@@ -1899,6 +1985,350 @@ export class CodeGeneratorC {
     // TODO: Parse the struct fields and create proper StructType
     // TODO: Register with collectedTypes
     // TODO: Generate C typedef declaration
+  }
+
+  /**
+   * Get function type by name from collected functions
+   */
+  private getFunctionTypeByName(funcName: string): FunctionType | undefined {
+    const functionValue = this.collectedFunctions.get(funcName);
+    if (functionValue && functionValue.type.tag === "Function") {
+      return functionValue.type;
+    }
+    return undefined;
+  }
+
+  /**
+   * Collect all generic function instantiations by analyzing function calls
+   */
+  private collectGenericInstantiations(moduleValue: ModuleValue): void {
+    // Start with exported functions
+    for (let i = 0; i < moduleValue.elements.length; i++) {
+      const element = moduleValue.elements[i];
+      const moduleElement = moduleValue.type.elements[i];
+
+      if (element && moduleElement && isFunctionValue(element)) {
+        // Recursively collect generic instantiations from this function
+        this.findGenericInstantiationsInExpr(element.body, moduleValue);
+      }
+    }
+  }
+
+  /**
+   * Find generic function instantiations in an expression
+   */
+  private findGenericInstantiationsInExpr(
+    expr: Expr,
+    moduleValue: ModuleValue
+  ): void {
+    switch (expr.tag) {
+      case "FuncCall":
+        if (expr.func.tag === "Atom") {
+          const funcName = expr.func.token.value;
+
+          // Check if this is a call to a generic function
+          const functionValue = this.collectedFunctions.get(funcName);
+          if (functionValue && this.isGenericFunction(functionValue)) {
+            this.recordGenericInstantiation(expr, funcName, functionValue);
+          }
+        }
+
+        // Recursively check arguments
+        for (const arg of expr.args) {
+          this.findGenericInstantiationsInExpr(arg, moduleValue);
+        }
+        break;
+
+      case "Atom":
+        // Nothing to do for atoms
+        break;
+
+      default:
+        // For other expression types, we might need to handle them in the future
+        break;
+    }
+  }
+
+  /**
+   * Check if a function is generic (has compile-time type parameters)
+   */
+  private isGenericFunction(functionValue: FunctionValue): boolean {
+    return functionValue.type.parameters.some(
+      (param) => param.isCompileTimeOnly
+    );
+  }
+
+  /**
+   * Record a generic function instantiation
+   */
+  private recordGenericInstantiation(
+    expr: FuncCallExpr,
+    funcName: string,
+    functionValue: FunctionValue
+  ): void {
+    // Extract compile-time type arguments (assuming they come first)
+    const compileTimeParams = functionValue.type.parameters.filter(
+      (p) => p.isCompileTimeOnly
+    );
+    const typeArgs = expr.args.slice(0, compileTimeParams.length);
+
+    // Create type signature for this instantiation
+    const typeSignature = typeArgs
+      .map((arg) => {
+        // For now, use a simple string representation of the type
+        // In a full implementation, this would need to be more sophisticated
+        if (arg.tag === "Atom") {
+          return arg.token.value;
+        }
+        return "unknown";
+      })
+      .join("_");
+
+    // Create mangled name for this instantiation
+    const mangledName = this.createMangledName(funcName, typeSignature);
+
+    // Store the instantiation
+    if (!this.genericInstantiations.has(funcName)) {
+      this.genericInstantiations.set(funcName, new Map());
+    }
+
+    // Avoid duplicates
+    const existingInstantiations = this.genericInstantiations.get(funcName)!;
+    if (existingInstantiations.has(typeSignature)) {
+      return;
+    }
+
+    // Store type signature strings for comment generation
+    const typeArgStrings = typeArgs.map((arg) => {
+      if (arg.tag === "Atom") {
+        return arg.token.value;
+      }
+      return "unknown";
+    });
+
+    existingInstantiations.set(typeSignature, {
+      mangledName,
+      typeArgs: typeArgStrings,
+    });
+
+    // Store the monomorphized function for later generation with type information
+    this.storeMonomorphizedFunction(
+      funcName,
+      typeArgs,
+      mangledName,
+      functionValue
+    );
+  }
+
+  /**
+   * Create a mangled name for a generic function instantiation
+   */
+  private createMangledName(funcName: string, typeSignature: string): string {
+    // Get the original C function name for this Yo function
+    const originalCName =
+      this.functionNameMap.get(funcName) || `yo_fn_${funcName}`;
+    return `${originalCName}_${typeSignature}`;
+  }
+
+  /**
+   * Store a monomorphized function for later generation
+   */
+  private storeMonomorphizedFunction(
+    originalFuncName: string,
+    typeArgs: Expr[],
+    mangledName: string,
+    originalFunction: FunctionValue
+  ): void {
+    // Avoid storing duplicates
+    if (this.collectedFunctions.has(mangledName)) {
+      return;
+    }
+
+    // Create a specialized version of the function with concrete types
+    // For now, we'll store the original function and handle type substitution during generation
+    const monomorphizedFunction: FunctionValue = {
+      ...originalFunction,
+      funcId: mangledName,
+      funcName: mangledName,
+    };
+
+    // Store it in collected functions with the mangled name
+    this.collectedFunctions.set(mangledName, monomorphizedFunction);
+    this.functionNameMap.set(mangledName, mangledName);
+  }
+
+  /**
+   * Generate monomorphized functions
+   */
+  private generateMonomorphizedFunctions(): void {
+    for (const [
+      funcName,
+      instantiations,
+    ] of this.genericInstantiations.entries()) {
+      const originalFunction = this.collectedFunctions.get(funcName);
+      if (!originalFunction) continue;
+
+      for (const [, instantiationInfo] of instantiations.entries()) {
+        const { mangledName } = instantiationInfo;
+        const monomorphizedFunction = this.collectedFunctions.get(mangledName);
+        if (monomorphizedFunction) {
+          this.generateMonomorphizedFunction(
+            originalFunction,
+            monomorphizedFunction,
+            mangledName
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Generate a single monomorphized function
+   */
+  private generateMonomorphizedFunction(
+    originalFunction: FunctionValue,
+    monomorphizedFunction: FunctionValue,
+    mangledName: string
+  ): void {
+    const functionType = originalFunction.type;
+
+    // Extract the concrete type from the mangled name
+    const concreteType = this.extractConcreteTypeFromMangledName(mangledName);
+    const concreteCType = this.getCTypeForConcreteType(concreteType);
+
+    // Create specialized function type with concrete types
+    const runtimeParams = functionType.parameters.filter(
+      (param) => !param.isCompileTimeOnly
+    );
+
+    // Generate function signature with specialized types
+    // For generic_id, the return type and parameter type should be the same (T)
+    const params = runtimeParams
+      .map((param) => {
+        // Use concrete type for parameters that were generic (T)
+        const paramTypeStr = concreteCType; // Assume the parameter type is T
+        const paramName = param.label || "param";
+        return `${paramTypeStr} ${paramName}`;
+      })
+      .join(", ");
+
+    // Use concrete type for return type (assuming return type is T)
+    const returnTypeStr = concreteCType;
+
+    this.emitter.emitLine(`${returnTypeStr} ${mangledName}(${params}) {`);
+    this.emitter.emitLine(`  // Monomorphized function body`);
+
+    // Set current function name for recur support
+    const previousFunctionName = this.currentFunctionName;
+    this.currentFunctionName = mangledName;
+
+    // Generate function body
+    this.generateFunctionBody(originalFunction.body, functionType, false, "  ");
+
+    // Restore previous function name
+    this.currentFunctionName = previousFunctionName;
+
+    this.emitter.emitLine(`}`);
+  } /**
+   * Generate declarations for monomorphized functions
+   */
+  private generateMonomorphizedFunctionDeclarations(): void {
+    const generated = new Set<string>(); // Track already generated declarations
+
+    for (const [
+      funcName,
+      instantiations,
+    ] of this.genericInstantiations.entries()) {
+      const originalFunction = this.collectedFunctions.get(funcName);
+      if (!originalFunction) continue;
+
+      for (const [, instantiationInfo] of instantiations.entries()) {
+        const { mangledName, typeArgs } = instantiationInfo;
+
+        // Skip if already generated
+        if (generated.has(mangledName)) {
+          continue;
+        }
+        generated.add(mangledName);
+
+        const functionType = originalFunction.type;
+        const runtimeParams = functionType.parameters.filter(
+          (param) => !param.isCompileTimeOnly
+        );
+
+        // Extract concrete type and use it for specialized signature
+        const concreteType =
+          this.extractConcreteTypeFromMangledName(mangledName);
+        const concreteCType = this.getCTypeForConcreteType(concreteType);
+
+        const returnTypeStr = concreteCType; // Use concrete type for return
+        const params = runtimeParams
+          .map((param) => {
+            const paramTypeStr = concreteCType; // Use concrete type for parameters
+            const paramName = param.label || "param";
+            return `${paramTypeStr} ${paramName}`;
+          })
+          .join(", ");
+
+        // Build monomorphized signature comment: "generic_id : (i32, val: i32) -> i32"
+        const allParamStrs = typeArgs.concat(
+          runtimeParams.map((param) => {
+            const typeStr = typeToString(param.type);
+            const paramName = param.label || "param";
+            return `${paramName}: ${typeStr}`;
+          })
+        );
+
+        const returnTypeYoStr = typeToString(functionType.return.type);
+        const monomorphizedSig = `${funcName} : (${allParamStrs.join(", ")}) -> ${returnTypeYoStr}`;
+
+        this.emitter.emitDeclarationLine(
+          `${returnTypeStr} ${mangledName}(${params}); // ${monomorphizedSig}`
+        );
+      }
+    }
+  }
+
+  /**
+   * Extract concrete type from mangled function name
+   */
+  private extractConcreteTypeFromMangledName(mangledName: string): string {
+    // Extract type signature from mangled name: yo_fn_xxx_i32 -> i32
+    const parts = mangledName.split("_");
+    if (parts.length > 0) {
+      return parts[parts.length - 1] || "unknown"; // Get the last part (type signature)
+    }
+    return "unknown";
+  }
+
+  /**
+   * Get C type string for a concrete type name
+   */
+  private getCTypeForConcreteType(typeName: string): string {
+    switch (typeName) {
+      case "i32":
+        return "int32_t";
+      case "f64":
+        return "double";
+      case "f32":
+        return "float";
+      case "i64":
+        return "int64_t";
+      case "u32":
+        return "uint32_t";
+      case "boolean":
+        return "bool";
+      // For struct types, check if it's a collected type
+      default: {
+        if (this.collectedTypes.has(typeName)) {
+          const userType = this.collectedTypes.get(typeName);
+          if (userType && isStructType(userType)) {
+            return this.getTypeString(userType);
+          }
+        }
+        return typeName; // fallback
+      }
+    }
   }
 
   public print(): string {

@@ -9,6 +9,7 @@ export interface CalledComptFunctionCache {
   argValues: Value[];
   env: Environment;
   value: Value;
+  body: Expr;
 }
 
 export type FunctionValue = {
