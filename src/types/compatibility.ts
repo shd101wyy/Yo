@@ -170,14 +170,14 @@ export function areTypesCompatible(
       expected.type.elements.length !== given.type.elements.length ||
       // NOTE: Below is not necessarily true
       // We might compare Box(T) and Box(U), where T and U are SomeType.
-      (expected.type.typeId !== given.type.typeId &&
+      (expected.type.id !== given.type.id &&
         !typeContainsSomeType(expected.type) &&
         !typeContainsSomeType(given.type))
     ) {
       return false;
     }
 
-    if (expected.type.typeId === given.type.typeId) {
+    if (expected.type.id === given.type.id) {
       return true;
     }
 
@@ -202,7 +202,7 @@ export function areTypesCompatible(
   }
 
   if (isEnumType(expected.type) && isEnumType(given.type)) {
-    if (expected.type.typeId === given.type.typeId) {
+    if (expected.type.id === given.type.id) {
       return true;
     }
 
@@ -261,14 +261,14 @@ export function areTypesCompatible(
     // Unions must have same elements and compatible types
     if (
       expected.type.elements.length !== given.type.elements.length ||
-      (expected.type.typeId !== given.type.typeId &&
+      (expected.type.id !== given.type.id &&
         !typeContainsSomeType(expected.type) &&
         !typeContainsSomeType(given.type))
     ) {
       return false;
     }
 
-    if (expected.type.typeId === given.type.typeId) {
+    if (expected.type.id === given.type.id) {
       return true;
     }
 
@@ -427,7 +427,7 @@ export function areTypesCompatible(
       const givenType_ = getValueOfSomeTypeFromEnv(given.env, given.type);
       if (isSomeType(expectedType_) && isSomeType(givenType_)) {
         // QUESTION: Should compare name instead?
-        return expectedType_.typeId === givenType_.typeId;
+        return expectedType_.id === givenType_.id;
       } else {
         // QUESTION: Is this correct?
         // return false;

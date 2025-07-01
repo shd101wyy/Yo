@@ -331,7 +331,7 @@ export function synthesizeTypes(
   } else if (
     isStructType(expected.type) &&
     isStructType(given.type) &&
-    (expected.type.typeId === given.type.typeId ||
+    (expected.type.id === given.type.id ||
       (expected.type.functionValue &&
         given.type.functionValue &&
         expected.type.functionValue === given.type.functionValue))
@@ -371,7 +371,7 @@ export function synthesizeTypes(
   } else if (
     isEnumType(expected.type) &&
     isEnumType(given.type) &&
-    (expected.type.typeId === given.type.typeId ||
+    (expected.type.id === given.type.id ||
       (expected.type.functionValue &&
         given.type.functionValue &&
         expected.type.functionValue === given.type.functionValue))

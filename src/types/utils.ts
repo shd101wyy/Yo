@@ -526,7 +526,7 @@ export function typeToString(type: Type): string {
       }
 
       return `${structType.typeName ? `(${structType.typeName}) ` : ""}${
-        structType.typeName ? "struct" : structType.typeId
+        structType.typeName ? "struct" : structType.id
       }(${structType.elements.map(tupleElementToString).join(", ")})`;
     }
 
@@ -566,7 +566,7 @@ export function typeToString(type: Type): string {
 
       const elements = unionType.elements;
       return `${unionType.typeName ? `(${unionType.typeName}) ` : ""}${
-        unionType.typeName ? "union" : unionType.typeId
+        unionType.typeName ? "union" : unionType.id
       }(${elements.map(tupleElementToString).join(", ")})`;
     }
 
@@ -620,7 +620,7 @@ export function typeToString(type: Type): string {
       // const parentType = someType.parentType;
       // TODO: Display the interfaces implemented
       return someType.name;
-      // return `${someType.name}(${someType.typeId})`;
+      // return `${someType.name}(${someType.id})`;
       // return `some(${parentType.tag})`;
     }
 

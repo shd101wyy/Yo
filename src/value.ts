@@ -18,6 +18,7 @@ import {
   createI64Type,
   createI8Type,
   createIsizeType,
+  createSomeType,
   createU16Type,
   createU32Type,
   createU64Type,
@@ -27,12 +28,10 @@ import {
   ExprType,
   isTypeHierarchyType,
   ModuleType,
-  SomeType,
   StructType,
   TupleType,
   Type,
   typeOfType,
-  TypeTag,
   typeToString,
 } from "./types";
 import { UnitValue } from "./unit-value";
@@ -394,20 +393,13 @@ export function createBooleanValue(value: boolean): BooleanValue {
   };
 }
 
-let someTypeIdIndex = 0;
 export function createUnknownValue(
   type: Type,
   variableName?: string
 ): UnknownValue | TypeValue {
   if (isTypeHierarchyType(type) && type.level === 0 && variableName) {
     // SomeType
-    const someType: SomeType = {
-      tag: TypeTag.SomeType,
-      typeId: `sometype_${someTypeIdIndex++}`,
-      name: variableName,
-      parentType: type,
-      size: undefined,
-    };
+    const someType = createSomeType(type, variableName);
     return createTypeValue(someType);
   }
 

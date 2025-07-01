@@ -11,6 +11,11 @@ export interface Type {
   tag: TypeTag;
 
   /**
+   * The unique id of the type.
+   */
+  id: string;
+
+  /**
    * The size of the type in bits, not bytes.
    * For example, a 32-bit integer has a size of 4 bytes.
    * A 64-bit integer has a size of 8 bytes.
@@ -64,6 +69,7 @@ export interface LiteralType extends Type {
 
 export interface ExprType extends Type {
   tag: TypeTag.Expr;
+  id: TypeTag.Expr;
 }
 
 export interface TypeHierarchyType extends Type {
@@ -99,11 +105,6 @@ export interface SomeType extends Type {
    * T is the name of the SomeType.
    */
   name: string;
-
-  /**
-   * The unique identifier for this SomeType.
-   */
-  typeId: string;
 
   /**
    * The parent type of the SomeType.
@@ -205,11 +206,6 @@ export interface StructType extends Type {
   tag: TypeTag.Struct;
 
   /**
-   * The unique identifier for this struct.
-   */
-  typeId: string;
-
-  /**
    * The function that returns the struct.
    * eg:
    *   Point :: struct(x: i32, y: i32)
@@ -291,11 +287,6 @@ export interface EnumType extends Type {
   tag: TypeTag.Enum;
 
   /**
-   * The unique identifier for this struct.
-   */
-  typeId: string;
-
-  /**
    * The function that returns the enum.
    */
   functionValue?: FunctionValue;
@@ -345,11 +336,6 @@ export interface EnumType extends Type {
 
 export interface UnionType extends Type {
   tag: TypeTag.Union;
-
-  /**
-   * The unique identifier for this union.
-   */
-  typeId: string;
 
   /**
    * The function that returns the union.
@@ -431,6 +417,7 @@ export interface FunctionType extends Type {
 
 export interface MutPtrType extends Type {
   tag: TypeTag.MutPtr;
+  id: TypeTag.MutPtr;
   /**
    * The type of the pointer.
    */
@@ -439,6 +426,7 @@ export interface MutPtrType extends Type {
 
 export interface PtrType extends Type {
   tag: TypeTag.Ptr;
+  id: TypeTag.Ptr;
   /**
    * The type of the pointer.
    */
@@ -447,6 +435,7 @@ export interface PtrType extends Type {
 
 export interface MutRefType extends Type {
   tag: TypeTag.MutRef;
+  id: TypeTag.MutRef;
   /**
    * The type of the reference.
    */
@@ -455,6 +444,7 @@ export interface MutRefType extends Type {
 
 export interface RefType extends Type {
   tag: TypeTag.Ref;
+  id: TypeTag.Ref;
   /**
    * The type of the reference.
    */

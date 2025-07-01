@@ -16,10 +16,13 @@ import { ValueTag } from "../value-tag";
 
 export class CodeGeneratorC {
   private emitter: Emitter;
+
+  private typeNameMap: Map<string, string> = new Map(); // yo type name -> C type name
+  private collectedTypes: Map<string, Type> = new Map(); // store collected user-defined types (struct, enum, union, etc.)
+
   private functionNameMap: Map<string, string> = new Map(); // yo function name -> C function name
   private collectedFunctions: Map<string, FunctionValue> = new Map(); // store collected function values
-  private collectedTypes: Map<string, Type> = new Map(); // store collected user-defined types (struct, enum, union, etc.)
-  private typeNameMap: Map<string, string> = new Map(); // yo type name -> C type name
+
   private externFunctions: Map<string, FunctionType> = new Map(); // store extern function signatures
   private currentFunctionName: string = ""; // track the current function being generated for recur
 
@@ -648,41 +651,6 @@ export class CodeGeneratorC {
   }
 
   /**
-   * Generate a function call as an expression without using pre-evaluated variable names
-   */
-  private generateFuncCallAsExpressionWithoutVariables(
-    expr: FuncCallExpr
-  ): string {
-    if (expr.func.tag === "Atom") {
-      const funcName = expr.func.token.value;
-
-      // Check if this is a struct or union constructor call
-      if (this.collectedTypes.has(funcName)) {
-        const userType = this.collectedTypes.get(funcName);
-        if (userType && isStructType(userType)) {
-          return this.generateStructConstructorExpression(expr, userType);
-        } else if (userType && isUnionType(userType)) {
-          return this.generateUnionConstructorExpression(expr, userType);
-        } else if (userType && isEnumType(userType)) {
-          return this.generateEnumConstructorExpression(expr, userType);
-        }
-      }
-
-      // Handle field access operator
-      const cFunctionName = this.functionNameMap.get(funcName) || funcName;
-
-      // Generate arguments - use pre-evaluated variables if they exist
-      const args = expr.args
-        .map((arg) => this.generateExpressionAsCode(arg))
-        .join(", ");
-
-      return `${cFunctionName}(${args})`;
-    }
-
-    return "/* TODO: complex function call */";
-  }
-
-  /**
    * Generate struct constructor as an expression
    */
   private generateStructConstructorExpression(
@@ -872,18 +840,18 @@ export class CodeGeneratorC {
    */
   private collectType(type: Type): void {
     if (isStructType(type) && type.typeName) {
-      // Use the struct's typeId to generate a mangled C type name
-      const cTypeName = `yo_struct_${type.typeId}`;
+      // Use the struct's id to generate a mangled C type name
+      const cTypeName = `yo_${type.id}`;
       this.typeNameMap.set(type.typeName, cTypeName);
       this.collectedTypes.set(type.typeName, type);
     } else if (isUnionType(type) && type.typeName) {
-      // Use the union's typeId to generate a mangled C type name
-      const cTypeName = `yo_union_${type.typeId}`;
+      // Use the union's id to generate a mangled C type name
+      const cTypeName = `yo_${type.id}`;
       this.typeNameMap.set(type.typeName, cTypeName);
       this.collectedTypes.set(type.typeName, type);
     } else if (isEnumType(type) && type.typeName) {
-      // Use the enum's typeId to generate a mangled C type name
-      const cTypeName = `yo_enum_${type.typeId}`;
+      // Use the enum's id to generate a mangled C type name
+      const cTypeName = `yo_${type.id}`;
       this.typeNameMap.set(type.typeName, cTypeName);
       this.collectedTypes.set(type.typeName, type);
     }
@@ -2136,7 +2104,7 @@ export class CodeGeneratorC {
   /**
    * Get C type string for a concrete type name
    */
-  private getCTypeForConcreteType(typeName: string): string {
+  public getCTypeForConcreteType(typeName: string): string {
     switch (typeName) {
       case "i32":
         return "int32_t";

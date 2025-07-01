@@ -1,9 +1,8 @@
-import { spawnSync } from "child_process";
 import * as fs from "fs";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import packageJson from "../package.json";
-import { ModuleManager } from "./module-manager";
+import { CodeGenerator } from "./codegen";
 
 yargs(hideBin(process.argv))
   .usage(
@@ -92,65 +91,16 @@ yo run <script>                  Run a script defined in 'yo.json'
       const absolutePath = `file://` + fs.realpathSync(file);
       // Add file:// to the path
 
-      const moduleManager = new ModuleManager();
-
-      if (!argv.skipCodegen) {
-        moduleManager.compileModule(absolutePath, { emitC: argv.emitC });
-
-        // Get the generated C code
-        const compiledCode = moduleManager.getGeneratedCode();
-
-        // Write the C code to a file
-        const outputFile = argv.output as string;
-        const tempCFile = outputFile + ".c";
-        fs.writeFileSync(tempCFile, compiledCode);
-
-        console.log(`Generated C code written to ${tempCFile}`);
-
-        // Compile the C code with the specified compiler (unless skipped)
-        if (!argv.skipCCompiler) {
-          const compiler = argv.cc as string;
-          const compileArgs = [
-            "-std=c11",
-            "-Wall",
-            "-Wextra",
-            tempCFile,
-            "-o",
-            outputFile,
-          ];
-
-          // Add external files from --extern option
-          const externalFiles = argv.extern as string[];
-          externalFiles.forEach((externFile) => {
-            if (fs.existsSync(externFile)) {
-              compileArgs.splice(-2, 0, externFile); // Insert before -o outputFile
-            } else {
-              console.warn(
-                `External file ${externFile} does not exist and will be ignored`
-              );
-            }
-          });
-
-          console.log(`Compiling with: ${compiler} ${compileArgs.join(" ")}`);
-
-          const result = spawnSync(compiler, compileArgs, { stdio: "inherit" });
-
-          if (result.status === 0) {
-            console.log(`Successfully compiled to ${outputFile}`);
-          } else {
-            console.error(`Compilation failed with exit code ${result.status}`);
-            process.exit(result.status || 1);
-          }
-        } else {
-          console.log("Skipping C compiler (--skip-c-compiler flag set)");
-        }
-      } else {
-        // Just load the module to check for errors
-        const result = moduleManager.loadModule(absolutePath);
-        if (result.moduleError) {
-          throw result.moduleError;
-        }
-      }
+      const codeGenerator = new CodeGenerator();
+      codeGenerator.compileModule(absolutePath, {
+        output: argv.o,
+        cCompiler: argv.cc,
+        target: argv.t as "c",
+        extern: (argv.extern ?? []) as string[],
+        emitC: argv.emitC,
+        skipCodegen: argv.skipCodegen,
+        skipCCompiler: argv.skipCCompiler,
+      });
     }
   )
   .help()
