@@ -18,6 +18,7 @@ import {
   isTupleType,
   isUnionType,
   Type,
+  typeContainsReference,
   typeOfType,
   typeToString,
 } from "../../types";
@@ -134,6 +135,22 @@ export function handleMemberDestructuring({
               ? rhsValue.elements[j]
               : undefined;
 
+          if (!elementValue && isCompileTimeOnly) {
+            throw formatErrorMessage({
+              token: lhsElement.token,
+              errorMessage: `Destructuring element "${element.label}" is not defined in compile-time only context.`,
+            });
+          }
+
+          if (typeContainsReference(element.type)) {
+            throw formatErrorMessage({
+              token: lhsElement.token,
+              errorMessage: `Cannot destructure element "${element.label}" of type ${typeToString(
+                element.type
+              )} with references.`,
+            });
+          }
+
           // Add to environment
           // console.log("(2) addVariableToEnv");
           const { env: nextEnv } = addVariableToEnv({
@@ -206,6 +223,22 @@ export function handleMemberDestructuring({
         }
 
         const memberValue = rhsValue.elements[memberTypeIndex];
+
+        if (!memberValue && isCompileTimeOnly) {
+          throw formatErrorMessage({
+            token: lhsElement.token,
+            errorMessage: `Destructuring member "${element.label}" is not defined in compile-time only context.`,
+          });
+        }
+
+        if (typeContainsReference(element.type)) {
+          throw formatErrorMessage({
+            token: lhsElement.token,
+            errorMessage: `Cannot destructure element "${element.label}" of type ${typeToString(
+              element.type
+            )} with references.`,
+          });
+        }
 
         // Add to environment
         // console.log("(3) addVariableToEnv");
@@ -596,6 +629,23 @@ export function handleMemberDestructuring({
     if (variableName && variableToken) {
       // Add the variable to the environment
       // console.log("(4) addVariableToEnv");
+
+      if (!elementValue && isCompileTimeOnly) {
+        throw formatErrorMessage({
+          token: lhsElement.token,
+          errorMessage: `Destructuring element "${variableName}" is not defined in compile-time only context.`,
+        });
+      }
+
+      if (typeContainsReference(rhsElement.type)) {
+        throw formatErrorMessage({
+          token: lhsElement.token,
+          errorMessage: `Cannot destructure element "${rhsElement.label}" of type ${typeToString(
+            rhsElement.type
+          )} with references.`,
+        });
+      }
+
       const { env: nextEnv } = addVariableToEnv({
         env,
         variable: {

@@ -113,9 +113,7 @@ ${exprToString(rhs)}`,
   if (typeRequiresComptModifier(userDefinedType) && !isCompileTimeOnly) {
     throw formatErrorMessage({
       token: lhs.token,
-      errorMessage: `Expected "compt" (or "@") for compile-time known ${
-        isTypeHierarchyType(userDefinedType) ? "type" : "module"
-      } value binding.`,
+      errorMessage: `Expected "compt" (or "@") for compile-time known value binding:\n${typeToString(userDefinedType)}`,
     });
   }
 

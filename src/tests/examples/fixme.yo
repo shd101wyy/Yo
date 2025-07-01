@@ -1,17 +1,13 @@
-extern "C",
-  add :
-    (x : i32, y : i32) -> i32
-;
+id_func :: 
+  ((forall(@(T): Free),
+    x : T)-> T) {
+  (xx : T) = x; // Use `T` inside the function body
+  xxx := x;
 
-add_compt_i32 :: ((x : i32, @(y): i32) -> i32) 
-  add(x, y);
-
-main :: (() -> i32) {
-  x := 12;
-  y := add_compt_i32(x, 34);
-  add_compt_i32(y, 46)
+  mut(xxxx) := xxx;
+  // (mut(xxxx) : typeof(x)) = xxx;
+  xxxx = xx;
+  xxx
 };
 
-// `export` here is required. Otherwise no functions will be compiled.
-export
-  main;
+x3 := id_func(12);

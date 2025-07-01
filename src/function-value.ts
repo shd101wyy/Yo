@@ -6,7 +6,13 @@ import { ValueTag } from "./value-tag";
 
 export interface CalledComptFunctionCache {
   funcId: string;
+  /**
+   * The function arguments that were used to call the compt function.
+   */
   argValues: Value[];
+  /**
+   * The environment after the function call.
+   */
   env: Environment;
   /**
    * The return value of the compt function call
@@ -16,6 +22,22 @@ export interface CalledComptFunctionCache {
    * Evaluated function body with the given argValues and env.
    */
   body: Expr;
+}
+
+export interface SpecializedFunctionCache {
+  funcId: string;
+  /**
+   * The environment after the function call.
+   */
+  env: Environment;
+  /**
+   * The compile-time arguments that were used to specialize the function.
+   */
+  compileTimeArgValues: Value[];
+  /**
+   * The specialized function with evaluated body.
+   */
+  specializedFunction: FunctionValue;
 }
 
 export type FunctionValue = {
@@ -54,9 +76,3 @@ export type FunctionValue = {
    */
   specializedFunctionCaches: SpecializedFunctionCache[];
 };
-
-export interface SpecializedFunctionCache {
-  funcId: string;
-  compileTimeArgValues: Value[]; // Only compile-time arguments
-  specializedFunction: FunctionValue; // The specialized function with evaluated body
-}

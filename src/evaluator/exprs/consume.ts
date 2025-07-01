@@ -1,12 +1,21 @@
 import { checkBorrowings } from "../../borrow";
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { exprToString, FuncCallExpr, setExprAsConsumed } from "../../expr";
+import {
+  BuiltinFunctions,
+  expectExprToBeFunctionCallOf,
+  exprToString,
+  FuncCallExpr,
+  setExprAsConsumed,
+} from "../../expr";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 
 /**
- * NOTE: Let's use the `drop` function to replace this
+ * consume is needed for case like:
+ *
+ *   ptr := malloc(sizeof(SomeLinearType));
+ *   consume(ptr.* = SomeData); // discard the old value and set the new value
  */
 export function evaluateConsume({
   expr,
@@ -17,14 +26,8 @@ export function evaluateConsume({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  /*
-  if (!exprIsFunctionCallOf(expr, BuiltinFunctions.consume, 1)) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Expected "consume" with 1 argument, got:\n${exprToString(expr)}`,
-    });
-  }
-  */
+  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.consume, 1);
+
   const consumeArgExpr = expr.args[0]!;
 
   // Evaluate the consume argument

@@ -16,6 +16,7 @@ import { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
+  convertComptTypeToRuntimeType,
   createExprType,
   FunctionParameter,
   isExprType,
@@ -23,6 +24,7 @@ import {
   isMutRefType,
   isRefType,
   Type,
+  typeRequiresComptModifier,
   typeToString,
 } from "../../types";
 import {
@@ -297,7 +299,7 @@ export function checkIfFunctionParameterMatchesArgument({
     ]);
   }
 
-  const argType = evaluatedArgExpr.$.type;
+  let argType = evaluatedArgExpr.$.type;
 
   // Cannot assign runtime parameter to compt parameter
   if (!evaluatedArgExpr.$?.value && parameter.isCompileTimeOnly) {
@@ -311,7 +313,28 @@ export function checkIfFunctionParameterMatchesArgument({
 
   // Add the arg to the environment
   // console.log("(10) addVariableToEnv");
-  const argValue = evaluatedArgExpr.$.value;
+  let argValue = evaluatedArgExpr.$.value;
+  if (!parameter.isCompileTimeOnly) {
+    argValue = undefined;
+
+    // argType requires compt modifier
+    // but the parameter is not compt
+    // we need to convert the argType to runtimeType
+    if (typeRequiresComptModifier(argType)) {
+      argType = convertComptTypeToRuntimeType(argType);
+
+      if (typeRequiresComptModifier(argType)) {
+        // We fail to convert to runtime type
+        throw formatErrorMessage({
+          token: argExpr?.token ?? PlaceholderToken,
+          errorMessage: `Cannot convert compile-time type to runtime type for argument:\n${exprToString(
+            evaluatedArgExpr
+          )}`,
+        });
+      }
+    }
+  }
+
   const { env: nextEnv } = addVariableToEnv({
     env: calleeEnv,
     variable: {

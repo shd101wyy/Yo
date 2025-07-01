@@ -113,6 +113,11 @@ export interface EvaluatedExprData {
    * The path collection of the expression.
    */
   pathCollection: PathCollection;
+
+  /**
+   * Comment for the expression.
+   */
+  comment?: string;
 }
 
 export type AtomExpr = {
@@ -324,7 +329,7 @@ export const BuiltinFunctions = {
   compt_expect_error: ["compt_expect_error"],
   typeof: ["typeof"],
   sizeof: ["sizeof"],
-  // consume: ["consume"],
+  consume: ["consume"],
   compt_assert: ["compt_assert"],
   macro_expand: ["macro_expand"],
   as: ["as"],

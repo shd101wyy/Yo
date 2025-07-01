@@ -59,6 +59,7 @@ import { evaluateBeginExpression } from "./exprs/begin";
 import { evaluateBinding } from "./exprs/binding";
 import { evaluateBorrow } from "./exprs/borrow";
 import { evaluateCond } from "./exprs/cond";
+import { evaluateConsume } from "./exprs/consume";
 import { evaluateExtern } from "./exprs/extern";
 import { evaluateIdentifierAndOperator } from "./exprs/identifer_and_operator";
 import { evaluateImport } from "./exprs/import";
@@ -367,10 +368,10 @@ ${exprToString(expr)}`,
       ) {
         // and/or
         return evaluateAndOr({ expr, env, context: { ...context } });
-      } /* else if (exprIsFunctionCallOf(expr, BuiltinFunctions.as, 2)) {
-        // as
-        return evaluateAs({ expr, env, context: { ...context } });
-      }*/ else if (exprIsFunctionCallOf(expr, BuiltinKeywords.drop, 1)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume, 2)) {
+        // consume
+        return evaluateConsume({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.drop, 1)) {
         // drop
         return evaluateDrop({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.quote, 1)) {

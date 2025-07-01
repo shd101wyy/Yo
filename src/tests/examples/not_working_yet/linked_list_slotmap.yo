@@ -1,0 +1,117 @@
+{ SlotMap, DefaultKey } :: import "slotmap";
+
+LinkedEntry :: ((@(T): Type) -> @(Type))
+  struct
+    value : T,
+    prev  : Option(DefaultKey),
+    next  : Option(DefaultKey)
+;
+
+LinkedList :: ((@(T): Type) -> @(Type))
+  struct
+    sm   : SlotMap(DefaultKey, LinkedEntry(T)),
+    head : Option(DefaultKey),
+    tail : Option(DefaultKey),
+
+    new :: ((() -> Self)
+      Self( sm: SlotMap.new(), head: .None, tail: .None )
+    ),
+
+    push_back :: (((self: &!(Self), elem: T) -> DefaultKey) {
+      entry := LinkedEntry(T)(value: elem, prev: self.tail, next: .None);
+      key := self.sm.insert(entry);
+      if self.head.is_none(), {
+        self.head = .Some(key);
+      };
+      match self.tail,
+        .Some => {
+          self.sm(self.tail.value).next = .Some(key);
+        },
+        .None => ()
+      ;
+      self.tail = .Some(key);
+      key
+    }),
+
+    push_front :: (((self: &!(Self), elem: T) -> DefaultKey) {
+      entry := LinkedEntry(T)(value: elem, prev: .None, next: self.head);
+      key := self.sm.insert(entry);
+      if self.tail.is_none(), {
+        self.tail = .Some(key);
+      };
+      match self.head,
+        .Some => {
+          self.sm(self.head.value).prev = .Some(key);
+        },
+        .None => ()
+      ;
+      self.head = .Some(key);
+      key
+    }),
+
+    pop_back :: (((self: &!(Self)) -> Option(T)) {
+      match self.tail,
+        .Some(key) => {
+          entry := self.sm(key);
+          self.tail = entry.prev;
+          if let .Some(prev_key) = entry.prev, {
+            self.sm(prev_key).next = .None;
+          } else {
+            self.head = .None;
+          };
+          self.sm.remove(key);
+          .Some(entry.value)
+        },
+        .None => .None
+      ;
+    }),
+
+    pop_front :: (((self: &!(Self)) -> Option(T)) {
+      match self.head,
+        .Some(key) => {
+          entry := self.sm(key);
+          self.head = entry.next;
+          if let .Some(next_key) = entry.next, {
+            self.sm(next_key).prev = .None;
+          } else {
+            self.tail = .None;
+          };
+          self.sm.remove(key);
+          .Some(entry.value)
+        },
+        .None => .None
+      ;
+    }),
+
+    remove :: (((self: &!(Self), key: DefaultKey) -> Option(T)) {
+      match self.sm.get(key),
+        .Some(entry) => {
+          if let .Some(prev_key) = entry.prev, {
+            self.sm(prev_key).next = entry.next;
+          } else {
+            self.head = entry.next;
+          };
+          if let .Some(next_key) = entry.next, {
+            self.sm(next_key).prev = entry.prev;
+          } else {
+            self.tail = entry.prev;
+          };
+          self.sm.remove(key);
+          .Some(entry.value)
+        },
+        .None => .None
+      ;
+    }),
+
+    get :: (((self: &(Self), key: DefaultKey) -> Option(T)) {
+      self.sm.get(key).map(fn(entry) -> &(entry.value))
+    }),
+
+    front :: (((self: &(Self)) -> Option(T)) {
+      self.head.map(fn(key) -> &(self.sm(key).value))
+    }),
+
+    back :: (((self: &(Self)) -> Option(T)) {
+      self.tail.map(fn(key) -> &(self.sm(key).value))
+    })
+;

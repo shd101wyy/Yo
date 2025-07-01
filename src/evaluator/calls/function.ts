@@ -10,7 +10,11 @@ import {
   updateExistingVariable,
   Variable,
 } from "../../env";
-import { formatErrorMessage, MoParserError } from "../../error";
+import {
+  formatErrorMessage,
+  formatErrorMessages,
+  MoParserError,
+} from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
@@ -772,7 +776,11 @@ ${implicitVariables
   // Check if function has compile-time parameters and create specialized version if needed
   let specializedFunctionValue: FunctionValue | undefined = undefined;
 
-  if (functionValue && isFunctionSpecializable(functionType)) {
+  if (
+    functionValue &&
+    isFunctionValue(functionValue) && // functionValue might be UnknownValue, so this condition check is necessary
+    isFunctionSpecializable(functionType)
+  ) {
     specializedFunctionValue = createSpecializedFunctionInline({
       originalFunction: functionValue,
       functionType,
@@ -1332,7 +1340,35 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
       functionsToCall.length === 1 &&
       functionsToCall[0]!.result.kind === "error"
     ) {
-      throw functionsToCall[0]!.result.error!; // NOTE: It should have error here.
+      const error = functionsToCall[0]!.result.error;
+      if (error instanceof MoParserError) {
+        throw formatErrorMessages({
+          tokenAndErrorList: [
+            {
+              token: expr.token,
+              errorMessage: `Failed to call the function:`,
+            },
+            {
+              token: error.token,
+              errorMessage: error.message,
+            },
+          ],
+        });
+      } else {
+        throw formatErrorMessages({
+          tokenAndErrorList: [
+            {
+              token: expr.token,
+              errorMessage: `Failed to call the function:`,
+            },
+            {
+              token: expr.token,
+              errorMessage:
+                error instanceof Error ? error.message : String(error),
+            },
+          ],
+        });
+      }
     }
 
     throw formatErrorMessage({
@@ -1712,7 +1748,7 @@ function createSpecializedFunctionInline({
   // Add regular compile-time parameters
   functionType.parameters.forEach((param, index) => {
     if (param.isCompileTimeOnly && index < argValues.args.length) {
-      const arg = argValues.args[index];
+      const arg = argValues.args[index]!;
       if (arg) {
         compileTimeArgValues.push(arg);
       }
@@ -1736,12 +1772,11 @@ function createSpecializedFunctionInline({
     (cache) =>
       cache.compileTimeArgValues.length === compileTimeArgValues.length &&
       cache.compileTimeArgValues.every((cachedValue, index) => {
-        const currentValue = compileTimeArgValues[index];
-        if (!currentValue) return false;
+        const currentValue = compileTimeArgValues[index]!;
 
         // Use areValuesEqual for robust comparison
         return areValuesEqual(
-          { value: cachedValue, env: callerEnv },
+          { value: cachedValue, env: cache.env },
           { value: currentValue, env: callerEnv }
         );
       })
@@ -1766,6 +1801,12 @@ function createSpecializedFunctionInline({
       expectedType: undefined,
     },
   });
+  if (!specializedBody.$) {
+    throw formatErrorMessage({
+      token: originalFunction.body.token,
+      errorMessage: `Failed to evaluate function body for specialization.`,
+    });
+  }
 
   // Create signature for the specialized function
   const compileTimeSignatureParts: string[] = [];
@@ -1826,6 +1867,7 @@ function createSpecializedFunctionInline({
     funcId: originalFunction.funcId,
     compileTimeArgValues,
     specializedFunction,
+    env: specializedBody.$.env,
   };
 
   originalFunction.specializedFunctionCaches = [
