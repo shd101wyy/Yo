@@ -316,7 +316,6 @@ export function areTypesCompatible(
           return false;
         }
 
-        console.log("Enter here (1)");
         if (
           !areTypesCompatible(
             { type: expectedElement.type, env: expected.env },
@@ -324,7 +323,6 @@ export function areTypesCompatible(
             true // exactNumericTypeMatch
           )
         ) {
-          console.log("Enter here (2)");
           return false;
         }
 
@@ -341,12 +339,10 @@ export function areTypesCompatible(
               }
             )
           ) {
-            console.log("Enter here (3)");
             return false;
           }
         }
       }
-      console.log("matches!");
       return true;
     }
   }

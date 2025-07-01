@@ -1,50 +1,23 @@
-Point ::
-  ((@(P): Type)-> @(Type))
-  struct
-    x: P,
-    y: P
-;
+open import "std";
 
-Id ::
-  ((@(Self_): Type)-> @(Module))
-  module
-    (Self: Type) = Self_,
-    id:
-      (self: Self)-> Self
-;
+main :: (() -> unit) {
+  x ::
+    if false, then: 1, else: 2
+  ;
+  compt_assert( x == 2);
 
-id ::
-  ((forall(@(T): Type), x: T, implicit(@(I): Id(T)))-> T)
-  I.id(x)
-;
+  y ::
+    if false, then: 1;
 
-implicit(IdInt) ::
-  Id(i32)
-    id:
-      fn(x) -> x
-;
 
-implicit(IdBoolean) ::
-  Id(boolean)
-    id:
-      fn(x) -> x
-;
+  z ::
+    if true, then: 3, else: () // QUESTION: Should we allow different return type
+  ;
+  compt_assert( z == 3 );
 
-implicit(IdPoint) ::
-  (( forall(@(IP): Type), 
-    implicit(@(I): Id(IP))
-  )-> @(Id(Point(IP))))
-  Id(Point(IP))
-    id:
-      fn(p) -> {
-        { x, y } := p;
-        Point(IP)(I.id(x), I.id(y))
-      }
-;
+  expr :: 
+    macro_expand quote
+      if false, then: 1;
 
-main :: (()-> unit) {
-  x5 := id(Point(i32)(1, 2), implicit(_)); // Implicit call
-  // x5 := id(Point(i32)(1, 2)); // Implicit call
-  // x6 := id(Point(i32)(1, 2), implicit(IdPoint())); // Implicit call 2
-  // x7 := id(Point(i32)(1, 2), implicit(IdPoint(implicit(IdInt)))); // Explicit call
+  ();
 }

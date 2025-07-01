@@ -1,9 +1,24 @@
 open import "std";
 
+// The "if" uses the macro defined in std/macros.yo
 main :: (() -> unit) {
   x ::
     if false, then: 1, else: 2
   ;
+  compt_assert( x == 2);
+
+  y ::
+    if false, then: 1;
+
+
+  z ::
+    if true, then: 3, else: () // QUESTION: Should we allow different return type
+  ;
+  compt_assert( z == 3 );
+
+  expr :: 
+    macro_expand quote
+      if false, then: 1;
 
   ();
 }

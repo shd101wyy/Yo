@@ -314,13 +314,15 @@ ${typeToString(parameterType)}`,
     }
   }
 
-  // If it's isQuote, then it has to be Expr type
+  // If it's isQuote, then it has to be Expr type or ExprList type
   if (isQuote && !isExprType(parameterType) && !isExprListType(parameterType)) {
     throw formatErrorMessage({
       token: lhsExpr?.token ?? expr.token,
       errorMessage: `Expected Expr or ExprList type for "quote" (or ":") parameter, got ${typeToString(parameterType)}`,
     });
   }
+
+  /*
   // We disallow default value for quote parameters
   if (isQuote && defaultValueExpr) {
     throw formatErrorMessage({
@@ -330,6 +332,7 @@ ${typeToString(parameterType)}`,
       )}`,
     });
   }
+    */
 
   // We require to have label for function parameters
   if (!label) {
