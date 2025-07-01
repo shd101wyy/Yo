@@ -72,25 +72,29 @@ export function activate(context: vscode.ExtensionContext) {
 
       if (error instanceof MoParserError) {
         // Handle MoParserError with its structured information
-        const { token, message } = error;
-        const { row, column } = token.position;
+        for (const {
+          token,
+          errorMessage: message,
+        } of error.tokenAndErrorList) {
+          const { row, column } = token.position;
 
-        // Create a range for the error
-        const range = new vscode.Range(
-          row,
-          column,
-          row,
-          column + token.value.length
-        );
+          // Create a range for the error
+          const range = new vscode.Range(
+            row,
+            column,
+            row,
+            column + token.value.length
+          );
 
-        // Create a diagnostic
-        const diagnostic = new vscode.Diagnostic(
-          range,
-          message,
-          vscode.DiagnosticSeverity.Error
-        );
+          // Create a diagnostic
+          const diagnostic = new vscode.Diagnostic(
+            range,
+            message,
+            vscode.DiagnosticSeverity.Error
+          );
 
-        diagnostics.push(diagnostic);
+          diagnostics.push(diagnostic);
+        }
       } else if (error instanceof MoLexerError) {
         // Handle MoLexerError
         const { characterIndex, message } = error;

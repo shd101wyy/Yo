@@ -750,14 +750,12 @@ export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
     expr.$?.isAccessingProperty &&
     isLinearOrType0Type(typeOfType(expr.$.type))
   ) {
-    throw formatErrorMessages({
-      tokenAndErrorList: [
-        {
-          token: expr.token,
-          errorMessage: `Cannot consume a property which is "Linear" value.`,
-        },
-      ],
-    });
+    throw formatErrorMessages([
+      {
+        token: expr.token,
+        errorMessage: `Cannot consume a property which is "Linear" value.`,
+      },
+    ]);
   }
 
   const nameOfVariableToConsume = expr.$?.variableName;
@@ -779,32 +777,28 @@ export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
 
   const variables = getVariablesFromEnv(env, nameOfVariableToConsume);
   if (variables.length === 0) {
-    throw formatErrorMessages({
-      tokenAndErrorList: [
-        {
-          token: expr.token,
-          errorMessage: `Variable "${nameOfVariableToConsume}" is not defined.`,
-        },
-      ],
-    });
+    throw formatErrorMessages([
+      {
+        token: expr.token,
+        errorMessage: `Variable "${nameOfVariableToConsume}" is not defined.`,
+      },
+    ]);
   }
 
   const variableToConsume = variables[variables.length - 1]!;
   if (isLinearOrType0Type(typeOfType(variableToConsume.type))) {
     // Check if the variable is already consumed
     if (variableToConsume.consumedAtToken) {
-      throw formatErrorMessages({
-        tokenAndErrorList: [
-          {
-            token: expr.token,
-            errorMessage: `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`,
-          },
-          {
-            token: variableToConsume.consumedAtToken,
-            errorMessage: `Previously consumed here:`,
-          },
-        ],
-      });
+      throw formatErrorMessages([
+        {
+          token: expr.token,
+          errorMessage: `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`,
+        },
+        {
+          token: variableToConsume.consumedAtToken,
+          errorMessage: `Previously consumed here:`,
+        },
+      ]);
     }
 
     // Set the variable as consumed
@@ -829,14 +823,12 @@ export function requireExprNotConsumed(expr: Expr, env: Environment): void {
 
   const variables = getVariablesFromEnv(env, nameOfVariableToConsume);
   if (variables.length === 0) {
-    throw formatErrorMessages({
-      tokenAndErrorList: [
-        {
-          token: expr.token,
-          errorMessage: `Variable "${nameOfVariableToConsume}" is not defined.`,
-        },
-      ],
-    });
+    throw formatErrorMessages([
+      {
+        token: expr.token,
+        errorMessage: `Variable "${nameOfVariableToConsume}" is not defined.`,
+      },
+    ]);
   }
 
   const variableToConsume = variables[variables.length - 1]!;
@@ -844,18 +836,16 @@ export function requireExprNotConsumed(expr: Expr, env: Environment): void {
   // if (isLinearOrType0Type(typeOfType(variableToConsume.type))) {
   // Check if the variable is already consumed
   if (variableToConsume.consumedAtToken) {
-    throw formatErrorMessages({
-      tokenAndErrorList: [
-        {
-          token: expr.token,
-          errorMessage: `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`,
-        },
-        {
-          token: variableToConsume.consumedAtToken,
-          errorMessage: `Previously consumed here:`,
-        },
-      ],
-    });
+    throw formatErrorMessages([
+      {
+        token: expr.token,
+        errorMessage: `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`,
+      },
+      {
+        token: variableToConsume.consumedAtToken,
+        errorMessage: `Previously consumed here:`,
+      },
+    ]);
   }
   // }
 }
@@ -876,14 +866,12 @@ export function mergeAndCheckEnvs(
   for (let i = 0; i < bodies.length; i++) {
     const body = bodies[i]!;
     if (!body.$) {
-      throw formatErrorMessages({
-        tokenAndErrorList: [
-          {
-            token: body.token,
-            errorMessage: `Expected the body of the case to be evaluated, but it is not.`,
-          },
-        ],
-      });
+      throw formatErrorMessages([
+        {
+          token: body.token,
+          errorMessage: `Expected the body of the case to be evaluated, but it is not.`,
+        },
+      ]);
     }
 
     const caseEnv = body.$.env;
@@ -896,14 +884,12 @@ export function mergeAndCheckEnvs(
     // right now each cond/match case will push new env frame
     // so it needs to - 2, instead of - 1.
     if (caseEnv.frames.length - 2 !== maxFrameLevel) {
-      throw formatErrorMessages({
-        tokenAndErrorList: [
-          {
-            token: bodies[i]!.token,
-            errorMessage: `Frame level is different for different cases.`,
-          },
-        ],
-      });
+      throw formatErrorMessages([
+        {
+          token: bodies[i]!.token,
+          errorMessage: `Frame level is different for different cases.`,
+        },
+      ]);
     }
   }
 
@@ -937,14 +923,12 @@ export function mergeAndCheckEnvs(
         i !== maxFrameLevel &&
         frameVariables.length !== caseEnvFrameVariables.length
       ) {
-        throw formatErrorMessages({
-          tokenAndErrorList: [
-            {
-              token: bodies[j]!.token,
-              errorMessage: `Frame level ${i} has different number of values for different cases.`,
-            },
-          ],
-        });
+        throw formatErrorMessages([
+          {
+            token: bodies[j]!.token,
+            errorMessage: `Frame level ${i} has different number of values for different cases.`,
+          },
+        ]);
       }
 
       // Check if the variable names are the same
@@ -952,14 +936,12 @@ export function mergeAndCheckEnvs(
         const frameVariable = frameVariables[k]!;
         const caseEnvFrameValue = caseEnvFrameVariables[k]!;
         if (frameVariable.name !== caseEnvFrameValue.name) {
-          throw formatErrorMessages({
-            tokenAndErrorList: [
-              {
-                token: bodies[j]!.token,
-                errorMessage: `Frame level ${i} has different variable names for different cases.`,
-              },
-            ],
-          });
+          throw formatErrorMessages([
+            {
+              token: bodies[j]!.token,
+              errorMessage: `Frame level ${i} has different variable names for different cases.`,
+            },
+          ]);
         }
       }
 
@@ -1009,8 +991,7 @@ export function mergeAndCheckEnvs(
         if (consumedAtTokens.length === 1) {
           if (!!consumedAtTokens[0] && !frameVariables[i]!.consumedAtToken) {
             /*
-          throw formatErrorMessages({
-            tokenAndErrorList: [
+          throw formatErrorMessages([
               {
                 token: frameVariables[i]!.token,
                 errorMessage: `Variable "${variableName}" might not be consumed in all cases:`,
@@ -1019,8 +1000,7 @@ export function mergeAndCheckEnvs(
                 token: tokens[0],
                 errorMessage: `Might be consumed here:`,
               },
-            ],
-          });
+            ]);
           */
             // RAII, call "drop" on variable if it is not consumed.
             const newVariable: Variable = {
@@ -1077,18 +1057,16 @@ export function mergeAndCheckEnvs(
           !!initializedAtTokens[0] &&
           !frameVariables[i]!.initializedAtToken
         ) {
-          throw formatErrorMessages({
-            tokenAndErrorList: [
-              {
-                token: frameVariables[i]!.token,
-                errorMessage: `Variable "${frameVariables[i]!.name}" might not be initialized in all cases.`,
-              },
-              {
-                token: initializedAtTokens[0]!,
-                errorMessage: `Might be initialized here:`,
-              },
-            ],
-          });
+          throw formatErrorMessages([
+            {
+              token: frameVariables[i]!.token,
+              errorMessage: `Variable "${frameVariables[i]!.name}" might not be initialized in all cases.`,
+            },
+            {
+              token: initializedAtTokens[0]!,
+              errorMessage: `Might be initialized here:`,
+            },
+          ]);
         }
       }
       // case 2
@@ -1109,17 +1087,20 @@ export function mergeAndCheckEnvs(
         const initialized = initializedAtTokens.filter((u) => !!u);
         const notInitialized = initializedAtTokens.filter((u) => !u);
         if (initialized.length > 0 && notInitialized.length > 0) {
-          throw formatErrorMessages({
-            errorMessage: `Variable "${variableName}" might be initialized in some cases but not initialized in other cases:\n`,
-            tokenAndErrorList: initializedAtTokens.map((token, index) => {
+          throw formatErrorMessages(
+            initializedAtTokens.map((token, index) => {
               return {
-                errorMessage: token
-                  ? "Might be initialized here:"
-                  : "Not initialized here:",
+                errorMessage:
+                  (index === 0
+                    ? `Variable "${variableName}" might be initialized in some cases but not initialized in other cases:\n`
+                    : "") +
+                  (token
+                    ? "Might be initialized here:"
+                    : "Not initialized here:"),
                 token: token ?? bodies[index]!.token,
               };
-            }),
-          });
+            })
+          );
         }
       }
     }

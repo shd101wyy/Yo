@@ -148,18 +148,16 @@ export function addVariableToEnv({
       (variable) => isFunctionType(variable.type)
     );
     if (existingFunctionVariables.length > 0) {
-      throw formatErrorMessages({
-        tokenAndErrorList: [
-          {
-            token: variable.token,
-            errorMessage: `Failed to define function "${variable.name}" as overloading is not allowed:`,
-          },
-          {
-            token: existingFunctionVariables[0]!.token,
-            errorMessage: `Function "${existingFunctionVariables[0]!.name}" is already defined here:`,
-          },
-        ],
-      });
+      throw formatErrorMessages([
+        {
+          token: variable.token,
+          errorMessage: `Failed to define function "${variable.name}" as overloading is not allowed:`,
+        },
+        {
+          token: existingFunctionVariables[0]!.token,
+          errorMessage: `Function "${existingFunctionVariables[0]!.name}" is already defined here:`,
+        },
+      ]);
     }
   }
 
@@ -205,19 +203,17 @@ export function addVariableToFrame({
     !allowDuplicate &&
     frame.variables.some((value) => value.name === variable.name)
   ) {
-    throw formatErrorMessages({
-      tokenAndErrorList: [
-        {
-          token: variable.token,
-          errorMessage: `Failed to define variable "${variable.name}":`,
-        },
-        {
-          token: frame.variables.find((value) => value.name === variable.name)!
-            .token,
-          errorMessage: `Variable "${variable.name}" is already defined here in the same scope:`,
-        },
-      ],
-    });
+    throw formatErrorMessages([
+      {
+        token: variable.token,
+        errorMessage: `Failed to define variable "${variable.name}":`,
+      },
+      {
+        token: frame.variables.find((value) => value.name === variable.name)!
+          .token,
+        errorMessage: `Variable "${variable.name}" is already defined here in the same scope:`,
+      },
+    ]);
   }
 
   // Check if there is already a value with the same variableName
@@ -238,18 +234,16 @@ export function addVariableToFrame({
       (value) => value.name === variable.name
     );
     if (existingVariable) {
-      throw formatErrorMessages({
-        tokenAndErrorList: [
-          {
-            token: variable.token,
-            errorMessage: `Failed to define variable "${variable.name}":`,
-          },
-          {
-            token: existingVariable.token,
-            errorMessage: `Variable "${existingVariable.name}" is already defined here:`,
-          },
-        ],
-      });
+      throw formatErrorMessages([
+        {
+          token: variable.token,
+          errorMessage: `Failed to define variable "${variable.name}":`,
+        },
+        {
+          token: existingVariable.token,
+          errorMessage: `Variable "${existingVariable.name}" is already defined here:`,
+        },
+      ]);
     }
   }
 
@@ -396,19 +390,17 @@ export function popEnvFrame(
       }
 
       if (errors.length > 0) {
-        throw formatErrorMessages({
-          tokenAndErrorList: errors,
-        });
+        throw formatErrorMessages(errors);
       }
     } else if (undefinedVariables.length > 0) {
-      throw formatErrorMessages({
-        tokenAndErrorList: undefinedVariables.map((variable) => {
+      throw formatErrorMessages(
+        undefinedVariables.map((variable) => {
           return {
             token: variable.token,
             errorMessage: `Variable "${variable.name}" is undefined.`,
           };
-        }),
-      });
+        })
+      );
     } /* else if (unusedFreeValues.length > 0) {
       console.warn(
         formatWarningMessages({

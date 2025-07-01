@@ -15,6 +15,7 @@ import {
   requireExprNotConsumed,
   setExprAsConsumed,
 } from "../../expr";
+import { setTypeValueAsLinear } from "../../type-value";
 import {
   areTypesCompatible,
   isFreeType,
@@ -24,7 +25,6 @@ import {
   typeOfType,
   typeToString,
 } from "../../types";
-import { setTypeValueAsLinear } from "../../type-value";
 import { VUnit } from "../../unit-value";
 import { isFunctionValue, isModuleValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";

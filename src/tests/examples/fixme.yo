@@ -1,13 +1,50 @@
-id_func :: 
-  ((forall(@(T): Free),
-    x : T)-> T) {
-  (xx : T) = x; // Use `T` inside the function body
-  xxx := x;
+Point ::
+  ((@(P): Type)-> @(Type))
+  struct
+    x: P,
+    y: P
+;
 
-  mut(xxxx) := xxx;
-  // (mut(xxxx) : typeof(x)) = xxx;
-  xxxx = xx;
-  xxx
-};
+Id ::
+  ((@(Self_): Type)-> @(Module))
+  module
+    (Self: Type) = Self_,
+    id:
+      (self: Self)-> Self
+;
 
-x3 := id_func(12);
+id ::
+  ((forall(@(T): Type), x: T, implicit(@(I): Id(T)))-> T)
+  I.id(x)
+;
+
+implicit(IdInt) ::
+  Id(i32)
+    id:
+      fn(x) -> x
+;
+
+implicit(IdBoolean) ::
+  Id(boolean)
+    id:
+      fn(x) -> x
+;
+
+implicit(IdPoint) ::
+  (( forall(@(IP): Type), 
+    implicit(@(I): Id(IP))
+  )-> @(Id(Point(IP))))
+  Id(Point(IP))
+    id:
+      fn(p) -> {
+        { x, y } := p;
+        Point(IP)(I.id(x), I.id(y))
+      }
+;
+
+main :: (()-> unit) {
+  x5 := id(Point(i32)(1, 2), implicit(_)); // Implicit call
+  // x5 := id(Point(i32)(1, 2)); // Implicit call
+  // x6 := id(Point(i32)(1, 2), implicit(IdPoint())); // Implicit call 2
+  // x7 := id(Point(i32)(1, 2), implicit(IdPoint(implicit(IdInt)))); // Explicit call
+}

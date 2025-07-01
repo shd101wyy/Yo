@@ -3,7 +3,6 @@ import {
   addVariableToEnv,
   Environment,
   getMethodsByNameFromEnv,
-  getVariablesFromEnv,
   getVariablesFromEnvByFilter,
   popEnvFrame,
   pushEnvFrame,
@@ -587,6 +586,13 @@ Got:   ${typeToString(argType)}`,
     // =====
 
     // Check in the env if implicit variable of such type exists
+    const implicitFunctionCalls: {
+      returnType: Type;
+      returnValue: Value | undefined;
+      calleeEnv: Environment;
+      callerEnv: Environment;
+      variable: Variable;
+    }[] = [];
     let implicitVariables = getVariablesFromEnvByFilter(
       callerEnv,
       (variable) => {
@@ -624,17 +630,22 @@ Got:   ${typeToString(argType)}`,
               return false;
             }
 
+            if (!(!funcValue || isFunctionValue(funcValue))) {
+              return false;
+            }
+
             try {
               // FIXME: Prevent circular call
               const {
                 returnType,
+                returnValue,
                 calleeEnv: nextCalleeEnv,
                 callerEnv: nextCallerEnv,
               } = tryToCallFunctionWithArguments({
                 argExprs: [],
                 callerEnv,
                 functionType: funcType,
-                functionValue: funcValue as FunctionValue | undefined,
+                functionValue: funcValue,
                 functionCallExpr: undefined, // FIXME: <- this is the wrong expr
                 context: {
                   ...context,
@@ -645,10 +656,21 @@ Got:   ${typeToString(argType)}`,
                 },
                 isMethodCall: false,
               });
-              return areTypesCompatible(
+              const matched = areTypesCompatible(
                 { type: returnType, env: nextCallerEnv },
                 { type: implicitParameterType, env: nextCalleeEnv }
               );
+              if (matched) {
+                implicitFunctionCalls.push({
+                  returnType,
+                  returnValue,
+                  calleeEnv: nextCalleeEnv,
+                  callerEnv: nextCallerEnv,
+                  variable,
+                });
+              }
+
+              return matched;
             } catch {
               // Failed
             }
@@ -694,26 +716,57 @@ ${implicitVariables
     // Add the implicit variable to the function env
     const implicitVariable = implicitVariables[0]!;
 
-    // console.log("(15) addVariableToEnv");
-    const { env: nextEnv } = addVariableToEnv({
-      env: calleeEnv,
-      variable: {
-        name: implicitParameter.label,
-        type: implicitVariable.type,
-        isMutable: implicitVariable.isMutable,
-        isCompileTimeOnly: implicitVariable.isCompileTimeOnly,
-        isImplicit: false,
-        value: implicitVariable.value,
-        token: functionCallExpr?.token ?? PlaceholderToken,
-        initializedAtToken: functionCallExpr?.token ?? PlaceholderToken, // Set as initialized
-        consumedAtToken: undefined, // Not consumed yet
-      },
-      skipCheckingFunctionOverloading: true,
-    });
-    calleeEnv = nextEnv;
+    // Check if it's from an implicit function call
+    if (
+      isFunctionType(implicitVariable.type) &&
+      implicitFunctionCalls.find((c) => c.variable === implicitVariable)
+    ) {
+      const implicitFunctionCallResult = implicitFunctionCalls.find(
+        (c) => c.variable === implicitVariable
+      )!;
+      const { returnType, returnValue } = implicitFunctionCallResult;
 
-    // Add the implicit variable value to the implicitArgValues
-    implicitArgValues.push(implicitVariable.value);
+      const { env: nextEnv } = addVariableToEnv({
+        env: calleeEnv, // NOTE: use calleEnv from implicitFunctionCallResult will give error
+        variable: {
+          name: implicitParameter.label,
+          type: returnType,
+          isMutable: implicitVariable.isMutable,
+          isCompileTimeOnly: implicitVariable.isCompileTimeOnly,
+          isImplicit: implicitVariable.isImplicit,
+          value: returnValue,
+          token: functionCallExpr?.token ?? PlaceholderToken,
+          initializedAtToken: functionCallExpr?.token ?? PlaceholderToken, // Set as initialized
+          consumedAtToken: undefined, // Not consumed yet
+        },
+        skipCheckingFunctionOverloading: true,
+      });
+      calleeEnv = nextEnv;
+
+      // Add the implicit variable value to the implicitArgValues
+      implicitArgValues.push(returnValue);
+    } else {
+      // console.log("(15) addVariableToEnv");
+      const { env: nextEnv } = addVariableToEnv({
+        env: calleeEnv,
+        variable: {
+          name: implicitParameter.label,
+          type: implicitVariable.type,
+          isMutable: implicitVariable.isMutable,
+          isCompileTimeOnly: implicitVariable.isCompileTimeOnly,
+          isImplicit: implicitVariable.isImplicit,
+          value: implicitVariable.value,
+          token: functionCallExpr?.token ?? PlaceholderToken,
+          initializedAtToken: functionCallExpr?.token ?? PlaceholderToken, // Set as initialized
+          consumedAtToken: undefined, // Not consumed yet
+        },
+        skipCheckingFunctionOverloading: true,
+      });
+      calleeEnv = nextEnv;
+
+      // Add the implicit variable value to the implicitArgValues
+      implicitArgValues.push(implicitVariable.value);
+    }
   }
 
   // Evaluate the function return type again
@@ -1038,9 +1091,16 @@ export function evaluateFunctionCall({
         //   }
         checkBorrowings(context.borrowings, functionToCall);
 
+        if (!functionToCall.$) {
+          throw formatErrorMessage({
+            token: func.token,
+            errorMessage: `Failed to evaluate the callee:`,
+          });
+        }
+
         // Check if func is a module value,
         // If yes, then we extract the Self from it.
-        if (isModuleType(functionToCall.$?.type)) {
+        if (isModuleType(functionToCall.$.type)) {
           const moduleType = functionToCall.$.type;
           const SelfIndex = moduleType.elements.findIndex(
             (e) => e.label === "Self"
@@ -1079,12 +1139,12 @@ export function evaluateFunctionCall({
           /**
            * functionVariables might be of FunctionType, StructType, UnionType, and EnumVariant
            */
-          const functionVariables = getVariablesFromEnv(env, functionName);
-          functions = functionVariables.map((variable) => ({
-            type: variable.type,
-            value: variable.value,
-            isMutable: variable.isMutable,
-          }));
+          functions = [
+            {
+              type: functionToCall.$.type,
+              value: functionToCall.$.value,
+            },
+          ];
         }
       }
     }
@@ -1342,62 +1402,66 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
     ) {
       const error = functionsToCall[0]!.result.error;
       if (error instanceof MoParserError) {
-        throw formatErrorMessages({
-          tokenAndErrorList: [
-            {
-              token: expr.token,
-              errorMessage: `Failed to call the function:`,
-            },
-            {
-              token: error.token,
-              errorMessage: error.message,
-            },
-          ],
-        });
+        throw formatErrorMessages([
+          {
+            token: expr.token,
+            errorMessage: `Failed to call the function:\n`,
+          },
+          ...error.tokenAndErrorList,
+        ]);
       } else {
-        throw formatErrorMessages({
-          tokenAndErrorList: [
-            {
-              token: expr.token,
-              errorMessage: `Failed to call the function:`,
-            },
-            {
-              token: expr.token,
-              errorMessage:
-                error instanceof Error ? error.message : String(error),
-            },
-          ],
-        });
+        throw formatErrorMessages([
+          {
+            token: expr.token,
+            errorMessage: `Failed to call the function:\n`,
+          },
+          {
+            token: expr.token,
+            errorMessage:
+              error instanceof Error ? error.message : String(error),
+          },
+        ]);
       }
     }
 
-    throw formatErrorMessage({
-      token: func.token,
-      errorMessage: `No matching call found with arguments:
+    throw formatErrorMessages([
+      {
+        token: func.token,
+        errorMessage: `No matching call found with arguments:
 ${exprToString(expr)}
 
-${functionsToCall.length ? "Available functions:\n" : ""}${functionsToCall
-        .map((func) => {
+${functionsToCall.length ? "Available functions:\n" : ""}`,
+      },
+      ...functionsToCall
+        .map((functionsToCall) => {
           const error =
-            func.result.kind === "error" ? func.result.error : undefined;
+            functionsToCall.result.kind === "error"
+              ? functionsToCall.result.error
+              : undefined;
           if (error) {
-            const errorMessage = error.message;
-            // Append 2 spaces ahead each line of the errorMessage
-            const errorMessageWithIndent = errorMessage
-              .split("\n")
-              .map((line) => `  ${line}`)
-              .join("\n");
-
-            return `
-- ${typeToString(func.type)}
-${errorMessageWithIndent}`;
+            if (error instanceof MoParserError) {
+              return [
+                {
+                  token: func.token,
+                  errorMessage: `- ${typeToString(functionsToCall.type)}\n`,
+                },
+                ...error.tokenAndErrorList,
+              ];
+            } else {
+              return {
+                token: func.token,
+                errorMessage: `- ${typeToString(functionsToCall.type)}\n${error instanceof Error ? error.message : String(error)}`,
+              };
+            }
           } else {
-            return `${typeToString(func.type)}`;
+            return {
+              token: func.token,
+              errorMessage: `${typeToString(functionsToCall.type)}`,
+            };
           }
         })
-        .join("\n")}
-`,
-    });
+        .flat(),
+    ]);
   }
   if (functionsWithMatchingTypes.length > 1) {
     throw formatErrorMessage({

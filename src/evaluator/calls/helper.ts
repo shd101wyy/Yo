@@ -320,19 +320,19 @@ export function checkIfFunctionParameterMatchesArgument({
     // argType requires compt modifier
     // but the parameter is not compt
     // we need to convert the argType to runtimeType
-    if (typeRequiresComptModifier(argType)) {
-      argType = convertComptTypeToRuntimeType(argType);
+    // if (typeRequiresComptModifier(argType)) {
+    argType = convertComptTypeToRuntimeType(argType);
 
-      if (typeRequiresComptModifier(argType)) {
-        // We fail to convert to runtime type
-        throw formatErrorMessage({
-          token: argExpr?.token ?? PlaceholderToken,
-          errorMessage: `Cannot convert compile-time type to runtime type for argument:\n${exprToString(
-            evaluatedArgExpr
-          )}`,
-        });
-      }
+    if (typeRequiresComptModifier(argType)) {
+      // We fail to convert to runtime type
+      throw formatErrorMessage({
+        token: argExpr?.token ?? PlaceholderToken,
+        errorMessage: `Cannot convert compile-time type to runtime type for argument:\n${exprToString(
+          evaluatedArgExpr
+        )}`,
+      });
     }
+    // }
   }
 
   const { env: nextEnv } = addVariableToEnv({

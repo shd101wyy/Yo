@@ -1,5 +1,10 @@
 import { Token } from "./token";
 
+export interface TokenAndError {
+  token: Token;
+  errorMessage: string;
+}
+
 export class MoLexerError {
   public characterIndex: number;
   public message: string;
@@ -17,12 +22,10 @@ export class MoLexerError {
 }
 
 export class MoParserError {
-  public token: Token;
-  public message;
+  public tokenAndErrorList: TokenAndError[] = [];
 
-  constructor({ token, message }: { token: Token; message: string }) {
-    this.token = token;
-    this.message = message;
+  constructor(tokenAndErrorList: TokenAndError[]) {
+    this.tokenAndErrorList = tokenAndErrorList;
   }
 }
 
@@ -69,39 +72,23 @@ export function formatErrorMessage({
 
 ${getLineAtToken({ token })}`;
 
-  return new MoParserError({
-    token,
-    message: errorMessages + (cause?.message ? "\n" + cause.message : ""),
-  });
+  return new MoParserError([
+    {
+      token,
+      errorMessage:
+        errorMessages + (cause?.message ? "\n" + cause.message : ""),
+    },
+  ]);
 }
 
-export function formatErrorMessages({
-  errorMessage,
-  tokenAndErrorList,
-  cause,
-}: {
-  errorMessage?: string;
-  tokenAndErrorList: { token: Token; errorMessage: string }[];
-  cause?: Error;
-}): MoParserError {
+export function formatErrorMessages(
+  tokenAndErrorList: TokenAndError[]
+): MoParserError {
   if (tokenAndErrorList.length === 0) {
     throw new Error("tokenAndErrorList must not be empty");
   }
 
-  const errorMessages = tokenAndErrorList
-    .map(({ token, errorMessage }) => {
-      return `${errorMessage}
-${getLineAtToken({ token })}`;
-    })
-    .join("\n\n");
-
-  return new MoParserError({
-    token: tokenAndErrorList[0]!.token,
-    message:
-      (errorMessage ? errorMessage + "\n" : "") +
-      errorMessages +
-      (cause?.message ? "\n" + cause.message : ""),
-  });
+  return new MoParserError(tokenAndErrorList);
 }
 
 export function formatWarningMessages({

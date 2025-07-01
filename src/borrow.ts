@@ -60,18 +60,16 @@ export function checkBorrowings(borrowings: Borrowing[], expr?: Expr): void {
           borrowing2 = mutableBorrowing;
         }
 
-        throw formatErrorMessages({
-          tokenAndErrorList: [
-            {
-              errorMessage: `Borrow conflict detected`,
-              token: borrowing2.expr.token,
-            },
-            {
-              errorMessage: `Previous borrowed at`,
-              token: borrowing1.expr.token,
-            },
-          ],
-        });
+        throw formatErrorMessages([
+          {
+            errorMessage: `Borrow conflict detected`,
+            token: borrowing2.expr.token,
+          },
+          {
+            errorMessage: `Previous borrowed at`,
+            token: borrowing1.expr.token,
+          },
+        ]);
       }
     }
   }
@@ -86,18 +84,16 @@ export function checkBorrowings(borrowings: Borrowing[], expr?: Expr): void {
           expr.$.pathCollection
         )
       ) {
-        throw formatErrorMessages({
-          tokenAndErrorList: [
-            {
-              errorMessage: `Borrow conflict detected`,
-              token: expr.token,
-            },
-            {
-              errorMessage: `Previous borrowed at`,
-              token: borrowing.expr.token,
-            },
-          ],
-        });
+        throw formatErrorMessages([
+          {
+            errorMessage: `Borrow conflict detected`,
+            token: expr.token,
+          },
+          {
+            errorMessage: `Previous borrowed at`,
+            token: borrowing.expr.token,
+          },
+        ]);
       }
     }
   }

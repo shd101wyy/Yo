@@ -315,6 +315,8 @@ export function areTypesCompatible(
         if (!givenElement) {
           return false;
         }
+
+        console.log("Enter here (1)");
         if (
           !areTypesCompatible(
             { type: expectedElement.type, env: expected.env },
@@ -322,6 +324,7 @@ export function areTypesCompatible(
             true // exactNumericTypeMatch
           )
         ) {
+          console.log("Enter here (2)");
           return false;
         }
 
@@ -338,10 +341,12 @@ export function areTypesCompatible(
               }
             )
           ) {
+            console.log("Enter here (3)");
             return false;
           }
         }
       }
+      console.log("matches!");
       return true;
     }
   }
@@ -429,7 +434,11 @@ export function areTypesCompatible(
         return expectedType_.typeId === givenType_.typeId;
       } else {
         // QUESTION: Is this correct?
-        return false;
+        // return false;
+        return areTypesCompatible(
+          { type: expectedType_, env: expected.env },
+          { type: givenType_, env: given.env }
+        );
       }
     } else {
       const expectedType_ = getValueOfSomeTypeFromEnv(
@@ -444,6 +453,12 @@ export function areTypesCompatible(
         given
       );
     }
+  } else if (isSomeType(given.type)) {
+    const givenType_ = getValueOfSomeTypeFromEnv(given.env, given.type);
+    if (given.type === givenType_) {
+      return false;
+    }
+    return areTypesCompatible(expected, { type: givenType_, env: given.env });
   }
 
   return false;

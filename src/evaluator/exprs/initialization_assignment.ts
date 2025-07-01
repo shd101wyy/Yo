@@ -207,12 +207,12 @@ ${exprToString(rhs)}`,
 
       // Check if the type is compatible
       if (
-        !areTypesCompatible({ type: lhs.$?.type, env }, { type: rhsType, env })
+        !areTypesCompatible({ type: lhs.$.type, env }, { type: rhsType, env })
       ) {
         throw formatErrorMessage({
           token: lhs.token,
           errorMessage: `Incompatible types:
-- Defined: ${typeToString(lhs.$?.type)}
+- Defined: ${typeToString(lhs.$.type)}
 - Given  : ${typeToString(rhsType)}`,
         });
       }

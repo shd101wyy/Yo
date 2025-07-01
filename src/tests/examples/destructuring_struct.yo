@@ -24,3 +24,17 @@ main :: (()-> unit) {
     _(x: a, y: b) := p;
   };
 };
+
+Container :: struct
+  x : &(i32),
+  y : &!(i32)
+;
+
+test :: ((c : Container) -> unit) {
+  compt_expect_error(
+    { x, y } := c,
+    "Cannot destructure element of type with reference"
+  );
+
+  ();
+};
