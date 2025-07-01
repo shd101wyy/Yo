@@ -1,30 +1,58 @@
 import { Emitter } from "../emitter";
-import { getVariablesFromEnv } from "../env";
-import { AtomExpr, Expr, FuncCallExpr } from "../expr";
+import { AtomExpr, Expr, exprToString, FuncCallExpr } from "../expr";
 import { FunctionValue } from "../function-value";
 import { EnumType, FunctionType, StructType, Type, UnionType } from "../types";
 import {
   isEnumType,
   isFunctionSpecializable,
+  isFunctionType,
   isStructType,
   isUnionType,
 } from "../types/guards";
 import { typeToString } from "../types/utils";
 import { generateModuleId } from "../utils";
-import { isFunctionValue, ModuleValue, Value, valueToString } from "../value";
+import {
+  isFunctionValue,
+  isTypeValue,
+  ModuleValue,
+  Value,
+  valueToString,
+} from "../value";
 import { ValueTag } from "../value-tag";
 
 export class CodeGeneratorC {
   private emitter: Emitter;
 
-  private typeNameMap: Map<string, string> = new Map(); // yo type name -> C type name
-  private collectedTypes: Map<string, Type> = new Map(); // store collected user-defined types (struct, enum, union, etc.)
+  /**
+   *   Yo type id -> C type name
+   */
+  private typeNameMap: Map<string, string> = new Map();
+  /**
+   * store collected user-defined types (struct, enum, union, etc.)
+   *   Yo type id -> C type
+   */
+  private collectedTypes: Map<string, Type> = new Map();
 
-  private functionNameMap: Map<string, string> = new Map(); // yo function name -> C function name
-  private collectedFunctions: Map<string, FunctionValue> = new Map(); // store collected function values
+  /**
+   * Yo function value id -> C function name
+   */
+  private functionNameMap: Map<string, string> = new Map();
+  /**
+   * store collected function values
+   *   Yo function value id -> C function value
+   */
+  private collectedFunctions: Map<string, FunctionValue> = new Map();
 
-  private externFunctions: Map<string, FunctionType> = new Map(); // store extern function signatures
-  private currentFunctionName: string = ""; // track the current function being generated for recur
+  /**
+   * store extern function signatures
+   *   C function name -> FunctionType
+   */
+  private externFunctions: Map<string, FunctionType> = new Map();
+
+  /**
+   * track the current function being generated for recur
+   */
+  private currentFunctionName: string = "";
 
   constructor() {
     this.emitter = new Emitter();
@@ -78,9 +106,9 @@ export class CodeGeneratorC {
         const label = moduleElement.label;
         // Exported functions keep their original names (especially main)
         if (label === "main") {
-          this.functionNameMap.set(label, "main");
+          this.functionNameMap.set(element.funcId, "main");
         } else {
-          this.functionNameMap.set(label, `yo_${label}`);
+          this.functionNameMap.set(element.funcId, `yo_${element.funcId}`);
         }
 
         // Recursively collect functions called by this function
@@ -118,48 +146,32 @@ export class CodeGeneratorC {
             return;
           }
 
-          // This might be a user-defined function call
-          if (!this.functionNameMap.has(funcName)) {
-            // Use the environment from the expression to find the function
-            if (expr.$ && expr.$.env) {
-              const env = expr.$.env;
-              const functionVariables = getVariablesFromEnv(env, funcName);
+          const functionType = expr.func.$?.type;
+          const functionValue = expr.func.$?.value;
 
-              if (functionVariables.length > 0) {
-                const functionVariable =
-                  functionVariables[functionVariables.length - 1]!; // Get the latest one
+          if (!isFunctionType(functionType)) {
+            throw new Error(
+              `Expected function type ${exprToString(expr.func)}`
+            );
+          }
 
-                if (
-                  functionVariable.value &&
-                  isFunctionValue(functionVariable.value)
-                ) {
-                  // Regular user-defined function
-                  const cFunctionName = `yo_${functionVariable.value.funcId}`;
-                  this.functionNameMap.set(funcName, cFunctionName);
-                  this.collectedFunctions.set(funcName, functionVariable.value);
+          if (isFunctionValue(functionValue)) {
+            // Check if the function is already collected
+            if (this.collectedFunctions.has(functionValue.funcId)) {
+              // Function already collected, but still check its body if we have it
+              this.findFunctionCallsInExpr(functionValue.body, moduleValue);
+            } else {
+              // Regular user-defined function
+              const cFunctionName = `yo_${functionValue.funcId}`;
+              this.functionNameMap.set(functionValue.funcId, cFunctionName);
+              this.collectedFunctions.set(functionValue.funcId, functionValue);
 
-                  // Recursively collect functions called by this function
-                  this.findFunctionCallsInExpr(
-                    functionVariable.value.body,
-                    moduleValue
-                  );
-                } else if (
-                  functionVariable.type &&
-                  functionVariable.type.tag === "Function"
-                ) {
-                  // This might be an extern function (has type but no implementation)
-                  const functionType = functionVariable.type as FunctionType;
-                  this.functionNameMap.set(funcName, funcName); // extern functions keep their original names
-                  this.externFunctions.set(funcName, functionType);
-                }
-              }
-            }
-          } else {
-            // Function already collected, but still check its body if we have it
-            const functionValue = this.collectedFunctions.get(funcName);
-            if (functionValue) {
+              // Recursively collect functions called by this function
               this.findFunctionCallsInExpr(functionValue.body, moduleValue);
             }
+          } else {
+            // This might be an extern function (has type but no implementation)
+            this.externFunctions.set(funcName, functionType);
           }
         }
 
@@ -178,7 +190,7 @@ export class CodeGeneratorC {
    * Second pass: generate function declarations (prototypes)
    */
   private generateFunctionDeclarations(moduleValue: ModuleValue): void {
-    this.emitter.emitDeclarationLine(`\n// Function declarations`);
+    this.emitter.emitDeclarationLine(`// Function declarations`);
 
     // Generate declarations for extern functions first
     for (const [funcName, functionType] of this.externFunctions.entries()) {
@@ -191,32 +203,31 @@ export class CodeGeneratorC {
       const moduleElement = moduleValue.type.elements[i];
 
       if (element && moduleElement && isFunctionValue(element)) {
-        const label = moduleElement.label;
-
         // Skip generic functions - they will be handled via monomorphization
         if (isFunctionSpecializable(element.type)) {
           continue;
         }
 
-        const cFunctionName = this.functionNameMap.get(label) || label;
-        this.generateFunctionDeclaration(element, label, cFunctionName);
+        const cFunctionName = this.functionNameMap.get(element.funcId);
+        if (!cFunctionName) {
+          throw new Error(
+            `Function ${element.funcId} does not have a C function name`
+          );
+        }
+        this.generateFunctionDeclaration(element, cFunctionName);
       }
     }
 
     // Generate declarations for non-exported functions that were collected
-    for (const [funcName, functionValue] of this.collectedFunctions.entries()) {
+    for (const [funcId, functionValue] of this.collectedFunctions.entries()) {
       // Skip generic functions - only monomorphized versions should be declared
       if (this.isGenericFunction(functionValue)) {
         continue;
       }
 
-      const cFunctionName = this.functionNameMap.get(funcName);
+      const cFunctionName = this.functionNameMap.get(funcId);
       if (cFunctionName) {
-        this.generateFunctionDeclaration(
-          functionValue,
-          funcName,
-          cFunctionName
-        );
+        this.generateFunctionDeclaration(functionValue, cFunctionName);
       }
     }
   } /**
@@ -224,19 +235,15 @@ export class CodeGeneratorC {
    */
   private generateFunctionDeclaration(
     functionValue: FunctionValue,
-    label: string,
     cFunctionName: string
   ): void {
-    const isMain = label === "main";
+    const isMain = cFunctionName === "main";
     const functionType = functionValue.type;
 
     if (isMain) {
       // For main function, use the actual return type from the function
       const returnTypeStr = this.getTypeString(functionType.return.type);
-      const yoTypeStr = typeToString(functionType);
-      this.emitter.emitDeclarationLine(
-        `${returnTypeStr} ${cFunctionName}(); // ${label} : ${yoTypeStr}`
-      );
+      this.emitter.emitDeclarationLine(`${returnTypeStr} ${cFunctionName}();`);
     } else {
       // For non-main functions, generate based on function type
       const returnTypeStr = this.getTypeString(functionType.return.type);
@@ -255,7 +262,7 @@ export class CodeGeneratorC {
 
       const yoTypeStr = typeToString(functionType);
       this.emitter.emitDeclarationLine(
-        `${returnTypeStr} ${cFunctionName}(${params}); // ${label} : ${yoTypeStr}`
+        `${returnTypeStr} ${cFunctionName}(${params}); // ${functionValue.funcName ?? functionValue.funcId} : ${yoTypeStr}`
       );
     }
   }
@@ -291,28 +298,29 @@ export class CodeGeneratorC {
    * Third pass: generate all collected functions
    */
   private generateAllFunctions(moduleValue: ModuleValue): void {
+    this.emitter.emitLine(`// Function definitions`);
     // Generate exported functions
     for (let i = 0; i < moduleValue.elements.length; i++) {
       const element = moduleValue.elements[i];
       const moduleElement = moduleValue.type.elements[i];
 
       if (element && moduleElement && isFunctionValue(element)) {
-        const label = moduleElement.label;
-        const cFunctionName = this.functionNameMap.get(label) || label;
-        this.generateFunction(element, label, cFunctionName);
+        const cFunctionName =
+          this.functionNameMap.get(element.funcId) || element.funcId;
+        this.generateFunction(element, cFunctionName);
       }
     }
 
     // Generate non-exported functions that were collected (but skip generic functions)
-    for (const [funcName, functionValue] of this.collectedFunctions.entries()) {
+    for (const [funcId, functionValue] of this.collectedFunctions.entries()) {
       // Skip if this is a generic function (it will be handled via monomorphization)
       if (this.isGenericFunction(functionValue)) {
         continue;
       }
 
-      const cFunctionName = this.functionNameMap.get(funcName);
+      const cFunctionName = this.functionNameMap.get(funcId);
       if (cFunctionName) {
-        this.generateFunction(functionValue, funcName, cFunctionName);
+        this.generateFunction(functionValue, cFunctionName);
       }
     }
   }
@@ -322,12 +330,11 @@ export class CodeGeneratorC {
    */
   private generateFunction(
     functionValue: FunctionValue,
-    label: string,
-    cFunctionName?: string
+    cFunctionName: string
   ): void {
     // Use provided C function name or default to label
-    const functionName = cFunctionName || label;
-    const isMain = label === "main";
+    const functionName = cFunctionName;
+    const isMain = functionName === "main";
     const functionType = functionValue.type;
 
     // Generate function signature based on actual function type
@@ -398,13 +405,13 @@ export class CodeGeneratorC {
       const funcName = expr.func.token.value;
 
       // Check if this is a struct or union constructor call
-      if (this.collectedTypes.has(funcName)) {
-        const userType = this.collectedTypes.get(funcName);
-        if (userType && isStructType(userType)) {
+      if (isTypeValue(expr.$?.value)) {
+        const userType = expr.$.value.type;
+        if (isStructType(userType)) {
           // This is a struct constructor - handle it specially
           this.handleStructConstructor(expr, indent, userType);
           return;
-        } else if (userType && isUnionType(userType)) {
+        } else if (isUnionType(userType)) {
           // This is a union constructor - handle it specially
           this.handleUnionConstructor(expr, indent, userType);
           return;
@@ -535,13 +542,13 @@ export class CodeGeneratorC {
       const funcName = expr.func.token.value;
 
       // Check if this is a struct or union constructor call
-      if (this.collectedTypes.has(funcName)) {
-        const userType = this.collectedTypes.get(funcName);
-        if (userType && isStructType(userType)) {
+      if (isTypeValue(expr.$?.value)) {
+        const userType = expr.$.value.type;
+        if (isStructType(userType)) {
           return this.generateStructConstructorExpression(expr, userType);
-        } else if (userType && isUnionType(userType)) {
+        } else if (isUnionType(userType)) {
           return this.generateUnionConstructorExpression(expr, userType);
-        } else if (userType && isEnumType(userType)) {
+        } else if (isEnumType(userType)) {
           return this.generateEnumConstructorExpression(expr, userType);
         }
       }
@@ -566,8 +573,16 @@ export class CodeGeneratorC {
         return this.generateFieldAccess(expr);
       }
 
+      const funcType = expr.func.$?.type;
+      if (!isFunctionType(funcType)) {
+        return `// Expected function type: ${exprToString(expr.func)}`;
+      }
+
       // Use the correct C function name (could be mangled)
-      let cFunctionName = this.functionNameMap.get(funcName) || funcName;
+      let cFunctionName = this.functionNameMap.get(funcType.id);
+      if (!cFunctionName) {
+        return `// Function ${funcName} not found in function name map`;
+      }
 
       // Check if this is a generic function call and get the monomorphized name
       const functionValue = this.collectedFunctions.get(funcName);
@@ -595,22 +610,16 @@ export class CodeGeneratorC {
           const specializedFunction = expr.func.$.value;
 
           // Use the specialized function's funcId directly as the mangled name
-          const mangledName = `${specializedFunction.funcId}`;
+          const mangledName = specializedFunction.funcId;
           this.collectedFunctions.set(mangledName, specializedFunction);
           this.functionNameMap.set(mangledName, mangledName);
-
-          // Also store the original function for monomorphization
-          const originalFunction = this.collectedFunctions.get(funcName);
-          if (originalFunction) {
-            this.collectedFunctions.set(funcName, originalFunction);
-          }
 
           cFunctionName = mangledName;
         }
       }
 
       // Get function type to filter out compile-time arguments
-      const functionType = this.getFunctionTypeByName(funcName);
+      const functionType = funcType;
       let filteredArgs: string[];
 
       if (functionType) {
@@ -657,8 +666,7 @@ export class CodeGeneratorC {
     expr: FuncCallExpr,
     structType: StructType
   ): string {
-    const structTypeName = structType.typeName || "UnknownStruct";
-    const cTypeName = this.typeNameMap.get(structTypeName) || structTypeName;
+    const cTypeName = this.typeNameMap.get(structType.id) || structType.id;
 
     // Check if this uses named arguments (field names specified)
     const hasNamedArgs = expr.args.some(
@@ -839,21 +847,21 @@ export class CodeGeneratorC {
    * Collect a single type if it's a user-defined type
    */
   private collectType(type: Type): void {
-    if (isStructType(type) && type.typeName) {
+    if (isStructType(type)) {
       // Use the struct's id to generate a mangled C type name
       const cTypeName = `yo_${type.id}`;
-      this.typeNameMap.set(type.typeName, cTypeName);
-      this.collectedTypes.set(type.typeName, type);
-    } else if (isUnionType(type) && type.typeName) {
+      this.typeNameMap.set(type.id, cTypeName);
+      this.collectedTypes.set(type.id, type);
+    } else if (isUnionType(type)) {
       // Use the union's id to generate a mangled C type name
       const cTypeName = `yo_${type.id}`;
-      this.typeNameMap.set(type.typeName, cTypeName);
-      this.collectedTypes.set(type.typeName, type);
-    } else if (isEnumType(type) && type.typeName) {
+      this.typeNameMap.set(type.id, cTypeName);
+      this.collectedTypes.set(type.id, type);
+    } else if (isEnumType(type)) {
       // Use the enum's id to generate a mangled C type name
       const cTypeName = `yo_${type.id}`;
-      this.typeNameMap.set(type.typeName, cTypeName);
-      this.collectedTypes.set(type.typeName, type);
+      this.typeNameMap.set(type.id, cTypeName);
+      this.collectedTypes.set(type.id, type);
     }
   }
 
@@ -874,14 +882,11 @@ export class CodeGeneratorC {
    * Generate a struct declaration
    */
   private generateStructDeclaration(structType: StructType): void {
-    if (!structType.typeName) {
-      console.warn("Cannot generate declaration for unnamed struct");
-      return;
-    }
-
-    const cTypeName = this.typeNameMap.get(structType.typeName);
+    const cTypeName = this.typeNameMap.get(structType.id);
     if (!cTypeName) {
-      console.warn(`No C type name found for struct ${structType.typeName}`);
+      console.warn(
+        `No C type name found for struct ${typeToString(structType)}`
+      );
       return;
     }
 
@@ -903,14 +908,9 @@ export class CodeGeneratorC {
    * Generate a union declaration
    */
   private generateUnionDeclaration(unionType: UnionType): void {
-    if (!unionType.typeName) {
-      console.warn("Cannot generate declaration for unnamed union");
-      return;
-    }
-
-    const cTypeName = this.typeNameMap.get(unionType.typeName);
+    const cTypeName = this.typeNameMap.get(unionType.id);
     if (!cTypeName) {
-      console.warn(`No C type name found for union ${unionType.typeName}`);
+      console.warn(`No C type name found for union ${typeToString(unionType)}`);
       return;
     }
 
@@ -933,14 +933,9 @@ export class CodeGeneratorC {
    * Generate an enum declaration (tagged union)
    */
   private generateEnumDeclaration(enumType: EnumType): void {
-    if (!enumType.typeName) {
-      console.warn("Cannot generate declaration for unnamed enum");
-      return;
-    }
-
-    const cTypeName = this.typeNameMap.get(enumType.typeName);
+    const cTypeName = this.typeNameMap.get(enumType.id);
     if (!cTypeName) {
-      console.warn(`No C type name found for enum ${enumType.typeName}`);
+      console.warn(`No C type name found for enum ${typeToString(enumType)}`);
       return;
     }
 
@@ -1018,23 +1013,38 @@ export class CodeGeneratorC {
         return "void";
       case "Struct":
         // For struct types, use the mangled type name
-        if (isStructType(type) && type.typeName) {
-          const cTypeName = this.typeNameMap.get(type.typeName);
-          return cTypeName || type.typeName;
+        if (isStructType(type)) {
+          const cTypeName = this.typeNameMap.get(type.id);
+          if (!cTypeName) {
+            throw new Error(
+              `No C type name found for struct ${typeToString(type)}`
+            );
+          }
+          return cTypeName;
         }
         return "struct_unknown";
       case "Union":
         // For union types, use the mangled type name
-        if (isUnionType(type) && type.typeName) {
-          const cTypeName = this.typeNameMap.get(type.typeName);
-          return cTypeName || type.typeName;
+        if (isUnionType(type)) {
+          const cTypeName = this.typeNameMap.get(type.id);
+          if (!cTypeName) {
+            throw new Error(
+              `No C type name found for union ${typeToString(type)}`
+            );
+          }
+          return cTypeName;
         }
         return "union_unknown";
       case "Enum":
         // For enum types, use the mangled type name
-        if (isEnumType(type) && type.typeName) {
-          const cTypeName = this.typeNameMap.get(type.typeName);
-          return cTypeName || type.typeName;
+        if (isEnumType(type)) {
+          const cTypeName = this.typeNameMap.get(type.id);
+          if (!cTypeName) {
+            throw new Error(
+              `No C type name found for enum ${typeToString(type)}`
+            );
+          }
+          return cTypeName;
         }
         return "enum_unknown";
       default:
@@ -1081,8 +1091,7 @@ export class CodeGeneratorC {
     expr: FuncCallExpr,
     unionType: UnionType
   ): string {
-    const unionTypeName = unionType.typeName || "UnknownUnion";
-    const cTypeName = this.typeNameMap.get(unionTypeName) || unionTypeName;
+    const cTypeName = this.typeNameMap.get(unionType.id) || unionType.id;
 
     // Parse the constructor arguments - expect "fieldName : value" pattern
     if (expr.args.length === 1) {
@@ -1124,8 +1133,7 @@ export class CodeGeneratorC {
     enumType: EnumType
   ): string {
     // This would handle direct enum type calls, but typically enums are called via variants
-    const enumTypeName = enumType.typeName || "UnknownEnum";
-    const cTypeName = this.typeNameMap.get(enumTypeName) || enumTypeName;
+    const cTypeName = this.typeNameMap.get(enumType.id) || enumType.id;
     return `/* TODO: Direct enum constructor for ${cTypeName} */`;
   }
 
@@ -1167,25 +1175,23 @@ export class CodeGeneratorC {
       return "/* ERROR: Variant name must be an identifier */";
     }
 
-    const enumTypeName = enumTypeExpr.token.value;
+    const enumType = enumTypeExpr.$?.type;
+    if (!enumType || !isEnumType(enumType)) {
+      return "/* ERROR: Invalid enum type for variant constructor */";
+    }
     const variantName = variantExpr.token.value;
 
     // Check if this is a known enum type
-    if (!this.collectedTypes.has(enumTypeName)) {
-      return `/* ERROR: Unknown enum type ${enumTypeName} */`;
+    if (!this.collectedTypes.has(enumType.id)) {
+      return `/* ERROR: Unknown enum type ${enumType.id} */`;
     }
 
-    const enumType = this.collectedTypes.get(enumTypeName);
-    if (!enumType || !isEnumType(enumType)) {
-      return `/* ERROR: ${enumTypeName} is not an enum type */`;
-    }
-
-    const cTypeName = this.typeNameMap.get(enumTypeName) || enumTypeName;
+    const cTypeName = this.typeNameMap.get(enumType.id) || enumType.id;
 
     // Find the variant
     const variant = enumType.variants.find((v) => v.name === variantName);
     if (!variant) {
-      return `/* ERROR: Variant ${variantName} not found in enum ${enumTypeName} */`;
+      return `/* ERROR: Variant ${variantName} not found in enum ${typeToString(enumType)} */`;
     }
 
     // Generate the tag name using the fully mangled naming scheme
@@ -1352,7 +1358,9 @@ export class CodeGeneratorC {
         this.generateReturnStatement(expr, indent);
       }
     }
-  } /**
+  }
+
+  /**
    * Generate a conditional expression (cond) as an if-else chain
    */
   private generateCondExpression(expr: FuncCallExpr, indent: string): void {
@@ -1612,8 +1620,7 @@ export class CodeGeneratorC {
       // Get the enum type from the match value
       if (matchValue.$ && matchValue.$.type && isEnumType(matchValue.$.type)) {
         const enumType = matchValue.$.type;
-        const cTypeName =
-          this.typeNameMap.get(enumType.typeName || "") || enumType.typeName;
+        const cTypeName = this.typeNameMap.get(enumType.id) || enumType.id;
 
         if (cTypeName) {
           return `${cTypeName.toUpperCase()}_${cleanVariantName.toUpperCase()}`;
@@ -1643,9 +1650,7 @@ export class CodeGeneratorC {
             isEnumType(matchValue.$.type)
           ) {
             const enumType = matchValue.$.type;
-            const cTypeName =
-              this.typeNameMap.get(enumType.typeName || "") ||
-              enumType.typeName;
+            const cTypeName = this.typeNameMap.get(enumType.id) || enumType.id;
 
             if (cTypeName) {
               return `${cTypeName.toUpperCase()}_${variantName.toUpperCase()}`;
@@ -1672,9 +1677,7 @@ export class CodeGeneratorC {
             isEnumType(matchValue.$.type)
           ) {
             const enumType = matchValue.$.type;
-            const cTypeName =
-              this.typeNameMap.get(enumType.typeName || "") ||
-              enumType.typeName;
+            const cTypeName = this.typeNameMap.get(enumType.id) || enumType.id;
 
             if (cTypeName) {
               return `${cTypeName.toUpperCase()}_${variantName.toUpperCase()}`;
@@ -1960,17 +1963,6 @@ export class CodeGeneratorC {
   }
 
   /**
-   * Get function type by name from collected functions
-   */
-  private getFunctionTypeByName(funcName: string): FunctionType | undefined {
-    const functionValue = this.collectedFunctions.get(funcName);
-    if (functionValue && functionValue.type.tag === "Function") {
-      return functionValue.type;
-    }
-    return undefined;
-  }
-
-  /**
    * Check if a function is generic (has compile-time type parameters)
    */
   private isGenericFunction(functionValue: FunctionValue): boolean {
@@ -1985,7 +1977,7 @@ export class CodeGeneratorC {
    */
   private generateMonomorphizedFunctions(): void {
     for (const [
-      mangledName,
+      funcId,
       specializedFunction,
     ] of this.collectedFunctions.entries()) {
       // Only generate specialized functions, not the original generic functions
@@ -1993,15 +1985,8 @@ export class CodeGeneratorC {
         continue;
       }
 
-      // Skip original functions - only generate functions with funcId-based names
-      // Specialized functions have funcId names like "fn_abc123_34"
-      // Original functions have simple names like "add_compt_i32"
-      if (!mangledName.startsWith("fn_")) {
-        continue;
-      }
-
       // Generate the specialized function directly
-      this.generateMonomorphizedFunction(specializedFunction, mangledName);
+      this.generateMonomorphizedFunction(specializedFunction, funcId);
     }
   }
 
@@ -2010,7 +1995,7 @@ export class CodeGeneratorC {
    */
   private generateMonomorphizedFunction(
     monomorphizedFunction: FunctionValue,
-    mangledName: string
+    funcId: string
   ): void {
     const functionType = monomorphizedFunction.type;
 
@@ -2031,12 +2016,17 @@ export class CodeGeneratorC {
     // Get return type
     const returnTypeStr = this.getTypeString(functionType.return.type);
 
-    this.emitter.emitLine(`${returnTypeStr} ${mangledName}(${params}) {`);
+    const cFunctionName = this.functionNameMap.get(funcId);
+    if (!cFunctionName) {
+      throw new Error(`// Missing C function name for ${funcId}`);
+    }
+
+    this.emitter.emitLine(`${returnTypeStr} ${cFunctionName}(${params}) {`);
     this.emitter.emitLine(`  // Monomorphized function body`);
 
     // Set current function name for recur support
     const previousFunctionName = this.currentFunctionName;
-    this.currentFunctionName = mangledName;
+    this.currentFunctionName = cFunctionName;
 
     // Generate function body - use monomorphized function if different from original
     const functionToGenerate = monomorphizedFunction;
@@ -2059,7 +2049,7 @@ export class CodeGeneratorC {
     const generated = new Set<string>(); // Track already generated declarations
 
     for (const [
-      mangledName,
+      funcId,
       specializedFunction,
     ] of this.collectedFunctions.entries()) {
       // Only generate declarations for specializable functions
@@ -2067,17 +2057,17 @@ export class CodeGeneratorC {
         continue;
       }
 
-      // Skip original functions - only generate declarations for specialized functions
-      // Specialized functions have funcId names like "fn_abc123_34"
-      if (!mangledName.startsWith("fn_")) {
-        continue;
-      }
-
       // Skip if already generated
-      if (generated.has(mangledName)) {
+      if (generated.has(funcId)) {
         continue;
       }
-      generated.add(mangledName);
+      generated.add(funcId);
+
+      // Get the C function name
+      const cFunctionName = this.functionNameMap.get(funcId);
+      if (!cFunctionName) {
+        throw new Error(`// Missing C function name for ${funcId}`);
+      }
 
       const functionType = specializedFunction.type;
       const runtimeParams = functionType.parameters.filter(
@@ -2096,38 +2086,8 @@ export class CodeGeneratorC {
 
       // Emit the function declaration
       this.emitter.emitDeclarationLine(
-        `${returnTypeStr} ${mangledName}(${params}); // specialized function`
+        `${returnTypeStr} ${cFunctionName}(${params}); // specialized function`
       );
-    }
-  }
-
-  /**
-   * Get C type string for a concrete type name
-   */
-  public getCTypeForConcreteType(typeName: string): string {
-    switch (typeName) {
-      case "i32":
-        return "int32_t";
-      case "f64":
-        return "double";
-      case "f32":
-        return "float";
-      case "i64":
-        return "int64_t";
-      case "u32":
-        return "uint32_t";
-      case "boolean":
-        return "bool";
-      // For struct types, check if it's a collected type
-      default: {
-        if (this.collectedTypes.has(typeName)) {
-          const userType = this.collectedTypes.get(typeName);
-          if (userType && isStructType(userType)) {
-            return this.getTypeString(userType);
-          }
-        }
-        return typeName; // fallback
-      }
     }
   }
 

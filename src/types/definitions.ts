@@ -4,6 +4,8 @@ import { FunctionValue } from "../function-value";
 import { Value } from "../value";
 import { TypeTag } from "./tags";
 
+export type TypeId = string;
+
 export interface Type {
   /**
    * The tag to identify the type of type.
@@ -13,7 +15,7 @@ export interface Type {
   /**
    * The unique id of the type.
    */
-  id: string;
+  id: TypeId;
 
   /**
    * The size of the type in bits, not bytes.

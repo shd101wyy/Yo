@@ -1,5 +1,5 @@
 import path from "node:path";
-import { CodeGeneratorC } from "./codegen/codgen-c";
+import { CodeGeneratorC } from "./codegen/codegen-c";
 import Evaluator from "./evaluator/index";
 import { ModuleValue } from "./value";
 
@@ -79,22 +79,6 @@ export class ModuleManager {
     const moduleData = this.modules.get(modulePath);
     if (!moduleData) {
       throw new Error(`Module data not found for ${modulePath}`);
-    }
-
-    // Add debug output
-    console.log(`ModuleValue tag: ${moduleValue.tag}`);
-    console.log(`ModuleValue elements length: ${moduleValue.elements.length}`);
-    console.log(
-      `ModuleValue type elements length: ${moduleValue.type.elements.length}`
-    );
-    if (moduleValue.elements.length > 0) {
-      for (let i = 0; i < moduleValue.elements.length; i++) {
-        const element = moduleValue.elements[i];
-        const typeElement = moduleValue.type.elements[i];
-        console.log(
-          `Element ${i}: ${element ? element.tag : "undefined"}, label: ${typeElement?.label || "no-label"}`
-        );
-      }
     }
 
     this.codeGenratorC.compileModule(modulePath, moduleValue);

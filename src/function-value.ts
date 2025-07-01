@@ -4,8 +4,10 @@ import { FunctionType, Type } from "./types";
 import type { Value } from "./value";
 import { ValueTag } from "./value-tag";
 
+export type FuncValueId = string;
+
 export interface CalledComptFunctionCache {
-  funcId: string;
+  funcId: FuncValueId;
   /**
    * The function arguments that were used to call the compt function.
    */
@@ -25,7 +27,7 @@ export interface CalledComptFunctionCache {
 }
 
 export interface SpecializedFunctionCache {
-  funcId: string;
+  funcId: FuncValueId;
   /**
    * The environment after the function call.
    */
@@ -54,8 +56,7 @@ export type FunctionValue = {
   /**
    * The unique identifier of the function
    */
-  // TODO: Let's make it mandatory for now
-  funcId: string;
+  funcId: FuncValueId;
 
   /**
    * Under which type the function is defined,
