@@ -47,10 +47,17 @@ export interface EvaluatorContext {
   };
 }
 
+/**
+ * Record the function call arguments and their values after function call.
+ */
 export interface ArgValues {
-  forallArgs: Value[];
-  args: (Value | undefined)[];
-  implicitArgs: (Value | undefined)[];
+  forallArgs: { value: Value; parameterType: Type; argType: Type }[];
+  args: { value: Value | undefined; parameterType: Type; argType: Type }[];
+  implicitArgs: {
+    value: Value | undefined;
+    parameterType: Type;
+    argType: Type;
+  }[];
 }
 
 export interface FunctionCallResult {

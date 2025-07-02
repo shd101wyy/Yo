@@ -142,6 +142,8 @@ export function checkIfFunctionParameterMatchesArgument({
   callerEnv: Environment;
   context: EvaluatorContext;
   argValue: Value | undefined;
+  argType: Type;
+  parameterType: Type;
 } {
   let argExpr: Expr | undefined = argExprs[argIndex];
 
@@ -226,8 +228,9 @@ export function checkIfFunctionParameterMatchesArgument({
       if (argExpr) {
         argExpr.$ = evaluatedArgExpr.$;
       }
-
-      runtimeArgExprsInOrder.push(evaluatedArgExpr);
+      if (!parameter.isCompileTimeOnly) {
+        runtimeArgExprsInOrder.push(evaluatedArgExpr);
+      }
     } else {
       throw formatErrorMessage({
         token: argExpr?.token ?? PlaceholderToken,
@@ -275,7 +278,9 @@ export function checkIfFunctionParameterMatchesArgument({
       if (evaluatedArgExpr.$?.env) {
         callerEnv = evaluatedArgExpr.$?.env;
       }
-      runtimeArgExprsInOrder.push(evaluatedArgExpr);
+      if (!parameter.isCompileTimeOnly) {
+        runtimeArgExprsInOrder.push(evaluatedArgExpr);
+      }
     }
   }
 
@@ -407,5 +412,7 @@ export function checkIfFunctionParameterMatchesArgument({
     callerEnv,
     context: { ...context, borrowings },
     argValue,
+    argType,
+    parameterType: newParameterType,
   };
 }

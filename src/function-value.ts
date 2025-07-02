@@ -40,12 +40,34 @@ export interface SpecializedFunctionCache {
    * The specialized function with evaluated body.
    */
   specializedFunction: FunctionValue;
+  /**
+   * Evaluated function body with the given argValues and env.
+   */
+  // body: Expr; // No need to save this. FunctionValue already has the body.
 }
 
 export type FunctionValue = {
   tag: ValueTag.Function;
+
+  /**
+   * The type of the function.
+   */
   type: FunctionType;
+
+  /**
+   * The type of the function after removing all the compile-time parameters.
+   * This is useful for code generation and other operations.
+   */
+  specializedType?: FunctionType;
+
+  /**
+   * The frame level of the env at which the function is defined.
+   */
   frameLevel: number;
+
+  /**
+   * The function body expression.
+   */
   body: Expr;
 
   /**
@@ -60,7 +82,7 @@ export type FunctionValue = {
 
   /**
    * Under which type the function is defined,
-   * for example, it might be an interface
+   * for example, it might be an module/struct/enum/union.
    */
   SelfType?: Type;
 

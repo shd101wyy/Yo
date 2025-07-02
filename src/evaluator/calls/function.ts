@@ -34,6 +34,8 @@ import { TypeValue } from "../../type-value";
 import {
   areTypesCompatible,
   createExprType,
+  createFunctionType,
+  FunctionParameter,
   FunctionType,
   isArrayType,
   isEnumType,
@@ -109,10 +111,23 @@ export function tryToCallFunctionWithArguments({
   let forallArgsExpr: FuncCallExpr | undefined = undefined;
   let implicitArgExprs: Expr[] = [];
 
-  const forallArgValues: Value[] = [];
-  const argValues: (Value | undefined)[] = [];
+  const forallArgValues: {
+    value: Value;
+    parameterType: Type;
+    argType: Type;
+  }[] = [];
+  const argValues: {
+    value: Value | undefined;
+    parameterType: Type;
+    argType: Type;
+  }[] = [];
+  const implicitArgValues: {
+    value: Value | undefined;
+    parameterType: Type;
+    argType: Type;
+  }[] = [];
+
   const runtimeArgExprsInOrder: Expr[] = [];
-  const implicitArgValues: (Value | undefined)[] = [];
 
   // Check if there is `forall(...)` argument zone.
   // If yes, then it should be the first argument
@@ -382,7 +397,11 @@ Got:   ${typeToString(typeValue.type)}`,
       }
 
       // Save to forallArgValues
-      forallArgValues.push(typeValue);
+      forallArgValues.push({
+        value: typeValue,
+        argType: typeValue.type,
+        parameterType: typeParameter.type,
+      });
     }
   }
 
@@ -414,6 +433,8 @@ Got:   ${argExprs.length} arguments`,
       callerEnv: nextCallerEnv,
       context: nextContext,
       argValue,
+      argType,
+      parameterType: newParameterType,
     } = checkIfFunctionParameterMatchesArgument({
       functionValue,
       parameter,
@@ -429,7 +450,11 @@ Got:   ${argExprs.length} arguments`,
     callerEnv = nextCallerEnv;
     context = nextContext;
 
-    argValues.push(argValue);
+    argValues.push({
+      value: argValue,
+      parameterType: newParameterType,
+      argType,
+    });
   }
 
   // Synthesize the returnType if context.expectedType is giving
@@ -747,11 +772,32 @@ ${implicitVariables
       calleeEnv = nextEnv;
 
       // Add the implicit variable value to the implicitArgValues
-      implicitArgValues.push(returnValue);
-      runtimeArgExprsInOrder.push({
-        tag: ExprTag.FuncCall,
-        func: {
-          tag: ExprTag.Atom,
+      implicitArgValues.push({
+        value: returnValue,
+        argType: returnType,
+        parameterType: implicitParameterType,
+      });
+      if (!implicitParameter.isCompileTimeOnly) {
+        runtimeArgExprsInOrder.push({
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.Identifier,
+              value: implicitVariable.name,
+              inputString: implicitVariable.token.inputString,
+              modulePath: implicitVariable.token.modulePath,
+              position: implicitVariable.token.position,
+            },
+            $: {
+              env: calleeEnv,
+              type: implicitVariable.type,
+              value: implicitVariable.value,
+              isMutable: implicitVariable.isMutable,
+              pathCollection: [],
+            },
+          },
+          args: [],
           token: {
             type: TokenType.Identifier,
             value: implicitVariable.name,
@@ -761,28 +807,13 @@ ${implicitVariables
           },
           $: {
             env: calleeEnv,
-            type: implicitVariable.type,
-            value: implicitVariable.value,
+            type: returnType,
+            value: returnValue,
             isMutable: implicitVariable.isMutable,
             pathCollection: [],
           },
-        },
-        args: [],
-        token: {
-          type: TokenType.Identifier,
-          value: implicitVariable.name,
-          inputString: implicitVariable.token.inputString,
-          modulePath: implicitVariable.token.modulePath,
-          position: implicitVariable.token.position,
-        },
-        $: {
-          env: calleeEnv,
-          type: returnType,
-          value: returnValue,
-          isMutable: implicitVariable.isMutable,
-          pathCollection: [],
-        },
-      });
+        });
+      }
     } else {
       // console.log("(15) addVariableToEnv");
       const { env: nextEnv } = addVariableToEnv({
@@ -803,24 +834,30 @@ ${implicitVariables
       calleeEnv = nextEnv;
 
       // Add the implicit variable value to the implicitArgValues
-      implicitArgValues.push(implicitVariable.value);
-      runtimeArgExprsInOrder.push({
-        tag: ExprTag.Atom,
-        token: {
-          type: TokenType.Identifier,
-          value: implicitVariable.name,
-          inputString: implicitVariable.token.inputString,
-          modulePath: implicitVariable.token.modulePath,
-          position: implicitVariable.token.position,
-        },
-        $: {
-          env: calleeEnv,
-          type: implicitVariable.type,
-          value: implicitVariable.value,
-          isMutable: implicitVariable.isMutable,
-          pathCollection: [],
-        },
+      implicitArgValues.push({
+        value: implicitVariable.value,
+        argType: implicitVariable.type,
+        parameterType: implicitParameterType,
       });
+      if (!implicitParameter.isCompileTimeOnly) {
+        runtimeArgExprsInOrder.push({
+          tag: ExprTag.Atom,
+          token: {
+            type: TokenType.Identifier,
+            value: implicitVariable.name,
+            inputString: implicitVariable.token.inputString,
+            modulePath: implicitVariable.token.modulePath,
+            position: implicitVariable.token.position,
+          },
+          $: {
+            env: calleeEnv,
+            type: implicitVariable.type,
+            value: implicitVariable.value,
+            isMutable: implicitVariable.isMutable,
+            pathCollection: [],
+          },
+        });
+      }
     }
   }
 
@@ -1870,30 +1907,38 @@ function createSpecializedFunctionInline({
 }): FunctionValue {
   // Extract compile-time argument values for caching
   const compileTimeArgValues: Value[] = [];
+  const runtimeParameters: FunctionParameter[] = [];
 
   // Add forall type arguments (always compile-time)
   if (argValues.forallArgs) {
-    compileTimeArgValues.push(...argValues.forallArgs);
+    compileTimeArgValues.push(...argValues.forallArgs.map((v) => v.value));
   }
 
   // Add regular compile-time parameters
   functionType.parameters.forEach((param, index) => {
-    if (param.isCompileTimeOnly && index < argValues.args.length) {
-      const arg = argValues.args[index]!;
-      if (arg) {
-        compileTimeArgValues.push(arg);
+    const arg = argValues.args[index]!;
+    if (param.isCompileTimeOnly) {
+      if (arg.value) {
+        compileTimeArgValues.push(arg.value);
       }
+    } else {
+      runtimeParameters.push({ ...param, type: arg.parameterType });
     }
   });
 
   // Add implicit compile-time parameters
   if (argValues.implicitArgs) {
     functionType.implicitParameters.forEach((param, index) => {
-      if (param.isCompileTimeOnly && index < argValues.implicitArgs!.length) {
-        const implicitArg = argValues.implicitArgs![index];
-        if (implicitArg) {
-          compileTimeArgValues.push(implicitArg);
+      const implicitArg = argValues.implicitArgs![index]!;
+      if (param.isCompileTimeOnly) {
+        if (implicitArg?.value) {
+          compileTimeArgValues.push(implicitArg.value);
         }
+      } else {
+        runtimeParameters.push({
+          ...param,
+          type: implicitArg.parameterType,
+        });
       }
     });
   }
@@ -1945,7 +1990,7 @@ function createSpecializedFunctionInline({
   // Include forall type arguments
   if (argValues.forallArgs) {
     compileTimeSignatureParts.push(
-      ...argValues.forallArgs.map((arg) => valueToString(arg))
+      ...argValues.forallArgs.map((arg) => valueToString(arg.value))
     );
   }
 
@@ -1954,7 +1999,7 @@ function createSpecializedFunctionInline({
     if (param.isCompileTimeOnly && index < argValues.args.length) {
       const arg = argValues.args[index];
       if (arg) {
-        compileTimeSignatureParts.push(valueToString(arg));
+        compileTimeSignatureParts.push(valueToString(arg.value));
       } else {
         compileTimeSignatureParts.push("unknown");
       }
@@ -1967,7 +2012,7 @@ function createSpecializedFunctionInline({
       if (param.isCompileTimeOnly && index < argValues.implicitArgs!.length) {
         const implicitArg = argValues.implicitArgs![index];
         if (implicitArg) {
-          compileTimeSignatureParts.push(valueToString(implicitArg));
+          compileTimeSignatureParts.push(valueToString(implicitArg.value));
         } else {
           compileTimeSignatureParts.push("unknown");
         }
@@ -1977,9 +2022,24 @@ function createSpecializedFunctionInline({
 
   const compileTimeSignature = compileTimeSignatureParts.join("_");
 
+  const specializedFunctionType = createFunctionType({
+    typeParameters: [],
+    parameters: runtimeParameters,
+    implicitParameters: [],
+    return_: {
+      ...functionType.return,
+      type: specializedBody.$.type,
+    },
+    parametersFrame: specializedEnv.frames[specializedEnv.frames.length - 1]!, // QUESTION: This could be wrong
+    env: functionType.env,
+    SelfType: functionType.SelfType,
+    ModuleType: functionType.ModuleType,
+  });
+
   // Create a new specialized function value with the evaluated body
   const specializedFunction: FunctionValue = {
     ...originalFunction,
+    specializedType: specializedFunctionType,
     body: specializedBody,
     // Use a signature-based ID for the specialized function
     funcId: compileTimeSignature

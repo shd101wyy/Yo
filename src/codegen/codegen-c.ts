@@ -52,7 +52,7 @@ export class CodeGeneratorC {
    */
   private functions: Record<
     FuncValueId,
-    { type: FunctionType; value: FunctionValue; cName: string }
+    { value: FunctionValue; cName: string }
   > = {};
 
   /**
@@ -104,7 +104,7 @@ export class CodeGeneratorC {
     this.generateSpecializedFunctionDeclarations();
 
     // Sixth pass: Generate the specialized function bodies
-    this.generateMonomorphizedFunctions();
+    this.generateSpecializedFunctions();
   }
 
   /**
@@ -122,13 +122,11 @@ export class CodeGeneratorC {
         // Exported functions keep their original names (especially main)
         if (label === "main") {
           this.functions[value.funcId] = {
-            type: value.type,
             value,
             cName: "main",
           };
         } else {
           this.functions[value.funcId] = {
-            type: value.type,
             value,
             cName: value.funcId,
           };
@@ -156,7 +154,6 @@ export class CodeGeneratorC {
           } else {
             // Collect the function if it's not already collected
             this.functions[functionValue.funcId] = {
-              type: functionType,
               value: functionValue,
               cName: functionValue.funcId, // Use the function id as the C name
             };
@@ -203,7 +200,7 @@ export class CodeGeneratorC {
     // Traverse this.functions
     for (const funcId in this.functions) {
       const func = this.functions[funcId]!;
-      this.collectTypesFromFunctionType(func.type);
+      this.collectTypesFromFunctionType(func.value.type);
       this.collectTypesFromExpr(func.value.body);
     }
   }
@@ -506,11 +503,11 @@ export class CodeGeneratorC {
 
     // Generate declarations for other functions
     for (const funcId in this.functions) {
-      const { cName, type, value } = this.functions[funcId]!;
+      const { cName, value } = this.functions[funcId]!;
       if (this.isGenericFunction(value)) {
         continue;
       }
-      this.generateFunctionDeclaration(type, cName);
+      this.generateFunctionDeclaration(value.type, cName);
     }
   }
 
@@ -593,7 +590,7 @@ export class CodeGeneratorC {
   ): void {
     // Use provided C function name or default to label
     const functionName = cFunctionName;
-    const functionType = functionValue.type;
+    const functionType = functionValue.specializedType ?? functionValue.type;
 
     const functionPrototype = this.generateFunctionPrototype(
       functionType,
@@ -795,6 +792,9 @@ export class CodeGeneratorC {
             .join(", ");
 
           if (isFunctionValue(functionValue)) {
+            // Get new function type, which might be specialized.
+            const functionType =
+              functionValue.specializedType ?? functionValue.type;
             // Normal function call
             const cFuncName = this.functions[functionValue.funcId]?.cName;
             if (cFuncName) {
@@ -1174,12 +1174,50 @@ export class CodeGeneratorC {
   /**
    * Generate declarations for specialized (monomorphized) functions
    */
-  private generateSpecializedFunctionDeclarations(): void {}
+  private generateSpecializedFunctionDeclarations(): void {
+    const generated = new Set<FuncValueId>(); // Track already generated declarations
+    for (const funcId in this.functions) {
+      const { value: functionValue, cName: cFunctionName } =
+        this.functions[funcId]!;
+      const specializedFunctionType = functionValue.specializedType;
+
+      if (!specializedFunctionType || !this.isGenericFunction(functionValue)) {
+        continue; // Skip non-generic functions
+      }
+
+      // Skip if already generated
+      if (generated.has(funcId)) {
+        continue;
+      }
+      generated.add(funcId);
+
+      // Emit the function declaration
+      this.emitter.emitDeclarationLine(
+        `${this.generateFunctionPrototype(specializedFunctionType, cFunctionName)}; // specialized function: ${typeToString(functionValue.type)}`
+      );
+    }
+  }
 
   /**
    * Generate the bodies of specialized (monomorphized) functions
    */
-  private generateMonomorphizedFunctions(): void {}
+  private generateSpecializedFunctions(): void {
+    for (const funcId in this.functions) {
+      const { value: functionValue, cName: cFunctionName } =
+        this.functions[funcId]!;
+
+      // Skip if not a generic function
+      if (
+        !functionValue.specializedType ||
+        !this.isGenericFunction(functionValue)
+      ) {
+        continue;
+      }
+
+      // Generate the specialized function body
+      this.generateFunction(functionValue, cFunctionName);
+    }
+  }
 
   public print(): string {
     return this.emitter.print();
