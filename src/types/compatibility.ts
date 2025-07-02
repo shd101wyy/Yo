@@ -1,7 +1,12 @@
 import { addVariableToEnv, Environment } from "../env";
 import { randomId } from "../utils";
-import { areValuesEqual, createUnknownValue } from "../value";
-import { FunctionType, ModuleElement, Type } from "./definitions";
+import { areValuesEqual, createUnknownValue, Value } from "../value";
+import {
+  FunctionParameter,
+  FunctionType,
+  ModuleElement,
+  Type,
+} from "./definitions";
 import {
   isArrayType,
   isCCompatibleType,
@@ -460,6 +465,44 @@ export function areTypesCompatible(
   return false;
 }
 
+// Helper function
+function addTypeValueToEnvForFunctionParameter(
+  parameter: FunctionParameter,
+  typeValue: Value,
+  env: Environment
+): Environment {
+  /*
+  // Check if the same type value already exists in the environment
+  const existVariable = getVariablesFromEnv(env, parameter.label);
+  if (existVariable.length > 0) {
+    // If it exists, skip
+    console.log(
+      "exists variable: ",
+      parameter.label,
+      existVariable[existVariable.length - 1]?.type.id,
+      typeValue.type.id
+    );
+    return env;
+  }
+  */
+
+  const { env: nextEnv } = addVariableToEnv({
+    env: env,
+    variable: {
+      name: parameter.label,
+      value: typeValue,
+      type: typeValue.type,
+      isCompileTimeOnly: true,
+      isImplicit: false,
+      isMutable: false,
+      token: getFunctionParameterToken(parameter),
+      initializedAtToken: getFunctionParameterToken(parameter),
+      consumedAtToken: undefined,
+    },
+  });
+  return nextEnv;
+}
+
 /**
  * Check if two function types are compatible.
  * @param expectedType The expected function type.
@@ -524,52 +567,54 @@ export function areFunctionTypesCompatible(
       givenTypeParam.type,
       `some_type_${randomId()}`
     );
-    if (expectedTypeParam.label) {
-      const { env: nextEnv } = addVariableToEnv({
-        env: expected.env,
-        variable: {
-          name: expectedTypeParam.label,
-          value: typeValue,
-          type: typeValue.type,
-          isCompileTimeOnly: true,
-          isImplicit: false,
-          isMutable: false,
-          token: getFunctionParameterToken(expectedTypeParam),
-          initializedAtToken: getFunctionParameterToken(expectedTypeParam),
-          consumedAtToken: undefined,
-        },
-      });
-      expected.env = nextEnv;
-    }
-    if (givenTypeParam.label) {
-      const { env: nextEnv2 } = addVariableToEnv({
-        env: given.env,
-        variable: {
-          name: givenTypeParam.label,
-          value: typeValue,
-          type: typeValue.type,
-          isCompileTimeOnly: true,
-          isImplicit: false,
-          isMutable: false,
-          token: getFunctionParameterToken(givenTypeParam),
-          initializedAtToken: getFunctionParameterToken(givenTypeParam),
-          consumedAtToken: undefined,
-        },
-      });
-      given.env = nextEnv2;
-    }
+    expected.env = addTypeValueToEnvForFunctionParameter(
+      expectedTypeParam,
+      typeValue,
+      expected.env
+    );
+    given.env = addTypeValueToEnvForFunctionParameter(
+      givenTypeParam,
+      typeValue,
+      given.env
+    );
   }
 
   // Check regular parameters for compatibility
   for (let i = 0; i < expected.type.parameters.length; i++) {
+    const expectedParam = expected.type.parameters[i]!;
+    const givenParam = given.type.parameters[i]!;
+
+    if (
+      isTypeHierarchyType(expectedParam.type) &&
+      isTypeHierarchyType(givenParam.type)
+    ) {
+      // Create some type value for expectedType and givenType
+      // then add it to the env.
+      const typeValue = createUnknownValue(
+        givenParam.type,
+        `some_type_${randomId()}`
+      );
+      expected.env = addTypeValueToEnvForFunctionParameter(
+        expectedParam,
+        typeValue,
+        expected.env
+      );
+      given.env = addTypeValueToEnvForFunctionParameter(
+        givenParam,
+        typeValue,
+        given.env
+      );
+      continue;
+    }
+
     if (
       !areTypesCompatible(
         {
-          type: expected.type.parameters[i]!.type,
+          type: expectedParam.type,
           env: expected.env,
         },
         {
-          type: given.type.parameters[i]!.type,
+          type: givenParam.type,
           env: given.env,
         },
         exactNumericTypeMatch
@@ -583,6 +628,29 @@ export function areFunctionTypesCompatible(
   for (let i = 0; i < expected.type.implicitParameters.length; i++) {
     const expectedImplicitParam = expected.type.implicitParameters[i]!;
     const givenImplicitParam = given.type.implicitParameters[i]!;
+
+    if (
+      isTypeHierarchyType(expectedImplicitParam.type) &&
+      isTypeHierarchyType(givenImplicitParam.type)
+    ) {
+      // Create some type value for expectedType and givenType
+      // then add it to the env.
+      const typeValue = createUnknownValue(
+        givenImplicitParam.type,
+        `some_type_${randomId()}`
+      );
+      expected.env = addTypeValueToEnvForFunctionParameter(
+        expectedImplicitParam,
+        typeValue,
+        expected.env
+      );
+      given.env = addTypeValueToEnvForFunctionParameter(
+        givenImplicitParam,
+        typeValue,
+        given.env
+      );
+      continue;
+    }
 
     if (
       expectedImplicitParam.isCompileTimeOnly !==

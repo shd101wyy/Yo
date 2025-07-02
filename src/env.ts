@@ -452,6 +452,7 @@ export function printEnvVarNames(env: Environment) {
       return frame.variables.map((variable) => ({
         name: variable.name,
         type: typeToString(variable.type),
+        typeId: variable.type.id,
         value: valueToString(variable.value),
         isCompileTimeOnly: variable.isCompileTimeOnly,
         isMutable: variable.isMutable,
