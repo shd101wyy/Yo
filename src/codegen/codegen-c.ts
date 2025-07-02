@@ -17,6 +17,10 @@ import {
   isEnumType,
   isFunctionSpecializable,
   isFunctionType,
+  isMutPtrType,
+  isMutRefType,
+  isPtrType,
+  isRefType,
   isStructType,
   isUnionType,
   isUnitType,
@@ -331,7 +335,7 @@ export class CodeGeneratorC {
       const variant = enumType.variants[i];
       if (variant) {
         // Use fully mangled names for enum tags to avoid global scope conflicts
-        const tagName = `${cName.toUpperCase()}_${variant.name.toUpperCase()}`;
+        const tagName = this.getEnumVariantCName(enumType, variant.name);
         const comma = i < enumType.variants.length - 1 ? "," : "";
         this.emitter.emitDeclarationLine(`  ${tagName} = ${i}${comma}`);
       }
@@ -450,9 +454,35 @@ export class CodeGeneratorC {
         }
         return cTypeName;
       }
-      default:
-        return `// Unknown type: ${typeToString(type)}`; // fallback
     }
+
+    if (
+      isPtrType(type) ||
+      isMutPtrType(type) ||
+      isRefType(type) ||
+      isMutRefType(type)
+    ) {
+      const baseType = type.type;
+      const isMutable = isMutPtrType(type) || isMutRefType(type);
+      const baseTypeStr = this.getTypeString(baseType);
+      if (isMutable) {
+        return `${baseTypeStr}*`; // Mutable pointer
+      } else {
+        return `${baseTypeStr}* const`; // Immutable pointer
+      }
+    }
+
+    return `// Unknown type: ${typeToString(type)}`; // fallback
+  }
+
+  private getEnumVariantCName(enumType: EnumType, variantName: string): string {
+    const enumCName = this.types[enumType.id]?.cName;
+    if (!enumCName) {
+      throw new Error(
+        `No C type name found for enum ${enumType.typeName} (${typeToString(enumType)})`
+      );
+    }
+    return `${enumCName.toUpperCase()}_${variantName.toUpperCase()}`;
   }
 
   /**
@@ -484,13 +514,10 @@ export class CodeGeneratorC {
     }
   }
 
-  /**
-   * Generate a function declaration (prototype)
-   */
-  private generateFunctionDeclaration(
+  private generateFunctionPrototype(
     functionType: FunctionType,
     cFunctionName: string
-  ): void {
+  ): string {
     // For non-main functions, generate based on function type
     const returnTypeStr = this.getTypeString(functionType.return.type);
 
@@ -500,16 +527,42 @@ export class CodeGeneratorC {
     );
     const params = runtimeParams
       .map((param, index) => {
-        const paramTypeStr = this.getTypeString(param.type);
+        let paramTypeStr = this.getTypeString(param.type);
         const paramName = param.label || `param${index}`;
+
+        if (!param.isMutable) {
+          // If the parameter is not mutable, we can use a const pointer
+          if (
+            isPtrType(param.type) ||
+            isMutPtrType(param.type) ||
+            isRefType(param.type) ||
+            isMutRefType(param.type)
+          ) {
+            paramTypeStr = `${paramTypeStr} const`;
+          } else {
+            paramTypeStr = `const ${paramTypeStr}`;
+          }
+        }
+
         return `${paramTypeStr} ${paramName}`;
       })
       .join(", ");
+    return `${returnTypeStr} ${cFunctionName}(${params})`;
+  }
 
-    const yoTypeStr = typeToString(functionType);
-    this.emitter.emitDeclarationLine(
-      `${returnTypeStr} ${cFunctionName}(${params}); // ${yoTypeStr}`
+  /**
+   * Generate a function declaration (prototype)
+   */
+  private generateFunctionDeclaration(
+    functionType: FunctionType,
+    cFunctionName: string
+  ): void {
+    const functionPrototype = this.generateFunctionPrototype(
+      functionType,
+      cFunctionName
     );
+    const yoTypeStr = typeToString(functionType);
+    this.emitter.emitDeclarationLine(`${functionPrototype}; // ${yoTypeStr}`);
   }
 
   /**
@@ -542,22 +595,11 @@ export class CodeGeneratorC {
     const functionName = cFunctionName;
     const functionType = functionValue.type;
 
-    // Generate function signature based on actual function type
-    const returnTypeStr = this.getTypeString(functionType.return.type);
-
-    // Generate parameter list (excluding compile-time parameters)
-    const runtimeParams = functionType.parameters.filter(
-      (param) => !param.isCompileTimeOnly
+    const functionPrototype = this.generateFunctionPrototype(
+      functionType,
+      cFunctionName
     );
-    const params = runtimeParams
-      .map((param) => {
-        const paramTypeStr = this.getTypeString(param.type);
-        const paramName = param.label || "param";
-        return `${paramTypeStr} ${paramName}`;
-      })
-      .join(", ");
-
-    this.emitter.emitLine(`${returnTypeStr} ${functionName}(${params}) {`);
+    this.emitter.emitLine(`${functionPrototype} {`);
 
     // Set current function name for recur support
     const previousFunctionName = this.currentFunctionName;
@@ -668,24 +710,19 @@ export class CodeGeneratorC {
     else if (exprIsFunctionCallOf(expr, "=", 2)) {
       const lhs = expr.args[0]!;
       const rhs = expr.args[1]!;
-      if (exprIsAtom(lhs)) {
-        const varName = lhs.token.value;
-        if (!lhs.$?.type) {
-          return `// Error: No type information for variable ${varName}\n`;
-        }
-
-        // Transpile the lhs
-        const lhsCode = this.generateExpr(lhs, indent);
-        // Transpile the rhs
-        const rhsCode = this.generateExpr(rhs, indent);
-        // Assign to lhs
-        if (!isUnitType(lhs.$.type)) {
-          this.emitter.emitLine(`${indent}${lhsCode} = ${rhsCode};`);
-        }
-        return "";
-      } else {
-        return `// Error: Left-hand side of assignment must be an identifier, got ${exprToString(lhs)}\n`;
+      if (!lhs.$?.type) {
+        return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
       }
+
+      // Transpile the lhs
+      const lhsCode = this.generateExpr(lhs, indent);
+      // Transpile the rhs
+      const rhsCode = this.generateExpr(rhs, indent);
+      // Assign to lhs
+      if (!isUnitType(lhs.$.type)) {
+        this.emitter.emitLine(`${indent}${lhsCode} = ${rhsCode};`);
+      }
+      return "";
     }
     // . field access
     else if (exprIsFunctionCallOf(expr, ".", 2)) {
@@ -720,6 +757,28 @@ export class CodeGeneratorC {
     // cond
     else if (exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) {
       return this.generateCondExpression(expr, indent);
+    }
+    // match
+    else if (exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
+      return this.generateMatchExpression(expr, indent);
+    }
+    // ptr or ref value
+    else if (
+      exprIsFunctionCallOf(expr, BuiltinKeywords.Ptr, 1) ||
+      exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1) ||
+      exprIsFunctionCallOf(expr, BuiltinKeywords.Ref, 1) ||
+      exprIsFunctionCallOf(expr, BuiltinKeywords.MutRef, 1)
+    ) {
+      const type = expr.$?.type;
+      if (!type) {
+        return `// Error: No type information for pointer/reference expression ${exprToString(expr)}\n`;
+      }
+      const arg = expr.args[0]!;
+      const argCode = this.generateExpr(arg, indent);
+
+      // For pointer/reference creation, we need to be careful about constness
+      // Simply use the address-of operator without an explicit cast to avoid const issues
+      return `(&${argCode})`;
     }
     // other function call
     else {
@@ -835,7 +894,7 @@ export class CodeGeneratorC {
                 })
                 .filter((s) => s) // Remove empty strings
                 .join(", ");
-              return `(${cName}){ .tag = ${cName.toUpperCase()}_${variantName.toUpperCase()}, .data = { .${variantName} = { ${argsList} } } }`;
+              return `(${cName}){ .tag = ${this.getEnumVariantCName(enumType, variantName)}, .data = { .${variantName} = { ${argsList} } } }`;
             }
           }
         }
@@ -868,13 +927,14 @@ export class CodeGeneratorC {
     }
 
     const objectCode = this.generateExpr(objectExpr, indent);
+    const objectType = objectExpr.$?.type;
 
     if (exprIsAtom(fieldExpr)) {
       const fieldName = fieldExpr.token.value;
 
       // Check if the object is an enum type
-      if (objectExpr.$ && objectExpr.$.type && isEnumType(objectExpr.$.type)) {
-        const enumType = objectExpr.$.type;
+      if (isEnumType(objectType)) {
+        const enumType = objectType;
 
         // For enum field access, we need to determine which variant contains this field
         // and generate the appropriate path: object.data.VariantName.fieldName
@@ -891,6 +951,40 @@ export class CodeGeneratorC {
         }
 
         return `/* ERROR: field ${fieldName} not found in enum ${enumType.typeName} */`;
+      }
+      // Check if the object is pointer or reference
+      else if (
+        isPtrType(objectType) ||
+        isMutPtrType(objectType) ||
+        isRefType(objectType) ||
+        isMutRefType(objectType)
+      ) {
+        if (fieldName === "*") {
+          // Dereference the pointer/reference
+          return `*(${objectCode})`; // Dereference the pointer/reference
+        } else {
+          // Dereference until not a pointer/reference
+          let dereferenceLevel = 0;
+          let currentType: Type = objectType;
+          while (
+            isPtrType(currentType) ||
+            isMutPtrType(currentType) ||
+            isRefType(currentType) ||
+            isMutRefType(currentType)
+          ) {
+            dereferenceLevel++;
+            currentType = currentType.type;
+          }
+          if (dereferenceLevel > 0) {
+            // Dereference the pointer/reference
+            const dereferencedObjectCode = `${"*".repeat(dereferenceLevel)}(${objectCode})`;
+            // Access the field on the dereferenced object
+            return `${dereferencedObjectCode}.${fieldName}`;
+          } else {
+            // If no dereferencing is needed, just access the field
+            return `${objectCode}.${fieldName}`;
+          }
+        }
       } else {
         // For C structs and unions, access fields directly
         return `${objectCode}.${fieldName}`;
@@ -950,6 +1044,112 @@ export class CodeGeneratorC {
 
     // Fallback for non-evaluated expressions
     return '/* "cond" expression is missing $.variableName */';
+  }
+
+  /**
+   * Generate a match expression as a value (C switch statement)
+   */
+  private generateMatchExpression(expr: FuncCallExpr, indent: string): string {
+    const tempVariableName = expr.$?.variableName;
+    const valueType = expr.$?.type;
+    if (!tempVariableName || !valueType) {
+      return `// Error: "match" expression is missing $.variableName or $.type`;
+    }
+
+    // Create temp variable declaration
+    this.emitter.emitLine(
+      `${indent}${this.getTypeString(valueType)} ${tempVariableName};`
+    );
+
+    // Generate the matched value
+    const matchedValueCode = this.generateExpr(expr.args[0]!, indent);
+    const matchValueType = expr.args[0]!.$?.type;
+    if (!matchValueType) {
+      return `// Error: "match" expression requires an enum type`;
+    }
+
+    // Check if it's a pointer/reference type
+    // If yes, then automatically dereference one-level of it.
+    let ptrOrRefType:
+      | TypeTag.Ptr
+      | TypeTag.MutPtr
+      | TypeTag.Ref
+      | TypeTag.MutRef
+      | undefined = undefined;
+
+    let enumType: Type;
+    if (
+      isPtrType(matchValueType) ||
+      isMutPtrType(matchValueType) ||
+      isRefType(matchValueType) ||
+      isMutRefType(matchValueType)
+    ) {
+      enumType = matchValueType.type;
+      ptrOrRefType = matchValueType.tag;
+    } else {
+      enumType = matchValueType;
+    }
+
+    if (!isEnumType(enumType)) {
+      return `// Error: "match" expression requires an enum type`;
+    }
+    const enumCName = this.types[enumType.id]?.cName;
+    if (!enumCName) {
+      return `// Error: "match" expression enum type ${enumType.typeName} has no C name`;
+    }
+
+    this.emitter.emitLine(
+      `${indent}switch (${ptrOrRefType ? "*" : ""}(${matchedValueCode}).tag) {`
+    );
+
+    const caseExprs = expr.args.slice(1);
+    for (let i = 0; i < caseExprs.length; i++) {
+      const caseExpr = caseExprs[i];
+      if (
+        exprIsFunctionCall(caseExpr) &&
+        exprIsFunctionCallOf(caseExpr, "=>", 2)
+      ) {
+        // This is a case => value pair
+        const caseValue = caseExpr.args[0];
+        let caseBody = caseExpr.args[1];
+
+        if (
+          caseValue &&
+          caseBody &&
+          // caseValue now has to be a variant:
+          exprIsFunctionCall(caseValue) &&
+          exprIsFunctionCallOf(caseValue, ".", 1)
+        ) {
+          const variantName = caseValue.args[0]!.token.value; // Get the variant name
+          const variantTag = this.getEnumVariantCName(enumType, variantName);
+
+          // Generate the case label
+          this.emitter.emitLine(`${indent}case ${variantTag}:`);
+
+          if (
+            exprIsFunctionCall(caseBody) &&
+            exprIsFunctionCallOf(caseBody, "=>", 2)
+          ) {
+            const renameExpr = caseBody.args[0]!;
+            this.emitter.emitLine(
+              `${indent}  ${this.getTypeString(matchValueType)} ${renameExpr.token.value} = ${matchedValueCode};`
+            );
+
+            caseBody = caseBody.args[1]!; // Get the value part of the case
+          }
+
+          // Generate the body of the case
+          const bodyCode = this.generateExpr(caseBody, indent + "  ");
+          this.emitter.emitLine(
+            `${indent}  ${tempVariableName} = ${bodyCode};`
+          );
+          this.emitter.emitLine(`${indent}  break;`);
+        }
+      }
+    }
+
+    this.emitter.emitLine(`${indent}}`);
+    return tempVariableName; // Return the temp variable name
   }
 
   /**

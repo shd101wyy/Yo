@@ -1,0 +1,38 @@
+extern
+  add :
+    (x : i32, y : i32) -> i32,
+  mul :
+    (x : i32, y : i32) -> i32,
+  div :
+    (x : i32, y : i32) -> i32
+;
+
+Shape :: enum
+  Circle(radius : i32),
+  Rectangle(width : i32, height : i32),
+  Triangle(base : i32, height : i32)
+;
+
+return_shape :: (() -> Shape)
+  Shape.Rectangle(width: 10, height: 20)
+;
+
+area :: (() -> i32)
+  match return_shape(),
+    .Circle =>
+      shape => mul(3, mul(shape.radius, shape.radius)),
+    .Rectangle => 
+      shape => mul(shape.width, shape.height),
+    .Triangle => 
+      shape => div(mul(shape.base, shape.height), 2)
+;
+
+
+main :: (() -> i32) {
+  totalArea := area();
+  totalArea
+};
+
+export
+  main
+;

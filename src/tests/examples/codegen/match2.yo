@@ -1,0 +1,34 @@
+extern
+  add :
+    (x : i32, y : i32) -> i32,
+  mul :
+    (x : i32, y : i32) -> i32,
+  div :
+    (x : i32, y : i32) -> i32
+;
+
+Shape :: enum
+  Circle(radius : i32),
+  Rectangle(width : i32, height : i32),
+  Triangle(base : i32, height : i32)
+;
+
+area :: ((shape: Shape) -> i32)
+  match shape,
+    .Circle =>
+      s => mul(3, mul(s.radius, s.radius)),
+    .Rectangle => mul(shape.width, shape.height),
+    .Triangle => div(mul(shape.base, shape.height), 2)
+;
+
+main :: (() -> i32) {
+  area1 := area(Shape.Circle(radius: 5));
+  area2 := area(Shape.Rectangle(width: 10, height: 20));
+  area3 := area(Shape.Triangle(base: 10, height: 5));
+  totalArea := add(add(area1, area2), area3);
+  totalArea
+};
+
+export
+  main
+;
