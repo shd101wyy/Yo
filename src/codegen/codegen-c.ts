@@ -28,7 +28,12 @@ import {
   UnionType,
 } from "../types";
 import { generateModuleId } from "../utils";
-import { isFunctionValue, isTypeValue, ModuleValue } from "../value";
+import {
+  isBooleanValue,
+  isFunctionValue,
+  isTypeValue,
+  ModuleValue,
+} from "../value";
 
 export class CodeGeneratorC {
   private emitter: Emitter;
@@ -126,7 +131,7 @@ export class CodeGeneratorC {
         }
 
         // Recursively collect functions called by this function
-        this.findFunctionCallsInExpr(value.body, moduleValue);
+        this.findFunctionCallsInExpr(value.body);
       }
     }
   }
@@ -134,7 +139,7 @@ export class CodeGeneratorC {
   /**
    * Find function calls in an expression and collect them
    */
-  private findFunctionCallsInExpr(expr: Expr, moduleValue: ModuleValue): void {
+  private findFunctionCallsInExpr(expr: Expr): void {
     if (exprIsFunctionCall(expr)) {
       const functionType = expr.func.$?.type;
       const functionValue = expr.func.$?.value;
@@ -151,6 +156,9 @@ export class CodeGeneratorC {
               value: functionValue,
               cName: functionValue.funcId, // Use the function id as the C name
             };
+
+            // Recursively collect functions called by this function
+            this.findFunctionCallsInExpr(functionValue.body);
           }
         } else {
           // Might be the extern functions
@@ -164,7 +172,7 @@ export class CodeGeneratorC {
       } else {
         // Recursively check the function call arguments
         for (const arg of expr.args) {
-          this.findFunctionCallsInExpr(arg, moduleValue);
+          this.findFunctionCallsInExpr(arg);
         }
       }
     }
@@ -627,6 +635,7 @@ export class CodeGeneratorC {
    * Generate C code for a function call expression
    */
   private generateFuncCall(expr: FuncCallExpr, indent: string): string {
+    // Initialization assignment
     if (exprIsFunctionCallOf(expr, ":=", 2)) {
       let lhs = expr.args[0]!;
       const rhs = expr.args[1]!;
@@ -707,23 +716,53 @@ export class CodeGeneratorC {
 
         return tempVariableName;
       }
-    } else {
+    }
+    // cond
+    else if (exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) {
+      return this.generateCondExpression(expr, indent);
+    }
+    // other function call
+    else {
       const functionType = expr.func.$?.type;
       const functionValue = expr.func.$?.value;
       if (isFunctionType(functionType)) {
-        // Evaluate each argument
-        const argsCode = expr.args.map((arg) => this.generateExpr(arg, indent));
+        const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
+        if (runtimeArgExprs) {
+          // Generate arg list
+          const argsList = runtimeArgExprs
+            .map((arg) => {
+              return this.generateExpr(arg, indent);
+            })
+            .join(", ");
 
-        if (isFunctionValue(functionValue)) {
-          // Normal function call
-        } else {
-          // Might be extern function or a built-in
-          const externFunction = this.externFunctions[functionType.id];
-          if (externFunction) {
-            // Generate extern function call
-            const cFuncName = externFunction.cName;
-            const argsList = argsCode.join(", ");
-            return `${cFuncName}(${argsList})`;
+          if (isFunctionValue(functionValue)) {
+            // Normal function call
+            const cFuncName = this.functions[functionValue.funcId]?.cName;
+            if (cFuncName) {
+              // Generate function call
+              if (isUnitType(functionType.return.type)) {
+                // If the function returns unit, just call it without assignment
+                this.emitter.emitLine(`${indent}${cFuncName}(${argsList});`);
+                return ""; // No return value
+              } else {
+                // If it returns a value, assign to a temp variable
+                const tempVar = expr.$?.variableName;
+                if (tempVar) {
+                  this.emitter.emitLine(
+                    `${indent}${this.getTypeString(functionType.return.type)} ${tempVar} = ${cFuncName}(${argsList});`
+                  );
+                  return tempVar; // Return the temp variable name
+                }
+              }
+            }
+          } else {
+            // Might be extern function or a built-in
+            const externFunction = this.externFunctions[functionType.id];
+            if (externFunction) {
+              // Generate extern function call
+              const cFuncName = externFunction.cName;
+              return `${cFuncName}(${argsList})`;
+            }
           }
         }
       } else if (isTypeValue(functionValue)) {
@@ -859,6 +898,58 @@ export class CodeGeneratorC {
     }
 
     return "/* ERROR: field name must be an identifier */";
+  }
+
+  /**
+   * Generate a conditional expression (cond) as a value expression
+   */
+  private generateCondExpression(expr: FuncCallExpr, indent: string): string {
+    // Check if the cond expression has been evaluated and has a variable name
+    if (expr.$ && expr.$.variableName) {
+      const tempVar = expr.$.variableName;
+      const varType = this.getTypeString(expr.$.type);
+
+      // Generate the conditional logic as statements before this expression
+      // We need to declare the variable and generate the if-else logic
+      this.emitter.emitLine(`${indent}${varType} ${tempVar};`);
+
+      // Generate if-else chain for each condition => value pair
+      for (let i = 0; i < expr.args.length; i++) {
+        const arg = expr.args[i];
+        if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "=>", 2)) {
+          // This is a condition => value pair
+          const condition = arg.args[0];
+          const value = arg.args[1];
+
+          if (condition && value) {
+            const ifKeyword = i === 0 ? "if" : "else if";
+
+            if (
+              isBooleanValue(condition.$?.value) &&
+              condition.$.value.value === true
+            ) {
+              this.emitter.emitLine(`${indent}else {`);
+            } else {
+              // Generate condition outside the block
+              const conditionCode = this.generateExpr(condition, indent);
+              this.emitter.emitLine(
+                `${indent}${ifKeyword} (${conditionCode}) {`
+              );
+            }
+
+            // Generate the value expression INSIDE the conditional block
+            const valueCode = this.generateExpr(value, indent + "  ");
+            this.emitter.emitLine(`${indent}  ${tempVar} = ${valueCode};`);
+            this.emitter.emitLine(`${indent}}`);
+          }
+        }
+      }
+
+      return tempVar;
+    }
+
+    // Fallback for non-evaluated expressions
+    return '/* "cond" expression is missing $.variableName */';
   }
 
   /**
