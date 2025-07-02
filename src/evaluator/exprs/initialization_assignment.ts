@@ -260,6 +260,7 @@ ${exprToString(expr)}`,
       rhsValue.value.typeName = lhs.token.value;
     } else if (isFunctionValue(rhsValue) && !rhsValue.funcName) {
       rhsValue.funcName = lhs.token.value;
+      rhsValue.funcId += `_${lhs.token.value}`;
     } else if (isModuleValue(rhsValue) && !rhsValue.type.typeName) {
       rhsValue.type.typeName = lhs.token.value;
     }

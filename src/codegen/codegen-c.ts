@@ -871,7 +871,6 @@ export class CodeGeneratorC {
           const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
           const cName = this.types[enumType.id]?.cName;
           if (enumType.selectedVariantName && runtimeArgExprs && cName) {
-            console.log("Enter here");
             // Generate enum initialization
             const variantName = enumType.selectedVariantName;
             const variant = enumType.variants.find(

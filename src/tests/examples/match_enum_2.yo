@@ -34,27 +34,23 @@ test :: (()-> unit) {
 
 test_match :: ((shape: Shape) -> unit) {
   match shape,
-    .Circle =>
-      (shape) => {
+    .Circle => {
         radius := shape.radius;
         ();
-      },
-    .Rectangle =>
-      (shape) => {
+    },
+    .Rectangle => {
         { width, height } := shape;
-      },
-    .Triangle =>
-      (shape) => {
+    },
+    .Triangle => {
         ();
-      },
-    .LinearShape =>
-      (shape) => {
-        { width, height } := shape;
-        compt_expect_error(
-          drop(shape),
-          "error: shape is already consumed in match"
-        );
-      }
+    },
+    .LinearShape => {
+      { width, height } := shape;
+      compt_expect_error(
+        drop(shape),
+        "error: shape is already consumed in match"
+      );
+    }
   ;
 
   compt_expect_error(

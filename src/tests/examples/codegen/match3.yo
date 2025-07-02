@@ -17,15 +17,16 @@ return_shape :: (() -> Shape)
   Shape.Rectangle(width: 10, height: 20)
 ;
 
-area :: (() -> i32)
-  match return_shape(),
+area :: (() -> i32) {
+  shape := return_shape();
+  match shape,
     .Circle =>
-      shape => mul(3, mul(shape.radius, shape.radius)),
+      mul(3, mul(shape.radius, shape.radius)),
     .Rectangle => 
-      shape => mul(shape.width, shape.height),
+      mul(shape.width, shape.height),
     .Triangle => 
-      shape => div(mul(shape.base, shape.height), 2)
-;
+      div(mul(shape.base, shape.height), 2)
+};
 
 
 main :: (() -> i32) {

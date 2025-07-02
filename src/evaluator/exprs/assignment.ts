@@ -184,6 +184,7 @@ export function evaluateAssignment({
       }
     } else if (isFunctionValue(rhsValue) && !rhsValue.funcName) {
       rhsValue.funcName = variableName;
+      rhsValue.funcId += `_${lhs.token.value}`;
     } else if (isModuleValue(rhsValue) && !rhsValue.type.typeName) {
       rhsValue.type.typeName = variableName;
     }

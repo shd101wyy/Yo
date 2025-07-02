@@ -33,12 +33,14 @@ export function evaluateBeginExpression({
   context: EvaluatorContext;
 }): Expr {
   let beginExpressions: Expr[] = [];
+  let hasBeginKeyword = false;
   if (
     !exprIsFunctionCall(expr) ||
     !exprIsFunctionCallOf(expr, BuiltinKeywords.begin)
   ) {
     beginExpressions = [expr];
   } else {
+    hasBeginKeyword = true;
     beginExpressions = expr.args;
   }
   const expectedType = context.expectedType;
@@ -132,13 +134,25 @@ export function evaluateBeginExpression({
   // Pop the environment frame
   env = popEnvFrame(env);
 
-  expr.$ = {
-    env,
-    type: lastExpr.$.type,
-    value: lastExpr.$.value,
-    isMutable: false,
-    pathCollection: [],
-  };
-  attachTempVariableToExpr(expr);
+  if (!hasBeginKeyword) {
+    // If the begin keyword is not used, we need to return the last expression
+    expr = lastExpr;
+    if (!expr.$) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Last expression in "begin" is not evaluated correctly:\n${exprToString(expr)}`,
+      });
+    }
+    expr.$.env = env;
+  } else {
+    expr.$ = {
+      env,
+      type: lastExpr.$.type,
+      value: lastExpr.$.value,
+      isMutable: false,
+      pathCollection: [],
+    };
+    attachTempVariableToExpr(expr);
+  }
   return expr;
 }

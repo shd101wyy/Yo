@@ -34,7 +34,6 @@ import {
   typeToString,
 } from "../../types";
 import { EvaluatorContext } from "../context";
-import { isValidVariableName } from "../utils";
 
 /**
  *
@@ -229,8 +228,13 @@ export function evaluateMatch({
         }
       }
 
+      /*
       // Create a new environment for the case
       //   .VariantName => ((variable) => body)
+
+      // NOTE: This is no longer supported
+      // We should assign variable on top of the match expression.
+
       if (
         exprIsFunctionCall(rhsExpr) &&
         exprIsFunctionCallOf(rhsExpr, "=>", 2)
@@ -280,11 +284,13 @@ export function evaluateMatch({
       //    .Red => {
       //       another_color := color; // we can use the "new" `color` here.
       //    },
-      else {
+      else
+      */
+      {
         bodyExpr = rhsExpr;
 
-        if (isValidVariableName(evaluatedMatchValue)) {
-          const variableName = evaluatedMatchValue.token.value;
+        if (evaluatedMatchValue.$.variableName) {
+          const variableName = evaluatedMatchValue.$.variableName;
 
           // Add the new variable to env
           const { env: nextEnv } = addVariableToEnv({

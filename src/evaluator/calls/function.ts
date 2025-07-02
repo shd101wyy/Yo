@@ -1669,6 +1669,9 @@ ${functionsWithMatchingTypes
       expr.$.env = env;
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
+      // Set temp variable which holds the result of the function call
+      attachTempVariableToExpr(expr);
+
       // Attach necessary info to the func
       func.$ = {
         env,
@@ -1706,12 +1709,6 @@ ${functionsWithMatchingTypes
       } = getTypeCallResult(functionToCall);
       env = callerEnv;
 
-      if (!memberValues) {
-        throw formatErrorMessage({
-          token: func.token,
-          errorMessage: `Error evaluating enum call.`,
-        });
-      }
       if (memberValues.every((v) => !!v)) {
         const enumValue = createEnumValue(
           enumType,
@@ -1723,6 +1720,9 @@ ${functionsWithMatchingTypes
       expr.$.pathCollection = pathCollection;
       expr.$.env = env;
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
+
+      // Set temp variable which holds the result of the function call
+      attachTempVariableToExpr(expr);
 
       // Attach necessary info to the func
       func.$ = {
@@ -1750,6 +1750,9 @@ ${functionsWithMatchingTypes
       expr.$.pathCollection = pathCollection;
       expr.$.env = env;
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
+
+      // Set temp variable which holds the result of the function call
+      attachTempVariableToExpr(expr);
 
       // Attach necessary info to the func
       func.$ = {
