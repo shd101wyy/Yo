@@ -35,8 +35,12 @@ import { generateModuleId } from "../utils";
 import {
   isBooleanValue,
   isFunctionValue,
+  isNumberValue,
+  isStructValue,
   isTypeValue,
   ModuleValue,
+  Value,
+  valueToString,
 } from "../value";
 
 export class CodeGeneratorC {
@@ -490,6 +494,13 @@ export class CodeGeneratorC {
   }
 
   /**
+   * Check if a function is for compile-time only
+   */
+  private isComptFunction(functionValue: FunctionValue): boolean {
+    return functionValue.type.return.isCompileTimeOnly;
+  }
+
+  /**
    * Generate function declarations (prototypes)
    */
   private generateFunctionDeclarations(): void {
@@ -504,7 +515,7 @@ export class CodeGeneratorC {
     // Generate declarations for other functions
     for (const funcId in this.functions) {
       const { cName, value } = this.functions[funcId]!;
-      if (this.isGenericFunction(value)) {
+      if (this.isGenericFunction(value) || this.isComptFunction(value)) {
         continue;
       }
       this.generateFunctionDeclaration(value.type, cName);
@@ -572,7 +583,7 @@ export class CodeGeneratorC {
       const { value, cName } = this.functions[funcId]!;
 
       // If the function is generic, we will handle it later
-      if (this.isGenericFunction(value)) {
+      if (this.isGenericFunction(value) || this.isComptFunction(value)) {
         continue;
       }
 
@@ -674,6 +685,11 @@ export class CodeGeneratorC {
    * Generate C code for a function call expression
    */
   private generateFuncCall(expr: FuncCallExpr, indent: string): string {
+    // compile-time functions
+    if (exprIsFunctionCallOf(expr, "::", 2)) {
+      return "";
+    }
+
     // Initialization assignment
     if (exprIsFunctionCallOf(expr, ":=", 2)) {
       let lhs = expr.args[0]!;
@@ -907,7 +923,44 @@ export class CodeGeneratorC {
    * Generate C code for an atom expression
    */
   private generateAtom(expr: AtomExpr): string {
+    if (expr.$?.value) {
+      return this.generateComptValue(expr.$.value);
+    }
+
     return expr.token.value;
+  }
+
+  /**
+   * Generate C code for a compile-time value
+   */
+  private generateComptValue(value: Value): string {
+    if (isNumberValue(value)) {
+      // For numbers, we can directly return the value as a string
+      return valueToString(value);
+    } else if (isBooleanValue(value)) {
+      // For booleans, return true/false
+      return value.value ? "true" : "false";
+    } else if (isStructValue(value)) {
+      // For structs, we need to generate a struct initialization
+      const type = value.type;
+      if (type && isStructType(type)) {
+        const cName = this.types[type.id]?.cName;
+        if (!cName) {
+          return `// Error: No C type name found for struct ${typeToString(type)}\n`;
+        }
+
+        const fields = value.elements.map((element, index) => {
+          const fieldValue = element;
+          const fieldName = type.elements[index]!.label;
+          const fieldCode = this.generateComptValue(fieldValue);
+          return `.${fieldName} = ${fieldCode}`;
+        });
+
+        return `(${cName}){ ${fields.join(", ")} }`;
+      }
+    }
+
+    return ""; // No need to generate. It might be module value, etc
   }
 
   /**
@@ -1181,6 +1234,11 @@ export class CodeGeneratorC {
         this.functions[funcId]!;
       const specializedFunctionType = functionValue.specializedType;
 
+      if (this.isComptFunction(functionValue)) {
+        // Skip compile-time only functions
+        continue;
+      }
+
       if (!specializedFunctionType || !this.isGenericFunction(functionValue)) {
         continue; // Skip non-generic functions
       }
@@ -1205,6 +1263,11 @@ export class CodeGeneratorC {
     for (const funcId in this.functions) {
       const { value: functionValue, cName: cFunctionName } =
         this.functions[funcId]!;
+
+      if (this.isComptFunction(functionValue)) {
+        // Skip compile-time only functions
+        continue;
+      }
 
       // Skip if not a generic function
       if (
