@@ -60,6 +60,7 @@ export interface FunctionCallResult {
   returnType: Type;
   returnValue: Value | undefined;
   argValues: ArgValues;
+  runtimeArgExprsInOrder: Expr[];
   /**
    * If the function has compile-time parameters and was specialized,
    * this contains the specialized function value with the evaluated body.
@@ -71,6 +72,7 @@ export interface FunctionCallResult {
 export interface TypeCallResult {
   values: (Value | undefined)[];
   pathCollection: PathCollection;
+  runtimeArgExprsInOrder: Expr[];
   callerEnv: Environment;
 }
 

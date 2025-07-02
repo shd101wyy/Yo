@@ -115,6 +115,13 @@ export interface EvaluatedExprData {
   pathCollection: PathCollection;
 
   /**
+   * This is mainly for FuncCall expressions.
+   * It is used to record the runtime arguments passed to the function call in order.
+   * This is useful for the codegen stage.
+   */
+  runtimeArgExprsInOrder?: Expr[];
+
+  /**
    * Comment for the expression.
    */
   comment?: string;

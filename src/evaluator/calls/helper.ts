@@ -123,6 +123,7 @@ export function checkIfFunctionParameterMatchesArgument({
   callerEnv,
   context,
   isMethodCall,
+  runtimeArgExprsInOrder,
 }: {
   functionValue?: FunctionValue;
   /**
@@ -135,6 +136,7 @@ export function checkIfFunctionParameterMatchesArgument({
   callerEnv: Environment;
   context: EvaluatorContext;
   isMethodCall: boolean;
+  runtimeArgExprsInOrder: Expr[];
 }): {
   calleeEnv: Environment;
   callerEnv: Environment;
@@ -224,6 +226,8 @@ export function checkIfFunctionParameterMatchesArgument({
       if (argExpr) {
         argExpr.$ = evaluatedArgExpr.$;
       }
+
+      runtimeArgExprsInOrder.push(evaluatedArgExpr);
     } else {
       throw formatErrorMessage({
         token: argExpr?.token ?? PlaceholderToken,
@@ -271,6 +275,7 @@ export function checkIfFunctionParameterMatchesArgument({
       if (evaluatedArgExpr.$?.env) {
         callerEnv = evaluatedArgExpr.$?.env;
       }
+      runtimeArgExprsInOrder.push(evaluatedArgExpr);
     }
   }
 

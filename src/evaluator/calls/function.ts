@@ -23,6 +23,7 @@ import {
   exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  ExprTag,
   exprToString,
   FuncCallExpr,
   PathCollection,
@@ -110,6 +111,7 @@ export function tryToCallFunctionWithArguments({
 
   const forallArgValues: Value[] = [];
   const argValues: (Value | undefined)[] = [];
+  const runtimeArgExprsInOrder: Expr[] = [];
   const implicitArgValues: (Value | undefined)[] = [];
 
   // Check if there is `forall(...)` argument zone.
@@ -421,6 +423,7 @@ Got:   ${argExprs.length} arguments`,
       calleeEnv,
       context,
       isMethodCall,
+      runtimeArgExprsInOrder,
     });
     calleeEnv = nextCalleeEnv;
     callerEnv = nextCallerEnv;
@@ -745,6 +748,41 @@ ${implicitVariables
 
       // Add the implicit variable value to the implicitArgValues
       implicitArgValues.push(returnValue);
+      runtimeArgExprsInOrder.push({
+        tag: ExprTag.FuncCall,
+        func: {
+          tag: ExprTag.Atom,
+          token: {
+            type: TokenType.Identifier,
+            value: implicitVariable.name,
+            inputString: implicitVariable.token.inputString,
+            modulePath: implicitVariable.token.modulePath,
+            position: implicitVariable.token.position,
+          },
+          $: {
+            env: calleeEnv,
+            type: implicitVariable.type,
+            value: implicitVariable.value,
+            isMutable: implicitVariable.isMutable,
+            pathCollection: [],
+          },
+        },
+        args: [],
+        token: {
+          type: TokenType.Identifier,
+          value: implicitVariable.name,
+          inputString: implicitVariable.token.inputString,
+          modulePath: implicitVariable.token.modulePath,
+          position: implicitVariable.token.position,
+        },
+        $: {
+          env: calleeEnv,
+          type: returnType,
+          value: returnValue,
+          isMutable: implicitVariable.isMutable,
+          pathCollection: [],
+        },
+      });
     } else {
       // console.log("(15) addVariableToEnv");
       const { env: nextEnv } = addVariableToEnv({
@@ -766,6 +804,23 @@ ${implicitVariables
 
       // Add the implicit variable value to the implicitArgValues
       implicitArgValues.push(implicitVariable.value);
+      runtimeArgExprsInOrder.push({
+        tag: ExprTag.Atom,
+        token: {
+          type: TokenType.Identifier,
+          value: implicitVariable.name,
+          inputString: implicitVariable.token.inputString,
+          modulePath: implicitVariable.token.modulePath,
+          position: implicitVariable.token.position,
+        },
+        $: {
+          env: calleeEnv,
+          type: implicitVariable.type,
+          value: implicitVariable.value,
+          isMutable: implicitVariable.isMutable,
+          pathCollection: [],
+        },
+      });
     }
   }
 
@@ -852,6 +907,7 @@ ${implicitVariables
     argValues: argValues_,
     returnValue,
     specializedFunctionValue,
+    runtimeArgExprsInOrder,
   };
 }
 
@@ -1524,6 +1580,7 @@ ${functionsWithMatchingTypes
         // argValues,
         pathCollection,
         specializedFunctionValue,
+        runtimeArgExprsInOrder,
       } = getFunctionCallResult(functionToCall);
 
       env = popEnvFrame(callerEnv);
@@ -1555,6 +1612,7 @@ ${functionsWithMatchingTypes
         value: returnValue,
         isMutable: false,
         pathCollection: pathCollection,
+        runtimeArgExprsInOrder,
       };
       // Set temp variable which holds the result of the function call
       attachTempVariableToExpr(expr);
@@ -1594,6 +1652,7 @@ ${functionsWithMatchingTypes
         values: memberValues,
         pathCollection,
         callerEnv,
+        runtimeArgExprsInOrder,
       } = getTypeCallResult(functionToCall);
       env = callerEnv;
       if (!memberValues) {
@@ -1608,6 +1667,7 @@ ${functionsWithMatchingTypes
       expr.$.value = structValue;
       expr.$.pathCollection = pathCollection;
       expr.$.env = env;
+      expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
       // Attach necessary info to the func
       func.$ = {
@@ -1642,6 +1702,7 @@ ${functionsWithMatchingTypes
         values: memberValues,
         pathCollection,
         callerEnv,
+        runtimeArgExprsInOrder,
       } = getTypeCallResult(functionToCall);
       env = callerEnv;
 
@@ -1661,6 +1722,7 @@ ${functionsWithMatchingTypes
       }
       expr.$.pathCollection = pathCollection;
       expr.$.env = env;
+      expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
       // Attach necessary info to the func
       func.$ = {
@@ -1681,11 +1743,13 @@ ${functionsWithMatchingTypes
         isMutable: false,
         pathCollection: [],
       };
-      const { pathCollection, callerEnv } = getTypeCallResult(functionToCall);
+      const { pathCollection, callerEnv, runtimeArgExprsInOrder } =
+        getTypeCallResult(functionToCall);
       env = callerEnv;
       expr.$.value = undefined;
       expr.$.pathCollection = pathCollection;
       expr.$.env = env;
+      expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
       // Attach necessary info to the func
       func.$ = {

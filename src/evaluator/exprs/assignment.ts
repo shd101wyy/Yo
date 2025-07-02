@@ -18,6 +18,8 @@ import {
 import { setTypeValueAsLinear } from "../../type-value";
 import {
   areTypesCompatible,
+  EnumType,
+  isEnumType,
   isFreeType,
   isLinearType,
   isTypeHierarchyType,
@@ -195,6 +197,18 @@ export function evaluateAssignment({
       rhsValue = setTypeValueAsLinear(rhsValue);
     }
 
+    let variableType = variable.type;
+    // Check if it's enum and selectedVariant changed
+    if (
+      isEnumType(variableType) &&
+      isEnumType(rhsType) &&
+      variableType.selectedVariantName !== rhsType.selectedVariantName
+    ) {
+      variableType = {
+        ...variableType,
+        selectedVariantName: rhsType.selectedVariantName,
+      } as EnumType;
+    }
     let isMutatingDefinedVariable = false;
     if (!variable.initializedAtToken) {
       // Initialize the variable
@@ -202,6 +216,7 @@ export function evaluateAssignment({
         ...variable,
         initializedAtToken: lhs.token,
         value: variable.isCompileTimeOnly ? rhsValue : undefined,
+        type: variableType,
         // type: rhsType,
       });
     } else if (variable.isMutable) {
@@ -209,7 +224,7 @@ export function evaluateAssignment({
       env = updateExistingVariable(env, variable, {
         ...variable,
         value: variable.isCompileTimeOnly ? rhsValue : undefined,
-        // type: rhsType,
+        type: variableType,
       });
       isMutatingDefinedVariable = true;
     } else {

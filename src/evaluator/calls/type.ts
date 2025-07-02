@@ -61,6 +61,8 @@ export function tryToCallTypeWithArguments({
   const values: (Value | undefined)[] = Array(memberElements.length).fill(
     undefined
   );
+  const runtimeArgExprsInOrder: Expr[] = [];
+
   for (let i = 0; i < memberElements.length; i++) {
     let memberElement = memberElements[i]!;
 
@@ -175,6 +177,7 @@ Got:   ${typeToString(argType)}`,
     // Set the values
     // if (memberElement.isCompileTimeOnly) {
     values[memberElementPositionIndex] = evaluatedArgExpr.$?.value;
+    runtimeArgExprsInOrder[memberElementPositionIndex] = evaluatedArgExpr;
     // }
     checkedMemberElements.add(memberElement);
   }
@@ -193,6 +196,8 @@ Got:   ${typeToString(argType)}`,
           // Set the default value to values
           // if (memberElement.isCompileTimeOnly) {
           values[i] = memberElement.defaultValue ?? memberElement.assignedValue;
+          runtimeArgExprsInOrder[i] = (memberElement.exprs.defaultValueExpr ??
+            memberElement.exprs.assignedValueExpr)!;
           // }
         }
       }
@@ -210,5 +215,5 @@ Got:   ${typeToString(argType)}`,
     });
   }
 
-  return { values, pathCollection, callerEnv };
+  return { values, pathCollection, callerEnv, runtimeArgExprsInOrder };
 }

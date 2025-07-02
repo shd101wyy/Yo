@@ -372,61 +372,76 @@ export class CodeGeneratorC {
     if (!type) return "int32_t"; // fallback
 
     switch (type.tag) {
-      case "i32":
+      case TypeTag.Unit:
+        return "void";
+      case TypeTag.Boolean:
+        return "bool";
+      case TypeTag.Usize:
+        return "size_t"; // C size type
+      case TypeTag.Isize:
+        return "intptr_t"; // C pointer difference type
+      case TypeTag.U8:
+        return "uint8_t";
+      case TypeTag.I8:
+        return "int8_t";
+      case TypeTag.U16:
+        return "uint16_t";
+      case TypeTag.I16:
+        return "int16_t";
+      case TypeTag.U32:
+        return "uint32_t";
+      case TypeTag.I32:
         return "int32_t";
-      case "compt_int":
+      case TypeTag.U64:
+        return "uint64_t";
+      case TypeTag.I64:
+        return "int64_t";
+      case TypeTag.F32:
+        return "float";
+      case TypeTag.F64:
+        return "double";
+      case TypeTag.ComptInt:
         // compt_int is a compile-time integer with infinite precision
         // For C generation, we'll use a reasonable default like int64_t
         // In a more sophisticated implementation, we might analyze the actual value
         return "int64_t";
-      case "f32":
-        return "float";
-      case "f64":
-        return "double";
-      case "boolean":
-        return "bool";
-      case "unit":
-        return "void";
-      case TypeTag.CInt:
-        return "int"; // C int type
+      case TypeTag.ComptFloat:
+        return "double"; // For compt_float, we can use double
+      // TODO: compt_string
+
       case TypeTag.CChar:
         return "char"; // C char type
-      case "Struct":
-        // For struct types, use the mangled type name
-        if (isStructType(type)) {
-          const cTypeName = this.types[type.id]?.cName;
-          if (!cTypeName) {
-            throw new Error(
-              `No C type name found for struct ${typeToString(type)}`
-            );
-          }
-          return cTypeName;
+      case TypeTag.CShort:
+        return "short"; // C short type
+      case TypeTag.CUShort:
+        return "unsigned short"; // C unsigned short type
+      case TypeTag.CInt:
+        return "int"; // C int type
+      case TypeTag.CUInt:
+        return "unsigned int"; // C unsigned int type
+      case TypeTag.CLong:
+        return "long"; // C long type
+      case TypeTag.CULong:
+        return "unsigned long"; // C unsigned long type
+      case TypeTag.CLongLong:
+        return "long long"; // C long long type
+      case TypeTag.CULongLong:
+        return "unsigned long long"; // C unsigned long long type
+      case TypeTag.CLongDouble:
+        return "long double"; // C long double type
+      // TODO: Array
+      case TypeTag.Tuple:
+      case TypeTag.Struct:
+      case TypeTag.Union:
+      case TypeTag.Enum: {
+        const cTypeName = this.types[type.id]?.cName;
+        if (!cTypeName) {
+          throw new Error(
+            `No C type name found for struct ${typeToString(type)}`
+          );
         }
-        return "struct_unknown";
-      case "Union":
-        // For union types, use the mangled type name
-        if (isUnionType(type)) {
-          const cTypeName = this.types[type.id]?.cName;
-          if (!cTypeName) {
-            throw new Error(
-              `No C type name found for union ${typeToString(type)}`
-            );
-          }
-          return cTypeName;
-        }
-        return "union_unknown";
-      case "Enum":
-        // For enum types, use the mangled type name
-        if (isEnumType(type)) {
-          const cTypeName = this.types[type.id]?.cName;
-          if (!cTypeName) {
-            throw new Error(
-              `No C type name found for enum ${typeToString(type)}`
-            );
-          }
-          return cTypeName;
-        }
-        return "enum_unknown";
+        return cTypeName;
+      }
       default:
         return `// Unknown type: ${typeToString(type)}`; // fallback
     }
@@ -613,8 +628,14 @@ export class CodeGeneratorC {
    */
   private generateFuncCall(expr: FuncCallExpr, indent: string): string {
     if (exprIsFunctionCallOf(expr, ":=", 2)) {
-      const lhs = expr.args[0]!;
+      let lhs = expr.args[0]!;
       const rhs = expr.args[1]!;
+
+      let isMutable = false;
+      if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, "mut", 1)) {
+        isMutable = true;
+        lhs = lhs.args[0]!; // Get the actual variable being mutated
+      }
 
       if (exprIsAtom(lhs)) {
         const varName = lhs.token.value;
@@ -627,11 +648,42 @@ export class CodeGeneratorC {
         const rhsCode = this.generateExpr(rhs, indent);
         // Assign to lhs
         if (!isUnitType(lhs.$.type)) {
-          this.emitter.emitLine(`${indent}${varType} ${varName} = ${rhsCode};`);
+          this.emitter.emitLine(
+            `${indent}${isMutable ? "" : "const "}${varType} ${varName} = ${rhsCode};`
+          );
         }
         return "";
       }
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.begin)) {
+    }
+    // Assignent with mutability
+    else if (exprIsFunctionCallOf(expr, "=", 2)) {
+      const lhs = expr.args[0]!;
+      const rhs = expr.args[1]!;
+      if (exprIsAtom(lhs)) {
+        const varName = lhs.token.value;
+        if (!lhs.$?.type) {
+          return `// Error: No type information for variable ${varName}\n`;
+        }
+
+        // Transpile the lhs
+        const lhsCode = this.generateExpr(lhs, indent);
+        // Transpile the rhs
+        const rhsCode = this.generateExpr(rhs, indent);
+        // Assign to lhs
+        if (!isUnitType(lhs.$.type)) {
+          this.emitter.emitLine(`${indent}${lhsCode} = ${rhsCode};`);
+        }
+        return "";
+      } else {
+        return `// Error: Left-hand side of assignment must be an identifier, got ${exprToString(lhs)}\n`;
+      }
+    }
+    // . field access
+    else if (exprIsFunctionCallOf(expr, ".", 2)) {
+      return this.generateFieldAccess(expr, indent);
+    }
+    // begin
+    else if (exprIsFunctionCallOf(expr, BuiltinKeywords.begin)) {
       const tempVariableName = expr.$?.variableName;
       const valueType = expr.$?.type;
       if (tempVariableName && valueType) {
@@ -675,8 +727,78 @@ export class CodeGeneratorC {
           }
         }
       } else if (isTypeValue(functionValue)) {
+        // struct
         if (isStructType(functionValue.value)) {
-          console.log("Found struct type function call:");
+          const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
+          const cName = this.types[functionValue.value.id]?.cName;
+          const labels = functionValue.value.elements.map(
+            (element) => element.label
+          );
+          if (
+            runtimeArgExprs &&
+            cName &&
+            labels.length === runtimeArgExprs.length
+          ) {
+            // Generate struct initialization
+            const argsList = runtimeArgExprs
+              .map((arg, index) => {
+                return `.${labels[index]!} = ` + this.generateExpr(arg, indent);
+              })
+              .join(", ");
+            return `(${cName}){ ${argsList} }`;
+          }
+        }
+        // union
+        // union is supposed to have only one member initialized
+        else if (isUnionType(functionValue.value)) {
+          const arg = expr.args[0]!;
+          if (
+            arg &&
+            exprIsFunctionCall(arg) &&
+            exprIsFunctionCallOf(arg, ":", 2)
+          ) {
+            const labelExpr = arg.args[0]!;
+            const fieldExpr = arg.args[1]!;
+            const cName = this.types[functionValue.value.id]?.cName;
+            if (cName && exprIsAtom(labelExpr) && fieldExpr) {
+              const label = labelExpr.token.value;
+              const fieldCode = this.generateExpr(fieldExpr, indent);
+              return `(${cName}){ .${label} = ${fieldCode} }`;
+            }
+          }
+        }
+        // enum
+        else if (isEnumType(functionValue.value)) {
+          const enumType = functionValue.value;
+          const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
+          const cName = this.types[enumType.id]?.cName;
+          if (enumType.selectedVariantName && runtimeArgExprs && cName) {
+            console.log("Enter here");
+            // Generate enum initialization
+            const variantName = enumType.selectedVariantName;
+            const variant = enumType.variants.find(
+              (v) => v.name === variantName
+            );
+            if (variant) {
+              const argsList = runtimeArgExprs
+                .map((arg, index) => {
+                  if (variant.elements) {
+                    const element = variant.elements[index];
+                    if (element) {
+                      return (
+                        `.${element.label} = ` + this.generateExpr(arg, indent)
+                      );
+                    }
+                    return ""; // Skip if no element matches
+                  } else {
+                    return "";
+                  }
+                })
+                .filter((s) => s) // Remove empty strings
+                .join(", ");
+              return `(${cName}){ .tag = ${cName.toUpperCase()}_${variantName.toUpperCase()}, .data = { .${variantName} = { ${argsList} } } }`;
+            }
+          }
         }
       }
     }
@@ -689,6 +811,54 @@ export class CodeGeneratorC {
    */
   private generateAtom(expr: AtomExpr): string {
     return expr.token.value;
+  }
+
+  /**
+   * Generate field access for structs, unions, and enums
+   */
+  private generateFieldAccess(expr: FuncCallExpr, indent: string): string {
+    if (expr.args.length !== 2) {
+      return "/* ERROR: field access requires exactly 2 arguments */";
+    }
+
+    const objectExpr = expr.args[0];
+    const fieldExpr = expr.args[1];
+
+    if (!objectExpr || !fieldExpr) {
+      return "/* ERROR: invalid field access arguments */";
+    }
+
+    const objectCode = this.generateExpr(objectExpr, indent);
+
+    if (exprIsAtom(fieldExpr)) {
+      const fieldName = fieldExpr.token.value;
+
+      // Check if the object is an enum type
+      if (objectExpr.$ && objectExpr.$.type && isEnumType(objectExpr.$.type)) {
+        const enumType = objectExpr.$.type;
+
+        // For enum field access, we need to determine which variant contains this field
+        // and generate the appropriate path: object.data.VariantName.fieldName
+        for (const variant of enumType.variants) {
+          if (variant.elements) {
+            for (const element of variant.elements) {
+              if (element.label === fieldName) {
+                // Found the field in this variant
+                const variantName = variant.name;
+                return `${objectCode}.data.${variantName}.${fieldName}`;
+              }
+            }
+          }
+        }
+
+        return `/* ERROR: field ${fieldName} not found in enum ${enumType.typeName} */`;
+      } else {
+        // For C structs and unions, access fields directly
+        return `${objectCode}.${fieldName}`;
+      }
+    }
+
+    return "/* ERROR: field name must be an identifier */";
   }
 
   /**
