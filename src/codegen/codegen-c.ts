@@ -170,6 +170,7 @@ export class CodeGeneratorC {
             this.findFunctionCallsInExpr(functionValue.body);
           }
         } else {
+          console.log(typeToString(functionType), functionType.id);
           // Might be the extern functions
           this.externFunctions[functionType.id] = {
             type: functionType,
@@ -178,11 +179,11 @@ export class CodeGeneratorC {
               : functionType.id, // Use the type id as the C name if the func is not atom
           };
         }
-      } else {
-        // Recursively check the function call arguments
-        for (const arg of expr.args) {
-          this.findFunctionCallsInExpr(arg);
-        }
+      }
+
+      // Recursively check the function call arguments
+      for (const arg of expr.args) {
+        this.findFunctionCallsInExpr(arg);
       }
     }
   }
@@ -565,15 +566,16 @@ export class CodeGeneratorC {
     this.emitter.emitDeclarationLine(`// Function declarations`);
 
     // Generate declarations for extern functions first
-    const hasExternFunctiosn = Object.keys(this.externFunctions).length > 0;
-    if (hasExternFunctiosn) {
-      this.emitter.emitDeclarationLine(`/// Extern functions`);
-      for (const key in this.externFunctions) {
-        const { cName, type } = this.externFunctions[key]!;
-        this.generateFunctionDeclaration(type, cName, true);
+    this.emitter.emitDeclarationLine(`/// Extern functions`);
+    console.log(Object.keys(this.externFunctions));
+    for (const key in this.externFunctions) {
+      const { cName, type } = this.externFunctions[key]!;
+      if (type.isExtern === "yo") {
+        continue; // Yo language extern types. No need to generate C declarations for them
       }
-      this.emitter.emitDeclarationLine("");
+      this.generateFunctionDeclaration(type, cName, true);
     }
+    this.emitter.emitDeclarationLine("");
 
     // Generate declarations for other functions
     this.emitter.emitDeclarationLine(`/// Regular functions`);
@@ -1136,6 +1138,19 @@ export class CodeGeneratorC {
           .join(", ");
         // return `(${this.getTypeString(arrayType)}){ ${argsList} }`;
         return `{ ${argsList} }`;
+      }
+    }
+    // recur
+    else if (exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
+      const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
+      if (runtimeArgExprs) {
+        // Generate recur call with arguments
+        const argsList = runtimeArgExprs
+          .map((arg) => this.generateExpr(arg, indent))
+          .join(", ");
+        return `${this.currentFunctionName}(${argsList})`;
+      } else {
+        return `// Error: No arguments for recur call ${exprToString(expr)}\n`;
       }
     }
     // other function call

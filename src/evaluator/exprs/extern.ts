@@ -9,6 +9,7 @@ import {
   FuncCallExpr,
 } from "../../expr";
 import {
+  ExternLanguage,
   isLinearOrType0Type,
   ModuleElement,
   typeOfType,
@@ -35,7 +36,7 @@ export function evaluateExtern({
     });
   }
 
-  let language: "c" | "yo" = "c";
+  let language: ExternLanguage = "c";
   let args = expr.args;
   if (expr.args[0] && exprIsAtom(expr.args[0])) {
     // Evaluate the language argument
@@ -101,6 +102,9 @@ export function evaluateExtern({
         errorMessage: `Duplicate label "${element.label}" in module`,
       });
     }
+
+    // Set the isExtern for the element type
+    element.type.isExtern = language;
 
     // Expect element to be compile-time only
     if (!element.isCompileTimeOnly) {

@@ -6,6 +6,8 @@ import { TypeTag } from "./tags";
 
 export type TypeId = string;
 
+export type ExternLanguage = "yo" | "c";
+
 export interface Type {
   /**
    * The tag to identify the type of type.
@@ -51,6 +53,12 @@ export interface Type {
    *  - dyn Module (dynamic dispatch object)
    */
   isDynamicSized?: boolean;
+
+  /**
+   * Whether the type is from the extern.
+   * If undefined, then it's not an extern type.
+   */
+  isExtern?: ExternLanguage;
 }
 
 /*
