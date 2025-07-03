@@ -137,7 +137,7 @@ export class CodeGeneratorC {
     // Third pass: Generate function declarations (prototypes) for regular functions
     this.generateFunctionDeclarations();
 
-    // Fourth pass: Generate all collected functions (this collects specialized functions)
+    // Fourth pass: Generate all collected functions
     this.generateAllFunctions();
 
     // Fifth pass: Generate declarations for specialized functions (now that they're collected)
@@ -215,6 +215,27 @@ export class CodeGeneratorC {
       // Recursively check the function call arguments
       for (const arg of expr.args) {
         this.findFunctionCallsInExpr(arg);
+      }
+    }
+
+    // expr might be anonymous function value
+    const functionType = expr.$?.type;
+    const functionValue = expr.$?.value;
+    if (isFunctionType(functionType)) {
+      if (isFunctionValue(functionValue)) {
+        if (this.functions[functionValue.funcId]) {
+          // Already collected this function
+          return;
+        } else {
+          // Collect the function if it's not already collected
+          this.functions[functionValue.funcId] = {
+            value: functionValue,
+            cName: functionValue.funcId, // Use the function id as the C name
+          };
+
+          // Recursively collect functions called by this function
+          this.findFunctionCallsInExpr(functionValue.body);
+        }
       }
     }
   }
@@ -535,6 +556,13 @@ export class CodeGeneratorC {
         }
         return cTypeName;
       }
+      // Function type (function pointer)
+      case TypeTag.Function: {
+        const functionType = type as FunctionType;
+
+        // C function pointer syntax: returnType (*)(paramTypes)
+        return this.generateFunctionPrototype(functionType, "(*)");
+      }
       // Fixed size array
       case TypeTag.Array: {
         const arrayType = type as ArrayType;
@@ -631,24 +659,40 @@ export class CodeGeneratorC {
     );
     const params = runtimeParams
       .map((param, index) => {
-        let paramTypeStr = this.getTypeString(param.type);
         const paramName = param.label || `param${index}`;
 
-        if (!param.isMutable) {
-          // If the parameter is not mutable, we can use a const pointer
-          if (
-            isPtrType(param.type) ||
-            isMutPtrType(param.type) ||
-            isRefType(param.type) ||
-            isMutRefType(param.type)
-          ) {
-            paramTypeStr = `${paramTypeStr} const`;
-          } else {
-            paramTypeStr = `const ${paramTypeStr}`;
-          }
-        }
+        // Handle function pointer parameters specially
+        if (isFunctionType(param.type)) {
+          let functionPointerType = this.generateFunctionPrototype(
+            param.type,
+            "(*)"
+          ).replace(" (*)(", ` (*${paramName})(`);
 
-        return `${paramTypeStr} ${paramName}`;
+          if (!param.isMutable) {
+            functionPointerType = `const ${functionPointerType}`;
+          }
+
+          return functionPointerType;
+        } else {
+          // Handle non-function parameters
+          let paramTypeStr = this.getTypeString(param.type);
+
+          if (!param.isMutable) {
+            // If the parameter is not mutable, we can use a const pointer
+            if (
+              isPtrType(param.type) ||
+              isMutPtrType(param.type) ||
+              isRefType(param.type) ||
+              isMutRefType(param.type)
+            ) {
+              paramTypeStr = `${paramTypeStr} const`;
+            } else {
+              paramTypeStr = `const ${paramTypeStr}`;
+            }
+          }
+
+          return `${paramTypeStr} ${paramName}`;
+        }
       })
       .join(", ");
     return `${returnTypeStr} ${cFunctionName}(${params})`;
@@ -1279,6 +1323,20 @@ export class CodeGeneratorC {
         }
       }
     }
+    // anonymous function (fn(x) -> body)
+    else if (
+      exprIsFunctionCallOf(expr, "->", 2) &&
+      exprIsFunctionCall(expr.args[0]) &&
+      exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn)
+    ) {
+      // Anonymous functions should have been evaluated and have a function value
+      const functionValue = expr.$?.value;
+      if (isFunctionValue(functionValue)) {
+        return this.generateComptValue(functionValue);
+      } else {
+        return `// Error: Anonymous function missing function value`;
+      }
+    }
     // other function call
     else {
       const functionType = expr.func.$?.type;
@@ -1317,12 +1375,31 @@ export class CodeGeneratorC {
               }
             }
           } else {
-            // Might be extern function or a built-in
+            // Might be extern function, a built-in, or a function parameter
             const externFunction = this.externFunctions[functionType.id];
             if (externFunction) {
               // Generate extern function call
               const cFuncName = externFunction.cName;
               return `${cFuncName}(${argsList})`;
+            } else {
+              // Function parameter call (e.g., callback(x))
+              const funcCode = this.generateExpr(expr.func, indent);
+              if (isUnitType(functionType.return.type)) {
+                // If the function returns unit, just call it without assignment
+                this.emitter.emitLine(`${indent}${funcCode}(${argsList});`);
+                return ""; // No return value
+              } else {
+                // If it returns a value, assign to a temp variable or return directly
+                const tempVar = expr.$?.variableName;
+                if (tempVar) {
+                  this.emitter.emitLine(
+                    `${indent}${this.getTypeString(functionType.return.type)} ${tempVar} = ${funcCode}(${argsList});`
+                  );
+                  return tempVar; // Return the temp variable name
+                } else {
+                  return `${funcCode}(${argsList})`;
+                }
+              }
             }
           }
         }
@@ -1449,6 +1526,14 @@ export class CodeGeneratorC {
         });
 
         return `(${cName}){ ${fields.join(", ")} }`;
+      }
+    } else if (isFunctionValue(value)) {
+      // For function values, we need to register them and return their C function name
+      const cName = this.functions[value.funcId]?.cName;
+      if (cName) {
+        return cName; // Return the function name as a function pointer
+      } else {
+        return `// Error: No C function name found for function value with ID ${value.funcId}\n`;
       }
     }
 
