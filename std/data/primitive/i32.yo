@@ -1,4 +1,4 @@
-{ compt_codegen_inline } :: import "../../builtins.yo";
+open import "../../builtins.yo";
 { Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
 { LogicalNot } :: import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
@@ -7,61 +7,34 @@
  * arithmetic
  */
 implicit(I32Add) :: Add(i32, i32)
-  Output : i32,
-  (+): (fn(a, b)-> {
-    compt_codegen_inline("(((int32_t)$1) + ((int32_t)$2))");
-    recur(a, b)
-  })
+  (+): (fn(a, b)-> __yo_op_add(a, b))
 ;
 
 implicit(I32Sub) :: Sub(i32, i32)
-  Output: i32,
-  (-): (fn(a, b)-> {
-    compt_codegen_inline("(((int32_t)$1) - ((int32_t)$2))");
-    recur(a, b)
-  })
+  (-): (fn(a, b)-> __yo_op_sub(a, b))
 ;
 
 implicit(I32Mul) :: Mul(i32, i32)
-  Output: i32,
-  (*): (fn(a, b)-> {
-    compt_codegen_inline("(((int32_t)$1) * ((int32_t)$2))");
-    recur(a, b)
-  })
+  (*): (fn(a, b)-> __yo_op_mul(a, b))
 ;
 
 implicit(I32Div) :: Div(i32, i32)
-  Output: i32,
-  (/): (fn(a, b)-> {
-    compt_codegen_inline("(((int32_t)$1) / ((int32_t)$2))");
-    recur(a, b)
-  })
+  (/): (fn(a, b)-> __yo_op_div(a, b))
 ;
 
 implicit(I32Mod) :: Mod(i32, i32)
-  Output: i32,
-  (%): (fn(a, b)-> {
-    compt_codegen_inline("(((int32_t)$1) % ((int32_t)$2))");
-    recur(a, b)
-  })
+  (%): (fn(a, b)-> __yo_op_mod(a, b))
 ;
 
 implicit(I32Negate) :: Negate(i32, i32)
-  Output: i32,
-  (neg): (fn(a)-> {
-    compt_codegen_inline("(-((int32_t)$1))");
-    recur(a)
-  })
+  (neg): (fn(a)-> __yo_op_neg(a))
 ;
 
 /**
  * logic
  */
 implicit(I32LogicalNot) :: LogicalNot(i32)
-  (!): (fn(a)-> {
-    compt_codegen_inline("!((int32_t)$1)");
-    recur(a)
-  })
+  (!): (fn(a)-> __yo_op_not(a))
 ;
 
 
@@ -69,14 +42,7 @@ implicit(I32LogicalNot) :: LogicalNot(i32)
  * eq
  */
 implicit(I32Eq) :: Eq(i32, i32)
-  eq: (fn(a, b)-> {
-    compt_codegen_inline("(((int32_t)*$1) == ((int32_t)*$2))");
-    recur(a, b)
-  })/*,
-  ne: (fn(a, b)-> {
-    compt_codegen_inline("(((int32_t)*$1) != ((int32_t)*$2))");
-    recur(a, b)
-  })*/
+  (==) : (fn(a, b)-> __yo_op_eq(a, b))
 ;
 
 implicit(I32ComptMethods) :: module {

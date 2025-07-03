@@ -1,6 +1,7 @@
 import { Environment } from "./env";
 import { Expr, exprToString } from "./expr";
 import { FunctionValue } from "./function-value";
+import { stringIsOperator } from "./token";
 import { TypeValue } from "./type-value";
 import {
   areTypesCompatible,
@@ -190,7 +191,10 @@ export function valueToString(value?: Value): string {
     case ValueTag.Struct: {
       return `${value.type.typeName ?? "_"}(${value.elements
         .map((element, index) => {
-          const label = value.type.elements[index]!.label;
+          let label = value.type.elements[index]!.label;
+          if (stringIsOperator(label)) {
+            label = `(${label})`;
+          }
           return `${label}: ${valueToString(element)}`;
         })
         .join(", ")})`;
@@ -214,7 +218,10 @@ export function valueToString(value?: Value): string {
     case ValueTag.Module: {
       return `${value.type.typeName ?? "_"}(${value.elements
         .map((element, index) => {
-          const label = value.type.elements[index]!.label;
+          let label = value.type.elements[index]!.label;
+          if (stringIsOperator(label)) {
+            label = `(${label})`;
+          }
           return `${label}: ${valueToString(element)}`;
         })
         .join(", ")})`;

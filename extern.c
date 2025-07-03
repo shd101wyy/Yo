@@ -35,3 +35,5 @@ bool eq(int32_t x, int32_t y) {
 bool ge(int32_t x, int32_t y) {
     return x >= y;
 }
+
+#define __c_add(x, y) ((x) + (y))

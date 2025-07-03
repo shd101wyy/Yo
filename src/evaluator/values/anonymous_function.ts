@@ -7,7 +7,12 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { areTypesCompatible, isFunctionType, typeToString } from "../../types";
+import {
+  areTypesCompatible,
+  FunctionType,
+  isFunctionType,
+  typeToString,
+} from "../../types";
 import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
@@ -61,7 +66,12 @@ export function evaluateAnonymousFunctionImplementation({
   // NOTE: We disallow to define function signature for anonymous function anymore.
   // Evaluate the parameter list
   // env = pushEnvFrame(env); // < this is done in evaluateFunctionParameters function.
-  const { env: nextEnv } = evaluateFunctionParameters({
+  const {
+    env: nextEnv,
+    typeParameters,
+    parameters,
+    implicitParameters,
+  } = evaluateFunctionParameters({
     parameterExprs: functionDeclarationExpr.args,
     expectedFunctionType: functionType,
     env,
@@ -108,13 +118,22 @@ export function evaluateAnonymousFunctionImplementation({
   // Restore the env frame
   env = popEnvFrame(env);
 
+  // Needs to update the function type with the evaluated parameters
+  // because the parameters might have different names.
+  const newFunctionType: FunctionType = {
+    ...functionType,
+    typeParameters: typeParameters,
+    parameters: parameters,
+    implicitParameters: implicitParameters,
+  };
+
   // Set the type and value of the expression
   expr.$ = {
     env,
-    type: functionType,
+    type: newFunctionType,
     value: {
       tag: ValueTag.Function,
-      type: functionType,
+      type: newFunctionType,
       body: functionBodyExpr,
       frameLevel: env.frames.length - 1,
       funcId: `fn_${randomId()}`,

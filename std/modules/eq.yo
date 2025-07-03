@@ -1,26 +1,12 @@
 Eq :: 
   ((@(Lhs): Type, @(Rhs) ?= Lhs) -> @(Module))
   module
-    Self := Lhs,
+    (==): ((lhs: Lhs, rhs: Rhs) -> boolean),
 
-    eq: ((lhs: &(Lhs), rhs: &(Rhs)) -> boolean),
-
-    (ne: ((lhs: &(Lhs), rhs: &(Rhs)) -> boolean)) ?= 
+    ((!=) : ((lhs: Lhs, rhs: Rhs) -> boolean)) ?= 
       (fn(lhs, rhs) ->
-        not(eq(lhs, rhs))
-    )
+        not((==)(lhs, rhs))
+      )
 ;
-
-// x == y
-// automatically converted to
-// Eq.eq(&x, &y)
-// or
-// x.eq(&y)
-/*
-(==) :: (( quote(lhs) : Expr, quote(rhs) : Expr)-> unquote(Expr))
-  quote(
-    Eq(typeof(unquote(lhs))).eq(&(unquote(lhs)), &(unquote(rhs)))
-  )
-*/
 
 export Eq;

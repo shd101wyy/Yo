@@ -1,4 +1,4 @@
-{ compt_codegen_inline, compt_noop } :: import("../../builtins.yo");
+{ __yo_op_not, __yo_op_eq } :: import("../../builtins.yo");
 { LogicalNot } :: import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 
@@ -6,26 +6,18 @@
  * logic
  */
 implicit(BooleanLogicalNot) :: LogicalNot(boolean)
-  (!): (fn(a)-> {
-    compt_codegen_inline("(!($1))");
-    recur(a)
-  })
+  (!): (fn(a)->
+    __yo_op_not(a)
+  )
 ;
 
 /**
  * eq
  */
 implicit(BooleanEq) :: Eq(boolean, boolean)
-  (eq): (fn(a, b)-> {
-    compt_codegen_inline("(($1) == ($2))");
-    recur(a, b)
-  })
-  /*,
-  (ne): (fn(a, b)-> {
-    compt_codegen_inline(C="(($1) != ($2))");
-    recur(a, b)
-  })
-  */
+  (==): (fn(a, b)->
+    __yo_op_eq(a, b)
+  )
 ;
 
 implicit(ComptBooleanMethods) :: module {

@@ -1,0 +1,23 @@
+extern "Yo",  
+  __yo_op_add : ((forall(@(T): Free), x : T, y : T) -> T)
+;
+
+Add :: ((@(Lhs): Type, @(Rhs) ?= Lhs, @(Output) ?= Lhs)-> @(Module))
+  module
+    Self   := Lhs,
+    (+)    : ((lhs: Lhs, rhs: Rhs)-> Output)
+;
+
+implicit(I32Add) :: Add(i32, i32)
+  (+): (fn(a, b)-> __yo_op_add(a, b))
+;
+
+
+main :: (() -> i32) {
+  x := 1;
+  y := 2;
+  z := (x + y);
+  z
+};
+
+export main;

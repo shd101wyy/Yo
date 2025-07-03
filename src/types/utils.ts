@@ -1,5 +1,6 @@
 import { Environment, getVariablesFromEnv } from "../env";
 import { exprToString } from "../expr";
+import { stringIsOperator } from "../token";
 import { TypeValue } from "../type-value";
 import { isNumberValue, valueToString } from "../value";
 import { ValueTag } from "../value-tag";
@@ -360,8 +361,11 @@ export function functionParameterToString(
  */
 export function tupleElementToString(element: TupleElement): string {
   let label = element.label;
+  if (stringIsOperator(label)) {
+    label = `(${label})`;
+  }
   if (element.isImplicit) {
-    label = `?${label}`;
+    label = `?(${label})`;
   }
   if (element.isCompileTimeOnly) {
     label = `@(${label})`;
@@ -391,8 +395,11 @@ export function tupleElementToString(element: TupleElement): string {
  */
 function moduleElementToString(element: ModuleElement): string {
   let label = element.label;
+  if (stringIsOperator(label)) {
+    label = `(${label})`;
+  }
   if (element.isImplicit) {
-    label = `?${label}`;
+    label = `?(${label})`;
   }
 
   const defaultValueStr = element.defaultValue

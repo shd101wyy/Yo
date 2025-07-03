@@ -1,7 +1,11 @@
-main :: (() -> i32) {
-  anony :: { x : 12, y : 13 };
-  open anony;
-  x
-};
+extern
+  add:
+    (x: i32, y: i32)-> i32
+;
 
-export main;
+generic_fn ::
+  ((forall(@(T): Type), x: T, callback: ((v: T)-> T))-> T)
+  callback(x)
+;
+
+generic_fn(1, fn(x)-> add(x, 1));

@@ -8,6 +8,7 @@ import {
   BuiltinKeywords,
   exprToString,
   FuncCallExpr,
+  RuntimeDestructuring,
   setExprAsConsumed,
 } from "../../expr";
 import { isStructType } from "../../types";
@@ -58,6 +59,8 @@ export function evaluateOpen({
   const argType = evaluatedArgExpr.$.type;
   const argValue = evaluatedArgExpr.$.value;
 
+  let runtimeDestructurings: RuntimeDestructuring[] | undefined = undefined;
+
   if (isModuleValue(argValue)) {
     const moduleValue = argValue;
     const moduleType = moduleValue.type;
@@ -86,6 +89,7 @@ export function evaluateOpen({
   } else if (isStructType(argType)) {
     const structValue = argValue;
     const structType = argType;
+    runtimeDestructurings = [];
 
     // Import everything from the struct
     for (let i = 0; i < structType.elements.length; i++) {
@@ -111,6 +115,12 @@ export function evaluateOpen({
           },
         });
         env = nextEnv;
+
+        runtimeDestructurings.push({
+          label: element.label,
+          variableName: element.label,
+          type: element.type,
+        });
       } catch (error) {
         throw formatErrorMessages([
           {
@@ -141,6 +151,7 @@ export function evaluateOpen({
     type: VUnit.type,
     isMutable: false,
     pathCollection: [],
+    runtimeDestructurings,
   };
 
   return expr;

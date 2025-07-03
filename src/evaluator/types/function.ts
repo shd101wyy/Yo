@@ -429,8 +429,11 @@ export function evaluateFunctionParameters({
   env = pushEnvFrame(env);
 
   const parameters: FunctionParameter[] = [];
-  const typeParameters: FunctionParameter[] = [];
-  const implicitParameters: FunctionParameter[] = [];
+  let typeParameters: FunctionParameter[] = [];
+  let implicitParameters: FunctionParameter[] = [];
+
+  let findTypeParameters = false;
+  let findImplicitParameters = false;
 
   for (let i = 0; i < parameterExprs.length; i++) {
     const parameterExpr = parameterExprs[i]!;
@@ -440,6 +443,8 @@ export function evaluateFunctionParameters({
       exprIsFunctionCall(parameterExpr) &&
       exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.forall)
     ) {
+      findTypeParameters = true;
+
       if (i !== 0) {
         throw formatErrorMessage({
           token: parameterExpr.token,
@@ -501,6 +506,8 @@ export function evaluateFunctionParameters({
       exprIsFunctionCall(parameterExpr) &&
       exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.implicit)
     ) {
+      findImplicitParameters = true;
+
       if (i !== parameterExprs.length - 1) {
         throw formatErrorMessage({
           token: parameterExpr.token,
@@ -630,6 +637,13 @@ export function evaluateFunctionParameters({
       }
     }
   });
+
+  if (!findTypeParameters && expectedFunctionType?.typeParameters) {
+    typeParameters = [...expectedFunctionType.typeParameters];
+  }
+  if (!findImplicitParameters && expectedFunctionType?.implicitParameters) {
+    implicitParameters = [...expectedFunctionType.implicitParameters];
+  }
 
   return {
     parameters,

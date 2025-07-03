@@ -350,6 +350,7 @@ export const BuiltinKeywords = {
 export const BuiltinFunctions = {
   __yo_are_types_compatible: ["__yo_are_types_compatible"],
   compt_expect_error: ["compt_expect_error"],
+  // compt_codegen_inline: ["compt_codegen_inline"],
   typeof: ["typeof"],
   sizeof: ["sizeof"],
   consume: ["consume"],
@@ -645,6 +646,36 @@ export const BuiltinFunctions = {
   __yo_type_is_free: ["__yo_type_is_free"],
   __yo_type_is_type0: ["__yo_type_is_type0"],
   __yo_type_contains_reference: ["__yo_type_contains_reference"],
+
+  // Operator related functions
+  /// Arithemtic
+  __yo_op_add: ["__yo_op_add"], // +
+  __yo_op_sub: ["__yo_op_sub"], // -
+  __yo_op_mul: ["__yo_op_mul"], // *
+  __yo_op_div: ["__yo_op_div"], // /
+  __yo_op_mod: ["__yo_op_mod"], // %
+  __yo_op_neg: ["__yo_op_neg"], // -
+
+  /// Relational
+  __yo_op_eq: ["__yo_op_eq"], // ==
+  __yo_op_neq: ["__yo_op_neq"], // !=
+  __yo_op_lt: ["__yo_op_lt"], // <
+  __yo_op_lte: ["__yo_op_lte"], // <=
+  __yo_op_gt: ["__yo_op_gt"], // >
+  __yo_op_gte: ["__yo_op_gte"], // >=
+
+  /// Logical
+  __yo_op_and: ["__yo_op_and"], // &&
+  __yo_op_or: ["__yo_op_or"], // ||
+  __yo_op_not: ["__yo_op_not"], // !
+
+  /// Bitwise
+  __yo_op_bit_and: ["__yo_op_bit_and"], // &
+  __yo_op_bit_or: ["__yo_op_bit_or"], // |
+  __yo_op_xor: ["__yo_op_xor"], // ^
+  __yo_op_bit_complement: ["__yo_op_bit_complement"], // ~
+  __yo_op_bit_left_shift: ["__yo_op_bit_left_shift"], // <<
+  __yo_op_bit_right_shift: ["__yo_op_bit_right_shift"], // >>
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {

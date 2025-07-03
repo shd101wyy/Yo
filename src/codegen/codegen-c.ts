@@ -1,6 +1,7 @@
 import { Emitter } from "../emitter";
 import {
   AtomExpr,
+  BuiltinFunctions,
   BuiltinKeywords,
   Expr,
   exprIsAtom,
@@ -46,6 +47,37 @@ import {
   Value,
   valueToString,
 } from "../value";
+
+const BuiltinCOperatorFunctions = [
+  // Arithemtic
+  ...BuiltinFunctions.__yo_op_add, // +
+  ...BuiltinFunctions.__yo_op_sub, // -
+  ...BuiltinFunctions.__yo_op_mul, // *
+  ...BuiltinFunctions.__yo_op_div, // /
+  ...BuiltinFunctions.__yo_op_mod, // %
+  ...BuiltinFunctions.__yo_op_neg, // -
+
+  // Relational
+  ...BuiltinFunctions.__yo_op_eq, // ==
+  ...BuiltinFunctions.__yo_op_neq, // !=
+  ...BuiltinFunctions.__yo_op_lt, // <
+  ...BuiltinFunctions.__yo_op_lte, // <=
+  ...BuiltinFunctions.__yo_op_gt, // >
+  ...BuiltinFunctions.__yo_op_gte, // >=
+
+  // Logical
+  ...BuiltinFunctions.__yo_op_and, // &&
+  ...BuiltinFunctions.__yo_op_or, // ||
+  ...BuiltinFunctions.__yo_op_not, // !
+
+  // Bitwise
+  ...BuiltinFunctions.__yo_op_bit_and,
+  ...BuiltinFunctions.__yo_op_bit_or,
+  ...BuiltinFunctions.__yo_op_xor,
+  ...BuiltinFunctions.__yo_op_bit_complement,
+  ...BuiltinFunctions.__yo_op_bit_left_shift,
+  ...BuiltinFunctions.__yo_op_bit_right_shift,
+];
 
 export class CodeGeneratorC {
   private emitter: Emitter;
@@ -170,7 +202,6 @@ export class CodeGeneratorC {
             this.findFunctionCallsInExpr(functionValue.body);
           }
         } else {
-          console.log(typeToString(functionType), functionType.id);
           // Might be the extern functions
           this.externFunctions[functionType.id] = {
             type: functionType,
@@ -567,7 +598,6 @@ export class CodeGeneratorC {
 
     // Generate declarations for extern functions first
     this.emitter.emitDeclarationLine(`/// Extern functions`);
-    console.log(Object.keys(this.externFunctions));
     for (const key in this.externFunctions) {
       const { cName, type } = this.externFunctions[key]!;
       if (type.isExtern === "yo") {
@@ -708,13 +738,11 @@ export class CodeGeneratorC {
 
       // Generate all expressions except the last as statements
       for (let i = 0; i < args.length - 1; i++) {
-        const arg = args[i];
-        if (arg) {
-          const argCode = this.generateExpr(arg, indent);
-          if (argCode) {
-            // Emit the expression as a statement
-            this.emitter.emitLine(`${indent}${argCode};`);
-          }
+        const arg = args[i]!;
+        const argCode = this.generateExpr(arg, indent);
+        if (argCode) {
+          // Emit the expression as a statement
+          this.emitter.emitLine(`${indent}${argCode};`);
         }
       }
 
@@ -1151,6 +1179,104 @@ export class CodeGeneratorC {
         return `${this.currentFunctionName}(${argsList})`;
       } else {
         return `// Error: No arguments for recur call ${exprToString(expr)}\n`;
+      }
+    } else if (exprIsFunctionCallOf(expr, BuiltinCOperatorFunctions)) {
+      const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
+      if (runtimeArgExprs) {
+        const args = runtimeArgExprs.map((arg) => {
+          return this.generateExpr(arg, indent);
+        });
+
+        // +
+        if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_add)) {
+          return `((${args[0]!}) + (${args[1]!}))`;
+        }
+        // -
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_sub)) {
+          return `((${args[0]!}) - (${args[1]!}))`;
+        }
+        // *
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_mul)) {
+          return `((${args[0]!}) * (${args[1]!}))`;
+        }
+        // /
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_div)) {
+          return `((${args[0]!}) / (${args[1]!}))`;
+        }
+        // %
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_mod)) {
+          return `((${args[0]!}) % (${args[1]!}))`;
+        }
+        // neg -
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_neg)) {
+          return `(-(${args[0]!}))`;
+        }
+        // ==
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_eq)) {
+          return `((${args[0]!}) == (${args[1]!}))`;
+        }
+        // !=
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_neq)) {
+          return `((${args[0]!}) != (${args[1]!}))`;
+        }
+        // <
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_lt)) {
+          return `((${args[0]!}) < (${args[1]!}))`;
+        }
+        // <=
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_lte)) {
+          return `((${args[0]!}) <= (${args[1]!}))`;
+        }
+        // >
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_gt)) {
+          return `((${args[0]!}) > (${args[1]!}))`;
+        }
+        // >=
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_gte)) {
+          return `((${args[0]!}) >= (${args[1]!}))`;
+        }
+        // and
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_and)) {
+          return `((${args[0]!}) && (${args[1]!}))`;
+        }
+        // >=
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_or)) {
+          return `((${args[0]!}) || (${args[1]!}))`;
+        }
+        // !
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_not)) {
+          return `(!(${args[0]!}))`;
+        }
+        // &
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_bit_and)) {
+          return `((${args[0]!}) & (${args[1]!}))`;
+        }
+        // |
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_bit_or)) {
+          return `((${args[0]!}) | (${args[1]!}))`;
+        }
+        // ^
+        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_xor)) {
+          return `((${args[0]!}) ^ (${args[1]!}))`;
+        }
+        // ~
+        else if (
+          exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_bit_complement)
+        ) {
+          return `(~(${args[0]!}))`;
+        }
+        // <<
+        else if (
+          exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_bit_left_shift)
+        ) {
+          return `((${args[0]!}) << (${args[1]!}))`;
+        }
+        // >>
+        else if (
+          exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_bit_right_shift)
+        ) {
+          return `((${args[0]!}) >> (${args[1]!}))`;
+        }
       }
     }
     // other function call
