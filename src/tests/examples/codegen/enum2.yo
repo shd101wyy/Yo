@@ -1,0 +1,31 @@
+extern
+  add :
+    (x : i32, y : i32) -> i32
+;
+
+Color :: enum
+  Red,
+  Green,
+  Blue,
+  Mix(red : i32, green : i32, blue : i32)
+;
+
+judge :: ((color : Color) -> i32)
+  match color,
+    .Red => 1,
+    .Green => 2,
+    .Blue => 3,
+    .Mix => add(color.red, add(color.green, color.blue))
+;
+
+main :: (() -> i32) {
+  red := Color.Red;
+  green := Color.Green;
+  blue := Color.Blue;
+  mix := Color.Mix(red: 100, green: 150, blue: 200);
+  judge(mix)
+};
+
+export
+  main
+;

@@ -404,6 +404,7 @@ export class CodeGeneratorC {
     );
     this.emitter.emitDeclarationLine(`  ${tagEnumName} tag;`);
     this.emitter.emitDeclarationLine(`  ${variantUnionName} data;`);
+
     this.emitter.emitDeclarationLine(`} ${cName};`);
     this.emitter.emitDeclarationLine(""); // Add blank line for readability
   }
@@ -1130,6 +1131,7 @@ export class CodeGeneratorC {
 
     const objectCode = this.generateExpr(objectExpr, indent);
     const objectType = objectExpr.$?.type;
+    const objectValue = objectExpr.$?.value;
 
     if (exprIsAtom(fieldExpr)) {
       const fieldName = fieldExpr.token.value;
@@ -1153,6 +1155,17 @@ export class CodeGeneratorC {
         }
 
         return `/* ERROR: field ${fieldName} not found in enum ${enumType.typeName} */`;
+      } else if (isTypeValue(objectValue) && isEnumType(objectValue.value)) {
+        const enumType = objectValue.value;
+        const variant = enumType.variants.find((v) => v.name === fieldName);
+        const cName = this.types[enumType.id]?.cName;
+
+        // Accessing variant that has no elements.
+        // Like: Color.Red
+        if (!!variant && !variant.elements && cName) {
+          const tagName = this.getEnumVariantCName(enumType, variant.name);
+          return `(${cName}){ .tag = ${tagName}, .data = {  } }`;
+        }
       }
       // Check if the object is pointer or reference
       else if (
