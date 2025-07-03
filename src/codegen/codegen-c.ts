@@ -930,6 +930,40 @@ export class CodeGeneratorC {
       if (!lhs.$?.type) {
         return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
       }
+      const lhsCode = this.generateExpr(lhs, indent);
+
+      // Check if we need to save the old value into temp variable
+      if (expr.$?.variableName) {
+        const tempVarName = expr.$.variableName;
+        const tempVarNameAndType = this.getVariableTypeString(
+          lhs.$.type,
+          tempVarName
+        );
+
+        // Handle array assignment specially
+        if (isArrayType(lhs.$.type)) {
+          const arrayType = lhs.$.type;
+          const arrayLength = arrayType.length;
+          this.emitter.emitLine(
+            `${indent}${tempVarNameAndType}; // Save old value for later use`
+          );
+
+          if (isNumberValue(arrayLength)) {
+            // For array, we need to copy each element
+            for (let i = 0; i < arrayLength.value; i++) {
+              this.emitter.emitLine(
+                `${indent}${tempVarName}[${i}] = ${lhsCode}[${i}];`
+              );
+            }
+          }
+        } else {
+          if (!isUnitType(lhs.$.type)) {
+            this.emitter.emitLine(
+              `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`
+            );
+          }
+        }
+      }
 
       // Handle array assignments specially
       if (isArrayType(lhs.$.type)) {
@@ -948,7 +982,6 @@ export class CodeGeneratorC {
           );
         } else {
           // For assignment to existing array, we need element-by-element assignment
-          const lhsCode = this.generateExpr(lhs, indent);
           const rhsCode = this.generateExpr(rhs, indent);
 
           // Check if RHS is an array literal that we can unpack
@@ -983,7 +1016,6 @@ export class CodeGeneratorC {
         }
       } else {
         // Non-array assignment - use existing logic
-        const lhsCode = this.generateExpr(lhs, indent);
         const rhsCode = this.generateExpr(rhs, indent);
         if (!isUnitType(lhs.$.type)) {
           this.emitter.emitLine(
@@ -991,7 +1023,8 @@ export class CodeGeneratorC {
           );
         }
       }
-      return "";
+
+      return expr.$?.variableName ?? "";
     }
     // . field access
     else if (exprIsFunctionCallOf(expr, ".", 2)) {
