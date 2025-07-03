@@ -733,8 +733,46 @@ export class CodeGeneratorC {
       return "";
     }
 
+    // bindings
+    if (exprIsFunctionCallOf(expr, ":", 2)) {
+      let lhs = expr.args[0]!;
+      if (
+        exprIsFunctionCall(lhs) &&
+        exprIsFunctionCallOf(lhs, BuiltinKeywords.compt, 1)
+      ) {
+        // compile-time variable
+        return "";
+      }
+
+      if (
+        exprIsFunctionCall(lhs) &&
+        exprIsFunctionCallOf(lhs, BuiltinKeywords.implicit, 1)
+      ) {
+        // implicit variable, just use the inner expression
+        lhs = lhs.args[0]!;
+      }
+
+      let isMutable = false;
+      if (
+        exprIsFunctionCall(lhs) &&
+        exprIsFunctionCallOf(lhs, BuiltinKeywords.mut, 1)
+      ) {
+        // mutable variable, just use the inner expression
+        isMutable = true;
+        lhs = lhs.args[0]!;
+      }
+
+      if (!lhs.$?.type) {
+        return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
+      }
+
+      this.emitter.emitLine(
+        // NOTE: We cannot assign "const" here.
+        `${indent}${isMutable ? "" : ""}${this.getTypeString(lhs.$.type)} ${lhs.token.value};`
+      );
+    }
     // Initialization assignment
-    if (exprIsFunctionCallOf(expr, ":=", 2)) {
+    else if (exprIsFunctionCallOf(expr, ":=", 2)) {
       let lhs = expr.args[0]!;
       const rhs = expr.args[1]!;
 
@@ -827,7 +865,7 @@ export class CodeGeneratorC {
       // Assign to lhs
       if (!isUnitType(lhs.$.type)) {
         this.emitter.emitLine(
-          `${indent}${isMutable ? "" : "const "}${isInitialization ? this.getTypeString(lhs.$.type) + " " : ""}${lhsCode} = ${rhsCode};`
+          `${indent}${isInitialization && !isMutable ? "const " : ""}${isInitialization ? this.getTypeString(lhs.$.type) + " " : ""}${lhsCode} = ${rhsCode};`
         );
       }
       return "";
