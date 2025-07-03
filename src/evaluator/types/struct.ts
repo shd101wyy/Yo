@@ -173,16 +173,9 @@ export function evaluateStructType({
         });
       }
 
-      // Compile-time field must have an assigned value
-      if (type.isCompileTimeOnly && !type.assignedValue) {
-        throw formatErrorMessage({
-          token: type.exprs.expr.token,
-          errorMessage: `Compile-time only field "${type.label}" must have an assigned value.`,
-        });
-      }
-
       if (type.isCompileTimeOnly) {
-        structType.module.elements.push(type as ModuleElement);
+        const moduleElement = type as ModuleElement;
+        structType.module.elements.push(moduleElement);
       } else {
         elements.push(type as TupleElement);
       }

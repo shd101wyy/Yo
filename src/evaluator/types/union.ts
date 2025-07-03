@@ -7,11 +7,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import {
-  createUnionType,
-  ModuleElement,
-  TupleElement,
-} from "../../types";
+import { createUnionType, ModuleElement, TupleElement } from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateElementType } from "./element";
@@ -60,14 +56,6 @@ export function evaluateUnionType({
           ? (arg.args[0]?.token ?? arg.token)
           : arg.token,
         errorMessage: `Duplicate label "${type.label}" in tuple`,
-      });
-    }
-
-    // Compile-time field must have an assigned value
-    if (type.isCompileTimeOnly && !type.assignedValue) {
-      throw formatErrorMessage({
-        token: type.exprs.expr.token,
-        errorMessage: `Compile-time only field "${type.label}" must have an assigned value.`,
       });
     }
 

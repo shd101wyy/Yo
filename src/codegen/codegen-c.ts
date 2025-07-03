@@ -685,7 +685,7 @@ export class CodeGeneratorC {
    * Generate C code for a function call expression
    */
   private generateFuncCall(expr: FuncCallExpr, indent: string): string {
-    // compile-time functions
+    // compile-time variable
     if (exprIsFunctionCallOf(expr, "::", 2)) {
       return "";
     }
@@ -695,8 +695,28 @@ export class CodeGeneratorC {
       let lhs = expr.args[0]!;
       const rhs = expr.args[1]!;
 
+      if (
+        exprIsFunctionCall(lhs) &&
+        exprIsFunctionCallOf(lhs, BuiltinKeywords.compt, 1)
+      ) {
+        // compile-time variable
+        return "";
+      }
+
       let isMutable = false;
-      if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, "mut", 1)) {
+      // let isImplicit = false;
+      if (
+        exprIsFunctionCall(lhs) &&
+        exprIsFunctionCallOf(lhs, BuiltinKeywords.implicit, 1)
+      ) {
+        // isImplicit = true;
+        lhs = lhs.args[0]!; // Get the actual variable being assigned
+      }
+
+      if (
+        exprIsFunctionCall(lhs) &&
+        exprIsFunctionCallOf(lhs, BuiltinKeywords.mut, 1)
+      ) {
         isMutable = true;
         lhs = lhs.args[0]!; // Get the actual variable being mutated
       }

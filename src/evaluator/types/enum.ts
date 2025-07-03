@@ -88,19 +88,11 @@ export function evaluateEnumType({
         });
       }
 
-      // Compile-time field must have an assigned value
-      if (type.isCompileTimeOnly && !type.assignedValue) {
-        throw formatErrorMessage({
-          token: type.exprs.expr.token,
-          errorMessage: `Compile-time only field "${type.label}" must have an assigned value.`,
-        });
-      }
-
-      // Disallow to have the default value for union type fields.
+      // Disallow to have the default value for enum type fields.
       if (type.defaultValue) {
         throw formatErrorMessage({
           token: type.exprs.defaultValueExpr?.token ?? type.exprs.expr.token,
-          errorMessage: `Union type cannot have default value for its elements.`,
+          errorMessage: `Enum type cannot have default value for its elements.`,
         });
       }
 

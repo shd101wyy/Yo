@@ -22,7 +22,12 @@ import {
 } from "../../types";
 import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
-import { isTypeValue, Value } from "../../value";
+import {
+  isFunctionValue,
+  isModuleValue,
+  isTypeValue,
+  Value,
+} from "../../value";
 import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
 
@@ -430,22 +435,53 @@ Given type: ${typeToString(defaultValueType)}`,
     };
   }
 
-  return {
-    type: {
-      label: label ?? `$element_${randomId()}`,
-      type: elementType,
-      exprs: {
-        expr,
-        labelExpr,
-        typeExpr,
-        defaultValueExpr,
-        assignedValueExpr,
-      },
-      isCompileTimeOnly,
-      isImplicit,
-      defaultValue,
-      assignedValue,
+  const element: ElementType = {
+    label: label ?? `$element_${randomId()}`,
+    type: elementType,
+    exprs: {
+      expr,
+      labelExpr,
+      typeExpr,
+      defaultValueExpr,
+      assignedValueExpr,
     },
+    isCompileTimeOnly,
+    isImplicit,
+    defaultValue,
+    assignedValue,
+  };
+
+  if (element.isCompileTimeOnly) {
+    // Compile-time field must have an assigned value
+    if (!element.assignedValue) {
+      throw formatErrorMessage({
+        token: element.exprs.expr.token,
+        errorMessage: `Compile-time only field "${element.label}" must have an assigned value.`,
+      });
+    } else {
+      // Attach .typeName info if necessary
+      if (
+        isTypeValue(element.assignedValue) &&
+        !element.assignedValue.value.typeName
+      ) {
+        element.assignedValue.value.typeName = element.label;
+      } else if (
+        isFunctionValue(element.assignedValue) &&
+        !element.assignedValue.funcName
+      ) {
+        element.assignedValue.funcName = element.label;
+        element.assignedValue.funcId += `_${element.label}`;
+      } else if (
+        isModuleValue(element.assignedValue) &&
+        !element.assignedValue.type.typeName
+      ) {
+        element.assignedValue.type.typeName = element.label;
+      }
+    }
+  }
+
+  return {
+    type: element,
     env,
   };
 }
