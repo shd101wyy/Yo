@@ -11,8 +11,8 @@ import {
 import {
   createStructType,
   isStructType,
+  ModuleElement,
   TupleElement,
-  typeOfType,
 } from "../../types";
 import { randomId } from "../../utils";
 import {
@@ -22,6 +22,7 @@ import {
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateElementType } from "../types/element";
 import { isValidVariableName } from "../utils";
 
 export function evaluateAnonymousStructValue({
@@ -47,13 +48,63 @@ export function evaluateAnonymousStructValue({
   // Create structType
   const structType = createStructType(env);
   const elements: TupleElement[] = structType.elements;
+  const moduleElements: ModuleElement[] = structType.module.elements;
   const values: (Value | undefined)[] = [];
+  const runtimeArgExprsInOrder: Expr[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     let labelExpr: Expr | undefined = undefined;
     let valueExpr: Expr = arg;
     let label: string | undefined = undefined;
+
+    // Check if it's type method call
+    if (
+      exprIsFunctionCall(arg) &&
+      (exprIsFunctionCallOf(arg, "::", 2) ||
+        exprIsFunctionCallOf(arg, "=", 2) ||
+        exprIsFunctionCallOf(arg, "?=", 2))
+    ) {
+      const { type, env: nextEnv } = evaluateElementType({
+        expr: arg,
+        env,
+        tupleElementIndex: i,
+        context: { ...context, SelfType: structType },
+        forType: "struct",
+      });
+
+      // Check if there is duplicate labels
+      const duplicateLabel = moduleElements.find(
+        (element) => element.label === type.label
+      );
+      if (duplicateLabel) {
+        throw formatErrorMessage({
+          token: arg.token,
+          errorMessage: `Duplicate label "${type.label}" in anonymous struct`,
+        });
+      }
+
+      if (!type.isCompileTimeOnly) {
+        throw formatErrorMessage({
+          token: arg.token,
+          errorMessage: `Expected compile-time only field for anonymous struct, got:\n${exprToString(
+            arg
+          )}`,
+        });
+      }
+
+      // Disallow to have the default value for anonymous struct type fields.
+      if (type.defaultValue) {
+        throw formatErrorMessage({
+          token: type.exprs.defaultValueExpr?.token ?? type.exprs.expr.token,
+          errorMessage: `Anonymous struct type cannot have default value for its elements.`,
+        });
+      }
+
+      moduleElements.push(type as ModuleElement);
+      env = nextEnv;
+      continue;
+    }
 
     if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, ":", 2)) {
       labelExpr = arg.args[0]!;
@@ -169,6 +220,7 @@ export function evaluateAnonymousStructValue({
         isImplicit: false,
       };
       elements.push(element);
+      runtimeArgExprsInOrder.push(evaluatedArg);
 
       if (evaluatedArg.$.value) {
         values.push(evaluatedArg.$?.value);
@@ -194,12 +246,14 @@ export function evaluateAnonymousStructValue({
     value: structValue,
     isMutable: false,
     pathCollection: [],
+    runtimeArgExprsInOrder,
   };
 
+  const structTypeValue = createTypeValue(structType);
   func.$ = {
     env,
-    type: typeOfType(structType),
-    value: createTypeValue(structType),
+    type: structTypeValue.type,
+    value: structTypeValue,
     isMutable: false,
     pathCollection: [],
   };

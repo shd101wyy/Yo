@@ -507,12 +507,18 @@ export class CodeGeneratorC {
     this.emitter.emitDeclarationLine(`// Function declarations`);
 
     // Generate declarations for extern functions first
-    for (const key in this.externFunctions) {
-      const { cName, type } = this.externFunctions[key]!;
-      this.generateFunctionDeclaration(type, cName);
+    const hasExternFunctiosn = Object.keys(this.externFunctions).length > 0;
+    if (hasExternFunctiosn) {
+      this.emitter.emitDeclarationLine(`/// Extern functions`);
+      for (const key in this.externFunctions) {
+        const { cName, type } = this.externFunctions[key]!;
+        this.generateFunctionDeclaration(type, cName, true);
+      }
+      this.emitter.emitDeclarationLine("");
     }
 
     // Generate declarations for other functions
+    this.emitter.emitDeclarationLine(`/// Regular functions`);
     for (const funcId in this.functions) {
       const { cName, value } = this.functions[funcId]!;
       if (this.isGenericFunction(value) || this.isComptFunction(value)) {
@@ -563,14 +569,17 @@ export class CodeGeneratorC {
    */
   private generateFunctionDeclaration(
     functionType: FunctionType,
-    cFunctionName: string
+    cFunctionName: string,
+    isExtern?: boolean
   ): void {
     const functionPrototype = this.generateFunctionPrototype(
       functionType,
       cFunctionName
     );
     const yoTypeStr = typeToString(functionType);
-    this.emitter.emitDeclarationLine(`${functionPrototype}; // ${yoTypeStr}`);
+    this.emitter.emitDeclarationLine(
+      `${isExtern ? "extern " : ""}${functionPrototype}; // ${yoTypeStr}`
+    );
   }
 
   /**
