@@ -110,7 +110,11 @@ export function evaluateFunctionParameterType({
       calleeEnv,
     };
   } else {
-    throw new Error(`Expected either type expr or default value expr`);
+    // For anonymous functions, the parameter type is already known and doesn't need evaluation
+    return {
+      parameterType: parameter.type,
+      calleeEnv,
+    };
   }
 }
 

@@ -118,13 +118,39 @@ export function evaluateAnonymousFunctionImplementation({
   // Restore the env frame
   env = popEnvFrame(env);
 
-  // Needs to update the function type with the evaluated parameters
-  // because the parameters might have different names.
+  // For anonymous functions, we need to use the original function type
+  // but with the parameter names from the anonymous function implementation.
+  // However, we need to be careful about the parameter expressions structure.
   const newFunctionType: FunctionType = {
     ...functionType,
-    typeParameters: typeParameters,
-    parameters: parameters,
-    implicitParameters: implicitParameters,
+    typeParameters: typeParameters.map((param, index) => ({
+      ...param,
+      // For anonymous functions, the type should come from the original function type
+      // and the typeExpr should be undefined because we're not defining the type explicitly
+      type: functionType.typeParameters[index]?.type ?? param.type,
+      exprs: {
+        ...param.exprs,
+        typeExpr: undefined, // Clear the typeExpr for anonymous functions
+      },
+    })),
+    parameters: parameters.map((param, index) => ({
+      ...param,
+      // For anonymous functions, the type should come from the original function type
+      // and the typeExpr should be undefined because we're not defining the type explicitly
+      type: functionType.parameters[index]?.type ?? param.type,
+      exprs: {
+        ...param.exprs,
+        typeExpr: undefined, // Clear the typeExpr for anonymous functions
+      },
+    })),
+    implicitParameters: implicitParameters.map((param, index) => ({
+      ...param,
+      type: functionType.implicitParameters[index]?.type ?? param.type,
+      exprs: {
+        ...param.exprs,
+        typeExpr: undefined, // Clear the typeExpr for anonymous functions
+      },
+    })),
   };
 
   // Set the type and value of the expression

@@ -36,7 +36,7 @@ export function evaluateExtern({
     });
   }
 
-  let language: ExternLanguage = "c";
+  let language: ExternLanguage = "yo"; // Default to "yo"
   let args = expr.args;
   if (expr.args[0] && exprIsAtom(expr.args[0])) {
     // Evaluate the language argument

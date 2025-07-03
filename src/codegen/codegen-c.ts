@@ -201,7 +201,7 @@ export class CodeGeneratorC {
             // Recursively collect functions called by this function
             this.findFunctionCallsInExpr(functionValue.body);
           }
-        } else {
+        } else if (functionType.isExtern === "c") {
           // Might be the extern functions
           this.externFunctions[functionType.id] = {
             type: functionType,

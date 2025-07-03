@@ -584,6 +584,10 @@ export function areFunctionTypesCompatible(
     const expectedParam = expected.type.parameters[i]!;
     const givenParam = given.type.parameters[i]!;
 
+    if (expectedParam.isCompileTimeOnly !== givenParam.isCompileTimeOnly) {
+      return false;
+    }
+
     if (
       isTypeHierarchyType(expectedParam.type) &&
       isTypeHierarchyType(givenParam.type)
@@ -630,6 +634,13 @@ export function areFunctionTypesCompatible(
     const givenImplicitParam = given.type.implicitParameters[i]!;
 
     if (
+      expectedImplicitParam.isCompileTimeOnly !==
+      givenImplicitParam.isCompileTimeOnly
+    ) {
+      return false;
+    }
+
+    if (
       isTypeHierarchyType(expectedImplicitParam.type) &&
       isTypeHierarchyType(givenImplicitParam.type)
     ) {
@@ -653,8 +664,6 @@ export function areFunctionTypesCompatible(
     }
 
     if (
-      expectedImplicitParam.isCompileTimeOnly !==
-        givenImplicitParam.isCompileTimeOnly ||
       !areTypesCompatible(
         { type: expectedImplicitParam.type, env: expected.env },
         { type: givenImplicitParam.type, env: given.env },

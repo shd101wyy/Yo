@@ -196,6 +196,9 @@ export interface TupleType extends Type {
   elements: TupleElement[];
 }
 
+/**
+ * NOTE: For anonymous function, it might not have labelExpr, typeExpr, and defaultValueExpr.
+ */
 export type FunctionParameterExprs = {
   expr: Expr;
   labelExpr?: Expr;

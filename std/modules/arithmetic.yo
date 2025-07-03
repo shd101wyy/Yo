@@ -52,10 +52,10 @@ Exponentiation :: ((@(Lhs): Type, @(Rhs) ?= Lhs, @(Output) ?= Lhs)-> @(Module))
 ;
 
 Negate ::
-  ((@(Self): Type, @(Output) ?= Self)-> @(Module))
+  ((@(Self): Type)-> @(Module))
   module
     Self   := Self,
-    (neg): ((self: Self)-> Output)
+    (neg): ((self: Self)-> Self)
 ;
 
 
@@ -69,7 +69,7 @@ ComptNegate ::
 (-) :: module {
   (neg) :: (( forall(@(Self) : Type), 
             self : Self, 
-            implicit(@(NegateMethod): Negate(Self, Self))
+            implicit(@(NegateMethod): Negate(Self))
           ) -> Self)
     NegateMethod.neg(self)
   ;
