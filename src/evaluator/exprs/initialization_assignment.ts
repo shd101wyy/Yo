@@ -332,13 +332,15 @@ ${exprToString(rhs)}`,
 ${exprToString(rhs)}`,
       });
     }
-    env = evaluateDestructuringAssignment({
-      lhs,
-      rhs,
-      env,
-      isCompileTimeOnly,
-      context: { ...context },
-    });
+    const { env: nextEnv, runtimeDestructurings } =
+      evaluateDestructuringAssignment({
+        lhs,
+        rhs,
+        env,
+        isCompileTimeOnly,
+        context: { ...context },
+      });
+    env = nextEnv;
 
     // NOTE: rhs is already set as consumed above
 
@@ -348,6 +350,7 @@ ${exprToString(rhs)}`,
       type: VUnit.type,
       isMutable: false,
       pathCollection: [],
+      runtimeDestructurings,
     };
     return expr;
   }

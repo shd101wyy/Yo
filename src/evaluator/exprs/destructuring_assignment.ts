@@ -8,6 +8,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
+  RuntimeDestructuring,
 } from "../../expr";
 import { Token } from "../../token";
 import {
@@ -46,7 +47,7 @@ export function handleMemberDestructuring({
 }: {
   lhsFunc: Expr;
   lhsElements: Expr[];
-  rhsElements: { label?: string; type: Type }[];
+  rhsElements: { label: string; type: Type }[];
   rhsValue: Value | undefined;
   /**
    * The rhsType might be pointer or reference,
@@ -57,7 +58,7 @@ export function handleMemberDestructuring({
   env: Environment;
   context: EvaluatorContext;
   isCompileTimeOnly: boolean;
-}): Environment {
+}): { env: Environment; runtimeDestructurings: RuntimeDestructuring[] } {
   const requireUnderscore = !isTupleType(rhsType);
   const lhsFuncName = lhsFunc.token.value;
 
@@ -89,7 +90,16 @@ export function handleMemberDestructuring({
     });
   }
 
-  const destructuredRhsElementSet = new Set<{ label?: string; type: Type }>();
+  const destructuredRhsElements: Record<
+    /**
+     * key is the label
+     */
+    string,
+    /**
+     * the destructured element
+     */
+    RuntimeDestructuring
+  > = {};
   // Process each lhs element
   for (let i = 0; i < lhsElements.length; i++) {
     const lhsElement = lhsElements[i]!;
@@ -119,89 +129,95 @@ export function handleMemberDestructuring({
         });
       }
 
-      // If it's a single _, we destructure all elements
-      if (lhsElements.length === 1) {
-        // We can destructure all elements
-        for (let j = 0; j < rhsElements.length; j++) {
-          const element = rhsElements[j]!;
-          if (!element.label) {
-            continue;
-          }
-          const elementValue =
-            isTupleValue(rhsValue) ||
-            isStructValue(rhsValue) ||
-            isModuleValue(rhsValue) ||
-            isEnumValue(rhsValue)
-              ? rhsValue.elements[j]
-              : undefined;
+      // If it's a single ..., we destructure all elements
+      // We can destructure all elements
+      for (let j = 0; j < rhsElements.length; j++) {
+        const element = rhsElements[j]!;
 
-          if (!elementValue && isCompileTimeOnly) {
-            throw formatErrorMessage({
-              token: lhsElement.token,
-              errorMessage: `Destructuring element "${element.label}" is not defined in compile-time only context.`,
-            });
-          }
-
-          if (typeContainsReference(element.type)) {
-            throw formatErrorMessage({
-              token: lhsElement.token,
-              errorMessage: `Cannot destructure element "${element.label}" of type ${typeToString(
-                element.type
-              )} with references.`,
-            });
-          }
-
-          // Add to environment
-          // console.log("(2) addVariableToEnv");
-          const { env: nextEnv } = addVariableToEnv({
-            env,
-            variable: {
-              name: element.label,
-              value: elementValue,
-              type: element.type,
-              isMutable: false,
-              isCompileTimeOnly,
-              isImplicit: false,
-              token: lhsElement.token,
-              initializedAtToken: lhsElement.token,
-              consumedAtToken: undefined,
-            },
-          });
-          env = nextEnv;
+        if (destructuredRhsElements[element.label]) {
+          continue; // Skip already destructured elements
+        } else {
+          destructuredRhsElements[element.label] = {
+            label: element.label,
+            variableName: element.label,
+            type: element.type,
+          };
         }
 
-        // Set the type and value of the lhsElement
-        lhsElement.$ = {
-          env,
-          type: rhsType,
-          value: rhsValue,
-          isMutable: false,
-          pathCollection: [],
-        };
+        const elementValue =
+          isTupleValue(rhsValue) ||
+          isStructValue(rhsValue) ||
+          isModuleValue(rhsValue) ||
+          isEnumValue(rhsValue)
+            ? rhsValue.elements[j]
+            : undefined;
 
-        // Done with destructuring, return the environment
-        return env;
-      } else {
-        throw formatErrorMessage({
-          token: lhsElement.token,
-          errorMessage: `Destructuring with _ requires a single element, got ${lhsElements.length}`,
+        if (!elementValue && isCompileTimeOnly) {
+          throw formatErrorMessage({
+            token: lhsElement.token,
+            errorMessage: `Destructuring element "${element.label}" is not defined in compile-time only context.`,
+          });
+        }
+
+        if (typeContainsReference(element.type)) {
+          throw formatErrorMessage({
+            token: lhsElement.token,
+            errorMessage: `Cannot destructure element "${element.label}" of type ${typeToString(
+              element.type
+            )} with references.`,
+          });
+        }
+
+        // Add to environment
+        // console.log("(2) addVariableToEnv");
+        const { env: nextEnv } = addVariableToEnv({
+          env,
+          variable: {
+            name: element.label,
+            value: elementValue,
+            type: element.type,
+            isMutable: false,
+            isCompileTimeOnly,
+            isImplicit: false,
+            token: lhsElement.token,
+            initializedAtToken: lhsElement.token,
+            consumedAtToken: undefined,
+          },
         });
+        env = nextEnv;
       }
+
+      // Set the type and value of the lhsElement
+      lhsElement.$ = {
+        env,
+        type: rhsType,
+        value: rhsValue,
+        isMutable: false,
+        pathCollection: [],
+      };
+
+      continue;
     }
 
     // Handle destructuring with implicit members
     // This only works with the module destructuring
-    // - ( ...(?) )
+    // - ( ...(?) ) or ( ...(!?) )
     else if (
       exprIsFunctionCall(lhsElement) &&
       exprIsFunctionCallOf(lhsElement, "...", 1) &&
       lhsElement.args.length === 1 &&
-      exprIsAtomOf(lhsElement.args[0]!, BuiltinKeywords.implicit)
+      (exprIsAtomOf(lhsElement.args[0]!, BuiltinKeywords.implicit) ||
+        exprIsAtomOf(lhsElement.args[0]!, "!?")) // TODO: not implicit
     ) {
+      const expectedImplicits = exprIsAtomOf(
+        lhsElement.args[0]!,
+        BuiltinKeywords.implicit
+      );
+
       if (!isModuleType(rhsType) || !isModuleValue(rhsValue)) {
         throw formatErrorMessage({
           token: lhsElement.token,
-          errorMessage: `Expected module value for destructuring with implicit members, got ${typeToString(
+          errorMessage: `Expected module value for destructuring with ${expectedImplicits ? "implicit" : "non-implicit"} members, got ${typeToString(
             rhsType
           )}`,
         });
@@ -210,15 +226,22 @@ export function handleMemberDestructuring({
       // We can destructure all elements
       for (let j = 0; j < rhsElements.length; j++) {
         const element = rhsElements[j]!;
-        if (!element.label) {
-          continue;
+
+        if (destructuredRhsElements[element.label]) {
+          continue; // Skip already destructured elements
+        } else {
+          destructuredRhsElements[element.label] = {
+            label: element.label,
+            variableName: element.label,
+            type: element.type,
+          };
         }
 
         const memberTypeIndex = rhsType.elements.findIndex(
           (m) => m.label === element.label
         )!;
         const memberType = rhsType.elements[memberTypeIndex]!;
-        if (!memberType.isImplicit) {
+        if (memberType.isImplicit !== expectedImplicits) {
           continue;
         }
 
@@ -268,14 +291,14 @@ export function handleMemberDestructuring({
         pathCollection: [],
       };
 
-      // Done with destructuring, return the environment
-      return env;
+      continue;
     }
 
     // Handle labeled destructuring pattern like:
     // - (c : x)
-    // - (c: (x, y))
-    // - (c: _(x, y))
+    // -  Nested destructuring is disallowed now
+    // - ~~(c: (x, y))~~
+    // - ~~(c: _(x, y))~~
     else if (
       exprIsFunctionCall(lhsElement) &&
       exprIsFunctionCallOf(lhsElement, ":", 2)
@@ -310,8 +333,6 @@ export function handleMemberDestructuring({
 
       elementIndex = matchingMemberIndex;
       rhsElement = rhsElements[elementIndex]!;
-      destructuredRhsElementSet.add(rhsElement);
-      // const nestedRhsType = rhsElement.type;
 
       // Get the nested value
       let nestedValue: Value | undefined = undefined;
@@ -327,135 +348,6 @@ export function handleMemberDestructuring({
       elementValue = nestedValue;
 
       // NOTE: Let's disable the nested destructuring for now
-      /*
-        // Check if the right side is a tuple for nested destructuring (c: (x, y))
-        if (
-          exprIsFunctionCall(rightSide) &&
-          exprIsFunctionCallOf(rightSide, BuiltinKeywords.tuple)
-        ) {
-          // Ensure the member we're destructuring is a tuple or struct
-          if (!isTupleType(nestedRhsType)) {
-            throw formatErrorMessage(
-              lhsElement.token,
-              `Expected tuple for nested destructuring, got ${typeToString(
-                nestedRhsType
-              )}`
-            );
-          }
-
-          // Get the nested members
-          const nestedElements = isTupleType(nestedRhsType)
-            ? nestedRhsType.elements
-            : (nestedRhsType as StructType).elements;
-
-          // Recursively process nested destructuring
-          env = this.handleMemberDestructuring({
-            lhsFunc: rightSide.func,
-            lhsElements: rightSide.args,
-            rhsElements: nestedElements,
-            rhsValue: nestedValue,
-            rhsType: nestedRhsType,
-            lhs: rightSide,
-            env,
-            context: { ...context },
-            isCompileTimeOnly,
-          });
-
-          // Set type and value on expressions
-          rightSide.$ = {
-            env,
-            type: nestedRhsType,
-            value: nestedValue,
-            isMutable: false,
-            pathCollection: [],
-          };
-
-          labelExpr.$ = {
-            env,
-            type: nestedRhsType,
-            value: nestedValue,
-            isMutable: false,
-            pathCollection: [],
-          };
-
-          lhsElement.$ = {
-            env,
-            type: nestedRhsType,
-            value: nestedValue,
-            isMutable: false,
-            pathCollection: [],
-          };
-
-          // Skip to next element since we've already processed this one
-          continue;
-        }
-
-        // Check if the right side is a struct/module for nested destructuring (c: _(x, y))
-        else if (exprIsFunctionCall(rightSide)) {
-          if (!exprIsFunctionCallOf(rightSide, "_")) {
-            throw formatErrorMessage(
-              rightSide.token,
-              `Expected "_" for nested destructuring, got ${exprToString(
-                rightSide
-              )}`
-            );
-          }
-
-          if (!isStructType(nestedRhsType) && !isModuleType(nestedRhsType)) {
-            throw formatErrorMessage(
-              lhsElement.token,
-              `Expected struct/module for nested destructuring, got ${typeToString(
-                nestedRhsType
-              )}`
-            );
-          }
-
-          // Recursively process nested destructuring
-          const nestedElements = nestedRhsType.elements;
-          env = this.handleMemberDestructuring({
-            lhsFunc: rightSide.func,
-            lhsElements: rightSide.args,
-            rhsElements: nestedElements,
-            rhsValue: nestedValue,
-            rhsType: nestedRhsType,
-            lhs: rightSide,
-            env,
-            context: { ...context },
-            isCompileTimeOnly,
-          });
-
-          // Set type and value on expressions
-          rightSide.$ = {
-            env,
-            type: nestedRhsType,
-            value: nestedValue,
-            isMutable: false,
-            pathCollection: [],
-          };
-
-          labelExpr.$ = {
-            env,
-            type: nestedRhsType,
-            value: nestedValue,
-            isMutable: false,
-            pathCollection: [],
-          };
-
-          lhsElement.$ = {
-            env,
-            type: nestedRhsType,
-            value: nestedValue,
-            isMutable: false,
-            pathCollection: [],
-          };
-
-          // Skip to next element since we've already processed this one
-          continue;
-        }
-
-        // Variable rename case like (a: m)
-        else 
-        */
       if (exprIsAtom(rightSide) && isValidVariableName(rightSide)) {
         renameExpr = rightSide;
         variableName = rightSide.token.value;
@@ -470,6 +362,19 @@ export function handleMemberDestructuring({
   ${exprToString(rightSide)}`,
         });
       }
+
+      if (destructuredRhsElements[rhsElement.label]) {
+        throw formatErrorMessage({
+          token: lhsElement.token,
+          errorMessage: `Label "${label}" being destructured already exists.`,
+        });
+      } else {
+        destructuredRhsElements[rhsElement.label] = {
+          label: rhsElement.label,
+          variableName: variableName,
+          type: rhsElement.type,
+        };
+      }
     }
 
     // Handle nested struct/module destructuring pattern like:
@@ -483,111 +388,6 @@ export function handleMemberDestructuring({
   
   ${exprToString(lhsElement)}`,
       });
-
-      /*
-        // Get the right-hand side value at this position
-        rhsElement = rhsElements[elementIndex]!;
-        destructuredRhsElementSet.add(rhsElement);
-        const nestedRhsType = rhsElement.type;
-
-        // Get the nested value
-        let nestedValue: Value | undefined = undefined;
-        if (isTupleValue(rhsValue)) {
-          nestedValue = rhsValue.elements[elementIndex];
-        } else if (isStructValue(rhsValue)) {
-          nestedValue = rhsValue.elements[elementIndex];
-        } else if (isModuleValue(rhsValue)) {
-          nestedValue = rhsValue.elements[elementIndex];
-        }
-        elementValue = nestedValue;
-
-        // Check if the right side is a tuple for nested destructuring (a, (x, y))
-        if (
-          exprIsFunctionCall(lhsElement) &&
-          exprIsFunctionCallOf(lhsElement, BuiltinKeywords.tuple)
-        ) {
-          // Ensure the member we're destructuring is a tuple or struct
-          if (!isTupleType(nestedRhsType)) {
-            throw formatErrorMessage(
-              lhsElement.token,
-              `Expected tuple for nested destructuring, got ${typeToString(
-                nestedRhsType
-              )}`
-            );
-          }
-
-          // Get the nested members
-          const nestedElements = nestedRhsType.elements;
-
-          // Recursively process nested destructuring
-          env = this.handleMemberDestructuring({
-            lhsFunc: lhsElement.func,
-            lhsElements: lhsElement.args,
-            rhsElements: nestedElements,
-            rhsValue: nestedValue,
-            rhsType: nestedRhsType,
-            lhs: lhsElement,
-            env,
-            context: { ...context },
-            isCompileTimeOnly,
-          });
-
-          // Set type and value on expressions
-          lhsElement.$ = {
-            env,
-            type: nestedRhsType,
-            value: nestedValue,
-            isMutable: false,
-            pathCollection: [],
-          };
-
-          continue;
-        }
-        // Check if the right side is a struct/module for nested destructuring (a, _(x, y))
-        else {
-          if (!exprIsFunctionCallOf(lhsElement, "_")) {
-            throw formatErrorMessage(
-              lhsElement.token,
-              `Expected "_" for nested destructuring, got ${exprToString(
-                lhsElement
-              )}`
-            );
-          }
-          if (!isStructType(nestedRhsType) && !isModuleType(nestedRhsType)) {
-            throw formatErrorMessage(
-              lhsElement.token,
-              `Expected struct/module for nested destructuring, got ${typeToString(
-                nestedRhsType
-              )}`
-            );
-          }
-
-          // Get the nested members
-          const nestedElements = nestedRhsType.elements;
-
-          // Recursively process nested destructuring
-          env = this.handleMemberDestructuring({
-            lhsFunc: lhsElement.func,
-            lhsElements: lhsElement.args,
-            rhsElements: nestedElements,
-            rhsValue: nestedValue,
-            rhsType: nestedRhsType,
-            lhs: lhsElement,
-            env,
-            context: { ...context },
-            isCompileTimeOnly,
-          });
-          // Set type and value on expressions
-          lhsElement.$ = {
-            env,
-            type: nestedRhsType,
-            value: nestedValue,
-            isMutable: false,
-            pathCollection: [],
-          };
-          continue;
-        }
-        */
     }
 
     // Handle positional destructuring
@@ -601,7 +401,18 @@ export function handleMemberDestructuring({
         });
       }
 
-      destructuredRhsElementSet.add(rhsElement);
+      if (destructuredRhsElements[rhsElement.label]) {
+        throw formatErrorMessage({
+          token: lhsElement.token,
+          errorMessage: `Label "${rhsElement.label}" being destructured already exists.`,
+        });
+      } else {
+        destructuredRhsElements[rhsElement.label] = {
+          label: rhsElement.label,
+          variableName: lhsElement.token.value,
+          type: rhsElement.type,
+        };
+      }
 
       if (isTupleValue(rhsValue)) {
         elementValue = rhsValue.elements[elementIndex];
@@ -697,7 +508,7 @@ export function handleMemberDestructuring({
   // Iterate the rhsElements to check if there is any
   // "Linear" value that is not destructured
   for (const rhsElement of rhsElements) {
-    if (!destructuredRhsElementSet.has(rhsElement)) {
+    if (!destructuredRhsElements[rhsElement.label]) {
       if (isLinearOrType0Type(typeOfType(rhsElement.type))) {
         // If it's a linear type, we should throw an error
         throw formatErrorMessage({
@@ -710,7 +521,18 @@ export function handleMemberDestructuring({
     }
   }
 
-  return env;
+  // Generate runtimeDestructurings
+  const runtimeDestructurings: RuntimeDestructuring[] = [];
+  for (const label in destructuredRhsElements) {
+    const element = destructuredRhsElements[label]!;
+    runtimeDestructurings.push({
+      label: element.label,
+      type: element.type,
+      variableName: element.variableName,
+    });
+  }
+
+  return { env, runtimeDestructurings };
 }
 
 /**
@@ -728,7 +550,7 @@ export function evaluateDestructuringAssignment({
   env: Environment;
   isCompileTimeOnly: boolean;
   context: EvaluatorContext;
-}): Environment {
+}): { env: Environment; runtimeDestructurings: RuntimeDestructuring[] } {
   if (!rhs.$?.type) {
     throw formatErrorMessage({
       token: rhs.token,

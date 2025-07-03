@@ -730,7 +730,7 @@ export class CodeGeneratorC {
       }
     } else {
       // Single expression function body
-      if (functionType.return.type.tag === "unit") {
+      if (isUnitType(functionType.return.type)) {
         // For unit/void functions, just generate the expression
         this.generateExpr(expr, indent);
       } else {
@@ -812,6 +812,29 @@ export class CodeGeneratorC {
         exprIsFunctionCallOf(lhs, BuiltinKeywords.compt, 1)
       ) {
         // compile-time variable
+        return "";
+      }
+
+      // Check if it's destructurings
+      if (expr.$?.runtimeDestructurings) {
+        const runtimeDestructurings = expr.$.runtimeDestructurings;
+        const rhsCode = this.generateExpr(rhs, indent);
+        const rhsType = rhs.$?.type;
+        runtimeDestructurings.forEach(({ label, type, variableName }) => {
+          const varTypeAndName = this.getVariableTypeString(type, variableName);
+          let fieldName = label.match(/^\d+$/) ? `_${label}` : label;
+
+          if (rhsType && isTupleType(rhsType) && !label.match(/^\d+$/)) {
+            const index = rhsType.elements.findIndex(
+              (el) => el.label === label
+            );
+            fieldName = index >= 0 ? `_${index}` : fieldName;
+          }
+
+          this.emitter.emitLine(
+            `${indent}${varTypeAndName} = ${rhsCode}.${fieldName}; // Destructuring ${label}`
+          );
+        });
         return "";
       }
 
@@ -1058,7 +1081,7 @@ export class CodeGeneratorC {
         }
         this.emitter.emitLine(`${indent}} // end begin block`);
 
-        return tempVariableName;
+        return isUnitType(valueType) ? "" : tempVariableName;
       }
     }
     // cond
@@ -1097,6 +1120,9 @@ export class CodeGeneratorC {
           .map((arg) => this.generateExpr(arg, indent))
           .join(", ");
         return `(${cName}){ ${argsList} }`;
+      } else if (expr.args.length === 0) {
+        // unit
+        return "";
       }
     }
     // (anonymous) array value

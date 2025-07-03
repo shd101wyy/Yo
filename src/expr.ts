@@ -76,6 +76,12 @@ export enum ExprTag {
   FuncCall = "FuncCall",
 }
 
+export interface RuntimeDestructuring {
+  label: string;
+  type: Type;
+  variableName: string;
+}
+
 export interface EvaluatedExprData {
   /**
    * The environment after the expression has been evaluated.
@@ -120,6 +126,16 @@ export interface EvaluatedExprData {
    * This is useful for the codegen stage.
    */
   runtimeArgExprsInOrder?: Expr[];
+
+  /**
+   * This is for destructuring:
+   *
+   *   { x, y : another_y } := some_point;
+   *
+   * We only save the ones for runtime variables, which
+   * will be used in the later on C code generation.
+   */
+  runtimeDestructurings?: RuntimeDestructuring[];
 
   /**
    * Comment for the expression.
