@@ -12,8 +12,10 @@ import {
 } from "../expr";
 import { FunctionValue, FuncValueId } from "../function-value";
 import {
+  ArrayType,
   EnumType,
   FunctionType,
+  isArrayType,
   isEnumType,
   isFunctionSpecializable,
   isFunctionType,
@@ -410,6 +412,22 @@ export class CodeGeneratorC {
   }
 
   /**
+   * Get C type string for variable declarations (handles arrays correctly)
+   */
+  private getVariableTypeString(type: Type, varName: string): string {
+    if (isArrayType(type)) {
+      const elementType = type.elementType;
+      const length = type.length;
+      if (isNumberValue(length)) {
+        const elementTypeString = this.getTypeString(elementType);
+        return `${elementTypeString} ${varName}[${length.value}]`;
+      }
+    }
+    // For non-array types, use regular type string + variable name
+    return `${this.getTypeString(type)} ${varName}`;
+  }
+
+  /**
    * Convert a Yo type to C type string
    */
   private getTypeString(type?: Type): string {
@@ -473,7 +491,6 @@ export class CodeGeneratorC {
         return "unsigned long long"; // C unsigned long long type
       case TypeTag.CLongDouble:
         return "long double"; // C long double type
-      // TODO: Array
       case TypeTag.Tuple:
       case TypeTag.Struct:
       case TypeTag.Union:
@@ -485,6 +502,16 @@ export class CodeGeneratorC {
           );
         }
         return cTypeName;
+      }
+      // Fixed size array
+      case TypeTag.Array: {
+        const arrayType = type as ArrayType;
+        const elementType = arrayType.elementType;
+        const length = arrayType.length;
+        if (isNumberValue(length)) {
+          const elementTypeString = this.getTypeString(elementType);
+          return `${elementTypeString}[${length.value}]`; // Fixed-size array
+        }
       }
     }
 
@@ -766,11 +793,14 @@ export class CodeGeneratorC {
       if (!lhs.$?.type) {
         return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
       }
+      const varName = lhs.token.value;
+      const varTypeAndName = this.getVariableTypeString(lhs.$.type, varName);
 
       this.emitter.emitLine(
         // NOTE: We cannot assign "const" here.
-        `${indent}${isMutable ? "" : ""}${this.getTypeString(lhs.$.type)} ${lhs.token.value};`
+        `${indent}${isMutable ? "" : ""}${varTypeAndName};`
       );
+      return "";
     }
     // Initialization assignment
     else if (exprIsFunctionCallOf(expr, ":=", 2)) {
@@ -809,14 +839,56 @@ export class CodeGeneratorC {
           return `// Error: No type information for variable ${varName}\n`;
         }
 
-        const varType = this.getTypeString(lhs.$.type);
-        // Transpile the rhs
-        const rhsCode = this.generateExpr(rhs, indent);
-        // Assign to lhs
-        if (!isUnitType(lhs.$.type)) {
-          this.emitter.emitLine(
-            `${indent}${isMutable ? "" : "const "}${varType} ${varName} = ${rhsCode};`
+        // Handle array initialization specially
+        if (isArrayType(lhs.$.type)) {
+          const arrayType = lhs.$.type;
+          const arrayLength = arrayType.length;
+
+          // Check if RHS is an array literal
+          if (
+            exprIsFunctionCall(rhs) &&
+            exprIsFunctionCallOf(rhs, BuiltinKeywords.array)
+          ) {
+            // Direct initialization with array literal
+            const varTypeAndName = this.getVariableTypeString(
+              lhs.$.type,
+              varName
+            );
+            const rhsCode = this.generateExpr(rhs, indent);
+            this.emitter.emitLine(
+              `${indent}${isMutable ? "" : "const "}${varTypeAndName} = ${rhsCode};`
+            );
+          } else {
+            // Copying from another array - declare then copy element by element
+            const varTypeAndName = this.getVariableTypeString(
+              lhs.$.type,
+              varName
+            );
+            // NOTE: We cannot assign "const" here because we will mutate the array later
+            this.emitter.emitLine(`${indent}${varTypeAndName};`);
+
+            // Copy elements
+            const rhsCode = this.generateExpr(rhs, indent);
+            if (isNumberValue(arrayLength)) {
+              for (let i = 0; i < arrayLength.value; i++) {
+                this.emitter.emitLine(
+                  `${indent}${varName}[${i}] = ${rhsCode}[${i}];`
+                );
+              }
+            }
+          }
+        } else {
+          // Non-array initialization - use existing logic
+          const varTypeAndName = this.getVariableTypeString(
+            lhs.$.type,
+            varName
           );
+          const rhsCode = this.generateExpr(rhs, indent);
+          if (!isUnitType(lhs.$.type)) {
+            this.emitter.emitLine(
+              `${indent}${isMutable ? "" : "const "}${varTypeAndName} = ${rhsCode};`
+            );
+          }
         }
         return "";
       }
@@ -859,15 +931,65 @@ export class CodeGeneratorC {
         return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
       }
 
-      // Transpile the lhs
-      const lhsCode = this.generateExpr(lhs, indent);
-      // Transpile the rhs
-      const rhsCode = this.generateExpr(rhs, indent);
-      // Assign to lhs
-      if (!isUnitType(lhs.$.type)) {
-        this.emitter.emitLine(
-          `${indent}${isInitialization && !isMutable ? "const " : ""}${isInitialization ? this.getTypeString(lhs.$.type) + " " : ""}${lhsCode} = ${rhsCode};`
-        );
+      // Handle array assignments specially
+      if (isArrayType(lhs.$.type)) {
+        const arrayType = lhs.$.type;
+        const arrayLength = arrayType.length;
+
+        if (isInitialization) {
+          // For initialization, use the variable type string which handles arrays correctly
+          const varTypeAndName = this.getVariableTypeString(
+            lhs.$.type,
+            this.generateExpr(lhs, indent)
+          );
+          const rhsCode = this.generateExpr(rhs, indent);
+          this.emitter.emitLine(
+            `${indent}${isMutable ? "" : "const "}${varTypeAndName} = ${rhsCode};`
+          );
+        } else {
+          // For assignment to existing array, we need element-by-element assignment
+          const lhsCode = this.generateExpr(lhs, indent);
+          const rhsCode = this.generateExpr(rhs, indent);
+
+          // Check if RHS is an array literal that we can unpack
+          if (
+            exprIsFunctionCall(rhs) &&
+            exprIsFunctionCallOf(rhs, BuiltinKeywords.array)
+          ) {
+            const runtimeArgExprs = rhs.$?.runtimeArgExprsInOrder;
+            if (runtimeArgExprs && isNumberValue(arrayLength)) {
+              // Generate element-by-element assignment
+              for (
+                let i = 0;
+                i < runtimeArgExprs.length && i < arrayLength.value;
+                i++
+              ) {
+                const elemCode = this.generateExpr(runtimeArgExprs[i]!, indent);
+                this.emitter.emitLine(
+                  `${indent}${lhsCode}[${i}] = ${elemCode};`
+                );
+              }
+            }
+          } else {
+            // For other RHS expressions (like copying from another array), do element-by-element copy
+            if (isNumberValue(arrayLength)) {
+              for (let i = 0; i < arrayLength.value; i++) {
+                this.emitter.emitLine(
+                  `${indent}${lhsCode}[${i}] = ${rhsCode}[${i}];`
+                );
+              }
+            }
+          }
+        }
+      } else {
+        // Non-array assignment - use existing logic
+        const lhsCode = this.generateExpr(lhs, indent);
+        const rhsCode = this.generateExpr(rhs, indent);
+        if (!isUnitType(lhs.$.type)) {
+          this.emitter.emitLine(
+            `${indent}${isInitialization && !isMutable ? "const " : ""}${isInitialization ? this.getTypeString(lhs.$.type) + " " : ""}${lhsCode} = ${rhsCode};`
+          );
+        }
       }
       return "";
     }
@@ -942,6 +1064,19 @@ export class CodeGeneratorC {
           .map((arg) => this.generateExpr(arg, indent))
           .join(", ");
         return `(${cName}){ ${argsList} }`;
+      }
+    }
+    // (anonymous) array value
+    else if (exprIsFunctionCallOf(expr, BuiltinKeywords.array)) {
+      const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
+      const arrayType = expr.$?.type;
+      if (isArrayType(arrayType) && runtimeArgExprs) {
+        // Generate tuple initialization
+        const argsList = runtimeArgExprs
+          .map((arg) => this.generateExpr(arg, indent))
+          .join(", ");
+        // return `(${this.getTypeString(arrayType)}){ ${argsList} }`;
+        return `{ ${argsList} }`;
       }
     }
     // other function call
@@ -1064,6 +1199,12 @@ export class CodeGeneratorC {
             }
           }
         }
+      } else if (isArrayType(functionType)) {
+        // Array access by index
+        const arrayCode = this.generateExpr(expr.func!, indent);
+        const indexCode = this.generateExpr(expr.args[0]!, indent);
+        // Generate array access
+        return `${arrayCode}[${indexCode}]`; // Access the element at the index
       }
     }
 

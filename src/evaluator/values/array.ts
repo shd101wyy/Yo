@@ -1,6 +1,11 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { exprToString, FuncCallExpr, setExprAsConsumed } from "../../expr";
+import {
+  Expr,
+  exprToString,
+  FuncCallExpr,
+  setExprAsConsumed,
+} from "../../expr";
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
@@ -34,6 +39,7 @@ export function evaluateArrayValue({
   const arrayLength = arrayElementExprs.length;
   let arrayElementType: Type | undefined = undefined;
   const arrayElementValues: (Value | undefined)[] = [];
+  const runtimeArgExprsInOrder: Expr[] = [];
   for (let i = 0; i < arrayElementExprs.length; i++) {
     const arrayElementExpr = arrayElementExprs[i]!;
     const evaluatedElement = context.evaluateExpression({
@@ -99,6 +105,9 @@ Given type: ${typeToString(evaluatedElement.$.type)}`,
         }
       }
     }
+
+    // Add to runtimeArgExprsInOrder
+    runtimeArgExprsInOrder.push(evaluatedElement);
   }
 
   const arrayType = createArrayType(
@@ -116,6 +125,7 @@ Given type: ${typeToString(evaluatedElement.$.type)}`,
     value: arrayValue,
     isMutable: true,
     pathCollection: [],
+    runtimeArgExprsInOrder,
   };
   return expr;
 }
