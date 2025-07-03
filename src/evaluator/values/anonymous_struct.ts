@@ -8,12 +8,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import {
-  createStructType,
-  isStructType,
-  ModuleElement,
-  TupleElement,
-} from "../../types";
+import { createStructType, ModuleElement, TupleElement } from "../../types";
 import { randomId } from "../../utils";
 import {
   createStructValue,
@@ -122,6 +117,8 @@ export function evaluateAnonymousStructValue({
     }
 
     // Check if it's spread operator
+    // NOTE: I disabled it for now.
+    /*
     if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
       const extendedStructExpr = arg.args[0]!;
       // Evaluate the extended struct expression
@@ -187,7 +184,9 @@ export function evaluateAnonymousStructValue({
       }
     }
     // Normal element
-    else {
+    else
+    */
+    {
       const evaluatedArg = context.evaluateExpression({
         expr: valueExpr,
         env,
