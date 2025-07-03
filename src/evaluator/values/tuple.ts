@@ -10,6 +10,7 @@ import {
   setExprAsConsumed,
 } from "../../expr";
 import {
+  convertComptTypeToRuntimeType,
   createTupleType,
   isTupleType,
   TupleElement,
@@ -18,7 +19,6 @@ import {
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
-import { randomId } from "../../utils";
 import { createTupleValue, isTypeValue, TupleValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
 
@@ -34,11 +34,15 @@ export function evaluateTupleElementValue({
   tupleElementIndex,
   env,
   context,
+  elementIndex,
+  runtimeArgExprsInOrder,
 }: {
   expr: Expr;
   tupleElementIndex: number;
   env: Environment;
   context: EvaluatorContext;
+  elementIndex: number;
+  runtimeArgExprsInOrder: Expr[];
 }): {
   type: TupleElement;
   value: Value | undefined;
@@ -114,14 +118,12 @@ ${typeToString(expectedTupleType)}`,
     });
   }
 
-  // Expected the evaluatedRhs to be a value
-  elementType = evaluatedRhs.$.type;
-  if (!elementType) {
-    throw formatErrorMessage({
-      token: evaluatedRhs.token,
-      errorMessage: `Failed to evaluate the tuple element.`,
-    });
-  }
+  // Tuple can only accept runtime values, so we convert the type
+  // to runtime type.
+  elementType = convertComptTypeToRuntimeType(evaluatedRhs.$.type);
+
+  // Add to runtimeArgExprsInOrder
+  runtimeArgExprsInOrder.push(evaluatedRhs);
 
   expr.$ = {
     env,
@@ -142,7 +144,7 @@ ${typeToString(expectedTupleType)}`,
       isCompileTimeOnly: false,
       isImplicit: false,
       type: elementType,
-      label: `$element_${randomId()}`,
+      label: elementIndex.toString(), // `$element_${randomId()}`,
     },
     value,
     env,
@@ -163,9 +165,12 @@ export function evaluateTupleElementsValue({
   type: TupleType;
   value: TupleValue | undefined;
   env: Environment;
+  runtimeArgExprsInOrder: Expr[];
 } {
   const tupleElements: TupleElement[] = [];
   const tupleValues: (Value | undefined)[] = [];
+  const runtimeArgExprsInOrder: Expr[] = [];
+
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
 
@@ -178,6 +183,8 @@ export function evaluateTupleElementsValue({
       env,
       tupleElementIndex: i,
       context: { ...context },
+      elementIndex: i,
+      runtimeArgExprsInOrder,
     });
 
     tupleElements.push(type);
@@ -195,6 +202,7 @@ export function evaluateTupleElementsValue({
     type: tupleType,
     value,
     env,
+    runtimeArgExprsInOrder,
   };
 }
 
@@ -230,6 +238,7 @@ export function evaluateTupleValue({
     type: tupleType,
     value: tupleValue,
     env: nextEnv,
+    runtimeArgExprsInOrder,
   } = evaluateTupleElementsValue({ args: expr.args, env, context });
   env = nextEnv;
 
@@ -257,6 +266,7 @@ export function evaluateTupleValue({
     type: tupleType,
     isMutable: true,
     pathCollection: [],
+    runtimeArgExprsInOrder,
   };
   return expr;
 }

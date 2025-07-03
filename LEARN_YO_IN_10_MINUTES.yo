@@ -646,9 +646,9 @@ x := 12;
 
 // Control flow
 /// cond
-cond  (x == 1) -> std.println("x is 1"),
-      (x == 2) -> std.println("x is 2"),
-      true   -> std.println("x is not 1 or 2");
+cond  (x == 1) => std.println("x is 1"),
+      (x == 2) => std.println("x is 2"),
+      true     => std.println("x is not 1 or 2");
 
 /// while
 factorial ::
@@ -752,8 +752,8 @@ if :: ((quote(condition): Expr,
 
 if x == 1, then: std.println("x is 1"), else: std.println("x is not 1");
 // will be expanded to
-cond  (x == 1) -> std.println("x is 1"),
-      true   -> std.println("x is not 1");
+cond  (x == 1) => std.println("x is 1"),
+      true     => std.println("x is not 1");
 
 
 // AST Representation
@@ -889,9 +889,9 @@ x :: 10; // x : compt_int
 // Below is another example
 max :: ((compt(T): Type, a: T, b: T)-> T)
   cond // implicit compile-time evaluate the condition if it's known at the compile-time, and skip the branch not taken.
-    (T == boolean) -> a.or b,
-    (a > b) -> a,
-    true -> b;
+    (T == boolean) => a.or b,
+    (a > b)        => a,
+    true           => b;
 max(boolean, false, true); // compiles to:
 max :: ((a: boolean, b: boolean)-> boolean) {
   {

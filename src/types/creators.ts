@@ -273,7 +273,7 @@ export function createCLongDoubleType(): Type {
 // Type constructor functions (need to be updated to include kind)
 export function createArrayType(elementType: Type, length: Value): ArrayType {
   return {
-    id: `array_${hashString(elementType.id + "_" + valueToString(length))}`,
+    id: `array_${elementType.id + "_" + hashString(valueToString(length))}`,
     tag: TypeTag.Array,
     elementType,
     length,
@@ -282,7 +282,7 @@ export function createArrayType(elementType: Type, length: Value): ArrayType {
 
 export function createTupleType(elements: TupleElement[]): TupleType {
   return {
-    id: `tuple_${hashString(elements.map((e) => e.type.id).join("_"))}`,
+    id: `tuple_${elements.map((e) => e.type.id).join("_")}`,
     tag: TypeTag.Tuple,
     // size: totalSize,
     elements,

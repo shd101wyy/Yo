@@ -102,15 +102,15 @@ export function handleMemberDestructuring({
     let labelExpr: Expr | undefined = undefined;
     let renameExpr: Expr | undefined = undefined;
 
-    // Handle destructuring all elements with _
-    // - (_ : _)
-    // - ( _ )
+    // Handle destructuring all elements with "..."
+    // - (... : ...)
+    // - ( ... )
     if (
       (exprIsFunctionCall(lhsElement) &&
         exprIsFunctionCallOf(lhsElement, ":", 2) &&
-        lhsElement.args[0]!.token.value === "_" &&
-        lhsElement.args[1]!.token.value === "_") ||
-      (exprIsAtom(lhsElement) && lhsElement.token.value === "_")
+        lhsElement.args[0]!.token.value === "..." &&
+        lhsElement.args[1]!.token.value === "...") ||
+      (exprIsAtom(lhsElement) && lhsElement.token.value === "...")
     ) {
       if (isUnionType(rhsType)) {
         throw formatErrorMessage({
@@ -190,11 +190,11 @@ export function handleMemberDestructuring({
     }
 
     // Handle destructuring with implicit members
-    // This only works with the struct (module) destructuring
-    // - ( _(?) )
+    // This only works with the module destructuring
+    // - ( ...(?) )
     else if (
       exprIsFunctionCall(lhsElement) &&
-      exprIsFunctionCallOf(lhsElement, "_", 1) &&
+      exprIsFunctionCallOf(lhsElement, "...", 1) &&
       lhsElement.args.length === 1 &&
       exprIsAtomOf(lhsElement.args[0]!, BuiltinKeywords.implicit)
     ) {

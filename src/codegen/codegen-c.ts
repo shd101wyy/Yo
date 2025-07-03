@@ -22,9 +22,11 @@ import {
   isPtrType,
   isRefType,
   isStructType,
+  isTupleType,
   isUnionType,
   isUnitType,
   StructType,
+  TupleType,
   Type,
   TypeId,
   TypeTag,
@@ -258,7 +260,12 @@ export class CodeGeneratorC {
       return; // Already collected this type
     }
 
-    if (isStructType(type) || isUnionType(type) || isEnumType(type)) {
+    if (
+      isStructType(type) ||
+      isUnionType(type) ||
+      isEnumType(type) ||
+      isTupleType(type)
+    ) {
       // Use the struct's id to generate a mangled C type name
       const cTypeName = `yo_${type.id}`;
       this.types[type.id] = {
@@ -280,6 +287,9 @@ export class CodeGeneratorC {
         this.generateUnionDeclaration(type, cName);
       } else if (isEnumType(type)) {
         this.generateEnumDeclaration(type, cName);
+      } else if (isTupleType(type)) {
+        // For tuples, we can generate a struct-like declaration
+        this.generateTupleDeclaration(type, cName);
       }
     }
   }
@@ -298,6 +308,26 @@ export class CodeGeneratorC {
     for (const element of structType.elements) {
       const fieldTypeStr = this.getTypeString(element.type);
       const fieldName = element.label || "field";
+      this.emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
+    }
+
+    this.emitter.emitDeclarationLine(`} ${cName};`);
+    this.emitter.emitDeclarationLine(""); // Add blank line for readability
+  }
+
+  /**
+   * Generate a tuple declaration
+   */
+  private generateTupleDeclaration(tupleType: TupleType, cName: string): void {
+    this.emitter.emitDeclarationLine(
+      `typedef struct { // ${tupleType.typeName} : ${typeToString(tupleType)}`
+    );
+
+    for (const element of tupleType.elements) {
+      const fieldTypeStr = this.getTypeString(element.type);
+      const fieldName = element.label.match(/^\d+$/)
+        ? `_${element.label}`
+        : element.label;
       this.emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
     }
 
@@ -650,7 +680,11 @@ export class CodeGeneratorC {
       for (let i = 0; i < args.length - 1; i++) {
         const arg = args[i];
         if (arg) {
-          this.generateExpr(arg, indent);
+          const argCode = this.generateExpr(arg, indent);
+          if (argCode) {
+            // Emit the expression as a statement
+            this.emitter.emitLine(`${indent}${argCode};`);
+          }
         }
       }
 
@@ -748,10 +782,40 @@ export class CodeGeneratorC {
         return "";
       }
     }
-    // Assignent with mutability
+    // Assignent with mutability or initialization
     else if (exprIsFunctionCallOf(expr, "=", 2)) {
-      const lhs = expr.args[0]!;
+      let lhs = expr.args[0]!;
       const rhs = expr.args[1]!;
+
+      let isInitialization = false;
+      let isMutable = false;
+      if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ":", 2)) {
+        isInitialization = true;
+        lhs = lhs.args[0]!; // Get the actual variable being assigned
+      }
+      if (
+        exprIsFunctionCall(lhs) &&
+        exprIsFunctionCallOf(lhs, BuiltinKeywords.compt)
+      ) {
+        // compile-time variable
+        return "";
+      }
+      if (
+        exprIsFunctionCall(lhs) &&
+        exprIsFunctionCallOf(lhs, BuiltinKeywords.implicit, 1)
+      ) {
+        // implicit variable, just use the inner expression
+        lhs = lhs.args[0]!;
+      }
+      if (
+        exprIsFunctionCall(lhs) &&
+        exprIsFunctionCallOf(lhs, BuiltinKeywords.mut, 1)
+      ) {
+        // mutable variable, just use the inner expression
+        isMutable = true;
+        lhs = lhs.args[0]!;
+      }
+
       if (!lhs.$?.type) {
         return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
       }
@@ -762,7 +826,9 @@ export class CodeGeneratorC {
       const rhsCode = this.generateExpr(rhs, indent);
       // Assign to lhs
       if (!isUnitType(lhs.$.type)) {
-        this.emitter.emitLine(`${indent}${lhsCode} = ${rhsCode};`);
+        this.emitter.emitLine(
+          `${indent}${isMutable ? "" : "const "}${isInitialization ? this.getTypeString(lhs.$.type) + " " : ""}${lhsCode} = ${rhsCode};`
+        );
       }
       return "";
     }
@@ -786,6 +852,11 @@ export class CodeGeneratorC {
         const argsCode = expr.args.map((arg) =>
           this.generateExpr(arg, indent + "  ")
         );
+        argsCode.forEach((argCode) => {
+          if (argCode) {
+            this.emitter.emitLine(`${indent}  ${argCode}`);
+          }
+        });
         if (!isUnitType(valueType)) {
           this.emitter.emitLine(
             `${indent}  ${tempVariableName} = ${argsCode[argsCode.length - 1]};`
@@ -821,6 +892,18 @@ export class CodeGeneratorC {
       // For pointer/reference creation, we need to be careful about constness
       // Simply use the address-of operator without an explicit cast to avoid const issues
       return `(&${argCode})`;
+    }
+    // (anonymous) tuple value
+    else if (exprIsFunctionCallOf(expr, BuiltinKeywords.tuple)) {
+      const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
+      const cName = this.types[expr.$?.type?.id ?? ""]?.cName;
+      if (runtimeArgExprs && cName) {
+        // Generate tuple initialization
+        const argsList = runtimeArgExprs
+          .map((arg) => this.generateExpr(arg, indent))
+          .join(", ");
+        return `(${cName}){ ${argsList} }`;
+      }
     }
     // other function call
     else {
@@ -1065,6 +1148,17 @@ export class CodeGeneratorC {
             // If no dereferencing is needed, just access the field
             return `${objectCode}.${fieldName}`;
           }
+        }
+      }
+      // For tuple type, we need to convert the field to index
+      else if (isTupleType(objectType)) {
+        if (fieldName.match(/^\d+$/)) {
+          return `${objectCode}._${fieldName}`;
+        } else {
+          const index = objectType.elements.findIndex(
+            (element) => element.label === fieldName
+          );
+          return `${objectCode}._${index}`;
         }
       } else {
         // For C structs and unions, access fields directly
