@@ -7,6 +7,8 @@ import {
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
+  BuiltinKeywords,
+  Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -33,6 +35,31 @@ import { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/synthesizer";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
+
+export function throwRhsContainsReturnExpressionError(rhs: Expr) {
+  let errorMessage = `Right-hand side contains "return" from function.`;
+  if (
+    exprIsFunctionCall(rhs) &&
+    exprIsFunctionCallOf(rhs, BuiltinKeywords.cond)
+  ) {
+    errorMessage = `Cannot assign "cond" expression to variable when all cases contain "return" statements. Consider using the "cond" result directly without assignment, or ensure at least one case doesn't return.`;
+  } else if (
+    exprIsFunctionCall(rhs) &&
+    exprIsFunctionCallOf(rhs, BuiltinKeywords.match)
+  ) {
+    errorMessage = `Cannot assign "match" expression to variable when all cases contain "return" statements. Consider using the "match" result directly without assignment, or ensure at least one case doesn't return.`;
+  } else if (
+    exprIsFunctionCall(rhs) &&
+    exprIsFunctionCallOf(rhs, BuiltinKeywords.begin)
+  ) {
+    errorMessage = `Cannot assign "begin" expression to variable when it contains "return" statement.`;
+  }
+
+  throw formatErrorMessage({
+    token: rhs.token,
+    errorMessage,
+  });
+}
 
 /**
  * Evaluate assignment like
@@ -127,6 +154,10 @@ export function evaluateAssignment({
     });
     if (rhs.$?.env) {
       env = rhs.$?.env;
+    }
+
+    if (rhs.$?.isReturningFromFunction) {
+      throwRhsContainsReturnExpressionError(rhs);
     }
 
     // Set rhs as consumed

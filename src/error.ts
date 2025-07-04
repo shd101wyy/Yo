@@ -109,3 +109,17 @@ ${getLineAtToken({ token })}`;
     warningMessages
   );
 }
+
+export function printMoParserError(error: MoParserError | Error) {
+  if (error instanceof MoParserError) {
+    const errorMessages = error.tokenAndErrorList
+      .map(({ token, errorMessage }) => {
+        return `Error: ${errorMessage}
+${getLineAtToken({ token })}`;
+      })
+      .join("\n\n");
+    console.error(errorMessages);
+  } else {
+    console.error(`Error: ${error.message}`);
+  }
+}

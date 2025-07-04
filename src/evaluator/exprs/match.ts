@@ -34,6 +34,7 @@ import {
   typeToString,
 } from "../../types";
 import { EvaluatorContext } from "../context";
+import { evaluateBeginExpression } from "./begin";
 
 /**
  *
@@ -312,7 +313,7 @@ export function evaluateMatch({
       }
 
       // Evaluate the result expression
-      const evaluatedResult = context.evaluateExpression({
+      const evaluatedResult = evaluateBeginExpression({
         expr: bodyExpr,
         env: caseEnv,
         context: {

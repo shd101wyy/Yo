@@ -138,6 +138,12 @@ export interface EvaluatedExprData {
   runtimeDestructurings?: RuntimeDestructuring[];
 
   /**
+   * Whether this expression is returning from a function.
+   * This should propagate to the parent function call expression.
+   */
+  isReturningFromFunction?: boolean;
+
+  /**
    * Comment for the expression.
    */
   comment?: string;
@@ -290,6 +296,7 @@ export const BuiltinKeywords = {
   unquote: ["unquote", "#"], // QUESTION: ~ is actually bitwise not in C, should we pick another symbol?
   unquote_splicing: ["unquote_splicing", "...#"],
 
+  return: ["return"],
   recur: ["recur"],
   fn: ["fn"],
   extern: ["extern"],

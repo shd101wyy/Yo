@@ -166,6 +166,13 @@ export function isFunctionTypeAndIsMacroFunction(type?: Type) {
   );
 }
 
+export function isFunctionTypeAndReturnsComptValue(type?: Type) {
+  return (
+    type?.tag === TypeTag.Function &&
+    (type as FunctionType).return.isCompileTimeOnly
+  );
+}
+
 /*
 export function isLiteralType(type?: Type): type is LiteralType {
   return type?.tag === TypeTag.Literal;

@@ -16,6 +16,7 @@ export interface EvaluatorContext {
   };
 
   /**
+   * Record the function that is currently being evaluated.
    * This is used for calling the `recur` function.
    */
   isEvaluatingFunctionBody?: {
