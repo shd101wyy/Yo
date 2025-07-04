@@ -2,30 +2,30 @@ open import "std";
 
 // c11 style variadic function
 add_va_c11 :: ((count : c_int, ...) -> c_int) {
-  args := va_start(count); // args : c_va_list Free
+  args := c_var_start(count); // args : c_va_list Free
   mut(result) := 0;
   mut(i) := 0;
   while i < count, i = (i + 1), {
-    result = (result + va_arg(args, i32));
+    result = (result + c_var_arg(args, i32));
   };
-  va_end(args);
+  c_var_end(args);
   return result;
 };
 
 // c23 style variadic function
 add_va_c23 :: ((...) -> c_int) {
-  args := va_start(); // no need to pass count
-  c_int count = va_arg(args, c_int);
+  args := c_var_start(); // no need to pass count
+  c_int count = c_var_arg(args, c_int);
   mut(result) := 0;
   mut(i) := 0;
   while i < count, i = (i + 1), {
-    result = (result + va_arg(args, i32));
+    result = (result + c_var_arg(args, i32));
   };
-  va_end(args);
+  c_var_end(args);
   return result;
 };
 
-// C variadic function
+// C variadic function (safe) version
 add_va_c :: ((...(args) : VarList) -> c_int) {
   // ...(arg_name) will automatically initialize "VarList" as "arg_name" for you
   // args has type "VarList" which is Linear

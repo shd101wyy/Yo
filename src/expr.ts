@@ -676,6 +676,9 @@ export const BuiltinFunctions = {
   __yo_op_bit_complement: ["__yo_op_bit_complement"], // ~
   __yo_op_bit_left_shift: ["__yo_op_bit_left_shift"], // <<
   __yo_op_bit_right_shift: ["__yo_op_bit_right_shift"], // >>
+
+  // C language related
+  c_include: ["c_include"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {

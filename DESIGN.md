@@ -1039,15 +1039,56 @@ If `recur` is the last expression, tail-call optimization will be applied.
 ### Variadic functions `In Design`
 
 ```rust
-defn print(...(args)), {
-  // @va_start(args); // Start the variadic arguments
-  args2 := @va_copy(args); // Copy the variadic arguments
+// c11 style variadic function
+add_va_c11 :: ((count : c_int, ...) -> c_int) {
+  args := va_start(count); // args : c_va_list Free
+  mut(result) := 0;
   mut(i) := 0;
-  while i < args.length, i += 1, {
-    printf("%d ", @va_arg(args, i32)); // Pop the variadic argument and set it to i32
-  }
-  // @va_end(args); // End the variadic arguments
-}
+  while i < count, i = (i + 1), {
+    result = (result + va_arg(args, i32));
+  };
+  va_end(args);
+  return result;
+};
+
+// c23 style variadic function
+add_va_c23 :: ((...) -> c_int) {
+  args := va_start(); // no need to pass count
+  c_int count = va_arg(args, c_int);
+  mut(result) := 0;
+  mut(i) := 0;
+  while i < count, i = (i + 1), {
+    result = (result + va_arg(args, i32));
+  };
+  va_end(args);
+  return result;
+};
+
+// C variadic function
+add_va_c :: ((...(args) : VarList) -> c_int) {
+  // ...(arg_name) will automatically initialize "VarList" as "arg_name" for you
+  // args has type "VarList" which is Linear
+  c_int count = args.length(); // Get the count of variadic arguments
+  mut(result) := 0;
+  mut(i) := 0;
+  while i < count, i = (i + 1), {
+    result = (result + args.arg(i32)); // Pop the variadic argument and set it to i32
+  };
+  // RAII clean up the "args";
+  return result;
+};
+
+// Yo variadic function
+add_va_yo :: ((forall(@(count): usize), ...(args) : Array(c_int, count)) -> c_int) {
+  mut(result) := 0;
+  mut(i) := 0;
+  while i < count, i = (i + 1), {
+    result = (result + args(i));
+  };
+  // RAII clean up the "args";
+  return result;
+};
+
 ```
 
 ## Duck Typing `In Design`

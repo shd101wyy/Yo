@@ -142,6 +142,7 @@ export class CodeGeneratorC {
     this.emitter.emitHeaderLine("#include <stdbool.h>");
     this.emitter.emitHeaderLine("#include <stdint.h>");
     this.emitter.emitHeaderLine("#include <stddef.h>");
+    this.emitter.emitHeaderLine("#include <stdarg.h>");
   }
 
   /**
