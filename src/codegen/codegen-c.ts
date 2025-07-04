@@ -31,6 +31,7 @@ import {
   StructType,
   TupleType,
   Type,
+  typeContainsSomeType,
   TypeId,
   TypeTag,
   typeToString,
@@ -43,6 +44,7 @@ import {
   isNumberValue,
   isStructValue,
   isTypeValue,
+  isUnknownValue,
   ModuleValue,
   Value,
   valueToString,
@@ -78,6 +80,32 @@ const BuiltinCOperatorFunctions = [
   ...BuiltinFunctions.__yo_op_bit_left_shift,
   ...BuiltinFunctions.__yo_op_bit_right_shift,
 ];
+
+const PrimitiveTypeTags = new Set([
+  TypeTag.Boolean,
+  TypeTag.Usize,
+  TypeTag.Isize,
+  TypeTag.U8,
+  TypeTag.I8,
+  TypeTag.U16,
+  TypeTag.I16,
+  TypeTag.U32,
+  TypeTag.I32,
+  TypeTag.U64,
+  TypeTag.I64,
+  TypeTag.F32,
+  TypeTag.F64,
+  TypeTag.CChar,
+  TypeTag.CShort,
+  TypeTag.CUShort,
+  TypeTag.CInt,
+  TypeTag.CUInt,
+  TypeTag.CLong,
+  TypeTag.CULong,
+  TypeTag.CLongLong,
+  TypeTag.CULongLong,
+  TypeTag.CLongDouble,
+]);
 
 export class CodeGeneratorC {
   private emitter: Emitter;
@@ -186,11 +214,17 @@ export class CodeGeneratorC {
       const functionType = expr.func.$?.type;
       const functionValue = expr.func.$?.value;
 
+      if (expr.func.token.value === "?=") {
+        // Skip the default value assignment in a module/function parameter?
+        return;
+      }
+
       if (isFunctionType(functionType)) {
         if (isFunctionValue(functionValue)) {
           if (this.functions[functionValue.funcId]) {
             // Already collected this function
-            return;
+            // return;
+            // NOTE: We shouldn't return here, because it's arguments might be different
           } else {
             // Collect the function if it's not already collected
             this.functions[functionValue.funcId] = {
@@ -237,6 +271,10 @@ export class CodeGeneratorC {
           this.findFunctionCallsInExpr(functionValue.body);
         }
       }
+    }
+    // expr might be a compt function call that returns a type
+    else if (isTypeValue(expr.$?.value)) {
+      this.collectType(expr.$.value.value);
     }
   }
 
@@ -303,6 +341,11 @@ export class CodeGeneratorC {
         break;
       case ExprTag.Atom:
         // Nothing special for atoms
+
+        if (expr.$?.value && isTypeValue(expr.$.value)) {
+          this.collectType(expr.$.value.value);
+        }
+
         break;
     }
   }
@@ -328,6 +371,32 @@ export class CodeGeneratorC {
         cName: cTypeName,
       };
     }
+    // Check if it's primitive types
+    else if (PrimitiveTypeTags.has(type.tag)) {
+      this.types[type.id] = {
+        type,
+        cName: this.getTypeString(type),
+      };
+    }
+    /*
+    // NOTE: No need to collect pointer/reference types here,
+    // Check if it's pointer/reference types
+    else if (
+      isPtrType(type) ||
+      isMutPtrType(type) ||
+      isRefType(type) ||
+      isMutRefType(type)
+    ) {
+      // Use the base type's C name
+      const baseType = type.type;
+      const baseCName = this.getTypeString(baseType);
+      const cName = `${baseCName}*`; // Pointer type in C
+      this.types[type.id] = {
+        type,
+        cName,
+      };
+    }
+    */
   }
 
   /**
@@ -336,6 +405,10 @@ export class CodeGeneratorC {
   private generateTypeDeclarations(): void {
     for (const typeId in this.types) {
       const { type, cName } = this.types[typeId]!;
+      if (typeContainsSomeType(type)) {
+        continue; // Skip types that contain `SomeType` as they are not concrete types
+      }
+
       if (isStructType(type)) {
         this.generateStructDeclaration(type, cName);
       } else if (isUnionType(type)) {
@@ -1123,6 +1196,12 @@ export class CodeGeneratorC {
 
       return expr.$?.variableName ?? "";
     }
+    // already computed
+    // NOTE: This has to be below the assignment checks
+    else if (expr.$?.value && !isUnknownValue(expr.$?.value)) {
+      const value: Value = expr.$.value;
+      return this.generateComptValue(value);
+    }
     // . field access
     else if (exprIsFunctionCallOf(expr, ".", 2)) {
       return this.generateFieldAccess(expr, indent);
@@ -1224,7 +1303,15 @@ export class CodeGeneratorC {
       } else {
         return `// Error: No arguments for recur call ${exprToString(expr)}\n`;
       }
-    } else if (exprIsFunctionCallOf(expr, BuiltinCOperatorFunctions)) {
+    }
+    // sizeof
+    else if (exprIsFunctionCallOf(expr, BuiltinFunctions.sizeof, 1)) {
+      const arg = expr.args[0]!;
+      const argCode = this.generateExpr(arg, indent);
+      return `sizeof(${argCode})`; // Use sizeof operator on the argument
+    }
+    // Builtin C operator functions
+    else if (exprIsFunctionCallOf(expr, BuiltinCOperatorFunctions)) {
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
       if (runtimeArgExprs) {
         const args = runtimeArgExprs.map((arg) => {
@@ -1492,7 +1579,7 @@ export class CodeGeneratorC {
    * Generate C code for an atom expression
    */
   private generateAtom(expr: AtomExpr): string {
-    if (expr.$?.value) {
+    if (expr.$?.value && !isUnknownValue(expr.$.value)) {
       return this.generateComptValue(expr.$.value);
     }
 
@@ -1534,6 +1621,16 @@ export class CodeGeneratorC {
         return cName; // Return the function name as a function pointer
       } else {
         return `// Error: No C function name found for function value with ID ${value.funcId}\n`;
+      }
+    } else if (isTypeValue(value)) {
+      // For type values, we can return the C type name if available
+      const type = value.value;
+      if (type) {
+        if (this.types[type.id]) {
+          return this.types[type.id]!.cName;
+        } else {
+          return `/* Error: No C type name found for type ${typeToString(type)} */`;
+        }
       }
     }
 

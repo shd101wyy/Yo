@@ -657,9 +657,14 @@ export function typeToString(type: Type): string {
   }
 }
 
-export function getPtrSize(): number {
+/**
+ * Get the size of a pointer in bits.
+ */
+export function getPtrSize(): null {
   // Assuming a pointer size of 64 bits (8 bytes) for most modern systems
-  return 64;
+  // return 64;
+
+  return null; // Pointer size is not known at compile time. Let's leave the C Compiler to determine its real size
 }
 
 function getArrayTypeSize(type: ArrayType): number | null {
