@@ -1,10 +1,11 @@
-import { addVariableToEnv, Environment, pushEnvFrame } from "../../env";
+import { addVariableToEnv, Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
   Expr,
   exprIsAtom,
+  exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
@@ -21,6 +22,7 @@ import {
   createRefType,
   EnumType,
   isEnumType,
+  isFunctionTypeAndReturnsComptValue,
   isMutPtrType,
   isMutRefType,
   isPtrType,
@@ -33,6 +35,7 @@ import {
   TypeTag,
   typeToString,
 } from "../../types";
+import { createUnknownValue, isEnumValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "./begin";
 
@@ -70,27 +73,28 @@ export function evaluateMatch({
   }
 
   // Evaluate the value to be matched
-  const valueExpr = args[0]!;
-  const evaluatedMatchValue = context.evaluateExpression({
-    expr: valueExpr,
+  const scrutineeExpr = args[0]!;
+  const evaluatedScrutineeExpr = context.evaluateExpression({
+    expr: scrutineeExpr,
     env,
     context: {
       ...context,
     },
   });
 
-  if (!evaluatedMatchValue.$) {
+  if (!evaluatedScrutineeExpr.$) {
     throw formatErrorMessage({
-      token: valueExpr.token,
-      errorMessage: `Failed to evaluate the match value expression: ${exprToString(valueExpr)}`,
+      token: scrutineeExpr.token,
+      errorMessage: `Failed to evaluate the match scrutinee expression: ${exprToString(scrutineeExpr)}`,
     });
   }
-  env = evaluatedMatchValue.$.env;
+  env = evaluatedScrutineeExpr.$.env;
 
   // Consume the value expression
-  env = setExprAsConsumed(evaluatedMatchValue, env);
+  env = setExprAsConsumed(evaluatedScrutineeExpr, env);
 
-  const matchValueType = evaluatedMatchValue.$.type;
+  const scrutineeType = evaluatedScrutineeExpr.$.type;
+  const scrutineeValue = evaluatedScrutineeExpr.$.value;
 
   // Check if it's a pointer/reference type
   // If yes, then automatically dereference one-level of it.
@@ -104,29 +108,30 @@ export function evaluateMatch({
   let enumType: Type;
 
   if (
-    isPtrType(matchValueType) ||
-    isMutPtrType(matchValueType) ||
-    isRefType(matchValueType) ||
-    isMutRefType(matchValueType)
+    isPtrType(scrutineeType) ||
+    isMutPtrType(scrutineeType) ||
+    isRefType(scrutineeType) ||
+    isMutRefType(scrutineeType)
   ) {
-    enumType = matchValueType.type;
-    ptrOrRefType = matchValueType.tag;
+    enumType = scrutineeType.type;
+    ptrOrRefType = scrutineeType.tag;
   } else {
-    enumType = matchValueType;
+    enumType = scrutineeType;
   }
 
   // Check if the value is an enum type
   if (!isEnumType(enumType)) {
     throw formatErrorMessage({
-      token: valueExpr.token,
+      token: scrutineeExpr.token,
       errorMessage: `Expected enum type for match expression, got ${
-        matchValueType ? typeToString(matchValueType) : "unknown type"
+        scrutineeType ? typeToString(scrutineeType) : "unknown type"
       }`,
     });
   }
 
   // Check if there is already selected variant,
   // If yes, then we disallow to use enum because we already know the selected variant.
+  /*
   if (enumType.selectedVariantName) {
     throw formatErrorMessage({
       token: valueExpr.token,
@@ -135,6 +140,7 @@ export function evaluateMatch({
         `You cannot use "match" on it, because it already has a selected variant.`,
     });
   }
+  */
 
   const patterns = args.slice(1);
 
@@ -143,13 +149,15 @@ export function evaluateMatch({
   const bodies: Expr[] = [];
   let resultType: { type: Type; env: Environment } | undefined = undefined;
   const checkedVariantNames: Set<string> = new Set();
+  let hasCasesNotReturningFromFunction = false;
+  let usedWildcardPattern = false;
 
   for (let i = 0; i < patterns.length; i++) {
     const pattern = patterns[i]!;
 
     // NOTE: We shouldn't use the parent `env` here
     // instead, we should create new env.
-    let caseEnv = pushEnvFrame(env);
+    let caseEnv = env; // pushFrame(env); // NOTE: No need to do this. We now use evaluateBeginExpression instead of evaluateExpression. evaluateBeginExpression will push frame itself.
 
     // Check if the pattern is a valid match arm
     if (
@@ -162,31 +170,48 @@ export function evaluateMatch({
       });
     }
 
-    const patternExpr = pattern.args[0]!;
+    const matchArmExpr = pattern.args[0]!;
     const rhsExpr = pattern.args[1]!;
 
     // Check if the pattern is a valid enum variant
     if (
-      exprIsFunctionCall(patternExpr) &&
-      exprIsFunctionCallOf(patternExpr, ".", 1)
-    ) {
       // For patterns like .Red
-      const variantNameExpr = patternExpr.args[0]!;
-      if (!exprIsAtom(variantNameExpr)) {
+      (exprIsFunctionCall(matchArmExpr) &&
+        exprIsFunctionCallOf(matchArmExpr, ".", 1)) ||
+      // "_" is a wildcard pattern
+      exprIsAtomOf(matchArmExpr, "_")
+    ) {
+      if (usedWildcardPattern) {
         throw formatErrorMessage({
-          token: patternExpr.token,
-          errorMessage: `Expected identifier for enum variant, got ${exprToString(
-            variantNameExpr
-          )}`,
+          token: matchArmExpr.token,
+          errorMessage: `Wildcard pattern "_" can only be used once and must be the last match arm in a "match" expression.`,
         });
+      }
+
+      // For patterns like .Red
+      let variantNameExpr: Expr;
+      if (exprIsFunctionCall(matchArmExpr)) {
+        variantNameExpr = matchArmExpr.args[0]!;
+        if (!exprIsAtom(variantNameExpr)) {
+          throw formatErrorMessage({
+            token: matchArmExpr.token,
+            errorMessage: `Expected identifier for enum variant, got ${exprToString(
+              variantNameExpr
+            )}`,
+          });
+        }
+      } else {
+        // "_" is a wildcard pattern
+        usedWildcardPattern = true;
+        variantNameExpr = matchArmExpr;
       }
 
       const variantName = variantNameExpr.token.value;
       // Check if variant exists in enum
       const variant = enumType.variants.find((v) => v.name === variantName);
-      if (!variant) {
+      if (!variant && variantName !== "_") {
         throw formatErrorMessage({
-          token: patternExpr.token,
+          token: matchArmExpr.token,
           errorMessage: `Enum variant "${variantName}" not found in ${typeToString(
             enumType
           )}`,
@@ -194,17 +219,17 @@ export function evaluateMatch({
       }
       checkedVariantNames.add(variantName);
       if (
-        enumType.selectedVariantName &&
-        enumType.selectedVariantName !== variantName
+        variantName !== "_" &&
+        isEnumValue(scrutineeValue) &&
+        scrutineeValue.variantName !== variantName
       ) {
         continue; // No need to continue if the variant is not selected
       }
 
-      let bodyExpr: Expr;
       // Update the enum type to set the selectedVariantName
       const newEnumType = {
         ...enumType,
-        selectedVariantName: variantName,
+        selectedVariantName: variantName === "_" ? undefined : variantName,
       };
       /// Add the newEnumType with selectedVariantName to the variantNameExpr
       variantNameExpr.$ = {
@@ -229,28 +254,10 @@ export function evaluateMatch({
         }
       }
 
-      /*
-      // Create a new environment for the case
-      //   .VariantName => ((variable) => body)
+      const bodyExpr = rhsExpr;
 
-      // NOTE: This is no longer supported
-      // We should assign variable on top of the match expression.
-
-      if (
-        exprIsFunctionCall(rhsExpr) &&
-        exprIsFunctionCallOf(rhsExpr, "=>", 2)
-      ) {
-        const variableExpr = rhsExpr.args[0]!;
-        bodyExpr = rhsExpr.args[1]!;
-
-        if (!isValidVariableName(variableExpr)) {
-          throw formatErrorMessage({
-            token: variableExpr.token,
-            errorMessage: `Invalid variable name in match arm: ${variableExpr.token.value}`,
-          });
-        }
-
-        const variableName = variableExpr.token.value;
+      if (evaluatedScrutineeExpr.$.variableName) {
+        const variableName = evaluatedScrutineeExpr.$.variableName;
 
         // Add the new variable to env
         const { env: nextEnv } = addVariableToEnv({
@@ -258,62 +265,21 @@ export function evaluateMatch({
           variable: {
             name: variableName,
             type: variableType,
-            isMutable: evaluatedMatchValue.$.isMutable,
+            isMutable: evaluatedScrutineeExpr.$.isMutable,
             isCompileTimeOnly: false,
             isImplicit: false,
-            value: evaluatedMatchValue.$.value,
-            token: variableExpr.token,
-            initializedAtToken: variableExpr.token, // Set as initialized
-            consumedAtToken: undefined,
+            value: evaluatedScrutineeExpr.$.value,
+            token: evaluatedScrutineeExpr.token,
+            initializedAtToken: evaluatedScrutineeExpr.token, // Set as initialized
+            consumedAtToken: undefined, // Not consumed yet
           },
+          allowDuplicate: true, // Allow duplicate for match arms
         });
         caseEnv = nextEnv;
-
-        // Add information to variableExpr
-        variableExpr.$ = {
-          env: caseEnv,
-          type: variableType,
-          value: evaluatedMatchValue.$.value,
-          isMutable: evaluatedMatchValue.$.isMutable,
-          pathCollection: [[variableName]],
-        };
-      }
-      //   .VariantName => body;
-      //  this is for case like:
-      //
-      //  match color // < color here is a valid variable name
-      //    .Red => {
-      //       another_color := color; // we can use the "new" `color` here.
-      //    },
-      else
-      */
-      {
-        bodyExpr = rhsExpr;
-
-        if (evaluatedMatchValue.$.variableName) {
-          const variableName = evaluatedMatchValue.$.variableName;
-
-          // Add the new variable to env
-          const { env: nextEnv } = addVariableToEnv({
-            env: caseEnv,
-            variable: {
-              name: variableName,
-              type: variableType,
-              isMutable: evaluatedMatchValue.$.isMutable,
-              isCompileTimeOnly: false,
-              isImplicit: false,
-              value: evaluatedMatchValue.$.value,
-              token: evaluatedMatchValue.token,
-              initializedAtToken: evaluatedMatchValue.token, // Set as initialized
-              consumedAtToken: undefined, // Not consumed yet
-            },
-          });
-          caseEnv = nextEnv;
-        }
       }
 
       // Evaluate the result expression
-      const evaluatedResult = evaluateBeginExpression({
+      const evaluatedBody = evaluateBeginExpression({
         expr: bodyExpr,
         env: caseEnv,
         context: {
@@ -322,7 +288,7 @@ export function evaluateMatch({
       });
       // We don't update the original env here since each pattern has its own scope
 
-      if (!evaluatedResult.$?.type) {
+      if (!evaluatedBody.$?.type) {
         throw formatErrorMessage({
           token: bodyExpr.token,
           errorMessage: `Expected type for match result expression, got ${exprToString(
@@ -330,16 +296,35 @@ export function evaluateMatch({
           )}`,
         });
       }
-      caseEnv = evaluatedResult.$.env;
-      bodies.push(evaluatedResult);
+
+      // Check if the the evaluatedBody has "return" expression
+      if (evaluatedBody.$.isReturningFromFunction) {
+        // Check if we have a scrutinee value
+        if (scrutineeValue && isEnumValue(scrutineeValue)) {
+          // If the scrutinee value is an enum value, we can return it directly
+          expr.$ = {
+            env: evaluatedBody.$.env,
+            type: evaluatedBody.$.type,
+            value: evaluatedBody.$.value,
+            isMutable: evaluatedBody.$.isMutable,
+            pathCollection: evaluatedBody.$.pathCollection,
+            isReturningFromFunction: true,
+          };
+        }
+      } else {
+        hasCasesNotReturningFromFunction = true;
+      }
+
+      caseEnv = evaluatedBody.$.env;
+      bodies.push(evaluatedBody);
 
       // Set or verify the result type consistency
       if (!resultType) {
-        resultType = { type: evaluatedResult.$?.type, env: caseEnv };
+        resultType = { type: evaluatedBody.$?.type, env: caseEnv };
       } else if (
         !areTypesCompatible(
           { type: resultType.type, env: caseEnv },
-          { type: evaluatedResult.$?.type, env }
+          { type: evaluatedBody.$?.type, env }
         )
       ) {
         // Check if the types match when converting to runtime type
@@ -350,18 +335,18 @@ export function evaluateMatch({
               env: resultType.env,
             },
             {
-              type: evaluatedResult.$.type,
+              type: evaluatedBody.$.type,
               env: caseEnv,
             }
           )
         ) {
-          resultType = { type: evaluatedResult.$.type, env: caseEnv };
+          resultType = { type: evaluatedBody.$.type, env: caseEnv };
         } else {
           throw formatErrorMessage({
-            token: valueExpr.token,
+            token: scrutineeExpr.token,
             errorMessage: `Incompatible types:
 - Previous: ${typeToString(resultType.type)}
-- Current : ${typeToString(evaluatedResult.$.type)}`,
+- Current : ${typeToString(evaluatedBody.$.type)}`,
           });
         }
       }
@@ -369,59 +354,87 @@ export function evaluateMatch({
     // For patterns with destructuring like Shape.Circle(r)
     // NOTE: This is no longer supported
     else if (
-      exprIsFunctionCall(patternExpr) &&
-      exprIsFunctionCall(patternExpr.func) &&
-      exprIsFunctionCallOf(patternExpr.func, ".", 1)
+      exprIsFunctionCall(matchArmExpr) &&
+      exprIsFunctionCall(matchArmExpr.func) &&
+      exprIsFunctionCallOf(matchArmExpr.func, ".", 1)
     ) {
       throw formatErrorMessage({
-        token: patternExpr.token,
+        token: matchArmExpr.token,
         errorMessage: `Destructuring enum variant elements is not supported in match expressions.
 Please use .variantName for destructuring enum variants,
 then destructure the value in the case body expression.`,
       });
     } else {
       throw formatErrorMessage({
-        token: patternExpr.token,
-        errorMessage: `Invalid pattern in match expression: ${exprToString(patternExpr)}
+        token: matchArmExpr.token,
+        errorMessage: `Invalid pattern in match expression: ${exprToString(matchArmExpr)}
 Please use .variantName for destructuring enum variants.`,
       });
     }
   }
 
-  if (!resultType) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Could not determine result type for match expression`,
-    });
-  }
+  if (hasCasesNotReturningFromFunction) {
+    if (!resultType) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Could not determine result type for match expression`,
+      });
+    }
 
-  // Perform exhaustiveness check
-  const missingVariants = enumType.variants.filter(
-    (variant) => !checkedVariantNames.has(variant.name)
-  );
-  if (missingVariants.length > 0) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Match expression is not exhaustive. Missing cases for variants:
+    // Perform exhaustiveness check
+    if (!checkedVariantNames.has("_")) {
+      const missingVariants = enumType.variants.filter(
+        (variant) => !checkedVariantNames.has(variant.name)
+      );
+      if (missingVariants.length > 0) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Match expression is not exhaustive. Missing cases for variants:
         
 - ${missingVariants.map((v) => v.name).join("\n- ")}`,
-    });
+        });
+      }
+    }
+
+    // Merge and check all environments
+    env = mergeAndCheckEnvs(env, bodies);
+
+    // Set the type and value of the match expression
+    expr.$ = {
+      env,
+      type: resultType.type,
+      // TODO: Support the compile-time value.
+      // For compile-time evaluation, we'd determine which arm matches and set the value
+      value: undefined, // createUnknownValue(resultType),
+      isMutable: false,
+      pathCollection: [],
+    };
+    attachTempVariableToExpr(expr);
+  } else {
+    // All cases are returning from function
+    if (!context.isEvaluatingFunctionBody) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `All cases in match are returning from function, but not evaluating in function body.`,
+      });
+    }
+    const functionReturnType =
+      context.isEvaluatingFunctionBody.type.return.type;
+    expr.$ = {
+      env,
+      type: functionReturnType,
+      value: isFunctionTypeAndReturnsComptValue(
+        context.isEvaluatingFunctionBody.type
+      )
+        ? createUnknownValue(functionReturnType)
+        : undefined,
+      isMutable: false,
+      pathCollection: [],
+      isReturningFromFunction: true,
+    };
+
+    return expr;
   }
-
-  // Merge and check all environments
-  env = mergeAndCheckEnvs(env, bodies);
-
-  // Set the type and value of the match expression
-  expr.$ = {
-    env,
-    type: resultType.type,
-    // TODO: Support the compile-time value.
-    // For compile-time evaluation, we'd determine which arm matches and set the value
-    value: undefined, // createUnknownValue(resultType),
-    isMutable: false,
-    pathCollection: [],
-  };
-  attachTempVariableToExpr(expr);
 
   return expr;
 }

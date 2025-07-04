@@ -1,4 +1,56 @@
+extern
+  gt : 
+    ((x: i32, y: i32) -> boolean)
+;
 
+max :: ((x: i32, y: i32) -> i32) {
+  cond
+    (x `gt` y) => {
+      return x;
+    },
+    true => {
+      return y;
+    };
+};
+
+max2 :: ((x: i32, y: i32) -> i32) {
+  max := 
+    cond
+      (x `gt` y) => {
+        return x;
+      },
+      true => y;
+  return max;
+};
+
+Color :: enum Red, Green, Blue;
+
+color_to_i32 :: ((color: Color) -> i32) {
+  match color,
+    .Red => {
+      return 0;
+    },
+    .Green => {
+      return 1;
+    },
+    .Blue => {
+      return 2;
+    }
+  ;
+};
+
+color_to_i32_2 :: ((color: Color) -> i32) {
+  color := match color,
+    .Red => 0,
+    .Green => {
+      return 1;
+    },
+    .Blue => {
+      return 2;
+    }
+  ;
+  return color;
+};
 
 main :: (() -> c_int) {
   return 12;

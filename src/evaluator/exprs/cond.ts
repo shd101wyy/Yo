@@ -1,4 +1,4 @@
-import { Environment, pushEnvFrame } from "../../env";
+import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
@@ -74,7 +74,7 @@ export function evaluateCond({
 
     const condExpr = statement.args[0]!;
     const caseBodyExpr = statement.args[1]!;
-    const caseEnv = pushEnvFrame(env);
+    const caseEnv = env; // pushEnvFrame(env); // NOTE: No need to do this. We now use evaluateBeginExpression instead of evaluateExpression. evaluateBeginExpression will push frame itself.
 
     parsedStatements.push({ condExpr, caseBodyExpr, caseEnv });
   }
