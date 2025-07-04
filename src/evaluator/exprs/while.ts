@@ -53,57 +53,21 @@ export function evaluateWhile({
       )}`,
     });
   }
+
   const conditionValue = evaluatedConditionExpr.$.value;
-  if (isBooleanValue(conditionValue)) {
-    if (conditionValue.value === false) {
-      // Stop the evaluation
-      // return the expr
-      expr.$ = {
-        env: env,
-        isMutable: false,
-        pathCollection: [],
-        type: VUnit.type,
-        value: VUnit,
-      };
-      return expr;
-    } else {
-      // Evaluate the body
-      const evaluatedBodyExpr = evaluateBeginExpression({
-        expr: bodyExpr,
-        env,
-        context: {
-          ...context,
-          isEvaluatingWhileLoopBody: env, // Indicate that we are evaluating a while loop
-        },
-      });
-      if (!evaluatedBodyExpr.$) {
-        throw formatErrorMessage({
-          token: bodyExpr.token,
-          errorMessage: `Failed to evaluate the body expression:\n${exprToString(bodyExpr)}`,
-        });
-      }
-      if (!isUnitType(evaluatedBodyExpr.$.type)) {
-        throw formatErrorMessage({
-          token: bodyExpr.token,
-          errorMessage: `Expected the while loop body to return unit, but got:\n${typeToString(evaluatedBodyExpr.$.type)}`,
-        });
-      }
-
-      // update the env
-      env = evaluatedBodyExpr.$.env;
-
-      // Evaluate the condition again
-      return evaluateWhile({
-        expr: expr,
-        env: env,
-        context: {
-          ...context,
-        },
-      });
-    }
+  if (isBooleanValue(conditionValue) && conditionValue.value === false) {
+    // Stop the evaluation
+    // return the expr
+    expr.$ = {
+      env: env,
+      isMutable: false,
+      pathCollection: [],
+      type: VUnit.type,
+      value: VUnit,
+    };
+    return expr;
   } else {
-    // runtime value, or unknown value
-    // Evaluate the body once
+    // Evaluate the body
     const evaluatedBodyExpr = evaluateBeginExpression({
       expr: bodyExpr,
       env,
@@ -118,6 +82,22 @@ export function evaluateWhile({
         errorMessage: `Failed to evaluate the body expression:\n${exprToString(bodyExpr)}`,
       });
     }
+
+    // Check if it has terminated by "return"
+    if (evaluatedBodyExpr.$.termination) {
+      // If the body has a return value, we should return it
+      expr.$ = {
+        env: evaluatedBodyExpr.$.env,
+        isMutable: evaluatedBodyExpr.$.isMutable,
+        pathCollection: evaluatedBodyExpr.$.pathCollection,
+        type: evaluatedBodyExpr.$.type,
+        value: evaluatedBodyExpr.$.value,
+        termination: evaluatedBodyExpr.$.termination,
+      };
+      return expr;
+    }
+
+    // The while loop body should return unit
     if (!isUnitType(evaluatedBodyExpr.$.type)) {
       throw formatErrorMessage({
         token: bodyExpr.token,
@@ -125,14 +105,28 @@ export function evaluateWhile({
       });
     }
 
-    // return the expr
-    expr.$ = {
-      env: env,
-      isMutable: false,
-      pathCollection: [],
-      type: VUnit.type,
-      value: VUnit,
-    };
-    return expr;
+    // update the env
+    env = evaluatedBodyExpr.$.env;
+
+    if (isBooleanValue(conditionValue) && conditionValue.value === true) {
+      // Evaluate the condition again
+      return evaluateWhile({
+        expr: expr,
+        env: env,
+        context: {
+          ...context,
+        },
+      });
+    } else {
+      // return the expr
+      expr.$ = {
+        env: env,
+        isMutable: false,
+        pathCollection: [],
+        type: VUnit.type,
+        value: VUnit,
+      };
+      return expr;
+    }
   }
 }

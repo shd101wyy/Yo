@@ -1,27 +1,45 @@
-open import "std";
+extern
+  va_list : Free,
+  va_start :
+    (() -> va_list),
+  va_end :
+    ((va : va_list) -> unit),
+  va_copy :
+    ((src : va_list) -> va_list),
+  va_arg :
+    ((va : va_list, @(T) : Type) -> T)
+;
 
-// Like scala, we don't support "break" or "continue" in while loop.
-sum :: ((max : i32) -> i32) {
-  mut(result) := 0;
-  mut(i) := 0.as(i32);
-  while i < max, {
-    result = (result + i);
-    i = (i + 1);
+return_in_while :: ((flag: boolean) -> i32) {
+  while flag, {
+    cond
+      flag => {
+        x := 1;
+        return x;
+      },
+      true => {
+        x := 2;
+      };
+    return 3;
   };
-
-  return result;
 };
 
-// compile-time evaluation of sum
-sum_compt :: ((@(max) : i32) -> @(i32)) {
-  mut(result) :: 0.as(i32);
-  mut(i) :: 0.as(i32);
-  while i <= max, {
-    result = (result + i);
-    i = (i + 1);
+compt_return_in_while :: ((@(flag): boolean) -> @(i32)) {
+  while flag, {
+    cond
+      flag => {
+        x :: 1;
+        return x;
+      },
+      true => {
+        x :: 2;
+      }
+    ;
+
+    return 4;
   };
-  return result;
 };
 
-x :: sum_compt(10);
-compt_assert(x == 55);
+x :: compt_return_in_while(true);
+y :: compt_return_in_while(false);
+z :: y;
