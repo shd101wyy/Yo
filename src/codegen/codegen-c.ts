@@ -50,7 +50,7 @@ import {
   valueToString,
 } from "../value";
 
-const BuiltinCOperatorFunctions = [
+const BuiltinYoOperatorFunctions = [
   // Arithemtic
   ...BuiltinFunctions.__yo_op_add, // +
   ...BuiltinFunctions.__yo_op_sub, // -
@@ -693,6 +693,32 @@ export class CodeGeneratorC {
   }
 
   /**
+   * Check if a function value only has body that calls the builtin
+   * __yo_c_op_xxx functions, which are just wrappers around C operators.
+   */
+  private isFunctionValueWithOnlyBuiltinYoOpFunctionCall(
+    functionValue: FunctionValue
+  ): string | null {
+    const body = functionValue.body;
+    if (
+      exprIsFunctionCall(body) &&
+      exprIsFunctionCallOf(body, "begin") &&
+      body.args.length === 1 &&
+      exprIsFunctionCall(body.args[0]!) &&
+      exprIsFunctionCallOf(body.args[0]!, BuiltinYoOperatorFunctions)
+    ) {
+      return body.args[0]!.func.token.value; // Return the operator name
+    } else if (
+      exprIsFunctionCall(body) &&
+      exprIsFunctionCallOf(body, BuiltinYoOperatorFunctions)
+    ) {
+      return body.func.token.value; // Return the operator name
+    } else {
+      return null;
+    }
+  }
+
+  /**
    * Generate function declarations (prototypes)
    */
   private generateFunctionDeclarations(): void {
@@ -713,7 +739,11 @@ export class CodeGeneratorC {
     this.emitter.emitDeclarationLine(`/// Regular functions`);
     for (const funcId in this.functions) {
       const { cName, value } = this.functions[funcId]!;
-      if (this.isGenericFunction(value) || this.isComptFunction(value)) {
+      if (
+        this.isGenericFunction(value) ||
+        this.isComptFunction(value) ||
+        this.isFunctionValueWithOnlyBuiltinYoOpFunctionCall(value)
+      ) {
         continue;
       }
       this.generateFunctionDeclaration(value.type, cName);
@@ -800,7 +830,11 @@ export class CodeGeneratorC {
       const { value, cName } = this.functions[funcId]!;
 
       // If the function is generic, we will handle it later
-      if (this.isGenericFunction(value) || this.isComptFunction(value)) {
+      if (
+        this.isGenericFunction(value) ||
+        this.isComptFunction(value) ||
+        this.isFunctionValueWithOnlyBuiltinYoOpFunctionCall(value)
+      ) {
         continue;
       }
 
@@ -1311,104 +1345,15 @@ export class CodeGeneratorC {
       const argCode = this.generateExpr(arg, indent);
       return `sizeof(${argCode})`; // Use sizeof operator on the argument
     }
-    // Builtin C operator functions
-    else if (exprIsFunctionCallOf(expr, BuiltinCOperatorFunctions)) {
+    // Builtin Yo operator functions
+    else if (exprIsFunctionCallOf(expr, BuiltinYoOperatorFunctions)) {
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
       if (runtimeArgExprs) {
         const args = runtimeArgExprs.map((arg) => {
           return this.generateExpr(arg, indent);
         });
 
-        // +
-        if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_add)) {
-          return `((${args[0]!}) + (${args[1]!}))`;
-        }
-        // -
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_sub)) {
-          return `((${args[0]!}) - (${args[1]!}))`;
-        }
-        // *
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_mul)) {
-          return `((${args[0]!}) * (${args[1]!}))`;
-        }
-        // /
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_div)) {
-          return `((${args[0]!}) / (${args[1]!}))`;
-        }
-        // %
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_mod)) {
-          return `((${args[0]!}) % (${args[1]!}))`;
-        }
-        // neg -
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_neg)) {
-          return `(-(${args[0]!}))`;
-        }
-        // ==
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_eq)) {
-          return `((${args[0]!}) == (${args[1]!}))`;
-        }
-        // !=
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_neq)) {
-          return `((${args[0]!}) != (${args[1]!}))`;
-        }
-        // <
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_lt)) {
-          return `((${args[0]!}) < (${args[1]!}))`;
-        }
-        // <=
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_lte)) {
-          return `((${args[0]!}) <= (${args[1]!}))`;
-        }
-        // >
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_gt)) {
-          return `((${args[0]!}) > (${args[1]!}))`;
-        }
-        // >=
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_gte)) {
-          return `((${args[0]!}) >= (${args[1]!}))`;
-        }
-        // and
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_and)) {
-          return `((${args[0]!}) && (${args[1]!}))`;
-        }
-        // >=
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_or)) {
-          return `((${args[0]!}) || (${args[1]!}))`;
-        }
-        // !
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_not)) {
-          return `(!(${args[0]!}))`;
-        }
-        // &
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_bit_and)) {
-          return `((${args[0]!}) & (${args[1]!}))`;
-        }
-        // |
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_bit_or)) {
-          return `((${args[0]!}) | (${args[1]!}))`;
-        }
-        // ^
-        else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_xor)) {
-          return `((${args[0]!}) ^ (${args[1]!}))`;
-        }
-        // ~
-        else if (
-          exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_bit_complement)
-        ) {
-          return `(~(${args[0]!}))`;
-        }
-        // <<
-        else if (
-          exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_bit_left_shift)
-        ) {
-          return `((${args[0]!}) << (${args[1]!}))`;
-        }
-        // >>
-        else if (
-          exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_op_bit_right_shift)
-        ) {
-          return `((${args[0]!}) >> (${args[1]!}))`;
-        }
+        return this.generateYoOperatorFunctionCall(expr.func.token.value, args);
       }
     }
     // anonymous function (fn(x) -> body)
@@ -1433,13 +1378,24 @@ export class CodeGeneratorC {
         const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
         if (runtimeArgExprs) {
           // Generate arg list
-          const argsList = runtimeArgExprs
-            .map((arg) => {
-              return this.generateExpr(arg, indent);
-            })
-            .join(", ");
+          const args = runtimeArgExprs.map((arg) => {
+            return this.generateExpr(arg, indent);
+          });
+          const argsList = args.join(", ");
 
           if (isFunctionValue(functionValue)) {
+            // Check if it's function vaue whose body only contains Yo operator
+            const operatorFunctionName =
+              this.isFunctionValueWithOnlyBuiltinYoOpFunctionCall(
+                functionValue
+              );
+            if (operatorFunctionName) {
+              return this.generateYoOperatorFunctionCall(
+                operatorFunctionName,
+                args
+              );
+            }
+
             // Get new function type, which might be specialized.
             const functionType =
               functionValue.specializedType ?? functionValue.type;
@@ -1977,6 +1933,95 @@ export class CodeGeneratorC {
 
       // Generate the specialized function body
       this.generateFunction(functionValue, cFunctionName);
+    }
+  }
+
+  private generateYoOperatorFunctionCall(functionName: string, args: string[]) {
+    // +
+    if (BuiltinFunctions.__yo_op_add.includes(functionName)) {
+      return `((${args[0]!}) + (${args[1]!}))`;
+    }
+    // -
+    else if (BuiltinFunctions.__yo_op_sub.includes(functionName)) {
+      return `((${args[0]!}) - (${args[1]!}))`;
+    }
+    // *
+    else if (BuiltinFunctions.__yo_op_mul.includes(functionName)) {
+      return `((${args[0]!}) * (${args[1]!}))`;
+    }
+    // /
+    else if (BuiltinFunctions.__yo_op_div.includes(functionName)) {
+      return `((${args[0]!}) / (${args[1]!}))`;
+    }
+    // %
+    else if (BuiltinFunctions.__yo_op_mod.includes(functionName)) {
+      return `((${args[0]!}) % (${args[1]!}))`;
+    }
+    // neg -
+    else if (BuiltinFunctions.__yo_op_neg.includes(functionName)) {
+      return `(-(${args[0]!}))`;
+    }
+    // ==
+    else if (BuiltinFunctions.__yo_op_eq.includes(functionName)) {
+      return `((${args[0]!}) == (${args[1]!}))`;
+    }
+    // !=
+    else if (BuiltinFunctions.__yo_op_neq.includes(functionName)) {
+      return `((${args[0]!}) != (${args[1]!}))`;
+    }
+    // <
+    else if (BuiltinFunctions.__yo_op_lt.includes(functionName)) {
+      return `((${args[0]!}) < (${args[1]!}))`;
+    }
+    // <=
+    else if (BuiltinFunctions.__yo_op_lte.includes(functionName)) {
+      return `((${args[0]!}) <= (${args[1]!}))`;
+    }
+    // >
+    else if (BuiltinFunctions.__yo_op_gt.includes(functionName)) {
+      return `((${args[0]!}) > (${args[1]!}))`;
+    }
+    // >=
+    else if (BuiltinFunctions.__yo_op_gte.includes(functionName)) {
+      return `((${args[0]!}) >= (${args[1]!}))`;
+    }
+    // and
+    else if (BuiltinFunctions.__yo_op_and.includes(functionName)) {
+      return `((${args[0]!}) && (${args[1]!}))`;
+    }
+    // >=
+    else if (BuiltinFunctions.__yo_op_or.includes(functionName)) {
+      return `((${args[0]!}) || (${args[1]!}))`;
+    }
+    // !
+    else if (BuiltinFunctions.__yo_op_not.includes(functionName)) {
+      return `(!(${args[0]!}))`;
+    }
+    // &
+    else if (BuiltinFunctions.__yo_op_bit_and.includes(functionName)) {
+      return `((${args[0]!}) & (${args[1]!}))`;
+    }
+    // |
+    else if (BuiltinFunctions.__yo_op_bit_or.includes(functionName)) {
+      return `((${args[0]!}) | (${args[1]!}))`;
+    }
+    // ^
+    else if (BuiltinFunctions.__yo_op_xor.includes(functionName)) {
+      return `((${args[0]!}) ^ (${args[1]!}))`;
+    }
+    // ~
+    else if (BuiltinFunctions.__yo_op_bit_complement.includes(functionName)) {
+      return `(~(${args[0]!}))`;
+    }
+    // <<
+    else if (BuiltinFunctions.__yo_op_bit_left_shift.includes(functionName)) {
+      return `((${args[0]!}) << (${args[1]!}))`;
+    }
+    // >>
+    else if (BuiltinFunctions.__yo_op_bit_right_shift.includes(functionName)) {
+      return `((${args[0]!}) >> (${args[1]!}))`;
+    } else {
+      return `/* Unhandled operator ${functionName} */`;
     }
   }
 
