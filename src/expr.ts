@@ -7,6 +7,7 @@ import {
   Variable,
 } from "./env";
 import { formatErrorMessage, formatErrorMessages } from "./error";
+import { EvaluatorContext } from "./evaluator/context";
 import { Token, TokenType } from "./token";
 import { isFreeType, isLinearOrType0Type, Type, typeOfType } from "./types";
 import { generateNewTempVariableName } from "./utils";
@@ -82,6 +83,8 @@ export interface RuntimeDestructuring {
   variableName: string;
 }
 
+export type TerminationKind = "return" | "break" | "continue";
+
 export interface EvaluatedExprData {
   /**
    * The environment after the expression has been evaluated.
@@ -138,10 +141,20 @@ export interface EvaluatedExprData {
   runtimeDestructurings?: RuntimeDestructuring[];
 
   /**
-   * Whether this expression is returning from a function.
-   * This should propagate to the parent function call expression.
+   * Whether this expression is:
+   * 1. "return" from a function.
+   * 2. "break" from a loop.
+   * 3. "continue" from a loop.
+   * 4. normal expression.
    */
-  isReturningFromFunction?: boolean;
+  termination?: TerminationKind;
+
+  /**
+   * This is for codegen for the "cond"/"match" expressions.
+   * If this is true, then it means the case has been executed, and we will perform code generation for it.
+   * Otherwise, we won't perform code generation for it.
+   */
+  caseExecuted?: boolean;
 
   /**
    * Comment for the expression.
@@ -808,7 +821,11 @@ ${exprToString(expr)}`);
   expr.$.env = nextEnv;
 }
 
-export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
+export function setExprAsConsumed(
+  expr: Expr,
+  env: Environment,
+  context: EvaluatorContext
+): Environment {
   // Check if it's dereferencing a pointer/reference to linear type value.
   if (
     expr.$?.isAccessingProperty &&
@@ -861,6 +878,41 @@ export function setExprAsConsumed(expr: Expr, env: Environment): Environment {
         {
           token: variableToConsume.consumedAtToken,
           errorMessage: `Previously consumed here:`,
+        },
+      ]);
+    }
+
+    // Check if we are consuming a linear value outside the while loop
+    if (
+      context.isEvaluatingWhileLoop &&
+      variableToConsume.frameLevel < context.isEvaluatingWhileLoop.frames.length
+    ) {
+      throw formatErrorMessages([
+        {
+          token: expr.token,
+          errorMessage: `Cannot consume a linear value defined outside the while loop.`,
+        },
+        {
+          token: variableToConsume.token,
+          errorMessage: `Defined here:`,
+        },
+      ]);
+    }
+
+    // Check if we are consuming a linear value outside the function body
+    if (
+      context.isEvaluatingFunctionBody &&
+      variableToConsume.frameLevel <
+        context.isEvaluatingFunctionBody.type.env.frames.length
+    ) {
+      throw formatErrorMessages([
+        {
+          token: expr.token,
+          errorMessage: `Cannot consume a linear value defined outside the function body.`,
+        },
+        {
+          token: variableToConsume.token,
+          errorMessage: `Defined here:`,
         },
       ]);
     }

@@ -41,7 +41,7 @@ export function evaluateDrop({
 
   // Set the expression as consumed
   env = evaluatedArgExpr.$.env;
-  env = setExprAsConsumed(evaluatedArgExpr, env);
+  env = setExprAsConsumed(evaluatedArgExpr, env, context);
 
   // TODO: Handle calling drop function.
   // In theory, the Free values will be ignored.

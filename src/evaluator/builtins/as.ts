@@ -2,8 +2,8 @@ import { checkBorrowings } from "../../borrow";
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, FuncCallExpr, setExprAsConsumed } from "../../expr";
-import { areTypesCompatible, typeToString } from "../../types";
 import { TypeValue } from "../../type-value";
+import { areTypesCompatible, typeToString } from "../../types";
 import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 
@@ -82,7 +82,7 @@ export function evaluateAs({
   checkBorrowings(context.borrowings, valueExpr);
 
   // Set the value expression as consumed
-  env = setExprAsConsumed(valueExpr, env);
+  env = setExprAsConsumed(valueExpr, env, context);
 
   // Check if types are compatible for casting
   if (

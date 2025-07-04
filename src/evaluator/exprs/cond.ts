@@ -153,7 +153,13 @@ export function evaluateCond({
 
   if (firstTrueIndex !== -1) {
     // We found a compile-time true condition, only evaluate its body
-    const { caseBodyExpr, caseEnv } = evaluatedConditions[firstTrueIndex]!;
+    const { caseBodyExpr, caseEnv, condExpr } =
+      evaluatedConditions[firstTrueIndex]!;
+
+    // Mark the condition as executed
+    if (condExpr.$) {
+      condExpr.$.caseExecuted = true; // Mark the condition as executed
+    }
 
     const evaluatedCaseBodyExpr = evaluateBeginExpression({
       expr: caseBodyExpr,
@@ -163,7 +169,7 @@ export function evaluateCond({
       },
     });
 
-    if (evaluatedCaseBodyExpr.$?.isReturningFromFunction) {
+    if (evaluatedCaseBodyExpr.$?.termination) {
       // No need to evaluate further if a return was encountered
       expr.$ = {
         env: evaluatedCaseBodyExpr.$.env,
@@ -171,7 +177,7 @@ export function evaluateCond({
         value: evaluatedCaseBodyExpr.$.value,
         isMutable: evaluatedCaseBodyExpr.$.isMutable,
         pathCollection: evaluatedCaseBodyExpr.$.pathCollection,
-        isReturningFromFunction: true,
+        termination: evaluatedCaseBodyExpr.$.termination,
       };
       return expr;
     } else {
@@ -209,13 +215,23 @@ export function evaluateCond({
       return expr;
     }
   } else {
-    let hasCasesNotReturningFromFunction = false;
+    let hasCaseThatIsNotTerminated = false;
 
     // No compile-time true condition found, evaluate all bodies except compile-time false ones
-    for (const { condValue, caseBodyExpr, caseEnv } of evaluatedConditions) {
+    for (const {
+      condExpr,
+      condValue,
+      caseBodyExpr,
+      caseEnv,
+    } of evaluatedConditions) {
       // Skip compile-time false conditions
       if (isBooleanValue(condValue) && condValue.value === false) {
         continue;
+      }
+
+      // Mark the condition as executed
+      if (condExpr.$) {
+        condExpr.$.caseExecuted = true; // Mark the condition as executed
       }
 
       const evaluatedCaseBodyExpr = evaluateBeginExpression({
@@ -226,10 +242,10 @@ export function evaluateCond({
         },
       });
 
-      if (evaluatedCaseBodyExpr.$?.isReturningFromFunction) {
+      if (evaluatedCaseBodyExpr.$?.termination) {
         continue; // No need to evaluate further if a return was encountered
       } else {
-        hasCasesNotReturningFromFunction = true;
+        hasCaseThatIsNotTerminated = true;
       }
 
       if (!evaluatedCaseBodyExpr.$?.type) {
@@ -288,7 +304,7 @@ export function evaluateCond({
     }
 
     // Meets some cases that don't use "return" keyword.
-    if (hasCasesNotReturningFromFunction) {
+    if (hasCaseThatIsNotTerminated) {
       if (!valueType) {
         throw formatErrorMessage({
           token: expr.token,
@@ -339,7 +355,7 @@ export function evaluateCond({
           : undefined,
         isMutable: false,
         pathCollection: [],
-        isReturningFromFunction: true,
+        termination: "return", // TODO: Support "break" and "continue";
       };
 
       return expr;

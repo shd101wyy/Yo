@@ -70,6 +70,7 @@ import { evaluateOpen } from "./exprs/open";
 import { evaluatePropertyAccess } from "./exprs/property_access";
 import { evaluateRecur } from "./exprs/recur";
 import { evaluateTypeOf } from "./exprs/typeof";
+import { evaluateWhile } from "./exprs/while";
 import { evaluateArrayType } from "./types/array";
 import { evaluateEnumType } from "./types/enum";
 import { evaluateFunctionType } from "./types/function";
@@ -619,12 +620,10 @@ ${exprToString(expr)}`,
           env,
           context: { ...context },
         });
-      } else {
-        /* else if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
         // while
-        return this.evaluateWhile({ expr, env, context: { ...context } });
-      }
-      */
+        return evaluateWhile({ expr, env, context: { ...context } });
+      } else {
         /*
       else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {
         // exists

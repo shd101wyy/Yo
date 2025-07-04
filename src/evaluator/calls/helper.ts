@@ -371,7 +371,7 @@ export function checkIfFunctionParameterMatchesArgument({
   // then we don't set the arg expr as consumed,
   // because that's the expression from parameter.exprs.defaultValueExpr
   if (!evaluatedDefaultValueExpr) {
-    callerEnv = setExprAsConsumed(evaluatedArgExpr, callerEnv);
+    callerEnv = setExprAsConsumed(evaluatedArgExpr, callerEnv, context);
   }
 
   // Synthesize the types

@@ -4,6 +4,7 @@ import { Expr, exprToString, FuncCallExpr } from "../../expr";
 import { isBooleanType, isUnitType, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
+import { evaluateBeginExpression } from "./begin";
 
 /**
  * While loop
@@ -64,11 +65,12 @@ export function evaluateWhile({
   }
 
   // Evaluate the body
-  const evaluatedBodyExpr = context.evaluateExpression({
+  const evaluatedBodyExpr = evaluateBeginExpression({
     expr: bodyExpr,
     env,
     context: {
       ...context,
+      isEvaluatingWhileLoop: env, // Indicate that we are evaluating a while loop
     },
   });
   if (!evaluatedBodyExpr.$) {

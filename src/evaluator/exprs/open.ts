@@ -54,7 +54,7 @@ export function evaluateOpen({
   }
 
   // Consume the arg expr
-  setExprAsConsumed(evaluatedArgExpr, env);
+  setExprAsConsumed(evaluatedArgExpr, env, context);
 
   const argType = evaluatedArgExpr.$.type;
   const argValue = evaluatedArgExpr.$.value;

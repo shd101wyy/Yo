@@ -32,7 +32,7 @@ import {
 import { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/synthesizer";
 import { isValidVariableName } from "../utils";
-import { throwRhsContainsReturnExpressionError } from "./assignment";
+import { throwRhsContainsTerminatedExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring_assignment";
 
 /**
@@ -133,13 +133,13 @@ export function evaluateInitializationAssignment({
     env = rhs.$?.env;
   }
 
-  if (rhs.$?.isReturningFromFunction) {
+  if (rhs.$?.termination) {
     // Check if the RHS is a cond expression to provide a more specific error message
-    throwRhsContainsReturnExpressionError(rhs);
+    throwRhsContainsTerminatedExpressionError(rhs, rhs.$.termination);
   }
 
   // Set the rhs as consumed
-  env = setExprAsConsumed(rhs, env);
+  env = setExprAsConsumed(rhs, env, context);
 
   // If rhs is type value, then it cannot be mutable
   if (isTypeValue(rhs.$?.value) && isMutable) {

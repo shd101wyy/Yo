@@ -60,7 +60,7 @@ export function evaluateConsume({
 
   // Set the consume argument as consumed
   env = evaluatedConsumeArgExpr.$.env;
-  env = setExprAsConsumed(evaluatedConsumeArgExpr, env);
+  env = setExprAsConsumed(evaluatedConsumeArgExpr, env, context);
 
   expr.$ = {
     env,

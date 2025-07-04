@@ -1,32 +1,36 @@
-Color :: enum Red, Green, Blue;
+// open import "std";
+extern
+  lt : 
+    (x : i32, y : i32) -> boolean,
+  add :
+    (x : i32, y : i32) -> i32
+;
 
-color_to_i32 :: ((color: Color) -> i32) {
-  match color,
-    .Red => {
-      return 0;
-    },
-    .Green => {
-      return 1;
-    },
-    .Blue => {
-      return 2;
-    }
-  ;
-};
+(@(LinearI32) : Linear) = i32; 
 
-color_to_i32_2 :: ((color: Color) -> i32) {
-  color := match color,
-    .Red => 0,
-    .Green => {
-      return 1;
-    },
-    .Blue => {
-      return 2;
-    }
-  ;
-  return color;
-};
+(linear_i32_1 : LinearI32) = 12;
 
-main :: (() -> i32) {
-  return 12;
+// while loop
+// Like scala, we don't support "break" or "continue" in while loop.
+sum :: ((max : i32) -> i32) {
+  mut(result) := 0;
+  mut(i) := 0;
+
+  compt_expect_error(
+    drop(linear_i32_1),
+    "Cannot drop a linear value defined outside the function body"
+  );
+
+  (linear_i32_2 : LinearI32) = 12;
+
+  while i `lt` max, {
+    result = (result `add` i);
+    i = (i `add` 1);
+    compt_expect_error(
+      drop(linear_i32_2),
+      "Cannot drop a linear value defined outside the while loop"
+    );
+  };
+
+  return result;
 };

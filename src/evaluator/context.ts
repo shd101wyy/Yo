@@ -25,6 +25,12 @@ export interface EvaluatorContext {
   };
 
   /**
+   * Whether we are currently evaluating a while loop.
+   * This record the env that is used for the while loop body.
+   */
+  isEvaluatingWhileLoop?: Environment;
+
+  /**
    * The innermost struct, enum, or union that this function call is inside.
    * This can be useful for an anonymous struct that needs to refer to itself
    */

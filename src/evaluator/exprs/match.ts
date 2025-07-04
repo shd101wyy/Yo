@@ -91,7 +91,7 @@ export function evaluateMatch({
   env = evaluatedScrutineeExpr.$.env;
 
   // Consume the value expression
-  env = setExprAsConsumed(evaluatedScrutineeExpr, env);
+  env = setExprAsConsumed(evaluatedScrutineeExpr, env, context);
 
   const scrutineeType = evaluatedScrutineeExpr.$.type;
   const scrutineeValue = evaluatedScrutineeExpr.$.value;
@@ -149,7 +149,7 @@ export function evaluateMatch({
   const bodies: Expr[] = [];
   let resultType: { type: Type; env: Environment } | undefined = undefined;
   const checkedVariantNames: Set<string> = new Set();
-  let hasCasesNotReturningFromFunction = false;
+  let hasCaseThatIsNotTerminated = false;
   let usedWildcardPattern = false;
 
   for (let i = 0; i < patterns.length; i++) {
@@ -278,6 +278,16 @@ export function evaluateMatch({
         caseEnv = nextEnv;
       }
 
+      // Mark the case as executed
+      matchArmExpr.$ = {
+        env: caseEnv,
+        type: variableType,
+        value: undefined, // No value yet
+        isMutable: evaluatedScrutineeExpr.$.isMutable,
+        pathCollection: [],
+        caseExecuted: true, // Mark the case as executed
+      };
+
       // Evaluate the result expression
       const evaluatedBody = evaluateBeginExpression({
         expr: bodyExpr,
@@ -297,9 +307,10 @@ export function evaluateMatch({
         });
       }
 
-      // Check if the the evaluatedBody has "return" expression
-      if (evaluatedBody.$.isReturningFromFunction) {
+      // Check if the the evaluatedBody has "return"/"break"/"continue" expression
+      if (evaluatedBody.$.termination) {
         // Check if we have a scrutinee value
+        // If so, then this is the matched arm.
         if (scrutineeValue && isEnumValue(scrutineeValue)) {
           // If the scrutinee value is an enum value, we can return it directly
           expr.$ = {
@@ -308,11 +319,11 @@ export function evaluateMatch({
             value: evaluatedBody.$.value,
             isMutable: evaluatedBody.$.isMutable,
             pathCollection: evaluatedBody.$.pathCollection,
-            isReturningFromFunction: true,
+            termination: evaluatedBody.$.termination,
           };
         }
       } else {
-        hasCasesNotReturningFromFunction = true;
+        hasCaseThatIsNotTerminated = true;
       }
 
       caseEnv = evaluatedBody.$.env;
@@ -373,7 +384,7 @@ Please use .variantName for destructuring enum variants.`,
     }
   }
 
-  if (hasCasesNotReturningFromFunction) {
+  if (hasCaseThatIsNotTerminated) {
     if (!resultType) {
       throw formatErrorMessage({
         token: expr.token,
@@ -430,7 +441,7 @@ Please use .variantName for destructuring enum variants.`,
         : undefined,
       isMutable: false,
       pathCollection: [],
-      isReturningFromFunction: true,
+      termination: "return", // TODO: Support "break" and "continue"
     };
 
     return expr;

@@ -135,7 +135,11 @@ ${tupleElementToString(paramElement_)}`,
       });
     }
     // Set the argExpr as consumed
-    callerEnv = setExprAsConsumed(evaluatedArgExpr, evaluatedArgExpr.$.env);
+    callerEnv = setExprAsConsumed(
+      evaluatedArgExpr,
+      evaluatedArgExpr.$.env,
+      context
+    );
 
     // Get the type of the evaluated arg expr
     const argType = evaluatedArgExpr.$.type;

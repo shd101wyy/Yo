@@ -142,7 +142,7 @@ export function evaluateBeginExpression({
         env = evaluatedExpr.$?.env;
       }
 
-      if (evaluatedExpr.$?.isReturningFromFunction) {
+      if (evaluatedExpr.$?.termination) {
         isReturningFromFunction = true;
         lastExpr = evaluatedExpr;
         break;
@@ -221,6 +221,8 @@ export function evaluateBeginExpression({
       });
     }
   }
+  /*
+  // NOTE: Checking this below sometimes gives error. So I disable it for now.
   // not returning from function
   else if (context.expectedType) {
     // Check if the last expression type is compatible with the expected type
@@ -244,10 +246,11 @@ export function evaluateBeginExpression({
       });
     }
   }
+  */
 
   // Set the last expression as the return value
   // and mark it as consumed.
-  env = setExprAsConsumed(lastExpr, env);
+  env = setExprAsConsumed(lastExpr, env, context);
 
   // Pop the environment frame
   env = popEnvFrame(env);
@@ -262,7 +265,7 @@ export function evaluateBeginExpression({
       });
     }
     expr.$.env = env;
-    expr.$.isReturningFromFunction = isReturningFromFunction;
+    expr.$.termination = isReturningFromFunction ? "return" : undefined;
   } else {
     expr.$ = {
       env,
@@ -270,7 +273,7 @@ export function evaluateBeginExpression({
       value: lastExpr.$.value,
       isMutable: false,
       pathCollection: [],
-      isReturningFromFunction,
+      termination: isReturningFromFunction ? "return" : undefined,
     };
     attachTempVariableToExpr(expr);
   }

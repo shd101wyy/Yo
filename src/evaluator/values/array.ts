@@ -59,7 +59,7 @@ export function evaluateArrayValue({
     env = evaluatedElement.$.env;
 
     // Set the evaluatedElement as consumed
-    env = setExprAsConsumed(evaluatedElement, env);
+    env = setExprAsConsumed(evaluatedElement, env, context);
 
     // Save value
     arrayElementValues.push(evaluatedElement.$.value);
