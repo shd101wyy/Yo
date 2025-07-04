@@ -2,6 +2,7 @@ open import "../../builtins.yo";
 { Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
 { LogicalNot } :: import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
+{ Ord } :: import "../../modules/ord.yo";
 
 /**
  * arithmetic
@@ -44,6 +45,17 @@ implicit(I32LogicalNot) :: LogicalNot(i32)
 implicit(I32Eq) :: Eq(i32, i32)
   (==) : (fn(a, b)-> __yo_op_eq(a, b))
 ;
+
+/**
+ * ord
+ */
+implicit(I32Ord) :: Ord(i32, i32, implicit(I32Eq))
+  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
+  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
+  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
+  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+;
+
 
 implicit(I32ComptMethods) :: module {
   Self :: i32;
@@ -132,5 +144,6 @@ export
   I32Negate,
   I32LogicalNot,
   I32Eq,
+  I32Ord,
   I32ComptMethods
 ;

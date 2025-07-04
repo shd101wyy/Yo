@@ -884,8 +884,9 @@ export function setExprAsConsumed(
 
     // Check if we are consuming a linear value outside the while loop
     if (
-      context.isEvaluatingWhileLoop &&
-      variableToConsume.frameLevel < context.isEvaluatingWhileLoop.frames.length
+      context.isEvaluatingWhileLoopBody &&
+      variableToConsume.frameLevel <
+        context.isEvaluatingWhileLoopBody.frames.length
     ) {
       throw formatErrorMessages([
         {

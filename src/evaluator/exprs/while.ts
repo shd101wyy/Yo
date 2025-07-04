@@ -1,15 +1,21 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, exprToString, FuncCallExpr } from "../../expr";
+import {
+  BuiltinKeywords,
+  expectExprToBeFunctionCallOf,
+  Expr,
+  exprToString,
+  FuncCallExpr,
+} from "../../expr";
 import { isBooleanType, isUnitType, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
+import { isBooleanValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "./begin";
 
 /**
  * While loop
  *
- * while condition, step, body
  * while condition, body
  */
 export function evaluateWhile({
@@ -21,25 +27,9 @@ export function evaluateWhile({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  let conditionExpr: Expr | undefined;
-  let stepExpr: Expr | undefined;
-  let bodyExpr: Expr | undefined;
-
-  if (expr.args.length === 2) {
-    // while condition, body
-    conditionExpr = expr.args[0]!;
-    bodyExpr = expr.args[1]!;
-  } else if (expr.args.length === 3) {
-    // while condition, step, body
-    conditionExpr = expr.args[0]!;
-    stepExpr = expr.args[1]!;
-    bodyExpr = expr.args[2]!;
-  } else {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Expected "while" with 2 or 3 arguments, got:\n${exprToString(expr)}`,
-    });
-  }
+  expectExprToBeFunctionCallOf(expr, BuiltinKeywords.while, 2);
+  const conditionExpr: Expr = expr.args[0]!;
+  const bodyExpr: Expr = expr.args[1]!;
 
   // Evaluate the condition expression
   const evaluatedConditionExpr = context.evaluateExpression({
@@ -63,53 +53,86 @@ export function evaluateWhile({
       )}`,
     });
   }
+  const conditionValue = evaluatedConditionExpr.$.value;
+  if (isBooleanValue(conditionValue)) {
+    if (conditionValue.value === false) {
+      // Stop the evaluation
+      // return the expr
+      expr.$ = {
+        env: env,
+        isMutable: false,
+        pathCollection: [],
+        type: VUnit.type,
+        value: VUnit,
+      };
+      return expr;
+    } else {
+      // Evaluate the body
+      const evaluatedBodyExpr = evaluateBeginExpression({
+        expr: bodyExpr,
+        env,
+        context: {
+          ...context,
+          isEvaluatingWhileLoopBody: env, // Indicate that we are evaluating a while loop
+        },
+      });
+      if (!evaluatedBodyExpr.$) {
+        throw formatErrorMessage({
+          token: bodyExpr.token,
+          errorMessage: `Failed to evaluate the body expression:\n${exprToString(bodyExpr)}`,
+        });
+      }
+      if (!isUnitType(evaluatedBodyExpr.$.type)) {
+        throw formatErrorMessage({
+          token: bodyExpr.token,
+          errorMessage: `Expected the while loop body to return unit, but got:\n${typeToString(evaluatedBodyExpr.$.type)}`,
+        });
+      }
 
-  // Evaluate the body
-  const evaluatedBodyExpr = evaluateBeginExpression({
-    expr: bodyExpr,
-    env,
-    context: {
-      ...context,
-      isEvaluatingWhileLoop: env, // Indicate that we are evaluating a while loop
-    },
-  });
-  if (!evaluatedBodyExpr.$) {
-    throw formatErrorMessage({
-      token: bodyExpr.token,
-      errorMessage: `Failed to evaluate the body expression:\n${exprToString(bodyExpr)}`,
-    });
-  }
-  if (!isUnitType(evaluatedBodyExpr.$.type)) {
-    throw formatErrorMessage({
-      token: bodyExpr.token,
-      errorMessage: `Expected the while loop body to return unit, but got:\n${typeToString(evaluatedBodyExpr.$.type)}`,
-    });
-  }
+      // update the env
+      env = evaluatedBodyExpr.$.env;
 
-  // Evaluate the step
-  if (stepExpr) {
-    const evaluatedStepExpr = context.evaluateExpression({
-      expr: stepExpr,
+      // Evaluate the condition again
+      return evaluateWhile({
+        expr: expr,
+        env: env,
+        context: {
+          ...context,
+        },
+      });
+    }
+  } else {
+    // runtime value, or unknown value
+    // Evaluate the body once
+    const evaluatedBodyExpr = evaluateBeginExpression({
+      expr: bodyExpr,
       env,
       context: {
         ...context,
+        isEvaluatingWhileLoopBody: env, // Indicate that we are evaluating a while loop
       },
     });
-    if (!evaluatedStepExpr.$) {
+    if (!evaluatedBodyExpr.$) {
       throw formatErrorMessage({
-        token: stepExpr.token,
-        errorMessage: `Failed to evaluate the step expression:\n${exprToString(stepExpr)}`,
+        token: bodyExpr.token,
+        errorMessage: `Failed to evaluate the body expression:\n${exprToString(bodyExpr)}`,
       });
     }
-  }
+    if (!isUnitType(evaluatedBodyExpr.$.type)) {
+      throw formatErrorMessage({
+        token: bodyExpr.token,
+        errorMessage: `Expected the while loop body to return unit, but got:\n${typeToString(evaluatedBodyExpr.$.type)}`,
+      });
+    }
 
-  // return the expr
-  expr.$ = {
-    env: env,
-    isMutable: false,
-    pathCollection: [],
-    type: VUnit.type,
-    value: VUnit,
-  };
-  return expr;
+    // return the expr
+    expr.$ = {
+      env: env,
+      isMutable: false,
+      pathCollection: [],
+      type: VUnit.type,
+      value: VUnit,
+    };
+    return expr;
+  }
 }

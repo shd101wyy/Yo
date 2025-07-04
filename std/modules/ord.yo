@@ -6,18 +6,20 @@ Ordering :: enum
   Greater
 ;
 
-Ord :: (((@(Self) : Type), implicit(@(EqSelf) : Eq(Self))) -> @(Module))
+Ord :: (
+  ( @(Lhs): Type,
+    @(Rhs) ?= Lhs,
+    implicit(@(EqSelf) : Eq(Lhs, Rhs))
+  ) -> @(Module))
   module
-    compare :
-      (self: &(Self), other: &(Self)) -> Ordering,
-    lt :
-      (self: &(Self), other: &(Self)) -> boolean,
-    gt :
-      (self: &(Self), other: &(Self)) -> boolean,
-    lte :
-      (self: &(Self), other: &(Self)) -> boolean,
-    gte :
-      (self: &(Self), other: &(Self)) -> boolean
+    (<) :
+      (lhs: Lhs, rhs: Rhs) -> boolean,
+    (<=) :
+      (lhs: Lhs, rhs: Rhs) -> boolean,
+    (>) :
+      (lhs: Lhs, rhs: Rhs) -> boolean,
+    (>=) :
+      (lhs: Lhs, rhs: Rhs) -> boolean
 ;
 
 export 
