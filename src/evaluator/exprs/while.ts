@@ -84,6 +84,7 @@ export function evaluateWhile({
     }
 
     // Check if it has terminated by "return"
+    // NOTE: In reality, we might not even enter the while loop body.
     if (evaluatedBodyExpr.$.termination) {
       // If the body has a return value, we should return it
       expr.$ = {
@@ -92,7 +93,10 @@ export function evaluateWhile({
         pathCollection: evaluatedBodyExpr.$.pathCollection,
         type: evaluatedBodyExpr.$.type,
         value: evaluatedBodyExpr.$.value,
-        termination: evaluatedBodyExpr.$.termination,
+        termination:
+          isBooleanValue(conditionValue) && conditionValue.value === true
+            ? evaluatedBodyExpr.$.termination // => Guaranteed that we meet "return"
+            : undefined, // => We might not even enter the while loop body
       };
       return expr;
     }

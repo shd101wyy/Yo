@@ -105,29 +105,51 @@ export function evaluateBeginExpression({
         });
       }
 
-      // Evaluate the return expression
-      const returnArg = exprToEvaluate.args[0]!;
-      const evaluatedReturnExpr = context.evaluateExpression({
-        expr: returnArg,
-        env,
-        context: {
-          ...context,
-          expectedType: {
-            type: context.isEvaluatingFunctionBody.type,
-            env: env,
+      if (exprToEvaluate.args.length === 0) {
+        // return unit
+        exprToEvaluate.$ = {
+          env,
+          type: VUnit.type,
+          value: VUnit,
+          isMutable: false,
+          pathCollection: [],
+        };
+      } else if (exprToEvaluate.args.length === 1) {
+        // Return the first argument
+        // Evaluate the return expression
+        const returnArg = exprToEvaluate.args[0]!;
+        const evaluatedReturnExpr = context.evaluateExpression({
+          expr: returnArg,
+          env,
+          context: {
+            ...context,
+            expectedType: {
+              type: context.isEvaluatingFunctionBody.type,
+              env: env,
+            },
           },
-        },
-      });
-      if (!evaluatedReturnExpr.$) {
-        throw formatErrorMessage({
-          token: returnArg.token,
-          errorMessage: `Return expression is not evaluated correctly:\n${exprToString(returnArg)}`,
         });
+        if (!evaluatedReturnExpr.$) {
+          throw formatErrorMessage({
+            token: returnArg.token,
+            errorMessage: `Return expression is not evaluated correctly:\n${exprToString(returnArg)}`,
+          });
+        }
+        env = evaluatedReturnExpr.$.env;
+        isReturningFromFunction = true;
+
+        exprToEvaluate.$ = {
+          env,
+          type: evaluatedReturnExpr.$.type,
+          value: evaluatedReturnExpr.$.value,
+          isMutable: false,
+          pathCollection: evaluatedReturnExpr.$.pathCollection,
+          variableName: evaluatedReturnExpr.$.variableName,
+          termination: "return",
+        };
+        lastExpr = exprToEvaluate;
+        break;
       }
-      env = evaluatedReturnExpr.$.env;
-      isReturningFromFunction = true;
-      lastExpr = evaluatedReturnExpr;
-      break;
     } else {
       const evaluatedExpr = context.evaluateExpression({
         expr: exprToEvaluate,
