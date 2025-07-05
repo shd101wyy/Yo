@@ -86,7 +86,8 @@ export function evaluateCond({
     condValue: BooleanValue | UnknownValue | undefined;
   }> = [];
 
-  for (const { condExpr, caseBodyExpr, caseEnv } of parsedStatements) {
+  for (let i = 0; i < parsedStatements.length; i++) {
+    const { condExpr, caseBodyExpr, caseEnv } = parsedStatements[i]!;
     // Evaluate condition
     const evaluatedCondExpr = context.evaluateExpression({
       expr: condExpr,
@@ -112,6 +113,17 @@ export function evaluateCond({
 
     const condValue = evaluatedCondExpr.$.value;
     const updatedCaseEnv = evaluatedCondExpr.$.env;
+
+    // If it's the last condition, then we expect it to be the conpile-time known "true"
+    if (
+      i === parsedStatements.length - 1 &&
+      !(isBooleanValue(condValue) && condValue.value === true)
+    ) {
+      throw formatErrorMessage({
+        token: evaluatedCondExpr.token,
+        errorMessage: `Expect the last condition to be compile-time known "true".`,
+      });
+    }
 
     evaluatedConditions.push({
       condExpr: evaluatedCondExpr,
