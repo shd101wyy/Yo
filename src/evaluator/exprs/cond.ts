@@ -14,7 +14,6 @@ import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
   isBooleanType,
-  isFunctionTypeAndReturnsComptValue,
   Type,
   typeToString,
 } from "../../types";
@@ -169,54 +168,39 @@ export function evaluateCond({
       },
     });
 
-    if (evaluatedCaseBodyExpr.$?.termination) {
-      // No need to evaluate further if a return was encountered
-      expr.$ = {
-        env: evaluatedCaseBodyExpr.$.env,
-        type: evaluatedCaseBodyExpr.$.type,
-        value: evaluatedCaseBodyExpr.$.value,
-        isMutable: evaluatedCaseBodyExpr.$.isMutable,
-        pathCollection: evaluatedCaseBodyExpr.$.pathCollection,
-        termination: evaluatedCaseBodyExpr.$.termination,
-      };
-      return expr;
-    } else {
-      if (!evaluatedCaseBodyExpr.$?.type) {
-        throw formatErrorMessage({
-          token: evaluatedCaseBodyExpr.token,
-          errorMessage: `Expected type for cond statement, got ${exprToString(evaluatedCaseBodyExpr)}`,
-        });
-      }
-
-      bodies.push(evaluatedCaseBodyExpr);
-      caseBodyValues.push(evaluatedCaseBodyExpr.$.value);
-      valueType = {
-        type: evaluatedCaseBodyExpr.$.type,
-        env: evaluatedCaseBodyExpr.$.env,
-      };
-
-      // Merge and check all environments
-      env = mergeAndCheckEnvs(env, bodies);
-
-      // Determine the compile-time value
-      let value: Value | undefined = undefined;
-      // We have a compile-time true condition, use its body value
-      value = caseBodyValues[0]; // Only one body was evaluated
-
-      expr.$ = {
-        env,
-        type: valueType.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      attachTempVariableToExpr(expr);
-
-      return expr;
+    if (!evaluatedCaseBodyExpr.$?.type) {
+      throw formatErrorMessage({
+        token: evaluatedCaseBodyExpr.token,
+        errorMessage: `Expected type for cond statement, got ${exprToString(evaluatedCaseBodyExpr)}`,
+      });
     }
-  } else {
-    let hasCaseThatIsNotTerminated = false;
 
+    bodies.push(evaluatedCaseBodyExpr);
+    caseBodyValues.push(evaluatedCaseBodyExpr.$.value);
+    valueType = {
+      type: evaluatedCaseBodyExpr.$.type,
+      env: evaluatedCaseBodyExpr.$.env,
+    };
+
+    // Merge and check all environments
+    env = mergeAndCheckEnvs(env, bodies);
+
+    // Determine the compile-time value
+    let value: Value | undefined = undefined;
+    // We have a compile-time true condition, use its body value
+    value = caseBodyValues[0]; // Only one body was evaluated
+
+    expr.$ = {
+      env,
+      type: valueType.type,
+      value: value,
+      isMutable: false,
+      pathCollection: [],
+    };
+    attachTempVariableToExpr(expr);
+
+    return expr;
+  } else {
     // No compile-time true condition found, evaluate all bodies except compile-time false ones
     for (const {
       condExpr,
@@ -241,12 +225,6 @@ export function evaluateCond({
           ...context,
         },
       });
-
-      if (evaluatedCaseBodyExpr.$?.termination) {
-        continue; // No need to evaluate further if a return was encountered
-      } else {
-        hasCaseThatIsNotTerminated = true;
-      }
 
       if (!evaluatedCaseBodyExpr.$?.type) {
         throw formatErrorMessage({
@@ -303,62 +281,35 @@ export function evaluateCond({
       }
     }
 
-    // Meets some cases that don't use "return" keyword.
-    if (hasCaseThatIsNotTerminated) {
-      if (!valueType) {
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `Failed to determine the type of value from the cond.`,
-        });
-      }
-
-      // Merge and check all environments
-      env = mergeAndCheckEnvs(env, bodies);
-
-      // Determine the compile-time value
-      let value: Value | undefined = undefined;
-      if (caseBodyValues.some((val) => val === undefined)) {
-        // Contains runtime value
-        value = undefined;
-      } else {
-        // All evaluated conditions were not compile-time true, so result is unknown
-        value = createUnknownValue(valueType.type);
-      }
-
-      expr.$ = {
-        env,
-        type: valueType.type,
-        value: value,
-        isMutable: false,
-        pathCollection: [],
-      };
-      attachTempVariableToExpr(expr);
-
-      return expr;
-    } else {
-      // All cases are returning from function
-      if (!context.isEvaluatingFunctionBody) {
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `All cases in cond are returning from function, but not evaluating in function body.`,
-        });
-      }
-      const functionReturnType =
-        context.isEvaluatingFunctionBody.type.return.type;
-      expr.$ = {
-        env,
-        type: functionReturnType,
-        value: isFunctionTypeAndReturnsComptValue(
-          context.isEvaluatingFunctionBody.type
-        )
-          ? createUnknownValue(functionReturnType)
-          : undefined,
-        isMutable: false,
-        pathCollection: [],
-        termination: "return", // TODO: Support "break" and "continue";
-      };
-
-      return expr;
+    if (!valueType) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Failed to determine the type of value from the cond.`,
+      });
     }
+
+    // Merge and check all environments
+    env = mergeAndCheckEnvs(env, bodies);
+
+    // Determine the compile-time value
+    let value: Value | undefined = undefined;
+    if (caseBodyValues.some((val) => val === undefined)) {
+      // Contains runtime value
+      value = undefined;
+    } else {
+      // All evaluated conditions were not compile-time true, so result is unknown
+      value = createUnknownValue(valueType.type);
+    }
+
+    expr.$ = {
+      env,
+      type: valueType.type,
+      value: value,
+      isMutable: false,
+      pathCollection: [],
+    };
+    attachTempVariableToExpr(expr);
+
+    return expr;
   }
 }

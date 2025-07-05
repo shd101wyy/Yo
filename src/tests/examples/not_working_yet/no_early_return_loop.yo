@@ -1,0 +1,21 @@
+open import "std";
+
+compt_return_in_while :: ((@(flag): boolean) -> @(i32))
+  while flag, {
+    cond
+      flag => {
+        x :: 1;
+        return x;
+      },
+      true => {
+        x :: 2;
+      }
+    ;
+
+    return 4;
+  };
+
+y :: compt_return_in_while(false);
+// In this example, the `while` condition never enter,
+// so it indeed returns ().
+// Early return might be a bad idea. It makes the control flow hard to reason.

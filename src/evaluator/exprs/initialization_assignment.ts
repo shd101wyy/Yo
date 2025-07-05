@@ -32,7 +32,6 @@ import {
 import { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/synthesizer";
 import { isValidVariableName } from "../utils";
-import { throwRhsContainsTerminatedExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring_assignment";
 
 /**
@@ -131,11 +130,6 @@ export function evaluateInitializationAssignment({
 
   if (rhs.$?.env) {
     env = rhs.$?.env;
-  }
-
-  if (rhs.$?.termination) {
-    // Check if the RHS is a cond expression to provide a more specific error message
-    throwRhsContainsTerminatedExpressionError(rhs, rhs.$.termination);
   }
 
   // Set the rhs as consumed

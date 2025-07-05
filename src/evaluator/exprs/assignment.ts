@@ -7,8 +7,6 @@ import {
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
-  BuiltinKeywords,
-  Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -16,7 +14,6 @@ import {
   FuncCallExpr,
   requireExprNotConsumed,
   setExprAsConsumed,
-  TerminationKind,
 } from "../../expr";
 import { setTypeValueAsLinear } from "../../type-value";
 import {
@@ -36,34 +33,6 @@ import { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/synthesizer";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
-
-export function throwRhsContainsTerminatedExpressionError(
-  rhs: Expr,
-  termination: TerminationKind
-) {
-  let errorMessage = `Right-hand side contains "${termination}" from function.`;
-  if (
-    exprIsFunctionCall(rhs) &&
-    exprIsFunctionCallOf(rhs, BuiltinKeywords.cond)
-  ) {
-    errorMessage = `Cannot assign "cond" expression to variable when all cases contain "${termination}" statements. Consider using the "cond" result directly without assignment, or ensure at least one case doesn't return.`;
-  } else if (
-    exprIsFunctionCall(rhs) &&
-    exprIsFunctionCallOf(rhs, BuiltinKeywords.match)
-  ) {
-    errorMessage = `Cannot assign "match" expression to variable when all cases contain "${termination}" statements. Consider using the "match" result directly without assignment, or ensure at least one case doesn't return.`;
-  } else if (
-    exprIsFunctionCall(rhs) &&
-    exprIsFunctionCallOf(rhs, BuiltinKeywords.begin)
-  ) {
-    errorMessage = `Cannot assign "begin" expression to variable when it contains "${termination}" statement.`;
-  }
-
-  throw formatErrorMessage({
-    token: rhs.token,
-    errorMessage,
-  });
-}
 
 /**
  * Evaluate assignment like
@@ -158,10 +127,6 @@ export function evaluateAssignment({
     });
     if (rhs.$?.env) {
       env = rhs.$?.env;
-    }
-
-    if (rhs.$?.termination) {
-      throwRhsContainsTerminatedExpressionError(rhs, rhs.$.termination);
     }
 
     // Set rhs as consumed

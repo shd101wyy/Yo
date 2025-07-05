@@ -83,20 +83,6 @@ export function evaluateWhile({
       });
     }
 
-    // Check if it has terminated by "return"
-    if (evaluatedBodyExpr.$.termination) {
-      // If the body has a return value, we should return it
-      expr.$ = {
-        env: evaluatedBodyExpr.$.env,
-        isMutable: evaluatedBodyExpr.$.isMutable,
-        pathCollection: evaluatedBodyExpr.$.pathCollection,
-        type: evaluatedBodyExpr.$.type,
-        value: evaluatedBodyExpr.$.value,
-        termination: evaluatedBodyExpr.$.termination,
-      };
-      return expr;
-    }
-
     // The while loop body should return unit
     if (!isUnitType(evaluatedBodyExpr.$.type)) {
       throw formatErrorMessage({

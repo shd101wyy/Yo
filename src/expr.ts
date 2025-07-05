@@ -83,8 +83,6 @@ export interface RuntimeDestructuring {
   variableName: string;
 }
 
-export type TerminationKind = "return" | "break" | "continue";
-
 export interface EvaluatedExprData {
   /**
    * The environment after the expression has been evaluated.
@@ -139,15 +137,6 @@ export interface EvaluatedExprData {
    * will be used in the later on C code generation.
    */
   runtimeDestructurings?: RuntimeDestructuring[];
-
-  /**
-   * Whether this expression is:
-   * 1. "return" from a function.
-   * 2. "break" from a loop.
-   * 3. "continue" from a loop.
-   * 4. normal expression.
-   */
-  termination?: TerminationKind;
 
   /**
    * This is for codegen for the "cond"/"match" expressions.
@@ -309,7 +298,7 @@ export const BuiltinKeywords = {
   unquote: ["unquote", "#"], // QUESTION: ~ is actually bitwise not in C, should we pick another symbol?
   unquote_splicing: ["unquote_splicing", "...#"],
 
-  return: ["return"],
+  // return: ["return"], // NOTE: Early "return" is not allowed in Yo.
   recur: ["recur"],
   fn: ["fn"],
   extern: ["extern"],
