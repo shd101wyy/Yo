@@ -398,6 +398,7 @@ export function createFunctionType({
   parameters,
   typeParameters,
   implicitParameters,
+  variadicParameter,
   return_,
   env,
   parametersFrame,
@@ -407,6 +408,7 @@ export function createFunctionType({
   parameters: FunctionParameter[];
   typeParameters: FunctionParameter[];
   implicitParameters: FunctionParameter[];
+  variadicParameter: FunctionParameter | undefined;
   return_: FunctionReturn;
   env: Environment;
   parametersFrame: Frame;
@@ -419,6 +421,7 @@ export function createFunctionType({
     parameters: parameters, // Wrap params in a TupleType
     typeParameters,
     implicitParameters,
+    variadicParameter,
     return: return_,
     env,
     parametersFrame,

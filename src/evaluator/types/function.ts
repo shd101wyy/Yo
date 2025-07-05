@@ -9,6 +9,7 @@ import {
   BuiltinKeywords,
   Expr,
   exprIsAtom,
+  exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
@@ -424,6 +425,7 @@ export function evaluateFunctionParameters({
   parameters: FunctionParameter[];
   typeParameters: FunctionParameter[];
   implicitParameters: FunctionParameter[];
+  variadicParameter?: FunctionParameter;
   env: Environment;
 } {
   env = pushEnvFrame(env);
@@ -431,9 +433,11 @@ export function evaluateFunctionParameters({
   const parameters: FunctionParameter[] = [];
   let typeParameters: FunctionParameter[] = [];
   let implicitParameters: FunctionParameter[] = [];
+  let variadicParameter: FunctionParameter | undefined = undefined;
 
   let findTypeParameters = false;
   let findImplicitParameters = false;
+  let findVariadicParameter = false;
 
   for (let i = 0; i < parameterExprs.length; i++) {
     const parameterExpr = parameterExprs[i]!;
@@ -580,8 +584,94 @@ export function evaluateFunctionParameters({
         env = nextEnv;
       }
     }
+    // Check if it's the variadic parameter
+    else if (
+      (exprIsAtom(parameterExpr) && exprIsAtomOf(parameterExpr, "...")) ||
+      (exprIsFunctionCall(parameterExpr) &&
+        exprIsFunctionCallOf(parameterExpr, "..."))
+    ) {
+      findVariadicParameter = true;
+
+      // Get the variadic parameter name;
+      let isCompileTimeOnly = false;
+      let isQuote = false;
+      let parameterName: string = "...";
+      let labelExpr: Expr = parameterExpr;
+
+      if (exprIsFunctionCall(parameterExpr)) {
+        const argExpr = parameterExpr.args[0]!;
+        if (argExpr) {
+          if (
+            exprIsFunctionCall(argExpr) &&
+            exprIsFunctionCallOf(argExpr, BuiltinKeywords.compt)
+          ) {
+            isCompileTimeOnly = true;
+            if (argExpr.args.length !== 1) {
+              throw formatErrorMessage({
+                token: argExpr.token,
+                errorMessage: `Expected one argument for "compt" (or "@"), got ${argExpr.args.length}`,
+              });
+            }
+            labelExpr = argExpr.args[0]!;
+            parameterName = argExpr.args[0]!.token.value;
+          } else if (
+            exprIsFunctionCall(argExpr) &&
+            exprIsFunctionCallOf(argExpr, BuiltinKeywords.quote)
+          ) {
+            isCompileTimeOnly = true;
+            isQuote = true;
+            if (argExpr.args.length !== 1) {
+              throw formatErrorMessage({
+                token: argExpr.token,
+                errorMessage: `Expected one argument for "quote" (or ":"), got ${argExpr.args.length}`,
+              });
+            }
+            labelExpr = argExpr.args[0]!;
+            parameterName = argExpr.args[0]!.token.value;
+          } else {
+            if (!isValidVariableName(argExpr)) {
+              throw formatErrorMessage({
+                token: argExpr.token,
+                errorMessage: `Expected a valid variable name for variadic parameter, got ${exprToString(
+                  argExpr
+                )}`,
+              });
+            }
+            labelExpr = argExpr;
+            parameterName = argExpr.token.value;
+          }
+        } else {
+          throw formatErrorMessage({
+            token: parameterExpr.token,
+            errorMessage: `Expected a name for variadic parameter, got ${exprToString(
+              parameterExpr
+            )}`,
+          });
+        }
+      }
+
+      // Create the parameter object
+      variadicParameter = {
+        exprs: {
+          expr: parameterExpr,
+          labelExpr,
+        },
+        isCompileTimeOnly,
+        isMutable: false,
+        isQuote,
+        label: parameterName,
+        type: VUnit.type,
+      };
+    }
     // Normal function parameters
     else {
+      if (findVariadicParameter) {
+        throw formatErrorMessage({
+          token: parameterExpr.token,
+          errorMessage: `Expected variadic parameter to be the last parameter before the normal parameters.`,
+        });
+      }
+
       const { parameter, env: nextEnv } = evaluateFunctionParameter({
         expr: parameterExpr,
         expectedParameter: expectedFunctionType?.parameters?.[i],
@@ -649,6 +739,7 @@ export function evaluateFunctionParameters({
     parameters,
     typeParameters,
     implicitParameters,
+    variadicParameter,
     env,
   };
 }
@@ -696,6 +787,7 @@ export function evaluateFunctionType({
     parameters,
     typeParameters,
     implicitParameters,
+    variadicParameter,
     env: nextEnv,
   } = evaluateFunctionParameters({
     parameterExprs: argList,
@@ -836,6 +928,7 @@ ${typeToString(returnType)}`,
     parameters,
     typeParameters,
     implicitParameters,
+    variadicParameter,
     return_: {
       type: returnType,
       expr: returnTypeExpr,

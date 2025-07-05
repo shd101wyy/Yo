@@ -402,6 +402,20 @@ export interface FunctionType extends Type {
   implicitParameters: FunctionParameter[];
 
   /**
+   * Variadic parameters are parameters that can take a variable number of arguments.
+   * They are usually defined with a `...` syntax.
+   * eg:
+   *
+   *  (x: i32, y: i32, ...) -> i32; // c style
+   *
+   *  (quote(e): Expr, ...(quote(rest))) -> unquote(Expr); // macro, rest has type ExprList
+   *  (x: i32, y: i32, ...(rest)) -> i32;     // Yo style. rest has type ArgList
+   *  (@(x) : i32, @(y) : i32, ...(@(rest))); // Yo style. rest has type ArgList
+   *
+   */
+  variadicParameter?: FunctionParameter;
+
+  /**
    * The return information of the function.
    */
   return: FunctionReturn;
