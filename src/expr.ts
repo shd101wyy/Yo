@@ -871,7 +871,7 @@ export function setExprAsConsumed(
       ]);
     }
 
-    // Check if we are consuming a linear value outside the while loop
+    // Check if we are consuming a linear value defined outside the while loop
     if (
       context.isEvaluatingWhileLoopBody &&
       variableToConsume.frameLevel <
@@ -889,7 +889,7 @@ export function setExprAsConsumed(
       ]);
     }
 
-    // Check if we are consuming a linear value outside the function body
+    // Check if we are consuming a linear value defined outside the function body
     if (
       context.isEvaluatingFunctionBody &&
       variableToConsume.frameLevel <

@@ -4,7 +4,7 @@ import {
   getVariablesFromEnv,
   updateExistingVariable,
 } from "../../env";
-import { formatErrorMessage } from "../../error";
+import { formatErrorMessage, formatErrorMessages } from "../../error";
 import {
   attachTempVariableToExpr,
   exprIsAtom,
@@ -212,6 +212,41 @@ export function evaluateAssignment({
     }
     let isMutatingDefinedVariable = false;
     if (!variable.initializedAtToken) {
+      // Check if we are initializing a variable that is defined outside the current while loop.
+      if (
+        context.isEvaluatingWhileLoopBody &&
+        variable.frameLevel < context.isEvaluatingWhileLoopBody.frames.length
+      ) {
+        throw formatErrorMessages([
+          {
+            token: lhs.token,
+            errorMessage: `Cannot initialize a variable that is defined outside the while loop.`,
+          },
+          {
+            token: variable.token,
+            errorMessage: `Defined here:`,
+          },
+        ]);
+      }
+
+      // Check if we are initializing a variable defined outside the current funciton body.
+      if (
+        context.isEvaluatingFunctionBody &&
+        variable.frameLevel <
+          context.isEvaluatingFunctionBody.type.env.frames.length
+      ) {
+        throw formatErrorMessages([
+          {
+            token: lhs.token,
+            errorMessage: `Cannot initialize a variable that is defined outside the function body.`,
+          },
+          {
+            token: variable.token,
+            errorMessage: `Defined here:`,
+          },
+        ]);
+      }
+
       // Initialize the variable
       env = updateExistingVariable(env, variable, {
         ...variable,
