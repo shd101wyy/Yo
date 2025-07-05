@@ -1,29 +1,19 @@
-x : i32;
-
-// Initialize a variable defined outside the function body is not allowed
-test :: (() -> unit) {
-  compt_expect_error(
-    x = 12,
-    "Cannot initialize a variable that is defined outside the function body."
-  );
-
-};
-
-// Initialize a variable defined outside the while loop is not allowed
-test2 :: ((flag: boolean) -> unit) {
-  y : i32;
+compt_return_in_while :: ((@(flag): boolean) -> @(i32)) {
   while flag, {
-    compt_expect_error(
-      x = 12,
-      "Cannot initialize a variable that is defined outside the while loop."
-    );
-    compt_expect_error(
-      y = 12,
-      "Cannot initialize a variable that is defined outside the while loop."
-    );
-    z : i32;
-    z = 12;
+    cond
+      flag => {
+        x :: 1;
+        return x;
+      },
+      true => {
+        x :: 2;
+      }
+    ;
+
+    return 4;
   };
 };
 
-x = 13;
+x :: compt_return_in_while(true);
+y :: compt_return_in_while(false);
+z :: y;

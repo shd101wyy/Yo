@@ -22,6 +22,7 @@ import {
   createRefType,
   EnumType,
   isEnumType,
+  isFunctionTypeAndReturnsComptValue,
   isMutPtrType,
   isMutRefType,
   isPtrType,
@@ -34,7 +35,7 @@ import {
   TypeTag,
   typeToString,
 } from "../../types";
-import { isEnumValue } from "../../value";
+import { createUnknownValue, isEnumValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "./begin";
 
@@ -148,6 +149,7 @@ export function evaluateMatch({
   const bodies: Expr[] = [];
   let resultType: { type: Type; env: Environment } | undefined = undefined;
   const checkedVariantNames: Set<string> = new Set();
+  let hasCaseThatIsNotTerminated = false;
   let usedWildcardPattern = false;
 
   for (let i = 0; i < patterns.length; i++) {
@@ -305,6 +307,25 @@ export function evaluateMatch({
         });
       }
 
+      // Check if the the evaluatedBody has "return"/"break"/"continue" expression
+      if (evaluatedBody.$.termination) {
+        // Check if we have a scrutinee value
+        // If so, then this is the matched arm.
+        if (scrutineeValue && isEnumValue(scrutineeValue)) {
+          // If the scrutinee value is an enum value, we can return it directly
+          expr.$ = {
+            env: evaluatedBody.$.env,
+            type: evaluatedBody.$.type,
+            value: evaluatedBody.$.value,
+            isMutable: evaluatedBody.$.isMutable,
+            pathCollection: evaluatedBody.$.pathCollection,
+            termination: evaluatedBody.$.termination,
+          };
+        }
+      } else {
+        hasCaseThatIsNotTerminated = true;
+      }
+
       caseEnv = evaluatedBody.$.env;
       bodies.push(evaluatedBody);
 
@@ -363,42 +384,68 @@ Please use .variantName for destructuring enum variants.`,
     }
   }
 
-  if (!resultType) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Could not determine result type for match expression`,
-    });
-  }
-
-  // Perform exhaustiveness check
-  if (!checkedVariantNames.has("_")) {
-    const missingVariants = enumType.variants.filter(
-      (variant) => !checkedVariantNames.has(variant.name)
-    );
-    if (missingVariants.length > 0) {
+  if (hasCaseThatIsNotTerminated) {
+    if (!resultType) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Match expression is not exhaustive. Missing cases for variants:
-        
-- ${missingVariants.map((v) => v.name).join("\n- ")}`,
+        errorMessage: `Could not determine result type for match expression`,
       });
     }
+
+    // Perform exhaustiveness check
+    if (!checkedVariantNames.has("_")) {
+      const missingVariants = enumType.variants.filter(
+        (variant) => !checkedVariantNames.has(variant.name)
+      );
+      if (missingVariants.length > 0) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Match expression is not exhaustive. Missing cases for variants:
+        
+- ${missingVariants.map((v) => v.name).join("\n- ")}`,
+        });
+      }
+    }
+
+    // Merge and check all environments
+    env = mergeAndCheckEnvs(env, bodies);
+
+    // Set the type and value of the match expression
+    expr.$ = {
+      env,
+      type: resultType.type,
+      // TODO: Support the compile-time value.
+      // For compile-time evaluation, we'd determine which arm matches and set the value
+      value: undefined, // createUnknownValue(resultType),
+      isMutable: false,
+      pathCollection: [],
+    };
+    attachTempVariableToExpr(expr);
+  } else {
+    // All cases are returning from function
+    if (!context.isEvaluatingFunctionBody) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `All cases in match are returning from function, but not evaluating in function body.`,
+      });
+    }
+    const functionReturnType =
+      context.isEvaluatingFunctionBody.type.return.type;
+    expr.$ = {
+      env,
+      type: functionReturnType,
+      value: isFunctionTypeAndReturnsComptValue(
+        context.isEvaluatingFunctionBody.type
+      )
+        ? createUnknownValue(functionReturnType)
+        : undefined,
+      isMutable: false,
+      pathCollection: [],
+      termination: "return", // TODO: Support "break" and "continue"
+    };
+
+    return expr;
   }
-
-  // Merge and check all environments
-  env = mergeAndCheckEnvs(env, bodies);
-
-  // Set the type and value of the match expression
-  expr.$ = {
-    env,
-    type: resultType.type,
-    // TODO: Support the compile-time value.
-    // For compile-time evaluation, we'd determine which arm matches and set the value
-    value: undefined, // createUnknownValue(resultType),
-    isMutable: false,
-    pathCollection: [],
-  };
-  attachTempVariableToExpr(expr);
 
   return expr;
 }

@@ -8,6 +8,7 @@ import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
+  expectExprToBeFunctionCallOf,
   Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -15,6 +16,7 @@ import {
   setExprAsConsumed,
 } from "../../expr";
 import {
+  areTypesCompatible,
   isMutRefType,
   isRefType,
   typeContainsReference,
@@ -44,6 +46,7 @@ export function evaluateBeginExpression({
     beginExpressions = expr.args;
   }
   const expectedType = context.expectedType;
+  let isReturningFromFunction = false;
 
   // Empty begin
   // return unit
@@ -61,23 +64,89 @@ export function evaluateBeginExpression({
   // Push a new environment frame
   env = pushEnvFrame(env);
 
-  // Save the last expr
-  const lastExpr = beginExpressions[beginExpressions.length - 1]!;
+  let lastExpr = beginExpressions[beginExpressions.length - 1]!;
 
   // Evaluate expressions
   for (let i = 0; i < beginExpressions.length; i++) {
     const exprToEvaluate = beginExpressions[i]!;
-    const evaluatedExpr = context.evaluateExpression({
-      expr: exprToEvaluate,
-      env,
-      context: {
-        ...context,
-        expectedType:
-          i === beginExpressions.length - 1 ? expectedType : undefined,
-      },
-    });
-    if (evaluatedExpr.$?.env) {
-      env = evaluatedExpr.$?.env;
+
+    // Check if it's the "return" keyword
+    if (
+      exprIsFunctionCall(exprToEvaluate) &&
+      exprIsFunctionCallOf(exprToEvaluate, BuiltinKeywords.return)
+    ) {
+      // Expect the exprToEvaluate to be the last expression
+      if (
+        // not the last expression.
+        i !== beginExpressions.length - 1 &&
+        // not the second last expression, and the last one is not unit value.
+        !(
+          i === beginExpressions.length - 2 &&
+          // the last expression is a unit value
+          exprIsFunctionCall(beginExpressions[beginExpressions.length - 1]!) &&
+          exprIsFunctionCallOf(
+            beginExpressions[beginExpressions.length - 1]!,
+            BuiltinKeywords.tuple,
+            0
+          )
+        )
+      ) {
+        throw formatErrorMessage({
+          token: exprToEvaluate.token,
+          errorMessage: `The "return" keyword can only be used as the last expression.`,
+        });
+      }
+      expectExprToBeFunctionCallOf(exprToEvaluate, BuiltinKeywords.return, 1);
+
+      if (!context.isEvaluatingFunctionBody) {
+        throw formatErrorMessage({
+          token: exprToEvaluate.token,
+          errorMessage: `The "return" keyword can only be used inside a function body.`,
+        });
+      }
+
+      // Evaluate the return expression
+      const returnArg = exprToEvaluate.args[0]!;
+      const evaluatedReturnExpr = context.evaluateExpression({
+        expr: returnArg,
+        env,
+        context: {
+          ...context,
+          expectedType: {
+            type: context.isEvaluatingFunctionBody.type,
+            env: env,
+          },
+        },
+      });
+      if (!evaluatedReturnExpr.$) {
+        throw formatErrorMessage({
+          token: returnArg.token,
+          errorMessage: `Return expression is not evaluated correctly:\n${exprToString(returnArg)}`,
+        });
+      }
+      env = evaluatedReturnExpr.$.env;
+      isReturningFromFunction = true;
+      lastExpr = evaluatedReturnExpr;
+      break;
+    } else {
+      const evaluatedExpr = context.evaluateExpression({
+        expr: exprToEvaluate,
+        env,
+        context: {
+          ...context,
+          expectedType:
+            i === beginExpressions.length - 1 ? expectedType : undefined,
+        },
+      });
+      if (evaluatedExpr.$?.env) {
+        env = evaluatedExpr.$?.env;
+      }
+
+      if (evaluatedExpr.$?.termination) {
+        isReturningFromFunction = true;
+        lastExpr = evaluatedExpr;
+        break;
+      }
     }
   }
   if (!lastExpr.$) {
@@ -130,10 +199,32 @@ export function evaluateBeginExpression({
     }
   }
 
+  // Check if return type is compatible
+  if (isReturningFromFunction) {
+    if (
+      !areTypesCompatible(
+        {
+          type: context.isEvaluatingFunctionBody!.type.return.type,
+          env: env,
+        },
+        {
+          type: returnType,
+          env: env,
+        }
+      )
+    ) {
+      throw formatErrorMessage({
+        token: lastExpr.token,
+        errorMessage: `Return type mismatch. Expected type "${typeToString(
+          context.isEvaluatingFunctionBody!.type.return.type
+        )}", but got "${typeToString(returnType)}".`,
+      });
+    }
+  }
   /*
   // NOTE: Checking this below sometimes gives error. So I disable it for now.
   // not returning from function
-  if (context.expectedType) {
+  else if (context.expectedType) {
     // Check if the last expression type is compatible with the expected type
     if (
       !areTypesCompatible(
@@ -174,6 +265,7 @@ export function evaluateBeginExpression({
       });
     }
     expr.$.env = env;
+    expr.$.termination = isReturningFromFunction ? "return" : undefined;
   } else {
     expr.$ = {
       env,
@@ -181,6 +273,7 @@ export function evaluateBeginExpression({
       value: lastExpr.$.value,
       isMutable: false,
       pathCollection: [],
+      termination: isReturningFromFunction ? "return" : undefined,
     };
     attachTempVariableToExpr(expr);
   }
