@@ -86,18 +86,27 @@ export function evaluateWhile({
     // Check if it has terminated by "return"
     // NOTE: In reality, we might not even enter the while loop body.
     if (evaluatedBodyExpr.$.termination) {
+      // Guaranteed that we meet "return"
       // If the body has a return value, we should return it
-      expr.$ = {
-        env: evaluatedBodyExpr.$.env,
-        isMutable: evaluatedBodyExpr.$.isMutable,
-        pathCollection: evaluatedBodyExpr.$.pathCollection,
-        type: evaluatedBodyExpr.$.type,
-        value: evaluatedBodyExpr.$.value,
-        termination:
-          isBooleanValue(conditionValue) && conditionValue.value === true
-            ? evaluatedBodyExpr.$.termination // => Guaranteed that we meet "return"
-            : undefined, // => We might not even enter the while loop body
-      };
+      if (isBooleanValue(conditionValue) && conditionValue.value === true) {
+        expr.$ = {
+          env: evaluatedBodyExpr.$.env,
+          isMutable: evaluatedBodyExpr.$.isMutable,
+          pathCollection: evaluatedBodyExpr.$.pathCollection,
+          type: evaluatedBodyExpr.$.type,
+          value: evaluatedBodyExpr.$.value,
+          termination: evaluatedBodyExpr.$.termination,
+        };
+      } else {
+        // We might not even enter the while loop body
+        expr.$ = {
+          env: env,
+          isMutable: false,
+          pathCollection: [],
+          type: VUnit.type,
+          value: VUnit,
+        };
+      }
       return expr;
     }
 
