@@ -1,0 +1,34 @@
+extern "Yo",
+  __yo_maybe_uninit_new : 
+    ((@(Self) : Type) -> Self),
+  __yo_maybe_uninit_as_mut_ptr : 
+    ((@(Self) : Type, @(BaseType): Type, self: &!(Self)) -> *!(BaseType)),
+  __yo_maybe_uninit_as_ptr : 
+    ((@(Self) : Type, @(BaseType): Type, self: &!(Self)) -> *(BaseType)),
+  __yo_maybe_uninit_assume_init : 
+    ((@(Self) : Type, @(BaseType): Type, self: Self) -> BaseType)
+;
+
+MaybeUninit :: ((@(BaseType): Type) -> @(Type))
+  struct(
+    value: BaseType,
+
+    new :: ((() -> Self) __yo_maybe_uninit_new(Self)),
+
+    as_mut_ptr :: (((self: &!(Self)) -> *!(BaseType))
+      __yo_maybe_uninit_as_mut_ptr(Self, BaseType, self)
+    ),
+
+    as_ptr :: (((self: &!(Self)) -> *(BaseType))
+      __yo_maybe_uninit_as_ptr(Self, BaseType, self)
+    ),
+
+    assume_init :: (((self : Self) -> BaseType)
+      __yo_maybe_uninit_assume_init(Self, BaseType, self)
+    )
+  )
+;
+
+export
+  MaybeUninit
+;

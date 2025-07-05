@@ -368,13 +368,17 @@ export const BuiltinKeywords = {
 };
 
 export const BuiltinFunctions = {
-  __yo_are_types_compatible: ["__yo_are_types_compatible"],
+  // compile-time related functions
   compt_expect_error: ["compt_expect_error"],
+  compt_assert: ["compt_assert"],
   // compt_codegen_inline: ["compt_codegen_inline"],
+
+  // va_XX related function for variadic arguments
+  va_start: ["va_start"],
+
   typeof: ["typeof"],
   sizeof: ["sizeof"],
   consume: ["consume"],
-  compt_assert: ["compt_assert"],
   macro_expand: ["macro_expand"],
   as: ["as"],
 
@@ -666,6 +670,7 @@ export const BuiltinFunctions = {
   __yo_type_is_free: ["__yo_type_is_free"],
   __yo_type_is_type0: ["__yo_type_is_type0"],
   __yo_type_contains_reference: ["__yo_type_contains_reference"],
+  __yo_are_types_compatible: ["__yo_are_types_compatible"],
 
   // Operator related functions
   /// Arithemtic

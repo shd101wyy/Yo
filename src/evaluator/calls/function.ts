@@ -1142,7 +1142,7 @@ export function evaluateFunctionCall({
         }
         const methodName = functionName;
         methodExpr = func;
-        // Get the method with the same name in the interface in the env
+        // Get the method with the same name in the module/type in the env
         const moduleMethods = getMethodsByNameFromEnv(
           env,
           methodName,

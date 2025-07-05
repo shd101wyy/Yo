@@ -4,6 +4,10 @@ import {
   isEnumType,
   isFunctionType,
   isModuleType,
+  isMutPtrType,
+  isMutRefType,
+  isPtrType,
+  isRefType,
   isStructType,
   isUnionType,
   ModuleType,
@@ -523,6 +527,16 @@ export function getMethodsByNameFromEnv(
 
       methods.push({ type: method.type, value });
     }
+  }
+
+  // Automatically dereference if it's pointer/reference type
+  while (
+    isPtrType(receiverType) ||
+    isMutPtrType(receiverType) ||
+    isRefType(receiverType) ||
+    isMutRefType(receiverType)
+  ) {
+    receiverType = receiverType.type;
   }
 
   // Check if the receiverType itself has method that can be called

@@ -50,7 +50,7 @@ import {
   valueToString,
 } from "../value";
 
-const BuiltinYoOperatorFunctions = [
+const BuiltinYoInlineFunctions = [
   // Arithemtic
   ...BuiltinFunctions.__yo_op_add, // +
   ...BuiltinFunctions.__yo_op_sub, // -
@@ -694,9 +694,10 @@ export class CodeGeneratorC {
 
   /**
    * Check if a function value only has body that calls the builtin
-   * __yo_c_op_xxx functions, which are just wrappers around C operators.
+   * __yo_c_op_xxx functions, which are just wrappers around C operators,etc.
+   * We can convert them to inline C operator calls directly
    */
-  private isFunctionValueWithOnlyBuiltinYoOpFunctionCall(
+  private isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(
     functionValue: FunctionValue
   ): string | null {
     const body = functionValue.body;
@@ -705,12 +706,12 @@ export class CodeGeneratorC {
       exprIsFunctionCallOf(body, "begin") &&
       body.args.length === 1 &&
       exprIsFunctionCall(body.args[0]!) &&
-      exprIsFunctionCallOf(body.args[0]!, BuiltinYoOperatorFunctions)
+      exprIsFunctionCallOf(body.args[0]!, BuiltinYoInlineFunctions)
     ) {
       return body.args[0]!.func.token.value; // Return the operator name
     } else if (
       exprIsFunctionCall(body) &&
-      exprIsFunctionCallOf(body, BuiltinYoOperatorFunctions)
+      exprIsFunctionCallOf(body, BuiltinYoInlineFunctions)
     ) {
       return body.func.token.value; // Return the operator name
     } else {
@@ -742,7 +743,7 @@ export class CodeGeneratorC {
       if (
         this.isGenericFunction(value) ||
         this.isComptFunction(value) ||
-        this.isFunctionValueWithOnlyBuiltinYoOpFunctionCall(value)
+        this.isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
       ) {
         continue;
       }
@@ -833,7 +834,7 @@ export class CodeGeneratorC {
       if (
         this.isGenericFunction(value) ||
         this.isComptFunction(value) ||
-        this.isFunctionValueWithOnlyBuiltinYoOpFunctionCall(value)
+        this.isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
       ) {
         continue;
       }
@@ -1346,7 +1347,7 @@ export class CodeGeneratorC {
       return `sizeof(${argCode})`; // Use sizeof operator on the argument
     }
     // Builtin Yo operator functions
-    else if (exprIsFunctionCallOf(expr, BuiltinYoOperatorFunctions)) {
+    else if (exprIsFunctionCallOf(expr, BuiltinYoInlineFunctions)) {
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
       if (runtimeArgExprs) {
         const args = runtimeArgExprs.map((arg) => {
@@ -1386,7 +1387,7 @@ export class CodeGeneratorC {
           if (isFunctionValue(functionValue)) {
             // Check if it's function vaue whose body only contains Yo operator
             const operatorFunctionName =
-              this.isFunctionValueWithOnlyBuiltinYoOpFunctionCall(
+              this.isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(
                 functionValue
               );
             if (operatorFunctionName) {
