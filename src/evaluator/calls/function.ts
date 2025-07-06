@@ -53,9 +53,12 @@ import {
   areValuesEqual,
   ArrayValue,
   createEnumValue,
+  createExprListValue,
+  createExprValue,
   createStructValue,
   createTypeValue,
   createUnknownValue,
+  ExprValue,
   isExprValue,
   isFunctionValue,
   isTupleValue,
@@ -872,28 +875,81 @@ ${implicitVariables
   // Check the variadic parameters
   const variadicArgs: { value: Value | undefined; argType: Type }[] = [];
   if (functionType.variadicParameter) {
+    console.log(
+      "variadicParameter found: ",
+      functionType.variadicParameter.isQuote
+    );
+
     for (; regularArgIndex < argExprs.length; regularArgIndex++) {
       const argExpr = argExprs[regularArgIndex]!;
-      // Evaluate the argument expression
-      const evaluatedArgExpr = context.evaluateExpression({
-        expr: argExpr,
-        env: callerEnv,
-        context: {
-          ...context,
+      let evaluatedArgExpr: Expr;
+      if (functionType.variadicParameter.isQuote) {
+        // Macro
+        evaluatedArgExpr = cloneExpr(argExpr);
+        evaluatedArgExpr.$ = {
+          type: createExprType(),
+          value: createExprValue(argExpr),
+          env: callerEnv,
+          pathCollection: [],
+          isMutable: false,
+        };
+        variadicArgs.push({
+          value: evaluatedArgExpr.$.value,
+          argType: evaluatedArgExpr.$.type,
+        });
+      } else {
+        // Evaluate the argument expression
+        evaluatedArgExpr = context.evaluateExpression({
+          expr: argExpr,
+          env: callerEnv,
+          context: {
+            ...context,
+          },
+        });
+        if (!evaluatedArgExpr.$?.env) {
+          throw formatErrorMessage({
+            token: argExpr.token,
+            errorMessage: `Failed to evaluate the expression:\n${exprToString(argExpr)}`,
+          });
+        }
+        callerEnv = evaluatedArgExpr.$.env;
+        variadicArgs.push({
+          value: evaluatedArgExpr.$.value,
+          argType: evaluatedArgExpr.$.type,
+        });
+
+        if (!functionType.variadicParameter.isCompileTimeOnly) {
+          // TODO: For VarList type, we should add arg_count as parameter
+          runtimeArgExprsInOrder.push(argExpr);
+        }
+      }
+    }
+
+    if (functionType.variadicParameter.label === "...") {
+      // Do nothing
+    } else if (functionType.variadicParameter.isQuote) {
+      // Create the ExprList and add that to environment
+      const exprListValue = createExprListValue(
+        variadicArgs.map((arg) => arg.value as ExprValue)
+      );
+
+      // Add to env
+      const { env: nextEnv } = addVariableToEnv({
+        env: calleeEnv,
+        variable: {
+          name: functionType.variadicParameter.label,
+          type: exprListValue.type, // QUESTION: Should we use parameterType here or argType?
+          // This might affect assigning Free type arg to Type parameter
+          isMutable: functionType.variadicParameter.isMutable,
+          isCompileTimeOnly: functionType.variadicParameter.isCompileTimeOnly,
+          isImplicit: false,
+          value: exprListValue,
+          token: functionType.variadicParameter.exprs.expr.token,
+          initializedAtToken: functionType.variadicParameter.exprs.expr.token,
+          consumedAtToken: undefined,
         },
       });
-      if (!evaluatedArgExpr.$?.env) {
-        throw formatErrorMessage({
-          token: argExpr.token,
-          errorMessage: `Failed to evaluate the expression:\n${exprToString(argExpr)}`,
-        });
-      }
-      callerEnv = evaluatedArgExpr.$.env;
-      variadicArgs.push({
-        value: evaluatedArgExpr.$.value,
-        argType: evaluatedArgExpr.$.type,
-      });
-      runtimeArgExprsInOrder.push(argExpr);
+      calleeEnv = nextEnv;
     }
   }
 
@@ -2063,6 +2119,7 @@ function createSpecializedFunctionInline({
     typeParameters: [],
     parameters: runtimeParameters,
     implicitParameters: [],
+    variadicParameter: undefined, // QUESTION: Is this right?
     return_: {
       ...functionType.return,
       type: specializedBody.$.type,

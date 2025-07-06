@@ -18,6 +18,7 @@ import {
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
+  createExprListType,
   createFunctionType,
   FunctionParameter,
   FunctionType,
@@ -598,6 +599,7 @@ export function evaluateFunctionParameters({
       let parameterName: string = "...";
       let labelExpr: Expr = parameterExpr;
 
+      let parameterType: Type = VUnit.type; // Default type is VUnit
       if (exprIsFunctionCall(parameterExpr)) {
         const argExpr = parameterExpr.args[0]!;
         if (argExpr) {
@@ -614,7 +616,18 @@ export function evaluateFunctionParameters({
             }
             labelExpr = argExpr.args[0]!;
             parameterName = argExpr.args[0]!.token.value;
-          } else if (
+
+            // TODO: Set the parameterType to VaList
+            parameterType = VUnit.type;
+
+            throw formatErrorMessage({
+              token: argExpr.token,
+              errorMessage: `...(compt(param_name)) is not supported yet.`,
+            });
+          }
+          // macro
+          // we will use the ExprList as the type
+          else if (
             exprIsFunctionCall(argExpr) &&
             exprIsFunctionCallOf(argExpr, BuiltinKeywords.quote)
           ) {
@@ -628,6 +641,7 @@ export function evaluateFunctionParameters({
             }
             labelExpr = argExpr.args[0]!;
             parameterName = argExpr.args[0]!.token.value;
+            parameterType = createExprListType();
           } else {
             if (!isValidVariableName(argExpr)) {
               throw formatErrorMessage({
@@ -639,6 +653,14 @@ export function evaluateFunctionParameters({
             }
             labelExpr = argExpr;
             parameterName = argExpr.token.value;
+
+            // TODO: Set the parameterType to VaList
+            parameterType = VUnit.type;
+
+            throw formatErrorMessage({
+              token: argExpr.token,
+              errorMessage: `...(param_name) is not supported yet.`,
+            });
           }
         } else {
           throw formatErrorMessage({
@@ -648,6 +670,9 @@ export function evaluateFunctionParameters({
             )}`,
           });
         }
+      } else {
+        // Only has "..."
+        parameterType = VUnit.type; // Default type is VUnit
       }
 
       // Create the parameter object
@@ -660,8 +685,40 @@ export function evaluateFunctionParameters({
         isMutable: false,
         isQuote,
         label: parameterName,
-        type: VUnit.type,
+        type: parameterType,
       };
+
+      if (parameterName !== "...") {
+        // Add the parameter to the environment
+        const { env: nextEnv } = addVariableToEnv({
+          env,
+          variable: {
+            name: parameterName,
+            type: parameterType,
+            isMutable: false,
+            isCompileTimeOnly: variadicParameter.isCompileTimeOnly,
+            isImplicit: false,
+            value: isCompileTimeOnly
+              ? createUnknownValue(parameterType, parameterName)
+              : undefined,
+            token: labelExpr.token,
+            initializedAtToken: labelExpr.token, // Set as initialized
+            consumedAtToken: undefined, // Not consumed yet
+          },
+        });
+        env = nextEnv;
+
+        // Add the information to the labelExpr
+        labelExpr.$ = {
+          env,
+          type: parameterType,
+          value: isCompileTimeOnly
+            ? createUnknownValue(parameterType, parameterName)
+            : undefined,
+          isMutable: false,
+          pathCollection: [],
+        };
+      }
     }
     // Normal function parameters
     else {

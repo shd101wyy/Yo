@@ -600,11 +600,18 @@ export function typeToString(type: Type): string {
               .map(functionParameterToString)
               .join(", ")})`
           : "";
-      const variadicParam = func.variadicParameter
-        ? func.variadicParameter.label === "..."
-          ? "..."
-          : `...${func.variadicParameter.label}`
-        : "";
+      let variadicParam = "";
+      if (func.variadicParameter) {
+        if (func.variadicParameter.label === "...") {
+          variadicParam = "...";
+        } else if (func.variadicParameter.isQuote) {
+          variadicParam = `...(quote(${func.variadicParameter.label}))`;
+        } else if (func.variadicParameter.isCompileTimeOnly) {
+          variadicParam = `...(compt(${func.variadicParameter.label}))`;
+        } else {
+          variadicParam = `...(${func.variadicParameter.label})`;
+        }
+      }
 
       let returnTypeString = typeToString(func.return.type);
       if (func.return.isUnquote) {

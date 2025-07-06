@@ -27,12 +27,7 @@ import {
   typeRequiresComptModifier,
   typeToString,
 } from "../../types";
-import {
-  createExprListValue,
-  createExprValue,
-  isTypeValue,
-  Value,
-} from "../../value";
+import { createExprValue, isTypeValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
 import { synthesizeTypes } from "../types/synthesizer";
 
@@ -254,18 +249,12 @@ export function checkIfFunctionParameterMatchesArgument({
           isMutable: false,
         };
       } else {
-        // ExprList
-        evaluatedArgExpr = cloneExpr(argExpr);
-        evaluatedArgExpr.$ = {
-          type: parameterType,
-          value: createExprListValue([
-            createExprValue(argExpr),
-            ...argExprs.slice(argIndex + 1).map(createExprValue),
-          ]),
-          env: callerEnv,
-          pathCollection: [],
-          isMutable: false,
-        };
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Expected "Expr" type for "quote" parameter "${parameter.label}", got:\n${typeToString(
+            parameterType
+          )}`,
+        });
       }
     }
     // This is normal function call parameter
