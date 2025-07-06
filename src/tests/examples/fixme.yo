@@ -3,21 +3,37 @@
  * Slice type
  *
  */
+open import "std";
 
-S :: Slice(i32);
-
-/*
 extern "Yo",
   __yo_slice_ref :
-    (forall(@(T): Type, @(size) : usize), 
+    (forall(@(T): Type),
+      @(size) : usize, 
       arr: &(Array(T, size)),
       start : usize,
       end: usize
-    ) -> Slice(T)
+    ) -> Slice(T),
+  __yo_slice_mut_ref :
+    (forall(@(T): Type),
+      @(size) : usize, 
+      arr: &!(Array(T, size)),
+      start : usize,
+      end: usize
+    ) -> Slice(T),
+  __yo_slice_length:
+      (forall(@(T): Type), slice: &(Slice(T))) -> usize
 ;
 
+
 main :: (() -> unit) {
-  arr := [1, 2, 3, 4];
-  arr_slice := &(__yo_slice_ref(&(arr), 1, 3));
+  mut(arr) := [1, 2, 3, 4];
+  arr_length :: __yo_array_length(arr);
+  slice := *(__yo_slice_ref(arr_length, &(arr), 1.as(usize), 3.as(usize)));
+  slice_mut := *!(__yo_slice_mut_ref(arr_length, &!(arr), 1.as(usize), 3.as(usize)));
+
+  borrow 
+    &(__yo_slice_ref(arr_length, &(arr), 1.as(usize), 3.as(usize))), 
+    slice => {
+      slice_length := __yo_slice_length(slice);
+    }
 };
-*/

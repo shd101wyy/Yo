@@ -395,6 +395,9 @@ export const BuiltinFunctions = {
   // Only `va_start` needs to be handled here.
   va_start: ["va_start"],
 
+  // Array related
+  __yo_array_length: ["__yo_array_length"],
+
   typeof: ["typeof"],
   sizeof: ["sizeof"],
   consume: ["consume"],

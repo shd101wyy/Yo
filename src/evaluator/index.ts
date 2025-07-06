@@ -18,6 +18,7 @@ import { ModuleValue } from "../value";
 
 // Import extracted evaluator functions
 import { evaluateAndOr } from "./builtins/and_or";
+import { evaluateYoArrayLength } from "./builtins/array_fns";
 import { evaluateComptAssert } from "./builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "./builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "./builtins/compt_expect_error";
@@ -625,6 +626,15 @@ ${exprToString(expr)}`,
       ) {
         // __yo_type_contains_reference;
         return evaluateYoTypeContainsReference({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_array_length)
+      ) {
+        // __yo_array_length
+        return evaluateYoArrayLength({
           expr,
           env,
           context: { ...context },

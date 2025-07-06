@@ -1737,7 +1737,7 @@ ${functionsWithMatchingTypes
         env,
         type: returnType,
         value: returnValue,
-        isMutable: false,
+        isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
         pathCollection: pathCollection,
         runtimeArgExprsInOrder,
       };
@@ -1771,7 +1771,7 @@ ${functionsWithMatchingTypes
       expr.$ = {
         env,
         type: structType,
-        isMutable: false,
+        isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
         pathCollection: [],
       };
 
@@ -1815,7 +1815,7 @@ ${functionsWithMatchingTypes
       expr.$ = {
         env,
         type: enumType,
-        isMutable: false,
+        isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
         pathCollection: [],
       };
       // FIXME: Support to set value for comptime
@@ -1867,7 +1867,7 @@ ${functionsWithMatchingTypes
       expr.$ = {
         env,
         type: unionType,
-        isMutable: false,
+        isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
         pathCollection: [],
       };
       const { pathCollection, callerEnv, runtimeArgExprsInOrder } =

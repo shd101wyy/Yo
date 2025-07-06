@@ -23,6 +23,7 @@ import {
   isPrimitiveType,
   isPtrType,
   isRefType,
+  isSliceType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -142,6 +143,14 @@ export function areTypesCompatible(
         },
         { type: given.type.elementType, env: given.env }
       )
+    );
+  }
+
+  if (isSliceType(expected.type) && isSliceType(given.type)) {
+    // Slices must have compatible element types
+    return areTypesCompatible(
+      { type: expected.type.elementType, env: expected.env },
+      { type: given.type.elementType, env: given.env }
     );
   }
 

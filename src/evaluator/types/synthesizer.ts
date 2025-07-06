@@ -16,12 +16,14 @@ import {
 import { PlaceholderToken } from "../../token";
 import {
   getValueOfSomeTypeFromEnv,
+  isArrayType,
   isEnumType,
   isModuleType,
   isMutPtrType,
   isMutRefType,
   isPtrType,
   isRefType,
+  isSliceType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -453,9 +455,38 @@ export function synthesizeTypes(
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
-  }
-  // TODO: Array type?
-  else {
+  } else if (isArrayType(expected.type) && isArrayType(given.type)) {
+    // Synthesize the element types of the arrays
+    const { expectedEnv, givenEnv } = synthesizeTypes(
+      {
+        type: expected.type.elementType,
+        env: expected.env,
+      },
+      {
+        type: given.type.elementType,
+        env: given.env,
+      }
+    );
+    expected.env = expectedEnv;
+    given.env = givenEnv;
+
+    // Synthesize the array lengths
+    // QUESTION: Should we do that?
+  } else if (isSliceType(expected.type) && isSliceType(given.type)) {
+    // Synthesize the element types of the slices
+    const { expectedEnv, givenEnv } = synthesizeTypes(
+      {
+        type: expected.type.elementType,
+        env: expected.env,
+      },
+      {
+        type: given.type.elementType,
+        env: given.env,
+      }
+    );
+    expected.env = expectedEnv;
+    given.env = givenEnv;
+  } else {
     /*
       console.log(
         "Failed to synthesize: ",
