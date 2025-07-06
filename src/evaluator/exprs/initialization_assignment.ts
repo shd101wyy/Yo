@@ -272,12 +272,20 @@ ${exprToString(expr)}`,
     }
 
     // Check if it's assigning Free to Linear
-    if (
-      isTypeValue(rhsValue) &&
-      isFreeType(typeOfType(rhsValue.value)) &&
-      isLinearType(lhs.$.type)
-    ) {
-      rhsValue = setTypeValueAsLinear(rhsValue);
+    try {
+      if (
+        isTypeValue(rhsValue) &&
+        isFreeType(typeOfType(rhsValue.value)) &&
+        isLinearType(lhs.$.type)
+      ) {
+        rhsValue = setTypeValueAsLinear(rhsValue);
+      }
+    } catch (error) {
+      // Might be the failure to call typeOfType
+      throw formatErrorMessage({
+        token: rhs.token,
+        errorMessage: String(error),
+      });
     }
 
     // Prohibit assigning runtime value to comptime-only variable

@@ -225,12 +225,20 @@ export function evaluateAssignment({
     }
 
     // Check if it's assigning Free to Linear
-    if (
-      isTypeValue(rhsValue) &&
-      isFreeType(typeOfType(rhsValue.value)) &&
-      isLinearType(variable.type)
-    ) {
-      rhsValue = setTypeValueAsLinear(rhsValue);
+    try {
+      if (
+        isTypeValue(rhsValue) &&
+        isFreeType(typeOfType(rhsValue.value)) &&
+        isLinearType(variable.type)
+      ) {
+        rhsValue = setTypeValueAsLinear(rhsValue);
+      }
+    } catch (error) {
+      // Might be the failure to call typeOfType
+      throw formatErrorMessage({
+        token: rhs.token,
+        errorMessage: String(error),
+      });
     }
 
     let variableType = variable.type;

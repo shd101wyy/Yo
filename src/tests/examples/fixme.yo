@@ -3,28 +3,5 @@
  * Slice type
  *
  */
-open import "std";
 
-main :: (() -> unit) {
-  mut(arr) := [1, 2, 3, 4];
-  arr_length :: arr.length;
-  slice := *(arr(1:3));
-  slice_mut := *!(arr(1:3));
-
-  borrow 
-    &(arr(1:3)),
-    slice => {
-      slice_length := slice.length;
-
-      x := slice(0);
-    };
-
-  borrow
-    &!(arr(1:3)),
-    slice => {
-      slice_length := slice.length;
-
-      x := slice(0);
-      slice(0) = 13;
-    }
-};
+slice :: &(Slice(i32));

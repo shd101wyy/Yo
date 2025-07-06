@@ -102,7 +102,11 @@ Insert some indirection (e.g., a pointer '*' or reference '&') to break the cycl
  * Get the type of a type (meta-type).
  */
 export function typeOfType(
-  t: Type,
+  /**
+   * The type to get the type of.
+   * This can be any type, including primitive types, complex types, etc.
+   */
+  type: Type,
 
   /**
    * checkedType is used to prevent infinite recursion
@@ -115,79 +119,79 @@ export function typeOfType(
    */
   checkedTupleElements: TupleElement[] = []
 ): Type {
-  if (t.forceLinear) {
-    return createLinearType(t); // Force linear type
+  if (type.forceLinear) {
+    return createLinearType(type); // Force linear type
   }
 
-  if (isPrimitiveType(t)) {
-    return createFreeType(t); // Primitive types are free types
-  } else if (isTypeHierarchyType(t)) {
-    return createTypeHierarchy((t as TypeHierarchyType).level + 1);
+  if (isPrimitiveType(type)) {
+    return createFreeType(type); // Primitive types are free types
+  } else if (isTypeHierarchyType(type)) {
+    return createTypeHierarchy((type as TypeHierarchyType).level + 1);
   } else if (
-    isComptIntType(t) ||
-    isComptFloatType(t) ||
-    isComptStringType(t) ||
-    isExprListType(t)
+    isComptIntType(type) ||
+    isComptFloatType(type) ||
+    isComptStringType(type) ||
+    isExprListType(type)
   ) {
-    return createFreeType(t);
-  } else if (isExprType(t)) {
-    return createFreeType(t);
-  } else if (isFunctionType(t)) {
-    return createFreeType(t);
-  } else if (isArrayType(t)) {
+    return createFreeType(type);
+  } else if (isExprType(type)) {
+    return createFreeType(type);
+  } else if (isFunctionType(type)) {
+    return createFreeType(type);
+  } else if (isArrayType(type)) {
     // For arrays, check the element type
-    return typeOfType(t.elementType);
-  } else if (isTupleType(t)) {
+    return typeOfType(type.elementType);
+  } else if (isTupleType(type)) {
     // For tuples, check all element types
     return determineTypeUniverse(
-      t,
-      t.elements.filter((element) => !element.isCompileTimeOnly),
+      type,
+      type.elements.filter((element) => !element.isCompileTimeOnly),
       checkedTupleElements
     );
-  } else if (isStructType(t)) {
+  } else if (isStructType(type)) {
     return determineTypeUniverse(
-      t,
-      t.elements.filter((element) => !element.isCompileTimeOnly),
+      type,
+      type.elements.filter((element) => !element.isCompileTimeOnly),
       checkedTupleElements
     );
-  } else if (isEnumType(t)) {
+  } else if (isEnumType(type)) {
     // For enums, check all variant
     const elements: TupleElement[] = [];
-    for (const variant of t.variants) {
+    for (const variant of type.variants) {
       if (variant.elements) {
         elements.push(
           ...variant.elements.filter((element) => !element.isCompileTimeOnly)
         );
       }
     }
-    return determineTypeUniverse(t, elements, checkedTupleElements);
-  } else if (isUnionType(t)) {
+    return determineTypeUniverse(type, elements, checkedTupleElements);
+  } else if (isUnionType(type)) {
     // For unions, check all member types
     return determineTypeUniverse(
-      t,
-      t.elements.filter((element) => !element.isCompileTimeOnly),
+      type,
+      type.elements.filter((element) => !element.isCompileTimeOnly),
       checkedTupleElements
     );
-  } else if (isModuleType(t)) {
-    return createTypeHierarchy(1, t);
+  } else if (isModuleType(type)) {
+    return createTypeHierarchy(1, type);
     // Modules are treated as type hierarchies
     // It's the same level as Type(1)
     // Module type itself has the same level as Free/Linear/Type
-  } else if (isSomeType(t)) {
-    return t.parentType;
+  } else if (isSomeType(type)) {
+    return type.parentType;
   } else if (
-    isMutPtrType(t) ||
-    isPtrType(t) ||
-    isMutRefType(t) ||
-    isRefType(t)
+    isMutPtrType(type) ||
+    isPtrType(type) ||
+    isMutRefType(type) ||
+    isRefType(type)
   ) {
-    return createFreeType(t);
-  } else if (t.isDynamicSized) {
+    return createFreeType(type);
+  } else if (type.isDynamicSized) {
     throw new Error(
-      `Cannot determine the type of DST (Dynamic Sized Type) ${typeToString(t)}.`
+      `Cannot determine the type of DST (Dynamic Sized Type) ${typeToString(type)}.`
     );
   } else {
-    throw new Error(`Unknown type tag: ${t}`);
+    throw new Error(`Unknown type tag: ${type}`);
   }
 }
 
