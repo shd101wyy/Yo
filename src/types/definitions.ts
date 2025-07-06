@@ -51,6 +51,8 @@ export interface Type {
    *  - Slice
    *  - str
    *  - dyn Module (dynamic dispatch object)
+   *
+   *  DST also doesn't have type universe. So it cannot be Free/Linear/Type.
    */
   isDynamicSized?: boolean;
 
@@ -131,6 +133,12 @@ export interface ArrayType extends Type {
   tag: TypeTag.Array;
   elementType: Type;
   length: Value; // Compile-time known usize compatible value.
+}
+
+export interface SliceType extends Type {
+  tag: TypeTag.Slice;
+  isDynamicSized: true;
+  elementType: Type;
 }
 
 export type ElementExprs = {

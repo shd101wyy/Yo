@@ -17,6 +17,7 @@ import {
   MutRefType,
   PtrType,
   RefType,
+  SliceType,
   SomeType,
   StructType,
   TupleElement,
@@ -270,13 +271,21 @@ export function createCLongDoubleType(): Type {
   };
 }
 
-// Type constructor functions (need to be updated to include kind)
 export function createArrayType(elementType: Type, length: Value): ArrayType {
   return {
     id: `array_${elementType.id + "_" + hashString(valueToString(length))}`,
     tag: TypeTag.Array,
     elementType,
     length,
+  };
+}
+
+export function createSliceType(elementType: Type): SliceType {
+  return {
+    id: `slice_${elementType.id}`,
+    tag: TypeTag.Slice,
+    elementType,
+    isDynamicSized: true,
   };
 }
 

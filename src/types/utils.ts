@@ -517,6 +517,11 @@ export function typeToString(type: Type): string {
       )})`;
     }
 
+    case TypeTag.Slice: {
+      const sliceType = type as ArrayType;
+      return `Slice(${typeToString(sliceType.elementType)})`;
+    }
+
     case TypeTag.Tuple: {
       if ((type as TupleType).elements.length === 0) {
         return "()";

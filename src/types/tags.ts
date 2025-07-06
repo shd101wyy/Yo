@@ -59,6 +59,9 @@ export enum TypeTag {
   // Some Type
   SomeType = "SomeType",
 
+  // Slice (Fat Pointer)
+  Slice = "Slice",
+
   // Value
   // Literal = "Literal",
 

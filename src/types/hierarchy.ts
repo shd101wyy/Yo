@@ -35,6 +35,7 @@ import {
   isUnionType,
 } from "./guards";
 import { TypeTag } from "./tags";
+import { typeToString } from "./utils";
 
 /*
  * Helper function to determine the type universe of a list of types
@@ -102,6 +103,7 @@ Insert some indirection (e.g., a pointer '*' or reference '&') to break the cycl
  */
 export function typeOfType(
   t: Type,
+
   /**
    * checkedType is used to prevent infinite recursion
    * when the type is a recursive type.
@@ -180,6 +182,10 @@ export function typeOfType(
     isRefType(t)
   ) {
     return createFreeType(t);
+  } else if (t.isDynamicSized) {
+    throw new Error(
+      `Cannot determine the type of DST (Dynamic Sized Type) ${typeToString(t)}.`
+    );
   } else {
     throw new Error(`Unknown type tag: ${t}`);
   }

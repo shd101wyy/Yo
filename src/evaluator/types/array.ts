@@ -104,12 +104,12 @@ Got:\n${exprToString(expr)}`,
   }
 
   const arrayType = createArrayType(elementType, lengthValue);
-  const arrayValue = createTypeValue(arrayType);
+  const arrayTypeValue = createTypeValue(arrayType);
 
   expr.$ = {
     env: evaluatedLengthExpr.$.env,
-    type: arrayValue.type,
-    value: arrayValue,
+    type: arrayTypeValue.type,
+    value: arrayTypeValue,
     isMutable: false,
     pathCollection: [],
   };

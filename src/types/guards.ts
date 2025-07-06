@@ -7,6 +7,7 @@ import {
   MutRefType,
   PtrType,
   RefType,
+  SliceType,
   SomeType,
   StructType,
   TupleType,
@@ -127,6 +128,10 @@ export function isExprType(type?: Type): boolean {
 // Complex type guards
 export function isArrayType(type?: Type): type is ArrayType {
   return type?.tag === TypeTag.Array;
+}
+
+export function isSliceType(type?: Type): type is SliceType {
+  return type?.tag === TypeTag.Slice;
 }
 
 export function isTupleType(type?: Type): type is TupleType {

@@ -75,6 +75,7 @@ import { evaluateWhile } from "./exprs/while";
 import { evaluateArrayType } from "./types/array";
 import { evaluateEnumType } from "./types/enum";
 import { evaluateFunctionType } from "./types/function";
+import { evaluateSliceType } from "./types/slice";
 import { evaluateStructType } from "./types/struct";
 import { evaluateTupleType } from "./types/tuple";
 import { evaluateUnionType } from "./types/union";
@@ -334,6 +335,13 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Array)) {
         // Array type
         return evaluateArrayType({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Slice)) {
+        // Slice type
+        return evaluateSliceType({
           expr,
           env,
           context: { ...context },

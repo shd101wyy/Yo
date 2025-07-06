@@ -372,6 +372,7 @@ export const BuiltinKeywords = {
   Rc: ["$"], // Everthing comes with a cost.
   Tuple: ["Tuple"],
   Array: ["Array"],
+  Slice: ["Slice"],
   Free: ["Free"],
   Linear: ["Linear"],
   Type: ["Type"],

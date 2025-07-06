@@ -875,11 +875,6 @@ ${implicitVariables
   // Check the variadic parameters
   const variadicArgs: { value: Value | undefined; argType: Type }[] = [];
   if (functionType.variadicParameter) {
-    console.log(
-      "variadicParameter found: ",
-      functionType.variadicParameter.isQuote
-    );
-
     for (; regularArgIndex < argExprs.length; regularArgIndex++) {
       const argExpr = argExprs[regularArgIndex]!;
       let evaluatedArgExpr: Expr;
@@ -924,6 +919,8 @@ ${implicitVariables
         }
       }
     }
+
+    // TODO: Check borrowings
 
     if (functionType.variadicParameter.label === "...") {
       // Do nothing
