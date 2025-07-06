@@ -4,10 +4,16 @@ Option :: ((@(T): Type)-> @(Type))
     None
 ;
 
+use_nullable_ptr :: ((ptr : Option(*(i32))) -> i32)
+  match ptr,
+    .Some => ptr.value.*,
+    .None => 0
+;
+
 main :: (() -> i32) {
   x := 12;
   p := Option(*(i32)).Some(*(x));
-  p.value.*
+  use_nullable_ptr(p)
 };
 
 export

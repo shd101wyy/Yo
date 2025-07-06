@@ -15,6 +15,7 @@ import { FunctionValue, FuncValueId } from "../function-value";
 import {
   ArrayType,
   EnumType,
+  EnumVariant,
   FunctionType,
   isArrayType,
   isEnumType,
@@ -40,6 +41,7 @@ import {
 import { generateModuleId } from "../utils";
 import {
   isBooleanValue,
+  isEnumValue,
   isFunctionValue,
   isNumberValue,
   isStructValue,
@@ -487,6 +489,18 @@ export class CodeGeneratorC {
    * Generate an enum declaration (tagged union)
    */
   private generateEnumDeclaration(enumType: EnumType, cName: string): void {
+    // Check if this enum can be optimized as a nullable pointer
+    const nullablePointerType = this.canOptimizeAsNullablePointer(enumType);
+    if (nullablePointerType) {
+      // Generate a simple typedef for the pointer type
+      const pointerTypeStr = this.getTypeString(nullablePointerType);
+      this.emitter.emitDeclarationLine(
+        `typedef ${pointerTypeStr} ${cName}; // ${enumType.typeName} : ${typeToString(enumType)} (optimized as nullable pointer)`
+      );
+      this.emitter.emitDeclarationLine(""); // Add blank line for readability
+      return;
+    }
+
     // Generate tag enum for discriminant
     const tagEnumName = `${cName}_tag`;
     this.emitter.emitDeclarationLine(`typedef enum {`);
@@ -1518,7 +1532,31 @@ export class CodeGeneratorC {
           const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
           const cName = this.types[enumType.id]?.cName;
           if (enumType.selectedVariantName && runtimeArgExprs && cName) {
-            // Generate enum initialization
+            // Check if this enum can be optimized as a nullable pointer
+            const nullablePointerType =
+              this.canOptimizeAsNullablePointer(enumType);
+            if (nullablePointerType) {
+              const variantName = enumType.selectedVariantName;
+              const variant = enumType.variants.find(
+                (v) => v.name === variantName
+              );
+
+              if (variant) {
+                if (!variant.elements || variant.elements.length === 0) {
+                  // This is the "None" case - return NULL
+                  return "NULL";
+                } else if (variant.elements.length === 1) {
+                  // This is the "Some" case - return the pointer value directly
+                  const pointerValue = this.generateExpr(
+                    runtimeArgExprs[0]!,
+                    indent
+                  );
+                  return pointerValue;
+                }
+              }
+            }
+
+            // Generate enum initialization (fallback for non-optimized enums)
             const variantName = enumType.selectedVariantName;
             const variant = enumType.variants.find(
               (v) => v.name === variantName
@@ -1577,6 +1615,60 @@ export class CodeGeneratorC {
     } else if (isBooleanValue(value)) {
       // For booleans, return true/false
       return value.value ? "true" : "false";
+    } else if (isEnumValue(value)) {
+      // For enums, check if it's optimized as nullable pointer
+      const enumType = value.type;
+      const nullablePointerType = this.canOptimizeAsNullablePointer(enumType);
+
+      if (nullablePointerType) {
+        // Generate optimized nullable pointer construction
+        const variant = enumType.variants.find(
+          (v) => v.name === value.variantName
+        );
+        if (!variant) {
+          return `// Error: Variant ${value.variantName} not found in enum`;
+        }
+
+        if (!variant.elements || variant.elements.length === 0) {
+          // This is the null case (None variant)
+          return "NULL";
+        } else if (
+          variant.elements.length === 1 &&
+          value.elements.length === 1
+        ) {
+          // This is the pointer case (Some variant)
+          return this.generateComptValue(value.elements[0]!);
+        }
+      }
+
+      // Generate regular tagged union construction
+      const cName = this.types[enumType.id]?.cName;
+      if (!cName) {
+        return `// Error: No C type name found for enum ${typeToString(enumType)}`;
+      }
+
+      const variantTag = this.getEnumVariantCName(enumType, value.variantName);
+
+      if (!value.elements || value.elements.length === 0) {
+        // Variant with no data
+        return `(${cName}){ .tag = ${variantTag} }`;
+      } else {
+        // Variant with data
+        const variant = enumType.variants.find(
+          (v) => v.name === value.variantName
+        );
+        if (!variant || !variant.elements) {
+          return `// Error: Variant ${value.variantName} not found or has no elements`;
+        }
+
+        const fields = value.elements.map((element, index) => {
+          const fieldName = variant.elements![index]!.label || "field";
+          const fieldCode = this.generateComptValue(element);
+          return `.${fieldName} = ${fieldCode}`;
+        });
+
+        return `(${cName}){ .tag = ${variantTag}, .data = { .${value.variantName} = { ${fields.join(", ")} } } }`;
+      }
     } else if (isStructValue(value)) {
       // For structs, we need to generate a struct initialization
       const type = value.type;
@@ -1643,6 +1735,17 @@ export class CodeGeneratorC {
       // Check if the object is an enum type
       if (isEnumType(objectType)) {
         const enumType = objectType;
+
+        // Check if this enum is optimized as a nullable pointer
+        const nullablePointerType = this.canOptimizeAsNullablePointer(enumType);
+        if (nullablePointerType) {
+          // For optimized nullable pointer enums, direct field access should be simplified
+          // ptr.value becomes ptr (since ptr is already the pointer)
+          // NOTE: No need to check fieldName, as the nullablePointerType always only has one field
+          // if (fieldName === "value") {
+          return objectCode; // Return the pointer directly
+          // }
+        }
 
         // For enum field access, we need to determine which variant contains this field
         // and generate the appropriate path: object.data.VariantName.fieldName
@@ -1828,6 +1931,71 @@ export class CodeGeneratorC {
       return `// Error: "match" expression enum type ${enumType.typeName} has no C name`;
     }
 
+    // Check if this enum is optimized as a nullable pointer
+    const nullablePointerType = this.canOptimizeAsNullablePointer(enumType);
+    if (nullablePointerType) {
+      // Generate optimized nullable pointer matching using if/else instead of switch
+      const caseExprs = expr.args.slice(1);
+
+      // Find which variant is the null case and which is the pointer case
+      let nullCase: { caseBody: Expr } | null = null;
+      let pointerCase: { caseBody: Expr; variantName: string } | null = null;
+
+      for (const caseExpr of caseExprs) {
+        if (
+          exprIsFunctionCall(caseExpr) &&
+          exprIsFunctionCallOf(caseExpr, "=>", 2)
+        ) {
+          const caseValue = caseExpr.args[0];
+          const caseBody = caseExpr.args[1];
+
+          if (
+            caseValue &&
+            caseBody &&
+            exprIsFunctionCall(caseValue) &&
+            exprIsFunctionCallOf(caseValue, ".", 1)
+          ) {
+            const variantName = caseValue.args[0]!.token.value;
+
+            // Find the variant in the enum type
+            const variant = enumType.variants.find(
+              (v) => v.name === variantName
+            );
+            if (variant) {
+              if (!variant.elements || variant.elements.length === 0) {
+                // This is the null case
+                nullCase = { caseBody };
+              } else if (variant.elements.length === 1) {
+                // This is the pointer case
+                pointerCase = { caseBody, variantName };
+              }
+            }
+          }
+        }
+      }
+
+      // Generate the optimized if/else structure
+      this.emitter.emitLine(
+        `${indent}if (${ptrOrRefType ? "*" : ""}${matchedValueCode} != NULL) {`
+      );
+
+      if (pointerCase) {
+        const bodyCode = this.generateExpr(pointerCase.caseBody, indent + "  ");
+        this.emitter.emitLine(`${indent}  ${tempVariableName} = ${bodyCode};`);
+      }
+
+      this.emitter.emitLine(`${indent}} else {`);
+
+      if (nullCase) {
+        const bodyCode = this.generateExpr(nullCase.caseBody, indent + "  ");
+        this.emitter.emitLine(`${indent}  ${tempVariableName} = ${bodyCode};`);
+      }
+
+      this.emitter.emitLine(`${indent}}`);
+      return tempVariableName;
+    }
+
+    // Original tagged union matching
     this.emitter.emitLine(
       `${indent}switch (${ptrOrRefType ? "*" : ""}(${matchedValueCode}).tag) {`
     );
@@ -2051,6 +2219,58 @@ export class CodeGeneratorC {
     } else {
       return `/* Unhandled operator ${functionName} */`;
     }
+  }
+
+  /**
+   * Check if an enum can be optimized as a nullable pointer.
+   * Returns the pointer type if optimization is possible, null otherwise.
+   */
+  private canOptimizeAsNullablePointer(enumType: EnumType): Type | null {
+    // Must have exactly 2 variants
+    if (enumType.variants.length !== 2) {
+      return null;
+    }
+
+    let emptyVariant: EnumVariant | null = null;
+    let pointerVariant: EnumVariant | null = null;
+
+    // Check each variant
+    for (const variant of enumType.variants) {
+      if (!variant.elements || variant.elements.length === 0) {
+        // Variant with no elements (like None)
+        if (emptyVariant) {
+          return null; // More than one empty variant
+        }
+        emptyVariant = variant;
+      } else if (variant.elements.length === 1) {
+        // Variant with exactly one element
+        const elementType = variant.elements[0]!.type;
+
+        // Check if it's a pointer/reference type
+        if (
+          isPtrType(elementType) ||
+          isMutPtrType(elementType) ||
+          isRefType(elementType) ||
+          isMutRefType(elementType)
+        ) {
+          if (pointerVariant) {
+            return null; // More than one pointer variant
+          }
+          pointerVariant = variant;
+        } else {
+          return null; // Not a pointer/reference type
+        }
+      } else {
+        return null; // Variant has more than one element
+      }
+    }
+
+    // Must have exactly one empty variant and one pointer variant
+    if (emptyVariant && pointerVariant && pointerVariant.elements) {
+      return pointerVariant.elements[0]!.type;
+    }
+
+    return null;
   }
 
   public print(): string {
