@@ -890,17 +890,26 @@ export class CodeGeneratorC {
       const args = expr.args;
 
       // Generate all expressions except the last as statements
+      let findReturn = false;
       for (let i = 0; i < args.length - 1; i++) {
         const arg = args[i]!;
+
+        if (exprIsFunctionCallOf(arg, BuiltinKeywords.return)) {
+          findReturn = true;
+        }
         const argCode = this.generateExpr(arg, indent);
         if (argCode) {
           // Emit the expression as a statement
           this.emitter.emitLine(`${indent}${argCode};`);
         }
+
+        if (findReturn) {
+          break;
+        }
       }
 
       // Generate the last expression as a return statement
-      if (args.length > 0) {
+      if (!findReturn && args.length > 0) {
         const lastExpr = args[args.length - 1];
 
         if (lastExpr && functionType.return.type.tag === "unit") {
@@ -1247,7 +1256,7 @@ export class CodeGeneratorC {
       const tempVariableName = expr.$?.variableName;
       const valueType = expr.$?.type;
       if (tempVariableName && valueType) {
-        if (!isUnitType(valueType)) {
+        if (!isUnitType(valueType) && !expr.$?.termination) {
           this.emitter.emitLine(
             `${indent}${this.getTypeString(valueType)} ${tempVariableName};`
           );
@@ -1260,17 +1269,19 @@ export class CodeGeneratorC {
         );
         argsCode.forEach((argCode) => {
           if (argCode) {
-            this.emitter.emitLine(`${indent}  ${argCode}`);
+            this.emitter.emitLine(`${indent}  ${argCode};`);
           }
         });
-        if (!isUnitType(valueType)) {
+        if (!isUnitType(valueType) && !expr.$?.termination) {
           this.emitter.emitLine(
             `${indent}  ${tempVariableName} = ${argsCode[argsCode.length - 1]};`
           );
         }
         this.emitter.emitLine(`${indent}} // end begin block`);
 
-        return isUnitType(valueType) ? "" : tempVariableName;
+        return isUnitType(valueType) || expr.$?.termination
+          ? ""
+          : tempVariableName;
       }
     }
     // cond
@@ -1338,6 +1349,18 @@ export class CodeGeneratorC {
         return `${this.currentFunctionName}(${argsList})`;
       } else {
         return `// Error: No arguments for recur call ${exprToString(expr)}\n`;
+      }
+    }
+    // return
+    else if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
+      const arg = expr.args[0];
+      if (arg) {
+        const argCode = this.generateExpr(arg, indent);
+        // Generate return statement
+        return `return ${argCode}`;
+      } else {
+        // No argument, just return
+        return `return`;
       }
     }
     // sizeof
@@ -1873,7 +1896,11 @@ export class CodeGeneratorC {
       case ExprTag.FuncCall: {
         // Return the result of a function call
         const funcCallCode = this.generateFuncCall(expr, indent);
-        this.emitter.emitLine(`${indent}return ${funcCallCode};`);
+        if (!exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
+          this.emitter.emitLine(`${indent}return ${funcCallCode};`);
+        } else {
+          this.emitter.emitLine(funcCallCode); // If it's a return call, just emit it
+        }
         break;
       }
     }
