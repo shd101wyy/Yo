@@ -5,6 +5,7 @@ import {
   areTypesCompatible,
   ArrayType,
   createUsizeType,
+  SliceType,
   typeToString,
 } from "../../types";
 import { ArrayValue, createUnknownValue, isNumberValue } from "../../value";
@@ -26,7 +27,7 @@ export function tryToCallArrayWithArguments({
   context,
 }: {
   expr: FuncCallExpr;
-  arrayType: ArrayType;
+  arrayType: ArrayType | SliceType;
   arrayValue: ArrayValue | undefined;
   argExprs: Expr[];
   callerEnv: Environment;
@@ -75,6 +76,8 @@ export function tryToCallArrayWithArguments({
     });
   }
 
+  const elementType = arrayType.elementType;
+
   // It's compile time known value
   if (arrayValue) {
     if (isNumberValue(evaluatedArgExpr.$.value)) {
@@ -86,15 +89,15 @@ export function tryToCallArrayWithArguments({
         });
       }
       const value = arrayValue.elements[index]!;
-      return { value };
+      return { value, elementType };
     } else {
       // TODO: Check the index bound?
       const value = createUnknownValue(arrayType.elementType);
-      return { value };
+      return { value, elementType };
     }
   }
   // It's runtime known value
   else {
-    return { value: undefined };
+    return { value: undefined, elementType };
   }
 }

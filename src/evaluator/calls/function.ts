@@ -43,8 +43,14 @@ import {
   isFunctionSpecializable,
   isFunctionType,
   isModuleType,
+  isMutPtrType,
+  isMutRefType,
+  isPtrType,
+  isRefType,
+  isSliceType,
   isStructType,
   isUnionType,
+  SliceType,
   Type,
   typeOfType,
   typeToString,
@@ -1518,12 +1524,23 @@ export function evaluateFunctionCall({
           };
         }
       }
-      // array
-      else if (isArrayType(functionToCall.type)) {
+      // array or slice
+      else if (
+        // array
+        isArrayType(functionToCall.type) ||
+        // slice
+        ((isPtrType(functionToCall.type) ||
+          isMutPtrType(functionToCall.type) ||
+          isRefType(functionToCall.type) ||
+          isMutRefType(functionToCall.type)) &&
+          isSliceType(functionToCall.type.type))
+      ) {
         try {
           const result = tryToCallArrayWithArguments({
             expr,
-            arrayType: functionToCall.type,
+            arrayType: isArrayType(functionToCall.type)
+              ? functionToCall.type // array
+              : (functionToCall.type.type as SliceType), // slice
             arrayValue: functionToCall.value as ArrayValue | undefined,
             argExprs: args,
             callerEnv: env,
@@ -1931,13 +1948,19 @@ ${functionsWithMatchingTypes
       return expr;
     }
     // array
-    else if (isArrayType(functionToCall.type)) {
-      const arrayType = functionToCall.type;
-      const { value } = getArrayCallResult(functionToCall);
+    else if (
+      isArrayType(functionToCall.type) ||
+      ((isPtrType(functionToCall.type) ||
+        isMutPtrType(functionToCall.type) ||
+        isRefType(functionToCall.type) ||
+        isMutRefType(functionToCall.type)) &&
+        isSliceType(functionToCall.type.type))
+    ) {
+      const { value, elementType } = getArrayCallResult(functionToCall);
 
       expr.$ = {
         env,
-        type: arrayType.elementType,
+        type: elementType,
         value: value,
         /**
          * NOTE: Here func is the array value itself.
@@ -1948,7 +1971,10 @@ ${functionsWithMatchingTypes
          *     //      ^ calling here, it is mutable.
          *   }
          */
-        isMutable: Boolean(func.$?.isMutable),
+        isMutable:
+          Boolean(func.$?.isMutable) ||
+          isMutPtrType(functionToCall.type) ||
+          isMutRefType(functionToCall.type),
         pathCollection: func.$?.pathCollection ?? [],
         /**
          * NOTE: We need to set isAccessingProperty to true here

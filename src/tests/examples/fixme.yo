@@ -35,5 +35,16 @@ main :: (() -> unit) {
     &(__yo_slice_ref(arr_length, &(arr), 1.as(usize), 3.as(usize))), 
     slice => {
       slice_length := __yo_slice_length(slice);
+
+      x := slice(0);
+    };
+
+  borrow 
+    &!(__yo_slice_mut_ref(arr_length, &!(arr), 1.as(usize), 3.as(usize))), 
+    slice => {
+      slice_length := __yo_slice_length(slice);
+
+      x := slice(0);
+      slice(0) = 13;
     }
 };

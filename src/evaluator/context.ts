@@ -101,6 +101,7 @@ export interface ModuleTypeCallResult {
 
 export interface ArrayCallResult {
   value: Value | undefined;
+  elementType: Type;
 }
 
 export interface MacroFunctionCallResult {
