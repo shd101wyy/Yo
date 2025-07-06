@@ -600,6 +600,11 @@ export function typeToString(type: Type): string {
               .map(functionParameterToString)
               .join(", ")})`
           : "";
+      const variadicParam = func.variadicParameter
+        ? func.variadicParameter.label === "..."
+          ? "..."
+          : `...${func.variadicParameter.label}`
+        : "";
 
       let returnTypeString = typeToString(func.return.type);
       if (func.return.isUnquote) {
@@ -608,7 +613,7 @@ export function typeToString(type: Type): string {
         returnTypeString = `compt(${returnTypeString})`;
       }
 
-      const paramsString = [typeParams, params, implicitParams]
+      const paramsString = [typeParams, params, variadicParam, implicitParams]
         .filter((x) => !!x)
         .join(", ");
       const from = func.SelfType?.typeName ?? func.ModuleType?.typeName;

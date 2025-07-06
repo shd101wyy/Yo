@@ -50,6 +50,7 @@ import {
   evaluateYoTypeIsLinear,
   evaluateYoTypeToString,
 } from "./builtins/type_fns";
+import { evaluateVaStart } from "./builtins/va_start";
 import { evaluateFunctionCall } from "./calls/function";
 import { evaluateRawPointerCall } from "./calls/pointer";
 import { evaluateReferenceCall } from "./calls/reference";
@@ -623,6 +624,9 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
         // while
         return evaluateWhile({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.va_start)) {
+        // va_start
+        return evaluateVaStart({ expr, env, context: { ...context } });
       } else {
         /*
       else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {

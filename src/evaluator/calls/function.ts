@@ -405,7 +405,10 @@ Got:   ${typeToString(typeValue.type)}`,
     }
   }
 
-  if (argExprs.length > functionType.parameters.length) {
+  if (
+    !functionType.variadicParameter &&
+    argExprs.length > functionType.parameters.length
+  ) {
     // Check if the last function parameter is quote with ExprList
     // If not then we throw error
     const lastParameter = functionType.parameters.at(-1);
@@ -426,8 +429,13 @@ Got:   ${argExprs.length} arguments`,
   }
 
   // Check if the parameters match the arguments
-  for (let i = 0; i < functionType.parameters.length; i++) {
-    const parameter = functionType.parameters[i]!;
+  let regularArgIndex = 0;
+  for (
+    let regularArgIndex = 0;
+    regularArgIndex < functionType.parameters.length;
+    regularArgIndex++
+  ) {
+    const parameter = functionType.parameters[regularArgIndex]!;
     const {
       calleeEnv: nextCalleeEnv,
       callerEnv: nextCallerEnv,
@@ -439,7 +447,7 @@ Got:   ${argExprs.length} arguments`,
       functionValue,
       parameter,
       argExprs,
-      argIndex: i,
+      argIndex: regularArgIndex,
       callerEnv,
       calleeEnv,
       context,
@@ -861,6 +869,34 @@ ${implicitVariables
     }
   }
 
+  // Check the variadic parameters
+  const variadicArgs: { value: Value | undefined; argType: Type }[] = [];
+  if (functionType.variadicParameter) {
+    for (; regularArgIndex < argExprs.length; regularArgIndex++) {
+      const argExpr = argExprs[regularArgIndex]!;
+      // Evaluate the argument expression
+      const evaluatedArgExpr = context.evaluateExpression({
+        expr: argExpr,
+        env: callerEnv,
+        context: {
+          ...context,
+        },
+      });
+      if (!evaluatedArgExpr.$?.env) {
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Failed to evaluate the expression:\n${exprToString(argExpr)}`,
+        });
+      }
+      callerEnv = evaluatedArgExpr.$.env;
+      variadicArgs.push({
+        value: evaluatedArgExpr.$.value,
+        argType: evaluatedArgExpr.$.type,
+      });
+      runtimeArgExprsInOrder.push(argExpr);
+    }
+  }
+
   // Evaluate the function return type again
   const evaluatedFunctionReturnExpr = context.evaluateExpression({
     expr: cloneExpr(functionType.return.expr),
@@ -892,6 +928,7 @@ ${implicitVariables
     args: argValues,
     forallArgs: forallArgValues,
     implicitArgs: implicitArgValues,
+    variadicArgs,
   };
 
   // Check if we need to evaluate the compt function call

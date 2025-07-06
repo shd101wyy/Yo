@@ -65,6 +65,10 @@ export interface ArgValues {
     parameterType: Type;
     argType: Type;
   }[];
+  variadicArgs: {
+    value: Value | undefined;
+    argType: Type;
+  }[];
 }
 
 export interface FunctionCallResult {

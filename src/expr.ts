@@ -295,6 +295,23 @@ export function expectExprToBeFunctionCallOf(
   }
 }
 
+export function expectExprToHaveBeenEvaluated(
+  expr: Expr,
+  errorMessage?: string
+) {
+  if (expr.$ === undefined) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage:
+        errorMessage ??
+        `Expected expression to have been evaluated, but it has not been evaluated yet:\n${exprToString(
+          expr
+        )}`,
+    });
+  }
+  return expr.$;
+}
+
 export const BuiltinKeywords = {
   compt: ["compt", "@"],
   mut: ["mut", "!"],
@@ -374,6 +391,7 @@ export const BuiltinFunctions = {
   // compt_codegen_inline: ["compt_codegen_inline"],
 
   // va_XX related function for variadic arguments
+  // Only `va_start` needs to be handled here.
   va_start: ["va_start"],
 
   typeof: ["typeof"],
