@@ -501,6 +501,29 @@ export class CodeGeneratorC {
       return;
     }
 
+    // Check if this enum can be optimized as a simple C enum
+    const simpleEnumOptimizable = this.canOptimizeAsSimpleEnum(enumType);
+    if (simpleEnumOptimizable) {
+      // Generate a simple enum declaration
+      this.emitter.emitDeclarationLine(
+        `typedef enum { // ${enumType.typeName} : ${typeToString(enumType)} (optimized as simple enum)`
+      );
+
+      for (let i = 0; i < enumType.variants.length; i++) {
+        const variant = enumType.variants[i];
+        if (variant) {
+          // Use fully mangled names for enum tags to avoid global scope conflicts
+          const tagName = this.getEnumVariantCName(enumType, variant.name);
+          const comma = i < enumType.variants.length - 1 ? "," : "";
+          this.emitter.emitDeclarationLine(`  ${tagName} = ${i}${comma}`);
+        }
+      }
+
+      this.emitter.emitDeclarationLine(`} ${cName};`);
+      this.emitter.emitDeclarationLine(""); // Add blank line for readability
+      return;
+    }
+
     // Generate tag enum for discriminant
     const tagEnumName = `${cName}_tag`;
     this.emitter.emitDeclarationLine(`typedef enum {`);
@@ -1556,6 +1579,15 @@ export class CodeGeneratorC {
               }
             }
 
+            // Check if this enum can be optimized as a simple C enum
+            const simpleEnumOptimizable =
+              this.canOptimizeAsSimpleEnum(enumType);
+            if (simpleEnumOptimizable) {
+              const variantName = enumType.selectedVariantName;
+              // For simple enums, just return the enum constant
+              return this.getEnumVariantCName(enumType, variantName);
+            }
+
             // Generate enum initialization (fallback for non-optimized enums)
             const variantName = enumType.selectedVariantName;
             const variant = enumType.variants.find(
@@ -1639,6 +1671,13 @@ export class CodeGeneratorC {
           // This is the pointer case (Some variant)
           return this.generateComptValue(value.elements[0]!);
         }
+      }
+
+      // Check if this enum can be optimized as a simple C enum
+      const simpleEnumOptimizable = this.canOptimizeAsSimpleEnum(enumType);
+      if (simpleEnumOptimizable) {
+        // For simple enums, just return the enum constant
+        return this.getEnumVariantCName(enumType, value.variantName);
       }
 
       // Generate regular tagged union construction
@@ -1995,6 +2034,51 @@ export class CodeGeneratorC {
       return tempVariableName;
     }
 
+    // Check if this enum can be optimized as a simple C enum
+    const simpleEnumOptimizable = this.canOptimizeAsSimpleEnum(enumType);
+    if (simpleEnumOptimizable) {
+      // Generate optimized simple enum matching
+      this.emitter.emitLine(
+        `${indent}switch (${ptrOrRefType ? "*" : ""}${matchedValueCode}) {`
+      );
+
+      const caseExprs = expr.args.slice(1);
+      for (let i = 0; i < caseExprs.length; i++) {
+        const caseExpr = caseExprs[i];
+        if (
+          exprIsFunctionCall(caseExpr) &&
+          exprIsFunctionCallOf(caseExpr, "=>", 2)
+        ) {
+          // This is a case => value pair
+          const caseValue = caseExpr.args[0];
+          const caseBody = caseExpr.args[1];
+
+          if (
+            caseValue &&
+            caseBody &&
+            exprIsFunctionCall(caseValue) &&
+            exprIsFunctionCallOf(caseValue, ".", 1)
+          ) {
+            const variantName = caseValue.args[0]!.token.value;
+            const variantTag = this.getEnumVariantCName(enumType, variantName);
+
+            // Generate the case label
+            this.emitter.emitLine(`${indent}case ${variantTag}:`);
+
+            // Generate the body of the case
+            const bodyCode = this.generateExpr(caseBody, indent + "  ");
+            this.emitter.emitLine(
+              `${indent}  ${tempVariableName} = ${bodyCode};`
+            );
+            this.emitter.emitLine(`${indent}  break;`);
+          }
+        }
+      }
+
+      this.emitter.emitLine(`${indent}}`);
+      return tempVariableName;
+    }
+
     // Original tagged union matching
     this.emitter.emitLine(
       `${indent}switch (${ptrOrRefType ? "*" : ""}(${matchedValueCode}).tag) {`
@@ -2271,6 +2355,20 @@ export class CodeGeneratorC {
     }
 
     return null;
+  }
+
+  /**
+   * Check if an enum can be optimized as a simple C enum.
+   * Returns true if all variants have no data members.
+   */
+  private canOptimizeAsSimpleEnum(enumType: EnumType): boolean {
+    // All variants must have no elements
+    for (const variant of enumType.variants) {
+      if (variant.elements && variant.elements.length > 0) {
+        return false; // Has data members
+      }
+    }
+    return enumType.variants.length > 0; // Must have at least one variant
   }
 
   public print(): string {
