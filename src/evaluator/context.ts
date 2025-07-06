@@ -100,8 +100,25 @@ export interface ModuleTypeCallResult {
 }
 
 export interface ArrayCallResult {
+  /**
+   * The value accessing the array element.
+   */
   value: Value | undefined;
-  elementType: Type;
+
+  /**
+   * Type of the return value.
+   * It might be the elementType of the array or slice:
+   * - arr(3)
+   *
+   * Or it might be a slice type if the user calls a slice method:
+   * - arr(3:5)
+   */
+  type: Type;
+
+  /**
+   * The caller environment.
+   */
+  callerEnv: Environment;
 }
 
 export interface MacroFunctionCallResult {

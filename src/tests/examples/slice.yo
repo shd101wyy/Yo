@@ -2,6 +2,9 @@
  *
  * Slice type
  *
+ * - .length to get the length of an array or slice
+ * - (start:end) to create a slice
+ *
  */
 open import "std";
 
@@ -10,13 +13,15 @@ main :: (() -> unit) {
   arr_length :: arr.length;
   slice := *(arr(1:3));
   slice_mut := *!(arr(1:3));
+  full_slice := *(arr(:));
 
   borrow 
     &(arr(1:3)),
     slice => {
       slice_length := slice.length;
-
       x := slice(0);
+
+      slice_of_slice := *(slice(0:2));
     };
 
   borrow
@@ -26,5 +31,7 @@ main :: (() -> unit) {
 
       x := slice(0);
       slice(0) = 13;
+
+      slice_of_slice := *!(slice(0:2));
     }
 };

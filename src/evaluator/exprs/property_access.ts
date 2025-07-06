@@ -2,6 +2,7 @@ import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   exprIsAtom,
+  exprIsAtomOf,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
@@ -9,13 +10,16 @@ import {
 } from "../../expr";
 import { TokenType } from "../../token";
 import {
+  createUsizeType,
   EnumType,
+  isArrayType,
   isEnumType,
   isModuleType,
   isMutPtrType,
   isMutRefType,
   isPtrType,
   isRefType,
+  isSliceType,
   isStructType,
   isTupleType,
   isUnionType,
@@ -327,7 +331,7 @@ export function evaluatePropertyAccess({
     (isPtrType(objectType) ||
       isMutPtrType(objectType) ||
       isRefType(objectType) ||
-      isMutPtrType(objectType))
+      isMutRefType(objectType))
   ) {
     // Dereference the pointer or reference type
     objectType = objectType.type;
@@ -592,6 +596,41 @@ export function evaluatePropertyAccess({
         // It could be enum method call, so we ignore here.
       }
     }
+  }
+  // Getting the length of array
+  else if (
+    isArrayType(objectType) &&
+    exprIsAtom(propertyExpr) &&
+    exprIsAtomOf(propertyExpr, "length")
+  ) {
+    const lengthValue = objectType.length;
+    expr.$ = {
+      env,
+      type: lengthValue.type,
+      value: lengthValue,
+      isMutable: true,
+      pathCollection: [],
+      isAccessingProperty: true,
+    };
+    propertyExpr.$ = expr.$;
+    return expr;
+  }
+  // Getting the length of slice
+  else if (
+    isSliceType(objectType) &&
+    exprIsAtom(propertyExpr) &&
+    exprIsAtomOf(propertyExpr, "length")
+  ) {
+    expr.$ = {
+      env,
+      type: createUsizeType(),
+      value: undefined,
+      isMutable: true,
+      pathCollection: [],
+      isAccessingProperty: true,
+    };
+    propertyExpr.$ = expr.$;
+    return expr;
   }
 
   // TODO: Evaluate the module method call

@@ -1956,11 +1956,11 @@ ${functionsWithMatchingTypes
         isMutRefType(functionToCall.type)) &&
         isSliceType(functionToCall.type.type))
     ) {
-      const { value, elementType } = getArrayCallResult(functionToCall);
+      const { value, type, callerEnv } = getArrayCallResult(functionToCall);
 
       expr.$ = {
-        env,
-        type: elementType,
+        env: callerEnv,
+        type: type,
         value: value,
         /**
          * NOTE: Here func is the array value itself.
