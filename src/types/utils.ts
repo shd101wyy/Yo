@@ -5,7 +5,13 @@ import { stringIsOperator, Token } from "../token";
 import { TypeValue } from "../type-value";
 import { isNumberValue, valueToString } from "../value";
 import { ValueTag } from "../value-tag";
-import { createF64Type, createI32Type } from "./creators";
+import {
+  createF64Type,
+  createI32Type,
+  createRefType,
+  createSliceType,
+  createU8Type,
+} from "./creators";
 import {
   ArrayType,
   EnumType,
@@ -28,6 +34,7 @@ import {
   isArrayType,
   isBooleanType,
   isCCompatibleType,
+  isCharType,
   isComptFloatType,
   isComptIntType,
   isComptStringType,
@@ -207,7 +214,10 @@ export function getValueOfSomeTypeFromEnv(
 /**
  * Convert compt types to their runtime equivalents.
  */
-export function convertComptTypeToRuntimeType(type: Type): Type {
+export function convertComptTypeToRuntimeType(
+  type: Type,
+  expectedType?: Type
+): Type {
   if (isComptIntType(type)) {
     return createI32Type();
   } else if (isComptFloatType(type)) {
@@ -244,6 +254,21 @@ export function convertComptTypeToRuntimeType(type: Type): Type {
       return variant;
     });
     return type;
+  } else if (isComptStringType(type)) {
+    if (expectedType) {
+      // Check if it's
+      // - *(u8)
+      // - *(char)
+      if (
+        isPtrType(expectedType) && // *(u8) or *(char)
+        (isU8Type(expectedType.type) || isCharType(expectedType.type))
+      ) {
+        return expectedType;
+      }
+    }
+
+    // Convert the compt_string to &([u8]);
+    return createRefType(createSliceType(createU8Type()));
   } else {
     // No change
     return type;

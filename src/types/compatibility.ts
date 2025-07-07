@@ -10,6 +10,7 @@ import {
 import {
   isArrayType,
   isCCompatibleType,
+  isCharType,
   isComptFloatType,
   isComptIntType,
   isComptStringType,
@@ -28,6 +29,7 @@ import {
   isStructType,
   isTupleType,
   isTypeHierarchyType,
+  isU8Type,
   isUnionType,
 } from "./guards";
 import { getFunctionParameterToken } from "./hierarchy";
@@ -106,12 +108,18 @@ export function areTypesCompatible(
   }
 
   // compt_string can be converted to
-  // - compt_float
-  // TODO:
-  // - *(u8);  // C-style string pointer.
-  // - Array(u8, N); // Fixed-length array of u8.
-  // - &(str); // Rust-style string slice, fat pointer.
-  if (isComptStringType(expected.type) && isComptStringType(given.type)) {
+  // - &([u8])  u8 slice
+  // - *(u8)    u8 pointer with \0 terminator
+  // - *(char)  char pointer with \0 terminator
+  if (
+    (isComptStringType(expected.type) ||
+      (isRefType(expected.type) && // &([u8])
+        isSliceType(expected.type.type) &&
+        isU8Type(expected.type.type.elementType)) ||
+      (isPtrType(expected.type) && // *(u8) or *(char)
+        (isU8Type(expected.type.type) || isCharType(expected.type.type)))) &&
+    isComptStringType(given.type)
+  ) {
     return true;
   }
 
