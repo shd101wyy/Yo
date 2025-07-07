@@ -31,12 +31,6 @@ export interface EvaluatorContext {
   isEvaluatingWhileLoopBody?: Environment;
 
   /**
-   * Whether we are in a loop that supports break and continue statements.
-   * This is used to validate that break/continue are only used inside loops.
-   */
-  isInBreakableLoop?: boolean;
-
-  /**
    * Whether we are in a terminating branch (e.g., inside a return statement or break statement).
    * This is used to allow consumption of linear values defined outside while loops
    * when the consumption happens in a branch that will definitely exit.

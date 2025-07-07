@@ -6,6 +6,40 @@ some_condition :: (() -> boolean)
   true
 ;
 
+test_while_drop_with_break :: (() -> i32) {
+  (x : LinearI32) = 42;
+
+  while some_condition(), {
+    drop(x);
+    break;
+  };
+
+  return 0;
+};
+
+test_while_drop_with_return :: (() -> i32) {
+  (x : LinearI32) = 42;
+
+  while some_condition(), {
+    drop(x);
+    return 12;
+  };
+
+  return 0;
+};
+
+test_while_drop_with_continue :: (() -> i32) {
+  (x : LinearI32) = 42;
+
+  while some_condition(), {
+    compt_expect_error(drop(x), "Shouldn't allow to drop x multiple times");
+    continue;
+  };
+
+  return 0;
+};
+
+
 // Test 1: Break in while loop
 test_while_with_break :: ((flag: boolean) -> i32) {
   (x : LinearI32) = 42;
@@ -210,7 +244,7 @@ test_complex_nested :: ((flag: boolean, shape: Shape) -> i32) {
             break;
           },
           .Square => {
-            drop(y);
+            compt_expect_error(drop(y), "Shouldn't allow to drop y multiple times");
             continue;
           }
         );

@@ -400,10 +400,10 @@ export function evaluateCond({
         };
       } else if (finalControlFlow === "break") {
         // All cases break from loop
-        if (!context.isInBreakableLoop) {
+        if (!context.isEvaluatingWhileLoopBody) {
           throw formatErrorMessage({
             token: expr.token,
-            errorMessage: `All cases in cond are breaking from loop, but not inside a breakable loop.`,
+            errorMessage: `All cases in cond are breaking from loop, but not inside a loop.`,
           });
         }
         expr.$ = {
@@ -416,10 +416,10 @@ export function evaluateCond({
         };
       } else if (finalControlFlow === "continue") {
         // All cases continue loop
-        if (!context.isInBreakableLoop) {
+        if (!context.isEvaluatingWhileLoopBody) {
           throw formatErrorMessage({
             token: expr.token,
-            errorMessage: `All cases in cond are continuing loop, but not inside a breakable loop.`,
+            errorMessage: `All cases in cond are continuing loop, but not inside a loop.`,
           });
         }
         expr.$ = {

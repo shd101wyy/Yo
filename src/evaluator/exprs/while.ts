@@ -74,7 +74,7 @@ export function evaluateWhile({
       context: {
         ...context,
         isEvaluatingWhileLoopBody: env, // Indicate that we are evaluating a while loop
-        isInBreakableLoop: true, // Indicate that break and continue are allowed
+        isInTerminatingBranch: false, // While loop body is not a terminating branch
       },
     });
     if (!evaluatedBodyExpr.$) {

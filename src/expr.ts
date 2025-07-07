@@ -923,7 +923,7 @@ export function setExprAsConsumed(
       throw formatErrorMessages([
         {
           token: expr.token,
-          errorMessage: `Cannot consume a linear value defined outside the while loop.`,
+          errorMessage: `Cannot consume a linear value multiple times defined outside the while loop.`,
         },
         {
           token: variableToConsume.token,

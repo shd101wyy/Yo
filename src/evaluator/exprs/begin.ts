@@ -28,16 +28,18 @@ import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 
 /**
- * Check if an expression list contains a terminating expression (return).
+ * Check if an expression list contains a terminating expression (return/break).
  * Returns the index of the first terminating expression, or -1 if none found.
  */
 function findTerminatingExpressionIndex(expressions: Expr[]): number {
   for (let i = 0; i < expressions.length; i++) {
     const expr = expressions[i]!;
     if (
-      (exprIsAtom(expr) && exprIsAtomOf(expr, BuiltinKeywords.return)) ||
+      (exprIsAtom(expr) &&
+        (exprIsAtomOf(expr, BuiltinKeywords.return) || // return;
+          exprIsAtomOf(expr, BuiltinKeywords.break))) || // break;
       (exprIsFunctionCall(expr) &&
-        exprIsFunctionCallOf(expr, BuiltinKeywords.return))
+        exprIsFunctionCallOf(expr, BuiltinKeywords.return)) // return val;
     ) {
       return i;
     }
@@ -214,7 +216,7 @@ export function evaluateBeginExpression({
         });
       }
 
-      if (!context.isInBreakableLoop) {
+      if (!context.isEvaluatingWhileLoopBody) {
         throw formatErrorMessage({
           token: exprToEvaluate.token,
           errorMessage: `The "break" keyword can only be used inside a loop.`,
@@ -255,7 +257,7 @@ export function evaluateBeginExpression({
         });
       }
 
-      if (!context.isInBreakableLoop) {
+      if (!context.isEvaluatingWhileLoopBody) {
         throw formatErrorMessage({
           token: exprToEvaluate.token,
           errorMessage: `The "continue" keyword can only be used inside a loop.`,
