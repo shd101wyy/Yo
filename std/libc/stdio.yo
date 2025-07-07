@@ -1,0 +1,238 @@
+{ ?*, ?*! } :: import "../data/primitive/ptr.yo";
+
+// c_include "<stdio.h>",
+extern "c",
+  // Types
+  FILE : Free,
+  fpos_t : Free,
+  size_t : Free,
+  va_list : Free,
+
+  // Standard streams
+  stdin : *(FILE),
+  stdout : *(FILE),
+  stderr : *(FILE),
+
+  // File operations
+  fopen :
+    (filename : *(char), mode : *(char)) -> ?*(FILE),
+  freopen :
+    (filename : *(char), mode : *(char), stream : *(FILE)) -> ?*(FILE),
+  fclose :
+    (stream : *(FILE)) -> int,
+  fflush :
+    (stream : ?*(FILE)) -> int,
+  setbuf :
+    (stream : *(FILE), buffer : ?*!(char)) -> unit,
+  setvbuf :
+    (stream : *(FILE), buffer : ?*!(char), mode : int, size : size_t) -> int,
+
+  // File positioning
+  fseek :
+    (stream : *(FILE), offset : int, whence : int) -> int,
+  ftell :
+    (stream : *(FILE)) -> int,
+  rewind :
+    (stream : *(FILE)) -> unit,
+  fgetpos :
+    (stream : *(FILE), pos : *!(fpos_t)) -> int,
+  fsetpos :
+    (stream : *(FILE), pos : *(fpos_t)) -> int,
+
+  // Character input/output
+  fgetc :
+    (stream : *(FILE)) -> int,
+  getc :
+    (stream : *(FILE)) -> int,
+  getchar :
+    () -> int,
+  fputc :
+    (c : int, stream : *(FILE)) -> int,
+  putc :
+    (c : int, stream : *(FILE)) -> int,
+  putchar :
+    (c : int) -> int,
+  ungetc :
+    (c : int, stream : *(FILE)) -> int,
+
+  // String input/output
+  fgets :
+    (s : *!(char), n : int, stream : *(FILE)) -> ?*(char),
+  gets :
+    (s : *!(char)) -> ?*(char),
+  fputs :
+    (s : *(char), stream : *(FILE)) -> int,
+  puts :
+    (s : *(char)) -> int,
+
+  // Formatted input/output with variadic arguments
+  printf :
+    (format : *(char), ...) -> int,
+  fprintf :
+    (stream : *(FILE), format : *(char), ...) -> int,
+  sprintf :
+    (s : *!(char), format : *(char), ...) -> int,
+  snprintf :
+    (s : *!(char), n : size_t, format : *(char), ...) -> int,
+  
+  vprintf :
+    (format : *(char), ap : va_list) -> int,
+  vfprintf :
+    (stream : *(FILE), format : *(char), ap : va_list) -> int,
+  vsprintf :
+    (s : *!(char), format : *(char), ap : va_list) -> int,
+  vsnprintf :
+    (s : *!(char), n : size_t, format : *(char), ap : va_list) -> int,
+  
+  scanf :
+    (format : *(char), ...) -> int,
+  fscanf :
+    (stream : *(FILE), format : *(char), ...) -> int,
+  sscanf :
+    (s : *(char), format : *(char), ...) -> int,
+  
+  vscanf :
+    (format : *(char), ap : va_list) -> int,
+  vfscanf :
+    (stream : *(FILE), format : *(char), ap : va_list) -> int,
+  vsscanf :
+    (s : *(char), format : *(char), ap : va_list) -> int,
+
+  // Binary input/output
+  fread :
+    (ptr : *!(unit), size : size_t, nmemb : size_t, stream : *(FILE)) -> size_t,
+  fwrite :
+    (ptr : *(unit), size : size_t, nmemb : size_t, stream : *(FILE)) -> size_t,
+
+  // File management
+  remove :
+    (filename : *(char)) -> int,
+  rename :
+    (old : *(char), new : *(char)) -> int,
+  tmpfile :
+    () -> ?*(FILE),
+  tmpnam :
+    (s : ?*!(char)) -> ?*(char),
+
+  // Error handling
+  feof :
+    (stream : *(FILE)) -> int,
+  ferror :
+    (stream : *(FILE)) -> int,
+  clearerr :
+    (stream : *(FILE)) -> unit,
+  perror :
+    (s : *(char)) -> unit,
+
+  // Constants
+  EOF : int,
+  BUFSIZ : int,
+  FILENAME_MAX : int,
+  FOPEN_MAX : int,
+  TMP_MAX : int,
+  L_tmpnam : int,
+  SEEK_SET : int,
+  SEEK_CUR : int,
+  SEEK_END : int,
+  _IOFBF : int,
+  _IOLBF : int,
+  _IONBF : int,
+  
+  // Additional useful constants
+  STDIN_FILENO : int,
+  STDOUT_FILENO : int,
+  STDERR_FILENO : int
+;
+
+// Export all stdio functionality
+export 
+  // Types
+  FILE,
+  fpos_t,
+  size_t,
+  va_list,
+
+  // Standard streams
+  stdin,
+  stdout,
+  stderr,
+
+  // File operations
+  fopen,
+  freopen,
+  fclose,
+  fflush,
+  setbuf,
+  setvbuf,
+
+  // File positioning
+  fseek,
+  ftell,
+  rewind,
+  fgetpos,
+  fsetpos,
+
+  // Character input/output
+  fgetc,
+  getc,
+  getchar,
+  fputc,
+  putc,
+  putchar,
+  ungetc,
+
+  // String input/output
+  fgets,
+  gets,
+  fputs,
+  puts,
+
+  // Formatted input/output with variadic arguments
+  printf,
+  fprintf,
+  sprintf,
+  snprintf,
+  vprintf,
+  vfprintf,
+  vsprintf,
+  vsnprintf,
+  scanf,
+  fscanf,
+  sscanf,
+  vscanf,
+  vfscanf,
+  vsscanf,
+
+  // Binary input/output
+  fread,
+  fwrite,
+
+  // File management
+  remove,
+  rename,
+  tmpfile,
+  tmpnam,
+
+  // Error handling
+  feof,
+  ferror,
+  clearerr,
+  perror,
+
+  // Constants
+  EOF,
+  BUFSIZ,
+  FILENAME_MAX,
+  FOPEN_MAX,
+  TMP_MAX,
+  L_tmpnam,
+  SEEK_SET,
+  SEEK_CUR,
+  SEEK_END,
+  _IOFBF,
+  _IOLBF,
+  _IONBF,
+  STDIN_FILENO,
+  STDOUT_FILENO,
+  STDERR_FILENO
+;

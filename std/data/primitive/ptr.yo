@@ -1,3 +1,5 @@
+{ Option, ? } :: import "../option.yo";
+
 extern "Yo",
   __yo_ptr_cast :
     (forall(@(Source): Type), source : *(Source), @(Target) : Free) -> Target,
@@ -17,6 +19,17 @@ PtrMethods :: module {
   export cast;
 };
 
+// Nullable pointer
+?* :: ((@(T): Type) -> @(Type))
+  ?(*(T))
+;
+// Nullable mutable pointer
+?*! :: ((@(T): Type) -> @(Type))
+  ?(*!(T))
+;
+
 export
-  PtrMethods
+  PtrMethods,
+  ?*,
+  ?*!
 ;

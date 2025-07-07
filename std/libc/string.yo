@@ -1,0 +1,183 @@
+{ ?*, ?*! } :: import "../data/primitive/ptr.yo";
+
+// c_include "<string.h>",
+extern "c",
+
+  // Memory functions
+  memcpy :
+    (dest : *!(void), src : *(void), n : usize) -> *!(void),
+  memmove :
+    (dest : *!(void), src : *(void), n : usize) -> *!(void),
+  memset :
+    (s : *!(void), c : int, n : usize) -> *!(void),
+  memcmp :
+    (s1 : *(void), s2 : *(void), n : usize) -> int,
+  memchr :
+    (s : *(void), c : int, n : usize) -> ?*(void),
+
+  // String copying functions
+  strcpy :
+    (dest : *!(char), src : *(char)) -> *!(char),
+  strncpy :
+    (dest : *!(char), src : *(char), n : usize) -> *!(char),
+
+  // String concatenation functions
+  strcat :
+    (dest : *!(char), src : *(char)) -> *!(char),
+  strncat :
+    (dest : *!(char), src : *(char), n : usize) -> *!(char),
+
+  // String comparison functions
+  strcmp :
+    (s1 : *(char), s2 : *(char)) -> int,
+  strncmp :
+    (s1 : *(char), s2 : *(char), n : usize) -> int,
+  strcoll :
+    (s1 : *(char), s2 : *(char)) -> int,
+  strxfrm :
+    (dest : *!(char), src : *(char), n : usize) -> usize,
+
+  // String searching functions
+  strchr :
+    (s : *(char), c : int) -> ?*(char),
+  strrchr :
+    (s : *(char), c : int) -> ?*(char),
+  strspn :
+    (s : *(char), accept : *(char)) -> usize,
+  strcspn :
+    (s : *(char), reject : *(char)) -> usize,
+  strpbrk :
+    (s : *(char), accept : *(char)) -> ?*(char),
+  strstr :
+    (haystack : *(char), needle : *(char)) -> ?*(char),
+  strtok :
+    (str : ?*!(char), delim : *(char)) -> ?*(char),
+
+  // String utility functions
+  strlen :
+    (s : *(char)) -> usize,
+  strerror :
+    (errnum : int) -> *(char),
+
+  // C11 Annex K - Bounds-checking interfaces (optional)
+  // These are safer versions of string functions
+  strcpy_s :
+    (dest : *!(char), destsz : usize, src : *(char)) -> int,
+  strncpy_s :
+    (dest : *!(char), destsz : usize, src : *(char), count : usize) -> int,
+  strcat_s :
+    (dest : *!(char), destsz : usize, src : *(char)) -> int,
+  strncat_s :
+    (dest : *!(char), destsz : usize, src : *(char), count : usize) -> int,
+  
+  // C11 Annex K - Memory functions
+  memcpy_s :
+    (dest : *!(void), destsz : usize, src : *(void), count : usize) -> int,
+  memmove_s :
+    (dest : *!(void), destsz : usize, src : *(void), count : usize) -> int,
+  memset_s :
+    (s : *!(void), smax : usize, c : int, n : usize) -> int,
+
+  // C11 - Additional string functions
+  strnlen_s :
+    (s : *(char), maxlen : usize) -> usize,
+  strerror_s :
+    (s : *!(char), maxsize : usize, errnum : int) -> int,
+  strtok_s :
+    (str : ?*!(char), delim : *(char), ptr : *!(?*(char))) -> ?*(char),
+
+  // C11 - Duplicate string (POSIX, but commonly available)
+  strdup :
+    (s : *(char)) -> ?*(char),
+  strndup :
+    (s : *(char), n : usize) -> ?*(char),
+
+  // Case-insensitive comparison (POSIX, but commonly available)
+  strcasecmp :
+    (s1 : *(char), s2 : *(char)) -> int,
+  strncasecmp :
+    (s1 : *(char), s2 : *(char), n : usize) -> int,
+
+  // String to number conversion helpers (from stdlib but string-related)
+  strtoull :
+    (nptr : *(char), endptr : ?*!(?*(char)), base : int) -> ulonglong,
+  strtoll :
+    (nptr : *(char), endptr : ?*!(?*(char)), base : int) -> longlong,
+  strtoul :
+    (nptr : *(char), endptr : ?*!(?*(char)), base : int) -> ulong,
+  strtol :
+    (nptr : *(char), endptr : ?*!(?*(char)), base : int) -> long,
+  strtod :
+    (nptr : *(char), endptr : ?*!(?*(char))) -> f64,
+  strtof :
+    (nptr : *(char), endptr : ?*!(?*(char))) -> f32,
+  strtold :
+    (nptr : *(char), endptr : ?*!(?*(char))) -> longdouble
+;
+
+// Export all string functionality
+export 
+  // Types
+  usize,
+
+  // Memory functions
+  memcpy,
+  memmove,
+  memset,
+  memcmp,
+  memchr,
+
+  // String copying
+  strcpy,
+  strncpy,
+
+  // String concatenation
+  strcat,
+  strncat,
+
+  // String comparison
+  strcmp,
+  strncmp,
+  strcoll,
+  strxfrm,
+
+  // String searching
+  strchr,
+  strrchr,
+  strspn,
+  strcspn,
+  strpbrk,
+  strstr,
+  strtok,
+
+  // String utilities
+  strlen,
+  strerror,
+
+  // C11 Annex K - Safe functions
+  strcpy_s,
+  strncpy_s,
+  strcat_s,
+  strncat_s,
+  memcpy_s,
+  memmove_s,
+  memset_s,
+  strnlen_s,
+  strerror_s,
+  strtok_s,
+
+  // Additional useful functions
+  strdup,
+  strndup,
+  strcasecmp,
+  strncasecmp,
+
+  // String to number conversion
+  strtoull,
+  strtoll,
+  strtoul,
+  strtol,
+  strtod,
+  strtof,
+  strtold
+;
