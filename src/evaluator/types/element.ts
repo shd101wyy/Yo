@@ -21,7 +21,6 @@ import {
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
-import { randomId } from "../../utils";
 import {
   isFunctionValue,
   isModuleValue,
@@ -97,7 +96,7 @@ export function evaluateElementType({
       if (!isValidVariableName(labelExpr)) {
         throw formatErrorMessage({
           token: labelExpr.token,
-          errorMessage: `Expected identifier for tuple element label, got ${exprToString(
+          errorMessage: `Expected identifier for element label, got ${exprToString(
             labelExpr
           )}`,
         });
@@ -113,7 +112,7 @@ export function evaluateElementType({
   if (defaultValueExpr && assignedValueExpr) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Cannot have both default value and required value for tuple element.`,
+      errorMessage: `Cannot have both default value and required value for element.`,
     });
   }
 
@@ -146,10 +145,10 @@ export function evaluateElementType({
       labelExpr = labelExpr.args[0]!;
     }
 
-    if (!exprIsAtom(labelExpr) && !isValidVariableName(labelExpr)) {
+    if (!exprIsAtom(labelExpr) || !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for tuple element label, got ${exprToString(
+        errorMessage: `Expected identifier for element label, got ${exprToString(
           labelExpr
         )}`,
       });
@@ -179,10 +178,10 @@ export function evaluateElementType({
     }
 
     // Check if labelExpr is an atom
-    if (!exprIsAtom(labelExpr) && !isValidVariableName(labelExpr)) {
+    if (!exprIsAtom(labelExpr) || !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for tuple element label, got ${exprToString(
+        errorMessage: `Expected identifier for element label, got ${exprToString(
           labelExpr
         )}`,
       });
@@ -249,7 +248,7 @@ ${typeToString(expectedType)}`
     if (!isTypeValue(typeValue)) {
       throw formatErrorMessage({
         token: typeExpr.token,
-        errorMessage: `(1) Expected type for tuple element, got ${exprToString(typeExpr)}`,
+        errorMessage: `(1) Expected type for element, got ${exprToString(typeExpr)}`,
       });
     }
     elementType = typeValue.value;
@@ -436,7 +435,7 @@ Given type: ${typeToString(defaultValueType)}`,
   }
 
   const element: ElementType = {
-    label: label ?? `$element_${randomId()}`,
+    label: label ?? `${tupleElementIndex}`,
     type: elementType,
     exprs: {
       expr,

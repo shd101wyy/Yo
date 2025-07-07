@@ -131,6 +131,9 @@ export default class Parser {
     });
     const expr = returnValue.expr;
     index = returnValue.index;
+    /**
+     * Expression like (3), (x) that wraps a single expression
+     */
     if (tokens[index]!.type === TokenType.RParen) {
       return {
         expr,
@@ -138,6 +141,8 @@ export default class Parser {
       };
     } else {
       // Parse tuple
+      let separator: TokenType.Semicolon | TokenType.Comma | undefined =
+        undefined;
       const args = [expr];
       while (true) {
         if (!tokens[index]) {
@@ -147,8 +152,28 @@ export default class Parser {
           });
         }
         if (tokens[index]!.type === TokenType.Comma) {
+          if (!separator || separator === TokenType.Comma) {
+            separator = TokenType.Comma;
+          } else {
+            throw formatErrorMessage({
+              token: tokens[index]!,
+              errorMessage: 'Cannot mix "," with ";" as separator in (...)',
+            });
+          }
+
+          index = index + 1;
+        } else if (tokens[index]!.type === TokenType.Semicolon) {
+          if (!separator || separator === TokenType.Semicolon) {
+            separator = TokenType.Semicolon;
+          } else {
+            throw formatErrorMessage({
+              token: tokens[index]!,
+              errorMessage: 'Cannot mix ";" with "," as separator in (...)',
+            });
+          }
           index = index + 1;
         }
+
         if (tokens[index]!.type === TokenType.RParen) {
           break;
         }
@@ -162,6 +187,8 @@ export default class Parser {
         index = nextIndex;
       }
 
+      const isTupleType = separator === TokenType.Semicolon || !separator;
+
       return {
         expr: {
           tag: ExprTag.FuncCall,
@@ -169,7 +196,9 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinKeywords.tuple,
+              value: isTupleType
+                ? BuiltinKeywords.Tuple[0]!
+                : BuiltinKeywords.tuple,
               position: tokens[startIndex]!.position,
               modulePath: this.modulePath,
               inputString: this.inputString,
@@ -198,51 +227,86 @@ export default class Parser {
       });
     }
     index = index + 1;
-    {
-      // Parse array
-      const args: Expr[] = [];
-      while (true) {
-        if (!tokens[index]) {
+
+    // Parse array
+    let separator: TokenType.Semicolon | TokenType.Comma | undefined =
+      undefined;
+    const args: Expr[] = [];
+    while (true) {
+      if (!tokens[index]) {
+        throw formatErrorMessage({
+          token: tokens[index - 1]!,
+          errorMessage: "Expected ] or , for array",
+        });
+      }
+      if (tokens[index]!.type === TokenType.Comma) {
+        if (!separator || separator === TokenType.Comma) {
+          separator = TokenType.Comma;
+        } else {
           throw formatErrorMessage({
-            token: tokens[index - 1]!,
-            errorMessage: "Expected ] or , for array",
+            token: tokens[index]!,
+            errorMessage: 'Cannot mix "," with ";" as separator in [...]',
           });
         }
-        if (tokens[index]!.type === TokenType.Comma) {
-          index = index + 1;
+        index = index + 1;
+      } else if (tokens[index]!.type === TokenType.Semicolon) {
+        if (!separator || separator === TokenType.Semicolon) {
+          separator = TokenType.Semicolon;
+        } else {
+          throw formatErrorMessage({
+            token: tokens[index]!,
+            errorMessage: 'Cannot mix ";" with "," as separator in [...]',
+          });
         }
-        if (tokens[index]!.type === TokenType.RBracket) {
-          break;
-        }
-
-        // Parse the expression
-        const { expr: arg, index: nextIndex } = this.parseExpression({
-          tokens,
-          index,
-        });
-        args.push(arg);
-        index = nextIndex;
+        index = index + 1;
+      }
+      if (tokens[index]!.type === TokenType.RBracket) {
+        break;
       }
 
-      return {
-        expr: {
-          tag: ExprTag.FuncCall,
-          func: {
-            tag: ExprTag.Atom,
-            token: {
-              type: TokenType.Identifier,
-              value: BuiltinKeywords.array,
-              position: tokens[startIndex]!.position,
-              modulePath: this.modulePath,
-              inputString: this.inputString,
-            },
-          },
-          args,
-          token: tokens[startIndex]!,
-        },
-        index: index + 1,
-      };
+      // Parse the expression
+      const { expr: arg, index: nextIndex } = this.parseExpression({
+        tokens,
+        index,
+      });
+      args.push(arg);
+      index = nextIndex;
     }
+
+    // eg: [i32; 5] => Array
+    // eg: [i32] or [i32;] => Slice
+    const isArrayOrSliceType = separator === TokenType.Semicolon || !separator;
+    if (isArrayOrSliceType && args.length > 2) {
+      throw formatErrorMessage({
+        token: tokens[startIndex]!,
+        errorMessage: `Expected at 2 arguments for Array type, or 1 argument for Slice type, got ${args.length}`,
+      });
+    }
+    const isArrayType = isArrayOrSliceType && args.length === 2;
+    const isSliceType = isArrayOrSliceType && args.length === 1;
+
+    return {
+      expr: {
+        tag: ExprTag.FuncCall,
+        func: {
+          tag: ExprTag.Atom,
+          token: {
+            type: TokenType.Identifier,
+            value: isArrayType
+              ? BuiltinKeywords.Array[0]!
+              : isSliceType
+                ? BuiltinKeywords.Slice[0]!
+                : BuiltinKeywords.array,
+            position: tokens[startIndex]!.position,
+            modulePath: this.modulePath,
+            inputString: this.inputString,
+          },
+        },
+        args,
+        token: tokens[startIndex]!,
+      },
+      index: index + 1,
+    };
   }
 
   private parseCurlyBracketExpr({
@@ -476,7 +540,7 @@ export default class Parser {
       default: {
         throw formatErrorMessage({
           token: token,
-          errorMessage: `Unexpected token: ${token.type}`,
+          errorMessage: `Unexpected token "${token.type}"`,
         });
       }
     }

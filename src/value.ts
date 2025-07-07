@@ -179,7 +179,9 @@ export function valueToString(value?: Value): string {
       return value.value.toString();
     }
     case ValueTag.Array: {
-      return `[${value.elements.map(valueToString).join(", ")}]`;
+      return `[${value.elements.map(valueToString).join(", ")}${
+        value.elements.length === 1 ? "," : ""
+      }]`;
     }
     case ValueTag.Tuple: {
       if (value.elements.length === 0) {

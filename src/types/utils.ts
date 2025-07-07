@@ -512,14 +512,14 @@ export function typeToString(type: Type): string {
 
     // Complex types
     case TypeTag.Array: {
-      return `Array(${typeToString((type as ArrayType).elementType)}, ${valueToString(
+      return `[${typeToString((type as ArrayType).elementType)}; ${valueToString(
         (type as ArrayType).length
-      )})`;
+      )}]`;
     }
 
     case TypeTag.Slice: {
       const sliceType = type as ArrayType;
-      return `Slice(${typeToString(sliceType.elementType)})`;
+      return `[${typeToString(sliceType.elementType)}]`;
     }
 
     case TypeTag.Tuple: {

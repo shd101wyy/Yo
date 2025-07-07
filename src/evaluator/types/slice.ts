@@ -42,7 +42,9 @@ export function evaluateSliceType({
   if (!isTypeValue(evaluatedElementTypeExpr.$.value)) {
     throw formatErrorMessage({
       token: elementTypeExpr.token,
-      errorMessage: `Expected type for element type, got:\n${exprToString(elementTypeExpr)}`,
+      errorMessage: `Expected type for element type, got:\n${exprToString(elementTypeExpr)}
+
+If you are creating an array value with 1 element, please consider adding a "," in the end, like [1,]`,
     });
   }
   const elementType = evaluatedElementTypeExpr.$.value.value;
