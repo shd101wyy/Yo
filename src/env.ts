@@ -19,7 +19,9 @@ import { generateVarialeId, isTempVariableName } from "./utils";
 import {
   createUnknownValue,
   isModuleValue,
+  isTupleValue,
   isUnknownValue,
+  ModuleValue,
   Value,
   valueToString,
 } from "./value";
@@ -499,8 +501,8 @@ export function getMethodsByNameFromEnv(
     const method = moduleType.elements.find(
       (element) =>
         element.label === methodName &&
-        isFunctionType(element.type) &&
-        element.type.parameters.length > 0
+        (isFunctionType(element.type) || isModuleType(element.type))
+      // && element.type.parameters.length > 0
 
       /*
         // NOTE: No need to compare the types here.
@@ -514,18 +516,52 @@ export function getMethodsByNameFromEnv(
         )
         */
     );
+
     if (method) {
       let value: Value | undefined = undefined;
-      if (isUnknownValue(moduleValue)) {
-        value = createUnknownValue(method.type, method.label);
-      } else if (isModuleValue(moduleValue)) {
-        const index = moduleType.elements.findIndex(
-          (element) => element.label === method.label
-        );
-        value = moduleValue.elements[index];
-      }
+      if (isFunctionType(method.type)) {
+        if (isUnknownValue(moduleValue)) {
+          value = createUnknownValue(method.type, method.label);
+        } else if (isModuleValue(moduleValue)) {
+          const index = moduleType.elements.findIndex(
+            (element) => element.label === method.label
+          );
+          value = moduleValue.elements[index];
+        }
 
-      methods.push({ type: method.type, value });
+        methods.push({ type: method.type, value });
+      } else if (isModuleType(method.type)) {
+        // Find the module value
+        const moduleValue_ = method.assignedValue;
+        if (isModuleValue(moduleValue_)) {
+          checkModuleSelfCall(moduleValue_);
+        }
+      }
+    }
+  }
+
+  function checkModuleSelfCall(moduleValue: ModuleValue) {
+    const SelfTypeIndex = moduleValue.type.elements.findIndex(
+      (element) => element.label === "Self"
+    );
+    if (SelfTypeIndex >= 0) {
+      const SelfType = moduleValue.type.elements[SelfTypeIndex]!;
+      if (SelfType.assignedValue) {
+        const SelfValue = SelfType.assignedValue;
+        if (isTupleValue(SelfValue)) {
+          SelfValue.elements.forEach((element) => {
+            methods.push({
+              type: element.type,
+              value: element,
+            });
+          });
+        } else {
+          methods.push({
+            type: SelfValue.type,
+            value: SelfValue,
+          });
+        }
+      }
     }
   }
 
@@ -545,20 +581,25 @@ export function getMethodsByNameFromEnv(
     isEnumType(receiverType) ||
     isUnionType(receiverType)
   ) {
-    const typeMethods = receiverType.module.elements.filter(
+    const method = receiverType.module.elements.find(
       (element) =>
         element.label === methodName &&
-        isFunctionType(element.type) &&
-        element.type.parameters.length > 0
+        (isFunctionType(element.type) || isModuleType(element.type))
     );
-    for (let i = 0; i < typeMethods.length; i++) {
-      const method = typeMethods[i]!;
-      const functionValue = method.assignedValue;
-      if (!functionValue) {
-        continue;
-      }
-      if (!methods.some((m) => m.value === functionValue)) {
-        methods.push({ type: method.type, value: functionValue });
+    if (method) {
+      let value: Value | undefined = undefined;
+      if (isFunctionType(method.type)) {
+        value = method.assignedValue;
+        if (isUnknownValue(value)) {
+          value = createUnknownValue(method.type, method.label);
+        }
+        methods.push({ type: method.type, value });
+      } else if (isModuleType(method.type)) {
+        // Find the module value
+        const moduleValue = method.assignedValue;
+        if (isModuleValue(moduleValue)) {
+          checkModuleSelfCall(moduleValue);
+        }
       }
     }
   }
