@@ -5,16 +5,7 @@ import {
   Type,
   TypeTag,
   createBooleanType,
-  createCCharType,
-  createCIntType,
-  createCLongDoubleType,
-  createCLongLongType,
-  createCLongType,
-  createCShortType,
-  createCUIntType,
-  createCULongLongType,
-  createCULongType,
-  createCUShortType,
+  createCharType,
   createComptFloatType,
   createComptIntType,
   createComptStringType,
@@ -24,11 +15,20 @@ import {
   createI32Type,
   createI64Type,
   createI8Type,
+  createIntType,
   createIsizeType,
+  createLongDoubleType,
+  createLongLongType,
+  createLongType,
+  createShortType,
   createU16Type,
   createU32Type,
   createU64Type,
   createU8Type,
+  createUIntType,
+  createULongLongType,
+  createULongType,
+  createUShortType,
   createUsizeType,
   isCCompatibleType,
   isFloatType,
@@ -213,7 +213,7 @@ export function evaluateYoNumericFunctions({
 
   // Check if this is a numeric function by pattern matching
   const numericFnPattern =
-    /^__yo_(u8|i8|u16|i16|u32|i32|u64|i64|usize|isize|f32|f64|compt_int|compt_float|c_(?:char|short|ushort|int|uint|long|ulong|longlong|ulonglong|longdouble))_(add|sub|mul|div|mod|eq|neq|lt|lte|gt|gte|neg|to_string|as)$/;
+    /^__yo_(u8|i8|u16|i16|u32|i32|u64|i64|usize|isize|f32|f64|compt_int|compt_float|char|short|ushort|int|uint|long|ulong|longlong|ulonglong|longdouble)_(add|sub|mul|div|mod|eq|neq|lt|lte|gt|gte|neg|to_string|as)$/;
   const match = funcName.match(numericFnPattern);
 
   if (!match) {
@@ -228,53 +228,53 @@ export function evaluateYoNumericFunctions({
   // Get the appropriate type
   const getType = (): Type => {
     switch (typeStr) {
-      case "u8":
+      case TypeTag.U8:
         return createU8Type();
-      case "i8":
+      case TypeTag.I8:
         return createI8Type();
-      case "u16":
+      case TypeTag.U16:
         return createU16Type();
-      case "i16":
+      case TypeTag.I16:
         return createI16Type();
-      case "u32":
+      case TypeTag.U32:
         return createU32Type();
-      case "i32":
+      case TypeTag.I32:
         return createI32Type();
-      case "u64":
+      case TypeTag.U64:
         return createU64Type();
-      case "i64":
+      case TypeTag.I64:
         return createI64Type();
-      case "usize":
+      case TypeTag.Usize:
         return createUsizeType();
-      case "isize":
+      case TypeTag.Isize:
         return createIsizeType();
-      case "f32":
+      case TypeTag.F32:
         return createF32Type();
-      case "f64":
+      case TypeTag.F64:
         return createF64Type();
-      case "c_char":
-        return createCCharType();
-      case "c_short":
-        return createCShortType();
-      case "c_ushort":
-        return createCUShortType();
-      case "c_int":
-        return createCIntType();
-      case "c_uint":
-        return createCUIntType();
-      case "c_long":
-        return createCLongType();
-      case "c_ulong":
-        return createCULongType();
-      case "c_longlong":
-        return createCLongLongType();
-      case "c_ulonglong":
-        return createCULongLongType();
-      case "c_longdouble":
-        return createCLongDoubleType();
-      case "compt_int":
+      case TypeTag.Char:
+        return createCharType();
+      case TypeTag.Short:
+        return createShortType();
+      case TypeTag.UShort:
+        return createUShortType();
+      case TypeTag.Int:
+        return createIntType();
+      case TypeTag.UInt:
+        return createUIntType();
+      case TypeTag.Long:
+        return createLongType();
+      case TypeTag.ULong:
+        return createULongType();
+      case TypeTag.LongLong:
+        return createLongLongType();
+      case TypeTag.ULongLong:
+        return createULongLongType();
+      case TypeTag.LongDouble:
+        return createLongDoubleType();
+      case TypeTag.ComptInt:
         return createComptIntType();
-      case "compt_float":
+      case TypeTag.ComptFloat:
         return createComptFloatType();
       default:
         throw new Error(`Unknown numeric type: ${typeStr}`);

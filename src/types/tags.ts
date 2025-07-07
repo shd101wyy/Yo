@@ -5,7 +5,6 @@ export enum TypeTag {
   // Primitive types
   Unit = "unit",
   Boolean = "boolean",
-  /// Char = "char",
   Usize = "usize",
   Isize = "isize",
   U8 = "u8",
@@ -18,6 +17,7 @@ export enum TypeTag {
   I64 = "i64",
   F32 = "f32",
   F64 = "f64",
+  Rune = "rune", // 4 bytes, u32, // Unicode code point
 
   // Compt types
   ComptInt = "compt_int",
@@ -28,16 +28,16 @@ export enum TypeTag {
   // NOTE: C Compatible types cannot be used for compile-time known value.
   //       They can only used for runtime, as their size and representation
   //       may vary depending on the platform.
-  CChar = "c_char",
-  CShort = "c_short",
-  CUShort = "c_ushort",
-  CInt = "c_int",
-  CUInt = "c_uint",
-  CLong = "c_long",
-  CULong = "c_ulong",
-  CLongLong = "c_longlong",
-  CULongLong = "c_ulonglong",
-  CLongDouble = "c_longdouble",
+  Char = "char",
+  Short = "short",
+  UShort = "ushort",
+  Int = "int",
+  UInt = "uint",
+  Long = "long",
+  ULong = "ulong",
+  LongLong = "longlong",
+  ULongLong = "ulonglong",
+  LongDouble = "longdouble",
 
   // For opaque type
   Void = "void",

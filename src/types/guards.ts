@@ -37,16 +37,16 @@ export function isPrimitiveType(type: Type): boolean {
     type.tag === TypeTag.F32 ||
     type.tag === TypeTag.F64 ||
     // C compatible types
-    type.tag === TypeTag.CChar ||
-    type.tag === TypeTag.CShort ||
-    type.tag === TypeTag.CUShort ||
-    type.tag === TypeTag.CInt ||
-    type.tag === TypeTag.CUInt ||
-    type.tag === TypeTag.CLong ||
-    type.tag === TypeTag.CULong ||
-    type.tag === TypeTag.CLongLong ||
-    type.tag === TypeTag.CULongLong ||
-    type.tag === TypeTag.CLongDouble
+    type.tag === TypeTag.Char ||
+    type.tag === TypeTag.Short ||
+    type.tag === TypeTag.UShort ||
+    type.tag === TypeTag.Int ||
+    type.tag === TypeTag.UInt ||
+    type.tag === TypeTag.Long ||
+    type.tag === TypeTag.ULong ||
+    type.tag === TypeTag.LongLong ||
+    type.tag === TypeTag.ULongLong ||
+    type.tag === TypeTag.LongDouble
   );
 }
 
@@ -274,44 +274,44 @@ export function isUnsignedIntegerType(type?: Type): boolean {
 }
 
 // C Compatible types
-export function isCCharType(type?: Type): boolean {
-  return type?.tag === TypeTag.CChar;
+export function isCharType(type?: Type): boolean {
+  return type?.tag === TypeTag.Char;
 }
 
-export function isCShortType(type?: Type): boolean {
-  return type?.tag === TypeTag.CShort;
+export function isShortType(type?: Type): boolean {
+  return type?.tag === TypeTag.Short;
 }
 
-export function isCUShortType(type?: Type): boolean {
-  return type?.tag === TypeTag.CUShort;
+export function isUShortType(type?: Type): boolean {
+  return type?.tag === TypeTag.UShort;
 }
 
-export function isCIntType(type?: Type): boolean {
-  return type?.tag === TypeTag.CInt;
+export function isIntType(type?: Type): boolean {
+  return type?.tag === TypeTag.Int;
 }
 
-export function isCUIntType(type?: Type): boolean {
-  return type?.tag === TypeTag.CUInt;
+export function isUIntType(type?: Type): boolean {
+  return type?.tag === TypeTag.UInt;
 }
 
-export function isCLongType(type?: Type): boolean {
-  return type?.tag === TypeTag.CLong;
+export function isLongType(type?: Type): boolean {
+  return type?.tag === TypeTag.Long;
 }
 
-export function isCULongType(type?: Type): boolean {
-  return type?.tag === TypeTag.CULong;
+export function isULongType(type?: Type): boolean {
+  return type?.tag === TypeTag.ULong;
 }
 
-export function isCLongLongType(type?: Type): boolean {
-  return type?.tag === TypeTag.CLongLong;
+export function isLongLongType(type?: Type): boolean {
+  return type?.tag === TypeTag.LongLong;
 }
 
-export function isCULongLongType(type?: Type): boolean {
-  return type?.tag === TypeTag.CULongLong;
+export function isULongLongType(type?: Type): boolean {
+  return type?.tag === TypeTag.ULongLong;
 }
 
-export function isCLongDoubleType(type?: Type): boolean {
-  return type?.tag === TypeTag.CLongDouble;
+export function isLongDoubleType(type?: Type): boolean {
+  return type?.tag === TypeTag.LongDouble;
 }
 
 export function isVoidType(type?: Type): type is VoidType {
@@ -322,16 +322,16 @@ export function isVoidType(type?: Type): type is VoidType {
 export function isCCompatibleType(type?: Type): boolean {
   return (
     !!type &&
-    (type.tag === TypeTag.CChar ||
-      type.tag === TypeTag.CShort ||
-      type.tag === TypeTag.CUShort ||
-      type.tag === TypeTag.CInt ||
-      type.tag === TypeTag.CUInt ||
-      type.tag === TypeTag.CLong ||
-      type.tag === TypeTag.CULong ||
-      type.tag === TypeTag.CLongLong ||
-      type.tag === TypeTag.CULongLong ||
-      type.tag === TypeTag.CLongDouble)
+    (type.tag === TypeTag.Char ||
+      type.tag === TypeTag.Short ||
+      type.tag === TypeTag.UShort ||
+      type.tag === TypeTag.Int ||
+      type.tag === TypeTag.UInt ||
+      type.tag === TypeTag.Long ||
+      type.tag === TypeTag.ULong ||
+      type.tag === TypeTag.LongLong ||
+      type.tag === TypeTag.ULongLong ||
+      type.tag === TypeTag.LongDouble)
   );
 }
 

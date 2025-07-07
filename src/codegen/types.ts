@@ -44,34 +44,34 @@ export function getTypeInC(type: Type): string {
     case TypeTag.F64: {
       return "double";
     }
-    case TypeTag.CChar: {
+    case TypeTag.Char: {
       return "char";
     }
-    case TypeTag.CShort: {
+    case TypeTag.Short: {
       return "short";
     }
-    case TypeTag.CUShort: {
+    case TypeTag.UShort: {
       return "unsigned short";
     }
-    case TypeTag.CInt: {
+    case TypeTag.Int: {
       return "int";
     }
-    case TypeTag.CUInt: {
+    case TypeTag.UInt: {
       return "unsigned int";
     }
-    case TypeTag.CLong: {
+    case TypeTag.Long: {
       return "long";
     }
-    case TypeTag.CULong: {
+    case TypeTag.ULong: {
       return "unsigned long";
     }
-    case TypeTag.CLongLong: {
+    case TypeTag.LongLong: {
       return "long long";
     }
-    case TypeTag.CULongLong: {
+    case TypeTag.ULongLong: {
       return "unsigned long long";
     }
-    case TypeTag.CLongDouble: {
+    case TypeTag.LongDouble: {
       return "long double";
     }
   }

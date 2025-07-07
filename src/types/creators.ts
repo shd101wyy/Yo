@@ -202,73 +202,73 @@ export function createUnitType(): Type {
 }
 
 // C Compatible types
-export function createCCharType(): Type {
+export function createCharType(): Type {
   return {
-    id: TypeTag.CChar,
-    tag: TypeTag.CChar,
+    id: TypeTag.Char,
+    tag: TypeTag.Char,
   };
 }
 
-export function createCShortType(): Type {
+export function createShortType(): Type {
   return {
-    id: TypeTag.CShort,
-    tag: TypeTag.CShort,
+    id: TypeTag.Short,
+    tag: TypeTag.Short,
   };
 }
 
-export function createCUShortType(): Type {
+export function createUShortType(): Type {
   return {
-    id: TypeTag.CUShort,
-    tag: TypeTag.CUShort,
+    id: TypeTag.UShort,
+    tag: TypeTag.UShort,
   };
 }
 
-export function createCIntType(): Type {
+export function createIntType(): Type {
   return {
-    id: TypeTag.CInt,
-    tag: TypeTag.CInt,
+    id: TypeTag.Int,
+    tag: TypeTag.Int,
   };
 }
 
-export function createCUIntType(): Type {
+export function createUIntType(): Type {
   return {
-    id: TypeTag.CUInt,
-    tag: TypeTag.CUInt,
+    id: TypeTag.UInt,
+    tag: TypeTag.UInt,
   };
 }
 
-export function createCLongType(): Type {
+export function createLongType(): Type {
   return {
-    id: TypeTag.CLong,
-    tag: TypeTag.CLong,
+    id: TypeTag.Long,
+    tag: TypeTag.Long,
   };
 }
 
-export function createCULongType(): Type {
+export function createULongType(): Type {
   return {
-    id: TypeTag.CULong,
-    tag: TypeTag.CULong,
+    id: TypeTag.ULong,
+    tag: TypeTag.ULong,
   };
 }
 
-export function createCLongLongType(): Type {
+export function createLongLongType(): Type {
   return {
-    id: TypeTag.CLongLong,
-    tag: TypeTag.CLongLong,
+    id: TypeTag.LongLong,
+    tag: TypeTag.LongLong,
   };
 }
 
-export function createCULongLongType(): Type {
+export function createULongLongType(): Type {
   return {
-    id: TypeTag.CULongLong,
-    tag: TypeTag.CULongLong,
+    id: TypeTag.ULongLong,
+    tag: TypeTag.ULongLong,
   };
 }
 
-export function createCLongDoubleType(): Type {
+export function createLongDoubleType(): Type {
   return {
-    id: TypeTag.CLongDouble,
-    tag: TypeTag.CLongDouble,
+    id: TypeTag.LongDouble,
+    tag: TypeTag.LongDouble,
   };
 }
 

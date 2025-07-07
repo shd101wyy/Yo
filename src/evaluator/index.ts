@@ -500,7 +500,17 @@ ${exprToString(expr)}`,
           expr.func.token.value.startsWith("__yo_f64_") ||
           expr.func.token.value.startsWith("__yo_compt_int_") ||
           expr.func.token.value.startsWith("__yo_compt_float_") ||
-          expr.func.token.value.startsWith("__yo_c_")) // C compatible types
+          // C compatible types
+          expr.func.token.value.startsWith("__yo_char") ||
+          expr.func.token.value.startsWith("__yo_short_") ||
+          expr.func.token.value.startsWith("__yo_ushort_") ||
+          expr.func.token.value.startsWith("__yo_int_") ||
+          expr.func.token.value.startsWith("__yo_uint_") ||
+          expr.func.token.value.startsWith("__yo_long_") ||
+          expr.func.token.value.startsWith("__yo_ulong_") ||
+          expr.func.token.value.startsWith("__yo_longlong_") ||
+          expr.func.token.value.startsWith("__yo_ulonglong_") ||
+          expr.func.token.value.startsWith("__yo_longdouble_"))
       ) {
         return evaluateYoNumericFunctions({
           expr: expr as FuncCallExpr,

@@ -4,18 +4,10 @@ import { AtomExpr } from "../../expr";
 import { TokenType } from "../../token";
 import {
   createBooleanType,
-  createCCharType,
-  createCIntType,
-  createCLongDoubleType,
-  createCLongLongType,
-  createCLongType,
+  createCharType,
   createComptFloatType,
   createComptIntType,
   createComptStringType,
-  createCShortType,
-  createCUIntType,
-  createCULongLongType,
-  createCULongType,
   createExprListType,
   createExprType,
   createF32Type,
@@ -25,14 +17,22 @@ import {
   createI32Type,
   createI64Type,
   createI8Type,
+  createIntType,
   createIsizeType,
   createLinearType,
+  createLongDoubleType,
+  createLongLongType,
+  createLongType,
+  createShortType,
   createTypeHierarchy,
   createTypeType,
   createU16Type,
   createU32Type,
   createU64Type,
   createU8Type,
+  createUIntType,
+  createULongLongType,
+  createULongType,
   createUnitType,
   createUsizeType,
   createVoidType,
@@ -312,9 +312,9 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // c_char
-  else if (identifier === TypeTag.CChar) {
-    const value = createTypeValue(createCCharType());
+  // char
+  else if (identifier === TypeTag.Char) {
+    const value = createTypeValue(createCharType());
     expr.$ = {
       env,
       type: value.type,
@@ -324,9 +324,9 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // c_short
-  else if (identifier === TypeTag.CShort) {
-    const value = createTypeValue(createCShortType());
+  // short
+  else if (identifier === TypeTag.Short) {
+    const value = createTypeValue(createShortType());
     expr.$ = {
       env,
       type: value.type,
@@ -336,9 +336,9 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  //  c_ushort
-  else if (identifier === TypeTag.CUShort) {
-    const value = createTypeValue(createCShortType());
+  //  ushort
+  else if (identifier === TypeTag.UShort) {
+    const value = createTypeValue(createShortType());
     expr.$ = {
       env,
       type: value.type,
@@ -348,9 +348,9 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // c_int
-  else if (identifier === TypeTag.CInt) {
-    const value = createTypeValue(createCIntType());
+  // int
+  else if (identifier === TypeTag.Int) {
+    const value = createTypeValue(createIntType());
     expr.$ = {
       env,
       type: value.type,
@@ -360,9 +360,9 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // c_uint
-  else if (identifier === TypeTag.CUInt) {
-    const value = createTypeValue(createCUIntType());
+  // uint
+  else if (identifier === TypeTag.UInt) {
+    const value = createTypeValue(createUIntType());
     expr.$ = {
       env,
       type: value.type,
@@ -372,9 +372,9 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // c_long
-  else if (identifier === TypeTag.CLong) {
-    const value = createTypeValue(createCLongType());
+  // long
+  else if (identifier === TypeTag.Long) {
+    const value = createTypeValue(createLongType());
     expr.$ = {
       env,
       type: value.type,
@@ -384,9 +384,9 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // c_ulong
-  else if (identifier === TypeTag.CULong) {
-    const value = createTypeValue(createCULongType());
+  // ulong
+  else if (identifier === TypeTag.ULong) {
+    const value = createTypeValue(createULongType());
     expr.$ = {
       env,
       type: value.type,
@@ -396,9 +396,9 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // c_longlong
-  else if (identifier === TypeTag.CLongLong) {
-    const value = createTypeValue(createCLongLongType());
+  // longlong
+  else if (identifier === TypeTag.LongLong) {
+    const value = createTypeValue(createLongLongType());
     expr.$ = {
       env,
       type: value.type,
@@ -408,9 +408,9 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // c_ulonglong
-  else if (identifier === TypeTag.CULongLong) {
-    const value = createTypeValue(createCULongLongType());
+  // ulonglong
+  else if (identifier === TypeTag.ULongLong) {
+    const value = createTypeValue(createULongLongType());
     expr.$ = {
       env,
       type: value.type,
@@ -420,9 +420,9 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // c_longdouble
-  else if (identifier === TypeTag.CLongDouble) {
-    const value = createTypeValue(createCLongDoubleType());
+  // longdouble
+  else if (identifier === TypeTag.LongDouble) {
+    const value = createTypeValue(createLongDoubleType());
     expr.$ = {
       env,
       type: value.type,

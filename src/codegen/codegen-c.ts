@@ -97,16 +97,16 @@ const PrimitiveTypeTags = new Set([
   TypeTag.I64,
   TypeTag.F32,
   TypeTag.F64,
-  TypeTag.CChar,
-  TypeTag.CShort,
-  TypeTag.CUShort,
-  TypeTag.CInt,
-  TypeTag.CUInt,
-  TypeTag.CLong,
-  TypeTag.CULong,
-  TypeTag.CLongLong,
-  TypeTag.CULongLong,
-  TypeTag.CLongDouble,
+  TypeTag.Char,
+  TypeTag.Short,
+  TypeTag.UShort,
+  TypeTag.Int,
+  TypeTag.UInt,
+  TypeTag.Long,
+  TypeTag.ULong,
+  TypeTag.LongLong,
+  TypeTag.ULongLong,
+  TypeTag.LongDouble,
 ]);
 
 export class CodeGeneratorC {
@@ -635,25 +635,25 @@ export class CodeGeneratorC {
         return "double"; // For compt_float, we can use double
       // TODO: compt_string
 
-      case TypeTag.CChar:
+      case TypeTag.Char:
         return "char"; // C char type
-      case TypeTag.CShort:
+      case TypeTag.Short:
         return "short"; // C short type
-      case TypeTag.CUShort:
+      case TypeTag.UShort:
         return "unsigned short"; // C unsigned short type
-      case TypeTag.CInt:
+      case TypeTag.Int:
         return "int"; // C int type
-      case TypeTag.CUInt:
+      case TypeTag.UInt:
         return "unsigned int"; // C unsigned int type
-      case TypeTag.CLong:
+      case TypeTag.Long:
         return "long"; // C long type
-      case TypeTag.CULong:
+      case TypeTag.ULong:
         return "unsigned long"; // C unsigned long type
-      case TypeTag.CLongLong:
+      case TypeTag.LongLong:
         return "long long"; // C long long type
-      case TypeTag.CULongLong:
+      case TypeTag.ULongLong:
         return "unsigned long long"; // C unsigned long long type
-      case TypeTag.CLongDouble:
+      case TypeTag.LongDouble:
         return "long double"; // C long double type
       case TypeTag.Tuple:
       case TypeTag.Struct:
@@ -731,7 +731,7 @@ export class CodeGeneratorC {
 
   /**
    * Check if a function value only has body that calls the builtin
-   * __yo_c_op_xxx functions, which are just wrappers around C operators,etc.
+   * __yo_op_xxx functions, which are just wrappers around C operators,etc.
    * We can convert them to inline C operator calls directly
    */
   private isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(
