@@ -26,6 +26,7 @@ import {
   getFunctionParameterToken,
   isExprListType,
   isExprType,
+  prohibitDynamicSizedType,
   Type,
   typeOfType,
   typeProhibitsComptModifier,
@@ -348,6 +349,9 @@ ${typeToString(parameterType)}`,
   const value = isCompileTimeOnly
     ? createUnknownValue(parameterType, label)
     : undefined;
+
+  // Prohibit dynamic sized type
+  prohibitDynamicSizedType(parameterType, typeExpr?.token ?? expr.token);
 
   // Add the parameter to the env
   // console.log("(9) addVariableToEnv");
@@ -936,6 +940,9 @@ ${typeToString(returnType)}`,
       });
     }
   }
+
+  // Prohibit the return type to be dynamic sized type
+  prohibitDynamicSizedType(returnType, returnTypeExpr.token);
 
   if (isReturnTypeCompileTimeOnly && typeProhibitsComptModifier(returnType)) {
     throw formatErrorMessage({

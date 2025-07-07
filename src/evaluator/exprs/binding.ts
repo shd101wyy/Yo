@@ -10,6 +10,7 @@ import {
 } from "../../expr";
 import {
   isTypeHierarchyType,
+  prohibitDynamicSizedType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -62,6 +63,9 @@ ${exprToString(rhs)}`,
     });
   }
   const userDefinedType = typeValue.value;
+
+  // Prohibit the user defined type to be DST
+  prohibitDynamicSizedType(userDefinedType, evaluatedRhs.token);
 
   // Evaluate the lhs expression
   let isCompileTimeOnly = false;

@@ -16,6 +16,7 @@ import {
   convertComptTypeToRuntimeType,
   isFreeType,
   isLinearType,
+  prohibitDynamicSizedType,
   typeContainsReference,
   typeOfType,
   typeProhibitsComptModifier,
@@ -131,6 +132,11 @@ export function evaluateInitializationAssignment({
 
   if (rhs.$?.env) {
     env = rhs.$?.env;
+  }
+
+  if (rhs.$?.type) {
+    // Prohibit the rhs to be a DST
+    prohibitDynamicSizedType(rhs.$.type, rhs.token);
   }
 
   if (rhs.$?.termination) {
@@ -272,20 +278,12 @@ ${exprToString(expr)}`,
     }
 
     // Check if it's assigning Free to Linear
-    try {
-      if (
-        isTypeValue(rhsValue) &&
-        isFreeType(typeOfType(rhsValue.value)) &&
-        isLinearType(lhs.$.type)
-      ) {
+    if (isTypeValue(rhsValue)) {
+      prohibitDynamicSizedType(rhsValue.value, rhs.token);
+
+      if (isFreeType(typeOfType(rhsValue.value)) && isLinearType(lhs.$.type)) {
         rhsValue = setTypeValueAsLinear(rhsValue);
       }
-    } catch (error) {
-      // Might be the failure to call typeOfType
-      throw formatErrorMessage({
-        token: rhs.token,
-        errorMessage: String(error),
-      });
     }
 
     // Prohibit assigning runtime value to comptime-only variable
@@ -338,14 +336,6 @@ ${exprToString(rhs)}`,
     };
     return expr;
   } else {
-    // Evaluate the destructuring assignment
-    if (!rhs.$) {
-      throw formatErrorMessage({
-        token: rhs.token,
-        errorMessage: `Failed to evaluate the right-hand side expression:
-${exprToString(rhs)}`,
-      });
-    }
     const { env: nextEnv, runtimeDestructurings } =
       evaluateDestructuringAssignment({
         lhs,

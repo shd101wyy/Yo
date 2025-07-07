@@ -26,6 +26,7 @@ import {
   isFreeType,
   isLinearType,
   isTypeHierarchyType,
+  prohibitDynamicSizedType,
   typeContainsReference,
   typeOfType,
   typeToString,
@@ -225,20 +226,15 @@ export function evaluateAssignment({
     }
 
     // Check if it's assigning Free to Linear
-    try {
+    if (isTypeValue(rhsValue)) {
+      prohibitDynamicSizedType(rhsValue.value, rhs.token);
+
       if (
-        isTypeValue(rhsValue) &&
         isFreeType(typeOfType(rhsValue.value)) &&
         isLinearType(variable.type)
       ) {
         rhsValue = setTypeValueAsLinear(rhsValue);
       }
-    } catch (error) {
-      // Might be the failure to call typeOfType
-      throw formatErrorMessage({
-        token: rhs.token,
-        errorMessage: String(error),
-      });
     }
 
     let variableType = variable.type;

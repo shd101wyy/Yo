@@ -429,6 +429,17 @@ export function areTypesCompatible(
     );
   }
 
+  // void
+  if (
+    expected.type.tag === TypeTag.Void
+    // QUESTION: Do we need to check given.type if expected.type is already void?
+    // For example: *(void) and *(i32) are compatible or not?
+    //
+    // && given.type.tag === TypeTag.Void
+  ) {
+    return true;
+  }
+
   // Meet SomeType,
   // eg: x: T
   // here T should already be added to env by the if condition above ^^^

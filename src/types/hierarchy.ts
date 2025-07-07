@@ -123,6 +123,15 @@ export function typeOfType(
     return createLinearType(type); // Force linear type
   }
 
+  if (type.isDynamicSized) {
+    throw new Error(
+      `Cannot determine the type of DST (Dynamic Sized Type):
+${typeToString(type)}
+
+Please consider using a pointer or reference to this type instead.`
+    );
+  }
+
   if (isPrimitiveType(type)) {
     return createFreeType(type); // Primitive types are free types
   } else if (isTypeHierarchyType(type)) {
@@ -186,10 +195,6 @@ export function typeOfType(
     isRefType(type)
   ) {
     return createFreeType(type);
-  } else if (type.isDynamicSized) {
-    throw new Error(
-      `Cannot determine the type of DST (Dynamic Sized Type) ${typeToString(type)}.`
-    );
   } else {
     throw new Error(`Unknown type tag: ${type}`);
   }

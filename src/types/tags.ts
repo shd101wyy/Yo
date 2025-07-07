@@ -39,6 +39,9 @@ export enum TypeTag {
   CULongLong = "c_ulonglong",
   CLongDouble = "c_longdouble",
 
+  // For opaque type
+  Void = "void",
+
   // Add Undefined type
   // Undefined = "Undefined",
 

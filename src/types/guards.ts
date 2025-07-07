@@ -14,6 +14,7 @@ import {
   Type,
   TypeHierarchyType,
   UnionType,
+  VoidType,
 } from "./definitions";
 import { TypeTag } from "./tags";
 
@@ -311,6 +312,10 @@ export function isCULongLongType(type?: Type): boolean {
 
 export function isCLongDoubleType(type?: Type): boolean {
   return type?.tag === TypeTag.CLongDouble;
+}
+
+export function isVoidType(type?: Type): type is VoidType {
+  return type?.tag === TypeTag.Void;
 }
 
 // Helper function to check if a type is a C compatible type

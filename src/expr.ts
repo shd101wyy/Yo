@@ -404,6 +404,10 @@ export const BuiltinFunctions = {
   macro_expand: ["macro_expand"],
   as: ["as"],
 
+  // Pointer related functions
+  __yo_ptr_cast: ["__yo_ptr_cast"],
+  __yo_mut_ptr_cast: ["__yo_mut_ptr_cast"],
+
   // expr related functions
   // __yo_expr_is_expr: ["__yo_expr_is_expr"],
   __yo_expr_is_atom: ["__yo_expr_is_atom"],

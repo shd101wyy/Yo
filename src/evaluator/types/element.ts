@@ -15,6 +15,7 @@ import {
   isModuleType,
   isStructType,
   isTupleType,
+  prohibitDynamicSizedType,
   Type,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
@@ -433,6 +434,9 @@ Given type: ${typeToString(defaultValueType)}`,
       pathCollection: [],
     };
   }
+
+  // Prohibit dynamic sized type
+  prohibitDynamicSizedType(elementType, expr.token);
 
   const element: ElementType = {
     label: label ?? `${tupleElementIndex}`,

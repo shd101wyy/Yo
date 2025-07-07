@@ -1,6 +1,7 @@
 import { Environment, getVariablesFromEnv } from "../env";
+import { formatErrorMessages } from "../error";
 import { exprToString } from "../expr";
-import { stringIsOperator } from "../token";
+import { stringIsOperator, Token } from "../token";
 import { TypeValue } from "../type-value";
 import { isNumberValue, valueToString } from "../value";
 import { ValueTag } from "../value-tag";
@@ -839,4 +840,20 @@ export function getSizeOfType(type: Type): number | null {
   }
 
   return null;
+}
+
+export function prohibitDynamicSizedType(type: Type, token: Token): void {
+  if (type.isDynamicSized) {
+    throw formatErrorMessages([
+      {
+        token,
+        errorMessage: `Cannot use the DST (Dynamic Sized Type) directly:
+${typeToString(type)}
+
+Please consider using a pointer or reference to this type instead, like:
+&(${typeToString(type)}), *(${typeToString(type)}), etc
+`,
+      },
+    ]);
+  }
 }
