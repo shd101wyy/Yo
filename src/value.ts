@@ -121,6 +121,10 @@ export type ExprListValue = {
 export type UnknownValue = {
   tag: ValueTag.Unknown;
   type: Type;
+  /**
+   * The name of the variable holding this unknown value.
+   */
+  variableName?: string;
 };
 
 export type Value =
@@ -418,6 +422,7 @@ export function createUnknownValue(
   return {
     tag: ValueTag.Unknown,
     type,
+    variableName,
   };
 }
 

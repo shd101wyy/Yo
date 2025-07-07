@@ -32,7 +32,7 @@ import {
   typeOfType,
   typeToString,
 } from "../../types";
-import { createTypeValue, isTypeValue } from "../../value";
+import { createTypeValue, isTypeValue, isUnknownValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
 
@@ -471,7 +471,46 @@ export function synthesizeTypes(
     given.env = givenEnv;
 
     // Synthesize the array lengths
-    // QUESTION: Should we do that?
+    // TODO: Extract this to a separate function?
+    if (
+      isUnknownValue(expected.type.length) &&
+      expected.type.length.variableName &&
+      !isUnknownValue(given.type.length)
+    ) {
+      console.log("Enter here");
+      const expectedLengthVariableName = expected.type.length.variableName;
+      const givenLength = given.type.length;
+      // Check if the variable already exists in the env
+      const existingVariables = getVariablesFromEnv(
+        expected.env,
+        expectedLengthVariableName
+      );
+      const variable = existingVariables[existingVariables.length - 1];
+      if (!variable) {
+        // QUESTION: Will it enter this case?
+        const { env: nextEnv } = addVariableToEnv({
+          env: expected.env,
+          variable: {
+            name: expectedLengthVariableName,
+            value: givenLength,
+            type: given.type.length.type,
+            isMutable: false,
+            isCompileTimeOnly: true,
+            isImplicit: false,
+            token: PlaceholderToken, // FIXME: What should be `token` here?
+            initializedAtToken: PlaceholderToken, // Set as initialized
+            consumedAtToken: undefined, // Not consumed yet
+          },
+        });
+        expected.env = nextEnv;
+      } else if (variable) {
+        // Update existing
+        expected.env = updateExistingVariable(expected.env, variable, {
+          ...variable,
+          value: givenLength,
+        });
+      }
+    }
   } else if (isSliceType(expected.type) && isSliceType(given.type)) {
     // Synthesize the element types of the slices
     const { expectedEnv, givenEnv } = synthesizeTypes(
