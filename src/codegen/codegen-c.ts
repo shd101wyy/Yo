@@ -1293,7 +1293,7 @@ export class CodeGeneratorC {
       const tempVariableName = expr.$?.variableName;
       const valueType = expr.$?.type;
       if (tempVariableName && valueType) {
-        if (!isUnitType(valueType) && !expr.$?.termination) {
+        if (!isUnitType(valueType) && !expr.$?.controlFlow) {
           this.emitter.emitLine(
             `${indent}${this.getTypeString(valueType)} ${tempVariableName};`
           );
@@ -1309,14 +1309,14 @@ export class CodeGeneratorC {
             this.emitter.emitLine(`${indent}  ${argCode};`);
           }
         });
-        if (!isUnitType(valueType) && !expr.$?.termination) {
+        if (!isUnitType(valueType) && !expr.$?.controlFlow) {
           this.emitter.emitLine(
             `${indent}  ${tempVariableName} = ${argsCode[argsCode.length - 1]};`
           );
         }
         this.emitter.emitLine(`${indent}} // end begin block`);
 
-        return isUnitType(valueType) || expr.$?.termination
+        return isUnitType(valueType) || expr.$?.controlFlow
           ? ""
           : tempVariableName;
       }

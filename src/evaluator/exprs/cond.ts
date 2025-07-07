@@ -3,6 +3,7 @@ import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
+  ControlFlowKind,
   Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -18,6 +19,7 @@ import {
   Type,
   typeToString,
 } from "../../types";
+import { VUnit } from "../../unit-value";
 import {
   BooleanValue,
   createUnknownValue,
@@ -178,10 +180,12 @@ export function evaluateCond({
       env: caseEnv,
       context: {
         ...context,
+        // If the current branch might terminate (e.g., contains return), mark it
+        // We'll let the begin expression determine if it actually terminates
       },
     });
 
-    if (evaluatedCaseBodyExpr.$?.termination) {
+    if (evaluatedCaseBodyExpr.$?.controlFlow) {
       // No need to evaluate further if a return was encountered
       expr.$ = {
         env: evaluatedCaseBodyExpr.$.env,
@@ -189,7 +193,7 @@ export function evaluateCond({
         value: evaluatedCaseBodyExpr.$.value,
         isMutable: evaluatedCaseBodyExpr.$.isMutable,
         pathCollection: evaluatedCaseBodyExpr.$.pathCollection,
-        termination: evaluatedCaseBodyExpr.$.termination,
+        controlFlow: evaluatedCaseBodyExpr.$.controlFlow,
       };
       return expr;
     } else {
@@ -228,6 +232,7 @@ export function evaluateCond({
     }
   } else {
     let hasCaseThatIsNotTerminated = false;
+    const controlFlows: ControlFlowKind[] = []; // Track control flows from all cases
 
     // No compile-time true condition found, evaluate all bodies except compile-time false ones
     for (const {
@@ -254,8 +259,9 @@ export function evaluateCond({
         },
       });
 
-      if (evaluatedCaseBodyExpr.$?.termination) {
-        continue; // No need to evaluate further if a return was encountered
+      if (evaluatedCaseBodyExpr.$?.controlFlow) {
+        controlFlows.push(evaluatedCaseBodyExpr.$.controlFlow);
+        continue; // No need to evaluate further if a control flow was encountered
       } else {
         hasCaseThatIsNotTerminated = true;
       }
@@ -348,27 +354,83 @@ export function evaluateCond({
 
       return expr;
     } else {
-      // All cases are returning from function
-      if (!context.isEvaluatingFunctionBody) {
+      // All cases have control flow - determine which one to use
+      if (controlFlows.length === 0) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `All cases in cond are returning from function, but not evaluating in function body.`,
+          errorMessage: `No control flows found but expected some.`,
         });
       }
-      const functionReturnType =
-        context.isEvaluatingFunctionBody.type.return.type;
-      expr.$ = {
-        env,
-        type: functionReturnType,
-        value: isFunctionTypeAndReturnsComptValue(
-          context.isEvaluatingFunctionBody.type
-        )
-          ? createUnknownValue(functionReturnType)
-          : undefined,
-        isMutable: false,
-        pathCollection: [],
-        termination: "return", // TODO: Support "break" and "continue";
-      };
+
+      // For mixed control flows, we need to determine the most restrictive one
+      // Priority: return > break/continue (return exits function, break/continue exit loop)
+      let finalControlFlow: ControlFlowKind;
+
+      if (controlFlows.includes("return")) {
+        finalControlFlow = "return";
+      } else if (controlFlows.includes("break")) {
+        finalControlFlow = "break";
+      } else if (controlFlows.includes("continue")) {
+        finalControlFlow = "continue";
+      } else {
+        finalControlFlow = controlFlows[0] as ControlFlowKind;
+      }
+
+      if (finalControlFlow === "return") {
+        // All cases are returning from function
+        if (!context.isEvaluatingFunctionBody) {
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `All cases in cond are returning from function, but not evaluating in function body.`,
+          });
+        }
+        const functionReturnType =
+          context.isEvaluatingFunctionBody.type.return.type;
+        expr.$ = {
+          env,
+          type: functionReturnType,
+          value: isFunctionTypeAndReturnsComptValue(
+            context.isEvaluatingFunctionBody.type
+          )
+            ? createUnknownValue(functionReturnType)
+            : undefined,
+          isMutable: false,
+          pathCollection: [],
+          controlFlow: "return",
+        };
+      } else if (finalControlFlow === "break") {
+        // All cases break from loop
+        if (!context.isInBreakableLoop) {
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `All cases in cond are breaking from loop, but not inside a breakable loop.`,
+          });
+        }
+        expr.$ = {
+          env,
+          type: VUnit.type,
+          value: VUnit,
+          isMutable: false,
+          pathCollection: [],
+          controlFlow: "break",
+        };
+      } else if (finalControlFlow === "continue") {
+        // All cases continue loop
+        if (!context.isInBreakableLoop) {
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `All cases in cond are continuing loop, but not inside a breakable loop.`,
+          });
+        }
+        expr.$ = {
+          env,
+          type: VUnit.type,
+          value: VUnit,
+          isMutable: false,
+          pathCollection: [],
+          controlFlow: "continue",
+        };
+      }
 
       return expr;
     }

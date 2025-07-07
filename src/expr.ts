@@ -83,7 +83,7 @@ export interface RuntimeDestructuring {
   variableName: string;
 }
 
-export type TerminationKind = "return" | "break" | "continue";
+export type ControlFlowKind = "return" | "break" | "continue";
 
 export interface EvaluatedExprData {
   /**
@@ -147,7 +147,7 @@ export interface EvaluatedExprData {
    * 3. "continue" from a loop.
    * 4. normal expression.
    */
-  termination?: TerminationKind;
+  controlFlow?: ControlFlowKind;
 
   /**
    * This is for codegen for the "cond"/"match" expressions.
@@ -917,7 +917,8 @@ export function setExprAsConsumed(
     if (
       context.isEvaluatingWhileLoopBody &&
       variableToConsume.frameLevel <
-        context.isEvaluatingWhileLoopBody.frames.length
+        context.isEvaluatingWhileLoopBody.frames.length &&
+      !context.isInTerminatingBranch // Allow consumption if we're in a terminating branch
     ) {
       throw formatErrorMessages([
         {

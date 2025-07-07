@@ -74,6 +74,7 @@ export function evaluateWhile({
       context: {
         ...context,
         isEvaluatingWhileLoopBody: env, // Indicate that we are evaluating a while loop
+        isInBreakableLoop: true, // Indicate that break and continue are allowed
       },
     });
     if (!evaluatedBodyExpr.$) {
@@ -83,24 +84,45 @@ export function evaluateWhile({
       });
     }
 
-    // Check if it has terminated by "return"
+    // Check if it has control flow (return, break, continue)
     // NOTE: In reality, we might not even enter the while loop body.
-    if (evaluatedBodyExpr.$.termination) {
-      // Guaranteed that we meet "return"
-      // If the body has a return value, we should return it
-      if (isBooleanValue(conditionValue) && conditionValue.value === true) {
+    if (evaluatedBodyExpr.$.controlFlow) {
+      // Handle different control flow types
+      if (evaluatedBodyExpr.$.controlFlow === "return") {
+        // Guaranteed that we meet "return"
+        // If the body has a return value, we should return it
+        if (isBooleanValue(conditionValue) && conditionValue.value === true) {
+          expr.$ = {
+            env: evaluatedBodyExpr.$.env,
+            isMutable: evaluatedBodyExpr.$.isMutable,
+            pathCollection: evaluatedBodyExpr.$.pathCollection,
+            type: evaluatedBodyExpr.$.type,
+            value: evaluatedBodyExpr.$.value,
+            controlFlow: evaluatedBodyExpr.$.controlFlow,
+          };
+        } else {
+          // We might not even enter the while loop body
+          expr.$ = {
+            env: env,
+            isMutable: false,
+            pathCollection: [],
+            type: VUnit.type,
+            value: VUnit,
+          };
+        }
+      } else if (evaluatedBodyExpr.$.controlFlow === "break") {
+        // Break exits the loop, return unit
         expr.$ = {
           env: evaluatedBodyExpr.$.env,
-          isMutable: evaluatedBodyExpr.$.isMutable,
-          pathCollection: evaluatedBodyExpr.$.pathCollection,
-          type: evaluatedBodyExpr.$.type,
-          value: evaluatedBodyExpr.$.value,
-          termination: evaluatedBodyExpr.$.termination,
+          isMutable: false,
+          pathCollection: [],
+          type: VUnit.type,
+          value: VUnit,
         };
-      } else {
-        // We might not even enter the while loop body
+      } else if (evaluatedBodyExpr.$.controlFlow === "continue") {
+        // Continue goes to next iteration, treat as unit for this evaluation
         expr.$ = {
-          env: env,
+          env: evaluatedBodyExpr.$.env,
           isMutable: false,
           pathCollection: [],
           type: VUnit.type,

@@ -27,6 +27,34 @@ import {
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 
+/**
+ * Check if an expression list contains a terminating expression (return).
+ * Returns the index of the first terminating expression, or -1 if none found.
+ */
+function findTerminatingExpressionIndex(expressions: Expr[]): number {
+  for (let i = 0; i < expressions.length; i++) {
+    const expr = expressions[i]!;
+    if (
+      (exprIsAtom(expr) && exprIsAtomOf(expr, BuiltinKeywords.return)) ||
+      (exprIsFunctionCall(expr) &&
+        exprIsFunctionCallOf(expr, BuiltinKeywords.return))
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Checks if an expression represents a unit value (empty tuple)
+ */
+function isUnitValueExpression(expr: Expr): boolean {
+  return (
+    exprIsFunctionCall(expr) &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.tuple, 0)
+  );
+}
+
 export function evaluateBeginExpression({
   expr,
   env,
@@ -68,9 +96,20 @@ export function evaluateBeginExpression({
 
   let lastExpr = beginExpressions[beginExpressions.length - 1]!;
 
+  // Check if this block contains a terminating expression (return)
+  const terminatingIndex = findTerminatingExpressionIndex(beginExpressions);
+  const blockWillTerminate = terminatingIndex !== -1;
+
   // Evaluate expressions
   for (let i = 0; i < beginExpressions.length; i++) {
     const exprToEvaluate = beginExpressions[i]!;
+
+    // If this block will terminate, mark expressions before the terminating expression
+    // as being in a terminating branch. This allows consumption of linear values
+    // that would otherwise be prohibited in while loops.
+    const isInTerminatingBranch =
+      context.isInTerminatingBranch ||
+      (blockWillTerminate && i < terminatingIndex);
 
     // Check if it's the "return" keyword
     if (
@@ -87,12 +126,7 @@ export function evaluateBeginExpression({
         !(
           i === beginExpressions.length - 2 &&
           // the last expression is a unit value
-          exprIsFunctionCall(beginExpressions[beginExpressions.length - 1]!) &&
-          exprIsFunctionCallOf(
-            beginExpressions[beginExpressions.length - 1]!,
-            BuiltinKeywords.tuple,
-            0
-          )
+          isUnitValueExpression(beginExpressions[beginExpressions.length - 1]!)
         )
       ) {
         throw formatErrorMessage({
@@ -129,6 +163,7 @@ export function evaluateBeginExpression({
           env,
           context: {
             ...context,
+            isInTerminatingBranch: true, // Mark that we're in a terminating branch
             expectedType: {
               type: context.isEvaluatingFunctionBody.type,
               env: env,
@@ -151,17 +186,100 @@ export function evaluateBeginExpression({
           isMutable: false,
           pathCollection: evaluatedReturnExpr.$.pathCollection,
           variableName: evaluatedReturnExpr.$.variableName,
-          termination: "return",
+          controlFlow: "return",
         };
         lastExpr = exprToEvaluate;
         break;
       }
+    }
+    // Check if it's the "break" keyword
+    else if (
+      exprIsAtom(exprToEvaluate) &&
+      exprIsAtomOf(exprToEvaluate, BuiltinKeywords.break)
+    ) {
+      // Expect the exprToEvaluate to be the last expression or followed only by unit values
+      if (
+        // not the last expression.
+        i !== beginExpressions.length - 1 &&
+        // not the second last expression, and the last one is not unit value.
+        !(
+          i === beginExpressions.length - 2 &&
+          // the last expression is a unit value
+          isUnitValueExpression(beginExpressions[beginExpressions.length - 1]!)
+        )
+      ) {
+        throw formatErrorMessage({
+          token: exprToEvaluate.token,
+          errorMessage: `The "break" keyword can only be used as the last expression.`,
+        });
+      }
+
+      if (!context.isInBreakableLoop) {
+        throw formatErrorMessage({
+          token: exprToEvaluate.token,
+          errorMessage: `The "break" keyword can only be used inside a loop.`,
+        });
+      }
+
+      // break returns unit
+      exprToEvaluate.$ = {
+        env,
+        type: VUnit.type,
+        value: VUnit,
+        isMutable: false,
+        pathCollection: [],
+        controlFlow: "break",
+      };
+      lastExpr = exprToEvaluate;
+      break;
+    }
+    // Check if it's the "continue" keyword
+    else if (
+      exprIsAtom(exprToEvaluate) &&
+      exprIsAtomOf(exprToEvaluate, BuiltinKeywords.continue)
+    ) {
+      // Expect the exprToEvaluate to be the last expression or followed only by unit values
+      if (
+        // not the last expression.
+        i !== beginExpressions.length - 1 &&
+        // not the second last expression, and the last one is not unit value.
+        !(
+          i === beginExpressions.length - 2 &&
+          // the last expression is a unit value
+          isUnitValueExpression(beginExpressions[beginExpressions.length - 1]!)
+        )
+      ) {
+        throw formatErrorMessage({
+          token: exprToEvaluate.token,
+          errorMessage: `The "continue" keyword can only be used as the last expression.`,
+        });
+      }
+
+      if (!context.isInBreakableLoop) {
+        throw formatErrorMessage({
+          token: exprToEvaluate.token,
+          errorMessage: `The "continue" keyword can only be used inside a loop.`,
+        });
+      }
+
+      // continue returns unit
+      exprToEvaluate.$ = {
+        env,
+        type: VUnit.type,
+        value: VUnit,
+        isMutable: false,
+        pathCollection: [],
+        controlFlow: "continue",
+      };
+      lastExpr = exprToEvaluate;
+      break;
     } else {
       const evaluatedExpr = context.evaluateExpression({
         expr: exprToEvaluate,
         env,
         context: {
           ...context,
+          isInTerminatingBranch, // Use the computed isInTerminatingBranch value
           expectedType:
             i === beginExpressions.length - 1 ? expectedType : undefined,
         },
@@ -170,7 +288,7 @@ export function evaluateBeginExpression({
         env = evaluatedExpr.$?.env;
       }
 
-      if (evaluatedExpr.$?.termination) {
+      if (evaluatedExpr.$?.controlFlow) {
         isReturningFromFunction = true;
         lastExpr = evaluatedExpr;
         break;
@@ -293,7 +411,7 @@ export function evaluateBeginExpression({
       });
     }
     expr.$.env = env;
-    expr.$.termination = isReturningFromFunction ? "return" : undefined;
+    expr.$.controlFlow = isReturningFromFunction ? "return" : undefined;
   } else {
     expr.$ = {
       env,
@@ -301,7 +419,7 @@ export function evaluateBeginExpression({
       value: lastExpr.$.value,
       isMutable: false,
       pathCollection: [],
-      termination: isReturningFromFunction ? "return" : undefined,
+      controlFlow: isReturningFromFunction ? "return" : undefined,
     };
     attachTempVariableToExpr(expr);
   }

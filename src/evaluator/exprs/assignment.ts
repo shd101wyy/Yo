@@ -8,6 +8,7 @@ import { formatErrorMessage, formatErrorMessages } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
+  ControlFlowKind,
   Expr,
   exprIsAtom,
   exprIsFunctionCall,
@@ -16,7 +17,6 @@ import {
   FuncCallExpr,
   requireExprNotConsumed,
   setExprAsConsumed,
-  TerminationKind,
 } from "../../expr";
 import { setTypeValueAsLinear } from "../../type-value";
 import {
@@ -40,24 +40,24 @@ import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
 
 export function throwRhsContainsTerminatedExpressionError(
   rhs: Expr,
-  termination: TerminationKind
+  controlFlow: ControlFlowKind
 ) {
-  let errorMessage = `Right-hand side contains "${termination}" from function.`;
+  let errorMessage = `Right-hand side contains "${controlFlow}" from function.`;
   if (
     exprIsFunctionCall(rhs) &&
     exprIsFunctionCallOf(rhs, BuiltinKeywords.cond)
   ) {
-    errorMessage = `Cannot assign "cond" expression to variable when all cases contain "${termination}" statements. Consider using the "cond" result directly without assignment, or ensure at least one case doesn't return.`;
+    errorMessage = `Cannot assign "cond" expression to variable when all cases contain "${controlFlow}" statements. Consider using the "cond" result directly without assignment, or ensure at least one case doesn't return.`;
   } else if (
     exprIsFunctionCall(rhs) &&
     exprIsFunctionCallOf(rhs, BuiltinKeywords.match)
   ) {
-    errorMessage = `Cannot assign "match" expression to variable when all cases contain "${termination}" statements. Consider using the "match" result directly without assignment, or ensure at least one case doesn't return.`;
+    errorMessage = `Cannot assign "match" expression to variable when all cases contain "${controlFlow}" statements. Consider using the "match" result directly without assignment, or ensure at least one case doesn't return.`;
   } else if (
     exprIsFunctionCall(rhs) &&
     exprIsFunctionCallOf(rhs, BuiltinKeywords.begin)
   ) {
-    errorMessage = `Cannot assign "begin" expression to variable when it contains "${termination}" statement.`;
+    errorMessage = `Cannot assign "begin" expression to variable when it contains "${controlFlow}" statement.`;
   }
 
   throw formatErrorMessage({
@@ -161,8 +161,8 @@ export function evaluateAssignment({
       env = rhs.$?.env;
     }
 
-    if (rhs.$?.termination) {
-      throwRhsContainsTerminatedExpressionError(rhs, rhs.$.termination);
+    if (rhs.$?.controlFlow) {
+      throwRhsContainsTerminatedExpressionError(rhs, rhs.$.controlFlow);
     }
 
     // Set rhs as consumed
