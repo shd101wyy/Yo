@@ -1,22 +1,20 @@
-// string
-extern "c",
-  printf : 
-    (format: *(char), ...) -> int
+(@(LinearI32) : Linear) = i32;
+
+some_condition :: (() -> boolean) 
+  true
 ;
 
-main :: (() -> int) {
-  // compt_string
-  s1 :: "Yo lang!";
-  
-  // &([u8])
-  s2 := s1;
-  (s3 : (&([u8]))) = s1; // QUESTION: Should we allow to assign to local variable?
-
-  // *(u8) or *(char)
-  (s4 : *(u8)) = s1;
-  (s5 : *(char)) = s1;
-
-  printf("Hello, world!\n");
-  printf("Hello, %s", s5);
-  0
+test_while :: ((flag: boolean) -> i32) {
+  (x : LinearI32) = 42;
+  while flag, {
+    cond
+      some_condition() => {
+        drop(x);
+        return 16;
+      },
+      true => {
+        break;
+      }
+  };
+  return 12;
 };

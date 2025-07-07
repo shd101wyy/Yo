@@ -10,6 +10,8 @@ import {
   BuiltinKeywords,
   expectExprToBeFunctionCallOf,
   Expr,
+  exprIsAtom,
+  exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
@@ -72,8 +74,10 @@ export function evaluateBeginExpression({
 
     // Check if it's the "return" keyword
     if (
-      exprIsFunctionCall(exprToEvaluate) &&
-      exprIsFunctionCallOf(exprToEvaluate, BuiltinKeywords.return)
+      (exprIsAtom(exprToEvaluate) &&
+        exprIsAtomOf(exprToEvaluate, BuiltinKeywords.return)) ||
+      (exprIsFunctionCall(exprToEvaluate) &&
+        exprIsFunctionCallOf(exprToEvaluate, BuiltinKeywords.return))
     ) {
       // Expect the exprToEvaluate to be the last expression
       if (
@@ -96,7 +100,9 @@ export function evaluateBeginExpression({
           errorMessage: `The "return" keyword can only be used as the last expression.`,
         });
       }
-      expectExprToBeFunctionCallOf(exprToEvaluate, BuiltinKeywords.return, 1);
+      if (exprIsFunctionCall(exprToEvaluate)) {
+        expectExprToBeFunctionCallOf(exprToEvaluate, BuiltinKeywords.return, 1);
+      }
 
       if (!context.isEvaluatingFunctionBody) {
         throw formatErrorMessage({
@@ -105,7 +111,7 @@ export function evaluateBeginExpression({
         });
       }
 
-      if (exprToEvaluate.args.length === 0) {
+      if (exprIsAtom(exprToEvaluate)) {
         // return unit
         exprToEvaluate.$ = {
           env,
