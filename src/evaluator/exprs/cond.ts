@@ -231,7 +231,7 @@ export function evaluateCond({
       return expr;
     }
   } else {
-    let hasCaseThatIsNotTerminated = false;
+    let hasCaseThatDoesntHaveControlFlowSet = false;
     const controlFlows: ControlFlowKind[] = []; // Track control flows from all cases
 
     // No compile-time true condition found, evaluate all bodies except compile-time false ones
@@ -263,7 +263,7 @@ export function evaluateCond({
         controlFlows.push(evaluatedCaseBodyExpr.$.controlFlow);
         continue; // No need to evaluate further if a control flow was encountered
       } else {
-        hasCaseThatIsNotTerminated = true;
+        hasCaseThatDoesntHaveControlFlowSet = true;
       }
 
       if (!evaluatedCaseBodyExpr.$?.type) {
@@ -321,13 +321,39 @@ export function evaluateCond({
       }
     }
 
-    // Meets some cases that don't use "return" keyword.
-    if (hasCaseThatIsNotTerminated) {
-      if (!valueType) {
+    // Check the control flows, if they are mixed, we say there is no control flow
+    let finalControlFlow: ControlFlowKind | undefined = undefined;
+    if (controlFlows.every((cf) => cf === "return")) {
+      finalControlFlow = "return";
+    } else if (controlFlows.every((cf) => cf === "break")) {
+      finalControlFlow = "break";
+    } else if (controlFlows.every((cf) => cf === "continue")) {
+      finalControlFlow = "continue";
+    } else {
+      if (context.isEvaluatingLoopBody) {
+        if (controlFlows.find((cf) => cf === "continue")) {
+          finalControlFlow = "continue"; // At least one case continues the loop
+        } else if (controlFlows.find((cf) => cf === "break")) {
+          finalControlFlow = "break"; // At least one case breaks the loop
+        } else if (controlFlows.find((cf) => cf === "return")) {
+          finalControlFlow = "return"; // At least one case returns from function
+        }
+      } else {
+        finalControlFlow = undefined; // Mixed control flows
+      }
+    }
+
+    if (
+      hasCaseThatDoesntHaveControlFlowSet || // some case has no control flow
+      !finalControlFlow // mixed control flows
+    ) {
+      if (hasCaseThatDoesntHaveControlFlowSet && !valueType) {
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `Failed to determine the type of value from the cond.`,
         });
+      } else if (!valueType) {
+        valueType = { type: VUnit.type, env: env };
       }
 
       // Merge and check all environments
@@ -362,20 +388,6 @@ export function evaluateCond({
         });
       }
 
-      // For mixed control flows, we need to determine the most restrictive one
-      // Priority: return > break/continue (return exits function, break/continue exit loop)
-      let finalControlFlow: ControlFlowKind;
-
-      if (controlFlows.includes("return")) {
-        finalControlFlow = "return";
-      } else if (controlFlows.includes("break")) {
-        finalControlFlow = "break";
-      } else if (controlFlows.includes("continue")) {
-        finalControlFlow = "continue";
-      } else {
-        finalControlFlow = controlFlows[0] as ControlFlowKind;
-      }
-
       if (finalControlFlow === "return") {
         // All cases are returning from function
         if (!context.isEvaluatingFunctionBody) {
@@ -400,7 +412,7 @@ export function evaluateCond({
         };
       } else if (finalControlFlow === "break") {
         // All cases break from loop
-        if (!context.isEvaluatingWhileLoopBody) {
+        if (!context.isEvaluatingLoopBody) {
           throw formatErrorMessage({
             token: expr.token,
             errorMessage: `All cases in cond are breaking from loop, but not inside a loop.`,
@@ -416,7 +428,7 @@ export function evaluateCond({
         };
       } else if (finalControlFlow === "continue") {
         // All cases continue loop
-        if (!context.isEvaluatingWhileLoopBody) {
+        if (!context.isEvaluatingLoopBody) {
           throw formatErrorMessage({
             token: expr.token,
             errorMessage: `All cases in cond are continuing loop, but not inside a loop.`,
@@ -430,6 +442,8 @@ export function evaluateCond({
           pathCollection: [],
           controlFlow: "continue",
         };
+      } else {
+        // This should never reach
       }
 
       return expr;

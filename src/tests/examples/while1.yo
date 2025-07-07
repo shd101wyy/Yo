@@ -23,14 +23,13 @@ sum :: ((max : i32) -> i32) {
 
   (linear_i32_2 : LinearI32) = 12;
 
+  compt_expect_error(
   while i `lt` max, {
     result = (result `add` i);
     i = (i `add` 1);
-    compt_expect_error(
-      drop(linear_i32_2),
-      "Cannot drop a linear value defined outside the while loop"
-    );
-  };
+    drop(linear_i32_2);
+  }, "Should allow to drop linear_i32_2 only once"
+  );
 
   return result;
 };

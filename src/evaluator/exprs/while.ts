@@ -73,8 +73,7 @@ export function evaluateWhile({
       env,
       context: {
         ...context,
-        isEvaluatingWhileLoopBody: env, // Indicate that we are evaluating a while loop
-        isInTerminatingBranch: false, // While loop body is not a terminating branch
+        isEvaluatingLoopBody: env, // Indicate that we are evaluating a while loop
       },
     });
     if (!evaluatedBodyExpr.$) {

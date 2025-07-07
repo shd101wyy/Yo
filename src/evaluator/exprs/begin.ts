@@ -4,10 +4,11 @@ import {
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
-import { formatErrorMessage } from "../../error";
+import { formatErrorMessage, formatErrorMessages } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
+  ControlFlowKind,
   expectExprToBeFunctionCallOf,
   Expr,
   exprIsAtom,
@@ -19,33 +20,15 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
+  isLinearOrType0Type,
   isMutRefType,
   isRefType,
   typeContainsReference,
+  typeOfType,
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
-
-/**
- * Check if an expression list contains a terminating expression (return/break).
- * Returns the index of the first terminating expression, or -1 if none found.
- */
-function findTerminatingExpressionIndex(expressions: Expr[]): number {
-  for (let i = 0; i < expressions.length; i++) {
-    const expr = expressions[i]!;
-    if (
-      (exprIsAtom(expr) &&
-        (exprIsAtomOf(expr, BuiltinKeywords.return) || // return;
-          exprIsAtomOf(expr, BuiltinKeywords.break))) || // break;
-      (exprIsFunctionCall(expr) &&
-        exprIsFunctionCallOf(expr, BuiltinKeywords.return)) // return val;
-    ) {
-      return i;
-    }
-  }
-  return -1;
-}
 
 /**
  * Checks if an expression represents a unit value (empty tuple)
@@ -78,7 +61,6 @@ export function evaluateBeginExpression({
     beginExpressions = expr.args;
   }
   const expectedType = context.expectedType;
-  let isReturningFromFunction = false;
 
   // Empty begin
   // return unit
@@ -96,22 +78,14 @@ export function evaluateBeginExpression({
   // Push a new environment frame
   env = pushEnvFrame(env);
 
-  let lastExpr = beginExpressions[beginExpressions.length - 1]!;
+  // Store the initial environment to compare with final environment later
+  const initialEnv = env;
 
-  // Check if this block contains a terminating expression (return)
-  const terminatingIndex = findTerminatingExpressionIndex(beginExpressions);
-  const blockWillTerminate = terminatingIndex !== -1;
+  let lastExpr = beginExpressions[beginExpressions.length - 1]!;
 
   // Evaluate expressions
   for (let i = 0; i < beginExpressions.length; i++) {
     const exprToEvaluate = beginExpressions[i]!;
-
-    // If this block will terminate, mark expressions before the terminating expression
-    // as being in a terminating branch. This allows consumption of linear values
-    // that would otherwise be prohibited in while loops.
-    const isInTerminatingBranch =
-      context.isInTerminatingBranch ||
-      (blockWillTerminate && i < terminatingIndex);
 
     // Check if it's the "return" keyword
     if (
@@ -148,6 +122,7 @@ export function evaluateBeginExpression({
       }
 
       if (exprIsAtom(exprToEvaluate)) {
+        // return;
         // return unit
         exprToEvaluate.$ = {
           env,
@@ -155,17 +130,22 @@ export function evaluateBeginExpression({
           value: VUnit,
           isMutable: false,
           pathCollection: [],
+          controlFlow: "return",
         };
-      } else if (exprToEvaluate.args.length === 1) {
+        lastExpr = exprToEvaluate;
+        break;
+      } else {
+        // return val;
+
         // Return the first argument
         // Evaluate the return expression
+        expectExprToBeFunctionCallOf(exprToEvaluate, BuiltinKeywords.return, 1);
         const returnArg = exprToEvaluate.args[0]!;
         const evaluatedReturnExpr = context.evaluateExpression({
           expr: returnArg,
           env,
           context: {
             ...context,
-            isInTerminatingBranch: true, // Mark that we're in a terminating branch
             expectedType: {
               type: context.isEvaluatingFunctionBody.type,
               env: env,
@@ -179,7 +159,6 @@ export function evaluateBeginExpression({
           });
         }
         env = evaluatedReturnExpr.$.env;
-        isReturningFromFunction = true;
 
         exprToEvaluate.$ = {
           env,
@@ -216,7 +195,7 @@ export function evaluateBeginExpression({
         });
       }
 
-      if (!context.isEvaluatingWhileLoopBody) {
+      if (!context.isEvaluatingLoopBody) {
         throw formatErrorMessage({
           token: exprToEvaluate.token,
           errorMessage: `The "break" keyword can only be used inside a loop.`,
@@ -257,7 +236,7 @@ export function evaluateBeginExpression({
         });
       }
 
-      if (!context.isEvaluatingWhileLoopBody) {
+      if (!context.isEvaluatingLoopBody) {
         throw formatErrorMessage({
           token: exprToEvaluate.token,
           errorMessage: `The "continue" keyword can only be used inside a loop.`,
@@ -275,13 +254,14 @@ export function evaluateBeginExpression({
       };
       lastExpr = exprToEvaluate;
       break;
-    } else {
+    }
+    // Normal expression evaluation
+    else {
       const evaluatedExpr = context.evaluateExpression({
         expr: exprToEvaluate,
         env,
         context: {
           ...context,
-          isInTerminatingBranch, // Use the computed isInTerminatingBranch value
           expectedType:
             i === beginExpressions.length - 1 ? expectedType : undefined,
         },
@@ -291,7 +271,6 @@ export function evaluateBeginExpression({
       }
 
       if (evaluatedExpr.$?.controlFlow) {
-        isReturningFromFunction = true;
         lastExpr = evaluatedExpr;
         break;
       }
@@ -348,7 +327,7 @@ export function evaluateBeginExpression({
   }
 
   // Check if return type is compatible
-  if (isReturningFromFunction) {
+  if (lastExpr.$.controlFlow === "return") {
     if (
       !areTypesCompatible(
         {
@@ -400,6 +379,14 @@ export function evaluateBeginExpression({
   // and mark it as consumed.
   env = setExprAsConsumed(lastExpr, env, context);
 
+  // Validate linear value consumption in while loops
+  validateLinearConsumptionInLoop(
+    initialEnv,
+    env,
+    context,
+    lastExpr.$.controlFlow
+  );
+
   // Pop the environment frame
   env = popEnvFrame(env);
 
@@ -413,7 +400,7 @@ export function evaluateBeginExpression({
       });
     }
     expr.$.env = env;
-    expr.$.controlFlow = isReturningFromFunction ? "return" : undefined;
+    expr.$.controlFlow = lastExpr.$.controlFlow;
   } else {
     expr.$ = {
       env,
@@ -421,9 +408,77 @@ export function evaluateBeginExpression({
       value: lastExpr.$.value,
       isMutable: false,
       pathCollection: [],
-      controlFlow: isReturningFromFunction ? "return" : undefined,
+      controlFlow: lastExpr.$.controlFlow,
     };
     attachTempVariableToExpr(expr);
   }
   return expr;
+}
+
+/**
+ * Validates that linear values defined outside a while loop are only consumed
+ * if the block has terminating control flow (return/break/continue).
+ */
+function validateLinearConsumptionInLoop(
+  initialEnv: Environment,
+  finalEnv: Environment,
+  context: EvaluatorContext,
+  controlFlow: ControlFlowKind | undefined
+): void {
+  if (!context.isEvaluatingLoopBody) {
+    return; // Not in a while loop, no validation needed
+  }
+
+  const loopFrameCount = context.isEvaluatingLoopBody.frames.length;
+
+  // Check each frame that existed before the while/for loop
+  for (let frameIndex = 0; frameIndex < loopFrameCount; frameIndex++) {
+    const initialFrame = initialEnv.frames[frameIndex];
+    const finalFrame = finalEnv.frames[frameIndex];
+
+    if (!initialFrame || !finalFrame) {
+      continue;
+    }
+
+    // Check each variable in the frame
+    for (
+      let varIndex = 0;
+      varIndex < initialFrame.variables.length;
+      varIndex++
+    ) {
+      const initialVariable = initialFrame.variables[varIndex];
+      const finalVariable = finalFrame.variables[varIndex];
+
+      if (!initialVariable || !finalVariable) {
+        continue;
+      }
+
+      // Skip if variable was already consumed before the block
+      if (initialVariable.consumedAtToken) {
+        continue;
+      }
+
+      // Check if this is a linear variable that got consumed in the block
+      if (
+        isLinearOrType0Type(typeOfType(initialVariable.type)) &&
+        finalVariable.consumedAtToken &&
+        !initialVariable.consumedAtToken
+      ) {
+        // If the block doesn't have terminating control flow, it's an error
+        // Only "return" and "break" are terminating; "continue" and no control flow are not
+        if (!controlFlow || controlFlow === "continue") {
+          throw formatErrorMessages([
+            {
+              token: finalVariable.consumedAtToken,
+              errorMessage: `Cannot consume linear value "${initialVariable.name}" inside a while loop that may iterate multiple times. Linear values can only be consumed once, but this loop could potentially consume it in each iteration.`,
+            },
+            {
+              token: initialVariable.token,
+              errorMessage: `Variable "${initialVariable.name}" defined here:`,
+            },
+          ]);
+        }
+      }
+    }
+  }
 }

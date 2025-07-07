@@ -913,25 +913,6 @@ export function setExprAsConsumed(
       ]);
     }
 
-    // Check if we are consuming a linear value defined outside the while loop
-    if (
-      context.isEvaluatingWhileLoopBody &&
-      variableToConsume.frameLevel <
-        context.isEvaluatingWhileLoopBody.frames.length &&
-      !context.isInTerminatingBranch // Allow consumption if we're in a terminating branch
-    ) {
-      throw formatErrorMessages([
-        {
-          token: expr.token,
-          errorMessage: `Cannot consume a linear value multiple times defined outside the while loop.`,
-        },
-        {
-          token: variableToConsume.token,
-          errorMessage: `Defined here:`,
-        },
-      ]);
-    }
-
     // Check if we are consuming a linear value defined outside the function body
     if (
       context.isEvaluatingFunctionBody &&

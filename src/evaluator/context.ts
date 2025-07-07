@@ -25,17 +25,10 @@ export interface EvaluatorContext {
   };
 
   /**
-   * Whether we are currently evaluating a while loop.
-   * This record the env that is used for the while loop body.
+   * Whether we are currently evaluating a while/for loop.
+   * This record the env that is used for the while/for loop body.
    */
-  isEvaluatingWhileLoopBody?: Environment;
-
-  /**
-   * Whether we are in a terminating branch (e.g., inside a return statement or break statement).
-   * This is used to allow consumption of linear values defined outside while loops
-   * when the consumption happens in a branch that will definitely exit.
-   */
-  isInTerminatingBranch?: boolean;
+  isEvaluatingLoopBody?: Environment;
 
   /**
    * The innermost struct, enum, or union that this function call is inside.

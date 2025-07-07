@@ -151,7 +151,7 @@ export function evaluateMatch({
   const bodies: Expr[] = [];
   let resultType: { type: Type; env: Environment } | undefined = undefined;
   const checkedVariantNames: Set<string> = new Set();
-  let hasCaseThatIsNotTerminated = false;
+  let hasCaseThatDoesntHaveControlFlowSet = false;
   let usedWildcardPattern = false;
   const controlFlows: string[] = []; // Track control flows from all cases
 
@@ -327,7 +327,7 @@ export function evaluateMatch({
           };
         }
       } else {
-        hasCaseThatIsNotTerminated = true;
+        hasCaseThatDoesntHaveControlFlowSet = true;
       }
 
       caseEnv = evaluatedBody.$.env;
@@ -388,12 +388,39 @@ Please use .variantName for destructuring enum variants.`,
     }
   }
 
-  if (hasCaseThatIsNotTerminated) {
-    if (!resultType) {
+  // Check the control flows, if they are mixed, we say there is no control flow
+  let finalControlFlow: ControlFlowKind | undefined = undefined;
+  if (controlFlows.every((cf) => cf === "return")) {
+    finalControlFlow = "return";
+  } else if (controlFlows.every((cf) => cf === "break")) {
+    finalControlFlow = "break";
+  } else if (controlFlows.every((cf) => cf === "continue")) {
+    finalControlFlow = "continue";
+  } else {
+    if (context.isEvaluatingLoopBody) {
+      if (controlFlows.find((cf) => cf === "continue")) {
+        finalControlFlow = "continue"; // At least one case continues the loop
+      } else if (controlFlows.find((cf) => cf === "break")) {
+        finalControlFlow = "break"; // At least one case breaks the loop
+      } else if (controlFlows.find((cf) => cf === "return")) {
+        finalControlFlow = "return"; // At least one case returns from function
+      }
+    } else {
+      finalControlFlow = undefined; // Mixed control flows
+    }
+  }
+
+  if (
+    hasCaseThatDoesntHaveControlFlowSet || // some case has no control flow
+    !finalControlFlow // mixed control flows
+  ) {
+    if (hasCaseThatDoesntHaveControlFlowSet && !resultType) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Could not determine result type for match expression`,
+        errorMessage: `Failed to determine the type of value from the cond.`,
       });
+    } else if (!resultType) {
+      resultType = { type: VUnit.type, env: env };
     }
 
     // Perform exhaustiveness check
@@ -434,20 +461,6 @@ Please use .variantName for destructuring enum variants.`,
       });
     }
 
-    // For mixed control flows, we need to determine the most restrictive one
-    // Priority: return > break/continue (return exits function, break/continue exit loop)
-    let finalControlFlow: ControlFlowKind;
-
-    if (controlFlows.includes("return")) {
-      finalControlFlow = "return";
-    } else if (controlFlows.includes("break")) {
-      finalControlFlow = "break";
-    } else if (controlFlows.includes("continue")) {
-      finalControlFlow = "continue";
-    } else {
-      finalControlFlow = controlFlows[0] as ControlFlowKind;
-    }
-
     if (finalControlFlow === "return") {
       // All cases are returning from function
       if (!context.isEvaluatingFunctionBody) {
@@ -472,7 +485,7 @@ Please use .variantName for destructuring enum variants.`,
       };
     } else if (finalControlFlow === "break") {
       // All cases break from loop
-      if (!context.isEvaluatingWhileLoopBody) {
+      if (!context.isEvaluatingLoopBody) {
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `All cases in match are breaking from loop, but not inside a loop.`,
@@ -488,7 +501,7 @@ Please use .variantName for destructuring enum variants.`,
       };
     } else if (finalControlFlow === "continue") {
       // All cases continue loop
-      if (!context.isEvaluatingWhileLoopBody) {
+      if (!context.isEvaluatingLoopBody) {
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `All cases in match are continuing loop, but not inside a loop.`,
@@ -502,6 +515,8 @@ Please use .variantName for destructuring enum variants.`,
         pathCollection: [],
         controlFlow: "continue",
       };
+    } else {
+      // This should never reach
     }
 
     return expr;

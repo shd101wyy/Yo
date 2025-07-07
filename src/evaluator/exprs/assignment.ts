@@ -253,8 +253,8 @@ export function evaluateAssignment({
     if (!variable.initializedAtToken) {
       // Check if we are initializing a variable that is defined outside the current while loop.
       if (
-        context.isEvaluatingWhileLoopBody &&
-        variable.frameLevel < context.isEvaluatingWhileLoopBody.frames.length
+        context.isEvaluatingLoopBody &&
+        variable.frameLevel < context.isEvaluatingLoopBody.frames.length
       ) {
         throw formatErrorMessages([
           {
