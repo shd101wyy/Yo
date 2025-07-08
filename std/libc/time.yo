@@ -1,0 +1,96 @@
+{ ?*, ?*! } :: import "../data/primitive/ptr.yo";
+
+// C11 time.h - Date and time functions
+// Provides time manipulation, formatting, and calendar functions
+
+// c_include "<time.h>",
+extern "c",
+  // Types
+  time_t : Free,
+  clock_t : Free,
+  
+  // Structure for broken-down time
+  tm : Free,
+  
+  // C11 timespec structure
+  timespec : Free,
+
+  // Time manipulation functions
+  clock :
+    () -> clock_t,
+  time :
+    (timer : ?*!(time_t)) -> time_t,
+  difftime :
+    (time1 : time_t, time0 : time_t) -> f64,
+  mktime :
+    (timeptr : *!(tm)) -> time_t,
+
+  // Time conversion functions
+  asctime :
+    (timeptr : *(tm)) -> *(char),
+  ctime :
+    (timer : *(time_t)) -> *(char),
+  gmtime :
+    (timer : *(time_t)) -> ?*(tm),
+  localtime :
+    (timer : *(time_t)) -> ?*(tm),
+  strftime :
+    (s : *!(char), maxsize : usize, format : *(char), timeptr : *(tm)) -> usize,
+
+  // C11 Annex K - Safe time functions
+  asctime_s :
+    (s : *!(char), maxsize : usize, timeptr : *(tm)) -> int,
+  ctime_s :
+    (s : *!(char), maxsize : usize, timer : *(time_t)) -> int,
+  gmtime_s :
+    (timer : *(time_t), result : *!(tm)) -> ?*(tm),
+  localtime_s :
+    (timer : *(time_t), result : *!(tm)) -> ?*(tm),
+
+  // C11 - Additional time functions
+  timespec_get :
+    (ts : *!(timespec), base : int) -> int,
+
+  // Constants
+  CLOCKS_PER_SEC : clock_t,
+  
+  // C11 timespec_get base values
+  TIME_UTC : int,
+
+  // Additional useful constants (implementation-defined)
+  CLK_TCK : clock_t
+;
+
+// Export all time functionality
+export 
+  // Types
+  time_t,
+  clock_t,
+  tm,
+  timespec,
+
+  // Time manipulation
+  clock,
+  time,
+  difftime,
+  mktime,
+
+  // Time conversion
+  asctime,
+  ctime,
+  gmtime,
+  localtime,
+  strftime,
+
+  // C11 safe functions
+  asctime_s,
+  ctime_s,
+  gmtime_s,
+  localtime_s,
+  timespec_get,
+
+  // Constants
+  CLOCKS_PER_SEC,
+  TIME_UTC,
+  CLK_TCK
+;

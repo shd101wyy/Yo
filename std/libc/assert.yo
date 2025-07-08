@@ -1,0 +1,40 @@
+// C11 assert.h - Assertion debugging facility
+// Provides runtime assertion checking for debugging
+
+// c_include "<assert.h>",
+extern "c",
+  // The actual assertion function called by the assert macro
+  // This is typically called __assert_fail or similar in libc implementations
+  __assert_fail :
+    (assertion : *(char), file : *(char), line : uint, function : *(char)) -> unit,
+  
+  // Alternative assertion function (some implementations)
+  __assert :
+    (assertion : *(char), file : *(char), line : int) -> unit,
+
+  // C11 static_assert is handled by the compiler, not runtime
+  // But some implementations provide a function version for diagnostics
+  _Static_assert_fail :
+    (message : *(char)) -> unit
+;
+
+// Note: In C, assert is typically implemented as a macro:
+// #ifdef NDEBUG
+// #define assert(expr) ((void)0)
+// #else
+// #define assert(expr) \
+//   ((expr) ? (void)0 : __assert_fail(#expr, __FILE__, __LINE__, __func__))
+// #endif
+//
+// Since Yo doesn't have preprocessor macros, users would need to:
+// 1. Call __assert_fail directly when assertions fail
+// 2. Use conditional compilation at the language level
+// 3. Or implement assertion logic in their application code
+
+// Export assert functionality
+export 
+  // Low-level assertion functions from C runtime
+  __assert_fail,
+  __assert,
+  _Static_assert_fail
+;

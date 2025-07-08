@@ -35,7 +35,6 @@ import {
   isUnionType,
 } from "./guards";
 import { TypeTag } from "./tags";
-import { typeToString } from "./utils";
 
 /*
  * Helper function to determine the type universe of a list of types
@@ -124,12 +123,7 @@ export function typeOfType(
   }
 
   if (type.isDynamicSized) {
-    throw new Error(
-      `Cannot determine the type of DST (Dynamic Sized Type):
-${typeToString(type)}
-
-Please consider using a pointer or reference to this type instead.`
-    );
+    return createFreeType(type); // Dynamic sized types are free types
   }
 
   if (isPrimitiveType(type)) {

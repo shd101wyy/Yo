@@ -26,7 +26,6 @@ import {
   isFreeType,
   isLinearType,
   isTypeHierarchyType,
-  prohibitDynamicSizedType,
   typeContainsReference,
   typeOfType,
   typeToString,
@@ -38,7 +37,7 @@ import { synthesizeExprAndType } from "../types/synthesizer";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
 
-export function throwRhsContainsTerminatedExpressionError(
+export function throwRhsContainsControlFlowExpressionError(
   rhs: Expr,
   controlFlow: ControlFlowKind
 ) {
@@ -162,7 +161,7 @@ export function evaluateAssignment({
     }
 
     if (rhs.$?.controlFlow) {
-      throwRhsContainsTerminatedExpressionError(rhs, rhs.$.controlFlow);
+      throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow);
     }
 
     // Set rhs as consumed
@@ -226,15 +225,12 @@ export function evaluateAssignment({
     }
 
     // Check if it's assigning Free to Linear
-    if (isTypeValue(rhsValue)) {
-      prohibitDynamicSizedType(rhsValue.value, rhs.token);
-
-      if (
-        isFreeType(typeOfType(rhsValue.value)) &&
-        isLinearType(variable.type)
-      ) {
-        rhsValue = setTypeValueAsLinear(rhsValue);
-      }
+    if (
+      isTypeValue(rhsValue) &&
+      isFreeType(typeOfType(rhsValue.value)) &&
+      isLinearType(variable.type)
+    ) {
+      rhsValue = setTypeValueAsLinear(rhsValue);
     }
 
     let variableType = variable.type;

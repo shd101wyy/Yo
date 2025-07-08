@@ -33,7 +33,7 @@ import {
 import { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/synthesizer";
 import { isValidVariableName } from "../utils";
-import { throwRhsContainsTerminatedExpressionError } from "./assignment";
+import { throwRhsContainsControlFlowExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring_assignment";
 
 /**
@@ -139,9 +139,9 @@ export function evaluateInitializationAssignment({
     prohibitDynamicSizedType(rhs.$.type, rhs.token);
   }
 
-  if (rhs.$?.termination) {
+  if (rhs.$?.controlFlow) {
     // Check if the RHS is a cond expression to provide a more specific error message
-    throwRhsContainsTerminatedExpressionError(rhs, rhs.$.termination);
+    throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow);
   }
 
   // Set the rhs as consumed
@@ -278,12 +278,12 @@ ${exprToString(expr)}`,
     }
 
     // Check if it's assigning Free to Linear
-    if (isTypeValue(rhsValue)) {
-      prohibitDynamicSizedType(rhsValue.value, rhs.token);
-
-      if (isFreeType(typeOfType(rhsValue.value)) && isLinearType(lhs.$.type)) {
-        rhsValue = setTypeValueAsLinear(rhsValue);
-      }
+    if (
+      isTypeValue(rhsValue) &&
+      isFreeType(typeOfType(rhsValue.value)) &&
+      isLinearType(lhs.$.type)
+    ) {
+      rhsValue = setTypeValueAsLinear(rhsValue);
     }
 
     // Prohibit assigning runtime value to comptime-only variable

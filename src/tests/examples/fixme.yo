@@ -1,126 +1,16 @@
-// open import "std";
-extern
-  lt : 
-    (x : i32, y : i32) -> boolean,
-  add :
-    (x : i32, y : i32) -> i32
+Option :: ((@(T): Type)-> @(Type))
+  enum
+    Some(value: T),
+    None
 ;
 
-(@(LinearI32) : Linear) = i32;
+// Alias of the Option type
+? :: Option;
 
-some_condition :: (() -> boolean) true;
+?* :: ((compt(T): Type) -> compt(Type))
+  ?(*(T))
+;
 
-test_while_drop :: (() -> i32) {
-  (x : LinearI32) = 42;
+X :: void;
 
-  compt_expect_error(
-    while some_condition(), {
-      drop(x);
-    },
-    "Shouldn't allow to drop x multiple times"
-  );
-
-  0
-};
-
-test_while_drop_with_break_nested :: (() -> i32) {
-  (x : LinearI32) = 42;
-
-  while some_condition(), {
-    drop(x); // allowed, because the `cond` expr below always break.
-    cond
-      some_condition() => break,
-      true => break
-    ;
-  };
-
-  0
-};
-
-test_while_drop_with_return_nested :: (() -> i32) {
-  (x : LinearI32) = 42;
-
-  while some_condition(), {
-    drop(x); // allowed, because the `cond` expr below always returns.
-    cond(
-      some_condition() => {
-        return 0;
-      },
-      true => {
-        return 12;
-      }
-    );
-  };
-
-  0
-};
-
-test_while_drop_with_continue_nested :: (() -> i32) {
-  (x : LinearI32) = 42;
-
-  compt_expect_error(
-    while some_condition(), {
-      drop(x);
-      cond
-        some_condition() => continue,
-        true => continue;
-    },
-    "Shouldn't allow to drop x multiple times"
-  );
-
-  0
-};
-
-test_while_drop_with_mixed :: (() -> i32) {
-  (x : LinearI32) = 42;
-  compt_expect_error(
-    while some_condition(), {
-      drop(x); // should give error
-      cond
-        some_condition() => break,
-        some_condition() => {
-          return 0;
-        },
-        true => continue;
-    },
-    "Shouldn't allow to drop x multiple times"
-  );
-
-  0
-};
-
-test_while_with_mixed_2 :: (() -> i32) {
-  while some_condition(), {
-    a := cond
-      some_condition() => break,
-      some_condition() => {
-        return 0;
-      },
-      some_condition() => true,
-      true => continue
-    ;
-  };
-
-  0
-};
-
-test_while_drop_with_mixed_2 :: (() -> i32) {
-  (x : LinearI32) = 42;
-  compt_expect_error(
-    while some_condition(), {
-      a := cond
-        some_condition() => break,
-        some_condition() => {
-          return 0;
-        },
-        some_condition() => true,
-        true => continue
-      ;
-
-      drop(x);
-    }, 
-    "Shouldn't allow to drop x multiple times"
-  );
-
-  0
-};
+// x :: ?*(void);

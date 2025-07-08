@@ -24,7 +24,6 @@ import {
   createU32Type,
   createU64Type,
   createU8Type,
-  createUnitType,
   createUsizeType,
   EnumType,
   ExprType,
@@ -326,9 +325,7 @@ export function isExprValue(value?: Value): value is ExprValue {
 export function createTypeValue(value: Type): TypeValue {
   return {
     tag: ValueTag.Type,
-    // For type like Slice, which doesn't have a type.
-    // So we set type of Slice to be "unit".
-    type: value.isDynamicSized ? createUnitType() : typeOfType(value),
+    type: typeOfType(value),
     value,
   };
 }
