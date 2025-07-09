@@ -18,3 +18,55 @@
   // import only the non-implicits
   { ...(!?) } :: import "module";
 };
+
+// with
+{
+  twice :: ((f: (() -> unit)) -> unit ) {
+    f();
+    f();
+  };
+  test_twice :: (() -> unit) {
+    twice(() -> 
+      twice(()-> {
+        print("Hello, world!");
+      })
+    )
+  };
+  test_with1 :: (() -> unit) {
+    with twice();
+    with twice();
+    println("hi")
+  };
+
+  // Translation
+  // - with f(e1, ..., eN) <body>
+  // =>
+  // - f(e1, ..., eN, fn() -> <body>)
+  //
+  // Moreover
+  // with x <- f(e1, ..., eN) <body>
+  // =>
+  // f(e1, ..., eN, fn(x) -> <body>)
+
+  test_with2 :: (() -> unit) {
+    with x <- list(1, 10).foreach();
+    println(x);
+  };
+}
+
+// Update a struct value
+Person :: struct
+  age : int,
+  name: String
+;
+brian := Person(30, "Brian");
+/// Clone a struct value by calling it.
+jane := brian(age: 25);
+/// is the same as
+jane := Person(
+  age: 25,
+  name: &(brian.name).clone()
+);
+
+// $ will be used as immutable reference counting.
+// Let's favor the persistent data structure.

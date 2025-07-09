@@ -1,5 +1,6 @@
-{ __yo_op_not, __yo_op_eq } :: import("../../builtins.yo");
+{ __yo_noop, __yo_return_self, __yo_op_not, __yo_op_eq } :: import("../../builtins.yo");
 { LogicalNot } :: import "../../modules/logic.yo";
+{ Clone, Drop } :: import "../../modules/common.yo";
 { Eq } :: import "../../modules/eq.yo";
 
 /**
@@ -17,6 +18,30 @@ implicit(BooleanLogicalNot) :: LogicalNot(boolean)
 implicit(BooleanEq) :: Eq(boolean, boolean)
   (==): (fn(a, b)->
     __yo_op_eq(a, b)
+  )
+;
+
+/**
+  * Drop
+  * 
+  * This is a no-op for boolean type, as it does not require any special cleanup.
+  */
+implicit(BooleanDrop) :: Drop(boolean)
+  drop: (fn(self)->
+    // No-op for boolean
+    __yo_noop()
+  )
+;
+
+/**
+  * Clone
+  * 
+  * Just returns the same boolean value, as it is a primitive type.
+  */
+implicit(BooleanClone) :: Clone(boolean)
+  clone: (fn(self)->
+    // No-op for boolean, as it is a primitive type
+    __yo_return_self(self.*)
   )
 ;
 
@@ -63,5 +88,7 @@ implicit(ComptBooleanMethods) :: module {
 export
   BooleanLogicalNot,
   BooleanEq,
+  BooleanDrop,
+  BooleanClone,
   ComptBooleanMethods
 ;

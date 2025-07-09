@@ -118,6 +118,7 @@ export function evaluateAnonymousStructValue({
 
     // Check if it's spread operator
     // NOTE: I disabled it for now.
+    // Because it's hard to handle linear value in anonymous struct.
     /*
     if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
       const extendedStructExpr = arg.args[0]!;

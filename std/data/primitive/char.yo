@@ -1,3 +1,20 @@
+{ __yo_noop, __yo_return_self, __yo_op_not, __yo_op_eq } :: import("../../builtins.yo");
+{ Clone, Drop } :: import "../../modules/common.yo";
+
+implicit(CharDrop) :: Drop(char)
+  drop: (fn(self) ->
+    // No-op for char, as it does not require any special cleanup
+    __yo_noop()
+  )
+;
+
+implicit(CharClone) :: Clone(char)
+  clone: (fn(self) ->
+    // No-op for char, as it is a primitive type
+    __yo_return_self(self.*)
+  )
+;
+
 implicit(CharMethods) :: module {
   Self :: char;
 
@@ -11,4 +28,8 @@ implicit(CharMethods) :: module {
   ;
 };
 
-export CharMethods;
+export
+  CharMethods,
+  CharClone,
+  CharDrop
+;

@@ -3,6 +3,7 @@ open import "../../builtins.yo";
 { LogicalNot } :: import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 { Ord } :: import "../../modules/ord.yo";
+{ Clone, Drop } :: import "../../modules/common.yo";
 
 /**
  * arithmetic
@@ -56,7 +57,24 @@ implicit(I32Ord) :: Ord(i32, i32, implicit(I32Eq))
   (>=) : (fn(a, b)-> __yo_op_gte(a, b))
 ;
 
+implicit(I32Drop) :: Drop(i32)
+  drop: (fn(self)->
+    // No-op for i32, as it does not require any special cleanup
+    __yo_noop()
+  )
+;
 
+implicit(I32Clone) :: Clone(i32)
+  clone: (fn(self)->
+    // No-op for i32, as it is a primitive type
+    __yo_return_self(self.*)
+  )
+;
+
+
+/**
+ * Methods for compt i32
+ */
 implicit(I32ComptMethods) :: module {
   Self :: i32;
 
@@ -145,5 +163,7 @@ export
   I32LogicalNot,
   I32Eq,
   I32Ord,
+  I32Drop,
+  I32Clone,
   I32ComptMethods
 ;
