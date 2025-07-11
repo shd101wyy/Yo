@@ -1,3 +1,76 @@
+open import "../../builtins.yo";
+{ Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
+{ LogicalNot } :: import "../../modules/logic.yo";
+{ Eq } :: import "../../modules/eq.yo";
+{ Ord } :: import "../../modules/ord.yo";
+{ Clone, Drop } :: import "../../modules/common.yo";
+
+/**
+ * arithmetic
+ */
+given(UsizeAdd) :: Add(usize, usize)
+  (+): (fn(a, b)-> __yo_op_add(a, b))
+;
+
+given(UsizeSub) :: Sub(usize, usize)
+  (-): (fn(a, b)-> __yo_op_sub(a, b))
+;
+
+given(UsizeMul) :: Mul(usize, usize)
+  (*): (fn(a, b)-> __yo_op_mul(a, b))
+;
+
+given(UsizeDiv) :: Div(usize, usize)
+  (/): (fn(a, b)-> __yo_op_div(a, b))
+;
+
+given(UsizeMod) :: Mod(usize, usize)
+  (%): (fn(a, b)-> __yo_op_mod(a, b))
+;
+
+given(UsizeNegate) :: Negate(usize)
+  (neg): (fn(a)-> __yo_op_neg(a))
+;
+
+/**
+ * logic
+ */
+given(UsizeLogicalNot) :: LogicalNot(usize)
+  (!): (fn(a)-> __yo_op_not(a))
+;
+
+
+/**
+ * eq
+ */
+given(UsizeEq) :: Eq(usize, usize)
+  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+;
+
+/**
+ * ord
+ */
+given(UsizeOrd) :: Ord(usize, usize, using(UsizeEq))
+  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
+  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
+  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
+  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+;
+
+given(UsizeDrop) :: Drop(usize)
+  drop: (fn(self)->
+    // No-op for usize, as it does not require any special cleanup
+    __yo_noop()
+  )
+;
+
+given(UsizeClone) :: Clone(usize)
+  clone: (fn(self)->
+    // No-op for usize, as it is a primitive type
+    __yo_return_self(self.*)
+  )
+;
+
 given(UsizeComptMethods) :: module {
   Self :: usize;
 
@@ -72,4 +145,15 @@ given(UsizeComptMethods) :: module {
 };
 
 export
+  UsizeAdd,
+  UsizeSub,
+  UsizeMul,
+  UsizeDiv,
+  UsizeMod,
+  UsizeNegate,
+  UsizeLogicalNot,
+  UsizeEq,
+  UsizeOrd,
+  UsizeDrop,
+  UsizeClone,
   UsizeComptMethods;

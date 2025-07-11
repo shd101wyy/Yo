@@ -493,7 +493,7 @@ export function evaluateIdentifierAndOperator({
     if (!variables.length) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Variable "${identifier}" not found`,
+        errorMessage: `Variable "${identifier}" not found.`,
       });
     } else {
       const variable = variables[variables.length - 1]!;

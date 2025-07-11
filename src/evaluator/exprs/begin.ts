@@ -157,10 +157,7 @@ export function evaluateBeginExpression({
           env,
           context: {
             ...context,
-            expectedType: {
-              type: context.isEvaluatingFunctionBody.type,
-              env: env,
-            },
+            expectedType: expectedType,
           },
         });
         if (!evaluatedReturnExpr.$) {
