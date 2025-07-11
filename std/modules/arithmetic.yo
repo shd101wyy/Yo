@@ -2,57 +2,57 @@
  * There is no operator precedence in Yo
  */
 
-Add :: ((@(Lhs): Type, @(Rhs) ?= Lhs, @(Output) ?= Lhs)-> @(Module))
+Add :: ((compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
   module
     Self   := Lhs,
     (+)    : ((lhs: Lhs, rhs: Rhs)-> Output)
 ;
 
-Sub :: ((@(Lhs): Type, @(Rhs) ?= Lhs, @(Output) ?= Lhs)-> @(Module))
+Sub :: ((compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
   module
     Self   := Lhs,
     (-)    : ((lhs: Lhs, rhs: Rhs)-> Output)
 ;
 
-Mul :: ((@(Lhs): Type, @(Rhs) ?= Lhs, @(Output) ?= Lhs)-> @(Module))
+Mul :: ((compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
   module
     Self   := Lhs,
     (*)    : ((lhs: Lhs, rhs: Rhs)-> Output)
 ;
 
-Div :: ((@(Lhs): Type, @(Rhs) ?= Lhs, @(Output) ?= Lhs)-> @(Module))
+Div :: ((compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
   module
     Self   := Lhs,
     (/)    : ((lhs: Lhs, rhs: Rhs)-> Output)
 ;
 
-Mod :: ((@(Lhs): Type, @(Rhs) ?= Lhs, @(Output) ?= Lhs)-> @(Module))
+Mod :: ((compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
   module
     Self   := Lhs,
     (%)    : ((lhs: Lhs, rhs: Rhs)-> Output)
 ;
 
-BitLeftShift :: ((@(Lhs): Type, @(Rhs) ?= Lhs, @(Output) ?= Lhs)-> @(Module))
+BitLeftShift :: ((compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
   module
     Self   := Lhs,
     (<<)   : ((lhs: Lhs, rhs: Rhs)-> Output)
 ;
 
-BitRightShift :: ((@(Lhs): Type, @(Rhs) ?= Lhs, @(Output) ?= Lhs)-> @(Module))
+BitRightShift :: ((compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
   module
     Self   := Lhs,
     (>>)   : ((lhs: Lhs, rhs: Rhs)-> Output)
 ;
 
 
-Exponentiation :: ((@(Lhs): Type, @(Rhs) ?= Lhs, @(Output) ?= Lhs)-> @(Module))
+Exponentiation :: ((compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
   module
     Self   := Lhs,
     (**)   : ((lhs: Lhs, rhs: Rhs)-> Output)
 ;
 
 Negate ::
-  ((@(Self): Type, @(Output) ?= Self)-> @(Module))
+  ((compt(Self): Type, compt(Output) ?= Self)-> compt(Module))
   module
     Self   := Self,
     (neg): ((self: Self)-> Output)
@@ -60,24 +60,24 @@ Negate ::
 
 
 ComptNegate ::
-  ((@(Self): Type)-> @(Module))
+  ((compt(Self): Type)-> compt(Module))
   module
     Self  := Self,
-    (neg) : ((@(self): Self)-> @(Self))
+    (neg) : ((compt(self): Self)-> compt(Self))
 ;
 
 (-) :: module {
-  (neg) :: (( forall(@(Self) : Type), 
+  (neg) :: (( forall(compt(Self) : Type), 
             self : Self, 
-            implicit(@(NegateMethod): Negate(Self))
+            implicit(compt(NegateMethod): Negate(Self))
           ) -> Self)
     NegateMethod.neg(self)
   ;
 
-  (compt_neg) :: ((forall(@(Self) : Type), 
-          @(self) : Self,
-          implicit(@(NegateMethod): ComptNegate(Self))
-        ) -> @(Self))
+  (compt_neg) :: ((forall(compt(Self) : Type), 
+          compt(self) : Self,
+          implicit(compt(NegateMethod): ComptNegate(Self))
+        ) -> compt(Self))
     NegateMethod.neg(self)
   ;
 

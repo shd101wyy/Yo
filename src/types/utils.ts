@@ -391,10 +391,10 @@ export function tupleElementToString(element: TupleElement): string {
     label = `(${label})`;
   }
   if (element.isImplicit) {
-    label = `?(${label})`;
+    label = `implicit(${label})`;
   }
   if (element.isCompileTimeOnly) {
-    label = `@(${label})`;
+    label = `compt(${label})`;
   }
 
   const defaultValueStr = element.defaultValue
@@ -425,7 +425,7 @@ function moduleElementToString(element: ModuleElement): string {
     label = `(${label})`;
   }
   if (element.isImplicit) {
-    label = `?(${label})`;
+    label = `implicit(${label})`;
   }
 
   const defaultValueStr = element.defaultValue

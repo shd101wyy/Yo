@@ -26,7 +26,7 @@ export function evaluateArrayType({
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Array, 2)) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected "Array(@(Type), @(usize))" with 2 arguments, like "Array(i32, 10)"
+      errorMessage: `Expected "Array(compt(Type), compt(usize))" with 2 arguments, like "Array(i32, 10)"
 Got:\n${exprToString(expr)}`,
     });
   }

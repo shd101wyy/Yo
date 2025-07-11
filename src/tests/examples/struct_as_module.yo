@@ -1,11 +1,11 @@
-Clone :: ((@(Self): Type) -> @(Module))
+Clone :: ((compt(Self): Type) -> compt(Module))
   module
     Self := Self,
     clone :
       (self: &(Self)) -> Self
 ;
 
-?(Point) :: struct
+implicit(Point) :: struct
   x : i32,
   y : i32,
 
@@ -16,7 +16,7 @@ Clone :: ((@(Self): Type) -> @(Module))
 SelfType :: Point.Self;
 
 CloneI32 :: Clone(i32);
-(@(I32Clone) : Clone(i32)) = module {
+(compt(I32Clone) : Clone(i32)) = module {
   Self :: i32;
 
   clone :: ((self: &(Self)) -> Self)
@@ -31,14 +31,14 @@ CloneI32 :: Clone(i32);
 };
 
 ClonePoint :: Clone(Point);
-(@(PointClone) : Clone(Point)) = Point; // This should work, Point implements Clone(Point) because it has a clone method, and its "Self" type also matches.
+(compt(PointClone) : Clone(Point)) = Point; // This should work, Point implements Clone(Point) because it has a clone method, and its "Self" type also matches.
 PointClone.clone(&(Point(x: 1, 2))); // This should work, we can clone a Point using the module method.
 Point.clone(&(Point(1, 2))); // This should also work, we can clone a Point using the type method.
 
 
-some_func :: (( forall(@(Self) : Type ), 
+some_func :: (( forall(compt(Self) : Type ), 
                 self : &(Self),
-                implicit(@(CloneMethod) : Clone(Self))
+                implicit(compt(CloneMethod) : Clone(Self))
               ) -> unit)
   CloneMethod.clone(self)
 ;

@@ -1,12 +1,12 @@
 Point ::
-  ((@(P): Type)-> @(Type))
+  ((compt(P): Type)-> compt(Type))
   struct
     x: P,
     y: P
 ;
 
 Id ::
-  ((@(Self_): Type)-> @(Module))
+  ((compt(Self_): Type)-> compt(Module))
   module
     (Self: Type) = Self_,
     id:
@@ -14,7 +14,7 @@ Id ::
 ;
 
 id ::
-  ((forall(@(T): Type), x: T, implicit(@(I): Id(T)))-> T)
+  ((forall(compt(T): Type), x: T, implicit(compt(I): Id(T)))-> T)
   I.id(x)
 ;
 
@@ -31,9 +31,9 @@ implicit(IdBoolean) ::
 ;
 
 implicit(IdPoint) ::
-  (( forall(@(IP): Type), 
-    implicit(@(I): Id(IP))
-  )-> @(Id(Point(IP))))
+  (( forall(compt(IP): Type), 
+    implicit(compt(I): Id(IP))
+  )-> compt(Id(Point(IP))))
   Id(Point(IP))
     id:
       fn(p) -> {

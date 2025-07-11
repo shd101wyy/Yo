@@ -113,7 +113,7 @@ All module elements are compile-time only by default.`,
     ) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `No need to use "compt" (or "@") modifier. All module elements are compile-time only by default.`,
+        errorMessage: `No need to use "compt"  modifier. All module elements are compile-time only by default.`,
       });
     }
 
@@ -141,7 +141,7 @@ All module elements are compile-time only by default.`,
   ) {
     throw formatErrorMessage({
       token: expr_.token,
-      errorMessage: `No need to use "compt" (or "@") modifier. All module elements are compile-time only by default.`,
+      errorMessage: `No need to use "compt"  modifier. All module elements are compile-time only by default.`,
     });
   } else if (!defaultValueExpr && !assignedValueExpr) {
     throw formatErrorMessage({
@@ -372,7 +372,7 @@ Given type: ${typeToString(defaultValueType)}`,
       if (typeRequiresComptModifier(elementType)) {
         throw formatErrorMessage(
           labelExpr?.token ?? expr.token,
-          `Expected "compt" (or "@") modifier for compile-time known value binding.`
+          `Expected "compt"  modifier for compile-time known value binding.`
         );
       }
     }

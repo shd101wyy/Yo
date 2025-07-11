@@ -78,7 +78,7 @@ ${exprToString(rhs)}`,
     if (lhs.args.length !== 1) {
       throw formatErrorMessage({
         token: lhs.token,
-        errorMessage: `Expected one argument for "compt" (or "@"), got ${lhs.args.length}`,
+        errorMessage: `Expected one argument for "compt" , got ${lhs.args.length}`,
       });
     }
     lhs = lhs.args[0]!;
@@ -117,14 +117,14 @@ ${exprToString(rhs)}`,
   if (typeRequiresComptModifier(userDefinedType) && !isCompileTimeOnly) {
     throw formatErrorMessage({
       token: lhs.token,
-      errorMessage: `Expected "compt" (or "@") for compile-time known value binding:\n${typeToString(userDefinedType)}`,
+      errorMessage: `Expected "compt"  for compile-time known value binding:\n${typeToString(userDefinedType)}`,
     });
   }
 
   if (typeProhibitsComptModifier(userDefinedType) && isCompileTimeOnly) {
     throw formatErrorMessage({
       token: lhs.token,
-      errorMessage: `Unexpected "compt" (or "@") for ${typeToString(userDefinedType)} which can only be used at runtime.`,
+      errorMessage: `Unexpected "compt"  for ${typeToString(userDefinedType)} which can only be used at runtime.`,
     });
   }
 

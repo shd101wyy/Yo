@@ -1,15 +1,15 @@
-Box :: ((@(B): Type)-> @(Type))
+Box :: ((compt(B): Type)-> compt(Type))
   struct(value: B)
 ;
 
-Point :: ((@(P): Type)-> @(Type))
+Point :: ((compt(P): Type)-> compt(Type))
   struct
     x: P,
     y: P
 ;
 
 Id ::
-  ((@(Self): Type)-> @(Module))
+  ((compt(Self): Type)-> compt(Module))
   module
     (Self: Type) = Self,
     id:
@@ -17,7 +17,7 @@ Id ::
 ;
 
 id ::
-  ((forall(@(T): Type), @(I): Id(T), x: T)-> T)
+  ((forall(compt(T): Type), compt(I): Id(T), x: T)-> T)
   I.id(x)
 ;
 
@@ -34,9 +34,9 @@ IdBoolean ::
 ;
 
 IdBox ::
-  (( forall(@(X): Type),
-      @(I): Id(X)
-      )-> @(Id(Box(X)))) {
+  (( forall(compt(X): Type),
+      compt(I): Id(X)
+      )-> compt(Id(Box(X)))) {
   flag :: __yo_are_types_compatible(Box(X), Box(X));
   Id(Box(X))
     id:
@@ -49,9 +49,9 @@ IdBox ::
   ;
 
 IdPoint ::
-  (( forall(@(X): Type),
-    @(I): Id(X)
-  )-> @(Id(Point(X))))
+  (( forall(compt(X): Type),
+    compt(I): Id(X)
+  )-> compt(Id(Point(X))))
   Id(Point(X))
     id:
       fn(p) -> {

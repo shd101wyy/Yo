@@ -313,9 +313,9 @@ export function expectExprToHaveBeenEvaluated(
 }
 
 export const BuiltinKeywords = {
-  compt: ["compt", "@"],
-  mut: ["mut", "!"],
-  implicit: ["implicit", "?"],
+  compt: ["compt" /*"@"*/],
+  mut: ["mut" /*"!"*/],
+  implicit: ["implicit" /*"?"*/],
 
   forall: ["forall", "∀"],
   // Exists: ["exists", "∃"],

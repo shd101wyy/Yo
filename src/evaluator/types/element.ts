@@ -130,7 +130,7 @@ export function evaluateElementType({
       if (isCompileTimeOnly) {
         throw formatErrorMessage({
           token: labelExpr.token,
-          errorMessage: `Cannot combine the use of "compt" (or "@") with ::`,
+          errorMessage: `Cannot combine the use of "compt"  with ::`,
         });
       }
       isCompileTimeOnly = true;
@@ -162,7 +162,7 @@ export function evaluateElementType({
     if (isCompileTimeOnly) {
       throw formatErrorMessage({
         token: expr_.token,
-        errorMessage: `Cannot combine the use of "compt" (or "@") with "::"`,
+        errorMessage: `Cannot combine the use of "compt"  with "::"`,
       });
     }
 
@@ -262,7 +262,7 @@ ${typeToString(expectedType)}`
       throw formatErrorMessage({
         token: assignedValueExpr.token,
         errorMessage: `Assigned value expression is only allowed for compile-time only.
-Please consider adding "compt" (or "@") modifier to the field label.`,
+Please consider adding "compt"  modifier to the field label.`,
       });
     }
 
@@ -398,14 +398,14 @@ Given type: ${typeToString(defaultValueType)}`,
     if (typeRequiresComptModifier(elementType)) {
       throw formatErrorMessage({
         token: labelExpr?.token ?? expr.token,
-        errorMessage: `Expected "compt" (or "@") modifier for compile-time known value binding.`,
+        errorMessage: `Expected "compt"  modifier for compile-time known value binding.`,
       });
     }
   }
   if (isCompileTimeOnly && typeProhibitsComptModifier(elementType)) {
     throw formatErrorMessage({
       token: labelExpr?.token ?? expr.token,
-      errorMessage: `Unexpected "compt" (or "@") modifier for ${typeToString(elementType)} which can only be used at runtime.`,
+      errorMessage: `Unexpected "compt"  modifier for ${typeToString(elementType)} which can only be used at runtime.`,
     });
   }
 

@@ -5,16 +5,16 @@
  */
 extern
   add_int:
-    (@(a): compt_int, @(b): compt_int) -> @(compt_int),
+    (compt(a): compt_int, compt(b): compt_int) -> compt(compt_int),
   add_float:
-    (@(a): compt_float, @(b): compt_float) -> @(compt_float)
+    (compt(a): compt_float, compt(b): compt_float) -> compt(compt_float)
 ;
 
 main :: (()-> unit) {
   // compt_int;
   i :: 12;
   /// converting compt_int to integer types are allowed
-  (@(x_compt_int) : compt_int) = i;
+  (compt(x_compt_int) : compt_int) = i;
   x_compt_int_2 :: i;
   
   /// Create runtime int
@@ -29,14 +29,14 @@ main :: (()-> unit) {
 
   /// Cannot assign runtime int to compt_int
   compt_expect_error(
-    (@(x_compt_int_3) : compt_int) = x_u8
+    (compt(x_compt_int_3) : compt_int) = x_u8
     // Error: cannot assign runtime value to compt_int
   ); 
 
   // compt_float;
   f :: 12.3;
   /// converting compt_float to float types are allowed
-  (@(x_compt_float) : compt_float) = f;
+  (compt(x_compt_float) : compt_float) = f;
   x_compt_float_2 :: f;
 
   /// Create runtime float
@@ -45,7 +45,7 @@ main :: (()-> unit) {
 
   /// Cannot assign runtime float to compt_float
   compt_expect_error(
-    (@(x_compt_float_3) : compt_float) = x_f32
+    (compt(x_compt_float_3) : compt_float) = x_f32
     // Error: cannot assign runtime value to compt_float
   );
 

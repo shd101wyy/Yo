@@ -138,7 +138,7 @@ export function evaluateFunctionParameter({
       if (lhsExpr.args.length !== 1) {
         throw formatErrorMessage({
           token: lhsExpr.token,
-          errorMessage: `Expected one argument for "compt" (or "@"), got ${lhsExpr.args.length}`,
+          errorMessage: `Expected one argument for "compt" , got ${lhsExpr.args.length}`,
         });
       }
       lhsExpr = lhsExpr.args[0]!;
@@ -173,7 +173,7 @@ export function evaluateFunctionParameter({
       if (isCompileTimeOnly) {
         throw formatErrorMessage({
           token: lhsExpr.token,
-          errorMessage: `Cannot use "compt" (or "@") with "quote" (or ":"). "quote" parameters means compile-time only, so "compt" is redundant.`,
+          errorMessage: `Cannot use "compt"  with "quote" (or ":"). "quote" parameters means compile-time only, so "compt" is redundant.`,
         });
       }
       isCompileTimeOnly = true;
@@ -302,7 +302,7 @@ export function evaluateFunctionParameter({
       if (typeRequiresComptModifier(parameterType)) {
         throw formatErrorMessage({
           token: lhsExpr?.token ?? expr.token,
-          errorMessage: `Expected a "compt" (or "@") for parameter to be compile-time only. Given type:
+          errorMessage: `Expected a "compt"  for parameter to be compile-time only. Given type:
 ${typeToString(parameterType)}`,
         });
       }
@@ -310,7 +310,7 @@ ${typeToString(parameterType)}`,
     if (isCompileTimeOnly && typeProhibitsComptModifier(parameterType)) {
       throw formatErrorMessage({
         token: lhsExpr?.token ?? expr.token,
-        errorMessage: `Unexpected "compt" (or "@") for parameter of type ${typeToString(
+        errorMessage: `Unexpected "compt"  for parameter of type ${typeToString(
           parameterType
         )} which can only be used at runtime.`,
       });
@@ -615,7 +615,7 @@ export function evaluateFunctionParameters({
             if (argExpr.args.length !== 1) {
               throw formatErrorMessage({
                 token: argExpr.token,
-                errorMessage: `Expected one argument for "compt" (or "@"), got ${argExpr.args.length}`,
+                errorMessage: `Expected one argument for "compt" , got ${argExpr.args.length}`,
               });
             }
             labelExpr = argExpr.args[0]!;
@@ -870,7 +870,7 @@ export function evaluateFunctionType({
     if (returnTypeExpr.args.length !== 1) {
       throw formatErrorMessage({
         token: returnTypeExpr.token,
-        errorMessage: `Expected one argument for "compt" (or "@"), got ${returnTypeExpr.args.length}`,
+        errorMessage: `Expected one argument for "compt" , got ${returnTypeExpr.args.length}`,
       });
     }
     returnTypeExpr = returnTypeExpr.args[0]!;
@@ -889,7 +889,7 @@ export function evaluateFunctionType({
     if (isReturnTypeCompileTimeOnly) {
       throw formatErrorMessage({
         token: returnTypeExpr.token,
-        errorMessage: `Cannot use "compt" (or "@") with "unquote" (or "~"). "unquote" return type means compile-time only, so "compt" is redundant.`,
+        errorMessage: `Cannot use "compt"  with "unquote" (or "~"). "unquote" return type means compile-time only, so "compt" is redundant.`,
       });
     }
     isReturnTypeCompileTimeOnly = true;
@@ -932,7 +932,7 @@ export function evaluateFunctionType({
     if (typeRequiresComptModifier(returnType)) {
       throw formatErrorMessage({
         token: returnTypeExpr.token,
-        errorMessage: `Expected a "compt" (or "@") for return type, like:\n
+        errorMessage: `Expected a "compt"  for return type, like:\n
 compt(${exprToString(returnTypeExpr)})
 
 Given type:
@@ -947,7 +947,7 @@ ${typeToString(returnType)}`,
   if (isReturnTypeCompileTimeOnly && typeProhibitsComptModifier(returnType)) {
     throw formatErrorMessage({
       token: returnTypeExpr.token,
-      errorMessage: `Unexpected "compt" (or "@") for return type of ${typeToString(
+      errorMessage: `Unexpected "compt"  for return type of ${typeToString(
         returnType
       )} which can only be used at runtime.`,
     });

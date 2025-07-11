@@ -2,7 +2,7 @@ extern
   add:
     (x: i32, y: i32)-> i32,
   compt_add:
-    (@(x): i32, @(y): i32)-> @(i32)
+    (compt(x): i32, compt(y): i32)-> compt(i32)
 ;
 
 // Runtime only function
@@ -11,7 +11,7 @@ runt_id :: ((n: i32)-> i32)
 ;
 
 // Compile-time only function
-compt_id :: ((@(n): i32)-> @(i32))
+compt_id :: ((compt(n): i32)-> compt(i32))
   n
 ;
 
@@ -55,7 +55,7 @@ main :: (()-> unit) {
   runt_add_points :: ((p1: Point, p2: Point)-> Point)
     Point(p1.x `add` p2.x, p1.y `add` p2.y)
   ;
-  compt_add_points :: ((@(p1): Point, @(p2): Point)-> @(Point))
+  compt_add_points :: ((compt(p1): Point, compt(p2): Point)-> compt(Point))
     Point(p1.x `compt_add` p2.x, p1.y `compt_add` p2.y)
   ;
 

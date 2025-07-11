@@ -34,7 +34,7 @@ export interface Type {
    * Point is the name of the struct.
    *
    * eg:
-   *   (@(LinearI32) : Linear) = i32;
+   *   (compt(LinearI32) : Linear) = i32;
    * LinearI32 is the name of the type.
    */
   typeName?: string;
@@ -403,14 +403,14 @@ export interface FunctionType extends Type {
   /**
    * The type parameters, usually defined in forall(...):
    * eg:
-   *   (forall(@(T): Type), x: T)-> T;
+   *   (forall(compt(T): Type), x: T)-> T;
    */
   typeParameters: FunctionParameter[];
 
   /**
    * The implicit parameters (aka contextual parameters), usually define in implicit(...):
    * eg:
-   *   (@(T): Type, p: Point(T), implicit(Show(T)))-> String
+   *   (compt(T): Type, p: Point(T), implicit(Show(T)))-> String
    */
   implicitParameters: FunctionParameter[];
 
@@ -423,7 +423,7 @@ export interface FunctionType extends Type {
    *
    *  (quote(e): Expr, ...(quote(rest))) -> unquote(Expr); // macro, rest has type ExprList
    *  (x: i32, y: i32, ...(rest)) -> i32;     // Yo style. rest has type ArgList
-   *  (@(x) : i32, @(y) : i32, ...(@(rest))); // Yo style. rest has type ArgList
+   *  (compt(x) : i32, compt(y) : i32, ...(compt(rest))); // Yo style. rest has type ArgList
    *
    */
   variadicParameter?: FunctionParameter;
