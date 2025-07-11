@@ -14,25 +14,25 @@ Id ::
 ;
 
 id ::
-  ((forall(compt(T): Type), x: T, implicit(compt(I): Id(T)))-> T)
+  ((forall(compt(T): Type), x: T, using(compt(I): Id(T)))-> T)
   I.id(x)
 ;
 
-implicit(IdInt) ::
+given(IdInt) ::
   Id(i32)
     id:
       fn(x) -> x
 ;
 
-implicit(IdBoolean) ::
+given(IdBoolean) ::
   Id(boolean)
     id:
       fn(x) -> x
 ;
 
-implicit(IdPoint) ::
+given(IdPoint) ::
   (( forall(compt(IP): Type), 
-    implicit(compt(I): Id(IP))
+    using(compt(I): Id(IP))
   )-> compt(Id(Point(IP))))
   Id(Point(IP))
     id:
@@ -44,13 +44,13 @@ implicit(IdPoint) ::
 
 main :: (()-> unit) {
   x := id(13); // Implicit call
-  x2 := id(13, implicit(IdInt)); // Explicit call
+  x2 := id(13, using(IdInt)); // Explicit call
 
   x3 := id(false); // Implicit call
-  x4 := id(true, implicit(IdBoolean)); // Explicit call
+  x4 := id(true, using(IdBoolean)); // Explicit call
 
   // QUESTION: How to implement the following?
   x5 := id(Point(i32)(1, 2)); // Implicit call
-  x6 := id(Point(i32)(1, 2), implicit(IdPoint())); // Implicit call 2
-  x7 := id(Point(i32)(1, 2), implicit(IdPoint(implicit(IdInt)))); // Explicit call
+  x6 := id(Point(i32)(1, 2), using(IdPoint())); // Implicit call 2
+  x7 := id(Point(i32)(1, 2), using(IdPoint(using(IdInt)))); // Explicit call
 }

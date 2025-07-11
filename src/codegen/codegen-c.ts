@@ -1003,7 +1003,7 @@ export class CodeGeneratorC {
 
       if (
         exprIsFunctionCall(lhs) &&
-        exprIsFunctionCallOf(lhs, BuiltinKeywords.implicit, 1)
+        exprIsFunctionCallOf(lhs, BuiltinKeywords.given, 1)
       ) {
         // implicit variable, just use the inner expression
         lhs = lhs.args[0]!;
@@ -1071,7 +1071,7 @@ export class CodeGeneratorC {
       // let isImplicit = false;
       if (
         exprIsFunctionCall(lhs) &&
-        exprIsFunctionCallOf(lhs, BuiltinKeywords.implicit, 1)
+        exprIsFunctionCallOf(lhs, BuiltinKeywords.given, 1)
       ) {
         // isImplicit = true;
         lhs = lhs.args[0]!; // Get the actual variable being assigned
@@ -1165,7 +1165,7 @@ export class CodeGeneratorC {
       }
       if (
         exprIsFunctionCall(lhs) &&
-        exprIsFunctionCallOf(lhs, BuiltinKeywords.implicit, 1)
+        exprIsFunctionCallOf(lhs, BuiltinKeywords.given, 1)
       ) {
         // implicit variable, just use the inner expression
         lhs = lhs.args[0]!;

@@ -80,7 +80,7 @@ export function evaluateInitializationAssignment({
   // Check if the variale is implicit
   if (
     exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.implicit)
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.given)
   ) {
     isImplicit = true;
     // Check if the lhs is a variable

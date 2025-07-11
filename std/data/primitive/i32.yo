@@ -8,34 +8,34 @@ open import "../../builtins.yo";
 /**
  * arithmetic
  */
-implicit(I32Add) :: Add(i32, i32)
+given(I32Add) :: Add(i32, i32)
   (+): (fn(a, b)-> __yo_op_add(a, b))
 ;
 
-implicit(I32Sub) :: Sub(i32, i32)
+given(I32Sub) :: Sub(i32, i32)
   (-): (fn(a, b)-> __yo_op_sub(a, b))
 ;
 
-implicit(I32Mul) :: Mul(i32, i32)
+given(I32Mul) :: Mul(i32, i32)
   (*): (fn(a, b)-> __yo_op_mul(a, b))
 ;
 
-implicit(I32Div) :: Div(i32, i32)
+given(I32Div) :: Div(i32, i32)
   (/): (fn(a, b)-> __yo_op_div(a, b))
 ;
 
-implicit(I32Mod) :: Mod(i32, i32)
+given(I32Mod) :: Mod(i32, i32)
   (%): (fn(a, b)-> __yo_op_mod(a, b))
 ;
 
-implicit(I32Negate) :: Negate(i32)
+given(I32Negate) :: Negate(i32)
   (neg): (fn(a)-> __yo_op_neg(a))
 ;
 
 /**
  * logic
  */
-implicit(I32LogicalNot) :: LogicalNot(i32)
+given(I32LogicalNot) :: LogicalNot(i32)
   (!): (fn(a)-> __yo_op_not(a))
 ;
 
@@ -43,28 +43,28 @@ implicit(I32LogicalNot) :: LogicalNot(i32)
 /**
  * eq
  */
-implicit(I32Eq) :: Eq(i32, i32)
+given(I32Eq) :: Eq(i32, i32)
   (==) : (fn(a, b)-> __yo_op_eq(a, b))
 ;
 
 /**
  * ord
  */
-implicit(I32Ord) :: Ord(i32, i32, implicit(I32Eq))
+given(I32Ord) :: Ord(i32, i32, using(I32Eq))
   (<) : (fn(a, b)-> __yo_op_lt(a, b)),
   (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
   (>) : (fn(a, b)-> __yo_op_gt(a, b)),
   (>=) : (fn(a, b)-> __yo_op_gte(a, b))
 ;
 
-implicit(I32Drop) :: Drop(i32)
+given(I32Drop) :: Drop(i32)
   drop: (fn(self)->
     // No-op for i32, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
-implicit(I32Clone) :: Clone(i32)
+given(I32Clone) :: Clone(i32)
   clone: (fn(self)->
     // No-op for i32, as it is a primitive type
     __yo_return_self(self.*)
@@ -75,7 +75,7 @@ implicit(I32Clone) :: Clone(i32)
 /**
  * Methods for compt i32
  */
-implicit(I32ComptMethods) :: module {
+given(I32ComptMethods) :: module {
   Self :: i32;
 
   (+) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))

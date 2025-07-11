@@ -5,7 +5,7 @@ Clone :: ((compt(Self): Type) -> compt(Module))
       (self: &(Self)) -> Self
 ;
 
-implicit(Point) :: struct
+given(Point) :: struct
   x : i32,
   y : i32,
 
@@ -38,13 +38,13 @@ Point.clone(&(Point(1, 2))); // This should also work, we can clone a Point usin
 
 some_func :: (( forall(compt(Self) : Type ), 
                 self : &(Self),
-                implicit(compt(CloneMethod) : Clone(Self))
+                using(compt(CloneMethod) : Clone(Self))
               ) -> unit)
   CloneMethod.clone(self)
 ;
 
 point := Point(3, 4);
-some_func(&(point), implicit(Point)); // This should work. We can say Point also implements Clone(Point) because it has a clone method.
-some_func(&(point), implicit(_));
-some_func(&(point), implicit());
+some_func(&(point), using(Point)); // This should work. We can say Point also implements Clone(Point) because it has a clone method.
+some_func(&(point), using(_));
+some_func(&(point), using());
 some_func(&(point));

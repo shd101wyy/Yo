@@ -201,19 +201,19 @@ export function handleMemberDestructuring({
 
     // Handle destructuring with implicit members
     // This only works with the module destructuring
-    // - ( ...(implicit) ) or ( ...(not(implicit)) )
+    // - ( ...(given) ) or ( ...(not(given)) )
     else if (
       exprIsFunctionCall(lhsElement) &&
       exprIsFunctionCallOf(lhsElement, "...", 1) &&
       lhsElement.args.length === 1 &&
-      (exprIsAtomOf(lhsElement.args[0]!, BuiltinKeywords.implicit) ||
+      (exprIsAtomOf(lhsElement.args[0]!, BuiltinKeywords.given) ||
         (exprIsFunctionCall(lhsElement.args[0]) &&
           exprIsFunctionCallOf(lhsElement.args[0]!, BuiltinKeywords.not) &&
-          exprIsAtomOf(lhsElement.args[0]!.args[0]!, BuiltinKeywords.implicit))) // TODO: not implicit
+          exprIsAtomOf(lhsElement.args[0]!.args[0]!, BuiltinKeywords.given))) // TODO: not implicit
     ) {
       const expectedImplicits = exprIsAtomOf(
         lhsElement.args[0]!,
-        BuiltinKeywords.implicit
+        BuiltinKeywords.given
       );
 
       if (!isModuleType(rhsType) || !isModuleValue(rhsValue)) {

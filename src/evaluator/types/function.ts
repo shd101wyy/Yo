@@ -513,7 +513,7 @@ export function evaluateFunctionParameters({
     // Check if it's the implicit parameters
     else if (
       exprIsFunctionCall(parameterExpr) &&
-      exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.implicit)
+      exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.using)
     ) {
       findImplicitParameters = true;
 

@@ -164,7 +164,7 @@ export function tryToCallFunctionWithArguments({
 
     if (
       exprIsFunctionCall(argExpr) &&
-      exprIsFunctionCallOf(argExpr, BuiltinKeywords.implicit)
+      exprIsFunctionCallOf(argExpr, BuiltinKeywords.using)
     ) {
       if (i !== argExprs.length - 1) {
         throw formatErrorMessage({

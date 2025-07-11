@@ -315,7 +315,10 @@ export function expectExprToHaveBeenEvaluated(
 export const BuiltinKeywords = {
   compt: ["compt" /*"@"*/],
   mut: ["mut" /*"!"*/],
-  implicit: ["implicit" /*"?"*/],
+
+  // implicit: ["implicit" /*"?"*/], // deprecated in favor of `using` and `given` like scala
+  using: ["using"],
+  given: ["given"],
 
   forall: ["forall", "∀"],
   // Exists: ["exists", "∃"],

@@ -120,7 +120,7 @@ All module elements are compile-time only by default.`,
     // Check isImplicit
     if (
       exprIsFunctionCall(labelExpr) &&
-      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.implicit, 1)
+      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.given, 1)
     ) {
       isImplicit = true;
       labelExpr = labelExpr.args[0]!;
@@ -156,7 +156,7 @@ All module elements are compile-time only by default.`,
     // Check isImplicit
     if (
       exprIsFunctionCall(labelExpr) &&
-      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.implicit, 1)
+      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.given, 1)
     ) {
       isImplicit = true;
       labelExpr = labelExpr.args[0]!;

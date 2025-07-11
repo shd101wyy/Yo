@@ -88,7 +88,7 @@ export function evaluateElementType({
       // Check isImplicit
       if (
         exprIsFunctionCall(labelExpr) &&
-        exprIsFunctionCallOf(labelExpr, BuiltinKeywords.implicit, 1)
+        exprIsFunctionCallOf(labelExpr, BuiltinKeywords.given, 1)
       ) {
         isImplicit = true;
         labelExpr = labelExpr.args[0]!;
@@ -140,7 +140,7 @@ export function evaluateElementType({
     // Check isImplicit
     if (
       exprIsFunctionCall(labelExpr) &&
-      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.implicit, 1)
+      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.given, 1)
     ) {
       isImplicit = true;
       labelExpr = labelExpr.args[0]!;
@@ -172,7 +172,7 @@ export function evaluateElementType({
     // Check isImplicit
     if (
       exprIsFunctionCall(labelExpr) &&
-      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.implicit, 1)
+      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.given, 1)
     ) {
       isImplicit = true;
       labelExpr = labelExpr.args[0]!;

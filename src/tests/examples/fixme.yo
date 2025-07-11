@@ -3,34 +3,6 @@ open import "std";
 (compt(LinearI32) : Linear) = i32;
 
 main :: (()-> unit) {
-  SomeModule :: module {
-    id :: ((x: i32)-> i32) x;
-    implicit(implicit_id) :: ((x: i32)-> i32) x;
-    x :: 1;
-    y :: 2;
-    export id, implicit_id, x, y;
-  };
-
-  {
-    // Use ... to destructure all exports
-    { ... } :: SomeModule;
-    v := id(3);
-
-
-    Point :: struct(a: i32, b: i32);
-    p :: Point 3, 4;
-    { ... } :: p;
-    x2 := id(a);
-  };
-
-  {
-    // Use ...(implicit) to destructure all implicits
-    { ...(implicit) } :: SomeModule;
-    
-    implicit_id(3);
-    
-    compt_expect_error(
-      id(3) // "id" is not imported here, so it should not be accessible
-    );
-  }
+  (x : LinearI32) = 1;
+  drop(x);
 };

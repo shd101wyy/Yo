@@ -1,5 +1,5 @@
 extern
-  implicit(add):
+  given(add):
     (x: i32, y: i32)-> i32
 ;
 
@@ -9,7 +9,7 @@ def generic_add:
     forall(compt(T): Type), 
     x: T, y: T,
     // defining contextual parameters 
-    implicit(
+    using(
       compt(add):
         (T, T)-> T 
     )
@@ -23,8 +23,8 @@ def implicit(add2):
   x `add` y
 ;
 
-generic_add(1, 2, implicit(add2)); // Explicitly uses the `add2` function
-generic_add(forall(i32), 1, 2, implicit(add2)); // Explicitly uses the `add2` function
+generic_add(1, 2, using(add2)); // Explicitly uses the `add2` function
+generic_add(forall(i32), 1, 2, using(add2)); // Explicitly uses the `add2` function
 // generic_add(1, 2); // Ambiguous implicit parameter.
 
 

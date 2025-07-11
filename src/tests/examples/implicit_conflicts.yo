@@ -4,26 +4,27 @@ extern
 ;
 
 // outer scope implicit add
-implicit(add1) :: ((x: i32, y: i32)-> i32)
+given(add1) :: ((x: i32, y: i32)-> i32)
   add(x, y)
 ;
 
 main :: (() -> unit) {
   // inner scope implicit add
-  implicit(add2) :: ((x: i32, y: i32)-> i32)
+  given(add2) :: ((x: i32, y: i32)-> i32)
     add(x, y)
   ;
 
 
-  use_add :: ((x: i32, y: i32, 
-    implicit(compt(some_add): ((x: i32, y: i32)-> i32)))-> i32)
+  use_add :: (
+    ( x: i32, y: i32, 
+      using(compt(some_add): ((x: i32, y: i32)-> i32)))-> i32)
     some_add(x, y)
   ;
 
   // If we define another implicit add at the same scope of `add2`
   // then calling use_add(3, 4) will have ambiguous implicit add args:
   /// 
-  /// implicit(add3) :: ((x: i32, y: i32)-> i32)
+  /// given(add3) :: ((x: i32, y: i32)-> i32)
   ///   add(x, y)
   /// ;
 

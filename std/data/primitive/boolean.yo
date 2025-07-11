@@ -6,7 +6,7 @@
 /**
  * logic
  */
-implicit(BooleanLogicalNot) :: LogicalNot(boolean)
+given(BooleanLogicalNot) :: LogicalNot(boolean)
   (!): (fn(a)->
     __yo_op_not(a)
   )
@@ -15,7 +15,7 @@ implicit(BooleanLogicalNot) :: LogicalNot(boolean)
 /**
  * eq
  */
-implicit(BooleanEq) :: Eq(boolean, boolean)
+given(BooleanEq) :: Eq(boolean, boolean)
   (==): (fn(a, b)->
     __yo_op_eq(a, b)
   )
@@ -26,7 +26,7 @@ implicit(BooleanEq) :: Eq(boolean, boolean)
   * 
   * This is a no-op for boolean type, as it does not require any special cleanup.
   */
-implicit(BooleanDrop) :: Drop(boolean)
+given(BooleanDrop) :: Drop(boolean)
   drop: (fn(self)->
     // No-op for boolean
     __yo_noop()
@@ -38,14 +38,14 @@ implicit(BooleanDrop) :: Drop(boolean)
   * 
   * Just returns the same boolean value, as it is a primitive type.
   */
-implicit(BooleanClone) :: Clone(boolean)
+given(BooleanClone) :: Clone(boolean)
   clone: (fn(self)->
     // No-op for boolean, as it is a primitive type
     __yo_return_self(self.*)
   )
 ;
 
-implicit(ComptBooleanMethods) :: module {
+given(ComptBooleanMethods) :: module {
   Self :: boolean;
 
   (&&) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
