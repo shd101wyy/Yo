@@ -440,7 +440,7 @@ Got:   ${argExprs.length} arguments`,
   // Check if the parameters match the arguments
   let regularArgIndex = 0;
   for (
-    let regularArgIndex = 0;
+    regularArgIndex = 0;
     regularArgIndex < functionType.parameters.length;
     regularArgIndex++
   ) {

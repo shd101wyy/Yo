@@ -93,6 +93,7 @@ export function evaluateAnonymousFunctionImplementation({
         env: env,
       },
     },
+    variablesToAdd: [],
   });
 
   // Check if the return type is compatible

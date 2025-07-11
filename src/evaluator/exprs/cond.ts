@@ -183,6 +183,7 @@ export function evaluateCond({
         // If the current branch might terminate (e.g., contains return), mark it
         // We'll let the begin expression determine if it actually terminates
       },
+      variablesToAdd: [],
     });
 
     if (evaluatedCaseBodyExpr.$?.controlFlow) {
@@ -257,6 +258,7 @@ export function evaluateCond({
         context: {
           ...context,
         },
+        variablesToAdd: [],
       });
 
       if (evaluatedCaseBodyExpr.$?.controlFlow) {

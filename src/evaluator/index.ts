@@ -21,6 +21,7 @@ import { evaluateAndOr } from "./builtins/and_or";
 import { evaluateComptAssert } from "./builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "./builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "./builtins/compt_expect_error";
+import { evaluateComptPrint } from "./builtins/compt_print";
 import { evaluateYoComptStringFunctions } from "./builtins/compt_string_fns";
 import { evaluateDrop } from "./builtins/drop";
 import {
@@ -282,6 +283,7 @@ ${exprToString(expr)}`,
           expr,
           env,
           context: { ...context },
+          variablesToAdd: [],
         });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
         // module
@@ -359,6 +361,13 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.compt_assert)) {
         // compt_assert
         return evaluateComptAssert({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.compt_print)) {
+        // compt_print
+        return evaluateComptPrint({
           expr,
           env,
           context: { ...context },

@@ -120,6 +120,7 @@ export function evaluateComptFunctionCall({
         value: functionValue,
       },
     },
+    variablesToAdd: [],
   });
   if (!evaluatedFunctionBody.$) {
     throw formatErrorMessage({

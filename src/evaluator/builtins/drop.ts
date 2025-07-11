@@ -9,7 +9,7 @@ import {
   setExprAsConsumed,
 } from "../../expr";
 import { TokenType } from "../../token";
-import { isLinearOrType0Type, isSomeType, typeToString } from "../../types";
+import { isLinearOrType0Type, isSomeType } from "../../types";
 import { VUnit } from "../../unit-value";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
@@ -50,15 +50,11 @@ export function evaluateDrop({
   checkBorrowings(context.borrowings, evaluatedArgExpr);
 
   // Check if there is `.drop` method available to call
+  // for Linear value
   if (
     !isSomeType(evaluatedArgExpr.$.type) &&
     isLinearOrType0Type(evaluatedArgExpr.$.type)
   ) {
-    console.log(
-      "variable type: ",
-      typeToString(evaluatedArgExpr.$.type),
-      evaluatedArgExpr.$.type.id
-    );
     const dropMethodCallExpr: FuncCallExpr = {
       tag: ExprTag.FuncCall,
       args: [],

@@ -298,6 +298,7 @@ export function evaluateMatch({
         context: {
           ...context,
         },
+        variablesToAdd: [],
       });
       // We don't update the original env here since each pattern has its own scope
 

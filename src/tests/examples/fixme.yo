@@ -1,9 +1,16 @@
 open import "std";
 
-(compt(LinearI32) : Linear) = i32;
+(add) :: ((
+          quote(arg1): Expr,
+          quote(arg2): Expr,
+          ...(quote(arg3))
+        ) -> unquote(Expr))
+  cond
+    (arg3.length() == 0) =>
+      quote((unquote(arg1) + unquote(arg2))),
+    true =>
+      quote(add((unquote(arg1) + unquote(arg2)), unquote_splicing(arg3)))
+;
 
-
-main :: (()-> unit) {
-  (x : LinearI32) = 1;
-  drop(x);
-};
+x :: macro_expand(quote(add(3, 4, 5, 6)));
+compt_print(x);

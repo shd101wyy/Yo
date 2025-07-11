@@ -184,6 +184,7 @@ export function evaluateBorrow({
       SelfType: undefined,
       borrowings: [...context.borrowings, ...borrowings],
     },
+    variablesToAdd: [],
   });
   if (!evaluatedBorrowBlock.$) {
     throw formatErrorMessage({

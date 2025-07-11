@@ -71,6 +71,7 @@ export function tryToImplementFunctionByFunctionType({
         env: env, // QUESTION: What should be the env here?
       },
     },
+    variablesToAdd: [],
   });
   if (!evaluatedFunctionBody.$) {
     throw formatErrorMessage({
