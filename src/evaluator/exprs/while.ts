@@ -74,7 +74,7 @@ export function evaluateWhile({
       env,
       context: {
         ...context,
-        isEvaluatingLoopBody: env, // Indicate that we are evaluating a while loop
+        isEvaluatingLoopBody: { kind: "while", env }, // Indicate that we are evaluating a while loop
       },
     });
     if (!evaluatedBodyExpr.$) {

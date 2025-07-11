@@ -1,11 +1,4 @@
-import {
-  addVariableToEnv,
-  Environment,
-  getVariablesFromEnv,
-  popEnvFrame,
-  pushEnvFrame,
-  updateExistingVariable,
-} from "../../env";
+import { Environment, Variable } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -267,7 +260,6 @@ export function evaluateFor({
   const elementIndexName = elementIndexExpr
     ? elementIndexExpr.token.value
     : undefined;
-  env = pushEnvFrame(env);
 
   let itemType = itemsType.elementType;
   if (itemPtrOrRefType) {
@@ -293,22 +285,7 @@ export function evaluateFor({
     }
   }
 
-  const { env: nextEnv } = addVariableToEnv({
-    env,
-    variable: {
-      name: elementVariableName,
-      type: itemType,
-      isMutable: isElementVariableMutable,
-      consumedAtToken: undefined,
-      initializedAtToken: elementVariableExpr.token,
-      isCompileTimeOnly: Boolean(evaluatedItemsExpr.$.value),
-      isImplicit: false, // Not an implicit variable
-      token: elementVariableExpr.token,
-      value: undefined, // Let's set it as undefined for now, then we initialize it in the for loop body
-    },
-  });
-  env = nextEnv;
-  /// Add type information to the element variable expr
+  // Add type information to the element variable expr
   elementVariableExpr.$ = {
     type: itemType,
     isMutable: isElementVariableMutable,
@@ -320,23 +297,6 @@ export function evaluateFor({
   };
 
   if (elementIndexName) {
-    // Add the element index variable to the environment
-    const { env: nextEnv } = addVariableToEnv({
-      env,
-      variable: {
-        name: elementIndexName,
-        type: createUsizeType(),
-        isMutable: false, // The index variable is immutable
-        consumedAtToken: undefined,
-        initializedAtToken: elementIndexExpr!.token,
-        isCompileTimeOnly: Boolean(evaluatedItemsExpr.$.value), // Not a compile-time only variable
-        isImplicit: false, // Not an implicit variable
-        token: elementIndexExpr!.token,
-        value: undefined, // Let's set it as undefined for now, then we initialize it in the for loop body
-      },
-    });
-    env = nextEnv;
-
     /// Add type information to the element index variable expr
     elementIndexExpr!.$ = {
       type: createUsizeType(),
@@ -362,25 +322,32 @@ export function evaluateFor({
       break; // We need to evaluate the body at least once
     }
 
-    // Update the element variable in the environment
-    const elementVariables = getVariablesFromEnv(env, elementVariableName);
-    const elementVariable = elementVariables[elementVariables.length - 1]!;
-    env = updateExistingVariable(env, elementVariable, {
-      ...elementVariable,
-      consumedAtToken: undefined, // Reset consumedAtToken
+    const variables: Omit<Variable, "frameLevel" | "id">[] = [];
+    // Add item to variables
+    variables.push({
+      name: elementVariableName,
+      type: itemType,
+      isMutable: isElementVariableMutable,
+      consumedAtToken: undefined,
+      initializedAtToken: elementVariableExpr.token,
+      isCompileTimeOnly: Boolean(evaluatedItemsExpr.$.value),
+      isImplicit: false, // Not an implicit variable
+      token: elementVariableExpr.token,
 
       // TODO: Support reference value
       value: isArrayValue(itemsValue) ? itemsValue.elements[index]! : undefined, // Set the value to the current element
     });
-
-    // Update the element index variable in the environment if it exists
-    if (elementIndexName) {
-      const elementIndexVariables = getVariablesFromEnv(env, elementIndexName);
-      const elementIndexVariable =
-        elementIndexVariables[elementIndexVariables.length - 1]!;
-      env = updateExistingVariable(env, elementIndexVariable, {
-        ...elementIndexVariable,
-        consumedAtToken: undefined, // Reset consumedAtToken
+    // Add index to variables if it exists
+    if (elementIndexExpr && elementIndexName) {
+      variables.push({
+        name: elementIndexName,
+        type: createUsizeType(),
+        isMutable: false, // The index variable is immutable
+        consumedAtToken: undefined,
+        initializedAtToken: elementIndexExpr!.token,
+        isCompileTimeOnly: Boolean(evaluatedItemsExpr.$.value), // Not a compile-time only variable
+        isImplicit: false, // Not an implicit variable
+        token: elementIndexExpr!.token,
         value: createNumberValue(ValueTag.Usize, index), // Set the value to the current index
       });
     }
@@ -391,8 +358,9 @@ export function evaluateFor({
       env,
       context: {
         ...context,
-        isEvaluatingLoopBody: env, // Indicate that we are evaluating a while loop
+        isEvaluatingLoopBody: { kind: "for", env }, // Indicate that we are evaluating a for loop
       },
+      variablesToAdd: variables,
     });
     if (!evaluatedBodyExpr.$) {
       throw formatErrorMessage({
@@ -408,7 +376,7 @@ export function evaluateFor({
       if (controlFlow === "return") {
         // Guaranteed that we meet "return"
         expr.$ = {
-          env: popEnvFrame(evaluatedBodyExpr.$.env),
+          env: evaluatedBodyExpr.$.env,
           isMutable: evaluatedBodyExpr.$.isMutable,
           pathCollection: evaluatedBodyExpr.$.pathCollection,
           type: evaluatedBodyExpr.$.type,
@@ -419,7 +387,7 @@ export function evaluateFor({
       } else if (controlFlow === "break") {
         // Break exits the loop, return unit
         expr.$ = {
-          env: popEnvFrame(evaluatedBodyExpr.$.env),
+          env: evaluatedBodyExpr.$.env,
           isMutable: false,
           pathCollection: [],
           type: VUnit.type,
@@ -444,7 +412,7 @@ export function evaluateFor({
 
   // Finish the loop
   expr.$ = {
-    env: popEnvFrame(env),
+    env: env,
     isMutable: false,
     pathCollection: [],
     type: VUnit.type,

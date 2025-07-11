@@ -1,8 +1,10 @@
 import {
+  addVariableToEnv,
   Environment,
   getVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
+  Variable,
 } from "../../env";
 import { formatErrorMessage, formatErrorMessages } from "../../error";
 import {
@@ -44,10 +46,12 @@ export function evaluateBeginExpression({
   expr,
   env,
   context,
+  variablesToAdd = [],
 }: {
   expr: Expr;
   env: Environment;
   context: EvaluatorContext;
+  variablesToAdd: Omit<Variable, "frameLevel" | "id">[];
 }): Expr {
   let beginExpressions: Expr[] = [];
   let hasBeginKeyword = false;
@@ -77,6 +81,13 @@ export function evaluateBeginExpression({
 
   // Push a new environment frame
   env = pushEnvFrame(env);
+
+  // Add variablesToAdd to the environment
+  for (let i = 0; i < variablesToAdd.length; i++) {
+    const variable = variablesToAdd[i]!;
+    const { env: nextEnv } = addVariableToEnv({ env, variable });
+    env = nextEnv;
+  }
 
   // Store the initial environment to compare with final environment later
   const initialEnv = env;
@@ -429,7 +440,7 @@ function validateLinearConsumptionInLoop(
     return; // Not in a while loop, no validation needed
   }
 
-  const loopFrameCount = context.isEvaluatingLoopBody.frames.length;
+  const loopFrameCount = context.isEvaluatingLoopBody.env.frames.length;
 
   // Check each frame that existed before the while/for loop
   for (let frameIndex = 0; frameIndex < loopFrameCount; frameIndex++) {
@@ -467,6 +478,16 @@ function validateLinearConsumptionInLoop(
         // If the block doesn't have terminating control flow, it's an error
         // Only "return" and "break" are terminating; "continue" and no control flow are not
         if (!controlFlow || controlFlow === "continue") {
+          /*
+          if (
+            varIndex === initialFrame.variables.length - 1 &&
+            context.isEvaluatingLoopBody.kind === "for"
+          ) {
+            continue; // This is the last frame of the "for" loop. It contains `item` and `index` which we allow to consume multiple times because
+            // each iteration we assign new values to them.
+          }
+          */
+
           throw formatErrorMessages([
             {
               token: finalVariable.consumedAtToken,

@@ -28,7 +28,10 @@ export interface EvaluatorContext {
    * Whether we are currently evaluating a while/for loop.
    * This record the env that is used for the while/for loop body.
    */
-  isEvaluatingLoopBody?: Environment;
+  isEvaluatingLoopBody?: {
+    kind: "while" | "for";
+    env: Environment;
+  };
 
   /**
    * The innermost struct, enum, or union that this function call is inside.

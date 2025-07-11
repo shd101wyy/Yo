@@ -250,7 +250,7 @@ export function evaluateAssignment({
       // Check if we are initializing a variable that is defined outside the current while loop.
       if (
         context.isEvaluatingLoopBody &&
-        variable.frameLevel < context.isEvaluatingLoopBody.frames.length
+        variable.frameLevel < context.isEvaluatingLoopBody.env.frames.length
       ) {
         throw formatErrorMessages([
           {
