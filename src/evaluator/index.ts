@@ -62,6 +62,7 @@ import { evaluateBorrow } from "./exprs/borrow";
 import { evaluateCond } from "./exprs/cond";
 import { evaluateConsume } from "./exprs/consume";
 import { evaluateExtern } from "./exprs/extern";
+import { evaluateFor } from "./exprs/for";
 import { evaluateIdentifierAndOperator } from "./exprs/identifer_and_operator";
 import { evaluateImport } from "./exprs/import";
 import { evaluateInitializationAssignment } from "./exprs/initialization_assignment";
@@ -642,6 +643,9 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
         // while
         return evaluateWhile({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.for)) {
+        // for
+        return evaluateFor({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.va_start)) {
         // va_start
         return evaluateVaStart({ expr, env, context: { ...context } });

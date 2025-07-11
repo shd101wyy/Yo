@@ -17,6 +17,7 @@ import { evaluateBeginExpression } from "./begin";
  * While loop
  *
  * while condition, body
+ * while condition, step, body
  */
 export function evaluateWhile({
   expr,

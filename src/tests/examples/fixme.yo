@@ -1,16 +1,23 @@
-Option :: ((@(T): Type)-> @(Type))
-  enum
-    Some(value: T),
-    None
-;
+open import "std";
 
-// Alias of the Option type
-? :: Option;
+// For loop
+// which currently only works for Array
+sum :: (() -> i32) {
+  arr := [1, 2, 3];
+  mut(i) := 0;
+  for arr, elem => {
+    i = (elem + i);
+  };
+  return i;
+};
 
-?* :: ((compt(T): Type) -> compt(Type))
-  ?(*(T))
-;
+compt_sum :: (() -> compt(i32)) {
+  arr :: [1, 2, 3];
+  mut(i) :: 0;
+  for arr, elem => {
+    i = (elem + i);
+  };
+  return i;
+};
 
-X :: void;
-
-// x :: ?*(void);
+result :: compt_sum();

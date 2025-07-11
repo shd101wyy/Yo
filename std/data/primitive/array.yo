@@ -1,19 +1,16 @@
-// { Drop } :: import "../../modules/common.yo";
+{ Drop } :: import "../../modules/common.yo";
 
-/*
+
 implicit(DropArray) :: ((
   forall(@(T): Type, @(S): usize), 
   implicit(@(DropT): Drop(T)))
-  -> @(Drop(Array(T, S)))) {
-  drop : 
-    fn(self)-> {
-      mut(i) := 0;
-      while i < S, {
-        DropT.drop(as_free(self)(i));
-      };
-      consume(self);
-    }
-};
+  -> @(Drop(Array(T, S))))
+  Drop(Array(T, S))
+    drop : 
+      fn(self)-> 
+        for self, element => {
+          DropT.drop(element);
+        };
+  ;
 
 export DropArray;
-*/
