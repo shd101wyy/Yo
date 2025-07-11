@@ -11,8 +11,23 @@ sum :: (() -> i32) {
   return i;
 };
 
+sum_slice :: (() -> i32) {
+  arr := [1, 2, 3];
+  mut(i) := 0;
+  borrow &(arr(:)), slice => {
+    for slice, elem => {
+      i = (elem + i);
+    };
+
+    for slice, &(elem) => {
+      i = (elem.* + i);
+    };
+  };
+  return i;
+};
+
 compt_sum :: (() -> compt(i32)) {
-  arr :: [1, 2, 3];
+  arr :: [1, 2, 3, 4, 5, 6];
   mut(i) :: 0;
   for arr, (elem, index) => {
     i = (elem + i);
