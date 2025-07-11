@@ -1,7 +1,21 @@
 (compt(Data) : Linear) =
-  struct()
+  struct(
+    // Define the drop method for Data
+    drop :: (
+      ((self: Self) -> unit)
+        ()
+    )
+  )
 ;
+
+
 (compt(LinearI32) : Linear) = i32;
+// Define the drop method for LinearI32
+LinearI32Methods :: module {
+  Self :: LinearI32;
+  drop :: ((self: Self) -> unit) ();
+  export Self, drop;
+};
 
 test :: (()-> unit) {
   x := 12;
