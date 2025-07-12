@@ -8,7 +8,13 @@ import {
   FuncCallExpr,
   requireExprNotConsumed,
 } from "../../expr";
-import { createMutRefType, createRefType, TypeTag } from "../../types";
+import {
+  createMutRefType,
+  createRefType,
+  isMutRefType,
+  isRefType,
+  TypeTag,
+} from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 
@@ -36,11 +42,28 @@ export function evaluateReferenceCall({
     : TypeTag.MutRef;
 
   const argExpr = expr.args[0]!;
+
+  let expectedType = context.expectedType;
+  if (
+    expectedType &&
+    (isRefType(expectedType.type) || isMutRefType(expectedType.type))
+  ) {
+    // If the expected type is a reference type, we need to use the base type
+    // for the reference creation.
+    expectedType = {
+      ...expectedType,
+      type: expectedType.type.type,
+    };
+  } else {
+    // QUESTION: Should we set expectedType to undefined?
+  }
+
   const evaluatedArgExpr = context.evaluateExpression({
     expr: argExpr,
     env,
     context: {
       ...context,
+      expectedType,
     },
   });
 

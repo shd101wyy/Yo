@@ -395,7 +395,7 @@ Option ::
 // module
 // All the fields of the module have to be compile-time known.
 Id ::
-  (compt(Self): Type)-> compt(Type)
+  (compt(Self): Type)-> compt(Module)
   module
     (compt(Self): Type) = Self, 
     // ^ `Self` in module here means the receiver type. 
@@ -406,7 +406,7 @@ Id ::
 ;
 
 Stringer ::
-  (compt(Self): Type)-> compt(Type)
+  (compt(Self): Type)-> compt(Module)
   module
     (compt(Self): Type) = Self,
     compt(to_string): ((Self)-> String)
@@ -591,23 +591,6 @@ borrow arr.to_iter_mut(), iter-> {
   }
 };
 
-
-// closure
-// FnOnce, FnMut, Fn are modules
-// like the ones in Rust
-x := 12;
-borrow &!(x), x-> {
-  // x: &!(i32)
-  borrow ((fn(y: i32):i32) => { // => means closure that captures the outside environment.
-    x.* = (x.* + y);
-  // =>
-  }), closure -> { // in this case, closure is FnMut
-    closure(1); // x: 13
-    closure(2); // x: 15
-  }
-}
-// x: 15
-
 // do notation
 // allows us to use `<-`, `<=`, `<<=` inside a block
 do {
@@ -674,6 +657,18 @@ factorial ::
   };
   result
 }
+
+/// for
+/// for loop can be used to iterate over an array or slice
+arr := [1, 2, 3, 4, 5];
+for arr, (element, index)=> {
+  println(index);
+  println(element);
+};
+/// or using element only
+for arr, element => {
+  println(element);
+};
 
 // Recursion using recur
 // recur is used to call the current function recursively

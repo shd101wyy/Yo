@@ -9,7 +9,13 @@ import {
   FuncCallExpr,
   requireExprNotConsumed,
 } from "../../expr";
-import { createMutPtrType, createPtrType, TypeTag } from "../../types";
+import {
+  createMutPtrType,
+  createPtrType,
+  isMutPtrType,
+  isPtrType,
+  TypeTag,
+} from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 
@@ -38,6 +44,22 @@ export function evaluateRawPointerCall({
     : TypeTag.MutPtr;
 
   const argExpr = expr.args[0]!;
+
+  let expectedType = context.expectedType;
+  if (
+    expectedType &&
+    (isPtrType(expectedType.type) || isMutPtrType(expectedType.type))
+  ) {
+    // If the expected type is a reference type, we need to use the base type
+    // for the reference creation.
+    expectedType = {
+      ...expectedType,
+      type: expectedType.type.type,
+    };
+  } else {
+    // QUESTION: Should we set expectedType to undefined?
+  }
+
   const evaluatedArgExpr = context.evaluateExpression({
     expr: argExpr,
     env,

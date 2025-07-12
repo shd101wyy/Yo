@@ -48,6 +48,7 @@ import {
   isPtrType,
   isRefType,
   isSliceType,
+  isSomeType,
   isStructType,
   isUnionType,
   SliceType,
@@ -141,7 +142,7 @@ export function tryToCallFunctionWithArguments({
   // Check if there is `forall(...)` argument zone.
   // If yes, then it should be the first argument
   //
-  // Check if there is `implicit(...)` argument zone.
+  // Check if there is `using(...)` argument zone.
   // If yes, then it should be the last argument
   const newArgExprs: Expr[] = [];
   for (let i = 0; i < argExprs.length; i++) {
@@ -735,7 +736,7 @@ Got:   ${typeToString(argType)}`,
       throw formatErrorMessage({
         token: functionCallExpr?.token ?? PlaceholderToken,
         errorMessage: `Implicit parameter is not provided. Expected:
-${implicitParameter.label ? `implicit(${implicitParameter.label}) :\n  ${typeToString(implicitParameterType)}` : `implicit ${typeToString(implicitParameterType)}`}`,
+${implicitParameter.label ? `given(${implicitParameter.label}) :\n  ${typeToString(implicitParameterType)}` : `implicit ${typeToString(implicitParameterType)}`}`,
       });
     }
 
@@ -1180,7 +1181,7 @@ export function evaluateFunctionCall({
       // Check _ function
       if (functionName === "_") {
         const expectedType = context.expectedType;
-        if (!expectedType) {
+        if (!expectedType || isSomeType(expectedType.type)) {
           // throw formatErrorMessage(
           //   func.token,
           //   `Failed to infer type for _ function`

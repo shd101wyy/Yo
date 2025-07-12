@@ -244,7 +244,7 @@ export function evaluateAnonymousStructValue({
     env,
     type: structType,
     value: structValue,
-    isMutable: false,
+    isMutable: true,
     pathCollection: [],
     runtimeArgExprsInOrder,
   };

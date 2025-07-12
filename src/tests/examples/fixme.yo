@@ -11,28 +11,40 @@ p := Point(3, 4);
 result := SomeClosure.call(&(p));
 result2 := &(p).call();
 
-foreach :: 
-  (( forall(compt(Callback): Type, compt(size): usize),
+foreach ::
+  ((forall(
+      compt(Callback): Type, 
+      compt(size): usize
+    ),
     arr : Array(i32, size),
     callback : &!(Callback),
-    using(compt(Closure_) : Closure(Callback, (self: &!(Callback), value: &(i32)) -> unit))
+    using(
+      compt(Closure_) : Closure(Callback, (self: &!(Callback), value: &(i32)) -> unit)
+    )
   ) -> unit) {
-    mut(i) := 0.as(usize);
-    while (i < size), {
-      Closure_.call(callback, &(arr(i)));
-      i = (i + 1.as(usize));
-    };
+  mut(i) := 0.as(usize);
+  while (i < size), {
+    Closure_.call(callback, &(arr(i)));
+    i = (i + 1.as(usize));
+  };
 };
 
 main :: (() -> unit) {
   arr := [1, 2, 3, 4, 5];
   mut(sum) := 0;
-  
-  given(mut(closure)) := {
+  /*
+  (mut(closure)) := {
     sum : sum,
     call :: (((mut(self): &!(Self), value: &(i32))-> unit) {
       self.sum = (self.sum + value.*);
     })
   };
   foreach(arr, &!(closure), using(typeof(closure)));
+  */
+  foreach(arr, &!({
+    sum : sum,
+    call :: (((mut(self): &!(Self), value: &(i32))-> unit) {
+      self.sum = (self.sum + value.*);
+    })
+  }));
 };
