@@ -1,28 +1,38 @@
 open import "std";
 
-(add) :: ((
-          quote(arg1): Expr,
-          quote(arg2): Expr,
-          ...(quote(arg3))
-        ) -> unquote(Expr))
-  cond
-    (arg3.length() == 0) =>
-      quote((unquote(arg1) + unquote(arg2))),
-    true =>
-      quote(add((unquote(arg1) + unquote(arg2)), unquote_splicing(arg3)))
+Point :: struct(x : i32, y : i32);
+SomeClosure :: Closure(Point, (self: &(Point))-> i32)
+  call : (fn(self)->
+    self.x + self.y
+  )
 ;
 
-// Test full expansion (no level limit)
-x :: macro_expand(quote(add(3, 4, 5, 6)));
-compt_print("Full expansion:");
-compt_print(x);
+p := Point(3, 4);
+result := SomeClosure.call(&(p));
+result2 := &(p).call();
 
-// Test expansion with level 1 (should expand once)
-y :: macro_expand(quote(add(3, 4, 5, 6)), 1);
-compt_print("Level 1 expansion:");
-compt_print(y);
+foreach :: 
+  (( forall(compt(Callback): Type, compt(size): usize),
+    arr : Array(i32, size),
+    callback : &!(Callback),
+    using(compt(Closure_) : Closure(Callback, (self: &!(Callback), value: &(i32)) -> unit))
+  ) -> unit) {
+    mut(i) := 0.as(usize);
+    while (i < size), {
+      Closure_.call(callback, &(arr(i)));
+      i = (i + 1.as(usize));
+    };
+};
 
-// Test expansion with level 2 (should expand twice)
-z :: macro_expand(quote(add(3, 4, 5, 6)), 2);
-compt_print("Level 2 expansion:");
-compt_print(z);
+main :: (() -> unit) {
+  arr := [1, 2, 3, 4, 5];
+  mut(sum) := 0;
+  
+  given(mut(closure)) := {
+    sum : sum,
+    call :: (((mut(self): &!(Self), value: &(i32))-> unit) {
+      self.sum = (self.sum + value.*);
+    })
+  };
+  foreach(arr, &!(closure), using(typeof(closure)));
+};

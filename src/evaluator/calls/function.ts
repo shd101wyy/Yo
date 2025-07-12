@@ -642,11 +642,8 @@ Got:   ${typeToString(argType)}`,
       callerEnv,
       (variable) => {
         if (
-          !(
-            Boolean(variable.isImplicit) &&
-            Boolean(variable.isCompileTimeOnly) ===
-              Boolean(implicitParameter.isCompileTimeOnly)
-          )
+          !variable.isImplicit ||
+          variable.isCompileTimeOnly !== implicitParameter.isCompileTimeOnly
         ) {
           return false;
         }

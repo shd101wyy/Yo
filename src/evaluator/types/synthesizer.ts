@@ -477,7 +477,6 @@ export function synthesizeTypes(
       expected.type.length.variableName &&
       !isUnknownValue(given.type.length)
     ) {
-      console.log("Enter here");
       const expectedLengthVariableName = expected.type.length.variableName;
       const givenLength = given.type.length;
       // Check if the variable already exists in the env

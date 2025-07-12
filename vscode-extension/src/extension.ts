@@ -272,7 +272,7 @@ export function activate(context: vscode.ExtensionContext) {
             tokenText = `mut(${tokenText})`;
           }
           if (isImplicit) {
-            tokenText = `implicit(${tokenText})`;
+            tokenText = `given(${tokenText})`;
           }
           if (isCompileTimeOnly) {
             tokenText = `compt(${tokenText})`;
