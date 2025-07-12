@@ -417,6 +417,7 @@ export function areTypesCompatible(
   }
 
   // &
+  // &
   if (
     isRefType(expected.type) &&
     (isRefType(given.type) || isMutRefType(given.type))
@@ -639,6 +640,54 @@ export function areFunctionTypesCompatible(
       continue;
     }
 
+    // Special handling for function parameter reference compatibility
+    // For function parameters, compatibility is contravariant:
+    // - A function that takes &(T) can be used where a function that takes &!(T) is expected
+    // - A function that takes &!(T) cannot be used where a function that takes &(T) is expected
+
+    // Explicitly prevent &!(T) from being used where &(T) is expected
+    if (isRefType(expectedParam.type) && isMutRefType(givenParam.type)) {
+      // A function that takes &!(T) cannot be used where a function that takes &(T) is expected
+      return false;
+    }
+
+    if (
+      isMutRefType(expectedParam.type) &&
+      isRefType(givenParam.type) &&
+      areTypesCompatible(
+        { type: expectedParam.type.type, env: expected.env },
+        { type: givenParam.type.type, env: given.env },
+        exactNumericTypeMatch
+      )
+    ) {
+      // A function that takes &(T) can be used where a function that takes &!(T) is expected
+      continue;
+    }
+
+    // Special handling for function parameter pointer compatibility
+    // For function parameters, compatibility is contravariant:
+    // - A function that takes *(T) can be used where a function that takes *!(T) is expected
+    // - A function that takes *!(T) cannot be used where a function that takes *(T) is expected
+
+    // Explicitly prevent *!(T) from being used where *(T) is expected
+    if (isPtrType(expectedParam.type) && isMutPtrType(givenParam.type)) {
+      // A function that takes *!(T) cannot be used where a function that takes *(T) is expected
+      return false;
+    }
+
+    if (
+      isMutPtrType(expectedParam.type) &&
+      isPtrType(givenParam.type) &&
+      areTypesCompatible(
+        { type: expectedParam.type.type, env: expected.env },
+        { type: givenParam.type.type, env: given.env },
+        exactNumericTypeMatch
+      )
+    ) {
+      // A function that takes *(T) can be used where a function that takes *!(T) is expected
+      continue;
+    }
+
     if (
       !areTypesCompatible(
         {
@@ -688,6 +737,60 @@ export function areFunctionTypesCompatible(
         typeValue,
         given.env
       );
+      continue;
+    }
+
+    // Special handling for implicit parameter reference compatibility
+    // For function parameters, compatibility is contravariant:
+    // - A function that takes &(T) can be used where a function that takes &!(T) is expected
+    // - A function that takes &!(T) cannot be used where a function that takes &(T) is expected
+
+    // Explicitly prevent &!(T) from being used where &(T) is expected
+    if (
+      isRefType(expectedImplicitParam.type) &&
+      isMutRefType(givenImplicitParam.type)
+    ) {
+      // A function that takes &!(T) cannot be used where a function that takes &(T) is expected
+      return false;
+    }
+
+    if (
+      isMutRefType(expectedImplicitParam.type) &&
+      isRefType(givenImplicitParam.type) &&
+      areTypesCompatible(
+        { type: expectedImplicitParam.type.type, env: expected.env },
+        { type: givenImplicitParam.type.type, env: given.env },
+        exactNumericTypeMatch
+      )
+    ) {
+      // A function that takes &(T) can be used where a function that takes &!(T) is expected
+      continue;
+    }
+
+    // Special handling for implicit parameter pointer compatibility
+    // For function parameters, compatibility is contravariant:
+    // - A function that takes *(T) can be used where a function that takes *!(T) is expected
+    // - A function that takes *!(T) cannot be used where a function that takes *(T) is expected
+
+    // Explicitly prevent *!(T) from being used where *(T) is expected
+    if (
+      isPtrType(expectedImplicitParam.type) &&
+      isMutPtrType(givenImplicitParam.type)
+    ) {
+      // A function that takes *!(T) cannot be used where a function that takes *(T) is expected
+      return false;
+    }
+
+    if (
+      isMutPtrType(expectedImplicitParam.type) &&
+      isPtrType(givenImplicitParam.type) &&
+      areTypesCompatible(
+        { type: expectedImplicitParam.type.type, env: expected.env },
+        { type: givenImplicitParam.type.type, env: given.env },
+        exactNumericTypeMatch
+      )
+    ) {
+      // A function that takes *(T) can be used where a function that takes *!(T) is expected
       continue;
     }
 

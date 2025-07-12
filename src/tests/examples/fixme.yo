@@ -1,53 +1,20 @@
 open import "std";
 
-Point :: struct(x : i32, y : i32);
-SomeClosure :: Closure(Point, (self: &(Point))-> i32)
-  call : (fn(self)->
-    self.x + self.y
-  )
-;
+RefFunc1 ::
+  (x : &(i32)) -> unit;
 
-p := Point(3, 4);
-result := SomeClosure.call(&(p));
-result2 := &(p).call();
+RefFunc2 ::
+  (x : &!(i32)) -> unit;
 
-foreach ::
-  ((forall(
-      compt(Callback): Type, 
-      compt(size): usize
-    ),
-    arr : Array(i32, size),
-    callback : &!(Callback),
-    using(
-      compt(Closure_) : Closure(Callback, (self: &!(Callback), value: &(i32)) -> unit)
-    )
-  ) -> unit) {
-  mut(i) := 0.as(usize);
-  while (i < size), {
-    Closure_.call(callback, &(arr(i)));
-    i = (i + 1.as(usize));
-  };
-};
+compt_assert(__yo_are_types_compatible(RefFunc1, RefFunc2) == false);
+compt_assert(__yo_are_types_compatible(RefFunc2, RefFunc1) == true);
 
-main :: (() -> unit) {
-  arr := [1, 2, 3, 4, 5];
-  mut(sum) := 0;
-  
-  // move `sum`
-  (mut(closure)) := {
-    sum : sum,
-    call :: (((mut(self): &!(Self), value: &(i32))-> unit) {
-      self.sum = (self.sum + value.*);
-    })
-  };
-  foreach(arr, &!(closure), using(typeof(closure)));
-  foreach(arr, &!(closure));
+// Test pointer type compatibility
+PtrFunc1 ::
+  (x : *(i32)) -> unit;
 
-  // borrow `sum`
-  foreach(arr, &!({
-    sum : &!(sum),
-    call :: (((mut(self): &!(Self), value: &(i32))-> unit) {
-      self.sum.* = (self.sum.* + value.*);
-    })
-  }));
-};
+PtrFunc2 ::
+  (x : *!(i32)) -> unit;
+
+compt_assert(__yo_are_types_compatible(PtrFunc1, PtrFunc2) == false);
+compt_assert(__yo_are_types_compatible(PtrFunc2, PtrFunc1) == true);

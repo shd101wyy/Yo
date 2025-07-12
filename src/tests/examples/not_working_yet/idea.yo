@@ -78,3 +78,22 @@ jane := Person(
   car_x := car(x); // first_x : $(Atom.I32(1));
   cdr_x := cdr(x); // second_x : $(Atom.I32(2));
 };
+
+// Let's use Reference Counting + Cycle Detection by default.
+{
+  // struct type will automatically use reference counting.
+  Person :: struct
+    age : int,
+    name: String
+
+    // _rc : usize // implicitly added for reference counting
+  ;
+
+  x := Person(30, "Brian"); // x : Person
+  
+  y := x; // Moved x; x is consumed.
+  z := y.dup(); // z : Person; y is still valid.
+                // Now both x and y point to the same Person instance.
+
+  // We still keep the reference as second class.
+};
