@@ -1,4 +1,4 @@
-import { Environment } from "../../env";
+import { addVariableToEnv, Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   Expr,
@@ -240,15 +240,6 @@ export function evaluateAnonymousStructValue({
     ? undefined
     : createStructValue(structType, values as Value[]);
 
-  expr.$ = {
-    env,
-    type: structType,
-    value: structValue,
-    isMutable: true,
-    pathCollection: [],
-    runtimeArgExprsInOrder,
-  };
-
   const structTypeValue = createTypeValue(structType);
   func.$ = {
     env,
@@ -256,6 +247,33 @@ export function evaluateAnonymousStructValue({
     value: structTypeValue,
     isMutable: false,
     pathCollection: [],
+  };
+
+  // NOTE: We add anonymous struct value's type as isImplicit = true.
+  // Add the struct type value to the environment
+  const { env: nextEnv } = addVariableToEnv({
+    env,
+    variable: {
+      name: structType.id,
+      type: structTypeValue.type,
+      value: structTypeValue,
+      initializedAtToken: expr.token,
+      isMutable: true,
+      token: expr.token,
+      isCompileTimeOnly: true,
+      isImplicit: true,
+      consumedAtToken: undefined,
+    },
+  });
+  env = nextEnv;
+
+  expr.$ = {
+    env,
+    type: structType,
+    value: structValue,
+    isMutable: true,
+    pathCollection: [],
+    runtimeArgExprsInOrder,
   };
 
   return expr;
