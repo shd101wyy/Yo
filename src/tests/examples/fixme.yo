@@ -1,20 +1,18 @@
-open import "std";
+use_id :: ((  x : i32,
+              id : 
+                (x : i32) -> i32
+            ) -> i32)
+  id(x)
+;
 
-RefFunc1 ::
-  (x : &(i32)) -> unit;
+result := use_id(42, fn(x) -> x);
 
-RefFunc2 ::
-  (x : &!(i32)) -> unit;
+{
+  // I also want to get this to work.
+  // some_anonymous_fn should be lazy evaluated when used.
+  some_anonymous_fn ::
+    fn(x) -> x
+  ;
 
-compt_assert(__yo_are_types_compatible(RefFunc1, RefFunc2) == false);
-compt_assert(__yo_are_types_compatible(RefFunc2, RefFunc1) == true);
-
-// Test pointer type compatibility
-PtrFunc1 ::
-  (x : *(i32)) -> unit;
-
-PtrFunc2 ::
-  (x : *!(i32)) -> unit;
-
-compt_assert(__yo_are_types_compatible(PtrFunc1, PtrFunc2) == false);
-compt_assert(__yo_are_types_compatible(PtrFunc2, PtrFunc1) == true);
+  result := use_id(42, some_anonymous_fn);
+};
