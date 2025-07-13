@@ -11,7 +11,7 @@ import { EvaluatorContext } from "./evaluator/context";
 import { Token, TokenType } from "./token";
 import { isFreeType, isLinearOrType0Type, Type, typeOfType } from "./types";
 import { generateNewTempVariableName } from "./utils";
-import { Value } from "./value";
+import { isTypeValue, Value } from "./value";
 
 /**
  * Eg:
@@ -872,6 +872,11 @@ export function setExprAsConsumed(
         errorMessage: `Cannot consume a property which is "Linear" value.`,
       },
     ]);
+  }
+
+  // Don't consume type values - they should be reusable
+  if (expr.$?.value && isTypeValue(expr.$?.value)) {
+    return env;
   }
 
   const nameOfVariableToConsume = expr.$?.variableName;

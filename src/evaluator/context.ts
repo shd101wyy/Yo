@@ -22,6 +22,16 @@ export interface EvaluatorContext {
   isEvaluatingFunctionBody?: {
     type: FunctionType;
     value?: FunctionValue;
+    /**
+     * For closures, track variables captured from outer scopes.
+     * Maps variable name to the frame level where it was defined.
+     */
+    capturedVariables?: Map<string, number>;
+    /**
+     * The environment at the time the function body is being evaluated.
+     * This is used to determine the frame level for closure variable capture.
+     */
+    evaluationEnv?: Environment;
   };
 
   /**

@@ -1,6 +1,7 @@
 import { Environment, popEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   BuiltinKeywords,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -18,6 +19,7 @@ import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateFunctionParameters } from "../types/function";
+import { consumeCapturedVariables } from "../utils/closure";
 
 export function evaluateAnonymousFunctionImplementation({
   expr,
@@ -85,12 +87,17 @@ export function evaluateAnonymousFunctionImplementation({
   env = nextEnv;
 
   // Evaluate the function body
+  const capturedVariables = isClosure ? new Map<string, number>() : undefined;
   const evaluatedBody = evaluateBeginExpression({
     expr: functionBodyExpr,
     env,
     context: {
       ...context,
-      isEvaluatingFunctionBody: { type: functionType },
+      isEvaluatingFunctionBody: {
+        type: functionType,
+        capturedVariables: capturedVariables,
+        evaluationEnv: env, // Pass the current evaluation environment
+      },
       expectedType: {
         type: functionType.return.type,
         env: env,
@@ -121,6 +128,15 @@ export function evaluateAnonymousFunctionImplementation({
   }
   // Restore the env frame
   env = popEnvFrame(env);
+
+  // For closures, consume the captured variables from outer scopes
+  if (isClosure && capturedVariables && capturedVariables.size > 0) {
+    env = consumeCapturedVariables({
+      capturedVariables,
+      env,
+      closureToken: expr.token,
+    });
+  }
 
   // For anonymous functions, we need to use the original function type
   // but with the parameter names from the anonymous function implementation.
@@ -174,5 +190,12 @@ export function evaluateAnonymousFunctionImplementation({
     isMutable: false,
     pathCollection: [],
   };
+
+  // For closures, attach a temporary variable so they can be consumed
+  // This must be done AFTER expr.$ is set since attachTempVariableToExpr expects it
+  if (isClosure) {
+    attachTempVariableToExpr(expr);
+  }
+
   return expr;
 }

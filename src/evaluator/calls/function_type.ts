@@ -5,13 +5,14 @@ import {
   pushEnvFrame,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { attachTempVariableToExpr, Expr, FuncCallExpr } from "../../expr";
+import { Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { areTypesCompatible, FunctionType, typeToString } from "../../types";
 import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
+import { consumeCapturedVariables } from "../utils/closure";
 
 /**
  * expr should be the:
@@ -62,12 +63,19 @@ export function tryToImplementFunctionByFunctionType({
   };
 
   // Evaluate the function body
+  const capturedVariables = functionType.isClosure
+    ? new Map<string, number>()
+    : undefined;
   const evaluatedFunctionBody = evaluateBeginExpression({
     expr: functionBodyExpr,
     env,
     context: {
       ...context,
-      isEvaluatingFunctionBody: { type: functionType },
+      isEvaluatingFunctionBody: {
+        type: functionType,
+        capturedVariables: capturedVariables,
+        evaluationEnv: env, // Pass the current evaluation environment
+      },
       expectedType: {
         type: functionType.return.type,
         env: env, // QUESTION: What should be the env here?
@@ -108,19 +116,28 @@ export function tryToImplementFunctionByFunctionType({
   // Pop the env frame
   env = popEnvFrame(env);
 
+  // For closures, consume the captured variables from outer scopes
+  let finalCallerEnv = callerEnv;
+  if (
+    functionType.isClosure &&
+    capturedVariables &&
+    capturedVariables.size > 0
+  ) {
+    finalCallerEnv = consumeCapturedVariables({
+      capturedVariables,
+      env: callerEnv,
+      closureToken: expr.token,
+    });
+  }
+
   // Set the function type and value
   expr.$ = {
-    env: callerEnv,
+    env: finalCallerEnv,
     value: functionValue,
     type: functionType,
     isMutable: false,
     pathCollection: [],
   };
-
-  // For closures, attach a temporary variable so they can be consumed
-  if (functionType.isClosure) {
-    attachTempVariableToExpr(expr);
-  }
 
   return expr;
 }

@@ -7,7 +7,7 @@ Callback ::
 ;
 (compt(LinearI32) : Linear) = i32;
 
-test1 :: (() => unit) {
+test1 :: (() -> unit) {
   mut(x) := 1;
   cb := Callback {
     return x + elem;
@@ -16,14 +16,28 @@ test1 :: (() => unit) {
   compt_expect_error(cb(42), "Closure can only be called once");
 };
 
-test2 :: (() => unit) {
+test2 :: (() -> unit) {
   (x : LinearI32) = 12;
   cb := Callback { // We moved the `x` into the closure
     y := x; // `x` should be consumed here
     return elem;
   };
-  z := x; // should give error as `x` is already consumed when defining cb.
-}
+  compt_expect_error(
+    z := x,
+    "x should be already consumed when defining cb"
+  ); // should give error as `x` is already consumed when defining cb.
+};
+
+test3 :: (() -> unit) {
+  mut(x) := 1;
+  (cb : Callback) =
+    fn(elem) => {
+      return x + elem;
+    }
+  ;
+  result := cb(42); // cb can only be called once.
+  compt_expect_error(cb(42), "Closure can only be called once");
+};
 
 /*
 foreach ::
