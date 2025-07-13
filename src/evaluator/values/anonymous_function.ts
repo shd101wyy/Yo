@@ -20,7 +20,10 @@ import { ValueTag } from "../../value-tag";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateFunctionParameters } from "../types/function";
-import { consumeCapturedVariables } from "../utils/closure";
+import {
+  buildPathCollectionFromCapturedVariables,
+  consumeCapturedVariables,
+} from "../utils/closure";
 
 export function evaluateAnonymousFunctionImplementation({
   expr,
@@ -232,7 +235,10 @@ export function evaluateAnonymousFunctionImplementation({
       capturedVariables: capturedVariablesWithValues,
     },
     isMutable: false,
-    pathCollection: [],
+    pathCollection:
+      isClosureFunction && capturedVariables
+        ? buildPathCollectionFromCapturedVariables(capturedVariables)
+        : [],
   };
 
   // For closures, attach a temporary variable so they can be consumed

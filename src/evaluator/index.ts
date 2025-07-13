@@ -44,6 +44,7 @@ import { evaluateNot } from "./builtins/not";
 import { evaluateYoNumericFunctions } from "./builtins/numeric_fns";
 import { evaluateQuote } from "./builtins/quote";
 import { evaluateSizeOf } from "./builtins/sizeof";
+import { evaluateThe } from "./builtins/the";
 import {
   evaluateYoAreTypesCompatible,
   evaluateYoTypeContainsReference,
@@ -362,6 +363,9 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.sizeof)) {
         // sizeof
         return evaluateSizeOf({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.the)) {
+        // the
+        return evaluateThe({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
         // import
         return evaluateImport({

@@ -9,34 +9,35 @@ Callback ::
 
 test1 :: (() -> unit) {
   mut(x) := 1;
-  cb := Callback {
+  borrow Callback({
     return x + elem;
+  }), cb => {
+    result := cb(42); // cb can only be called once.
+    compt_expect_error(cb(42), "Closure can only be called once");
   };
-  result := cb(42); // cb can only be called once.
-  compt_expect_error(cb(42), "Closure can only be called once");
 };
 
 test2 :: (() -> unit) {
   (x : LinearI32) = 12;
-  cb := Callback { // We moved the `x` into the closure
+  borrow Callback({ // We moved the `x` into the closure
     y := x; // `x` should be consumed here
     return elem;
+  }), cb => {
+    compt_expect_error(
+      z := x,
+      "x should be already consumed when defining cb"
+    ); // should give error as `x` is already consumed when defining cb.
   };
-  compt_expect_error(
-    z := x,
-    "x should be already consumed when defining cb"
-  ); // should give error as `x` is already consumed when defining cb.
 };
 
 test3 :: (() -> unit) {
   mut(x) := 1;
-  (cb : Callback) =
-    fn(elem) => {
-      return x + elem;
-    }
-  ;
-  result := cb(42); // cb can only be called once.
-  compt_expect_error(cb(42), "Closure can only be called once");
+  borrow the(Callback, fn(elem) => {
+    return x + elem;
+  }), cb => {
+    result := cb(42); // cb can only be called once.
+    compt_expect_error(cb(42), "Closure can only be called once");
+  };
 };
 
 // FnMut closure examples - can be called multiple times and mutate captured variables
@@ -46,45 +47,43 @@ MutCallback ::
 
 test4 :: (() -> unit) {
   mut(counter) := 0;
-  cb := MutCallback {
+  borrow MutCallback({
     counter = (counter + 1);
     return (counter + elem);
+  }), cb => {
+    result1 := cb(10); // First call: counter becomes 1, returns 1 + 10 = 11
+    result2 := cb(20); // Second call: counter becomes 2, returns 2 + 20 = 22
+    result3 := cb(30); // Third call: counter becomes 3, returns 3 + 30 = 33
+    // FnMut can be called multiple times unlike FnOnce
   };
-  result1 := cb(10); // First call: counter becomes 1, returns 1 + 10 = 11
-  result2 := cb(20); // Second call: counter becomes 2, returns 2 + 20 = 22
-  result3 := cb(30); // Third call: counter becomes 3, returns 3 + 30 = 33
-  // FnMut can be called multiple times unlike FnOnce
 };
 
 test5 :: (() -> unit) {
   mut(sum) := 0;
-  (accumulator : MutCallback) =
-    fn(elem) =>> {
-      sum = (sum + elem);
-      return sum;
-    }
-  ;
-  result1 := accumulator(5);  // sum becomes 5, returns 5
-  result2 := accumulator(10); // sum becomes 15, returns 15
-  result3 := accumulator(3);  // sum becomes 18, returns 18
+  borrow the(MutCallback, fn(elem) =>> {
+    sum = (sum + elem);
+    return sum;
+  }), accumulator => {
+    result1 := accumulator(5);  // sum becomes 5, returns 5
+    result2 := accumulator(10); // sum becomes 15, returns 15
+    result3 := accumulator(3);  // sum becomes 18, returns 18
+  };
 };
 
 test6 :: (() -> unit) {
   mut(values) := [0, 0, 0]; // Array to store values
   mut(index) := 0.as(usize);
   
-  (store_callback : MutCallback) =
-    fn(elem) =>> {
-      values(index) = elem;
-      index = (index + 1.as(usize));
-      return elem;
-    }
-  ;
-  
-  store_callback(42);
-  store_callback(84);
-  store_callback(126);
-  // values should now be [42, 84, 126]
+  borrow the(MutCallback, fn(elem) =>> {
+    values(index) = elem;
+    index = (index + 1.as(usize));
+    return elem;
+  }), store_callback => {
+    store_callback(42);
+    store_callback(84);
+    store_callback(126);
+    // values should now be [42, 84, 126]
+  };
 };
 
 // Fn closure examples - can be called multiple times without mutating captured variables
@@ -94,74 +93,73 @@ ReadCallback ::
 
 test7 :: (() -> unit) {
   base := 100;
-  cb := ReadCallback {
+  borrow ReadCallback({
     return base + elem; // Only reads from captured variables, no mutation
+  }), cb => {
+    result1 := cb(1);  // Returns 101
+    result2 := cb(5);  // Returns 105
+    result3 := cb(10); // Returns 110
+    // Fn can be called multiple times and doesn't mutate captured variables
   };
-  result1 := cb(1);  // Returns 101
-  result2 := cb(5);  // Returns 105
-  result3 := cb(10); // Returns 110
-  // Fn can be called multiple times and doesn't mutate captured variables
 };
 
 test8 :: (() -> unit) {
   multiplier := 3;
-  (calculator : ReadCallback) =
-    fn(elem) =>> {
-      return multiplier * elem; // Only reads multiplier, doesn't modify it
-    }
-  ;
-  result1 := calculator(4);  // Returns 12
-  result2 := calculator(7);  // Returns 21
-  result3 := calculator(10); // Returns 30
+  borrow the(ReadCallback, fn(elem) =>> {
+    return multiplier * elem; // Only reads multiplier, doesn't modify it
+  }), calculator => {
+    result1 := calculator(4);  // Returns 12
+    result2 := calculator(7);  // Returns 21
+    result3 := calculator(10); // Returns 30
+  };
 };
 
 test9 :: (() -> unit) {
   constant := 42;
   values := [1, 2, 3, 4, 5];
   
-  (add_constant : ReadCallback) =
-    fn(elem) =>> {
-      return constant + elem; // Reads from both constant and elem
-    }
-  ;
-  
-  // Can call the Fn closure multiple times
-  result1 := add_constant(values(0.as(usize))); // 42 + 1 = 43
-  result2 := add_constant(values(1.as(usize))); // 42 + 2 = 44
-  result3 := add_constant(values(2.as(usize))); // 42 + 3 = 45
+  borrow the(ReadCallback, fn(elem) =>> {
+    return constant + elem; // Reads from both constant and elem
+  }), add_constant => {
+    // Can call the Fn closure multiple times
+    result1 := add_constant(values(0.as(usize))); // 42 + 1 = 43
+    result2 := add_constant(values(1.as(usize))); // 42 + 2 = 44
+    result3 := add_constant(values(2.as(usize))); // 42 + 3 = 45
+  };
 };
 
 // Test that FnMut cannot consume linear values from outer scope
 test10 :: (() -> unit) {
   (x : LinearI32) = 12;
-  cb := MutCallback { // FnMut should not be able to consume x
+  borrow MutCallback({ // FnMut should not be able to consume x
     compt_expect_error(y := x); // This should give an error - FnMut cannot consume linear values from outer scope
     return elem;
+  }), cb => {
+    cb(42);
   };
-  cb(42);
 };
 
 // Test that Fn cannot consume linear values from outer scope  
 test11 :: (() -> unit) {
   (x : LinearI32) = 12;
-  (cb : ReadCallback) =
-    fn(elem) =>> { // Fn should not be able to consume x
-      compt_expect_error(y := x); // This should give an error - Fn cannot consume linear values from outer scope
-      return elem;
-    }
-  ;
-  cb(42);
-  cb(42);
+  borrow the(ReadCallback, fn(elem) =>> { // Fn should not be able to consume x
+    compt_expect_error(y := x); // This should give an error - Fn cannot consume linear values from outer scope
+    return elem;
+  }), cb => {
+    cb(42);
+    cb(42);
+  };
 };
 
 // Test that Fn closures cannot modify outer scope variables
 test_fn_cannot_modify :: (() -> unit) {
   mut(counter) := 0;
-  (readonly_fn : ReadCallback) =
-    fn(elem) =>> {
-      compt_expect_error(
-        counter = (counter + 1)
-      ); // This should give an error for Fn closure
-      return elem;
-    };
+  borrow the(ReadCallback, fn(elem) =>> {
+    compt_expect_error(
+      counter = (counter + 1)
+    ); // This should give an error for Fn closure
+    return elem;
+  }), readonly_fn => {
+    readonly_fn(42);
+  };
 };

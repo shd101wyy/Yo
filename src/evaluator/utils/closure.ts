@@ -53,3 +53,26 @@ export function consumeCapturedVariables({
 
   return updatedEnv;
 }
+
+/**
+ * Build path collection from captured variables for closures.
+ *
+ * This creates a path collection that includes all the captured variables'
+ * paths, which is needed for proper borrowing semantics when the closure
+ * is used with borrow expressions.
+ *
+ * @param capturedVariables - Map of variable names to their usage information
+ * @returns PathCollection containing paths to all captured variables
+ */
+export function buildPathCollectionFromCapturedVariables(
+  capturedVariables: Map<string, CapturedVariableInfo>
+): string[][] {
+  const pathCollection: string[][] = [];
+
+  for (const [variableName] of capturedVariables.entries()) {
+    // Add the path for each captured variable
+    pathCollection.push([variableName]);
+  }
+
+  return pathCollection;
+}

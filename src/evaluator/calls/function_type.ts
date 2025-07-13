@@ -12,7 +12,10 @@ import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
-import { consumeCapturedVariables } from "../utils/closure";
+import {
+  buildPathCollectionFromCapturedVariables,
+  consumeCapturedVariables,
+} from "../utils/closure";
 
 /**
  * expr should be the:
@@ -156,7 +159,10 @@ export function tryToImplementFunctionByFunctionType({
     value: functionValue,
     type: functionType,
     isMutable: false,
-    pathCollection: [],
+    pathCollection:
+      capturedVariables && capturedVariables.size > 0
+        ? buildPathCollectionFromCapturedVariables(capturedVariables)
+        : [],
   };
 
   return expr;

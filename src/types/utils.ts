@@ -105,6 +105,14 @@ export function typeContainsReference(type?: Type): boolean {
     return true;
   }
 
+  // Check if the type is a closure type (closures capture variables by reference)
+  if (
+    isFunctionType(type) &&
+    (type as FunctionType).closureKind !== undefined
+  ) {
+    return true;
+  }
+
   // Recursively check for references in complex types
   switch (type.tag) {
     case TypeTag.Array:
