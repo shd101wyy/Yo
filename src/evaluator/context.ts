@@ -1,8 +1,9 @@
 import { Borrowing } from "../borrow";
 import { Environment } from "../env";
-import { MoParserError } from "../error";
+import { formatErrorMessages, MoParserError } from "../error";
 import { Expr, PathCollection } from "../expr";
 import { FunctionValue } from "../function-value";
+import { Token } from "../token";
 import { FunctionType, ModuleType, Type } from "../types";
 import { ModuleValue, Value } from "../value";
 
@@ -24,9 +25,9 @@ export interface EvaluatorContext {
     value?: FunctionValue;
     /**
      * For closures, track variables captured from outer scopes.
-     * Maps variable name to the frame level where it was defined.
+     * Maps variable name to usage information.
      */
-    capturedVariables?: Map<string, number>;
+    capturedVariables?: Map<string, CapturedVariableInfo>;
     /**
      * The environment at the time the function body is being evaluated.
      * This is used to determine the frame level for closure variable capture.
@@ -239,3 +240,75 @@ export type EvaluateExpression = ({
   env: Environment;
   context: EvaluatorContext;
 }) => Expr;
+
+/**
+ * Track usage of variables in closure contexts.
+ * This enforces the borrowing rules for different closure types.
+ */
+export function trackVariableUsage(
+  variableName: string,
+  frameLevel: number,
+  usageType: "read" | "write" | "own",
+  token: Token,
+  context: EvaluatorContext
+): void {
+  if (!context.isEvaluatingFunctionBody) {
+    return;
+  }
+
+  const functionType = context.isEvaluatingFunctionBody.type;
+  const evaluationEnv = context.isEvaluatingFunctionBody.evaluationEnv;
+
+  // Only track variables from outer scopes (not local variables)
+  if (!evaluationEnv || frameLevel >= evaluationEnv.frames.length) {
+    return;
+  }
+
+  // For Fn closures, only allow read access to outer scope variables
+  if (functionType.closureKind === "Fn" && usageType !== "read") {
+    throw formatErrorMessages([
+      {
+        token,
+        errorMessage: `Cannot ${usageType === "write" ? "modify" : "consume"} outer scope variable "${variableName}" in Fn closure. Fn closures can only read (borrow immutably) from outer scope.`,
+      },
+    ]);
+  }
+
+  // For FnMut closures, allow read and write but not ownership transfer
+  if (functionType.closureKind === "FnMut" && usageType === "own") {
+    throw formatErrorMessages([
+      {
+        token,
+        errorMessage: `Cannot consume outer scope variable "${variableName}" in FnMut closure. FnMut closures can only borrow (read/write) from outer scope.`,
+      },
+    ]);
+  }
+
+  // Track the variable usage
+  if (!context.isEvaluatingFunctionBody.capturedVariables) {
+    context.isEvaluatingFunctionBody.capturedVariables = new Map();
+  }
+
+  const existing =
+    context.isEvaluatingFunctionBody.capturedVariables.get(variableName);
+
+  // Update with the highest privilege usage type (own > write > read)
+  const newUsageType =
+    existing &&
+    (existing.usageType === "own" ||
+      (existing.usageType === "write" && usageType === "read"))
+      ? existing.usageType
+      : usageType;
+
+  context.isEvaluatingFunctionBody.capturedVariables.set(variableName, {
+    frameLevel,
+    usageType: newUsageType,
+    token,
+  });
+}
+
+export interface CapturedVariableInfo {
+  frameLevel: number;
+  usageType: "read" | "write" | "own"; // How the variable is used
+  token: Token; // Token where the usage occurs
+}

@@ -4,6 +4,7 @@ import {
   updateExistingVariable,
 } from "../../env";
 import { Token } from "../../token";
+import { CapturedVariableInfo } from "../context";
 
 /**
  * Consume captured variables for closures.
@@ -13,7 +14,7 @@ import { Token } from "../../token";
  * similar to Rust's FnOnce closures. This means the captured variables are
  * consumed and cannot be used again after the closure is created.
  *
- * @param capturedVariables - Map of variable names to their frame levels
+ * @param capturedVariables - Map of variable names to their usage information
  * @param env - The environment where the closure is being created
  * @param closureToken - The token representing the closure creation point
  * @returns Updated environment with captured variables marked as consumed
@@ -23,18 +24,19 @@ export function consumeCapturedVariables({
   env,
   closureToken,
 }: {
-  capturedVariables: Map<string, number>;
+  capturedVariables: Map<string, CapturedVariableInfo>;
   env: Environment;
   closureToken: Token;
 }): Environment {
   let updatedEnv = env;
 
-  for (const [
-    variableName,
-    definedAtFrameLevel,
-  ] of capturedVariables.entries()) {
+  for (const [variableName, usageInfo] of capturedVariables.entries()) {
     // Only consume variables from outer scopes (lower frame levels)
-    if (definedAtFrameLevel < env.frames.length) {
+    // and only if the usage type is "own" (FnOnce semantics)
+    if (
+      usageInfo.frameLevel < env.frames.length &&
+      usageInfo.usageType === "own"
+    ) {
       const variables = getVariablesFromEnv(updatedEnv, variableName);
       if (variables.length > 0) {
         const variable = variables[variables.length - 1]!;

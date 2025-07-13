@@ -42,7 +42,7 @@ import {
   TypeTag,
 } from "../../types";
 import { createTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import { EvaluatorContext, trackVariableUsage } from "../context";
 
 export function evaluateIdentifierAndOperator({
   expr,
@@ -521,7 +521,7 @@ export function evaluateIdentifierAndOperator({
 
       // For closures, track variables captured from outer scopes
       if (
-        context.isEvaluatingFunctionBody?.capturedVariables &&
+        context.isEvaluatingFunctionBody &&
         context.isEvaluatingFunctionBody.type.closureKind !== undefined &&
         context.isEvaluatingFunctionBody.evaluationEnv
       ) {
@@ -530,9 +530,18 @@ export function evaluateIdentifierAndOperator({
 
         // If variable is from an outer scope (lower frame level than closure evaluation), it's captured
         if (variable.frameLevel < closureEvaluationFrameLevel) {
-          context.isEvaluatingFunctionBody.capturedVariables.set(
+          // Determine usage type based on closure kind
+          const usageType =
+            context.isEvaluatingFunctionBody.type.closureKind === "FnOnce"
+              ? "own"
+              : "read";
+
+          trackVariableUsage(
             variable.name,
-            variable.frameLevel
+            variable.frameLevel,
+            usageType,
+            expr.token,
+            context
           );
         }
       }

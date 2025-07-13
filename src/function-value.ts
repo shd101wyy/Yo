@@ -1,4 +1,5 @@
 import { Environment } from "./env";
+import { CapturedVariableInfo } from "./evaluator/context";
 import { Expr } from "./expr";
 import { FunctionType, Type } from "./types";
 import type { Value } from "./value";
@@ -98,4 +99,16 @@ export type FunctionValue = {
    * Each cache entry stores a specialized function for a specific set of compile-time arguments.
    */
   specializedFunctionCaches: SpecializedFunctionCache[];
+
+  /**
+   * For closures, this contains the variables captured from outer scopes.
+   * Maps variable name to capture information including frame level, usage type, token, value, and type.
+   * This will be useful for codegen to construct a closure struct.
+   */
+  capturedVariables?: Map<string, FunctionCapturedVariableInfo>;
 };
+
+export interface FunctionCapturedVariableInfo extends CapturedVariableInfo {
+  value: Value | undefined; // The actual captured value
+  type: Type; // The type of the captured value
+}

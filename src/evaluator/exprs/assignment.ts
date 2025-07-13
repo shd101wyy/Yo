@@ -32,7 +32,7 @@ import {
 } from "../../types";
 import { VUnit } from "../../unit-value";
 import { isFunctionValue, isModuleValue, isTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import { EvaluatorContext, trackVariableUsage } from "../context";
 import { synthesizeExprAndType } from "../types/synthesizer";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
@@ -291,6 +291,33 @@ export function evaluateAssignment({
         // type: rhsType,
       });
     } else if (variable.isMutable) {
+      // For closures, track variable writes to outer scope
+      if (
+        context.isEvaluatingFunctionBody &&
+        context.isEvaluatingFunctionBody.type.closureKind !== undefined &&
+        context.isEvaluatingFunctionBody.evaluationEnv
+      ) {
+        const closureEvaluationFrameLevel =
+          context.isEvaluatingFunctionBody.evaluationEnv.frames.length;
+
+        // If variable is from an outer scope (lower frame level than closure evaluation), it's captured
+        if (variable.frameLevel < closureEvaluationFrameLevel) {
+          // Determine usage type based on closure kind
+          const usageType =
+            context.isEvaluatingFunctionBody.type.closureKind === "FnOnce"
+              ? "own"
+              : "write";
+
+          trackVariableUsage(
+            variable.name,
+            variable.frameLevel,
+            usageType,
+            lhs.token,
+            context
+          );
+        }
+      }
+
       // Update the variable value
       env = updateExistingVariable(env, variable, {
         ...variable,
@@ -366,6 +393,30 @@ export function evaluateAssignment({
 
     // Check the borrowings
     checkBorrowings(context.borrowings, evaluatedLhs);
+
+    // Track variable usage for closure kind checking
+    if (context.isEvaluatingFunctionBody && evaluatedLhs.$.pathCollection) {
+      for (const path of evaluatedLhs.$.pathCollection) {
+        if (path.length > 0) {
+          const variableName = path[0];
+          if (typeof variableName === "string") {
+            // Get the variable to determine its frame level
+            const variables = getVariablesFromEnv(env, variableName);
+            if (variables.length > 0) {
+              const variable = variables[variables.length - 1]!;
+              // Track this as a write operation for field assignment
+              trackVariableUsage(
+                variableName,
+                variable.frameLevel,
+                "write",
+                lhs.token,
+                context
+              );
+            }
+          }
+        }
+      }
+    }
 
     const expectedType = evaluatedLhs.$.type;
 

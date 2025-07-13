@@ -8,6 +8,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
+import { FunctionCapturedVariableInfo } from "../../function-value";
 import {
   areTypesCompatible,
   FunctionType,
@@ -16,7 +17,7 @@ import {
 } from "../../types";
 import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
-import { EvaluatorContext } from "../context";
+import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateFunctionParameters } from "../types/function";
 import { consumeCapturedVariables } from "../utils/closure";
@@ -105,7 +106,7 @@ export function evaluateAnonymousFunctionImplementation({
   // Evaluate the function body
   const isClosureFunction = functionType.closureKind !== undefined;
   const capturedVariables = isClosureFunction
-    ? new Map<string, number>()
+    ? new Map<string, CapturedVariableInfo>()
     : undefined;
   const evaluatedBody = evaluateBeginExpression({
     expr: functionBodyExpr,
@@ -192,6 +193,29 @@ export function evaluateAnonymousFunctionImplementation({
     })),
   };
 
+  // For closures, prepare captured variables with values and types for the function value
+  let capturedVariablesWithValues:
+    | Map<string, FunctionCapturedVariableInfo>
+    | undefined;
+
+  if (isClosureFunction && capturedVariables && capturedVariables.size > 0) {
+    capturedVariablesWithValues = new Map();
+    for (const [varName, captureInfo] of capturedVariables.entries()) {
+      // Get the variable value and type from the specific frame level
+      if (captureInfo.frameLevel < env.frames.length) {
+        const frame = env.frames[captureInfo.frameLevel]!;
+        const variable = frame.variables.find((v) => v.name === varName);
+        if (variable) {
+          capturedVariablesWithValues.set(varName, {
+            ...captureInfo,
+            value: variable.value, // Can be undefined for runtime values
+            type: variable.type,
+          });
+        }
+      }
+    }
+  }
+
   // Set the type and value of the expression
   expr.$ = {
     env,
@@ -205,6 +229,7 @@ export function evaluateAnonymousFunctionImplementation({
       calledComptFunctionCaches: [],
       specializedFunctionCaches: [],
       SelfType: context.SelfType,
+      capturedVariables: capturedVariablesWithValues,
     },
     isMutable: false,
     pathCollection: [],

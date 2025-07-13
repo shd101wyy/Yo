@@ -10,7 +10,7 @@ import { FunctionValue } from "../../function-value";
 import { areTypesCompatible, FunctionType, typeToString } from "../../types";
 import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
-import { EvaluatorContext } from "../context";
+import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { consumeCapturedVariables } from "../utils/closure";
 
@@ -65,7 +65,7 @@ export function tryToImplementFunctionByFunctionType({
   // Evaluate the function body
   const capturedVariables =
     functionType.closureKind !== undefined
-      ? new Map<string, number>()
+      ? new Map<string, CapturedVariableInfo>()
       : undefined;
   const evaluatedFunctionBody = evaluateBeginExpression({
     expr: functionBodyExpr,
@@ -129,6 +129,25 @@ export function tryToImplementFunctionByFunctionType({
       env: callerEnv,
       closureToken: expr.token,
     });
+  }
+
+  // Update the function value with captured variables (if any)
+  if (capturedVariables && capturedVariables.size > 0) {
+    functionValue.capturedVariables = new Map();
+    for (const [name, info] of capturedVariables) {
+      if (info.frameLevel < finalCallerEnv.frames.length) {
+        const variable = finalCallerEnv.frames[info.frameLevel]?.variables.find(
+          (v) => v.name === name
+        );
+        if (variable) {
+          functionValue.capturedVariables.set(name, {
+            ...info,
+            value: variable.value,
+            type: variable.type,
+          });
+        }
+      }
+    }
   }
 
   // Set the function type and value

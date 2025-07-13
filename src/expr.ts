@@ -927,6 +927,30 @@ export function setExprAsConsumed(
       ]);
     }
 
+    // For Fn and FnMut closures, prevent consuming linear values from outer scope
+    if (context.isEvaluatingFunctionBody) {
+      const functionType = context.isEvaluatingFunctionBody.type;
+      // Check if this is a Fn or FnMut closure AND the variable is from outer scope
+      if (
+        (functionType.closureKind === "Fn" ||
+          functionType.closureKind === "FnMut") &&
+        context.isEvaluatingFunctionBody.evaluationEnv &&
+        variableToConsume.frameLevel <
+          context.isEvaluatingFunctionBody.evaluationEnv.frames.length
+      ) {
+        throw formatErrorMessages([
+          {
+            token: expr.token,
+            errorMessage: `Cannot consume a linear value from outer scope in ${functionType.closureKind} closure. ${functionType.closureKind} closures can only borrow variables from outer scope, not consume them.`,
+          },
+          {
+            token: variableToConsume.token,
+            errorMessage: `Linear variable defined here:`,
+          },
+        ]);
+      }
+    }
+
     // Check if we are consuming a linear value defined outside the function body
     if (
       context.isEvaluatingFunctionBody &&
