@@ -159,6 +159,18 @@ export function isFunctionType(type?: Type): type is FunctionType {
   return type?.tag === TypeTag.Function;
 }
 
+export function isClosureType(type?: Type): type is FunctionType {
+  return (
+    type?.tag === TypeTag.Function && (type as FunctionType).isClosure === true
+  );
+}
+
+export function isRegularFunctionType(type?: Type): type is FunctionType {
+  return (
+    type?.tag === TypeTag.Function && (type as FunctionType).isClosure !== true
+  );
+}
+
 export function isFunctionTypeAndIsTypeFunction(type?: Type) {
   return (
     type?.tag === TypeTag.Function &&

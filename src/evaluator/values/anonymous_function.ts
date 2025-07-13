@@ -23,10 +23,12 @@ export function evaluateAnonymousFunctionImplementation({
   expr,
   env,
   context,
+  isClosure,
 }: {
   expr: FuncCallExpr;
   env: Environment;
   context: EvaluatorContext;
+  isClosure?: boolean;
 }): FuncCallExpr {
   const functionType = context.expectedType?.type;
   if (!functionType) {
@@ -42,10 +44,11 @@ export function evaluateAnonymousFunctionImplementation({
     });
   }
 
-  if (!exprIsFunctionCallOf(expr, "->", 2)) {
+  const expectedOperator = isClosure ? "=>" : "->";
+  if (!exprIsFunctionCallOf(expr, expectedOperator, 2)) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected -> for anonymous function, got:\n${exprToString(expr)}`,
+      errorMessage: `Expected ${expectedOperator} for anonymous ${isClosure ? "closure" : "function"}, got:\n${exprToString(expr)}`,
     });
   }
   const functionDeclarationExpr = expr.args[0]!;

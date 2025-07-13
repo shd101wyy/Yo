@@ -8,6 +8,7 @@ import {
 } from "./creators";
 import {
   FunctionParameter,
+  FunctionType,
   ModuleType,
   TupleElement,
   Type,
@@ -140,7 +141,11 @@ export function typeOfType(
   } else if (isExprType(type)) {
     return createFreeType(type);
   } else if (isFunctionType(type)) {
-    return createFreeType(type);
+    // Closures are linear types (can only be called once)
+    // Regular functions are free types
+    return (type as FunctionType).isClosure
+      ? createLinearType(type)
+      : createFreeType(type);
   } else if (isArrayType(type)) {
     // For arrays, check the element type
     return typeOfType(type.elementType);

@@ -1,6 +1,6 @@
 import { Environment, getVariablesFromEnv } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { AtomExpr } from "../../expr";
+import { AtomExpr, requireExprNotConsumed } from "../../expr";
 import { TokenType } from "../../token";
 import {
   createBooleanType,
@@ -512,6 +512,13 @@ export function evaluateIdentifierAndOperator({
         variableName: variable.name, // NOTE: The tempVariableName here is the variable name itself.
         pathCollection: [[variable.name]],
       };
+
+      // Check if the variable has been consumed (for linear types including closures)
+      /// console.log(`=== Checking variable ${variable.name} ===`);
+      /// console.log("Variable type:", typeToString(variable.type));
+      /// console.log("Type hierarchy:", typeToString(typeOfType(variable.type)));
+      requireExprNotConsumed(expr, env);
+
       return expr;
     }
   }

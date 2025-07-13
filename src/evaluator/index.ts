@@ -236,6 +236,28 @@ ${exprToString(expr)}`,
           env,
           context: { ...context },
         });
+      } else if (exprIsFunctionCallOf(expr, "=>", 2)) {
+        // Closure implementation or type
+        if (
+          // (fn(x) => x)
+          exprIsFunctionCall(expr.args[0]) &&
+          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn)
+        ) {
+          return evaluateAnonymousFunctionImplementation({
+            expr,
+            env,
+            context: { ...context },
+            isClosure: true,
+          });
+        }
+
+        // Closure type
+        return evaluateFunctionType({
+          expr,
+          env,
+          context: { ...context },
+          isClosure: true,
+        });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
         // recur
         return evaluateRecur({ expr, env, context: { ...context } });

@@ -5,7 +5,7 @@ import {
   pushEnvFrame,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, FuncCallExpr } from "../../expr";
+import { attachTempVariableToExpr, Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { areTypesCompatible, FunctionType, typeToString } from "../../types";
 import { randomId } from "../../utils";
@@ -40,9 +40,11 @@ export function tryToImplementFunctionByFunctionType({
 
   // Add parameters to the env new frame
   let env = pushEnvFrame(
-    // QUESTION: Allow to keep the comptime variables, but not the runtime ones?
-    // We should also keep the very top (the first) frame, including comptime and runtime variables.
-    keepTopLevelFrameAndComptimeVariablesFromEnv(callerEnv),
+    // For closures, we keep the full caller environment to enable variable capturing
+    // For regular functions, we only keep top-level frame and compile-time variables
+    functionType.isClosure
+      ? callerEnv
+      : keepTopLevelFrameAndComptimeVariablesFromEnv(callerEnv),
     functionType.parametersFrame
   );
 
@@ -114,6 +116,11 @@ export function tryToImplementFunctionByFunctionType({
     isMutable: false,
     pathCollection: [],
   };
+
+  // For closures, attach a temporary variable so they can be consumed
+  if (functionType.isClosure) {
+    attachTempVariableToExpr(expr);
+  }
 
   return expr;
 }

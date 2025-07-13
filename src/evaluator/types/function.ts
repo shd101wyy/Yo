@@ -809,15 +809,18 @@ export function evaluateFunctionType({
   expr,
   env,
   context,
+  isClosure,
 }: {
   expr: FuncCallExpr;
   env: Environment;
   context: EvaluatorContext;
+  isClosure?: boolean;
 }): FuncCallExpr {
-  if (!exprIsFunctionCallOf(expr, "->", 2)) {
+  const expectedOperator = isClosure ? "=>" : "->";
+  if (!exprIsFunctionCallOf(expr, expectedOperator, 2)) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected -> for function type, got:\n${exprToString(expr)}`,
+      errorMessage: `Expected ${expectedOperator} for ${isClosure ? "closure" : "function"} type, got:\n${exprToString(expr)}`,
     });
   }
 
@@ -1003,6 +1006,7 @@ ${typeToString(returnType)}`,
     parametersFrame: env.frames[env.frames.length - 1]!,
     SelfType: context.SelfType,
     ModuleType: context.ModuleType,
+    isClosure: isClosure ?? false, // Use parameter or default to false
   });
 
   // Pop the environment frame

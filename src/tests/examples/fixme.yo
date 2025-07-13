@@ -1,18 +1,62 @@
-use_id :: ((  x : i32,
-              id : 
-                (x : i32) -> i32
-            ) -> i32)
-  id(x)
+// Use (...) => ... 
+// with => to define a closure that captures the `move` from outer scope
+open import "std";
+
+Callback ::
+  (elem: i32) => i32
 ;
+(compt(LinearI32) : Linear) = i32;
 
-result := use_id(42, fn(x) -> x);
-
-{
-  // I also want to get this to work.
-  // some_anonymous_fn should be lazy evaluated when used.
-  some_anonymous_fn ::
-    fn(x) -> x
-  ;
-
-  result := use_id(42, some_anonymous_fn);
+test1 :: (() => unit) {
+  mut(x) := 1;
+  cb := Callback {
+    return x + elem;
+  };
+  result := cb(42); // cb can only be called once.
+  compt_expect_error(cb(42), "Closure can only be called once");
 };
+
+test2 :: (() => unit) {
+  (x : LinearI32) = 12;
+  cb := Callback {
+    y := x; // `x` should be consumed here
+    return elem;
+  };
+  z := x; // should give error as `x` is already consumed when defining cb.
+}
+
+/*
+foreach ::
+  ((forall(
+      compt(size): usize
+    ),
+    arr : &(Array(i32, size)),
+    callback : Callback
+  ) -> unit) {
+  mut(i) := 0.as(usize);
+  while (i < size), {
+    callback(&(arr(i)));
+    i = (i + 1.as(usize));
+  };
+};
+
+main :: (() -> unit) {
+  arr := [1, 2, 3, 4, 5];
+  mut(sum) := 0;
+  sum_ptr := &!(sum);
+
+  // captured `sum_ptr`
+  /// using anonymous function
+  foreach(&(arr), fn(elem)=> {
+    sum_ptr.* = (sum_ptr.* + elem.*);
+  });
+
+  /// using closure type with its implementation
+  callback :: ((elem : &(i32))=> unit) {
+    sum_ptr.* = (sum_ptr.* + elem.*);
+  }
+  
+  ;
+  foreach(&(arr), callback);
+};
+*/

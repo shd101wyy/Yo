@@ -27,6 +27,7 @@ import {
   exprToString,
   FuncCallExpr,
   PathCollection,
+  setExprAsConsumed,
 } from "../../expr";
 import { FunctionValue, SpecializedFunctionCache } from "../../function-value";
 import { PlaceholderToken, stringIsOperator, TokenType } from "../../token";
@@ -42,6 +43,7 @@ import {
   isExprListType,
   isFunctionSpecializable,
   isFunctionType,
+  isLinearOrType0Type,
   isModuleType,
   isMutPtrType,
   isMutRefType,
@@ -1748,6 +1750,11 @@ ${functionsWithMatchingTypes
         }
       }
 
+      // If function call is linear (for example, the closure), then we consume it
+      if (isLinearOrType0Type(typeOfType(functionToCall.type))) {
+        env = setExprAsConsumed(func, env, context);
+      }
+
       expr.$ = {
         env,
         type: returnType,
@@ -1756,6 +1763,7 @@ ${functionsWithMatchingTypes
         pathCollection: pathCollection,
         runtimeArgExprsInOrder,
       };
+
       // Set temp variable which holds the result of the function call
       attachTempVariableToExpr(expr);
 
@@ -2149,6 +2157,7 @@ function createSpecializedFunctionInline({
     env: functionType.env,
     SelfType: functionType.SelfType,
     ModuleType: functionType.ModuleType,
+    isClosure: functionType.isClosure, // Preserve closure property
   });
 
   // Create a new specialized function value with the evaluated body

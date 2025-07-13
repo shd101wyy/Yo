@@ -453,6 +453,13 @@ export interface FunctionType extends Type {
    * Under which module this function is defined.
    */
   ModuleType?: ModuleType;
+
+  /**
+   * Whether this function is a closure.
+   * Closures use => syntax and can capture values from outer scope by move.
+   * Regular functions use -> syntax and don't capture.
+   */
+  isClosure?: boolean;
 }
 
 export interface MutPtrType extends Type {

@@ -422,6 +422,7 @@ export function createFunctionType({
   parametersFrame,
   SelfType,
   ModuleType,
+  isClosure,
 }: {
   parameters: FunctionParameter[];
   typeParameters: FunctionParameter[];
@@ -432,9 +433,10 @@ export function createFunctionType({
   parametersFrame: Frame;
   SelfType?: Type;
   ModuleType?: ModuleType;
+  isClosure?: boolean;
 }): FunctionType {
   return {
-    id: `fn_${randomId()}`,
+    id: `${isClosure ? "closure" : "fn"}_${randomId()}`,
     tag: TypeTag.Function,
     parameters: parameters, // Wrap params in a TupleType
     typeParameters,
@@ -445,6 +447,7 @@ export function createFunctionType({
     parametersFrame,
     SelfType,
     ModuleType,
+    isClosure,
   };
 }
 
