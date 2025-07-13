@@ -809,18 +809,22 @@ export function evaluateFunctionType({
   expr,
   env,
   context,
-  isClosure,
+  closureKind,
 }: {
   expr: FuncCallExpr;
   env: Environment;
   context: EvaluatorContext;
-  isClosure?: boolean;
+  closureKind?: "Fn" | "FnMut" | "FnOnce";
 }): FuncCallExpr {
-  const expectedOperator = isClosure ? "=>" : "->";
+  // For closure types (Fn, FnMut, FnOnce), we expect -> operator
+  // For regular functions, we expect -> operator
+  const expectedOperator = "->";
+
   if (!exprIsFunctionCallOf(expr, expectedOperator, 2)) {
+    const typeDescription = closureKind || "function";
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected ${expectedOperator} for ${isClosure ? "closure" : "function"} type, got:\n${exprToString(expr)}`,
+      errorMessage: `Expected ${expectedOperator} for ${typeDescription} type, got:\n${exprToString(expr)}`,
     });
   }
 
@@ -829,7 +833,20 @@ export function evaluateFunctionType({
 
   // Handle different forms of parameter lists
   let argList: Expr[] = [];
-  if (
+
+  // For closure types (Fn, FnMut, FnOnce), the argListExpr is the closure call itself
+  // e.g., for "FnOnce(i32) -> i32", argListExpr is "FnOnce(i32)"
+  if (closureKind && exprIsFunctionCall(argListExpr)) {
+    // Extract arguments from the closure type call
+    if (exprIsFunctionCallOf(argListExpr, closureKind)) {
+      argList = argListExpr.args;
+    } else {
+      throw formatErrorMessage({
+        token: argListExpr.token,
+        errorMessage: `Expected ${closureKind} for closure type, got:\n${exprToString(argListExpr)}`,
+      });
+    }
+  } else if (
     exprIsFunctionCall(argListExpr) &&
     exprIsFunctionCallOf(argListExpr, BuiltinKeywords.tuple)
   ) {
@@ -1006,7 +1023,7 @@ ${typeToString(returnType)}`,
     parametersFrame: env.frames[env.frames.length - 1]!,
     SelfType: context.SelfType,
     ModuleType: context.ModuleType,
-    isClosure: isClosure ?? false, // Use parameter or default to false
+    closureKind: closureKind, // Use the provided closure kind
   });
 
   // Pop the environment frame

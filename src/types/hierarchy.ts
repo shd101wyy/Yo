@@ -141,9 +141,9 @@ export function typeOfType(
   } else if (isExprType(type)) {
     return createFreeType(type);
   } else if (isFunctionType(type)) {
-    // Closures are linear types (can only be called once)
-    // Regular functions are free types
-    return (type as FunctionType).isClosure
+    // FnOnce closures are linear types (can only be called once)
+    // Regular functions and Fn/FnMut closures are free types
+    return (type as FunctionType).closureKind === "FnOnce"
       ? createLinearType(type)
       : createFreeType(type);
   } else if (isArrayType(type)) {

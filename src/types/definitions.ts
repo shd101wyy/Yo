@@ -455,11 +455,13 @@ export interface FunctionType extends Type {
   ModuleType?: ModuleType;
 
   /**
-   * Whether this function is a closure.
-   * Closures use => syntax and can capture values from outer scope by move.
-   * Regular functions use -> syntax and don't capture.
+   * The kind of closure this function type represents.
+   * - undefined: Regular function (uses -> syntax, doesn't capture)
+   * - "Fn": Immutable borrow closure (can be called multiple times)
+   * - "FnMut": Mutable borrow closure (can be called multiple times, can mutate)
+   * - "FnOnce": Move closure (can only be called once, moves captured values)
    */
-  isClosure?: boolean;
+  closureKind?: "Fn" | "FnMut" | "FnOnce";
 }
 
 export interface MutPtrType extends Type {

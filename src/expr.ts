@@ -382,6 +382,11 @@ export const BuiltinKeywords = {
   Module: ["Module"],
   anyopaque: ["anyopaque"], // Any opaque type, which is not known at compile time.
 
+  // closure types (Rust-style)
+  Fn: ["Fn"],
+  FnMut: ["FnMut"],
+  FnOnce: ["FnOnce"],
+
   // data values
   tuple: "tuple",
   array: "array",

@@ -43,7 +43,7 @@ export function tryToImplementFunctionByFunctionType({
   let env = pushEnvFrame(
     // For closures, we keep the full caller environment to enable variable capturing
     // For regular functions, we only keep top-level frame and compile-time variables
-    functionType.isClosure
+    functionType.closureKind !== undefined
       ? callerEnv
       : keepTopLevelFrameAndComptimeVariablesFromEnv(callerEnv),
     functionType.parametersFrame
@@ -63,9 +63,10 @@ export function tryToImplementFunctionByFunctionType({
   };
 
   // Evaluate the function body
-  const capturedVariables = functionType.isClosure
-    ? new Map<string, number>()
-    : undefined;
+  const capturedVariables =
+    functionType.closureKind !== undefined
+      ? new Map<string, number>()
+      : undefined;
   const evaluatedFunctionBody = evaluateBeginExpression({
     expr: functionBodyExpr,
     env,
@@ -119,7 +120,7 @@ export function tryToImplementFunctionByFunctionType({
   // For closures, consume the captured variables from outer scopes
   let finalCallerEnv = callerEnv;
   if (
-    functionType.isClosure &&
+    functionType.closureKind !== undefined &&
     capturedVariables &&
     capturedVariables.size > 0
   ) {

@@ -25,12 +25,10 @@ export function evaluateAnonymousFunctionImplementation({
   expr,
   env,
   context,
-  isClosure,
 }: {
   expr: FuncCallExpr;
   env: Environment;
   context: EvaluatorContext;
-  isClosure?: boolean;
 }): FuncCallExpr {
   const functionType = context.expectedType?.type;
   if (!functionType) {
@@ -46,11 +44,29 @@ export function evaluateAnonymousFunctionImplementation({
     });
   }
 
-  const expectedOperator = isClosure ? "=>" : "->";
+  // Determine the expected operator based on the closure kind
+  let expectedOperator: string;
+  let operatorDescription: string;
+
+  if (functionType.closureKind === "FnOnce") {
+    expectedOperator = "=>";
+    operatorDescription = "FnOnce closure";
+  } else if (
+    functionType.closureKind === "Fn" ||
+    functionType.closureKind === "FnMut"
+  ) {
+    expectedOperator = "=>>";
+    operatorDescription = `${functionType.closureKind} closure`;
+  } else {
+    // Regular function (not a closure)
+    expectedOperator = "->";
+    operatorDescription = "function";
+  }
+
   if (!exprIsFunctionCallOf(expr, expectedOperator, 2)) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected ${expectedOperator} for anonymous ${isClosure ? "closure" : "function"}, got:\n${exprToString(expr)}`,
+      errorMessage: `Expected ${expectedOperator} for anonymous ${operatorDescription}, got:\n${exprToString(expr)}`,
     });
   }
   const functionDeclarationExpr = expr.args[0]!;
@@ -87,7 +103,10 @@ export function evaluateAnonymousFunctionImplementation({
   env = nextEnv;
 
   // Evaluate the function body
-  const capturedVariables = isClosure ? new Map<string, number>() : undefined;
+  const isClosureFunction = functionType.closureKind !== undefined;
+  const capturedVariables = isClosureFunction
+    ? new Map<string, number>()
+    : undefined;
   const evaluatedBody = evaluateBeginExpression({
     expr: functionBodyExpr,
     env,
@@ -130,7 +149,7 @@ export function evaluateAnonymousFunctionImplementation({
   env = popEnvFrame(env);
 
   // For closures, consume the captured variables from outer scopes
-  if (isClosure && capturedVariables && capturedVariables.size > 0) {
+  if (isClosureFunction && capturedVariables && capturedVariables.size > 0) {
     env = consumeCapturedVariables({
       capturedVariables,
       env,
@@ -193,7 +212,7 @@ export function evaluateAnonymousFunctionImplementation({
 
   // For closures, attach a temporary variable so they can be consumed
   // This must be done AFTER expr.$ is set since attachTempVariableToExpr expects it
-  if (isClosure) {
+  if (isClosureFunction) {
     attachTempVariableToExpr(expr);
   }
 

@@ -2157,7 +2157,7 @@ function createSpecializedFunctionInline({
     env: functionType.env,
     SelfType: functionType.SelfType,
     ModuleType: functionType.ModuleType,
-    isClosure: functionType.isClosure, // Preserve closure property
+    closureKind: functionType.closureKind, // Preserve closure property
   });
 
   // Create a new specialized function value with the evaluated body

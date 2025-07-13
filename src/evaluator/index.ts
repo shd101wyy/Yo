@@ -230,14 +230,44 @@ ${exprToString(expr)}`,
           });
         }
 
-        // Function type
+        // Check if left side is FnOnce, Fn, or FnMut
+        const leftSide = expr.args[0]!;
+        if (exprIsFunctionCall(leftSide)) {
+          if (exprIsFunctionCallOf(leftSide, BuiltinKeywords.FnOnce)) {
+            // FnOnce(paramType) -> returnType - closure that can be called once
+            return evaluateFunctionType({
+              expr,
+              env,
+              context: { ...context },
+              closureKind: "FnOnce",
+            });
+          } else if (exprIsFunctionCallOf(leftSide, BuiltinKeywords.Fn)) {
+            // Fn(paramType) -> returnType - closure that can be called multiple times
+            return evaluateFunctionType({
+              expr,
+              env,
+              context: { ...context },
+              closureKind: "Fn",
+            });
+          } else if (exprIsFunctionCallOf(leftSide, BuiltinKeywords.FnMut)) {
+            // FnMut(paramType) -> returnType - closure that can be called multiple times with mutation
+            return evaluateFunctionType({
+              expr,
+              env,
+              context: { ...context },
+              closureKind: "FnMut",
+            });
+          }
+        }
+
+        // Regular function type
         return evaluateFunctionType({
           expr,
           env,
           context: { ...context },
         });
       } else if (exprIsFunctionCallOf(expr, "=>", 2)) {
-        // Closure implementation or type
+        // FnOnce closure implementation (move semantics)
         if (
           // (fn(x) => x)
           exprIsFunctionCall(expr.args[0]) &&
@@ -247,16 +277,32 @@ ${exprToString(expr)}`,
             expr,
             env,
             context: { ...context },
-            isClosure: true,
           });
         }
 
-        // Closure type
-        return evaluateFunctionType({
-          expr,
-          env,
-          context: { ...context },
-          isClosure: true,
+        // This should no longer be used for closure types
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `The '=>' operator is only for FnOnce closure implementations. Use 'FnOnce(param) -> returnType' for closure types.`,
+        });
+      } else if (exprIsFunctionCallOf(expr, "=>>", 2)) {
+        // Fn/FnMut closure implementation (borrow semantics)
+        if (
+          // (fn(x) =>> x)
+          exprIsFunctionCall(expr.args[0]) &&
+          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn)
+        ) {
+          return evaluateAnonymousFunctionImplementation({
+            expr,
+            env,
+            context: { ...context },
+          });
+        }
+
+        // This should not be used for closure types
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `The '=>>' operator is only for Fn/FnMut closure implementations. Use 'Fn(param) -> returnType' or 'FnMut(param) -> returnType' for closure types.`,
         });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
         // recur

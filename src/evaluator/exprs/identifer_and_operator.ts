@@ -522,7 +522,7 @@ export function evaluateIdentifierAndOperator({
       // For closures, track variables captured from outer scopes
       if (
         context.isEvaluatingFunctionBody?.capturedVariables &&
-        context.isEvaluatingFunctionBody.type.isClosure &&
+        context.isEvaluatingFunctionBody.type.closureKind !== undefined &&
         context.isEvaluatingFunctionBody.evaluationEnv
       ) {
         const closureEvaluationFrameLevel =

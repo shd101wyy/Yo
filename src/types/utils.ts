@@ -655,7 +655,7 @@ export function typeToString(type: Type): string {
         .filter((x) => !!x)
         .join(", ");
       const from = func.SelfType?.typeName ?? func.ModuleType?.typeName;
-      const arrow = func.isClosure ? "=>" : "->";
+      const arrow = func.closureKind !== undefined ? "=>" : "->";
       return `${from ? `(${from}) ` : ""}(${paramsString}) ${arrow} ${returnTypeString}`;
     }
 
