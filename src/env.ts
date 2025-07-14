@@ -438,11 +438,16 @@ export function updateExistingVariable(
   newVariable: Variable
 ): Environment {
   const frames: Frame[] = env.frames.map((frame) => {
-    const variables = frame.variables.map((variable) =>
-      variable === oldVariable ? newVariable : variable
-    );
+    const variables = frame.variables.map((variable) => {
+      // Use ID-based matching instead of object identity to avoid stale reference issues
+      if (variable.id === oldVariable.id) {
+        return newVariable;
+      }
+      return variable;
+    });
     return { ...frame, variables };
   });
+
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
     freeVariables: env.freeVariables,

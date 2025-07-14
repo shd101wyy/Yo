@@ -1,4 +1,4 @@
-import { Environment } from "./env";
+import { Environment, getVariablesFromEnv } from "./env";
 import { Expr, exprToString } from "./expr";
 import { FunctionValue } from "./function-value";
 import { stringIsOperator } from "./token";
@@ -632,9 +632,46 @@ export function areValuesEqual(
   } else if (isExprValue(value1) && isExprValue(value2)) {
     return value1.value === value2.value;
   }
-  // QUESTION: How should we handle UnknownValue?
+  // Handle UnknownValue by attempting to resolve them and comparing resolved values
   else if (isUnknownValue(value1) && isUnknownValue(value2)) {
-    // return value1 === value2;
+    // Try to resolve both unknown values from their environments
+    let resolvedValue1: Value | undefined = undefined;
+    let resolvedValue2: Value | undefined = undefined;
+
+    if (value1.variableName) {
+      const variables1 = getVariablesFromEnv(expected.env, value1.variableName);
+      if (variables1.length > 0) {
+        const variable1 = variables1[variables1.length - 1]!;
+        if (variable1.value && !isUnknownValue(variable1.value)) {
+          resolvedValue1 = variable1.value;
+        }
+      }
+    }
+
+    if (value2.variableName) {
+      const variables2 = getVariablesFromEnv(given.env, value2.variableName);
+      if (variables2.length > 0) {
+        const variable2 = variables2[variables2.length - 1]!;
+        if (variable2.value && !isUnknownValue(variable2.value)) {
+          resolvedValue2 = variable2.value;
+        }
+      }
+    }
+
+    // If both values resolved to concrete values, compare those
+    if (resolvedValue1 && resolvedValue2) {
+      return areValuesEqual(
+        { value: resolvedValue1, env: expected.env },
+        { value: resolvedValue2, env: given.env }
+      );
+    }
+
+    // If only one resolved, they're not equal
+    if (resolvedValue1 || resolvedValue2) {
+      return false;
+    }
+
+    // If neither resolved, fall back to type compatibility
     return areTypesCompatible(
       { type: value1.type, env: expected.env },
       { type: value2.type, env: given.env }

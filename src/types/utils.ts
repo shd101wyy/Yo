@@ -3,7 +3,7 @@ import { formatErrorMessages } from "../error";
 import { exprToString } from "../expr";
 import { stringIsOperator, Token } from "../token";
 import { TypeValue } from "../type-value";
-import { isNumberValue, valueToString } from "../value";
+import { isNumberValue, isUnknownValue, valueToString } from "../value";
 import { ValueTag } from "../value-tag";
 import {
   createF64Type,
@@ -181,6 +181,77 @@ export function typeContainsSomeType(type?: Type): boolean {
       );
     default:
       return false; // For other types, no SomeType is present
+  }
+}
+
+/**
+ * Check if a type contains unknown values.
+ */
+export function typeContainsUnknownValues(type?: Type): boolean {
+  if (!type) {
+    return false;
+  }
+
+  // Recursively check for unknown values in complex types
+  switch (type.tag) {
+    case TypeTag.Array: {
+      const arrayType = type as ArrayType;
+      return (
+        isUnknownValue(arrayType.length) ||
+        typeContainsUnknownValues(arrayType.elementType)
+      );
+    }
+    // NOTE: Let's only support ArrayType for now.
+    /*
+    case TypeTag.Tuple:
+      return (type as TupleType).elements.some((element) =>
+        typeContainsUnknownValues(element.type)
+      );
+    case TypeTag.Struct:
+      return (type as StructType).elements.some((element) =>
+        typeContainsUnknownValues(element.type)
+      );
+    case TypeTag.Enum:
+      return (type as EnumType).variants.some((variant) =>
+        variant.elements?.some((param) => typeContainsUnknownValues(param.type))
+      );
+    case TypeTag.Union:
+      return (type as UnionType).elements.some((element) =>
+        typeContainsUnknownValues(element.type)
+      );
+    case TypeTag.Module:
+      return (type as ModuleType).elements.some((element) =>
+        typeContainsUnknownValues(element.type)
+      );
+    case TypeTag.Function: {
+      const functionType = type as FunctionType;
+      return (
+        functionType.parameters.some((param) =>
+          typeContainsUnknownValues(param.type)
+        ) ||
+        typeContainsUnknownValues(functionType.return.type) ||
+        functionType.typeParameters.some((param) =>
+          typeContainsUnknownValues(param.type)
+        ) ||
+        functionType.implicitParameters.some((param) =>
+          typeContainsUnknownValues(param.type)
+        ) ||
+        (functionType.variadicParameter
+          ? typeContainsUnknownValues(functionType.variadicParameter.type)
+          : false)
+      );
+    }
+    case TypeTag.Ptr:
+      return typeContainsUnknownValues((type as PtrType).type);
+    case TypeTag.MutPtr:
+      return typeContainsUnknownValues((type as MutPtrType).type);
+    case TypeTag.Ref:
+      return typeContainsUnknownValues((type as RefType).type);
+    case TypeTag.MutRef:
+      return typeContainsUnknownValues((type as MutRefType).type);
+    */
+    default:
+      return false; // For other types, no unknown values are present
   }
 }
 

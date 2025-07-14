@@ -1,7 +1,8 @@
-import { Environment } from "../../env";
+import { addVariableToEnv, Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
+  exprIsAtom,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
@@ -11,7 +12,12 @@ import {
   createArrayType,
   createUsizeType,
 } from "../../types";
-import { createTypeValue, isTypeValue, isUnknownValue } from "../../value";
+import {
+  createTypeValue,
+  createUnknownValue,
+  isTypeValue,
+  isUnknownValue,
+} from "../../value";
 import { EvaluatorContext } from "../context";
 
 export function evaluateArrayType({
@@ -33,6 +39,10 @@ Got:\n${exprToString(expr)}`,
 
   const elementTypeExpr = expr.args[0]!;
   const lengthExpr = expr.args[1]!;
+
+  // Check if length is underscore placeholder for inference
+  const isLengthUnderscore =
+    exprIsAtom(lengthExpr) && lengthExpr.token.value === "_";
 
   // Evaluate the element type expression
   const evaluatedElementTypeExpr = context.evaluateExpression({
@@ -59,6 +69,44 @@ If you are creating an array value with 1 element, please consider adding a "," 
     });
   }
   const elementType = evaluatedElementTypeExpr.$.value.value;
+
+  // Handle underscore placeholder for length inference
+  if (isLengthUnderscore) {
+    // Create an unknown value with a unique variable name for length inference
+    const lengthPlaceholderName = `_array_length_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const unknownLength = createUnknownValue(
+      createUsizeType(),
+      lengthPlaceholderName
+    );
+
+    // Add the unknown variable to the environment
+    const { env: envWithUnknownVar } = addVariableToEnv({
+      env: evaluatedElementTypeExpr.$.env,
+      variable: {
+        name: lengthPlaceholderName,
+        value: unknownLength,
+        type: createUsizeType(),
+        isMutable: false,
+        isCompileTimeOnly: true,
+        isImplicit: true,
+        token: lengthExpr.token,
+        initializedAtToken: lengthExpr.token,
+        consumedAtToken: undefined,
+      },
+    });
+
+    const arrayType = createArrayType(elementType, unknownLength);
+    const arrayTypeValue = createTypeValue(arrayType);
+
+    expr.$ = {
+      env: envWithUnknownVar,
+      type: arrayTypeValue.type,
+      value: arrayTypeValue,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
 
   // Evaluate the length expression
   const evaluatedLengthExpr = context.evaluateExpression({

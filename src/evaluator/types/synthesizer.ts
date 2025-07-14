@@ -245,14 +245,28 @@ export function synthesizeExprAndType({
       });
     }
   }
-  // If both expr and type are already set, return them
-  // No need to synthesize again
+  // If both expr and type are already set, but there might be unknown values to resolve
   else if (expr.$?.type && type) {
-    return {
-      expr,
-      type: expr.$?.type, // NOTE: Here we should return the type of expr, not `type`
-      env,
-    };
+    try {
+      // Try to synthesize the types to resolve unknown values
+      const { expectedEnv } = synthesizeTypes(
+        { type: type, env },
+        { type: expr.$.type, env }
+      );
+
+      return {
+        expr,
+        type: type, // Return the expected type (which may have been updated)
+        env: expectedEnv,
+      };
+    } catch (synthesisError) {
+      // If synthesis fails, fall back to original behavior
+      return {
+        expr,
+        type: expr.$?.type, // NOTE: Here we should return the type of expr, not `type`
+        env,
+      };
+    }
   } else {
     throw formatErrorMessage({
       token: expr.token,
@@ -524,15 +538,6 @@ export function synthesizeTypes(
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
-  } else {
-    /*
-      console.log(
-        "Failed to synthesize: ",
-        typeToString(expected.type),
-        typeToString(givenType),
-        areTypesCompatible(expected.type, given.type, env)
-      );
-      */
   }
   return { expectedEnv: expected.env, givenEnv: given.env };
 }

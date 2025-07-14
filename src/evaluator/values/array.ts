@@ -10,6 +10,7 @@ import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
   createArrayType,
+  isArrayType,
   Type,
   typeToString,
 } from "../../types";
@@ -38,6 +39,12 @@ export function evaluateArrayValue({
 
   const arrayLength = arrayElementExprs.length;
   let arrayElementType: Type | undefined = undefined;
+
+  // Check if we have an expected array type from the context
+  let expectedElementType: Type | undefined = undefined;
+  if (context.expectedType && isArrayType(context.expectedType.type)) {
+    expectedElementType = context.expectedType.type.elementType;
+  }
   const arrayElementValues: (Value | undefined)[] = [];
   const runtimeArgExprsInOrder: Expr[] = [];
   for (let i = 0; i < arrayElementExprs.length; i++) {
@@ -47,6 +54,9 @@ export function evaluateArrayValue({
       env,
       context: {
         ...context,
+        expectedType: expectedElementType
+          ? { type: expectedElementType, env }
+          : undefined,
       },
     });
 
@@ -66,7 +76,7 @@ export function evaluateArrayValue({
 
     // Check type
     if (!arrayElementType) {
-      arrayElementType = evaluatedElement.$.type;
+      arrayElementType = expectedElementType || evaluatedElement.$.type;
     } else {
       // Check if the type of the element matches the first element type
       if (

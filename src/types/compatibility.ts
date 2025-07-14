@@ -500,21 +500,6 @@ function addTypeValueToEnvForFunctionParameter(
   typeValue: Value,
   env: Environment
 ): Environment {
-  /*
-  // Check if the same type value already exists in the environment
-  const existVariable = getVariablesFromEnv(env, parameter.label);
-  if (existVariable.length > 0) {
-    // If it exists, skip
-    console.log(
-      "exists variable: ",
-      parameter.label,
-      existVariable[existVariable.length - 1]?.type.id,
-      typeValue.type.id
-    );
-    return env;
-  }
-  */
-
   const { env: nextEnv } = addVariableToEnv({
     env: env,
     variable: {

@@ -9,7 +9,14 @@ import {
 import { formatErrorMessage, formatErrorMessages } from "./error";
 import { EvaluatorContext } from "./evaluator/context";
 import { Token, TokenType } from "./token";
-import { isFreeType, isLinearOrType0Type, Type, typeOfType } from "./types";
+import {
+  areTypesCompatible,
+  isFreeType,
+  isLinearOrType0Type,
+  Type,
+  typeOfType,
+  typeToString,
+} from "./types";
 import { generateNewTempVariableName } from "./utils";
 import { isTypeValue, Value } from "./value";
 
@@ -1076,11 +1083,13 @@ export function mergeAndCheckEnvs(
     const matrix: {
       consumedAtToken: Token | undefined;
       initializedAtToken: Token | undefined;
+      type: Type;
     }[][] = [[]];
-    frameVariables.forEach((variale) => {
+    frameVariables.forEach((variable) => {
       matrix[0]!.push({
-        consumedAtToken: variale.consumedAtToken,
-        initializedAtToken: variale.initializedAtToken,
+        consumedAtToken: variable.consumedAtToken,
+        initializedAtToken: variable.initializedAtToken,
+        type: variable.type,
       });
     });
 
@@ -1124,6 +1133,7 @@ export function mergeAndCheckEnvs(
         matrix[matrix.length - 1]!.push({
           consumedAtToken: variable.consumedAtToken,
           initializedAtToken: variable.initializedAtToken,
+          type: variable.type,
         });
       });
     }
@@ -1139,9 +1149,49 @@ export function mergeAndCheckEnvs(
       const variableName = frameVariables[i]!.name;
       const consumedAtTokens: (Token | undefined)[] = [];
       const initializedAtTokens: (Token | undefined)[] = [];
+      const types: Type[] = [];
       for (let j = 1; j < rows; j++) {
         consumedAtTokens.push(matrix[j]![i]!.consumedAtToken);
         initializedAtTokens.push(matrix[j]![i]!.initializedAtToken);
+        types.push(matrix[j]![i]!.type);
+      }
+
+      // Check type compatibility across cases for initialized variables
+      const initializedCases = initializedAtTokens
+        .map((token, index) => ({ token, index }))
+        .filter(({ token }) => !!token);
+
+      if (initializedCases.length > 1) {
+        // Check if all initialized cases have compatible types
+        const firstType = types[initializedCases[0]!.index]!;
+        const firstCaseEnv = caseEnvs[initializedCases[0]!.index]!;
+
+        for (let k = 1; k < initializedCases.length; k++) {
+          const currentType = types[initializedCases[k]!.index]!;
+          const currentCaseEnv = caseEnvs[initializedCases[k]!.index]!;
+
+          if (
+            !areTypesCompatible(
+              { type: firstType, env: firstCaseEnv },
+              { type: currentType, env: currentCaseEnv }
+            )
+          ) {
+            throw formatErrorMessages([
+              {
+                token: bodies[initializedCases[0]!.index]!.token,
+                errorMessage: `Variable "${variableName}" has incompatible types across different cases:`,
+              },
+              {
+                token: initializedAtTokens[initializedCases[0]!.index]!,
+                errorMessage: `First initialization: ${typeToString(firstType)}`,
+              },
+              {
+                token: initializedAtTokens[initializedCases[k]!.index]!,
+                errorMessage: `Conflicting initialization: ${typeToString(currentType)}`,
+              },
+            ]);
+          }
+        }
       }
 
       // Check the "Free" values.

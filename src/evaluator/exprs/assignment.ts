@@ -21,17 +21,26 @@ import {
 import { setTypeValueAsLinear } from "../../type-value";
 import {
   areTypesCompatible,
+  createArrayType,
   EnumType,
+  isArrayType,
   isEnumType,
   isFreeType,
   isLinearType,
   isTypeHierarchyType,
+  Type,
   typeContainsReference,
+  typeContainsUnknownValues,
   typeOfType,
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
-import { isFunctionValue, isModuleValue, isTypeValue } from "../../value";
+import {
+  isFunctionValue,
+  isModuleValue,
+  isTypeValue,
+  isUnknownValue,
+} from "../../value";
 import { EvaluatorContext, trackVariableUsage } from "../context";
 import { synthesizeExprAndType } from "../types/synthesizer";
 import { evaluateBinding } from "./binding";
@@ -63,6 +72,31 @@ export function throwRhsContainsControlFlowExpressionError(
     token: rhs.token,
     errorMessage,
   });
+}
+
+/**
+ * Check if a type contains unknown values that need to be resolved
+ */
+
+/**
+ * Resolve unknown values in a type by looking up their resolved values in the environment
+ */
+function resolveUnknownValuesInType(type: Type, env: Environment): Type {
+  if (isArrayType(type) && isUnknownValue(type.length)) {
+    const unknownLength = type.length;
+    if (unknownLength.variableName) {
+      // Look up the resolved value of the unknown length variable
+      const variables = getVariablesFromEnv(env, unknownLength.variableName);
+      if (variables.length > 0) {
+        const variable = variables[variables.length - 1]!;
+        if (variable.value && !isUnknownValue(variable.value)) {
+          // Create a new array type with the resolved length
+          return createArrayType(type.elementType, variable.value);
+        }
+      }
+    }
+  }
+  return type;
 }
 
 /**
@@ -200,22 +234,87 @@ export function evaluateAssignment({
     if (
       !areTypesCompatible({ type: variable.type, env }, { type: rhsType, env })
     ) {
-      throw formatErrorMessage({
-        token: lhs.token,
-        errorMessage: `Incompatible types:
+      // Only try synthesis if the expected type contains unknown values that could be resolved
+      if (typeContainsUnknownValues(variable.type)) {
+        // If types are incompatible, try synthesis in case there are unknown values to resolve
+        try {
+          const {
+            expr: synthesizedRhs,
+            type: synthesizedRhsType,
+            env: synthesizedEnv,
+          } = synthesizeExprAndType({
+            expr: rhs,
+            type: variable.type,
+            env: env,
+            context: { ...context },
+          });
+
+          // Check if synthesis made the types compatible
+          if (
+            areTypesCompatible(
+              { type: variable.type, env: synthesizedEnv },
+              { type: synthesizedRhsType, env: synthesizedEnv }
+            )
+          ) {
+            rhs = synthesizedRhs;
+            rhsType = synthesizedRhsType;
+            env = synthesizedEnv;
+
+            // After synthesis, resolve any unknown values in the variable type
+            const resolvedVariableType = resolveUnknownValuesInType(
+              variable.type,
+              env
+            );
+
+            // Update the variable in the environment with the resolved type
+            env = updateExistingVariable(env, variable, {
+              ...variable,
+              type: resolvedVariableType,
+            });
+          } else {
+            // Still incompatible after synthesis
+            throw formatErrorMessage({
+              token: lhs.token,
+              errorMessage: `Incompatible types:
 - Expected: ${typeToString(variable.type)}
 - Given   : ${typeToString(rhsType)}`,
-      });
+            });
+          }
+        } catch (synthesisError) {
+          // Synthesis failed, throw original incompatibility error
+          throw formatErrorMessage({
+            token: lhs.token,
+            errorMessage: `Incompatible types:
+- Expected: ${typeToString(variable.type)}
+- Given   : ${typeToString(rhsType)}`,
+          });
+        }
+      } else {
+        // No unknown values to resolve, just throw the incompatibility error
+        throw formatErrorMessage({
+          token: lhs.token,
+          errorMessage: `Incompatible types:
+- Expected: ${typeToString(variable.type)}
+- Given   : ${typeToString(rhsType)}`,
+        });
+      }
     }
+
+    // Get the updated variable from the environment (in case it was updated during synthesis)
+    const updatedVariables = getVariablesFromEnv(env, variableName);
+    const updatedVariable = updatedVariables[updatedVariables.length - 1]!;
 
     // Add .typeName info if necessary
     let rhsValue = rhs.$?.value;
     if (isTypeValue(rhsValue) && !rhsValue.value.typeName) {
       rhsValue.value.typeName = variableName;
 
-      if (isTypeHierarchyType(variable.type) && !variable.type.baseType) {
+      if (
+        isTypeHierarchyType(updatedVariable.type) &&
+        !updatedVariable.type.baseType
+      ) {
         // If the variable type is a type hierarchy, set the base type
-        variable.type.baseType = rhsValue.value;
+        updatedVariable.type.baseType = rhsValue.value;
       }
     } else if (isFunctionValue(rhsValue) && !rhsValue.funcName) {
       rhsValue.funcName = variableName;
@@ -228,12 +327,12 @@ export function evaluateAssignment({
     if (
       isTypeValue(rhsValue) &&
       isFreeType(typeOfType(rhsValue.value)) &&
-      isLinearType(variable.type)
+      isLinearType(updatedVariable.type)
     ) {
       rhsValue = setTypeValueAsLinear(rhsValue);
     }
 
-    let variableType = variable.type;
+    let variableType = updatedVariable.type;
     // Check if it's enum and selectedVariant changed
     if (
       isEnumType(variableType) &&
