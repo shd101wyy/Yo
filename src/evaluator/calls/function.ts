@@ -70,6 +70,7 @@ import {
   createTypeValue,
   createUnknownValue,
   ExprValue,
+  isClosureValue,
   isExprValue,
   isFunctionValue,
   isTupleValue,
@@ -98,6 +99,24 @@ import {
 } from "./helper";
 import { tryToImplementModuleWithArgumentsByModuleType } from "./module_type";
 import { tryToCallTypeWithArguments } from "./type";
+
+/**
+ * Helper function to extract FunctionValue from either a FunctionValue or ClosureValue
+ */
+function extractFunctionValue(
+  value: Value | undefined
+): FunctionValue | undefined {
+  if (!value) {
+    return undefined;
+  }
+  if (isFunctionValue(value)) {
+    return value;
+  }
+  if (isClosureValue(value)) {
+    return value.functionValue;
+  }
+  return undefined;
+}
 
 /**
  * NOTE: This function will push new frame to the function env,
@@ -1346,7 +1365,7 @@ export function evaluateFunctionCall({
     if (isFunctionType(functionToCall.type)) {
       try {
         const result = tryToCallFunctionWithArguments({
-          functionValue: functionToCall.value as FunctionValue | undefined,
+          functionValue: extractFunctionValue(functionToCall.value),
           functionType: functionToCall.type,
           functionCallExpr: func,
           argExprs: args,
@@ -1375,7 +1394,7 @@ export function evaluateFunctionCall({
         // For closures, delegate to the underlying function type
         const closureType = functionToCall.type as ClosureType;
         const result = tryToCallFunctionWithArguments({
-          functionValue: functionToCall.value as FunctionValue | undefined,
+          functionValue: extractFunctionValue(functionToCall.value),
           functionType: closureType.callType,
           functionCallExpr: func,
           argExprs: args,

@@ -5,17 +5,34 @@ import {
   BuiltinKeywords,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  ExprTag,
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { FunctionCapturedVariableInfo } from "../../function-value";
+import {
+  FunctionCapturedVariableInfo,
+  FunctionValue,
+} from "../../function-value";
 import {
   areTypesCompatible,
+  ClosureType,
+  createClosureType,
+  createStructType,
   FunctionType,
+  isClosureType,
   isFunctionType,
+  TupleElement,
+  Type,
   typeToString,
 } from "../../types";
 import { randomId } from "../../utils";
+import {
+  createClosureValue,
+  createStructValue,
+  StructValue,
+  UnknownValue,
+  Value,
+} from "../../value";
 import { ValueTag } from "../../value-tag";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
@@ -34,17 +51,30 @@ export function evaluateAnonymousFunctionImplementation({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  const functionType = context.expectedType?.type;
-  if (!functionType) {
+  const expectedType = context.expectedType?.type;
+  if (!expectedType) {
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `Expected a function type, got:\n${exprToString(expr)}`,
     });
   }
-  if (!isFunctionType(functionType)) {
+
+  // Handle both FunctionType and ClosureType
+  let functionType: FunctionType;
+  let isCreatingClosure = false;
+  let expectedClosureType: ClosureType | undefined;
+
+  if (isFunctionType(expectedType)) {
+    functionType = expectedType;
+  } else if (isClosureType(expectedType)) {
+    // Extract the call type from the closure
+    expectedClosureType = expectedType;
+    functionType = expectedType.callType;
+    isCreatingClosure = true;
+  } else {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected a function type, got:\n${typeToString(functionType)}`,
+      errorMessage: `Expected a function type or closure type, got:\n${typeToString(expectedType)}`,
     });
   }
 
@@ -220,10 +250,93 @@ export function evaluateAnonymousFunctionImplementation({
   }
 
   // Set the type and value of the expression
-  expr.$ = {
-    env,
-    type: newFunctionType,
-    value: {
+  let finalType: Type;
+  let finalValue: Value;
+
+  if (isCreatingClosure && expectedClosureType) {
+    // Create a closure type and closure value
+    let captureType = expectedClosureType.captureType;
+    let captureValue: StructValue | UnknownValue | undefined;
+
+    // If capture type is not specified or captured variables exist, infer it from captured variables
+    if (
+      !captureType ||
+      (capturedVariablesWithValues && capturedVariablesWithValues.size > 0)
+    ) {
+      if (capturedVariablesWithValues && capturedVariablesWithValues.size > 0) {
+        // Create a struct type using createStructType
+        const inferredCaptureType = createStructType(env);
+
+        // Create elements from captured variables
+        const captureElements: TupleElement[] = Array.from(
+          capturedVariablesWithValues.entries()
+        ).map(([varName, captureInfo]) => ({
+          label: varName,
+          type: captureInfo.type,
+          isCompileTimeOnly: false, // Captured variables are runtime values
+          isImplicit: false,
+          assignedValue: undefined,
+          exprs: {
+            expr: {
+              tag: ExprTag.Atom,
+              token: captureInfo.token,
+            }, // Create a proper atom expression from the token
+            labelExpr: undefined,
+            typeExpr: undefined,
+            defaultValueExpr: undefined,
+          },
+        }));
+
+        // Add the elements to the struct type
+        inferredCaptureType.elements = captureElements;
+        captureType = inferredCaptureType;
+
+        // Create a struct value if all captured values are compile-time known
+        const captureValues = Array.from(
+          capturedVariablesWithValues.values()
+        ).map((info) => info.value);
+        if (captureValues.every((value) => value !== undefined)) {
+          captureValue = createStructValue(
+            inferredCaptureType,
+            captureValues as Value[]
+          );
+        } else {
+          // Some values are runtime-only, use undefined for runtime-unknown captures
+          captureValue = undefined;
+        }
+      } else if (!captureType) {
+        // No captured variables and no expected capture type - create undefined capture type
+        captureType = undefined;
+        captureValue = undefined;
+      }
+    }
+
+    const closureType = createClosureType(captureType, newFunctionType, env);
+
+    // Create the function value first
+    const functionValue: FunctionValue = {
+      tag: ValueTag.Function,
+      type: newFunctionType, // The function value uses the call type
+      body: functionBodyExpr,
+      frameLevel: env.frames.length - 1,
+      funcId: `closure_${randomId()}`,
+      calledComptFunctionCaches: [],
+      specializedFunctionCaches: [],
+      SelfType: context.SelfType,
+      capturedVariables: capturedVariablesWithValues,
+    };
+
+    // Create the closure value
+    finalType = closureType;
+    finalValue = createClosureValue(
+      closureType,
+      captureValue, // captureValue is already typed as StructValue | undefined
+      functionValue
+    );
+  } else {
+    // Regular function
+    finalType = newFunctionType;
+    finalValue = {
       tag: ValueTag.Function,
       type: newFunctionType,
       body: functionBodyExpr,
@@ -233,7 +346,13 @@ export function evaluateAnonymousFunctionImplementation({
       specializedFunctionCaches: [],
       SelfType: context.SelfType,
       capturedVariables: capturedVariablesWithValues,
-    },
+    };
+  }
+
+  expr.$ = {
+    env,
+    type: finalType,
+    value: finalValue,
     isMutable: false,
     pathCollection:
       isClosureFunction && capturedVariables
