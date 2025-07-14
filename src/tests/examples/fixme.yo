@@ -1,31 +1,54 @@
 // with => to define a closure that captures the `move` from outer scope
-// open import "std";
+open import "std";
 
+// FnOnce, FnMut, Fn can only be used in a Closure context
+// They cannot be used as standalone types
+// This should be invalid - standalone FnOnce
+compt_expect_error(
+  invalid_fn_once :: (FnOnce(val: i32) -> i32)
+);
+
+// This should be invalid - standalone FnMut  
+compt_expect_error(
+  invalid_fn_mut :: (FnMut(val: i32) -> i32)
+);
+
+// This should be invalid - standalone Fn
+compt_expect_error(
+  invalid_fn :: (Fn(val: i32) -> i32)
+);
+
+
+plus_fn_once :: 
+  ((forall(compt(F) : Type),
+    callback : Closure(F, FnOnce(elem : i32) -> i32)
+  ) -> i32) {
+  return callback(42); // callback can only be called once
+};
+
+plus_fn_mut :: 
+  ((forall(compt(F) : Type),
+    mut(callback) : Closure(F, FnMut(elem : i32) -> i32)
+  ) -> i32) {
+  callback(42);
+  return callback(42); // callback can be called multiple times, but must be mutable
+};
+
+plus_fn :: 
+  ((forall(compt(F) : Type),
+    callback : Closure(F, Fn(elem : i32) -> i32)
+  ) -> i32) {
+  callback(42);
+  return callback(42); // callback can be called multiple times, but cannot mutate captured variables
+};
+
+
+/*
 test1 :: (() -> unit) {
-  arr1 := [1, 2, 3];
-  (arr2 : Array(i32, 3)) = [1, 2, 3];
-
-  // I want to support Array(i32, _);
-  (arr3 : Array(i32, _)) = [1, 2, 3];
+  mut(counter) := 0;
+  plus(fn(elem)=> {
+    counter += elem;
+    return counter;
+  });
 };
-
-
-test2 :: (() -> unit) {
-  mut(arr) : Array(i32, _);
-  arr = [1, 2, 3];
-  compt_expect_error(arr = [1, 2, 3, 4], "Incompatible types [i32; 3] vs [i32; 4]");
-};
-
-
-some_condition :: (() -> boolean) true;
-test3 :: (() -> unit) {
-  mut(arr) : Array(i32, _);
-  compt_expect_error(
-    cond(
-      some_condition() => {arr = [1, 2, 3]; },
-      true => { arr = [1, 2, 3, 4]; }
-    )
-  );
-
-  // This should give error because `arr` cannot have differnet lengths
-};
+*/

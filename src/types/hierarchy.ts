@@ -7,6 +7,7 @@ import {
   createTypeType,
 } from "./creators";
 import {
+  ClosureType,
   FunctionParameter,
   FunctionType,
   ModuleType,
@@ -16,6 +17,7 @@ import {
 } from "./definitions";
 import {
   isArrayType,
+  isClosureType,
   isComptFloatType,
   isComptIntType,
   isComptStringType,
@@ -146,6 +148,15 @@ export function typeOfType(
     return (type as FunctionType).closureKind === "FnOnce"
       ? createLinearType(type)
       : createFreeType(type);
+  } else if (isClosureType(type)) {
+    // The type universe of a closure is determined by its capture type
+    const closureType = type as ClosureType;
+    if (closureType.captureType) {
+      return typeOfType(closureType.captureType, checkedTupleElements);
+    } else {
+      // If no capture type, it's a free type (no captures)
+      return createFreeType(type);
+    }
   } else if (isArrayType(type)) {
     // For arrays, check the element type
     return typeOfType(type.elementType);

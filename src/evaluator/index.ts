@@ -76,6 +76,7 @@ import { evaluateRecur } from "./exprs/recur";
 import { evaluateTypeOf } from "./exprs/typeof";
 import { evaluateWhile } from "./exprs/while";
 import { evaluateArrayType } from "./types/array";
+import { evaluateClosureType } from "./types/closure";
 import { evaluateEnumType } from "./types/enum";
 import { evaluateFunctionType } from "./types/function";
 import { evaluateSliceType } from "./types/slice";
@@ -236,6 +237,15 @@ ${exprToString(expr)}`,
         if (exprIsFunctionCall(leftSide)) {
           if (exprIsFunctionCallOf(leftSide, BuiltinKeywords.FnOnce)) {
             // FnOnce(paramType) -> returnType - closure that can be called once
+            // Check if we're in a closure context
+            if (!context.isEvaluatingClosureCallType) {
+              throw formatErrorMessage({
+                token: leftSide.token,
+                errorMessage: `FnOnce can only be used as the call type within a Closure type.
+Use: Closure(CaptureType, FnOnce(elem: Type) -> ReturnType)
+Instead of: FnOnce(elem: Type) -> ReturnType`,
+              });
+            }
             return evaluateFunctionType({
               expr,
               env,
@@ -244,6 +254,15 @@ ${exprToString(expr)}`,
             });
           } else if (exprIsFunctionCallOf(leftSide, BuiltinKeywords.Fn)) {
             // Fn(paramType) -> returnType - closure that can be called multiple times
+            // Check if we're in a closure context
+            if (!context.isEvaluatingClosureCallType) {
+              throw formatErrorMessage({
+                token: leftSide.token,
+                errorMessage: `Fn can only be used as the call type within a Closure type.
+Use: Closure(CaptureType, Fn(elem: Type) -> ReturnType)
+Instead of: Fn(elem: Type) -> ReturnType`,
+              });
+            }
             return evaluateFunctionType({
               expr,
               env,
@@ -252,6 +271,15 @@ ${exprToString(expr)}`,
             });
           } else if (exprIsFunctionCallOf(leftSide, BuiltinKeywords.FnMut)) {
             // FnMut(paramType) -> returnType - closure that can be called multiple times with mutation
+            // Check if we're in a closure context
+            if (!context.isEvaluatingClosureCallType) {
+              throw formatErrorMessage({
+                token: leftSide.token,
+                errorMessage: `FnMut can only be used as the call type within a Closure type.
+Use: Closure(CaptureType, FnMut(elem: Type) -> ReturnType)
+Instead of: FnMut(elem: Type) -> ReturnType`,
+              });
+            }
             return evaluateFunctionType({
               expr,
               env,
@@ -410,6 +438,13 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Array)) {
         // Array type
         return evaluateArrayType({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Closure)) {
+        // Closure type
+        return evaluateClosureType({
           expr,
           env,
           context: { ...context },

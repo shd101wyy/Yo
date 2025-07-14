@@ -8,6 +8,14 @@ export type TypeId = string;
 
 export type ExternLanguage = "yo" | "c";
 
+/**
+ * The kind of closure behavior.
+ * - "Fn": Immutable borrow closure (can be called multiple times, read-only access to captures)
+ * - "FnMut": Mutable borrow closure (can be called multiple times, can mutate captures)
+ * - "FnOnce": Move closure (can only be called once, moves/consumes captured values)
+ */
+export type ClosureKind = "Fn" | "FnMut" | "FnOnce";
+
 export interface Type {
   /**
    * The tag to identify the type of type.
@@ -461,7 +469,7 @@ export interface FunctionType extends Type {
    * - "FnMut": Mutable borrow closure (can be called multiple times, can mutate)
    * - "FnOnce": Move closure (can only be called once, moves captured values)
    */
-  closureKind?: "Fn" | "FnMut" | "FnOnce";
+  closureKind?: ClosureKind;
 }
 
 export interface MutPtrType extends Type {
@@ -498,4 +506,44 @@ export interface RefType extends Type {
    * The type of the reference.
    */
   type: Type;
+}
+
+/**
+ * ClosureType represents a closure as a combination of:
+ * 1. A capture struct containing the captured variables
+ * 2. A call function with the appropriate closure kind (Fn/FnMut/FnOnce)
+ *
+ * Examples:
+ * - Closure(_, FnMut(elem: i32) -> i32)
+ * - Closure(MyCapture, Fn(elem: i32) -> i32)
+ * - Closure(MyCapture, FnOnce(elem: i32) -> i32)
+ */
+export interface ClosureType extends Type {
+  tag: TypeTag.Closure;
+
+  /**
+   * The type that contains the captured variables.
+   * This defines what variables the closure captures and how they are captured.
+   *
+   * For example:
+   *   struct(counter: &!(i32), base: &(i32))
+   *
+   * This can be undefined if the capture type should be inferred.
+   * Can be any Type to support generic type parameters like forall(F : Type).
+   */
+  captureType?: Type;
+
+  /**
+   * The function type that defines the call signature and closure behavior.
+   * This must have a closureKind set to "Fn", "FnMut", or "FnOnce".
+   *
+   * The function signature should NOT include a self parameter - that's
+   * handled internally based on the closure kind and capture type.
+   */
+  callType: FunctionType & { closureKind: ClosureKind };
+
+  /**
+   * The env when the closure type is created.
+   */
+  env: Environment;
 }

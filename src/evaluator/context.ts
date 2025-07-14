@@ -60,6 +60,12 @@ export interface EvaluatorContext {
    */
   borrowings: Borrowing[];
 
+  /**
+   * Whether we are currently evaluating a closure call type.
+   * This is used to restrict FnOnce/FnMut/Fn usage to only within Closure types.
+   */
+  isEvaluatingClosureCallType?: boolean;
+
   evaluateExpression: EvaluateExpression;
 
   loadModule: (modulePath: string) => {

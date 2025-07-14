@@ -34,11 +34,13 @@ import { PlaceholderToken, stringIsOperator, TokenType } from "../../token";
 import { TypeValue } from "../../type-value";
 import {
   areTypesCompatible,
+  ClosureType,
   createExprType,
   createFunctionType,
   FunctionParameter,
   FunctionType,
   isArrayType,
+  isClosureType,
   isEnumType,
   isExprListType,
   isFunctionSpecializable,
@@ -992,7 +994,7 @@ ${implicitVariables
 
   // Check if we need to evaluate the compt function call
   // such as the type function, macro function, or function that returns compt value.
-  let returnValue: Value | undefined = undefined;
+  let returnValue: Value | undefined;
   if (functionType.return.isCompileTimeOnly) {
     if (isFunctionValue(functionValue)) {
       const { value: nextReturnValue, callerEnv: nextEnv } =
@@ -1015,7 +1017,7 @@ ${implicitVariables
   }
 
   // Check if function has compile-time parameters and create specialized version if needed
-  let specializedFunctionValue: FunctionValue | undefined = undefined;
+  let specializedFunctionValue: FunctionValue | undefined;
 
   if (
     functionValue &&
@@ -1346,6 +1348,35 @@ export function evaluateFunctionCall({
         const result = tryToCallFunctionWithArguments({
           functionValue: functionToCall.value as FunctionValue | undefined,
           functionType: functionToCall.type,
+          functionCallExpr: func,
+          argExprs: args,
+          callerEnv: env,
+          context: { ...context },
+          isMethodCall: Boolean(methodExpr),
+        });
+        return {
+          ...functionToCall,
+          result: {
+            kind: "function",
+            result,
+          },
+        };
+      } catch (error) {
+        return {
+          ...functionToCall,
+          result: {
+            kind: "error",
+            error: error,
+          },
+        };
+      }
+    } else if (isClosureType(functionToCall.type)) {
+      try {
+        // For closures, delegate to the underlying function type
+        const closureType = functionToCall.type as ClosureType;
+        const result = tryToCallFunctionWithArguments({
+          functionValue: functionToCall.value as FunctionValue | undefined,
+          functionType: closureType.callType,
           functionCallExpr: func,
           argExprs: args,
           callerEnv: env,
@@ -1784,6 +1815,76 @@ ${functionsWithMatchingTypes
           pathCollection: [],
         };
       }
+    }
+    return expr;
+  } else if (isClosureType(functionToCall.type)) {
+    // Handle closure calls by delegating to the underlying function type
+    const closureType = functionToCall.type as ClosureType;
+    const {
+      returnType,
+      returnValue,
+      callerEnv,
+      pathCollection,
+      specializedFunctionValue,
+      runtimeArgExprsInOrder,
+    } = getFunctionCallResult(functionToCall);
+
+    env = popEnvFrame(callerEnv);
+
+    // Check if it's a macro function call,
+    // if yes, then we continue to evaluate the returnValue which should be an Expr value.
+    if (closureType.callType.return.isUnquote) {
+      if (isExprValue(returnValue)) {
+        return context.evaluateExpression({
+          expr: returnValue.value,
+          env,
+          context: {
+            ...context,
+          },
+        });
+      } else {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Expected macro closure to return an Expr value, got:\n${valueToString(
+            returnValue
+          )}`,
+        });
+      }
+    }
+
+    // If closure call is linear (FnOnce), then we consume it
+    if (closureType.callType.closureKind === "FnOnce") {
+      env = setExprAsConsumed(func, env, context);
+    }
+
+    expr.$ = {
+      env,
+      type: returnType,
+      value: returnValue,
+      isMutable: true,
+      pathCollection: pathCollection,
+      runtimeArgExprsInOrder,
+    };
+
+    // Set temp variable which holds the result of the function call
+    attachTempVariableToExpr(expr);
+
+    // Attach necessary info to the func
+    func.$ = {
+      env,
+      type: functionToCall.type,
+      value: specializedFunctionValue || functionToCall.value,
+      isMutable: false,
+      pathCollection: [],
+    };
+    if (methodExpr) {
+      methodExpr.$ = {
+        env,
+        type: functionToCall.type,
+        value: specializedFunctionValue || functionToCall.value,
+        isMutable: false,
+        pathCollection: [],
+      };
     }
     return expr;
   } else {

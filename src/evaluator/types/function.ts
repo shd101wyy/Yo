@@ -17,6 +17,7 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
+  ClosureType,
   convertComptTypeToRuntimeType,
   createExprListType,
   createFunctionType,
@@ -24,6 +25,7 @@ import {
   FunctionType,
   getFunctionParameterExprs,
   getFunctionParameterToken,
+  isClosureType,
   isExprListType,
   isExprType,
   prohibitDynamicSizedType,
@@ -395,6 +397,22 @@ ${typeToString(parameterType)}`,
       pathCollection: [],
     };
   }
+
+  // Validate closure mutability requirements
+  if (isClosureType(parameterType)) {
+    const closureType = parameterType as ClosureType;
+    if (closureType.callType.closureKind === "FnMut" && !isMutable) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `FnMut closure parameters must be mutable. 
+Use: mut(${label || "param"}) : ${typeToString(parameterType)}
+Instead of: ${label || "param"} : ${typeToString(parameterType)}
+
+FnMut closures can mutate their captured variables, so the closure parameter itself must be mutable.`,
+      });
+    }
+  }
+
   return {
     parameter: {
       label: label,

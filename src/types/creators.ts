@@ -5,6 +5,8 @@ import { hashString, randomId } from "../utils";
 import { createTypeValue, Value, valueToString } from "../value";
 import {
   ArrayType,
+  ClosureKind,
+  ClosureType,
   EnumType,
   ExprType,
   FunctionParameter,
@@ -541,4 +543,24 @@ export function getFunctionParameterExprs({
     typeExpr,
     defaultValueExpr,
   } as FunctionParameterExprs;
+}
+
+export function createClosureType(
+  captureType: Type | undefined,
+  callType: FunctionType,
+  env: Environment
+): ClosureType {
+  if (!callType.closureKind) {
+    throw new Error(
+      `createClosureType expects a FunctionType with closureKind, got FunctionType without closureKind`
+    );
+  }
+
+  return {
+    id: `closure_${captureType?.id || "inferred"}_${callType.id}`,
+    tag: TypeTag.Closure,
+    captureType,
+    callType: callType as FunctionType & { closureKind: ClosureKind },
+    env,
+  };
 }

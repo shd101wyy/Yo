@@ -14,6 +14,7 @@ import {
 } from "./creators";
 import {
   ArrayType,
+  ClosureType,
   EnumType,
   FunctionParameter,
   FunctionType,
@@ -736,6 +737,61 @@ export function typeToString(type: Type): string {
       const from = func.SelfType?.typeName ?? func.ModuleType?.typeName;
       const arrow = func.closureKind !== undefined ? "=>" : "->";
       return `${from ? `(${from}) ` : ""}(${paramsString}) ${arrow} ${returnTypeString}`;
+    }
+    case TypeTag.Closure: {
+      const closureType = type as ClosureType;
+      const captureTypeString = closureType.captureType
+        ? typeToString(closureType.captureType)
+        : "_";
+
+      // Format the call type with closure kind
+      const callType = closureType.callType;
+      const closureKind = callType.closureKind || "Fn";
+
+      // Build parameter string for the call type
+      const typeParams =
+        callType.typeParameters && callType.typeParameters.length > 0
+          ? `forall(${callType.typeParameters
+              .map(functionParameterToString)
+              .join(", ")})`
+          : "";
+      const params =
+        callType.parameters.length > 0
+          ? callType.parameters.map(functionParameterToString).join(", ")
+          : "";
+      const implicitParams =
+        callType.implicitParameters.length > 0
+          ? `implicit(${callType.implicitParameters
+              .map(functionParameterToString)
+              .join(", ")})`
+          : "";
+      let variadicParam = "";
+      if (callType.variadicParameter) {
+        if (callType.variadicParameter.label === "...") {
+          variadicParam = "...";
+        } else if (callType.variadicParameter.isQuote) {
+          variadicParam = `...(quote(${callType.variadicParameter.label}))`;
+        } else if (callType.variadicParameter.isCompileTimeOnly) {
+          variadicParam = `...(compt(${callType.variadicParameter.label}))`;
+        } else {
+          variadicParam = `...(${callType.variadicParameter.label})`;
+        }
+      }
+
+      let returnTypeString = typeToString(callType.return.type);
+      if (callType.return.isUnquote) {
+        returnTypeString = `unquote(${returnTypeString})`;
+      } else if (callType.return.isCompileTimeOnly) {
+        returnTypeString = `compt(${returnTypeString})`;
+      }
+
+      const paramsString = [typeParams, params, variadicParam, implicitParams]
+        .filter((x) => !!x)
+        .join(", ");
+
+      const callTypeString = `${closureKind}(${paramsString}) -> ${returnTypeString}`;
+
+      return `Closure(${captureTypeString}, ${callTypeString})`;
     }
 
     /*

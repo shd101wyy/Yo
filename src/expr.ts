@@ -390,6 +390,7 @@ export const BuiltinKeywords = {
   anyopaque: ["anyopaque"], // Any opaque type, which is not known at compile time.
 
   // closure types (Rust-style)
+  Closure: ["Closure"],
   Fn: ["Fn"],
   FnMut: ["FnMut"],
   FnOnce: ["FnOnce"],

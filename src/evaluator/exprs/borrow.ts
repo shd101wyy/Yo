@@ -1,29 +1,29 @@
 import { Borrowing, checkBorrowings } from "../../borrow";
 import {
-    addVariableToEnv,
-    Environment,
-    popEnvFrame,
-    pushEnvFrame,
+  addVariableToEnv,
+  Environment,
+  popEnvFrame,
+  pushEnvFrame,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
-    BuiltinKeywords,
-    Expr,
-    exprIsAtom,
-    exprIsFunctionCall,
-    exprIsFunctionCallOf,
-    exprToString,
-    FuncCallExpr,
+  BuiltinKeywords,
+  Expr,
+  exprIsAtom,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
+  exprToString,
+  FuncCallExpr,
 } from "../../expr";
 import {
-    FunctionType,
-    isClosureType,
-    isFunctionType,
-    isMutRefType,
-    isRefType,
-    MutRefType,
-    RefType,
-    typeToString,
+  FunctionType,
+  isFunctionClosureType,
+  isFunctionType,
+  isMutRefType,
+  isRefType,
+  MutRefType,
+  RefType,
+  typeToString,
 } from "../../types";
 import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
@@ -124,7 +124,7 @@ export function evaluateBorrow({
       !isRefType(evaluatedBorrowedValueExpr.$.type) &&
       !isMutRefType(evaluatedBorrowedValueExpr.$.type) &&
       // Note: Closure types are treated as references, because closures can capture variables by reference
-      !isClosureType(evaluatedBorrowedValueExpr.$.type)
+      !isFunctionClosureType(evaluatedBorrowedValueExpr.$.type)
     ) {
       throw formatErrorMessage({
         token: borrowedValueExpr.token,
@@ -145,7 +145,10 @@ export function evaluateBorrow({
 
     borrowings.push({
       expr: evaluatedBorrowedValueExpr,
-      type: borrowedType as RefType | MutRefType | (FunctionType & { closureKind: "Fn" | "FnMut" | "FnOnce" }),
+      type: borrowedType as
+        | RefType
+        | MutRefType
+        | (FunctionType & { closureKind: "Fn" | "FnMut" | "FnOnce" }),
       pathCollection: evaluatedBorrowedValueExpr.$.pathCollection,
     });
     checkBorrowings([...context.borrowings, ...borrowings]);
