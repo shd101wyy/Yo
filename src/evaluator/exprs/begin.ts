@@ -152,12 +152,16 @@ export function evaluateBeginExpression({
         // Evaluate the return expression
         expectExprToBeFunctionCallOf(exprToEvaluate, BuiltinKeywords.return, 1);
         const returnArg = exprToEvaluate.args[0]!;
+
         const evaluatedReturnExpr = context.evaluateExpression({
           expr: returnArg,
           env,
           context: {
             ...context,
-            expectedType: expectedType,
+            expectedType: {
+              type: context.isEvaluatingFunctionBody!.type.return.type,
+              env: env,
+            },
           },
         });
         if (!evaluatedReturnExpr.$) {

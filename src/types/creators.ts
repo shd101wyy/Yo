@@ -546,7 +546,7 @@ export function getFunctionParameterExprs({
 }
 
 export function createClosureType(
-  captureType: Type | undefined,
+  captureType: SomeType | StructType,
   callType: FunctionType,
   env: Environment
 ): ClosureType {
@@ -557,7 +557,7 @@ export function createClosureType(
   }
 
   return {
-    id: `closure_${captureType?.id || "inferred"}_${callType.id}`,
+    id: `closure_${captureType.id}_${callType.id}`,
     tag: TypeTag.Closure,
     captureType,
     callType: callType as FunctionType & { closureKind: ClosureKind },

@@ -30,8 +30,8 @@ import {
   isTypeHierarchyType,
   Type,
   typeContainsReference,
-  typeContainsUnknownValues,
   typeOfType,
+  typeRequiresInference,
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -235,7 +235,7 @@ export function evaluateAssignment({
       !areTypesCompatible({ type: variable.type, env }, { type: rhsType, env })
     ) {
       // Only try synthesis if the expected type contains unknown values that could be resolved
-      if (typeContainsUnknownValues(variable.type)) {
+      if (typeRequiresInference(variable.type)) {
         // If types are incompatible, try synthesis in case there are unknown values to resolve
         try {
           const {

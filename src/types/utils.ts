@@ -188,7 +188,7 @@ export function typeContainsSomeType(type?: Type): boolean {
 /**
  * Check if a type contains unknown values.
  */
-export function typeContainsUnknownValues(type?: Type): boolean {
+export function typeRequiresInference(type?: Type): boolean {
   if (!type) {
     return false;
   }
@@ -199,58 +199,68 @@ export function typeContainsUnknownValues(type?: Type): boolean {
       const arrayType = type as ArrayType;
       return (
         isUnknownValue(arrayType.length) ||
-        typeContainsUnknownValues(arrayType.elementType)
+        typeRequiresInference(arrayType.elementType)
       );
     }
     // NOTE: Let's only support ArrayType for now.
     /*
     case TypeTag.Tuple:
       return (type as TupleType).elements.some((element) =>
-        typeContainsUnknownValues(element.type)
+        typeRequiresInference(element.type)
       );
     case TypeTag.Struct:
       return (type as StructType).elements.some((element) =>
-        typeContainsUnknownValues(element.type)
+        typeRequiresInference(element.type)
       );
     case TypeTag.Enum:
       return (type as EnumType).variants.some((variant) =>
-        variant.elements?.some((param) => typeContainsUnknownValues(param.type))
+        variant.elements?.some((param) => typeRequiresInference(param.type))
       );
     case TypeTag.Union:
       return (type as UnionType).elements.some((element) =>
-        typeContainsUnknownValues(element.type)
+        typeRequiresInference(element.type)
       );
     case TypeTag.Module:
       return (type as ModuleType).elements.some((element) =>
-        typeContainsUnknownValues(element.type)
+        typeRequiresInference(element.type)
       );
     case TypeTag.Function: {
       const functionType = type as FunctionType;
       return (
         functionType.parameters.some((param) =>
-          typeContainsUnknownValues(param.type)
+          typeRequiresInference(param.type)
         ) ||
-        typeContainsUnknownValues(functionType.return.type) ||
+        typeRequiresInference(functionType.return.type) ||
         functionType.typeParameters.some((param) =>
-          typeContainsUnknownValues(param.type)
+          typeRequiresInference(param.type)
         ) ||
         functionType.implicitParameters.some((param) =>
-          typeContainsUnknownValues(param.type)
+          typeRequiresInference(param.type)
         ) ||
         (functionType.variadicParameter
-          ? typeContainsUnknownValues(functionType.variadicParameter.type)
+          ? typeRequiresInference(functionType.variadicParameter.type)
           : false)
       );
     }
     case TypeTag.Ptr:
-      return typeContainsUnknownValues((type as PtrType).type);
+      return typeRequiresInference((type as PtrType).type);
     case TypeTag.MutPtr:
-      return typeContainsUnknownValues((type as MutPtrType).type);
+      return typeRequiresInference((type as MutPtrType).type);
     case TypeTag.Ref:
-      return typeContainsUnknownValues((type as RefType).type);
+      return typeRequiresInference((type as RefType).type);
     case TypeTag.MutRef:
-      return typeContainsUnknownValues((type as MutRefType).type);
+      return typeRequiresInference((type as MutRefType).type);
     */
+    case TypeTag.SomeType:
+      // SomeType represents unknown/inferable types
+      return true;
+    case TypeTag.Closure: {
+      const closureType = type as ClosureType;
+      return (
+        typeRequiresInference(closureType.captureType) ||
+        typeRequiresInference(closureType.callType)
+      );
+    }
     default:
       return false; // For other types, no unknown values are present
   }

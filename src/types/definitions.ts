@@ -528,10 +528,10 @@ export interface ClosureType extends Type {
    * For example:
    *   struct(counter: &!(i32), base: &(i32))
    *
-   * This can be undefined if the capture type should be inferred.
-   * Can be any Type to support generic type parameters like forall(F : Type).
+   * - SomeType: When the capture type should be inferred (e.g., using "_")
+   * - StructType: When the capture type is known and contains the captured variables
    */
-  captureType?: Type;
+  captureType: SomeType | StructType;
 
   /**
    * The function type that defines the call signature and closure behavior.

@@ -21,6 +21,7 @@ import {
   FunctionType,
   isClosureType,
   isFunctionType,
+  isSomeType,
   TupleElement,
   Type,
   typeToString,
@@ -258,9 +259,9 @@ export function evaluateAnonymousFunctionImplementation({
     let captureType = expectedClosureType.captureType;
     let captureValue: StructValue | UnknownValue | undefined;
 
-    // If capture type is not specified or captured variables exist, infer it from captured variables
+    // If capture type is SomeType (inference needed) or captured variables exist, infer it from captured variables
     if (
-      !captureType ||
+      isSomeType(captureType) ||
       (capturedVariablesWithValues && capturedVariablesWithValues.size > 0)
     ) {
       if (capturedVariablesWithValues && capturedVariablesWithValues.size > 0) {
@@ -304,10 +305,12 @@ export function evaluateAnonymousFunctionImplementation({
           // Some values are runtime-only, use undefined for runtime-unknown captures
           captureValue = undefined;
         }
-      } else if (!captureType) {
-        // No captured variables and no expected capture type - create undefined capture type
-        captureType = undefined;
-        captureValue = undefined;
+      } else if (isSomeType(captureType)) {
+        // No captured variables but expected SomeType - create empty struct
+        const emptyStructType = createStructType(env);
+        emptyStructType.elements = [];
+        captureType = emptyStructType;
+        captureValue = createStructValue(emptyStructType, []);
       }
     }
 

@@ -9,9 +9,14 @@ import {
 } from "../../expr";
 import {
   createClosureType,
+  createSomeType,
+  createTypeType,
   FunctionType,
   isFunctionType,
-  Type,
+  isSomeType,
+  isStructType,
+  SomeType,
+  StructType,
 } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -49,17 +54,14 @@ Got:\n${exprToString(expr)}`,
   const isCallUnderscore =
     exprIsAtom(callTypeExpr) && callTypeExpr.token.value === "_";
 
-  let captureType: Type | undefined = undefined;
+  let captureType: SomeType | StructType;
   let currentEnv = env;
 
   // Handle capture type
   if (isCaptureUnderscore) {
-    // For now, we'll require explicit capture types
-    // TODO: Implement capture type inference
-    throw formatErrorMessage({
-      token: captureTypeExpr.token,
-      errorMessage: `Capture type inference with "_" is not yet implemented. Please specify an explicit capture type.`,
-    });
+    // Create a SomeType for inference with a unique name
+    const captureTypePlaceholderName = `_capture_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    captureType = createSomeType(createTypeType(), captureTypePlaceholderName);
   } else {
     // Evaluate the capture type expression
     const evaluatedCaptureTypeExpr = context.evaluateExpression({
@@ -88,9 +90,19 @@ Got:\n${exprToString(expr)}`,
 
     const evaluatedCaptureType = evaluatedCaptureTypeExpr.$.value.value;
 
-    // For now, accept any type as capture type until we implement proper generic handling
-    // TODO: Implement proper validation that ensures the capture type is appropriate
-    captureType = evaluatedCaptureType;
+    // Ensure the capture type is either SomeType or StructType
+    if (
+      isSomeType(evaluatedCaptureType) ||
+      isStructType(evaluatedCaptureType)
+    ) {
+      captureType = evaluatedCaptureType;
+    } else {
+      throw formatErrorMessage({
+        token: captureTypeExpr.token,
+        errorMessage: `Expected SomeType or StructType for capture type, got: ${evaluatedCaptureType.tag}`,
+      });
+    }
+
     currentEnv = evaluatedCaptureTypeExpr.$.env;
   }
 

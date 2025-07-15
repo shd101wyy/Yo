@@ -18,7 +18,7 @@ import {
   Value,
   valueToString,
 } from "../../value";
-import { ArgValues, EvaluatorContext } from "../context";
+import { ArgValues, CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 
 /**
@@ -118,6 +118,11 @@ export function evaluateComptFunctionCall({
       isEvaluatingFunctionBody: {
         type: functionType,
         value: functionValue,
+        capturedVariables:
+          functionType.closureKind !== undefined
+            ? new Map<string, CapturedVariableInfo>()
+            : undefined,
+        evaluationEnv: calleeEnv,
       },
     },
     variablesToAdd: [],

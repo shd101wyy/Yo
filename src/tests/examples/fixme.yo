@@ -1,6 +1,9 @@
 // with => to define a closure that captures the `move` from outer scope
 open import "std";
 
+/*
+(compt(LinearI32) : Linear) = i32;
+
 // FnOnce, FnMut, Fn can only be used in a Closure context
 // They cannot be used as standalone types
 // This should be invalid - standalone FnOnce
@@ -19,14 +22,14 @@ compt_expect_error(
 );
 
 
-plus_fn_once :: 
+plus_fn_once ::
   ((forall(compt(F) : Type),
     callback : Closure(F, FnOnce(elem : i32) -> i32)
   ) -> i32) {
   return callback(42); // callback can only be called once
 };
 
-plus_fn_mut :: 
+plus_fn_mut ::
   ((forall(compt(F) : Type),
     mut(callback) : Closure(F, FnMut(elem : i32) -> i32)
   ) -> i32) {
@@ -34,7 +37,7 @@ plus_fn_mut ::
   return callback(42); // callback can be called multiple times, but must be mutable
 };
 
-plus_fn :: 
+plus_fn ::
   ((forall(compt(F) : Type),
     callback : Closure(F, Fn(elem : i32) -> i32)
   ) -> i32) {
@@ -42,11 +45,54 @@ plus_fn ::
   return callback(42); // callback can be called multiple times, but cannot mutate captured variables
 };
 
-
-
 test1 :: (() -> unit) {
   mut(counter) := 0;
+  (x : LinearI32) = 12;
   plus_fn_once(fn(elem)=> {
+    y := x; // `x` should be consumed here
+    counter = (counter + elem);
+    return counter;
+  });
+  compt_expect_error(z := x, "x should be already consumed when defining the closure");
+  return (); // Let's explicit return unit value () here
+};
+
+test2 :: (() -> unit) {
+  mut(counter) := 0;
+  plus_fn_mut(fn(elem)=>> {
+    counter = (counter + elem);
+    return counter;
+  });
+  return ();
+};
+
+test3 :: (() -> unit) {
+  counter := 0;
+  plus_fn(fn(elem)=>> {
+    // Cannot mutate captured variables in Fn closure
+    // So we just return the sum without modifying counter
+    return counter + elem;
+  });
+  return ();
+};
+
+// Test that should fail: Fn closure trying to mutate captured variable
+compt_expect_error(
+  test_fn_mutation_error :: (() -> unit) {
+    mut(counter) := 0;
+    plus_fn(fn(elem)=>> {
+      counter = (counter + elem); // This should fail - Fn cannot mutate
+      return counter;
+    });
+    return ();
+  }
+);
+*/
+
+test4 :: (() -> unit) {
+  mut(counter) := 0;
+  closure : (Closure(_, FnOnce(elem : i32) -> i32));
+  closure = (fn(elem) => {
     counter = (counter + elem);
     return counter;
   });

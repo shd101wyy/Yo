@@ -17,6 +17,7 @@ import { PlaceholderToken } from "../../token";
 import {
   getValueOfSomeTypeFromEnv,
   isArrayType,
+  isClosureType,
   isEnumType,
   isModuleType,
   isMutPtrType,
@@ -538,6 +539,41 @@ export function synthesizeTypes(
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
+  } else if (isClosureType(expected.type) && isClosureType(given.type)) {
+    // Synthesize closure types - match capture types and function types
+    const expectedClosure = expected.type;
+    const givenClosure = given.type;
+
+    // Synthesize the function types (callType)
+    const { expectedEnv, givenEnv } = synthesizeTypes(
+      {
+        type: expectedClosure.callType,
+        env: expected.env,
+      },
+      {
+        type: givenClosure.callType,
+        env: given.env,
+      }
+    );
+    expected.env = expectedEnv;
+    given.env = givenEnv;
+
+    // Synthesize the capture types if both exist
+    if (expectedClosure.captureType && givenClosure.captureType) {
+      const { expectedEnv: captureExpectedEnv, givenEnv: captureGivenEnv } =
+        synthesizeTypes(
+          {
+            type: expectedClosure.captureType,
+            env: expected.env,
+          },
+          {
+            type: givenClosure.captureType,
+            env: given.env,
+          }
+        );
+      expected.env = captureExpectedEnv;
+      given.env = captureGivenEnv;
+    }
   }
   return { expectedEnv: expected.env, givenEnv: given.env };
 }

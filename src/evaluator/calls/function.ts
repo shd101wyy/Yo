@@ -80,6 +80,7 @@ import {
 } from "../../value";
 import {
   ArgValues,
+  CapturedVariableInfo,
   EvaluatorContext,
   FunctionCallResult,
   FunctionToCall,
@@ -2217,6 +2218,15 @@ function createSpecializedFunctionInline({
     context: {
       ...context,
       expectedType: undefined,
+      isEvaluatingFunctionBody: {
+        type: functionType,
+        value: originalFunction,
+        capturedVariables:
+          functionType.closureKind !== undefined
+            ? new Map<string, CapturedVariableInfo>()
+            : undefined,
+        evaluationEnv: specializedEnv,
+      },
     },
   });
   if (!specializedBody.$) {

@@ -2,6 +2,7 @@ import { addVariableToEnv, Environment } from "../env";
 import { randomId } from "../utils";
 import { areValuesEqual, createUnknownValue, Value } from "../value";
 import {
+  ClosureType,
   FunctionParameter,
   FunctionType,
   ModuleElement,
@@ -11,6 +12,7 @@ import {
   isArrayType,
   isCCompatibleType,
   isCharType,
+  isClosureType,
   isComptFloatType,
   isComptIntType,
   isComptStringType,
@@ -367,6 +369,30 @@ export function areTypesCompatible(
       }
       return true;
     }
+  }
+
+  if (isClosureType(expected.type) && isClosureType(given.type)) {
+    const expectedClosure = expected.type as ClosureType;
+    const givenClosure = given.type as ClosureType;
+
+    // Check if the function signatures are compatible
+    if (
+      !areFunctionTypesCompatible(
+        { type: expectedClosure.callType, env: expected.env },
+        { type: givenClosure.callType, env: given.env },
+        exactNumericTypeMatch
+      )
+    ) {
+      return false;
+    }
+
+    // Check if the capture types are compatible
+    // Handle the case where expected has SomeType (inference) and given has StructType (concrete)
+    return areTypesCompatible(
+      { type: expectedClosure.captureType, env: expected.env },
+      { type: givenClosure.captureType, env: given.env },
+      exactNumericTypeMatch
+    );
   }
 
   if (isFunctionType(expected.type) && isFunctionType(given.type)) {
