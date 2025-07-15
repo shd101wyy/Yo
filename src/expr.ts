@@ -961,10 +961,12 @@ export function setExprAsConsumed(
     }
 
     // Check if we are consuming a linear value defined outside the function body
+    // Allow FnOnce closures to consume outer linear values, but prevent regular functions and Fn/FnMut closures
     if (
       context.isEvaluatingFunctionBody &&
       variableToConsume.frameLevel <
-        context.isEvaluatingFunctionBody.type.env.frames.length
+        context.isEvaluatingFunctionBody.type.env.frames.length &&
+      !(context.isEvaluatingFunctionBody.type.closureKind === "FnOnce")
     ) {
       throw formatErrorMessages([
         {

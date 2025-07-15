@@ -254,6 +254,14 @@ export function evaluateAssignment({
       }
     }
 
+    // Check if the rhsType contains reference - references cannot be assigned to variables
+    if (typeContainsReference(rhsType)) {
+      throw formatErrorMessage({
+        token: rhs.token,
+        errorMessage: `Assigning reference to variable is not allowed. FnMut and Fn closures contain references and cannot be stored in variables.`,
+      });
+    }
+
     // Check if the type matches
     if (
       !areTypesCompatible({ type: variable.type, env }, { type: rhsType, env })

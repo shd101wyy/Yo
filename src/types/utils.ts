@@ -36,6 +36,7 @@ import {
   isBooleanType,
   isCCompatibleType,
   isCharType,
+  isClosureType,
   isComptFloatType,
   isComptIntType,
   isComptStringType,
@@ -106,12 +107,12 @@ export function typeContainsReference(type?: Type): boolean {
     return true;
   }
 
-  // Check if the type is a closure type (closures capture variables by reference)
-  if (
-    isFunctionType(type) &&
-    (type as FunctionType).closureKind !== undefined
-  ) {
-    return true;
+  // Check if the type is a ClosureType - Fn and FnMut contain references
+  if (isClosureType(type)) {
+    const closureType = type as ClosureType;
+    const closureKind = closureType.callType.closureKind;
+    // FnOnce doesn't contain references (takes ownership), but Fn and FnMut do
+    return closureKind === "Fn" || closureKind === "FnMut";
   }
 
   // Recursively check for references in complex types

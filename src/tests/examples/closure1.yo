@@ -1,53 +1,32 @@
 open import "std";
 
-Point :: struct(x : i32, y : i32);
-SomeClosure :: Closure(Point, (self: &(Point))-> i32)
-  call : (fn(self)->
-    self.x + self.y
-  )
-;
-
-p := Point(3, 4);
-result := SomeClosure.call(&(p));
-result2 := &(p).call();
-
-foreach ::
+foreach_fn_mut ::
   ((forall(
-      compt(Callback): Type, 
+      compt(F): Type, 
       compt(size): usize
     ),
     arr : Array(i32, size),
-    callback : &!(Callback),
-    using(
-      compt(Closure_) : Closure(Callback, (self: &!(Callback), value: &(i32)) -> unit)
-    )
+    mut(callback) : Closure(F, FnMut(value: &(i32)) -> unit)
   ) -> unit) {
   mut(i) := 0.as(usize);
   while (i < size), {
-    Closure_.call(callback, &(arr(i)));
+    callback(&(arr(i)));
     i = (i + 1.as(usize));
   };
 };
 
-main :: (() -> unit) {
+test1 :: (() -> unit) {
   arr := [1, 2, 3, 4, 5];
   mut(sum) := 0;
-  
-  // move `sum`
-  (mut(closure)) := {
-    sum : sum,
-    call :: (((mut(self): &!(Self), value: &(i32))-> unit) {
-      self.sum = (self.sum + value.*);
-    })
-  };
-  foreach(arr, &!(closure), using(typeof(closure)));
-  foreach(arr, &!(closure));
 
-  // borrow `sum`
-  foreach(arr, &!({
-    sum : &!(sum),
-    call :: (((mut(self): &!(Self), value: &(i32))-> unit) {
-      self.sum.* = (self.sum.* + value.*);
-    })
-  }));
+  // FnMut `sum`
+  foreach_fn_mut(arr, fn(value) =>> {
+    sum = (sum + value.*);
+  });
+
+  // Fn `sum`
+  foreach_fn_mut(arr, fn(value) =>> {
+    temp := sum;
+    temp2 := value.*;
+  });
 };
