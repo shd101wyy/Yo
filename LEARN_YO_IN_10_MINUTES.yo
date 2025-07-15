@@ -4,6 +4,12 @@
 
 // Comment is using `//` or `/* */`
 // Yo is case-sensitive
+{
+  // Content within {...} with separator `;` is a begin block
+  // which is used to group expressions together
+  ();
+  (); // () is a unit value
+};
 
 // In Yo, everything is a function:
 x := true;
@@ -185,11 +191,12 @@ result := begin(
 );
 empty_block := {}   // This is an empty block that returns unit.  
 
-// All tuples in Yo are named tuples.
-// You can define the tuple type using `type` keyword.  
+// You can define the tuple type using `Tuple` keyword.  
 // A tuple type can have named fields or unnamed fields.
 // Like the one in JavaScript.
-Person :: type (name: String, age: i32);
+Person :: Tuple(name: String, age: i32);
+// or
+Person :: (name: String; age: i32); // Use ; as the separator
 // NOTE: You cannot have labelled fields in the tuple value, it's only allowed in the tuple type.
 (person : Person) = (
   "John",
@@ -199,15 +206,15 @@ name := person.name; // "John"
 age := person.age;   // 30
 
 
-// tuple is defined using (...) with "," as separator
+// Tuple value is defined using (...) with "," as separator
 one_element := (1,); // tuple with one element requires extra "," at the end. Otherwise, it's considered a parenthesized expression.
                       // The "." ahead of the tuple is necessary to distinguish it from a type.
 pair := (1, 2); // tuple with two elements
-MyTuple :: type (i32, f32);
+MyTuple :: Tuple(i32, f32);
 (my_tuple : MyTuple) = (1, 2.0); // tuple with two elements
 my_tuple := (1, 2.0);
 
-NamedTuple :: type (x: i32, y: i32);
+NamedTuple :: Tuple(x: i32, y: i32);
 (named_tuple : NamedTuple) = (x: 1, y: 2); // tuple with named elements
 // or without name
 (named_tuple : NamedTuple) = (1, 2); // tuple with unnamed elements
@@ -261,7 +268,7 @@ MyI32 :: i32; // type alias
 (y: i32) = x; // valid
 
 
-MyPoint :: type (i32, i32); // tuple type
+MyPoint :: Tuple(i32, i32); // tuple type
 (p : MyPoint) = (3, 4); // valid
 
 // In Yo, you can define a struct like below:
@@ -294,20 +301,13 @@ p1 := Point1 3, 4;
 (p2: Point2) := p1; // error: type mismatch
 
 // Anonymous struct
+p := { x : 3, y : 4 }; // Create an anonymous struct value.
+
+// Inferred struct
 // "_" here means to be a placeholder for the type that could be inferred later
 (p: struct(i32, i32)) := _(3, 4);
 (p : Point) := _(x: 3, y: 4);
-
-// another example of using the anonymous tuple here:
-(p : ( a: i32, b: boolean )) := ( a: 3, b: true );
-(p : ( a: i32, b: boolean )) := ( b: true, a: 3 ); // Error: Type mismatch
-// because (b: true, a: 3) on the RHS has type:
-// (b: boolean, a: i32) which doesn't really match 
-// (a: i32, b: boolean) on the LHS.
-// The order of the fields matters!
-// In this case, we need to use the struct:
 (p: struct(a: i32, b: boolean)) := _(b: true, a: 3); // Valid!
-// _(b: true, a: 3) will re-order the fields to match the struct type
 
 // ADT (tagged union)
 Color ::
@@ -359,6 +359,9 @@ Option :: ((compt(T): Type)-> compt(Type))
 
 x := Option(i32).Some(12);
 
+/*
+// GADT and HKT are in design.
+// 
 // generalized algebraic data types (GADT)
 // By default, all variants return the same type.
 // You can also specify the return type for each variant
@@ -391,25 +394,26 @@ Option ::
   (compt(T): Type)-> compt(Type)
   T1(Maybe, T)
 ;
+*/
 
 // module
-// All the fields of the module have to be compile-time known.
+// All the fields of the module are compile-time known by default
 Id ::
   (compt(Self): Type)-> compt(Module)
   module
-    (compt(Self): Type) = Self, 
+    (Self : Type) = Self, 
     // ^ `Self` in module here means the receiver type. 
-    // It enables the method call syntax like `12.id()` for the `i32` receiver type.
+    // It enables the dynamic dispatch (not support yet)
     // `=` here means the Self has to be equal to Self.
-    compt(id):
-      (Self)-> Self
+    id:
+      (val : Self)-> Self
 ;
 
 Stringer ::
-  (compt(Self): Type)-> compt(Module)
+  (compt(Self) : Type)-> compt(Module)
   module
-    (compt(Self): Type) = Self,
-    compt(to_string): ((Self)-> String)
+    (Self : Type) = Self,
+    to_string: ((val : Self)-> String)
 ;
 
 /// Implement the module
@@ -452,8 +456,8 @@ Cm :: struct(
 (x : Cm) = Cm(200);
 x.M(); // 2
 
-// `any` can be used to define generics
-// e.g. without `any` it also works:
+// `forall` can be used to define generics
+// e.g. without `forall` it also works:
 id :: ((compt(T): Type, x: T)-> T) {
   return x;
 };
@@ -486,7 +490,7 @@ export
 ; // export add and sub
 
 // main.yo
-{ add, sub } := import("./arith.yo");
+{ add, sub } :: import("./arith.yo");
 add(3, 4); // 7
 
 // Type in Yo can be either Linear or Free
@@ -496,7 +500,6 @@ add(3, 4); // 7
 s.drop(); // drop the string. s is consumed and can't be used anymore.
 s2 := s;  // error: s is consumed
 
-// QUESTION: Should we have the RAII?
 // RAII (Resource Acquisition Is Initialization)
 // Yo automatically insert `drop` function for Linear types that are not used anymore and implement `drop` function.
 
@@ -509,16 +512,6 @@ s2 := s;  // error: s is consumed
 //   Union | Intersection | Variant |
 //   1 | 2 | 3 | 4 | ...
 //    ^ Singleton Type
-
-// Below is an example of define a singleton type
-singleton_list : [1, 2, 3];
-singleton_list = [1, 2, 3]; // The only legal value of this type
-
-fail_list : [1, 2, 3];
-fail_list = [2, 3, 4]; // Type error: expected [1, 2, 3], got [2, 3, 4]
-
-Array7 := Array(7, 3);
-(arr: Array7) = [7, 7, 7]; // Correct!
 
 // Reference and Pointer
 // Yo uses *, *! to for immutable pointer and mutable pointer
@@ -567,24 +560,24 @@ y := {
 
 
 // You can use the `borrow` function to use the reference value in a new scope
-borrow &!(x), x_ref -> {
+borrow &!(x), x_ref => {
   // `x` is not allowed to be used here
   x_ref.* = 13;
 }
 
 // Iterator
 to_iter_mut ::
-  ((arr: &!(Array(any(compt(T): Type))))-> Iter)
+  ((forall(compt(T): Type, compt(length): usize) arr: &!(Array(T, length)))-> Iter)
   return Iter
     data: arr, // allow to assign reference in this case because it's the last expression
     index: 0
 ;
 
 arr := ["Hello".to_string(), "world".to_string(), "!".to_string()];
-borrow arr.to_iter_mut(), iter-> {
+borrow &!(arr).to_iter_mut(), iter => {
   // arr is not allowed to be used here
   // iter: Iter(&!(String))
-  borrow iter.next(), v -> {
+  borrow iter.next(), v => {
     // iter is not allowed to be used here
     // v: Option(&!(String))
     // ...
@@ -594,28 +587,28 @@ borrow arr.to_iter_mut(), iter-> {
 // do notation
 // allows us to use `<-`, `<=`, `<<=` inside a block
 do {
-  response <<= fetch("https://api.example.com");
+  with response <= fetch("https://api.example.com");
   std.println(response);
-  json <<= response.json();
+  with json <= response.json();
   std.println(json);
-}
+};
 // is equavalent to
 {
-  fetch("https://api.example.com", fn(response) =>> {
+  fetch("https://api.example.com", fn(response) => {
     std.println(response);
-    response.json((json) =>> {
+    response.json(fn(json) => {
       std.println(json);
     });
   });
-}
+};
 
 // malloc
 // There is no null pointer in Yo.
-// ^Type or ^!(Type) is a pointer type which is Linear.
-(ptr : Option(^!(i32))) = malloc(sizeof(i32)); // allocate memory for i32
+// We have ?*(i32) and ?*!(i32) for nullable pointers.
+// They are just the wrapper for Option(*(i32)) and Option(*!(i32)) respectively.
+(ptr : Option(*!(i32))) = malloc(sizeof(i32)); // allocate memory for i32
 match ptr,
-  .Some =>
-    (ptr) => {
+  .Some => {
     { p } := ptr;
     p.* = 42; // dereference the pointer
     std.println(p.*); // print the value
@@ -651,7 +644,7 @@ factorial ::
   mut(x) := x;
   mut(result) := 1;
   while x > 1,  // condition
-        x -= 1, // step
+        x = (x - 1), // step
   do: { // body
     result = (result * x);
   };
@@ -740,7 +733,7 @@ match division_result,
 if :: ((quote(condition): Expr, 
         quote(then): Expr,
         quote(else): Expr)
-      -> (unqoute(_): Expr))
+      -> unqoute(Expr))
   quote(
     cond  unquote(condition) -> unquote(then),
           true -> unquote(else));
@@ -751,117 +744,14 @@ cond  (x == 1) => std.println("x is 1"),
       true     => std.println("x is not 1");
 
 
-// AST Representation
-Expr ::
-  enum(
-    Atom(
-      enum(
-        Symbol(symbol),
-        Boolean(boolean),
-        I32(i32),
-        F64(f64),
-        String(String),
-        Char(char)
-      )),
-    FuncCall(
-      func: Box(Expr),
-      args: List(Expr)
-    ));
-
-// Everything else is just function calls
-// For example, a variable declaration like:
-//   x := 12
-// is just a function call to ":=" with arguments "x" and "12"
-//
-// Similarly:
-// - match(x, arm1, arm2, ...)
-// - impl(type, methods)
-// - (:=)(x, 14)
-// - if(cond, then_expr, else_expr)
-// - for(range, body)
-// - while(cond, body)
-// - .(obj, method, args...)  // obj.method(args...)
-//
-// All are function calls, just with specialized notation in some cases
-
-// Note: In Yo, like in Lisp, operators and identifiers are both symbols
-// For example, '+', ':=', and 'add' are all symbols
-
-// `quote` function to quote an expression, return Expr
-e := quote(add(1, 2));
-// or use `:` operator for `quote, and `$` operator for `unquote`
-e := :(add(1, 2));
-// =>
-e := Expr.FuncCall(
-  func: Box(.Atom(.Symbol(symbol(add)))),
-  args: list(
-    Expr.Atom(.I32(1)),
-    Expr.Atom(.I32(2))
-  ));
-e.to_string(); // "add(1, 2)"
-
-// More metaprogramming examples
-// `quote` allows creating code templates with holes
-// `unquote` evaluates expressions inside quoted expressions
-x := quote(5);
-y := quote(10);
-template := quote(add(unquote(x), unquote(y)));
-// =>
-template := Expr.FuncCall(
-  func: Box(.Atom(.Symbol(symbol(add)))),
-  args: list(
-    Expr.Atom(.I32(5)),  // x was evaluated to 5
-    Expr.Atom(.I32(10))  // y was evaluated to 10
-  ));
-
-// `unquote_splicing` splices a list into the surrounding list
-x := 2;
-(arg_tuple : Expr) = (quote (1, x, 3)); // quote returns a Expr type value representing the AST.
-call := quote(sum(unquote_splicing(arg_tuple.args), 4, 5));
-// or with ... operator
-call := quote(sum(...(unquote(arg_tuple.args)), 4, 5));
-
-// =>
-(call : Expr) = .FuncCall
-  func: Box(.Atom(.Symbol(symbol(sum)))),
-  args: list(
-    .Atom(.I32(1)),
-    .Atom(.Symbol(symbol(x))),
-    .Atom(.I32(3)),
-    .Atom(.I32(4)),
-    .Atom(.I32(5))
-  )
-
-// Generate a sequence of operations
-ops := [quote(add), quote(sub), quote(mul)];
-generate_math := quote(
-  {
-    unquote_splicing(
-      ops.map(fn(op)->
-        quote(
-          std.println((unquote(op) <> " result: ") <>
-            to_string(unquote(Expr.Atom(.Symbol(op)))(10, 5)))
-        )
-      )
-    )
-  }
-);
-// When evaluated, will print:
-// add result: 15
-// sub result: 5
-// mul result: 50
-
 // Architecture
 // * Lexer - Tokenizer for analyzing the syntax
 // * Parser - AST Generation, without caring about semantics
 // * Interpreter - Type checking & Compile-time execution as much as possible
 // * Compiler - Code Generation, to `C` only now
 
-// C FFI
-{ _ } := import("stdio.h");
-
 extern "C",
-  printf: ((format: *(char), ...(args)) -> i32);
+  printf: ((format: *(char), ...) -> i32);
 
 // Compile-time Execution
 PI :: 3.14159265358979323846; // PI : const_float;

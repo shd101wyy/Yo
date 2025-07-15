@@ -1,5 +1,5 @@
 import { Environment, getVariablesFromEnv } from "./env";
-import { Expr, exprToString } from "./expr";
+import { compareExprs, Expr, exprToString } from "./expr";
 import { FunctionValue } from "./function-value";
 import { stringIsOperator } from "./token";
 import { TypeValue } from "./type-value";
@@ -650,7 +650,9 @@ export function areValuesEqual(
     }
     return true;
   } else if (isExprValue(value1) && isExprValue(value2)) {
-    return value1.value === value2.value;
+    return (
+      value1.value === value2.value || compareExprs(value1.value, value2.value)
+    );
   }
   // Handle UnknownValue by attempting to resolve them and comparing resolved values
   else if (isUnknownValue(value1) && isUnknownValue(value2)) {

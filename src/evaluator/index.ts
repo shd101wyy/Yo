@@ -25,6 +25,7 @@ import { evaluateComptPrint } from "./builtins/compt_print";
 import { evaluateYoComptStringFunctions } from "./builtins/compt_string_fns";
 import { evaluateDrop } from "./builtins/drop";
 import {
+  evaluateYoExprEq,
   evaluateYoExprGetArgs,
   evaluateYoExprGetCallee,
   evaluateYoExprIsAtom,
@@ -548,6 +549,13 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       ) {
         // __yo_expr_to_string
         return evaluateYoExprToString({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_eq)) {
+        // __yo_expr_eq
+        return evaluateYoExprEq({
           expr,
           env,
           context: { ...context },

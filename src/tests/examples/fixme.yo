@@ -1,24 +1,117 @@
 open import "std";
 
-// Create closure by calling ClosureType.
-
-test1 :: (() -> unit) {
-  mut(x) := 12;
-  closure := Closure(_, FnOnce(val: i32) -> i32) {
-    return x + val;
-  };
-  closure(3);
-  compt_expect_error(
-    closure(4),
-    "closure is consumed in the previous call"
+// Check if an expression is a with statement: with var <= expr
+is_with_statement :: ((compt(expr) : Expr) -> compt(boolean)) {
+  return cond(
+    expr.is_fn_call() => {
+      callee :: expr.get_callee();
+      cond(
+        (callee.is_atom() && (callee == quote(with))) => {
+          args :: expr.get_args();
+          (args.length() == 1) // Should have one argument which is "var <= expr"
+        },
+        true => false
+      )
+    },
+    true => false
   );
 };
 
-test2 :: (() -> unit) {
-  mut(x) := 12;
-  closure := Closure(struct(x: i32), FnOnce(val: i32) -> i32) {
-    return x + val;
-  };
-  closure(3);
-  closure(4);
+// Transform "with var <= expr" to "var := expr"
+transform_with_to_assignment :: ((compt(with_expr) : Expr) -> compt(Expr)) {
+  return cond(
+    with_expr.is_fn_call() => {
+      args :: with_expr.get_args();
+      cond(
+        (args.length() == 1) => {
+          assignment_expr :: args.car(); // This should be "var <= expr"
+          cond(
+            assignment_expr.is_fn_call() => {
+              assignment_callee :: assignment_expr.get_callee();
+              cond(
+                (assignment_callee.is_atom() && (assignment_callee == quote(<=))) => {
+                  assignment_args :: assignment_expr.get_args();
+                  cond(
+                    (assignment_args.length() == 2) => {
+                      var_name :: assignment_args.car();
+                      expr_value :: assignment_args.cdr().car();
+                      // Create the assignment expression directly
+                      // This should create (:= var_name expr_value)
+                      quote((:= var_name expr_value))
+                    },
+                    // Return the original expression if malformed
+                    true => with_expr
+                  )
+                },
+                // Return the original expression if not <=
+                true => with_expr
+              )
+            },
+            // Return the original expression if not function call
+            true => with_expr
+          )
+        },
+        // Return the original expression if wrong arg count
+        true => with_expr
+      )
+    },
+    // Return the original expression if not function call
+    true => with_expr
+  );
 };
+
+// Helper function to transform with statements
+transform_with_statements :: ((compt(args) : ExprList) -> compt(ExprList)) {
+  return cond(
+    (args.length() == 0) => expr_list(),
+    true => {
+      first_arg :: args.car();
+      rest_args :: args.cdr();
+      cond(
+        // Check if this is a with statement: with var <= expr
+        (first_arg.is_fn_call() && is_with_statement(first_arg)) => {
+          transformed_stmt :: transform_with_to_assignment(first_arg);
+          transformed_rest :: recur(rest_args);
+          transformed_stmt.cons(transformed_rest)
+        },
+        // Not a with statement, keep as is
+        true => {
+          transformed_rest :: recur(rest_args);
+          first_arg.cons(transformed_rest)
+        }
+      )
+    }
+  );
+};
+
+do :: ((quote(begin_expr) : Expr) -> unquote(Expr)) {
+  return cond(
+    begin_expr.is_fn_call() => {
+      callee :: begin_expr.get_callee();
+      cond(
+        // expect the callee to be the `begin` function
+        (callee.is_atom() && (callee == quote(begin))) => {
+          args :: begin_expr.get_args();
+          transformed_args :: transform_with_statements(args);
+          // Create a new begin expression with transformed arguments
+          // Need to construct a proper function call expression
+          begin_atom :: quote(begin);
+          // Create the new begin expression
+          quote((begin transformed_args))
+        },
+        // otherwise, return false for error
+        true => quote(false)
+      )
+    },
+    true => quote(false)
+  );
+};
+
+expanded :: macro_expand quote
+  do {
+    with response <= fetch("https://api.example.com");
+    std.println(response);
+    with json <= response.json();
+    std.println(json);
+  }
+;

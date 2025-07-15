@@ -319,6 +319,40 @@ export function expectExprToHaveBeenEvaluated(
   return expr.$;
 }
 
+// Helper function to compare expressions structurally
+export function compareExprs(expr1: Expr, expr2: Expr): boolean {
+  // Different expression types are never equal
+  if (expr1.tag !== expr2.tag) {
+    return false;
+  }
+
+  if (expr1.tag === ExprTag.Atom && expr2.tag === ExprTag.Atom) {
+    // For atoms, compare the token values
+    return expr1.token.value === expr2.token.value;
+  }
+
+  if (expr1.tag === ExprTag.FuncCall && expr2.tag === ExprTag.FuncCall) {
+    // For function calls, compare the function and all arguments
+    if (!compareExprs(expr1.func, expr2.func)) {
+      return false;
+    }
+
+    if (expr1.args.length !== expr2.args.length) {
+      return false;
+    }
+
+    for (let i = 0; i < expr1.args.length; i++) {
+      if (!compareExprs(expr1.args[i]!, expr2.args[i]!)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  return false;
+}
+
 export const BuiltinKeywords = {
   compt: ["compt" /*"@"*/],
   mut: ["mut" /*"!"*/],
@@ -433,6 +467,7 @@ export const BuiltinFunctions = {
   __yo_expr_get_callee: ["__yo_expr_get_callee"],
   __yo_expr_get_args: ["__yo_expr_get_args"],
   __yo_expr_to_string: ["__yo_expr_to_string"],
+  __yo_expr_eq: ["__yo_expr_eq"],
 
   // expr_list related functions
   // __yo_expr_list_is_expr_list: ["__yo_expr_list_is_expr_list"],

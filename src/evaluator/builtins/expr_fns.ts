@@ -16,12 +16,15 @@ import {
   isExprType,
 } from "../../types";
 import {
+  areValuesEqual,
+  BooleanValue,
   createBooleanValue,
   createComptStringValue,
   createExprListValue,
   createExprValue,
   createUnknownValue,
   isExprValue,
+  UnknownValue,
 } from "../../value";
 import { EvaluatorContext } from "../context";
 
@@ -348,6 +351,115 @@ export function evaluateYoExprToString({
   if (isExprValue(exprValue)) {
     expr.$.value = createComptStringValue(exprToString(exprValue.value));
   }
+
+  return expr;
+}
+
+export function evaluateYoExprEq({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FuncCallExpr {
+  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_eq, 2);
+
+  const firstArgExpr = expr.args[0]!;
+  const secondArgExpr = expr.args[1]!;
+
+  // Evaluate first argument
+  const evaluatedFirstArgExpr = context.evaluateExpression({
+    expr: firstArgExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+  if (!evaluatedFirstArgExpr.$) {
+    throw formatErrorMessage({
+      token: firstArgExpr.token,
+      errorMessage: `Failed to evaluate the first argument expression for "${expr.func.token.value}":\n${exprToString(
+        firstArgExpr
+      )}`,
+    });
+  }
+  if (!isExprType(evaluatedFirstArgExpr.$.type)) {
+    throw formatErrorMessage({
+      token: firstArgExpr.token,
+      errorMessage: `Expected expression type for "${expr.func.token.value}" first argument, got:\n${exprToString(
+        firstArgExpr
+      )}`,
+    });
+  }
+  const firstExprValue = evaluatedFirstArgExpr.$.value;
+  if (!firstExprValue) {
+    throw formatErrorMessage({
+      token: firstArgExpr.token,
+      errorMessage: `Expected expression value for "${expr.func.token.value}" first argument, got:\n${exprToString(
+        firstArgExpr
+      )}`,
+    });
+  }
+  env = evaluatedFirstArgExpr.$.env;
+
+  // Evaluate second argument
+  const evaluatedSecondArgExpr = context.evaluateExpression({
+    expr: secondArgExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+  if (!evaluatedSecondArgExpr.$) {
+    throw formatErrorMessage({
+      token: secondArgExpr.token,
+      errorMessage: `Failed to evaluate the second argument expression for "${expr.func.token.value}":\n${exprToString(
+        secondArgExpr
+      )}`,
+    });
+  }
+  if (!isExprType(evaluatedSecondArgExpr.$.type)) {
+    throw formatErrorMessage({
+      token: secondArgExpr.token,
+      errorMessage: `Expected expression type for "${expr.func.token.value}" second argument, got:\n${exprToString(
+        secondArgExpr
+      )}`,
+    });
+  }
+  const secondExprValue = evaluatedSecondArgExpr.$.value;
+  if (!secondExprValue) {
+    throw formatErrorMessage({
+      token: secondArgExpr.token,
+      errorMessage: `Expected expression value for "${expr.func.token.value}" second argument, got:\n${exprToString(
+        secondArgExpr
+      )}`,
+    });
+  }
+  env = evaluatedSecondArgExpr.$.env;
+
+  // Check if both are ExprValue and compare their expressions
+  let value: BooleanValue | UnknownValue;
+  if (isExprValue(firstExprValue) && isExprValue(secondExprValue)) {
+    value = createBooleanValue(
+      areValuesEqual(
+        { value: firstExprValue, env },
+        { value: secondExprValue, env }
+      )
+    );
+  } else {
+    value = createUnknownValue(createBooleanType()) as UnknownValue;
+  }
+
+  expr.$ = {
+    env: env,
+    type: value.type,
+    value: value,
+    isMutable: false,
+    pathCollection: [],
+    isAccessingProperty: false,
+  };
 
   return expr;
 }
