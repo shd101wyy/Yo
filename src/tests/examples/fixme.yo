@@ -1,7 +1,6 @@
 // with => to define a closure that captures the `move` from outer scope
 open import "std";
 
-/*
 (compt(LinearI32) : Linear) = i32;
 
 // FnOnce, FnMut, Fn can only be used in a Closure context
@@ -87,7 +86,7 @@ compt_expect_error(
     return ();
   }
 );
-*/
+
 
 test4 :: (() -> unit) {
   mut(counter) := 0;
@@ -96,4 +95,92 @@ test4 :: (() -> unit) {
     counter = (counter + elem);
     return counter;
   });
+};
+
+test4_1 :: (() -> unit) {
+  mut(counter) := 0;
+  closure := the(
+    Closure(_, FnOnce(elem : i32) -> i32),
+    fn(elem) => {
+      counter = (counter + elem);
+      return counter;
+    });
+};
+
+
+test5 :: (() -> unit) {
+  mut(counter) := 0;
+  mut(closure) : (Closure(_, FnOnce(elem : i32) -> i32));
+  closure = (fn(elem) => {
+    counter = (counter + elem);
+    return counter;
+  });
+  
+  // This should fail - trying to assign closure with different capture type
+  compt_expect_error(
+    {
+      mut(different_var) := 42;
+      closure = (fn(elem) => {
+        different_var = (different_var + elem);
+        return different_var;
+      });
+    }
+  );
+};
+
+
+some_condition :: (() -> boolean) true;
+
+test6 :: (() -> unit) {
+  mut(counter1) := 0;
+  mut(counter2) := 0;
+  
+  // This should fail because the two branches create closures with different capture types
+  compt_expect_error(
+    {
+      mut(closure) : (Closure(_, FnOnce(elem : i32) -> i32));
+      cond(
+        some_condition() => {
+          closure = (fn(elem) => {
+            counter1 = (counter1 + elem);
+            return counter1;
+          });
+        },
+        true => {
+          closure = (fn(elem) => {
+            counter2 = (counter2 + elem);
+            return counter2;
+          });
+        }
+      );
+    }
+  );
+};
+
+
+test7 :: (() -> unit) {
+  mut(counter) := 0;
+  
+  // This should fail because the two branches create closures with different nominal capture types
+  // Even though both capture the same variable, each creates a new StructType with different identity
+  compt_expect_error(
+    {
+      mut(closure) : (Closure(_, FnMut(elem : i32) -> i32));
+      
+      cond(
+        some_condition() => {
+          closure = (fn(elem) =>> {
+            counter = (counter + elem);
+            return counter;
+          });
+        },
+        true => {
+          closure = (fn(elem) =>> {
+            counter = (counter * elem);
+            return counter;
+          });
+        }
+      );
+    }
+  );
 };

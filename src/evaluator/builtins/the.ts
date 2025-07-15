@@ -5,9 +5,14 @@ import {
   expectExprToBeFunctionCallOf,
   FuncCallExpr,
 } from "../../expr";
-import { areTypesCompatible } from "../../types";
+import {
+  areTypesCompatible,
+  typeRequiresInference,
+  typeToString,
+} from "../../types";
 import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { synthesizeExprAndType } from "../types/synthesizer";
 
 export function evaluateThe({
   expr,
@@ -76,9 +81,46 @@ export function evaluateThe({
       { type: evaluatedValueExpr.$.type, env }
     )
   ) {
+    // Only try synthesis if the expected type contains unknown values that could be resolved
+    if (typeRequiresInference(expectedType)) {
+      // If types are incompatible, try synthesis in case there are unknown values to resolve
+      try {
+        const {
+          expr: synthesizedValueExpr,
+          type: synthesizedValueType,
+          env: synthesizedEnv,
+        } = synthesizeExprAndType({
+          expr: valueExpr,
+          type: expectedType,
+          env: env,
+          context: { ...context },
+        });
+
+        // Check if synthesis made the types compatible
+        if (
+          areTypesCompatible(
+            { type: expectedType, env: synthesizedEnv },
+            { type: synthesizedValueType, env: synthesizedEnv }
+          )
+        ) {
+          // Use the synthesized result
+          expr.$ = {
+            env: synthesizedEnv,
+            type: expectedType,
+            value: synthesizedValueExpr.$?.value,
+            isMutable: synthesizedValueExpr.$?.isMutable || false,
+            pathCollection: synthesizedValueExpr.$?.pathCollection || [],
+          };
+          return expr;
+        }
+      } catch (synthesisError) {
+        // Synthesis failed, fall through to the original error
+      }
+    }
+
     throw formatErrorMessage({
       token: valueExpr.token,
-      errorMessage: `Type mismatch: expected '${expectedType}', got '${evaluatedValueExpr.$.type}'`,
+      errorMessage: `Type mismatch: expected '${typeToString(expectedType)}', got '${typeToString(evaluatedValueExpr.$.type)}'`,
     });
   }
 

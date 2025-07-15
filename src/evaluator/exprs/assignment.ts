@@ -21,12 +21,15 @@ import {
 import { setTypeValueAsLinear } from "../../type-value";
 import {
   areTypesCompatible,
+  ClosureType,
   createArrayType,
   EnumType,
   isArrayType,
+  isClosureType,
   isEnumType,
   isFreeType,
   isLinearType,
+  isSomeType,
   isTypeHierarchyType,
   Type,
   typeContainsReference,
@@ -79,9 +82,12 @@ export function throwRhsContainsControlFlowExpressionError(
  */
 
 /**
- * Resolve unknown values in a type by looking up their resolved values in the environment
+ * Resolve unknown values and SomeType instances in a type by looking up their resolved values in the environment
  */
-function resolveUnknownValuesInType(type: Type, env: Environment): Type {
+function resolveUnknownValuesAndSomeTypeInType(
+  type: Type,
+  env: Environment
+): Type {
   if (isArrayType(type) && isUnknownValue(type.length)) {
     const unknownLength = type.length;
     if (unknownLength.variableName) {
@@ -96,6 +102,24 @@ function resolveUnknownValuesInType(type: Type, env: Environment): Type {
       }
     }
   }
+
+  if (isClosureType(type) && isSomeType(type.captureType)) {
+    const someTypeCapture = type.captureType;
+    // Look up the resolved value of the SomeType
+    const variables = getVariablesFromEnv(env, someTypeCapture.name);
+    if (variables.length > 0) {
+      const variable = variables[variables.length - 1]!;
+      if (variable.value && isTypeValue(variable.value)) {
+        const resolvedCaptureType = variable.value.value;
+        // Create a new closure type with the resolved capture type
+        return {
+          ...type,
+          captureType: resolvedCaptureType,
+        } as ClosureType;
+      }
+    }
+  }
+
   return type;
 }
 
@@ -261,7 +285,7 @@ export function evaluateAssignment({
             env = synthesizedEnv;
 
             // After synthesis, resolve any unknown values in the variable type
-            const resolvedVariableType = resolveUnknownValuesInType(
+            const resolvedVariableType = resolveUnknownValuesAndSomeTypeInType(
               variable.type,
               env
             );
