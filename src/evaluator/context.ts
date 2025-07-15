@@ -181,6 +181,14 @@ export interface FunctionToCall {
         /**
          * This is the result from calling:
          *
+         *   tryToImplementArrayByArrayType
+         */
+        kind: "array-type";
+      }
+    | {
+        /**
+         * This is the result from calling:
+         *
          *   tryToImplementModuleWithArguments
          */
         kind: "module-type";

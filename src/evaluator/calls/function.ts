@@ -92,6 +92,7 @@ import {
 import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateAnonymousStructValue } from "../values/anonymous_struct";
 import { tryToCallArrayWithArguments } from "./array";
+import { tryToImplementArrayByArrayType } from "./array_type";
 import { evaluateComptFunctionCall } from "./compt_function";
 import { tryToImplementFunctionByFunctionType } from "./function_type";
 import {
@@ -1575,6 +1576,33 @@ export function evaluateFunctionCall({
           };
         }
       }
+      // array type
+      else if (isTypeValue(value) && isArrayType(value.value)) {
+        const arrayType = value.value;
+        try {
+          tryToImplementArrayByArrayType({
+            expr: expr,
+            arrayType: arrayType,
+            argExprs: args,
+            callerEnv: env,
+            context: { ...context },
+          });
+          return {
+            ...functionToCall,
+            result: {
+              kind: "array-type",
+            },
+          };
+        } catch (error) {
+          return {
+            ...functionToCall,
+            result: {
+              kind: "error",
+              error: error,
+            },
+          };
+        }
+      }
       // array or slice
       else if (
         // array
@@ -2072,6 +2100,11 @@ ${functionsWithMatchingTypes
           );
         }
         */
+      return expr;
+    }
+    // array type
+    else if (isTypeValue(value) && isArrayType(value.value)) {
+      // This should already be evaluated by tryToImplementArrayByArrayType
       return expr;
     }
     // array
