@@ -5,7 +5,6 @@ import {
   BuiltinKeywords,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  ExprTag,
   exprToString,
   FuncCallExpr,
 } from "../../expr";
@@ -17,24 +16,14 @@ import {
   areTypesCompatible,
   ClosureType,
   createClosureType,
-  createStructType,
   FunctionType,
   isClosureType,
   isFunctionType,
-  isSomeType,
-  StructType,
-  TupleElement,
   Type,
   typeToString,
 } from "../../types";
 import { randomId } from "../../utils";
-import {
-  createClosureValue,
-  createStructValue,
-  StructValue,
-  UnknownValue,
-  Value,
-} from "../../value";
+import { createClosureValue, Value } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
@@ -42,6 +31,7 @@ import { evaluateFunctionParameters } from "../types/function";
 import {
   buildPathCollectionFromCapturedVariables,
   consumeCapturedVariables,
+  createCaptureTypeAndValue,
 } from "../utils/closure";
 
 export function evaluateAnonymousFunctionImplementation({
@@ -256,131 +246,13 @@ export function evaluateAnonymousFunctionImplementation({
   let finalValue: Value;
 
   if (isCreatingClosure && expectedClosureType) {
-    // Create a closure type and closure value
-    let captureType = expectedClosureType.captureType;
-    let captureValue: StructValue | UnknownValue | undefined;
-
-    // Handle capture type inference vs explicit struct type
-    if (isSomeType(captureType)) {
-      // Inference case: create new anonymous struct from captured variables
-      if (capturedVariablesWithValues && capturedVariablesWithValues.size > 0) {
-        // Create a struct type using createStructType
-        const inferredCaptureType = createStructType(env);
-
-        // Create elements from captured variables
-        const captureElements: TupleElement[] = Array.from(
-          capturedVariablesWithValues.entries()
-        ).map(([varName, captureInfo]) => ({
-          label: varName,
-          type: captureInfo.type,
-          isCompileTimeOnly: false, // Captured variables are runtime values
-          isImplicit: false,
-          assignedValue: undefined,
-          exprs: {
-            expr: {
-              tag: ExprTag.Atom,
-              token: captureInfo.token,
-            }, // Create a proper atom expression from the token
-            labelExpr: undefined,
-            typeExpr: undefined,
-            defaultValueExpr: undefined,
-          },
-        }));
-
-        // Add the elements to the struct type
-        inferredCaptureType.elements = captureElements;
-        captureType = inferredCaptureType;
-
-        // Create a struct value if all captured values are compile-time known
-        const captureValues = Array.from(
-          capturedVariablesWithValues.values()
-        ).map((info) => info.value);
-        if (captureValues.every((value) => value !== undefined)) {
-          captureValue = createStructValue(
-            inferredCaptureType,
-            captureValues as Value[]
-          );
-        } else {
-          // Some values are runtime-only, use undefined for runtime-unknown captures
-          captureValue = undefined;
-        }
-      } else {
-        // No captured variables but expected SomeType - create empty struct
-        const emptyStructType = createStructType(env);
-        emptyStructType.elements = [];
-        captureType = emptyStructType;
-        captureValue = createStructValue(emptyStructType, []);
-      }
-    } else {
-      // Explicit struct type case: validate that captured variables match the expected struct fields
-      if (capturedVariablesWithValues && capturedVariablesWithValues.size > 0) {
-        const expectedStruct = captureType as StructType;
-
-        // Validate that all captured variables exist as fields in the expected struct
-        const capturedVarNames = Array.from(capturedVariablesWithValues.keys());
-        const expectedFieldNames = expectedStruct.elements.map(
-          (elem) => elem.label
-        );
-
-        for (const capturedVar of capturedVarNames) {
-          if (!expectedFieldNames.includes(capturedVar)) {
-            throw formatErrorMessage({
-              token: expr.token,
-              errorMessage: `Captured variable "${capturedVar}" does not exist in expected capture struct "${typeToString(expectedStruct)}"`,
-            });
-          }
-        }
-
-        // Validate that all required fields in the struct are captured
-        for (const field of expectedStruct.elements) {
-          if (!capturedVarNames.includes(field.label)) {
-            throw formatErrorMessage({
-              token: expr.token,
-              errorMessage: `Expected capture struct field "${field.label}" is not captured by this closure`,
-            });
-          }
-        }
-
-        // Validate that captured variable types match expected field types
-        for (const [
-          varName,
-          captureInfo,
-        ] of capturedVariablesWithValues.entries()) {
-          const expectedField = expectedStruct.elements.find(
-            (elem) => elem.label === varName
-          );
-          if (
-            expectedField &&
-            !areTypesCompatible(
-              { type: expectedField.type, env },
-              { type: captureInfo.type, env }
-            )
-          ) {
-            throw formatErrorMessage({
-              token: captureInfo.token,
-              errorMessage: `Captured variable "${varName}" has type "${typeToString(captureInfo.type)}" but expected struct field has type "${typeToString(expectedField.type)}"`,
-            });
-          }
-        }
-
-        // Create a struct value from captured variables
-        const captureValues = Array.from(
-          capturedVariablesWithValues.values()
-        ).map((info) => info.value);
-        if (captureValues.every((value) => value !== undefined)) {
-          captureValue = createStructValue(
-            captureType as StructType,
-            captureValues as Value[]
-          );
-        } else {
-          // Some values are runtime-only
-          captureValue = undefined;
-        }
-      } else {
-        // No captured variables - create empty struct value
-        captureValue = createStructValue(captureType as StructType, []);
-      }
-    }
+    // Create a closure type and closure value using helper function
+    const { captureType, captureValue } = createCaptureTypeAndValue({
+      expectedCaptureType: expectedClosureType.captureType,
+      capturedVariablesWithValues,
+      env,
+      closureToken: expr.token,
+    });
 
     const closureType = createClosureType(captureType, newFunctionType, env);
 

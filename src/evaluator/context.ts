@@ -189,6 +189,14 @@ export interface FunctionToCall {
         /**
          * This is the result from calling:
          *
+         *   tryToImplementClosureByClosureType
+         */
+        kind: "closure-type";
+      }
+    | {
+        /**
+         * This is the result from calling:
+         *
          *   tryToImplementModuleWithArguments
          */
         kind: "module-type";

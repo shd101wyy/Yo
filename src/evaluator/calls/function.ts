@@ -93,6 +93,7 @@ import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateAnonymousStructValue } from "../values/anonymous_struct";
 import { tryToCallArrayWithArguments } from "./array";
 import { tryToImplementArrayByArrayType } from "./array_type";
+import { tryToImplementClosureByClosureType } from "./closure_type";
 import { evaluateComptFunctionCall } from "./compt_function";
 import { tryToImplementFunctionByFunctionType } from "./function_type";
 import {
@@ -795,7 +796,7 @@ ${implicitVariables
       const { returnType, returnValue } = implicitFunctionCallResult;
 
       const { env: nextEnv } = addVariableToEnv({
-        env: calleeEnv, // NOTE: use calleEnv from implicitFunctionCallResult will give error
+        env: calleeEnv,
         variable: {
           name: implicitParameter.label,
           type: returnType,
@@ -1603,6 +1604,32 @@ export function evaluateFunctionCall({
           };
         }
       }
+      // closure type
+      else if (isTypeValue(value) && isClosureType(value.value)) {
+        const closureType = value.value;
+        try {
+          tryToImplementClosureByClosureType({
+            expr: expr,
+            closureType: closureType,
+            callerEnv: env,
+            context: { ...context },
+          });
+          return {
+            ...functionToCall,
+            result: {
+              kind: "closure-type",
+            },
+          };
+        } catch (error) {
+          return {
+            ...functionToCall,
+            result: {
+              kind: "error",
+              error: error,
+            },
+          };
+        }
+      }
       // array or slice
       else if (
         // array
@@ -2105,6 +2132,11 @@ ${functionsWithMatchingTypes
     // array type
     else if (isTypeValue(value) && isArrayType(value.value)) {
       // This should already be evaluated by tryToImplementArrayByArrayType
+      return expr;
+    }
+    // closure type
+    else if (isTypeValue(value) && isClosureType(value.value)) {
+      // This should already be evaluated by tryToImplementClosureByClosureType
       return expr;
     }
     // array
