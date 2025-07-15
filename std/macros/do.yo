@@ -1,0 +1,199 @@
+open import "../data/primitive/expr.yo";
+open import "../data/primitive/expr_list.yo";
+open import "../data/primitive/usize.yo";
+open import "../data/primitive/boolean.yo";
+
+/*
+ The `do` macro transform the code below:
+  
+  do {
+    x := 1;
+    with response <= fetch("https://api.example.com");
+    std.println(response);
+    with (json,) <<= response.json();
+    std.println(json);
+    with (x, y) <- json.parse();
+    return x + y;
+  }
+ 
+  to:
+
+  {
+    x := 1;
+    fetch("https://api.example.com", fn(response) => {
+      std.println(response);
+      response.json(fn(json) =>> {
+        std.println(json);
+        json.parse(fn(x, y) -> {
+          return(x + y);
+        })
+      })
+    })
+  }
+
+ */
+
+// Transform "with var <= expr" into a monadic bind pattern
+// This should transform the entire do block into nested function calls
+transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
+  return cond(
+    (args.length() == 0) => quote(()),
+    (args.length() == 1) => 
+      // Last expression, just return it
+      args.car(),
+    true => {
+      first_arg :: args.car();
+      rest_args :: args.cdr();
+      cond(
+        // Check if this is a with statement: with var <= expr
+        first_arg.is_fn_call() => {
+          callee :: first_arg.get_callee();
+          cond(
+            (callee.is_atom() && (callee == quote(with))) => {
+              with_args :: first_arg.get_args();
+              cond(
+                (with_args.length() == 1) => {
+                  assignment_expr :: with_args.car(); // This should be "var <= expr"
+                  cond(
+                    assignment_expr.is_fn_call() => {
+                      assignment_callee :: assignment_expr.get_callee();
+                      cond(
+                        (assignment_callee.is_atom() && 
+                         ((assignment_callee == quote(<-)) || 
+                          (assignment_callee == quote(<=)) || 
+                          (assignment_callee == quote(<<=)))) => {
+                          assignment_args :: assignment_expr.get_args();
+                          cond(
+                            (assignment_args.length() == 2) => {
+                              var_name :: assignment_args.car();
+                              expr_value :: assignment_args.cdr().car();
+                              rest_transformed :: recur(rest_args);
+                              // Create a function call with the callback as an argument
+                              // This transforms: with x <= expr; rest
+                              // Into: expr("original_args", fn(x) => rest)
+                              
+                              // Check if var_name is a tuple pattern like (x, y)
+                              callback_fn :: cond(
+                                var_name.is_fn_call() => {
+                                  var_callee :: var_name.get_callee();
+                                  cond(
+                                    (var_callee.is_atom() && (var_callee == quote(tuple))) => {
+                                      // It's a tuple pattern like (x, y)
+                                      tuple_args :: var_name.get_args();
+                                      // Create function with multiple parameters
+                                      cond(
+                                        (assignment_callee == quote(<-)) =>
+                                          quote(fn(unquote_splicing(tuple_args)) -> unquote(rest_transformed)),
+                                        (assignment_callee == quote(<=)) =>
+                                          quote(fn(unquote_splicing(tuple_args)) => unquote(rest_transformed)),
+                                        true => // <<=
+                                          quote(fn(unquote_splicing(tuple_args)) =>> unquote(rest_transformed))
+                                      )
+                                    },
+                                    true => 
+                                      // Not a tuple, treat as single parameter
+                                      cond(
+                                        (assignment_callee == quote(<-)) =>
+                                          quote(fn(unquote(var_name)) -> unquote(rest_transformed)),
+                                        (assignment_callee == quote(<=)) =>
+                                          quote(fn(unquote(var_name)) => unquote(rest_transformed)),
+                                        true => // <<=
+                                          quote(fn(unquote(var_name)) =>> unquote(rest_transformed))
+                                      )
+                                  )
+                                },
+                                true => 
+                                  // Not a function call, treat as single parameter
+                                  cond(
+                                    (assignment_callee == quote(<-)) =>
+                                      quote(fn(unquote(var_name)) -> unquote(rest_transformed)),
+                                    (assignment_callee == quote(<=)) =>
+                                      quote(fn(unquote(var_name)) => unquote(rest_transformed)),
+                                    true => // <<=
+                                      quote(fn(unquote(var_name)) =>> unquote(rest_transformed))
+                                  )
+                              );
+                              
+                              // Check if expr_value is a function call to add the callback as an argument
+                              cond(
+                                expr_value.is_fn_call() => {
+                                  // Get the function and its existing arguments
+                                  fn_name :: expr_value.get_callee();
+                                  fn_args :: expr_value.get_args();
+                                  // We need to construct: fn_name(arg1, arg2, ..., callback_fn)
+                                  // Since we can't use unquote_splicing easily, let's handle common cases
+                                  cond(
+                                    (fn_args.length() == 1) => {
+                                      arg1 :: fn_args.car();
+                                      quote(unquote(fn_name)(unquote(arg1), unquote(callback_fn)))
+                                    },
+                                    (fn_args.length() == 2) => {
+                                      arg1 :: fn_args.car();
+                                      arg2 :: fn_args.cdr().car();
+                                      quote(unquote(fn_name)(unquote(arg1), unquote(arg2), unquote(callback_fn)))
+                                    },
+                                    (fn_args.length() == 0) => 
+                                      quote(unquote(fn_name)(unquote(callback_fn))),
+                                    true => 
+                                      // For more than 2 args, fall back to the simple approach
+                                      quote(unquote(expr_value)(unquote(callback_fn)))
+                                  )
+                                },
+                                true => 
+                                  // If it's not a function call, treat it as a simple call
+                                  quote(unquote(expr_value)(unquote(callback_fn)))
+                              )
+                            },
+                            true => quote(false) // malformed
+                          )
+                        },
+                        true => quote(false) // not <=
+                      )
+                    },
+                    true => quote(false) // not function call
+                  )
+                },
+                true => quote(false) // wrong arg count
+              )
+            },
+            // Not a with statement, but there are more statements after
+            // This means it's a regular statement in the middle of the block
+            // We need to sequence it properly
+            true => {
+              rest_transformed :: recur(rest_args);
+              // For non-with statements, we just sequence them
+              // This creates: first_arg; rest_transformed
+              quote(begin(unquote(first_arg), unquote(rest_transformed)))
+            }
+          )
+        },
+        true => {
+          // Not a function call, sequence it
+          rest_transformed :: recur(rest_args);
+          quote(begin(unquote(first_arg), unquote(rest_transformed)))
+        }
+      )
+    }
+  );
+};
+
+do :: ((quote(begin_expr) : Expr) -> unquote(Expr)) {
+  return cond(
+    begin_expr.is_fn_call() => {
+      callee :: begin_expr.get_callee();
+      cond(
+        // expect the callee to be the `begin` function
+        (callee.is_atom() && (callee == quote(begin))) => {
+          args :: begin_expr.get_args();
+          // Transform the entire block
+          transform_do_block(args)
+        },
+        // otherwise, return false for error
+        true => quote(false)
+      )
+    },
+    true => quote(false)
+  );
+};
+
+export do;

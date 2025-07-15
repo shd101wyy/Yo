@@ -7,3 +7,5 @@ Usually don't modify the `fixme.yo` unless I tell you to do so.
 Do not create new `.yo` files unless I tell you to do so.
 
 You can ignore the editor erros for the `.yo` files, because the vscode extension might not use the updated Yo language grammar or evaluator/compiler code.
+
+{ expr } create a struct value. So if there is only one expression, don't use {...}. Use the expr directly.
