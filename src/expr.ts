@@ -400,6 +400,9 @@ export const BuiltinKeywords = {
   not: ["not"],
   gensym: ["gensym"],
 
+  // C related
+  c_include: ["c_include"],
+
   // values
   undefined: ["undefined"],
   null: ["null"],
@@ -421,7 +424,6 @@ export const BuiltinKeywords = {
   Linear: ["Linear"],
   Type: ["Type"],
   Module: ["Module"],
-  anyopaque: ["anyopaque"], // Any opaque type, which is not known at compile time.
 
   // closure types (Rust-style)
   Closure: ["Closure"],

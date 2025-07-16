@@ -62,6 +62,7 @@ import { evaluateAssignment } from "./exprs/assignment";
 import { evaluateBeginExpression } from "./exprs/begin";
 import { evaluateBinding } from "./exprs/binding";
 import { evaluateBorrow } from "./exprs/borrow";
+import { evaluateCInclude } from "./exprs/c_include";
 import { evaluateCond } from "./exprs/cond";
 import { evaluateConsume } from "./exprs/consume";
 import { evaluateExtern } from "./exprs/extern";
@@ -344,6 +345,9 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.extern)) {
         // extern
         return evaluateExtern({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.c_include)) {
+        // c_include
+        return evaluateCInclude({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) {
         // cond
         return evaluateCond({ expr, env, context: { ...context } });
