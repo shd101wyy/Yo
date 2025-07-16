@@ -196,28 +196,19 @@ export function activate(context: vscode.ExtensionContext) {
       // Find the token at the current position
       const line = position.line;
       const character = position.character;
-      console.log(`Hover requested at line ${line}, character ${character}`);
 
       const tokenAtPosition = tokens.find((token) => {
-        const isMatch =
+        return (
           token.position.row === line &&
           character >= token.position.column &&
           character < token.position.column + token.value.length &&
           token.type !== TokenType.Whitespace &&
           token.type !== TokenType.SingleLineComment &&
-          token.type !== TokenType.MultiLineComment;
-
-        if (isMatch) {
-          console.log(
-            `Found token at hover position: "${token.value}" at ${token.position.row}:${token.position.column}`
-          );
-        }
-
-        return isMatch;
+          token.type !== TokenType.MultiLineComment
+        );
       });
 
       if (!tokenAtPosition) {
-        console.log("No token found at hover position");
         return null;
       }
 
@@ -233,12 +224,6 @@ export function activate(context: vscode.ExtensionContext) {
           expr.token.position.row === tokenAtPosition.position.row &&
           expr.token.position.column === tokenAtPosition.position.column
         ) {
-          console.log(
-            `Found exact match: "${expr.token.value}" at ${expr.token.position.row}:${expr.token.position.column} with eval info: ${expr.$ ? "YES" : "NO"}`
-          );
-          if (expr.$?.type) {
-            console.log(`  Type: ${typeToString(expr.$.type)}`);
-          }
           candidateExprs.push(expr as AtomExpr);
           return;
         }
@@ -261,10 +246,6 @@ export function activate(context: vscode.ExtensionContext) {
       // 2. Prefer expressions with evaluation info ($ property)
       // 3. Prefer expressions that are variable references rather than struct field definitions
       if (candidateExprs.length > 0) {
-        console.log(
-          `Found ${candidateExprs.length} candidates for token "${tokenAtPosition.value}"`
-        );
-
         // Find the current function scope by looking at line numbers
         const currentLine = position.line;
 
@@ -317,10 +298,6 @@ export function activate(context: vscode.ExtensionContext) {
             const aTypeString = typeToString(a.$.type);
             const bTypeString = typeToString(b.$.type);
 
-            console.log(
-              `Candidate A (line ${a.token.position.row}): ${aTypeString}, Candidate B (line ${b.token.position.row}): ${bTypeString}`
-            );
-
             // Prefer non-primitive types (like Expr) over primitive types (like i32)
             const aIsPrimitive =
               aTypeString === "i32" ||
@@ -350,19 +327,12 @@ export function activate(context: vscode.ExtensionContext) {
         });
 
         const selectedExpr = candidateExprs[0];
-        console.log(
-          `Selected expression with type: ${selectedExpr?.$?.type ? typeToString(selectedExpr.$.type) : "no type"}`
-        );
 
         foundExpr = selectedExpr || null;
       }
 
       // If no exact expression match was found, try to find variable in scope using fallback
       if (!foundExpr && tokenAtPosition.type === TokenType.Identifier) {
-        console.log(
-          `No exact expression match for "${tokenAtPosition.value}", trying fallback variable lookup`
-        );
-
         // Find the most recent expression that has environment info and is before the current position
         let bestEnv: unknown = null;
         let bestExprPosition = -1;
@@ -392,10 +362,6 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         if (bestEnv) {
-          console.log(
-            `Found environment at row ${bestExprPosition}, looking up variable "${tokenAtPosition.value}"`
-          );
-
           try {
             const variables = getVariablesFromEnv(
               bestEnv as Parameters<typeof getVariablesFromEnv>[0],
@@ -408,36 +374,19 @@ export function activate(context: vscode.ExtensionContext) {
                 // If the variable has an initializedAtToken, check if it's a reasonable local variable
                 if (variable.initializedAtToken) {
                   const varRow = variable.initializedAtToken.position.row;
-                  const varCol = variable.initializedAtToken.position.column;
-                  console.log(
-                    `Checking variable "${variable.name}" at ${varRow}:${varCol}, type: ${variable.type ? typeToString(variable.type) : "no type"}`
-                  );
                   // Variable should be declared after line 0 (not in imports/top-level struct definitions)
                   // and before the current position
                   const isLocalVar =
                     varRow > 2 && varRow < tokenAtPosition.position.row;
-                  console.log(
-                    `Variable "${variable.name}": varRow=${varRow} > 2? ${varRow > 2}, varRow=${varRow} < ${tokenAtPosition.position.row}? ${varRow < tokenAtPosition.position.row}, isLocal: ${isLocalVar}`
-                  );
                   return isLocalVar;
                 }
-                console.log(
-                  `Variable "${variable.name}" has no initializedAtToken, skipping`
-                );
                 return false;
               });
-
-              console.log(
-                `Found ${variables.length} total variables, ${localVariables.length} local variables`
-              );
 
               if (localVariables.length > 0) {
                 // Use the most recent local variable
                 const selectedVariable =
                   localVariables[localVariables.length - 1];
-                console.log(
-                  `Selected local variable with type: ${selectedVariable?.type ? typeToString(selectedVariable.type) : "no type"}`
-                );
 
                 // Create a synthetic expression for the fallback
                 if (selectedVariable?.type) {
@@ -458,7 +407,7 @@ export function activate(context: vscode.ExtensionContext) {
               }
             }
           } catch (error) {
-            console.log(`Error in fallback variable lookup:`, error);
+            // Ignore errors in fallback variable lookup
           }
         }
       }
@@ -577,7 +526,6 @@ export function activate(context: vscode.ExtensionContext) {
         const isDotCompletion = textUpToCursor.endsWith(".");
 
         if (isDotCompletion) {
-          console.log("Dot completion triggered");
           return provideDotCompletionItems(document, position, module);
         }
 
@@ -660,15 +608,8 @@ export function activate(context: vscode.ExtensionContext) {
                   (tokenLine === currentLine && tokenColumn < currentCharacter);
 
                 if (!isBeforeCurrentPosition) {
-                  console.log(
-                    `Skipping variable "${atomExpr.token.value}" at ${tokenLine}:${tokenColumn} (after current position ${currentLine}:${currentCharacter})`
-                  );
                   return; // Skip variables declared after current position
                 }
-
-                console.log(
-                  `Including variable "${atomExpr.token.value}" at ${tokenLine}:${tokenColumn} (before current position ${currentLine}:${currentCharacter})`
-                );
 
                 addCandidateVariable(atomExpr, atomExpr.token.value);
               }
@@ -830,36 +771,25 @@ export function activate(context: vscode.ExtensionContext) {
     }
   ): vscode.CompletionItem[] => {
     const completionItems: vscode.CompletionItem[] = [];
-    console.log("provideDotCompletionItems called");
 
     try {
       // Get tokens to find the exact position
       const tokens = module.evaluator.getTokens();
       const program = module.evaluator.getProgram();
-      console.log("Got tokens and program:", tokens.length, program.length);
 
       // Find the token right before the dot at the current position
       const currentLine = position.line;
       const dotPosition = position.character - 1; // Position of the dot character
 
-      console.log(
-        `Looking for token at line ${currentLine}, dot at position ${dotPosition}`
-      );
-
       // Find the token that is right before the dot
       // We need to find the token that ends right at the dot position
-      const tokenBeforeDot = tokens.find((token: unknown) => {
+      let tokenBeforeDot = tokens.find((token: unknown) => {
         const t = token as {
           position: { row: number; column: number };
           value: string;
           type: TokenType;
         };
-        const tokenStart = t.position.column;
         const tokenEnd = t.position.column + t.value.length;
-
-        console.log(
-          `Checking token "${t.value}" at line ${t.position.row}, columns ${tokenStart}-${tokenEnd}, type: ${t.type}`
-        );
 
         const isOnSameLine = t.position.row === currentLine;
         const isNotWhitespaceOrComment =
@@ -868,22 +798,51 @@ export function activate(context: vscode.ExtensionContext) {
           t.type !== TokenType.MultiLineComment;
         const tokenEndsAtDot = tokenEnd === dotPosition; // Token should end exactly where dot starts
 
-        console.log(
-          `  Same line: ${isOnSameLine}, Not whitespace: ${isNotWhitespaceOrComment}, Token ends at dot (${tokenEnd} === ${dotPosition}): ${tokenEndsAtDot}`
-        );
-
         return isOnSameLine && isNotWhitespaceOrComment && tokenEndsAtDot;
       });
 
       if (!tokenBeforeDot) {
-        console.log("No token found before dot");
-        return completionItems;
+        // Approach: Look at what the user typed before the dot and find a matching variable
+        const line = document.lineAt(currentLine).text;
+        const textBeforeDot = line.substring(0, dotPosition).trim();
+
+        if (textBeforeDot && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(textBeforeDot)) {
+          // This looks like a valid identifier before the dot
+          const identifierName = textBeforeDot;
+
+          // Find the most recent token with this name that's before the current line
+          const candidateTokens = tokens.filter((token: unknown) => {
+            const t = token as {
+              position: { row: number; column: number };
+              value: string;
+              type: TokenType;
+            };
+            return (
+              t.value === identifierName &&
+              t.type === TokenType.Identifier &&
+              t.position.row < currentLine // Must be before current line
+            );
+          });
+
+          if (candidateTokens.length > 0) {
+            // Use the most recent one (closest to current line)
+            const sortedCandidates = candidateTokens.sort(
+              (a: unknown, b: unknown) => {
+                const ta = a as { position: { row: number } };
+                const tb = b as { position: { row: number } };
+                return tb.position.row - ta.position.row; // Descending order (most recent first)
+              }
+            );
+
+            tokenBeforeDot = sortedCandidates[0];
+          }
+        }
+
+        if (!tokenBeforeDot) {
+          return completionItems;
+        }
       }
 
-      console.log(
-        "Found token before dot:",
-        (tokenBeforeDot as { value: string }).value
-      );
       const token = tokenBeforeDot as {
         position: { row: number; column: number };
         value: string;
@@ -896,15 +855,11 @@ export function activate(context: vscode.ExtensionContext) {
       const findExprByToken = (expr: Expr): boolean => {
         if (exprIsAtom(expr)) {
           const atomExpr = expr as AtomExpr;
-          console.log(
-            `Checking atom expr: "${atomExpr.token.value}" at ${atomExpr.token.position.row}:${atomExpr.token.position.column}`
-          );
           if (
             atomExpr.token.position.row === token.position.row &&
             atomExpr.token.position.column === token.position.column &&
             atomExpr.token.value === token.value
           ) {
-            console.log(`Found matching expression: "${atomExpr.token.value}"`);
             targetExpr = atomExpr;
             return true;
           }
@@ -926,10 +881,6 @@ export function activate(context: vscode.ExtensionContext) {
       // If we couldn't find the exact token (e.g., when typing incomplete code),
       // try to find a variable with the same name in scope
       if (!targetExpr && token.type === TokenType.Identifier) {
-        console.log(
-          `Couldn't find exact token, searching for variable "${token.value}" in scope`
-        );
-
         // Look for the most recent declaration of this variable
         const findVariableInScope = (expr: Expr): AtomExpr | null => {
           if (exprIsAtom(expr)) {
@@ -961,30 +912,9 @@ export function activate(context: vscode.ExtensionContext) {
         for (const expr of program) {
           const result = findVariableInScope(expr);
           if (result) {
-            console.log(
-              `Found variable "${token.value}" in scope at ${result.token.position.row}:${result.token.position.column}`
-            );
             targetExpr = result;
             break;
           }
-        }
-      }
-
-      console.log("Target expression found:", targetExpr ? "YES" : "NO");
-      if (targetExpr && exprIsAtom(targetExpr)) {
-        const atomExpr = targetExpr as AtomExpr;
-        console.log(
-          "Target expression is atom with value:",
-          atomExpr.token.value,
-          "at position:",
-          atomExpr.token.position
-        );
-        console.log(
-          "Expression has evaluation info:",
-          atomExpr.$ ? "YES" : "NO"
-        );
-        if (atomExpr.$) {
-          console.log("Expression type:", atomExpr.$.type ? "YES" : "NO");
         }
       }
 
@@ -1010,10 +940,68 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
 
-      console.log("Variable type found:", variableType ? "YES" : "NO");
-      if (variableType) {
-        console.log("Variable type tag:", variableType.tag);
-        console.log("Variable type name:", variableType.typeName || "unnamed");
+      // If no type found and we have a valid token, try fallback using environment lookup
+      if (!variableType && token.type === TokenType.Identifier) {
+        // Find the most recent expression that has environment info and is before the current position
+        let bestEnv: unknown = null;
+        let bestExprPosition = -1;
+
+        for (const expr of program) {
+          const findBestEnv = (expr: Expr) => {
+            if (exprIsAtom(expr)) {
+              const atomExpr = expr as AtomExpr;
+              if (
+                atomExpr.$?.env &&
+                atomExpr.token.position.row < currentLine &&
+                atomExpr.token.position.row > bestExprPosition
+              ) {
+                bestEnv = atomExpr.$.env;
+                bestExprPosition = atomExpr.token.position.row;
+              }
+            } else if (expr.tag === "FuncCall") {
+              const funcCallExpr = expr as FuncCallExpr;
+              findBestEnv(funcCallExpr.func);
+              for (const arg of funcCallExpr.args) {
+                findBestEnv(arg);
+              }
+            }
+          };
+
+          findBestEnv(expr);
+        }
+
+        if (bestEnv) {
+          try {
+            const variables = getVariablesFromEnv(
+              bestEnv as Parameters<typeof getVariablesFromEnv>[0],
+              token.value
+            );
+
+            if (variables && variables.length > 0) {
+              // Filter out variables that are likely struct fields by checking their position
+              const localVariables = variables.filter((variable) => {
+                if (variable.initializedAtToken) {
+                  const varRow = variable.initializedAtToken.position.row;
+                  // Variable should be declared after line 2 (not in imports/top-level struct definitions)
+                  // and before the current position
+                  return varRow > 2 && varRow < currentLine;
+                }
+                return false;
+              });
+
+              if (localVariables.length > 0) {
+                // Use the most recent local variable
+                const selectedVariable =
+                  localVariables[localVariables.length - 1];
+                if (selectedVariable?.type) {
+                  variableType = selectedVariable.type;
+                }
+              }
+            }
+          } catch (error) {
+            // Ignore errors in fallback variable lookup
+          }
+        }
       }
 
       // If we found a variable type, provide method suggestions based on the type
@@ -1099,17 +1087,9 @@ export function activate(context: vscode.ExtensionContext) {
                         detail: typeToString(element.type),
                         documentation: `Method ${element.label} on ${fieldAccessType.typeName || "struct"}`,
                       });
-                    } else {
-                      console.log(
-                        `Skipping method ${element.label}: type mismatch between ${typeToString(originalReceiverType)} and ${typeToString(firstParamType)}`
-                      );
                     }
                   } catch (error) {
                     // If type compatibility check fails, include the method anyway
-                    console.log(
-                      `Type compatibility check failed for ${element.label}:`,
-                      error
-                    );
                     methods.push({
                       name: element.label,
                       detail: typeToString(element.type),
@@ -1176,17 +1156,9 @@ export function activate(context: vscode.ExtensionContext) {
                         detail: typeToString(element.type),
                         documentation: `Method ${element.label} on ${fieldAccessType.typeName || "enum"}`,
                       });
-                    } else {
-                      console.log(
-                        `Skipping method ${element.label}: type mismatch between ${typeToString(originalReceiverType)} and ${typeToString(firstParamType)}`
-                      );
                     }
                   } catch (error) {
                     // If type compatibility check fails, include the method anyway
-                    console.log(
-                      `Type compatibility check failed for ${element.label}:`,
-                      error
-                    );
                     methods.push({
                       name: element.label,
                       detail: typeToString(element.type),
@@ -1251,17 +1223,9 @@ export function activate(context: vscode.ExtensionContext) {
                         detail: typeToString(element.type),
                         documentation: `Method ${element.label} on ${fieldAccessType.typeName || "union"}`,
                       });
-                    } else {
-                      console.log(
-                        `Skipping method ${element.label}: type mismatch between ${typeToString(originalReceiverType)} and ${typeToString(firstParamType)}`
-                      );
                     }
                   } catch (error) {
                     // If type compatibility check fails, include the method anyway
-                    console.log(
-                      `Type compatibility check failed for ${element.label}:`,
-                      error
-                    );
                     methods.push({
                       name: element.label,
                       detail: typeToString(element.type),
@@ -1349,17 +1313,9 @@ export function activate(context: vscode.ExtensionContext) {
                                 detail: typeToString(method.type),
                                 documentation: `Method ${methodName} available on this type`,
                               });
-                            } else {
-                              console.log(
-                                `Skipping method ${methodName}: type mismatch between ${typeToString(originalReceiverType)} and ${typeToString(firstParamType)}`
-                              );
                             }
                           } catch (error) {
                             // If type compatibility check fails, include the method anyway
-                            console.log(
-                              `Type compatibility check failed for ${methodName}:`,
-                              error
-                            );
                             methods.push({
                               name: methodName,
                               detail: typeToString(method.type),
