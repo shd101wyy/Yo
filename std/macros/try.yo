@@ -1,0 +1,22 @@
+{ Result } :: import "../data/result.yo";
+
+/**
+ * try macro for handling Result types.
+ */
+
+try :: ((quote(expr_to_try): Expr) -> unquote(Expr)) {
+  temp :: gensym("try");
+  quote {
+    unquote(temp) := unquote(expr_to_try);
+    match(unquote(temp),
+      .Ok => unquote(temp).value,
+      .Error => {
+        return unquote(temp).error;
+      }
+    )
+  }
+};
+
+export
+  try
+;
