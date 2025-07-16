@@ -33,18 +33,18 @@ export function evaluateClosureType({
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Closure, 2)) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected "Closure(captureType, callType)" with 2 arguments
+      errorMessage: `Expected "Closure(callType, captureType)" with 2 arguments
 Examples:
-  Closure(MyCapture, FnMut(elem: i32) -> i32)
-  Closure(_, Fn(elem: i32) -> i32)
-  Closure(MyCapture, _(elem: i32) -> i32)
+  Closure(FnMut(elem: i32) -> i32, MyCapture)
+  Closure(Fn(elem: i32) -> i32, _)
+  Closure(_(elem: i32) -> i32, MyCapture)
 
 Got:\n${exprToString(expr)}`,
     });
   }
 
-  const captureTypeExpr = expr.args[0]!;
-  const callTypeExpr = expr.args[1]!;
+  const callTypeExpr = expr.args[0]!;
+  const captureTypeExpr = expr.args[1]!;
 
   // Check if capture type is underscore placeholder for inference
   const isCaptureUnderscore =
@@ -171,7 +171,7 @@ Got:\n${exprToString(expr)}`,
     });
   }
 
-  const closureType = createClosureType(captureType, callType, currentEnv);
+  const closureType = createClosureType(callType, captureType, currentEnv);
   const closureTypeValue = createTypeValue(closureType);
 
   expr.$ = {

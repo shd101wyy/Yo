@@ -510,16 +510,25 @@ export interface RefType extends Type {
 
 /**
  * ClosureType represents a closure as a combination of:
- * 1. A capture struct containing the captured variables
- * 2. A call function with the appropriate closure kind (Fn/FnMut/FnOnce)
+ * 1. A call function with the appropriate closure kind (Fn/FnMut/FnOnce)
+ * 2. A capture struct containing the captured variables
  *
  * Examples:
- * - Closure(_, FnMut(elem: i32) -> i32)
- * - Closure(MyCapture, Fn(elem: i32) -> i32)
- * - Closure(MyCapture, FnOnce(elem: i32) -> i32)
+ * - Closure(FnMut(elem: i32) -> i32, _)
+ * - Closure(Fn(elem: i32) -> i32, MyCapture)
+ * - Closure(FnOnce(elem: i32) -> i32, MyCapture)
  */
 export interface ClosureType extends Type {
   tag: TypeTag.Closure;
+
+  /**
+   * The function type that defines the call signature and closure behavior.
+   * This must have a closureKind set to "Fn", "FnMut", or "FnOnce".
+   *
+   * The function signature should NOT include a self parameter - that's
+   * handled internally based on the closure kind and capture type.
+   */
+  callType: FunctionType & { closureKind: ClosureKind };
 
   /**
    * The type that contains the captured variables.
@@ -532,15 +541,6 @@ export interface ClosureType extends Type {
    * - StructType: When the capture type is known and contains the captured variables
    */
   captureType: SomeType | StructType;
-
-  /**
-   * The function type that defines the call signature and closure behavior.
-   * This must have a closureKind set to "Fn", "FnMut", or "FnOnce".
-   *
-   * The function signature should NOT include a self parameter - that's
-   * handled internally based on the closure kind and capture type.
-   */
-  callType: FunctionType & { closureKind: ClosureKind };
 
   /**
    * The env when the closure type is created.

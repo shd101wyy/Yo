@@ -88,6 +88,7 @@ import { evaluateAnonymousFunctionImplementation } from "./values/anonymous_func
 import { evaluateAnonymousModuleBeginExprs } from "./values/anonymous_module";
 import { evaluateArrayValue } from "./values/array";
 import { evaluateBooleanLiteral } from "./values/boolean";
+import { evaluateCharLiteral } from "./values/char";
 import { evaluateExprListValue } from "./values/expr_list";
 import { evaluateFloatLiteral } from "./values/float";
 import { evaluateIntegerLiteral } from "./values/integer";
@@ -194,6 +195,9 @@ export default class Evaluator {
         case TokenType.String: {
           return evaluateStringLiteral(expr, env);
         }
+        case TokenType.Char: {
+          return evaluateCharLiteral(expr, env);
+        }
         case TokenType.Boolean: {
           return evaluateBooleanLiteral(expr, env);
         }
@@ -243,7 +247,7 @@ ${exprToString(expr)}`,
               throw formatErrorMessage({
                 token: leftSide.token,
                 errorMessage: `FnOnce can only be used as the call type within a Closure type.
-Use: Closure(CaptureType, FnOnce(elem: Type) -> ReturnType)
+Use: Closure(FnOnce(elem: Type) -> ReturnType, CaptureType)
 Instead of: FnOnce(elem: Type) -> ReturnType`,
               });
             }
@@ -260,7 +264,7 @@ Instead of: FnOnce(elem: Type) -> ReturnType`,
               throw formatErrorMessage({
                 token: leftSide.token,
                 errorMessage: `Fn can only be used as the call type within a Closure type.
-Use: Closure(CaptureType, Fn(elem: Type) -> ReturnType)
+Use: Closure(Fn(elem: Type) -> ReturnType, CaptureType)
 Instead of: Fn(elem: Type) -> ReturnType`,
               });
             }
@@ -277,7 +281,7 @@ Instead of: Fn(elem: Type) -> ReturnType`,
               throw formatErrorMessage({
                 token: leftSide.token,
                 errorMessage: `FnMut can only be used as the call type within a Closure type.
-Use: Closure(CaptureType, FnMut(elem: Type) -> ReturnType)
+Use: Closure(FnMut(elem: Type) -> ReturnType, CaptureType)
 Instead of: FnMut(elem: Type) -> ReturnType`,
               });
             }

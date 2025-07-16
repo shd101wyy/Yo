@@ -254,7 +254,7 @@ export function evaluateAnonymousFunctionImplementation({
       closureToken: expr.token,
     });
 
-    const closureType = createClosureType(captureType, newFunctionType, env);
+    const closureType = createClosureType(newFunctionType, captureType, env);
 
     // Create the function value first
     const functionValue: FunctionValue = {
