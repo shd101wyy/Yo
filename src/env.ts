@@ -101,11 +101,6 @@ export interface Variable {
    * At which token the variable is declared.
    */
   token: Token;
-
-  /**
-   * The C header file to include when generating C code for using this variable.
-   */
-  cInclude?: string;
 }
 
 export type Frame = {

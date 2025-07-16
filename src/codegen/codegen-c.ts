@@ -41,6 +41,7 @@ import {
 import { generateModuleId } from "../utils";
 import {
   isBooleanValue,
+  isComptStringValue,
   isEnumValue,
   isFunctionValue,
   isNumberValue,
@@ -130,8 +131,18 @@ export class CodeGeneratorC {
    */
   private externFunctions: Record<
     TypeId,
-    { type: FunctionType; cName: string }
+    { type: FunctionType; cName: string; cInclude?: string }
   > = {};
+
+  /**
+   * C header files that need to be included
+   */
+  private cIncludes: Set<string> = new Set([
+    "<stdbool.h>",
+    "<stdint.h>",
+    "<stddef.h>",
+    "<stdarg.h>",
+  ]);
 
   /**
    * track the current function being generated for recur
@@ -140,11 +151,6 @@ export class CodeGeneratorC {
 
   constructor() {
     this.emitter = new Emitter();
-
-    this.emitter.emitHeaderLine("#include <stdbool.h>");
-    this.emitter.emitHeaderLine("#include <stdint.h>");
-    this.emitter.emitHeaderLine("#include <stddef.h>");
-    this.emitter.emitHeaderLine("#include <stdarg.h>");
   }
 
   /**
@@ -161,6 +167,12 @@ export class CodeGeneratorC {
     // First pass: Collect all functions and types (exported and required by exported functions)
     this.collectRequiredFunctions(moduleValue); // This has to be before types
     this.collectRequiredTypes(moduleValue);
+
+    // Collect C includes from variables used in the module
+    this.collectCIncludes();
+
+    // Emit C include headers
+    this.emitCIncludes();
 
     // Second pass: Generate type declarations
     this.generateTypeDeclarations();
@@ -769,6 +781,9 @@ export class CodeGeneratorC {
       if (type.isExtern === "yo") {
         continue; // Yo language extern types. No need to generate C declarations for them
       }
+      if (type.isExtern === "c" && type.cInclude) {
+        continue; // C extern types with cInclude are defined in header files, no need to generate extern declarations
+      }
       this.generateFunctionDeclaration(type, cName, true);
     }
     this.emitter.emitDeclarationLine("");
@@ -956,6 +971,14 @@ export class CodeGeneratorC {
           // For other functions, return the last expression
           this.generateReturnStatement(lastExpr, indent);
         }
+      } else if (findReturn && args.length > 0) {
+        // We found an explicit return statement, but there might be a trailing unit expression
+        // that we should ignore (don't generate as a statement)
+        const lastExpr = args[args.length - 1];
+        if (lastExpr && isUnitType(lastExpr.$?.type)) {
+          // Ignore trailing unit expressions after explicit return
+          // Don't generate anything for this
+        }
       }
     } else {
       // Single expression function body
@@ -985,6 +1008,17 @@ export class CodeGeneratorC {
    * Generate C code for a function call expression
    */
   private generateFuncCall(expr: FuncCallExpr, indent: string): string {
+    // return
+    if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
+      const arg = expr.args[0];
+      if (arg) {
+        const argCode = this.generateExpr(arg, indent);
+        return `return ${argCode}`;
+      } else {
+        return "return";
+      }
+    }
+
     // compile-time variable
     if (exprIsFunctionCallOf(expr, "::", 2)) {
       return "";
@@ -1388,18 +1422,6 @@ export class CodeGeneratorC {
         return `// Error: No arguments for recur call ${exprToString(expr)}\n`;
       }
     }
-    // return
-    else if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
-      const arg = expr.args[0];
-      if (arg) {
-        const argCode = this.generateExpr(arg, indent);
-        // Generate return statement
-        return `return ${argCode}`;
-      } else {
-        // No argument, just return
-        return `return`;
-      }
-    }
     // sizeof
     else if (exprIsFunctionCallOf(expr, BuiltinFunctions.sizeof, 1)) {
       const arg = expr.args[0]!;
@@ -1647,6 +1669,9 @@ export class CodeGeneratorC {
     } else if (isBooleanValue(value)) {
       // For booleans, return true/false
       return value.value ? "true" : "false";
+    } else if (isComptStringValue(value)) {
+      // For strings, return the C string literal with proper escaping
+      return JSON.stringify(value.value);
     } else if (isEnumValue(value)) {
       // For enums, check if it's optimized as nullable pointer
       const enumType = value.type;
@@ -2369,6 +2394,36 @@ export class CodeGeneratorC {
       }
     }
     return enumType.variants.length > 0; // Must have at least one variant
+  }
+
+  /**
+   * Collect C include headers from variables used in the module
+   */
+  private collectCIncludes(): void {
+    // Collect cIncludes from all collected types
+    for (const typeId in this.types) {
+      const { type } = this.types[typeId]!;
+      if (type.cInclude) {
+        this.cIncludes.add(type.cInclude);
+      }
+    }
+
+    // Collect cIncludes from all extern functions
+    for (const functionId in this.externFunctions) {
+      const { type } = this.externFunctions[functionId]!;
+      if (type.cInclude) {
+        this.cIncludes.add(type.cInclude);
+      }
+    }
+  }
+
+  /**
+   * Emit C include headers
+   */
+  private emitCIncludes(): void {
+    for (const include of this.cIncludes) {
+      this.emitter.emitHeaderLine(`#include ${include}`);
+    }
   }
 
   public print(): string {

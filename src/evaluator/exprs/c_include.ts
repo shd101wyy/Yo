@@ -101,8 +101,9 @@ c_include "<stdio.h>" ...;`,
       });
     }
 
-    // Set the isExtern for the element type
+    // Set the isExtern and cInclude for the element type
     element.type.isExtern = "c";
+    element.type.cInclude = cHeaderFile;
 
     // Expect element to be compile-time only
     if (!element.isCompileTimeOnly) {
@@ -148,7 +149,6 @@ Got ${typeToString(typeOfType(element.type))}`,
         token: element.exprs.expr.token,
         initializedAtToken: element.exprs.expr.token,
         consumedAtToken: undefined, // Not consumed yet
-        cInclude: cHeaderFile,
       },
     });
     env = nextNextEnv;

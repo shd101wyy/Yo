@@ -69,6 +69,12 @@ export interface Type {
    * If undefined, then it's not an extern type.
    */
   isExtern?: ExternLanguage;
+
+  /**
+   * C header file to include when using this type.
+   * Only applicable for extern "c" types.
+   */
+  cInclude?: string;
 }
 
 /*
