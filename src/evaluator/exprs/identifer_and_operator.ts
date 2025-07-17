@@ -509,6 +509,7 @@ export function evaluateIdentifierAndOperator({
         type: variable.type,
         value: variable.value,
         isMutable: variable.isMutable,
+        originType: variable.type, // Set origin type for direct variable access
         variableName: variable.name, // NOTE: The tempVariableName here is the variable name itself.
         pathCollection: [[variable.name]],
       };

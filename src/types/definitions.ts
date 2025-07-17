@@ -236,7 +236,19 @@ export type FunctionParameterExprs = {
 export interface FunctionParameter {
   label: string;
   type: Type;
+
+  /**
+   * Whether the parameter is mutable or not.
+   * This affects:
+   * - Variable reassignment: x = new_value
+   * - Creating mutable references: &!(x), *!(x)
+   *
+   * Examples:
+   * - x : i32        -> isMutable: false
+   * - mut(x) : i32   -> isMutable: true
+   */
   isMutable: boolean;
+
   isCompileTimeOnly: boolean;
   isQuote: boolean;
   exprs: FunctionParameterExprs;

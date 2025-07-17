@@ -1803,6 +1803,7 @@ ${functionsWithMatchingTypes
         type: createExprType(),
         value: returnValue,
         isMutable: false,
+        originType: createExprType(), // Macro result's origin type is the expression type
         pathCollection: pathCollection,
       };
 
@@ -1866,6 +1867,7 @@ ${functionsWithMatchingTypes
         type: returnType,
         value: returnValue,
         isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
+        originType: returnType, // Function call result's origin type is its return type
         pathCollection: pathCollection,
         runtimeArgExprsInOrder,
       };
@@ -1937,6 +1939,7 @@ ${functionsWithMatchingTypes
       type: returnType,
       value: returnValue,
       isMutable: true,
+      originType: returnType, // Function call result's origin type is its return type
       pathCollection: pathCollection,
       runtimeArgExprsInOrder,
     };
@@ -1971,6 +1974,7 @@ ${functionsWithMatchingTypes
         env,
         type: structType,
         isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
+        originType: structType, // Struct constructor result's origin type is the struct type
         pathCollection: [],
       };
 
@@ -2015,6 +2019,7 @@ ${functionsWithMatchingTypes
         env,
         type: enumType,
         isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
+        originType: enumType, // Enum constructor result's origin type is the enum type
         pathCollection: [],
       };
       // FIXME: Support to set value for comptime
@@ -2067,6 +2072,7 @@ ${functionsWithMatchingTypes
         env,
         type: unionType,
         isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
+        originType: unionType, // Union constructor result's origin type is the union type
         pathCollection: [],
       };
       const { pathCollection, callerEnv, runtimeArgExprsInOrder } =
@@ -2101,6 +2107,7 @@ ${functionsWithMatchingTypes
         type: moduleValue.type,
         value: moduleValue,
         isMutable: false,
+        originType: moduleValue.type, // Module result's origin type is its type
         pathCollection: [],
       };
 
@@ -2167,6 +2174,7 @@ ${functionsWithMatchingTypes
           Boolean(func.$?.isMutable) ||
           isMutPtrType(functionToCall.type) ||
           isMutRefType(functionToCall.type),
+        originType: func.$?.originType ?? functionToCall.type, // Array access inherits origin type
         pathCollection: func.$?.pathCollection ?? [],
         /**
          * NOTE: We need to set isAccessingProperty to true here

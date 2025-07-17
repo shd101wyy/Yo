@@ -110,13 +110,29 @@ export interface EvaluatedExprData {
    * If this is given, then it means there is a temporary variable holding the value in the `env` above.
    */
   variableName?: string;
+
   /**
    * Check if the value returned from the expression is mutable.
-   * For exampe:
-   * mut(x) := 12;
-   * y = x; // Expression `x` here is mutable.
+   * This affects:
+   * - Variable reassignment: x = new_value
+   * - Creating mutable references: &!(x), *!(x)
+   *
+   * Examples:
+   * - x := 12           -> isMutable: false
+   * - mut(x) := 12      -> isMutable: true
    */
   isMutable: boolean;
+
+  /**
+   * The type of the root object in a property access chain.
+   * Used to determine mutability for nested property access and dereference.
+   *
+   * Examples:
+   * - c.val.*   -> originType is the type of 'c'
+   * - x.a.b.*   -> originType is the type of 'x'
+   * - y.*       -> originType is the type of 'y'
+   */
+  originType?: Type;
 
   /**
    * For example, the expression below is accessing property:
@@ -883,7 +899,7 @@ export function attachTempVariableToExpr(expr: Expr): void {
     throw new Error(`Expected expression to be evaluated, but it is not:
 ${exprToString(expr)}`);
   }
-  const { env, type, value, isMutable } = expr.$;
+  const { env, type, value, isMutable, originType } = expr.$;
   const modulePath = env.modulePath;
   const tempVariableName = generateNewTempVariableName(modulePath);
 
@@ -904,6 +920,11 @@ ${exprToString(expr)}`);
   });
 
   expr.$.variableName = tempVariableName;
+  // Preserve the originType - for function calls, the originType should be the return type
+  // For other expressions, it should be inherited from the source
+  if (!originType) {
+    expr.$.originType = type; // If no originType was set, use the expression's own type
+  }
   expr.$.env = nextEnv;
 }
 

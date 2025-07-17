@@ -56,11 +56,16 @@ export interface Variable {
    * Otherwise, it is a runtime variable.
    */
   value?: Value;
+
   /**
-   * Whether the variabel is mutable or not.
-   * Eg:
-   * mut(x) := 1;
-   * The token `x` has `isMutable` set to true.
+   * Whether the variable is mutable or not.
+   * This affects:
+   * - Variable reassignment: x = new_value
+   * - Creating mutable references: &!(x), *!(x)
+   *
+   * Examples:
+   * - x := 1         -> isMutable: false
+   * - mut(x) := 1    -> isMutable: true
    */
   isMutable: boolean;
   /**
