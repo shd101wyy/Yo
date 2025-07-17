@@ -257,6 +257,7 @@ export function evaluateCond({
         env: caseEnv,
         context: {
           ...context,
+          isExecuting: false, // We're analyzing, not executing
         },
         variablesToAdd: [],
       });

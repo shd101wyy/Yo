@@ -124,6 +124,8 @@ export function evaluateComptFunctionCall({
             : undefined,
         evaluationEnv: calleeEnv,
       },
+      // Only set isExecuting=true if we're not in validation mode
+      isExecuting: context.isValidatingFunctionDefinition ? false : true,
     },
     variablesToAdd: [],
   });

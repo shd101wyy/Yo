@@ -817,6 +817,7 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       beginExprs: this.program,
       env,
       context: {
+        isExecuting: true, // We're executing the main program
         expectedType: undefined,
         SelfType: undefined,
         borrowings: [],

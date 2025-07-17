@@ -66,6 +66,8 @@ export function tryToImplementClosureByClosureType({
     env,
     context: {
       ...context,
+      isExecuting: false, // We're analyzing the closure, not executing it
+      isValidatingFunctionDefinition: true, // We're validating closure definition
       isEvaluatingFunctionBody: {
         type: closureType.callType,
         capturedVariables: capturedVariables,

@@ -297,6 +297,9 @@ export function evaluateMatch({
         env: caseEnv,
         context: {
           ...context,
+          isExecuting:
+            isEnumValue(scrutineeValue) &&
+            scrutineeValue.variantName === variantName,
         },
         variablesToAdd: [],
       });

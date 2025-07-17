@@ -9,6 +9,18 @@ import { ModuleValue, Value } from "../value";
 
 export interface EvaluatorContext {
   /**
+   * Whether we are currently executing code (true) or just analyzing/type-checking it (false).
+   * This flag prevents side effects like compt_print from executing during function definition.
+   */
+  isExecuting?: boolean;
+
+  /**
+   * Whether we are currently validating a function definition (type checking the function body).
+   * This prevents certain side effects from occurring during function definition validation.
+   */
+  isValidatingFunctionDefinition?: boolean;
+
+  /**
    *
    */
   expectedType?: {

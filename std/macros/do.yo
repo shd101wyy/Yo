@@ -144,16 +144,28 @@ transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
                                   quote(unquote(expr_value)(unquote(callback_fn)))
                               )
                             },
-                            true => quote(false) // malformed
+                            true => {
+                              compt_assert(false, "Malformed <-, <=, or <<= statement, expected two arguments");
+                              quote(false) // malformed
+                            }
                           )
                         },
-                        true => quote(false) // not <=
+                        true => {
+                          compt_assert(false, "Expected \"with\" statement to use <-, <= or <<=");
+                          quote(false) // not <=
+                        }
                       )
                     },
-                    true => quote(false) // not function call
+                    true => {
+                      compt_assert(false, "Expected \"with\" statement to be a function call");
+                      quote(false) // not function call
+                    }
                   )
                 },
-                true => quote(false) // wrong arg count
+                true => {
+                  compt_assert(false, "Malformed \"with\" statement, expected one argument");
+                  quote(false) // wrong arg count
+                }
               )
             },
             // Not a with statement, but there are more statements after
@@ -189,10 +201,16 @@ do :: ((quote(begin_expr) : Expr) -> unquote(Expr)) {
           transform_do_block(args)
         },
         // otherwise, return false for error
-        true => quote(false)
+        true => {
+          compt_assert(false, "Expected `do` block to start with `begin`");
+          quote(false)
+        }
       )
     },
-    true => quote(false)
+    true => {
+      compt_assert(false, "Expected `do` block to be a function call to `begin`");
+      quote(false)
+    }
   );
 };
 

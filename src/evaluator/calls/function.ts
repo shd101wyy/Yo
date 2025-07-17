@@ -1029,6 +1029,7 @@ ${implicitVariables
           calleeEnv: calleeEnv,
           context: {
             ...context,
+            // Keep the original validation state - don't override it
           },
         });
       returnValue = nextReturnValue;
@@ -1711,7 +1712,12 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
         throw formatErrorMessages([
           {
             token: expr.token,
-            errorMessage: `Failed to call the function:\n`,
+            errorMessage: `Failed to call the function:\n
+${error.tokenAndErrorList
+  .map(({ errorMessage }) => {
+    return errorMessage;
+  })
+  .join("\n")}`,
           },
           ...error.tokenAndErrorList,
         ]);

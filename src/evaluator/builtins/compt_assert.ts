@@ -14,6 +14,18 @@ export function evaluateComptAssert({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
+  // Do nothing if we are not really executing.
+  if (context.isValidatingFunctionDefinition || !context.isExecuting) {
+    expr.$ = {
+      env,
+      type: VUnit.type,
+      value: VUnit,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
+  }
+
   const argExpr = expr.args[0]!;
   const messageExpr = expr.args[1];
 

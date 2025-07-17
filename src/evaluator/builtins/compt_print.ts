@@ -7,7 +7,7 @@ import {
   FuncCallExpr,
 } from "../../expr";
 import { VUnit } from "../../unit-value";
-import { valueToString } from "../../value";
+import { isComptStringValue, valueToString } from "../../value";
 import { EvaluatorContext } from "../context";
 
 export function evaluateComptPrint({
@@ -38,8 +38,14 @@ export function evaluateComptPrint({
   }
   env = evaluatedArgExpr.$.env;
 
-  // Print the value to the console
-  console.log(valueToString(evaluatedArgExpr.$.value));
+  // Print the value to the console only if we're not validating a function definition
+  if (!context.isValidatingFunctionDefinition && context.isExecuting) {
+    if (isComptStringValue(evaluatedArgExpr.$.value)) {
+      console.log(evaluatedArgExpr.$.value.value);
+    } else {
+      console.log(valueToString(evaluatedArgExpr.$.value));
+    }
+  }
 
   expr.$ = {
     env,

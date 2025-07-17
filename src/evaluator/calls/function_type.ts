@@ -75,6 +75,8 @@ export function tryToImplementFunctionByFunctionType({
     env,
     context: {
       ...context,
+      isExecuting: false, // We're analyzing, not executing
+      isValidatingFunctionDefinition: true, // We're validating function definition
       isEvaluatingFunctionBody: {
         type: functionType,
         capturedVariables: capturedVariables,

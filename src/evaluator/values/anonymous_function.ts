@@ -138,6 +138,8 @@ export function evaluateAnonymousFunctionImplementation({
     env,
     context: {
       ...context,
+      isExecuting: false, // We're executing the function, not just analyzing it
+      isValidatingFunctionDefinition: false, // Clear the validation flag during actual execution
       isEvaluatingFunctionBody: {
         type: functionType,
         capturedVariables: capturedVariables,
