@@ -23,9 +23,11 @@ export class MoLexerError {
 
 export class MoParserError {
   public tokenAndErrorList: TokenAndError[] = [];
+  public isAssertionError: boolean;
 
-  constructor(tokenAndErrorList: TokenAndError[]) {
+  constructor(tokenAndErrorList: TokenAndError[], isAssertionError?: boolean) {
     this.tokenAndErrorList = tokenAndErrorList;
+    this.isAssertionError = isAssertionError || false;
   }
 }
 
@@ -63,32 +65,38 @@ export function formatErrorMessage({
   token,
   errorMessage,
   cause,
+  isAssertionError,
 }: {
   token: Token;
   errorMessage: string;
   cause?: Error;
+  isAssertionError?: boolean;
 }): MoParserError {
   const errorMessages = `${errorMessage.trim()}
 
 ${getLineAtToken({ token })}`;
 
-  return new MoParserError([
-    {
-      token,
-      errorMessage:
-        errorMessages + (cause?.message ? "\n" + cause.message : ""),
-    },
-  ]);
+  return new MoParserError(
+    [
+      {
+        token,
+        errorMessage:
+          errorMessages + (cause?.message ? "\n" + cause.message : ""),
+      },
+    ],
+    isAssertionError
+  );
 }
 
 export function formatErrorMessages(
-  tokenAndErrorList: TokenAndError[]
+  tokenAndErrorList: TokenAndError[],
+  isAssertionError?: boolean
 ): MoParserError {
   if (tokenAndErrorList.length === 0) {
     throw new Error("tokenAndErrorList must not be empty");
   }
 
-  return new MoParserError(tokenAndErrorList);
+  return new MoParserError(tokenAndErrorList, isAssertionError);
 }
 
 export function formatWarningMessages({

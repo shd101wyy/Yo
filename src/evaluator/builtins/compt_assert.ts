@@ -41,6 +41,7 @@ export function evaluateComptAssert({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected boolean value for "compt_assert", got:\n${exprToString(argExpr)}`,
+      isAssertionError: true,
     });
   }
   const booleanValue = evaluatedArgExpr.$.value;
@@ -70,6 +71,8 @@ export function evaluateComptAssert({
           errorMessage: isComptStringValue(evaluatedMessageExpr.$.value)
             ? evaluatedMessageExpr.$.value.value
             : valueToString(evaluatedMessageExpr.$.value),
+
+          isAssertionError: true,
         });
       }
     }
@@ -77,6 +80,7 @@ export function evaluateComptAssert({
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `Assertion failed for "compt_assert":\n${exprToString(argExpr)}`,
+      isAssertionError: true,
     });
   }
 }

@@ -1709,18 +1709,21 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
     ) {
       const error = functionsToCall[0]!.result.error;
       if (error instanceof MoParserError) {
-        throw formatErrorMessages([
-          {
-            token: expr.token,
-            errorMessage: `Failed to call the function:\n
+        throw formatErrorMessages(
+          [
+            {
+              token: expr.token,
+              errorMessage: `Failed to call the function:\n
 ${error.tokenAndErrorList
   .map(({ errorMessage }) => {
     return errorMessage;
   })
   .join("\n")}`,
-          },
-          ...error.tokenAndErrorList,
-        ]);
+            },
+            ...error.tokenAndErrorList,
+          ],
+          error.isAssertionError
+        );
       } else {
         throw formatErrorMessages([
           {
