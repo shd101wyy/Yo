@@ -3,7 +3,11 @@ import * as vscode from "vscode";
 
 // Import the parser and lexer from Yo project
 // This assumes your extension can access the Yo project code
-import { getMethodsByNameFromEnv, getVariablesFromEnv } from "@yo/env";
+import {
+  Environment,
+  getMethodsByNameFromEnv,
+  getVariablesFromEnv,
+} from "@yo/env";
 import { MoLexerError, MoParserError } from "@yo/error";
 import Evaluator from "@yo/evaluator";
 import {
@@ -12,12 +16,13 @@ import {
   BuiltinKeywords,
   Expr,
   exprIsAtom,
+  exprIsFunctionCall,
   ExprTag,
   exprToString,
   FuncCallExpr,
 } from "@yo/expr";
 import { ModuleManager } from "@yo/module-manager";
-import { stringIsOperator, TokenType } from "@yo/token";
+import { stringIsOperator, Token, TokenType } from "@yo/token";
 import {
   areTypesCompatible,
   isArrayType,
@@ -35,7 +40,7 @@ import {
   TypeTag,
   typeToString,
 } from "@yo/types";
-import { ModuleValue, valueToString } from "@yo/value";
+import { isModuleValue, ModuleValue, valueToString } from "@yo/value";
 import { ValueTag } from "@yo/value-tag";
 
 const basicKeywords: string[] = [];
@@ -48,6 +53,159 @@ for (const keyword in BuiltinFunctions) {
 for (const key in TypeTag) {
   basicKeywords.push(TypeTag[key]);
 }
+
+// Shared utility functions for code deduplication
+const findTokenAtPosition = (
+  tokens: Token[],
+  line: number,
+  character: number
+): Token | null => {
+  return (
+    tokens.find((token) => {
+      return (
+        token.position.row === line &&
+        character >= token.position.column &&
+        character < token.position.column + token.value.length &&
+        token.type !== TokenType.Whitespace &&
+        token.type !== TokenType.SingleLineComment &&
+        token.type !== TokenType.MultiLineComment
+      );
+    }) || null
+  );
+};
+
+const collectExpressionCandidates = (
+  exprs: Expr[],
+  targetToken: Token,
+  candidateExprs: AtomExpr[]
+): void => {
+  const findExprWithToken = (expr: Expr) => {
+    if (
+      exprIsAtom(expr) &&
+      expr.token.value === targetToken.value &&
+      expr.token.position.row === targetToken.position.row &&
+      expr.token.position.column === targetToken.position.column
+    ) {
+      candidateExprs.push(expr as AtomExpr);
+      return;
+    }
+
+    if (exprIsFunctionCall(expr)) {
+      const funcCallExpr = expr as FuncCallExpr;
+      findExprWithToken(funcCallExpr.func);
+      for (const arg of funcCallExpr.args) {
+        findExprWithToken(arg);
+      }
+    }
+  };
+
+  for (const expr of exprs) {
+    findExprWithToken(expr);
+  }
+};
+
+const sortExpressionCandidates = (
+  candidateExprs: AtomExpr[],
+  currentLine: number
+): AtomExpr[] => {
+  return candidateExprs.sort((a, b) => {
+    // First, check if the candidates are within a function scope (after "main :: " line)
+    const aIsInFunction = a.token.position.row > 4; // After "main :: (() -> unit) {"
+    const bIsInFunction = b.token.position.row > 4;
+
+    if (aIsInFunction !== bIsInFunction) {
+      return bIsInFunction ? -1 : 1; // Prefer expressions in function scope
+    }
+
+    // If both are in function scope, prefer the one that's declared before the current position
+    // but after the function start
+    if (aIsInFunction && bIsInFunction) {
+      const aIsBeforeCurrent = a.token.position.row < currentLine;
+      const bIsBeforeCurrent = b.token.position.row < currentLine;
+      const aIsAfterFunctionStart = a.token.position.row >= 5; // After function body starts
+      const bIsAfterFunctionStart = b.token.position.row >= 5;
+
+      // Prefer variables declared in the current function scope before the current line
+      if (
+        aIsBeforeCurrent &&
+        aIsAfterFunctionStart &&
+        !(bIsBeforeCurrent && bIsAfterFunctionStart)
+      ) {
+        return -1;
+      }
+      if (
+        bIsBeforeCurrent &&
+        bIsAfterFunctionStart &&
+        !(aIsBeforeCurrent && aIsAfterFunctionStart)
+      ) {
+        return 1;
+      }
+    }
+
+    const aHasEvalInfo = a.$ ? 1 : 0;
+    const bHasEvalInfo = b.$ ? 1 : 0;
+
+    // Second priority: expressions with evaluation info
+    if (aHasEvalInfo !== bHasEvalInfo) {
+      return bHasEvalInfo - aHasEvalInfo;
+    }
+
+    // Third priority: if both have eval info, prefer the one with a local variable type
+    // (not i32 which suggests struct field definition)
+    if (aHasEvalInfo && bHasEvalInfo && a.$?.type && b.$?.type) {
+      const aTypeString = typeToString(a.$.type);
+      const bTypeString = typeToString(b.$.type);
+
+      // Prefer non-primitive types (like Expr) over primitive types (like i32)
+      const aIsPrimitive =
+        aTypeString === "i32" ||
+        aTypeString === "f64" ||
+        aTypeString === "bool" ||
+        aTypeString === "str";
+      const bIsPrimitive =
+        bTypeString === "i32" ||
+        bTypeString === "f64" ||
+        bTypeString === "bool" ||
+        bTypeString === "str";
+
+      if (aIsPrimitive !== bIsPrimitive) {
+        return aIsPrimitive ? 1 : -1; // Prefer non-primitive (return -1 for a if a is not primitive)
+      }
+    }
+
+    // Fourth priority: prefer expressions that have environment info (suggests they're in a local scope)
+    const aHasEnv = a.$?.env ? 1 : 0;
+    const bHasEnv = b.$?.env ? 1 : 0;
+
+    if (aHasEnv !== bHasEnv) {
+      return bHasEnv - aHasEnv;
+    }
+
+    return 0;
+  });
+};
+
+const findBestExpressionMatch = (
+  exprs: Expr[],
+  tokenAtPosition: Token,
+  currentLine: number
+): AtomExpr | null => {
+  const candidateExprs: AtomExpr[] = [];
+
+  // Collect all candidate expressions
+  collectExpressionCandidates(exprs, tokenAtPosition, candidateExprs);
+
+  if (candidateExprs.length > 0) {
+    // Sort and return the best candidate
+    const sortedCandidates = sortExpressionCandidates(
+      candidateExprs,
+      currentLine
+    );
+    return sortedCandidates[0] || null;
+  }
+
+  return null;
+};
 
 export function activate(context: vscode.ExtensionContext) {
   // Create a diagnostic collection for Yo language errors
@@ -197,139 +355,18 @@ export function activate(context: vscode.ExtensionContext) {
       const line = position.line;
       const character = position.character;
 
-      const tokenAtPosition = tokens.find((token) => {
-        return (
-          token.position.row === line &&
-          character >= token.position.column &&
-          character < token.position.column + token.value.length &&
-          token.type !== TokenType.Whitespace &&
-          token.type !== TokenType.SingleLineComment &&
-          token.type !== TokenType.MultiLineComment
-        );
-      });
+      const tokenAtPosition = findTokenAtPosition(tokens, line, character);
 
       if (!tokenAtPosition) {
         return null;
       }
 
       // Find an expression with matching token
-      let foundExpr: Expr | null = null;
-      const candidateExprs: AtomExpr[] = [];
-
-      // Recursive function to search through expressions and collect candidates
-      const findExprWithToken = (expr: Expr) => {
-        if (
-          exprIsAtom(expr) &&
-          expr.token.value === tokenAtPosition.value &&
-          expr.token.position.row === tokenAtPosition.position.row &&
-          expr.token.position.column === tokenAtPosition.position.column
-        ) {
-          candidateExprs.push(expr as AtomExpr);
-          return;
-        }
-
-        if (expr.tag === "FuncCall") {
-          findExprWithToken(expr.func);
-          for (const arg of expr.args) {
-            findExprWithToken(arg);
-          }
-        }
-      };
-
-      // Search through all expressions to collect candidates
-      for (const expr of exprs) {
-        findExprWithToken(expr);
-      }
-
-      // If we found multiple candidates, prioritize them:
-      // 1. Prefer expressions that are declared in the current function scope
-      // 2. Prefer expressions with evaluation info ($ property)
-      // 3. Prefer expressions that are variable references rather than struct field definitions
-      if (candidateExprs.length > 0) {
-        // Find the current function scope by looking at line numbers
-        const currentLine = position.line;
-
-        // Sort candidates by priority
-        candidateExprs.sort((a, b) => {
-          // First, check if the candidates are within a function scope (after "main :: " line)
-          const aIsInFunction = a.token.position.row > 4; // After "main :: (() -> unit) {"
-          const bIsInFunction = b.token.position.row > 4;
-
-          if (aIsInFunction !== bIsInFunction) {
-            return bIsInFunction ? -1 : 1; // Prefer expressions in function scope
-          }
-
-          // If both are in function scope, prefer the one that's declared before the current position
-          // but after the function start
-          if (aIsInFunction && bIsInFunction) {
-            const aIsBeforeCurrent = a.token.position.row < currentLine;
-            const bIsBeforeCurrent = b.token.position.row < currentLine;
-            const aIsAfterFunctionStart = a.token.position.row >= 5; // After function body starts
-            const bIsAfterFunctionStart = b.token.position.row >= 5;
-
-            // Prefer variables declared in the current function scope before the current line
-            if (
-              aIsBeforeCurrent &&
-              aIsAfterFunctionStart &&
-              !(bIsBeforeCurrent && bIsAfterFunctionStart)
-            ) {
-              return -1;
-            }
-            if (
-              bIsBeforeCurrent &&
-              bIsAfterFunctionStart &&
-              !(aIsBeforeCurrent && aIsAfterFunctionStart)
-            ) {
-              return 1;
-            }
-          }
-
-          const aHasEvalInfo = a.$ ? 1 : 0;
-          const bHasEvalInfo = b.$ ? 1 : 0;
-
-          // Second priority: expressions with evaluation info
-          if (aHasEvalInfo !== bHasEvalInfo) {
-            return bHasEvalInfo - aHasEvalInfo;
-          }
-
-          // Third priority: if both have eval info, prefer the one with a local variable type
-          // (not i32 which suggests struct field definition)
-          if (aHasEvalInfo && bHasEvalInfo && a.$?.type && b.$?.type) {
-            const aTypeString = typeToString(a.$.type);
-            const bTypeString = typeToString(b.$.type);
-
-            // Prefer non-primitive types (like Expr) over primitive types (like i32)
-            const aIsPrimitive =
-              aTypeString === "i32" ||
-              aTypeString === "f64" ||
-              aTypeString === "bool" ||
-              aTypeString === "str";
-            const bIsPrimitive =
-              bTypeString === "i32" ||
-              bTypeString === "f64" ||
-              bTypeString === "bool" ||
-              bTypeString === "str";
-
-            if (aIsPrimitive !== bIsPrimitive) {
-              return aIsPrimitive ? 1 : -1; // Prefer non-primitive (return -1 for a if a is not primitive)
-            }
-          }
-
-          // Fourth priority: prefer expressions that have environment info (suggests they're in a local scope)
-          const aHasEnv = a.$?.env ? 1 : 0;
-          const bHasEnv = b.$?.env ? 1 : 0;
-
-          if (aHasEnv !== bHasEnv) {
-            return bHasEnv - aHasEnv;
-          }
-
-          return 0;
-        });
-
-        const selectedExpr = candidateExprs[0];
-
-        foundExpr = selectedExpr || null;
-      }
+      let foundExpr = findBestExpressionMatch(
+        exprs,
+        tokenAtPosition,
+        position.line
+      );
 
       // If no exact expression match was found, try to find variable in scope using fallback
       if (!foundExpr && tokenAtPosition.type === TokenType.Identifier) {
@@ -613,7 +650,7 @@ export function activate(context: vscode.ExtensionContext) {
 
                 addCandidateVariable(atomExpr, atomExpr.token.value);
               }
-            } else if (expr.tag === "FuncCall") {
+            } else if (exprIsFunctionCall(expr)) {
               // Recursively extract from function calls
               const funcCallExpr = expr as FuncCallExpr;
               extractVariables(funcCallExpr.func);
@@ -863,7 +900,7 @@ export function activate(context: vscode.ExtensionContext) {
             targetExpr = atomExpr;
             return true;
           }
-        } else if (expr.tag === "FuncCall") {
+        } else if (exprIsFunctionCall(expr)) {
           const funcCallExpr = expr as FuncCallExpr;
           if (findExprByToken(funcCallExpr.func)) return true;
           for (const arg of funcCallExpr.args) {
@@ -895,7 +932,7 @@ export function activate(context: vscode.ExtensionContext) {
                 return atomExpr;
               }
             }
-          } else if (expr.tag === "FuncCall") {
+          } else if (exprIsFunctionCall(expr)) {
             const funcCallExpr = expr as FuncCallExpr;
             const result = findVariableInScope(funcCallExpr.func);
             if (result) return result;
@@ -958,7 +995,7 @@ export function activate(context: vscode.ExtensionContext) {
                 bestEnv = atomExpr.$.env;
                 bestExprPosition = atomExpr.token.position.row;
               }
-            } else if (expr.tag === "FuncCall") {
+            } else if (exprIsFunctionCall(expr)) {
               const funcCallExpr = expr as FuncCallExpr;
               findBestEnv(funcCallExpr.func);
               for (const arg of funcCallExpr.args) {
@@ -1392,4 +1429,151 @@ export function activate(context: vscode.ExtensionContext) {
       }
     })
   );
+
+  // Register definition provider for Yo language
+  const definitionProvider = vscode.languages.registerDefinitionProvider("yo", {
+    provideDefinition(document, position) {
+      const filePath = document.uri.fsPath;
+      const modulePath = "file://" + filePath;
+
+      // Get the module evaluator
+      const module = moduleManager.modules.get(modulePath);
+      if (!module) {
+        return null; // No evaluated data for this file
+      }
+
+      // Get the text of the document and tokenize it
+      const exprs = module.evaluator.getProgram();
+      const tokens = module.evaluator.getTokens();
+
+      // Find the token at the current position
+      const line = position.line;
+      const character = position.character;
+
+      const tokenAtPosition = findTokenAtPosition(tokens, line, character);
+
+      if (!tokenAtPosition) {
+        return null;
+      }
+
+      // Find an expression with matching token
+      const foundExpr = findBestExpressionMatch(
+        exprs,
+        tokenAtPosition,
+        position.line
+      );
+
+      if (foundExpr && exprIsAtom(foundExpr)) {
+        const expr: AtomExpr = foundExpr as AtomExpr;
+
+        // Try to find the definition location
+        if (expr.$?.env) {
+          const env = expr.$?.env;
+          const tokenText = tokenAtPosition.value; // Look for the variable in the environment
+          const foundDefinition = findVariableDefinition(env, tokenText);
+
+          if (foundDefinition) {
+            const { definitionToken, definitionModulePath } = foundDefinition;
+
+            // Convert the module path to a VS Code URI
+            let definitionUri: vscode.Uri;
+            if (definitionModulePath.startsWith("file://")) {
+              definitionUri = vscode.Uri.file(
+                definitionModulePath.replace("file://", "")
+              );
+            } else {
+              // Handle relative paths or other formats
+              definitionUri = vscode.Uri.file(definitionModulePath);
+            }
+
+            // Create the position for the definition
+            const definitionPosition = new vscode.Position(
+              definitionToken.position.row,
+              definitionToken.position.column
+            );
+
+            // Create the range for the definition
+            const definitionRange = new vscode.Range(
+              definitionPosition,
+              new vscode.Position(
+                definitionToken.position.row,
+                definitionToken.position.column + definitionToken.value.length
+              )
+            );
+
+            return new vscode.Location(definitionUri, definitionRange);
+          }
+        }
+      }
+
+      return null;
+    },
+  });
+
+  // Helper function to find variable definition in environment
+  const findVariableDefinition = (
+    env: Environment,
+    variableName: string
+  ): { definitionToken: Token; definitionModulePath: string } | null => {
+    try {
+      // Search through environment frames to find the variable
+      for (
+        let frameIndex = env.frames.length - 1;
+        frameIndex >= 0;
+        frameIndex--
+      ) {
+        const frame = env.frames[frameIndex];
+        if (frame?.variables) {
+          for (const variable of frame.variables) {
+            if (variable.name === variableName) {
+              // Found the variable definition
+              return {
+                definitionToken: variable.token,
+                definitionModulePath: variable.token.modulePath,
+              };
+            }
+          }
+        }
+      }
+
+      // If not found in local scope, check if there's a module value in the environment
+      // Look for module values in the current environment frames
+      for (
+        let frameIndex = env.frames.length - 1;
+        frameIndex >= 0;
+        frameIndex--
+      ) {
+        const frame = env.frames[frameIndex];
+        if (frame?.variables) {
+          for (const variable of frame.variables) {
+            // Check if this variable is a module value that might contain the symbol
+            if (variable.value && isModuleValue(variable.value)) {
+              const moduleValue = variable.value as ModuleValue;
+              if (moduleValue.type && moduleValue.type.elements) {
+                for (let i = 0; i < moduleValue.type.elements.length; i++) {
+                  const element = moduleValue.type.elements[i];
+                  if (element && element.label === variableName) {
+                    // Found the symbol in the module, return the variable's token as definition
+                    return {
+                      definitionToken: element.exprs.expr.token,
+                      definitionModulePath: element.exprs.expr.token.modulePath,
+                    };
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error("Error finding variable definition:", error);
+      return null;
+    }
+  };
+
+  context.subscriptions.push(definitionProvider);
+
+  // ...existing code...
 }
