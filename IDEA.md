@@ -1,312 +1,167 @@
-# Some Ideas
-
-- Disallow to pass reference into closure struct?
-- Allow $ only for immutable data structure?
-
-# CPS transformation for effect handlers
-
-```typescript
-const main = ()=> void {
-  const wait_for_seconds = control (seconds: u32)=> i32 {
-    set_timeout(()=> {
-      println("Done");
-      return resume(12); // resume here has type: (i32)=> void, where `void` matches the return type of the parent function `main`
-    }, seconds * 1000);
-  }
-
-  println("Before timeout");
-  const result = wait_for_seconds(1);
-  println("After timeout");
-  println(result); // 12
-}
-```
-
-compiles to:
-
-```typescript
-const main = ()=> void {
-  const wait_for_seconds = (seconds: u32, resume: [^](i32)=> void)=> i32 {
-    set_timeout(()=> {
-      println("Done");
-      return resume(12);
-    }, seconds * 1000);
-  }
-  println("Before timeout");
-  return wait_for_seconds(1, [=](result: i32)=> {
-    println("After timeout");
-    println(result);
-  });
-}
-```
-
-Another example:
-
-```typescript
-const traverse = (xs: List<i32>, ?yield: control(i: i32)=> boolean)=> void {
-  match(xs) {
-    case Cons:
-      if (yield(xs.head)) {
-        return traverse(xs.tail, yield);
-      } else {
-        return;
-      }
-    case Nil:
-      return;
-  }
-}
-
-const print_elements = ()=> {
-  const ?yield = control(i: i32)=> boolean {
-    println("Yielded: " + i);
-    return resume(i <= 2);
-  }
-  print("Before traverse");
-  traverse(Cons(1, Cons(2, Cons(3, Nil))));
-  print("After traverse");
-}
-```
-
-compiles to:
-
-```typescript
-const traverse = (xs: List<i32>, ?yield: control(i: i32)=> boolean)=> void {
-  match(xs) {
-    case Cons:
-      yield(xs.head, [=](flag: boolean)=> {
-        if (flag) {
-          return traverse(xs.tail, yield);
-        } else {
-          return;
-        }
-      })
-    case Nil:
-      return;
-  }
-}
-
-const print_elements = ()=> {
-  const ?yield = (i: i32, resume: [^](boolean)=> void)=> void {
-    println("Yielded: " + i);
-    return resume(i <= 2);
-  }
-  print("Before traverse");
-  traverse(Cons(1, Cons(2, Cons(3, Nil))), yield);
-  print("After traverse");
-}
-```
-
-## Calling multiple effects simultaneously
-
-QUESTION: Should we do that this way? It seems to break the control flow.
-
-```typescript
-const main = ()=> i32 {
-  const call = control (seconds: u32, ret_val: i32)=> i32 {
-    set_timeout(()=> {
-      println("Done 1");
-      return resume(ret_val);
-    }, seconds * 1000);
-  }
-
-  const [result1, result2] = all([call(1, 12), call(2, 13)]);
-  const sum = result1 + result2;
-  println(sum);
-  return sum;
-}
-```
-
-compiles to
-
-```typescript
-const another_main = (resume_main: (i32) => i32) => {
-  const call = (seconds: u32, ret_val: i32, resume: (i32) => void) => void {
-    set_timeout(() => {
-      println("Done 1");
-      resume(ret_val);
-    }, seconds * 1000);
-  };
-
-  // Track results and completion
-  const results = [null, null];
-  let completed = 0;
-
-  // Continuation after both calls finish
-  const proceed = () => {
-    const sum = results[0] + results[1];
-    println(sum);
-    resume_main(sum); // Propagate the result via the top-level continuation
-  };
-
-  // First call (index 0)
-  call(1, 12, (res) => {
-    results[0] = res;
-    completed++;
-    if (completed === 2) proceed();
-  });
-
-  // Second call (index 1)
-  call(2, 13, (res) => {
-    results[1] = res;
-    completed++;
-    if (completed === 2) proceed();
-  });
+```rust,f#
+swap :: 
+  ((forall(compt(R1) : Region, compt(R2) : Region),
+    a : &!(i32, using(R1)),
+    b : &!(i32, using(R2))
+  ) -> unit) 
+{
+  temp := a.*;
+  a.* := b.*;
+  b.* := temp;
 };
 
-const main = ()=> {
-  var result;
-  another_main([{result: &result}](result_)=> {
-    *result = result_;
-  })
-  return result;
-}
-```
+// pre/post conditions
+swap2 ::
+  ((forall(compt(R1) : Region, compt(R2) : Region),
+    a : &!(i32, using(R1)),
+    b : &!(i32, using(R2))
+  ) -> (unit `with` {
+    pre : {
+      // pseudo example
+      R3 :: R1;
+      R1 < R3
+    },
+    post : {
+      // pseudo example
+      R4 :: R2;
+      R2 < R4
+    }
+  })) 
+{
+  pre(a.* != b.*);
+  swap(a, b);
+  post(a.* == b.*);
+};
 
-## All are functions
+main :: (() -> unit) { // each `begin` will implicitly create a new region
+  // given(reg) :: region();
+  mut(x) := 1;
+  mut(y) := 2;
 
-```typescript
-// If there is no ; in {...}, then it's a record.
+  r1 :: region("Hi");
+  r2 :: region("Hello");
+  x_ref := &!(x, using(r1));
+  y_ref := &!(y, using(r2));
+  swap(x_ref, y_ref);
 
-{ expr1; expr2; } // compiles to
-begin(expr1, expr2, ());
+  x = 3; // error, cannot use `x` while it's borrowed
 
-{ expr1; expr2 } // compiles to
-begin(expr1, expr2);
-
-// operator + atom is operator
-// e.g. &mut *mut
-// so (+1) is also an operator
-// . is special operator that cannot form operator with atom or other operators, but itself
-// : is special operator that cannot form operator with atom.  
-
-mut(x) := 12;
-mut (x : i32) := 13;
-mut x : i32 := 14;
-y := 15;
-
-Option := (T: Type): Type ->
-  | .Some (T)
-  | .None
-
-x : Option(i32) := .Some(i32);
-
-// Define interface
-Id := (T: Type): Interface ->
-  interface {
-    id: (T) -> T,
-  }
-
-// Define implementation
-impl Id(i32), {
-  id: (x: i32)-> x
-}
-
-forall (T : Type <: Id, U: Type <: Id),
-  impl Id((U, T)), {
-    id: (x: (U, T))-> (x.0.id(), x.1.id())
-  }
-
-use_id := (T : Type <: Id, x: T): T -> {
-  x.id();
-  Id(_).id(x);
-}
-
-x := use_id(i32, 12);
-y := use_id((i32, i32), (12, 13));
-
-biggest := (a: i32, b: i32, c: i32): i32 -> {
-  if a > b && a > c, then:
-    a,
-  else: if b > c,
-    b,
-    c
-}
-
-FnOnce := (Context: Type, Arguments: Type): Interface ->
-  interface ({
-    Output: Type,
-    call_once: (self: Context, arguments: Arguments)-> this.Output
-  })
-
-FnMut := (Context: Free, Arguments: Type <: FnOnce(Context, Arguments)): Interface ->
-  interface {
-    Output: Type = FnOnce(Context, Arguments).Output,
-    call_mut: (self: &mut Context, arguments: Arguments)-> this.Output
-  }
-
-Iterator := (Self: Type): Interface ->
-  interface ({
-    Item: Type,
-    next: (self: &mut Self)-> Option(this.Item)
-  })
-
-IntoIterator := (Self: Type): Interface -> {
-  Item := Type;
-  // |: means given
-  IntoIterator := (Type <: (Iterator(<@) |: <@ .Item == Item ));
-  into_iter := (self: Self)-> IntoIterator;
-
-  interface {
-    Item,
-    IntoIterator,
-    into_iter,
-  }
-}
-
-use_closure := forall(F <: FnOnce(<@, (i32, i32)) |: <@.Output == i32), (closure: F): i32 ->
-  closure.call_once((12, 13))
-
-defmacro my_if, (condition, then, else),
-  quasiquote if(unquote(condition), unquote(then), unquote(else))
-
-// <@ means the arg on left
-x := 12
-y := (x + <@) // 24
+  flag :: (r1 > r2); // true, r1 lives longer than r2
 
 
-// Value constraint
-NotZero := i32 |: <@ != 0
+  // explicitly end the lifetime earlier
+  r1.end();
 
-// impl a type
-MyType := (T: Type)-> { value: T };
+  x = 4; // now we can use `x`, but all references associated with `r1` are invalid now.
+};
 
-forall (T: Type), impl MyType(T), {
-  this := MyType(T);
+// Function purity and region constraints
+// 1. Allow implicit temporary borrowing for "pure" functions
+length :: (ref: &(i32)) -> usize `pure` // or `no_escape`
+
+// 2. For functions that might store references, require explicit regions
+store_in_container :: (
+  ref: &(i32, using(R1)), 
+  container: &mut(Container, using(R2))
+) -> unit `where` R1 >= R2  // ref must outlive container
+
+// 3. Usage becomes natural
+test1 :: (() -> unit) {
+  mut(x) := 42;
+  r1 :: region("data");
+  x_mut := &!(x, using(r1));
+  
+  // This works - length is pure/no_escape
+  len := length(x_mut); // implicit temporary immutable borrow
+  
+  // This requires explicit region management
+  mut(container) := Container::new();
+  r2 :: region("container");
+  container_ref := &!(container, using(r2));
+  
+  // This would fail unless R1 >= R2
+  store_in_container(x_mut, container_ref);
+
+  x_mut.* = 12; // How to detect this line as error?
+  // Problem: x_mut might be stored in container, creating aliasing
+  // Solution approaches:
+  // A) Conservative: any non-pure function "consumes" the reference
+  // B) Flow-sensitive: track which references might be stored where
+  // C) Explicit: require `move` or `borrow` annotations
+};
+
+test2 :: (() -> unit) {
+  mut(x) := 42;
+  r1 :: region("data");
+
+  // This requires explicit region management
+  mut(container) := Container::new();
+  r2 :: region("container");
+  container_ref := &!(container, using(r2));
+  
+  // This would fail unless R1 >= R2
+  store_in_container(&!(x, using(r1)), container_ref);
+
+  &!(x, using(r1)).* = 12;
+};
+
+// Rust's approach to this problem:
+// 1. Tracks borrowing at the VALUE level, not reference level
+// 2. Once `x` is borrowed (passed to non-pure function), ALL access to `x` is restricted
+// 3. Doesn't matter if you create new references - the underlying value is borrowed
+//
+// In Rust terms:
+// store_in_container(&x, &mut container); // `x` is now borrowed
+// x = 12; // Error: cannot assign to `x` because it is borrowed
+//
+// So test2 SHOULD be an error because:
+// - store_in_container(&!(x, using(r1)), container_ref) borrows `x`
+// - &!(x, using(r1)).* = 12 tries to mutate the borrowed value `x`
+// - Even though it's a "new" reference, it's the same underlying value
+
+test3 :: (() -> unit) {
+  mut(x) := 42;
+  r1 :: region("data");
+
+  // Case: pure function should allow continued use
+  len := length(&!(x, using(r1))); // pure function, temporary borrow
+  &!(x, using(r1)).* = 12; // Should be OK - no lasting borrow
+
+  // Case: after region ends, should be OK
   {
-    new: (value: T): this -> { value: value }
-  }
+    r2 :: region("temp");
+    store_in_container(&!(x, using(r2)), some_container);
+  } // r2 ends here, so any stored references are invalid
+  
+  &!(x, using(r1)).* = 13; // Should be OK - r2 references are gone
+};
+
+// How does Rust know a function borrows a value?
+// It's based on SIGNATURE ANALYSIS and CONSERVATIVE ASSUMPTIONS:
+
+// Example function signatures:
+pure_read :: (ref: &(i32)) -> i32 `pure`
+// Rust equivalent: fn pure_read(r: &i32) -> i32
+// Analysis: Takes &T, returns non-reference -> temporary borrow only
+
+might_store :: (ref: &(i32), container: &mut(Vec<&i32>)) -> unit
+// Rust equivalent: fn might_store(r: &i32, container: &mut Vec<&i32>)
+// Analysis: Takes &T and &mut Container<&T> -> ASSUMES it stores the reference
+
+definitely_stores :: (ref: &(i32), container: &mut(Vec<&i32>)) -> unit {
+  container.push(ref); // Actually stores it
 }
 
-// GADT
-
-Expr := (T: Type): Type ->
-  | .IntExpr (i32,) : Expr(i32)
-  | .BoolExpr (boolean,) : Expr(boolean)
-  | .EqExpr (Expr(i32), Expr(i32)) : Expr(boolean)
-
-// Higher kinded types
-Maybe := (T: Type): Type ->
-  | .Just (T,)
-  | .Nothing
-
-Either := (A: Type, B: Type): Type ->
-  | .Left (A,)
-  | .Right (B,)
-
-Functor := (Wrapper: (T: Type)-> Type): Interface ->
-  interface {
-    map: forall(A: Type, B: Type), (fa: Wrapper(A), f: (a: A)-> B)-> Wrapper(B),
-  }
-
-impl Functor(Maybe), {
-  map: forall(A: Type, B: Type), (fa: Maybe(A), f: (a: A)-> B): Maybe(B) ->
-    match fa,
-      .Just(a) -> .Just(f(a)),
-      .Nothing -> .Nothing
+does_nothing :: (ref: &(i32), container: &mut(Vec<&i32>)) -> unit {
+  // Does nothing, but Rust still assumes it might store
 }
 
-// Comptime
-FixedArray := (T: Type, comptime N: u32): Type ->
-  | .FixedArray (T[N],)
-;
-arr := FixedArray(i32, 3).FixedArray([1, 2, 3]);
+// The borrow checker works by:
+// 1. Looking at function signatures, not implementations
+// 2. Making conservative assumptions about what functions MIGHT do
+// 3. Tracking borrows at the VALUE level (x), not reference level (&x)
+//
+// So when you call: store_in_container(&!(x, using(r1)), container_ref)
+// Rust thinks: "This function MIGHT store a reference to x in container"
+// Therefore: "x is borrowed until container might be done with it"
 ```

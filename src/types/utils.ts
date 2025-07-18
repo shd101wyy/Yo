@@ -466,10 +466,10 @@ export function functionParameterToString(
     : "";
 
   if (defaultValueStr) {
-    return `(${label}: ${typeStr}) ?= ${defaultValueStr}`;
+    return `(${label} : ${typeStr}) ?= ${defaultValueStr}`;
   } else {
     // typeStr is always defined here
-    return `${label}: ${typeStr}`;
+    return `${label} : ${typeStr}`;
   }
 }
 /**
@@ -536,6 +536,57 @@ function moduleElementToString(element: ModuleElement): string {
   }
 
   return `${label}: ${typeToString(element.type)}`;
+}
+
+function functionToString(func: FunctionType): string {
+  const params = func.parameters.map(functionParameterToString).join(", ");
+
+  const typeParams =
+    func.typeParameters.length > 0
+      ? `forall(${func.typeParameters
+          .map(functionParameterToString)
+          .join(", ")})`
+      : "";
+  const implicitParams =
+    func.implicitParameters.length > 0
+      ? `implicit(${func.implicitParameters
+          .map(functionParameterToString)
+          .join(", ")})`
+      : "";
+  let variadicParam = "";
+  if (func.variadicParameter) {
+    if (func.variadicParameter.label === "...") {
+      variadicParam = "...";
+    } else if (func.variadicParameter.isQuote) {
+      variadicParam = `...(quote(${func.variadicParameter.label}))`;
+    } else if (func.variadicParameter.isCompileTimeOnly) {
+      variadicParam = `...(compt(${func.variadicParameter.label}))`;
+    } else {
+      variadicParam = `...(${func.variadicParameter.label})`;
+    }
+  }
+
+  const returnTypeString = typeToString(func.return.type);
+  let returnString = returnTypeString;
+  if (func.return.isUnquote) {
+    if (func.return.label) {
+      returnString = `(unquote(${func.return.label}) : ${returnTypeString})`;
+    } else {
+      returnString = `unquote(${returnTypeString})`;
+    }
+  } else if (func.return.isCompileTimeOnly) {
+    if (func.return.label) {
+      returnString = `(compt(${func.return.label}) : ${returnTypeString})`;
+    } else {
+      returnString = `compt(${returnTypeString})`;
+    }
+  }
+
+  const paramsString = [typeParams, params, variadicParam, implicitParams]
+    .filter((x) => !!x)
+    .join(", ");
+  const from = func.SelfType?.typeName ?? func.ModuleType?.typeName;
+  return `${from ? `(${from}) ` : ""}(${paramsString}) -> ${returnString}`;
 }
 
 /**
@@ -708,46 +759,7 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Function: {
       const func = type as FunctionType;
-      const params = func.parameters.map(functionParameterToString).join(", ");
-
-      const typeParams =
-        func.typeParameters.length > 0
-          ? `forall(${func.typeParameters
-              .map(functionParameterToString)
-              .join(", ")})`
-          : "";
-      const implicitParams =
-        func.implicitParameters.length > 0
-          ? `implicit(${func.implicitParameters
-              .map(functionParameterToString)
-              .join(", ")})`
-          : "";
-      let variadicParam = "";
-      if (func.variadicParameter) {
-        if (func.variadicParameter.label === "...") {
-          variadicParam = "...";
-        } else if (func.variadicParameter.isQuote) {
-          variadicParam = `...(quote(${func.variadicParameter.label}))`;
-        } else if (func.variadicParameter.isCompileTimeOnly) {
-          variadicParam = `...(compt(${func.variadicParameter.label}))`;
-        } else {
-          variadicParam = `...(${func.variadicParameter.label})`;
-        }
-      }
-
-      let returnTypeString = typeToString(func.return.type);
-      if (func.return.isUnquote) {
-        returnTypeString = `unquote(${returnTypeString})`;
-      } else if (func.return.isCompileTimeOnly) {
-        returnTypeString = `compt(${returnTypeString})`;
-      }
-
-      const paramsString = [typeParams, params, variadicParam, implicitParams]
-        .filter((x) => !!x)
-        .join(", ");
-      const from = func.SelfType?.typeName ?? func.ModuleType?.typeName;
-      const arrow = func.closureKind !== undefined ? "=>" : "->";
-      return `${from ? `(${from}) ` : ""}(${paramsString}) ${arrow} ${returnTypeString}`;
+      return functionToString(func);
     }
     case TypeTag.Closure: {
       const closureType = type as ClosureType;
@@ -757,52 +769,8 @@ export function typeToString(type: Type): string {
 
       // Format the call type with closure kind
       const callType = closureType.callType;
-      const closureKind = callType.closureKind || "Fn";
 
-      // Build parameter string for the call type
-      const typeParams =
-        callType.typeParameters && callType.typeParameters.length > 0
-          ? `forall(${callType.typeParameters
-              .map(functionParameterToString)
-              .join(", ")})`
-          : "";
-      const params =
-        callType.parameters.length > 0
-          ? callType.parameters.map(functionParameterToString).join(", ")
-          : "";
-      const implicitParams =
-        callType.implicitParameters.length > 0
-          ? `implicit(${callType.implicitParameters
-              .map(functionParameterToString)
-              .join(", ")})`
-          : "";
-      let variadicParam = "";
-      if (callType.variadicParameter) {
-        if (callType.variadicParameter.label === "...") {
-          variadicParam = "...";
-        } else if (callType.variadicParameter.isQuote) {
-          variadicParam = `...(quote(${callType.variadicParameter.label}))`;
-        } else if (callType.variadicParameter.isCompileTimeOnly) {
-          variadicParam = `...(compt(${callType.variadicParameter.label}))`;
-        } else {
-          variadicParam = `...(${callType.variadicParameter.label})`;
-        }
-      }
-
-      let returnTypeString = typeToString(callType.return.type);
-      if (callType.return.isUnquote) {
-        returnTypeString = `unquote(${returnTypeString})`;
-      } else if (callType.return.isCompileTimeOnly) {
-        returnTypeString = `compt(${returnTypeString})`;
-      }
-
-      const paramsString = [typeParams, params, variadicParam, implicitParams]
-        .filter((x) => !!x)
-        .join(", ");
-
-      const callTypeString = `${closureKind}(${paramsString}) -> ${returnTypeString}`;
-
-      return `Closure(${captureTypeString}, ${callTypeString})`;
+      return `Closure(${captureTypeString}, ${functionToString(callType)})`;
     }
 
     /*

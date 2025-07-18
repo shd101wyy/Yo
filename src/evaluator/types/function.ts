@@ -847,7 +847,7 @@ export function evaluateFunctionType({
   }
 
   const argListExpr = expr.args[0]!;
-  let returnTypeExpr = expr.args[1]!;
+  const returnExpr = expr.args[1]!;
 
   // Handle different forms of parameter lists
   let argList: Expr[] = [];
@@ -898,50 +898,122 @@ export function evaluateFunctionType({
   env = nextEnv;
 
   /// Check if the function is returning compile-time only value.
+  let returnLabel: string | undefined = undefined;
   let isReturnTypeCompileTimeOnly = false;
   let isReturnTypeUnquote = false;
+  let returnTypeExpr: Expr = returnExpr;
+  /// has label
+  /// -> (ret : i32)
+  /// -> (compt(ret) : i32)
+  /// -> (unquote(ret) : Expr)
   if (
-    exprIsFunctionCall(returnTypeExpr) &&
-    exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.compt)
+    exprIsFunctionCall(returnExpr) &&
+    exprIsFunctionCallOf(returnExpr, ":", 2)
   ) {
-    isReturnTypeCompileTimeOnly = true;
-    if (returnTypeExpr.args.length !== 1) {
-      throw formatErrorMessage({
-        token: returnTypeExpr.token,
-        errorMessage: `Expected one argument for "compt" , got ${returnTypeExpr.args.length}`,
-      });
-    }
-    returnTypeExpr = returnTypeExpr.args[0]!;
-  }
-  if (
-    exprIsFunctionCall(returnTypeExpr) &&
-    exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.unquote)
-  ) {
-    isReturnTypeUnquote = true;
-    if (returnTypeExpr.args.length !== 1) {
-      throw formatErrorMessage({
-        token: returnTypeExpr.token,
-        errorMessage: `Expected one argument for "unquote" (or "~"), got ${returnTypeExpr.args.length}`,
-      });
-    }
-    if (isReturnTypeCompileTimeOnly) {
-      throw formatErrorMessage({
-        token: returnTypeExpr.token,
-        errorMessage: `Cannot use "compt"  with "unquote" (or "~"). "unquote" return type means compile-time only, so "compt" is redundant.`,
-      });
-    }
-    isReturnTypeCompileTimeOnly = true;
+    let returnLabelExpr = returnExpr.args[0]!;
+    returnTypeExpr = returnExpr.args[1]!;
 
-    returnTypeExpr = returnTypeExpr.args[0]!;
+    if (
+      exprIsFunctionCall(returnLabelExpr) &&
+      exprIsFunctionCallOf(returnLabelExpr, BuiltinKeywords.compt)
+    ) {
+      isReturnTypeCompileTimeOnly = true;
+      if (returnLabelExpr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: returnLabelExpr.token,
+          errorMessage: `Expected one argument for "compt" , got ${returnLabelExpr.args.length}`,
+        });
+      }
+      returnLabelExpr = returnLabelExpr.args[0]!;
+    }
+    if (
+      exprIsFunctionCall(returnLabelExpr) &&
+      exprIsFunctionCallOf(returnLabelExpr, BuiltinKeywords.unquote)
+    ) {
+      isReturnTypeUnquote = true;
+      if (returnLabelExpr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: returnLabelExpr.token,
+          errorMessage: `Expected one argument for "unquote", got ${returnLabelExpr.args.length}`,
+        });
+      }
+      if (isReturnTypeCompileTimeOnly) {
+        throw formatErrorMessage({
+          token: returnLabelExpr.token,
+          errorMessage: `Cannot use "compt"  with "unquote". "unquote" return type means compile-time only, so "compt" is redundant.`,
+        });
+      }
+      isReturnTypeCompileTimeOnly = true;
+
+      returnLabelExpr = returnLabelExpr.args[0]!;
+    }
+    if (
+      exprIsFunctionCall(returnLabelExpr) &&
+      exprIsFunctionCallOf(returnLabelExpr, BuiltinKeywords.quote)
+    ) {
+      throw formatErrorMessage({
+        token: returnLabelExpr.token,
+        errorMessage: `To define a macro function, please use "unquote" for the return type, not "quote".`,
+      });
+    }
+    if (!isValidVariableName(returnLabelExpr)) {
+      throw formatErrorMessage({
+        token: returnLabelExpr.token,
+        errorMessage: `Expected a valid variable name for return label, got ${exprToString(
+          returnLabelExpr
+        )}`,
+      });
+    }
+    returnLabel = returnLabelExpr.token.value;
   }
-  if (
-    exprIsFunctionCall(returnTypeExpr) &&
-    exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.quote)
-  ) {
-    throw formatErrorMessage({
-      token: returnTypeExpr.token,
-      errorMessage: `To define a macro function, please use "unquote" (or "~") for the return type, not "quote" (or ":").`,
-    });
+  /// has no label
+  /// -> i32
+  /// -> compt(i32)
+  /// -> unquote(Expr)
+  else {
+    if (
+      exprIsFunctionCall(returnTypeExpr) &&
+      exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.compt)
+    ) {
+      isReturnTypeCompileTimeOnly = true;
+      if (returnTypeExpr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: returnTypeExpr.token,
+          errorMessage: `Expected one argument for "compt" , got ${returnTypeExpr.args.length}`,
+        });
+      }
+      returnTypeExpr = returnTypeExpr.args[0]!;
+    }
+    if (
+      exprIsFunctionCall(returnTypeExpr) &&
+      exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.unquote)
+    ) {
+      isReturnTypeUnquote = true;
+      if (returnTypeExpr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: returnTypeExpr.token,
+          errorMessage: `Expected one argument for "unquote", got ${returnTypeExpr.args.length}`,
+        });
+      }
+      if (isReturnTypeCompileTimeOnly) {
+        throw formatErrorMessage({
+          token: returnTypeExpr.token,
+          errorMessage: `Cannot use "compt"  with "unquote". "unquote" return type means compile-time only, so "compt" is redundant.`,
+        });
+      }
+      isReturnTypeCompileTimeOnly = true;
+
+      returnTypeExpr = returnTypeExpr.args[0]!;
+    }
+    if (
+      exprIsFunctionCall(returnTypeExpr) &&
+      exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.quote)
+    ) {
+      throw formatErrorMessage({
+        token: returnTypeExpr.token,
+        errorMessage: `To define a macro function, please use "unquote" for the return type, not "quote".`,
+      });
+    }
   }
 
   // Evaluate the return type expression
@@ -1019,7 +1091,7 @@ ${typeToString(returnType)}`,
   if (isReturnTypeUnquote && !isExprType(returnType)) {
     throw formatErrorMessage({
       token: returnTypeExpr.token,
-      errorMessage: `Expected Expr type for "unquote" (or "~") return type, got ${typeToString(
+      errorMessage: `Expected Expr type for "unquote" return type, got ${typeToString(
         returnType
       )}`,
     });
@@ -1036,6 +1108,7 @@ ${typeToString(returnType)}`,
       expr: returnTypeExpr,
       isCompileTimeOnly: isReturnTypeCompileTimeOnly,
       isUnquote: isReturnTypeUnquote,
+      label: returnLabel,
     },
     env: popEnvFrame(env, true),
     parametersFrame: env.frames[env.frames.length - 1]!,
