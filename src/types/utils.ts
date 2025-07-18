@@ -538,7 +538,7 @@ function moduleElementToString(element: ModuleElement): string {
   return `${label}: ${typeToString(element.type)}`;
 }
 
-function functionToString(func: FunctionType): string {
+function functionTypeToString(func: FunctionType): string {
   const params = func.parameters.map(functionParameterToString).join(", ");
 
   const typeParams =
@@ -586,7 +586,7 @@ function functionToString(func: FunctionType): string {
     .filter((x) => !!x)
     .join(", ");
   const from = func.SelfType?.typeName ?? func.ModuleType?.typeName;
-  return `${from ? `(${from}) ` : ""}(${paramsString}) -> ${returnString}`;
+  return `${from ? `(${from}) ` : ""}${func.closureKind ?? ""}(${paramsString}) -> ${returnString}`;
 }
 
 /**
@@ -759,7 +759,7 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Function: {
       const func = type as FunctionType;
-      return functionToString(func);
+      return functionTypeToString(func);
     }
     case TypeTag.Closure: {
       const closureType = type as ClosureType;
@@ -770,7 +770,7 @@ export function typeToString(type: Type): string {
       // Format the call type with closure kind
       const callType = closureType.callType;
 
-      return `Closure(${captureTypeString}, ${functionToString(callType)})`;
+      return `Closure(${functionTypeToString(callType)}, ${captureTypeString})`;
     }
 
     /*
