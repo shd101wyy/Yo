@@ -1,3 +1,76 @@
+open import "../../builtins.yo";
+{ Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
+{ LogicalNot } :: import "../../modules/logic.yo";
+{ Eq } :: import "../../modules/eq.yo";
+{ Ord } :: import "../../modules/ord.yo";
+{ Clone, Drop } :: import "../../modules/common.yo";
+
+/**
+ * arithmetic
+ */
+given(U32Add) :: Add(u32, u32)
+  (+): (fn(a, b)-> __yo_op_add(a, b))
+;
+
+given(U32Sub) :: Sub(u32, u32)
+  (-): (fn(a, b)-> __yo_op_sub(a, b))
+;
+
+given(U32Mul) :: Mul(u32, u32)
+  (*): (fn(a, b)-> __yo_op_mul(a, b))
+;
+
+given(U32Div) :: Div(u32, u32)
+  (/): (fn(a, b)-> __yo_op_div(a, b))
+;
+
+given(U32Mod) :: Mod(u32, u32)
+  (%): (fn(a, b)-> __yo_op_mod(a, b))
+;
+
+given(U32Negate) :: Negate(u32)
+  (neg): (fn(a)-> __yo_op_neg(a))
+;
+
+/**
+ * logic
+ */
+given(U32LogicalNot) :: LogicalNot(u32)
+  (!): (fn(a)-> __yo_op_not(a))
+;
+
+
+/**
+ * eq
+ */
+given(U32Eq) :: Eq(u32, u32)
+  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+;
+
+/**
+ * ord
+ */
+given(U32Ord) :: Ord(u32, u32, using(U32Eq))
+  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
+  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
+  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
+  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+;
+
+given(U32Drop) :: Drop(u32)
+  drop: (fn(self)->
+    // No-op for u32, as it does not require any special cleanup
+    __yo_noop()
+  )
+;
+
+given(U32Clone) :: Clone(u32)
+  clone: (fn(self)->
+    // No-op for u32, as it is a primitive type
+    __yo_return_self(self.*)
+  )
+;
+
 given(U32ComptMethods) :: module {
   Self :: u32;
 
@@ -72,4 +145,16 @@ given(U32ComptMethods) :: module {
 };
 
 export
-  U32ComptMethods;
+  U32Add,
+  U32Sub,
+  U32Mul,
+  U32Div,
+  U32Mod,
+  U32Negate,
+  U32LogicalNot,
+  U32Eq,
+  U32Ord,
+  U32Drop,
+  U32Clone,
+  U32ComptMethods
+;

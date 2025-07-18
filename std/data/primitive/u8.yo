@@ -1,3 +1,76 @@
+open import "../../builtins.yo";
+{ Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
+{ LogicalNot } :: import "../../modules/logic.yo";
+{ Eq } :: import "../../modules/eq.yo";
+{ Ord } :: import "../../modules/ord.yo";
+{ Clone, Drop } :: import "../../modules/common.yo";
+
+/**
+ * arithmetic
+ */
+given(U8Add) :: Add(u8, u8)
+  (+): (fn(a, b)-> __yo_op_add(a, b))
+;
+
+given(U8Sub) :: Sub(u8, u8)
+  (-): (fn(a, b)-> __yo_op_sub(a, b))
+;
+
+given(U8Mul) :: Mul(u8, u8)
+  (*): (fn(a, b)-> __yo_op_mul(a, b))
+;
+
+given(U8Div) :: Div(u8, u8)
+  (/): (fn(a, b)-> __yo_op_div(a, b))
+;
+
+given(U8Mod) :: Mod(u8, u8)
+  (%): (fn(a, b)-> __yo_op_mod(a, b))
+;
+
+given(U8Negate) :: Negate(u8)
+  (neg): (fn(a)-> __yo_op_neg(a))
+;
+
+/**
+ * logic
+ */
+given(U8LogicalNot) :: LogicalNot(u8)
+  (!): (fn(a)-> __yo_op_not(a))
+;
+
+
+/**
+ * eq
+ */
+given(U8Eq) :: Eq(u8, u8)
+  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+;
+
+/**
+ * ord
+ */
+given(U8Ord) :: Ord(u8, u8, using(U8Eq))
+  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
+  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
+  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
+  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+;
+
+given(U8Drop) :: Drop(u8)
+  drop: (fn(self)->
+    // No-op for u8, as it does not require any special cleanup
+    __yo_noop()
+  )
+;
+
+given(U8Clone) :: Clone(u8)
+  clone: (fn(self)->
+    // No-op for u8, as it is a primitive type
+    __yo_return_self(self.*)
+  )
+;
+
 given(U8ComptMethods) :: module {
   Self :: u8;
 
@@ -73,4 +146,16 @@ given(U8ComptMethods) :: module {
 };
 
 export
-  U8ComptMethods;
+  U8Add,
+  U8Sub,
+  U8Mul,
+  U8Div,
+  U8Mod,
+  U8Negate,
+  U8LogicalNot,
+  U8Eq,
+  U8Ord,
+  U8Drop,
+  U8Clone,
+  U8ComptMethods
+;

@@ -1,3 +1,76 @@
+open import "../../builtins.yo";
+{ Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
+{ LogicalNot } :: import "../../modules/logic.yo";
+{ Eq } :: import "../../modules/eq.yo";
+{ Ord } :: import "../../modules/ord.yo";
+{ Clone, Drop } :: import "../../modules/common.yo";
+
+/**
+ * arithmetic
+ */
+given(F64Add) :: Add(f64, f64)
+  (+): (fn(a, b)-> __yo_op_add(a, b))
+;
+
+given(F64Sub) :: Sub(f64, f64)
+  (-): (fn(a, b)-> __yo_op_sub(a, b))
+;
+
+given(F64Mul) :: Mul(f64, f64)
+  (*): (fn(a, b)-> __yo_op_mul(a, b))
+;
+
+given(F64Div) :: Div(f64, f64)
+  (/): (fn(a, b)-> __yo_op_div(a, b))
+;
+
+given(F64Mod) :: Mod(f64, f64)
+  (%): (fn(a, b)-> __yo_op_mod(a, b))
+;
+
+given(F64Negate) :: Negate(f64)
+  (neg): (fn(a)-> __yo_op_neg(a))
+;
+
+/**
+ * logic
+ */
+given(F64LogicalNot) :: LogicalNot(f64)
+  (!): (fn(a)-> __yo_op_not(a))
+;
+
+
+/**
+ * eq
+ */
+given(F64Eq) :: Eq(f64, f64)
+  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+;
+
+/**
+ * ord
+ */
+given(F64Ord) :: Ord(f64, f64, using(F64Eq))
+  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
+  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
+  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
+  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+;
+
+given(F64Drop) :: Drop(f64)
+  drop: (fn(self)->
+    // No-op for f64, as it does not require any special cleanup
+    __yo_noop()
+  )
+;
+
+given(F64Clone) :: Clone(f64)
+  clone: (fn(self)->
+    // No-op for f64, as it is a primitive type
+    __yo_return_self(self.*)
+  )
+;
+
 given(F64ComptMethods) :: module {
   Self :: f64;
 
@@ -72,4 +145,16 @@ given(F64ComptMethods) :: module {
 };
 
 export
-  F64ComptMethods;
+  F64Add,
+  F64Sub,
+  F64Mul,
+  F64Div,
+  F64Mod,
+  F64Negate,
+  F64LogicalNot,
+  F64Eq,
+  F64Ord,
+  F64Drop,
+  F64Clone,
+  F64ComptMethods
+;

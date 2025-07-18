@@ -1,3 +1,76 @@
+open import "../../builtins.yo";
+{ Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
+{ LogicalNot } :: import "../../modules/logic.yo";
+{ Eq } :: import "../../modules/eq.yo";
+{ Ord } :: import "../../modules/ord.yo";
+{ Clone, Drop } :: import "../../modules/common.yo";
+
+/**
+ * arithmetic
+ */
+given(I8Add) :: Add(i8, i8)
+  (+): (fn(a, b)-> __yo_op_add(a, b))
+;
+
+given(I8Sub) :: Sub(i8, i8)
+  (-): (fn(a, b)-> __yo_op_sub(a, b))
+;
+
+given(I8Mul) :: Mul(i8, i8)
+  (*): (fn(a, b)-> __yo_op_mul(a, b))
+;
+
+given(I8Div) :: Div(i8, i8)
+  (/): (fn(a, b)-> __yo_op_div(a, b))
+;
+
+given(I8Mod) :: Mod(i8, i8)
+  (%): (fn(a, b)-> __yo_op_mod(a, b))
+;
+
+given(I8Negate) :: Negate(i8)
+  (neg): (fn(a)-> __yo_op_neg(a))
+;
+
+/**
+ * logic
+ */
+given(I8LogicalNot) :: LogicalNot(i8)
+  (!): (fn(a)-> __yo_op_not(a))
+;
+
+
+/**
+ * eq
+ */
+given(I8Eq) :: Eq(i8, i8)
+  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+;
+
+/**
+ * ord
+ */
+given(I8Ord) :: Ord(i8, i8, using(I8Eq))
+  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
+  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
+  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
+  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+;
+
+given(I8Drop) :: Drop(i8)
+  drop: (fn(self)->
+    // No-op for i8, as it does not require any special cleanup
+    __yo_noop()
+  )
+;
+
+given(I8Clone) :: Clone(i8)
+  clone: (fn(self)->
+    // No-op for i8, as it is a primitive type
+    __yo_return_self(self.*)
+  )
+;
+
 given(I8ComptMethods) :: module {
   Self :: i8;
 
@@ -77,4 +150,16 @@ given(I8ComptMethods) :: module {
 };
 
 export
-  I8ComptMethods;
+  I8Add,
+  I8Sub,
+  I8Mul,
+  I8Div,
+  I8Mod,
+  I8Negate,
+  I8LogicalNot,
+  I8Eq,
+  I8Ord,
+  I8Drop,
+  I8Clone,
+  I8ComptMethods
+;

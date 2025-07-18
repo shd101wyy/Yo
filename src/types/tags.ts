@@ -17,7 +17,8 @@ export enum TypeTag {
   I64 = "i64",
   F32 = "f32",
   F64 = "f64",
-  Rune = "rune", // 4 bytes, u32, // Unicode code point
+  // Rune = "rune", // 4 bytes, u32, // Unicode code point
+  // Rune :: u32;
 
   // Compt types
   ComptInt = "compt_int",

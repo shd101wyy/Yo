@@ -1,3 +1,76 @@
+open import "../../builtins.yo";
+{ Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
+{ LogicalNot } :: import "../../modules/logic.yo";
+{ Eq } :: import "../../modules/eq.yo";
+{ Ord } :: import "../../modules/ord.yo";
+{ Clone, Drop } :: import "../../modules/common.yo";
+
+/**
+ * arithmetic
+ */
+given(ULongAdd) :: Add(ulong, ulong)
+  (+): (fn(a, b)-> __yo_op_add(a, b))
+;
+
+given(ULongSub) :: Sub(ulong, ulong)
+  (-): (fn(a, b)-> __yo_op_sub(a, b))
+;
+
+given(ULongMul) :: Mul(ulong, ulong)
+  (*): (fn(a, b)-> __yo_op_mul(a, b))
+;
+
+given(ULongDiv) :: Div(ulong, ulong)
+  (/): (fn(a, b)-> __yo_op_div(a, b))
+;
+
+given(ULongMod) :: Mod(ulong, ulong)
+  (%): (fn(a, b)-> __yo_op_mod(a, b))
+;
+
+given(ULongNegate) :: Negate(ulong)
+  (neg): (fn(a)-> __yo_op_neg(a))
+;
+
+/**
+ * logic
+ */
+given(ULongLogicalNot) :: LogicalNot(ulong)
+  (!): (fn(a)-> __yo_op_not(a))
+;
+
+
+/**
+ * eq
+ */
+given(ULongEq) :: Eq(ulong, ulong)
+  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+;
+
+/**
+ * ord
+ */
+given(ULongOrd) :: Ord(ulong, ulong, using(ULongEq))
+  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
+  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
+  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
+  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+;
+
+given(ULongDrop) :: Drop(ulong)
+  drop: (fn(self)->
+    // No-op for ulong, as it does not require any special cleanup
+    __yo_noop()
+  )
+;
+
+given(ULongClone) :: Clone(ulong)
+  clone: (fn(self)->
+    // No-op for ulong, as it is a primitive type
+    __yo_return_self(self.*)
+  )
+;
+
 given(ULongMethods) :: module {
   Self :: ulong;
 
@@ -11,4 +84,17 @@ given(ULongMethods) :: module {
   ;
 };
 
-export ULongMethods;
+export
+  ULongAdd,
+  ULongSub,
+  ULongMul,
+  ULongDiv,
+  ULongMod,
+  ULongNegate,
+  ULongLogicalNot,
+  ULongEq,
+  ULongOrd,
+  ULongDrop,
+  ULongClone,
+  ULongMethods
+;

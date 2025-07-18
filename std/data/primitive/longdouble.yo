@@ -1,3 +1,76 @@
+open import "../../builtins.yo";
+{ Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
+{ LogicalNot } :: import "../../modules/logic.yo";
+{ Eq } :: import "../../modules/eq.yo";
+{ Ord } :: import "../../modules/ord.yo";
+{ Clone, Drop } :: import "../../modules/common.yo";
+
+/**
+ * arithmetic
+ */
+given(LongDoubleAdd) :: Add(longdouble, longdouble)
+  (+): (fn(a, b)-> __yo_op_add(a, b))
+;
+
+given(LongDoubleSub) :: Sub(longdouble, longdouble)
+  (-): (fn(a, b)-> __yo_op_sub(a, b))
+;
+
+given(LongDoubleMul) :: Mul(longdouble, longdouble)
+  (*): (fn(a, b)-> __yo_op_mul(a, b))
+;
+
+given(LongDoubleDiv) :: Div(longdouble, longdouble)
+  (/): (fn(a, b)-> __yo_op_div(a, b))
+;
+
+given(LongDoubleMod) :: Mod(longdouble, longdouble)
+  (%): (fn(a, b)-> __yo_op_mod(a, b))
+;
+
+given(LongDoubleNegate) :: Negate(longdouble)
+  (neg): (fn(a)-> __yo_op_neg(a))
+;
+
+/**
+ * logic
+ */
+given(LongDoubleLogicalNot) :: LogicalNot(longdouble)
+  (!): (fn(a)-> __yo_op_not(a))
+;
+
+
+/**
+ * eq
+ */
+given(LongDoubleEq) :: Eq(longdouble, longdouble)
+  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+;
+
+/**
+ * ord
+ */
+given(LongDoubleOrd) :: Ord(longdouble, longdouble, using(LongDoubleEq))
+  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
+  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
+  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
+  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+;
+
+given(LongDoubleDrop) :: Drop(longdouble)
+  drop: (fn(self)->
+    // No-op for longdouble, as it does not require any special cleanup
+    __yo_noop()
+  )
+;
+
+given(LongDoubleClone) :: Clone(longdouble)
+  clone: (fn(self)->
+    // No-op for longdouble, as it is a primitive type
+    __yo_return_self(self.*)
+  )
+;
+
 given(LongDoubleMethods) :: module {
   Self :: longdouble;
 
@@ -11,4 +84,17 @@ given(LongDoubleMethods) :: module {
   ;
 };
 
-export LongDoubleMethods;
+export
+  LongDoubleAdd,
+  LongDoubleSub,
+  LongDoubleMul,
+  LongDoubleDiv,
+  LongDoubleMod,
+  LongDoubleNegate,
+  LongDoubleLogicalNot,
+  LongDoubleEq,
+  LongDoubleOrd,
+  LongDoubleDrop,
+  LongDoubleClone,
+  LongDoubleMethods
+;

@@ -1,3 +1,76 @@
+open import "../../builtins.yo";
+{ Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
+{ LogicalNot } :: import "../../modules/logic.yo";
+{ Eq } :: import "../../modules/eq.yo";
+{ Ord } :: import "../../modules/ord.yo";
+{ Clone, Drop } :: import "../../modules/common.yo";
+
+/**
+ * arithmetic
+ */
+given(IntAdd) :: Add(int, int)
+  (+): (fn(a, b)-> __yo_op_add(a, b))
+;
+
+given(IntSub) :: Sub(int, int)
+  (-): (fn(a, b)-> __yo_op_sub(a, b))
+;
+
+given(IntMul) :: Mul(int, int)
+  (*): (fn(a, b)-> __yo_op_mul(a, b))
+;
+
+given(IntDiv) :: Div(int, int)
+  (/): (fn(a, b)-> __yo_op_div(a, b))
+;
+
+given(IntMod) :: Mod(int, int)
+  (%): (fn(a, b)-> __yo_op_mod(a, b))
+;
+
+given(IntNegate) :: Negate(int)
+  (neg): (fn(a)-> __yo_op_neg(a))
+;
+
+/**
+ * logic
+ */
+given(IntLogicalNot) :: LogicalNot(int)
+  (!): (fn(a)-> __yo_op_not(a))
+;
+
+
+/**
+ * eq
+ */
+given(IntEq) :: Eq(int, int)
+  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+;
+
+/**
+ * ord
+ */
+given(IntOrd) :: Ord(int, int, using(IntEq))
+  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
+  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
+  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
+  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+;
+
+given(IntDrop) :: Drop(int)
+  drop: (fn(self)->
+    // No-op for int, as it does not require any special cleanup
+    __yo_noop()
+  )
+;
+
+given(IntClone) :: Clone(int)
+  clone: (fn(self)->
+    // No-op for int, as it is a primitive type
+    __yo_return_self(self.*)
+  )
+;
+
 given(IntMethods) :: module {
   Self :: int;
 
@@ -11,4 +84,17 @@ given(IntMethods) :: module {
   ;
 };
 
-export IntMethods;
+export
+  IntAdd,
+  IntSub,
+  IntMul,
+  IntDiv,
+  IntMod,
+  IntNegate,
+  IntLogicalNot,
+  IntEq,
+  IntOrd,
+  IntDrop,
+  IntClone,
+  IntMethods
+;

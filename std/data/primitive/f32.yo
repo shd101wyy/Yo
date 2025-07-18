@@ -1,3 +1,77 @@
+open import "../../builtins.yo";
+{ Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
+{ LogicalNot } :: import "../../modules/logic.yo";
+{ Eq } :: import "../../modules/eq.yo";
+{ Ord } :: import "../../modules/ord.yo";
+{ Clone, Drop } :: import "../../modules/common.yo";
+
+/**
+ * arithmetic
+ */
+given(F32Add) :: Add(f32, f32)
+  (+): (fn(a, b)-> __yo_op_add(a, b))
+;
+
+given(F32Sub) :: Sub(f32, f32)
+  (-): (fn(a, b)-> __yo_op_sub(a, b))
+;
+
+given(F32Mul) :: Mul(f32, f32)
+  (*): (fn(a, b)-> __yo_op_mul(a, b))
+;
+
+given(F32Div) :: Div(f32, f32)
+  (/): (fn(a, b)-> __yo_op_div(a, b))
+;
+
+given(F32Mod) :: Mod(f32, f32)
+  (%): (fn(a, b)-> __yo_op_mod(a, b))
+;
+
+given(F32Negate) :: Negate(f32)
+  (neg): (fn(a)-> __yo_op_neg(a))
+;
+
+/**
+ * logic
+ */
+given(F32LogicalNot) :: LogicalNot(f32)
+  (!): (fn(a)-> __yo_op_not(a))
+;
+
+
+/**
+ * eq
+ */
+given(F32Eq) :: Eq(f32, f32)
+  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+;
+
+/**
+ * ord
+ */
+given(F32Ord) :: Ord(f32, f32, using(F32Eq))
+  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
+  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
+  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
+  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+;
+
+given(F32Drop) :: Drop(f32)
+  drop: (fn(self)->
+    // No-op for f32, as it does not require any special cleanup
+    __yo_noop()
+  )
+;
+
+given(F32Clone) :: Clone(f32)
+  clone: (fn(self)->
+    // No-op for f32, as it is a primitive type
+    __yo_return_self(self.*)
+  )
+;
+
+
 given(F32ComptMethods) :: module {
   Self :: f32;
 
@@ -72,4 +146,15 @@ given(F32ComptMethods) :: module {
 };
 
 export
+  F32Add,
+  F32Sub,
+  F32Mul,
+  F32Div,
+  F32Mod,
+  F32Negate,
+  F32LogicalNot,
+  F32Eq,
+  F32Ord,
+  F32Drop,
+  F32Clone,
   F32ComptMethods;
