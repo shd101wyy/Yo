@@ -37,11 +37,12 @@ import {
   createUsizeType,
   createVoidType,
   isEnumType,
+  isFunctionType,
   isStructType,
   isUnionType,
   TypeTag,
 } from "../../types";
-import { createTypeValue } from "../../value";
+import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext, trackVariableUsage } from "../context";
 
 export function evaluateIdentifierAndOperator({
@@ -498,10 +499,14 @@ export function evaluateIdentifierAndOperator({
     } else {
       const variable = variables[variables.length - 1]!;
       if (!variable.initializedAtToken && throwErrorOnUndefined) {
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `Variable "${identifier}" is not initialized`,
-        });
+        // Allow forward references for function types to support mutual recursion
+        if (!isFunctionType(variable.type) && !isTypeValue(variable.value)) {
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Variable "${identifier}" is not initialized`,
+          });
+        }
+        // We support FunctionType and TypeValue for mutual recursion
       }
 
       expr.$ = {
