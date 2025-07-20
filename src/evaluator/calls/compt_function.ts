@@ -26,7 +26,7 @@ import { evaluateBeginExpression } from "../exprs/begin";
  * The return value will be cached.
  */
 export function evaluateComptFunctionCall({
-  functionCallExpr,
+  functionCalleeExpr,
   functionType,
   functionValue,
   argValues: argValues_,
@@ -34,7 +34,7 @@ export function evaluateComptFunctionCall({
   calleeEnv,
   context,
 }: {
-  functionCallExpr: Expr | undefined;
+  functionCalleeExpr: Expr | undefined;
   functionType: FunctionType;
   functionValue: FunctionValue;
   argValues: ArgValues;
@@ -49,7 +49,7 @@ export function evaluateComptFunctionCall({
   ];
   if (unfilteredArgValues.some((val) => !val)) {
     throw formatErrorMessage({
-      token: functionCallExpr?.token ?? PlaceholderToken,
+      token: functionCalleeExpr?.token ?? PlaceholderToken,
       errorMessage: `Failed to call the function for compile-time. Some arguments are not compile-time evaluated correctly.`,
     });
   }
@@ -105,9 +105,9 @@ export function evaluateComptFunctionCall({
     env: calleeEnv,
     body: cloneExpr(functionBodyExpr), // NOTE: Clone here is necessary
   };
-  const caches = [...calledComptFunctions, tempCache];
-  const tempCacheIndex = caches.length - 1;
-  functionValue.calledComptFunctionCaches = caches;
+  // Add the temp cache directly to the function's cache array
+  functionValue.calledComptFunctionCaches.push(tempCache);
+  const tempCacheIndex = functionValue.calledComptFunctionCaches.length - 1;
 
   // NOTE: We should use the env from the function, not the current env.
   const evaluatedFunctionBody = evaluateBeginExpression({
@@ -164,8 +164,8 @@ export function evaluateComptFunctionCall({
     }
   }
 
-  // Update the cache
-  caches[tempCacheIndex] = {
+  // Update the temp cache with the actual result
+  functionValue.calledComptFunctionCaches[tempCacheIndex] = {
     funcId,
     argValues,
     value: returnValue,

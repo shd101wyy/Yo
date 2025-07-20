@@ -79,6 +79,7 @@ export function tryToImplementFunctionByFunctionType({
       isValidatingFunctionDefinition: true, // We're validating function definition
       isEvaluatingFunctionBody: {
         type: functionType,
+        value: functionValue,
         capturedVariables: capturedVariables,
         evaluationEnv: env, // Pass the current evaluation environment
       },
@@ -154,6 +155,9 @@ export function tryToImplementFunctionByFunctionType({
       }
     }
   }
+
+  // Reset the cache
+  // functionValue.calledComptFunctionCaches = [];
 
   // Set the function type and value
   expr.$ = {

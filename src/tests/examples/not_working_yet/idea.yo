@@ -1,8 +1,8 @@
 // Pre/Post conditions example
 add :: ((compt(x) : i32, compt(y) : i32) -> 
   (compt(ret) : i32) `require` // pre-condition
-  (x > 0) `ensure` // post-condition
-  (ret < 100)
+  compt_assert(x > 0) `ensure` // post-condition
+  compt_assert(ret < 100)
 )
 {
   return x + y;
@@ -11,3 +11,14 @@ add :: ((compt(x) : i32, compt(y) : i32) ->
 // Remove Linear type and reference type
 // Remove RAII
 // Use RC by default?
+
+expanded :: macro_expand quote
+  do {
+    with _ <= finally(fn()=> {
+      println("end");
+    });
+    println("start");
+    println("mid 1");
+    println("mid 2");
+  }
+;

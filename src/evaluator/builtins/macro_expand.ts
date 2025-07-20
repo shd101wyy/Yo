@@ -10,6 +10,7 @@ import {
 import { createExprValue, isComptIntValue, isExprValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
+import { processUnquotesInExpr } from "./quote";
 
 /**
  * macro_expand will expand the macro call and return the expanded expression.
@@ -159,6 +160,11 @@ export function evaluateMacroExpand({
         break;
       }
     }
+    currentExpr = processUnquotesInExpr({
+      expr: currentExpr,
+      env: currentEnv,
+      context: { ...context },
+    });
 
     expr.$ = {
       env: currentEnv,

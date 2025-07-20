@@ -26,3 +26,26 @@ compt_assert(expanded == quote(
     })
   })
 );
+
+expanded2 :: macro_expand quote
+  do {
+    println("top");
+    with _ <= finally(fn()=> {
+      println("end");
+    });
+    println("start");
+    println("mid 1");
+    println("mid 2");
+  }
+;
+
+compt_assert(expanded2 == quote {
+  println("top");
+  finally(fn() => {
+    println("end");
+  }, fn()=> {
+    println("start");
+    println("mid 1");
+    println("mid 2");
+  })
+});

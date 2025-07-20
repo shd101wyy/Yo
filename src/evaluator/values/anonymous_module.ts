@@ -338,7 +338,9 @@ export function evaluateAnonymousModuleBeginExprs({
   try {
     // NOTE: Pop the env frame here might fail,
     // For example, for any uninitialized variable, or unconsumed linear variables.
-    env = popEnvFrame(env);
+    if (!partialModuleError) {
+      env = popEnvFrame(env);
+    }
   } catch (error) {
     if (allowPartialModule) {
       partialModuleError = error;

@@ -142,6 +142,7 @@ export function evaluateAnonymousFunctionImplementation({
       isValidatingFunctionDefinition: false, // Clear the validation flag during actual execution
       isEvaluatingFunctionBody: {
         type: functionType,
+        // FIXME: functionValue should be put there
         capturedVariables: capturedVariables,
         evaluationEnv: env, // Pass the current evaluation environment
       },

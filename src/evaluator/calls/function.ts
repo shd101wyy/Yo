@@ -128,7 +128,7 @@ function extractFunctionValue(
 export function tryToCallFunctionWithArguments({
   functionValue,
   functionType,
-  functionCallExpr,
+  functionCalleeExpr,
   argExprs,
   callerEnv,
   context,
@@ -136,7 +136,7 @@ export function tryToCallFunctionWithArguments({
 }: {
   functionValue?: FunctionValue;
   functionType: FunctionType;
-  functionCallExpr?: Expr;
+  functionCalleeExpr?: Expr;
   argExprs: Expr[];
   callerEnv: Environment;
   context: EvaluatorContext;
@@ -338,7 +338,7 @@ export function tryToCallFunctionWithArguments({
             throw formatErrorMessage({
               token:
                 forallArgExpr?.token ??
-                functionCallExpr?.token ??
+                functionCalleeExpr?.token ??
                 PlaceholderToken,
               errorMessage: forallArgExpr
                 ? `Expected type for default value, got:\n${exprToString(forallArgExpr)}`
@@ -350,7 +350,7 @@ export function tryToCallFunctionWithArguments({
           throw formatErrorMessage({
             token:
               forallArgExpr?.token ??
-              functionCallExpr?.token ??
+              functionCalleeExpr?.token ??
               PlaceholderToken,
             errorMessage: `Type parameter does not have default value.`,
           });
@@ -396,7 +396,9 @@ export function tryToCallFunctionWithArguments({
       ) {
         throw formatErrorMessage({
           token:
-            forallArgExpr?.token ?? functionCallExpr?.token ?? PlaceholderToken,
+            forallArgExpr?.token ??
+            functionCalleeExpr?.token ??
+            PlaceholderToken,
           errorMessage: `Type mismatch for type parameter "${typeParameter.label}":
 Expected: ${typeToString(typeParameter.type)}
 Got:   ${typeToString(typeValue.type)}`,
@@ -413,7 +415,9 @@ Got:   ${typeToString(typeValue.type)}`,
           });
         } else {
           const token =
-            forallArgExpr?.token ?? functionCallExpr?.token ?? PlaceholderToken;
+            forallArgExpr?.token ??
+            functionCalleeExpr?.token ??
+            PlaceholderToken;
           const { env: nextEnv } = addVariableToEnv({
             env: calleeEnv,
             variable: {
@@ -456,7 +460,7 @@ Got:   ${typeToString(typeValue.type)}`,
       // Allowed to have more args here
     } else {
       throw formatErrorMessage({
-        token: functionCallExpr?.token ?? PlaceholderToken,
+        token: functionCalleeExpr?.token ?? PlaceholderToken,
         errorMessage: `Too many arguments for function call:
 Expected: ${functionType.parameters.length} arguments
 Got:   ${argExprs.length} arguments`,
@@ -715,7 +719,7 @@ Got:   ${typeToString(argType)}`,
                 callerEnv,
                 functionType: funcType,
                 functionValue: funcValue,
-                functionCallExpr: undefined, // FIXME: <- this is the wrong expr
+                functionCalleeExpr: undefined, // FIXME: <- this is the wrong expr
                 context: {
                   ...context,
                   expectedType: {
@@ -760,7 +764,7 @@ Got:   ${typeToString(argType)}`,
 
     if (implicitVariables.length === 0) {
       throw formatErrorMessage({
-        token: functionCallExpr?.token ?? PlaceholderToken,
+        token: functionCalleeExpr?.token ?? PlaceholderToken,
         errorMessage: `Implicit parameter is not provided. Expected:
 ${implicitParameter.label ? `given(${implicitParameter.label}) :\n  ${typeToString(implicitParameterType)}` : `implicit ${typeToString(implicitParameterType)}`}`,
       });
@@ -768,7 +772,7 @@ ${implicitParameter.label ? `given(${implicitParameter.label}) :\n  ${typeToStri
 
     if (implicitVariables.length > 1) {
       throw formatErrorMessage({
-        token: functionCallExpr?.token ?? PlaceholderToken,
+        token: functionCalleeExpr?.token ?? PlaceholderToken,
         errorMessage: `Ambiguous implicit parameter:
 ${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implicitParameterType)})` : typeToString(implicitParameterType)}
 
@@ -804,8 +808,8 @@ ${implicitVariables
           isCompileTimeOnly: implicitVariable.isCompileTimeOnly,
           isImplicit: implicitVariable.isImplicit,
           value: returnValue,
-          token: functionCallExpr?.token ?? PlaceholderToken,
-          initializedAtToken: functionCallExpr?.token ?? PlaceholderToken, // Set as initialized
+          token: functionCalleeExpr?.token ?? PlaceholderToken,
+          initializedAtToken: functionCalleeExpr?.token ?? PlaceholderToken, // Set as initialized
           consumedAtToken: undefined, // Not consumed yet
         },
         skipCheckingFunctionOverloading: true,
@@ -866,8 +870,8 @@ ${implicitVariables
           isCompileTimeOnly: implicitVariable.isCompileTimeOnly,
           isImplicit: implicitVariable.isImplicit,
           value: implicitVariable.value,
-          token: functionCallExpr?.token ?? PlaceholderToken,
-          initializedAtToken: functionCallExpr?.token ?? PlaceholderToken, // Set as initialized
+          token: functionCalleeExpr?.token ?? PlaceholderToken,
+          initializedAtToken: functionCalleeExpr?.token ?? PlaceholderToken, // Set as initialized
           consumedAtToken: undefined, // Not consumed yet
         },
         skipCheckingFunctionOverloading: true,
@@ -990,7 +994,7 @@ ${implicitVariables
   const functionReturnTypeValue = evaluatedFunctionReturnExpr.$?.value;
   if (!isTypeValue(functionReturnTypeValue)) {
     throw formatErrorMessage({
-      token: functionCallExpr?.token ?? PlaceholderToken,
+      token: functionCalleeExpr?.token ?? PlaceholderToken,
       errorMessage: `Function body is not evaluated correctly. Expected to return a type.`,
     });
   }
@@ -1021,7 +1025,7 @@ ${implicitVariables
     if (isFunctionValue(functionValue)) {
       const { value: nextReturnValue, callerEnv: nextEnv } =
         evaluateComptFunctionCall({
-          functionCallExpr,
+          functionCalleeExpr,
           functionType,
           functionValue,
           argValues: argValues_,
@@ -1371,7 +1375,7 @@ export function evaluateFunctionCall({
         const result = tryToCallFunctionWithArguments({
           functionValue: extractFunctionValue(functionToCall.value),
           functionType: functionToCall.type,
-          functionCallExpr: func,
+          functionCalleeExpr: func,
           argExprs: args,
           callerEnv: env,
           context: { ...context },
@@ -1400,7 +1404,7 @@ export function evaluateFunctionCall({
         const result = tryToCallFunctionWithArguments({
           functionValue: extractFunctionValue(functionToCall.value),
           functionType: closureType.callType,
-          functionCallExpr: func,
+          functionCalleeExpr: func,
           argExprs: args,
           callerEnv: env,
           context: { ...context },
@@ -1430,7 +1434,7 @@ export function evaluateFunctionCall({
         try {
           const result = tryToCallTypeWithArguments({
             memberElements: value.value.elements,
-            functionCallExpr: func,
+            functionCalleeExpr: func,
             argExprs: args,
             callerEnv: env,
             context: { ...context },
@@ -1473,7 +1477,7 @@ export function evaluateFunctionCall({
           try {
             const result = tryToCallTypeWithArguments({
               memberElements: selectedVariant.elements || [],
-              functionCallExpr: func,
+              functionCalleeExpr: func,
               argExprs: args,
               callerEnv: env,
               context: { ...context },
@@ -1501,7 +1505,7 @@ export function evaluateFunctionCall({
         try {
           const result = tryToCallTypeWithArguments({
             memberElements: value.value.elements,
-            functionCallExpr: func,
+            functionCalleeExpr: func,
             argExprs: args,
             callerEnv: env,
             context: { ...context },
@@ -1708,6 +1712,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
       functionsToCall[0]!.result.kind === "error"
     ) {
       const error = functionsToCall[0]!.result.error;
+
       if (error instanceof MoParserError) {
         throw formatErrorMessages(
           [

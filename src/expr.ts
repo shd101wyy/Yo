@@ -401,7 +401,7 @@ export const BuiltinKeywords = {
   module_begin: ["module_begin"],
   import: ["import"],
   export: ["export"],
-  borrow: ["borrow"],
+  borrow: ["borrow", "~>"],
   open: ["open"],
   // pass: ["paas"], // pass is the same as noop
   drop: ["drop"],

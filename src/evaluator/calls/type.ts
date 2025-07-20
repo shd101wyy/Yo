@@ -28,14 +28,14 @@ import { EvaluatorContext, TypeCallResult } from "../context";
  */
 export function tryToCallTypeWithArguments({
   memberElements,
-  functionCallExpr,
+  functionCalleeExpr,
   argExprs,
   callerEnv,
   context,
   isUnionType,
 }: {
   memberElements: TupleElement[];
-  functionCallExpr: Expr;
+  functionCalleeExpr: Expr;
   argExprs: Expr[];
   callerEnv: Environment;
   context: EvaluatorContext;
@@ -43,13 +43,13 @@ export function tryToCallTypeWithArguments({
 }): TypeCallResult {
   if (argExprs.length > memberElements.length) {
     throw formatErrorMessage({
-      token: functionCallExpr.token,
+      token: functionCalleeExpr.token,
       errorMessage: `Failed to call the type. Too many members provided. Expected ${memberElements.length} arguments, got ${argExprs.length}.`,
     });
   }
   if (isUnionType && argExprs.length !== 1) {
     throw formatErrorMessage({
-      token: functionCallExpr.token,
+      token: functionCalleeExpr.token,
       errorMessage: `Failed to call the union type. Expected exactly one argument, got ${argExprs.length}.`,
     });
   }
@@ -193,7 +193,7 @@ Got:   ${typeToString(argType)}`,
       if (!checkedMemberElements.has(memberElement)) {
         if (!memberElement.defaultValue && !memberElement.assignedValue) {
           throw formatErrorMessage({
-            token: functionCallExpr.token,
+            token: functionCalleeExpr.token,
             errorMessage: `Type member "${memberElement.label}" is not provided and has no default value or assigned value.`,
           });
         } else {
