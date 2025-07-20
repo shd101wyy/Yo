@@ -1,25 +1,58 @@
 open import "std";
 
-expanded :: macro_expand quote
+expanded0 :: macro_expand quote
   do {
     x := 1;
     with response <= fetch("https://api.example.com");
-    std.println(response);
+    println("after fetch");
+    println(response);
     with (json,) <<= response.json();
-    std.println(json);
+    println("after json");
+    println(json);
+  }
+;
+expected0 :: quote(
+{
+  x := 1;
+  fetch("https://api.example.com", fn(response) => {
+    println("after fetch");
+    println(response);
+    response.json(fn(json) =>> {
+      println("after json");
+      println(json);
+    })
+  })
+});
+
+
+compt_assert(expanded0 == expected0);
+
+expanded1 :: macro_expand quote
+  do {
+    x := 1;
+    with response <= fetch("https://api.example.com");
+    println("after fetch");
+    println(response);
+    with (json,) <<= response.json();
+    println("after json");
+    println(json);
     with (x, y) <- json.parse();
+    println("after parse");
     return x + y;
   }
 ;
 
-compt_assert(expanded == quote(
+compt_assert(expanded1 == quote(
   {
     x := 1;
     fetch("https://api.example.com", fn(response) => {
-      std.println(response);
+      println("after fetch");
+      println(response);
       response.json(fn(json) =>> {
-        std.println(json);
+        println("after json");
+        println(json);
         json.parse(fn(x, y) -> {
+          println("after parse");
           return(x + y);
         })
       })
@@ -39,13 +72,18 @@ expanded2 :: macro_expand quote
   }
 ;
 
-compt_assert(expanded2 == quote {
-  println("top");
-  finally(fn() => {
-    println("end");
-  }, fn()=> {
-    println("start");
-    println("mid 1");
-    println("mid 2");
-  })
-});
+compt_assert(expanded2 == quote(
+  {
+    println("top");
+    finally(
+      fn() => {
+        println("end");
+      },
+      fn() => {
+        println("start");
+        println("mid 1");
+        println("mid 2");
+      }
+    )
+  }
+));

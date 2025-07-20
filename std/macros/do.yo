@@ -2,16 +2,15 @@ open import "../data/primitive/expr.yo";
 open import "../data/primitive/expr_list.yo";
 open import "../data/primitive/usize.yo";
 open import "../data/primitive/boolean.yo";
-
 /*
  The `do` macro transform the code below:
   
   do {
     x := 1;
     with response <= fetch("https://api.example.com");
-    std.println(response);
+    println(response);
     with (json,) <<= response.json();
-    std.println(json);
+    println(json);
     with (x, y) <- json.parse();
     return x + y;
   }
@@ -21,9 +20,9 @@ open import "../data/primitive/boolean.yo";
   {
     x := 1;
     fetch("https://api.example.com", fn(response) => {
-      std.println(response);
+      println(response);
       response.json(fn(json) =>> {
-        std.println(json);
+        println(json);
         json.parse(fn(x, y) -> {
           return(x + y);
         })
@@ -44,15 +43,61 @@ create_begin_with_all_args :: ((compt(args) : ExprList) -> compt(Expr)) {
   );
 };
 
-// Helper function to collect consecutive non-with statements into a single begin block
-collect_non_with_statements :: ((compt(args) : ExprList) -> compt(Expr)) {
+// Helper function to collect consecutive non-with statements before the next with statement
+collect_non_with_before_next_with :: ((compt(args) : ExprList) -> compt(ExprList)) {
   return cond(
-    (args.length() == 0) => quote(()),
-    (args.length() == 1) => args.car(),
-    true =>
-      // Collect all statements and wrap them in a single begin
-      // This will create: begin(stmt1, stmt2, stmt3, ...)
-      create_begin_with_all_args(args)
+    (args.length() == 0) => expr_list(),
+    true => {
+      first_arg :: args.car();
+      rest_args :: args.cdr();
+      cond(
+        first_arg.is_fn_call() => {
+          callee :: first_arg.get_callee();
+          cond(
+            (callee.is_atom() && (callee == quote(with))) => 
+              // Found a with statement, stop collecting
+              expr_list(),
+            true => {
+              // Not a with statement, continue collecting
+              rest_collected :: recur(rest_args);
+              quote(unquote(first_arg)).cons(rest_collected)
+            }
+          )
+        },
+        true => {
+          // Not a function call, continue collecting
+          rest_collected :: recur(rest_args);
+          quote(unquote(first_arg)).cons(rest_collected)
+        }
+      )
+    }
+  );
+};
+
+// Helper function to skip non-with statements and return the remaining list starting from the next with
+skip_non_with_until_next_with :: ((compt(args) : ExprList) -> compt(ExprList)) {
+  return cond(
+    (args.length() == 0) => expr_list(),
+    true => {
+      first_arg :: args.car();
+      rest_args :: args.cdr();
+      cond(
+        first_arg.is_fn_call() => {
+          callee :: first_arg.get_callee();
+          cond(
+            (callee.is_atom() && (callee == quote(with))) => 
+              // Found a with statement, return the whole remaining list
+              args,
+            true =>
+              // Not a with statement, continue skipping
+              recur(rest_args)
+          )
+        },
+        true =>
+          // Not a function call, continue skipping
+          recur(rest_args)
+      )
+    }
   );
 };
 
@@ -116,10 +161,9 @@ transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
                               rest_transformed :: cond(
                                 (rest_args.length() == 0) => quote(()),
                                 (rest_args.length() == 1) => rest_args.car(),
-                                true => {
+                                true =>
                                   // Always use recursive transformation for consistency  
                                   recur(rest_args)
-                                }
                               );
                               
                               // Now create the callback function using the computed rest_transformed
@@ -131,7 +175,7 @@ transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
                                       // It's a tuple pattern like (x, y)
                                       tuple_args :: var_name.get_args();
                                       // Create function with multiple parameters
-                                      cond(
+                                      cond(                        
                                         (assignment_callee == quote(<-)) =>
                                           quote(fn(unquote_splicing(tuple_args)) -> unquote(rest_transformed)),
                                         (assignment_callee == quote(<=)) =>
@@ -140,13 +184,13 @@ transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
                                           quote(fn(unquote_splicing(tuple_args)) =>> unquote(rest_transformed)),
                                         true => {
                                           compt_assert(false, "Unknown assignment operator in with statement");
-                                          quote(false) // malformed
+                                          quote(false)
                                         }
                                       )
                                     },
                                     true => 
                                       // Not a tuple, treat as single parameter
-                                      cond(
+                                      cond(                        
                                         (assignment_callee == quote(<-)) =>
                                           quote(fn(unquote(var_name)) -> unquote(rest_transformed)),
                                         (assignment_callee == quote(<=)) =>
@@ -155,7 +199,7 @@ transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
                                           quote(fn(unquote(var_name)) =>> unquote(rest_transformed)),
                                         true => {
                                           compt_assert(false, "Unknown assignment operator in with statement");
-                                          quote(false) // malformed
+                                          quote(false)
                                         }
                                       )
                                   )
@@ -165,7 +209,7 @@ transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
                                   cond(
                                     (var_name.is_atom() && (var_name == quote(_))) =>
                                       // Special case: _ means no parameters
-                                      cond(
+                                      cond(                        
                                         (assignment_callee == quote(<-)) =>
                                           quote(fn() -> unquote(rest_transformed)),
                                         (assignment_callee == quote(<=)) =>
@@ -174,12 +218,12 @@ transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
                                           quote(fn() =>> unquote(rest_transformed)),
                                         true => {
                                           compt_assert(false, "Unknown assignment operator in with statement");
-                                          quote(false) // malformed
+                                          quote(false)
                                         }
                                       ),
                                     true => 
                                       // Regular single parameter
-                                      cond(
+                                      cond(                        
                                         (assignment_callee == quote(<-)) =>
                                           quote(fn(unquote(var_name)) -> unquote(rest_transformed)),
                                         (assignment_callee == quote(<=)) =>
@@ -188,7 +232,7 @@ transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
                                           quote(fn(unquote(var_name)) =>> unquote(rest_transformed)),
                                         true => {
                                           compt_assert(false, "Unknown assignment operator in with statement");
-                                          quote(false) // malformed
+                                          quote(false)
                                         }
                                       )
                                   )
@@ -226,7 +270,7 @@ transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
                             },
                             true => {
                               compt_assert(false, "Malformed <-, <=, or <<= statement, expected two arguments");
-                              quote(false) // malformed
+                              quote(false)
                             }
                           )
                         },
@@ -248,24 +292,41 @@ transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
                 }
               )
             },
-            // Not a with statement, but there are more statements after
-            // This means it's a regular statement in the middle of the block
-            // We need to check if there are any with statements in the remaining args
+            // Not a with statement, collect consecutive non-with statements
+            // and then process any remaining with statements
             true => {
-              // Look ahead to see if there are any with statements in the remaining args
-              has_with_statement :: check_for_with_statements(rest_args);
+              // Collect this statement and all consecutive non-with statements that follow
+              all_non_with :: quote(unquote(first_arg)).cons(
+                collect_non_with_before_next_with(rest_args)
+              );
+              // Get the remaining statements after the collected non-with statements
+              remaining_after_non_with :: skip_non_with_until_next_with(rest_args);
+              
               cond(
-                has_with_statement => {
-                  // If there are with statements ahead, we need to sequence this statement
-                  // with the transformed rest
-                  rest_transformed :: recur(rest_args);
-                  quote(begin(unquote(first_arg), unquote(rest_transformed)))
+                (remaining_after_non_with.length() > 0) => {
+                  // There are more statements (including with statements) to process
+                  rest_transformed :: recur(remaining_after_non_with);
+                  // Flatten the non-with statements directly into the begin with rest_transformed
+                  cond(
+                    (all_non_with.length() == 1) => 
+                      // Single non-with statement, just sequence it with rest_transformed
+                      quote(begin(unquote(all_non_with.car()), unquote(rest_transformed))),
+                    (all_non_with.length() == 2) => {
+                      // Two non-with statements, expand them directly
+                      stmt1 :: all_non_with.car();
+                      stmt2 :: all_non_with.cdr().car();
+                      quote(begin(unquote(stmt1), unquote(stmt2), unquote(rest_transformed)))
+                    },
+                    true => {
+                      // More than 2 statements, create a proper begin block
+                      non_with_block :: create_begin_with_all_args(all_non_with);
+                      quote(begin(unquote(non_with_block), unquote(rest_transformed)))
+                    }
+                  )
                 },
-                true => {
-                  // No with statements ahead, collect all into a single begin
-                  all_remaining :: quote(unquote(first_arg)).cons(rest_args);
-                  create_begin_with_all_args(all_remaining)
-                }
+                true =>
+                  // No more statements, just create a begin block with all collected statements
+                  create_begin_with_all_args(all_non_with)
               )
             }
           )
@@ -307,87 +368,6 @@ do :: ((quote(begin_expr) : Expr) -> unquote(Expr)) {
   );
 };
 
-expanded :: macro_expand quote
-  do {
-    x := 1;
-    with response <= fetch("https://api.example.com");
-    std.println("after fetch");
-    std.println(response);
-    with (json,) <<= response.json();
-    std.println("after json");
-    std.println(json);
-  }
+export
+  do
 ;
-
-compt_assert(expanded == quote(
-  {
-    x := 1;
-    fetch("https://api.example.com", fn(response) => {
-      std.println("after fetch");
-      std.println(response);
-      response.json(fn(json) =>> {
-        std.println("after json");
-        std.println(json);
-      })
-    })
-  })
-);
-
-/*
-expanded :: macro_expand quote
-  do {
-    x := 1;
-    with response <= fetch("https://api.example.com");
-    std.println("after fetch");
-    std.println(response);
-    with (json,) <<= response.json();
-    std.println("after json");
-    std.println(json);
-    with (x, y) <- json.parse();
-    std.println("after parse");
-    return x + y;
-  }
-;
-
-compt_assert(expanded == quote(
-  {
-    x := 1;
-    fetch("https://api.example.com", fn(response) => {
-      std.println("after fetch");
-      std.println(response);
-      response.json(fn(json) =>> {
-        std.println("after json");
-        std.println(json);
-        json.parse(fn(x, y) -> {
-          std.println("after parse");
-          return(x + y);
-        })
-      })
-    })
-  })
-);
-
-expanded2 :: macro_expand quote
-  do {
-    println("top");
-    with _ <= finally(fn()=> {
-      println("end");
-    });
-    println("start");
-    println("mid 1");
-    println("mid 2");
-  }
-;
-
-compt_assert(expanded2 == quote(
-  begin(
-    println("top"),
-    finally(
-      fn() => begin(println("end"), ()),
-      fn() => begin(println("start"), println("mid 1"), println("mid 2"), ())
-    )
-  )
-));
-*/
-
-export do;
