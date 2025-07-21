@@ -369,13 +369,28 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
         });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
         // struct
-        return evaluateStructType({ expr, env, context: { ...context } });
+        return evaluateStructType({
+          expr,
+          env,
+          context: { ...context },
+          isUnique: true,
+        });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.enum)) {
         // enum
-        return evaluateEnumType({ expr, env, context: { ...context } });
+        return evaluateEnumType({
+          expr,
+          env,
+          context: { ...context },
+          isUnique: true,
+        });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.union)) {
         // union
-        return evaluateUnionType({ expr, env, context: { ...context } });
+        return evaluateUnionType({
+          expr,
+          env,
+          context: { ...context },
+          isUnique: true,
+        });
       } else if (exprIsFunctionCallOf(expr, ".")) {
         // property access
         return evaluatePropertyAccess({

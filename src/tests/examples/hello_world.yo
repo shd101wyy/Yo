@@ -1,8 +1,20 @@
+open import "std";
 open import "std/libc/stdio";
 
 main :: (() -> int) {
   printf("Hello, %s!\n", "Yo");
   return 0;
 };
+
+factorial :: ((compt(n): compt_int)
+              -> compt compt_int)
+  cond 
+    (n == 0) => 1,
+    true => (n * recur(n - 1))
+;
+
+// This will be computed during compilation
+x :: 10; // x : compt_int;
+result :: factorial(10);  // result : compt_int
 
 export main;

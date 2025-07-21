@@ -10,15 +10,27 @@ add :: ((compt(x) : i32, compt(y) : i32) ->
 
 // Remove Linear type and reference type
 // Remove RAII
-// Use RC by default?
+// Use RC by default? Use type system to help with the cycle detection.
 
-expanded :: macro_expand quote
-  do {
-    with _ <= finally(fn()=> {
-      println("end");
-    });
-    println("start");
-    println("mid 1");
-    println("mid 2");
-  }
-;
+// unique/gc struct/enum/union.
+// Use ^ to represent the owned value, which requires to be the single owner.
+Point :: unique struct(x : i32, y : i32);
+p := Point(3, 4); // p : ^(Point) (Free, Unique);
+
+Point :: struct(x : i32, y : i32); // All gc structs are Linear by default.
+p := Point(3, 4); // p : Point (Linear, GC);
+p_owned := ^(p); // p_owned : ^(Point) (Linear, Unique); p is consumed.
+// ^ symbol only works for gc values.
+
+p2 := &(p).dup(); // duplicate p. p2 and p are both the same value.
+p3 := &(p).clone() ; // clone p. p3 is a new value, but p and p3 are the same type.
+
+// so we keep the Linear type and 2nd class reference type.
+// No we have a new concept: Unique
+// gc value has the following automatically implemented methods:
+// - dup() - duplicate the value, return a new value with the same content.
+// - to_unique (or ^) - convert the value to an owned value, which requires to be the single owner.
+// - try_unique - convert the value to an owned value, which requires to be the single owner, but returns an error if the value is not unique.
+
+// unique value can be converted back to gc value
+// - to_gc - convert the value to a gc value, which can be shared with other owners.

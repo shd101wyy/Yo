@@ -754,7 +754,7 @@ extern "C",
   printf: ((format: *(char), ...) -> i32);
 
 // Compile-time Execution
-PI :: 3.14159265358979323846; // PI : const_float;
+PI :: 3.14159265358979323846; // PI : compt_float;
 
 // A function returning Type or (compt(Type)) can only be executed at compile time
 // Compile-time function execution
@@ -774,13 +774,13 @@ x :: 10; // x : compt_int
 // Below is another example
 max :: ((compt(T): Type, a: T, b: T)-> T)
   cond // implicit compile-time evaluate the condition if it's known at the compile-time, and skip the branch not taken.
-    (T == boolean) => a.or b,
+    (T == boolean) => (a || b),
     (a > b)        => a,
     true           => b;
 max(boolean, false, true); // compiles to:
 max :: ((a: boolean, b: boolean)-> boolean) {
   {
-    return a.or b;
+    return (a || b);
   }
 };
 

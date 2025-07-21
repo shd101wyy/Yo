@@ -26,10 +26,12 @@ export function evaluateStructType({
   expr,
   env,
   context,
+  isUnique,
 }: {
   expr: FuncCallExpr;
   env: Environment;
   context: EvaluatorContext;
+  isUnique: boolean;
 }): FuncCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
     throw formatErrorMessage({
@@ -40,7 +42,7 @@ export function evaluateStructType({
 
   // Create structType with empty elements
   // This is used as the SelfType for the following evaluations.
-  const structType = createStructType(env);
+  const structType = createStructType(env, isUnique);
   const elements = structType.elements;
 
   for (let i = 0; i < expr.args.length; i++) {

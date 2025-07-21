@@ -282,6 +282,12 @@ export interface StructType extends Type {
    * The env is also useful to show the frame level at which the struct is defined.
    */
   env: Environment;
+
+  /**
+   * Whether the struct is unique (single owner).
+   * If not, then the struct is GCed.
+   */
+  isUnique: boolean;
 }
 
 export interface ModuleElement {
@@ -384,6 +390,12 @@ export interface EnumType extends Type {
    * Here, the type of circle is Shape(.Circle required).
    */
   requiredVariantNames?: string[];
+
+  /**
+   * Whether the struct is unique (single owner).
+   * If not, then the struct is GCed.
+   */
+  isUnique: boolean;
 }
 
 export interface UnionType extends Type {
@@ -410,6 +422,12 @@ export interface UnionType extends Type {
    * The env is also useful to show the frame level at which the union is defined.
    */
   env: Environment;
+
+  /**
+   * Whether the struct is unique (single owner).
+   * If not, then the struct is GCed.
+   */
+  isUnique: boolean;
 }
 
 export interface FunctionReturn {

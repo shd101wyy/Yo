@@ -426,6 +426,8 @@ export const BuiltinKeywords = {
   false: ["false"],
 
   // data types
+  unique: ["unique", "^"],
+
   // LinearPtr: ["^"],     // <= deprecated
   // MutLinearPtr: ["^!"], // <= deprecated
   Ptr: ["*"],

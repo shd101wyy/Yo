@@ -16,10 +16,12 @@ export function evaluateUnionType({
   expr,
   env,
   context,
+  isUnique,
 }: {
   expr: FuncCallExpr;
   env: Environment;
   context: EvaluatorContext;
+  isUnique: boolean;
 }): FuncCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.union)) {
     throw formatErrorMessage({
@@ -29,7 +31,7 @@ export function evaluateUnionType({
   }
 
   // Create unionType with empty elements
-  const unionType = createUnionType(env);
+  const unionType = createUnionType(env, isUnique);
 
   const elements: TupleElement[] = [];
   unionType.elements = elements;
