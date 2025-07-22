@@ -309,10 +309,7 @@ export function createTupleType(elements: TupleElement[]): TupleType {
   };
 }
 
-export function createStructType(
-  env: Environment,
-  isUnique: boolean
-): StructType {
+export function createStructType(env: Environment): StructType {
   const module = createModuleType(env);
 
   const structType: StructType = {
@@ -321,7 +318,6 @@ export function createStructType(
     elements: [],
     module,
     env,
-    isUnique,
   };
 
   // Add "Self" to struct type module if not already present
@@ -354,7 +350,7 @@ export function createModuleType(env: Environment): ModuleType {
   };
 }
 
-export function createEnumType(env: Environment, isUnique: boolean): EnumType {
+export function createEnumType(env: Environment): EnumType {
   const module = createModuleType(env);
 
   const enumType: EnumType = {
@@ -363,7 +359,6 @@ export function createEnumType(env: Environment, isUnique: boolean): EnumType {
     variants: [],
     module,
     env,
-    isUnique,
   };
 
   // Add "Self" to enum type if not already present
@@ -387,7 +382,7 @@ export function createEnumType(env: Environment, isUnique: boolean): EnumType {
   return enumType;
 }
 
-export function createUnionType(env: Environment, isUnique): UnionType {
+export function createUnionType(env: Environment): UnionType {
   const module: ModuleType = createModuleType(env);
 
   const unionType: UnionType = {
@@ -396,7 +391,6 @@ export function createUnionType(env: Environment, isUnique): UnionType {
     elements: [],
     module,
     env,
-    isUnique,
   };
 
   // Add "Self" to struct type if not already present

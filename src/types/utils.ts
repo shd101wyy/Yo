@@ -702,14 +702,10 @@ export function typeToString(type: Type): string {
     case TypeTag.Struct: {
       const structType = type as StructType;
       if (structType.typeName) {
-        if (structType.isUnique) {
-          return `^(${structType.typeName})`;
-        } else {
-          return structType.typeName;
-        }
+        return structType.typeName;
       }
 
-      return `${structType.typeName ? `(${structType.typeName}) ` : ""}${structType.isUnique ? "unique " : ""}${
+      return `${structType.typeName ? `(${structType.typeName}) ` : ""}${
         structType.typeName ? "struct" : structType.id
       }(${structType.elements.map(tupleElementToString).join(", ")})`;
     }
@@ -718,9 +714,7 @@ export function typeToString(type: Type): string {
       const enumType = type as EnumType;
 
       if (enumType.typeName) {
-        const enumName = enumType.isUnique
-          ? `^${enumType.typeName}`
-          : enumType.typeName;
+        const enumName = enumType.typeName;
 
         if (enumType.requiredVariantNames ?? enumType.selectedVariantName) {
           return `${enumName} (${
@@ -735,7 +729,7 @@ export function typeToString(type: Type): string {
 
       return `${
         enumType.typeName ? `(${enumType.typeName}) ` : ""
-      }${enumType.isUnique ? "unique " : ""}enum(${enumType.variants
+      }enum(${enumType.variants
         .map((variant) => {
           return `${variant.name}${
             variant.elements
@@ -749,15 +743,11 @@ export function typeToString(type: Type): string {
     case TypeTag.Union: {
       const unionType = type as UnionType;
       if (unionType.typeName) {
-        if (unionType.isUnique) {
-          return `^(${unionType.typeName})`;
-        } else {
-          return unionType.typeName;
-        }
+        return unionType.typeName;
       }
 
       const elements = unionType.elements;
-      return `${unionType.typeName ? `(${unionType.typeName}) ` : ""}${unionType.isUnique ? "unique " : ""}${
+      return `${unionType.typeName ? `(${unionType.typeName}) ` : ""}${
         unionType.typeName ? "union" : unionType.id
       }(${elements.map(tupleElementToString).join(", ")})`;
     }

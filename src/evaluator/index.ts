@@ -373,7 +373,6 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
           expr,
           env,
           context: { ...context },
-          isUnique: true,
         });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.enum)) {
         // enum
@@ -381,7 +380,6 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
           expr,
           env,
           context: { ...context },
-          isUnique: true,
         });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.union)) {
         // union
@@ -389,7 +387,6 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
           expr,
           env,
           context: { ...context },
-          isUnique: true,
         });
       } else if (exprIsFunctionCallOf(expr, ".")) {
         // property access

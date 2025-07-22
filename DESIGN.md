@@ -1,6 +1,6 @@
 # Language Design
 
-**Yo** is general-purpose, compiled programming language that incorporates the Linear Types, Uniqueness Types, Mutable Value Semantics, and (Poor man's) Algebraic Effects.
+**Yo** is general-purpose, compiled programming language that incorporates the Linear Types, Mutable Value Semantics, and (Poor man's) Algebraic Effects.
 
 **Yo** aims to be a simple to learn programming language for C and JavaScript (TypeScript) programmers 😉.
 
