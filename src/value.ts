@@ -259,6 +259,9 @@ export function valueToString(value?: Value): string {
       return `quote(${exprToString(value.value)})`;
     }
     case ValueTag.Unknown: {
+      if (value.variableName) {
+        return value.variableName;
+      }
       return `<compt ${typeToString(value.type)}>`;
     }
     default: {

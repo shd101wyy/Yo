@@ -31,6 +31,7 @@ import {
 } from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
+import { synthesizeTypes } from "../types/synthesizer";
 
 /**
  * Checks if an expression represents a unit value (empty tuple)
@@ -340,8 +341,9 @@ export function evaluateBeginExpression({
 
   // Check if return type is compatible
   if (lastExpr.$.controlFlow === "return") {
-    if (
-      !areTypesCompatible(
+    // First try to synthesize the types to handle cases like [i32; n] vs [i32; 5]
+    try {
+      synthesizeTypes(
         {
           type: context.isEvaluatingFunctionBody!.type.return.type,
           env: env,
@@ -350,14 +352,28 @@ export function evaluateBeginExpression({
           type: returnType,
           env: env,
         }
-      )
-    ) {
-      throw formatErrorMessage({
-        token: lastExpr.token,
-        errorMessage: `Return type mismatch. Expected type "${typeToString(
-          context.isEvaluatingFunctionBody!.type.return.type
-        )}", but got "${typeToString(returnType)}".`,
-      });
+      );
+    } catch (synthesisError) {
+      // If synthesis fails, check basic compatibility as fallback
+      if (
+        !areTypesCompatible(
+          {
+            type: context.isEvaluatingFunctionBody!.type.return.type,
+            env: env,
+          },
+          {
+            type: returnType,
+            env: env,
+          }
+        )
+      ) {
+        throw formatErrorMessage({
+          token: lastExpr.token,
+          errorMessage: `Return type mismatch. Expected type "${typeToString(
+            context.isEvaluatingFunctionBody!.type.return.type
+          )}", but got "${typeToString(returnType)}".`,
+        });
+      }
     }
   }
   /*
