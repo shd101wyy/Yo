@@ -10,6 +10,8 @@ import {
   areTypesCompatible,
   ArrayType,
   isArrayType,
+  isFreeType,
+  typeOfType,
   typeToString,
 } from "../../types";
 import {
@@ -77,6 +79,15 @@ export function evaluateArrayFillMethod({
     });
   }
 
+  // Restrict Array.fill to only support Free types (not Linear types)
+  // This prevents ownership issues when duplicating the fill value multiple times
+  if (!isFreeType(typeOfType(fillValueType))) {
+    throw formatErrorMessage({
+      token: fillValueArg.token,
+      errorMessage: `Array.fill only supports Free types that can be copied. Type ${typeToString(fillValueType)} is not a Free type. Consider using a primitive type like i32, f32, bool, etc.`,
+    });
+  }
+
   // Extract array length from the ArrayType
   // arrayType.length should be a Value with a compile-time known integer
   const lengthValue = arrayType.length;
@@ -117,8 +128,27 @@ export function evaluateArrayFillMethod({
 
   // Create array elements by repeating the fill value
   const arrayElements: Value[] = [];
+
+  // If fillValue is not available (e.g., it's a runtime variable),
+  // we cannot create a concrete array at compile time
+  if (!fillValue || isUnknownValue(fillValue)) {
+    // Return an UnknownValue for the array since we can't determine its concrete elements
+    const arrayValue = createUnknownValue(arrayType);
+
+    expr.$ = {
+      env,
+      type: arrayType,
+      value: arrayValue,
+      isMutable: true,
+      pathCollection: [],
+    };
+
+    attachTempVariableToExpr(expr);
+    return { expr, env };
+  }
+
   for (let i = 0; i < arrayLength; i++) {
-    arrayElements.push(fillValue!);
+    arrayElements.push(fillValue);
   }
 
   // Create array value filled with the given value
