@@ -40,6 +40,7 @@ import {
 } from "../types";
 import { generateModuleId } from "../utils";
 import {
+  isArrayValue,
   isBooleanValue,
   isComptStringValue,
   isEnumValue,
@@ -143,6 +144,14 @@ export class CodeGeneratorC {
     "<stddef.h>",
     "<stdarg.h>",
   ]);
+
+  /**
+   * Array struct types that need to be generated
+   */
+  private arrayStructTypes: Map<
+    string,
+    { elementType: string; length: number }
+  > = new Map();
 
   /**
    * track the current function being generated for recur
@@ -386,6 +395,33 @@ export class CodeGeneratorC {
         cName: cTypeName,
       };
     }
+    // Check if it's array types
+    else if (isArrayType(type)) {
+      const arrayType = type as ArrayType;
+      const elementType = arrayType.elementType;
+      const length = arrayType.length;
+      if (isNumberValue(length)) {
+        // Recursively collect the element type
+        this.collectType(elementType);
+
+        // Generate struct wrapper for arrays and register it
+        const elementTypeString = this.getTypeString(elementType);
+        const arrayTypeName = `Array_${this.sanitizeForCIdentifier(elementTypeString)}_${length.value}`;
+
+        // Register the array type if not already registered
+        if (!this.arrayStructTypes.has(arrayTypeName)) {
+          this.arrayStructTypes.set(arrayTypeName, {
+            elementType: elementTypeString,
+            length: length.value,
+          });
+        }
+
+        this.types[type.id] = {
+          type,
+          cName: arrayTypeName,
+        };
+      }
+    }
     // Check if it's primitive types
     else if (PrimitiveTypeTags.has(type.tag)) {
       this.types[type.id] = {
@@ -418,6 +454,9 @@ export class CodeGeneratorC {
    * Generate type declarations for all collected types
    */
   private generateTypeDeclarations(): void {
+    // Generate array struct types first
+    this.generateArrayStructDeclarations();
+
     for (const typeId in this.types) {
       const { type, cName } = this.types[typeId]!;
       if (typeContainsSomeType(type)) {
@@ -434,6 +473,21 @@ export class CodeGeneratorC {
         // For tuples, we can generate a struct-like declaration
         this.generateTupleDeclaration(type, cName);
       }
+    }
+  }
+
+  /**
+   * Generate array struct type declarations
+   */
+  private generateArrayStructDeclarations(): void {
+    for (const [arrayTypeName, { elementType, length }] of this
+      .arrayStructTypes) {
+      this.emitter.emitDeclarationLine(
+        `typedef struct { // Array wrapper struct`
+      );
+      this.emitter.emitDeclarationLine(`  ${elementType} data[${length}];`);
+      this.emitter.emitDeclarationLine(`} ${arrayTypeName};`);
+      this.emitter.emitDeclarationLine("");
     }
   }
 
@@ -591,16 +645,16 @@ export class CodeGeneratorC {
    * Get C type string for variable declarations (handles arrays correctly)
    */
   private getVariableTypeString(type: Type, varName: string): string {
-    if (isArrayType(type)) {
-      const elementType = type.elementType;
-      const length = type.length;
-      if (isNumberValue(length)) {
-        const elementTypeString = this.getTypeString(elementType);
-        return `${elementTypeString} ${varName}[${length.value}]`;
-      }
-    }
-    // For non-array types, use regular type string + variable name
+    // For all types (including arrays), use the consistent struct wrapper approach
     return `${this.getTypeString(type)} ${varName}`;
+  }
+
+  /**
+   * Sanitize a string to be a valid C identifier
+   * Replaces any character that's not alphanumeric or underscore with underscore
+   */
+  private sanitizeForCIdentifier(str: string): string {
+    return str.replace(/[^a-zA-Z0-9_]/g, "_");
   }
 
   /**
@@ -692,8 +746,19 @@ export class CodeGeneratorC {
         const elementType = arrayType.elementType;
         const length = arrayType.length;
         if (isNumberValue(length)) {
+          // Generate struct wrapper for arrays to make them returnable by value
           const elementTypeString = this.getTypeString(elementType);
-          return `${elementTypeString}[${length.value}]`; // Fixed-size array
+          const arrayTypeName = `Array_${this.sanitizeForCIdentifier(elementTypeString)}_${length.value}`;
+
+          // Register the array type if not already registered
+          if (!this.arrayStructTypes.has(arrayTypeName)) {
+            this.arrayStructTypes.set(arrayTypeName, {
+              elementType: elementTypeString,
+              length: length.value,
+            });
+          }
+
+          return arrayTypeName;
         }
       }
     }
@@ -1127,9 +1192,6 @@ export class CodeGeneratorC {
 
         // Handle array initialization specially
         if (isArrayType(lhs.$.type)) {
-          const arrayType = lhs.$.type;
-          const arrayLength = arrayType.length;
-
           // Check if RHS is an array literal
           if (
             exprIsFunctionCall(rhs) &&
@@ -1145,23 +1207,15 @@ export class CodeGeneratorC {
               `${indent}${isMutable ? "" : "const "}${varTypeAndName} = ${rhsCode};`
             );
           } else {
-            // Copying from another array - declare then copy element by element
+            // Copying from another array - use direct struct assignment
             const varTypeAndName = this.getVariableTypeString(
               lhs.$.type,
               varName
             );
-            // NOTE: We cannot assign "const" here because we will mutate the array later
-            this.emitter.emitLine(`${indent}${varTypeAndName};`);
-
-            // Copy elements
             const rhsCode = this.generateExpr(rhs, indent);
-            if (isNumberValue(arrayLength)) {
-              for (let i = 0; i < arrayLength.value; i++) {
-                this.emitter.emitLine(
-                  `${indent}${varName}[${i}] = ${rhsCode}[${i}];`
-                );
-              }
-            }
+            this.emitter.emitLine(
+              `${indent}${isMutable ? "" : "const "}${varTypeAndName} = ${rhsCode};`
+            );
           }
         } else {
           // Non-array initialization - use existing logic
@@ -1228,20 +1282,10 @@ export class CodeGeneratorC {
 
         // Handle array assignment specially
         if (isArrayType(lhs.$.type)) {
-          const arrayType = lhs.$.type;
-          const arrayLength = arrayType.length;
+          // For array, use direct struct assignment
           this.emitter.emitLine(
-            `${indent}${tempVarNameAndType}; // Save old value for later use`
+            `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`
           );
-
-          if (isNumberValue(arrayLength)) {
-            // For array, we need to copy each element
-            for (let i = 0; i < arrayLength.value; i++) {
-              this.emitter.emitLine(
-                `${indent}${tempVarName}[${i}] = ${lhsCode}[${i}];`
-              );
-            }
-          }
         } else {
           if (!isUnitType(lhs.$.type)) {
             this.emitter.emitLine(
@@ -1253,52 +1297,20 @@ export class CodeGeneratorC {
 
       // Handle array assignments specially
       if (isArrayType(lhs.$.type)) {
-        const arrayType = lhs.$.type;
-        const arrayLength = arrayType.length;
-
+        // Since we use struct wrappers consistently, we can use direct struct assignment
+        const rhsCode = this.generateExpr(rhs, indent);
         if (isInitialization) {
-          // For initialization, use the variable type string which handles arrays correctly
+          // For initialization
           const varTypeAndName = this.getVariableTypeString(
             lhs.$.type,
             this.generateExpr(lhs, indent)
           );
-          const rhsCode = this.generateExpr(rhs, indent);
           this.emitter.emitLine(
             `${indent}${isMutable ? "" : "const "}${varTypeAndName} = ${rhsCode};`
           );
         } else {
-          // For assignment to existing array, we need element-by-element assignment
-          const rhsCode = this.generateExpr(rhs, indent);
-
-          // Check if RHS is an array literal that we can unpack
-          if (
-            exprIsFunctionCall(rhs) &&
-            exprIsFunctionCallOf(rhs, BuiltinKeywords.array)
-          ) {
-            const runtimeArgExprs = rhs.$?.runtimeArgExprsInOrder;
-            if (runtimeArgExprs && isNumberValue(arrayLength)) {
-              // Generate element-by-element assignment
-              for (
-                let i = 0;
-                i < runtimeArgExprs.length && i < arrayLength.value;
-                i++
-              ) {
-                const elemCode = this.generateExpr(runtimeArgExprs[i]!, indent);
-                this.emitter.emitLine(
-                  `${indent}${lhsCode}[${i}] = ${elemCode};`
-                );
-              }
-            }
-          } else {
-            // For other RHS expressions (like copying from another array), do element-by-element copy
-            if (isNumberValue(arrayLength)) {
-              for (let i = 0; i < arrayLength.value; i++) {
-                this.emitter.emitLine(
-                  `${indent}${lhsCode}[${i}] = ${rhsCode}[${i}];`
-                );
-              }
-            }
-          }
+          // For assignment to existing array variable, use direct struct assignment
+          this.emitter.emitLine(`${indent}${lhsCode} = ${rhsCode};`);
         }
       } else {
         // Non-array assignment - use existing logic
@@ -1401,12 +1413,12 @@ export class CodeGeneratorC {
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
       const arrayType = expr.$?.type;
       if (isArrayType(arrayType) && runtimeArgExprs) {
-        // Generate tuple initialization
+        // Generate struct wrapper initialization
         const argsList = runtimeArgExprs
           .map((arg) => this.generateExpr(arg, indent))
           .join(", ");
-        // return `(${this.getTypeString(arrayType)}){ ${argsList} }`;
-        return `{ ${argsList} }`;
+        const arrayTypeName = this.getTypeString(arrayType);
+        return `(${arrayTypeName}){ .data = { ${argsList} } }`;
       }
     }
     // recur
@@ -1640,8 +1652,8 @@ export class CodeGeneratorC {
         // Array access by index
         const arrayCode = this.generateExpr(expr.func!, indent);
         const indexCode = this.generateExpr(expr.args[0]!, indent);
-        // Generate array access
-        return `${arrayCode}[${indexCode}]`; // Access the element at the index
+        // Generate array access with struct wrapper
+        return `${arrayCode}.data[${indexCode}]`; // Access the element at the index
       }
     }
 
@@ -1751,6 +1763,14 @@ export class CodeGeneratorC {
 
         return `(${cName}){ ${fields.join(", ")} }`;
       }
+    } else if (isArrayValue(value)) {
+      // For array values, generate struct wrapper initialization
+      const arrayType = value.type;
+      const arrayTypeName = this.getTypeString(arrayType);
+      const elementCodes = value.elements.map((element) =>
+        this.generateComptValue(element)
+      );
+      return `(${arrayTypeName}){ .data = { ${elementCodes.join(", ")} } }`;
     } else if (isFunctionValue(value)) {
       // For function values, we need to register them and return their C function name
       const cName = this.functions[value.funcId]?.cName;

@@ -123,7 +123,7 @@ export function createCaptureTypeAndValue({
     // Inference case: create new anonymous struct from captured variables
     if (capturedVariablesWithValues && capturedVariablesWithValues.size > 0) {
       // Create a struct type using createStructType
-      const inferredCaptureType = createStructType(env, true);
+      const inferredCaptureType = createStructType(env);
 
       // Create elements from captured variables
       const captureElements: TupleElement[] = Array.from(
@@ -164,7 +164,7 @@ export function createCaptureTypeAndValue({
       }
     } else {
       // No captured variables but expected SomeType - create empty struct
-      const emptyStructType = createStructType(env, true);
+      const emptyStructType = createStructType(env);
       emptyStructType.elements = [];
       captureType = emptyStructType;
       captureValue = createStructValue(emptyStructType, []);
