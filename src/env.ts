@@ -173,7 +173,17 @@ export function addVariableToEnv({
   }
 
   const frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
-  const frame = env.frames[frameLevel]!;
+  const frame = env.frames[frameLevel];
+  if (!frame) {
+    // print traceback
+    console.trace(
+      `Frame at level ${frameLevel} does not exist in the environment.`
+    );
+    throw new Error(
+      `Frame at level ${frameLevel} does not exist in the environment.`
+    );
+  }
+
   const id = isTempVariableName(env.modulePath, variable.name)
     ? variable.name
     : (variableId ?? generateVarialeId(env.modulePath, variable.name));
