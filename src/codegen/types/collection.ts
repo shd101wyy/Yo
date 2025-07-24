@@ -1,0 +1,180 @@
+import { Expr, ExprTag } from "../../expr";
+import {
+  ArrayType,
+  FunctionType,
+  isArrayType,
+  isEnumType,
+  isStructType,
+  isTupleType,
+  isUnionType,
+  Type,
+} from "../../types";
+import {
+  isFunctionValue,
+  isNumberValue,
+  isTypeValue,
+  ModuleValue,
+} from "../../value";
+import { PrimitiveTypeTags } from "../constants";
+import {
+  CodeGenContext,
+  getTypeString,
+  sanitizeForCIdentifier,
+} from "../utils";
+
+/**
+ * Collect all user-defined types that need to be generated
+ */
+export function collectRequiredTypes(
+  moduleValue: ModuleValue,
+  context: CodeGenContext
+): void {
+  // Start with exports functions and collect types used in their signatures and bodies
+  for (let i = 0; i < moduleValue.elements.length; i++) {
+    const value = moduleValue.elements[i]!;
+
+    if (isFunctionValue(value)) {
+      // Collect types from function signatures
+      collectTypesFromFunctionType(value.type, context);
+
+      // Collect types from function body expressions
+      collectTypesFromExpr(value.body, context);
+    }
+  }
+
+  // Also collect types from non-exported functions we've already collected
+  // Traverse this.functions
+  for (const funcId in context.functions) {
+    const func = context.functions[funcId]!;
+    collectTypesFromFunctionType(func.value.type, context);
+    collectTypesFromExpr(func.value.body, context);
+  }
+}
+
+/**
+ * Collect types from a function type signature
+ */
+export function collectTypesFromFunctionType(
+  functionType: FunctionType,
+  context: CodeGenContext
+): void {
+  // Collect types from parameters
+  for (const param of functionType.parameters) {
+    collectType(param.type, context);
+  }
+  for (const param of functionType.typeParameters) {
+    collectType(param.type, context);
+  }
+  for (const param of functionType.implicitParameters) {
+    collectType(param.type, context);
+  }
+
+  // Collect type from return type
+  collectType(functionType.return.type, context);
+}
+
+/**
+ * Collect types from an expression
+ */
+export function collectTypesFromExpr(
+  expr: Expr,
+  context: CodeGenContext
+): void {
+  // If the expression has type information, collect it
+  if (expr.$ && expr.$.type) {
+    collectType(expr.$.type, context);
+  }
+
+  switch (expr.tag) {
+    case ExprTag.FuncCall:
+      // Collect types from function arguments
+      for (const arg of expr.args) {
+        collectTypesFromExpr(arg, context);
+      }
+      break;
+    case ExprTag.Atom:
+      // Nothing special for atoms
+
+      if (expr.$?.value && isTypeValue(expr.$.value)) {
+        collectType(expr.$.value.value, context);
+      }
+
+      break;
+  }
+}
+
+/**
+ * Collect a single type if it's a user-defined type
+ */
+export function collectType(type: Type, context: CodeGenContext): void {
+  if (context.types[type.id]) {
+    return; // Already collected this type
+  }
+
+  if (
+    isStructType(type) ||
+    isUnionType(type) ||
+    isEnumType(type) ||
+    isTupleType(type)
+  ) {
+    // Use the struct's id to generate a mangled C type name
+    const cTypeName = `yo_${type.id}`;
+    context.types[type.id] = {
+      type,
+      cName: cTypeName,
+    };
+  }
+  // Check if it's array types
+  else if (isArrayType(type)) {
+    const arrayType = type as ArrayType;
+    const elementType = arrayType.elementType;
+    const length = arrayType.length;
+    if (isNumberValue(length)) {
+      // Recursively collect the element type
+      collectType(elementType, context);
+
+      // Generate struct wrapper for arrays and register it
+      const elementTypeString = getTypeString(elementType, context);
+      const arrayTypeName = `Array_${sanitizeForCIdentifier(elementTypeString)}_${length.value}`;
+
+      // Register the array type if not already registered
+      if (!context.arrayStructTypes.has(arrayTypeName)) {
+        context.arrayStructTypes.set(arrayTypeName, {
+          elementType: elementTypeString,
+          length: length.value,
+        });
+      }
+
+      context.types[type.id] = {
+        type,
+        cName: arrayTypeName,
+      };
+    }
+  }
+  // Check if it's primitive types
+  else if (PrimitiveTypeTags.has(type.tag)) {
+    context.types[type.id] = {
+      type,
+      cName: getTypeString(type, context),
+    };
+  }
+  /*
+    // NOTE: No need to collect pointer/reference types here,
+    // Check if it's pointer/reference types
+    else if (
+      isPtrType(type) ||
+      isMutPtrType(type) ||
+      isRefType(type) ||
+      isMutRefType(type)
+    ) {
+      // Use the base type's C name
+      const baseType = type.type;
+      const baseCName = this.getTypeString(baseType);
+      const cName = `${baseCName}*`; // Pointer type in C
+      this.types[type.id] = {
+        type,
+        cName,
+      };
+    }
+    */
+}
