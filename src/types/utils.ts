@@ -181,6 +181,13 @@ export function typeContainsSomeType(type?: Type): boolean {
       return (type as ModuleType).elements.some((element) =>
         typeContainsSomeType(element.type)
       );
+    case TypeTag.Ptr:
+    case TypeTag.MutPtr:
+    case TypeTag.Ref:
+    case TypeTag.MutRef:
+      return typeContainsSomeType(
+        (type as PtrType | MutPtrType | RefType | MutRefType).type
+      );
     default:
       return false; // For other types, no SomeType is present
   }

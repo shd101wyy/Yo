@@ -1,15 +1,56 @@
-open import "std";
-
 /**
- * Test compile-time string operations
- * This file tests the __yo_compt_string_* functions that operate
- * on compile-time known string values.
+ * Uniform Function Call Syntax (UFCS) in Yo Language
+ *
+ * UFCS allows calling module functions using dot notation (receiver.method()).
+ * Requirements:
+ * 1. The function must be defined and exported from a module
+ * 2. The receiver's type must match the first parameter's type
+ * 3. The module must define a 'Self' type alias for the receiver type
+ * 
+ * Type matching considers ownership:
+ * - &(T).method() requires first parameter: &(T) 
+ * - T.method() requires first parameter: T
+ * 
+ * Examples:
+ * - x.copy() calls LinearI32Methods.copy(&(x)) when x: &(LinearI32)
+ * - x.consume() calls LinearI32Methods.consume(x) when x: LinearI32
  */
-main :: (()-> unit) {
-  // Test complex string operations combining multiple features
-  // constructed :: (((("He" + "llo") + " ") + "Wo") + "rld");
-  constructed :: ("He" + "llo");
-  constructed2 :: (constructed + " ");
-  constructed3 :: (constructed2 + "Wo");
-  constructed4 :: (constructed3 + "rld");
+
+(compt(LinearI32) : Linear) = i32;
+
+LinearI32Methods :: module {
+  Self :: LinearI32;
+
+  copy ::
+    ((self: &(Self)) -> i32)
+      999
+  ;
+
+  add ::
+    ((lhs: &(Self), rhs: &(Self))-> i32)
+      666
+  ;
+  (+) ::
+    ((lhs: &(Self), rhs: &(Self))-> i32)
+      888
+  ;
+
+  consume ::
+    ((self: Self)-> unit)
+    ()
+  ;
+
+  export
+    Self,
+    copy,
+    add,
+    +,
+    consume
+  ;
+};
+
+test_refs :: ((x: &(LinearI32), y: &(LinearI32)) -> unit) {
+  a := LinearI32Methods.copy(x); // allowed
+
+  b := x.copy(); // allowed
 };

@@ -1,6 +1,7 @@
 import { formatErrorMessages } from "./error";
 import { RAIIToken, Token } from "./token";
 import {
+  areTypesCompatible,
   isEnumType,
   isFunctionType,
   isModuleType,
@@ -12,6 +13,7 @@ import {
   isUnionType,
   ModuleType,
   Type,
+  typeContainsSomeType,
   TypeTag,
   typeToString,
 } from "./types";
@@ -522,19 +524,6 @@ export function getMethodsByNameFromEnv(
       (element) =>
         element.label === methodName &&
         (isFunctionType(element.type) || isModuleType(element.type))
-      // && element.type.parameters.length > 0
-
-      /*
-        // NOTE: No need to compare the types here.
-        // Let's leave the evaluateFunctionCall function to handle this.
-        areTypesCompatible(
-          {
-            type: element.type.parameters[0]!.type,
-            env, // QUESTION: What should be the env here?
-          },
-          { type: receiverType, env }
-        )
-        */
     );
 
     if (method) {
@@ -585,23 +574,46 @@ export function getMethodsByNameFromEnv(
     }
   }
 
-  // Automatically dereference if it's pointer/reference type
-  while (
-    isPtrType(receiverType) ||
-    isMutPtrType(receiverType) ||
-    isRefType(receiverType) ||
-    isMutRefType(receiverType)
-  ) {
-    receiverType = receiverType.type;
+  function filterMethodsByReceiverType(
+    methods: { type: Type; value: Value | undefined }[]
+  ): { type: Type; value: Value | undefined }[] {
+    return methods.filter((method) => {
+      if (isFunctionType(method.type)) {
+        // Check if the first parameter is compatible with the receiverType
+        return (
+          method.type.parameters.length > 0 &&
+          (typeContainsSomeType(method.type.parameters[0]!.type) || // Leave it to the later function call checker.
+            areTypesCompatible(
+              {
+                type: method.type.parameters[0]!.type,
+                env: method.type.env, // QUESTION: What should be the env here?
+              },
+              { type: receiverType, env }
+            ))
+        );
+      }
+      return true; // QUESTION: How to handle non-function types?
+    });
   }
 
-  // Check if the receiverType itself has method that can be called
-  if (
-    isStructType(receiverType) ||
-    isEnumType(receiverType) ||
-    isUnionType(receiverType)
+  // Automatically dereference if it's pointer/reference type
+  let dereferencedReceiverType = receiverType;
+  while (
+    isPtrType(dereferencedReceiverType) ||
+    isMutPtrType(dereferencedReceiverType) ||
+    isRefType(dereferencedReceiverType) ||
+    isMutRefType(dereferencedReceiverType)
   ) {
-    const method = receiverType.module.elements.find(
+    dereferencedReceiverType = dereferencedReceiverType.type;
+  }
+
+  // Check if the dereferencedReceiverType itself has method that can be called
+  if (
+    isStructType(dereferencedReceiverType) ||
+    isEnumType(dereferencedReceiverType) ||
+    isUnionType(dereferencedReceiverType)
+  ) {
+    const method = dereferencedReceiverType.module.elements.find(
       (element) =>
         element.label === methodName &&
         (isFunctionType(element.type) || isModuleType(element.type))
@@ -627,7 +639,7 @@ export function getMethodsByNameFromEnv(
   // Type methods have higher priority than module methods,
   // so we check the module methods only if there are no type methods.
   if (methods.length > 0 || onlyFromTypeMethods) {
-    return methods;
+    return filterMethodsByReceiverType(methods);
   }
 
   // Check the modules
@@ -647,7 +659,7 @@ export function getMethodsByNameFromEnv(
     }
   }
 
-  return methods;
+  return filterMethodsByReceiverType(methods);
 }
 
 /**
