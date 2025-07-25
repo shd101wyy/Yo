@@ -738,11 +738,17 @@ export function evaluatePropertyAccess({
           (property) => property.label === propertyName
         );
         if (fieldIndex < 0) {
+          /*
           throw formatErrorMessage({
             token: propertyExpr.token,
             errorMessage: `Enum variant property "${propertyName}" not found in enum variant "${objectType.selectedVariantName}"`,
           });
+          */
+          // It could be method call
+          expr.$ = undefined;
+          return expr;
         }
+
         const field = (selectedVariant.elements ?? [])[fieldIndex]!;
 
         expr.$ = {

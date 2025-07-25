@@ -1207,12 +1207,12 @@ function generateMatchExpression(
   }
   const tempVariableName = expr.$.variableName;
   const valueType = expr.$.type;
+  const isUnit = valueType && isUnitType(valueType);
 
   // Create temp variable declaration
-  if (tempVariableName) {
-    context.emitter.emitLine(
-      `${indent}${getTypeString(valueType, context)} ${tempVariableName};`
-    );
+  if (!isUnit && tempVariableName) {
+    const varType = getTypeString(valueType, context);
+    context.emitter.emitLine(`${indent}${varType} ${tempVariableName};`);
   }
 
   // Generate the matched value
@@ -1304,7 +1304,7 @@ function generateMatchExpression(
         indent + "  ",
         context
       );
-      if (tempVariableName) {
+      if (!isUnit && tempVariableName) {
         context.emitter.emitLine(
           `${indent}  ${tempVariableName} = ${bodyCode};`
         );
@@ -1317,7 +1317,7 @@ function generateMatchExpression(
 
     if (nullCase) {
       const bodyCode = generateExpr(nullCase.caseBody, indent + "  ", context);
-      if (tempVariableName) {
+      if (!isUnit && tempVariableName) {
         context.emitter.emitLine(
           `${indent}  ${tempVariableName} = ${bodyCode};`
         );
@@ -1327,7 +1327,7 @@ function generateMatchExpression(
     }
 
     context.emitter.emitLine(`${indent}}`);
-    return tempVariableName ?? "";
+    return isUnit ? "" : (tempVariableName ?? "");
   }
 
   // Check if this enum can be optimized as a simple C enum
@@ -1367,11 +1367,11 @@ function generateMatchExpression(
 
           // Generate the body of the case
           const bodyCode = generateExpr(caseBody, indent + "  ", context);
-          if (tempVariableName) {
+          if (!isUnit && tempVariableName) {
             context.emitter.emitLine(
               `${indent}  ${tempVariableName} = ${bodyCode};`
             );
-          } else {
+          } else if (bodyCode) {
             context.emitter.emitLine(`${indent}  ${bodyCode};`);
           }
           context.emitter.emitLine(`${indent}  break;`);
@@ -1380,7 +1380,7 @@ function generateMatchExpression(
     }
 
     context.emitter.emitLine(`${indent}}`);
-    return tempVariableName ?? "";
+    return isUnit ? "" : (tempVariableName ?? "");
   }
 
   // Original tagged union matching
@@ -1426,11 +1426,11 @@ function generateMatchExpression(
 
         // Generate the body of the case
         const bodyCode = generateExpr(caseBody, indent + "  ", context);
-        if (tempVariableName) {
+        if (!isUnit && tempVariableName) {
           context.emitter.emitLine(
             `${indent}  ${tempVariableName} = ${bodyCode};`
           );
-        } else {
+        } else if (bodyCode) {
           context.emitter.emitLine(`${indent}  ${bodyCode};`);
         }
         context.emitter.emitLine(`${indent}  break;`);
@@ -1439,7 +1439,7 @@ function generateMatchExpression(
   }
 
   context.emitter.emitLine(`${indent}}`);
-  return tempVariableName ?? ""; // Return the temp variable name
+  return isUnit ? "" : (tempVariableName ?? ""); // Return the temp variable name
 }
 
 /**
