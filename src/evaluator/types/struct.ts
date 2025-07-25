@@ -77,20 +77,23 @@ function parseAndEvaluateExprInStruct(
  */
 function generateDropFunctionCode(structType: StructType): string {
   const destructurePattern = structType.elements
-    .filter((element) => !element.isCompileTimeOnly)
+    .filter(
+      (element) =>
+        !element.isCompileTimeOnly && isLinearOrType0Type(element.type)
+    )
     .map((element) => element.label)
     .join(", ");
 
   // If no fields to destructure, just create an empty function
   if (!destructurePattern) {
-    return `drop :: (((self: Self) -> unit) {
-      (); // No fields to drop
-    })`;
+    return `drop :: (((self: Self) -> unit)
+  () // No fields to drop
+)`;
   }
 
   return `drop :: (((self: Self) -> unit) {
-    { ${destructurePattern} } := self;
-  })`;
+  { ${destructurePattern} } := self;
+})`;
 }
 
 /**
@@ -325,9 +328,8 @@ export function evaluateStructType({
     } catch (error) {
       // If auto-generation fails, we continue without the drop function
       // This prevents breaking existing code that doesn't need RAII
-      console.warn(
-        `Failed to auto-generate drop function for struct: ${error instanceof Error ? error.message : String(error)}`
-      );
+      console.warn(`Failed to auto-generate drop function for struct:`);
+      console.warn(error);
     }
   }
 
