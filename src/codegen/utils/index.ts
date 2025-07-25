@@ -11,6 +11,7 @@ import {
   isMutRefType,
   isPtrType,
   isRefType,
+  isSliceType,
   SliceType,
   Type,
   TypeId,
@@ -213,8 +214,9 @@ export function getTypeString(
     const baseType = type.type;
     const isMutable = isMutPtrType(type) || isMutRefType(type);
 
-    // Special handling for pointer-to-slice
-    if (baseType.tag === TypeTag.Slice) {
+    // Special handling for pointer-to-slice: in Rust-like semantics,
+    // *[T] (pointer to slice) IS the fat pointer struct, not a pointer to fat pointer
+    if (isSliceType(baseType)) {
       const sliceType = baseType as SliceType;
       const elementTypeString = getTypeString(sliceType.elementType, context);
       const sliceTypeName = `Slice_${sanitizeForCIdentifier(elementTypeString)}`;
@@ -226,11 +228,8 @@ export function getTypeString(
         });
       }
 
-      if (isMutable) {
-        return `${sliceTypeName}*`; // Mutable pointer to slice
-      } else {
-        return `${sliceTypeName}* const`; // Immutable pointer to slice
-      }
+      // Return the slice struct type directly, not a pointer to it
+      return sliceTypeName;
     }
 
     const baseTypeStr = getTypeString(baseType, context);

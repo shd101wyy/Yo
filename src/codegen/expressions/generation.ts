@@ -24,6 +24,7 @@ import {
   isTupleType,
   isUnionType,
   isUnitType,
+  SliceType,
   Type,
   TypeTag,
   typeToString,
@@ -354,9 +355,12 @@ function generateFuncCall(
 
     return expr.$?.variableName ?? "";
   }
-  // already computed
-  // NOTE: This has to be below the assignment checks
-  else if (expr.$?.value && !isUnknownValue(expr.$?.value)) {
+  // already computed and it's not unit value
+  else if (
+    expr.$?.value &&
+    !isUnknownValue(expr.$?.value) &&
+    !isUnitType(expr.$.type)
+  ) {
     const value: Value = expr.$.value;
     return generateComptValue(value, context);
   }
@@ -368,7 +372,9 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.begin)) {
     const tempVariableName = expr.$?.variableName;
     const valueType = expr.$?.type;
+
     if (tempVariableName && valueType) {
+      // Expression form: begin block that returns a value
       if (!isUnitType(valueType) && !expr.$?.controlFlow) {
         context.emitter.emitLine(
           `${indent}${getTypeString(valueType, context)} ${tempVariableName};`
@@ -467,6 +473,51 @@ function generateFuncCall(
           } else {
             return `/* Error: Cannot slice array with non-compile-time length */`;
           }
+        }
+      } else if (
+        funcType &&
+        (isSliceType(funcType) ||
+          (isPtrType(funcType) && isSliceType(funcType.type)))
+      ) {
+        // Handle slice-from-slice: *(slice(start:end))
+        const sliceBaseType = isSliceType(funcType)
+          ? (funcType as SliceType)
+          : (funcType.type as SliceType);
+        const firstArg = arg.args[0];
+        if (
+          firstArg &&
+          exprIsFunctionCall(firstArg) &&
+          exprIsFunctionCallOf(firstArg, ":")
+        ) {
+          // *(slice(start:end)) -> create sub-slice
+          const sliceCode = generateExpr(arg.func!, indent, context);
+          const startCode = generateExpr(firstArg.args[0]!, indent, context);
+          const endCode = generateExpr(firstArg.args[1]!, indent, context);
+
+          const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(sliceBaseType.elementType, context))}`;
+          // Register the slice type
+          if (!context.sliceStructTypes.has(sliceTypeName)) {
+            context.sliceStructTypes.set(sliceTypeName, {
+              elementType: getTypeString(sliceBaseType.elementType, context),
+            });
+          }
+          return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = ${endCode} - ${startCode} }`;
+        } else if (
+          firstArg &&
+          exprIsAtom(firstArg) &&
+          firstArg.token.value === ":"
+        ) {
+          // *(slice(:)) -> create slice copy of whole slice
+          const sliceCode = generateExpr(arg.func!, indent, context);
+
+          const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(sliceBaseType.elementType, context))}`;
+          // Register the slice type
+          if (!context.sliceStructTypes.has(sliceTypeName)) {
+            context.sliceStructTypes.set(sliceTypeName, {
+              elementType: getTypeString(sliceBaseType.elementType, context),
+            });
+          }
+          return `(${sliceTypeName}){ .data = ${sliceCode}.data, .length = ${sliceCode}.length }`;
         }
       }
     }
@@ -1702,6 +1753,17 @@ function generateForLoop(
     if (lengthValue && isNumberValue(lengthValue)) {
       arrayLength = lengthValue.value.toString();
     }
+  } else if (
+    itemsType &&
+    (isSliceType(itemsType) ||
+      (isPtrType(itemsType) && isSliceType(itemsType.type)))
+  ) {
+    // Handle slice iteration
+    const sliceType = isSliceType(itemsType)
+      ? (itemsType as SliceType)
+      : (itemsType.type as SliceType);
+    elementTypeStr = getTypeString(sliceType.elementType, context);
+    arrayLength = `${arrayCode}.length`; // Use runtime length from slice
   }
 
   // Generate the C for loop
