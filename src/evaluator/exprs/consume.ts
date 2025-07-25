@@ -12,10 +12,7 @@ import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 
 /**
- * consume is needed for case like:
- *
- *   ptr := malloc(sizeof(SomeLinearType));
- *   consume(ptr.* = SomeData); // discard the old value and set the new value
+ * consume a variable
  */
 export function evaluateConsume({
   expr,

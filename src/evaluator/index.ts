@@ -516,13 +516,13 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       ) {
         // and/or
         return evaluateAndOr({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume, 2)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume)) {
         // consume
         return evaluateConsume({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.drop, 1)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.drop)) {
         // drop
         return evaluateDrop({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.quote, 1)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.quote)) {
         // metaprogramming
         // quote
         return evaluateQuote({ expr, env, context: { ...context } });

@@ -2,6 +2,8 @@ import { checkBorrowings } from "../../borrow";
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  BuiltinKeywords,
+  expectExprToBeFunctionCallOf,
   Expr,
   ExprTag,
   exprToString,
@@ -27,6 +29,8 @@ export function evaluateDrop({
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
+  expectExprToBeFunctionCallOf(expr, BuiltinKeywords.drop, 1);
+
   const argExpr = expr.args[0]!;
   const evaluatedArgExpr = context.evaluateExpression({
     expr: argExpr,

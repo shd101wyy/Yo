@@ -2,6 +2,7 @@ import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
+  expectExprToBeFunctionCallOf,
   Expr,
   exprIsAtom,
   exprIsAtomOf,
@@ -171,6 +172,8 @@ export function evaluateQuote({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
+  expectExprToBeFunctionCallOf(expr, BuiltinKeywords.quote, 1);
+
   const quotedExpr = processUnquotesInExpr({
     expr: expr.args[0]!,
     env: env,

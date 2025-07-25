@@ -43,8 +43,9 @@ export interface EvaluatorContext {
     /**
      * The environment at the time the function body is being evaluated.
      * This is used to determine the frame level for closure variable capture.
+     * The evaluationEnv should contain the frame of parameters/arguments
      */
-    evaluationEnv?: Environment;
+    evaluationEnv: Environment;
   };
 
   /**

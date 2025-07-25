@@ -1025,7 +1025,7 @@ export function setExprAsConsumed(
     if (
       context.isEvaluatingFunctionBody &&
       variableToConsume.frameLevel <
-        context.isEvaluatingFunctionBody.type.env.frames.length &&
+        context.isEvaluatingFunctionBody.evaluationEnv.frames.length - 1 && // -1 here to exclude the parameters/arguments frame.
       !(context.isEvaluatingFunctionBody.type.closureKind === "FnOnce")
     ) {
       throw formatErrorMessages([

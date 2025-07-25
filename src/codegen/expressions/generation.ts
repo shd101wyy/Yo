@@ -621,6 +621,11 @@ function generateFuncCall(
       return `// Error: Anonymous function missing function value`;
     }
   }
+  // consume
+  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume)) {
+    // consume is a no-op in C, just return empty string
+    return "";
+  }
   // other function call
   else {
     const functionType = expr.func.$?.type;
