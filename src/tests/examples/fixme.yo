@@ -1,19 +1,23 @@
 open import "std";
 { printf } :: import "std/libc/stdio";
 
-sum :: (() -> i32) {
-  arr := [1, 2, 3];
+
+sum :: ((slice : *([i32])) -> i32) {
   mut(result) := 0;
-  for arr, (mut(elem), index) => {
+  for slice, (mut(elem), index) => {
     printf("Element at index %d: %d\n", index, elem);
     result = (elem + result);
   };
   return result;
 };
 
+
 main :: (() -> i32) {
-  result := sum();
-  printf("Sum of array elements: %d\n", result);
+  arr := [1, 2, 3, 4, 5];
+  slice := *(arr(0:3));
+  slice2 := slice;
+  // result := sum(slice);
+  // printf("Sum of array elements: %d\n", result);
   return 0;
 };
 

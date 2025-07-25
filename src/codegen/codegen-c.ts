@@ -39,6 +39,7 @@ export class CodeGeneratorC {
       externFunctions: {},
       types: {},
       arrayStructTypes: new Map(),
+      sliceStructTypes: new Map(),
       currentFunctionName: "",
       emitter: this.emitter,
       cIncludes: new Set([

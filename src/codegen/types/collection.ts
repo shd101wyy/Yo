@@ -4,10 +4,16 @@ import {
   FunctionType,
   isArrayType,
   isEnumType,
+  isMutPtrType,
+  isMutRefType,
+  isPtrType,
+  isRefType,
   isStructType,
   isTupleType,
   isUnionType,
+  SliceType,
   Type,
+  TypeTag,
 } from "../../types";
 import {
   isFunctionValue,
@@ -150,6 +156,37 @@ export function collectType(type: Type, context: CodeGenContext): void {
         cName: arrayTypeName,
       };
     }
+  }
+  // Check if it's pointer-to-slice types
+  else if (
+    (isPtrType(type) ||
+      isMutPtrType(type) ||
+      isRefType(type) ||
+      isMutRefType(type)) &&
+    type.type.tag === TypeTag.Slice
+  ) {
+    const sliceType = type.type as SliceType;
+    const elementType = sliceType.elementType;
+
+    // Recursively collect the element type
+    collectType(elementType, context);
+
+    // Generate struct wrapper for slices and register it
+    const elementTypeString = getTypeString(elementType, context);
+    const sliceTypeName = `Slice_${sanitizeForCIdentifier(elementTypeString)}`;
+
+    // Register the slice type if not already registered
+    if (!context.sliceStructTypes.has(sliceTypeName)) {
+      context.sliceStructTypes.set(sliceTypeName, {
+        elementType: elementTypeString,
+      });
+    }
+
+    // The pointer-to-slice type gets the usual pointer type treatment
+    context.types[type.id] = {
+      type,
+      cName: getTypeString(type, context),
+    };
   }
   // Check if it's primitive types
   else if (PrimitiveTypeTags.has(type.tag)) {

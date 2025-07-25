@@ -11,6 +11,7 @@ import {
   FuncCallExpr,
 } from "../../expr";
 import {
+  ArrayType,
   isArrayType,
   isEnumType,
   isFunctionType,
@@ -18,6 +19,7 @@ import {
   isMutRefType,
   isPtrType,
   isRefType,
+  isSliceType,
   isStructType,
   isTupleType,
   isUnionType,
@@ -48,6 +50,7 @@ import {
   getTypeString,
   getVariableTypeString,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
+  sanitizeForCIdentifier,
 } from "../utils";
 import { generateArrayFillCall, isArrayFillMethodCall } from "./array";
 
@@ -230,13 +233,26 @@ function generateFuncCall(
         }
       } else {
         // Non-array initialization - use existing logic
-        const varTypeAndName = getVariableTypeString(
-          lhs.$.type,
-          varName,
-          context
-        );
         const rhsCode = generateExpr(rhs, indent, context);
-        if (!isUnitType(lhs.$.type)) {
+
+        // Special handling for slice initialization.
+        if (isPtrType(lhs.$.type) && isSliceType(lhs.$.type.type)) {
+          const sliceType = lhs.$.type.type; // Get the slice type directly
+          const varTypeAndName = getVariableTypeString(
+            sliceType,
+            varName,
+            context
+          );
+          context.emitter.emitLine(
+            `${indent}${isMutable ? "" : "const "}${varTypeAndName} = ${rhsCode};`
+          );
+        } else {
+          // Normal initialization
+          const varTypeAndName = getVariableTypeString(
+            lhs.$.type,
+            varName,
+            context
+          );
           context.emitter.emitLine(
             `${indent}${isMutable ? "" : "const "}${varTypeAndName} = ${rhsCode};`
           );
@@ -401,6 +417,60 @@ function generateFuncCall(
       return `// Error: No type information for pointer/reference expression ${exprToString(expr)}\n`;
     }
     const arg = expr.args[0]!;
+
+    // Special case: *(arr(0:3)) or *(arr(:)) should create slice values directly
+    if (exprIsFunctionCall(arg)) {
+      const funcType = arg.func.$?.type;
+      if (funcType && isArrayType(funcType)) {
+        const firstArg = arg.args[0];
+        if (
+          firstArg &&
+          exprIsFunctionCall(firstArg) &&
+          exprIsFunctionCallOf(firstArg, ":")
+        ) {
+          // *(arr(start:end)) -> create slice value directly
+          const arrayCode = generateExpr(arg.func!, indent, context);
+          const startCode = generateExpr(firstArg.args[0]!, indent, context);
+          const endCode = generateExpr(firstArg.args[1]!, indent, context);
+
+          const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((funcType as ArrayType).elementType, context))}`;
+          // Register the slice type
+          if (!context.sliceStructTypes.has(sliceTypeName)) {
+            context.sliceStructTypes.set(sliceTypeName, {
+              elementType: getTypeString(
+                (funcType as ArrayType).elementType,
+                context
+              ),
+            });
+          }
+          return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = ${endCode} - ${startCode} }`;
+        } else if (
+          firstArg &&
+          exprIsAtom(firstArg) &&
+          firstArg.token.value === ":"
+        ) {
+          // *(arr(:)) -> create slice value for whole array
+          const arrayCode = generateExpr(arg.func!, indent, context);
+          const arrayType = funcType as ArrayType;
+          const elementType = arrayType.elementType;
+
+          const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(elementType, context))}`;
+          // Register the slice type
+          if (!context.sliceStructTypes.has(sliceTypeName)) {
+            context.sliceStructTypes.set(sliceTypeName, {
+              elementType: getTypeString(elementType, context),
+            });
+          }
+
+          if (isNumberValue(arrayType.length)) {
+            return `(${sliceTypeName}){ .data = &${arrayCode}.data[0], .length = ${arrayType.length.value} }`;
+          } else {
+            return `/* Error: Cannot slice array with non-compile-time length */`;
+          }
+        }
+      }
+    }
+
     const argCode = generateExpr(arg, indent, context);
 
     // For pointer/reference creation, we need to be careful about constness
@@ -666,11 +736,25 @@ function generateFuncCall(
         }
       }
     } else if (isArrayType(functionType)) {
-      // Array access by index
+      // Array access by index: arr[index] or arr(index)
       const arrayCode = generateExpr(expr.func!, indent, context);
       const indexCode = generateExpr(expr.args[0]!, indent, context);
       // Generate array access with struct wrapper
       return `${arrayCode}.data[${indexCode}]`; // Access the element at the index
+    } else if (isSliceType(functionType)) {
+      // Slice access by index: slice.data[index]
+      const sliceCode = generateExpr(expr.func!, indent, context);
+      const indexCode = generateExpr(expr.args[0]!, indent, context);
+      return `${sliceCode}.data[${indexCode}]`; // Access the element at the index in the slice
+    } else if (
+      functionType &&
+      isPtrType(functionType) &&
+      isSliceType(functionType.type)
+    ) {
+      // Slice access by index for pointer to slice (but we generate slice as value): slice.data[index]
+      const sliceCode = generateExpr(expr.func!, indent, context);
+      const indexCode = generateExpr(expr.args[0]!, indent, context);
+      return `${sliceCode}.data[${indexCode}]`; // Access the element at the index in the slice
     }
   }
 
@@ -889,6 +973,12 @@ function generateFieldAccess(
         return `(${cName}){ .tag = ${tagName}, .data = {  } }`;
       }
     }
+    // Special handling for slice types: even if they appear as pointer types in AST,
+    // they should use dot notation because we generate them as struct values
+    else if (isPtrType(objectType) && isSliceType(objectType.type)) {
+      // For slice types, always use dot notation regardless of pointer level in AST
+      return `${objectCode}.${fieldName}`;
+    }
     // Check if the object is pointer or reference
     else if (
       isPtrType(objectType) ||
@@ -897,7 +987,7 @@ function generateFieldAccess(
       isMutRefType(objectType)
     ) {
       if (fieldName === "*") {
-        // Dereference the pointer/reference
+        // Regular dereference for pointers/references
         return `*(${objectCode})`; // Dereference the pointer/reference
       } else {
         // Dereference until not a pointer/reference
@@ -913,10 +1003,14 @@ function generateFieldAccess(
           currentType = currentType.type;
         }
         if (dereferenceLevel > 0) {
-          // Dereference the pointer/reference
-          const dereferencedObjectCode = `${"*".repeat(dereferenceLevel)}(${objectCode})`;
-          // Access the field on the dereferenced object
-          return `${dereferencedObjectCode}.${fieldName}`;
+          // For pointer types, use arrow notation for field access
+          if (dereferenceLevel === 1) {
+            return `${objectCode}->${fieldName}`;
+          } else {
+            // Multiple levels of dereference: **(ptr).field
+            const dereferencedObjectCode = `${"*".repeat(dereferenceLevel - 1)}(${objectCode})`;
+            return `${dereferencedObjectCode}->${fieldName}`;
+          }
         } else {
           // If no dereferencing is needed, just access the field
           return `${objectCode}.${fieldName}`;

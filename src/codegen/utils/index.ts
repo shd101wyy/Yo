@@ -11,6 +11,7 @@ import {
   isMutRefType,
   isPtrType,
   isRefType,
+  SliceType,
   Type,
   TypeId,
   TypeTag,
@@ -42,6 +43,11 @@ export interface CodeGenContext {
    * Array struct types that need to be generated
    */
   arrayStructTypes: Map<string, { elementType: string; length: number }>;
+
+  /**
+   * Slice struct types that need to be generated
+   */
+  sliceStructTypes: Map<string, { elementType: string }>;
 
   /**
    * track the current function being generated for recur
@@ -177,6 +183,24 @@ export function getTypeString(
 
         return arrayTypeName;
       }
+      break;
+    }
+    case TypeTag.Slice: {
+      // Generate slice struct type name: Slice_ElementType
+      const sliceType = type as SliceType;
+      const elementTypeStr = sanitizeForCIdentifier(
+        getTypeString(sliceType.elementType, context)
+      );
+      const sliceTypeName = `Slice_${elementTypeStr}`;
+
+      // Register the slice type
+      if (!context.sliceStructTypes.has(sliceTypeName)) {
+        context.sliceStructTypes.set(sliceTypeName, {
+          elementType: getTypeString(sliceType.elementType, context),
+        });
+      }
+
+      return sliceTypeName;
     }
   }
 
@@ -188,6 +212,27 @@ export function getTypeString(
   ) {
     const baseType = type.type;
     const isMutable = isMutPtrType(type) || isMutRefType(type);
+
+    // Special handling for pointer-to-slice
+    if (baseType.tag === TypeTag.Slice) {
+      const sliceType = baseType as SliceType;
+      const elementTypeString = getTypeString(sliceType.elementType, context);
+      const sliceTypeName = `Slice_${sanitizeForCIdentifier(elementTypeString)}`;
+
+      // Register the slice type if not already registered
+      if (!context.sliceStructTypes.has(sliceTypeName)) {
+        context.sliceStructTypes.set(sliceTypeName, {
+          elementType: elementTypeString,
+        });
+      }
+
+      if (isMutable) {
+        return `${sliceTypeName}*`; // Mutable pointer to slice
+      } else {
+        return `${sliceTypeName}* const`; // Immutable pointer to slice
+      }
+    }
+
     const baseTypeStr = getTypeString(baseType, context);
     if (isMutable) {
       return `${baseTypeStr}*`; // Mutable pointer

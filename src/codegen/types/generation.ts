@@ -25,6 +25,9 @@ export function generateTypeDeclarations(context: CodeGenContext): void {
   // Generate array struct types first
   generateArrayStructDeclarations(context);
 
+  // Generate slice struct types
+  generateSliceStructDeclarations(context);
+
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
@@ -56,6 +59,20 @@ export function generateArrayStructDeclarations(context: CodeGenContext): void {
     emitter.emitDeclarationLine(`typedef struct { // Array wrapper struct`);
     emitter.emitDeclarationLine(`  ${elementType} data[${length}];`);
     emitter.emitDeclarationLine(`} ${arrayTypeName};`);
+    emitter.emitDeclarationLine("");
+  }
+}
+
+/**
+ * Generate slice struct type declarations
+ */
+export function generateSliceStructDeclarations(context: CodeGenContext): void {
+  const emitter = context.emitter;
+  for (const [sliceTypeName, { elementType }] of context.sliceStructTypes) {
+    emitter.emitDeclarationLine(`typedef struct { // Slice wrapper struct`);
+    emitter.emitDeclarationLine(`  ${elementType}* data;`);
+    emitter.emitDeclarationLine(`  size_t length;`);
+    emitter.emitDeclarationLine(`} ${sliceTypeName};`);
     emitter.emitDeclarationLine("");
   }
 }
