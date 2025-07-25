@@ -478,6 +478,7 @@ export function printEnvVarNames(env: Environment) {
   console.log(
     env.frames.map((frame) => {
       return frame.variables.map((variable) => ({
+        id: variable.id,
         name: variable.name,
         type: typeToString(variable.type),
         typeId: variable.type.id,

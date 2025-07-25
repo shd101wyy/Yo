@@ -1105,6 +1105,9 @@ export function mergeAndCheckEnvs(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   // tempVariableName: string
 ): Environment {
+  // console.log("env:");
+  // printEnvVarNames(env);
+
   const maxFrameLevel = env.frames.length - 1;
   const caseEnvs: Environment[] = [];
   for (let i = 0; i < bodies.length; i++) {
@@ -1119,6 +1122,8 @@ export function mergeAndCheckEnvs(
     }
 
     const caseEnv = body.$.env;
+    // console.log("case env: ", i);
+    // printEnvVarNames(caseEnv);
     caseEnvs.push(caseEnv);
   }
 
@@ -1224,6 +1229,15 @@ export function mergeAndCheckEnvs(
       }
 
       // Check type compatibility across cases for initialized variables
+      // This is for checking the code like:
+      //
+      //   mut(arr) : Array(i32, _);
+      //   compt_expect_error(
+      //     cond(
+      //       some_condition() => {arr = [1, 2, 3]; },
+      //       true => { arr = [1, 2, 3, 4]; }
+      //     )
+      //   );
       const initializedCases = initializedAtTokens
         .map((token, index) => ({ token, index }))
         .filter(({ token }) => !!token);
@@ -1236,6 +1250,10 @@ export function mergeAndCheckEnvs(
         for (let k = 1; k < initializedCases.length; k++) {
           const currentType = types[initializedCases[k]!.index]!;
           const currentCaseEnv = caseEnvs[initializedCases[k]!.index]!;
+
+          if (firstType === currentType) {
+            continue;
+          }
 
           if (
             !areTypesCompatible(
