@@ -1,12 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import {
-  BuiltinKeywords,
-  expectExprToBeFunctionCallOf,
-  Expr,
-  exprToString,
-  FuncCallExpr,
-} from "../../expr";
+import { Expr, exprToString, FuncCallExpr } from "../../expr";
 import { isBooleanType, isUnitType, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
 import { isBooleanValue } from "../../value";
@@ -28,9 +22,26 @@ export function evaluateWhile({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  expectExprToBeFunctionCallOf(expr, BuiltinKeywords.while, 2);
+  // Support both 2-argument (while condition, body) and 3-argument (while condition, step, body) forms
+  if (expr.args.length !== 2 && expr.args.length !== 3) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expected 2 or 3 arguments for while loop, got ${expr.args.length}`,
+    });
+  }
+
   const conditionExpr: Expr = expr.args[0]!;
-  const bodyExpr: Expr = expr.args[1]!;
+  let stepExpr: Expr | undefined = undefined;
+  let bodyExpr: Expr;
+
+  if (expr.args.length === 3) {
+    // 3-argument form: while condition, step, body
+    stepExpr = expr.args[1]!;
+    bodyExpr = expr.args[2]!;
+  } else {
+    // 2-argument form: while condition, body
+    bodyExpr = expr.args[1]!;
+  }
 
   // Evaluate the condition expression
   const evaluatedConditionExpr = context.evaluateExpression({
@@ -121,14 +132,47 @@ export function evaluateWhile({
           value: VUnit,
         };
       } else if (evaluatedBodyExpr.$.controlFlow === "continue") {
-        // Continue goes to next iteration, treat as unit for this evaluation
-        expr.$ = {
-          env: evaluatedBodyExpr.$.env,
-          isMutable: false,
-          pathCollection: [],
-          type: VUnit.type,
-          value: VUnit,
-        };
+        // Continue goes to next iteration
+        // Execute step expression if provided before continuing
+        let updatedEnv = evaluatedBodyExpr.$.env;
+        if (stepExpr) {
+          const evaluatedStepExpr = context.evaluateExpression({
+            expr: stepExpr,
+            env: updatedEnv,
+            context: {
+              ...context,
+            },
+          });
+          if (!evaluatedStepExpr.$) {
+            throw formatErrorMessage({
+              token: stepExpr.token,
+              errorMessage: `Failed to evaluate the step expression:\n${exprToString(stepExpr)}`,
+            });
+          }
+          updatedEnv = evaluatedStepExpr.$.env;
+        }
+
+        // If condition has a compile-time known value, we need to re-evaluate the entire loop
+        // If condition is runtime, we treat continue as returning unit for this evaluation
+        if (isBooleanValue(conditionValue)) {
+          // Compile-time known condition - re-evaluate the loop
+          return evaluateWhile({
+            expr: expr,
+            env: updatedEnv,
+            context: {
+              ...context,
+            },
+          });
+        } else {
+          // Runtime condition - treat as unit for this evaluation
+          expr.$ = {
+            env: updatedEnv,
+            isMutable: false,
+            pathCollection: [],
+            type: VUnit.type,
+            value: VUnit,
+          };
+        }
       }
       return expr;
     }
@@ -143,6 +187,25 @@ export function evaluateWhile({
 
     // update the env
     env = evaluatedBodyExpr.$.env;
+
+    // Execute step expression if provided (3-argument form)
+    if (stepExpr) {
+      const evaluatedStepExpr = context.evaluateExpression({
+        expr: stepExpr,
+        env,
+        context: {
+          ...context,
+        },
+      });
+      if (!evaluatedStepExpr.$) {
+        throw formatErrorMessage({
+          token: stepExpr.token,
+          errorMessage: `Failed to evaluate the step expression:\n${exprToString(stepExpr)}`,
+        });
+      }
+      // Update environment with step evaluation
+      env = evaluatedStepExpr.$.env;
+    }
 
     if (isBooleanValue(conditionValue) && conditionValue.value === true) {
       // Evaluate the condition again
