@@ -432,7 +432,7 @@ export interface FunctionType extends Type {
    * eg:
    *   (forall(compt(T): Type), x: T)-> T;
    */
-  typeParameters: FunctionParameter[];
+  forallParameters: FunctionParameter[];
 
   /**
    * The implicit parameters (aka contextual parameters), usually define in implicit(...):

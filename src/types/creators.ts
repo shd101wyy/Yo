@@ -416,7 +416,7 @@ export function createUnionType(env: Environment): UnionType {
 
 export function createFunctionType({
   parameters,
-  typeParameters,
+  forallParameters,
   implicitParameters,
   variadicParameter,
   return_,
@@ -427,7 +427,7 @@ export function createFunctionType({
   closureKind,
 }: {
   parameters: FunctionParameter[];
-  typeParameters: FunctionParameter[];
+  forallParameters: FunctionParameter[];
   implicitParameters: FunctionParameter[];
   variadicParameter: FunctionParameter | undefined;
   return_: FunctionReturn;
@@ -441,7 +441,7 @@ export function createFunctionType({
     id: `${closureKind ? "closure" : "fn"}_${randomId()}`,
     tag: TypeTag.Function,
     parameters: parameters, // Wrap params in a TupleType
-    typeParameters,
+    forallParameters,
     implicitParameters,
     variadicParameter,
     return: return_,

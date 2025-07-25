@@ -376,7 +376,7 @@ export function isFunctionSpecializable(functionType: FunctionType): boolean {
   // Check if this function has compile-time parameters and needs specialization
   const hasCompileTimeParams =
     functionType.parameters.some((p) => p.isCompileTimeOnly) ||
-    functionType.typeParameters.length > 0 ||
+    functionType.forallParameters.length > 0 ||
     functionType.implicitParameters.some((p) => p.isCompileTimeOnly);
 
   return hasCompileTimeParams;

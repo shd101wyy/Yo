@@ -115,7 +115,7 @@ export function evaluateAnonymousFunctionImplementation({
   // env = pushEnvFrame(env); // < this is done in evaluateFunctionParameters function.
   const {
     env: nextEnv,
-    typeParameters,
+    forallParameters,
     parameters,
     implicitParameters,
   } = evaluateFunctionParameters({
@@ -191,11 +191,11 @@ export function evaluateAnonymousFunctionImplementation({
   // However, we need to be careful about the parameter expressions structure.
   const newFunctionType: FunctionType = {
     ...functionType,
-    typeParameters: typeParameters.map((param, index) => ({
+    forallParameters: forallParameters.map((param, index) => ({
       ...param,
       // For anonymous functions, the type should come from the original function type
       // and the typeExpr should be undefined because we're not defining the type explicitly
-      type: functionType.typeParameters[index]?.type ?? param.type,
+      type: functionType.forallParameters[index]?.type ?? param.type,
       exprs: {
         ...param.exprs,
         typeExpr: undefined, // Clear the typeExpr for anonymous functions

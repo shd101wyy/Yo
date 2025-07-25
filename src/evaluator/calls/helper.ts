@@ -1,7 +1,9 @@
 import { checkBorrowings } from "../../borrow";
+import { sanitizeForCIdentifier } from "../../codegen/utils";
 import {
   addVariableToEnv,
   Environment,
+  getVariablesFromEnv,
   getVariablesFromEnvByFilter,
   pushEnvFrame,
   updateExistingVariable,
@@ -158,7 +160,7 @@ export function checkIfFunctionParameterMatchesArgument({
 }: {
   functionValue?: FunctionValue;
   /**
-   * It could be typeParameters, parameters, or implicitParameters
+   * It could be forallParameters, parameters, or implicitParameters
    */
   parameter: FunctionParameter;
   argExprs: Expr[];
@@ -588,25 +590,28 @@ export function tryToCallFunctionWithArguments({
     calleeEnv = nextEnv;
   }
 
-  for (let i = 0; i < functionType.typeParameters.length; i++) {
-    // Add typeParameter to calleeEnv
-    const typeParameter = functionType.typeParameters[i]!;
+  for (let i = 0; i < functionType.forallParameters.length; i++) {
+    // Add forallParameter to calleeEnv
+    const forallParameter = functionType.forallParameters[i]!;
     let typeParameterVariable: Variable | undefined = undefined;
-    // NOTE: No need to add typeParameter to env
+    // NOTE: No need to add forallParameter to env
     //       It will cause the variable shadowing problem.
-    if (typeParameter.exprs.labelExpr && typeParameter.label) {
+    if (forallParameter.exprs.labelExpr && forallParameter.label) {
       // console.log("(12) addVariableToEnv");
       const { env: nextEnv, variable } = addVariableToEnv({
         env: calleeEnv,
         variable: {
-          name: typeParameter.label,
-          type: typeParameter.type,
+          name: forallParameter.label,
+          type: forallParameter.type,
           isMutable: false,
           isCompileTimeOnly: true,
           isImplicit: false,
-          value: createUnknownValue(typeParameter.type, typeParameter.label),
-          token: typeParameter.exprs.labelExpr.token,
-          initializedAtToken: typeParameter.exprs.labelExpr.token, // Set as initialized
+          value: createUnknownValue(
+            forallParameter.type,
+            forallParameter.label
+          ),
+          token: forallParameter.exprs.labelExpr.token,
+          initializedAtToken: forallParameter.exprs.labelExpr.token, // Set as initialized
           consumedAtToken: undefined,
         },
       });
@@ -635,10 +640,10 @@ export function tryToCallFunctionWithArguments({
         }
 
         // Check if the label matches the type parameter label
-        if (typeParameter.label !== labelExpr.token.value) {
+        if (forallParameter.label !== labelExpr.token.value) {
           throw formatErrorMessage({
             token: labelExpr.token,
-            errorMessage: `Expected type parameter label "${typeParameter.label}", got "${labelExpr.token.value}".`,
+            errorMessage: `Expected type parameter label "${forallParameter.label}", got "${labelExpr.token.value}".`,
           });
         }
       }
@@ -657,10 +662,10 @@ export function tryToCallFunctionWithArguments({
         (exprIsAtom(forallArgExpr) &&
           exprIsAtomOf(forallArgExpr, BuiltinKeywords.undefined))
       ) {
-        // Check if typeParameter has default value
-        if (typeParameter.exprs.defaultValueExpr) {
+        // Check if forallParameter has default value
+        if (forallParameter.exprs.defaultValueExpr) {
           const evaluatedArgExpr = context.evaluateExpression({
-            expr: cloneExpr(typeParameter.exprs.defaultValueExpr),
+            expr: cloneExpr(forallParameter.exprs.defaultValueExpr),
             env: calleeEnv,
             context: {
               ...context,
@@ -701,7 +706,7 @@ export function tryToCallFunctionWithArguments({
           env: callerEnv,
           context: {
             ...context,
-            expectedType: { type: typeParameter.type, env: calleeEnv },
+            expectedType: { type: forallParameter.type, env: calleeEnv },
           },
         });
         if (evaluatedTypeExpr.$?.env) {
@@ -729,7 +734,7 @@ export function tryToCallFunctionWithArguments({
       // Compare the types
       if (
         !areTypesCompatible(
-          { type: typeParameter.type, env: calleeEnv },
+          { type: forallParameter.type, env: calleeEnv },
           { type: typeValue.type, env: callerEnv }
         )
       ) {
@@ -738,14 +743,14 @@ export function tryToCallFunctionWithArguments({
             forallArgExpr?.token ??
             functionCalleeExpr?.token ??
             PlaceholderToken,
-          errorMessage: `Type mismatch for type parameter "${typeParameter.label}":
-Expected: ${typeToString(typeParameter.type)}
+          errorMessage: `Type mismatch for type parameter "${forallParameter.label}":
+Expected: ${typeToString(forallParameter.type)}
 Got:   ${typeToString(typeValue.type)}`,
         });
       }
 
       // Add the type to the env
-      if (typeParameter.label) {
+      if (forallParameter.label) {
         // console.log("(13) addVariableToEnv");
         if (typeParameterVariable) {
           calleeEnv = updateExistingVariable(calleeEnv, typeParameterVariable, {
@@ -760,7 +765,7 @@ Got:   ${typeToString(typeValue.type)}`,
           const { env: nextEnv } = addVariableToEnv({
             env: calleeEnv,
             variable: {
-              name: typeParameter.label,
+              name: forallParameter.label,
               type: typeValue.type,
               isMutable: false,
               isCompileTimeOnly: true,
@@ -779,7 +784,7 @@ Got:   ${typeToString(typeValue.type)}`,
       forallArgValues.push({
         value: typeValue,
         argType: typeValue.type,
-        parameterType: typeParameter.type,
+        parameterType: forallParameter.type,
       });
     }
   }
@@ -1522,18 +1527,38 @@ function createSpecializedFunctionInline({
   const compileTimeSignatureParts: string[] = [];
 
   // Include forall type arguments
-  if (argValues.forallArgs) {
-    compileTimeSignatureParts.push(
-      ...argValues.forallArgs.map((arg) => valueToString(arg.value))
-    );
-  }
+  // In theory all the forallArgs should be compile-time arguments
+  functionType.forallParameters.forEach((param, index) => {
+    if (index < argValues.forallArgs.length) {
+      const arg = argValues.forallArgs[index]!;
+      compileTimeSignatureParts.push(
+        sanitizeForCIdentifier(valueToString(arg.value))
+      );
+    } else {
+      const label = param.label;
+      // Check if it's in the calleeEnv
+      // Its value might be available after synthesizing types
+      const variables = getVariablesFromEnv(calleeEnv, label);
+      if (variables.length > 0 && variables[variables.length - 1]?.value) {
+        compileTimeSignatureParts.push(
+          sanitizeForCIdentifier(
+            valueToString(variables[variables.length - 1]!.value)
+          )
+        );
+      } else {
+        compileTimeSignatureParts.push("unknown");
+      }
+    }
+  });
 
   // Include compile-time regular parameters
   functionType.parameters.forEach((param, index) => {
     if (param.isCompileTimeOnly && index < argValues.args.length) {
       const arg = argValues.args[index];
       if (arg) {
-        compileTimeSignatureParts.push(valueToString(arg.value));
+        compileTimeSignatureParts.push(
+          sanitizeForCIdentifier(valueToString(arg.value))
+        );
       } else {
         compileTimeSignatureParts.push("unknown");
       }
@@ -1541,23 +1566,23 @@ function createSpecializedFunctionInline({
   });
 
   // Include compile-time implicit parameters
-  if (argValues.implicitArgs) {
-    functionType.implicitParameters.forEach((param, index) => {
-      if (param.isCompileTimeOnly && index < argValues.implicitArgs!.length) {
-        const implicitArg = argValues.implicitArgs![index];
-        if (implicitArg) {
-          compileTimeSignatureParts.push(valueToString(implicitArg.value));
-        } else {
-          compileTimeSignatureParts.push("unknown");
-        }
+  functionType.implicitParameters.forEach((param, index) => {
+    if (param.isCompileTimeOnly && index < argValues.implicitArgs!.length) {
+      const arg = argValues.implicitArgs![index];
+      if (arg) {
+        compileTimeSignatureParts.push(
+          sanitizeForCIdentifier(valueToString(arg.value))
+        );
+      } else {
+        compileTimeSignatureParts.push("unknown");
       }
-    });
-  }
+    }
+  });
 
   const compileTimeSignature = compileTimeSignatureParts.join("_");
 
   const specializedFunctionType = createFunctionType({
-    typeParameters: [],
+    forallParameters: [],
     parameters: runtimeParameters,
     implicitParameters: [],
     variadicParameter: undefined, // QUESTION: Is this right?
@@ -1572,18 +1597,20 @@ function createSpecializedFunctionInline({
     closureKind: functionType.closureKind, // Preserve closure property
   });
 
+  // console.log(
+  //   "generate specialized function:",
+  //   `${originalFunction.funcName}_${compileTimeSignature}`,
+  //   argValues.forallArgs
+  // );
+
   // Create a new specialized function value with the evaluated body
   const specializedFunction: FunctionValue = {
     ...originalFunction,
     specializedType: specializedFunctionType,
     body: specializedBody,
     // Use a signature-based ID for the specialized function
-    funcId: compileTimeSignature
-      ? `${originalFunction.funcId}_${compileTimeSignature}`
-      : `${originalFunction.funcId}_specialized_${Date.now()}`,
-    funcName: compileTimeSignature
-      ? `${originalFunction.funcName}_${compileTimeSignature}`
-      : `${originalFunction.funcName}_specialized_${Date.now()}`,
+    funcId: `${originalFunction.funcId}_${compileTimeSignature}`,
+    funcName: `${originalFunction.funcName}_${compileTimeSignature}`,
     // Initialize cache arrays for the specialized function
     calledComptFunctionCaches: [],
     specializedFunctionCaches: [],

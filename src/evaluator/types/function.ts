@@ -446,7 +446,7 @@ export function evaluateFunctionParameters({
   context: EvaluatorContext;
 }): {
   parameters: FunctionParameter[];
-  typeParameters: FunctionParameter[];
+  forallParameters: FunctionParameter[];
   implicitParameters: FunctionParameter[];
   variadicParameter?: FunctionParameter;
   env: Environment;
@@ -454,7 +454,7 @@ export function evaluateFunctionParameters({
   env = pushEnvFrame(env);
 
   const parameters: FunctionParameter[] = [];
-  let typeParameters: FunctionParameter[] = [];
+  let forallParameters: FunctionParameter[] = [];
   let implicitParameters: FunctionParameter[] = [];
   let variadicParameter: FunctionParameter | undefined = undefined;
 
@@ -484,11 +484,12 @@ export function evaluateFunctionParameters({
       // given the expected function type
       if (
         expectedFunctionType &&
-        expectedFunctionType.typeParameters.length !== typeParameterExprs.length
+        expectedFunctionType.forallParameters.length !==
+          typeParameterExprs.length
       ) {
         throw formatErrorMessage({
           token: parameterExpr.token,
-          errorMessage: `Expected ${expectedFunctionType.typeParameters.length} type parameters, got ${typeParameterExprs.length}`,
+          errorMessage: `Expected ${expectedFunctionType.forallParameters.length} type parameters, got ${typeParameterExprs.length}`,
         });
       }
 
@@ -497,14 +498,14 @@ export function evaluateFunctionParameters({
         const { parameter, env: nextEnv } = evaluateFunctionParameter({
           expr: typeParameterExpr,
           env,
-          expectedParameter: expectedFunctionType?.typeParameters?.[j],
+          expectedParameter: expectedFunctionType?.forallParameters?.[j],
           context: {
             ...context,
           },
         });
 
         // Check if there is duplicate labels
-        const duplicateLabel = typeParameters.find(
+        const duplicateLabel = forallParameters.find(
           (element) => element.label === parameter.label
         );
         if (duplicateLabel) {
@@ -524,7 +525,7 @@ export function evaluateFunctionParameters({
           });
         }
 
-        typeParameters.push(parameter);
+        forallParameters.push(parameter);
         env = nextEnv;
       }
     }
@@ -807,8 +808,8 @@ export function evaluateFunctionParameters({
     }
   });
 
-  if (!findTypeParameters && expectedFunctionType?.typeParameters) {
-    typeParameters = [...expectedFunctionType.typeParameters];
+  if (!findTypeParameters && expectedFunctionType?.forallParameters) {
+    forallParameters = [...expectedFunctionType.forallParameters];
   }
   if (!findImplicitParameters && expectedFunctionType?.implicitParameters) {
     implicitParameters = [...expectedFunctionType.implicitParameters];
@@ -816,7 +817,7 @@ export function evaluateFunctionParameters({
 
   return {
     parameters,
-    typeParameters,
+    forallParameters,
     implicitParameters,
     variadicParameter,
     env,
@@ -884,7 +885,7 @@ export function evaluateFunctionType({
   // Evaluate the parameter list
   const {
     parameters,
-    typeParameters,
+    forallParameters,
     implicitParameters,
     variadicParameter,
     env: nextEnv,
@@ -1100,7 +1101,7 @@ ${typeToString(returnType)}`,
   // Create the function type
   const functionType = createFunctionType({
     parameters,
-    typeParameters,
+    forallParameters,
     implicitParameters,
     variadicParameter,
     return_: {

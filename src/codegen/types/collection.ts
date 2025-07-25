@@ -68,7 +68,7 @@ export function collectTypesFromFunctionType(
   for (const param of functionType.parameters) {
     collectType(param.type, context);
   }
-  for (const param of functionType.typeParameters) {
+  for (const param of functionType.forallParameters) {
     collectType(param.type, context);
   }
   for (const param of functionType.implicitParameters) {

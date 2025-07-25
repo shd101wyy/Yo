@@ -568,7 +568,7 @@ export function areFunctionTypesCompatible(
 
   // Check if the parameters have the same count
   if (
-    expected.type.typeParameters.length !== given.type.typeParameters.length
+    expected.type.forallParameters.length !== given.type.forallParameters.length
   ) {
     return false;
   }
@@ -582,9 +582,9 @@ export function areFunctionTypesCompatible(
   }
 
   // Check type parameters for compatibility
-  for (let i = 0; i < expected.type.typeParameters.length; i++) {
-    const expectedTypeParam = expected.type.typeParameters[i]!;
-    const givenTypeParam = given.type.typeParameters[i]!;
+  for (let i = 0; i < expected.type.forallParameters.length; i++) {
+    const expectedTypeParam = expected.type.forallParameters[i]!;
+    const givenTypeParam = given.type.forallParameters[i]!;
 
     /**
      * Check if

@@ -239,7 +239,7 @@ export function typeRequiresInference(type?: Type): boolean {
           typeRequiresInference(param.type)
         ) ||
         typeRequiresInference(functionType.return.type) ||
-        functionType.typeParameters.some((param) =>
+        functionType.forallParameters.some((param) =>
           typeRequiresInference(param.type)
         ) ||
         functionType.implicitParameters.some((param) =>
@@ -549,8 +549,8 @@ function functionTypeToString(func: FunctionType): string {
   const params = func.parameters.map(functionParameterToString).join(", ");
 
   const typeParams =
-    func.typeParameters.length > 0
-      ? `forall(${func.typeParameters
+    func.forallParameters.length > 0
+      ? `forall(${func.forallParameters
           .map(functionParameterToString)
           .join(", ")})`
       : "";

@@ -401,6 +401,19 @@ function generateFuncCall(
       return isUnitType(valueType) || expr.$?.controlFlow
         ? ""
         : tempVariableName;
+    } else {
+      // Statement form: begin block without returning a value
+      context.emitter.emitLine(`${indent}{ // begin block`);
+      const argsCode = expr.args.map((arg) =>
+        generateExpr(arg, indent + "  ", context)
+      );
+      argsCode.forEach((argCode) => {
+        if (argCode) {
+          context.emitter.emitLine(`${indent}  ${argCode};`);
+        }
+      });
+      context.emitter.emitLine(`${indent}} // end begin block`);
+      return "";
     }
   }
   // cond
@@ -1096,13 +1109,13 @@ function generateCondExpression(
   context: CodeGenContext
 ): string {
   // Check if the cond expression has been evaluated and has a variable name
-  if (expr.$ && expr.$.variableName) {
+  if (expr.$) {
     const tempVar = expr.$.variableName;
     const valueType = expr.$.type;
     const isUnit = valueType && isUnitType(valueType);
 
     // For unit types, don't declare a temporary variable
-    if (!isUnit) {
+    if (!isUnit && tempVar) {
       const varType = getTypeString(valueType, context);
       context.emitter.emitLine(`${indent}${varType} ${tempVar};`);
     }
@@ -1154,7 +1167,7 @@ function generateCondExpression(
               context.emitter.emitLine(`${indent}  ${valueCode};`);
             } else if (valueCode === "" || !valueCode) {
               // For unit expressions, don't emit anything
-            } else if (!isUnit) {
+            } else if (!isUnit && tempVar) {
               // For regular expressions, assign to temp variable (only if not unit type)
               context.emitter.emitLine(`${indent}  ${tempVar} = ${valueCode};`);
             }
@@ -1165,11 +1178,11 @@ function generateCondExpression(
     }
 
     // For unit types, return empty string; for others, return temp variable
-    return isUnit ? "" : tempVar;
+    return isUnit ? "" : (tempVar ?? "");
   }
 
   // Fallback for non-evaluated expressions
-  return '/* "cond" expression is missing $.variableName */';
+  return '/* "cond" expression is not evaluated */';
 }
 
 /**
@@ -1180,16 +1193,18 @@ function generateMatchExpression(
   indent: string,
   context: CodeGenContext
 ): string {
-  const tempVariableName = expr.$?.variableName;
-  const valueType = expr.$?.type;
-  if (!tempVariableName || !valueType) {
-    return `// Error: "match" expression is missing $.variableName or $.type`;
+  if (!expr.$) {
+    return `/* "match" expression is not evaluated */`;
   }
+  const tempVariableName = expr.$.variableName;
+  const valueType = expr.$.type;
 
   // Create temp variable declaration
-  context.emitter.emitLine(
-    `${indent}${getTypeString(valueType, context)} ${tempVariableName};`
-  );
+  if (tempVariableName) {
+    context.emitter.emitLine(
+      `${indent}${getTypeString(valueType, context)} ${tempVariableName};`
+    );
+  }
 
   // Generate the matched value
   const matchedValueCode = generateExpr(expr.args[0]!, indent, context);
@@ -1280,18 +1295,30 @@ function generateMatchExpression(
         indent + "  ",
         context
       );
-      context.emitter.emitLine(`${indent}  ${tempVariableName} = ${bodyCode};`);
+      if (tempVariableName) {
+        context.emitter.emitLine(
+          `${indent}  ${tempVariableName} = ${bodyCode};`
+        );
+      } else {
+        context.emitter.emitLine(`${indent}  ${bodyCode};`);
+      }
     }
 
     context.emitter.emitLine(`${indent}} else {`);
 
     if (nullCase) {
       const bodyCode = generateExpr(nullCase.caseBody, indent + "  ", context);
-      context.emitter.emitLine(`${indent}  ${tempVariableName} = ${bodyCode};`);
+      if (tempVariableName) {
+        context.emitter.emitLine(
+          `${indent}  ${tempVariableName} = ${bodyCode};`
+        );
+      } else {
+        context.emitter.emitLine(`${indent}  ${bodyCode};`);
+      }
     }
 
     context.emitter.emitLine(`${indent}}`);
-    return tempVariableName;
+    return tempVariableName ?? "";
   }
 
   // Check if this enum can be optimized as a simple C enum
@@ -1331,16 +1358,20 @@ function generateMatchExpression(
 
           // Generate the body of the case
           const bodyCode = generateExpr(caseBody, indent + "  ", context);
-          context.emitter.emitLine(
-            `${indent}  ${tempVariableName} = ${bodyCode};`
-          );
+          if (tempVariableName) {
+            context.emitter.emitLine(
+              `${indent}  ${tempVariableName} = ${bodyCode};`
+            );
+          } else {
+            context.emitter.emitLine(`${indent}  ${bodyCode};`);
+          }
           context.emitter.emitLine(`${indent}  break;`);
         }
       }
     }
 
     context.emitter.emitLine(`${indent}}`);
-    return tempVariableName;
+    return tempVariableName ?? "";
   }
 
   // Original tagged union matching
@@ -1386,16 +1417,20 @@ function generateMatchExpression(
 
         // Generate the body of the case
         const bodyCode = generateExpr(caseBody, indent + "  ", context);
-        context.emitter.emitLine(
-          `${indent}  ${tempVariableName} = ${bodyCode};`
-        );
+        if (tempVariableName) {
+          context.emitter.emitLine(
+            `${indent}  ${tempVariableName} = ${bodyCode};`
+          );
+        } else {
+          context.emitter.emitLine(`${indent}  ${bodyCode};`);
+        }
         context.emitter.emitLine(`${indent}  break;`);
       }
     }
   }
 
   context.emitter.emitLine(`${indent}}`);
-  return tempVariableName; // Return the temp variable name
+  return tempVariableName ?? ""; // Return the temp variable name
 }
 
 /**
