@@ -467,10 +467,6 @@ function generateFuncCall(
   }
   // while loop
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
-    console.log(
-      "DEBUG: generateWhileLoop called with expr:",
-      exprToString(expr)
-    );
     return generateWhileLoop(expr, indent, context);
   }
   // anonymous function (fn(x) -> body)
@@ -681,6 +677,15 @@ function generateFuncCall(
  * Generate C code for an atom expression - extracted from original codegen-c.ts
  */
 function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
+  // Handle control flow atoms first (before checking computed values)
+  if (expr.token.value === "continue") {
+    return "continue";
+  }
+
+  if (expr.token.value === "break") {
+    return "break";
+  }
+
   if (expr.$?.value && !isUnknownValue(expr.$.value)) {
     return generateComptValue(expr.$.value, context);
   }
@@ -944,11 +949,14 @@ function generateCondExpression(
   // Check if the cond expression has been evaluated and has a variable name
   if (expr.$ && expr.$.variableName) {
     const tempVar = expr.$.variableName;
-    const varType = getTypeString(expr.$.type, context);
+    const valueType = expr.$.type;
+    const isUnit = valueType && isUnitType(valueType);
 
-    // Generate the conditional logic as statements before this expression
-    // We need to declare the variable and generate the if-else logic
-    context.emitter.emitLine(`${indent}${varType} ${tempVar};`);
+    // For unit types, don't declare a temporary variable
+    if (!isUnit) {
+      const varType = getTypeString(valueType, context);
+      context.emitter.emitLine(`${indent}${varType} ${tempVar};`);
+    }
 
     // Generate if-else chain for each condition => value pair
     for (let i = 0; i < expr.args.length; i++) {
@@ -974,15 +982,41 @@ function generateCondExpression(
             );
           }
 
-          // Generate the value expression INSIDE the conditional block
-          const valueCode = generateExpr(value, indent + "  ", context);
-          context.emitter.emitLine(`${indent}  ${tempVar} = ${valueCode};`);
+          // Handle begin blocks specially in conditional expressions
+          if (
+            exprIsFunctionCall(value) &&
+            exprIsFunctionCallOf(value, BuiltinKeywords.begin)
+          ) {
+            // Generate the begin block contents directly without assignment
+            generateLoopBody(value, indent + "  ", context);
+          } else {
+            // Generate the value expression INSIDE the conditional block
+            const valueCode = generateExpr(value, indent + "  ", context);
+
+            // Check if this is a control flow statement or unit expression
+            if (
+              valueCode === "continue" ||
+              valueCode === "break" ||
+              (exprIsFunctionCall(value) &&
+                exprIsFunctionCallOf(value, BuiltinKeywords.return)) ||
+              valueCode.includes("return")
+            ) {
+              // For control flow statements, emit them directly without assignment
+              context.emitter.emitLine(`${indent}  ${valueCode};`);
+            } else if (valueCode === "" || !valueCode) {
+              // For unit expressions, don't emit anything
+            } else if (!isUnit) {
+              // For regular expressions, assign to temp variable (only if not unit type)
+              context.emitter.emitLine(`${indent}  ${tempVar} = ${valueCode};`);
+            }
+          }
           context.emitter.emitLine(`${indent}}`);
         }
       }
     }
 
-    return tempVar;
+    // For unit types, return empty string; for others, return temp variable
+    return isUnit ? "" : tempVar;
   }
 
   // Fallback for non-evaluated expressions
