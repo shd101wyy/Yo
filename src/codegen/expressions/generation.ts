@@ -469,6 +469,10 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
     return generateWhileLoop(expr, indent, context);
   }
+  // for loop
+  else if (exprIsFunctionCallOf(expr, BuiltinKeywords.for)) {
+    return generateForLoop(expr, indent, context);
+  }
   // anonymous function (fn(x) -> body)
   else if (
     exprIsFunctionCallOf(expr, "->", 2) &&
@@ -1498,4 +1502,136 @@ function generateWhileLoop(
     );
     return "";
   }
+}
+
+/**
+ * Generate C code for for loop expression
+ * Converts Yo for loops to C for loops with array iteration
+ */
+function generateForLoop(
+  expr: FuncCallExpr,
+  indent: string,
+  context: CodeGenContext
+): string {
+  const args = expr.args;
+
+  if (args.length !== 2) {
+    context.emitter.emitLine(
+      `${indent}/* Error: for loop expects 2 arguments, got ${args.length} */`
+    );
+    return "";
+  }
+
+  const itemsExpr = args[0]!; // Array/slice expression
+  const arrowExpr = args[1]!; // lambda expression: (bindings) => body
+
+  if (
+    !exprIsFunctionCall(arrowExpr) ||
+    !exprIsFunctionCallOf(arrowExpr, "=>", 2)
+  ) {
+    context.emitter.emitLine(
+      `${indent}/* Error: for loop second argument must be => expression */`
+    );
+    return "";
+  }
+
+  const bindingExpr = arrowExpr.args[0]!;
+  const bodyExpr = arrowExpr.args[1]!;
+
+  // Generate the array expression
+  const arrayCode = generateExpr(itemsExpr, indent, context);
+
+  // Extract variable names from bindings
+  let elementVarName: string | undefined;
+  let indexVarName: string | undefined;
+
+  // Parse the binding expression to extract variable names
+  if (exprIsAtom(bindingExpr)) {
+    // Simple case: for arr, elem => body
+    elementVarName = bindingExpr.token.value;
+  } else if (
+    exprIsFunctionCall(bindingExpr) &&
+    exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.mut)
+  ) {
+    // Mutable element: for arr, mut(elem) => body
+    if (bindingExpr.args[0] && exprIsAtom(bindingExpr.args[0])) {
+      elementVarName = bindingExpr.args[0].token.value;
+    }
+  } else if (
+    exprIsFunctionCall(bindingExpr) &&
+    exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.tuple)
+  ) {
+    // Tuple case: for arr, (elem, index) => body
+    const firstArg = bindingExpr.args[0];
+    const secondArg = bindingExpr.args[1];
+
+    if (firstArg) {
+      if (exprIsAtom(firstArg)) {
+        elementVarName = firstArg.token.value;
+      } else if (
+        exprIsFunctionCall(firstArg) &&
+        exprIsFunctionCallOf(firstArg, BuiltinKeywords.mut) &&
+        firstArg.args[0] &&
+        exprIsAtom(firstArg.args[0])
+      ) {
+        elementVarName = firstArg.args[0].token.value;
+      }
+    }
+
+    if (secondArg && exprIsAtom(secondArg)) {
+      indexVarName = secondArg.token.value;
+    }
+  }
+
+  if (!elementVarName) {
+    context.emitter.emitLine(
+      `${indent}/* Error: could not extract element variable name from for loop binding */`
+    );
+    return "";
+  }
+
+  // Get the type information from the evaluated expressions
+  const itemsType = itemsExpr.$?.type;
+
+  // Generate unique index variable name if not provided
+  const actualIndexVarName =
+    indexVarName || `__index_${Math.random().toString(36).substr(2, 9)}`;
+
+  // Get type strings for variable declarations
+  let elementTypeStr = "int"; // default fallback
+  let arrayLength = "0"; // default fallback
+
+  if (itemsType && isArrayType(itemsType)) {
+    elementTypeStr = getTypeString(itemsType.elementType, context);
+    // Extract the numeric value from the length Value
+    const lengthValue = itemsType.length;
+    if (lengthValue && isNumberValue(lengthValue)) {
+      arrayLength = lengthValue.value.toString();
+    }
+  }
+
+  // Generate the C for loop
+  // For arrays, we iterate through indices and access elements
+  context.emitter.emitLine(
+    `${indent}for (size_t ${actualIndexVarName} = 0; ${actualIndexVarName} < ${arrayLength}; ${actualIndexVarName}++) {`
+  );
+
+  // Declare the element variable and assign from array
+  context.emitter.emitLine(
+    `${indent}  ${elementTypeStr} ${elementVarName} = ${arrayCode}.data[${actualIndexVarName}];`
+  );
+
+  // If the user provided an index variable name, declare it as an alias to actualIndexVarName
+  if (indexVarName && indexVarName !== actualIndexVarName) {
+    context.emitter.emitLine(
+      `${indent}  size_t ${indexVarName} = ${actualIndexVarName};`
+    );
+  }
+
+  // Generate the loop body
+  generateLoopBody(bodyExpr, indent + "  ", context);
+
+  context.emitter.emitLine(`${indent}}`);
+
+  return "";
 }

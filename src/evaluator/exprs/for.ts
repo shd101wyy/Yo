@@ -142,6 +142,12 @@ export function evaluateFor({
     exprIsFunctionCall(bindingExpr) &&
     exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.mut)
   ) {
+    if (bindingExpr.args.length !== 1) {
+      throw formatErrorMessage({
+        token: bindingExpr.token,
+        errorMessage: `Expected 'mut' to have exactly one argument, got ${bindingExpr.args.length}`,
+      });
+    }
     isElementVariableMutable = true;
     elementVariableExpr = bindingExpr.args[0];
   } else if (
@@ -187,6 +193,12 @@ export function evaluateFor({
       exprIsFunctionCall(elementVariableExpr) &&
       exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.mut)
     ) {
+      if (elementVariableExpr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: elementVariableExpr.token,
+          errorMessage: `Expected 'mut' to have exactly one argument, got ${elementVariableExpr.args.length}`,
+        });
+      }
       isElementVariableMutable = true;
       elementVariableExpr = elementVariableExpr.args[0];
     } else if (
@@ -311,6 +323,7 @@ export function evaluateFor({
 
   // Get the array value
   const itemsValue = evaluatedItemsExpr.$.value;
+  const isCompileTime = itemsValue !== undefined;
   let index = 0;
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -330,7 +343,7 @@ export function evaluateFor({
       isMutable: isElementVariableMutable,
       consumedAtToken: undefined,
       initializedAtToken: elementVariableExpr.token,
-      isCompileTimeOnly: Boolean(evaluatedItemsExpr.$.value),
+      isCompileTimeOnly: isCompileTime, // Use isCompileTime flag for consistency
       isImplicit: false, // Not an implicit variable
       token: elementVariableExpr.token,
 
@@ -345,10 +358,10 @@ export function evaluateFor({
         isMutable: false, // The index variable is immutable
         consumedAtToken: undefined,
         initializedAtToken: elementIndexExpr!.token,
-        isCompileTimeOnly: Boolean(evaluatedItemsExpr.$.value), // Not a compile-time only variable
+        isCompileTimeOnly: isCompileTime, // Use isCompileTime flag for consistency
         isImplicit: false, // Not an implicit variable
         token: elementIndexExpr!.token,
-        value: createNumberValue(ValueTag.Usize, index), // Set the value to the current index
+        value: isCompileTime ? createNumberValue(ValueTag.Usize, index) : undefined, // Set the value to the current index only if compile-time
       });
     }
 
@@ -391,7 +404,7 @@ export function evaluateFor({
           isMutable: false,
           pathCollection: [],
           type: VUnit.type,
-          value: VUnit,
+          value: isCompileTime ? VUnit : undefined,
         };
         return expr; // Return the result of the for loop
       } else if (controlFlow === "continue") {
@@ -416,7 +429,7 @@ export function evaluateFor({
     isMutable: false,
     pathCollection: [],
     type: VUnit.type,
-    value: VUnit,
+    value: isCompileTime ? VUnit : undefined,
   };
   return expr;
 }
