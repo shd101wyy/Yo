@@ -1559,7 +1559,18 @@ function generateYoInlineFunctionCall(
   // >>
   else if (BuiltinFunctions.__yo_op_bit_right_shift.includes(functionName)) {
     return `((${args[0]!}) >> (${args[1]!}))`;
-  } else {
+  }
+  // __yo_noop
+  else if (BuiltinFunctions.__yo_noop.includes(functionName)) {
+    return "";
+  }
+  // __yo_return_self
+  else if (BuiltinFunctions.__yo_return_self.includes(functionName)) {
+    // This is a special case where we just return the first argument
+    return `(*${args[0]!})`;
+  }
+  // Handle other operators that are not defined in Yo
+  else {
     return `/* Unhandled operator ${functionName} */`;
   }
 }

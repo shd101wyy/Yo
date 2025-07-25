@@ -803,6 +803,10 @@ export const BuiltinFunctions = {
 
   // C language related
   c_include: ["c_include"],
+
+  /// Others
+  __yo_noop: ["__yo_noop"],
+  __yo_return_self: ["__yo_return_self"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {

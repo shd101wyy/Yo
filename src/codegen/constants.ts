@@ -30,6 +30,10 @@ export const BuiltinYoInlineFunctions = [
   ...BuiltinFunctions.__yo_op_bit_complement, // ~
   ...BuiltinFunctions.__yo_op_bit_left_shift, // <<
   ...BuiltinFunctions.__yo_op_bit_right_shift, // >>
+
+  // Others
+  ...BuiltinFunctions.__yo_noop, // __yo_noop
+  ...BuiltinFunctions.__yo_return_self, // __yo_return_self
 ];
 
 export const PrimitiveTypeTags = new Set([
