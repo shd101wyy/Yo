@@ -67,6 +67,8 @@ export function evaluateWhile({
   }
 
   const conditionValue = evaluatedConditionExpr.$.value;
+  const isCompileTime = conditionValue !== undefined;
+
   if (isBooleanValue(conditionValue) && conditionValue.value === false) {
     // Stop the evaluation
     // return the expr
@@ -75,7 +77,7 @@ export function evaluateWhile({
       isMutable: false,
       pathCollection: [],
       type: VUnit.type,
-      value: VUnit,
+      value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
     };
     return expr;
   } else {
@@ -119,7 +121,7 @@ export function evaluateWhile({
             isMutable: false,
             pathCollection: [],
             type: VUnit.type,
-            value: VUnit,
+            value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
           };
         }
       } else if (evaluatedBodyExpr.$.controlFlow === "break") {
@@ -129,7 +131,7 @@ export function evaluateWhile({
           isMutable: false,
           pathCollection: [],
           type: VUnit.type,
-          value: VUnit,
+          value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
         };
       } else if (evaluatedBodyExpr.$.controlFlow === "continue") {
         // Continue goes to next iteration
@@ -170,7 +172,7 @@ export function evaluateWhile({
             isMutable: false,
             pathCollection: [],
             type: VUnit.type,
-            value: VUnit,
+            value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
           };
         }
       }
@@ -223,7 +225,7 @@ export function evaluateWhile({
         isMutable: false,
         pathCollection: [],
         type: VUnit.type,
-        value: VUnit,
+        value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
       };
       return expr;
     }

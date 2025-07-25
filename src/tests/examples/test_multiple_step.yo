@@ -1,0 +1,22 @@
+open import "std";
+{ printf } :: import "std/libc/stdio";
+
+test :: ((max : i32) -> i32) {
+  mut(result) := 0;
+  mut(i) := 0.as(i32);
+  mut(j) := 0.as(i32);
+  
+  while i < max, begin(i = (i + 1), j = (j + 2)), {
+    result = ((result + i) + j);
+  };
+
+  return result;
+};
+
+main :: (() -> i32) {
+  result := test(5);
+  printf("Result with multiple step expressions: %d\n", result);
+  return 0;
+};
+
+export main;
