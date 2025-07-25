@@ -622,8 +622,12 @@ function generateFuncCall(
     }
   }
   // consume
-  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume)) {
-    // consume is a no-op in C, just return empty string
+  // compt_expect_error
+  else if (
+    exprIsFunctionCallOf(expr, BuiltinFunctions.consume) ||
+    exprIsFunctionCallOf(expr, BuiltinFunctions.compt_expect_error)
+  ) {
+    // no-op in C, just return empty string
     return "";
   }
   // other function call
