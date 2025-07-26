@@ -15,6 +15,7 @@ import {
   Token,
   TokenType,
 } from "./token";
+import { randomId } from "./utils";
 
 type ParserReturn = {
   expr: Expr;
@@ -1027,4 +1028,25 @@ or ) to end the function call`,
   public getTokens() {
     return this.tokens;
   }
+}
+
+/**
+ * Generate an expression from code string
+ */
+export function generateExprFromCode(code: string): Expr {
+  // Create a parser for the code
+  const parser = new Parser({
+    modulePath: `auto-generated://${randomId()}`,
+    inputString: code,
+  });
+
+  // Get the parsed expressions
+  const program = parser.getProgram();
+  if (program.length !== 1) {
+    throw new Error(
+      `Expected exactly one expression from parsed code, got ${program.length}: "${code}"`
+    );
+  }
+
+  return program[0]!;
 }

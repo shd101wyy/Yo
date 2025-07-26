@@ -2,6 +2,7 @@ import {
   addVariableToEnv,
   Environment,
   getVariablesFromEnv,
+  getVariablesNeedingDrop,
   popEnvFrame,
   pushEnvFrame,
   Variable,
@@ -20,6 +21,7 @@ import {
   exprToString,
   setExprAsConsumed,
 } from "../../expr";
+import { generateExprFromCode } from "../../parser";
 import {
   areTypesCompatible,
   isLinearOrType0Type,
@@ -54,6 +56,7 @@ export function evaluateBeginExpression({
   context: EvaluatorContext;
   variablesToAdd: Omit<Variable, "frameLevel" | "id">[];
 }): Expr {
+  console.log("evaluating begin: ", exprToString(expr));
   let beginExpressions: Expr[] = [];
   let hasBeginKeyword = false;
   if (
@@ -415,8 +418,77 @@ export function evaluateBeginExpression({
     lastExpr.$.controlFlow
   );
 
-  // Pop the environment frame
+  // Handle automatic drop insertion for RAII BEFORE popping the frame
+  // Get variables that need drop calls using the helper function
+  const variablesNeedingDrop = getVariablesNeedingDrop(env);
+  const dropCallsToInsert: Expr[] = [];
+
+  for (const variable of variablesNeedingDrop) {
+    const dropCallCode = `drop(${variable.name})`;
+    const dropCall = generateExprFromCode(dropCallCode);
+    dropCallsToInsert.push(dropCall);
+  }
+
+  // If we have drop calls to insert and this is a begin expression,
+  // we need to evaluate them and insert them before control flow statements
+  if (
+    dropCallsToInsert.length > 0 &&
+    hasBeginKeyword &&
+    exprIsFunctionCall(expr)
+  ) {
+    const originalArgs = expr.args.slice();
+
+    // Find the position to insert drops - before return/break/continue or before the last expression
+    let insertPosition = originalArgs.length - 1;
+    const lastArg = originalArgs[insertPosition];
+
+    // Check if the last expression is a control flow statement
+    if (lastArg && lastArg.$ && lastArg.$.controlFlow) {
+      // Insert before the control flow statement
+      insertPosition = originalArgs.length - 1;
+    } else {
+      // Check the second-to-last expression for control flow
+      const secondLastArg = originalArgs[originalArgs.length - 2];
+      if (secondLastArg && secondLastArg.$ && secondLastArg.$.controlFlow) {
+        // Insert before the control flow statement
+        insertPosition = originalArgs.length - 2;
+      }
+    }
+
+    // Evaluate each drop call and mark variables as consumed
+    const evaluatedDropCalls: Expr[] = [];
+    for (let i = 0; i < dropCallsToInsert.length; i++) {
+      const dropCall = dropCallsToInsert[i]!;
+
+      const evaluatedDropCall = context.evaluateExpression({
+        expr: dropCall,
+        env,
+        context: { ...context },
+      });
+      if (evaluatedDropCall.$) {
+        env = evaluatedDropCall.$.env;
+        evaluatedDropCalls.push(evaluatedDropCall);
+      } else {
+        throw formatErrorMessage({
+          token: dropCall.token,
+          errorMessage: `Failed to evaluate auto-generated drop call: ${exprToString(dropCall)}`,
+        });
+      }
+    }
+
+    // Insert evaluated drop calls at the correct position
+    expr.args = [
+      ...originalArgs.slice(0, insertPosition),
+      ...evaluatedDropCalls,
+      ...originalArgs.slice(insertPosition),
+    ];
+  }
+
+  // Now pop the environment frame
   env = popEnvFrame(env);
+
+  console.log("begin expression after applying drops:");
+  console.log(exprToString(expr));
 
   if (!hasBeginKeyword) {
     // If the begin keyword is not used, we need to return the last expression

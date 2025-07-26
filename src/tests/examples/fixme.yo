@@ -1,23 +1,15 @@
-TypeMethods :: module {
-  Self :: Type;
+(compt(LinearStruct) : Linear) = struct(
+  x : i32,
+  y : i32
+);
 
-  is_free :: ((compt(self): Self) -> compt(boolean))
-    __yo_type_is_free(self)
-  ;
-
-  export
-    Self,
-    is_free
-  ;
+main :: (() -> i32) {
+  // This should work - LinearStruct gets auto-generated drop
+  linear_struct_1 := LinearStruct(1, 2);
+  linear_struct_2 := LinearStruct(1, 2);
+  // drop(linear_struct2); // This line should be automatically inserted
+  // drop(linear_struct1); // This line should be automatically inserted
+  return 0;
 };
 
-// Test enum for match expressions
-(compt(Shape): Linear) = enum(
-  Circle,
-  Square,
-  drop :: (((self: Self) -> unit)
-    match(self,
-      .Circle => (),
-      .Square => ()
-    ))
-);
+export main;

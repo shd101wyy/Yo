@@ -1,9 +1,10 @@
 import { formatErrorMessages } from "./error";
-import { RAIIToken, Token } from "./token";
+import { Token } from "./token";
 import {
   areTypesCompatible,
   isEnumType,
   isFunctionType,
+  isLinearOrType0Type,
   isModuleType,
   isMutPtrType,
   isMutRefType,
@@ -14,7 +15,7 @@ import {
   ModuleType,
   Type,
   typeContainsSomeType,
-  TypeTag,
+  typeOfType,
   typeToString,
 } from "./types";
 import { generateVarialeId, isTempVariableName } from "./utils";
@@ -360,14 +361,8 @@ export function popEnvFrame(
 ): Environment {
   if (!ignoreCheck) {
     const frameToPop = env.frames[env.frames.length - 1]!;
-    // Check if there is any value in the frame that is not consumed or uninitialized
-    // NOTE: We should count both Free and Linear variables,
-    // because Free variables might also implement the "drop" method.
-    const unconsumedVariables = frameToPop.variables.filter(
-      (variable) =>
-        // isLinearOrType0Type(typeOfType(variable.type)) &&
-        !variable.consumedAtToken && !variable.isCompileTimeOnly // We only check for runtime variables
-    );
+    // Check if there is any Linear/Type0 value in the frame that is not consumed or uninitialized.
+    const unconsumedVariables = getVariablesNeedingDrop(env);
     /*
     const unusedFreeValues = frameToPop.values.filter(
       (value) =>
@@ -382,39 +377,14 @@ export function popEnvFrame(
       (variable) => !variable.initializedAtToken
     );
     if (unconsumedVariables.length > 0) {
-      // RAII
-      // check if we can call the `drop: ((self: Self)-> unit)`
-      // method on the linear value to consume it.
-      // for example:
-      //    ptr := malloc();
-      //    drop(ptr); // <= this is the method we are looking for
-      const errors: { token: Token; errorMessage: string }[] = [];
-      for (let i = unconsumedVariables.length - 1; i >= 0; i--) {
-        const variable = unconsumedVariables[i]!;
-
-        // calling drop on it
-        env = updateExistingVariable(env, variable, {
-          ...variable,
-          consumedAtToken: variable.token,
-        });
-
-        /*
-        const { error, env: nextEnv } = canCallDropMethodOnVariable(
-          variable,
-          env
-        );
-        if (error) {
-          errors.push(error);
-        } else {
-          // console.log(`Consumed ${variable.name}`);
-          env = nextEnv;
-        }
-        */
-      }
-
-      if (errors.length > 0) {
-        throw formatErrorMessages(errors);
-      }
+      throw formatErrorMessages(
+        unconsumedVariables.map((variable) => {
+          return {
+            token: variable.token,
+            errorMessage: `Linear variable "${variable.name}" was not consumed. Linear values must be consumed before going out of scope.`,
+          };
+        })
+      );
     } else if (undefinedVariables.length > 0) {
       throw formatErrorMessages(
         undefinedVariables.map((variable) => {
@@ -692,76 +662,25 @@ export function keepTopLevelFrameAndComptimeVariablesFromEnv(
 }
 
 /**
- * Check if we can call the `drop` method on the variable.
- * The drop method is used to consume the linear value.
- * It should have signature like this:
- *
- *   (self: Self) -> unit
- *
- * where `Self` is the type of the variable.
+ * Get all variables in the top frame that need to be consumed (dropped).
+ * Returns variables that are Linear or Type0 types, not consumed, and not compile-time only.
+ * Variables are returned in reverse order (end to start) for proper drop order.
  */
-export function canCallDropMethodOnVariable(
-  variable: Variable,
-  env: Environment
-): {
-  error?: { token: Token; errorMessage: string };
-  env: Environment;
-} {
-  const variableType = variable.type;
-  const methods = getMethodsByNameFromEnv(
-    env,
-    "drop",
-    variableType,
-    true
-  ).filter((method) => {
-    return (
-      isFunctionType(method.type) &&
-      method.type.parameters.length === 1 &&
-      method.type.return.type.tag === TypeTag.Unit
-    );
-  });
-  if (methods.length === 0) {
-    return {
-      error: {
-        token: variable.token,
-        errorMessage: `${
-          isTempVariableName(env.modulePath, variable.name)
-            ? "Value"
-            : `Variable "${variable.name}"`
-        } is "Linear" type but is not consumed.
-No "drop" method found for type, so it cannot be consumed automatically:
-
-  ${typeToString(variableType)}`,
-      },
-      env,
-    };
-  } else if (methods.length === 1) {
-    // QUESTION: Do we really need to perform this action?
-    // Update the variable to mark it as consumed
-    env = updateExistingVariable(env, variable, {
-      ...variable,
-      consumedAtToken: RAIIToken, // QUESTION: What should be the correct token here
-    });
-
-    return { error: undefined, env: env };
-  } else {
-    return {
-      error: {
-        token: variable.token,
-        errorMessage: `Failed to consume ${
-          isTempVariableName(env.modulePath, variable.name)
-            ? "Value"
-            : `Variable "${variable.name}"`
-        }.
-Found multiple "drop" methods for type:
-
-  ${typeToString(variable.type)}
-  
-Please specify the method explicitly.`,
-      },
-      env: env,
-    };
+export function getVariablesNeedingDrop(env: Environment): Variable[] {
+  if (env.frames.length === 0) {
+    return [];
   }
+
+  const topFrame = env.frames[env.frames.length - 1]!;
+  const variables = topFrame.variables.filter(
+    (variable) =>
+      isLinearOrType0Type(typeOfType(variable.type)) &&
+      !variable.consumedAtToken &&
+      !variable.isCompileTimeOnly
+  );
+
+  // Return in reverse order (end to start) for proper drop order
+  return variables.reverse();
 }
 
 export function variableExistsInEnvTopFrame(
