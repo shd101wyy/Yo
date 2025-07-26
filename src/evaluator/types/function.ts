@@ -304,7 +304,7 @@ export function evaluateFunctionParameter({
       if (typeRequiresComptModifier(parameterType)) {
         throw formatErrorMessage({
           token: lhsExpr?.token ?? expr.token,
-          errorMessage: `Expected a "compt"  for parameter to be compile-time only. Given type:
+          errorMessage: `Expected a "compt" for parameter to be compile-time only. Given type:
 ${typeToString(parameterType)}`,
         });
       }
@@ -312,7 +312,7 @@ ${typeToString(parameterType)}`,
     if (isCompileTimeOnly && typeProhibitsComptModifier(parameterType)) {
       throw formatErrorMessage({
         token: lhsExpr?.token ?? expr.token,
-        errorMessage: `Unexpected "compt"  for parameter of type ${typeToString(
+        errorMessage: `Unexpected "compt" for parameter of type ${typeToString(
           parameterType
         )} which can only be used at runtime.`,
       });

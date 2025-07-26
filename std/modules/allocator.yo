@@ -1,0 +1,66 @@
+/**
+ * Allocator module - Memory allocation module inspired by Zig
+ * 
+ * This module defines the module for memory allocators that can be
+ * passed to data structures like ArrayList, HashMap, etc.
+ */
+open import "../data/result.yo";
+open import "../data/option.yo";
+open import "../data/primitives/usize.yo";
+open import "../data/primitives/compt_int.yo";
+
+// Error types for allocation failures
+AllocError :: enum(
+  OutOfMemory,
+  InvalidPointer,
+  InvalidSize,
+  AlignmentError,
+  DoubleFree,
+  NullPointerDereference,
+  AllocationFailed
+);
+
+// Allocator interface as a module
+Allocator :: ((compt(Self) : Type) -> compt(Module))
+  module
+    Self := Self,
+
+    // Allocate memory for n bytes, returns pointer or error
+    alloc :
+      (self: &!(Self), compt(T): Type, size: usize) -> Result(*!(T), AllocError),
+
+    // Free previously allocated memory
+    free :
+      (forall(compt(T): Type), self: &!(Self), ptr: *!(T)) -> Result(unit, AllocError),
+
+    // Reallocate memory, changing size from old_size to new_size
+    // ~~If ptr is null, behaves like alloc~~
+    // If new_size is 0, behaves like free
+    realloc : 
+      (forall(compt(T): Type), self: &!(Self), ptr: *!(T), old_size: usize, new_size: usize) -> Result(*(T), AllocError),
+    
+    // Create a new item of type T, returning a pointer or error
+    create : 
+      (forall(compt(T): Type), self: &!(Self), value: T) -> Result(*!(T), AllocError),
+    
+    // Destroy a single item of type T (convenience function)
+    destroy : 
+      (forall(compt(T): Type), self: &!(Self), ptr: *!(T)) -> Result(unit, AllocError)
+;
+
+// Helper functions for working with allocators
+
+// Calculate aligned size for type T
+align_size :: ((forall(compt(T): Type), size: usize) -> usize) {
+  // For now, assume all types need 8-byte alignment
+  // In a real implementation, this would use sizeof(T) and alignof(T)
+  alignment := 8.as(usize);
+  result :=
+    (((size + alignment) - 1.as(usize)) / alignment) * alignment;
+  return result;
+};
+
+export
+  Allocator,
+  align_size
+;

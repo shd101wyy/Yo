@@ -1,11 +1,11 @@
 open import "std";
 
-// Anonymous function
-anonymous_func :
-  (forall(compt(T): Type),
-    x: T)-> T;
-anonymous_func =
-  fn(a)-> a;
-x8 := anonymous_func(12);
-x9 := anonymous_func(true);
-
+// Calculate aligned size for type T
+align_size :: ((forall(compt(T): Type), size: usize) -> usize) {
+  // For now, assume all types need 8-byte alignment
+  // In a real implementation, this would use sizeof(T) and alignof(T)
+  alignment := 8.as(usize);
+  result :=
+    (((size + alignment) - 1.as(usize)) / alignment) * alignment;
+  return result;
+};
