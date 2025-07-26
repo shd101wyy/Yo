@@ -1,31 +1,11 @@
+open import "std";
 
+// Anonymous function
+anonymous_func :
+  (forall(compt(T): Type),
+    x: T)-> T;
+anonymous_func =
+  fn(a)-> a;
+x8 := anonymous_func(12);
+x9 := anonymous_func(true);
 
-(compt(LinearStruct) : Linear) = struct(
-  x : i32,
-  y : i32
-);
-
-some_condition :: 
-  (() -> boolean)
-    true
-;
-
-main :: (() -> i32) {
-  // This should work - LinearStruct gets auto-generated drop
-  linear_struct_1 := LinearStruct(1, 2);
-  linear_struct_2 := LinearStruct(3, 4);
-  cond
-    some_condition() => {
-      x := 1;
-      drop(linear_struct_1);
-      // drop(linear_struct_2); // This should be automatically inserted.
-    },
-    true => {
-      y := 2;
-      drop(linear_struct_2);
-      // drop(linear_struct_1); // This should be automatically inserted.
-    };
-  return 0;
-};
-
-export main;

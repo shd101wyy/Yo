@@ -377,6 +377,7 @@ export function popEnvFrame(
       (variable) => !variable.initializedAtToken
     );
     if (unconsumedVariables.length > 0) {
+      console.trace();
       throw formatErrorMessages(
         unconsumedVariables.map((variable) => {
           return {

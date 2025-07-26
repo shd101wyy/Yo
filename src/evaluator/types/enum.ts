@@ -9,7 +9,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import Parser from "../../parser";
+import { generateExprFromCode } from "../../parser";
 import {
   createEnumType,
   EnumType,
@@ -18,7 +18,6 @@ import {
   ModuleElement,
   typeOfType,
 } from "../../types";
-import { randomId } from "../../utils";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
@@ -34,21 +33,7 @@ function parseAndEvaluateExprInEnum(
   env: Environment,
   context: EvaluatorContext
 ): { expr: Expr; env: Environment } {
-  // Create a parser for the code string
-  const parser = new Parser({
-    modulePath: `auto-generated://${randomId()}`,
-    inputString: code,
-  });
-
-  // Get the parsed expressions
-  const program = parser.getProgram();
-  if (program.length !== 1) {
-    throw new Error(
-      `Expected exactly one expression from parsed code, got ${program.length}`
-    );
-  }
-
-  const expr = program[0]!;
+  const expr = generateExprFromCode(code);
 
   // Evaluate the expression with the enum as the SelfType
   const evaluatedExpr = context.evaluateExpression({
@@ -78,7 +63,7 @@ function generateDropFunctionCode(enumType: EnumType): string {
       if (variant.elements && variant.elements.length > 0) {
         // For variants with data, destructure them
         const fieldDestructure = variant.elements
-          .filter((element) => isLinearOrType0Type(element.type))
+          .filter((element) => isLinearOrType0Type(typeOfType(element.type)))
           .map((element) => element.label)
           .join(", ");
 

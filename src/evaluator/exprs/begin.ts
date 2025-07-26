@@ -19,6 +19,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
+  FuncCallExpr,
   setExprAsConsumed,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
@@ -56,17 +57,25 @@ export function evaluateBeginExpression({
   context: EvaluatorContext;
   variablesToAdd: Omit<Variable, "frameLevel" | "id">[];
 }): Expr {
-  let beginExpressions: Expr[] = [];
-  let hasBeginKeyword = false;
   if (
     !exprIsFunctionCall(expr) ||
     !exprIsFunctionCallOf(expr, BuiltinKeywords.begin)
   ) {
-    beginExpressions = [expr];
-  } else {
-    hasBeginKeyword = true;
-    beginExpressions = expr.args;
+    // Re-construct it as begin expression
+    const beginExpr = generateExprFromCode(
+      `begin(${exprToString(expr)})`
+    ) as FuncCallExpr;
+
+    // Replace everything from beginExpr to expr
+    expr = expr as FuncCallExpr;
+    expr.$ = beginExpr.$;
+    expr.args = beginExpr.args;
+    expr.func = beginExpr.func;
+    expr.isInfix = beginExpr.isInfix;
+    expr.tag = beginExpr.tag;
+    expr.token = beginExpr.token;
   }
+  const beginExpressions: Expr[] = expr.args;
   const expectedType = context.expectedType;
 
   // Empty begin
@@ -430,11 +439,7 @@ export function evaluateBeginExpression({
 
   // If we have drop calls to insert and this is a begin expression,
   // we need to evaluate them and insert them before control flow statements
-  if (
-    dropCallsToInsert.length > 0 &&
-    hasBeginKeyword &&
-    exprIsFunctionCall(expr)
-  ) {
+  if (dropCallsToInsert.length > 0 && exprIsFunctionCall(expr)) {
     const originalArgs = expr.args.slice();
 
     // Find the position to insert drops - before return/break/continue or before the last expression
@@ -489,28 +494,15 @@ export function evaluateBeginExpression({
   // console.log("begin expression after applying drops:");
   // console.log(exprToString(expr));
 
-  if (!hasBeginKeyword) {
-    // If the begin keyword is not used, we need to return the last expression
-    expr = lastExpr;
-    if (!expr.$) {
-      throw formatErrorMessage({
-        token: expr.token,
-        errorMessage: `Last expression in "begin" is not evaluated correctly:\n${exprToString(expr)}`,
-      });
-    }
-    expr.$.env = env;
-    expr.$.controlFlow = lastExpr.$.controlFlow;
-  } else {
-    expr.$ = {
-      env,
-      type: lastExpr.$.type,
-      value: lastExpr.$.value,
-      isMutable: false,
-      pathCollection: [],
-      controlFlow: lastExpr.$.controlFlow,
-    };
-    attachTempVariableToExpr(expr);
-  }
+  expr.$ = {
+    env,
+    type: lastExpr.$.type,
+    value: lastExpr.$.value,
+    isMutable: false,
+    pathCollection: [],
+    controlFlow: lastExpr.$.controlFlow,
+  };
+  attachTempVariableToExpr(expr);
   return expr;
 }
 

@@ -19,12 +19,17 @@ test2 :: (() -> unit) {
 some_condition :: (() -> boolean) true;
 test3 :: (() -> unit) {
   mut(arr) : Array(i32, _);
+
   compt_expect_error(
     cond(
       some_condition() => {arr = [1, 2, 3]; },
       true => { arr = [1, 2, 3, 4]; }
     )
   );
-
   // This should give error because `arr` cannot have differnet lengths
+
+  cond(
+    some_condition() => {arr = [1, 2, 3]; },
+    true => { arr = [2, 3, 4]; }
+  )
 };

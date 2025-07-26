@@ -8,7 +8,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import Parser from "../../parser";
+import { generateExprFromCode } from "../../parser";
 import {
   createStructType,
   isLinearOrType0Type,
@@ -18,7 +18,6 @@ import {
   TupleElement,
   typeOfType,
 } from "../../types";
-import { randomId } from "../../utils";
 import {
   areValuesEqual,
   createTypeValue,
@@ -37,21 +36,7 @@ function parseAndEvaluateExprInStruct(
   env: Environment,
   context: EvaluatorContext
 ): { expr: Expr; env: Environment } {
-  // Create a parser for the code string
-  const parser = new Parser({
-    modulePath: `auto-generated://${randomId()}`,
-    inputString: code,
-  });
-
-  // Get the parsed expressions
-  const program = parser.getProgram();
-  if (program.length !== 1) {
-    throw new Error(
-      `Expected exactly one expression from parsed code, got ${program.length}`
-    );
-  }
-
-  const expr = program[0]!;
+  const expr = generateExprFromCode(code);
 
   // Evaluate the expression with the struct as the SelfType
   const evaluatedExpr = context.evaluateExpression({
@@ -79,7 +64,8 @@ function generateDropFunctionCode(structType: StructType): string {
   const destructurePattern = structType.elements
     .filter(
       (element) =>
-        !element.isCompileTimeOnly && isLinearOrType0Type(element.type)
+        !element.isCompileTimeOnly &&
+        isLinearOrType0Type(typeOfType(element.type))
     )
     .map((element) => element.label)
     .join(", ");

@@ -175,7 +175,7 @@ export function evaluateAnonymousFunctionImplementation({
     env = evaluatedBody.$?.env;
   }
   // Restore the env frame
-  env = popEnvFrame(env);
+  env = popEnvFrame(env, true);
 
   // For closures, consume the captured variables from outer scopes
   if (isClosureFunction && capturedVariables && capturedVariables.size > 0) {
