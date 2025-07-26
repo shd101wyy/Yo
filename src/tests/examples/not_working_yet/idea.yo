@@ -51,3 +51,44 @@ So now we can only only one type of closure.
 
 // unique value can be converted back to gc value
 // - to_gc - convert the value to a gc value, which can be shared with other owners.
+
+// Algebraic Effects
+/// With `resume`.
+Yield ::
+  ctl( i : i32) -> boolean
+;
+traverse :: (fn(xs : List(int), using(yield: Yield)) -> unit)
+  match(xs,
+    .Cond => {
+      { x, xx } := xs;
+      if yield(x), then: traverse(xx), else: ()
+    },
+    .Nil => ()
+  )
+;
+
+print_elems :: (fn() -> unit) {
+  (given(yield) : Yield) =
+    ( i )-> {
+      println("yielded" ++ i.show());
+      resume(i <= 2);
+    };
+  traverse(List(1, 2, 3, 4), using(yield));
+};
+
+/// Abort
+Raise ::
+  ctl(forall(compt(T) : Type), msg : String) -> T
+;
+
+safe_divide :: (fn(x : i32, y : i32, using(raise: Raise)) -> i32)
+  if y == 0,
+    then: raise("Division by zero"),
+    else: (x / y)
+;
+
+raise_const :: (fn() -> i32) {
+  (given(raise) : Raise) =
+    (msg)-> 42; // Abort with 42, which matches the return type of `raise_const`.
+  8 + safe_divide(1, 0, using(raise))
+};
