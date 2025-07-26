@@ -11,7 +11,7 @@ struct Unit unit = {};
 // Module file:///home/yiyiwang/Workspace/yo/std/data/arithmetic.yo
 // Module ID: mod3bddfa5
 
-// Module file:///home/yiyiwang/Workspace/yo/std/data/primitive/i32.yo
+// Module file:///home/yiyiwang/Workspace/yo/std/data/primitives/i32.yo
 // Module ID: mo86a322ea
 
 // Module file:///home/yiyiwang/Workspace/yo/std/data/option.yo
