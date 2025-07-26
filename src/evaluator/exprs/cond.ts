@@ -213,7 +213,11 @@ export function evaluateCond({
       };
 
       // Merge and check all environments
-      env = mergeAndCheckEnvs(env, bodies);
+      env = mergeAndCheckEnvs(
+        env,
+        bodies,
+        bodies.map(() => ({ ...context }))
+      );
 
       // Determine the compile-time value
       let value: Value | undefined = undefined;
@@ -360,7 +364,11 @@ export function evaluateCond({
       }
 
       // Merge and check all environments
-      env = mergeAndCheckEnvs(env, bodies);
+      env = mergeAndCheckEnvs(
+        env,
+        bodies,
+        bodies.map(() => ({ ...context }))
+      );
 
       // Determine the compile-time value
       let value: Value | undefined = undefined;

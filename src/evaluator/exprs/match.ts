@@ -443,7 +443,11 @@ Please use .variantName for destructuring enum variants.`,
     }
 
     // Merge and check all environments
-    env = mergeAndCheckEnvs(env, bodies);
+    env = mergeAndCheckEnvs(
+      env,
+      bodies,
+      bodies.map(() => ({ ...context }))
+    );
 
     // Set the type and value of the match expression
     expr.$ = {

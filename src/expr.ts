@@ -8,6 +8,7 @@ import {
 } from "./env";
 import { formatErrorMessage, formatErrorMessages } from "./error";
 import { EvaluatorContext } from "./evaluator/context";
+import { generateExprFromCode } from "./parser";
 import { Token, TokenType } from "./token";
 import {
   areTypesCompatible,
@@ -1098,12 +1099,12 @@ export function requireExprNotConsumed(expr: Expr, env: Environment): void {
  * Update `env` based on multiple envs in different cases.
  * @param env the base env, before entering cond/match cases.
  * @param bodies the bodies of the cases, not including the condition/case.
+ * @param contexts the evaluation contexts for each body (optional).
  */
 export function mergeAndCheckEnvs(
   env: Environment,
-  bodies: Expr[]
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  // tempVariableName: string
+  bodies: Expr[],
+  contexts?: EvaluatorContext[] // Array of contexts for each body
 ): Environment {
   // console.log("env:");
   // printEnvVarNames(env);
@@ -1331,21 +1332,88 @@ export function mergeAndCheckEnvs(
           const consumed = consumedAtTokens.filter((t) => !!t) as Token[];
           const notConsumed = consumedAtTokens.filter((t) => !t);
           if (consumed.length > 0 && notConsumed.length > 0) {
-            /*
-          throw formatErrorMessages({
-            errorMessage: `Variable "${variableName}" might be consumed in some cases but not consumed in other cases:\n`,
-            tokenAndErrorList: consumedAtTokens.map((token, index) => {
-              return {
-                errorMessage: token
-                  ? "Might be consumed here:"
-                  : "Not consumed here:",
-                token: token ?? bodies[index]!.token,
-              };
-            }),
-          });
-          */
+            // RAII: Insert drop calls in branches that don't consume the variable
+            // Only apply to Linear/Type0 variables
+            if (isLinearOrType0Type(typeOfType(frameVariables[i]!.type))) {
+              // Find which branches need drop calls inserted
+              for (
+                let branchIndex = 0;
+                branchIndex < consumedAtTokens.length;
+                branchIndex++
+              ) {
+                const wasConsumedInBranch = !!consumedAtTokens[branchIndex];
+                if (!wasConsumedInBranch) {
+                  // This branch didn't consume the variable, insert a drop call
+                  const body = bodies[branchIndex]!;
 
-            // RAII, call "drop" on variable if it is not consumed.
+                  // Check if the body is a begin expression that we can modify
+                  if (
+                    exprIsFunctionCall(body) &&
+                    exprIsFunctionCallOf(body, BuiltinKeywords.begin)
+                  ) {
+                    // Use generateExprFromCode to create the drop call
+                    const dropCall = generateExprFromCode(
+                      `drop(${variableName})`
+                    );
+
+                    // Find the position to insert drops - before return/break/continue or before the last expression
+                    let insertPosition = body.args.length - 1;
+                    const lastArg = body.args[insertPosition];
+
+                    // Check if the last expression is a control flow statement
+                    if (lastArg && lastArg.$ && lastArg.$.controlFlow) {
+                      // Insert before the control flow statement
+                      insertPosition = body.args.length - 1;
+                    } else {
+                      // Check the second-to-last expression for control flow
+                      const secondLastArg = body.args[body.args.length - 2];
+                      if (
+                        secondLastArg &&
+                        secondLastArg.$ &&
+                        secondLastArg.$.controlFlow
+                      ) {
+                        // Insert before the control flow statement
+                        insertPosition = body.args.length - 2;
+                      }
+                    }
+
+                    // If we have a context for this branch, evaluate the drop call
+                    if (contexts && contexts[branchIndex]) {
+                      const context = contexts[branchIndex]!;
+                      const evaluatedDropCall = context.evaluateExpression({
+                        expr: dropCall,
+                        env: caseEnvs[branchIndex]!,
+                        context: { ...context },
+                      });
+
+                      if (evaluatedDropCall.$) {
+                        // Update the case environment
+                        caseEnvs[branchIndex] = evaluatedDropCall.$.env;
+
+                        // Insert evaluated drop call at the correct position
+                        body.args = [
+                          ...body.args.slice(0, insertPosition),
+                          evaluatedDropCall,
+                          ...body.args.slice(insertPosition),
+                        ];
+                      } else {
+                        throw formatErrorMessage({
+                          token: dropCall.token,
+                          errorMessage: `Failed to evaluate auto-generated drop call: ${exprToString(dropCall)}`,
+                        });
+                      }
+                    } else {
+                      throw formatErrorMessage({
+                        token: dropCall.token,
+                        errorMessage: `No evaluation context provided for auto-generated drop call: ${exprToString(dropCall)}`,
+                      });
+                    }
+                  }
+                }
+              }
+            }
+
+            // Mark the variable as consumed
             const newVariable: Variable = {
               ...frameVariables[i]!,
               consumedAtToken: consumed[0],

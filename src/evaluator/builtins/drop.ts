@@ -5,12 +5,12 @@ import {
   BuiltinKeywords,
   expectExprToBeFunctionCallOf,
   Expr,
-  ExprTag,
+  exprIsFunctionCall,
   exprToString,
   FuncCallExpr,
   setExprAsConsumed,
 } from "../../expr";
-import { TokenType } from "../../token";
+import { generateExprFromCode } from "../../parser";
 import { isLinearOrType0Type, isSomeType } from "../../types";
 import { VUnit } from "../../unit-value";
 import { evaluateFunctionCall } from "../calls/function";
@@ -59,39 +59,30 @@ export function evaluateDrop({
     !isSomeType(evaluatedArgExpr.$.type) &&
     isLinearOrType0Type(evaluatedArgExpr.$.type)
   ) {
-    const dropMethodCallExpr: FuncCallExpr = {
-      tag: ExprTag.FuncCall,
-      args: [],
-      token: expr.token,
-      func: {
-        tag: ExprTag.FuncCall,
-        token: {
-          type: TokenType.Dot,
-          value: ".",
-          inputString: expr.token.inputString,
-          modulePath: expr.token.modulePath,
-          position: expr.func.token.position,
-        },
-        args: [evaluatedArgExpr, expr.func],
-        func: {
-          tag: ExprTag.Atom,
-          token: {
-            type: TokenType.Dot,
-            value: ".",
-            inputString: expr.token.inputString,
-            modulePath: expr.token.modulePath,
-            position: expr.func.token.position,
-          },
-        },
-        isInfix: true,
-      },
-    };
+    const dropMethodCallExpr = generateExprFromCode(
+      `(${exprToString(evaluatedArgExpr)}).drop()`
+    ) as FuncCallExpr;
+
     // Convert this drop(x) to x.drop() and evaluate the function call
-    return evaluateFunctionCall({
+    const evaluatedDropMethodCallExpr = evaluateFunctionCall({
       env,
       context: { ...context },
       expr: dropMethodCallExpr,
     });
+
+    // Replace the original expr with the evaluated drop method call
+    if (exprIsFunctionCall(evaluatedDropMethodCallExpr)) {
+      expr.$ = evaluatedDropMethodCallExpr.$;
+      expr.args = evaluatedDropMethodCallExpr.args;
+      expr.func = evaluatedDropMethodCallExpr.func;
+      expr.tag = evaluatedDropMethodCallExpr.tag;
+      expr.token = evaluatedDropMethodCallExpr.token;
+      expr.isInfix = evaluatedDropMethodCallExpr.isInfix;
+      return expr;
+    } else {
+      // In theory we shouldn't enter here
+      return evaluatedDropMethodCallExpr;
+    }
   }
 
   // Set the expression as consumed

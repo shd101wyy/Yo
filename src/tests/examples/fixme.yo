@@ -1,14 +1,30 @@
+
+
 (compt(LinearStruct) : Linear) = struct(
   x : i32,
   y : i32
 );
 
+some_condition :: 
+  (() -> boolean)
+    true
+;
+
 main :: (() -> i32) {
   // This should work - LinearStruct gets auto-generated drop
   linear_struct_1 := LinearStruct(1, 2);
-  linear_struct_2 := LinearStruct(1, 2);
-  // drop(linear_struct2); // This line should be automatically inserted
-  // drop(linear_struct1); // This line should be automatically inserted
+  linear_struct_2 := LinearStruct(3, 4);
+  cond
+    some_condition() => {
+      x := 1;
+      drop(linear_struct_1);
+      // drop(linear_struct_2); // This should be automatically inserted.
+    },
+    true => {
+      y := 2;
+      drop(linear_struct_2);
+      // drop(linear_struct_1); // This should be automatically inserted.
+    };
   return 0;
 };
 

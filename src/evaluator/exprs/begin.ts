@@ -56,7 +56,6 @@ export function evaluateBeginExpression({
   context: EvaluatorContext;
   variablesToAdd: Omit<Variable, "frameLevel" | "id">[];
 }): Expr {
-  console.log("evaluating begin: ", exprToString(expr));
   let beginExpressions: Expr[] = [];
   let hasBeginKeyword = false;
   if (
@@ -487,8 +486,8 @@ export function evaluateBeginExpression({
   // Now pop the environment frame
   env = popEnvFrame(env);
 
-  console.log("begin expression after applying drops:");
-  console.log(exprToString(expr));
+  // console.log("begin expression after applying drops:");
+  // console.log(exprToString(expr));
 
   if (!hasBeginKeyword) {
     // If the begin keyword is not used, we need to return the last expression
