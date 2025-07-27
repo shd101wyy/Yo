@@ -1,6 +1,6 @@
 ```rust,f#
 swap :: 
-  ((forall(compt(R1) : Region, compt(R2) : Region),
+  (fn(forall(compt(R1) : Region, compt(R2) : Region),
     a : &!(i32, using(R1)),
     b : &!(i32, using(R2))
   ) -> unit) 
@@ -12,7 +12,7 @@ swap ::
 
 // pre/post conditions
 swap2 ::
-  ((forall(compt(R1) : Region, compt(R2) : Region),
+  (fn(forall(compt(R1) : Region, compt(R2) : Region),
     a : &!(i32, using(R1)),
     b : &!(i32, using(R2))
   ) -> (unit `with` {
@@ -33,7 +33,7 @@ swap2 ::
   post(a.* == b.*);
 };
 
-main :: (() -> unit) { // each `begin` will implicitly create a new region
+main :: (fn() -> unit) { // each `begin` will implicitly create a new region
   // given(reg) :: region();
   mut(x) := 1;
   mut(y) := 2;
@@ -66,7 +66,7 @@ store_in_container :: (
 ) -> unit `where` R1 >= R2  // ref must outlive container
 
 // 3. Usage becomes natural
-test1 :: (() -> unit) {
+test1 :: (fn() -> unit) {
   mut(x) := 42;
   r1 :: region("data");
   x_mut := &!(x, using(r1));
@@ -90,7 +90,7 @@ test1 :: (() -> unit) {
   // C) Explicit: require `move` or `borrow` annotations
 };
 
-test2 :: (() -> unit) {
+test2 :: (fn() -> unit) {
   mut(x) := 42;
   r1 :: region("data");
 
@@ -119,7 +119,7 @@ test2 :: (() -> unit) {
 // - &!(x, using(r1)).* = 12 tries to mutate the borrowed value `x`
 // - Even though it's a "new" reference, it's the same underlying value
 
-test3 :: (() -> unit) {
+test3 :: (fn() -> unit) {
   mut(x) := 42;
   r1 :: region("data");
 

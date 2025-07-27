@@ -14,10 +14,10 @@ expanded0 :: macro_expand quote
 expected0 :: quote(
 {
   x := 1;
-  fetch("https://api.example.com", fn(response) => {
+  fetch("https://api.example.com", (response) => {
     println("after fetch");
     println(response);
-    response.json(fn(json) =>> {
+    response.json((json,) =>> {
       println("after json");
       println(json);
     })
@@ -45,13 +45,13 @@ expanded1 :: macro_expand quote
 compt_assert(expanded1 == quote(
   {
     x := 1;
-    fetch("https://api.example.com", fn(response) => {
+    fetch("https://api.example.com", (response) => {
       println("after fetch");
       println(response);
-      response.json(fn(json) =>> {
+      response.json((json,) =>> {
         println("after json");
         println(json);
-        json.parse(fn(x, y) -> {
+        json.parse((x, y) -> {
           println("after parse");
           return(x + y);
         })
@@ -63,7 +63,7 @@ compt_assert(expanded1 == quote(
 expanded2 :: macro_expand quote
   do {
     println("top");
-    with _ <= finally(fn()=> {
+    with _ <= finally(()=> {
       println("end");
     });
     println("start");
@@ -76,10 +76,10 @@ compt_assert(expanded2 == quote(
   {
     println("top");
     finally(
-      fn() => {
+      () => {
         println("end");
       },
-      fn() => {
+      () => {
         println("start");
         println("mid 1");
         println("mid 2");

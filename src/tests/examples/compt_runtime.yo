@@ -1,12 +1,12 @@
 // Compt value can be assigned to runtime variable,
 // but not the other way around.
 
-main :: (()-> unit) {
-  compt_return :: ((compt(T): Type, compt(value): T)-> compt(T))
+main :: (fn() -> unit) {
+  compt_return :: (fn(compt(T): Type, compt(value): T)-> compt(T))
     value
   ;
 
-  runtime_return :: ((compt(T): Type, value: T)-> T)
+  runtime_return :: (fn(compt(T): Type, value: T)-> T)
     value
   ;
 
@@ -19,7 +19,7 @@ main :: (()-> unit) {
     );
     xxxx := runtime_return(i32, 12);
 
-    test :: ((compt(x): i32, y: i32)-> unit) {
+    test :: (fn(compt(x): i32, y: i32)-> unit) {
       // Assign compt value to another compt is allowed
       xxx :: x;
       xx :: compt_return(i32, x);
@@ -38,12 +38,12 @@ main :: (()-> unit) {
   };
 
   // Below should give error as `value` is supposed to be compt
-  // some_func :: ((compt(T): Type, value: T) -> compt(T)) value;
+  // some_func :: (fn(compt(T): Type, value: T) -> compt(T)) value;
 
   // compt value can be assigned to runtime parameter,
   // but not the other way around.
   {
-    accept_compt :: ((compt(x): i32)-> unit) {
+    accept_compt :: (fn(compt(x): i32)-> unit) {
       xx :: x;
       xxx := x;
     };

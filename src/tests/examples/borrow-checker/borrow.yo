@@ -1,10 +1,10 @@
 // Borrow
 extern
   gt:
-    (x: i32, y: i32)-> boolean
+    fn(x: i32, y: i32)-> boolean
 ;
 
-main :: (()-> unit) {
+main :: (fn() -> unit) {
   (mut(x) : i32) = 12;
 
   compt_expect_error(
@@ -51,7 +51,7 @@ main :: (()-> unit) {
   };
 
   swap :: 
-    ((x: &!(i32), y: &!(i32)) -> unit) {
+    (fn(x: &!(i32), y: &!(i32)) -> unit) {
       temp := x.*;
       x.* = y.*;
       y.* = temp;
@@ -86,7 +86,7 @@ main :: (()-> unit) {
   );
 
   // fn return parameter that is reference is allowed
-  return_param :: ((x: &(i32)) -> &(i32)) {
+  return_param :: (fn(x: &(i32)) -> &(i32)) {
     (a : i32) = 12;
     x
   };
@@ -128,7 +128,7 @@ main :: (()-> unit) {
       RefStruct(&(x)) // Allowed, because `x` is a parameter and not a local variable.
     }
   );
-  return_ref_struct :: ((x: &(i32))-> RefStruct) {
+  return_ref_struct :: (fn(x: &(i32))-> RefStruct) {
     a := x.*;
     RefStruct(x) // Allowed, because `x` is a parameter and not a local variable.
   };
@@ -137,7 +137,7 @@ main :: (()-> unit) {
   {
     (mut(x) : i32) = 12;
     (mut(y) : i32) = 13;
-    largest :: ((x: &(i32), y: &(i32))-> &(i32))
+    largest :: (fn(x: &(i32), y: &(i32))-> &(i32))
       cond
         (x.* `gt` y.*) => x,
         true => y

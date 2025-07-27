@@ -33,7 +33,7 @@ open import "../data/primitives/boolean.yo";
  */
 
 // Create a begin expression with all arguments using unquote_splicing
-create_begin_with_all_args :: ((compt(args) : ExprList) -> compt(Expr)) {
+create_begin_with_all_args :: (fn(compt(args) : ExprList) -> compt(Expr)) {
   return cond(
     (args.length() == 0) => quote(()),
     (args.length() == 1) => args.car(),
@@ -45,7 +45,7 @@ create_begin_with_all_args :: ((compt(args) : ExprList) -> compt(Expr)) {
 };
 
 // Helper function to collect consecutive non-with statements before the next with statement
-collect_non_with_before_next_with :: ((compt(args) : ExprList) -> compt(ExprList)) {
+collect_non_with_before_next_with :: (fn(compt(args) : ExprList) -> compt(ExprList)) {
   return cond(
     (args.length() == 0) => expr_list(),
     true => {
@@ -76,7 +76,7 @@ collect_non_with_before_next_with :: ((compt(args) : ExprList) -> compt(ExprList
 };
 
 // Helper function to skip non-with statements and return the remaining list starting from the next with
-skip_non_with_until_next_with :: ((compt(args) : ExprList) -> compt(ExprList)) {
+skip_non_with_until_next_with :: (fn(compt(args) : ExprList) -> compt(ExprList)) {
   return cond(
     (args.length() == 0) => expr_list(),
     true => {
@@ -103,7 +103,7 @@ skip_non_with_until_next_with :: ((compt(args) : ExprList) -> compt(ExprList)) {
 };
 
 // Helper function to check if there are any with statements in the argument list
-check_for_with_statements :: ((compt(args) : ExprList) -> compt(boolean)) {
+check_for_with_statements :: (fn(compt(args) : ExprList) -> compt(boolean)) {
   return cond(
     (args.length() == 0) => false,
     true => {
@@ -125,7 +125,7 @@ check_for_with_statements :: ((compt(args) : ExprList) -> compt(boolean)) {
 
 // Transform "with var <= expr" into a monadic bind pattern
 // This should transform the entire do block into nested function calls
-transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
+transform_do_block :: (fn(compt(args) : ExprList) -> compt(Expr)) {
   return cond(
     (args.length() == 0) => quote(()),
     (args.length() == 1) => 
@@ -211,11 +211,11 @@ transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
                                           // Create function with multiple parameters
                                           cond(                        
                                             (assignment_callee == quote(<-)) =>
-                                              quote(fn(unquote_splicing(tuple_args)) -> unquote(rest_transformed)),
+                                              quote((unquote_splicing(tuple_args),) -> unquote(rest_transformed)),
                                             (assignment_callee == quote(<=)) =>
-                                              quote(fn(unquote_splicing(tuple_args)) => unquote(rest_transformed)),
+                                              quote((unquote_splicing(tuple_args),) => unquote(rest_transformed)),
                                             (assignment_callee == quote(<<=)) => 
-                                              quote(fn(unquote_splicing(tuple_args)) =>> unquote(rest_transformed)),
+                                              quote((unquote_splicing(tuple_args),) =>> unquote(rest_transformed)),
                                             true => {
                                               compt_assert(false, "Unknown assignment operator in with statement");
                                               quote(false)
@@ -226,11 +226,11 @@ transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
                                           // Not a tuple, treat as single parameter
                                           cond(                        
                                             (assignment_callee == quote(<-)) =>
-                                              quote(fn(unquote(var_name)) -> unquote(rest_transformed)),
+                                              quote((unquote(var_name)) -> unquote(rest_transformed)),
                                             (assignment_callee == quote(<=)) =>
-                                              quote(fn(unquote(var_name)) => unquote(rest_transformed)),
+                                              quote((unquote(var_name)) => unquote(rest_transformed)),
                                             (assignment_callee == quote(<<=)) =>
-                                              quote(fn(unquote(var_name)) =>> unquote(rest_transformed)),
+                                              quote((unquote(var_name)) =>> unquote(rest_transformed)),
                                             true => {
                                               compt_assert(false, "Unknown assignment operator in with statement");
                                               quote(false)
@@ -245,11 +245,11 @@ transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
                                           // Special case: _ means no parameters
                                           cond(                        
                                             (assignment_callee == quote(<-)) =>
-                                              quote(fn() -> unquote(rest_transformed)),
+                                              quote(() -> unquote(rest_transformed)),
                                             (assignment_callee == quote(<=)) =>
-                                              quote(fn() => unquote(rest_transformed)),
+                                              quote(() => unquote(rest_transformed)),
                                             (assignment_callee == quote(<<=)) => // <<=
-                                              quote(fn() =>> unquote(rest_transformed)),
+                                              quote(() =>> unquote(rest_transformed)),
                                             true => {
                                               compt_assert(false, "Unknown assignment operator in with statement");
                                               quote(false)
@@ -259,11 +259,11 @@ transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
                                           // Regular single parameter
                                           cond(                        
                                             (assignment_callee == quote(<-)) =>
-                                              quote(fn(unquote(var_name)) -> unquote(rest_transformed)),
+                                              quote((unquote(var_name)) -> unquote(rest_transformed)),
                                             (assignment_callee == quote(<=)) =>
-                                              quote(fn(unquote(var_name)) => unquote(rest_transformed)),
+                                              quote((unquote(var_name)) => unquote(rest_transformed)),
                                             (assignment_callee == quote(<<=)) => // <<=
-                                              quote(fn(unquote(var_name)) =>> unquote(rest_transformed)),
+                                              quote((unquote(var_name)) =>> unquote(rest_transformed)),
                                             true => {
                                               compt_assert(false, "Unknown assignment operator in with statement");
                                               quote(false)
@@ -385,7 +385,7 @@ transform_do_block :: ((compt(args) : ExprList) -> compt(Expr)) {
 
 // Helper function to check if there are any with statements in the argument list
 
-do :: ((quote(begin_expr) : Expr) -> unquote(Expr)) {
+do :: (fn(quote(begin_expr) : Expr) -> unquote(Expr)) {
   return cond(
     begin_expr.is_fn_call() => {
       callee :: begin_expr.get_callee();

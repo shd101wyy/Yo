@@ -1,29 +1,29 @@
 extern "Yo",
   __yo_maybe_uninit_new : 
-    ((compt(Self) : Type) -> Self),
+    (fn(compt(Self) : Type) -> Self),
   __yo_maybe_uninit_as_mut_ptr : 
-    ((compt(Self) : Type, compt(BaseType): Type, self: &!(Self)) -> *!(BaseType)),
+    (fn(compt(Self) : Type, compt(BaseType): Type, self: &!(Self)) -> *!(BaseType)),
   __yo_maybe_uninit_as_ptr : 
-    ((compt(Self) : Type, compt(BaseType): Type, self: &!(Self)) -> *(BaseType)),
+    (fn(compt(Self) : Type, compt(BaseType): Type, self: &!(Self)) -> *(BaseType)),
   __yo_maybe_uninit_assume_init : 
-    ((compt(Self) : Type, compt(BaseType): Type, self: Self) -> BaseType)
+    (fn(compt(Self) : Type, compt(BaseType): Type, self: Self) -> BaseType)
 ;
 
-MaybeUninit :: ((compt(BaseType): Type) -> compt(Type))
+MaybeUninit :: (fn(compt(BaseType): Type) -> compt(Type))
   struct(
     value: BaseType,
 
-    new :: ((() -> Self) __yo_maybe_uninit_new(Self)),
+    new :: ((fn() -> Self) __yo_maybe_uninit_new(Self)),
 
-    as_mut_ptr :: (((self: &!(Self)) -> *!(BaseType))
+    as_mut_ptr :: ((fn(self: &!(Self)) -> *!(BaseType))
       __yo_maybe_uninit_as_mut_ptr(Self, BaseType, self)
     ),
 
-    as_ptr :: (((self: &!(Self)) -> *(BaseType))
+    as_ptr :: ((fn(self: &!(Self)) -> *(BaseType))
       __yo_maybe_uninit_as_ptr(Self, BaseType, self)
     ),
 
-    assume_init :: (((self : Self) -> BaseType)
+    assume_init :: ((fn(self : Self) -> BaseType)
       __yo_maybe_uninit_assume_init(Self, BaseType, self)
     )
   )

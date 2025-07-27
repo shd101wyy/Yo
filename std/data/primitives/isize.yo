@@ -9,34 +9,34 @@ open import "../../builtins.yo";
  * arithmetic
  */
 given(IsizeAdd) :: Add(isize, isize)
-  (+): (fn(a, b)-> __yo_op_add(a, b))
+  (+): ((a, b) -> __yo_op_add(a, b))
 ;
 
 given(IsizeSub) :: Sub(isize, isize)
-  (-): (fn(a, b)-> __yo_op_sub(a, b))
+  (-): ((a, b) -> __yo_op_sub(a, b))
 ;
 
 given(IsizeMul) :: Mul(isize, isize)
-  (*): (fn(a, b)-> __yo_op_mul(a, b))
+  (*): ((a, b) -> __yo_op_mul(a, b))
 ;
 
 given(IsizeDiv) :: Div(isize, isize)
-  (/): (fn(a, b)-> __yo_op_div(a, b))
+  (/): ((a, b) -> __yo_op_div(a, b))
 ;
 
 given(IsizeMod) :: Mod(isize, isize)
-  (%): (fn(a, b)-> __yo_op_mod(a, b))
+  (%): ((a, b) -> __yo_op_mod(a, b))
 ;
 
 given(IsizeNegate) :: Negate(isize)
-  (neg): (fn(a)-> __yo_op_neg(a))
+  (neg): ((a) -> __yo_op_neg(a))
 ;
 
 /**
  * logic
  */
 given(IsizeLogicalNot) :: LogicalNot(isize)
-  (!): (fn(a)-> __yo_op_not(a))
+  (!): ((a) -> __yo_op_not(a))
 ;
 
 
@@ -44,28 +44,28 @@ given(IsizeLogicalNot) :: LogicalNot(isize)
  * eq
  */
 given(IsizeEq) :: Eq(isize, isize)
-  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+  (==) : ((a, b) -> __yo_op_eq(a, b))
 ;
 
 /**
  * ord
  */
 given(IsizeOrd) :: Ord(isize, isize, using(IsizeEq))
-  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
-  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
-  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
-  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
 ;
 
 given(IsizeDrop) :: Drop(isize)
-  drop: (fn(self)->
+  drop: ((self) ->
     // No-op for isize, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
 given(IsizeClone) :: Clone(isize)
-  clone: (fn(self)->
+  clone: ((self) ->
     // No-op for isize, as it is a primitive type
     __yo_return_self(self.*)
   )
@@ -74,59 +74,59 @@ given(IsizeClone) :: Clone(isize)
 given(IsizeComptMethods) :: module {
   Self :: isize;
 
-  (+) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (+) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_isize_add(lhs, rhs)
   ;
 
-  (-) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (-) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_isize_sub(lhs, rhs)
   ;
 
-  (*) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (*) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_isize_mul(lhs, rhs)
   ;
 
-  (/) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (/) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_isize_div(lhs, rhs)
   ;
 
-  (%) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (%) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_isize_mod(lhs, rhs)
   ;
 
-  (==) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (==) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_isize_eq(lhs, rhs)
   ;
 
-  (!=) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (!=) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_isize_neq(lhs, rhs)
   ;
 
-  (<) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (<) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_isize_lt(lhs, rhs)
   ;
 
-  (<=) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (<=) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_isize_lte(lhs, rhs)
   ;
 
-  (>) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (>) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_isize_gt(lhs, rhs)
   ;
 
-  (>=) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (>=) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_isize_gte(lhs, rhs)
   ;
 
-  neg :: ((compt(self): Self) -> compt(Self))
+  neg :: (fn(compt(self): Self) -> compt(Self))
     __yo_isize_neg(self)
   ;
 
-  (as) :: ((compt(self): Self, compt(Target): Type) -> compt(Target))
+  (as) :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
     __yo_isize_as(self, Target)
   ;
 
-  (to_string) :: ((compt(self): Self) -> compt(compt_string))
+  (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
     __yo_isize_to_string(self)
   ;
 

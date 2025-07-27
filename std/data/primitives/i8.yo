@@ -9,34 +9,34 @@ open import "../../builtins.yo";
  * arithmetic
  */
 given(I8Add) :: Add(i8, i8)
-  (+): (fn(a, b)-> __yo_op_add(a, b))
+  (+): ((a, b) -> __yo_op_add(a, b))
 ;
 
 given(I8Sub) :: Sub(i8, i8)
-  (-): (fn(a, b)-> __yo_op_sub(a, b))
+  (-): ((a, b) -> __yo_op_sub(a, b))
 ;
 
 given(I8Mul) :: Mul(i8, i8)
-  (*): (fn(a, b)-> __yo_op_mul(a, b))
+  (*): ((a, b) -> __yo_op_mul(a, b))
 ;
 
 given(I8Div) :: Div(i8, i8)
-  (/): (fn(a, b)-> __yo_op_div(a, b))
+  (/): ((a, b) -> __yo_op_div(a, b))
 ;
 
 given(I8Mod) :: Mod(i8, i8)
-  (%): (fn(a, b)-> __yo_op_mod(a, b))
+  (%): ((a, b) -> __yo_op_mod(a, b))
 ;
 
 given(I8Negate) :: Negate(i8)
-  (neg): (fn(a)-> __yo_op_neg(a))
+  (neg): ((a) -> __yo_op_neg(a))
 ;
 
 /**
  * logic
  */
 given(I8LogicalNot) :: LogicalNot(i8)
-  (!): (fn(a)-> __yo_op_not(a))
+  (!): ((a) -> __yo_op_not(a))
 ;
 
 
@@ -44,28 +44,28 @@ given(I8LogicalNot) :: LogicalNot(i8)
  * eq
  */
 given(I8Eq) :: Eq(i8, i8)
-  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+  (==) : ((a, b) -> __yo_op_eq(a, b))
 ;
 
 /**
  * ord
  */
 given(I8Ord) :: Ord(i8, i8, using(I8Eq))
-  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
-  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
-  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
-  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
 ;
 
 given(I8Drop) :: Drop(i8)
-  drop: (fn(self)->
+  drop: ((self) ->
     // No-op for i8, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
 given(I8Clone) :: Clone(i8)
-  clone: (fn(self)->
+  clone: ((self) ->
     // No-op for i8, as it is a primitive type
     __yo_return_self(self.*)
   )
@@ -74,59 +74,59 @@ given(I8Clone) :: Clone(i8)
 given(I8ComptMethods) :: module {
   Self :: i8;
 
-  (+) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (+) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_i8_add(lhs, rhs)
   ;
 
-  (-) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (-) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_i8_sub(lhs, rhs)
   ;
 
-  (*) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (*) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_i8_mul(lhs, rhs)
   ;
 
-  (/) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (/) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_i8_div(lhs, rhs)
   ;
 
-  (%) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (%) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_i8_mod(lhs, rhs)
   ;
 
-  (==) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (==) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_i8_eq(lhs, rhs)
   ;
 
-  (!=) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (!=) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_i8_neq(lhs, rhs)
   ;
 
-  (<) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (<) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_i8_lt(lhs, rhs)
   ;
 
-  (<=) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (<=) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_i8_lte(lhs, rhs)
   ;
 
-  (>) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (>) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_i8_gt(lhs, rhs)
   ;
 
-  (>=) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (>=) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_i8_gte(lhs, rhs)
   ;
 
-  neg :: ((compt(self): Self) -> compt(Self))
+  neg :: (fn(compt(self): Self) -> compt(Self))
     __yo_i8_neg(self)
   ;
 
-  (as) :: ((compt(self): Self, compt(Target): Type) -> compt(Target))
+  (as) :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
     __yo_i8_as(self, Target)
   ;
 
-  (to_string) :: ((compt(self): Self) -> compt(compt_string))
+  (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
     __yo_i8_to_string(self)
   ;
 

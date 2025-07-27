@@ -9,34 +9,34 @@ open import "../../builtins.yo";
  * arithmetic
  */
 given(LongLongAdd) :: Add(longlong, longlong)
-  (+): (fn(a, b)-> __yo_op_add(a, b))
+  (+): ((a, b) -> __yo_op_add(a, b))
 ;
 
 given(LongLongSub) :: Sub(longlong, longlong)
-  (-): (fn(a, b)-> __yo_op_sub(a, b))
+  (-): ((a, b) -> __yo_op_sub(a, b))
 ;
 
 given(LongLongMul) :: Mul(longlong, longlong)
-  (*): (fn(a, b)-> __yo_op_mul(a, b))
+  (*): ((a, b) -> __yo_op_mul(a, b))
 ;
 
 given(LongLongDiv) :: Div(longlong, longlong)
-  (/): (fn(a, b)-> __yo_op_div(a, b))
+  (/): ((a, b) -> __yo_op_div(a, b))
 ;
 
 given(LongLongMod) :: Mod(longlong, longlong)
-  (%): (fn(a, b)-> __yo_op_mod(a, b))
+  (%): ((a, b) -> __yo_op_mod(a, b))
 ;
 
 given(LongLongNegate) :: Negate(longlong)
-  (neg): (fn(a)-> __yo_op_neg(a))
+  (neg): ((a) -> __yo_op_neg(a))
 ;
 
 /**
  * logic
  */
 given(LongLongLogicalNot) :: LogicalNot(longlong)
-  (!): (fn(a)-> __yo_op_not(a))
+  (!): ((a) -> __yo_op_not(a))
 ;
 
 
@@ -44,28 +44,28 @@ given(LongLongLogicalNot) :: LogicalNot(longlong)
  * eq
  */
 given(LongLongEq) :: Eq(longlong, longlong)
-  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+  (==) : ((a, b) -> __yo_op_eq(a, b))
 ;
 
 /**
  * ord
  */
 given(LongLongOrd) :: Ord(longlong, longlong, using(LongLongEq))
-  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
-  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
-  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
-  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
 ;
 
 given(LongLongDrop) :: Drop(longlong)
-  drop: (fn(self)->
+  drop: ((self) ->
     // No-op for longlong, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
 given(LongLongClone) :: Clone(longlong)
-  clone: (fn(self)->
+  clone: ((self) ->
     // No-op for longlong, as it is a primitive type
     __yo_return_self(self.*)
   )
@@ -74,7 +74,7 @@ given(LongLongClone) :: Clone(longlong)
 given(LongLongMethods) :: module {
   Self :: longlong;
 
-  as :: ((self: Self, compt(Target) : Type) -> Target)
+  as :: (fn(self: Self, compt(Target) : Type) -> Target)
     __yo_longlong_as(self, Target)
   ;
 

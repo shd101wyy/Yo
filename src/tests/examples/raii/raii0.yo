@@ -2,7 +2,7 @@ open import "std";
 
 // drop is the function that destroys the value and frees the memory
 // It does nothing for the Free value
-test :: (() -> unit) {
+test :: (fn() -> unit) {
   x := 1;
   drop(x);
   x2 := x;
@@ -19,7 +19,7 @@ Box :: struct(
   /*
    * the drop method here automatically created like this if it's not specified:
    * 
-   *  drop :: ((self: Self)-> unit) {
+   *  drop :: (fn(self: Self)-> unit) {
    *    { _ } := self;
    *    // destructuring everything in the struct
    *    // recursively call drop on all fields automatically.
@@ -41,13 +41,13 @@ Box2 :: struct(
   value : LinearI32,
 
   // override the default drop method
-  drop :: ((self: Self)-> unit) {
+  drop :: (fn(self: Self)-> unit) {
     { value } := self;    
     // drop(value);
   }
 );
 
-test2 :: (() -> unit) {
+test2 :: (fn() -> unit) {
   b := Box(1);
   drop(b);
   compt_expect_error(

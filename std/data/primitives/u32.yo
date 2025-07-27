@@ -9,34 +9,34 @@ open import "../../builtins.yo";
  * arithmetic
  */
 given(U32Add) :: Add(u32, u32)
-  (+): (fn(a, b)-> __yo_op_add(a, b))
+  (+): ((a, b) -> __yo_op_add(a, b))
 ;
 
 given(U32Sub) :: Sub(u32, u32)
-  (-): (fn(a, b)-> __yo_op_sub(a, b))
+  (-): ((a, b) -> __yo_op_sub(a, b))
 ;
 
 given(U32Mul) :: Mul(u32, u32)
-  (*): (fn(a, b)-> __yo_op_mul(a, b))
+  (*): ((a, b) -> __yo_op_mul(a, b))
 ;
 
 given(U32Div) :: Div(u32, u32)
-  (/): (fn(a, b)-> __yo_op_div(a, b))
+  (/): ((a, b) -> __yo_op_div(a, b))
 ;
 
 given(U32Mod) :: Mod(u32, u32)
-  (%): (fn(a, b)-> __yo_op_mod(a, b))
+  (%): ((a, b) -> __yo_op_mod(a, b))
 ;
 
 given(U32Negate) :: Negate(u32)
-  (neg): (fn(a)-> __yo_op_neg(a))
+  (neg): ((a) -> __yo_op_neg(a))
 ;
 
 /**
  * logic
  */
 given(U32LogicalNot) :: LogicalNot(u32)
-  (!): (fn(a)-> __yo_op_not(a))
+  (!): ((a) -> __yo_op_not(a))
 ;
 
 
@@ -44,28 +44,28 @@ given(U32LogicalNot) :: LogicalNot(u32)
  * eq
  */
 given(U32Eq) :: Eq(u32, u32)
-  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+  (==) : ((a, b) -> __yo_op_eq(a, b))
 ;
 
 /**
  * ord
  */
 given(U32Ord) :: Ord(u32, u32, using(U32Eq))
-  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
-  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
-  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
-  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
 ;
 
 given(U32Drop) :: Drop(u32)
-  drop: (fn(self)->
+  drop: ((self) ->
     // No-op for u32, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
 given(U32Clone) :: Clone(u32)
-  clone: (fn(self)->
+  clone: ((self) ->
     // No-op for u32, as it is a primitive type
     __yo_return_self(self.*)
   )
@@ -74,55 +74,55 @@ given(U32Clone) :: Clone(u32)
 given(U32ComptMethods) :: module {
   Self :: u32;
 
-  (+) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (+) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_u32_add(lhs, rhs)
   ;
 
-  (-) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (-) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_u32_sub(lhs, rhs)
   ;
 
-  (*) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (*) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_u32_mul(lhs, rhs)
   ;
 
-  (/) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (/) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_u32_div(lhs, rhs)
   ;
 
-  (%) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (%) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_u32_mod(lhs, rhs)
   ;
 
-  (==) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (==) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_u32_eq(lhs, rhs)
   ;
 
-  (!=) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (!=) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_u32_neq(lhs, rhs)
   ;
 
-  (<) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (<) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_u32_lt(lhs, rhs)
   ;
 
-  (<=) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (<=) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_u32_lte(lhs, rhs)
   ;
 
-  (>) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (>) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_u32_gt(lhs, rhs)
   ;
 
-  (>=) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (>=) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_u32_gte(lhs, rhs)
   ;
 
-  (as) :: ((compt(self): Self, compt(Target): Type) -> compt(Target))
+  (as) :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
     __yo_u32_as(self, Target)
   ;
 
-  (to_string) :: ((compt(self): Self) -> compt(compt_string))
+  (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
     __yo_u32_to_string(self)
   ;
 

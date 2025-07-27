@@ -1,7 +1,7 @@
 // Just declare variables
 extern
   add:
-    (x: i32, y: i32)-> i32
+    fn(x: i32, y: i32)-> i32
 ;
 
 // Define a module type
@@ -11,19 +11,19 @@ MyModule :: module
   // ((Self): Type) = i32,
 
   my_add:
-    (x: i32, y: i32)-> i32,
+    fn(x: i32, y: i32)-> i32,
   id:
-    (x: Self)-> Self
+    fn(x: Self)-> Self
 ;
 
 // Define a module instance
 (compt(my_module) : MyModule) = MyModule
   my_add:
-    fn(x, y)->
+    (x, y)->
       add(x, y)
     ,
   id:
-    fn(x) -> x
+    (x) -> x
 ;
 
 SomeModule :: module {
@@ -37,7 +37,7 @@ compt_expect_error(
 my_add :: SomeModule.my_add;
 
 some_func ::
-  ((compt(my_module): MyModule, x: i32)-> i32) {
+  (fn(compt(my_module): MyModule, x: i32)-> i32) {
   my_add2 :: my_module.my_add;
   my_add2(x, 1)
 };

@@ -81,7 +81,7 @@ function generateDropFunctionCode(enumType: EnumType): string {
     })
     .join(",\n");
 
-  return `drop :: (((self: Self) -> unit)
+  return `drop :: ((fn(self: Self) -> unit)
   match(self,
 ${matchCases}
   ))`;

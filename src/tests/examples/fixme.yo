@@ -1,11 +1,26 @@
 open import "std";
 
-// Calculate aligned size for type T
-align_size :: ((forall(compt(T): Type), size: usize) -> usize) {
-  // For now, assume all types need 8-byte alignment
-  // In a real implementation, this would use sizeof(T) and alignof(T)
-  alignment := 8.as(usize);
-  result :=
-    (((size + alignment) - 1.as(usize)) / alignment) * alignment;
-  return result;
-};
+args :: expr_list(quote(x), quote(y));
+rest :: quote begin(println("after parse"), return(x + y), ());
+expanded :: quote((unquote_splicing(args),) -> unquote(rest));
+expected :: quote((x, y) -> begin(println("after parse"), return(x + y), ()));
+
+
+compt_print(expanded);
+compt_print(expected);
+compt_assert(expanded == expected);
+
+expanded1 :: macro_expand quote
+  do {
+    x := 1;
+    with response <= fetch("https://api.example.com");
+    println("after fetch");
+    println(response);
+    with (json,) <<= response.json();
+    println("after json");
+    println(json);
+    with (x, y) <- json.parse();
+    println("after parse");
+    return x + y;
+  }
+;

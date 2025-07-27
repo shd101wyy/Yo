@@ -1,7 +1,7 @@
 open import "std";
 
 foreach_fn_mut ::
-  ((forall(
+  (fn(forall(
       compt(F): Type, 
       compt(size): usize
     ),
@@ -15,17 +15,17 @@ foreach_fn_mut ::
   };
 };
 
-test1 :: (() -> unit) {
+test1 :: (fn() -> unit) {
   arr := [1, 2, 3, 4, 5];
   mut(sum) := 0;
 
   // FnMut `sum`
-  foreach_fn_mut(arr, fn(value) =>> {
+  foreach_fn_mut(arr, (value) =>> {
     sum = (sum + value.*);
   });
 
   // Fn `sum`
-  foreach_fn_mut(arr, fn(value) =>> {
+  foreach_fn_mut(arr, (value) =>> {
     temp := sum;
     temp2 := value.*;
   });

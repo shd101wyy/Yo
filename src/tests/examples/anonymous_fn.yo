@@ -1,12 +1,12 @@
 extern
-  (eq): ((x: i32, y: i32) -> boolean),
-  (gt): ((x: i32, y: i32)-> boolean),
-  (mul): ((x: i32, y: i32) -> i32),
-  (add): ((x: i32, y: i32) -> i32),
-  (sub): ((x: i32, y: i32) -> i32)
+  (eq): (fn(x: i32, y: i32) -> boolean),
+  (gt): (fn(x: i32, y: i32)-> boolean),
+  (mul): (fn(x: i32, y: i32) -> i32),
+  (add): (fn(x: i32, y: i32) -> i32),
+  (sub): (fn(x: i32, y: i32) -> i32)
 ;
 
-factorial_fn :: ((x: i32) -> i32);
+factorial_fn :: (fn(x: i32) -> i32);
 
 
 // Without given type
@@ -23,7 +23,7 @@ n := factorial(10);
 
 // With given type
 (compt(factorial2) : factorial_fn) = 
-  fn(a)->
+  (a)->
     cond
       (a `eq` 0) => 1,
       true => (a `mul` recur(a `sub` 1))  
@@ -33,16 +33,16 @@ n := factorial(10);
 
 // With given type and fn implementaion has no type
 (compt(factorial3): factorial_fn) = 
-  fn(a)->
+  (a)->
     cond
       (a `eq` 0) => 1,
       true => (a `mul` recur(a `sub` 1))  
 ;
 
 
-call_fn :: ((cb: ((x: i32) -> i32), a: i32)-> i32)
+call_fn :: (fn(cb: (fn(x: i32) -> i32), a: i32)-> i32)
   cb(a)
 ;
 call_fn(factorial2, 10);
 call_fn(factorial3, 11);
-call_fn((fn(x) -> x), 12);
+call_fn((x -> x), 12);

@@ -7,7 +7,7 @@
  * logic
  */
 given(BooleanLogicalNot) :: LogicalNot(boolean)
-  (!): (fn(a)->
+  (!): ((a) ->
     __yo_op_not(a)
   )
 ;
@@ -16,7 +16,7 @@ given(BooleanLogicalNot) :: LogicalNot(boolean)
  * eq
  */
 given(BooleanEq) :: Eq(boolean, boolean)
-  (==): (fn(a, b)->
+  (==): ((a, b) ->
     __yo_op_eq(a, b)
   )
 ;
@@ -27,7 +27,7 @@ given(BooleanEq) :: Eq(boolean, boolean)
   * This is a no-op for boolean type, as it does not require any special cleanup.
   */
 given(BooleanDrop) :: Drop(boolean)
-  drop: (fn(self)->
+  drop: ((self)->
     // No-op for boolean
     __yo_noop()
   )
@@ -39,7 +39,7 @@ given(BooleanDrop) :: Drop(boolean)
   * Just returns the same boolean value, as it is a primitive type.
   */
 given(BooleanClone) :: Clone(boolean)
-  clone: (fn(self)->
+  clone: ((self) ->
     // No-op for boolean, as it is a primitive type
     __yo_return_self(self.*)
   )
@@ -48,27 +48,27 @@ given(BooleanClone) :: Clone(boolean)
 given(ComptBooleanMethods) :: module {
   Self :: boolean;
 
-  (&&) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (&&) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_compt_boolean_and(lhs, rhs)
   ;
 
-  (||) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (||) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_compt_boolean_or(lhs, rhs)
   ;
 
-  (==) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (==) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_compt_boolean_eq(lhs, rhs)
   ;
 
-  (!=) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (!=) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_compt_boolean_neq(lhs, rhs)
   ;
 
-  not :: ((compt(self): Self) -> compt(Self))
+  not :: (fn(compt(self): Self) -> compt(Self))
     __yo_compt_boolean_not(self)
   ;
 
-  (to_string) :: ((compt(self): Self) -> compt(compt_string))
+  (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
     __yo_compt_boolean_to_string(self)
   ;
 

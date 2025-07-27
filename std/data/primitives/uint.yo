@@ -9,34 +9,34 @@ open import "../../builtins.yo";
  * arithmetic
  */
 given(UIntAdd) :: Add(uint, uint)
-  (+): (fn(a, b)-> __yo_op_add(a, b))
+  (+): ((a, b) -> __yo_op_add(a, b))
 ;
 
 given(UIntSub) :: Sub(uint, uint)
-  (-): (fn(a, b)-> __yo_op_sub(a, b))
+  (-): ((a, b) -> __yo_op_sub(a, b))
 ;
 
 given(UIntMul) :: Mul(uint, uint)
-  (*): (fn(a, b)-> __yo_op_mul(a, b))
+  (*): ((a, b) -> __yo_op_mul(a, b))
 ;
 
 given(UIntDiv) :: Div(uint, uint)
-  (/): (fn(a, b)-> __yo_op_div(a, b))
+  (/): ((a, b) -> __yo_op_div(a, b))
 ;
 
 given(UIntMod) :: Mod(uint, uint)
-  (%): (fn(a, b)-> __yo_op_mod(a, b))
+  (%): ((a, b) -> __yo_op_mod(a, b))
 ;
 
 given(UIntNegate) :: Negate(uint)
-  (neg): (fn(a)-> __yo_op_neg(a))
+  (neg): ((a) -> __yo_op_neg(a))
 ;
 
 /**
  * logic
  */
 given(UIntLogicalNot) :: LogicalNot(uint)
-  (!): (fn(a)-> __yo_op_not(a))
+  (!): ((a) -> __yo_op_not(a))
 ;
 
 
@@ -44,28 +44,28 @@ given(UIntLogicalNot) :: LogicalNot(uint)
  * eq
  */
 given(UIntEq) :: Eq(uint, uint)
-  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+  (==) : ((a, b) -> __yo_op_eq(a, b))
 ;
 
 /**
  * ord
  */
 given(UIntOrd) :: Ord(uint, uint, using(UIntEq))
-  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
-  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
-  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
-  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
 ;
 
 given(UIntDrop) :: Drop(uint)
-  drop: (fn(self)->
+  drop: ((self) ->
     // No-op for uint, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
 given(UIntClone) :: Clone(uint)
-  clone: (fn(self)->
+  clone: ((self) ->
     // No-op for uint, as it is a primitive type
     __yo_return_self(self.*)
   )
@@ -74,7 +74,7 @@ given(UIntClone) :: Clone(uint)
 given(UIntMethods) :: module {
   Self :: uint;
 
-  as :: ((self: Self, compt(Target) : Type) -> Target)
+  as :: (fn(self: Self, compt(Target) : Type) -> Target)
     __yo_uint_as(self, Target)
   ;
 

@@ -7,11 +7,11 @@ Shape :: enum
   LinearShape(width: LinearI32, height: LinearI32)
 ;
 
-use_mut_ref_shape :: ((ref: &!(Shape)) -> unit) {
+use_mut_ref_shape :: (fn(ref: &!(Shape)) -> unit) {
   ();
 };
 
-test :: (() -> unit) {
+test :: (fn() -> unit) {
   mut(shape) := Shape.LinearShape(3, 4);
 
   borrow &(shape.width), (width_ref)=> {
@@ -52,7 +52,7 @@ test :: (() -> unit) {
   };
 };
 
-test_ref :: ((ref: &(Shape)) -> unit) {
+test_ref :: (fn(ref: &(Shape)) -> unit) {
   match ref,
     .Circle => {
         radius := ref.radius;

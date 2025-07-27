@@ -110,7 +110,7 @@ const sortExpressionCandidates = (
 ): AtomExpr[] => {
   return candidateExprs.sort((a, b) => {
     // First, check if the candidates are within a function scope (after "main :: " line)
-    const aIsInFunction = a.token.position.row > 4; // After "main :: (() -> unit) {"
+    const aIsInFunction = a.token.position.row > 4; // After "main :: (fn() -> unit) {"
     const bIsInFunction = b.token.position.row > 4;
 
     if (aIsInFunction !== bIsInFunction) {

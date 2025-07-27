@@ -1,7 +1,7 @@
 open import "std";
 { printf } :: import "std/libc/stdio";
 
-sum_array :: ((forall(compt(size): usize), arr : [i32; size]) -> i32) {
+sum_array :: (fn(forall(compt(size): usize), arr : [i32; size]) -> i32) {
   mut(result) := 0;
   for arr, (mut(elem), index) => {
     printf("Element at index %ld: %d\n", index, elem);
@@ -10,7 +10,7 @@ sum_array :: ((forall(compt(size): usize), arr : [i32; size]) -> i32) {
   return result;
 };
 
-sum_slice :: ((slice : *([i32])) -> i32) {
+sum_slice :: (fn(slice : *([i32])) -> i32) {
   mut(result) := 0;
   for slice, (mut(elem), index) => {
     printf("Element at index %ld: %d\n", index, elem);
@@ -20,7 +20,7 @@ sum_slice :: ((slice : *([i32])) -> i32) {
 };
 
 
-main :: (() -> i32) {
+main :: (fn() -> i32) {
   arr := [1, 2, 3, 4, 5];
   {
     result := sum_array(arr);

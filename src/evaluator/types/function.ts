@@ -867,20 +867,15 @@ export function evaluateFunctionType({
     }
   } else if (
     exprIsFunctionCall(argListExpr) &&
-    exprIsFunctionCallOf(argListExpr, BuiltinKeywords.tuple)
+    exprIsFunctionCallOf(argListExpr, BuiltinKeywords.fn)
   ) {
-    // Handle tuple-style parameter list: (param1: Type1, param2: Type2)
     argList = argListExpr.args;
   } else {
-    argList = [argListExpr];
-  } /* else {
-      throw formatErrorMessage(
-        argListExpr.token,
-        `Expected tuple for function parameters, got:\n${exprToString(
-          argListExpr
-        )}`
-      );
-    }*/
+    throw formatErrorMessage({
+      token: argListExpr.token,
+      errorMessage: `Expected a "fn" call for parameter list, got:\n${exprToString(argListExpr)}`,
+    });
+  }
 
   // Evaluate the parameter list
   const {

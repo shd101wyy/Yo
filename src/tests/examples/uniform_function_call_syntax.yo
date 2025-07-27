@@ -22,21 +22,21 @@ LinearI32Methods :: module {
   Self :: LinearI32;
 
   copy ::
-    ((self: &(Self)) -> i32)
+    (fn(self: &(Self)) -> i32)
       999
   ;
 
   add ::
-    ((lhs: &(Self), rhs: &(Self))-> i32)
+    (fn(lhs: &(Self), rhs: &(Self))-> i32)
       666
   ;
   (+) ::
-    ((lhs: &(Self), rhs: &(Self))-> i32)
+    (fn(lhs: &(Self), rhs: &(Self))-> i32)
       888
   ;
 
   consume ::
-    ((self: Self)-> unit)
+    (fn(self: Self)-> unit)
     ()
   ;
 
@@ -49,7 +49,7 @@ LinearI32Methods :: module {
   ;
 };
 
-test_refs :: ((x: &(LinearI32), y: &(LinearI32)) -> unit) {
+test_refs :: (fn(x: &(LinearI32), y: &(LinearI32)) -> unit) {
   a := LinearI32Methods.copy(x); // allowed
 
   b := x.copy(); // allowed
@@ -65,7 +65,7 @@ test_refs :: ((x: &(LinearI32), y: &(LinearI32)) -> unit) {
   ); // not allowed
 };
 
-test_ownerships :: ((x : LinearI32, y : LinearI32) -> unit) {
+test_ownerships :: (fn(x : LinearI32, y : LinearI32) -> unit) {
   a := LinearI32Methods.copy(&(x)); // allowed;
 
   b := &(x).copy(); // allowed;

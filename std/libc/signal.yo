@@ -6,11 +6,11 @@ c_include "<signal.h>",
   // Note: In C this is: void (*signal(int sig, void (*func)(int)))(int)
   // We simplify this for Yo
   signal :
-    (sig : int, func : ((signal_num : int) -> unit)) -> ((signal_num : int) -> unit),
+    fn(sig : int, func : (fn(signal_num : int) -> unit)) -> (fn(signal_num : int) -> unit),
   
   // Raise a signal
   raise :
-    (sig : int) -> int,
+    fn(sig : int) -> int,
 
   // Standard signal numbers (POSIX.1)
   SIGHUP : int,      // Hangup
@@ -45,9 +45,9 @@ c_include "<signal.h>",
   SIGSYS : int,      // Bad system call
 
   // Signal handling constants
-  SIG_DFL : ((signal_num : int) -> unit),  // Default signal handling
-  SIG_IGN : ((signal_num : int) -> unit),  // Ignore signal
-  SIG_ERR : ((signal_num : int) -> unit),  // Signal error return
+  SIG_DFL : (fn(signal_num : int) -> unit),  // Default signal handling
+  SIG_IGN : (fn(signal_num : int) -> unit),  // Ignore signal
+  SIG_ERR : (fn(signal_num : int) -> unit),  // Signal error return
 
   // C11 - Additional signal handling (optional)
   sig_atomic_t : Free         // Type for atomic signal variables

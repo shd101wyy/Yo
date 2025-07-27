@@ -2,37 +2,37 @@
 // Test comprehensive cond behavior with compile-time and runtime conditions
 
 extern
-  add : ((x: i32, y: i32)-> i32),
-  sub : ((x: i32, y: i32)-> i32),
-  mul : ((x: i32, y: i32)-> i32),
-  div : ((x: i32, y: i32)-> i32),
-  eq  : ((x: i32, y: i32)-> boolean),
-  lt  : ((x: i32, y: i32)-> i32),
-  print_i32 : ((x: i32)-> unit)
+  add : (fn(x: i32, y: i32)-> i32),
+  sub : (fn(x: i32, y: i32)-> i32),
+  mul : (fn(x: i32, y: i32)-> i32),
+  div : (fn(x: i32, y: i32)-> i32),
+  eq  : (fn(x: i32, y: i32)-> boolean),
+  lt  : (fn(x: i32, y: i32)-> i32),
+  print_i32 : (fn(x: i32)-> unit)
 ;
 
 // Test 1: Compile-time true condition (should only evaluate first body)
-test1 :: (()-> i32)
+test1 :: (fn() -> i32)
   cond
     true => 42,
     false => (1 `div` 0); // This should never be evaluated due to compile-time true above
 
 // Test 2: Compile-time false conditions followed by true
-test2 :: (()-> i32)
+test2 :: (fn() -> i32)
   cond
     false => (1 `div` 0), // This should be skipped
     false => (1 `div` 0), // This should be skipped
     true => 100;
 
 // Test 3: Mixed compile-time and runtime conditions
-test3 :: ((x: i32)-> i32)
+test3 :: (fn(x: i32) -> i32)
   cond
     false => 10,
     (x `eq` 5) => 20, // Runtime condition
     true => 30;
 
 // Test 4: All runtime conditions
-test4 :: ((x: i32, y: i32)-> i32)
+test4 :: (fn(x: i32, y: i32) -> i32)
   cond
     (x `eq` 0) => 1,
     (x `eq` 1) => 2,
@@ -40,7 +40,7 @@ test4 :: ((x: i32, y: i32)-> i32)
     true => 4;
 
 // Test 5: Type compatibility across branches
-test5 :: ((flag: i32)-> i32)
+test5 :: (fn(flag: i32) -> i32)
   cond
     (flag `eq` 1) => 100,
     (flag `eq` 2) => 200,

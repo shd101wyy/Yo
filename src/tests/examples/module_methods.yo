@@ -2,30 +2,30 @@ open import "std";
 
 extern
   add: 
-    (x: i32, y: i32)-> i32
+    fn(x: i32, y: i32)-> i32
 ;
 
 Point :: struct(value: i32);
 
 MY_ADD :: module
   (Self: Type) = i32,
-  my_add: ((x: Self, y: Self)-> Self),
-  new_self: (()-> Self),
-  new_self2: ((flag: boolean)-> Self);
+  my_add: (fn(x: Self, y: Self)-> Self),
+  new_self: (fn()-> Self),
+  new_self2: (fn(flag: boolean)-> Self);
 ;
 
 MyAdd :: MY_ADD(
   my_add:
-    fn(a, b)-> add(a, b),
+    (a, b)-> add(a, b),
   new_self:
-    fn()-> 0,
+    ()-> 0,
   new_self2:
-    fn(flag)-> 0
+    (flag)-> 0
 );
 
 receiver :: MyAdd.Self; // i32
 
-main :: (()-> unit) {
+main :: (fn() -> unit) {
   // Call function from module:
   x := MyAdd.my_add(1, 2);
   x2 := MyAdd.new_self();
@@ -43,15 +43,15 @@ main :: (()-> unit) {
   MyAdd.new_self2(false); // ok
   
   // Function returning an module
-  Id :: ((compt(Self_): Type) -> compt(Module))
+  Id :: (fn(compt(Self_): Type) -> compt(Module))
     module
       (Self: Type) = Self_,
-      id: ((x: Self)-> Self)
+      id: (fn(x: Self)-> Self)
   ;
 
   IdI32 :: Id(i32)
     id:
-      fn(x)-> x;
+      (x)-> x;
   receiver :: IdI32.Self; // i32
   x6 := IdI32.id(1);
   x7 := (13.as(i32)).id();

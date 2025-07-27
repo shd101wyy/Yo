@@ -1,24 +1,24 @@
 extern
-  add : ((x: i32, y: i32)-> i32),
-  sub : ((x: i32, y: i32)-> i32),
-  div : ((x: i32, y: i32)-> i32),
-  mul : ((x: i32, y: i32)-> i32),
-  eq  : ((x: i32, y: i32)-> boolean),
-  gt  : ((x: i32, y: i32)-> boolean)
+  add : (fn(x: i32, y: i32)-> i32),
+  sub : (fn(x: i32, y: i32)-> i32),
+  div : (fn(x: i32, y: i32)-> i32),
+  mul : (fn(x: i32, y: i32)-> i32),
+  eq  : (fn(x: i32, y: i32)-> boolean),
+  gt  : (fn(x: i32, y: i32)-> boolean)
 ;
 
 // define a normal function.
-some_add :: ((x: i32, y: i32)-> i32)
+some_add :: (fn(x: i32, y: i32)-> i32)
   add(x, y)
 ;
 
 // use the `recur` keyword to call the function itself.
-use_recur :: ((x: i32, y: i32)-> i32)
+use_recur :: (fn(x: i32, y: i32)-> i32)
   recur(x, y)
 ;
 
 // factorial
-factorial :: ((n: i32)-> i32)
+factorial :: (fn(n: i32)-> i32)
   cond
     (n `eq` 0) => 1,
     true =>
@@ -29,17 +29,17 @@ factorial :: ((n: i32)-> i32)
 
 // define type first
 // and implement function with `_`
-(compt(type_first): ((x: i32, y: i32)-> i32))
+(compt(type_first): (fn(x: i32, y: i32)-> i32))
   = _ add(x, y)
 ;
 
 // define type first
 // and implement function with `fn`
-(compt(type_first_fn): ((x: i32, y: i32)-> i32))
+(compt(type_first_fn): (fn(x: i32, y: i32)-> i32))
   =
-    fn(a, b)-> add(a, b);
+    (a, b)-> add(a, b);
 
-(compt(another_factorial) : ((n: i32)-> i32))
+(compt(another_factorial) : (fn(n: i32)-> i32))
   = _ cond
     (n `eq` 0) => 1,
     true =>
@@ -52,7 +52,7 @@ x2 := type_first_fn(3, 4);
 Point :: struct(x: i32, y: i32);
 p := Point(3, 4);
 
-Point2 :: ((compt(T): Type)-> compt(Type))
+Point2 :: (fn(compt(T): Type)-> compt(Type))
   struct(x: T, y: T)
 ;
 p2 := Point2(i32)(3, 4);

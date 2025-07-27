@@ -9,34 +9,34 @@ open import "../../builtins.yo";
  * arithmetic
  */
 given(ULongLongAdd) :: Add(ulonglong, ulonglong)
-  (+): (fn(a, b)-> __yo_op_add(a, b))
+  (+): ((a, b) -> __yo_op_add(a, b))
 ;
 
 given(ULongLongSub) :: Sub(ulonglong, ulonglong)
-  (-): (fn(a, b)-> __yo_op_sub(a, b))
+  (-): ((a, b) -> __yo_op_sub(a, b))
 ;
 
 given(ULongLongMul) :: Mul(ulonglong, ulonglong)
-  (*): (fn(a, b)-> __yo_op_mul(a, b))
+  (*): ((a, b) -> __yo_op_mul(a, b))
 ;
 
 given(ULongLongDiv) :: Div(ulonglong, ulonglong)
-  (/): (fn(a, b)-> __yo_op_div(a, b))
+  (/): ((a, b) -> __yo_op_div(a, b))
 ;
 
 given(ULongLongMod) :: Mod(ulonglong, ulonglong)
-  (%): (fn(a, b)-> __yo_op_mod(a, b))
+  (%): ((a, b) -> __yo_op_mod(a, b))
 ;
 
 given(ULongLongNegate) :: Negate(ulonglong)
-  (neg): (fn(a)-> __yo_op_neg(a))
+  (neg): ((a) -> __yo_op_neg(a))
 ;
 
 /**
  * logic
  */
 given(ULongLongLogicalNot) :: LogicalNot(ulonglong)
-  (!): (fn(a)-> __yo_op_not(a))
+  (!): ((a) -> __yo_op_not(a))
 ;
 
 
@@ -44,28 +44,28 @@ given(ULongLongLogicalNot) :: LogicalNot(ulonglong)
  * eq
  */
 given(ULongLongEq) :: Eq(ulonglong, ulonglong)
-  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+  (==) : ((a, b) -> __yo_op_eq(a, b))
 ;
 
 /**
  * ord
  */
 given(ULongLongOrd) :: Ord(ulonglong, ulonglong, using(ULongLongEq))
-  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
-  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
-  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
-  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
 ;
 
 given(ULongLongDrop) :: Drop(ulonglong)
-  drop: (fn(self)->
+  drop: ((self) ->
     // No-op for ulonglong, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
 given(ULongLongClone) :: Clone(ulonglong)
-  clone: (fn(self)->
+  clone: ((self) ->
     // No-op for ulonglong, as it is a primitive type
     __yo_return_self(self.*)
   )
@@ -74,7 +74,7 @@ given(ULongLongClone) :: Clone(ulonglong)
 given(ULongLongMethods) :: module {
   Self :: ulonglong;
 
-  as :: ((self: Self, compt(Target) : Type) -> Target)
+  as :: (fn(self: Self, compt(Target) : Type) -> Target)
     __yo_ulonglong_as(self, Target)
   ;
 

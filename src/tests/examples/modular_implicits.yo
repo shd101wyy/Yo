@@ -1,48 +1,48 @@
 Point ::
-  ((compt(P): Type)-> compt(Type))
+  (fn(compt(P): Type)-> compt(Type))
   struct
     x: P,
     y: P
 ;
 
 Id ::
-  ((compt(Self_): Type)-> compt(Module))
+  (fn(compt(Self_): Type)-> compt(Module))
   module
     (Self: Type) = Self_,
     id:
-      (self: Self)-> Self
+      fn(self : Self)-> Self
 ;
 
 id ::
-  ((forall(compt(T): Type), x: T, using(compt(I): Id(T)))-> T)
+  (fn(forall(compt(T): Type), x: T, using(compt(I): Id(T)))-> T)
   I.id(x)
 ;
 
 given(IdInt) ::
   Id(i32)
     id:
-      fn(x) -> x
+      (x) -> x
 ;
 
 given(IdBoolean) ::
   Id(boolean)
     id:
-      fn(x) -> x
+      (x) -> x
 ;
 
 given(IdPoint) ::
-  (( forall(compt(IP): Type), 
+  (fn( forall(compt(IP): Type), 
     using(compt(I): Id(IP))
   )-> compt(Id(Point(IP))))
   Id(Point(IP))
     id:
-      fn(p) -> {
+      (p) -> {
         { x, y } := p;
         Point(IP)(I.id(x), I.id(y))
       }
 ;
 
-main :: (()-> unit) {
+main :: (fn() -> unit) {
   x := id(13); // Implicit call
   x2 := id(13, using(IdInt)); // Explicit call
 

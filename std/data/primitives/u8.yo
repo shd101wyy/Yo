@@ -9,34 +9,34 @@ open import "../../builtins.yo";
  * arithmetic
  */
 given(U8Add) :: Add(u8, u8)
-  (+): (fn(a, b)-> __yo_op_add(a, b))
+  (+): ((a, b) -> __yo_op_add(a, b))
 ;
 
 given(U8Sub) :: Sub(u8, u8)
-  (-): (fn(a, b)-> __yo_op_sub(a, b))
+  (-): ((a, b) -> __yo_op_sub(a, b))
 ;
 
 given(U8Mul) :: Mul(u8, u8)
-  (*): (fn(a, b)-> __yo_op_mul(a, b))
+  (*): ((a, b) -> __yo_op_mul(a, b))
 ;
 
 given(U8Div) :: Div(u8, u8)
-  (/): (fn(a, b)-> __yo_op_div(a, b))
+  (/): ((a, b) -> __yo_op_div(a, b))
 ;
 
 given(U8Mod) :: Mod(u8, u8)
-  (%): (fn(a, b)-> __yo_op_mod(a, b))
+  (%): ((a, b) -> __yo_op_mod(a, b))
 ;
 
 given(U8Negate) :: Negate(u8)
-  (neg): (fn(a)-> __yo_op_neg(a))
+  (neg): ((a) -> __yo_op_neg(a))
 ;
 
 /**
  * logic
  */
 given(U8LogicalNot) :: LogicalNot(u8)
-  (!): (fn(a)-> __yo_op_not(a))
+  (!): ((a) -> __yo_op_not(a))
 ;
 
 
@@ -44,28 +44,28 @@ given(U8LogicalNot) :: LogicalNot(u8)
  * eq
  */
 given(U8Eq) :: Eq(u8, u8)
-  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+  (==) : ((a, b) -> __yo_op_eq(a, b))
 ;
 
 /**
  * ord
  */
 given(U8Ord) :: Ord(u8, u8, using(U8Eq))
-  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
-  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
-  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
-  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
 ;
 
 given(U8Drop) :: Drop(u8)
-  drop: (fn(self)->
+  drop: ((self) ->
     // No-op for u8, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
 given(U8Clone) :: Clone(u8)
-  clone: (fn(self)->
+  clone: ((self) ->
     // No-op for u8, as it is a primitive type
     __yo_return_self(self.*)
   )
@@ -74,56 +74,56 @@ given(U8Clone) :: Clone(u8)
 given(U8ComptMethods) :: module {
   Self :: u8;
 
-  (+) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (+) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_u8_add(lhs, rhs)
   ;
 
-  (-) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (-) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_u8_sub(lhs, rhs)
   ;
 
-  (*) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (*) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_u8_mul(lhs, rhs)
   ;
 
-  (/) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (/) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_u8_div(lhs, rhs)
   ;
 
-  (%) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+  (%) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
     __yo_u8_mod(lhs, rhs)
   ;
 
-  (==) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (==) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_u8_eq(lhs, rhs)
   ;
 
-  (!=) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (!=) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_u8_neq(lhs, rhs)
   ;
 
-  (<) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (<) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_u8_lt(lhs, rhs)
   ;
 
-  (<=) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (<=) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_u8_lte(lhs, rhs)
   ;
 
-  (>) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (>) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_u8_gt(lhs, rhs)
   ;
 
-  (>=) :: ((compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+  (>=) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
     __yo_u8_gte(lhs, rhs)
   ;
 
-  (as) :: ((compt(self): Self, compt(Target): Type) -> compt(Target))
+  (as) :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
     __yo_u8_as(self, Target)
   ;
 
 
-  (to_string) :: ((compt(self): Self) -> compt(compt_string))
+  (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
     __yo_u8_to_string(self)
   ;
 

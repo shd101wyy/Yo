@@ -1,7 +1,7 @@
 // with => to define a closure that captures the `move` from outer scope
 open import "std";
 
-some_condition :: (() -> boolean) true;
+some_condition :: (fn() -> boolean) true;
 
 (compt(LinearI32) : Linear) = i32;
 
@@ -24,14 +24,14 @@ compt_expect_error(
 
 
 plus_fn_once ::
-  ((forall(compt(F) : Type),
+  (fn(forall(compt(F) : Type),
     callback : Closure(FnOnce(elem : i32) -> i32, F)
   ) -> i32) {
   return callback(42); // callback can only be called once
 };
 
 plus_fn_mut ::
-  ((forall(compt(F) : Type),
+  (fn(forall(compt(F) : Type),
     mut(callback) : Closure(FnMut(elem : i32) -> i32, F)
   ) -> i32) {
   callback(42);
@@ -39,17 +39,17 @@ plus_fn_mut ::
 };
 
 plus_fn ::
-  ((forall(compt(F) : Type),
+  (fn(forall(compt(F) : Type),
     callback : Closure(Fn(elem : i32) -> i32, F)
   ) -> i32) {
   callback(42);
   return callback(42); // callback can be called multiple times, but cannot mutate captured variables
 };
 
-test1 :: (() -> unit) {
+test1 :: (fn() -> unit) {
   mut(counter) := 0;
   (x : LinearI32) = 12;
-  plus_fn_once(fn(elem)=> {
+  plus_fn_once((elem)=> {
     y := x; // `x` should be consumed here
     counter = (counter + elem);
     return counter;
@@ -58,18 +58,18 @@ test1 :: (() -> unit) {
   return (); // Let's explicit return unit value () here
 };
 
-test2 :: (() -> unit) {
+test2 :: (fn() -> unit) {
   mut(counter) := 0;
-  plus_fn_mut(fn(elem)=>> {
+  plus_fn_mut((elem)=>> {
     counter = (counter + elem);
     return counter;
   });
   return ();
 };
 
-test3 :: (() -> unit) {
+test3 :: (fn() -> unit) {
   counter := 0;
-  plus_fn(fn(elem)=>> {
+  plus_fn((elem)=>> {
     // Cannot mutate captured variables in Fn closure
     // So we just return the sum without modifying counter
     return counter + elem;
@@ -79,9 +79,9 @@ test3 :: (() -> unit) {
 
 // Test that should fail: Fn closure trying to mutate captured variable
 compt_expect_error(
-  test_fn_mutation_error :: (() -> unit) {
+  test_fn_mutation_error :: (fn() -> unit) {
     mut(counter) := 0;
-    plus_fn(fn(elem)=>> {
+    plus_fn((elem)=>> {
       counter = (counter + elem); // This should fail - Fn cannot mutate
       return counter;
     });
@@ -90,29 +90,29 @@ compt_expect_error(
 );
 
 
-test4 :: (() -> unit) {
+test4 :: (fn() -> unit) {
   mut(counter) := 0;
   closure : (Closure(FnOnce(elem : i32) -> i32, _));
-  closure = (fn(elem) => {
+  closure = ((elem) => {
     counter = (counter + elem);
     return counter;
   });
 };
 
-test4_1 :: (() -> unit) {
+test4_1 :: (fn() -> unit) {
   mut(counter) := 0;
   closure := the(
     Closure(FnOnce(elem : i32) -> i32, _),
-    fn(elem) => {
+    (elem) => {
       counter = (counter + elem);
       return counter;
     });
 };
 
-test5 :: (() -> unit) {
+test5 :: (fn() -> unit) {
   mut(counter) := 0;
   mut(closure) : (Closure(FnOnce(elem : i32) -> i32, _));
-  closure = (fn(elem) => {
+  closure = ((elem) => {
     counter = (counter + elem);
     return counter;
   });
@@ -121,7 +121,7 @@ test5 :: (() -> unit) {
   compt_expect_error(
     {
       mut(different_var) := 42;
-      closure = (fn(elem) => {
+      closure = ((elem) => {
         different_var = (different_var + elem);
         return different_var;
       });
@@ -130,7 +130,7 @@ test5 :: (() -> unit) {
 };
 
 
-test6 :: (() -> unit) {
+test6 :: (fn() -> unit) {
   mut(counter1) := 0;
   mut(counter2) := 0;
   
@@ -140,13 +140,13 @@ test6 :: (() -> unit) {
       mut(closure) : (Closure(FnOnce(elem : i32) -> i32, _));
       cond(
         some_condition() => {
-          closure = (fn(elem) => {
+          closure = ((elem) => {
             counter1 = (counter1 + elem);
             return counter1;
           });
         },
         true => {
-          closure = (fn(elem) => {
+          closure = ((elem) => {
             counter2 = (counter2 + elem);
             return counter2;
           });
@@ -157,7 +157,7 @@ test6 :: (() -> unit) {
 };
 
 
-test7 :: (() -> unit) {
+test7 :: (fn() -> unit) {
   mut(counter) := 0;
   
   // This should fail because the two branches create closures with different nominal capture types
@@ -168,13 +168,13 @@ test7 :: (() -> unit) {
       
       cond(
         some_condition() => {
-          closure = (fn(elem) =>> {
+          closure = ((elem) =>> {
             counter = (counter + elem);
             return counter;
           });
         },
         true => {
-          closure = (fn(elem) =>> {
+          closure = ((elem) =>> {
             counter = (counter * elem);
             return counter;
           });
@@ -186,7 +186,7 @@ test7 :: (() -> unit) {
 
 // Test explicit struct capture type should also fail for FnMut - contains references
 compt_expect_error(
-  test7_1 :: (() -> unit) {
+  test7_1 :: (fn() -> unit) {
     mut(counter) := 0;
     
     // This should fail - even with explicit struct, FnMut closures contain references
@@ -215,7 +215,7 @@ compt_expect_error(
 
 // Test FnMut closure assignment should fail - contains references
 compt_expect_error(
-  test8 :: (() -> unit) {
+  test8 :: (fn() -> unit) {
     mut(counter) := 0;
     
     // This should fail - FnMut closures contain references and cannot be assigned to variables
@@ -229,7 +229,7 @@ compt_expect_error(
 
 // Test Fn closure assignment should fail - contains references  
 compt_expect_error(
-  test9 :: (() -> unit) {
+  test9 :: (fn() -> unit) {
     base := 100;
     
     // This should fail - Fn closures contain references and cannot be assigned to variables
@@ -242,7 +242,7 @@ compt_expect_error(
 
 // Test Fn closure with multiple captured variables should fail - contains references
 compt_expect_error(
-  test10 :: (() -> unit) {
+  test10 :: (fn() -> unit) {
     multiplier := 3;
     constant := 42;
     
@@ -256,7 +256,7 @@ compt_expect_error(
 
 // Test FnMut closure with multiple captured variables should fail - contains references
 compt_expect_error(
-  test11 :: (() -> unit) {
+  test11 :: (fn() -> unit) {
     mut(values) := [0, 0, 0];
     mut(index) := 0.as(usize);
     
@@ -272,7 +272,7 @@ compt_expect_error(
 
 // Test that Fn closures cannot modify captured variables (should fail)
 compt_expect_error(
-  test_fn_cannot_modify :: (() -> unit) {
+  test_fn_cannot_modify :: (fn() -> unit) {
     mut(counter) := 0;
     readonly_fn : (Closure(Fn(elem : i32) -> i32, _));
     readonly_fn = (fn(elem) =>> {
@@ -285,7 +285,7 @@ compt_expect_error(
 
 // Test mixed capture scenarios - should fail because FnMut contains references
 compt_expect_error(
-  test12 :: (() -> unit) {
+  test12 :: (fn() -> unit) {
     mut(mutable_var) := 10;
     immutable_var := 5;
     
@@ -299,13 +299,13 @@ compt_expect_error(
 );
 
 // Test FnOnce basic functionality
-test13 :: (() -> unit) {
+test13 :: (fn() -> unit) {
   mut(counter) := 0;
   (x : LinearI32) = 12;
   
   // FnOnce can mutate captured variables
   once_fn : (Closure(FnOnce(elem : i32) -> i32, _));
-  once_fn = (fn(elem) => {
+  once_fn = ((elem) => {
     counter = (counter + elem);
     y := x; // `x` should be consumed here
     return counter;
@@ -319,11 +319,11 @@ test13 :: (() -> unit) {
 // Additional comprehensive test cases for closure semantics
 
 // Test FnOnce with linear value consumption - should work
-test14 :: (() -> unit) {
+test14 :: (fn() -> unit) {
   mut(counter) := 0;
   (linear_val : LinearI32) = 100;
   
-  plus_fn_once(fn(elem) => {
+  plus_fn_once((elem) => {
     final_val := linear_val; // FnOnce can consume linear values
     counter = (counter + (elem + final_val));
     return counter;
@@ -335,7 +335,7 @@ test14 :: (() -> unit) {
 
 // Test that FnMut/Fn cannot consume linear values from outer scope
 compt_expect_error(
-  test15_fnmut_linear :: (() -> unit) {
+  test15_fnmut_linear :: (fn() -> unit) {
     (linear_val : LinearI32) = 100;
     
     plus_fn_mut(fn(elem) =>> {
@@ -346,7 +346,7 @@ compt_expect_error(
 );
 
 compt_expect_error(
-  test15_fn_linear :: (() -> unit) {
+  test15_fn_linear :: (fn() -> unit) {
     (linear_val : LinearI32) = 100;
     
     plus_fn(fn(elem) =>> {
@@ -357,11 +357,11 @@ compt_expect_error(
 );
 
 // Test FnOnce consuming multiple linear values
-test16 :: (() -> unit) {
+test16 :: (fn() -> unit) {
   (linear1 : LinearI32) = 50;
   (linear2 : LinearI32) = 75;
   
-  plus_fn_once(fn(elem) => {
+  plus_fn_once((elem) => {
     val1 := linear1; // Consume first linear value
     val2 := linear2; // Consume second linear value
     return (elem + val1) + val2;
@@ -373,48 +373,48 @@ test16 :: (() -> unit) {
 };
 
 // Test closure parameter passing - FnOnce should work when used directly with existing functions
-test17 :: (() -> unit) {
+test17 :: (fn() -> unit) {
   mut(state) := 0;
   
   // Use the existing plus_fn_once function
-  result := plus_fn_once(fn(val) => {
+  result := plus_fn_once((val) => {
     state = (state + val);
     return state;
   });
 };
 
 // Test that FnMut/Fn closures work when passed directly to functions (no assignment)
-test18_fnmut_direct :: (() -> unit) {
+test18_fnmut_direct :: (fn() -> unit) {
   mut(state) := 0;
   
   // This should work - direct function call, no assignment
-  result := plus_fn_mut(fn(val) =>> {
+  result := plus_fn_mut((val) =>> {
     state = (state + val);
     return state;
   });
 };
 
-test18_fn_direct :: (() -> unit) {
+test18_fn_direct :: (fn() -> unit) {
   state := 100;
   
   // This should work - direct function call, no assignment
-  result := plus_fn(fn(val) =>> {
+  result := plus_fn((val) =>> {
     return state + val;
   });
 };
 
 // Test nested closures - FnOnce containing FnOnce should work
-test19 :: (() -> unit) {
+test19 :: (fn() -> unit) {
   mut(outer_state) := 0;
   (linear_outer : LinearI32) = 30;
   
   outer_closure : (Closure(FnOnce(x : i32) -> i32, _));
-  outer_closure = (fn(x) => {
+  outer_closure = ((x) => {
     mut(inner_state) := 10;
     (linear_inner : LinearI32) = linear_outer; // Consume outer linear value
     
     inner_closure : (Closure(FnOnce(y : i32) -> i32, _));
-    inner_closure = (fn(y) => {
+    inner_closure = ((y) => {
       outer_state = (outer_state + x);
       inner_state = (inner_state + y);
       final_linear := linear_inner; // Consume inner linear value
@@ -428,14 +428,14 @@ test19 :: (() -> unit) {
 };
 
 // Test closure kind inference with different capture patterns
-test20 :: (() -> unit) {
+test20 :: (fn() -> unit) {
   immutable_val := 100;
   mut(mutable_val) := 200;
   (linear_val : LinearI32) = 300;
   
   // FnOnce: can read immutable, mutate mutable, and consume linear
   once_closure : (Closure(FnOnce(x : i32) -> i32, _));
-  once_closure = (fn(x) => {
+  once_closure = ((x) => {
     consumed := linear_val; // Consume linear
     mutable_val = (mutable_val + x); // Mutate mutable
     return (immutable_val + mutable_val) + consumed; // Read immutable
@@ -447,7 +447,7 @@ test20 :: (() -> unit) {
 
 // Test error cases for closure kind mismatches
 compt_expect_error(
-  test21_fn_write :: (() -> unit) {
+  test21_fn_write :: (fn() -> unit) {
     mut(state) := 0;
     
     plus_fn(fn(elem) =>> {
@@ -458,7 +458,7 @@ compt_expect_error(
 );
 
 compt_expect_error(
-  test21_fnmut_consume :: (() -> unit) {
+  test21_fnmut_consume :: (fn() -> unit) {
     (linear_val : LinearI32) = 100;
     
     plus_fn_mut(fn(elem) =>> {
@@ -469,12 +469,12 @@ compt_expect_error(
 );
 
 // Test that FnOnce assignments work correctly (no references)
-test22 :: (() -> unit) {
+test22 :: (fn() -> unit) {
   mut(accumulator) := 0;
   
   // This should work - FnOnce doesn't contain references
   once_fn : (Closure(FnOnce(val : i32) -> i32, _));
-  once_fn = (fn(val) => {
+  once_fn = ((val) => {
     accumulator = (accumulator + val);
     return accumulator;
   });
@@ -483,14 +483,14 @@ test22 :: (() -> unit) {
 };
 
 // Test explicit struct capture with FnOnce (should work)
-test23 :: (() -> unit) {
+test23 :: (fn() -> unit) {
   mut(counter) := 0;
   
   CounterCapture :: struct(counter : i32);
   
   // This should work - FnOnce with explicit struct capture doesn't contain references
   counter_fn : (Closure(FnOnce(val : i32) -> i32, CounterCapture));
-  counter_fn = (fn(val) => {
+  counter_fn = ((val) => {
     counter = (counter + val);
     return counter;
   });
@@ -500,7 +500,7 @@ test23 :: (() -> unit) {
 
 // Test closure capture validation with explicit struct
 compt_expect_error(
-  test24_struct_mismatch :: (() -> unit) {
+  test24_struct_mismatch :: (fn() -> unit) {
     mut(counter) := 0;
     mut(other_var) := 10;
     
@@ -516,7 +516,7 @@ compt_expect_error(
 );
 
 // Test multiple variable capture with proper struct definition
-test25 :: (() -> unit) {
+test25 :: (fn() -> unit) {
   mut(counter) := 0;
   mut(multiplier) := 2;
   
@@ -524,7 +524,7 @@ test25 :: (() -> unit) {
   
   // This should work - captures match the struct definition
   multi_fn : (Closure(FnOnce(val : i32) -> i32, MultiCapture));
-  multi_fn = (fn(val) => {
+  multi_fn = ((val) => {
     counter = (counter + val);
     multiplier = (multiplier * 2);
     return counter * multiplier;

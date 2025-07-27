@@ -9,119 +9,119 @@ c_include "<stdlib.h>",
 
   // Program termination
   exit :
-    (status : int) -> unit,
+    fn(status : int) -> unit,
   quick_exit :
-    (status : int) -> unit,
+    fn(status : int) -> unit,
   _Exit :
-    (status : int) -> unit,
+    fn(status : int) -> unit,
   abort :
-    () -> unit,
+    fn() -> unit,
   atexit :
-    (func : (() -> unit)) -> int,
+    fn(func : (fn() -> unit)) -> int,
   at_quick_exit :
-    (func : (() -> unit)) -> int,
+    fn(func : (fn() -> unit)) -> int,
 
   // Memory management
   malloc :
-    (size : usize) -> ?*!(unit),
+    fn(size : usize) -> ?*!(unit),
   calloc :
-    (nmemb : usize, size : usize) -> ?*!(unit),
+    fn(nmemb : usize, size : usize) -> ?*!(unit),
   realloc :
-    (ptr : ?*!(unit), size : usize) -> ?*!(unit),
+    fn(ptr : ?*!(unit), size : usize) -> ?*!(unit),
   free :
-    (ptr : ?*!(unit)) -> unit,
+    fn(ptr : ?*!(unit)) -> unit,
   aligned_alloc :
-    (alignment : usize, size : usize) -> ?*!(unit),
+    fn(alignment : usize, size : usize) -> ?*!(unit),
 
   // String to number conversion
   atof :
-    (nptr : *(char)) -> f64,
+    fn(nptr : *(char)) -> f64,
   atoi :
-    (nptr : *(char)) -> int,
+    fn(nptr : *(char)) -> int,
   atol :
-    (nptr : *(char)) -> long,
+    fn(nptr : *(char)) -> long,
   atoll :
-    (nptr : *(char)) -> longlong,
+    fn(nptr : *(char)) -> longlong,
   
   strtol :
-    (nptr : *(char), endptr : ?*!(?*(char)), base : int) -> long,
+    fn(nptr : *(char), endptr : ?*!(?*(char)), base : int) -> long,
   strtoll :
-    (nptr : *(char), endptr : ?*!(?*(char)), base : int) -> longlong,
+    fn(nptr : *(char), endptr : ?*!(?*(char)), base : int) -> longlong,
   strtoul :
-    (nptr : *(char), endptr : ?*!(?*(char)), base : int) -> ulong,
+    fn(nptr : *(char), endptr : ?*!(?*(char)), base : int) -> ulong,
   strtoull :
-    (nptr : *(char), endptr : ?*!(?*(char)), base : int) -> ulonglong,
+    fn(nptr : *(char), endptr : ?*!(?*(char)), base : int) -> ulonglong,
   
   strtof :
-    (nptr : *(char), endptr : ?*!(?*(char))) -> f32,
+    fn(nptr : *(char), endptr : ?*!(?*(char))) -> f32,
   strtod :
-    (nptr : *(char), endptr : ?*!(?*(char))) -> f64,
+    fn(nptr : *(char), endptr : ?*!(?*(char))) -> f64,
   strtold :
-    (nptr : *(char), endptr : ?*!(?*(char))) -> longdouble,
+    fn(nptr : *(char), endptr : ?*!(?*(char))) -> longdouble,
 
   // Pseudo-random sequence generation
   rand :
-    () -> int,
+    fn() -> int,
   srand :
-    (seed : uint) -> unit,
+    fn(seed : uint) -> unit,
   
   // C11 - Thread-safe random functions
   rand_r :
-    (seedp : *!(uint)) -> int,
+    fn(seedp : *!(uint)) -> int,
 
   // Searching and sorting
   bsearch :
-    (key : *(unit), base : *(unit), nmemb : usize, size : usize, 
-     compar : ((a : *(unit), b : *(unit)) -> int)) -> ?*(unit),
+    fn(key : *(unit), base : *(unit), nmemb : usize, size : usize, 
+     compar : (fn(a : *(unit), b : *(unit)) -> int)) -> ?*(unit),
   qsort :
-    (base : *!(unit), nmemb : usize, size : usize, 
-     compar : ((a : *(unit), b : *(unit)) -> int)) -> unit,
+    fn(base : *!(unit), nmemb : usize, size : usize, 
+     compar : (fn(a : *(unit), b : *(unit)) -> int)) -> unit,
 
   // Integer arithmetic
   abs :
-    (j : int) -> int,
+    fn(j : int) -> int,
   labs :
-    (j : long) -> long,
+    fn(j : long) -> long,
   llabs :
-    (j : longlong) -> longlong,
+    fn(j : longlong) -> longlong,
   
   div :
-    (numer : int, denom : int) -> div_t,
+    fn(numer : int, denom : int) -> div_t,
   ldiv :
-    (numer : long, denom : long) -> ldiv_t,
+    fn(numer : long, denom : long) -> ldiv_t,
   lldiv :
-    (numer : longlong, denom : longlong) -> lldiv_t,
+    fn(numer : longlong, denom : longlong) -> lldiv_t,
 
   // Environment functions
   getenv :
-    (name : *(char)) -> ?*(char),
+    fn(name : *(char)) -> ?*(char),
   system :
-    (command : ?*(char)) -> int,
+    fn(command : ?*(char)) -> int,
 
   // C11 Annex K - Bounds-checking interfaces
   getenv_s :
-    (len : ?*!(usize), value : *!(char), maxsize : usize, name : *(char)) -> int,
+    fn(len : ?*!(usize), value : *!(char), maxsize : usize, name : *(char)) -> int,
 
   // Multibyte/wide character conversion
   mblen :
-    (s : ?*(char), n : usize) -> int,
+    fn(s : ?*(char), n : usize) -> int,
   mbtowc :
-    (pwc : ?*!(wchar_t), s : ?*(char), n : usize) -> int,
+    fn(pwc : ?*!(wchar_t), s : ?*(char), n : usize) -> int,
   wctomb :
-    (s : ?*!(char), wc : wchar_t) -> int,
+    fn(s : ?*!(char), wc : wchar_t) -> int,
   
   // Multibyte/wide string conversion
   mbstowcs :
-    (dest : ?*!(wchar_t), src : *(char), n : usize) -> usize,
+    fn(dest : ?*!(wchar_t), src : *(char), n : usize) -> usize,
   wcstombs :
-    (dest : ?*!(char), src : *(wchar_t), n : usize) -> usize,
+    fn(dest : ?*!(char), src : *(wchar_t), n : usize) -> usize,
 
   // C11 Annex K - Safe multibyte functions
   mbstowcs_s :
-    (retval : ?*!(usize), dest : ?*!(wchar_t), destsz : usize, 
+    fn(retval : ?*!(usize), dest : ?*!(wchar_t), destsz : usize, 
      src : *(char), len : usize) -> int,
   wcstombs_s :
-    (retval : ?*!(usize), dest : ?*!(char), destsz : usize,
+    fn(retval : ?*!(usize), dest : ?*!(char), destsz : usize,
      src : *(wchar_t), len : usize) -> int,
 
   // Constants

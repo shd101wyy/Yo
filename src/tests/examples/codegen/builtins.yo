@@ -1,19 +1,20 @@
 extern "Yo",  
-  __yo_op_add : ((forall(compt(T): Free), x : T, y : T) -> T)
+  __yo_op_add : 
+    fn(forall(compt(T): Free), x : T, y : T) -> T
 ;
 
-Add :: ((compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
+Add :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
   module
     Self   := Lhs,
-    (+)    : ((lhs: Lhs, rhs: Rhs)-> Output)
+    (+)    : (fn(lhs: Lhs, rhs: Rhs)-> Output)
 ;
 
 given(I32Add) :: Add(i32, i32)
-  (+): (fn(a, b)-> __yo_op_add(a, b))
+  (+): ((a, b) -> __yo_op_add(a, b))
 ;
 
 
-main :: (() -> i32) {
+main :: (fn() -> i32) {
   x := 1;
   y := 2;
   z := (x + y);

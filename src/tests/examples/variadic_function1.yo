@@ -3,13 +3,13 @@ open import "std";
 extern "Yo",
   va_list : Free,
   va_arg : 
-    (args : va_list, compt(T): Type) -> T,
+    fn(args : va_list, compt(T): Type) -> T,
   va_end :
-    (args : va_list) -> unit
+    fn(args : va_list) -> unit
 ;
 
 // Variadic function
-AddFunc :: ((count : i32, ...) -> i32);
+AddFunc :: (fn(count : i32, ...) -> i32);
 
 add :: AddFunc {
   args : va_list;
@@ -24,7 +24,7 @@ add :: AddFunc {
   return result; // Return the sum of the arguments
 };
 
-main :: (() -> unit) {
+main :: (fn() -> unit) {
    x := add(3, 1, 2, 3); // Call the variadic function with 3 arguments
    y := add(5, 1, 2, 3, 4, 5); // Call the variadic function with 5 arguments
    z := add(8); // Call the variadic function with no arguments

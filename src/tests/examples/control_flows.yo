@@ -2,11 +2,11 @@ open import "std";
 
 (compt(LinearI32) : Linear) = i32;
 
-some_condition :: (() -> boolean) 
+some_condition :: (fn() -> boolean) 
   true
 ;
 
-test_while_drop :: (() -> i32) {
+test_while_drop :: (fn() -> i32) {
   (x : LinearI32) = 42;
 
   compt_expect_error(
@@ -19,7 +19,7 @@ test_while_drop :: (() -> i32) {
   0
 };
 
-test_while_drop_with_break_nested :: (() -> i32) {
+test_while_drop_with_break_nested :: (fn() -> i32) {
   (x : LinearI32) = 42;
 
   while some_condition(), {
@@ -33,7 +33,7 @@ test_while_drop_with_break_nested :: (() -> i32) {
   0
 };
 
-test_while_drop_with_return_nested :: (() -> i32) {
+test_while_drop_with_return_nested :: (fn() -> i32) {
   (x : LinearI32) = 42;
 
   while some_condition(), {
@@ -51,7 +51,7 @@ test_while_drop_with_return_nested :: (() -> i32) {
   0
 };
 
-test_while_drop_with_continue_nested :: (() -> i32) {
+test_while_drop_with_continue_nested :: (fn() -> i32) {
   (x : LinearI32) = 42;
 
   compt_expect_error(
@@ -67,7 +67,7 @@ test_while_drop_with_continue_nested :: (() -> i32) {
   0
 };
 
-test_while_drop_with_mixed :: (() -> i32) {
+test_while_drop_with_mixed :: (fn() -> i32) {
   (x : LinearI32) = 42;
   compt_expect_error(
     while some_condition(), {
@@ -85,7 +85,7 @@ test_while_drop_with_mixed :: (() -> i32) {
   0
 };
 
-test_while_with_mixed_2 :: (() -> i32) {
+test_while_with_mixed_2 :: (fn() -> i32) {
   while some_condition(), {
     a := cond
       some_condition() => break,
@@ -100,7 +100,7 @@ test_while_with_mixed_2 :: (() -> i32) {
   0
 };
 
-test_while_drop_with_mixed_2 :: (() -> i32) {
+test_while_drop_with_mixed_2 :: (fn() -> i32) {
   (x : LinearI32) = 42;
   compt_expect_error(
     while some_condition(), {
@@ -123,7 +123,7 @@ test_while_drop_with_mixed_2 :: (() -> i32) {
 
 
 // Test 1: Break in while loop
-test_while_with_break :: ((flag: boolean) -> i32) {
+test_while_with_break :: (fn(flag: boolean) -> i32) {
   (x : LinearI32) = 42;
   while flag, 
     cond
@@ -137,7 +137,7 @@ test_while_with_break :: ((flag: boolean) -> i32) {
 };
 
 // Test 2: Continue in while loop  
-test_while_with_continue :: ((flag: boolean) -> i32) {
+test_while_with_continue :: (fn(flag: boolean) -> i32) {
   while flag, 
     cond
       some_condition() => {
@@ -151,7 +151,7 @@ test_while_with_continue :: ((flag: boolean) -> i32) {
 };
 
 // Test 3: Return in while loop
-test_while_with_return :: ((flag: boolean) -> i32) {
+test_while_with_return :: (fn(flag: boolean) -> i32) {
   (x : LinearI32) = 42;
   while flag,
     cond
@@ -165,7 +165,7 @@ test_while_with_return :: ((flag: boolean) -> i32) {
 };
 
 // Test 4: All cases break
-test_cond_all_break :: ((flag: boolean) -> i32) {
+test_cond_all_break :: (fn(flag: boolean) -> i32) {
   while flag,
     cond
       false => { break; },
@@ -175,7 +175,7 @@ test_cond_all_break :: ((flag: boolean) -> i32) {
 };
 
 // Test 5: All cases continue
-test_cond_all_continue :: ((flag: boolean) -> i32) {
+test_cond_all_continue :: (fn(flag: boolean) -> i32) {
   while flag,
     cond
       false => { continue; },
@@ -185,7 +185,7 @@ test_cond_all_continue :: ((flag: boolean) -> i32) {
 };
 
 // Test 6: Mixed cases with one normal return
-test_cond_mixed :: ((flag: boolean) -> i32)
+test_cond_mixed :: (fn(flag: boolean) -> i32)
   cond
     some_condition() => { return 30; },
     true => 35
@@ -195,7 +195,7 @@ test_cond_mixed :: ((flag: boolean) -> i32)
 (compt(Shape): Type) = enum(Circle, Square);
 
 // Test 7: Match with all break cases
-test_match_all_break :: ((shape: Shape) -> i32) {
+test_match_all_break :: (fn(shape: Shape) -> i32) {
   while some_condition(),
     match shape,
       .Circle => { break; },
@@ -205,7 +205,7 @@ test_match_all_break :: ((shape: Shape) -> i32) {
 };
 
 // Test 8: Match with all continue cases  
-test_match_all_continue :: ((shape: Shape) -> i32) {
+test_match_all_continue :: (fn(shape: Shape) -> i32) {
   while some_condition(),
     match shape,
       .Circle => { continue; },
@@ -215,7 +215,7 @@ test_match_all_continue :: ((shape: Shape) -> i32) {
 };
 
 // Test 9: Match with all return cases
-test_match_all_return :: ((shape: Shape) -> i32)
+test_match_all_return :: (fn(shape: Shape) -> i32)
   match shape,
     .Circle => { return 50; },
     .Square => { return 55; }
@@ -226,7 +226,7 @@ test_match_all_return :: ((shape: Shape) -> i32)
 // ===========================================
 
 // Test 10: Nested cond inside while
-test_nested_cond_in_while :: ((flag: boolean) -> i32) {
+test_nested_cond_in_while :: (fn(flag: boolean) -> i32) {
   (x : LinearI32) = 42;
   while flag,
     cond
@@ -245,7 +245,7 @@ test_nested_cond_in_while :: ((flag: boolean) -> i32) {
 };
 
 // Test 11: Nested while inside cond - fixed version
-test_nested_while_in_cond :: ((flag: boolean) -> i32) {
+test_nested_while_in_cond :: (fn(flag: boolean) -> i32) {
   (result: i32) = cond
     some_condition() => {
       while some_condition(), {
@@ -259,7 +259,7 @@ test_nested_while_in_cond :: ((flag: boolean) -> i32) {
 };
 
 // Test 12: Nested match inside while
-test_nested_match_in_while :: ((flag: boolean, shape: Shape) -> i32) {
+test_nested_match_in_while :: (fn(flag: boolean, shape: Shape) -> i32) {
   while flag,
     match shape,
       .Circle => {
@@ -278,7 +278,7 @@ test_nested_match_in_while :: ((flag: boolean, shape: Shape) -> i32) {
 // ===========================================
 
 // Test 13: Cond returning values assigned to variable
-test_cond_value_assignment :: ((flag: boolean) -> i32) {
+test_cond_value_assignment :: (fn(flag: boolean) -> i32) {
   (result: i32) = cond
     some_condition() => 100,
     true => 200
@@ -287,7 +287,7 @@ test_cond_value_assignment :: ((flag: boolean) -> i32) {
 };
 
 // Test 14: Match returning values assigned to variable
-test_match_value_assignment :: ((shape: Shape) -> i32) {
+test_match_value_assignment :: (fn(shape: Shape) -> i32) {
   (result: i32) = match shape,
     .Circle => 300,
     .Square => 400
@@ -296,7 +296,7 @@ test_match_value_assignment :: ((shape: Shape) -> i32) {
 };
 
 // Test 15: Nested cond with values only (no early returns)
-test_nested_cond_mixed :: ((flag: boolean) -> i32) {
+test_nested_cond_mixed :: (fn(flag: boolean) -> i32) {
   (result: i32) = cond(
     some_condition() => cond(
       some_condition() => 500,
@@ -308,7 +308,7 @@ test_nested_cond_mixed :: ((flag: boolean) -> i32) {
 };
 
 // Test 16: Complex nested structure with linear values
-test_complex_nested :: ((flag: boolean, shape: Shape) -> i32) {
+test_complex_nested :: (fn(flag: boolean, shape: Shape) -> i32) {
   (x : LinearI32) = 42;
   (y : LinearI32) = 24;
   
@@ -341,7 +341,7 @@ test_complex_nested :: ((flag: boolean, shape: Shape) -> i32) {
 };
 
 // Test 17: Multiple assignment with control flow
-test_multiple_assignment :: ((flag: boolean) -> i32) {
+test_multiple_assignment :: (fn(flag: boolean) -> i32) {
   (a: i32) = cond
     some_condition() => 10,
     true => 20
@@ -360,14 +360,14 @@ test_multiple_assignment :: ((flag: boolean) -> i32) {
 // === ERROR TEST CASES ===
 
 // Test: Break outside of loop should fail
-test_break_outside_loop :: (() -> unit) 
+test_break_outside_loop :: (fn() -> unit) 
   compt_expect_error({
     break;
   })
 ;
 
 // Test: Continue outside of loop should fail  
-test_continue_outside_loop :: (() -> unit)
+test_continue_outside_loop :: (fn() -> unit)
   compt_expect_error({
     continue;
   })
@@ -375,7 +375,7 @@ test_continue_outside_loop :: (() -> unit)
 
 // NOTE: Mixed control flows are now allowed in cond/match expressions
 // Test: Mixed control flows in cond should work
-test_mixed_control_flows :: ((flag: boolean) -> i32) {
+test_mixed_control_flows :: (fn(flag: boolean) -> i32) {
   while flag,
     cond(
       some_condition() => {
@@ -391,7 +391,7 @@ test_mixed_control_flows :: ((flag: boolean) -> i32) {
 };
 
 // Test: Break in function (not in loop) should fail
-test_break_in_function :: (() -> unit)
+test_break_in_function :: (fn() -> unit)
   compt_expect_error({
     cond(
       some_condition() => {
@@ -403,7 +403,7 @@ test_break_in_function :: (() -> unit)
 ;
 
 // Test: Continue in function (not in loop) should fail
-test_continue_in_function :: (() -> unit)
+test_continue_in_function :: (fn() -> unit)
   compt_expect_error({
     cond(
       some_condition() => {

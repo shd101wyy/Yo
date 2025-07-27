@@ -3,10 +3,10 @@ open import "std";
 extern "C",
   time_t : Free,
   time : 
-    (timer: ?*(time_t)) -> time_t
+    fn(timer: ?*(time_t)) -> time_t
 ;
 
-func2 :: (() -> unit) {
+func2 :: (fn() -> unit) {
   mut(uninitialized_timer) := MaybeUninit(time_t).new();  // uninitialized_timer is a Uninit(time_t) type
   ptr := (&!(uninitialized_timer)).as_mut_ptr();
   time(.Some(ptr));     // initialize the timer

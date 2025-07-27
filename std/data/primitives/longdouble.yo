@@ -9,34 +9,34 @@ open import "../../builtins.yo";
  * arithmetic
  */
 given(LongDoubleAdd) :: Add(longdouble, longdouble)
-  (+): (fn(a, b)-> __yo_op_add(a, b))
+  (+): ((a, b) -> __yo_op_add(a, b))
 ;
 
 given(LongDoubleSub) :: Sub(longdouble, longdouble)
-  (-): (fn(a, b)-> __yo_op_sub(a, b))
+  (-): ((a, b) -> __yo_op_sub(a, b))
 ;
 
 given(LongDoubleMul) :: Mul(longdouble, longdouble)
-  (*): (fn(a, b)-> __yo_op_mul(a, b))
+  (*): ((a, b) -> __yo_op_mul(a, b))
 ;
 
 given(LongDoubleDiv) :: Div(longdouble, longdouble)
-  (/): (fn(a, b)-> __yo_op_div(a, b))
+  (/): ((a, b) -> __yo_op_div(a, b))
 ;
 
 given(LongDoubleMod) :: Mod(longdouble, longdouble)
-  (%): (fn(a, b)-> __yo_op_mod(a, b))
+  (%): ((a, b) -> __yo_op_mod(a, b))
 ;
 
 given(LongDoubleNegate) :: Negate(longdouble)
-  (neg): (fn(a)-> __yo_op_neg(a))
+  (neg): ((a) -> __yo_op_neg(a))
 ;
 
 /**
  * logic
  */
 given(LongDoubleLogicalNot) :: LogicalNot(longdouble)
-  (!): (fn(a)-> __yo_op_not(a))
+  (!): ((a) -> __yo_op_not(a))
 ;
 
 
@@ -44,28 +44,28 @@ given(LongDoubleLogicalNot) :: LogicalNot(longdouble)
  * eq
  */
 given(LongDoubleEq) :: Eq(longdouble, longdouble)
-  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+  (==) : ((a, b) -> __yo_op_eq(a, b))
 ;
 
 /**
  * ord
  */
 given(LongDoubleOrd) :: Ord(longdouble, longdouble, using(LongDoubleEq))
-  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
-  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
-  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
-  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
 ;
 
 given(LongDoubleDrop) :: Drop(longdouble)
-  drop: (fn(self)->
+  drop: ((self) ->
     // No-op for longdouble, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
 given(LongDoubleClone) :: Clone(longdouble)
-  clone: (fn(self)->
+  clone: ((self) ->
     // No-op for longdouble, as it is a primitive type
     __yo_return_self(self.*)
   )
@@ -74,7 +74,7 @@ given(LongDoubleClone) :: Clone(longdouble)
 given(LongDoubleMethods) :: module {
   Self :: longdouble;
 
-  as :: ((self: Self, compt(Target) : Type) -> Target)
+  as :: (fn(self: Self, compt(Target) : Type) -> Target)
     __yo_longdouble_as(self, Target)
   ;
 

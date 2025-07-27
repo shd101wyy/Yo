@@ -1,22 +1,22 @@
 extern
   add:
-    (x: i32, y: i32)-> i32,
+    fn(x: i32, y: i32)-> i32,
   compt_add:
-    (compt(x): i32, compt(y): i32)-> compt(i32)
+    fn(compt(x): i32, compt(y): i32)-> compt(i32)
 ;
 
 // Runtime only function
-runt_id :: ((n: i32)-> i32)
+runt_id :: (fn(n: i32)-> i32)
   n
 ;
 
 // Compile-time only function
-compt_id :: ((compt(n): i32)-> compt(i32))
+compt_id :: (fn(compt(n): i32)-> compt(i32))
   n
 ;
 
 
-main :: (()-> unit) {
+main :: (fn() -> unit) {
   {
     n := 5; // runtime
     compt_expect_error(
@@ -52,10 +52,10 @@ main :: (()-> unit) {
 
   p1_x :: p1.x;
 
-  runt_add_points :: ((p1: Point, p2: Point)-> Point)
+  runt_add_points :: (fn(p1: Point, p2: Point)-> Point)
     Point(p1.x `add` p2.x, p1.y `add` p2.y)
   ;
-  compt_add_points :: ((compt(p1): Point, compt(p2): Point)-> compt(Point))
+  compt_add_points :: (fn(compt(p1): Point, compt(p2): Point)-> compt(Point))
     Point(p1.x `compt_add` p2.x, p1.y `compt_add` p2.y)
   ;
 

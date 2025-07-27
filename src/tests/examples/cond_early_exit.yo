@@ -3,13 +3,13 @@
 // Test compile-time evaluation and optimization
 
 extern
-  add : ((x: i32, y: i32)-> i32),
-  sub : ((x: i32, y: i32)-> i32),
-  eq  : ((x: i32, y: i32)-> boolean)
+  add : (fn(x: i32, y: i32)-> i32),
+  sub : (fn(x: i32, y: i32)-> i32),
+  eq  : (fn(x: i32, y: i32)-> boolean)
 ;
 
 // Test: First condition is compile-time true, subsequent bodies should not be evaluated
-test_early_exit :: (()-> i32) 
+test_early_exit :: (fn()-> i32) 
   cond
     true => 42,
     // The following should never be evaluated due to compile-time optimization
@@ -17,7 +17,7 @@ test_early_exit :: (()-> i32)
     false => another_undefined_function();
 
 // Test: All conditions are compile-time false except the last
-test_skip_false :: (()-> i32)
+test_skip_false :: (fn()-> i32)
   cond
     false => undefined_function_1(),
     false => undefined_function_2(),
@@ -25,7 +25,7 @@ test_skip_false :: (()-> i32)
     true => 99;
 
 // Test: Only evaluate runtime conditions when no compile-time true is found
-test_mixed_conditions :: ((x: i32)-> i32)
+test_mixed_conditions :: (fn(x: i32)-> i32)
   cond
     false => 10, // Skip this
     (x `eq` 5) => 20, // Evaluate this condition

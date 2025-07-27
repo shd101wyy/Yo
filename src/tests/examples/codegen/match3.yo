@@ -1,10 +1,10 @@
 extern
   add :
-    (x : i32, y : i32) -> i32,
+    fn(x : i32, y : i32) -> i32,
   mul :
-    (x : i32, y : i32) -> i32,
+    fn(x : i32, y : i32) -> i32,
   div :
-    (x : i32, y : i32) -> i32
+    fn(x : i32, y : i32) -> i32
 ;
 
 Shape :: enum
@@ -13,11 +13,11 @@ Shape :: enum
   Triangle(base : i32, height : i32)
 ;
 
-return_shape :: (() -> Shape)
+return_shape :: (fn() -> Shape)
   Shape.Rectangle(width: 10, height: 20)
 ;
 
-area :: (() -> i32) {
+area :: (fn() -> i32) {
   shape := return_shape();
   match shape,
     .Circle =>
@@ -29,7 +29,7 @@ area :: (() -> i32) {
 };
 
 
-main :: (() -> i32) {
+main :: (fn() -> i32) {
   totalArea := area();
   totalArea
 };

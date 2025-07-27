@@ -3,25 +3,25 @@ Container :: struct
   data : i32
 ;
 
-swap1 :: ((x : *!(i32), y : *!(i32)) -> unit) {
+swap1 :: (fn(x : *!(i32), y : *!(i32)) -> unit) {
   tmp := x.*;
   x.* = y.*;
   y.* = tmp;
 };
 
-swap2 :: ((c : Container, y : *!(i32)) -> unit) {
+swap2 :: (fn(c : Container, y : *!(i32)) -> unit) {
   tmp := c.val.*;
   c.val.* = y.*;
   y.* = tmp;
 };
 
-swap3 :: ((c : *!(Container), y : *!(i32)) -> unit) {
+swap3 :: (fn(c : *!(Container), y : *!(i32)) -> unit) {
   tmp := c.val.*;
   c.val.* = y.*;
   y.* = tmp;
 };
 
-swap4 :: ((c : *(Container), y : *!(i32)) -> unit) {
+swap4 :: (fn(c : *(Container), y : *!(i32)) -> unit) {
   tmp := c.val.*; // error: `c` is an immutable pointer, so the data it refers to cannot be written
   compt_expect_error(
     c.val.* = y.*
@@ -31,7 +31,7 @@ swap4 :: ((c : *(Container), y : *!(i32)) -> unit) {
 };
 
 // Test field reassignment vs dereferencing distinction
-test_field_reassignment_vs_deref_basic :: (() -> unit) {
+test_field_reassignment_vs_deref_basic :: (fn() -> unit) {
   mut(x) := 10;
   mut(y) := 20;
   
@@ -54,7 +54,7 @@ test_field_reassignment_vs_deref_basic :: (() -> unit) {
   c2.val = *!(y);        // Should work - field reassignment with mutable binding
 };
 
-main :: (() -> unit) {
+main :: (fn() -> unit) {
   mut(x) := 1;
   mut(y) := 2;
 
@@ -72,14 +72,14 @@ NestedContainer :: struct
 ;
 
 // Test with nested mutable reference
-swap_nested1 :: ((c : *!(NestedContainer), y : *!(i32)) -> unit) {
+swap_nested1 :: (fn(c : *!(NestedContainer), y : *!(i32)) -> unit) {
   tmp := c.inner.val.*;
   c.inner.val.* = y.*;
   y.* = tmp;
 };
 
 // Test with nested immutable reference - should fail
-swap_nested2 :: ((c : *(NestedContainer), y : *!(i32)) -> unit) {
+swap_nested2 :: (fn(c : *(NestedContainer), y : *!(i32)) -> unit) {
   tmp := c.inner.val.*; // error: accessing through immutable reference
   compt_expect_error(
     c.inner.val.* = y.*
@@ -93,14 +93,14 @@ MixedContainer :: struct
   immutable_val : *(i32)
 ;
 
-swap_mixed1 :: ((c : *!(MixedContainer), y : *!(i32)) -> unit) {
+swap_mixed1 :: (fn(c : *!(MixedContainer), y : *!(i32)) -> unit) {
   // This should work - mutable container, mutable field
   tmp := c.mutable_val.*;
   c.mutable_val.* = y.*;
   y.* = tmp;
 };
 
-swap_mixed2 :: ((c : *!(MixedContainer), y : *!(i32)) -> unit) {
+swap_mixed2 :: (fn(c : *!(MixedContainer), y : *!(i32)) -> unit) {
   // This should fail - mutable container, but immutable field reference
   tmp := c.immutable_val.*; // Can read through immutable ref
   compt_expect_error(
@@ -109,17 +109,17 @@ swap_mixed2 :: ((c : *!(MixedContainer), y : *!(i32)) -> unit) {
 };
 
 // Test function return values
-get_mutable_container :: (() -> *!(Container)) {
+get_mutable_container :: (fn() -> *!(Container)) {
   mut(x) := 42;
   *!(Container(*!(x), 1))
 };
 
-get_immutable_container :: (() -> *(Container)) {
+get_immutable_container :: (fn() -> *(Container)) {
   mut(x) := 42;
   *(Container(*!(x), 1))
 };
 
-test_function_returns :: (() -> unit) {
+test_function_returns :: (fn() -> unit) {
   mut(y) := 10;
   
   // Function returning mutable pointer - should work
@@ -149,7 +149,7 @@ ChainedContainer :: struct
 ;
 
 
-test_chained_access :: (() -> unit) {
+test_chained_access :: (fn() -> unit) {
   mut(x) := 100;
   mut(y) := 200;
   
@@ -167,7 +167,7 @@ test_chained_access :: (() -> unit) {
 };
 
 // Test array/slice access
-test_array_access :: (() -> unit) {
+test_array_access :: (fn() -> unit) {
   mut(arr) := [1, 2, 3];
   
   // Mutable array access
@@ -189,7 +189,7 @@ PtrContainer :: struct
   ref_val : *!(i32)
 ;
 
-test_ptr_vs_ref :: (() -> unit) {
+test_ptr_vs_ref :: (fn() -> unit) {
   mut(x) := 50;
   
   // Both pointer and reference should behave similarly for mutability
@@ -221,7 +221,7 @@ test_ptr_vs_ref :: (() -> unit) {
 };
 
 // Test cases for parameter vs binding mutability distinction
-test_parameter_binding_distinction :: (() -> unit) {
+test_parameter_binding_distinction :: (fn() -> unit) {
   mut(x) := 10;
   
   // Case 1: mutable binding, mutable pointer type
@@ -268,7 +268,7 @@ ComplexContainer :: struct
 ;
 
 
-test_complex_nested_mutability :: (() -> unit) {
+test_complex_nested_mutability :: (fn() -> unit) {
   mut(x) := 100;
   mut(y) := 200;
   
@@ -289,26 +289,26 @@ test_complex_nested_mutability :: (() -> unit) {
 };
 
 // Test function parameters with different mutability combinations
-test_with_mutable_ptr :: ((ptr : *!(i32)) -> unit) {
+test_with_mutable_ptr :: (fn(ptr : *!(i32)) -> unit) {
   tmp := ptr.*;
   ptr.* = 42; // Should work
 };
 
-test_with_immutable_ptr :: ((ptr : *(i32)) -> unit) {
+test_with_immutable_ptr :: (fn(ptr : *(i32)) -> unit) {
   tmp := ptr.*;
   compt_expect_error(
     ptr.* = 42 // Should fail - immutable pointer parameter
   );
 };
 
-test_with_mutable_binding_and_ptr :: ((mut(ptr) : *!(i32)) -> unit) {
+test_with_mutable_binding_and_ptr :: (fn(mut(ptr) : *!(i32)) -> unit) {
   tmp := ptr.*;
   ptr.* = 42; // Should work - mutable pointer type
   // ptr = another_ptr; // Would work if we had another pointer to assign
 };
 
 // Test array indexing with different mutabilities
-test_array_indexing_mutability :: (() -> unit) {
+test_array_indexing_mutability :: (fn() -> unit) {
   mut(arr) := [10, 20, 30];
   
   // Mutable pointer to array
@@ -334,7 +334,7 @@ FieldTestContainer :: struct
   value_field : i32
 ;
 
-test_field_assignment_vs_deref :: (() -> unit) {
+test_field_assignment_vs_deref :: (fn() -> unit) {
   mut(x) := 10;
   mut(y) := 20;
   
@@ -370,7 +370,7 @@ Node :: struct
   next : ?*!(Self)  // Pointer to another node of the same type
 ;
 
-test_recursive_structures :: (() -> unit) {
+test_recursive_structures :: (fn() -> unit) {
   mut(node1) := Node(10, .None);
   mut(node2) := Node(20, .Some(*!(node1)));
   
@@ -393,7 +393,7 @@ ArrayContainer :: struct
   ptr_values : *!([i32; 3])
 ;
 
-test_struct_array_combinations :: (() -> unit) {
+test_struct_array_combinations :: (fn() -> unit) {
   mut(arr) := [1, 2, 3];
   mut(container) := ArrayContainer([10, 20, 30], *!(arr));
   
@@ -416,11 +416,11 @@ test_struct_array_combinations :: (() -> unit) {
 
 // Test function pointer mutability (if supported)
 FunctionContainer :: struct
-  callback : (() -> unit)
+  callback : (fn() -> unit)
 ;
 
-test_function_pointers :: (() -> unit) {
-  do_nothing :: (() -> unit) ();
+test_function_pointers :: (fn() -> unit) {
+  do_nothing :: (fn() -> unit) ();
   
   mut(func_container) := FunctionContainer(do_nothing);
   
@@ -438,7 +438,7 @@ MultiIndirect :: struct
   ptr_to_ptr : *!(*!(i32))
 ;
 
-test_multiple_indirections :: (() -> unit) {
+test_multiple_indirections :: (fn() -> unit) {
   mut(x) := 42;
   mut(ptr) := *!(x);
   
@@ -459,7 +459,7 @@ test_multiple_indirections :: (() -> unit) {
 };
 
 // Test const/literal values and their mutability
-test_literal_mutability :: (() -> unit) {
+test_literal_mutability :: (fn() -> unit) {
   // Pointer to literal - should be immutable by nature
   lit_ptr := *(42); // Pointer to literal value
   tmp := lit_ptr.*; // Can read
@@ -473,11 +473,11 @@ TempContainer :: struct
   val : i32
 ;
 
-create_temp :: (() -> TempContainer)
+create_temp :: (fn() -> TempContainer)
   TempContainer(42)
 ;
 
-test_temporary_values :: (() -> unit) {
+test_temporary_values :: (fn() -> unit) {
   // Access field of temporary value
   tmp1 := create_temp().val; // Should work - reading from temporary
   
@@ -485,7 +485,7 @@ test_temporary_values :: (() -> unit) {
   create_temp().val = 100; // ~~Should fail - cannot modify temporary~~
 };
 
-main_extended :: (() -> unit) {
+main_extended :: (fn() -> unit) {
   // Run original tests - these work correctly
   mut(x) := 1;
   mut(y) := 2;

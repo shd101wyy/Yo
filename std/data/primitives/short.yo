@@ -9,34 +9,34 @@ open import "../../builtins.yo";
  * arithmetic
  */
 given(ShortAdd) :: Add(short, short)
-  (+): (fn(a, b)-> __yo_op_add(a, b))
+  (+): ((a, b) -> __yo_op_add(a, b))
 ;
 
 given(ShortSub) :: Sub(short, short)
-  (-): (fn(a, b)-> __yo_op_sub(a, b))
+  (-): ((a, b) -> __yo_op_sub(a, b))
 ;
 
 given(ShortMul) :: Mul(short, short)
-  (*): (fn(a, b)-> __yo_op_mul(a, b))
+  (*): ((a, b) -> __yo_op_mul(a, b))
 ;
 
 given(ShortDiv) :: Div(short, short)
-  (/): (fn(a, b)-> __yo_op_div(a, b))
+  (/): ((a, b) -> __yo_op_div(a, b))
 ;
 
 given(ShortMod) :: Mod(short, short)
-  (%): (fn(a, b)-> __yo_op_mod(a, b))
+  (%): ((a, b) -> __yo_op_mod(a, b))
 ;
 
 given(ShortNegate) :: Negate(short)
-  (neg): (fn(a)-> __yo_op_neg(a))
+  (neg): ((a) -> __yo_op_neg(a))
 ;
 
 /**
  * logic
  */
 given(ShortLogicalNot) :: LogicalNot(short)
-  (!): (fn(a)-> __yo_op_not(a))
+  (!): ((a) -> __yo_op_not(a))
 ;
 
 
@@ -44,28 +44,28 @@ given(ShortLogicalNot) :: LogicalNot(short)
  * eq
  */
 given(ShortEq) :: Eq(short, short)
-  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+  (==) : ((a, b) -> __yo_op_eq(a, b))
 ;
 
 /**
  * ord
  */
 given(ShortOrd) :: Ord(short, short, using(ShortEq))
-  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
-  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
-  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
-  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
 ;
 
 given(ShortDrop) :: Drop(short)
-  drop: (fn(self)->
+  drop: ((self) ->
     // No-op for short, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
 given(ShortClone) :: Clone(short)
-  clone: (fn(self)->
+  clone: ((self) ->
     // No-op for short, as it is a primitive type
     __yo_return_self(self.*)
   )
@@ -74,7 +74,7 @@ given(ShortClone) :: Clone(short)
 given(ShortMethods) :: module {
   Self :: short;
 
-  as :: ((self: Self, compt(Target) : Type) -> Target)
+  as :: (fn(self: Self, compt(Target) : Type) -> Target)
     __yo_short_as(self, Target)
   ;
 

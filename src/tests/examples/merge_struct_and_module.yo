@@ -19,7 +19,7 @@
     y : i32,
 
     // Type method
-    new :: ((()-> Self)
+    new :: ((fn()-> Self)
       Self(0, 0) // `Self` here means `Point`
     )
   );
@@ -27,14 +27,14 @@
 
 {
   // Basic module
-  Id :: ((compt(T): Type)-> compt(Module))
+  Id :: (fn(compt(T): Type)-> compt(Module))
     module(
       // Self :: T, // Override `Self` to be `T`.
       // After the override, it's no longer avaible to define the type method.
       //  Or:
       (Self : Type) = T,
 
-      id : ((self: Self)-> Self) // Expect `id` to be implemented.
+      id : (fn(self: Self)-> Self) // Expect `id` to be implemented.
     )
   ;
   
@@ -42,7 +42,7 @@
   // Implement the `Id`
   I32Id :: Id(i32)
     // `Self` cannot be overridden here, it is already set to `T = i32`
-    id : (fn(x) -> x)
+    id : ((x) -> x)
   ;
   ()
 };

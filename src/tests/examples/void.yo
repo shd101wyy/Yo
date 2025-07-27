@@ -2,10 +2,10 @@ open import "std";
 
 compt_expect_error(
   FuncType :: 
-    () -> void // Cannot use DST directly in function return type
+    fn() -> void // Cannot use DST directly in function return type
 );
 
-use_void_ptr :: ((ptr : *(void)) -> unit) {
+use_void_ptr :: (fn(ptr : *(void)) -> unit) {
   compt_expect_error(
     x := ptr.*,
     "Cannot use DST directly"
@@ -16,7 +16,7 @@ use_void_ptr :: ((ptr : *(void)) -> unit) {
   i32_ptr := ptr.cast(*(i32));
 };
 
-mutate_void_ptr :: ((ptr : *!(void)) -> unit) {
+mutate_void_ptr :: (fn(ptr : *!(void)) -> unit) {
   compt_expect_error(
     x := ptr.*,
     "Cannot use DST directly"
@@ -27,7 +27,7 @@ mutate_void_ptr :: ((ptr : *!(void)) -> unit) {
 };
 
 
-main :: (() -> unit) {
+main :: (fn() -> unit) {
   mut(x) := 12;
 
   use_void_ptr(*(x));

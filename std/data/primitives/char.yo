@@ -2,14 +2,14 @@
 { Clone, Drop } :: import "../../modules/common.yo";
 
 given(CharDrop) :: Drop(char)
-  drop: (fn(self) ->
+  drop: ((self) ->
     // No-op for char, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
 given(CharClone) :: Clone(char)
-  clone: (fn(self) ->
+  clone: ((self) ->
     // No-op for char, as it is a primitive type
     __yo_return_self(self.*)
   )
@@ -18,7 +18,7 @@ given(CharClone) :: Clone(char)
 given(CharMethods) :: module {
   Self :: char;
 
-  as :: ((self: Self, compt(Target) : Type) -> Target)
+  as :: (fn(self: Self, compt(Target) : Type) -> Target)
     __yo_char_as(self, Target)
   ;
 

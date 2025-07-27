@@ -1,46 +1,46 @@
-Box :: ((compt(B): Type)-> compt(Type))
+Box :: (fn(compt(B): Type)-> compt(Type))
   struct(value: B)
 ;
 
-Point :: ((compt(P): Type)-> compt(Type))
+Point :: (fn(compt(P): Type)-> compt(Type))
   struct
     x: P,
     y: P
 ;
 
 Id ::
-  ((compt(Self): Type)-> compt(Module))
+  (fn(compt(Self): Type)-> compt(Module))
   module
     (Self: Type) = Self,
     id:
-      (self: Self)-> Self
+      fn(self: Self)-> Self
 ;
 
 id ::
-  ((forall(compt(T): Type), compt(I): Id(T), x: T)-> T)
+  (fn(forall(compt(T): Type), compt(I): Id(T), x: T)-> T)
   I.id(x)
 ;
 
 IdInt ::
   Id(i32)
     id:
-      fn(x)-> x
+      (x)-> x
 ;
 
 IdBoolean ::
   Id(boolean)
     id:
-      fn(x)-> x
+      (x)-> x
 ;
 
 IdBox ::
-  (( forall(compt(X): Type),
+  (fn( forall(compt(X): Type),
       compt(I): Id(X)
       )-> compt(Id(Box(X)))) {
   flag :: __yo_are_types_compatible(Box(X), Box(X));
   Id(Box(X))
     id:
-      fn(p) -> {
+      (p) -> {
         { value } := p;
         Box(X)(value)
         // Box(X)(I.id(value))
@@ -49,12 +49,12 @@ IdBox ::
   ;
 
 IdPoint ::
-  (( forall(compt(X): Type),
+  (fn( forall(compt(X): Type),
     compt(I): Id(X)
   )-> compt(Id(Point(X))))
   Id(Point(X))
     id:
-      fn(p) -> {
+      (p) -> {
         { x, y } := p;
         Point(X)(I.id(x), I.id(y))
       }

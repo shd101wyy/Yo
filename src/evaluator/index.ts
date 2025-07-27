@@ -225,13 +225,13 @@ ${exprToString(expr)}`,
         // Assignment
         return evaluateAssignment({ expr, env, context });
       } else if (exprIsFunctionCallOf(expr, "->", 2)) {
-        // Function implementation
+        // Function type
         if (
           // (fn(x) -> x)
           exprIsFunctionCall(expr.args[0]) &&
           exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn)
         ) {
-          return evaluateAnonymousFunctionImplementation({
+          return evaluateFunctionType({
             expr,
             env,
             context: { ...context },
@@ -295,49 +295,28 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
           }
         }
 
-        // Regular function type
-        return evaluateFunctionType({
+        // Anonymous function implementation
+        // (x) -> x;
+        return evaluateAnonymousFunctionImplementation({
           expr,
           env,
           context: { ...context },
         });
       } else if (exprIsFunctionCallOf(expr, "=>", 2)) {
-        // FnOnce closure implementation (move semantics)
-        if (
-          // (fn(x) => x)
-          exprIsFunctionCall(expr.args[0]) &&
-          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn)
-        ) {
-          return evaluateAnonymousFunctionImplementation({
-            expr,
-            env,
-            context: { ...context },
-          });
-        }
-
-        // This should no longer be used for closure types
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `The '=>' operator is only for FnOnce closure implementations. Use 'FnOnce(param) -> returnType' for closure types.`,
+        // FnOnce closue
+        // (x) => x;
+        return evaluateAnonymousFunctionImplementation({
+          expr,
+          env,
+          context: { ...context },
         });
       } else if (exprIsFunctionCallOf(expr, "=>>", 2)) {
         // Fn/FnMut closure implementation (borrow semantics)
-        if (
-          // (fn(x) =>> x)
-          exprIsFunctionCall(expr.args[0]) &&
-          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn)
-        ) {
-          return evaluateAnonymousFunctionImplementation({
-            expr,
-            env,
-            context: { ...context },
-          });
-        }
-
-        // This should not be used for closure types
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `The '=>>' operator is only for Fn/FnMut closure implementations. Use 'Fn(param) -> returnType' or 'FnMut(param) -> returnType' for closure types.`,
+        // (x) =>> x;
+        return evaluateAnonymousFunctionImplementation({
+          expr,
+          env,
+          context: { ...context },
         });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
         // recur

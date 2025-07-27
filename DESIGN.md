@@ -829,11 +829,11 @@ defn some_async_func(?(_): Async(i32)): i32, {
 // id.yo
 defn Id(Self: Type),
   interface {
-    id: ((self: Self)-> Self)
+    id: (fn(self: Self)-> Self)
   };
 
 impl Id(i32), {
-  id: (fn(self) -> {
+  id: ((self) -> {
     return self;
   })
 };
@@ -935,7 +935,7 @@ Record field access has higher priority than the free function and trait method.
 
 ```rust
 S := {
-  (method: (()-> unit)) =
+  (method: (fn() -> unit)) =
     (fn()-> println("Record method"))
 }
 
@@ -1079,7 +1079,7 @@ add_va_c :: ((...(args) : VarList) -> c_int) {
 };
 
 // Yo variadic function
-add_va_yo :: ((forall(compt(count): usize), ...(args) : Array(c_int, count)) -> c_int) {
+add_va_yo :: (fn(forall(compt(count): usize), ...(args) : Array(c_int, count)) -> c_int) {
   mut(result) := 0;
   mut(i) := 0;
   while i < count, i = (i + 1), {
@@ -1287,7 +1287,7 @@ defn test(), {
 }
 ```
 
-**NOTE:** We can pass normal function ()-> unit to a function argument that expects a closure, but not the other way around.
+**NOTE:** We can pass normal function fn() -> unit to a function argument that expects a closure, but not the other way around.
 
 ## Generic
 
@@ -1322,7 +1322,7 @@ defn show_compare((T: Type) <: (Show & Ord), x: T, y: T): String,
 // Instance dependencies
 forall ((A: Type) <: Show, size: compt(usize)),
   impl Show(Array(A, size)), {
-    show: (fn(self)-> {
+    show: ((self) -> {
       // ...
     })
   };
@@ -1330,7 +1330,7 @@ forall ((A: Type) <: Show, size: compt(usize)),
 forall ((A: Type) <: Show,
         (B: Type) <: Show),
   impl Show((A, B)), {
-    show: (fn(self)-> {
+    show: ((self) -> {
 
     })
   };
@@ -1340,17 +1340,17 @@ forall ((A: Type) <: Show,
 // show.yo
 defn Show(Self: Type): Interface,
   interface {
-    show: ((self: &(Self))-> String)
+    show: (fn(self: &(Self))-> String)
   };
 
 impl Show(i32), {
-  show: (fn(self)-> {
+  show: ((self) -> {
     // ...
   })
 };
 
 impl Show(String), {
-  show: (fn(self)-> {
+  show: ((self) -> {
     // ...
   })
 };
@@ -1465,7 +1465,7 @@ defn IntoIterator(Self: Type): Interface,
     // IntoIterator: (Type <: Iterator(_, Item: this.Item))
 
     // IntoIterator will consume the value, while Iterator will not.
-    into_iter: ((self: Self)-> this.IntoIterator);
+    into_iter: (fn(self: Self)-> this.IntoIterator);
   };
 ```
 
@@ -1766,12 +1766,12 @@ Interface works similarly to the Trait in Rust.
 ```rust
 defn Summary(Self: Type): Interface,
   interface {
-    summarize: ((self: &(Self))-> String)
+    summarize: (fn(self: &(Self))-> String)
   };
 
-defn Display((Self: Type) <: (Summary & SomeOtherClass)): Interface,
+defn Display(fn(self: Type) <: (Summary & SomeOtherClass)): Interface,
   interface {
-    display: ((self: &(Self))-> String)
+    display: (fn(self: &(Self))-> String)
   };
 
 NewsArticle := {
@@ -1782,7 +1782,7 @@ NewsArticle := {
 };
 
 impl Summary(NewsArticle) {
-  summarize: (fn(self) -> {
+  summarize: ((self) -> {
     String.from("${self.headline}, by ${self.author} (${self.location})");
   })
 };
@@ -1802,11 +1802,11 @@ forall ((T: Type) <: Display),
 ```rust
 defn LuckyNumber(T: compt(i32)),
   interface {
-    say_it: ((self: &(T))-> unit)
+    say_it: (fn(self: &(T))-> unit)
   };
 
 impl LuckyNumber(7), {
-  say_it: (fn(self)-> {
+  say_it: ((self) -> {
     println("Lucky number 7");
   })
 };
@@ -1850,7 +1850,7 @@ defn Contains(Self: Type): Interface,
     A: Type,
     B: Type,
 
-    contains: ((self: &Self, a: this.A, b: this.B)-> boolean);
+    contains: (fn(self: &Self, a: this.A, b: this.B)-> boolean);
             // QUESTION: Do we need `this.` here?
             // ANSWER: Yes. Let's make it the same as typescript.
             // `this` here means `Contains<Self>`.
@@ -1881,9 +1881,9 @@ Contains(Container).contains(&(my_tuple), 10, 20); // true
 Use `!(Interface)` to exclude an interface.
 
 ```rust
-defn Summary((Self: Type) <: (Show & !(Eq))),
+defn Summary(fn(self: Type) <: (Show & !(Eq))),
   interface {
-    summarize: ((self: &(Self))-> String);
+    summarize: (fn(self: &(Self))-> String);
   };
 // This trait `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
 ```
@@ -1893,9 +1893,9 @@ defn Summary((Self: Type) <: (Show & !(Eq))),
 Use `?(Interface)` to make a trait optional.
 
 ```rust
-defn Summary((Self: Type) <: ?(Show)),
+defn Summary(fn(self: Type) <: ?(Show)),
   interface {
-    summarize: ((self: &(Self))-> String);
+    summarize: (fn(self: &(Self))-> String);
   };
 // This trait `Summary` can implement for `Type` that implements `Show` or not.
 ```
@@ -1908,7 +1908,7 @@ This is useful for resolving conflicts when implementing multiple classes for th
 // id.yo
 defn Id(Self: Type),
   interface {
-    id: ((self: &(Self))-> Self)
+    id: (fn(self: &(Self))-> Self)
   };
 
 { Id }
@@ -2121,12 +2121,12 @@ constant_ptr_to_i32 := &!(i32_val); // ptr_to_i32: &!(i32)
 ```rust
 defn Animal(Self: Type): Interface,
   interface {
-    speak: ((self: &(Self))-> unit)
+    speak: (fn(self: &(Self))-> unit)
   };
 
 Dog := type {};
 impl Animal(Dog), {
-  speak: (fn(self)-> {
+  speak: ((self) -> {
     println("woof");
   })
 };
@@ -2376,7 +2376,7 @@ defn Option(T: Type): Type,
 // Export the interface.
 defn Id(Self: Type): Interface,
   interface {
-    id: ((self: Self)-> Self);
+    id: (fn(self: Self)-> Self);
   };
 
 // Explicitly export the functions defined in the instance.
@@ -2424,7 +2424,7 @@ Test := import("./test.yo"); // Import everything from test.yo and put it in the
 ```rust
 defn Shape(Self: Type): Interface,
   interface {
-    area: ((self: &(Self))-> f32)
+    area: (fn(self: &(Self))-> f32)
   };
 
 Circle = type .Circle {
@@ -2432,7 +2432,7 @@ Circle = type .Circle {
 };
 impl Shape(Circle), {
   area:
-    (fn(self)->
+    ((self) ->
       3.14 * self.radius * self.radius
     )
 };
@@ -2442,7 +2442,7 @@ Square := type .Square {
 };
 impl Shape(Square), {
   area:
-    (fn(self) ->
+    ((self) ->
       self.side * self.side
     )
 };
@@ -2500,7 +2500,7 @@ MyShape := type (|
 // IDEA: The trait could be automatically implemented.
 // IDEA: So when we see the definition of `MyShape` above, we could say its `.value` already implemented the `Shape` trait. So it's legit to call `my_shape.value.area()` on it.
 impl Shape(MyShape), {
-  area: (fn(self)-> {
+  area: ((self) -> {
     match self,
       .MyCircle(value) -> value.area(),
       .MySquare(value) -> value.area(),

@@ -3,6 +3,7 @@ import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
+  Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
@@ -98,16 +99,14 @@ export function evaluateAnonymousFunctionImplementation({
   const functionDeclarationExpr = expr.args[0]!;
   const functionBodyExpr = expr.args[1]!;
 
+  let parameterExprs: Expr[] = [];
   if (
-    !exprIsFunctionCall(functionDeclarationExpr) ||
-    !exprIsFunctionCallOf(functionDeclarationExpr, BuiltinKeywords.fn)
+    exprIsFunctionCall(functionDeclarationExpr) &&
+    exprIsFunctionCallOf(functionDeclarationExpr, BuiltinKeywords.tuple)
   ) {
-    throw formatErrorMessage({
-      token: functionDeclarationExpr.token,
-      errorMessage: `Expected "fn" for anonymous function, got:\n${exprToString(
-        functionDeclarationExpr
-      )}`,
-    });
+    parameterExprs = functionDeclarationExpr.args;
+  } else {
+    parameterExprs = [functionDeclarationExpr];
   }
 
   // NOTE: We disallow to define function signature for anonymous function anymore.
@@ -119,7 +118,7 @@ export function evaluateAnonymousFunctionImplementation({
     parameters,
     implicitParameters,
   } = evaluateFunctionParameters({
-    parameterExprs: functionDeclarationExpr.args,
+    parameterExprs: parameterExprs,
     expectedFunctionType: functionType,
     env,
     context: {

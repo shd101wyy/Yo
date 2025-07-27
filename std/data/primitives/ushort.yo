@@ -9,34 +9,34 @@ open import "../../builtins.yo";
  * arithmetic
  */
 given(UShortAdd) :: Add(ushort, ushort)
-  (+): (fn(a, b)-> __yo_op_add(a, b))
+  (+): ((a, b) -> __yo_op_add(a, b))
 ;
 
 given(UShortSub) :: Sub(ushort, ushort)
-  (-): (fn(a, b)-> __yo_op_sub(a, b))
+  (-): ((a, b) -> __yo_op_sub(a, b))
 ;
 
 given(UShortMul) :: Mul(ushort, ushort)
-  (*): (fn(a, b)-> __yo_op_mul(a, b))
+  (*): ((a, b) -> __yo_op_mul(a, b))
 ;
 
 given(UShortDiv) :: Div(ushort, ushort)
-  (/): (fn(a, b)-> __yo_op_div(a, b))
+  (/): ((a, b) -> __yo_op_div(a, b))
 ;
 
 given(UShortMod) :: Mod(ushort, ushort)
-  (%): (fn(a, b)-> __yo_op_mod(a, b))
+  (%): ((a, b) -> __yo_op_mod(a, b))
 ;
 
 given(UShortNegate) :: Negate(ushort)
-  (neg): (fn(a)-> __yo_op_neg(a))
+  (neg): ((a) -> __yo_op_neg(a))
 ;
 
 /**
  * logic
  */
 given(UShortLogicalNot) :: LogicalNot(ushort)
-  (!): (fn(a)-> __yo_op_not(a))
+  (!): ((a) -> __yo_op_not(a))
 ;
 
 
@@ -44,28 +44,28 @@ given(UShortLogicalNot) :: LogicalNot(ushort)
  * eq
  */
 given(UShortEq) :: Eq(ushort, ushort)
-  (==) : (fn(a, b)-> __yo_op_eq(a, b))
+  (==) : ((a, b) -> __yo_op_eq(a, b))
 ;
 
 /**
  * ord
  */
 given(UShortOrd) :: Ord(ushort, ushort, using(UShortEq))
-  (<) : (fn(a, b)-> __yo_op_lt(a, b)),
-  (<=) : (fn(a, b)-> __yo_op_lte(a, b)),
-  (>) : (fn(a, b)-> __yo_op_gt(a, b)),
-  (>=) : (fn(a, b)-> __yo_op_gte(a, b))
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
 ;
 
 given(UShortDrop) :: Drop(ushort)
-  drop: (fn(self)->
+  drop: ((self) ->
     // No-op for ushort, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
 given(UShortClone) :: Clone(ushort)
-  clone: (fn(self)->
+  clone: ((self) ->
     // No-op for ushort, as it is a primitive type
     __yo_return_self(self.*)
   )
@@ -74,7 +74,7 @@ given(UShortClone) :: Clone(ushort)
 given(UShortMethods) :: module {
   Self :: ushort;
 
-  as :: ((self: Self, compt(Target) : Type) -> Target)
+  as :: (fn(self: Self, compt(Target) : Type) -> Target)
     __yo_ushort_as(self, Target)
   ;
 
