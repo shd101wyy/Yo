@@ -970,11 +970,12 @@ ${functionsWithMatchingTypes
       }
     }
 
-    // If closure call is linear (FnOnce), then we consume it
-    if (closureType.callType.closureKind === "FnOnce") {
+    // If closure itself is linear, then we consume it
+    // Note: FnOnce calling convention doesn't mean the closure is linear -
+    // it depends on the capture type. Only consume if the closure type is actually linear.
+    if (isLinearOrType0Type(typeOfType(closureType))) {
       env = setExprAsConsumed(func, env, context);
     }
-
     expr.$ = {
       env,
       type: returnType,

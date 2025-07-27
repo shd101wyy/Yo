@@ -2,7 +2,13 @@ import { Environment, popEnvFrame, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
-import { areTypesCompatible, ClosureType, typeToString } from "../../types";
+import {
+  areTypesCompatible,
+  ClosureType,
+  createClosureType,
+  isSomeType,
+  typeToString,
+} from "../../types";
 import { randomId } from "../../utils";
 import { createClosureValue } from "../../value";
 import { ValueTag } from "../../value-tag";
@@ -139,16 +145,27 @@ export function tryToImplementClosureByClosureType({
   }
 
   // Create the proper capture value based on captured variables using helper function
-  const { captureValue } = createCaptureTypeAndValue({
-    expectedCaptureType: closureType.captureType,
-    capturedVariablesWithValues,
-    env: finalCallerEnv,
-    closureToken: expr.token,
-  });
+  const { captureType: inferredCaptureType, captureValue } =
+    createCaptureTypeAndValue({
+      expectedCaptureType: closureType.captureType,
+      capturedVariablesWithValues,
+      env: finalCallerEnv,
+      closureToken: expr.token,
+    });
+
+  // Update closure type with the inferred capture type if it was inferred
+  const finalClosureType =
+    isSomeType(closureType.captureType) && !isSomeType(inferredCaptureType)
+      ? createClosureType(
+          closureType.callType,
+          inferredCaptureType,
+          finalCallerEnv
+        )
+      : closureType;
 
   // Create the closure value
   const closureValue = createClosureValue(
-    closureType, // Keep the original closure type
+    finalClosureType, // Use the updated closure type with inferred capture type
     captureValue,
     functionValue
   );
@@ -157,7 +174,7 @@ export function tryToImplementClosureByClosureType({
   expr.$ = {
     env: finalCallerEnv,
     value: closureValue,
-    type: closureType,
+    type: finalClosureType, // Use the updated closure type
     isMutable: false,
     pathCollection:
       capturedVariables && capturedVariables.size > 0

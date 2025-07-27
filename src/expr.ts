@@ -1083,7 +1083,6 @@ export function requireExprNotConsumed(expr: Expr, env: Environment): void {
     isLinearOrType0Type(typeOfType(variableToConsume.type)) &&
     variableToConsume.consumedAtToken
   ) {
-    console.log(typeToString(typeOfType(variableToConsume.type)));
     const errorMessage = `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`;
     throw formatErrorMessages([
       {
