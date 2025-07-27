@@ -1,26 +1,17 @@
 open import "std";
 
-args :: expr_list(quote(x), quote(y));
-rest :: quote begin(println("after parse"), return(x + y), ());
-expanded :: quote((unquote_splicing(args),) -> unquote(rest));
-expected :: quote((x, y) -> begin(println("after parse"), return(x + y), ()));
+main :: (fn() -> unit) {
+  mut(x) := 12;
+  closure := ((fn(y : i32) => i32) {
+    x = (x + y);
+    x
+  });
+  // It's the same as 
+  // closure := Closure(FnOnce(y : i32) -> i32, _) {
+  //   x = (x + y);
+  //   x
+  // };
 
-
-compt_print(expanded);
-compt_print(expected);
-compt_assert(expanded == expected);
-
-expanded1 :: macro_expand quote
-  do {
-    x := 1;
-    with response <= fetch("https://api.example.com");
-    println("after fetch");
-    println(response);
-    with (json,) <<= response.json();
-    println("after json");
-    println(json);
-    with (x, y) <- json.parse();
-    println("after parse");
-    return x + y;
-  }
-;
+  closure(3);
+  closure(4);
+};

@@ -824,6 +824,15 @@ export function evaluateFunctionParameters({
   };
 }
 
+/**
+ * Evaluate the function type:
+ *
+ * - fn(x : i32) -> i32;     // regular function type.
+ * - fn(x : i32) => i32;     // FnOnce with `CaptureType` as SomeType.
+ * - FnOnce(x : i32) -> i32; // FnOnce. Same as above.
+ * - FnMut(x : i32) -> i32;  // FnMut.
+ * - Fn(x : i32) -> i32;     // Fn.
+ */
 export function evaluateFunctionType({
   expr,
   env,

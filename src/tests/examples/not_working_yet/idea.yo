@@ -13,14 +13,14 @@ add :: (fn(compt(x) : i32, compt(y) : i32) ->
 // Use RC by default? Use type system to help with the cycle detection.
 
 // value/reference struct/enum/union.
-Point :: value struct(x : i32, y : i32); // value struct, which is a value type.
+Point :: struct(x : i32, y : i32); // value struct, which is a value type.
 p := Point(3, 4); // p : Point
 p2 := p; // copy p to p2 using value semantics.
 p.x = 6;
 // p == Point(6, 4);
 // p2 == Point(3, 4); // p2 is a copy of p, not an alias.
 
-Point :: struct(x : i32, y : i32); // reference struct, which is a reference type.
+Point :: struct(x : i32, y : i32); // reference struct, which is a reference type and will be GCed.
 p := Point(3, 4); // p : Point;
 p2 := p; // p2 is an alias of p. Reference counter incremented.
 p3 := p.clone(); // p3 is a new value, but p and p3 are the same type.

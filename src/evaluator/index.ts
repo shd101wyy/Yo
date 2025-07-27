@@ -303,6 +303,76 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
           context: { ...context },
         });
       } else if (exprIsFunctionCallOf(expr, "=>", 2)) {
+        // Closure type
+        // fn(x : i32) => i32;
+        if (
+          exprIsFunctionCall(expr.args[0]) &&
+          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn)
+        ) {
+          // Convert it to `Closure(FnOnce(x : i32) -> i32, _)`
+          const newExpr: FuncCallExpr = {
+            tag: ExprTag.FuncCall,
+            func: {
+              tag: ExprTag.Atom,
+              token: {
+                ...expr.token,
+                type: TokenType.Identifier,
+                value: BuiltinKeywords.Closure[0]!,
+              },
+            },
+            args: [
+              {
+                tag: ExprTag.FuncCall,
+                func: {
+                  tag: ExprTag.Atom,
+                  token: {
+                    ...expr.token,
+                    type: TokenType.Operator,
+                    value: "->",
+                  },
+                },
+                token: {
+                  ...expr.token,
+                  type: TokenType.Operator,
+                  value: "->",
+                },
+                args: [
+                  {
+                    tag: ExprTag.FuncCall,
+                    func: {
+                      tag: ExprTag.Atom,
+                      token: {
+                        ...expr.args[0]!.token,
+                        type: TokenType.Identifier,
+                        value: BuiltinKeywords.FnOnce[0]!,
+                      },
+                    },
+                    args: expr.args[0]!.args, // Function parameters
+                    token: expr.args[0]!.token,
+                  },
+                  expr.args[1]!, // Return type
+                ],
+                isInfix: true,
+              },
+              {
+                tag: ExprTag.Atom,
+                token: {
+                  ...expr.token,
+                  type: TokenType.Identifier,
+                  value: "_",
+                },
+              }, // Capture type is underscore
+            ],
+            token: expr.token,
+          };
+
+          return evaluateClosureType({
+            expr: newExpr,
+            env,
+            context: { ...context },
+          });
+        }
+
         // FnOnce closue
         // (x) => x;
         return evaluateAnonymousFunctionImplementation({
