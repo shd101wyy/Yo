@@ -12,27 +12,27 @@ add :: ((compt(x) : i32, compt(y) : i32) ->
 // Remove RAII
 // Use RC by default? Use type system to help with the cycle detection.
 
-// unique/gc struct/enum/union.
-// Use ^ to represent an unique value, which requires to be the single owner.
-Point :: unique struct(x : i32, y : i32);
-p := Point(3, 4); // p : ^(Point)
-
-Point :: struct(x : i32, y : i32); // If it's not unique, then it's a shared (gc) value.
-                                   // Non-unique value behaves like Linear type, with move semantics.
-p := Point(3, 4); // p : Point;
-p_owned := p.to_unique(); // p_owned : ^(Point). p is consumed
-// ^ symbol only works for gc values.
-
-p2 := &(p).dup(); // duplicate p. p2 and p are both the same value.
-p3 := &(p).clone() ; // clone p. p3 is a new value, but p and p3 are the same type.
-
-// Or we remove the Linear/Free type completely.
-// So we have
+// value/reference struct/enum/union.
+Point :: value struct(x : i32, y : i32); // value struct, which is a value type.
 p := Point(3, 4); // p : Point
+p2 := p; // copy p to p2 using value semantics.
+p.x = 6;
+// p == Point(6, 4);
+// p2 == Point(3, 4); // p2 is a copy of p, not an alias.
+
+Point :: struct(x : i32, y : i32); // reference struct, which is a reference type.
+p := Point(3, 4); // p : Point;
 p2 := p; // p2 is an alias of p. Reference counter incremented.
 p3 := p.clone(); // p3 is a new value, but p and p3 are the same type.
-// & can only apply to type, not value. And we still use second class reference.
-sum(p); // sum : (p : &(Point)) -> i32; // here we won't increment the reference counter. p still behaves as the second class reference.
+
+p.x = 6;
+// p == Point(6, 4);
+// p2 == Point(6, 4); // p2 is an alias of p
+
+// introduce the `dup` function, which only works on reference types.
+
+// Let's keep pointer type, but remove reference type.
+// Use &(x), &!(x) to create immutable and mutable pointers.
 
 // With GC root.
 // If the type might form cycle, then we add it to the GC root and reference counting it.
@@ -55,7 +55,7 @@ So now we can only only one type of closure.
 // Algebraic Effects
 /// With `resume`.
 Yield ::
-  ctl( i : i32) -> boolean
+  ctl( i : i32) -> boolean // pretty much a syntax sugar for fn(forall(compt(Abort): Type) i : i32, resume : (fn() => boolean)) -> Abort;
 ;
 traverse :: (fn(xs : List(int), using(yield: Yield)) -> unit)
   match(xs,
