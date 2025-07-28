@@ -1,4 +1,4 @@
-import { Environment, Frame } from "../env";
+import { addVariableToFrame, Environment, Frame } from "../env";
 import { Expr, ExprTag } from "../expr";
 import { PlaceholderToken } from "../token";
 import { hashString, randomId } from "../utils";
@@ -566,4 +566,131 @@ export function createClosureType(
     captureType,
     env,
   };
+}
+
+export function createEffectHandlerType(
+  /**
+   * The type of the effect function that this handler is defined for.
+   */
+  effectFunctionType: FunctionType & { isEffect: true },
+  /**
+   * The type of the parent function inside which this effect handler is defined.
+   */
+  parentFunctionType: FunctionType,
+  /**
+   * The environment when this effect handler is created.
+   */
+  env: Environment
+): FunctionType {
+  /**
+   * `resume` is a Closure FnOnce function that:
+   * - takes the return type of the effectFunctionType as its parameter.
+   * - returns the return type of the parentFunctionType.
+   */
+
+  /**
+   * the handlerType is a fucntion type that:
+   * - takes all the parameters of the effectFunctionType as its parameters.
+   * - takes the `resume` function as its last parameter.
+   * - returns the return type of the parentFunctionType.
+   */
+
+  // Create a function type for resume: fn(effect_return_type) -> parent_return_type
+  const resumeValueParameter: FunctionParameter = {
+    label: "value",
+    type: effectFunctionType.return.type,
+    isMutable: false,
+    isCompileTimeOnly: false,
+    isQuote: false,
+    exprs: {
+      expr: {
+        tag: ExprTag.Atom,
+        token: PlaceholderToken,
+      } as Expr,
+    },
+  };
+
+  // Create the frame for resume function with its parameter
+  let resumeFrame: Frame = { variables: [] };
+  resumeFrame = addVariableToFrame({
+    frame: resumeFrame,
+    variable: {
+      id: `resume_value_${randomId()}`,
+      name: resumeValueParameter.label,
+      type: resumeValueParameter.type,
+      value: undefined,
+      isMutable: resumeValueParameter.isMutable,
+      isCompileTimeOnly: resumeValueParameter.isCompileTimeOnly,
+      isImplicit: false,
+      initializedAtToken: undefined,
+      consumedAtToken: undefined,
+      frameLevel: 0,
+      token: PlaceholderToken,
+    },
+  });
+
+  const resumeFunctionType = createFunctionType({
+    parameters: [resumeValueParameter],
+    forallParameters: [],
+    implicitParameters: [],
+    variadicParameter: undefined,
+    return_: parentFunctionType.return,
+    env,
+    parametersFrame: resumeFrame,
+    closureKind: "FnOnce",
+    isEffect: false,
+  });
+
+  const resumeType = createClosureType(
+    resumeFunctionType,
+    createSomeType(createFreeType(), `Resume_${randomId()}`),
+    env
+  );
+
+  const resumeParameter: FunctionParameter = {
+    label: "resume",
+    type: resumeType,
+    isMutable: false,
+    isCompileTimeOnly: false,
+    isQuote: false,
+    exprs: {
+      expr: {
+        tag: ExprTag.Atom,
+        token: PlaceholderToken,
+      } as Expr,
+    },
+  };
+
+  const handlerType = createFunctionType({
+    parameters: [...effectFunctionType.parameters, resumeParameter],
+    forallParameters: effectFunctionType.forallParameters,
+    implicitParameters: effectFunctionType.implicitParameters,
+    variadicParameter: effectFunctionType.variadicParameter,
+    return_: parentFunctionType.return,
+    env,
+    parametersFrame: addVariableToFrame({
+      frame: effectFunctionType.parametersFrame,
+      variable: {
+        id: `handler_resume_${randomId()}`,
+        name: resumeParameter.label,
+        type: resumeParameter.type,
+        value: undefined,
+        isMutable: resumeParameter.isMutable,
+        isCompileTimeOnly: resumeParameter.isCompileTimeOnly,
+        isImplicit: false,
+        initializedAtToken: resumeParameter.exprs.expr.token,
+        consumedAtToken: undefined,
+        frameLevel: 0,
+        token: PlaceholderToken,
+      },
+    }),
+    SelfType: effectFunctionType.SelfType,
+    ModuleType: effectFunctionType.ModuleType,
+    closureKind: undefined,
+    isEffect: false,
+  });
+
+  handlerType.isHandlerForEffectFunction = effectFunctionType;
+
+  return handlerType;
 }

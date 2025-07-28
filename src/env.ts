@@ -192,7 +192,6 @@ export function addVariableToEnv({
     : (variableId ?? generateVarialeId(env.modulePath, variable.name));
   const newVariable: Variable = { ...variable, frameLevel, id };
   const newFrame = addVariableToFrame({
-    env,
     frame,
     variable: newVariable,
     allowDuplicate,
@@ -216,7 +215,6 @@ export function addVariableToFrame({
   variable,
   allowDuplicate,
 }: {
-  env: Environment;
   frame: Frame;
   variable: Variable;
   allowDuplicate?: boolean;

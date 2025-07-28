@@ -150,6 +150,27 @@ ${exprToString(rhs)}`,
     });
   }
 
+  /*
+  // Check if it's effect handler
+  if (isEffectFunctionType(userDefinedType)) {
+    // convert it to a handler function
+    if (!context.isEvaluatingFunctionBody) {
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Unexpected effect handler binding outside of a function body.`,
+      });
+    }
+    const effectFunctionType = userDefinedType;
+    const parentFunctionType = context.isEvaluatingFunctionBody.type;
+    userDefinedType = createEffectHandlerType(
+      effectFunctionType,
+      parentFunctionType,
+      env
+    );
+    console.log("effect handler type", typeToString(userDefinedType));
+  }
+  */
+
   const variableName = lhs.token.value;
   // Add the variable to the env
   // console.log("(5) addVariableToEnv");

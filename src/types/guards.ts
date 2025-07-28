@@ -166,7 +166,9 @@ export function isClosureFunctionType(type?: Type): type is FunctionType {
     (type as FunctionType).closureKind !== undefined
   );
 }
-export function isEffectFunctionType(type?: Type): type is FunctionType {
+export function isEffectFunctionType(
+  type?: Type
+): type is FunctionType & { isEffect: true } {
   return type?.tag === TypeTag.Function && (type as FunctionType).isEffect;
 }
 

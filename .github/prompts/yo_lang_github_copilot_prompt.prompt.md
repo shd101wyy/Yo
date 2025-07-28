@@ -13,3 +13,7 @@ You can ignore the editor erros for the `.yo` files, because the vscode extensio
 { expr } create a struct value. So if there is only one expression, don't use {...}. Use the expr directly.
 
 When I ask you to refactor the code. Refactor everything. Don't make assumptions. Don't miss any lines. Don't put placeholders or TODOs.
+
+Ignore the DESIGN.md and other markdown files because they are out of date.  
+
+No need to read fixme.test.ts

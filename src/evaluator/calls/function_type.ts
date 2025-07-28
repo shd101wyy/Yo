@@ -7,7 +7,13 @@ import {
 import { formatErrorMessage } from "../../error";
 import { Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
-import { areTypesCompatible, FunctionType, typeToString } from "../../types";
+import {
+  areTypesCompatible,
+  createEffectHandlerType,
+  FunctionType,
+  isEffectFunctionType,
+  typeToString,
+} from "../../types";
 import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
@@ -32,6 +38,24 @@ export function tryToImplementFunctionByFunctionType({
   callerEnv: Environment;
   context: EvaluatorContext;
 }): Expr {
+  // Check if it's effect handler
+  if (isEffectFunctionType(functionType)) {
+    // convert it to a handler function
+    if (!context.isEvaluatingFunctionBody) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Effect handler can only be defined inside a function body.`,
+      });
+    }
+    const effectFunctionType = functionType;
+    const parentFunctionType = context.isEvaluatingFunctionBody.type;
+    functionType = createEffectHandlerType(
+      effectFunctionType,
+      parentFunctionType,
+      callerEnv
+    );
+  }
+
   const functionTypeExpr = expr.func;
   const argExprs = expr.args;
   if (argExprs.length !== 1) {

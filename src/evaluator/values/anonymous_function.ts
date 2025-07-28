@@ -17,8 +17,10 @@ import {
   areTypesCompatible,
   ClosureType,
   createClosureType,
+  createEffectHandlerType,
   FunctionType,
   isClosureType,
+  isEffectFunctionType,
   isFunctionType,
   Type,
   typeToString,
@@ -69,6 +71,24 @@ export function evaluateAnonymousFunctionImplementation({
       token: expr.token,
       errorMessage: `Expected a function type or closure type, got:\n${typeToString(expectedType)}`,
     });
+  }
+
+  // Check if it's effect handler
+  if (isEffectFunctionType(functionType)) {
+    // convert it to a handler function
+    if (!context.isEvaluatingFunctionBody) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Effect handler can only be defined inside a function body.`,
+      });
+    }
+    const effectFunctionType = functionType;
+    const parentFunctionType = context.isEvaluatingFunctionBody.type;
+    functionType = createEffectHandlerType(
+      effectFunctionType,
+      parentFunctionType,
+      env
+    );
   }
 
   // Determine the expected operator based on the closure kind
