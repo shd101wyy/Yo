@@ -427,7 +427,7 @@ IdI32 :: Id(i32)
 ;
 
 MakeStringer ::
-  (forall(compt(T): Type, compt(Y): Type),
+  (forall(T: Type, compt(Y): Type),
    using(compt(Stringer(T), compt(Stringer(U))))) ->
   Stringer((T, Y)) {
   return Stringer((T, Y))
@@ -470,7 +470,7 @@ id(i32, 12); // 12
 id(boolean, 12); // true
 // e.g. with `forall`:
 id ::
-  (forall(compt(T): Type), x: T)-> T {
+  (forall(T: Type), x: T)-> T {
   return x;
 }
 
@@ -571,7 +571,7 @@ borrow &!(x), x_ref => {
 
 // Iterator
 to_iter_mut ::
-  (fn(forall(compt(T): Type, compt(length): usize) arr: &!(Array(T, length)))-> Iter)
+  (fn(forall(T: Type, length: usize) arr: &!(Array(T, length)))-> Iter)
   return Iter
     data: arr, // allow to assign reference in this case because it's the last expression
     index: 0

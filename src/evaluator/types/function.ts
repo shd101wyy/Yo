@@ -56,15 +56,17 @@ export function evaluateFunctionParameter({
   expectedParameter,
   env,
   context,
+  isEvaluatingForallParameter,
 }: {
   expr: Expr;
   expectedParameter?: FunctionParameter;
   env: Environment;
   context: EvaluatorContext;
+  isEvaluatingForallParameter: boolean;
 }): { parameter: FunctionParameter; env: Environment } {
   let label: string | undefined = undefined;
   let isMutable: boolean = false;
-  let isCompileTimeOnly: boolean = false;
+  let isCompileTimeOnly: boolean = isEvaluatingForallParameter;
   let isQuote: boolean = false;
 
   let lhsExpr: Expr | undefined = undefined;
@@ -136,6 +138,13 @@ export function evaluateFunctionParameter({
       exprIsFunctionCall(lhsExpr) &&
       exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.compt)
     ) {
+      if (isEvaluatingForallParameter) {
+        throw formatErrorMessage({
+          token: lhsExpr.token,
+          errorMessage: `forall parameter is "compt" by default. Not needed to use "compt" modifier.`,
+        });
+      }
+
       isCompileTimeOnly = true;
       if (lhsExpr.args.length !== 1) {
         throw formatErrorMessage({
@@ -502,6 +511,7 @@ export function evaluateFunctionParameters({
           context: {
             ...context,
           },
+          isEvaluatingForallParameter: true,
         });
 
         // Check if there is duplicate labels
@@ -512,16 +522,6 @@ export function evaluateFunctionParameters({
           throw formatErrorMessage({
             token: typeParameterExpr.token,
             errorMessage: `Duplicate label "${parameter.label}" in type parameter`,
-          });
-        }
-
-        // Require parameter to be compile-time only
-        if (!parameter.isCompileTimeOnly) {
-          throw formatErrorMessage({
-            token: parameter.exprs.labelExpr?.token ?? typeParameterExpr.token,
-            errorMessage: `Expected type parameter to be compile-time only, got ${exprToString(
-              typeParameterExpr
-            )}`,
           });
         }
 
@@ -567,6 +567,7 @@ export function evaluateFunctionParameters({
           context: {
             ...context,
           },
+          isEvaluatingForallParameter: false,
         });
 
         // Implicit parameter cannot have default value
@@ -759,6 +760,7 @@ export function evaluateFunctionParameters({
         context: {
           ...context,
         },
+        isEvaluatingForallParameter: false,
       });
 
       // Check if there is duplicate labels

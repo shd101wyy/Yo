@@ -1079,7 +1079,7 @@ add_va_c :: ((...(args) : VarList) -> c_int) {
 };
 
 // Yo variadic function
-add_va_yo :: (fn(forall(compt(count): usize), ...(args) : Array(c_int, count)) -> c_int) {
+add_va_yo :: (fn(forall(count: usize), ...(args) : Array(c_int, count)) -> c_int) {
   mut(result) := 0;
   mut(i) := 0;
   while i < count, i = (i + 1), {

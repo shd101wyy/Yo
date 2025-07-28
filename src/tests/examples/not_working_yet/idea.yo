@@ -55,7 +55,7 @@ p.x = 6;
 // Algebraic Effects
 /// With `resume`.
 Yield ::
-  ctl( i : i32) -> boolean // pretty much a syntax sugar for fn(forall(compt(Abort): Type) i : i32, resume : (fn() => boolean)) -> Abort;
+  ctl( i : i32) -> boolean // pretty much a syntax sugar for fn(forall(Abort: Type) i : i32, resume : (fn() => boolean)) -> Abort;
 ;
 traverse :: (fn(xs : List(int), using(yield: Yield)) -> unit)
   match(xs,
@@ -78,7 +78,7 @@ print_elems :: (fn() -> unit) {
 
 /// Abort
 Raise ::
-  ctl(forall(compt(T) : Type), msg : String) -> T
+  ctl(forall(T : Type), msg : String) -> T
 ;
 
 safe_divide :: (fn(x : i32, y : i32, using(raise: Raise)) -> i32)
@@ -95,7 +95,7 @@ raise_const :: (fn() -> i32) {
 
 /// Polymorphic effects
 map : 
-  fn(forall(compt(a) : Type, 
+  fn(forall(a : Type, 
             ...(e)),
     xs : List(a),
     f : (fn(x : a, using(...(e))) -> b),
@@ -137,7 +137,7 @@ print_elems :: (fn() -> K(i32)) {
 
 /// Abort
 Raise ::
-  fn(forall(compt(T) : Type), msg : String) -> K(T)
+  fn(forall(T : Type), msg : String) -> K(T)
 ;
 
 safe_divide :: (fn(x : i32, y : i32, using(raise: Raise)) -> K(i32))

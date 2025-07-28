@@ -216,7 +216,7 @@ export function checkIfFunctionParameterMatchesArgument({
     // Evaluate the parameter type again.
     // This is for anonymous function type that contains type parameter
     // for example:
-    //    (forall(compt(T): Type), x: T, callback: ((v: T)-> T))-> T
+    //    (forall(T: Type), x: T, callback: ((v: T)-> T))-> T
     // and we call it:
     //    generic_fn(1, fn(x)-> add(x, 1));
     // We can infer `T` is `i32`,

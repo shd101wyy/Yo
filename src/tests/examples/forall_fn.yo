@@ -11,7 +11,7 @@ x := id_fun(i32, 12);
 x2 := id_fun(boolean, true);
 
 id_func :: 
-  (fn(forall(compt(T): Free),
+  (fn(forall(T: Free),
     x : T)-> T) {
   (xx : T) = x; // Use `T` inside the function body
   xxx := x;
@@ -30,7 +30,7 @@ x7 := id_func(forall(_), 12);
 
 // Anonymous function
 anonymous_func :
-  fn(forall(compt(T): Type),
+  fn(forall(T: Type),
     x: T)-> T;
 anonymous_func =
   (a)-> a;
@@ -40,7 +40,7 @@ x9 := anonymous_func(true);
 
 // tuple
 tuple_func ::
-  (fn(forall(compt(T): Type, compt(Y): Type),
+  (fn(forall(T: Type, Y: Type),
     x: Tuple(T, Y), a: T, b: Y)-> Tuple(T, Y)) {
   drop(x);
   (a, b)
@@ -55,7 +55,7 @@ Container ::
 ;
 
 use_container ::
-  (fn(forall(compt(X): Type), 
+  (fn(forall(X: Type), 
     c: Container(X), x: X)-> X) {
   drop(c);
   x
@@ -68,7 +68,7 @@ x13 := use_container(Container(boolean)(true), false);
 
 // Parameter contains function type
 generic_fn ::
-  (fn(forall(compt(T): Type), x: T, callback: (fn(v: T)-> T))-> T)
+  (fn(forall(T: Type), x: T, callback: (fn(v: T)-> T))-> T)
   callback(x)
 ;
 

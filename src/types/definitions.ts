@@ -430,7 +430,7 @@ export interface FunctionType extends Type {
   /**
    * The type parameters, usually defined in forall(...):
    * eg:
-   *   (forall(compt(T): Type), x: T)-> T;
+   *   (forall(T: Type), x: T)-> T;
    */
   forallParameters: FunctionParameter[];
 

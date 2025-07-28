@@ -1,6 +1,6 @@
 ```rust,f#
 swap :: 
-  (fn(forall(compt(R1) : Region, compt(R2) : Region),
+  (fn(forall(R1 : Region, compt(R2) : Region),
     a : &!(i32, using(R1)),
     b : &!(i32, using(R2))
   ) -> unit) 
@@ -12,7 +12,7 @@ swap ::
 
 // pre/post conditions
 swap2 ::
-  (fn(forall(compt(R1) : Region, compt(R2) : Region),
+  (fn(forall(R1 : Region, compt(R2) : Region),
     a : &!(i32, using(R1)),
     b : &!(i32, using(R2))
   ) -> (unit `with` {
