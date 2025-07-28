@@ -23,9 +23,18 @@ main :: (fn() -> unit) {
     (i, resume) -> {
       printf("yielded %d\n", i);
       resume(i <= 2);  // resume has type fn( boolean )=> unit
-                       // `unit` comes from the return type of `main`. 
+                       // `unit` comes from the return type of `main`.
+
+      // The `resume` is one-shot delimited continuation.
+      // So it can only be called once.
+      compt_expect_error(resume(true));
     }
   ;
   flag := yield(0);
+
+  test :: (fn() -> unit) {
+    compt_expect_error(yield(3)); // Calling `yield` here should not be allowed.
+  };
+
   example(using(yield));
 };

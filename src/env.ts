@@ -2,6 +2,7 @@ import { formatErrorMessages } from "./error";
 import { Token } from "./token";
 import {
   areTypesCompatible,
+  isEffectFunctionType,
   isEnumType,
   isFunctionType,
   isLinearOrType0Type,
@@ -645,9 +646,19 @@ export function keepTopLevelFrameAndComptimeVariablesFromEnv(
       return frame; // Keep the first frame as is
     }
 
-    const newVariables = frame.variables.filter(
-      (variable) => variable.isCompileTimeOnly
-    );
+    const newVariables = frame.variables.filter((variable) => {
+      if (!variable.isCompileTimeOnly) {
+        return false;
+      } else {
+        // Check if it's an `eff` function
+        // If yes, then return false
+        if (isEffectFunctionType(variable.type)) {
+          return false;
+        }
+
+        return true;
+      }
+    });
     return { ...frame, variables: newVariables };
   });
 
