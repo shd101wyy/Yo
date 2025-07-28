@@ -92,3 +92,35 @@ raise_const :: (fn() -> i32) {
     (msg)-> 42; // Abort with 42, which matches the return type of `raise_const`.
   8 + safe_divide(1, 0, using(raise))
 };
+
+/// Polymorphic effects
+map : 
+  fn(forall(compt(a) : Type, 
+            ...(e)),
+    xs : List(a),
+    f : (fn(x : a, using(...(e))) -> b),
+    using(...(e))
+  ) -> List(b);
+
+// Use K to represent the continuation
+
+Yield ::
+  fn( i : i32, resume: K(boolean)) -> unit
+;
+traverse :: (fn(xs : List(int), using(yield: Yield)) -> unit)
+  match(xs,
+    .Cond => {
+      { x, xx } := xs;
+      if do yield(x), then: traverse(xx), else: ()
+    },
+    .Nil => ()
+  )
+;
+print_elems :: (fn() -> unit) {
+  (given(yield) : Yield) =
+    ( i, resume)-> {
+      println("yielded" ++ i.show());
+      resume(i <= 2);
+    };
+  traverse(List(1, 2, 3, 4), using(yield));
+};

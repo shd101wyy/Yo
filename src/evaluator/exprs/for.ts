@@ -361,7 +361,9 @@ export function evaluateFor({
         isCompileTimeOnly: isCompileTime, // Use isCompileTime flag for consistency
         isImplicit: false, // Not an implicit variable
         token: elementIndexExpr!.token,
-        value: isCompileTime ? createNumberValue(ValueTag.Usize, index) : undefined, // Set the value to the current index only if compile-time
+        value: isCompileTime
+          ? createNumberValue(ValueTag.Usize, index)
+          : undefined, // Set the value to the current index only if compile-time
       });
     }
 
