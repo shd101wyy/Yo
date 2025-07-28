@@ -593,7 +593,7 @@ function functionTypeToString(func: FunctionType): string {
     .filter((x) => !!x)
     .join(", ");
   const from = func.SelfType?.typeName ?? func.ModuleType?.typeName;
-  return `${from ? `(${from}) ` : ""}${func.closureKind ?? ""}(${paramsString}) -> ${returnString}`;
+  return `${from ? `(${from}) ` : ""}${(func.closureKind ?? func.isEffect) ? "eff" : "fn"}(${paramsString}) -> ${returnString}`;
 }
 
 /**

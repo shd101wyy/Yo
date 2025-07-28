@@ -227,9 +227,11 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, "->", 2)) {
         // Function type
         if (
-          // (fn(x) -> x)
+          // (fn(x : i32) -> i32)
+          // (eff(x : i32) -> i32)
           exprIsFunctionCall(expr.args[0]) &&
-          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn)
+          (exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn) ||
+            exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.eff))
         ) {
           return evaluateFunctionType({
             expr,

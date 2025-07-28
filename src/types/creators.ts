@@ -425,6 +425,7 @@ export function createFunctionType({
   SelfType,
   ModuleType,
   closureKind,
+  isEffect = false,
 }: {
   parameters: FunctionParameter[];
   forallParameters: FunctionParameter[];
@@ -436,6 +437,7 @@ export function createFunctionType({
   SelfType?: Type;
   ModuleType?: ModuleType;
   closureKind?: "Fn" | "FnMut" | "FnOnce";
+  isEffect?: boolean;
 }): FunctionType {
   return {
     id: `${closureKind ? "closure" : "fn"}_${randomId()}`,
@@ -450,6 +452,7 @@ export function createFunctionType({
     SelfType,
     ModuleType,
     closureKind,
+    isEffect,
   };
 }
 

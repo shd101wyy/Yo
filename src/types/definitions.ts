@@ -489,6 +489,11 @@ export interface FunctionType extends Type {
    * - "FnOnce": Move closure (can only be called once, moves captured values)
    */
   closureKind?: ClosureKind;
+
+  /**
+   * Whether this function type is an effectful function defined using `ctl` keyword.
+   */
+  isEffect: boolean;
 }
 
 export interface MutPtrType extends Type {

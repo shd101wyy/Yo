@@ -1,38 +1,30 @@
 open import "std";
+{ printf } :: import "std/libc/stdio";
 
-test1 :: (fn() -> unit) {
-  mut(x) := 12;
-  closure := ((fn(y : i32) => i32) {
-    x = (x + y);
-    x
-  });
-  /*
-  // It's the same as 
-  closure := Closure(FnOnce(y : i32) -> i32, _) {
-    x = (x + y);
-    x
-  };
-  */
-  closure(3);
-  closure(4);
+// Algebraic effects
+Yield ::
+  eff( i : i32 ) -> boolean;
+
+traverse ::
+  (fn(forall(compt(length): usize),
+      arr : Array(i32, length),
+      using(yield : Yield)
+      ) -> unit) {
+  mut(i) := 0.as(usize);
+  while i < length,
+    cond
+      yield(arr(i)) => {
+        i = (i + 1.as(usize));
+      },
+      true => ()
+  ;
 };
 
-(compt(LinearStruct) : Linear) = struct(val : i32);
-test2 :: (fn() -> unit) {
-  mut(x) := LinearStruct(1);
-  closure := ((fn(y : i32) => i32) {
-    x.val = (x.val + y);
-    x.val
-  });
-  /*
-  // It's the same as 
-  closure := Closure(FnOnce(y : i32) -> i32, _) {
-    x = (x + y);
-    x
-  };
-  */
-  closure(3);
-  compt_expect_error(
-    closure(4)
-  );
+print_elems :: (fn() -> unit) {
+  (given(yield) : Yield) =
+    (i)-> {
+      printf("yielded %d", i);
+      resume(i <= 2);
+    };
+  traverse(List(1, 2, 3, 4), using(yield));
 };

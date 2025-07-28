@@ -858,6 +858,7 @@ export function evaluateFunctionType({
 
   const argListExpr = expr.args[0]!;
   const returnExpr = expr.args[1]!;
+  let isEffect = false;
 
   // Handle different forms of parameter lists
   let argList: Expr[] = [];
@@ -876,9 +877,11 @@ export function evaluateFunctionType({
     }
   } else if (
     exprIsFunctionCall(argListExpr) &&
-    exprIsFunctionCallOf(argListExpr, BuiltinKeywords.fn)
+    (exprIsFunctionCallOf(argListExpr, BuiltinKeywords.fn) ||
+      exprIsFunctionCallOf(argListExpr, BuiltinKeywords.eff))
   ) {
     argList = argListExpr.args;
+    isEffect = exprIsFunctionCallOf(argListExpr, BuiltinKeywords.eff);
   } else {
     throw formatErrorMessage({
       token: argListExpr.token,
@@ -1120,6 +1123,7 @@ ${typeToString(returnType)}`,
     SelfType: context.SelfType,
     ModuleType: context.ModuleType,
     closureKind: closureKind, // Use the provided closure kind
+    isEffect,
   });
 
   // Pop the environment frame
