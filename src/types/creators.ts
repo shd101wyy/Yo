@@ -643,7 +643,10 @@ export function createEffectHandlerType(
 
   const resumeType = createClosureType(
     resumeFunctionType,
-    createSomeType(createFreeType(), `Resume_${randomId()}`),
+    createSomeType(
+      createTypeHierarchy(0), // QUESTION: Should we use Linear or Type here?
+      `Resume_${randomId()}`
+    ),
     env
   );
 
