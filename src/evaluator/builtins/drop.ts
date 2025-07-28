@@ -8,6 +8,7 @@ import {
   exprIsFunctionCall,
   exprToString,
   FuncCallExpr,
+  replaceFuncCallExpr,
   setExprAsConsumed,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
@@ -72,12 +73,7 @@ export function evaluateDrop({
 
     // Replace the original expr with the evaluated drop method call
     if (exprIsFunctionCall(evaluatedDropMethodCallExpr)) {
-      expr.$ = evaluatedDropMethodCallExpr.$;
-      expr.args = evaluatedDropMethodCallExpr.args;
-      expr.func = evaluatedDropMethodCallExpr.func;
-      expr.tag = evaluatedDropMethodCallExpr.tag;
-      expr.token = evaluatedDropMethodCallExpr.token;
-      expr.isInfix = evaluatedDropMethodCallExpr.isInfix;
+      replaceFuncCallExpr(expr, evaluatedDropMethodCallExpr);
       return expr;
     } else {
       // In theory we shouldn't enter here

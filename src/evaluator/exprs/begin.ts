@@ -20,6 +20,7 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
+  replaceFuncCallExpr,
   setExprAsConsumed,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
@@ -68,12 +69,7 @@ export function evaluateBeginExpression({
 
     // Replace everything from beginExpr to expr
     expr = expr as FuncCallExpr;
-    expr.$ = beginExpr.$;
-    expr.args = beginExpr.args;
-    expr.func = beginExpr.func;
-    expr.isInfix = beginExpr.isInfix;
-    expr.tag = beginExpr.tag;
-    expr.token = beginExpr.token;
+    replaceFuncCallExpr(expr, beginExpr);
   }
   const beginExpressions: Expr[] = expr.args;
   const expectedType = context.expectedType;

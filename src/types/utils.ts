@@ -40,6 +40,7 @@ import {
   isComptFloatType,
   isComptIntType,
   isComptStringType,
+  isEffectFunctionType,
   isEnumType,
   isExprListType,
   isExprType,
@@ -82,6 +83,7 @@ export function typeRequiresComptModifier(type?: Type): boolean {
   return (
     isTypeHierarchyType(type) ||
     isModuleType(type) ||
+    isEffectFunctionType(type) ||
     isComptIntType(type) ||
     isComptFloatType(type) ||
     isComptStringType(type) ||

@@ -5,26 +5,26 @@ open import "std";
 Yield ::
   eff( i : i32 ) -> boolean;
 
-traverse ::
-  (fn(forall(compt(length): usize),
-      arr : Array(i32, length),
-      using(yield : Yield)
-      ) -> unit) {
-  mut(i) := 0.as(usize);
-  while i < length,
-    cond
-      yield(arr(i)) => {
-        i = (i + 1.as(usize));
-      },
-      true => ()
-  ;
+example :: (fn(
+  using(
+    compt(yield) : Yield
+  )) -> unit) {
+  mut(produce) := true;
+  mut(n) := 0;
+  while produce, {
+    produce = yield(n);
+    n = (n + 1);
+  };
+  printf("done\n");
 };
 
-print_elems :: (fn() -> unit) {
-  (given(yield) : Yield) =
-    (i)-> {
-      printf("yielded %d", i);
-      resume(i <= 2);
-    };
-  traverse(List(1, 2, 3, 4), using(yield));
+main :: (fn() -> unit) {
+  (compt(given(yield)) : Yield) =
+    (i) -> {
+      printf("yielded %d\n", i);
+      resume(i <= 2);  // resume has type fn( boolean )=> unit
+                       // `unit` comes from the return type of `main`. 
+    }
+  ;
+  example(using(yield));
 };

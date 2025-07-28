@@ -17,7 +17,7 @@ import {
 } from "../../expr";
 import {
   FunctionType,
-  isFunctionClosureType,
+  isClosureFunctionType,
   isFunctionType,
   isMutRefType,
   isRefType,
@@ -124,7 +124,7 @@ export function evaluateBorrow({
       !isRefType(evaluatedBorrowedValueExpr.$.type) &&
       !isMutRefType(evaluatedBorrowedValueExpr.$.type) &&
       // Note: Closure types are treated as references, because closures can capture variables by reference
-      !isFunctionClosureType(evaluatedBorrowedValueExpr.$.type)
+      !isClosureFunctionType(evaluatedBorrowedValueExpr.$.type)
     ) {
       throw formatErrorMessage({
         token: borrowedValueExpr.token,

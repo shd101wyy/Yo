@@ -102,25 +102,55 @@ map :
     using(...(e))
   ) -> List(b);
 
+/*
 // Use K to represent the continuation
-
 Yield ::
-  fn( i : i32, resume: K(boolean)) -> unit
+  fn( i : i32 ) -> K(boolean);
 ;
-traverse :: (fn(xs : List(int), using(yield: Yield)) -> unit)
+// `do` can only be used in the function that return `K`.
+// `resume` is like a macro can only be used in the function that return `K`. It is a closure FnOnce.
+// a function returns `K` actually returns `unit`.
+traverse :: (fn(xs : List(int), using(yield: Yield)) -> K(unit))
   match(xs,
     .Cond => {
       { x, xx } := xs;
-      if do yield(x), then: traverse(xx), else: ()
+      if do yield(x), // yield actually captures the `args` and stores to a struct
+                      // then, when we `do`, we capture the rest control flow in closure.
+        then: resume(do traverse(xx)),
+        else: resume(())
     },
-    .Nil => ()
-  )
-;
-print_elems :: (fn() -> unit) {
+    .Nil => resume(())
+  );
+
+print_elems :: (fn() -> K(i32)) {
   (given(yield) : Yield) =
-    ( i, resume)-> {
+    (i)-> {
       println("yielded" ++ i.show());
       resume(i <= 2);
+      // resume has type (boolean) -> i32,
+      // where i32 matches the return type of `print_elems`.
+      // The return type of `resume` matches its parent function.
     };
-  traverse(List(1, 2, 3, 4), using(yield));
+  do traverse(List(1, 2, 3, 4), using(yield));
+  resume(0);
 };
+
+/// Abort
+Raise ::
+  fn(forall(compt(T) : Type), msg : String) -> K(T)
+;
+
+safe_divide :: (fn(x : i32, y : i32, using(raise: Raise)) -> K(i32))
+  if y == 0,
+    then: resume do raise("Division by zero"),
+    else: resume (x / y)
+;
+
+raise_const :: (fn() -> K(i32)) {
+  (given(raise) : Raise) =
+    (msg) -> 42; // Abort with 42, which matches the return type of `raise_const`.
+  8 + do safe_divide(1, 0, using(raise)) + 10
+};
+
+raise_const(); // => 42
+*/

@@ -70,6 +70,7 @@ ${exprToString(rhs)}`,
   // Evaluate the lhs expression
   let isCompileTimeOnly = false;
   let isMutable = false;
+  let isImplicit = false;
   if (
     exprIsFunctionCall(lhs) &&
     exprIsFunctionCallOf(lhs, BuiltinKeywords.compt)
@@ -96,6 +97,20 @@ ${exprToString(rhs)}`,
 
   if (
     exprIsFunctionCall(lhs) &&
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.given)
+  ) {
+    isImplicit = true;
+    if (lhs.args.length !== 1) {
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Expected one argument for "given", got ${lhs.args.length}`,
+      });
+    }
+    lhs = lhs.args[0]!;
+  }
+
+  if (
+    exprIsFunctionCall(lhs) &&
     exprIsFunctionCallOf(lhs, BuiltinKeywords.mut)
   ) {
     isMutable = true;
@@ -110,7 +125,7 @@ ${exprToString(rhs)}`,
   if (!isValidVariableName(lhs)) {
     throw formatErrorMessage({
       token: lhs.token,
-      errorMessage: `Invalid binding to ${lhs.token.value}, expected identifier or operator`,
+      errorMessage: `Invalid binding to "${lhs.token.value}", expected identifier or operator`,
     });
   }
 
@@ -145,7 +160,7 @@ ${exprToString(rhs)}`,
       type: userDefinedType,
       isMutable,
       isCompileTimeOnly,
-      isImplicit: false,
+      isImplicit,
       value: isCompileTimeOnly
         ? createUnknownValue(userDefinedType)
         : undefined,

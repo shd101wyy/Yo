@@ -1486,3 +1486,21 @@ export function mergeAndCheckEnvs(
 
   return env;
 }
+
+/**
+ * NOTE: This function is used to replace the function call expression
+ * It is intrusive and modifies the original expression.
+ * @param funcExpr
+ * @param newFuncExpr
+ */
+export function replaceFuncCallExpr(
+  funcExpr: FuncCallExpr,
+  newFuncExpr: FuncCallExpr
+) {
+  funcExpr.$ = newFuncExpr.$;
+  funcExpr.args = newFuncExpr.args;
+  funcExpr.func = newFuncExpr.func;
+  funcExpr.isInfix = newFuncExpr.isInfix;
+  funcExpr.tag = newFuncExpr.tag;
+  funcExpr.token = newFuncExpr.token;
+}

@@ -2327,9 +2327,9 @@ NOTE: Let's not use `Future` and `async` here in case we want to support Rust li
 QUESTION: We can support `K` type, but should we support `K` block?
 
 ```rust
-defn wait_for_seconds(sec: i32): K(()), {
-  K.new(fn(resume)=>> {
-    set_timeout(fn()=>> {
+defn wait_for_seconds(sec: i32): K(unit), {
+  K.new((resume)=>> {
+    set_timeout(()=>> {
       println(sec);
       resume();
     }, sec * 1000);
@@ -2755,3 +2755,5 @@ defn unless(quote(condition), quote(do)),
 - [Exceptions in C with longjmp and setjmp](https://web.archive.org/web/20091104065428/http://www.di.unipi.it/~nids/docs/longjump_try_trow_catch.html)
 - [Continuation Passing for C](https://www.irif.fr/~jch/cpc.pdf)
 - [Refinement Types for TypeScript](https://goto.ucsd.edu/~pvekris/docs/pldi16.pdf)
+- [Continuations and Delimited Control
+](https://okmij.org/ftp/continuations/)
