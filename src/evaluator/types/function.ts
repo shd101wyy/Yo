@@ -56,17 +56,17 @@ export function evaluateFunctionParameter({
   expectedParameter,
   env,
   context,
-  isEvaluatingForallParameter,
+  isParameterComptByDefault,
 }: {
   expr: Expr;
   expectedParameter?: FunctionParameter;
   env: Environment;
   context: EvaluatorContext;
-  isEvaluatingForallParameter: boolean;
+  isParameterComptByDefault: boolean;
 }): { parameter: FunctionParameter; env: Environment } {
   let label: string | undefined = undefined;
   let isMutable: boolean = false;
-  let isCompileTimeOnly: boolean = isEvaluatingForallParameter;
+  let isCompileTimeOnly: boolean = isParameterComptByDefault;
   let isQuote: boolean = false;
 
   let lhsExpr: Expr | undefined = undefined;
@@ -138,10 +138,10 @@ export function evaluateFunctionParameter({
       exprIsFunctionCall(lhsExpr) &&
       exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.compt)
     ) {
-      if (isEvaluatingForallParameter) {
+      if (isParameterComptByDefault) {
         throw formatErrorMessage({
           token: lhsExpr.token,
-          errorMessage: `forall parameter is "compt" by default. Not needed to use "compt" modifier.`,
+          errorMessage: `"forall"/"using" parameters are "compt" by default. Not needed to use "compt" modifier.`,
         });
       }
 
@@ -511,7 +511,7 @@ export function evaluateFunctionParameters({
           context: {
             ...context,
           },
-          isEvaluatingForallParameter: true,
+          isParameterComptByDefault: true,
         });
 
         // Check if there is duplicate labels
@@ -567,7 +567,7 @@ export function evaluateFunctionParameters({
           context: {
             ...context,
           },
-          isEvaluatingForallParameter: false,
+          isParameterComptByDefault: true,
         });
 
         // Implicit parameter cannot have default value
@@ -760,7 +760,7 @@ export function evaluateFunctionParameters({
         context: {
           ...context,
         },
-        isEvaluatingForallParameter: false,
+        isParameterComptByDefault: false,
       });
 
       // Check if there is duplicate labels
