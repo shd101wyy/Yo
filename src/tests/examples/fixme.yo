@@ -21,6 +21,13 @@ some_cond :: (fn() -> boolean) true;
       true => resume(i)
 ;
 
+Color :: enum Red, Green, Blue;
+
+extern "Yo",
+  yieldColor : (fn( color : Color, resume : K(Color)) -> unit)
+;
+
+/*
 main :: (fn( resume : K(i32)) -> unit) {
   result :=
     cond(
@@ -28,6 +35,34 @@ main :: (fn( resume : K(i32)) -> unit) {
       (do(yield(-4)) < 0) => do(yield(-2)),
       true => do(yield(2))
     );
+  printf("Result: %d\n", result);
+  resume(result);
+};
+*/
+
+/*
+main :: (fn(resume: K(i32)) -> unit) {
+  arr := [(do yield(1)), (do yield(2)), (do yield(3))];
+  mut(result) := 0;
+  mut(i) := 0.as(usize);
+  while (i < arr.length), {
+    result = (result + arr(i));
+    // result = (result + (do yield(i)));
+  };
+  result = (arr(0) + arr(1));
+};
+*/
+
+main :: (fn(color: Color, resume : K(i32)) -> unit) {
+  printf("Before yieldColor\n");
+  result := match((do yieldColor(color)),
+    .Red => (do yield(12)),
+    .Green => {
+      result := (do yield(34));
+      result + 1
+    },
+    .Blue => 0
+  );
   printf("Result: %d\n", result);
   resume(result);
 };

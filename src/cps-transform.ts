@@ -467,6 +467,19 @@ function transformExpressionWithDoToCps(
             ...condExpr,
             args: transformedBranches,
           };
+        } else if (
+          exprIsFunctionCall(value) &&
+          exprIsFunctionCallOf(value, BuiltinKeywords.match) &&
+          containsDoCall(value)
+        ) {
+          // Special case: `variable := match(...)` where match contains do calls
+          return transformMatchWithAssignmentToCps(
+            value,
+            variable,
+            remainingExprs,
+            continuationVar,
+            contextToken
+          );
         } else if (containsDoCall(value)) {
           // Complex case: `variable := expression_containing_do`
           // We need to extract the `do` call and create a continuation
@@ -1147,6 +1160,215 @@ function transformCondWithAssignmentToCps(
   };
 
   return transformBranches(branches);
+}
+
+/**
+ * Transform a match expression in assignment context: variable := match(...)
+ * This handles cases where match branches contain do calls and need to be transformed to CPS
+ */
+function transformMatchWithAssignmentToCps(
+  matchExpr: FuncCallExpr,
+  assignmentVariable: Expr,
+  remainingExprs: Expr[],
+  continuationVar: string,
+  contextToken: FuncCallExpr["token"]
+): Expr {
+  // match(value, pattern1 => body1, pattern2 => body2, ...)
+  const [matchValue, ...branches] = matchExpr.args;
+  
+  if (!matchValue) {
+    throw new Error("match expression must have a value to match against");
+  }
+
+  // Check if the match value contains do calls - handle this first
+  if (containsDoCall(matchValue)) {
+    // Extract the do call from the match value
+    const doCallInfo = extractDoCall(matchValue);
+    if (!doCallInfo) {
+      throw new Error("Expected to find a do call in the match value");
+    }
+
+    const { doExpr, expressionWithHole } = doCallInfo;
+    const resultVar = `cps_result_${randomId()}`;
+
+    // Replace the hole with the result variable
+    const valueWithResult = replaceHoleWithVariable(
+      expressionWithHole,
+      resultVar,
+      contextToken
+    );
+
+    // Create a new match expression with the transformed value
+    const newMatchExpr: FuncCallExpr = {
+      ...matchExpr,
+      args: [valueWithResult, ...branches],
+    };
+
+    // Create the continuation that processes the match and assigns the result
+    const continuation: Expr = {
+      tag: ExprTag.FuncCall,
+      func: {
+        tag: ExprTag.Atom,
+        token: {
+          type: TokenType.Operator,
+          value: "=>",
+          position: contextToken.position,
+          modulePath: contextToken.modulePath,
+          inputString: contextToken.inputString,
+        },
+      },
+      args: [
+        {
+          tag: ExprTag.Atom,
+          token: {
+            type: TokenType.Identifier,
+            value: resultVar,
+            position: contextToken.position,
+            modulePath: contextToken.modulePath,
+            inputString: contextToken.inputString,
+          },
+        },
+        // Recursively transform the new match expression
+        // which may still have do calls in branches
+        transformMatchWithAssignmentToCps(
+          newMatchExpr,
+          assignmentVariable,
+          remainingExprs,
+          continuationVar,
+          contextToken
+        ),
+      ],
+      token: contextToken,
+      isInfix: true,
+    };
+
+    // Extract and transform the do call
+    const innerExpr = doExpr.args[0]!;
+    if (!exprIsFunctionCall(innerExpr)) {
+      throw new Error(
+        `do() argument must be a function call, got: ${innerExpr.tag}`
+      );
+    }
+
+    return {
+      ...innerExpr,
+      args: [...innerExpr.args, continuation],
+    };
+  }
+
+  // No do calls in match value, proceed with branch transformation
+
+  // Create a continuation function that assigns the result and continues
+  const createAssignmentContinuation = (matchResult: Expr) => {
+    // Create the assignment
+    const assignment: FuncCallExpr = {
+      tag: ExprTag.FuncCall,
+      func: {
+        tag: ExprTag.Atom,
+        token: {
+          type: TokenType.Operator,
+          value: ":=",
+          position: contextToken.position,
+          modulePath: contextToken.modulePath,
+          inputString: contextToken.inputString,
+        },
+      },
+      args: [assignmentVariable, matchResult],
+      token: contextToken,
+      isInfix: true,
+    };
+
+    // Combine assignment with remaining expressions
+    const allRemainingExprs = [assignment, ...remainingExprs];
+
+    if (allRemainingExprs.length === 1) {
+      return transformExpressionToCps(allRemainingExprs[0]!, continuationVar);
+    } else {
+      const transformedRemainingExprs = allRemainingExprs.map((expr) =>
+        transformExpressionToCps(expr, continuationVar)
+      );
+
+      // Don't wrap single expression in begin
+      if (transformedRemainingExprs.length === 1) {
+        return transformedRemainingExprs[0]!;
+      }
+
+      return {
+        tag: ExprTag.FuncCall,
+        func: {
+          tag: ExprTag.Atom,
+          token: {
+            type: TokenType.Identifier,
+            value: BuiltinKeywords.begin[0]!,
+            position: contextToken.position,
+            modulePath: contextToken.modulePath,
+            inputString: contextToken.inputString,
+          },
+        },
+        args: transformedRemainingExprs,
+        token: contextToken,
+      } as FuncCallExpr;
+    }
+  };
+
+  // Transform each branch of the match
+  const transformedBranches = branches.map((branch) => {
+    if (
+      exprIsFunctionCall(branch) &&
+      branch.isInfix &&
+      exprIsFunctionCallOf(branch, "=>")
+    ) {
+      const pattern = branch.args[0]!;
+      const body = branch.args[1]!;
+      const unwrappedBody = unwrapSingleBegin(body);
+
+      if (containsDoCall(unwrappedBody)) {
+        // This branch contains do calls, transform it with assignment context
+        const transformedBody = transformExpressionWithDoToCps(
+          {
+            tag: ExprTag.FuncCall,
+            func: {
+              tag: ExprTag.Atom,
+              token: {
+                type: TokenType.Operator,
+                value: ":=",
+                position: contextToken.position,
+                modulePath: contextToken.modulePath,
+                inputString: contextToken.inputString,
+              },
+            },
+            args: [assignmentVariable, unwrappedBody],
+            token: contextToken,
+            isInfix: true,
+          } as FuncCallExpr,
+          remainingExprs,
+          continuationVar,
+          contextToken
+        );
+
+        return {
+          ...branch,
+          args: [pattern, transformedBody],
+        };
+      } else {
+        // This branch doesn't contain do calls, just assign the value
+        return {
+          ...branch,
+          args: [pattern, createAssignmentContinuation(unwrappedBody)],
+        };
+      }
+    } else {
+      // Not a pattern => body pair, shouldn't happen in a match
+      throw new Error(
+        "Expected pattern => body pairs in match expression"
+      );
+    }
+  });
+
+  return {
+    ...matchExpr,
+    args: [matchValue, ...transformedBranches],
+  };
 }
 
 /**
