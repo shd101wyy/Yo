@@ -12,15 +12,22 @@ K :: (fn(compt(Value) : Type) -> compt(Type)) {
 Yield ::
   fn( i : i32, resume : K(i32)) -> unit;
 
+some_cond :: (fn() -> boolean) true;
+
+(compt(given(yield)) : Yield) =
+  (i, resume) ->
+    cond
+      (i < 0) => resume(0),
+      true => resume(i)
+;
+
 main :: (fn( resume : K(i32)) -> unit) {
-  (compt(given(yield)) : Yield) =
-    (i, resume) ->
-      cond
-        (i < 0) => resume(0),
-        true => resume(i)
-  ;
   result :=
-    (((do yield(0)) + 1) + (do yield(2)));
+    cond(
+      some_cond() => do(yield(0)),
+      (do(yield(-4)) < 0) => do(yield(-2)),
+      true => do(yield(2))
+    );
   printf("Result: %d\n", result);
   resume(result);
 };

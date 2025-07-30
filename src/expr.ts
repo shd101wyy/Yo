@@ -823,7 +823,31 @@ export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
   );
 }
 
-export function exprToString(expr: Expr): string {
+export interface ExprToStringConfig {
+  prettyPrint?: boolean;
+  indentSize?: number;
+  maxLineLength?: number;
+  indentLevel?: number;
+}
+
+export function exprToString(expr: Expr, config?: ExprToStringConfig): string {
+  const defaultConfig: Required<ExprToStringConfig> = {
+    prettyPrint: false,
+    indentSize: 2,
+    maxLineLength: 80,
+    indentLevel: 0,
+  };
+  
+  const finalConfig = { ...defaultConfig, ...config };
+  
+  if (finalConfig.prettyPrint) {
+    return exprToPrettyString(expr, finalConfig);
+  } else {
+    return exprToCompactString(expr);
+  }
+}
+
+function exprToCompactString(expr: Expr): string {
   let printed = "";
   switch (expr.tag) {
     case "Atom": {
@@ -839,14 +863,14 @@ export function exprToString(expr: Expr): string {
       ) {
         if (expr.args.length === 1) {
           if (expr.func.token.value === ".") {
-            printed = `${expr.func.token.value}${exprToString(expr.args[0]!)}`;
+            printed = `${expr.func.token.value}${exprToCompactString(expr.args[0]!)}`;
           } else {
-            printed = `${expr.func.token.value}(${exprToString(expr.args[0]!)})`;
+            printed = `${expr.func.token.value}(${exprToCompactString(expr.args[0]!)})`;
           }
           break;
         } else if (expr.args.length === 2 && expr.isInfix) {
-          let lhs = exprToString(expr.args[0]!);
-          let rhs = exprToString(expr.args[1]!);
+          let lhs = exprToCompactString(expr.args[0]!);
+          let rhs = exprToCompactString(expr.args[1]!);
           lhs =
             exprIsInfixOperatorFunctionCall(expr.args[0]!) ||
             exprIsAtomAndOperator(expr.args[0]!)
@@ -871,11 +895,11 @@ export function exprToString(expr: Expr): string {
         expr.func.token.value === BuiltinKeywords.tuple
       ) {
         if (expr.args.length === 1) {
-          printed = `(${exprToString(expr.args[0]!)},)`;
+          printed = `(${exprToCompactString(expr.args[0]!)},)`;
         } else {
           printed = `(${expr.args
             .map((arg) => {
-              return exprToString(arg);
+              return exprToCompactString(arg);
             })
             .join(", ")
             .trim()})`;
@@ -883,7 +907,7 @@ export function exprToString(expr: Expr): string {
         break;
       }
 
-      let func = exprToString(expr.func);
+      let func = exprToCompactString(expr.func);
       func =
         exprIsInfixOperatorFunctionCall(expr.func) ||
         exprIsAtomAndOperator(expr.func)
@@ -891,7 +915,7 @@ export function exprToString(expr: Expr): string {
           : func;
       const args = expr.args
         .map((arg) => {
-          return exprToString(arg);
+          return exprToCompactString(arg);
         })
         .join(", ")
         .trim();
@@ -901,6 +925,164 @@ export function exprToString(expr: Expr): string {
   }
 
   return printed;
+}
+
+function exprToPrettyString(expr: Expr, config: Required<ExprToStringConfig>): string {
+  const indent = " ".repeat(config.indentLevel * config.indentSize);
+  const nextConfig = { ...config, indentLevel: config.indentLevel + 1 };
+  const nextIndent = " ".repeat(nextConfig.indentLevel * config.indentSize);
+  
+  switch (expr.tag) {
+    case "Atom": {
+      return expr.token.value;
+    }
+    case "FuncCall": {
+      // Handle special operators and dots
+      if (
+        expr.func.tag === "Atom" &&
+        (expr.func.token.type === TokenType.Operator ||
+          expr.func.token.type === TokenType.Dot ||
+          expr.func.token.type === TokenType.BacktickIdentifier)
+      ) {
+        if (expr.args.length === 1) {
+          if (expr.func.token.value === ".") {
+            return `${expr.func.token.value}${exprToPrettyString(expr.args[0]!, config)}`;
+          } else {
+            const arg = exprToPrettyString(expr.args[0]!, config);
+            return `${expr.func.token.value}(${arg})`;
+          }
+        } else if (expr.args.length === 2 && expr.isInfix) {
+          let lhs = exprToPrettyString(expr.args[0]!, config);
+          let rhs = exprToPrettyString(expr.args[1]!, config);
+          
+          // Add parentheses if needed - since Yo has no operator precedence, 
+          // we need to be explicit about grouping
+          lhs = exprIsInfixOperatorFunctionCall(expr.args[0]!) || exprIsAtomAndOperator(expr.args[0]!)
+            ? `(${lhs})`
+            : lhs;
+          rhs = exprIsInfixOperatorFunctionCall(expr.args[1]!) || exprIsAtomAndOperator(expr.args[1]!)
+            ? `(${rhs})`
+            : rhs;
+            
+          if (expr.func.token.value === ".") {
+            return `(${lhs}.${rhs})`;
+          } else {
+            // For arrow operator and other infix operators, wrap the result in parentheses
+            // to make grouping explicit when used as part of larger expressions
+            const result = `${lhs} ${expr.func.token.value} ${rhs}`;
+            return result;
+          }
+        }
+      }
+      
+      // Handle tuple specially
+      if (
+        expr.func.tag === "Atom" &&
+        expr.func.token.type === TokenType.Identifier &&
+        expr.func.token.value === BuiltinKeywords.tuple
+      ) {
+        if (expr.args.length === 0) {
+          return "()";
+        } else if (expr.args.length === 1) {
+          return `(${exprToPrettyString(expr.args[0]!, config)},)`;
+        } else {
+          const args = expr.args.map(arg => exprToPrettyString(arg, config));
+          const singleLine = `(${args.join(", ")})`;
+          
+          if (singleLine.length <= config.maxLineLength) {
+            return singleLine;
+          } else {
+            return `(\n${nextIndent}${args.join(`,\n${nextIndent}`)}\n${indent})`;
+          }
+        }
+      }
+      
+      // Handle special keywords that should be formatted nicely
+      const funcName = expr.func.tag === "Atom" ? expr.func.token.value : null;
+      const shouldFormatAsBlock = funcName && [
+        ...BuiltinKeywords.begin,
+        ...BuiltinKeywords.cond,
+        ...BuiltinKeywords.match,
+        ...BuiltinKeywords.fn,
+        ...BuiltinKeywords.if,
+        ...BuiltinKeywords.while,
+        ...BuiltinKeywords.for
+      ].includes(funcName);
+      
+      // Regular function call
+      let func = exprToPrettyString(expr.func, config);
+      func = exprIsInfixOperatorFunctionCall(expr.func) || exprIsAtomAndOperator(expr.func)
+        ? `(${func})`
+        : func;
+        
+      if (expr.args.length === 0) {
+        return `${func}()`;
+      }
+      
+      // Try single line first for non-block constructs
+      if (!shouldFormatAsBlock) {
+        const args = expr.args.map(arg => exprToPrettyString(arg, config));
+        const singleLine = `${func}(${args.join(", ")})`;
+        
+        if (singleLine.length <= config.maxLineLength) {
+          return singleLine;
+        }
+      }
+      
+      // Multi-line formatting
+      if (shouldFormatAsBlock) {
+        // Special formatting for block-like constructs
+        if (funcName === BuiltinKeywords.begin[0]) {
+          if (expr.args.length === 1) {
+            const singleArg = exprToPrettyString(expr.args[0]!, config);
+            if (singleArg.length <= config.maxLineLength && !singleArg.includes('\n')) {
+              return `${func}(${singleArg})`;
+            }
+          }
+          
+          const formattedArgs = expr.args.map(arg => exprToPrettyString(arg, nextConfig));
+          return `${func}(\n${nextIndent}${formattedArgs.join(`,\n${nextIndent}`)}\n${indent})`;
+          
+        } else if (funcName === BuiltinKeywords.cond[0]) {
+          // Format cond expressions nicely
+          const formattedArgs = expr.args.map(arg => {
+            if (exprIsFunctionCall(arg) && arg.isInfix && exprIsFunctionCallOf(arg, "=>")) {
+              const condition = arg.args[0]!;
+              const body = exprToPrettyString(arg.args[1]!, nextConfig);
+              
+              // Format condition - wrap infix operators in parentheses for clarity
+              let conditionStr = exprToPrettyString(condition, config);
+              if (exprIsFunctionCall(condition) && condition.isInfix && !exprIsFunctionCallOf(condition, "=>")) {
+                conditionStr = `(${conditionStr})`;
+              }
+              
+              // If body is multi-line or long, format it properly
+              if (body.includes('\n')) {
+                // Body is already multi-line, indent it properly
+                const bodyLines = body.split('\n');
+                const indentedBody = bodyLines.map((line, index) => 
+                  index === 0 ? line : `${nextIndent}${line}`
+                ).join('\n');
+                return `${conditionStr} => ${indentedBody}`;
+              } else {
+                // Single line body
+                return `${conditionStr} => ${body}`;
+              }
+            }
+            return exprToPrettyString(arg, nextConfig);
+          });
+          return `${func}(\n${nextIndent}${formattedArgs.join(`,\n${nextIndent}`)}\n${indent})`;
+        }
+      }
+      
+      // Default multi-line function call
+      const formattedArgs = expr.args.map(arg => exprToPrettyString(arg, nextConfig));
+      return `${func}(\n${nextIndent}${formattedArgs.join(`,\n${nextIndent}`)}\n${indent})`;
+    }
+  }
+  
+  // This should never be reached, but TypeScript requires a return
+  return exprToCompactString(expr);
 }
 
 export function attachTempVariableToExpr(expr: Expr): void {
