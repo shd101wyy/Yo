@@ -31,7 +31,7 @@ import {
 /**
  * Creates a fresh evaluation context for function body evaluation
  */
-function createFunctionBodyEvaluationContext(
+export function createFunctionBodyEvaluationContext(
   context: EvaluatorContext,
   functionType: FunctionType,
   functionValue: FunctionValue,

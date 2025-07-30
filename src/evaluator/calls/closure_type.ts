@@ -1,3 +1,4 @@
+import { transformFunctionBodyToCps } from "../../cps-transform";
 import { Environment, popEnvFrame, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { Expr, FuncCallExpr } from "../../expr";
@@ -12,7 +13,7 @@ import {
 import { randomId } from "../../utils";
 import { createClosureValue } from "../../value";
 import { ValueTag } from "../../value-tag";
-import { CapturedVariableInfo, EvaluatorContext } from "../context";
+import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import {
   buildPathCollectionFromCapturedVariables,
@@ -20,6 +21,7 @@ import {
   createCaptureTypeAndValue,
   enrichCapturedVariables,
 } from "../utils/closure";
+import { createFunctionBodyEvaluationContext } from "./function_type";
 
 /**
  * Handle calling a closure type to create a closure value.
@@ -51,6 +53,7 @@ export function tryToImplementClosureByClosureType({
   // Add parameters to the env new frame
   // For closures, we keep the full caller environment to enable variable capturing
   let env = pushEnvFrame(callerEnv, closureType.callType.parametersFrame);
+  const originalEnv = env; // backup the env for later CPS transformation use.
 
   // Create the function value for the closure
   const functionValue: FunctionValue = {
@@ -65,25 +68,21 @@ export function tryToImplementClosureByClosureType({
     SelfType: context.SelfType,
   };
 
+  // Create evaluation context using helper function
+  // eslint-disable-next-line prefer-const
+  let { evaluationContext, capturedVariables } =
+    createFunctionBodyEvaluationContext(
+      context,
+      closureType.callType,
+      functionValue,
+      env
+    );
+
   // Evaluate the closure body
-  const capturedVariables = new Map<string, CapturedVariableInfo>();
   const evaluatedClosureBody = evaluateBeginExpression({
     expr: closureBodyExpr,
     env,
-    context: {
-      ...context,
-      isExecuting: false, // We're analyzing the closure, not executing it
-      isValidatingFunctionDefinition: true, // We're validating closure definition
-      isEvaluatingFunctionBody: {
-        type: closureType.callType,
-        capturedVariables: capturedVariables,
-        evaluationEnv: env, // Pass the current evaluation environment
-      },
-      expectedType: {
-        type: closureType.callType.return.type,
-        env: env,
-      },
-    },
+    context: evaluationContext,
     variablesToAdd: [],
   });
 
@@ -94,6 +93,55 @@ export function tryToImplementClosureByClosureType({
     });
   }
   env = evaluatedClosureBody.$.env;
+
+  // Check if the closure uses `do` and apply CPS transformation
+  if (
+    evaluationContext.isEvaluatingFunctionBody?.usedDo &&
+    evaluationContext.isEvaluatingFunctionBody?.usedDo.length > 0
+  ) {
+    console.log(`Closure uses 'do', applying CPS transformation...`);
+
+    // Apply CPS transformation to the closure body
+    const transformedBody = transformFunctionBodyToCps(
+      closureBodyExpr,
+      functionValue.funcId
+    );
+
+    // Store the transformed body separately
+    functionValue.cpsTransformedBody = transformedBody;
+
+    const {
+      evaluationContext: freshEvaluationContext,
+      capturedVariables: freshCapturedVariables,
+    } = createFunctionBodyEvaluationContext(
+      context,
+      closureType.callType,
+      functionValue,
+      originalEnv
+    );
+    capturedVariables = freshCapturedVariables;
+
+    // Re-evaluate the transformed body to ensure it's valid
+    const evaluatedTransformedBody = evaluateBeginExpression({
+      expr: transformedBody,
+      env: originalEnv,
+      context: freshEvaluationContext,
+      variablesToAdd: [],
+    });
+
+    if (!evaluatedTransformedBody.$) {
+      throw formatErrorMessage({
+        token: closureBodyExpr.token,
+        errorMessage: `Failed to evaluate the CPS-transformed closure body.`,
+      });
+    }
+
+    console.log(
+      `CPS transformation applied to closure ${functionValue.funcId}`
+    );
+
+    env = evaluatedTransformedBody.$.env;
+  }
 
   // Check if the closure body type matches the closure return type
   const closureBodyReturnType = evaluatedClosureBody.$.type;

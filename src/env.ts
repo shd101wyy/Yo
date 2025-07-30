@@ -155,12 +155,15 @@ export function addVariableToEnv({
   variableId?: string;
   skipCheckingFunctionOverloading?: boolean;
 }): { env: Environment; variable: Variable } {
+  const frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
+
   // Prevent the function overloading
   if (!skipCheckingFunctionOverloading && isFunctionType(variable.type)) {
     const existingFunctionVariables = getVariablesFromEnv(
       env,
       variable.name,
-      (variable) => isFunctionType(variable.type)
+      (variable) =>
+        isFunctionType(variable.type) && variable.frameLevel === frameLevel
     );
     if (existingFunctionVariables.length > 0) {
       throw formatErrorMessages([
@@ -176,7 +179,6 @@ export function addVariableToEnv({
     }
   }
 
-  const frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
   const frame = env.frames[frameLevel];
   if (!frame) {
     // print traceback

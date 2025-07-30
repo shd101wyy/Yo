@@ -1,3 +1,4 @@
+import { transformFunctionBodyToCps } from "../../cps-transform";
 import { Environment, popEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
@@ -28,7 +29,8 @@ import {
 import { randomId } from "../../utils";
 import { createClosureValue, Value } from "../../value";
 import { ValueTag } from "../../value-tag";
-import { CapturedVariableInfo, EvaluatorContext } from "../context";
+import { createFunctionBodyEvaluationContext } from "../calls/function_type";
+import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateFunctionParameters } from "../types/function";
 import {
@@ -146,64 +148,7 @@ export function evaluateAnonymousFunctionImplementation({
     },
   });
   env = nextEnv;
-
-  // Evaluate the function body
-  const isClosureFunction = functionType.closureKind !== undefined;
-  const capturedVariables = isClosureFunction
-    ? new Map<string, CapturedVariableInfo>()
-    : undefined;
-  const evaluatedBody = evaluateBeginExpression({
-    expr: functionBodyExpr,
-    env,
-    context: {
-      ...context,
-      isExecuting: false, // We're executing the function, not just analyzing it
-      isValidatingFunctionDefinition: false, // Clear the validation flag during actual execution
-      isEvaluatingFunctionBody: {
-        type: functionType,
-        // FIXME: functionValue should be put there
-        capturedVariables: capturedVariables,
-        evaluationEnv: env, // Pass the current evaluation environment
-      },
-      expectedType: {
-        type: functionType.return.type,
-        env: env,
-      },
-    },
-    variablesToAdd: [],
-  });
-
-  // Check if the return type is compatible
-  const evaluatedBodyReturnType = evaluatedBody.$?.type;
-  if (
-    evaluatedBodyReturnType &&
-    !areTypesCompatible(
-      { type: functionType.return.type, env },
-      { type: evaluatedBodyReturnType, env }
-    )
-  ) {
-    throw formatErrorMessage({
-      token: functionBodyExpr.token,
-      errorMessage: `Incompatible return type:
-- Expected: ${typeToString(functionType.return.type)}
-- Got     : ${typeToString(evaluatedBodyReturnType)}`,
-    });
-  }
-
-  if (evaluatedBody.$?.env) {
-    env = evaluatedBody.$?.env;
-  }
-  // Restore the env frame
-  env = popEnvFrame(env, true);
-
-  // For closures, consume the captured variables from outer scopes
-  if (isClosureFunction && capturedVariables && capturedVariables.size > 0) {
-    env = consumeCapturedVariables({
-      capturedVariables,
-      env,
-      closureToken: expr.token,
-    });
-  }
+  const originalEnv = env; // backup the env for later CPS transformation use.
 
   // For anonymous functions, we need to use the original function type
   // but with the parameter names from the anonymous function implementation.
@@ -240,6 +185,133 @@ export function evaluateAnonymousFunctionImplementation({
     })),
   };
 
+  // Create the function value BEFORE evaluating the function body (fixing FIXME)
+  const functionValue: FunctionValue = {
+    tag: ValueTag.Function,
+    type: newFunctionType,
+    body: functionBodyExpr,
+    frameLevel: env.frames.length - 1,
+    funcId: `fn_${randomId()}`,
+    calledComptFunctionCaches: [],
+    specializedFunctionCaches: [],
+    SelfType: context.SelfType,
+  };
+
+  // Evaluate the function body
+  const isClosureFunction = functionType.closureKind !== undefined;
+  // eslint-disable-next-line prefer-const
+  let { evaluationContext, capturedVariables } =
+    createFunctionBodyEvaluationContext(
+      {
+        ...context,
+        isExecuting: false, // We're analyzing, not executing
+        isValidatingFunctionDefinition: false, // Clear the validation flag during actual execution
+      },
+      functionType,
+      functionValue,
+      env
+    );
+
+  const evaluatedBody = evaluateBeginExpression({
+    expr: functionBodyExpr,
+    env,
+    context: evaluationContext,
+    variablesToAdd: [],
+  });
+
+  if (!evaluatedBody.$) {
+    throw formatErrorMessage({
+      token: functionBodyExpr.token,
+      errorMessage: `Failed to evaluate the function body.`,
+    });
+  }
+  env = evaluatedBody.$.env;
+
+  // Check if the function uses `do` and apply CPS transformation
+  if (
+    evaluationContext.isEvaluatingFunctionBody?.usedDo &&
+    evaluationContext.isEvaluatingFunctionBody?.usedDo.length > 0
+  ) {
+    console.log(`Function uses 'do', applying CPS transformation...`);
+
+    // Apply CPS transformation to the function body
+    const transformedBody = transformFunctionBodyToCps(
+      functionBodyExpr,
+      functionValue.funcId
+    );
+
+    // Store the transformed body separately
+    functionValue.cpsTransformedBody = transformedBody;
+
+    const {
+      evaluationContext: freshEvaluationContext,
+      capturedVariables: freshCapturedVariables,
+    } = createFunctionBodyEvaluationContext(
+      {
+        ...context,
+        isExecuting: false,
+        isValidatingFunctionDefinition: false,
+      },
+      functionType,
+      functionValue,
+      originalEnv
+    );
+    capturedVariables = freshCapturedVariables;
+
+    // Re-evaluate the transformed body to ensure it's valid
+    const evaluatedTransformedBody = evaluateBeginExpression({
+      expr: transformedBody,
+      env: originalEnv,
+      context: freshEvaluationContext,
+      variablesToAdd: [],
+    });
+
+    if (!evaluatedTransformedBody.$) {
+      throw formatErrorMessage({
+        token: functionBodyExpr.token,
+        errorMessage: `Failed to evaluate the CPS-transformed function body.`,
+      });
+    }
+
+    console.log(
+      `CPS transformation applied to function ${functionValue.funcId}`
+    );
+
+    env = evaluatedTransformedBody.$.env;
+  }
+
+  // Check if the return type is compatible
+  const evaluatedBodyReturnType = evaluatedBody.$?.type;
+  if (
+    evaluatedBodyReturnType &&
+    !areTypesCompatible(
+      { type: functionType.return.type, env },
+      { type: evaluatedBodyReturnType, env }
+    )
+  ) {
+    throw formatErrorMessage({
+      token: functionBodyExpr.token,
+      errorMessage: `Incompatible return type:
+- Expected: ${typeToString(functionType.return.type)}
+- Got     : ${typeToString(evaluatedBodyReturnType)}`,
+    });
+  }
+
+  if (evaluatedBody.$?.env) {
+    env = evaluatedBody.$?.env;
+  }
+  // Restore the env frame
+  env = popEnvFrame(env, true);
+
+  // For closures, consume the captured variables from outer scopes
+  if (isClosureFunction && capturedVariables && capturedVariables.size > 0) {
+    env = consumeCapturedVariables({
+      capturedVariables,
+      env,
+      closureToken: expr.token,
+    });
+  }
+
   // For closures, prepare captured variables with values and types for the function value
   let capturedVariablesWithValues:
     | Map<string, FunctionCapturedVariableInfo>
@@ -263,6 +335,25 @@ export function evaluateAnonymousFunctionImplementation({
     }
   }
 
+  // Update the function value with captured variables (if any)
+  if (capturedVariables && capturedVariables.size > 0) {
+    functionValue.capturedVariables = new Map();
+    for (const [name, info] of capturedVariables) {
+      if (info.frameLevel < env.frames.length) {
+        const variable = env.frames[info.frameLevel]?.variables.find(
+          (v) => v.name === name
+        );
+        if (variable) {
+          functionValue.capturedVariables.set(name, {
+            ...info,
+            value: variable.value,
+            type: variable.type,
+          });
+        }
+      }
+    }
+  }
+
   // Set the type and value of the expression
   let finalType: Type;
   let finalValue: Value;
@@ -278,18 +369,9 @@ export function evaluateAnonymousFunctionImplementation({
 
     const closureType = createClosureType(newFunctionType, captureType, env);
 
-    // Create the function value first
-    const functionValue: FunctionValue = {
-      tag: ValueTag.Function,
-      type: newFunctionType, // The function value uses the call type
-      body: functionBodyExpr,
-      frameLevel: env.frames.length - 1,
-      funcId: `closure_${randomId()}`,
-      calledComptFunctionCaches: [],
-      specializedFunctionCaches: [],
-      SelfType: context.SelfType,
-      capturedVariables: capturedVariablesWithValues,
-    };
+    // Update the existing function value for closures
+    functionValue.funcId = `closure_${randomId()}`;
+    functionValue.capturedVariables = capturedVariablesWithValues;
 
     // Create the closure value
     finalType = closureType;
@@ -299,19 +381,9 @@ export function evaluateAnonymousFunctionImplementation({
       functionValue
     );
   } else {
-    // Regular function
+    // Regular function - use the existing functionValue
     finalType = newFunctionType;
-    finalValue = {
-      tag: ValueTag.Function,
-      type: newFunctionType,
-      body: functionBodyExpr,
-      frameLevel: env.frames.length - 1,
-      funcId: `fn_${randomId()}`,
-      calledComptFunctionCaches: [],
-      specializedFunctionCaches: [],
-      SelfType: context.SelfType,
-      capturedVariables: capturedVariablesWithValues,
-    };
+    finalValue = functionValue;
   }
 
   expr.$ = {
