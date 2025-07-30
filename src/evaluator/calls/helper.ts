@@ -33,12 +33,14 @@ import {
   createFunctionType,
   FunctionParameter,
   FunctionType,
+  isClosureType,
   isExprListType,
   isExprType,
   isFunctionSpecializable,
   isFunctionType,
   isMutRefType,
   isRefType,
+  isUnitType,
   Type,
   typeRequiresComptModifier,
   typeToString,
@@ -463,6 +465,65 @@ export function extractFunctionValue(
 }
 
 /**
+ * Validates that a function type is suitable for use in a `do` expression.
+ * Checks that:
+ * - Function has at least one parameter (the closure)
+ * - Last parameter is a closure type
+ * - Closure is FnOnce kind
+ * - Closure returns unit type
+ * - Closure has at least one parameter
+ */
+function validateDoFunctionSignature(
+  functionType: FunctionType,
+  functionCalleeExpr?: Expr
+): void {
+  // Check that the function has at least one parameter (the closure)
+  if (functionType.parameters.length === 0) {
+    throw formatErrorMessage({
+      token: functionCalleeExpr?.token ?? PlaceholderToken,
+      errorMessage: `Function in 'do' expression must have at least one parameter (the closure).`,
+    });
+  }
+
+  // Check that the last parameter is a closure
+  const lastParameter =
+    functionType.parameters[functionType.parameters.length - 1]!;
+  if (!isClosureType(lastParameter.type)) {
+    throw formatErrorMessage({
+      token: functionCalleeExpr?.token ?? PlaceholderToken,
+      errorMessage: `Last parameter of function in 'do' expression must be a closure, got: ${lastParameter.type.id}`,
+    });
+  }
+
+  const closureType = lastParameter.type;
+  const closureCallType = closureType.callType;
+
+  // Check that the closure is FnOnce
+  if (closureCallType.closureKind !== "FnOnce") {
+    throw formatErrorMessage({
+      token: functionCalleeExpr?.token ?? PlaceholderToken,
+      errorMessage: `Closure in 'do' expression must be FnOnce, got: ${closureCallType.closureKind}`,
+    });
+  }
+
+  // Check that the closure returns unit
+  if (!isUnitType(closureCallType.return.type)) {
+    throw formatErrorMessage({
+      token: functionCalleeExpr?.token ?? PlaceholderToken,
+      errorMessage: `Closure in 'do' expression must return unit, got: ${closureCallType.return.type.id}`,
+    });
+  }
+
+  // Check that the closure has at least one parameter
+  if (closureCallType.parameters.length === 0) {
+    throw formatErrorMessage({
+      token: functionCalleeExpr?.token ?? PlaceholderToken,
+      errorMessage: `Closure in 'do' expression must have at least one parameter.`,
+    });
+  }
+}
+
+/**
  * NOTE: This function will push new frame to the function env,
  * but will not pop frame.
  */
@@ -474,6 +535,7 @@ export function tryToCallFunctionWithArguments({
   callerEnv,
   context,
   isMethodCall,
+  isEvaluatingDo,
 }: {
   functionValue?: FunctionValue;
   functionType: FunctionType;
@@ -482,8 +544,14 @@ export function tryToCallFunctionWithArguments({
   callerEnv: Environment;
   context: EvaluatorContext;
   isMethodCall: boolean;
+  isEvaluatingDo?: boolean;
 }): FunctionCallResult {
   const initialBorrowings = [...context.borrowings];
+
+  // If this is a `do` expression, validate the function signature
+  if (isEvaluatingDo) {
+    validateDoFunctionSignature(functionType, functionCalleeExpr);
+  }
 
   let forallArgsExpr: FuncCallExpr | undefined = undefined;
   let implicitArgExprs: Expr[] = [];
@@ -789,10 +857,12 @@ Got:   ${typeToString(typeValue.type)}`,
     }
   }
 
-  if (
-    !functionType.variadicParameter &&
-    argExprs.length > functionType.parameters.length
-  ) {
+  // For `do` expressions, we expect one less argument since the closure is implicitly provided
+  const expectedArgCount = isEvaluatingDo
+    ? functionType.parameters.length - 1
+    : functionType.parameters.length;
+
+  if (!functionType.variadicParameter && argExprs.length > expectedArgCount) {
     // Check if the last function parameter is quote with ExprList
     // If not then we throw error
     const lastParameter = functionType.parameters.at(-1);
@@ -806,7 +876,7 @@ Got:   ${typeToString(typeValue.type)}`,
       throw formatErrorMessage({
         token: functionCalleeExpr?.token ?? PlaceholderToken,
         errorMessage: `Too many arguments for function call:
-Expected: ${functionType.parameters.length} arguments
+Expected: ${expectedArgCount} arguments${isEvaluatingDo ? " (excluding implicit closure for 'do')" : ""}
 Got:   ${argExprs.length} arguments`,
       });
     }
@@ -814,9 +884,13 @@ Got:   ${argExprs.length} arguments`,
 
   // Check if the parameters match the arguments
   let regularArgIndex = 0;
+  const parametersToProcess = isEvaluatingDo
+    ? functionType.parameters.length - 1 // Skip the last parameter (closure) for `do`
+    : functionType.parameters.length;
+
   for (
     regularArgIndex = 0;
-    regularArgIndex < functionType.parameters.length;
+    regularArgIndex < parametersToProcess;
     regularArgIndex++
   ) {
     const parameter = functionType.parameters[regularArgIndex]!;

@@ -477,6 +477,7 @@ export const BuiltinFunctions = {
   macro_expand: ["macro_expand"],
   as: ["as"],
   the: ["the"],
+  do: ["do"],
 
   // Pointer related functions
   __yo_ptr_cast: ["__yo_ptr_cast"],

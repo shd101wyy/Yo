@@ -46,6 +46,11 @@ export interface EvaluatorContext {
      * The evaluationEnv should contain the frame of parameters/arguments
      */
     evaluationEnv: Environment;
+    /**
+     * Track `do` expressions encountered during function body evaluation.
+     * This indicates the function needs CPS transformation.
+     */
+    usedDo?: Expr[];
   };
 
   /**

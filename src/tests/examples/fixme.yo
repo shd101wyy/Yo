@@ -1,40 +1,40 @@
 open import "std";
-{ printf } :: import "std/libc/stdio";
+
+
+K :: (fn(compt(Value) : Type) -> compt(Type)) {
+  ClosureType ::
+    fn(value : Value) => unit;
+  return ClosureType;
+};
 
 // Algebraic effects
 Yield ::
-  eff( i : i32 ) -> boolean;
+  fn( i : i32, resume : K(i32)) -> unit;
 
-example :: (fn(
-  using(
-    yield : Yield
-  )) -> unit) {
-  mut(produce) := true;
-  mut(n) := 0;
-  while produce, {
-    produce = yield(n);
-    n = (n + 1);
-  };
-  printf("done\n");
+main :: (fn( resume : K(i32)) -> unit) {
+  (compt(given(yield)) : Yield) =
+    (i, resume) ->
+      cond
+        (i < 0) => resume(0),
+        true => resume(i)
+  ;
+  yielded := do yield(0);
+  result :=
+    1 + yielded;
+  resume(result);
 };
 
-main :: (fn() -> unit) {
+
+main2 :: (fn( resume : K(i32)) -> unit) {
   (compt(given(yield)) : Yield) =
-    (i, resume) -> {
-      printf("yielded %d\n", i);
-      resume(i <= 2);  // resume has type fn( boolean )=> unit
-                       // `unit` comes from the return type of `main`.
-
-      // The `resume` is one-shot delimited continuation.
-      // So it can only be called once.
-      compt_expect_error(resume(true));
-    }
+    (i, resume) ->
+      cond
+        (i < 0) => resume(0),
+        true => resume(i)
   ;
-  flag := yield(0);
-
-  test :: (fn() -> unit) {
-    compt_expect_error(yield(3)); // Calling `yield` here should not be allowed.
-  };
-
-  example(using(yield));
+  yield(0, (yielded) => {
+    result :=
+      1 + yielded;
+    resume(result);
+  });
 };

@@ -23,6 +23,7 @@ import { evaluateYoComptBooleanFunctions } from "./builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "./builtins/compt_expect_error";
 import { evaluateComptPrint } from "./builtins/compt_print";
 import { evaluateYoComptStringFunctions } from "./builtins/compt_string_fns";
+import { evaluateDoExpression } from "./builtins/do";
 import { evaluateDrop } from "./builtins/drop";
 import {
   evaluateYoExprEq,
@@ -466,6 +467,13 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.the)) {
         // the
         return evaluateThe({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.do)) {
+        // do
+        return evaluateDoExpression({
+          expr,
+          env,
+          context: { ...context },
+        });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
         // import
         return evaluateImport({

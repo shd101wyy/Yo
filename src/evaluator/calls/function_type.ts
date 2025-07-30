@@ -80,7 +80,7 @@ export function tryToImplementFunctionByFunctionType({
   const functionValue: FunctionValue = {
     tag: ValueTag.Function,
     type: functionType,
-    body: functionBodyExpr,
+    body: functionBodyExpr, // Use transformed body
     frameLevel: env.frames.length - 1,
     funcName: undefined,
     funcId: `fn_${randomId()}`,
@@ -95,7 +95,7 @@ export function tryToImplementFunctionByFunctionType({
       ? new Map<string, CapturedVariableInfo>()
       : undefined;
   const evaluatedFunctionBody = evaluateBeginExpression({
-    expr: functionBodyExpr,
+    expr: functionBodyExpr, // Use transformed body
     env,
     context: {
       ...context,
