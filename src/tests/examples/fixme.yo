@@ -1,4 +1,5 @@
 open import "std";
+{ printf } :: import "std/libc/stdio";
 
 
 K :: (fn(compt(Value) : Type) -> compt(Type)) {
@@ -18,13 +19,13 @@ main :: (fn( resume : K(i32)) -> unit) {
         (i < 0) => resume(0),
         true => resume(i)
   ;
-  yielded := do yield(0);
   result :=
-    1 + yielded;
+    (((do yield(0)) + 1) + (do yield(2)));
+  printf("Result: %d\n", result);
   resume(result);
 };
 
-
+/*
 main2 :: (fn( resume : K(i32)) -> unit) {
   (compt(given(yield)) : Yield) =
     (i, resume) ->
@@ -38,3 +39,4 @@ main2 :: (fn( resume : K(i32)) -> unit) {
     resume(result);
   });
 };
+*/

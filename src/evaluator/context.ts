@@ -7,6 +7,27 @@ import { Token } from "../token";
 import { FunctionType, ModuleType, Type } from "../types";
 import { ModuleValue, Value } from "../value";
 
+export interface FunctionEvaluationContext {
+  type: FunctionType;
+  value?: FunctionValue;
+  /**
+   * For closures, track variables captured from outer scopes.
+   * Maps variable name to usage information.
+   */
+  capturedVariables?: Map<string, CapturedVariableInfo>;
+  /**
+   * The environment at the time the function body is being evaluated.
+   * This is used to determine the frame level for closure variable capture.
+   * The evaluationEnv should contain the frame of parameters/arguments
+   */
+  evaluationEnv: Environment;
+  /**
+   * Track `do` expressions encountered during function body evaluation.
+   * This indicates the function needs CPS transformation.
+   */
+  usedDo?: Expr[];
+}
+
 export interface EvaluatorContext {
   /**
    * Whether we are currently executing code (true) or just analyzing/type-checking it (false).
@@ -32,26 +53,7 @@ export interface EvaluatorContext {
    * Record the function that is currently being evaluated.
    * This is used for calling the `recur` function.
    */
-  isEvaluatingFunctionBody?: {
-    type: FunctionType;
-    value?: FunctionValue;
-    /**
-     * For closures, track variables captured from outer scopes.
-     * Maps variable name to usage information.
-     */
-    capturedVariables?: Map<string, CapturedVariableInfo>;
-    /**
-     * The environment at the time the function body is being evaluated.
-     * This is used to determine the frame level for closure variable capture.
-     * The evaluationEnv should contain the frame of parameters/arguments
-     */
-    evaluationEnv: Environment;
-    /**
-     * Track `do` expressions encountered during function body evaluation.
-     * This indicates the function needs CPS transformation.
-     */
-    usedDo?: Expr[];
-  };
+  isEvaluatingFunctionBody?: FunctionEvaluationContext;
 
   /**
    * Whether we are currently evaluating a while/for loop.
