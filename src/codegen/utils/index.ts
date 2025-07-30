@@ -3,6 +3,7 @@ import { exprIsFunctionCall, exprIsFunctionCallOf } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
   ArrayType,
+  ClosureType,
   EnumType,
   EnumVariant,
   FunctionType,
@@ -163,6 +164,22 @@ export function getTypeString(
       // For function pointers, use a simple void* fallback for now
       // This will be handled properly by generateFunctionPrototype when needed
       return "void*";
+    }
+    // Closure type
+    case TypeTag.Closure: {
+      const closureType = type as ClosureType;
+      // A closure is represented as a struct containing:
+      // 1. Function pointer for the call function
+      // 2. Capture data (if any)
+
+      // For now, use the existing type registration system
+      const cTypeName = context.types[type.id]?.cName;
+      if (!cTypeName) {
+        throw new Error(
+          `No C type name found for closure ${typeToString(type)}`
+        );
+      }
+      return cTypeName;
     }
     // Fixed size array
     case TypeTag.Array: {

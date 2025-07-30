@@ -12,7 +12,9 @@ import {
 } from "../../expr";
 import {
   ArrayType,
+  ClosureType,
   isArrayType,
+  isClosureType,
   isEnumType,
   isFunctionType,
   isMutPtrType,
@@ -32,6 +34,7 @@ import {
 import {
   isArrayValue,
   isBooleanValue,
+  isClosureValue,
   isComptStringValue,
   isEnumValue,
   isFunctionValue,
@@ -43,6 +46,7 @@ import {
   valueToString,
 } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
+import { FunctionGenerationContext } from "../functions/generation";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
@@ -702,6 +706,85 @@ function generateFuncCall(
           }
         }
       }
+    } else if (isClosureType(functionType)) {
+      // Handle closure calls - following Rust model
+      const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
+      if (runtimeArgExprs) {
+        // Generate closure value and function arguments
+        const closureCode = generateExpr(expr.func, indent, context);
+        const args = runtimeArgExprs.map((arg) => {
+          return generateExpr(arg, indent, context);
+        });
+
+        // Get the closure type and its function value to find the call function
+        const closureType = functionType as ClosureType;
+        const closureValue = expr.func.$?.value;
+
+        console.log(
+          `DEBUG: Closure call - functionType: ${typeToString(functionType)}, closureValue: ${closureValue ? valueToString(closureValue) : "undefined"}, expr.func.$: ${expr.func.$ ? "exists" : "undefined"}`
+        );
+        console.log(
+          `DEBUG: expr.func.$.type:`,
+          expr.func.$?.type ? typeToString(expr.func.$?.type) : "undefined"
+        );
+        console.log(
+          `DEBUG: expr.func.$.value:`,
+          expr.func.$?.value ? valueToString(expr.func.$?.value) : "undefined"
+        );
+        console.log(`DEBUG: expr.func:`, exprToString(expr.func));
+
+        // For runtime closures, we need to get the function info from the type system
+        // since the closure value is not available at compile time
+        let functionCName: string;
+
+        if (closureValue && isClosureValue(closureValue)) {
+          // Compile-time closure - we have the actual closure value
+          const functionValue = closureValue.functionValue;
+          const cName = context.functions[functionValue.funcId]?.cName;
+
+          if (!cName) {
+            return `// Error: No C function name found for closure function ${functionValue.funcId}`;
+          }
+          functionCName = cName;
+        } else {
+          // Runtime closure - we need to find the function from collected functions
+          // Look for functions with closure kinds that match this closure type
+          const matchingFunctions = Object.values(context.functions).filter(
+            (f) => f.value.type.closureKind === closureType.callType.closureKind
+          );
+
+          if (matchingFunctions.length === 1) {
+            functionCName = matchingFunctions[0]!.cName;
+          } else {
+            return `// Error: Cannot determine closure function name for runtime closure (found ${matchingFunctions.length} candidates)`;
+          }
+        }
+
+        // Call the static function with closure as first argument, followed by other args
+        const allArgs = [closureCode, ...args];
+        const argsList = allArgs.join(", ");
+        const returnType = closureType.callType.return.type;
+
+        if (isUnitType(returnType)) {
+          // If the closure returns unit, just call it without assignment
+          context.emitter.emitLine(`${indent}${functionCName}(${argsList});`);
+          return ""; // No return value
+        } else {
+          // If it returns a value, assign to a temp variable or return directly
+          const tempVar = expr.$?.variableName;
+          const returnTypeStr = getTypeString(returnType, context);
+          if (tempVar) {
+            context.emitter.emitLine(
+              `${indent}${returnTypeStr} ${tempVar} = ${functionCName}(${argsList});`
+            );
+            return tempVar; // Return the temp variable name
+          } else {
+            return `${functionCName}(${argsList})`;
+          }
+        }
+      } else {
+        return `// Error: Failed to transpile closure call - no runtime args`;
+      }
     } else if (isTypeValue(functionValue)) {
       // struct
       if (isStructType(functionValue.value)) {
@@ -851,6 +934,15 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     return generateComptValue(expr.$.value, context);
   }
 
+  // Check if we're in a closure function and this variable is captured
+  const functionContext = context as FunctionGenerationContext; // Type assertion to access function-specific context
+  if (
+    functionContext.currentClosureCaptures &&
+    functionContext.currentClosureCaptures.includes(expr.token.value)
+  ) {
+    return `closure_struct.${expr.token.value}`;
+  }
+
   return expr.token.value;
 }
 
@@ -955,6 +1047,51 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
       generateComptValue(element, context)
     );
     return `(${arrayTypeName}){ .data = { ${elementCodes.join(", ")} } }`;
+  } else if (isClosureValue(value)) {
+    // For closure values, generate only the captured data (following Rust model)
+    const closureType = value.type;
+    const cName = context.types[closureType.id]?.cName;
+    if (!cName) {
+      return `// Error: No C type name found for closure ${typeToString(closureType)}`;
+    }
+
+    // Generate closure initialization with only captured data
+    if (value.captureValue && isStructValue(value.captureValue)) {
+      // Closure with captures - generate compile-time closure
+      const captureStruct = value.captureValue;
+      const fieldCodes: string[] = [];
+
+      for (let i = 0; i < captureStruct.elements.length; i++) {
+        const element = captureStruct.elements[i];
+        if (element) {
+          const fieldCode = generateComptValue(element, context);
+          fieldCodes.push(fieldCode);
+        }
+      }
+
+      return `(${cName}){ ${fieldCodes.join(", ")} }`;
+    } else if (
+      closureType.captureType &&
+      isStructType(closureType.captureType)
+    ) {
+      // Runtime closure with captures - use field names as variable names
+      const captureType = closureType.captureType;
+      const fieldCodes: string[] = [];
+
+      for (let i = 0; i < captureType.elements.length; i++) {
+        const element = captureType.elements[i];
+        if (element) {
+          // For runtime closures, use the field label as the variable name
+          // This assumes the captured variable has the same name as the field
+          fieldCodes.push(element.label);
+        }
+      }
+
+      return `(${cName}){ ${fieldCodes.join(", ")} }`;
+    } else {
+      // Closure without captures - generate empty struct with dummy field
+      return `(${cName}){ 0 }`;
+    }
   } else if (isFunctionValue(value)) {
     // For function values, we need to register them and return their C function name
     const cName = context.functions[value.funcId]?.cName;

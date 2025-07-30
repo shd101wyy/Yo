@@ -1,6 +1,11 @@
 import { Expr, exprIsAtom, exprIsFunctionCall } from "../../expr";
 import { isFunctionType } from "../../types";
-import { isFunctionValue, isTypeValue, ModuleValue } from "../../value";
+import {
+  isClosureValue,
+  isFunctionValue,
+  isTypeValue,
+  ModuleValue,
+} from "../../value";
 import { collectType } from "../types";
 import { CodeGenContext } from "../utils";
 
@@ -105,6 +110,23 @@ export function findFunctionCallsInExpr(
         // Recursively collect functions called by this function
         findFunctionCallsInExpr(functionValue.body, context);
       }
+    }
+  }
+  // expr might be a closure value
+  else if (functionValue && isClosureValue(functionValue)) {
+    const closureFunctionValue = functionValue.functionValue;
+    if (context.functions[closureFunctionValue.funcId]) {
+      // Already collected this function
+      return;
+    } else {
+      // Collect the closure's function if it's not already collected
+      context.functions[closureFunctionValue.funcId] = {
+        value: closureFunctionValue,
+        cName: closureFunctionValue.funcId, // Use the function id as the C name
+      };
+
+      // Recursively collect functions called by this closure function
+      findFunctionCallsInExpr(closureFunctionValue.body, context);
     }
   }
   // expr might be a compt function call that returns a type

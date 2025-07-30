@@ -6,6 +6,7 @@ import {
 } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
+  ClosureType,
   FunctionType,
   isFunctionType,
   isMutPtrType,
@@ -14,6 +15,7 @@ import {
   isRefType,
   isUnitType,
   TypeId,
+  TypeTag,
   typeToString,
 } from "../../types";
 import { generateExpr, generateReturnStatement } from "../expressions";
@@ -32,6 +34,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
     { type: FunctionType; cName: string; cInclude?: string }
   >;
   currentFunctionName: string;
+  currentClosureCaptures?: string[]; // Variables captured by current closure function
 }
 
 /**
@@ -87,45 +90,72 @@ export function generateFunctionPrototype(
   const runtimeParams = functionType.parameters.filter(
     (param) => !param.isCompileTimeOnly
   );
-  const params = runtimeParams
-    .map((param, index) => {
-      const paramName = param.label || `param${index}`;
 
-      // Handle function pointer parameters specially
-      if (isFunctionType(param.type)) {
-        let functionPointerType = generateFunctionPrototype(
-          param.type,
-          "(*)",
-          context
-        ).replace(" (*)(", ` (*${paramName})(`);
+  const paramStrings: string[] = [];
 
-        if (!param.isMutable) {
-          functionPointerType = `const ${functionPointerType}`;
-        }
+  // For closure functions, add the closure struct as the first parameter
+  if (functionType.closureKind) {
+    // Find the closure type that uses this function type
+    const closureTypeEntry = Object.values(context.types).find(
+      (t) =>
+        t.type.tag === TypeTag.Closure &&
+        (t.type as ClosureType).callType === functionType
+    );
 
-        return functionPointerType;
-      } else {
-        // Handle non-function parameters
-        let paramTypeStr = getTypeString(param.type, context);
+    if (closureTypeEntry) {
+      // Use the closure type directly (which is now the same as the capture struct)
+      const closureTypeStr = closureTypeEntry.cName;
+      // For FnOnce and FnMut, the closure can modify captured variables
+      // Only Fn closures are immutable
+      const isImmutable = functionType.closureKind === "Fn";
+      const closureParamStr = isImmutable
+        ? `const ${closureTypeStr} closure_struct`
+        : `${closureTypeStr} closure_struct`;
+      paramStrings.push(closureParamStr);
+    }
+  }
 
-        if (!param.isMutable) {
-          // If the parameter is not mutable, we can use a const pointer
-          if (
-            isPtrType(param.type) ||
-            isMutPtrType(param.type) ||
-            isRefType(param.type) ||
-            isMutRefType(param.type)
-          ) {
-            paramTypeStr = `${paramTypeStr} const`;
-          } else {
-            paramTypeStr = `const ${paramTypeStr}`;
-          }
-        }
+  // Add regular parameters
+  const regularParamStrings = runtimeParams.map((param, index) => {
+    const paramName = param.label || `param${index}`;
 
-        return `${paramTypeStr} ${paramName}`;
+    // Handle function pointer parameters specially
+    if (isFunctionType(param.type)) {
+      let functionPointerType = generateFunctionPrototype(
+        param.type,
+        "(*)",
+        context
+      ).replace(" (*)(", ` (*${paramName})(`);
+
+      if (!param.isMutable) {
+        functionPointerType = `const ${functionPointerType}`;
       }
-    })
-    .join(", ");
+
+      return functionPointerType;
+    } else {
+      // Handle non-function parameters
+      let paramTypeStr = getTypeString(param.type, context);
+
+      if (!param.isMutable) {
+        // If the parameter is not mutable, we can use a const pointer
+        if (
+          isPtrType(param.type) ||
+          isMutPtrType(param.type) ||
+          isRefType(param.type) ||
+          isMutRefType(param.type)
+        ) {
+          paramTypeStr = `${paramTypeStr} const`;
+        } else {
+          paramTypeStr = `const ${paramTypeStr}`;
+        }
+      }
+
+      return `${paramTypeStr} ${paramName}`;
+    }
+  });
+
+  paramStrings.push(...regularParamStrings);
+  const params = paramStrings.join(", ");
   return `${returnTypeStr} ${cFunctionName}(${params})`;
 }
 
@@ -197,11 +227,36 @@ export function generateFunction(
   const previousFunctionName = context.currentFunctionName;
   context.currentFunctionName = functionName;
 
+  // Set closure capture context if this is a closure function
+  const previousClosureCaptures = context.currentClosureCaptures;
+  if (functionType.closureKind) {
+    // This is a closure function - find the closure type to get capture info
+    const closureTypeEntry = Object.values(context.types).find(
+      (t) =>
+        t.type.tag === TypeTag.Closure &&
+        (t.type as ClosureType).callType === functionType
+    );
+
+    if (
+      closureTypeEntry &&
+      (closureTypeEntry.type as ClosureType).captureType
+    ) {
+      const captureType = (closureTypeEntry.type as ClosureType).captureType;
+      if (captureType && captureType.tag === TypeTag.Struct) {
+        // Extract field names as captured variables
+        context.currentClosureCaptures = captureType.elements.map(
+          (elem) => elem.label
+        );
+      }
+    }
+  }
+
   // Generate function body with proper return handling
   generateFunctionBody(functionValue.body, functionType, "  ", context);
 
-  // Restore previous function name
+  // Restore previous function name and closure captures
   context.currentFunctionName = previousFunctionName;
+  context.currentClosureCaptures = previousClosureCaptures;
 
   emitter.emitLine(`}`);
 }

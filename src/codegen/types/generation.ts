@@ -1,5 +1,7 @@
 import {
+  ClosureType,
   EnumType,
+  isClosureType,
   isEnumType,
   isStructType,
   isTupleType,
@@ -36,6 +38,8 @@ export function generateTypeDeclarations(context: CodeGenContext): void {
 
     if (isStructType(type)) {
       generateStructDeclaration(type, cName, context);
+    } else if (isClosureType(type)) {
+      generateClosureDeclaration(type, cName, context);
     } else if (isUnionType(type)) {
       generateUnionDeclaration(type, cName, context);
     } else if (isEnumType(type)) {
@@ -75,6 +79,47 @@ export function generateSliceStructDeclarations(context: CodeGenContext): void {
     emitter.emitDeclarationLine(`} ${sliceTypeName};`);
     emitter.emitDeclarationLine("");
   }
+}
+
+/**
+ * Generate a closure declaration
+ */
+export function generateClosureDeclaration(
+  closureType: ClosureType,
+  cName: string,
+  context: CodeGenContext
+): void {
+  const emitter = context.emitter;
+
+  // A closure is represented as just the captured data
+  // Following the Rust model: no function pointer stored, call function is statically determined
+
+  // If the capture type is a struct, generate it inline as part of the closure
+  if (isStructType(closureType.captureType)) {
+    const captureStructType = closureType.captureType as StructType;
+
+    // Generate the closure as the capture struct directly
+    emitter.emitDeclarationLine(
+      `typedef struct { // ${closureType.typeName || "Closure"} : ${typeToString(closureType)}`
+    );
+    for (const element of captureStructType.elements) {
+      const fieldTypeStr = getTypeString(element.type, context);
+      emitter.emitDeclarationLine(`  ${fieldTypeStr} ${element.label};`);
+    }
+    emitter.emitDeclarationLine(`} ${cName};`);
+  }
+  // If no captures, generate an empty struct
+  else {
+    emitter.emitDeclarationLine(
+      `typedef struct { // ${closureType.typeName || "Closure"} : ${typeToString(closureType)}`
+    );
+    emitter.emitDeclarationLine(
+      `  char _unused; // Empty closure with no captures`
+    );
+    emitter.emitDeclarationLine(`} ${cName};`);
+  }
+
+  emitter.emitDeclarationLine(""); // Add blank line for readability
 }
 
 /**

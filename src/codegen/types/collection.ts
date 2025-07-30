@@ -1,8 +1,10 @@
 import { Expr, ExprTag } from "../../expr";
 import {
   ArrayType,
+  ClosureType,
   FunctionType,
   isArrayType,
+  isClosureType,
   isEnumType,
   isMutPtrType,
   isMutRefType,
@@ -121,7 +123,8 @@ export function collectType(type: Type, context: CodeGenContext): void {
     isStructType(type) ||
     isUnionType(type) ||
     isEnumType(type) ||
-    isTupleType(type)
+    isTupleType(type) ||
+    isClosureType(type)
   ) {
     // Use the struct's id to generate a mangled C type name
     const cTypeName = `yo_${type.id}`;
@@ -129,6 +132,15 @@ export function collectType(type: Type, context: CodeGenContext): void {
       type,
       cName: cTypeName,
     };
+
+    // For closures, also collect the call type but NOT the capture type
+    // (capture type will be generated inline with the closure)
+    if (isClosureType(type)) {
+      const closureType = type as ClosureType;
+      // Don't collect the capture type - it will be generated inline
+      // collectType(closureType.captureType, context);
+      collectTypesFromFunctionType(closureType.callType, context);
+    }
   }
   // Check if it's array types
   else if (isArrayType(type)) {
