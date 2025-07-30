@@ -72,6 +72,12 @@ export type FunctionValue = {
   body: Expr;
 
   /**
+   * The CPS-transformed function body, if the function uses 'do' expressions.
+   * This is kept separate from the original body for debugging and other purposes.
+   */
+  cpsTransformedBody?: Expr;
+
+  /**
    * The function name, if available
    */
   funcName?: string;

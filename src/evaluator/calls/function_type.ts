@@ -29,6 +29,63 @@ import {
 } from "../utils/closure";
 
 /**
+ * Creates a fresh evaluation context for function body evaluation
+ */
+function createFunctionBodyEvaluationContext(
+  context: EvaluatorContext,
+  functionType: FunctionType,
+  functionValue: FunctionValue,
+  env: Environment
+): {
+  evaluationContext: EvaluatorContext;
+  functionBodyContext: FunctionEvaluationContext;
+  capturedVariables: Map<string, CapturedVariableInfo> | undefined;
+} {
+  const { functionBodyContext, capturedVariables } =
+    createFreshFunctionBodyContext(functionType, functionValue, env);
+
+  const evaluationContext: EvaluatorContext = {
+    ...context,
+    isExecuting: false, // We're analyzing, not executing
+    isValidatingFunctionDefinition: true, // We're validating function definition
+    isEvaluatingFunctionBody: functionBodyContext,
+    expectedType: {
+      type: functionType.return.type,
+      env: env,
+    },
+  };
+
+  return { evaluationContext, functionBodyContext, capturedVariables };
+}
+
+/**
+ * Creates a fresh function body context for evaluation
+ */
+function createFreshFunctionBodyContext(
+  functionType: FunctionType,
+  functionValue: FunctionValue,
+  env: Environment
+): {
+  functionBodyContext: FunctionEvaluationContext;
+  capturedVariables: Map<string, CapturedVariableInfo> | undefined;
+} {
+  const capturedVariables =
+    functionType.closureKind !== undefined
+      ? new Map<string, CapturedVariableInfo>()
+      : undefined;
+
+  const functionBodyContext: FunctionEvaluationContext = {
+    type: functionType,
+    value: functionValue,
+    capturedVariables: capturedVariables,
+    evaluationEnv: env,
+    usedDo: undefined, // Initialize usedDo property
+  };
+
+  return { functionBodyContext, capturedVariables };
+}
+
+/**
  * expr should be the:
  * functionType(functionBody);
  */
@@ -80,6 +137,7 @@ export function tryToImplementFunctionByFunctionType({
       : keepTopLevelFrameAndComptimeVariablesFromEnv(callerEnv),
     functionType.parametersFrame
   );
+  const originalEnv = env; // backup the env for later CPS transformation use.
 
   // Create the function value
   const functionValue: FunctionValue = {
@@ -94,32 +152,15 @@ export function tryToImplementFunctionByFunctionType({
     SelfType: context.SelfType, // In theory, this should be undefined.
   };
 
-  // Evaluate the function body
-  const capturedVariables =
-    functionType.closureKind !== undefined
-      ? new Map<string, CapturedVariableInfo>()
-      : undefined;
-
-  // Create the function body evaluation context
-  const functionBodyContext: FunctionEvaluationContext = {
-    type: functionType,
-    value: functionValue,
-    capturedVariables: capturedVariables,
-    evaluationEnv: env, // Pass the current evaluation environment
-    usedDo: undefined, // Initialize usedDo property
-  };
-
   // Create a mutable context that we can check after evaluation
-  const evaluationContext: EvaluatorContext = {
-    ...context,
-    isExecuting: false, // We're analyzing, not executing
-    isValidatingFunctionDefinition: true, // We're validating function definition
-    isEvaluatingFunctionBody: functionBodyContext,
-    expectedType: {
-      type: functionType.return.type,
-      env: env, // QUESTION: What should be the env here?
-    },
-  };
+  // eslint-disable-next-line prefer-const
+  let { evaluationContext, capturedVariables } =
+    createFunctionBodyEvaluationContext(
+      context,
+      functionType,
+      functionValue,
+      env
+    );
 
   const evaluatedFunctionBody = evaluateBeginExpression({
     expr: functionBodyExpr, // Use transformed body
@@ -136,7 +177,10 @@ export function tryToImplementFunctionByFunctionType({
   env = evaluatedFunctionBody.$.env;
 
   // Check if the function uses `do` and apply CPS transformation
-  if (functionBodyContext.usedDo && functionBodyContext.usedDo.length > 0) {
+  if (
+    evaluationContext.isEvaluatingFunctionBody?.usedDo &&
+    evaluationContext.isEvaluatingFunctionBody?.usedDo.length > 0
+  ) {
     console.log(`Function uses 'do', applying CPS transformation...`);
 
     // Apply CPS transformation to the function body
@@ -145,12 +189,38 @@ export function tryToImplementFunctionByFunctionType({
       functionValue.funcId
     );
 
-    // Update the function value with the transformed body
-    functionValue.body = transformedBody;
+    // Store the transformed body separately
+    functionValue.cpsTransformedBody = transformedBody;
+
+    const { evaluationContext, capturedVariables: freshCapturedVariables } =
+      createFunctionBodyEvaluationContext(
+        context,
+        functionType,
+        functionValue,
+        originalEnv
+      );
+    capturedVariables = freshCapturedVariables;
+
+    // Re-evaluate the transformed body to ensure it's valid
+    const evaluatedTransformedBody = evaluateBeginExpression({
+      expr: transformedBody,
+      env: originalEnv,
+      context: evaluationContext,
+      variablesToAdd: [],
+    });
+
+    if (!evaluatedTransformedBody.$) {
+      throw formatErrorMessage({
+        token: functionBodyExpr.token,
+        errorMessage: `Failed to evaluate the CPS-transformed function body.`,
+      });
+    }
 
     console.log(
       `CPS transformation applied to function ${functionValue.funcId}`
     );
+
+    env = evaluatedTransformedBody.$.env;
   }
 
   // Check if the function body type matches the function return type

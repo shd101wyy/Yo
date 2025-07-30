@@ -935,6 +935,37 @@ function transformCondWithAssignmentToCps(
           const transformedRemainingBranches =
             transformBranches(remainingBranches);
 
+          const unwrappedBody = unwrapSingleBegin(body);
+          let transformedBody: Expr;
+
+          if (containsDoCall(unwrappedBody)) {
+            // Body contains do call, transform it with assignment context
+            transformedBody = transformExpressionWithDoToCps(
+              {
+                tag: ExprTag.FuncCall,
+                func: {
+                  tag: ExprTag.Atom,
+                  token: {
+                    type: TokenType.Operator,
+                    value: ":=",
+                    position: contextToken.position,
+                    modulePath: contextToken.modulePath,
+                    inputString: contextToken.inputString,
+                  },
+                },
+                args: [assignmentVariable, unwrappedBody],
+                token: contextToken,
+                isInfix: true,
+              } as FuncCallExpr,
+              remainingExprs,
+              continuationVar,
+              contextToken
+            );
+          } else {
+            // No do calls in body, just create assignment continuation
+            transformedBody = createAssignmentContinuation(unwrappedBody);
+          }
+
           // Create a cond with this clean branch and a fallback to the transformed remaining branches
           const condWithFallback: FuncCallExpr = {
             tag: ExprTag.FuncCall,
@@ -951,10 +982,7 @@ function transformCondWithAssignmentToCps(
             args: [
               {
                 ...firstBranch,
-                args: [
-                  condition,
-                  createAssignmentContinuation(unwrapSingleBegin(body)),
-                ],
+                args: [condition, transformedBody],
               },
               {
                 tag: ExprTag.FuncCall,
@@ -992,6 +1020,53 @@ function transformCondWithAssignmentToCps(
         } else {
           // No remaining conditions have `do` calls, so we can process all remaining branches normally
           const allBranches = [firstBranch, ...remainingBranches];
+
+          // Special case: if we only have one branch and it's `true => body`,
+          // we can simplify by just transforming the body directly
+          if (allBranches.length === 1) {
+            const singleBranch = allBranches[0]!;
+            if (
+              exprIsFunctionCall(singleBranch) &&
+              singleBranch.isInfix &&
+              exprIsFunctionCallOf(singleBranch, "=>") &&
+              singleBranch.args[0]!.tag === ExprTag.Atom &&
+              "token" in singleBranch.args[0]! &&
+              singleBranch.args[0]!.token.value === "true"
+            ) {
+              // This is `true => body`, just transform the body directly with assignment
+              const body = singleBranch.args[1]!;
+              const unwrappedBody = unwrapSingleBegin(body);
+
+              if (containsDoCall(unwrappedBody)) {
+                // Transform the body with assignment context
+                return transformExpressionWithDoToCps(
+                  {
+                    tag: ExprTag.FuncCall,
+                    func: {
+                      tag: ExprTag.Atom,
+                      token: {
+                        type: TokenType.Operator,
+                        value: ":=",
+                        position: contextToken.position,
+                        modulePath: contextToken.modulePath,
+                        inputString: contextToken.inputString,
+                      },
+                    },
+                    args: [assignmentVariable, unwrappedBody],
+                    token: contextToken,
+                    isInfix: true,
+                  } as FuncCallExpr,
+                  remainingExprs,
+                  continuationVar,
+                  contextToken
+                );
+              } else {
+                // No do calls in body, just create assignment continuation
+                return createAssignmentContinuation(unwrappedBody);
+              }
+            }
+          }
+
           const transformedBranches = allBranches.map((branch) => {
             if (
               exprIsFunctionCall(branch) &&
@@ -1113,6 +1188,226 @@ function transformCondExpressionForAssignment(
       const unwrappedBody = unwrapSingleBegin(body);
 
       if (containsDoCall(unwrappedBody)) {
+        // Special case: if this is a `true =>` branch with a single do call,
+        // optimize it directly instead of creating nested assignments
+        if (
+          condition.tag === ExprTag.Atom &&
+          "token" in condition &&
+          condition.token.value === "true" &&
+          exprIsFunctionCall(unwrappedBody) &&
+          exprIsFunctionCallOf(unwrappedBody, "do")
+        ) {
+          // This is `true => do(...)`, transform it directly with assignment in continuation
+          const doExpr = unwrappedBody;
+          const resultVar = `cps_result_${randomId()}`;
+
+          // Create continuation that assigns the result and continues
+          const assignment: FuncCallExpr = {
+            tag: ExprTag.FuncCall,
+            func: {
+              tag: ExprTag.Atom,
+              token: {
+                type: TokenType.Operator,
+                value: ":=",
+                position: contextToken.position,
+                modulePath: contextToken.modulePath,
+                inputString: contextToken.inputString,
+              },
+            },
+            args: [
+              assignmentVariable,
+              {
+                tag: ExprTag.Atom,
+                token: {
+                  type: TokenType.Identifier,
+                  value: resultVar,
+                  position: contextToken.position,
+                  modulePath: contextToken.modulePath,
+                  inputString: contextToken.inputString,
+                },
+              },
+            ],
+            token: contextToken,
+            isInfix: true,
+          };
+
+          const allRemainingExprs = [assignment, ...remainingExprs];
+
+          let continuationBody: Expr;
+          if (allRemainingExprs.length === 1) {
+            continuationBody = transformExpressionToCps(
+              allRemainingExprs[0]!,
+              continuationVar
+            );
+          } else {
+            const transformedRemainingExprs = allRemainingExprs.map((expr) =>
+              transformExpressionToCps(expr, continuationVar)
+            );
+
+            if (transformedRemainingExprs.length === 1) {
+              continuationBody = transformedRemainingExprs[0]!;
+            } else {
+              continuationBody = {
+                tag: ExprTag.FuncCall,
+                func: {
+                  tag: ExprTag.Atom,
+                  token: {
+                    type: TokenType.Identifier,
+                    value: BuiltinKeywords.begin[0]!,
+                    position: contextToken.position,
+                    modulePath: contextToken.modulePath,
+                    inputString: contextToken.inputString,
+                  },
+                },
+                args: transformedRemainingExprs,
+                token: contextToken,
+              } as FuncCallExpr;
+            }
+          }
+
+          // Create the continuation closure
+          const continuation: Expr = {
+            tag: ExprTag.FuncCall,
+            func: {
+              tag: ExprTag.Atom,
+              token: {
+                type: TokenType.Operator,
+                value: "=>",
+                position: contextToken.position,
+                modulePath: contextToken.modulePath,
+                inputString: contextToken.inputString,
+              },
+            },
+            args: [
+              {
+                tag: ExprTag.Atom,
+                token: {
+                  type: TokenType.Identifier,
+                  value: resultVar,
+                  position: contextToken.position,
+                  modulePath: contextToken.modulePath,
+                  inputString: contextToken.inputString,
+                },
+              },
+              continuationBody,
+            ],
+            token: contextToken,
+            isInfix: true,
+          };
+
+          // Transform the do call
+          const innerExpr = doExpr.args[0]!;
+          if (!exprIsFunctionCall(innerExpr)) {
+            throw new Error(
+              `do() argument must be a function call, got: ${innerExpr.tag}`
+            );
+          }
+
+          const transformedBody: FuncCallExpr = {
+            ...innerExpr,
+            args: [...innerExpr.args, continuation],
+          };
+
+          return {
+            ...branch,
+            args: [condition, transformedBody],
+          };
+        }
+
+        // Special case: if this is a `true =>` branch with an already-transformed yield call,
+        // we need to modify the continuation to include the assignment
+        if (
+          condition.tag === ExprTag.Atom &&
+          "token" in condition &&
+          condition.token.value === "true" &&
+          exprIsFunctionCall(unwrappedBody) &&
+          unwrappedBody.args.length >= 2 &&
+          exprIsFunctionCall(
+            unwrappedBody.args[unwrappedBody.args.length - 1]!
+          ) &&
+          exprIsFunctionCallOf(
+            unwrappedBody.args[unwrappedBody.args.length - 1]! as FuncCallExpr,
+            "=>"
+          )
+        ) {
+          // This is a yield call with a continuation - we need to modify the continuation
+          const yieldCall = unwrappedBody;
+          const existingContinuation = yieldCall.args[
+            yieldCall.args.length - 1
+          ]! as FuncCallExpr;
+          const continuationParam = existingContinuation.args[0]!;
+
+          // Create the assignment with the continuation parameter
+          const assignment: FuncCallExpr = {
+            tag: ExprTag.FuncCall,
+            func: {
+              tag: ExprTag.Atom,
+              token: {
+                type: TokenType.Operator,
+                value: ":=",
+                position: contextToken.position,
+                modulePath: contextToken.modulePath,
+                inputString: contextToken.inputString,
+              },
+            },
+            args: [assignmentVariable, continuationParam],
+            token: contextToken,
+            isInfix: true,
+          };
+
+          // Combine assignment with remaining expressions
+          const allRemainingExprs = [assignment, ...remainingExprs];
+
+          let newContinuationBody: Expr;
+          if (allRemainingExprs.length === 1) {
+            newContinuationBody = transformExpressionToCps(
+              allRemainingExprs[0]!,
+              continuationVar
+            );
+          } else {
+            const transformedRemainingExprs = allRemainingExprs.map((expr) =>
+              transformExpressionToCps(expr, continuationVar)
+            );
+
+            if (transformedRemainingExprs.length === 1) {
+              newContinuationBody = transformedRemainingExprs[0]!;
+            } else {
+              newContinuationBody = {
+                tag: ExprTag.FuncCall,
+                func: {
+                  tag: ExprTag.Atom,
+                  token: {
+                    type: TokenType.Identifier,
+                    value: BuiltinKeywords.begin[0]!,
+                    position: contextToken.position,
+                    modulePath: contextToken.modulePath,
+                    inputString: contextToken.inputString,
+                  },
+                },
+                args: transformedRemainingExprs,
+                token: contextToken,
+              } as FuncCallExpr;
+            }
+          }
+
+          // Create the new continuation
+          const newContinuation: Expr = {
+            ...existingContinuation,
+            args: [continuationParam, newContinuationBody],
+          };
+
+          // Create the new yield call with the modified continuation
+          const newYieldCall: FuncCallExpr = {
+            ...yieldCall,
+            args: [...yieldCall.args.slice(0, -1), newContinuation],
+          };
+
+          return {
+            ...branch,
+            args: [condition, newYieldCall],
+          };
+        }
+
         // Transform the body with assignment context
         const transformedBody = transformExpressionWithDoToCps(
           {
@@ -1141,6 +1436,96 @@ function transformCondExpressionForAssignment(
           args: [condition, transformedBody],
         };
       } else {
+        // No do calls in body, but check if it's already a transformed yield call
+        if (
+          exprIsFunctionCall(unwrappedBody) &&
+          unwrappedBody.args.length >= 2 &&
+          exprIsFunctionCall(
+            unwrappedBody.args[unwrappedBody.args.length - 1]!
+          ) &&
+          exprIsFunctionCallOf(
+            unwrappedBody.args[unwrappedBody.args.length - 1]! as FuncCallExpr,
+            "=>"
+          )
+        ) {
+          // This is already a yield call with continuation - modify the continuation to include assignment
+          const yieldCall = unwrappedBody;
+          const existingContinuation = yieldCall.args[
+            yieldCall.args.length - 1
+          ]! as FuncCallExpr;
+          const continuationParam = existingContinuation.args[0]!;
+
+          // Create the assignment with the continuation parameter
+          const assignment: FuncCallExpr = {
+            tag: ExprTag.FuncCall,
+            func: {
+              tag: ExprTag.Atom,
+              token: {
+                type: TokenType.Operator,
+                value: ":=",
+                position: contextToken.position,
+                modulePath: contextToken.modulePath,
+                inputString: contextToken.inputString,
+              },
+            },
+            args: [assignmentVariable, continuationParam],
+            token: contextToken,
+            isInfix: true,
+          };
+
+          // Combine assignment with remaining expressions
+          const allRemainingExprs = [assignment, ...remainingExprs];
+
+          let newContinuationBody: Expr;
+          if (allRemainingExprs.length === 1) {
+            newContinuationBody = transformExpressionToCps(
+              allRemainingExprs[0]!,
+              continuationVar
+            );
+          } else {
+            const transformedRemainingExprs = allRemainingExprs.map((expr) =>
+              transformExpressionToCps(expr, continuationVar)
+            );
+
+            if (transformedRemainingExprs.length === 1) {
+              newContinuationBody = transformedRemainingExprs[0]!;
+            } else {
+              newContinuationBody = {
+                tag: ExprTag.FuncCall,
+                func: {
+                  tag: ExprTag.Atom,
+                  token: {
+                    type: TokenType.Identifier,
+                    value: BuiltinKeywords.begin[0]!,
+                    position: contextToken.position,
+                    modulePath: contextToken.modulePath,
+                    inputString: contextToken.inputString,
+                  },
+                },
+                args: transformedRemainingExprs,
+                token: contextToken,
+              } as FuncCallExpr;
+            }
+          }
+
+          // Create the new continuation
+          const newContinuation: Expr = {
+            ...existingContinuation,
+            args: [continuationParam, newContinuationBody],
+          };
+
+          // Create the new yield call with the modified continuation
+          const newYieldCall: FuncCallExpr = {
+            ...yieldCall,
+            args: [...yieldCall.args.slice(0, -1), newContinuation],
+          };
+
+          return {
+            ...branch,
+            args: [condition, newYieldCall],
+          };
+        }
+
         // No do calls in body, create assignment continuation
         const assignment: FuncCallExpr = {
           tag: ExprTag.FuncCall,
