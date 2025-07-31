@@ -4,6 +4,7 @@ import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
+  cloneExpr,
   Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -119,7 +120,7 @@ export function evaluateAnonymousFunctionImplementation({
     });
   }
   const functionDeclarationExpr = expr.args[0]!;
-  const functionBodyExpr = expr.args[1]!;
+  const functionBodyExpr = cloneExpr(expr.args[1]!);
 
   let parameterExprs: Expr[] = [];
   if (

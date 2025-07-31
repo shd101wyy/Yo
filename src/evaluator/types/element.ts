@@ -274,6 +274,7 @@ Please consider adding "compt"  modifier to the field label.`,
             env,
           }
         : undefined;
+
     const evaluatedAssignedValueExpr = context.evaluateExpression({
       expr: assignedValueExpr,
       env,

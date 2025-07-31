@@ -310,13 +310,6 @@ export function evaluateFunctionCall({
       }
       // Self function call
       else if (functionName === "Self" && context.SelfType) {
-        // DEBUG: Log Self resolution
-        if (isStructType(context.SelfType)) {
-          console.log(
-            `DEBUG: Resolving Self function call to struct ID: ${context.SelfType.id}`
-          );
-        }
-
         const value = createTypeValue(context.SelfType);
         functions = [
           {

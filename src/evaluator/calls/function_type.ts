@@ -6,7 +6,7 @@ import {
   pushEnvFrame,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, FuncCallExpr } from "../../expr";
+import { cloneExpr, Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import {
   areTypesCompatible,
@@ -126,7 +126,7 @@ export function tryToImplementFunctionByFunctionType({
       errorMessage: `Failed to implement the function. Expected 1 argument for the function body, got ${argExprs.length}.`,
     });
   }
-  const functionBodyExpr = argExprs[0]!;
+  const functionBodyExpr = cloneExpr(argExprs[0]!); // NOTE: cloneExpr here is necessary.
 
   // Add parameters to the env new frame
   let env = pushEnvFrame(
