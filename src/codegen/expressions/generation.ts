@@ -87,7 +87,7 @@ function generateFuncCall(
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.borrow)) {
     const firstExpr = expr.args[0];
     const secondExpr = expr.args[1];
-    
+
     if (!firstExpr || !secondExpr) {
       return `// Error: borrow requires two arguments`;
     }
@@ -130,12 +130,13 @@ function generateFuncCall(
     // Check if this borrow expression returns a value
     const borrowReturnType = expr.$?.type;
     const tempVar = expr.$?.variableName;
-    const isReturningValue = borrowReturnType && !isUnitType(borrowReturnType) && tempVar;
+    const isReturningValue =
+      borrowReturnType && !isUnitType(borrowReturnType) && tempVar;
 
     // Generate a borrow block
     const tempVariableName = expr.$?.variableName;
     const valueType = expr.$?.type;
-    
+
     if (tempVariableName && valueType) {
       // Declare temp variable for the borrow result
       if (!isUnitType(valueType)) {
@@ -144,49 +145,65 @@ function generateFuncCall(
         );
       }
     }
-    
+
     context.emitter.emitLine(`${indent}{ // borrow block`);
-    
+
     // Generate reference declarations for each borrowed value
     for (let i = 0; i < borrowedValueExprs.length; i++) {
       const borrowedExpr = borrowedValueExprs[i]!;
       const bindingExpr = borrowBindingExprs[i]!;
-      
+
       if (!exprIsAtom(bindingExpr)) {
-        context.emitter.emitLine(`${indent}  // Error: Expected identifier for borrow binding`);
+        context.emitter.emitLine(
+          `${indent}  // Error: Expected identifier for borrow binding`
+        );
         continue;
       }
-      
+
       const bindingName = bindingExpr.token.value;
       const borrowedCode = generateExpr(borrowedExpr, indent + "  ", context);
-      
-      // Generate actual reference variable declaration
-      // For now, assume it's a mutable reference to i32
-      // TODO: Get the actual type from the borrowed expression
-      context.emitter.emitLine(`${indent}  int32_t* ${bindingName} = ${borrowedCode};`);
+
+      // Get the actual type from the borrowed expression
+      const borrowedType = borrowedExpr.$?.type;
+      if (borrowedType) {
+        // Generate reference variable with the correct type
+        const typeStr = getTypeString(borrowedType, context);
+        context.emitter.emitLine(
+          `${indent}  ${typeStr} ${bindingName} = ${borrowedCode};`
+        );
+      } else {
+        // Fallback if no type information available
+        context.emitter.emitLine(
+          `${indent}  // Error: No type information for borrowed expression`
+        );
+      }
     }
-    
+
     // Generate the lambda body
     if (lambdaBody) {
-      if (isReturningValue) {
-        // If borrow returns a value, assign the lambda result to the temp variable
-        const bodyCode = generateExpr(lambdaBody, indent + "  ", context);
-        if (bodyCode) {
+      const bodyCode = generateExpr(lambdaBody, indent + "  ", context);
+      if (bodyCode) {
+        // Check if the lambda body has control flow (like return statements)
+        const hasControlFlow = lambdaBody.$?.controlFlow;
+
+        if (hasControlFlow) {
+          // If lambda has control flow (return), just execute it without assignment
+          context.emitter.emitLine(`${indent}  ${bodyCode};`);
+        } else if (isReturningValue) {
+          // If borrow returns a value and no control flow, assign the lambda result to the temp variable
           context.emitter.emitLine(`${indent}  ${tempVar} = ${bodyCode};`);
-        }
-      } else {
-        // If borrow doesn't return a value, just execute the lambda body
-        const bodyCode = generateExpr(lambdaBody, indent + "  ", context);
-        if (bodyCode) {
+        } else {
+          // If borrow doesn't return a value, just execute the lambda body
           context.emitter.emitLine(`${indent}  ${bodyCode};`);
         }
       }
     }
-    
+
     context.emitter.emitLine(`${indent}} // end borrow block`);
-    
-    // Return the temp variable name if this borrow returns a value
-    return isReturningValue ? tempVar! : "";
+
+    // Return the temp variable name if this borrow returns a value and has no control flow
+    const hasControlFlow = lambdaBody?.$?.controlFlow;
+    return isReturningValue && !hasControlFlow ? tempVar! : "";
   }
 
   // return
@@ -873,7 +890,16 @@ function generateFuncCall(
         }
 
         // Call the static function with closure as first argument, followed by other args
-        const allArgs = [closureCode, ...args];
+        // For FnMut and Fn, pass closure by reference; for FnMove, pass by value
+        const closureKind = closureType.callType.closureKind;
+        let closureArg: string;
+        if (closureKind === "FnMut" || closureKind === "Fn") {
+          closureArg = `&(${closureCode})`; // Pass by reference
+        } else {
+          closureArg = closureCode; // Pass by value (FnMove)
+        }
+
+        const allArgs = [closureArg, ...args];
         const argsList = allArgs.join(", ");
         const returnType = closureType.callType.return.type;
 
@@ -1052,7 +1078,19 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     functionContext.currentClosureCaptures &&
     functionContext.currentClosureCaptures.includes(expr.token.value)
   ) {
-    return `closure_struct.${expr.token.value}`;
+    // We're accessing a captured variable in a closure function
+    const closureKind = functionContext.currentClosureKind;
+
+    if (closureKind === "FnMut") {
+      // For FnMut, closure parameter is a pointer, and captured variables are also pointers
+      return `*(closure_struct->${expr.token.value})`;
+    } else if (closureKind === "Fn") {
+      // For Fn, closure parameter is a const pointer, and captured variables are const pointers
+      return `*(closure_struct->${expr.token.value})`;
+    } else {
+      // For FnMove, closure parameter is by value, and captured variables are values
+      return `closure_struct.${expr.token.value}`;
+    }
   }
 
   return expr.token.value;
@@ -1188,14 +1226,21 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
     ) {
       // Runtime closure with captures - use field names as variable names
       const captureType = closureType.captureType;
+      const closureKind = closureType.callType.closureKind;
       const fieldCodes: string[] = [];
 
       for (let i = 0; i < captureType.elements.length; i++) {
         const element = captureType.elements[i];
         if (element) {
           // For runtime closures, use the field label as the variable name
-          // This assumes the captured variable has the same name as the field
-          fieldCodes.push(element.label);
+          // For FnMut and Fn, we need to capture by reference (&variable)
+          // For FnMove, we capture by value (variable)
+          if (closureKind === "FnMut" || closureKind === "Fn") {
+            fieldCodes.push(`&${element.label}`);
+          } else {
+            // FnMove or default - capture by value
+            fieldCodes.push(element.label);
+          }
         }
       }
 

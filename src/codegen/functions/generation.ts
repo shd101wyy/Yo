@@ -6,6 +6,7 @@ import {
 } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
+  ClosureKind,
   ClosureType,
   FunctionType,
   isFunctionType,
@@ -35,6 +36,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   >;
   currentFunctionName: string;
   currentClosureCaptures?: string[]; // Variables captured by current closure function
+  currentClosureKind?: ClosureKind; // Kind of current closure function (FnMove, FnMut, Fn)
 }
 
 /**
@@ -105,12 +107,23 @@ export function generateFunctionPrototype(
     if (closureTypeEntry) {
       // Use the closure type directly (which is now the same as the capture struct)
       const closureTypeStr = closureTypeEntry.cName;
-      // For FnMove and FnMut, the closure can modify captured variables
-      // Only Fn closures are immutable
-      const isImmutable = functionType.closureKind === "Fn";
-      const closureParamStr = isImmutable
-        ? `const ${closureTypeStr} closure_struct`
-        : `${closureTypeStr} closure_struct`;
+
+      // Determine parameter type based on closure kind
+      let closureParamStr: string;
+      if (functionType.closureKind === "FnMove") {
+        // FnMove: pass by value (copy), can be mutable since it's a copy
+        closureParamStr = `${closureTypeStr} closure_struct`;
+      } else if (functionType.closureKind === "FnMut") {
+        // FnMut: pass by pointer (reference), mutable
+        closureParamStr = `${closureTypeStr}* closure_struct`;
+      } else if (functionType.closureKind === "Fn") {
+        // Fn: pass by const pointer (immutable reference)
+        closureParamStr = `const ${closureTypeStr}* closure_struct`;
+      } else {
+        // Default fallback
+        closureParamStr = `${closureTypeStr} closure_struct`;
+      }
+
       paramStrings.push(closureParamStr);
     }
   }
@@ -229,6 +242,7 @@ export function generateFunction(
 
   // Set closure capture context if this is a closure function
   const previousClosureCaptures = context.currentClosureCaptures;
+  const previousClosureKind = context.currentClosureKind;
   if (functionType.closureKind) {
     // This is a closure function - find the closure type to get capture info
     const closureTypeEntry = Object.values(context.types).find(
@@ -247,6 +261,8 @@ export function generateFunction(
         context.currentClosureCaptures = captureType.elements.map(
           (elem) => elem.label
         );
+        // Store the closure kind for proper variable access
+        context.currentClosureKind = functionType.closureKind;
       }
     }
   }
@@ -257,6 +273,7 @@ export function generateFunction(
   // Restore previous function name and closure captures
   context.currentFunctionName = previousFunctionName;
   context.currentClosureCaptures = previousClosureCaptures;
+  context.currentClosureKind = previousClosureKind;
 
   emitter.emitLine(`}`);
 }
@@ -305,8 +322,40 @@ export function generateFunctionBody(
         // For unit/void functions, just generate the expression but don't return
         generateExpr(lastExpr, indent, context);
       } else if (lastExpr) {
-        // For other functions, return the last expression
-        generateReturnStatement(lastExpr, indent, context);
+        // Check if the last expression has control flow (like return statements)
+        const hasControlFlow = lastExpr.$?.controlFlow;
+
+        // Special case: check if it's a borrow expression which might contain returns
+        const isBorrowExpression =
+          exprIsFunctionCall(lastExpr) &&
+          exprIsFunctionCallOf(lastExpr, BuiltinKeywords.borrow);
+
+        // Check if last expr is unit - either by type or by being a tuple() call with no args
+        const isLastExprUnit =
+          isUnitType(lastExpr.$?.type) ||
+          (exprIsFunctionCall(lastExpr) &&
+            exprIsFunctionCallOf(lastExpr, BuiltinKeywords.tuple) &&
+            lastExpr.args.length === 0);
+        const prevExpr = args.length > 1 ? args[args.length - 2] : null;
+        const prevExprHasControlFlow = prevExpr?.$?.controlFlow;
+        const prevIsBorrow =
+          prevExpr &&
+          exprIsFunctionCall(prevExpr) &&
+          exprIsFunctionCallOf(prevExpr, BuiltinKeywords.borrow);
+
+        if (isLastExprUnit && (prevExprHasControlFlow || prevIsBorrow)) {
+          // Don't generate return for unit if previous expression has control flow or is borrow
+          // Skip generating anything - the control flow already happened in the previous expression
+        } else if (hasControlFlow || isBorrowExpression) {
+          // If the expression has control flow or is a borrow, just generate it without adding a return
+          const exprCode = generateExpr(lastExpr, indent, context);
+          if (exprCode) {
+            emitter.emitLine(`${indent}${exprCode};`);
+          }
+        } else {
+          // For other functions, return the last expression
+          generateReturnStatement(lastExpr, indent, context);
+        }
       }
     } else if (findReturn && args.length > 0) {
       // We found an explicit return statement, but there might be a trailing unit expression

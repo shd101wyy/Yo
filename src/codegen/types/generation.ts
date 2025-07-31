@@ -97,13 +97,31 @@ export function generateClosureDeclaration(
   // If the capture type is a struct, generate it inline as part of the closure
   if (isStructType(closureType.captureType)) {
     const captureStructType = closureType.captureType as StructType;
+    const closureKind = closureType.callType.closureKind;
 
     // Generate the closure as the capture struct directly
     emitter.emitDeclarationLine(
       `typedef struct { // ${closureType.typeName || "Closure"} : ${typeToString(closureType)}`
     );
     for (const element of captureStructType.elements) {
-      const fieldTypeStr = getTypeString(element.type, context);
+      let fieldTypeStr: string;
+
+      if (closureKind === "FnMove") {
+        // For FnMove, capture by value
+        fieldTypeStr = getTypeString(element.type, context);
+      } else if (closureKind === "FnMut") {
+        // For FnMut, capture by mutable reference
+        const elementTypeStr = getTypeString(element.type, context);
+        fieldTypeStr = `${elementTypeStr}*`;
+      } else if (closureKind === "Fn") {
+        // For Fn, capture by immutable reference (const pointer)
+        const elementTypeStr = getTypeString(element.type, context);
+        fieldTypeStr = `const ${elementTypeStr}*`;
+      } else {
+        // Default to value capture for unknown closure kinds
+        fieldTypeStr = getTypeString(element.type, context);
+      }
+
       emitter.emitDeclarationLine(`  ${fieldTypeStr} ${element.label};`);
     }
     emitter.emitDeclarationLine(`} ${cName};`);
