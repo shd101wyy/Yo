@@ -1,0 +1,420 @@
+/**
+ * ArrayList - A dynamic array implementation for Yo language
+ * 
+ * Similar to Rust's Vec<T>, this ArrayList provides:
+ * - Dynamic resizing
+ * - Memory management via global allocator
+ * - Type safety
+ * - RAII for automatic cleanup
+ */
+
+{ Option, ? } :: import "../../data/option.yo";
+{ Result } :: import "../../data/result.yo";
+open import "../../data/primitives/ptr.yo";
+{ malloc, calloc, realloc, free } :: import "../../libc/stdlib.yo";
+open import "../../data/primitives/i32.yo";
+open import "../../data/primitives/usize.yo";
+open import "../../data/primitives/compt_int.yo";
+
+/**
+ * Global allocator interface - similar to Rust's GlobalAlloc trait
+ * This provides a consistent interface for memory allocation
+ */
+GlobalAllocator :: module {
+  /**
+   * Allocate memory for count items of type T
+   * Returns Some(ptr) on success, None on allocation failure
+   */
+  alloc :: (fn(forall(T: Type), count: usize) -> ?(*(T))) {
+    size := (count * sizeof(T).as(usize));
+    ptr := malloc(size);
+    match ptr,
+      .Some => {
+        // Cast the void pointer to the correct type
+        typed_ptr := ptr.value.cast(*(T));
+        .Some(typed_ptr)
+      },
+      .None => .None
+  };
+
+  /**
+   * Allocate zeroed memory for count items of type T
+   */
+  alloc_zeroed :: (fn(forall(T: Type), count: usize) -> ?(*(T))) {
+    ptr := calloc(count, sizeof(T).as(usize));
+    match ptr,
+      .Some => {
+        typed_ptr := ptr.value.cast(*(T));
+        .Some(typed_ptr)
+      },
+      .None => .None
+  };
+
+  /**
+   * Reallocate memory to new_count items
+   */
+  realloc :: (fn(forall(T: Type), old_ptr: *(T), new_count: usize) -> ?(*(T))) {
+    raw_old := old_ptr.cast(?*!(void));
+    new_size := (new_count * sizeof(T));
+    new_ptr := realloc(raw_old, new_size);
+    match new_ptr,
+      .Some => {
+        typed_ptr := __yo_ptr_cast(new_ptr.value, *(T));
+        Some(typed_ptr)
+      },
+      .None => None
+  };
+
+  /**
+   * Free memory allocated by this allocator
+   */
+  dealloc :: (fn(forall(T: Type), ptr: *(T)) -> unit) {
+    raw_ptr := __yo_ptr_cast(ptr, ?*!(unit));
+    free(raw_ptr);
+  };
+
+  export alloc, alloc_zeroed, realloc, dealloc;
+};
+
+/**
+ * ArrayList error types
+ */
+ArrayListError :: enum {
+  OutOfMemory,
+  IndexOutOfBounds(index: usize, len: usize),
+  EmptyList
+};
+
+/**
+ * ArrayList type - a growable array
+ * 
+ * Memory layout:
+ * - ptr: pointer to the heap-allocated buffer
+ * - len: current number of elements
+ * - capacity: total capacity of the buffer
+ */
+ArrayList :: (fn(compt(T): Type) -> compt(Type))
+  struct(
+    ptr: ?(*(T)),
+    len: usize,
+    capacity: usize
+  )
+;
+
+/**
+ * ArrayList methods
+ */
+ArrayListMethods :: (fn(compt(T): Type) -> compt(Type))
+  module {
+    Self :: ArrayList(T);
+
+    /**
+     * Create a new empty ArrayList
+     */
+    new :: (fn() -> Self) {
+      Self {
+        ptr: None,
+        len: 0,
+        capacity: 0
+      }
+    };
+
+    /**
+     * Create an ArrayList with a specific initial capacity
+     */
+    with_capacity :: (fn(capacity: usize) -> Result(Self, ArrayListError)) {
+      if capacity == 0 {
+        Ok(new())
+      } else {
+        match GlobalAllocator.alloc(T, capacity),
+          .Some => {
+            Ok(Self {
+              ptr: Some(ptr.value),
+              len: 0,
+              capacity: capacity
+            })
+          },
+          .None => Error(ArrayListError.OutOfMemory)
+      }
+    };
+
+    /**
+     * Get the current length
+     */
+    len :: (fn(self: &(Self)) -> usize) {
+      self.len
+    };
+
+    /**
+     * Check if the ArrayList is empty
+     */
+    is_empty :: (fn(self: &(Self)) -> bool) {
+      self.len == 0
+    };
+
+    /**
+     * Get the current capacity
+     */
+    capacity :: (fn(self: &(Self)) -> usize) {
+      self.capacity
+    };
+
+    /**
+     * Ensure capacity for at least min_capacity elements
+     * Grows the buffer if needed
+     */
+    reserve :: (fn(self: &!(Self), min_capacity: usize) -> Result(unit, ArrayListError)) {
+      if min_capacity <= self.capacity {
+        Ok(())
+      } else {
+        // Calculate new capacity - use growth factor of 2
+        new_capacity := if self.capacity == 0 {
+          if min_capacity < 4 { 4 } else { min_capacity }
+        } else {
+          mut(cap) := self.capacity;
+          while cap < min_capacity {
+            cap = (cap * 2);
+          };
+          cap
+        };
+
+        match self.ptr {
+          Some(old_ptr) => {
+            // Reallocate existing buffer
+            match GlobalAllocator.realloc(T, old_ptr, new_capacity) {
+              Some(new_ptr) => {
+                self.ptr = Some(new_ptr);
+                self.capacity = new_capacity;
+                Ok(())
+              },
+              None => Error(ArrayListError.OutOfMemory)
+            }
+          },
+          None => {
+            // Allocate new buffer
+            match GlobalAllocator.alloc(T, new_capacity) {
+              Some(new_ptr) => {
+                self.ptr = Some(new_ptr);
+                self.capacity = new_capacity;
+                Ok(())
+              },
+              None => Error(ArrayListError.OutOfMemory)
+            }
+          }
+        }
+      }
+    };
+
+    /**
+     * Add an element to the end of the ArrayList
+     */
+    push :: (fn(self: &!(Self), value: T) -> Result(unit, ArrayListError)) {
+      // Ensure we have capacity for one more element
+      match reserve(self, (self.len + 1)) {
+        Ok(_) => {
+          // We know ptr is Some() after successful reserve
+          match self.ptr {
+            Some(ptr) => {
+              // Write the value at the end
+              unsafe {
+                ptr_offset := (ptr + self.len);
+                ptr_offset.* = value;
+              };
+              self.len = (self.len + 1);
+              Ok(())
+            },
+            None => Error(ArrayListError.OutOfMemory) // Should never happen
+          }
+        },
+        Error(err) => Error(err)
+      }
+    };
+
+    /**
+     * Remove and return the last element
+     */
+    pop :: (fn(self: &!(Self)) -> ?(T)) {
+      if self.len == 0 {
+        None
+      } else {
+        match self.ptr {
+          Some(ptr) => {
+            self.len = (self.len - 1);
+            unsafe {
+              ptr_offset := (ptr + self.len);
+              Some(ptr_offset.*)
+            }
+          },
+          None => None // Should never happen if len > 0
+        }
+      }
+    };
+
+    /**
+     * Get an element by index (bounds checked)
+     */
+    get :: (fn(self: &(Self), index: usize) -> Result(&(T), ArrayListError)) {
+      if index >= self.len {
+        Error(ArrayListError.IndexOutOfBounds(index, self.len))
+      } else {
+        match self.ptr {
+          Some(ptr) => {
+            unsafe {
+              ptr_offset := (ptr + index);
+              Ok(&(ptr_offset.*))
+            }
+          },
+          None => Error(ArrayListError.IndexOutOfBounds(index, self.len)) // Should never happen
+        }
+      }
+    };
+
+    /**
+     * Get a mutable reference to an element by index (bounds checked)
+     */
+    get_mut :: (fn(self: &!(Self), index: usize) -> Result(&!(T), ArrayListError)) {
+      if index >= self.len {
+        Error(ArrayListError.IndexOutOfBounds(index, self.len))
+      } else {
+        match self.ptr {
+          Some(ptr) => {
+            unsafe {
+              ptr_offset := (ptr + index);
+              Ok(&!(ptr_offset.*))
+            }
+          },
+          None => Error(ArrayListError.IndexOutOfBounds(index, self.len)) // Should never happen
+        }
+      }
+    };
+
+    /**
+     * Get an element by index without bounds checking (unsafe)
+     */
+    get_unchecked :: (fn(self: &(Self), index: usize) -> &(T)) {
+      match self.ptr {
+        Some(ptr) => {
+          unsafe {
+            ptr_offset := (ptr + index);
+            &(ptr_offset.*)
+          }
+        },
+        None => panic("get_unchecked on empty ArrayList")
+      }
+    };
+
+    /**
+     * Set an element by index (bounds checked)
+     */
+    set :: (fn(self: &!(Self), index: usize, value: T) -> Result(T, ArrayListError)) {
+      if index >= self.len {
+        Error(ArrayListError.IndexOutOfBounds(index, self.len))
+      } else {
+        match self.ptr {
+          Some(ptr) => {
+            unsafe {
+              ptr_offset := (ptr + index);
+              old_value := ptr_offset.*;
+              ptr_offset.* = value;
+              Ok(old_value)
+            }
+          },
+          None => Error(ArrayListError.IndexOutOfBounds(index, self.len)) // Should never happen
+        }
+      }
+    };
+
+    /**
+     * Clear all elements but keep capacity
+     */
+    clear :: (fn(self: &!(Self)) -> unit) {
+      // TODO: Call destructors for elements if T has drop method
+      self.len = 0;
+    };
+
+    /**
+     * Shrink capacity to fit the current length
+     */
+    shrink_to_fit :: (fn(self: &!(Self)) -> Result(unit, ArrayListError)) {
+      if self.len == self.capacity {
+        Ok(()) // Already optimal
+      } else if self.len == 0 {
+        // Free the buffer entirely
+        match self.ptr {
+          Some(ptr) => {
+            GlobalAllocator.dealloc(T, ptr);
+            self.ptr = None;
+            self.capacity = 0;
+          },
+          None => {} // Already empty
+        };
+        Ok(())
+      } else {
+        // Shrink to current length
+        match self.ptr {
+          Some(old_ptr) => {
+            match GlobalAllocator.realloc(T, old_ptr, self.len) {
+              Some(new_ptr) => {
+                self.ptr = Some(new_ptr);
+                self.capacity = self.len;
+                Ok(())
+              },
+              None => Error(ArrayListError.OutOfMemory)
+            }
+          },
+          None => Ok(()) // Should never happen if len > 0
+        }
+      }
+    };
+
+    /**
+     * RAII destructor - automatically called when ArrayList goes out of scope
+     */
+    drop :: (fn(self: Self) -> unit) {
+      match self.ptr {
+        Some(ptr) => {
+          // TODO: Call destructors for all elements if T has drop method
+          GlobalAllocator.dealloc(T, ptr);
+        },
+        None => {} // Nothing to free
+      }
+    };
+
+    export 
+      new,
+      with_capacity,
+      len,
+      is_empty,
+      capacity,
+      reserve,
+      push,
+      pop,
+      get,
+      get_mut,
+      get_unchecked,
+      set,
+      clear,
+      shrink_to_fit,
+      drop
+    ;
+  }
+;
+
+/**
+ * Convenience type alias for i32 ArrayList
+ */
+Vec :: ArrayList;
+VecI32 :: ArrayList(i32);
+VecU32 :: ArrayList(u32);
+VecU64 :: ArrayList(u64);
+
+export
+  GlobalAllocator,
+  ArrayList,
+  ArrayListMethods,
+  ArrayListError,
+  Vec,
+  VecI32,
+  VecU32,
+  VecU64
+;

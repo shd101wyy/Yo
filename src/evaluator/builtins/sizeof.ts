@@ -10,7 +10,8 @@ import {
   createNumberValue,
   createUnknownValue,
   isTypeValue,
-  Value,
+  NumberValue,
+  UnknownValue,
 } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
@@ -51,9 +52,9 @@ export function evaluateSizeOf({
     typeToCheck = evaluatedExpr.$.type;
   }
   const typeSizeInBits = getSizeOfType(typeToCheck);
-  let typeSizeValue: Value;
+  let typeSizeValue: UnknownValue | NumberValue;
   if (typeSizeInBits === null) {
-    typeSizeValue = createUnknownValue(createComptIntType());
+    typeSizeValue = createUnknownValue(createComptIntType()) as UnknownValue;
   } else {
     typeSizeValue = createNumberValue(
       ValueTag.ComptInt,
