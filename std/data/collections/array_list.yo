@@ -25,7 +25,7 @@ GlobalAllocator :: module {
    * Allocate memory for count items of type T
    * Returns Some(ptr) on success, None on allocation failure
    */
-  alloc :: (fn(forall(T: Type), count: usize) -> ?(*(T))) {
+  alloc :: (fn(forall(T: Type), count: usize) -> ?*(T)) {
     size := (count * sizeof(T).as(usize));
     ptr := malloc(size);
     match ptr,
@@ -59,17 +59,17 @@ GlobalAllocator :: module {
     new_ptr := realloc(raw_old, new_size);
     match new_ptr,
       .Some => {
-        typed_ptr := __yo_ptr_cast(new_ptr.value, *(T));
-        Some(typed_ptr)
+        typed_ptr := new_ptr.value.cast(*(T));
+        .Some(typed_ptr)
       },
-      .None => None
+      .None => .None
   };
 
   /**
    * Free memory allocated by this allocator
    */
   dealloc :: (fn(forall(T: Type), ptr: *(T)) -> unit) {
-    raw_ptr := __yo_ptr_cast(ptr, ?*!(unit));
+    raw_ptr := ptr.cast(?*!(void));
     free(raw_ptr);
   };
 
@@ -79,11 +79,11 @@ GlobalAllocator :: module {
 /**
  * ArrayList error types
  */
-ArrayListError :: enum {
+ArrayListError :: enum
   OutOfMemory,
   IndexOutOfBounds(index: usize, len: usize),
   EmptyList
-};
+;
 
 /**
  * ArrayList type - a growable array
@@ -95,48 +95,47 @@ ArrayListError :: enum {
  */
 ArrayList :: (fn(compt(T): Type) -> compt(Type))
   struct(
-    ptr: ?(*(T)),
+    ptr: ?*(T),
     len: usize,
-    capacity: usize
-  )
-;
-
-/**
- * ArrayList methods
- */
-ArrayListMethods :: (fn(compt(T): Type) -> compt(Type))
-  module {
-    Self :: ArrayList(T);
+    capacity: usize,
 
     /**
      * Create a new empty ArrayList
      */
-    new :: (fn() -> Self) {
-      Self {
-        ptr: None,
+    new :: ((fn() -> Self)
+      Self(
+        ptr: .None,
         len: 0,
         capacity: 0
-      }
-    };
+      )
+    ),
+
+    with_capacity :: ((fn(capacity: usize) -> Result(Self, ArrayListError)) {
+      s := Self.new();
+      return .Error(ArrayListError.OutOfMemory);
+    })
 
     /**
      * Create an ArrayList with a specific initial capacity
      */
-    with_capacity :: (fn(capacity: usize) -> Result(Self, ArrayListError)) {
-      if capacity == 0 {
-        Ok(new())
-      } else {
-        match GlobalAllocator.alloc(T, capacity),
-          .Some => {
-            Ok(Self {
-              ptr: Some(ptr.value),
-              len: 0,
-              capacity: capacity
-            })
-          },
-          .None => Error(ArrayListError.OutOfMemory)
-      }
-    };
+     /*
+    with_capacity :: ((fn(capacity: usize) -> Result(Self, ArrayListError))
+      cond 
+        (capacity == 0.as(usize)) => 
+          .Ok(Self.new()),
+        true =>
+          match(GlobalAllocator.alloc(T, capacity),
+            .Some =>
+              .Ok(Self(
+                ptr: Some(ptr.value),
+                len: 0,
+                capacity: capacity
+              )),
+            .None => .Error(ArrayListError.OutOfMemory)
+          ))
+    */
+
+    /*
 
     /**
      * Get the current length
@@ -379,42 +378,13 @@ ArrayListMethods :: (fn(compt(T): Type) -> compt(Type))
         None => {} // Nothing to free
       }
     };
-
-    export 
-      new,
-      with_capacity,
-      len,
-      is_empty,
-      capacity,
-      reserve,
-      push,
-      pop,
-      get,
-      get_mut,
-      get_unchecked,
-      set,
-      clear,
-      shrink_to_fit,
-      drop
-    ;
-  }
+    */
+  )
 ;
 
-/**
- * Convenience type alias for i32 ArrayList
- */
-Vec :: ArrayList;
-VecI32 :: ArrayList(i32);
-VecU32 :: ArrayList(u32);
-VecU64 :: ArrayList(u64);
 
 export
   GlobalAllocator,
   ArrayList,
-  ArrayListMethods,
-  ArrayListError,
-  Vec,
-  VecI32,
-  VecU32,
-  VecU64
+  ArrayListError
 ;

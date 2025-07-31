@@ -1175,7 +1175,7 @@ function transformMatchWithAssignmentToCps(
 ): Expr {
   // match(value, pattern1 => body1, pattern2 => body2, ...)
   const [matchValue, ...branches] = matchExpr.args;
-  
+
   if (!matchValue) {
     throw new Error("match expression must have a value to match against");
   }
@@ -1359,9 +1359,7 @@ function transformMatchWithAssignmentToCps(
       }
     } else {
       // Not a pattern => body pair, shouldn't happen in a match
-      throw new Error(
-        "Expected pattern => body pairs in match expression"
-      );
+      throw new Error("Expected pattern => body pairs in match expression");
     }
   });
 

@@ -5,7 +5,7 @@ import {
   expectExprToBeFunctionCallOf,
   FuncCallExpr,
 } from "../../expr";
-import { createComptIntType, getSizeOfType, Type } from "../../types";
+import { createUsizeType, getSizeOfType, Type } from "../../types";
 import {
   createNumberValue,
   createUnknownValue,
@@ -54,17 +54,17 @@ export function evaluateSizeOf({
   const typeSizeInBits = getSizeOfType(typeToCheck);
   let typeSizeValue: UnknownValue | NumberValue;
   if (typeSizeInBits === null) {
-    typeSizeValue = createUnknownValue(createComptIntType()) as UnknownValue;
+    typeSizeValue = createUnknownValue(createUsizeType()) as UnknownValue;
   } else {
     typeSizeValue = createNumberValue(
-      ValueTag.ComptInt,
+      ValueTag.Usize,
       Math.ceil(typeSizeInBits / 8) // Convert bits to bytes
     );
   }
 
   expr.$ = {
     env,
-    type: createComptIntType(),
+    type: createUsizeType(),
     value: typeSizeValue,
     isMutable: false,
     pathCollection: [],

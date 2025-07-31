@@ -5,9 +5,9 @@
 
 extern "Yo",
   __yo_ptr_cast :
-    fn(forall(Source: Type), source : *(Source), compt(Target) : Free) -> Target,
+    fn(forall(Source: Type), source : *(Source), compt(Target) : Type) -> Target,
   __yo_mut_ptr_cast :
-    fn(forall(Source: Type), source : *!(Source), compt(Target) : Free) -> Target,
+    fn(forall(Source: Type), source : *!(Source), compt(Target) : Type) -> Target,
   
   // Pointer arithmetic operations
   __yo_ptr_add :
@@ -94,7 +94,7 @@ PtrMethods :: module {
   ;
   
   // Cast pointer to another type
-  cast :: (fn(forall(Source: Type), source: *(Source), compt(Target): Free) -> Target)
+  cast :: (fn(forall(Source: Type), source: *(Source), compt(Target): Type) -> Target)
     __yo_ptr_cast(source, Target)
   ;
   
@@ -126,7 +126,7 @@ MutPtrMethods :: module {
   ;
   
   // Cast mutable pointer to another type
-  cast :: (fn(forall(Source: Type), source: *!(Source), compt(Target): Free) -> Target)
+  cast :: (fn(forall(Source: Type), source: *!(Source), compt(Target): Type) -> Target)
     __yo_mut_ptr_cast(source, Target)
   ;
   
@@ -134,22 +134,12 @@ MutPtrMethods :: module {
 };
 
 // Nullable pointer
-/*
-?* :: ((quote(Source) : Expr) -> unquote(Expr))
-  quote Option(*(unquote(Source)))
-;
-*/
-?* :: (fn(compt(T): Type) -> compt(Type))
+(?*) :: (fn(compt(T): Type) -> compt(Type))
   ?(*(T))
 ;
 
 // Nullable mutable pointer
-/*
-?*! :: ((quote(Source) : Expr) -> unquote(Expr))
-  quote Option(*!(unquote(Source)))
-;
-*/
-?*! :: (fn(compt(T): Type) -> compt(Type))
+(?*!) :: (fn(compt(T): Type) -> compt(Type))
   ?(*!(T))
 ;
 

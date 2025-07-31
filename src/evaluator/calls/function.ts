@@ -310,6 +310,13 @@ export function evaluateFunctionCall({
       }
       // Self function call
       else if (functionName === "Self" && context.SelfType) {
+        // DEBUG: Log Self resolution
+        if (isStructType(context.SelfType)) {
+          console.log(
+            `DEBUG: Resolving Self function call to struct ID: ${context.SelfType.id}`
+          );
+        }
+
         const value = createTypeValue(context.SelfType);
         functions = [
           {
@@ -749,12 +756,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
           [
             {
               token: expr.token,
-              errorMessage: `Failed to call the function:\n
-${error.tokenAndErrorList
-  .map(({ errorMessage }) => {
-    return errorMessage;
-  })
-  .join("\n")}`,
+              errorMessage: `Failed to call the function:\n`,
             },
             ...error.tokenAndErrorList,
           ],
