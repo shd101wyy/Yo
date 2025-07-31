@@ -469,7 +469,7 @@ export function extractFunctionValue(
  * Checks that:
  * - Function has at least one parameter (the closure)
  * - Last parameter is a closure type
- * - Closure is FnOnce kind
+ * - Closure is FnMove kind
  * - Closure returns unit type
  * - Closure has at least one parameter
  */
@@ -498,11 +498,11 @@ function validateDoFunctionSignature(
   const closureType = lastParameter.type;
   const closureCallType = closureType.callType;
 
-  // Check that the closure is FnOnce
-  if (closureCallType.closureKind !== "FnOnce") {
+  // Check that the closure is FnMove
+  if (closureCallType.closureKind !== "FnMove") {
     throw formatErrorMessage({
       token: functionCalleeExpr?.token ?? PlaceholderToken,
-      errorMessage: `Closure in 'do' expression must be FnOnce, got: ${closureCallType.closureKind}`,
+      errorMessage: `Closure in 'do' expression must be FnMove, got: ${closureCallType.closureKind}`,
     });
   }
 

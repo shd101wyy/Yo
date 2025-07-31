@@ -449,7 +449,7 @@ export const BuiltinKeywords = {
   Closure: ["Closure"],
   Fn: ["Fn"],
   FnMut: ["FnMut"],
-  FnOnce: ["FnOnce"],
+  FnMove: ["FnMove"],
 
   // data values
   tuple: "tuple",
@@ -1237,12 +1237,12 @@ export function setExprAsConsumed(
     }
 
     // Check if we are consuming a linear value defined outside the function body
-    // Allow FnOnce closures to consume outer linear values, but prevent regular functions and Fn/FnMut closures
+    // Allow FnMove closures to consume outer linear values, but prevent regular functions and Fn/FnMut closures
     if (
       context.isEvaluatingFunctionBody &&
       variableToConsume.frameLevel <
         context.isEvaluatingFunctionBody.evaluationEnv.frames.length - 1 && // -1 here to exclude the parameters/arguments frame.
-      !(context.isEvaluatingFunctionBody.type.closureKind === "FnOnce")
+      !(context.isEvaluatingFunctionBody.type.closureKind === "FnMove")
     ) {
       throw formatErrorMessages([
         {

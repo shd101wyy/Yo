@@ -17,6 +17,7 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
+  ClosureKind,
   ClosureType,
   convertComptTypeToRuntimeType,
   createExprListType,
@@ -830,8 +831,8 @@ export function evaluateFunctionParameters({
  * Evaluate the function type:
  *
  * - fn(x : i32) -> i32;     // regular function type.
- * - fn(x : i32) => i32;     // FnOnce with `CaptureType` as SomeType.
- * - FnOnce(x : i32) -> i32; // FnOnce. Same as above.
+ * - fn(x : i32) => i32;     // FnMove with `CaptureType` as SomeType.
+ * - FnMove(x : i32) -> i32; // FnMove. Same as above.
  * - FnMut(x : i32) -> i32;  // FnMut.
  * - Fn(x : i32) -> i32;     // Fn.
  */
@@ -844,9 +845,9 @@ export function evaluateFunctionType({
   expr: FuncCallExpr;
   env: Environment;
   context: EvaluatorContext;
-  closureKind?: "Fn" | "FnMut" | "FnOnce";
+  closureKind?: ClosureKind;
 }): FuncCallExpr {
-  // For closure types (Fn, FnMut, FnOnce), we expect -> operator
+  // For closure types (Fn, FnMut, FnMove), we expect -> operator
   // For regular functions, we expect -> operator
   const expectedOperator = "->";
 
@@ -865,8 +866,8 @@ export function evaluateFunctionType({
   // Handle different forms of parameter lists
   let argList: Expr[] = [];
 
-  // For closure types (Fn, FnMut, FnOnce), the argListExpr is the closure call itself
-  // e.g., for "FnOnce(i32) -> i32", argListExpr is "FnOnce(i32)"
+  // For closure types (Fn, FnMut, FnMove), the argListExpr is the closure call itself
+  // e.g., for "FnMove(i32) -> i32", argListExpr is "FnMove(i32)"
   if (closureKind && exprIsFunctionCall(argListExpr)) {
     // Extract arguments from the closure type call
     if (exprIsFunctionCallOf(argListExpr, closureKind)) {

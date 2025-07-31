@@ -1,5 +1,5 @@
 /*
-def FnOnce:
+def FnMove:
   (compt(Context): Type, compt(Arguments): Type, compt(Output): Type)-> compt(Type), 
   module
     call_once: 
@@ -8,7 +8,7 @@ def FnOnce:
 ;
 
 def FnMut:
-  (compt(Context): Type, compt(Arguments): Type, compt(Output): Type, implicit(compt(fn_mut): FnOnce(Context, Arguments, Output)))
+  (compt(Context): Type, compt(Arguments): Type, compt(Output): Type, implicit(compt(fn_mut): FnMove(Context, Arguments, Output)))
     -> compt(Type), 
   module
     call_mut: 
@@ -17,10 +17,10 @@ def FnMut:
 ;
 
 fn FnMut(
-  (Context: Free) <: FnOnce(_, Arguments), // _ here means Context
+  (Context: Free) <: FnMove(_, Arguments), // _ here means Context
   Arguments: Type
 ), interface {
-  (Output: Type) = FnOnce(Context, Arguments).Output,
+  (Output: Type) = FnMove(Context, Arguments).Output,
   call_mut: (fn(self: &!(Context), arguments: Arguments)
                 -> this.Output)
 }
@@ -35,7 +35,7 @@ fn Fn(
 };
 
 
-export { FnOnce, FnMut, Fn }
+export { FnMove, FnMut, Fn }
 
 Closure :: (fn(compt(Self): Type, compt(Call): Type) -> compt(Module))
   module

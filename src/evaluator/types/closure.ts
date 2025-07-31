@@ -123,7 +123,7 @@ Got:\n${exprToString(expr)}`,
       env: currentEnv,
       context: {
         ...context,
-        isEvaluatingClosureCallType: true, // Set flag to allow FnOnce/FnMut/Fn
+        isEvaluatingClosureCallType: true, // Set flag to allow FnMove/FnMut/Fn
       },
     });
 
@@ -155,7 +155,7 @@ Got:\n${exprToString(expr)}`,
     if (!evaluatedCallType.closureKind) {
       throw formatErrorMessage({
         token: callTypeExpr.token,
-        errorMessage: `Expected closure function type (Fn/FnMut/FnOnce) for call type, got regular function type:\n${exprToString(callTypeExpr)}`,
+        errorMessage: `Expected closure function type (Fn/FnMut/FnMove) for call type, got regular function type:\n${exprToString(callTypeExpr)}`,
       });
     }
 

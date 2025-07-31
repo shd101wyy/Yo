@@ -97,9 +97,9 @@ export function evaluateAnonymousFunctionImplementation({
   let expectedOperator: string;
   let operatorDescription: string;
 
-  if (functionType.closureKind === "FnOnce") {
+  if (functionType.closureKind === "FnMove") {
     expectedOperator = "=>";
-    operatorDescription = "FnOnce closure";
+    operatorDescription = "FnMove closure";
   } else if (
     functionType.closureKind === "Fn" ||
     functionType.closureKind === "FnMut"

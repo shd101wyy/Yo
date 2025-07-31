@@ -82,7 +82,7 @@ export interface EvaluatorContext {
 
   /**
    * Whether we are currently evaluating a closure call type.
-   * This is used to restrict FnOnce/FnMut/Fn usage to only within Closure types.
+   * This is used to restrict FnMove/FnMut/Fn usage to only within Closure types.
    */
   isEvaluatingClosureCallType?: boolean;
 

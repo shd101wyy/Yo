@@ -435,7 +435,7 @@ export function evaluateAssignment({
         if (variable.frameLevel < closureEvaluationFrameLevel) {
           // Determine usage type based on closure kind
           const usageType =
-            context.isEvaluatingFunctionBody.type.closureKind === "FnOnce"
+            context.isEvaluatingFunctionBody.type.closureKind === "FnMove"
               ? "own"
               : "write";
 

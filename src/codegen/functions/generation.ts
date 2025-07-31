@@ -105,7 +105,7 @@ export function generateFunctionPrototype(
     if (closureTypeEntry) {
       // Use the closure type directly (which is now the same as the capture struct)
       const closureTypeStr = closureTypeEntry.cName;
-      // For FnOnce and FnMut, the closure can modify captured variables
+      // For FnMove and FnMut, the closure can modify captured variables
       // Only Fn closures are immutable
       const isImmutable = functionType.closureKind === "Fn";
       const closureParamStr = isImmutable

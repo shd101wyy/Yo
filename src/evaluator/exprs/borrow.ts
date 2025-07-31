@@ -16,6 +16,7 @@ import {
   FuncCallExpr,
 } from "../../expr";
 import {
+  ClosureKind,
   FunctionType,
   isClosureFunctionType,
   isFunctionType,
@@ -139,7 +140,7 @@ export function evaluateBorrow({
     if (isFunctionType(borrowedType) && !borrowedType.closureKind) {
       throw formatErrorMessage({
         token: borrowedValueExpr.token,
-        errorMessage: `Cannot borrow regular function type - only closure types (Fn, FnMut, FnOnce) can be borrowed`,
+        errorMessage: `Cannot borrow regular function type - only closure types (Fn, FnMut, FnMove) can be borrowed`,
       });
     }
 
@@ -148,7 +149,7 @@ export function evaluateBorrow({
       type: borrowedType as
         | RefType
         | MutRefType
-        | (FunctionType & { closureKind: "Fn" | "FnMut" | "FnOnce" }),
+        | (FunctionType & { closureKind: ClosureKind }),
       pathCollection: evaluatedBorrowedValueExpr.$.pathCollection,
     });
     checkBorrowings([...context.borrowings, ...borrowings]);

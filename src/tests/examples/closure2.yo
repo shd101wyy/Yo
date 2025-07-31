@@ -5,11 +5,11 @@ some_condition :: (fn() -> boolean) true;
 
 (compt(LinearI32) : Linear) = i32;
 
-// FnOnce, FnMut, Fn can only be used in a Closure context
+// FnMove, FnMut, Fn can only be used in a Closure context
 // They cannot be used as standalone types
-// This should be invalid - standalone FnOnce
+// This should be invalid - standalone FnMove
 compt_expect_error(
-  invalid_fn_once :: (FnOnce(val: i32) -> i32)
+  invalid_fn_once :: (FnMove(val: i32) -> i32)
 );
 
 // This should be invalid - standalone FnMut  
@@ -25,7 +25,7 @@ compt_expect_error(
 
 plus_fn_once ::
   (fn(forall(F : Type),
-    callback : Closure(FnOnce(elem : i32) -> i32, F)
+    callback : Closure(FnMove(elem : i32) -> i32, F)
   ) -> i32) {
   return callback(42); // callback can only be called once
 };
@@ -92,7 +92,7 @@ compt_expect_error(
 
 test4 :: (fn() -> unit) {
   mut(counter) := 0;
-  closure : (Closure(FnOnce(elem : i32) -> i32, _));
+  closure : (Closure(FnMove(elem : i32) -> i32, _));
   closure = ((elem) => {
     counter = (counter + elem);
     return counter;
@@ -102,7 +102,7 @@ test4 :: (fn() -> unit) {
 test4_1 :: (fn() -> unit) {
   mut(counter) := 0;
   closure := the(
-    Closure(FnOnce(elem : i32) -> i32, _),
+    Closure(FnMove(elem : i32) -> i32, _),
     (elem) => {
       counter = (counter + elem);
       return counter;
@@ -111,7 +111,7 @@ test4_1 :: (fn() -> unit) {
 
 test5 :: (fn() -> unit) {
   mut(counter) := 0;
-  mut(closure) : (Closure(FnOnce(elem : i32) -> i32, _));
+  mut(closure) : (Closure(FnMove(elem : i32) -> i32, _));
   closure = ((elem) => {
     counter = (counter + elem);
     return counter;
@@ -137,7 +137,7 @@ test6 :: (fn() -> unit) {
   // This should fail because the two branches create closures with different capture types
   compt_expect_error(
     {
-      mut(closure) : (Closure(FnOnce(elem : i32) -> i32, _));
+      mut(closure) : (Closure(FnMove(elem : i32) -> i32, _));
       cond(
         some_condition() => {
           closure = ((elem) => {
@@ -298,13 +298,13 @@ compt_expect_error(
   }
 );
 
-// Test FnOnce basic functionality
+// Test FnMove basic functionality
 test13 :: (fn() -> unit) {
   mut(counter) := 0;
   (x : LinearI32) = 12;
   
-  // FnOnce can mutate captured variables
-  once_fn : (Closure(FnOnce(elem : i32) -> i32, _));
+  // FnMove can mutate captured variables
+  once_fn : (Closure(FnMove(elem : i32) -> i32, _));
   once_fn = ((elem) => {
     counter = (counter + elem);
     y := x; // `x` should be consumed here
@@ -318,13 +318,13 @@ test13 :: (fn() -> unit) {
 
 // Additional comprehensive test cases for closure semantics
 
-// Test FnOnce with linear value consumption - should work
+// Test FnMove with linear value consumption - should work
 test14 :: (fn() -> unit) {
   mut(counter) := 0;
   (linear_val : LinearI32) = 100;
   
   plus_fn_once((elem) => {
-    final_val := linear_val; // FnOnce can consume linear values
+    final_val := linear_val; // FnMove can consume linear values
     counter = (counter + (elem + final_val));
     return counter;
   });
@@ -356,7 +356,7 @@ compt_expect_error(
   }
 );
 
-// Test FnOnce consuming multiple linear values
+// Test FnMove consuming multiple linear values
 test16 :: (fn() -> unit) {
   (linear1 : LinearI32) = 50;
   (linear2 : LinearI32) = 75;
@@ -372,7 +372,7 @@ test16 :: (fn() -> unit) {
   compt_expect_error(unused2 := linear2);
 };
 
-// Test closure parameter passing - FnOnce should work when used directly with existing functions
+// Test closure parameter passing - FnMove should work when used directly with existing functions
 test17 :: (fn() -> unit) {
   mut(state) := 0;
   
@@ -403,17 +403,17 @@ test18_fn_direct :: (fn() -> unit) {
   });
 };
 
-// Test nested closures - FnOnce containing FnOnce should work
+// Test nested closures - FnMove containing FnMove should work
 test19 :: (fn() -> unit) {
   mut(outer_state) := 0;
   (linear_outer : LinearI32) = 30;
   
-  outer_closure : (Closure(FnOnce(x : i32) -> i32, _));
+  outer_closure : (Closure(FnMove(x : i32) -> i32, _));
   outer_closure = ((x) => {
     mut(inner_state) := 10;
     (linear_inner : LinearI32) = linear_outer; // Consume outer linear value
     
-    inner_closure : (Closure(FnOnce(y : i32) -> i32, _));
+    inner_closure : (Closure(FnMove(y : i32) -> i32, _));
     inner_closure = ((y) => {
       outer_state = (outer_state + x);
       inner_state = (inner_state + y);
@@ -433,8 +433,8 @@ test20 :: (fn() -> unit) {
   mut(mutable_val) := 200;
   (linear_val : LinearI32) = 300;
   
-  // FnOnce: can read immutable, mutate mutable, and consume linear
-  once_closure : (Closure(FnOnce(x : i32) -> i32, _));
+  // FnMove: can read immutable, mutate mutable, and consume linear
+  once_closure : (Closure(FnMove(x : i32) -> i32, _));
   once_closure = ((x) => {
     consumed := linear_val; // Consume linear
     mutable_val = (mutable_val + x); // Mutate mutable
@@ -468,12 +468,12 @@ compt_expect_error(
   }
 );
 
-// Test that FnOnce assignments work correctly (no references)
+// Test that FnMove assignments work correctly (no references)
 test22 :: (fn() -> unit) {
   mut(accumulator) := 0;
   
-  // This should work - FnOnce doesn't contain references
-  once_fn : (Closure(FnOnce(val : i32) -> i32, _));
+  // This should work - FnMove doesn't contain references
+  once_fn : (Closure(FnMove(val : i32) -> i32, _));
   once_fn = ((val) => {
     accumulator = (accumulator + val);
     return accumulator;
@@ -482,14 +482,14 @@ test22 :: (fn() -> unit) {
   result := once_fn(25);
 };
 
-// Test explicit struct capture with FnOnce (should work)
+// Test explicit struct capture with FnMove (should work)
 test23 :: (fn() -> unit) {
   mut(counter) := 0;
   
   CounterCapture :: struct(counter : i32);
   
-  // This should work - FnOnce with explicit struct capture doesn't contain references
-  counter_fn : (Closure(FnOnce(val : i32) -> i32, CounterCapture));
+  // This should work - FnMove with explicit struct capture doesn't contain references
+  counter_fn : (Closure(FnMove(val : i32) -> i32, CounterCapture));
   counter_fn = ((val) => {
     counter = (counter + val);
     return counter;
@@ -507,7 +507,7 @@ compt_expect_error(
     CounterCapture :: struct(counter : i32);
     
     // This should fail - closure captures variables that don't match the struct
-    mismatched_fn : (Closure(FnOnce(val : i32) -> i32, CounterCapture));
+    mismatched_fn : (Closure(FnMove(val : i32) -> i32, CounterCapture));
     mismatched_fn = (fn(val) => {
       other_var = (other_var + val); // Captures other_var, but struct only has counter
       return other_var;
@@ -523,7 +523,7 @@ test25 :: (fn() -> unit) {
   MultiCapture :: struct(counter : i32, multiplier : i32);
   
   // This should work - captures match the struct definition
-  multi_fn : (Closure(FnOnce(val : i32) -> i32, MultiCapture));
+  multi_fn : (Closure(FnMove(val : i32) -> i32, MultiCapture));
   multi_fn = ((val) => {
     counter = (counter + val);
     multiplier = (multiplier * 2);

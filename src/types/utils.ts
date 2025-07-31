@@ -113,7 +113,7 @@ export function typeContainsReference(type?: Type): boolean {
   if (isClosureType(type)) {
     const closureType = type as ClosureType;
     const closureKind = closureType.callType.closureKind;
-    // FnOnce doesn't contain references (takes ownership), but Fn and FnMut do
+    // FnMove doesn't contain references (takes ownership), but Fn and FnMut do
     return closureKind === "Fn" || closureKind === "FnMut";
   }
 

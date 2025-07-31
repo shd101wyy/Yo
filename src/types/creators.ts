@@ -436,7 +436,7 @@ export function createFunctionType({
   parametersFrame: Frame;
   SelfType?: Type;
   ModuleType?: ModuleType;
-  closureKind?: "Fn" | "FnMut" | "FnOnce";
+  closureKind?: ClosureKind;
   isEffect?: boolean;
 }): FunctionType {
   return {
@@ -583,7 +583,7 @@ export function createEffectHandlerType(
   env: Environment
 ): FunctionType {
   /**
-   * `resume` is a Closure FnOnce function that:
+   * `resume` is a Closure FnMove function that:
    * - takes the return type of the effectFunctionType as its parameter.
    * - returns the return type of the parentFunctionType.
    */
@@ -637,7 +637,7 @@ export function createEffectHandlerType(
     return_: parentFunctionType.return,
     env,
     parametersFrame: resumeFrame,
-    closureKind: "FnOnce",
+    closureKind: "FnMove",
     isEffect: false,
   });
 

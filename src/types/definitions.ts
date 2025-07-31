@@ -12,9 +12,9 @@ export type ExternLanguage = "yo" | "c";
  * The kind of closure behavior.
  * - "Fn": Immutable borrow closure (can be called multiple times, read-only access to captures)
  * - "FnMut": Mutable borrow closure (can be called multiple times, can mutate captures)
- * - "FnOnce": Move closure (can only be called once, moves/consumes captured values)
+ * - "FnMove": Move closure (can only be called once, moves/consumes captured values)
  */
-export type ClosureKind = "Fn" | "FnMut" | "FnOnce";
+export type ClosureKind = "Fn" | "FnMut" | "FnMove";
 
 export interface Type {
   /**
@@ -486,7 +486,7 @@ export interface FunctionType extends Type {
    * - undefined: Regular function (uses -> syntax, doesn't capture)
    * - "Fn": Immutable borrow closure (can be called multiple times)
    * - "FnMut": Mutable borrow closure (can be called multiple times, can mutate)
-   * - "FnOnce": Move closure (can only be called once, moves captured values)
+   * - "FnMove": Move closure (can only be called once, moves captured values)
    */
   closureKind?: ClosureKind;
 
@@ -540,20 +540,20 @@ export interface RefType extends Type {
 
 /**
  * ClosureType represents a closure as a combination of:
- * 1. A call function with the appropriate closure kind (Fn/FnMut/FnOnce)
+ * 1. A call function with the appropriate closure kind (Fn/FnMut/FnMove)
  * 2. A capture struct containing the captured variables
  *
  * Examples:
  * - Closure(FnMut(elem: i32) -> i32, _)
  * - Closure(Fn(elem: i32) -> i32, MyCapture)
- * - Closure(FnOnce(elem: i32) -> i32, MyCapture)
+ * - Closure(FnMove(elem: i32) -> i32, MyCapture)
  */
 export interface ClosureType extends Type {
   tag: TypeTag.Closure;
 
   /**
    * The function type that defines the call signature and closure behavior.
-   * This must have a closureKind set to "Fn", "FnMut", or "FnOnce".
+   * This must have a closureKind set to "Fn", "FnMut", or "FnMove".
    *
    * The function signature should NOT include a self parameter - that's
    * handled internally based on the closure kind and capture type.

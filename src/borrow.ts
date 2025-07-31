@@ -6,6 +6,7 @@ import {
   pathCollectionConflictsWithPathCollection,
 } from "./expr";
 import {
+  ClosureKind,
   FunctionType,
   isMutRefType,
   MutRefType,
@@ -23,10 +24,7 @@ export interface Borrowing {
   /**
    * The type of the borrowing. It can be a reference type, mutable reference type, or closure type.
    */
-  type:
-    | RefType
-    | MutRefType
-    | (FunctionType & { closureKind: "Fn" | "FnMut" | "FnOnce" });
+  type: RefType | MutRefType | (FunctionType & { closureKind: ClosureKind });
 
   /**
    * Path collection of the borrowing. It represents the paths that are borrowed.

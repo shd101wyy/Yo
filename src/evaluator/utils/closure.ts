@@ -50,7 +50,7 @@ export function consumeCapturedVariables({
 
   for (const [variableName, usageInfo] of capturedVariables.entries()) {
     // Only consume variables from outer scopes (lower frame levels)
-    // and only if the usage type is "own" (FnOnce semantics)
+    // and only if the usage type is "own" (FnMove semantics)
     if (
       usageInfo.frameLevel < env.frames.length &&
       usageInfo.usageType === "own"

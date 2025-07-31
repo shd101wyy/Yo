@@ -241,25 +241,25 @@ ${exprToString(expr)}`,
           });
         }
 
-        // Check if left side is FnOnce, Fn, or FnMut
+        // Check if left side is FnMove, Fn, or FnMut
         const leftSide = expr.args[0]!;
         if (exprIsFunctionCall(leftSide)) {
-          if (exprIsFunctionCallOf(leftSide, BuiltinKeywords.FnOnce)) {
-            // FnOnce(paramType) -> returnType - closure that can be called once
+          if (exprIsFunctionCallOf(leftSide, BuiltinKeywords.FnMove)) {
+            // FnMove(paramType) -> returnType - closure that can be called once
             // Check if we're in a closure context
             if (!context.isEvaluatingClosureCallType) {
               throw formatErrorMessage({
                 token: leftSide.token,
-                errorMessage: `FnOnce can only be used as the call type within a Closure type.
-Use: Closure(FnOnce(elem: Type) -> ReturnType, CaptureType)
-Instead of: FnOnce(elem: Type) -> ReturnType`,
+                errorMessage: `FnMove can only be used as the call type within a Closure type.
+Use: Closure(FnMove(elem: Type) -> ReturnType, CaptureType)
+Instead of: FnMove(elem: Type) -> ReturnType`,
               });
             }
             return evaluateFunctionType({
               expr,
               env,
               context: { ...context },
-              closureKind: "FnOnce",
+              closureKind: "FnMove",
             });
           } else if (exprIsFunctionCallOf(leftSide, BuiltinKeywords.Fn)) {
             // Fn(paramType) -> returnType - closure that can be called multiple times
@@ -312,7 +312,7 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
           exprIsFunctionCall(expr.args[0]) &&
           exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn)
         ) {
-          // Convert it to `Closure(FnOnce(x : i32) -> i32, _)`
+          // Convert it to `Closure(FnMove(x : i32) -> i32, _)`
           const newExpr: FuncCallExpr = {
             tag: ExprTag.FuncCall,
             func: {
@@ -347,7 +347,7 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
                       token: {
                         ...expr.args[0]!.token,
                         type: TokenType.Identifier,
-                        value: BuiltinKeywords.FnOnce[0]!,
+                        value: BuiltinKeywords.FnMove[0]!,
                       },
                     },
                     args: expr.args[0]!.args, // Function parameters
@@ -376,7 +376,7 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
           });
         }
 
-        // FnOnce closue
+        // FnMove closue
         // (x) => x;
         return evaluateAnonymousFunctionImplementation({
           expr,

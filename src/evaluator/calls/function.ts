@@ -983,9 +983,9 @@ ${functionsWithMatchingTypes
       }
     }
 
-    // If closure call is linear (FnOnce), then we consume it
+    // If closure call is linear (FnMove), then we consume it
     // NOTE: We shouldn't consume the one for FnMut/Fn, because they are actually used as reference.
-    if (closureType.callType.closureKind === "FnOnce") {
+    if (closureType.callType.closureKind === "FnMove") {
       env = setExprAsConsumed(func, env, context);
     }
 
