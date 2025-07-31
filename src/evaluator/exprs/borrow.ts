@@ -7,6 +7,7 @@ import {
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   BuiltinKeywords,
   Expr,
   exprIsAtom,
@@ -18,7 +19,7 @@ import {
 import {
   ClosureKind,
   FunctionType,
-  isClosureFunctionType,
+  isClosureType,
   isFunctionType,
   isMutRefType,
   isRefType,
@@ -125,7 +126,7 @@ export function evaluateBorrow({
       !isRefType(evaluatedBorrowedValueExpr.$.type) &&
       !isMutRefType(evaluatedBorrowedValueExpr.$.type) &&
       // Note: Closure types are treated as references, because closures can capture variables by reference
-      !isClosureFunctionType(evaluatedBorrowedValueExpr.$.type)
+      !isClosureType(evaluatedBorrowedValueExpr.$.type)
     ) {
       throw formatErrorMessage({
         token: borrowedValueExpr.token,
@@ -137,7 +138,11 @@ export function evaluateBorrow({
 
     // For closure types, ensure closureKind is defined
     const borrowedType = evaluatedBorrowedValueExpr.$.type;
-    if (isFunctionType(borrowedType) && !borrowedType.closureKind) {
+    if (
+      isClosureType(borrowedType) &&
+      isFunctionType(borrowedType.callType) &&
+      !borrowedType.callType.closureKind
+    ) {
       throw formatErrorMessage({
         token: borrowedValueExpr.token,
         errorMessage: `Cannot borrow regular function type - only closure types (Fn, FnMut, FnMove) can be borrowed`,
@@ -230,6 +235,9 @@ export function evaluateBorrow({
     isMutable: evaluatedBorrowBlock.$.isMutable,
     pathCollection: evaluatedBorrowBlock.$.pathCollection,
     isAccessingProperty: evaluatedBorrowBlock.$.isAccessingProperty,
+    controlFlow: evaluatedBorrowBlock.$.controlFlow,
   };
+  attachTempVariableToExpr(expr);
+
   return expr;
 }

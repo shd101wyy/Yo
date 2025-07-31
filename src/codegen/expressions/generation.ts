@@ -83,6 +83,112 @@ function generateFuncCall(
   indent: string,
   context: CodeGenContext
 ): string {
+  // borrow - handle this first before other expressions
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.borrow)) {
+    const firstExpr = expr.args[0];
+    const secondExpr = expr.args[1];
+    
+    if (!firstExpr || !secondExpr) {
+      return `// Error: borrow requires two arguments`;
+    }
+
+    // Extract borrowed value expressions (can be single value or tuple)
+    const borrowedValueExprs: Expr[] = [];
+    if (
+      exprIsFunctionCall(firstExpr) &&
+      exprIsFunctionCallOf(firstExpr, BuiltinKeywords.tuple)
+    ) {
+      borrowedValueExprs.push(...firstExpr.args);
+    } else {
+      borrowedValueExprs.push(firstExpr);
+    }
+
+    // Extract lambda expression - should be of form: parameter => body or (param1, param2) => body
+    if (
+      !exprIsFunctionCall(secondExpr) ||
+      !exprIsFunctionCallOf(secondExpr, "=>", 2)
+    ) {
+      return `// Error: Expected lambda expression (=>) as second argument to borrow`;
+    }
+
+    const borrowBindingExprs: Expr[] = [];
+    const lambdaParamsExpr = secondExpr.args[0]!;
+    if (
+      exprIsFunctionCall(lambdaParamsExpr) &&
+      exprIsFunctionCallOf(lambdaParamsExpr, BuiltinKeywords.tuple)
+    ) {
+      borrowBindingExprs.push(...lambdaParamsExpr.args);
+    } else {
+      borrowBindingExprs.push(lambdaParamsExpr);
+    }
+    const lambdaBody = secondExpr.args[1]!;
+
+    if (borrowedValueExprs.length !== borrowBindingExprs.length) {
+      return `// Error: Borrowed ${borrowedValueExprs.length} references, but lambda has ${borrowBindingExprs.length} parameters`;
+    }
+
+    // Check if this borrow expression returns a value
+    const borrowReturnType = expr.$?.type;
+    const tempVar = expr.$?.variableName;
+    const isReturningValue = borrowReturnType && !isUnitType(borrowReturnType) && tempVar;
+
+    // Generate a borrow block
+    const tempVariableName = expr.$?.variableName;
+    const valueType = expr.$?.type;
+    
+    if (tempVariableName && valueType) {
+      // Declare temp variable for the borrow result
+      if (!isUnitType(valueType)) {
+        context.emitter.emitLine(
+          `${indent}${getTypeString(valueType, context)} ${tempVariableName};`
+        );
+      }
+    }
+    
+    context.emitter.emitLine(`${indent}{ // borrow block`);
+    
+    // Generate reference declarations for each borrowed value
+    for (let i = 0; i < borrowedValueExprs.length; i++) {
+      const borrowedExpr = borrowedValueExprs[i]!;
+      const bindingExpr = borrowBindingExprs[i]!;
+      
+      if (!exprIsAtom(bindingExpr)) {
+        context.emitter.emitLine(`${indent}  // Error: Expected identifier for borrow binding`);
+        continue;
+      }
+      
+      const bindingName = bindingExpr.token.value;
+      const borrowedCode = generateExpr(borrowedExpr, indent + "  ", context);
+      
+      // Generate actual reference variable declaration
+      // For now, assume it's a mutable reference to i32
+      // TODO: Get the actual type from the borrowed expression
+      context.emitter.emitLine(`${indent}  int32_t* ${bindingName} = ${borrowedCode};`);
+    }
+    
+    // Generate the lambda body
+    if (lambdaBody) {
+      if (isReturningValue) {
+        // If borrow returns a value, assign the lambda result to the temp variable
+        const bodyCode = generateExpr(lambdaBody, indent + "  ", context);
+        if (bodyCode) {
+          context.emitter.emitLine(`${indent}  ${tempVar} = ${bodyCode};`);
+        }
+      } else {
+        // If borrow doesn't return a value, just execute the lambda body
+        const bodyCode = generateExpr(lambdaBody, indent + "  ", context);
+        if (bodyCode) {
+          context.emitter.emitLine(`${indent}  ${bodyCode};`);
+        }
+      }
+    }
+    
+    context.emitter.emitLine(`${indent}} // end borrow block`);
+    
+    // Return the temp variable name if this borrow returns a value
+    return isReturningValue ? tempVar! : "";
+  }
+
   // return
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
     const arg = expr.args[0];
@@ -573,6 +679,12 @@ function generateFuncCall(
       return `(${arrayTypeName}){ .data = { ${argsList} } }`;
     }
   }
+  // borrow
+  else if (exprIsFunctionCallOf(expr, BuiltinKeywords.borrow)) {
+    // This case should not be reached since borrow is handled at the top
+    return `// Error: borrow should be handled at top of generateFuncCall`;
+  }
+
   // recur
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
     const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
