@@ -13,16 +13,12 @@ import {
 } from "../../expr";
 import {
   createMutPtrType,
-  createMutRefType,
   createPtrType,
-  createRefType,
   createUsizeType,
   isArrayType,
   isLinearOrType0Type,
   isMutPtrType,
-  isMutRefType,
   isPtrType,
-  isRefType,
   isSliceType,
   isUnitType,
   TypeTag,
@@ -89,27 +85,14 @@ export function evaluateFor({
 
   // Check if it's a pointer/reference type
   // If yes, then automatically dereference one-level of it.
-  let itemsPtrOrRefType:
-    | TypeTag.Ptr
-    | TypeTag.MutPtr
-    | TypeTag.Ref
-    | TypeTag.MutRef
-    | undefined = undefined;
+  let itemsPtrOrRefType: TypeTag.Ptr | TypeTag.MutPtr | undefined = undefined;
   let isItemsMutable = true;
 
-  if (
-    isPtrType(itemsType) ||
-    isMutPtrType(itemsType) ||
-    isRefType(itemsType) ||
-    isMutRefType(itemsType)
-  ) {
+  if (isPtrType(itemsType) || isMutPtrType(itemsType)) {
     itemsPtrOrRefType = itemsType.tag;
     itemsType = itemsType.type; // Dereference one level
 
-    if (
-      itemsPtrOrRefType === TypeTag.Ptr ||
-      itemsPtrOrRefType === TypeTag.Ref
-    ) {
+    if (itemsPtrOrRefType === TypeTag.Ptr) {
       isItemsMutable = false;
     }
   }
@@ -129,12 +112,7 @@ export function evaluateFor({
   let elementVariableExpr: Expr | undefined;
   let elementIndexExpr: Expr | undefined;
   let isElementVariableMutable = false;
-  let itemPtrOrRefType:
-    | TypeTag.Ptr
-    | TypeTag.MutPtr
-    | TypeTag.Ref
-    | TypeTag.MutRef
-    | undefined = undefined;
+  let itemPtrOrRefType: TypeTag.Ptr | TypeTag.MutPtr | undefined = undefined;
 
   if (exprIsAtom(bindingExpr)) {
     elementVariableExpr = bindingExpr;
@@ -162,10 +140,6 @@ export function evaluateFor({
       itemPtrOrRefType = TypeTag.Ptr;
     } else if (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutPtr)) {
       itemPtrOrRefType = TypeTag.MutPtr;
-    } else if (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.Ref)) {
-      itemPtrOrRefType = TypeTag.Ref;
-    } else if (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutRef)) {
-      itemPtrOrRefType = TypeTag.MutRef;
     }
 
     if (
@@ -214,14 +188,6 @@ export function evaluateFor({
         exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutPtr)
       ) {
         itemPtrOrRefType = TypeTag.MutPtr;
-      } else if (
-        exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.Ref)
-      ) {
-        itemPtrOrRefType = TypeTag.Ref;
-      } else if (
-        exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutRef)
-      ) {
-        itemPtrOrRefType = TypeTag.MutRef;
       }
 
       if (
@@ -279,10 +245,6 @@ export function evaluateFor({
       itemType = createPtrType(itemType);
     } else if (itemPtrOrRefType === TypeTag.MutPtr) {
       itemType = createMutPtrType(itemType);
-    } else if (itemPtrOrRefType === TypeTag.Ref) {
-      itemType = createRefType(itemType);
-    } else if (itemPtrOrRefType === TypeTag.MutRef) {
-      itemType = createMutRefType(itemType);
     }
   } else {
     // Check if we are extracting linear value from slice
@@ -305,7 +267,6 @@ export function evaluateFor({
     value: evaluatedItemsExpr.$.value
       ? createUnknownValue(itemType, elementVariableName)
       : undefined,
-    pathCollection: [],
   };
 
   if (elementIndexName) {
@@ -317,7 +278,6 @@ export function evaluateFor({
       value: evaluatedItemsExpr.$.value
         ? createUnknownValue(createUsizeType(), elementIndexName) // Initialize it to 0
         : undefined,
-      pathCollection: [],
     };
   }
 
@@ -393,7 +353,6 @@ export function evaluateFor({
         expr.$ = {
           env: evaluatedBodyExpr.$.env,
           isMutable: evaluatedBodyExpr.$.isMutable,
-          pathCollection: evaluatedBodyExpr.$.pathCollection,
           type: evaluatedBodyExpr.$.type,
           value: evaluatedBodyExpr.$.value,
           controlFlow: controlFlow,
@@ -404,7 +363,7 @@ export function evaluateFor({
         expr.$ = {
           env: evaluatedBodyExpr.$.env,
           isMutable: false,
-          pathCollection: [],
+
           type: VUnit.type,
           value: isCompileTime ? VUnit : undefined,
         };
@@ -429,7 +388,7 @@ export function evaluateFor({
   expr.$ = {
     env: env,
     isMutable: false,
-    pathCollection: [],
+
     type: VUnit.type,
     value: isCompileTime ? VUnit : undefined,
   };

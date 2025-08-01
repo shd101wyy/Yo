@@ -81,7 +81,6 @@ export function evaluateUnionType({
     value: unionTypeValue,
     type: unionTypeValue.type,
     isMutable: false,
-    pathCollection: [],
   };
 
   // Append more information to "union" token.

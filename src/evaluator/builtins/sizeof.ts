@@ -67,7 +67,6 @@ export function evaluateSizeOf({
     type: createUsizeType(),
     value: typeSizeValue,
     isMutable: false,
-    pathCollection: [],
   };
   return expr;
 }

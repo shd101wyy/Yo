@@ -394,7 +394,6 @@ ${typeToString(parameterType)}`,
       type: parameterType,
       value: value,
       isMutable,
-      pathCollection: [],
     };
   }
 
@@ -404,7 +403,6 @@ ${typeToString(parameterType)}`,
       type: VUnit.type,
       value: VUnit,
       isMutable: false,
-      pathCollection: [],
     };
   }
 
@@ -741,7 +739,6 @@ export function evaluateFunctionParameters({
             ? createUnknownValue(parameterType, parameterName)
             : undefined,
           isMutable: false,
-          pathCollection: [],
         };
       }
     }
@@ -1138,7 +1135,6 @@ ${typeToString(returnType)}`,
     value: createTypeValue(functionType),
     type: typeOfType(functionType),
     isMutable: false,
-    pathCollection: [],
   };
   return expr;
 }

@@ -21,9 +21,7 @@ import {
   isEnumType,
   isModuleType,
   isMutPtrType,
-  isMutRefType,
   isPtrType,
-  isRefType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -92,7 +90,6 @@ export function synthesizeExprAndType({
       env,
       type,
       isMutable: false,
-      pathCollection: [],
     };
     return { expr, type, env };
   }
@@ -166,7 +163,6 @@ export function synthesizeExprAndType({
         type: newEnumType,
         env,
         isMutable: false,
-        pathCollection: [],
       };
       // TODO: comptime value
 
@@ -451,11 +447,7 @@ export function synthesizeTypes(
       }
     }
   } else if (
-    (isRefType(expected.type) &&
-      (isRefType(given.type) || isMutRefType(given.type))) ||
-    (isMutRefType(expected.type) && isMutRefType(given.type)) ||
-    (isPtrType(expected.type) &&
-      (isPtrType(given.type) || isMutRefType(given.type))) ||
+    (isPtrType(expected.type) && isPtrType(given.type)) ||
     (isMutPtrType(expected.type) && isMutPtrType(given.type))
   ) {
     const { expectedEnv, givenEnv } = synthesizeTypes(

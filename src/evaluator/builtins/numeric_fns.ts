@@ -330,7 +330,6 @@ export function evaluateYoNumericFunctions({
       type: operation === "to_string" ? createComptStringType() : numericType,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
 
     return expr;
@@ -415,7 +414,6 @@ export function evaluateYoNumericFunctions({
       type: resultType,
       value: convertedValue,
       isMutable: false,
-      pathCollection: [],
     };
 
     return expr;
@@ -564,7 +562,6 @@ export function evaluateYoNumericFunctions({
     type: resultType,
     value: value,
     isMutable: false,
-    pathCollection: [],
   };
 
   return expr;

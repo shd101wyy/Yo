@@ -81,7 +81,6 @@ export function evaluateVaStart({
     value: VUnit,
     env,
     isMutable: false,
-    pathCollection: [],
   };
   return expr;
 }

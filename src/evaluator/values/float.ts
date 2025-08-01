@@ -17,7 +17,6 @@ export function evaluateFloatLiteral(
       value,
       type: value.type,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   } else {

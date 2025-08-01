@@ -16,7 +16,6 @@ import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import {
-  buildPathCollectionFromCapturedVariables,
   consumeCapturedVariables,
   createCaptureTypeAndValue,
   enrichCapturedVariables,
@@ -224,10 +223,6 @@ export function tryToImplementClosureByClosureType({
     value: closureValue,
     type: finalClosureType, // Use the updated closure type
     isMutable: false,
-    pathCollection:
-      capturedVariables && capturedVariables.size > 0
-        ? buildPathCollectionFromCapturedVariables(capturedVariables)
-        : [],
   };
 
   return expr;

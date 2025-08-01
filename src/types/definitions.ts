@@ -520,24 +520,6 @@ export interface PtrType extends Type {
   type: Type;
 }
 
-export interface MutRefType extends Type {
-  tag: TypeTag.MutRef;
-  id: TypeTag.MutRef;
-  /**
-   * The type of the reference.
-   */
-  type: Type;
-}
-
-export interface RefType extends Type {
-  tag: TypeTag.Ref;
-  id: TypeTag.Ref;
-  /**
-   * The type of the reference.
-   */
-  type: Type;
-}
-
 /**
  * ClosureType represents a closure as a combination of:
  * 1. A call function with the appropriate closure kind (Fn/FnMut/FnMove)

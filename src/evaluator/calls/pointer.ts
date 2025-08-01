@@ -1,13 +1,10 @@
-import { checkBorrowings } from "../../borrow";
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
-  attachTempVariableToExpr,
   BuiltinKeywords,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
-  requireExprNotConsumed,
 } from "../../expr";
 import {
   createMutPtrType,
@@ -21,11 +18,10 @@ import { EvaluatorContext } from "../context";
 
 /**
  * Evaluate a raw pointer call
+ * Create pointer type
  * For example:
  *
  * I32Ptr :: *(i32);
- * x := 1;
- * p := *(x); // p: *(i32)
  */
 export function evaluateRawPointerCall({
   expr,
@@ -93,40 +89,14 @@ export function evaluateRawPointerCall({
       type: typeValueForPointer.type,
       value: typeValueForPointer,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   } else {
-    // The arg cannot be consumed.
-    requireExprNotConsumed(evaluatedArgExpr, env);
-
-    // Check borrowings
-    checkBorrowings(context.borrowings, evaluatedArgExpr);
-
-    const argType = evaluatedArgExpr.$.type;
-    const pointerType =
-      pointerTypeKind === TypeTag.Ptr
-        ? createPtrType(argType)
-        : createMutPtrType(argType);
-
-    // Check if we are creating a mutable pointer to an immutable value
-    if (pointerTypeKind === TypeTag.MutPtr && !evaluatedArgExpr.$.isMutable) {
-      throw formatErrorMessage({
-        token: argExpr.token,
-        errorMessage: `Cannot create a mutable pointer to the immutable:\n${exprToString(
-          argExpr
-        )}`,
-      });
-    }
-
-    expr.$ = {
-      env,
-      type: pointerType,
-      value: undefined, // pointer is only available for runtime
-      isMutable: pointerTypeKind === TypeTag.MutPtr,
-      pathCollection: [],
-    };
-    attachTempVariableToExpr(expr);
-    return expr;
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Cannot create a pointer type of a non-type value:\n${exprToString(
+        argExpr
+      )}`,
+    });
   }
 }

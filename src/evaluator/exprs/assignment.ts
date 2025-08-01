@@ -1,4 +1,3 @@
-import { checkBorrowings } from "../../borrow";
 import {
   Environment,
   getVariablesFromEnv,
@@ -32,7 +31,6 @@ import {
   isSomeType,
   isTypeHierarchyType,
   Type,
-  typeContainsReference,
   typeOfType,
   typeRequiresInference,
   typeToString,
@@ -254,14 +252,6 @@ export function evaluateAssignment({
       }
     }
 
-    // Check if the rhsType contains reference - references cannot be assigned to variables
-    if (typeContainsReference(rhsType)) {
-      throw formatErrorMessage({
-        token: rhs.token,
-        errorMessage: `Assigning reference to variable is not allowed. FnMut and Fn closures contain references and cannot be stored in variables.`,
-      });
-    }
-
     // Check if the type matches
     if (
       !areTypesCompatible({ type: variable.type, env }, { type: rhsType, env })
@@ -468,10 +458,7 @@ export function evaluateAssignment({
       type: variable.type, // NOTE: It shouldn't be the rhsType.
       value: variable.isCompileTimeOnly ? rhsValue : undefined,
       isMutable: variable.isMutable,
-      pathCollection: [[variableName]],
     };
-    // Check the borrowings
-    checkBorrowings(context.borrowings, lhs);
 
     if (!isMutatingDefinedVariable) {
       expr.$ = {
@@ -479,7 +466,6 @@ export function evaluateAssignment({
         value: VUnit,
         type: VUnit.type,
         isMutable: variable.isMutable,
-        pathCollection: [],
       };
     } else {
       expr.$ = {
@@ -488,7 +474,6 @@ export function evaluateAssignment({
         value: variable.value,
         type: variable.type,
         isMutable: variable.isMutable,
-        pathCollection: [],
       };
 
       // This temp variable is used to hold the old value of lhs
@@ -520,33 +505,6 @@ export function evaluateAssignment({
         token: lhs.token,
         errorMessage: `Cannot assign value to the immutable: ${exprToString(lhs)}`,
       });
-    }
-
-    // Check the borrowings
-    checkBorrowings(context.borrowings, evaluatedLhs);
-
-    // Track variable usage for closure kind checking
-    if (context.isEvaluatingFunctionBody && evaluatedLhs.$.pathCollection) {
-      for (const path of evaluatedLhs.$.pathCollection) {
-        if (path.length > 0) {
-          const variableName = path[0];
-          if (typeof variableName === "string") {
-            // Get the variable to determine its frame level
-            const variables = getVariablesFromEnv(env, variableName);
-            if (variables.length > 0) {
-              const variable = variables[variables.length - 1]!;
-              // Track this as a write operation for field assignment
-              trackVariableUsage(
-                variableName,
-                variable.frameLevel,
-                "write",
-                lhs.token,
-                context
-              );
-            }
-          }
-        }
-      }
     }
 
     const expectedType = evaluatedLhs.$.type;
@@ -596,14 +554,6 @@ export function evaluateAssignment({
       }
     }
 
-    // Check if the rhsType contains reference
-    if (typeContainsReference(rhsType)) {
-      throw formatErrorMessage({
-        token: rhs.token,
-        errorMessage: `Assigning reference to variable is not allowed.`,
-      });
-    }
-
     // Check if the type matches
     if (
       !areTypesCompatible({ type: expectedType, env }, { type: rhsType, env })
@@ -623,7 +573,6 @@ export function evaluateAssignment({
       value: evaluatedLhs.$.value,
       type: evaluatedLhs.$.type,
       isMutable: evaluatedLhs.$.isMutable,
-      pathCollection: [],
     };
 
     // This temp variable is used to hold the old value of lhs
@@ -635,7 +584,6 @@ export function evaluateAssignment({
       type: expectedType, // NOTE: It shouldn't be the rhsType.
       value: rhs.$?.value,
       isMutable: evaluatedLhs.$.isMutable,
-      pathCollection: evaluatedLhs.$.pathCollection,
     };
     // Return the updated expression
     return expr;

@@ -1,7 +1,6 @@
 import {
   addVariableToEnv,
   Environment,
-  getVariablesFromEnv,
   getVariablesNeedingDrop,
   popEnvFrame,
   pushEnvFrame,
@@ -27,9 +26,6 @@ import { generateExprFromCode } from "../../parser";
 import {
   areTypesCompatible,
   isLinearOrType0Type,
-  isMutRefType,
-  isRefType,
-  typeContainsReference,
   typeOfType,
   typeToString,
 } from "../../types";
@@ -82,7 +78,6 @@ export function evaluateBeginExpression({
       type: VUnit.type,
       value: VUnit,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -148,7 +143,7 @@ export function evaluateBeginExpression({
           type: VUnit.type,
           value: VUnit,
           isMutable: false,
-          pathCollection: [],
+
           controlFlow: "return",
         };
         lastExpr = exprToEvaluate;
@@ -185,7 +180,6 @@ export function evaluateBeginExpression({
           type: evaluatedReturnExpr.$.type,
           value: evaluatedReturnExpr.$.value,
           isMutable: false,
-          pathCollection: evaluatedReturnExpr.$.pathCollection,
           variableName: evaluatedReturnExpr.$.variableName,
           controlFlow: "return",
         };
@@ -228,7 +222,7 @@ export function evaluateBeginExpression({
         type: VUnit.type,
         value: VUnit,
         isMutable: false,
-        pathCollection: [],
+
         controlFlow: "break",
       };
       lastExpr = exprToEvaluate;
@@ -269,7 +263,7 @@ export function evaluateBeginExpression({
         type: VUnit.type,
         value: VUnit,
         isMutable: false,
-        pathCollection: [],
+
         controlFlow: "continue",
       };
       lastExpr = exprToEvaluate;
@@ -305,46 +299,6 @@ export function evaluateBeginExpression({
 
   // Prevent return reference to the local variable.
   const returnType = lastExpr.$.type;
-  if (typeContainsReference(returnType)) {
-    // Check the path
-    const pathCollection = lastExpr.$.pathCollection;
-    for (let i = 0; i < pathCollection.length; i++) {
-      const path = pathCollection[i]!;
-      const variableName = path[0]!;
-      if (variableName) {
-        const variables = getVariablesFromEnv(env, variableName);
-        if (!variables.length) {
-          throw formatErrorMessage({
-            token: lastExpr.token,
-            errorMessage: `Invalid path detected. It could be a bug of the compiler.`,
-          });
-        }
-        const variable = variables[variables.length - 1]!;
-        if (
-          // Check if the variable name is a local variable
-          variable.frameLevel ===
-          env.frames.length - 1
-        ) {
-          // If the variable is a local variable, we cannot return a reference to it
-          throw formatErrorMessage({
-            token: lastExpr.token,
-            errorMessage: `Cannot return value containing reference to the local variable "${variableName}".`,
-          });
-        } else if (
-          // Otherwise, expect it to be reference type.
-          !(isMutRefType(variable.type) || isRefType(variable.type))
-        ) {
-          // If the variable is not a reference type, we cannot return a reference to it
-          throw formatErrorMessage({
-            token: lastExpr.token,
-            errorMessage: `Cannot return value containing reference to the variable "${variableName}" of type "${typeToString(
-              variable.type
-            )}". Expected reference type.`,
-          });
-        }
-      }
-    }
-  }
 
   // Check if return type is compatible
   if (lastExpr.$.controlFlow === "return") {
@@ -495,7 +449,7 @@ export function evaluateBeginExpression({
     type: lastExpr.$.type,
     value: lastExpr.$.value,
     isMutable: false,
-    pathCollection: [],
+
     controlFlow: lastExpr.$.controlFlow,
   };
   attachTempVariableToExpr(expr);

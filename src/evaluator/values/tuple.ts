@@ -130,7 +130,6 @@ ${typeToString(expectedTupleType)}`,
     type: elementType,
     value: value,
     isMutable: evaluatedRhs.$?.isMutable ?? false,
-    pathCollection: [],
   };
   return {
     type: {
@@ -229,7 +228,6 @@ export function evaluateTupleValue({
       value: VUnit,
       type: VUnit.type,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -265,7 +263,7 @@ export function evaluateTupleValue({
     value: tupleValue,
     type: tupleType,
     isMutable: true,
-    pathCollection: [],
+
     runtimeArgExprsInOrder,
   };
   return expr;

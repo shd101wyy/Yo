@@ -15,7 +15,6 @@ export function evaluateStringLiteral(
       value,
       type: value.type,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   } else {

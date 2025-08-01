@@ -90,7 +90,6 @@ export function evaluateTupleType({
       value,
       type: value.type,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -118,7 +117,6 @@ export function evaluateTupleType({
     value: createTypeValue(tupleType),
     type: typeOfType(tupleType),
     isMutable: false,
-    pathCollection: [],
   };
   return expr;
 }

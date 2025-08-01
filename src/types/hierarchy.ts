@@ -27,10 +27,8 @@ import {
   isFunctionType,
   isModuleType,
   isMutPtrType,
-  isMutRefType,
   isPrimitiveType,
   isPtrType,
-  isRefType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -198,12 +196,7 @@ export function typeOfType(
     // Module type itself has the same level as Free/Linear/Type
   } else if (isSomeType(type)) {
     return type.parentType;
-  } else if (
-    isMutPtrType(type) ||
-    isPtrType(type) ||
-    isMutRefType(type) ||
-    isRefType(type)
-  ) {
+  } else if (isMutPtrType(type) || isPtrType(type)) {
     return createFreeType(type);
   } else {
     throw new Error(`Unknown type tag: ${type}`);

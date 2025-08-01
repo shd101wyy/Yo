@@ -23,10 +23,7 @@ import {
   FunctionEvaluationContext,
 } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
-import {
-  buildPathCollectionFromCapturedVariables,
-  consumeCapturedVariables,
-} from "../utils/closure";
+import { consumeCapturedVariables } from "../utils/closure";
 
 /**
  * Creates a fresh evaluation context for function body evaluation
@@ -292,10 +289,6 @@ export function tryToImplementFunctionByFunctionType({
     value: functionValue,
     type: functionType,
     isMutable: false,
-    pathCollection:
-      capturedVariables && capturedVariables.size > 0
-        ? buildPathCollectionFromCapturedVariables(capturedVariables)
-        : [],
   };
 
   return expr;

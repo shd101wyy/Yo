@@ -19,7 +19,6 @@ import {
   isTupleType,
   isUnionType,
   Type,
-  typeContainsReference,
   typeOfType,
   typeToString,
 } from "../../types";
@@ -159,15 +158,6 @@ export function handleMemberDestructuring({
           });
         }
 
-        if (typeContainsReference(element.type)) {
-          throw formatErrorMessage({
-            token: lhsElement.token,
-            errorMessage: `Cannot destructure element "${element.label}" of type ${typeToString(
-              element.type
-            )} with references.`,
-          });
-        }
-
         // Add to environment
         // console.log("(2) addVariableToEnv");
         const { env: nextEnv } = addVariableToEnv({
@@ -193,7 +183,6 @@ export function handleMemberDestructuring({
         type: rhsType,
         value: rhsValue,
         isMutable: false,
-        pathCollection: [],
       };
 
       continue;
@@ -256,15 +245,6 @@ export function handleMemberDestructuring({
           });
         }
 
-        if (typeContainsReference(element.type)) {
-          throw formatErrorMessage({
-            token: lhsElement.token,
-            errorMessage: `Cannot destructure element "${element.label}" of type ${typeToString(
-              element.type
-            )} with references.`,
-          });
-        }
-
         // Add to environment
         // console.log("(3) addVariableToEnv");
         const { env: nextEnv } = addVariableToEnv({
@@ -290,7 +270,6 @@ export function handleMemberDestructuring({
         type: rhsType,
         value: rhsValue,
         isMutable: false,
-        pathCollection: [],
       };
 
       continue;
@@ -450,15 +429,6 @@ export function handleMemberDestructuring({
         });
       }
 
-      if (typeContainsReference(rhsElement.type)) {
-        throw formatErrorMessage({
-          token: lhsElement.token,
-          errorMessage: `Cannot destructure element "${rhsElement.label}" of type ${typeToString(
-            rhsElement.type
-          )} with references.`,
-        });
-      }
-
       const { env: nextEnv } = addVariableToEnv({
         env,
         variable: {
@@ -482,7 +452,6 @@ export function handleMemberDestructuring({
         type: rhsElement.type,
         value: elementValue,
         isMutable: false,
-        pathCollection: [],
       };
 
       if (labelExpr) {
@@ -491,7 +460,6 @@ export function handleMemberDestructuring({
           type: rhsElement.type,
           value: elementValue, // !renameExpr ? elementValue : undefined,
           isMutable: false,
-          pathCollection: [],
         };
       }
 
@@ -501,7 +469,6 @@ export function handleMemberDestructuring({
           type: rhsElement.type,
           value: elementValue,
           isMutable: false,
-          pathCollection: [],
         };
       }
     }

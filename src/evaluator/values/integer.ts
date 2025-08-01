@@ -33,7 +33,6 @@ export function evaluateIntegerLiteral(
       value,
       type: value.type,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   } else {

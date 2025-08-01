@@ -5,9 +5,7 @@ import {
   FunctionType,
   ModuleType,
   MutPtrType,
-  MutRefType,
   PtrType,
-  RefType,
   SliceType,
   SomeType,
   StructType,
@@ -247,14 +245,6 @@ export function isMutPtrType(type?: Type): type is MutPtrType {
 
 export function isPtrType(type?: Type): type is PtrType {
   return type?.tag === TypeTag.Ptr;
-}
-
-export function isMutRefType(type?: Type): type is MutRefType {
-  return type?.tag === TypeTag.MutRef;
-}
-
-export function isRefType(type?: Type): type is RefType {
-  return type?.tag === TypeTag.Ref;
 }
 
 // Numeric type guards

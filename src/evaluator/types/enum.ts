@@ -316,7 +316,6 @@ export function evaluateEnumType({
     value: enumTypeValue,
     type: enumTypeValue.type,
     isMutable: false,
-    pathCollection: [],
   };
 
   // Append more information to "enum" token.

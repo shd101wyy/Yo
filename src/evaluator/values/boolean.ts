@@ -16,7 +16,6 @@ export function evaluateBooleanLiteral(
       value,
       type: value.type,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   } else {

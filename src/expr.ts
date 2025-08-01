@@ -21,65 +21,6 @@ import {
 import { generateNewTempVariableName } from "./utils";
 import { isTypeValue, Value } from "./value";
 
-/**
- * Eg:
- *
- * x      has path ["x"]
- * x.a    has path ["x", "a"]
- * &(x.a) has path ["x", "a"]
- * arr(some_index) has path ["arr"] as `some_index` is runtime known.
- *
- */
-export type Path = string[];
-export type PathCollection = Path[];
-
-/*
- * Check if `path1` contains `path2`.
- * For example:
- *   pathContainsPath(["x"], ["x", "a"]) => false
- *   pathContainsPath(["x", "a"], ["x"]) => true
- *   pathContainsPath(["x", "a"], ["x", "a"]) => true
- *   pathContainsPath(["x", "a"], ["y"]) => false
- */
-export function pathContainsPath(path1: Path, path2: Path): boolean {
-  if (path1.length < path2.length) {
-    return false;
-  }
-  for (let i = 0; i < path2.length; i++) {
-    if (path1[i] !== path2[i]) {
-      return false;
-    }
-  }
-  return true;
-}
-
-export function pathCollectionConflictsWithPathCollection(
-  collection1: PathCollection,
-  collection2: PathCollection
-): boolean {
-  // If any path in collection1 conflicts with any path in collection2, then they conflict.
-  for (const path1 of collection1) {
-    for (const path2 of collection2) {
-      if (pathConflictsWithPath(path1, path2)) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-export function pathConflictsWithPath(path1: Path, path2: Path): boolean {
-  // If the first path is a prefix of the second path, then they conflict.
-  if (pathContainsPath(path2, path1)) {
-    return true;
-  }
-  // If the second path is a prefix of the first path, then they conflict.
-  if (pathContainsPath(path1, path2)) {
-    return true;
-  }
-  return false;
-}
-
 export enum ExprTag {
   Atom = "Atom",
   FuncCall = "FuncCall",
@@ -141,11 +82,6 @@ export interface EvaluatedExprData {
    * `p.*` is an expression whose `isAccessingProperty` is true.
    */
   isAccessingProperty?: boolean;
-
-  /**
-   * The path collection of the expression.
-   */
-  pathCollection: PathCollection;
 
   /**
    * This is mainly for FuncCall expressions.
@@ -771,7 +707,7 @@ export const BuiltinFunctions = {
   __yo_type_is_linear: ["__yo_type_is_linear"],
   __yo_type_is_free: ["__yo_type_is_free"],
   __yo_type_is_type0: ["__yo_type_is_type0"],
-  __yo_type_contains_reference: ["__yo_type_contains_reference"],
+  // __yo_type_contains_reference: ["__yo_type_contains_reference"],
   __yo_are_types_compatible: ["__yo_are_types_compatible"],
 
   // Operator related functions

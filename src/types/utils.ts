@@ -8,7 +8,7 @@ import { ValueTag } from "../value-tag";
 import {
   createF64Type,
   createI32Type,
-  createRefType,
+  createPtrType,
   createSliceType,
   createU8Type,
 } from "./creators";
@@ -21,9 +21,7 @@ import {
   ModuleElement,
   ModuleType,
   MutPtrType,
-  MutRefType,
   PtrType,
-  RefType,
   SomeType,
   StructType,
   TupleElement,
@@ -36,7 +34,6 @@ import {
   isBooleanType,
   isCCompatibleType,
   isCharType,
-  isClosureType,
   isComptFloatType,
   isComptIntType,
   isComptStringType,
@@ -56,9 +53,7 @@ import {
   isIsizeType,
   isModuleType,
   isMutPtrType,
-  isMutRefType,
   isPtrType,
-  isRefType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -94,56 +89,6 @@ export function typeRequiresComptModifier(type?: Type): boolean {
 
 export function typeProhibitsComptModifier(type?: Type): boolean {
   return isCCompatibleType(type);
-}
-
-/**
- * Check if a type contains reference types.
- */
-export function typeContainsReference(type?: Type): boolean {
-  if (!type) {
-    return false;
-  }
-
-  // Check if the type is a reference type
-  if (isRefType(type) || isMutRefType(type)) {
-    return true;
-  }
-
-  // Check if the type is a ClosureType - Fn and FnMut contain references
-  if (isClosureType(type)) {
-    const closureType = type as ClosureType;
-    const closureKind = closureType.callType.closureKind;
-    // FnMove doesn't contain references (takes ownership), but Fn and FnMut do
-    return closureKind === "Fn" || closureKind === "FnMut";
-  }
-
-  // Recursively check for references in complex types
-  switch (type.tag) {
-    case TypeTag.Array:
-      return typeContainsReference((type as ArrayType).elementType);
-    case TypeTag.Tuple:
-      return (type as TupleType).elements.some((element) =>
-        typeContainsReference(element.type)
-      );
-    case TypeTag.Struct:
-      return (type as StructType).elements.some((element) =>
-        typeContainsReference(element.type)
-      );
-    case TypeTag.Enum:
-      return (type as EnumType).variants.some((variant) =>
-        variant.elements?.some((param) => typeContainsReference(param.type))
-      );
-    case TypeTag.Union:
-      return (type as UnionType).elements.some((element) =>
-        typeContainsReference(element.type)
-      );
-    case TypeTag.Module:
-      return (type as ModuleType).elements.some((element) =>
-        typeContainsReference(element.type)
-      );
-    default:
-      return false; // For other types, no references are present
-  }
 }
 
 /**
@@ -185,11 +130,7 @@ export function typeContainsSomeType(type?: Type): boolean {
       );
     case TypeTag.Ptr:
     case TypeTag.MutPtr:
-    case TypeTag.Ref:
-    case TypeTag.MutRef:
-      return typeContainsSomeType(
-        (type as PtrType | MutPtrType | RefType | MutRefType).type
-      );
+      return typeContainsSomeType((type as PtrType | MutPtrType).type);
     default:
       return false; // For other types, no SomeType is present
   }
@@ -367,8 +308,8 @@ export function convertComptTypeToRuntimeType(
       }
     }
 
-    // Convert the compt_string to &([u8]);
-    return createRefType(createSliceType(createU8Type()));
+    // Convert the compt_string to *([u8]);
+    return createPtrType(createSliceType(createU8Type()));
   } else {
     // No change
     return type;
@@ -808,14 +749,6 @@ export function typeToString(type: Type): string {
       return `*!(${typeToString((type as MutPtrType).type)})`;
     }
 
-    case TypeTag.Ref: {
-      return `&(${typeToString((type as RefType).type)})`;
-    }
-
-    case TypeTag.MutRef: {
-      return `&!(${typeToString((type as MutRefType).type)})`;
-    }
-
     case TypeTag.Expr: {
       return "Expr";
     }
@@ -981,12 +914,7 @@ export function getSizeOfType(type: Type): number | null {
     return getUnionType(type);
   } else if (isFunctionType(type)) {
     return getPtrSize(); // Functions are treated as pointers, so return pointer size
-  } else if (
-    isMutPtrType(type) ||
-    isPtrType(type) ||
-    isMutRefType(type) ||
-    isRefType(type)
-  ) {
+  } else if (isMutPtrType(type) || isPtrType(type)) {
     return getPtrSize(); // Pointer and reference types have pointer size
   }
 

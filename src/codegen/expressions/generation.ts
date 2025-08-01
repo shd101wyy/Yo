@@ -18,9 +18,7 @@ import {
   isEnumType,
   isFunctionType,
   isMutPtrType,
-  isMutRefType,
   isPtrType,
-  isRefType,
   isSliceType,
   isStructType,
   isTupleType,
@@ -1347,12 +1345,7 @@ function generateFieldAccess(
       return `${objectCode}.${fieldName}`;
     }
     // Check if the object is pointer or reference
-    else if (
-      isPtrType(objectType) ||
-      isMutPtrType(objectType) ||
-      isRefType(objectType) ||
-      isMutRefType(objectType)
-    ) {
+    else if (isPtrType(objectType) || isMutPtrType(objectType)) {
       if (fieldName === "*") {
         // Regular dereference for pointers/references
         return `*(${objectCode})`; // Dereference the pointer/reference
@@ -1360,12 +1353,7 @@ function generateFieldAccess(
         // Dereference until not a pointer/reference
         let dereferenceLevel = 0;
         let currentType: Type = objectType;
-        while (
-          isPtrType(currentType) ||
-          isMutPtrType(currentType) ||
-          isRefType(currentType) ||
-          isMutRefType(currentType)
-        ) {
+        while (isPtrType(currentType) || isMutPtrType(currentType)) {
           dereferenceLevel++;
           currentType = currentType.type;
         }
@@ -1518,20 +1506,10 @@ function generateMatchExpression(
 
   // Check if it's a pointer/reference type
   // If yes, then automatically dereference one-level of it.
-  let ptrOrRefType:
-    | TypeTag.Ptr
-    | TypeTag.MutPtr
-    | TypeTag.Ref
-    | TypeTag.MutRef
-    | undefined = undefined;
+  let ptrOrRefType: TypeTag.Ptr | TypeTag.MutPtr | undefined = undefined;
 
   let enumType: Type;
-  if (
-    isPtrType(matchValueType) ||
-    isMutPtrType(matchValueType) ||
-    isRefType(matchValueType) ||
-    isMutRefType(matchValueType)
-  ) {
+  if (isPtrType(matchValueType) || isMutPtrType(matchValueType)) {
     enumType = matchValueType.type;
     ptrOrRefType = matchValueType.tag;
   } else {

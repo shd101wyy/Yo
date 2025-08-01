@@ -76,8 +76,6 @@ export enum TypeTag {
   // Pointer & Reference
   MutPtr = "MutPtr",
   Ptr = "Ptr",
-  MutRef = "MutRef",
-  Ref = "Ref",
 
   // Expr (for macro/metaprogramming)
   Expr = "Expr",

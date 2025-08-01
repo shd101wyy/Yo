@@ -146,7 +146,6 @@ export function tryToImplementArrayByArrayType({
     value: arrayValue,
     type: finalArrayType,
     isMutable: false,
-    pathCollection: [],
   };
 
   return expr;

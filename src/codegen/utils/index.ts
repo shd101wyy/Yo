@@ -3,15 +3,12 @@ import { exprIsFunctionCall, exprIsFunctionCallOf } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
   ArrayType,
-  ClosureType,
   EnumType,
   EnumVariant,
   FunctionType,
   isFunctionSpecializable,
   isMutPtrType,
-  isMutRefType,
   isPtrType,
-  isRefType,
   isSliceType,
   SliceType,
   Type,
@@ -167,7 +164,6 @@ export function getTypeString(
     }
     // Closure type
     case TypeTag.Closure: {
-      const closureType = type as ClosureType;
       // A closure is represented as a struct containing:
       // 1. Function pointer for the call function
       // 2. Capture data (if any)
@@ -222,14 +218,9 @@ export function getTypeString(
     }
   }
 
-  if (
-    isPtrType(type) ||
-    isMutPtrType(type) ||
-    isRefType(type) ||
-    isMutRefType(type)
-  ) {
+  if (isPtrType(type) || isMutPtrType(type)) {
     const baseType = type.type;
-    const isMutable = isMutPtrType(type) || isMutRefType(type);
+    const isMutable = isMutPtrType(type);
 
     // Special handling for pointer-to-slice: in Rust-like semantics,
     // *[T] (pointer to slice) IS the fat pointer struct, not a pointer to fat pointer
@@ -356,12 +347,7 @@ export function canOptimizeAsNullablePointer(enumType: EnumType): Type | null {
       const elementType = variant.elements[0]!.type;
 
       // Check if it's a pointer/reference type
-      if (
-        isPtrType(elementType) ||
-        isMutPtrType(elementType) ||
-        isRefType(elementType) ||
-        isMutRefType(elementType)
-      ) {
+      if (isPtrType(elementType) || isMutPtrType(elementType)) {
         if (pointerVariant) {
           return null; // More than one pointer variant
         }

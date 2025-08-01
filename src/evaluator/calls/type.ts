@@ -1,4 +1,3 @@
-import { Borrowing, checkBorrowings } from "../../borrow";
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
@@ -7,13 +6,10 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  PathCollection,
   setExprAsConsumed,
 } from "../../expr";
 import {
   areTypesCompatible,
-  isMutRefType,
-  isRefType,
   TupleElement,
   tupleElementToString,
   typeToString,
@@ -53,9 +49,6 @@ export function tryToCallTypeWithArguments({
       errorMessage: `Failed to call the union type. Expected exactly one argument, got ${argExprs.length}.`,
     });
   }
-
-  const initialBorrowings: Borrowing[] = [...context.borrowings];
-  let borrowings: Borrowing[] = [...context.borrowings];
 
   const checkedMemberElements: Set<TupleElement> = new Set();
   const values: (Value | undefined)[] = Array(memberElements.length).fill(
@@ -124,7 +117,6 @@ ${tupleElementToString(paramElement_)}`,
       context: {
         ...context,
         expectedType: { type: memberElement.type, env: callerEnv },
-        borrowings,
       },
     });
 
@@ -147,20 +139,6 @@ ${tupleElementToString(paramElement_)}`,
     // Attach information to labelExpr
     if (labelExpr) {
       labelExpr.$ = evaluatedArgExpr.$;
-    }
-
-    // Check the borrowings
-    if (evaluatedArgExpr.$ && (isMutRefType(argType) || isRefType(argType))) {
-      checkBorrowings(borrowings, evaluatedArgExpr);
-
-      // Add the evaluated arg expr to the borrowings
-      borrowings = borrowings.concat([
-        {
-          expr: evaluatedArgExpr,
-          type: argType,
-          pathCollection: evaluatedArgExpr.$.pathCollection,
-        },
-      ]);
     }
 
     // Compare the types
@@ -208,16 +186,5 @@ Got:   ${typeToString(argType)}`,
     }
   }
 
-  const pathCollection: PathCollection = [];
-  if (borrowings.length !== initialBorrowings.length) {
-    const newBorrowings = borrowings.slice(initialBorrowings.length);
-    newBorrowings.forEach((borrowing) => {
-      const pc = borrowing.pathCollection;
-      pc.forEach((path) => {
-        pathCollection.push(path);
-      });
-    });
-  }
-
-  return { values, pathCollection, callerEnv, runtimeArgExprsInOrder };
+  return { values, callerEnv, runtimeArgExprsInOrder };
 }

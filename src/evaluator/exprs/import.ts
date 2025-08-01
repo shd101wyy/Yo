@@ -123,7 +123,6 @@ export function evaluateImport({
       type: moduleValue.type,
       value: moduleValue,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   } catch (error) {

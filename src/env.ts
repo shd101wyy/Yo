@@ -8,9 +8,7 @@ import {
   isLinearOrType0Type,
   isModuleType,
   isMutPtrType,
-  isMutRefType,
   isPtrType,
-  isRefType,
   isStructType,
   isUnionType,
   ModuleType,
@@ -573,9 +571,7 @@ export function getMethodsByNameFromEnv(
   let dereferencedReceiverType = receiverType;
   while (
     isPtrType(dereferencedReceiverType) ||
-    isMutPtrType(dereferencedReceiverType) ||
-    isRefType(dereferencedReceiverType) ||
-    isMutRefType(dereferencedReceiverType)
+    isMutPtrType(dereferencedReceiverType)
   ) {
     dereferencedReceiverType = dereferencedReceiverType.type;
   }

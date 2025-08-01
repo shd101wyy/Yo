@@ -246,7 +246,6 @@ export function evaluateAnonymousStructValue({
     type: structTypeValue.type,
     value: structTypeValue,
     isMutable: false,
-    pathCollection: [],
   };
 
   // NOTE: We add anonymous struct value's type as isImplicit = true.
@@ -272,7 +271,7 @@ export function evaluateAnonymousStructValue({
     type: structType,
     value: structValue,
     isMutable: true,
-    pathCollection: [],
+
     runtimeArgExprsInOrder,
   };
 

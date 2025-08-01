@@ -197,7 +197,6 @@ ${exprToString(rhs)}`,
     env,
     type: userDefinedType,
     isMutable,
-    pathCollection: [[variableName]],
   };
 
   expr.$ = {
@@ -205,7 +204,6 @@ ${exprToString(rhs)}`,
     type: VUnit.type,
     value: VUnit,
     isMutable: false,
-    pathCollection: [],
   };
 
   return { expr, variableExpr: lhs, variableName };

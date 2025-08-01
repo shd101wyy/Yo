@@ -9,20 +9,20 @@ import {
   requireExprNotConsumed,
 } from "../../expr";
 import {
-  createMutRefType,
-  createRefType,
-  isMutRefType,
-  isRefType,
+  createMutPtrType,
+  createPtrType,
+  isMutPtrType,
+  isPtrType,
   TypeTag,
 } from "../../types";
-import { createTypeValue, isTypeValue } from "../../value";
+import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 
 /**
  * Evaluate a reference call
+ * Create pointer value
  * For example:
  *
- * &(i32)
  * swap(&!(x), &!(y));
  */
 export function evaluateReferenceCall({
@@ -34,19 +34,19 @@ export function evaluateReferenceCall({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  const referenceTypeKind: TypeTag.Ref | TypeTag.MutRef = exprIsFunctionCallOf(
+  const pointerTypeKind: TypeTag.Ptr | TypeTag.MutPtr = exprIsFunctionCallOf(
     expr,
     BuiltinKeywords.Ref
   )
-    ? TypeTag.Ref
-    : TypeTag.MutRef;
+    ? TypeTag.Ptr
+    : TypeTag.MutPtr;
 
   const argExpr = expr.args[0]!;
 
   let expectedType = context.expectedType;
   if (
     expectedType &&
-    (isRefType(expectedType.type) || isMutRefType(expectedType.type))
+    (isPtrType(expectedType.type) || isMutPtrType(expectedType.type))
   ) {
     // If the expected type is a reference type, we need to use the base type
     // for the reference creation.
@@ -79,37 +79,27 @@ export function evaluateReferenceCall({
 
   // Check if the argExpr is a type
   if (isTypeValue(evaluatedArgExpr.$.value)) {
-    const typeValue = evaluatedArgExpr.$.value;
-    const baseType = typeValue.value;
-    // Create the pointer type
-    const referenceType =
-      referenceTypeKind === TypeTag.Ref
-        ? createRefType(baseType)
-        : createMutRefType(baseType);
-    const typeValueForPointer = createTypeValue(referenceType);
-    expr.$ = {
-      env,
-      type: typeValueForPointer.type,
-      value: typeValueForPointer,
-      isMutable: false,
-      pathCollection: [],
-    };
-    return expr;
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Cannot create a pointer to a type value:\n${exprToString(
+        argExpr
+      )}`,
+    });
   } else {
     // The arg cannot be consumed.
     requireExprNotConsumed(evaluatedArgExpr, env);
 
     const argType = evaluatedArgExpr.$.type;
-    const referenceType =
-      referenceTypeKind === TypeTag.Ref
-        ? createRefType(argType)
-        : createMutRefType(argType);
+    const pointerType =
+      pointerTypeKind === TypeTag.Ptr
+        ? createPtrType(argType)
+        : createMutPtrType(argType);
 
     // Check if we are creating a mutable pointer to an immutable value
-    if (referenceTypeKind === TypeTag.MutRef && !evaluatedArgExpr.$.isMutable) {
+    if (pointerTypeKind === TypeTag.MutPtr && !evaluatedArgExpr.$.isMutable) {
       throw formatErrorMessage({
         token: argExpr.token,
-        errorMessage: `Cannot create a mutable reference to the immutable:\n${exprToString(
+        errorMessage: `Cannot create a mutable pointer to the immutable:\n${exprToString(
           argExpr
         )}`,
       });
@@ -117,10 +107,9 @@ export function evaluateReferenceCall({
 
     expr.$ = {
       env,
-      type: referenceType,
+      type: pointerType,
       value: undefined, // reference is only available for runtime
-      isMutable: referenceTypeKind === TypeTag.MutRef,
-      pathCollection: evaluatedArgExpr.$.pathCollection,
+      isMutable: pointerTypeKind === TypeTag.MutPtr,
     };
     attachTempVariableToExpr(expr);
     return expr;

@@ -16,7 +16,6 @@ export function evaluateCharLiteral(
       value,
       type: value.type,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   } else {

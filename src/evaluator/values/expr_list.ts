@@ -64,7 +64,6 @@ export function evaluateExprListValue({
     type: exprListValue.type,
     value: exprListValue,
     isMutable: false,
-    pathCollection: [],
   };
   return expr;
 }

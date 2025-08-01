@@ -323,7 +323,6 @@ export function evaluateStructType({
     type: structTypeValue.type,
     value: structTypeValue,
     isMutable: false,
-    pathCollection: [],
   };
 
   // Append more information to "struct" token.

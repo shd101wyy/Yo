@@ -383,7 +383,6 @@ Given type: ${typeToString(defaultValueType)}`,
       env,
       type: elementType,
       isMutable: false,
-      pathCollection: [],
     };
   }
 
@@ -393,7 +392,6 @@ Given type: ${typeToString(defaultValueType)}`,
       value: VUnit,
       type: VUnit.type,
       isMutable: false,
-      pathCollection: [],
     };
   }
 
@@ -589,7 +587,6 @@ export function evaluateModuleType({
     value: moduleTypeValue,
     type: moduleTypeValue.type,
     isMutable: false,
-    pathCollection: [],
   };
 
   // Append more information to "module" token.

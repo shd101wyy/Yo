@@ -95,7 +95,6 @@ export function evaluateYoComptFloatFunctions({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
   } else {
     const lhs = context.evaluateExpression({
@@ -251,7 +250,6 @@ export function evaluateYoComptFloatFunctions({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
   }
 

@@ -69,7 +69,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -81,7 +80,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -93,7 +91,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -105,7 +102,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -117,7 +113,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -129,7 +124,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -141,7 +135,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -153,7 +146,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -165,7 +157,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -177,7 +168,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -189,7 +179,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -201,7 +190,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -213,7 +201,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -225,7 +212,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -237,7 +223,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -249,7 +234,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -261,7 +245,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -273,7 +256,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -285,7 +267,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -297,7 +278,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -309,7 +289,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -321,7 +300,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -333,7 +311,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -345,7 +322,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -357,7 +333,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -369,7 +344,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -381,7 +355,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -393,7 +366,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -405,7 +377,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -417,7 +388,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -429,7 +399,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -441,7 +410,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -453,7 +421,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -465,7 +432,6 @@ export function evaluateIdentifierAndOperator({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -484,7 +450,6 @@ export function evaluateIdentifierAndOperator({
       type: typeValue.type,
       value: typeValue,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -516,7 +481,6 @@ export function evaluateIdentifierAndOperator({
         isMutable: variable.isMutable,
         originType: variable.type, // Set origin type for direct variable access
         variableName: variable.name, // NOTE: The tempVariableName here is the variable name itself.
-        pathCollection: [[variable.name]],
       };
 
       // Check if the variable has been consumed (for linear types including closures)

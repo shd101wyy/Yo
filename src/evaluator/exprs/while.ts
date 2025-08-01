@@ -75,7 +75,7 @@ export function evaluateWhile({
     expr.$ = {
       env: env,
       isMutable: false,
-      pathCollection: [],
+
       type: VUnit.type,
       value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
     };
@@ -109,7 +109,6 @@ export function evaluateWhile({
           expr.$ = {
             env: evaluatedBodyExpr.$.env,
             isMutable: evaluatedBodyExpr.$.isMutable,
-            pathCollection: evaluatedBodyExpr.$.pathCollection,
             type: evaluatedBodyExpr.$.type,
             value: evaluatedBodyExpr.$.value,
             controlFlow: evaluatedBodyExpr.$.controlFlow,
@@ -119,7 +118,7 @@ export function evaluateWhile({
           expr.$ = {
             env: env,
             isMutable: false,
-            pathCollection: [],
+
             type: VUnit.type,
             value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
           };
@@ -129,7 +128,7 @@ export function evaluateWhile({
         expr.$ = {
           env: evaluatedBodyExpr.$.env,
           isMutable: false,
-          pathCollection: [],
+
           type: VUnit.type,
           value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
         };
@@ -170,7 +169,7 @@ export function evaluateWhile({
           expr.$ = {
             env: updatedEnv,
             isMutable: false,
-            pathCollection: [],
+
             type: VUnit.type,
             value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
           };
@@ -223,7 +222,7 @@ export function evaluateWhile({
       expr.$ = {
         env: env,
         isMutable: false,
-        pathCollection: [],
+
         type: VUnit.type,
         value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
       };

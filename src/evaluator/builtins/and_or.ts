@@ -64,7 +64,7 @@ export function evaluateAndOr({
     type: createBooleanType(),
     value,
     isMutable: false,
-    pathCollection: [],
+
     isAccessingProperty: false,
   };
   return expr;

@@ -160,7 +160,6 @@ Got ${typeToString(typeOfType(element.type))}`,
     value: VUnit,
     type: VUnit.type,
     isMutable: false,
-    pathCollection: [],
   };
 
   // "extern" token
@@ -169,7 +168,6 @@ Got ${typeToString(typeOfType(element.type))}`,
     value: VUnit,
     type: VUnit.type,
     isMutable: false,
-    pathCollection: [],
   };
 
   return expr;

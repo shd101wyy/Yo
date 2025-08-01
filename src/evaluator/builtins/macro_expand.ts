@@ -171,7 +171,6 @@ export function evaluateMacroExpand({
       type: createExprType(),
       value: createExprValue(currentExpr),
       isMutable: evaluatedArgExpr.$.isMutable,
-      pathCollection: evaluatedArgExpr.$.pathCollection,
     };
   } else {
     // Unknown value;
@@ -180,7 +179,6 @@ export function evaluateMacroExpand({
       type: evaluatedArgExpr.$.type,
       value: evaluatedArgExpr.$.value,
       isMutable: evaluatedArgExpr.$.isMutable,
-      pathCollection: evaluatedArgExpr.$.pathCollection,
     };
   }
   return expr;

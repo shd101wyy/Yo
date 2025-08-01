@@ -35,7 +35,6 @@ import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateFunctionParameters } from "../types/function";
 import {
-  buildPathCollectionFromCapturedVariables,
   consumeCapturedVariables,
   createCaptureTypeAndValue,
 } from "../utils/closure";
@@ -392,10 +391,6 @@ export function evaluateAnonymousFunctionImplementation({
     type: finalType,
     value: finalValue,
     isMutable: false,
-    pathCollection:
-      isClosureFunction && capturedVariables
-        ? buildPathCollectionFromCapturedVariables(capturedVariables)
-        : [],
   };
 
   // For closures, attach a temporary variable so they can be consumed

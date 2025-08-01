@@ -150,7 +150,7 @@ export function evaluateOpen({
     value: VUnit,
     type: VUnit.type,
     isMutable: false,
-    pathCollection: [],
+
     runtimeDestructurings,
   };
 

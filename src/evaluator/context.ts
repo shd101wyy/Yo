@@ -1,7 +1,6 @@
-import { Borrowing } from "../borrow";
 import { Environment } from "../env";
 import { formatErrorMessages, MoParserError } from "../error";
-import { Expr, PathCollection } from "../expr";
+import { Expr } from "../expr";
 import { FunctionValue } from "../function-value";
 import { Token } from "../token";
 import { FunctionType, ModuleType, Type } from "../types";
@@ -76,11 +75,6 @@ export interface EvaluatorContext {
   ModuleType?: ModuleType;
 
   /**
-   * The borrowings.
-   */
-  borrowings: Borrowing[];
-
-  /**
    * Whether we are currently evaluating a closure call type.
    * This is used to restrict FnMove/FnMut/Fn usage to only within Closure types.
    */
@@ -114,7 +108,6 @@ export interface ArgValues {
 export interface FunctionCallResult {
   calleeEnv: Environment;
   callerEnv: Environment;
-  pathCollection: PathCollection;
   returnType: Type;
   returnValue: Value | undefined;
   argValues: ArgValues;
@@ -129,7 +122,6 @@ export interface FunctionCallResult {
 
 export interface TypeCallResult {
   values: (Value | undefined)[];
-  pathCollection: PathCollection;
   runtimeArgExprsInOrder: Expr[];
   callerEnv: Environment;
 }

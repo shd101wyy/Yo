@@ -82,7 +82,7 @@ export function evaluateYoExprIsAtom({
     type: booleanValue.type,
     value: booleanValue,
     isMutable: false,
-    pathCollection: [],
+
     isAccessingProperty: false,
   };
   return expr;
@@ -142,7 +142,7 @@ export function evaluateYoExprIsFnCall({
     type: booleanValue.type,
     value: booleanValue,
     isMutable: false,
-    pathCollection: [],
+
     isAccessingProperty: false,
   };
   return expr;
@@ -198,7 +198,7 @@ export function evaluateYoExprGetCallee({
     type: createExprType(),
     value: createUnknownValue(createExprType()), // Will be updated later
     isMutable: false,
-    pathCollection: [],
+
     isAccessingProperty: false,
   };
 
@@ -270,7 +270,7 @@ export function evaluateYoExprGetArgs({
     type: createExprListType(),
     value: createUnknownValue(createExprListType()), // Will be updated later
     isMutable: false,
-    pathCollection: [],
+
     isAccessingProperty: false,
   };
 
@@ -344,7 +344,7 @@ export function evaluateYoExprToString({
     type: createComptStringType(),
     value: createUnknownValue(createComptStringType()), // Will be updated later
     isMutable: false,
-    pathCollection: [],
+
     isAccessingProperty: false,
   };
 
@@ -457,7 +457,7 @@ export function evaluateYoExprEq({
     type: value.type,
     value: value,
     isMutable: false,
-    pathCollection: [],
+
     isAccessingProperty: false,
   };
 

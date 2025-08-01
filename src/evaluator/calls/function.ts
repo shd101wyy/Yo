@@ -1,4 +1,3 @@
-import { checkBorrowings } from "../../borrow";
 import { Environment, getMethodsByNameFromEnv, popEnvFrame } from "../../env";
 import {
   formatErrorMessage,
@@ -29,9 +28,7 @@ import {
   isLinearOrType0Type,
   isModuleType,
   isMutPtrType,
-  isMutRefType,
   isPtrType,
-  isRefType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -119,7 +116,6 @@ export function evaluateFunctionCall({
       //   borrow &!(xs), xs_ref => {
       //     first_element := xs(0); // here `xs` is already borrowed, so we cannot use it.
       //   }
-      checkBorrowings(context.borrowings, functionToCall);
 
       // Check if . property access for module method call
       if (!functionToCall.$?.type) {
@@ -267,7 +263,6 @@ export function evaluateFunctionCall({
           type: functions[0]!.type,
           value: functions[0]!.value,
           isMutable: false,
-          pathCollection: [],
         };
       }
       // Infix operator is taken as an method call
@@ -336,7 +331,6 @@ export function evaluateFunctionCall({
         //   borrow &!(xs), xs_ref => {
         //     first_element := xs(0); // here `xs` is already borrowed, so we cannot use it.
         //   }
-        checkBorrowings(context.borrowings, functionToCall);
 
         if (!functionToCall.$) {
           throw formatErrorMessage({
@@ -672,9 +666,7 @@ export function evaluateFunctionCall({
         isArrayType(functionToCall.type) ||
         // slice
         ((isPtrType(functionToCall.type) ||
-          isMutPtrType(functionToCall.type) ||
-          isRefType(functionToCall.type) ||
-          isMutRefType(functionToCall.type)) &&
+          isMutPtrType(functionToCall.type)) &&
           isSliceType(functionToCall.type.type))
       ) {
         try {
@@ -833,8 +825,7 @@ ${functionsWithMatchingTypes
       isFunctionType(functionToCall.type) &&
       functionToCall.type.return.isUnquote
     ) {
-      const { returnValue, callerEnv, pathCollection } =
-        getFunctionCallResult(functionToCall);
+      const { returnValue, callerEnv } = getFunctionCallResult(functionToCall);
 
       env = popEnvFrame(callerEnv);
 
@@ -844,7 +835,6 @@ ${functionsWithMatchingTypes
         value: returnValue,
         isMutable: false,
         originType: createExprType(), // Macro result's origin type is the expression type
-        pathCollection: pathCollection,
       };
 
       return expr;
@@ -870,7 +860,6 @@ ${functionsWithMatchingTypes
         callerEnv,
         // calleeEnv,
         // argValues,
-        pathCollection,
         specializedFunctionValue,
         runtimeArgExprsInOrder,
       } = getFunctionCallResult(functionToCall);
@@ -909,7 +898,6 @@ ${functionsWithMatchingTypes
         value: returnValue,
         isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
         originType: returnType, // Function call result's origin type is its return type
-        pathCollection: pathCollection,
         runtimeArgExprsInOrder,
       };
 
@@ -922,7 +910,6 @@ ${functionsWithMatchingTypes
         type: functionToCall.type,
         value: specializedFunctionValue || functionToCall.value,
         isMutable: false,
-        pathCollection: [],
       };
       if (methodExpr) {
         methodExpr.$ = {
@@ -930,7 +917,6 @@ ${functionsWithMatchingTypes
           type: functionToCall.type,
           value: specializedFunctionValue || functionToCall.value,
           isMutable: false,
-          pathCollection: [],
         };
       }
     }
@@ -950,7 +936,6 @@ ${functionsWithMatchingTypes
       returnType,
       returnValue,
       callerEnv,
-      pathCollection,
       specializedFunctionValue,
       runtimeArgExprsInOrder,
     } = getFunctionCallResult(functionToCall);
@@ -990,7 +975,6 @@ ${functionsWithMatchingTypes
       value: returnValue,
       isMutable: true,
       originType: returnType, // Function call result's origin type is its return type
-      pathCollection: pathCollection,
       runtimeArgExprsInOrder,
     };
 
@@ -1003,7 +987,6 @@ ${functionsWithMatchingTypes
       type: functionToCall.type,
       value: specializedFunctionValue || functionToCall.value,
       isMutable: false,
-      pathCollection: [],
     };
     if (methodExpr) {
       methodExpr.$ = {
@@ -1011,7 +994,6 @@ ${functionsWithMatchingTypes
         type: functionToCall.type,
         value: specializedFunctionValue || functionToCall.value,
         isMutable: false,
-        pathCollection: [],
       };
     }
     return expr;
@@ -1033,12 +1015,10 @@ ${functionsWithMatchingTypes
         type: structType,
         isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
         originType: structType, // Struct constructor result's origin type is the struct type
-        pathCollection: [],
       };
 
       const {
         values: memberValues,
-        pathCollection,
         callerEnv,
         runtimeArgExprsInOrder,
       } = getTypeCallResult(functionToCall);
@@ -1053,7 +1033,6 @@ ${functionsWithMatchingTypes
         ? undefined
         : createStructValue(structType, memberValues as Value[]);
       expr.$.value = structValue;
-      expr.$.pathCollection = pathCollection;
       expr.$.env = env;
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
@@ -1066,7 +1045,6 @@ ${functionsWithMatchingTypes
         type: value.type,
         value: value,
         isMutable: false,
-        pathCollection: [],
       };
       return expr;
     }
@@ -1078,7 +1056,6 @@ ${functionsWithMatchingTypes
         type: enumType,
         isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
         originType: enumType, // Enum constructor result's origin type is the enum type
-        pathCollection: [],
       };
       // FIXME: Support to set value for comptime
       const selectedVariant = enumType.variants.find(
@@ -1092,7 +1069,6 @@ ${functionsWithMatchingTypes
       }
       const {
         values: memberValues,
-        pathCollection,
         callerEnv,
         runtimeArgExprsInOrder,
       } = getTypeCallResult(functionToCall);
@@ -1106,7 +1082,6 @@ ${functionsWithMatchingTypes
         );
         expr.$.value = enumValue;
       }
-      expr.$.pathCollection = pathCollection;
       expr.$.env = env;
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
@@ -1119,7 +1094,6 @@ ${functionsWithMatchingTypes
         type: value.type,
         value: value,
         isMutable: false,
-        pathCollection: [],
       };
       return expr;
     }
@@ -1131,13 +1105,11 @@ ${functionsWithMatchingTypes
         type: unionType,
         isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
         originType: unionType, // Union constructor result's origin type is the union type
-        pathCollection: [],
       };
-      const { pathCollection, callerEnv, runtimeArgExprsInOrder } =
+      const { callerEnv, runtimeArgExprsInOrder } =
         getTypeCallResult(functionToCall);
       env = callerEnv;
       expr.$.value = undefined;
-      expr.$.pathCollection = pathCollection;
       expr.$.env = env;
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
@@ -1150,7 +1122,6 @@ ${functionsWithMatchingTypes
         type: value.type,
         value: value,
         isMutable: false,
-        pathCollection: [],
       };
       return expr;
     }
@@ -1166,7 +1137,6 @@ ${functionsWithMatchingTypes
         value: moduleValue,
         isMutable: false,
         originType: moduleValue.type, // Module result's origin type is its type
-        pathCollection: [],
       };
 
       // Attach necessary info to the func
@@ -1175,7 +1145,6 @@ ${functionsWithMatchingTypes
         type: value.type,
         value: value,
         isMutable: false,
-        pathCollection: [],
       };
       return expr;
     }
@@ -1207,10 +1176,7 @@ ${functionsWithMatchingTypes
     // array
     else if (
       isArrayType(functionToCall.type) ||
-      ((isPtrType(functionToCall.type) ||
-        isMutPtrType(functionToCall.type) ||
-        isRefType(functionToCall.type) ||
-        isMutRefType(functionToCall.type)) &&
+      ((isPtrType(functionToCall.type) || isMutPtrType(functionToCall.type)) &&
         isSliceType(functionToCall.type.type))
     ) {
       const { value, type, callerEnv } = getArrayCallResult(functionToCall);
@@ -1229,11 +1195,8 @@ ${functionsWithMatchingTypes
          *   }
          */
         isMutable:
-          Boolean(func.$?.isMutable) ||
-          isMutPtrType(functionToCall.type) ||
-          isMutRefType(functionToCall.type),
+          Boolean(func.$?.isMutable) || isMutPtrType(functionToCall.type),
         originType: func.$?.originType ?? functionToCall.type, // Array access inherits origin type
-        pathCollection: func.$?.pathCollection ?? [],
         /**
          * NOTE: We need to set isAccessingProperty to true here
          * to prevent getting an array element of Linear type.
@@ -1247,7 +1210,6 @@ ${functionsWithMatchingTypes
         type: functionToCall.type,
         value: functionToCall.value,
         isMutable: Boolean(func.$?.isMutable),
-        pathCollection: func.$?.pathCollection ?? [],
         isAccessingProperty: true,
       };
       return expr;

@@ -95,7 +95,6 @@ export function evaluateYoComptStringFunctions({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
   }
   // Handle slice function with 2-3 arguments
@@ -204,7 +203,6 @@ export function evaluateYoComptStringFunctions({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
   } else {
     const lhs = context.evaluateExpression({
@@ -329,7 +327,6 @@ export function evaluateYoComptStringFunctions({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
   }
 

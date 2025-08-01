@@ -131,7 +131,6 @@ export function evaluateAnonymousModuleBeginExprs({
                   type: existingElement.type,
                   value: existingElement.assignedValue,
                   isMutable: false,
-                  pathCollection: [],
                 };
               } else {
                 // Check if it's a tuple
@@ -168,7 +167,6 @@ export function evaluateAnonymousModuleBeginExprs({
                       type: existingElement.type,
                       value: existingElement.assignedValue,
                       isMutable: false,
-                      pathCollection: [],
                     };
                   }
                 } else {
@@ -236,7 +234,6 @@ export function evaluateAnonymousModuleBeginExprs({
                     ? extendedModuleValue.elements[i]
                     : undefined,
                   isMutable: false, // TODO: Check if the element is mutable
-                  pathCollection: [],
                 };
               }
             }
@@ -304,7 +301,6 @@ export function evaluateAnonymousModuleBeginExprs({
                 type: variable.type,
                 value: variable.value,
                 isMutable: variable.isMutable,
-                pathCollection: [],
               };
             }
           }
@@ -415,7 +411,6 @@ export function evaluateAnonymousModule({
     type: moduleType,
     value: moduleValue,
     isMutable: false,
-    pathCollection: [],
   };
 
   return expr;

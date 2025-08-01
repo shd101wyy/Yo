@@ -1,4 +1,3 @@
-import { checkBorrowings } from "../../borrow";
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, FuncCallExpr, setExprAsConsumed } from "../../expr";
@@ -78,9 +77,6 @@ export function evaluateAs({
   const sourceType = valueExpr.$.type;
   env = typeExpr.$.env;
 
-  // Check if the value argument is already borrowed
-  checkBorrowings(context.borrowings, valueExpr);
-
   // Set the value expression as consumed
   env = setExprAsConsumed(valueExpr, env, context);
 
@@ -100,7 +96,6 @@ export function evaluateAs({
     type: targetType,
     value: valueExpr.$.value,
     isMutable: valueExpr.$.isMutable,
-    pathCollection: valueExpr.$.pathCollection,
   };
 
   return expr;

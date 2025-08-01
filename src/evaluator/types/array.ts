@@ -103,7 +103,6 @@ If you are creating an array value with 1 element, please consider adding a "," 
       type: arrayTypeValue.type,
       value: arrayTypeValue,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   }
@@ -161,7 +160,6 @@ If you are creating an array value with 1 element, please consider adding a "," 
     type: arrayTypeValue.type,
     value: arrayTypeValue,
     isMutable: false,
-    pathCollection: [],
   };
   return expr;
 }

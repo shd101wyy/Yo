@@ -80,7 +80,6 @@ export function evaluateYoComptBooleanFunctions({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
   } else {
     const lhs = context.evaluateExpression({
@@ -175,7 +174,6 @@ export function evaluateYoComptBooleanFunctions({
       type: value.type,
       value: value,
       isMutable: false,
-      pathCollection: [],
     };
   }
 

@@ -16,9 +16,7 @@ import {
   isEnumType,
   isModuleType,
   isMutPtrType,
-  isMutRefType,
   isPtrType,
-  isRefType,
   isSliceType,
   isStructType,
   isTupleType,
@@ -106,14 +104,12 @@ export function evaluatePropertyAccess({
         // FIXME: Support expr.value for comptime evaluation.
         value: createEnumValue(newEnumType, variantName, []),
         isMutable: false,
-        pathCollection: [],
       };
 
       propertyExpr.$ = {
         env,
         type: newEnumType,
         isMutable: false,
-        pathCollection: [],
       };
     } else {
       /**
@@ -127,7 +123,6 @@ export function evaluatePropertyAccess({
         value: enumTypeValue,
         type: enumTypeValue.type,
         isMutable: false,
-        pathCollection: [],
       };
 
       propertyExpr.$ = expr.$;
@@ -192,16 +187,10 @@ export function evaluatePropertyAccess({
         // Dereference through property access: c.ptr.* where c.ptr is a pointer
         // Check if the origin type allows mutable access
         const originType = objectExpr.$.originType;
-        if (
-          originType &&
-          (isMutRefType(originType) || isMutPtrType(originType))
-        ) {
+        if (originType && isMutPtrType(originType)) {
           // Origin is a mutable reference/pointer, so we can mutate through it
           resultIsMutable = ptrTypeAllowsWrite;
-        } else if (
-          originType &&
-          (isRefType(originType) || isPtrType(originType))
-        ) {
+        } else if (originType && isPtrType(originType)) {
           // Origin is an immutable reference/pointer, so we cannot mutate through it
           resultIsMutable = false;
         } else {
@@ -218,62 +207,6 @@ export function evaluatePropertyAccess({
         isMutable: resultIsMutable,
         originType: pointerType, // Set origin type to the pointer type to track mutability path
         isAccessingProperty: true,
-        pathCollection: [],
-      };
-      propertyExpr.$ = expr.$;
-      return expr;
-    } else if (
-      isRefType(objectExpr.$?.type) ||
-      isMutRefType(objectExpr.$?.type)
-    ) {
-      const refType = objectExpr.$.type;
-      const baseType = refType.type;
-
-      // For reference dereference, determine mutability:
-      // The dereferenced value is mutable if the reference type allows writes
-      // and we have mutable access through the origin object
-      const refTypeAllowsWrite = isMutRefType(refType);
-
-      let resultIsMutable: boolean;
-
-      if (
-        exprIsAtom(objectExpr) &&
-        objectExpr.token.type === TokenType.Identifier
-      ) {
-        // Direct variable dereference: x.* where x is a reference parameter
-        // Only the reference type matters for mutability
-        resultIsMutable = refTypeAllowsWrite;
-      } else {
-        // Dereference through property access: c.val.* where c.val is a reference
-        // Check if the origin type allows mutable access
-        const originType = objectExpr.$.originType;
-        if (
-          originType &&
-          (isMutRefType(originType) || isMutPtrType(originType))
-        ) {
-          // Origin is a mutable reference/pointer, so we can mutate through it
-          resultIsMutable = refTypeAllowsWrite;
-        } else if (
-          originType &&
-          (isRefType(originType) || isPtrType(originType))
-        ) {
-          // Origin is an immutable reference/pointer, so we cannot mutate through it
-          resultIsMutable = false;
-        } else {
-          // Origin is owned (by-value), so dereference mutability depends only on reference type
-          // In Rust: even `fn foo(c: Container)` allows `c.mutable_ref.*` = value
-          resultIsMutable = refTypeAllowsWrite;
-        }
-      }
-
-      expr.$ = {
-        env,
-        type: baseType,
-        value: undefined,
-        isMutable: resultIsMutable,
-        originType: refType, // Set origin type to the reference type to track mutability path
-        isAccessingProperty: true,
-        pathCollection: [],
       };
       propertyExpr.$ = expr.$;
       return expr;
@@ -305,7 +238,7 @@ export function evaluatePropertyAccess({
             type: field.type,
             value: field.assignedValue!,
             isMutable: false,
-            pathCollection: [],
+
             isAccessingProperty: true,
           };
           propertyExpr.$ = expr.$;
@@ -343,7 +276,6 @@ export function evaluatePropertyAccess({
           value: createEnumValue(newEnumType, variantName, []),
           isMutable: objectExpr.$.isMutable,
           isAccessingProperty: true,
-          pathCollection: [],
         };
 
         propertyExpr.$ = expr.$;
@@ -360,7 +292,6 @@ export function evaluatePropertyAccess({
           value: enumTypeValue,
           isMutable: objectExpr.$.isMutable,
           isAccessingProperty: true,
-          pathCollection: [],
         };
 
         propertyExpr.$ = expr.$;
@@ -388,7 +319,7 @@ export function evaluatePropertyAccess({
           type: field.type,
           value: field.assignedValue!,
           isMutable: false,
-          pathCollection: [],
+
           isAccessingProperty: true,
         };
         propertyExpr.$ = expr.$;
@@ -430,13 +361,7 @@ export function evaluatePropertyAccess({
   const originalObjectType = objectExpr.$?.type; // Capture before dereferencing
 
   // QUESTION: Should we allow only one round here? Like zig.
-  while (
-    objectType &&
-    (isPtrType(objectType) ||
-      isMutPtrType(objectType) ||
-      isRefType(objectType) ||
-      isMutRefType(objectType))
-  ) {
+  while (objectType && (isPtrType(objectType) || isMutPtrType(objectType))) {
     // Dereference the pointer or reference type
     objectType = objectType.type;
   }
@@ -494,22 +419,13 @@ export function evaluatePropertyAccess({
 
         if (
           originalObjectType &&
-          (isRefType(originalObjectType) ||
-            isMutRefType(originalObjectType) ||
-            isPtrType(originalObjectType) ||
-            isMutPtrType(originalObjectType))
+          (isPtrType(originalObjectType) || isMutPtrType(originalObjectType))
         ) {
           // Object is accessed through a reference/pointer
           // Check if we can mutate through the origin
-          if (
-            fieldOriginType &&
-            (isMutRefType(fieldOriginType) || isMutPtrType(fieldOriginType))
-          ) {
+          if (fieldOriginType && isMutPtrType(fieldOriginType)) {
             fieldIsMutable = true; // Can mutate through mutable reference/pointer
-          } else if (
-            fieldOriginType &&
-            (isRefType(fieldOriginType) || isPtrType(fieldOriginType))
-          ) {
+          } else if (fieldOriginType && isPtrType(fieldOriginType)) {
             fieldIsMutable = false; // Cannot mutate through immutable reference/pointer
           } else {
             fieldIsMutable = objectExpr.$.isMutable; // Fall back to object mutability
@@ -527,12 +443,6 @@ export function evaluatePropertyAccess({
           isMutable: fieldIsMutable,
           originType: fieldOriginType,
           isAccessingProperty: true,
-          pathCollection: [
-            [
-              objectExpr.$.variableName ?? "?", // FIXME
-              propertyExpr.token.value,
-            ],
-          ],
         };
         propertyExpr.$ = expr.$;
 
@@ -579,22 +489,13 @@ export function evaluatePropertyAccess({
 
           if (
             originalObjectType &&
-            (isRefType(originalObjectType) ||
-              isMutRefType(originalObjectType) ||
-              isPtrType(originalObjectType) ||
-              isMutPtrType(originalObjectType))
+            (isPtrType(originalObjectType) || isMutPtrType(originalObjectType))
           ) {
             // Object is accessed through a reference/pointer
             // Check if we can mutate through the origin
-            if (
-              fieldOriginType &&
-              (isMutRefType(fieldOriginType) || isMutPtrType(fieldOriginType))
-            ) {
+            if (fieldOriginType && isMutPtrType(fieldOriginType)) {
               fieldIsMutable = true; // Can mutate through mutable reference/pointer
-            } else if (
-              fieldOriginType &&
-              (isRefType(fieldOriginType) || isPtrType(fieldOriginType))
-            ) {
+            } else if (fieldOriginType && isPtrType(fieldOriginType)) {
               fieldIsMutable = false; // Cannot mutate through immutable reference/pointer
             } else {
               fieldIsMutable = objectExpr.$!.isMutable; // Fall back to object mutability
@@ -612,12 +513,6 @@ export function evaluatePropertyAccess({
             isMutable: fieldIsMutable,
             originType: fieldOriginType,
             isAccessingProperty: true,
-            pathCollection: [
-              [
-                objectExpr.$!.variableName ?? "?", // FIXME
-                propertyExpr.token.value,
-              ],
-            ],
           };
           propertyExpr.$ = expr.$;
 
@@ -685,12 +580,6 @@ export function evaluatePropertyAccess({
             type: tupleElement.type,
             isMutable: objectExpr.$!.isMutable,
             isAccessingProperty: true,
-            pathCollection: [
-              [
-                objectExpr.$!.variableName ?? "?", // FIXME
-                propertyExpr.token.value,
-              ],
-            ],
           };
           propertyExpr.$ = expr.$;
 
@@ -756,12 +645,6 @@ export function evaluatePropertyAccess({
           type: field.type,
           value: undefined,
           isMutable: objectExpr.$!.isMutable,
-          pathCollection: [
-            [
-              objectExpr.$!.variableName ?? "?", // FIXME
-              propertyExpr.token.value,
-            ],
-          ],
           isAccessingProperty: true,
         };
 
@@ -794,7 +677,7 @@ export function evaluatePropertyAccess({
       type: lengthValue.type,
       value: lengthValue,
       isMutable: true,
-      pathCollection: [],
+
       isAccessingProperty: true,
     };
     propertyExpr.$ = expr.$;
@@ -811,7 +694,7 @@ export function evaluatePropertyAccess({
       type: createUsizeType(),
       value: undefined,
       isMutable: true,
-      pathCollection: [],
+
       isAccessingProperty: true,
     };
     propertyExpr.$ = expr.$;

@@ -1,4 +1,3 @@
-import { checkBorrowings } from "../../borrow";
 import { sanitizeForCIdentifier } from "../../codegen/utils";
 import {
   addVariableToEnv,
@@ -21,7 +20,6 @@ import {
   ExprTag,
   exprToString,
   FuncCallExpr,
-  PathCollection,
   setExprAsConsumed,
 } from "../../expr";
 import { FunctionValue, SpecializedFunctionCache } from "../../function-value";
@@ -38,8 +36,6 @@ import {
   isExprType,
   isFunctionSpecializable,
   isFunctionType,
-  isMutRefType,
-  isRefType,
   isUnitType,
   Type,
   typeRequiresComptModifier,
@@ -240,7 +236,6 @@ export function checkIfFunctionParameterMatchesArgument({
 
   // Evaluate the argExpr
   let evaluatedArgExpr: Expr | undefined = undefined;
-  let borrowings = context.borrowings;
   let evaluatedDefaultValueExpr: Expr | undefined = undefined;
 
   if (
@@ -281,7 +276,7 @@ export function checkIfFunctionParameterMatchesArgument({
           type: createExprType(),
           value: createExprValue(argExpr),
           env: callerEnv,
-          pathCollection: [],
+
           isMutable: false,
         };
       } else {
@@ -318,24 +313,6 @@ export function checkIfFunctionParameterMatchesArgument({
       token: argExpr?.token ?? PlaceholderToken,
       errorMessage: `Failed to evaluate argument expression.`,
     });
-  }
-
-  // Check the borrowings
-  if (
-    evaluatedArgExpr.$.type &&
-    (isMutRefType(evaluatedArgExpr.$.type) ||
-      isRefType(evaluatedArgExpr.$.type))
-  ) {
-    checkBorrowings(context.borrowings, evaluatedArgExpr);
-
-    // Add evaluated arg expr to the borrowings
-    borrowings = borrowings.concat([
-      {
-        expr: evaluatedArgExpr,
-        type: evaluatedArgExpr.$.type,
-        pathCollection: evaluatedArgExpr.$.pathCollection,
-      },
-    ]);
   }
 
   let argType = evaluatedArgExpr.$.type;
@@ -439,7 +416,7 @@ export function checkIfFunctionParameterMatchesArgument({
   return {
     calleeEnv,
     callerEnv,
-    context: { ...context, borrowings },
+    context: { ...context },
     argValue,
     argType,
     parameterType: newParameterType,
@@ -546,8 +523,6 @@ export function tryToCallFunctionWithArguments({
   isMethodCall: boolean;
   isEvaluatingDo?: boolean;
 }): FunctionCallResult {
-  const initialBorrowings = [...context.borrowings];
-
   // If this is a `do` expression, validate the function signature
   if (isEvaluatingDo) {
     validateDoFunctionSignature(functionType, functionCalleeExpr);
@@ -795,7 +770,6 @@ export function tryToCallFunctionWithArguments({
           type: typeValue.type,
           value: typeValue,
           isMutable: false,
-          pathCollection: [],
         };
       }
 
@@ -1257,7 +1231,6 @@ ${implicitVariables
               type: implicitVariable.type,
               value: implicitVariable.value,
               isMutable: implicitVariable.isMutable,
-              pathCollection: [],
             },
           },
           args: [],
@@ -1273,7 +1246,6 @@ ${implicitVariables
             type: returnType,
             value: returnValue,
             isMutable: implicitVariable.isMutable,
-            pathCollection: [],
           },
         });
       }
@@ -1317,7 +1289,6 @@ ${implicitVariables
             type: implicitVariable.type,
             value: implicitVariable.value,
             isMutable: implicitVariable.isMutable,
-            pathCollection: [],
           },
         });
       }
@@ -1337,7 +1308,7 @@ ${implicitVariables
           type: createExprType(),
           value: createExprValue(argExpr),
           env: callerEnv,
-          pathCollection: [],
+
           isMutable: false,
         };
         variadicArgs.push({
@@ -1418,17 +1389,6 @@ ${implicitVariables
   }
   const returnType = functionReturnTypeValue.value;
 
-  const pathCollection: PathCollection = [];
-  if (context.borrowings.length !== initialBorrowings.length) {
-    const newBorrowings = context.borrowings.slice(initialBorrowings.length);
-    newBorrowings.forEach((borrowing) => {
-      const pc = borrowing.pathCollection;
-      pc.forEach((path) => {
-        pathCollection.push(path);
-      });
-    });
-  }
-
   const argValues_: ArgValues = {
     args: argValues,
     forallArgs: forallArgValues,
@@ -1483,7 +1443,6 @@ ${implicitVariables
     returnType,
     calleeEnv,
     callerEnv,
-    pathCollection,
     argValues: argValues_,
     returnValue,
     specializedFunctionValue,

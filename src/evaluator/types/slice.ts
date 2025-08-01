@@ -57,7 +57,6 @@ If you are creating an array value with 1 element, please consider adding a "," 
     type: sliceTypeValue.type,
     value: sliceTypeValue,
     isMutable: false,
-    pathCollection: [],
   };
   return expr;
 }

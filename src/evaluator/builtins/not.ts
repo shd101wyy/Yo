@@ -1,4 +1,3 @@
-import { checkBorrowings } from "../../borrow";
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, FuncCallExpr } from "../../expr";
@@ -31,10 +30,6 @@ export function evaluateNot({
       errorMessage: `Expected boolean type for "not" argument, got:\n${exprToString(notArg)}`,
     });
   }
-
-  // Check if the not argument is already borrowed
-  checkBorrowings(context.borrowings, evaluatedNotArg);
-
   env = evaluatedNotArg.$.env;
 
   let value = evaluatedNotArg.$.value;
@@ -47,7 +42,7 @@ export function evaluateNot({
     type: createBooleanType(),
     value,
     isMutable: false,
-    pathCollection: [],
+
     isAccessingProperty: false,
   };
   return expr;

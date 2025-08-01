@@ -222,7 +222,6 @@ Got:   ${typeToString(argType)}`,
           type: argType,
           value: argValue,
           isMutable: false,
-          pathCollection: [],
         };
         if (labelExpr) {
           labelExpr.$ = argExpr.$;

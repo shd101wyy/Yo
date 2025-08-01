@@ -102,7 +102,6 @@ export function evaluateArrayFillMethod({
       type: arrayType,
       value: arrayValue,
       isMutable: true,
-      pathCollection: [],
     };
 
     attachTempVariableToExpr(expr);
@@ -140,7 +139,6 @@ export function evaluateArrayFillMethod({
       type: arrayType,
       value: arrayValue,
       isMutable: true,
-      pathCollection: [],
     };
 
     attachTempVariableToExpr(expr);
@@ -159,7 +157,6 @@ export function evaluateArrayFillMethod({
     type: arrayType,
     value: arrayValue,
     isMutable: true,
-    pathCollection: [],
   };
 
   // Set temp variable which holds the result of the function call

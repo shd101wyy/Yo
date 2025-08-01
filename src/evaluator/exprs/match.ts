@@ -18,20 +18,14 @@ import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
   createMutPtrType,
-  createMutRefType,
   createPtrType,
-  createRefType,
   EnumType,
   isEnumType,
   isFunctionTypeAndReturnsComptValue,
   isMutPtrType,
-  isMutRefType,
   isPtrType,
-  isRefType,
   MutPtrType,
-  MutRefType,
   PtrType,
-  RefType,
   Type,
   TypeTag,
   typeToString,
@@ -100,21 +94,11 @@ export function evaluateMatch({
 
   // Check if it's a pointer/reference type
   // If yes, then automatically dereference one-level of it.
-  let ptrOrRefType:
-    | TypeTag.Ptr
-    | TypeTag.MutPtr
-    | TypeTag.Ref
-    | TypeTag.MutRef
-    | undefined = undefined;
+  let ptrOrRefType: TypeTag.Ptr | TypeTag.MutPtr | undefined = undefined;
 
   let enumType: Type;
 
-  if (
-    isPtrType(scrutineeType) ||
-    isMutPtrType(scrutineeType) ||
-    isRefType(scrutineeType) ||
-    isMutRefType(scrutineeType)
-  ) {
+  if (isPtrType(scrutineeType) || isMutPtrType(scrutineeType)) {
     enumType = scrutineeType.type;
     ptrOrRefType = scrutineeType.tag;
   } else {
@@ -240,20 +224,14 @@ export function evaluateMatch({
         type: newEnumType,
         value: undefined,
         isMutable: false,
-        pathCollection: [],
       };
 
-      let variableType: EnumType | PtrType | MutPtrType | RefType | MutRefType =
-        newEnumType;
+      let variableType: EnumType | PtrType | MutPtrType = newEnumType;
       if (ptrOrRefType) {
         if (ptrOrRefType === TypeTag.Ptr) {
           variableType = createPtrType(newEnumType);
         } else if (ptrOrRefType === TypeTag.MutPtr) {
           variableType = createMutPtrType(newEnumType);
-        } else if (ptrOrRefType === TypeTag.Ref) {
-          variableType = createRefType(newEnumType);
-        } else if (ptrOrRefType === TypeTag.MutRef) {
-          variableType = createMutRefType(newEnumType);
         }
       }
 
@@ -287,7 +265,7 @@ export function evaluateMatch({
         type: variableType,
         value: undefined, // No value yet
         isMutable: evaluatedScrutineeExpr.$.isMutable,
-        pathCollection: [],
+
         caseExecuted: true, // Mark the case as executed
       };
 
@@ -326,7 +304,6 @@ export function evaluateMatch({
             type: evaluatedBody.$.type,
             value: evaluatedBody.$.value,
             isMutable: evaluatedBody.$.isMutable,
-            pathCollection: evaluatedBody.$.pathCollection,
             controlFlow: evaluatedBody.$.controlFlow,
           };
         }
@@ -457,7 +434,6 @@ Please use .variantName for destructuring enum variants.`,
       // For compile-time evaluation, we'd determine which arm matches and set the value
       value: undefined, // createUnknownValue(resultType),
       isMutable: false,
-      pathCollection: [],
     };
     attachTempVariableToExpr(expr);
   } else {
@@ -488,7 +464,7 @@ Please use .variantName for destructuring enum variants.`,
           ? createUnknownValue(functionReturnType)
           : undefined,
         isMutable: false,
-        pathCollection: [],
+
         controlFlow: "return",
       };
     } else if (finalControlFlow === "break") {
@@ -504,7 +480,7 @@ Please use .variantName for destructuring enum variants.`,
         type: VUnit.type,
         value: VUnit,
         isMutable: false,
-        pathCollection: [],
+
         controlFlow: "break",
       };
     } else if (finalControlFlow === "continue") {
@@ -520,7 +496,7 @@ Please use .variantName for destructuring enum variants.`,
         type: VUnit.type,
         value: VUnit,
         isMutable: false,
-        pathCollection: [],
+
         controlFlow: "continue",
       };
     } else {

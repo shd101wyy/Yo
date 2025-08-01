@@ -113,7 +113,6 @@ export function evaluateDoExpression({
       value: undefined, // This will be filled in by CPS transformation
       isMutable: true,
       originType: paramType,
-      pathCollection: [],
     };
   } else {
     // Multiple parameters - return a tuple type
@@ -140,7 +139,6 @@ export function evaluateDoExpression({
       value: undefined, // This will be filled in by CPS transformation
       isMutable: true,
       originType: tupleType,
-      pathCollection: [],
     };
   }
 

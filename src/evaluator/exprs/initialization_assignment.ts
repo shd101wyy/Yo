@@ -1,4 +1,3 @@
-import { checkBorrowings } from "../../borrow";
 import { addVariableToEnv, Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
@@ -17,7 +16,6 @@ import {
   isFreeType,
   isLinearType,
   prohibitDynamicSizedType,
-  typeContainsReference,
   typeOfType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
@@ -188,7 +186,6 @@ ${exprToString(rhs)}`,
         env,
         type: lhsType,
         isMutable,
-        pathCollection: [],
       };
     } else {
       // If !rhsType, then check if rhs is a function call of _ or a tuple containing _
@@ -246,17 +243,6 @@ ${exprToString(expr)}`,
       });
     }
 
-    // Check if the rhsType contains reference
-    if (typeContainsReference(rhsType)) {
-      throw formatErrorMessage({
-        token: rhs.token,
-        errorMessage: `Assigning reference to variable is not allowed.`,
-      });
-    }
-
-    // Check the borrowings
-    checkBorrowings(context.borrowings, rhs);
-
     // Add .typeName info if necessary
     let rhsValue = rhs.$?.value;
     if (
@@ -304,7 +290,6 @@ ${exprToString(rhs)}`,
         ? (rhsValue ?? createUnknownValue(lhs.$.type, lhs.token.value))
         : undefined,
       isMutable,
-      pathCollection: [],
     };
 
     // Add variable to env
@@ -332,7 +317,6 @@ ${exprToString(rhs)}`,
       value: VUnit,
       type: VUnit.type,
       isMutable: false,
-      pathCollection: [],
     };
     return expr;
   } else {
@@ -353,7 +337,7 @@ ${exprToString(rhs)}`,
       value: VUnit,
       type: VUnit.type,
       isMutable: false,
-      pathCollection: [],
+
       runtimeDestructurings,
     };
     return expr;

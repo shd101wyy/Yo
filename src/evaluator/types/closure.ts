@@ -179,7 +179,6 @@ Got:\n${exprToString(expr)}`,
     type: closureTypeValue.type,
     value: closureTypeValue,
     isMutable: false,
-    pathCollection: [],
   };
 
   return expr;

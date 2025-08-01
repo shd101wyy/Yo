@@ -12,7 +12,6 @@ import {
   isFreeType,
   isLinearType,
   isTypeHierarchyType,
-  typeContainsReference,
   typeToString,
 } from "../../types";
 import {
@@ -72,7 +71,7 @@ export function evaluateYoTypeToString({
     type: createComptStringType(),
     value: createUnknownValue(createComptStringType()), // Will be updated later
     isMutable: false,
-    pathCollection: [],
+
     isAccessingProperty: false,
   };
 
@@ -147,7 +146,6 @@ export function evaluateYoAreTypesCompatible({
     type: booleanValue.type,
     value: booleanValue,
     isMutable: false,
-    pathCollection: [],
   };
   return expr;
 }
@@ -203,7 +201,7 @@ export function evaluateYoTypeIsFree({
     type: createBooleanValue(true).type, // Will be updated later
     value: createUnknownValue(createBooleanValue(true).type), // Will be updated later
     isMutable: false,
-    pathCollection: [],
+
     isAccessingProperty: false,
   };
 
@@ -264,77 +262,12 @@ export function evaluateYoTypeIsLinear({
     type: createBooleanValue(true).type, // Will be updated later
     value: createUnknownValue(createBooleanValue(true).type), // Will be updated later
     isMutable: false,
-    pathCollection: [],
+
     isAccessingProperty: false,
   };
 
   if (isTypeValue(typeValue)) {
     expr.$.value = createBooleanValue(isLinearType(typeValue.value));
-  }
-  return expr;
-}
-
-export function evaluateYoTypeContainsReference({
-  expr,
-  env,
-  context,
-}: {
-  expr: FuncCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FuncCallExpr {
-  expectExprToBeFunctionCallOf(
-    expr,
-    BuiltinFunctions.__yo_type_contains_reference,
-    1
-  );
-
-  const arg = context.evaluateExpression({
-    expr: expr.args[0]!,
-    env,
-    context: {
-      ...context,
-      expectedType: undefined,
-      SelfType: undefined,
-    },
-  });
-  if (!arg.$) {
-    throw formatErrorMessage({
-      token: arg.token,
-      errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
-        arg
-      )}`,
-    });
-  }
-  if (!isTypeHierarchyType(arg.$.type)) {
-    throw formatErrorMessage({
-      token: arg.token,
-      errorMessage: `Expected type value for "${expr.func.token.value}" argument, got:\n${exprToString(
-        arg
-      )}`,
-    });
-  }
-  const typeValue = arg.$.value;
-  if (!typeValue) {
-    throw formatErrorMessage({
-      token: arg.token,
-      errorMessage: `Expected type value for "${expr.func.token.value}" argument, got:\n${exprToString(
-        arg
-      )}`,
-    });
-  }
-
-  expr.$ = {
-    env: arg.$.env,
-    type: createBooleanValue(true).type, // Will be updated later
-    value: createUnknownValue(createBooleanValue(true).type), // Will be updated later
-    isMutable: false,
-    pathCollection: [],
-    isAccessingProperty: false,
-  };
-
-  if (isTypeValue(typeValue)) {
-    expr.$.value = createBooleanValue(typeContainsReference(typeValue.value));
   }
   return expr;
 }
