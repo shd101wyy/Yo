@@ -3,7 +3,6 @@ import { exprIsFunctionCall, exprIsFunctionCallOf } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
   ArrayType,
-  ClosureType,
   EnumType,
   EnumVariant,
   FunctionType,
@@ -167,7 +166,7 @@ export function getTypeString(
     }
     // Closure type
     case TypeTag.Closure: {
-      const closureType = type as ClosureType;
+      // const closureType = type as ClosureType;
       // A closure is represented as a struct containing:
       // 1. Function pointer for the call function
       // 2. Capture data (if any)

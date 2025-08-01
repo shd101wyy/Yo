@@ -11,6 +11,7 @@ import { formatErrorMessage, formatErrorMessages } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
+  cloneExpr,
   ControlFlowKind,
   expectExprToBeFunctionCallOf,
   Expr,
@@ -18,6 +19,7 @@ import {
   exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  ExprTag,
   exprToString,
   FuncCallExpr,
   replaceFuncCallExpr,
@@ -62,14 +64,31 @@ export function evaluateBeginExpression({
     !exprIsFunctionCall(expr) ||
     !exprIsFunctionCallOf(expr, BuiltinKeywords.begin)
   ) {
+    // NOTE: We cannot use generateExprFromCode here
     // Re-construct it as begin expression
-    const beginExpr = generateExprFromCode(
-      `begin(${exprToString(expr)})`
-    ) as FuncCallExpr;
+    // const beginExpr = generateExprFromCode(
+    //   `begin(${exprToString(expr)})`
+    // ) as FuncCallExpr;
+    const beginExpr: FuncCallExpr = {
+      tag: ExprTag.FuncCall,
+      func: {
+        tag: ExprTag.Atom,
+        token: {
+          ...expr.token,
+          value: BuiltinKeywords.begin[0]!,
+        },
+      },
+      args: [cloneExpr(expr)],
+      token: {
+        ...expr.token,
+        value: BuiltinKeywords.begin[0]!,
+      },
+    };
 
     // Replace everything from beginExpr to expr
+    // expr = beginExpr;
+    replaceFuncCallExpr(expr as FuncCallExpr, beginExpr);
     expr = expr as FuncCallExpr;
-    replaceFuncCallExpr(expr, beginExpr);
   }
   const beginExpressions: Expr[] = expr.args;
   const expectedType = context.expectedType;

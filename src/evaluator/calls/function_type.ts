@@ -6,7 +6,7 @@ import {
   pushEnvFrame,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { cloneExpr, Expr, FuncCallExpr } from "../../expr";
+import { Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import {
   areTypesCompatible,
@@ -126,7 +126,8 @@ export function tryToImplementFunctionByFunctionType({
       errorMessage: `Failed to implement the function. Expected 1 argument for the function body, got ${argExprs.length}.`,
     });
   }
-  const functionBodyExpr = cloneExpr(argExprs[0]!); // NOTE: cloneExpr here is necessary.
+  // NOTE: Don't cloneExpr here. It will affect the vscode extension.
+  const functionBodyExpr = argExprs[0]!;
 
   // Add parameters to the env new frame
   let env = pushEnvFrame(

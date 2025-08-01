@@ -852,7 +852,7 @@ function transformCondWithAssignmentToCps(
               {
                 tag: ExprTag.Atom,
                 token: {
-                  type: TokenType.Identifier,
+                  type: TokenType.Boolean,
                   value: "true",
                   position: contextToken.position,
                   modulePath: contextToken.modulePath,
@@ -1013,7 +1013,7 @@ function transformCondWithAssignmentToCps(
                   {
                     tag: ExprTag.Atom,
                     token: {
-                      type: TokenType.Identifier,
+                      type: TokenType.Boolean,
                       value: "true",
                       position: contextToken.position,
                       modulePath: contextToken.modulePath,
@@ -2078,7 +2078,7 @@ function transformCondToCps(
               {
                 tag: ExprTag.Atom,
                 token: {
-                  type: TokenType.Identifier,
+                  type: TokenType.Boolean,
                   value: "true",
                   position: condExpr.token.position,
                   modulePath: condExpr.token.modulePath,
@@ -2163,7 +2163,7 @@ function transformCondToCps(
         {
           tag: ExprTag.Atom,
           token: {
-            type: TokenType.Identifier,
+            type: TokenType.Boolean,
             value: "true",
             position: condExpr.token.position,
             modulePath: condExpr.token.modulePath,

@@ -1,7 +1,7 @@
 import { transformFunctionBodyToCps } from "../../cps-transform";
 import { Environment, popEnvFrame, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { cloneExpr, Expr, FuncCallExpr } from "../../expr";
+import { Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import {
   areTypesCompatible,
@@ -48,7 +48,8 @@ export function tryToImplementClosureByClosureType({
     });
   }
 
-  const closureBodyExpr = cloneExpr(argExprs[0]!);
+  // NOTE: Don't cloneExpr here. It will affect the vscode extension.
+  const closureBodyExpr = argExprs[0]!;
 
   // Add parameters to the env new frame
   // For closures, we keep the full caller environment to enable variable capturing

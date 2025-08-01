@@ -216,13 +216,18 @@ export type FuncCallExpr = {
 export function cloneExpr(expr: Expr): Expr {
   switch (expr.tag) {
     case ExprTag.Atom:
-      return { ...expr, $: expr.$ ? { ...expr.$ } : undefined };
+      return {
+        ...expr,
+        $: undefined, //  expr.$ ? { ...expr.$ } : undefined
+        // NOTE: We should unset the evaluated data here,
+      };
     case ExprTag.FuncCall:
       return {
         ...expr,
         func: cloneExpr(expr.func),
         args: expr.args.map(cloneExpr),
-        $: expr.$ ? { ...expr.$ } : undefined,
+        $: undefined, //  expr.$ ? { ...expr.$ } : undefined,
+        // NOTE: We should unset the evaluated data here,
       };
   }
 }
