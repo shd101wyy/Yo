@@ -152,24 +152,18 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
     /**
      * RAII destructor - automatically called when ArrayList goes out of scope
      */
-    drop :: ((fn(self: Self) -> unit)
-      match self.ptr,
+    drop :: ((fn(self: Self) -> unit) {
+      // TODO: Call destructors for all elements if T has drop method
+      optional_ptr := self.ptr;
+      match(optional_ptr,
         .Some => {
-          // TODO: Call destructors for all elements if T has drop method
-          optional_ptr := self.ptr;
-          match(optional_ptr,
-            .Some => {
-              ptr := optional_ptr.value;
-              GlobalAllocator.dealloc(ptr);
-            },
-            .None => ()
-          );
-          return ();
+          ptr := optional_ptr.value;
+          GlobalAllocator.dealloc(ptr);
         },
-        .None => {
-          // Nothing to free
-          return ();
-        }
+        .None => ()
+      );
+      return ();
+    }
     )
   );
 

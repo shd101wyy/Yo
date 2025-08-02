@@ -1,178 +1,52 @@
-/**
- * ArrayList - A dynamic array implementation for Yo language
- * 
- * Similar to Rust's Vec<T>, this ArrayList provides:
- * - Dynamic resizing
- * - Memory management via global allocator
- * - Type safety
- * - RAII for automatic cleanup
- */
+Data :: struct(val : &(i32));
 
+test :: (fn(d : Data) -> Data) {
+   return d;
+};
+
+
+/*
 open import "std";
+{ printf } :: import "std/libc/stdio";
 
-/**
- * ArrayList error types
- */
-ArrayListError :: enum(
-  AllocError(error : AllocError),
-  IndexOutOfBounds(index: usize, len: usize),
-  EmptyList
-);
 
-/**
- * ArrayList type - a growable array
- * 
- * Memory layout:
- * - ptr: pointer to the heap-allocated buffer
- * - len: current number of elements
- * - capacity: total capacity of the buffer
- */
-ArrayList :: (fn(compt(T): Type) -> compt(Type))
-  struct(
-    ptr: ?*!(T),
-    len: usize,
-    capacity: usize,
+K :: (fn(compt(Value) : Type) -> compt(Type)) {
+  ClosureType ::
+    fn(value : Value) => unit;
+  return ClosureType;
+};
 
-    /**
-     * Create a new empty ArrayList
-     */
-    new :: ((fn() -> Self)
-      Self(
-        ptr: .None,
-        len: (0).as(usize),
-        capacity: (0).as(usize)
-      )),
+// Algebraic effects
+Yield ::
+  fn( i : i32, resume : K(i32)) -> unit;
 
-    /**
-     * Create an ArrayList with a specific initial capacity
-     */
-    with_capacity :: ((fn(capacity: usize) -> Result(Self, ArrayListError))
-      cond 
-        (capacity == (0).as(usize)) => 
-          .Ok(Self.new()),
-        true => {
-          ptr_result := GlobalAllocator.alloc(T, capacity);
-          match(ptr_result,
-            .Ok =>
-              match(ptr_result.value,
-                .Some =>
-                  .Ok(Self(
-                    ptr: ptr_result.value,
-                    len: (0).as(usize),
-                    capacity: capacity
-                  )),
-                .None => .Error(.AllocError(.OutOfMemory))
-              ),
-            .Error =>
-              .Error(.AllocError(ptr_result.error))
-          )
-        }
-    ),
+some_cond :: (fn() -> boolean) true;
 
-    /**
-     * Add an element to the end of the ArrayList
-     */
-    push :: ((fn(self: &!(Self), value: T) -> Result(unit, ArrayListError))
-      // Check if we need to grow
-      cond
-        (self.len >= self.capacity) => {
-          // Need to grow - calculate new capacity
-          new_capacity := cond
-            (self.capacity == (0).as(usize)) => (4).as(usize),
-            true => (self.capacity * (2).as(usize));
-          
-          // Allocate or reallocate
-          new_ptr_result := match self.ptr,
-            .None => GlobalAllocator.alloc(T, new_capacity),
-            .Some => GlobalAllocator.realloc(self.ptr, new_capacity);
-          
-          match(new_ptr_result,
-            .Ok =>
-              match(new_ptr_result.value,
-                .Some => {
-                  self.ptr = new_ptr_result.value;
-                  self.capacity = new_capacity;
-                  // Now add the element
-                  // TODO: Implement pointer arithmetic and dereferencing
-                  self.len = (self.len + (1).as(usize));
-                  .Ok(())
-                },
-                .None => .Error(.AllocError(.OutOfMemory))
-              ),
-            .Error => .Error(.AllocError(new_ptr_result.error))
-          )
-        },
-        true => {
-          // Have capacity - just add the element
-          self.len = (self.len + (1).as(usize));
-          .Ok(())
-        }
-    ),
+(compt(given(yield)) : Yield) =
+  (i, resume) ->
+    cond
+      (i < 0) => resume(0),
+      true => resume(i)
+;
 
-    /**
-     * Remove and return the last element
-     */
-    /*
-    pop :: ((fn(self: &!(Self)) -> Option(T))
-      cond
-        (self.len == (0).as(usize)) => .None,
-        true => {
-          self.len = (self.len - (1).as(usize));
-          // TODO: Implement pointer arithmetic and dereferencing to get the value
-          .Some(/* value from ptr + len */)
-        }
-    ),
-    */
+Color :: enum Red, Green, Blue;
 
-    /**
-     * Get an element by index (bounds checked)
-     */
-    /*
-    get :: ((fn(self: &(Self), index: usize) -> Result(Option(&(T)), ArrayListError))
-      cond
-        (index >= self.len) => .Error(.IndexOutOfBounds(index: index, len: self.len)),
-        true =>
-          match self.ptr,
-            .None => .Ok(.None),
-            .Some =>
-              // TODO: Implement pointer arithmetic
-              .Ok(.Some(/* &(ptr + index) */))
-            
-    ),
-    */
+extern "Yo",
+  yieldColor : (fn( color : Color, resume : K(Color)) -> unit)
+;
 
-    /**
-     * Clear all elements but keep capacity
-     */
-    clear :: ((fn(self: &!(Self)) -> unit) {
-      // TODO: Call destructors for elements if T has drop method
-      self.len = (0).as(usize);
-    }),
-
-    /**
-     * RAII destructor - automatically called when ArrayList goes out of scope
-     */
-    drop :: ((fn(self: Self) -> unit)
-      match self.ptr,
-        .Some => {
-          // TODO: Call destructors for all elements if T has drop method
-          optional_ptr := self.ptr;
-          match(optional_ptr,
-            .Some => {
-              ptr := optional_ptr.value;
-              GlobalAllocator.dealloc(ptr);
-            },
-            .None => ()
-          );
-          return ();
-        },
-        .None => {
-          // Nothing to free
-          return ();
-        }
-    )
+test3 :: (fn(color: Color, resume : K(i32)) -> unit) {
+  printf("Before yieldColor\n");
+  yielded_color := do yieldColor(color);
+  result := match(yielded_color,
+    .Red => (do yield(12)),
+    .Green => {
+      result := (do yield(34));
+      result + 1
+    },
+    .Blue => 0
   );
-
-export
-  ArrayList,
-  ArrayListError;
+  printf("Result: %d\n", result);
+  resume(result);
+};
+*/

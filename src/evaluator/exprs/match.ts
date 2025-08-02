@@ -76,6 +76,18 @@ export function evaluateMatch({
 
   // Evaluate the value to be matched
   const scrutineeExpr = args[0]!;
+
+  // FIXME: Let's limit the scrutinee to be Atom expression for now
+  //
+  //   match self.ptr,
+  //     .Some => { self.ptr.value }, // <- This currently cannot detect the type of self.ptr
+  if (!exprIsAtom(scrutineeExpr)) {
+    throw formatErrorMessage({
+      token: scrutineeExpr.token,
+      errorMessage: `Expected scrutinee to be an atom expression, got ${exprToString(scrutineeExpr)}`,
+    });
+  }
+
   const evaluatedScrutineeExpr = context.evaluateExpression({
     expr: scrutineeExpr,
     env,

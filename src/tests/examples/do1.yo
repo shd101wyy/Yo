@@ -51,7 +51,8 @@ test2 :: (fn(resume: K(i32)) -> unit) {
 
 test3 :: (fn(color: Color, resume : K(i32)) -> unit) {
   printf("Before yieldColor\n");
-  result := match((do yieldColor(color)),
+  yielded_color := do yieldColor(color);
+  result := match(yielded_color,
     .Red => (do yield(12)),
     .Green => {
       result := (do yield(34));
