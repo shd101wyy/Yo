@@ -1578,7 +1578,10 @@ function createSpecializedFunctionInline({
     env: specializedEnv,
     context: {
       ...context,
-      expectedType: undefined,
+      expectedType: {
+        type: functionType.return.type,
+        env: specializedEnv,
+      },
       isEvaluatingFunctionBody: {
         type: functionType,
         value: originalFunction,

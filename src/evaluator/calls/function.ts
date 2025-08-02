@@ -743,15 +743,20 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
       functionsToCall[0]!.result.kind === "error"
     ) {
       const error = functionsToCall[0]!.result.error;
-
       if (error instanceof MoParserError) {
         throw formatErrorMessages(
           [
             {
               token: expr.token,
-              errorMessage: `Failed to call the function:\n`,
+              errorMessage: `Failed to call the function:\n
+${error.tokenAndErrorList
+  .filter(({ token }) => token.modulePath !== expr.token.modulePath)
+  .map(({ errorMessage }) => `- ${errorMessage}`)
+  .join("\n")}`,
             },
-            ...error.tokenAndErrorList,
+            ...error.tokenAndErrorList.filter(
+              ({ token }) => token.modulePath === expr.token.modulePath
+            ),
           ],
           error.isAssertionError
         );

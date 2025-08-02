@@ -31,13 +31,7 @@ extern "Yo",
   __yo_ptr_gt :
     fn(forall(T: Type), ptr1 : *(T), ptr2 : *(T)) -> boolean,
   __yo_ptr_gte :
-    fn(forall(T: Type), ptr1 : *(T), ptr2 : *(T)) -> boolean,
-  __yo_ptr_deref :
-    fn(forall(T: Type), ptr : *(T)) -> T,
-  __yo_mut_ptr_deref :
-    fn(forall(T: Type), ptr : *!(T)) -> T,
-  __yo_mut_ptr_assign :
-    fn(forall(T: Type), ptr : *!(T), value : T) -> unit
+    fn(forall(T: Type), ptr1 : *(T), ptr2 : *(T)) -> boolean
 ;
 
 /**
@@ -88,17 +82,12 @@ PtrMethods :: module {
     __yo_ptr_gte(ptr1, ptr2)
   ;
   
-  // Dereference pointer to get value
-  (*) :: (fn(forall(T: Type), ptr: *(T)) -> T)
-    __yo_ptr_deref(ptr)
-  ;
-  
   // Cast pointer to another type
   cast :: (fn(forall(Source: Type), source: *(Source), compt(Target): Type) -> Target)
     __yo_ptr_cast(source, Target)
   ;
   
-  export (+), (-), diff, (==), (!=), (<), (<=), (>), (>=), (*), cast;
+  export (+), (-), diff, (==), (!=), (<), (<=), (>), (>=), cast;
 };
 
 /**
@@ -115,22 +104,13 @@ MutPtrMethods :: module {
     __yo_mut_ptr_sub(ptr, offset)
   ;
   
-  // Dereference mutable pointer to get value
-  (*) :: (fn(forall(T: Type), ptr: *!(T)) -> T)
-    __yo_mut_ptr_deref(ptr)
-  ;
-  
-  // Assign value to mutable pointer
-  assign :: (fn(forall(T: Type), ptr: *!(T), value: T) -> unit)
-    __yo_mut_ptr_assign(ptr, value)
-  ;
   
   // Cast mutable pointer to another type
   cast :: (fn(forall(Source: Type), source: *!(Source), compt(Target): Type) -> Target)
     __yo_mut_ptr_cast(source, Target)
   ;
   
-  export (+), (-), (*), assign, cast;
+  export (+), (-), cast;
 };
 
 // Nullable pointer
