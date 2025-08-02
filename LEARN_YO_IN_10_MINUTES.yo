@@ -106,37 +106,37 @@ z := 16; // This will give error, as compt_int type cannot be assigned to runtim
 3.(+) 4;
 
 // define a function
-add :: ((x: i32, y: i32)-> i32) // function type is written as (args...)-> return_type
+add :: (fn(x: i32, y: i32)-> i32) // function type is written as fn(args...)-> return_type
   x + y // calling the function type with the body will create a function value.
 ;
 // or define the type first, then use `_` to refer the function type:
-(compt(add) : ((x: i32, y: i32)-> i32)) = _ // `_` here referes to the function typ (x: i32, y: i32)-> i32
+(compt(add) : (fn(x: i32, y: i32)-> i32)) = _ // `_` here referes to the function type (x: i32, y: i32)-> i32
   x + y
 ;
 
-// or with anonymous function defined with `fn` and `->`
-// NOTE: You cannot define parameter types in anonymous function `fn`.
-(compt(add) : ((x: i32, y: i32) -> i32)) =
-  fn(x, y)->
-    x + y;
+// or with anonymous function defined with `(...)` and `->`
+(compt(add) : (fn(x: i32, y: i32) -> i32)) =
+  (x, y)->
+    x + y
+;
 
 // or with the function type first, then the function implementation:
-compt(add) : ((x: i32, y: i32)-> i32);          // function type is written as (args...)-> return_type
+compt(add) : (fn(x: i32, y: i32)-> i32);          // function type is written as fn(args...)-> return_type
 add = 
-  fn(x, y) -> 
+  (x, y) -> 
     x + y;  // function implementation is written as fn(args...) -> body
 
 // If no function type is given, the the function implementation needs to define explicit function type
 compt(get_value) :
-  (condition: boolean) -> Option(i32);
+  fn(condition: boolean) -> Option(i32);
 get_value =
-  fn(condition)->
+  (condition)->
     if condition,
       then: Option(i32).Some(42),
       else: Option(i32).None;
 
 // Named parameters in function declarations with default values
-create_user :: (( 
+create_user :: (fn( 
     name: String,
     (age: i32) ?= 18, // Use ?= operator to define a default value
     (role: String) ?= String.from("user")
@@ -145,7 +145,7 @@ create_user :: ((
     name: name,
     age: age,
     role: role
-  ;
+;
 
 
 
@@ -166,17 +166,17 @@ user2 := create_user(name: "Bob", age: 30);  // explicit values
 
 
 // Define a custom operator
-(+++) :: ((x: i32, y: i32)->i32)
+(+++) :: (fn(x: i32, y: i32)->i32)
   x + y;
 3 +++ 4; // 7
 
 // All function parameters are immutable by default
-modify :: ((x: i32)-> i32) {
+modify :: (fn(x: i32)-> i32) {
   x += 1; // error: x is immutable
   x
 }
 // To make the function parameter mutable, add `mut` qualifier
-modify :: ((mut(x): i32)-> i32) {
+modify :: (fn(mut(x): i32)-> i32) {
   x += 1; // OK
   x
 }
@@ -193,7 +193,7 @@ result := begin(
   y := 4,
   add x, y
 );
-empty_block := {}   // This is an empty block that returns unit.  
+empty_block := {}   // This is not a block! It's an anonymous struct with no fields.
 
 // You can define the tuple type using `Tuple` keyword.  
 // A tuple type can have named fields or unnamed fields.
@@ -246,7 +246,7 @@ named_tuple := (x: x, y: y);
 (x: a) := named_tuple; // a: 1
 
 // there might be ambiguity for the function that accepts tuple as its first argument
-some_func :: ((x: (i32, i32))-> i32) {
+some_func :: (fn(x: (i32, i32))-> i32) {
   return x.0 + x.1;
 };
 
@@ -318,14 +318,16 @@ Color ::
   enum
     Red, // = 0
     Green,
-    Blue;
+    Blue
+;
 color := Color.Red; // color is of type Color
 
 // each variant can have one type as its argument
 Animal ::
   enum
     Dog(String, f64),
-    Cat(name: String, weight: f64);
+    Cat(name: String, weight: f64)
+;
 a := Animal.Dog "Buddy", 12.5;
 // or use the anonymous variant liternal:
 (b : Animal) = .Cat name: "Whiskers", weight: 8.5;
@@ -373,11 +375,11 @@ x := Option(i32).Some(12);
 MyExpr :: (fn(compt(T): Type)-> compt(Type))
   enum
     IntExpr:
-      (i32)-> recur(i32),
+      (i32)=> recur(i32),
     BoolExpr:
-      (boolean)-> recur(boolean),
+      (boolean)=> recur(boolean),
     EqExpr:
-      (recur(i32), recur(i32))-> recur(boolean)
+      (recur(i32), recur(i32))=> recur(boolean)
   ;
 my_eval :: (fn(compt(T): Type, expr: MyExpr(T))-> T)
   match expr,
@@ -403,36 +405,36 @@ Option ::
 // module
 // All the fields of the module are compile-time known by default
 Id ::
-  (compt(Self): Type)-> compt(Module)
+  fn(compt(Self): Type)-> compt(Module)
   module
     (Self : Type) = Self, 
     // ^ `Self` in module here means the receiver type. 
     // It enables the dynamic dispatch (not support yet)
     // `=` here means the Self has to be equal to Self.
     id:
-      (val : Self)-> Self
+      fn(val : Self)-> Self
 ;
 
 Stringer ::
-  (compt(Self) : Type)-> compt(Module)
+  fn(compt(Self) : Type)-> compt(Module)
   module
     (Self : Type) = Self,
-    to_string: ((val : Self)-> String)
+    to_string: (fn(val : Self)-> String)
 ;
 
 /// Implement the module
 IdI32 :: Id(i32)
   id:
-    fn(self)-> self
+    (self)-> self
 ;
 
 MakeStringer ::
-  (forall(T: Type, compt(Y): Type),
+  fn(forall(T: Type, compt(Y): Type),
    using(Stringer(T), Stringer(U))) ->
   compt(Stringer((T, Y))) {
   return Stringer((T, Y))
     to_string:
-      fn((x, y))->
+      ((x, y))->
         "(" + 
         x.to_string() + 
         "," + 
@@ -452,7 +454,7 @@ Cm :: struct(
   i32,
 
   // Type method:
-  M :: ((_(cm): Self)-> i32) {
+  M :: (fn(_(cm): Self)-> i32) {
     return cm / 100;
   }  
 );
@@ -470,7 +472,7 @@ id(i32, 12); // 12
 id(boolean, 12); // true
 // e.g. with `forall`:
 id ::
-  (forall(T: Type), x: T)-> T {
+  fn(forall(T: Type), x: T)-> T {
   return x;
 }
 
@@ -484,10 +486,10 @@ id(true); // true
 
 // arith.yo
 add :: 
-  ((x: i32, y: i32)-> i32)
+  (fn(x: i32, y: i32)-> i32)
   x + y;
 sub ::
-  ((x: i32, y: i32)-> i32)
+  (fn(x: i32, y: i32)-> i32)
   x - y;
 export
   add, sub
@@ -523,7 +525,7 @@ s2 := s;  // error: s is consumed
 x := 1;
 y := 2;
 swap ::
-  ((a: &!(i32), b: &!(i32)) -> unit) {
+  (fn(a: &!(i32), b: &!(i32)) -> unit) {
   tmp := a.*; // dereference the pointer
   a.* = b.*;
   b.* = tmp;
@@ -549,14 +551,14 @@ y := {
   &(x) // error: Violate the Rule 1.2
 }
 
-((some_ref: &!(i32)) -> unit) {
+(fn(some_ref: &!(i32)) -> unit) {
   x := some_ref;      // Not allowed! Violate the Rule 1.1
   return some_ref;    // Allowed
   // or
   return ( value: some_ref ); // Allowed
 }
 
-((container: &!(Container), some_ref: &(i32)) -> unit) {
+(fn(container: &!(Container), some_ref: &(i32)) -> unit) {
   container.x = some_ref; // Not allowed!
                           // Why? Because it is hard to compare the lifetime of container and some_ref.
                           // container might live longer than some_ref.
@@ -590,21 +592,21 @@ borrow &!(arr).to_iter_mut(), iter => {
 
 // do notation
 // allows us to use `<-`, `<=`, `<<=` inside a block
-do {
-  with response <= fetch("https://api.example.com");
-  std.println(response);
-  with json <= response.json();
-  std.println(json);
-};
-// is equavalent to
-{
-  fetch("https://api.example.com", fn(response) => {
-    std.println(response);
-    response.json(fn(json) => {
-      std.println(json);
-    });
-  });
-};
+/// do {
+///   with response <= fetch("https://api.example.com");
+///   std.println(response);
+///   with json <= response.json();
+///   std.println(json);
+/// };
+/// // is equavalent to
+/// {
+///   fetch("https://api.example.com", (response) => {
+///     std.println(response);
+///     response.json((json) => {
+///       std.println(json);
+///     });
+///   });
+/// };
 
 // malloc
 // There is no null pointer in Yo.
@@ -613,7 +615,7 @@ do {
 (ptr : Option(*!(i32))) = malloc(sizeof(i32)); // allocate memory for i32
 match ptr,
   .Some => {
-    { p } := ptr;
+    { value : p } := ptr;
     p.* = 42; // dereference the pointer
     std.println(p.*); // print the value
   },
@@ -632,7 +634,7 @@ cond  (x == 1) => std.println("x is 1"),
 
 /// while
 factorial ::
-  ((x: i32)-> i32) {
+  (fn(x: i32)-> i32) {
   mut(x) := x; // Convert immutable variable to mutable
   mut(result) := 1;
   while x > 1, do: {
@@ -644,7 +646,7 @@ factorial ::
 
 //// or
 factorial ::
-  ((x: i32)-> i32) {
+  (fn(x: i32)-> i32) {
   mut(x) := x;
   mut(result) := 1;
   while x > 1,  // condition
@@ -669,25 +671,25 @@ for arr, element => {
 
 // Recursion using recur
 // recur is used to call the current function recursively
-factorial_rec :: ((x: i32)-> i32)
+factorial_rec :: (fn(x: i32)-> i32)
   if x <= 1,
     then: 1,
     else: (x * recur(x - 1));  // recur calls factorial_rec recursively
 
 // recur can also be used with named arguments
-fibonacci :: ((n: i32)-> i32)
+fibonacci :: (fn(n: i32)-> i32)
   if n <= 1,
     then: n,
     else: (recur(n - 1) + recur(n - 2));
 
 // Tail recursion for better performance
-factorial_tail :: ((x: i32, acc: i32)-> i32)
+factorial_tail :: (fn(x: i32, acc: i32)-> i32)
   if x <= 1,
     then: acc,
     else: recur(x - 1, x * acc);  // tail-recursive call
 
 /// for
-for 0..=10, (x)-> std.println(x); // NOTE: The last argument is **NOT** a function
+for 0..=10, (x)=> std.println(x); // NOTE: The last argument is **NOT** a function
 
 // Pattern matching
 match x,
@@ -719,7 +721,7 @@ DivisionError ::
 
 // Example: Safe division function that returns a Result
 safe_div ::
-  ((a: i32, b: i32)-> Result(i32, DivisionError))
+  (fn(a: i32, b: i32)-> Result(i32, DivisionError))
   if b == 0,
     then: Result(i32, DivisionError).Err(.DivideByZero),
     else: Result(i32, DivisionError).Ok(a / b);
@@ -734,13 +736,13 @@ match division_result,
 // all of its parameters and return type are Expr
 // The `unquote` function is only allowed to be used inside the `quote` function.  
 // And if the return value is declared with `unquote`, then it's a macro function.  
-if :: ((quote(condition): Expr, 
+if :: (fn(quote(condition): Expr, 
         quote(then): Expr,
         quote(else): Expr)
       -> unqoute(Expr))
   quote(
-    cond  unquote(condition) -> unquote(then),
-          true -> unquote(else));
+    cond  unquote(condition) => unquote(then),
+          true => unquote(else));
 
 if x == 1, then: std.println("x is 1"), else: std.println("x is not 1");
 // will be expanded to
@@ -755,7 +757,7 @@ cond  (x == 1) => std.println("x is 1"),
 // * Compiler - Code Generation, to `C` only now
 
 extern "C",
-  printf: ((format: *(char), ...) -> i32);
+  printf: (fn(format: *(char), ...) -> i32);
 
 // Compile-time Execution
 PI :: 3.14159265358979323846; // PI : compt_float;
@@ -782,7 +784,7 @@ max :: (fn(compt(T): Type, a: T, b: T)-> T)
     (a > b)        => a,
     true           => b;
 max(boolean, false, true); // compiles to:
-max :: ((a: boolean, b: boolean)-> boolean) {
+max :: (fn(a: boolean, b: boolean)-> boolean) {
   {
     return (a || b);
   }

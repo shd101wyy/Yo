@@ -1,6 +1,6 @@
 open import "../../builtins.yo";
 { Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
-{ LogicalNot } :: import "../../modules/logic.yo";
+open import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 { Ord } :: import "../../modules/ord.yo";
 { Clone, Drop } :: import "../../modules/common.yo";
@@ -37,6 +37,22 @@ given(UShortNegate) :: Negate(ushort)
  */
 given(UShortLogicalNot) :: LogicalNot(ushort)
   (!): ((a) -> __yo_op_not(a))
+;
+
+given(UShortBitNot) :: BitNot(ushort)
+  (~): ((a) -> __yo_op_bit_complement(a))
+;
+
+given(UShortBitAnd) :: BitAnd(ushort, ushort)
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+;
+
+given(UShortBitOr) :: BitOr(ushort, ushort)
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+;
+
+given(UShortBitXor) :: BitXor(ushort, ushort)
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
 ;
 
 
@@ -92,6 +108,10 @@ export
   UShortMod,
   UShortNegate,
   UShortLogicalNot,
+  UShortBitNot,
+  UShortBitAnd,
+  UShortBitOr,
+  UShortBitXor,
   UShortEq,
   UShortOrd,
   UShortDrop,

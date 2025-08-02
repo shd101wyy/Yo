@@ -1,6 +1,6 @@
 open import "../../builtins.yo";
 { Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
-{ LogicalNot } :: import "../../modules/logic.yo";
+open import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 { Ord } :: import "../../modules/ord.yo";
 { Clone, Drop } :: import "../../modules/common.yo";
@@ -37,6 +37,22 @@ given(IsizeNegate) :: Negate(isize)
  */
 given(IsizeLogicalNot) :: LogicalNot(isize)
   (!): ((a) -> __yo_op_not(a))
+;
+
+given(IsizeBitNot) :: BitNot(isize)
+  (~): ((a) -> __yo_op_bit_complement(a))
+;
+
+given(IsizeBitAnd) :: BitAnd(isize, isize)
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+;
+
+given(IsizeBitOr) :: BitOr(isize, isize)
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+;
+
+given(IsizeBitXor) :: BitXor(isize, isize)
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
 ;
 
 
@@ -157,6 +173,10 @@ export
   IsizeMod,
   IsizeNegate,
   IsizeLogicalNot,
+  IsizeBitNot,
+  IsizeBitAnd,
+  IsizeBitOr,
+  IsizeBitXor,
   IsizeEq,
   IsizeOrd,
   IsizeDrop,

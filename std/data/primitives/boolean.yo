@@ -1,11 +1,23 @@
-{ __yo_noop, __yo_return_self, __yo_op_not, __yo_op_eq } :: import("../../builtins.yo");
-{ LogicalNot } :: import "../../modules/logic.yo";
+open import("../../builtins.yo");
+open import "../../modules/logic.yo";
 { Clone, Drop } :: import "../../modules/common.yo";
 { Eq } :: import "../../modules/eq.yo";
 
 /**
  * logic
  */
+given(BooleanLogicalAnd) :: LogicalAnd(boolean, boolean)
+  (&&): ((a, b) ->
+    __yo_op_and(a, b)
+  )
+;
+
+given(BooleanLogicalOr) :: LogicalOr(boolean, boolean)
+  (||): ((a, b) ->
+    __yo_op_or(a, b)
+  )
+;
+
 given(BooleanLogicalNot) :: LogicalNot(boolean)
   (!): ((a) ->
     __yo_op_not(a)
@@ -86,6 +98,8 @@ given(ComptBooleanMethods) :: module {
 
 
 export
+  BooleanLogicalAnd,
+  BooleanLogicalOr,
   BooleanLogicalNot,
   BooleanEq,
   BooleanDrop,

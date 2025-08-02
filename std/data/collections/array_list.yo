@@ -15,66 +15,9 @@ open import "../../data/primitives/ptr.yo";
 open import "../../data/primitives/i32.yo";
 open import "../../data/primitives/usize.yo";
 open import "../../data/primitives/compt_int.yo";
+{ GlobalAllocator } :: import "../../modules/allocator.yo";
 
-/**
- * Global allocator interface - similar to Rust's GlobalAlloc trait
- * This provides a consistent interface for memory allocation
- */
-GlobalAllocator :: module {
-  /**
-   * Allocate memory for count items of type T
-   * Returns Some(ptr) on success, None on allocation failure
-   */
-  alloc :: (fn(forall(T: Type), count: usize) -> ?*(T)) {
-    size := (count * sizeof(T).as(usize));
-    ptr := malloc(size);
-    match ptr,
-      .Some => {
-        // Cast the void pointer to the correct type
-        typed_ptr := ptr.value.cast(*(T));
-        .Some(typed_ptr)
-      },
-      .None => .None
-  };
 
-  /**
-   * Allocate zeroed memory for count items of type T
-   */
-  alloc_zeroed :: (fn(forall(T: Type), count: usize) -> ?(*(T))) {
-    ptr := calloc(count, sizeof(T).as(usize));
-    match ptr,
-      .Some => {
-        typed_ptr := ptr.value.cast(*(T));
-        .Some(typed_ptr)
-      },
-      .None => .None
-  };
-
-  /**
-   * Reallocate memory to new_count items
-   */
-  realloc :: (fn(forall(T: Type), old_ptr: *(T), new_count: usize) -> ?(*(T))) {
-    raw_old := old_ptr.cast(?*!(void));
-    new_size := (new_count * sizeof(T));
-    new_ptr := realloc(raw_old, new_size);
-    match new_ptr,
-      .Some => {
-        typed_ptr := new_ptr.value.cast(*(T));
-        .Some(typed_ptr)
-      },
-      .None => .None
-  };
-
-  /**
-   * Free memory allocated by this allocator
-   */
-  dealloc :: (fn(forall(T: Type), ptr: *(T)) -> unit) {
-    raw_ptr := ptr.cast(?*!(void));
-    free(raw_ptr);
-  };
-
-  export alloc, alloc_zeroed, realloc, dealloc;
-};
 
 /**
  * ArrayList error types

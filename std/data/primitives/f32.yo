@@ -1,6 +1,6 @@
 open import "../../builtins.yo";
 { Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
-{ LogicalNot } :: import "../../modules/logic.yo";
+open import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 { Ord } :: import "../../modules/ord.yo";
 { Clone, Drop } :: import "../../modules/common.yo";
@@ -37,6 +37,22 @@ given(F32Negate) :: Negate(f32)
  */
 given(F32LogicalNot) :: LogicalNot(f32)
   (!): ((a) -> __yo_op_not(a))
+;
+
+given(F32BitNot) :: BitNot(f32)
+  (~): ((a) -> __yo_op_bit_complement(a))
+;
+
+given(F32BitAnd) :: BitAnd(f32, f32)
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+;
+
+given(F32BitOr) :: BitOr(f32, f32)
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+;
+
+given(F32BitXor) :: BitXor(f32, f32)
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
 ;
 
 
@@ -153,6 +169,10 @@ export
   F32Mod,
   F32Negate,
   F32LogicalNot,
+  F32BitNot,
+  F32BitAnd,
+  F32BitOr,
+  F32BitXor,
   F32Eq,
   F32Ord,
   F32Drop,

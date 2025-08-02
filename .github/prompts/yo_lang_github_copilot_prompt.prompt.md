@@ -19,3 +19,5 @@ When I ask you to refactor the code. Refactor everything. Don't make assumptions
 Ignore the DESIGN.md and other markdown files because they are out of date.  
 
 No need to read fixme.test.ts
+
+Read `LEARN_YO_IN_10_MINUTES.yo` to understand the syntax.

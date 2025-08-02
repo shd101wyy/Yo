@@ -1,6 +1,6 @@
 open import "../../builtins.yo";
 { Add, Sub, Mul, Div, Mod, Negate } :: import "../../modules/arithmetic.yo";
-{ LogicalNot } :: import "../../modules/logic.yo";
+open import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 { Ord } :: import "../../modules/ord.yo";
 { Clone, Drop } :: import "../../modules/common.yo";
@@ -37,6 +37,23 @@ given(IntNegate) :: Negate(int)
  */
 given(IntLogicalNot) :: LogicalNot(int)
   (!): ((a) -> __yo_op_not(a))
+;
+
+
+given(IntBitNot) :: BitNot(int)
+  (~): ((a) -> __yo_op_bit_complement(a))
+;
+
+given(IntBitAnd) :: BitAnd(int, int)
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+;
+
+given(IntBitOr) :: BitOr(int, int)
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+;
+
+given(IntBitXor) :: BitXor(int, int)
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
 ;
 
 
@@ -92,6 +109,10 @@ export
   IntMod,
   IntNegate,
   IntLogicalNot,
+  IntBitNot,
+  IntBitAnd,
+  IntBitOr,
+  IntBitXor,
   IntEq,
   IntOrd,
   IntDrop,
