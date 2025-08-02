@@ -404,7 +404,7 @@ export function getIntegerTypeBits(type: Type): number {
       return 64;
     case TypeTag.Usize:
     case TypeTag.Isize:
-      return 64; // Platform dependent, simplified to 64-bit
+      return getTargetPointerSizeBits(); // Platform dependent, use configured pointer size
     default:
       throw new Error(`Not an integer type: ${type.tag}`);
   }
@@ -827,13 +827,35 @@ export function typeToString(type: Type): string {
 }
 
 /**
- * Get the size of a pointer in bits.
+ * Get the target pointer size in bits. Can be customized for different architectures.
+ * Default is 64 bits (8 bytes) for modern 64-bit systems.
  */
-export function getPtrSize(): null {
-  // Assuming a pointer size of 64 bits (8 bytes) for most modern systems
-  // return 64;
+let targetPointerSizeBits = 64;
 
-  return null; // Pointer size is not known at compile time. Let's leave the C Compiler to determine its real size
+/**
+ * Set the target pointer size in bits.
+ */
+export function setTargetPointerSize(bits: number): void {
+  if (bits <= 0 || bits % 8 !== 0) {
+    throw new Error(
+      `Invalid pointer size: ${bits} bits. Must be positive and divisible by 8.`
+    );
+  }
+  targetPointerSizeBits = bits;
+}
+
+/**
+ * Get the target pointer size in bits.
+ */
+export function getTargetPointerSizeBits(): number {
+  return targetPointerSizeBits;
+}
+
+/**
+ * Get the target pointer size in bytes.
+ */
+export function getTargetPointerSizeBytes(): number {
+  return targetPointerSizeBits / 8;
 }
 
 function getArrayTypeSize(type: ArrayType): number | null {
@@ -926,6 +948,111 @@ function getUnionType(type: UnionType): number | null {
 }
 
 /**
+ * Get the alignment of a type in bytes.
+ * null = unknown/indeterminate alignment.
+ * @param type
+ */
+export function getAlignmentOfType(type: Type): number | null {
+  if (type.isDynamicSized) {
+    return null; // Dynamic sized types have unknown alignment
+  }
+  if (isSomeType(type)) {
+    // SomeType is a placeholder, so it has unknown alignment
+    return null;
+  }
+
+  if (
+    isUnitType(type) || // Unit type has no alignment requirement
+    isTypeHierarchyType(type) ||
+    isComptIntType(type) ||
+    isComptFloatType(type) ||
+    isComptStringType(type) ||
+    isModuleType(type) ||
+    isExprType(type) ||
+    isExprListType(type) // ^ disallowed in the runtime
+  ) {
+    return 1; // Minimal alignment for compile-time only types
+  } else if (isBooleanType(type)) {
+    return 1; // Boolean is 1 byte aligned
+  } else if (isUsizeType(type) || isIsizeType(type)) {
+    return getTargetPointerSizeBytes(); // Pointer-sized integers are pointer-aligned
+  } else if (isU8Type(type) || isI8Type(type)) {
+    return 1; // 1 byte aligned
+  } else if (isU16Type(type) || isI16Type(type)) {
+    return 2; // 2 byte aligned
+  } else if (isU32Type(type) || isI32Type(type)) {
+    return 4; // 4 byte aligned
+  } else if (isU64Type(type) || isI64Type(type)) {
+    return 8; // 8 byte aligned
+  } else if (isF32Type(type)) {
+    return 4; // 4 byte aligned
+  } else if (isF64Type(type)) {
+    return 8; // 8 byte aligned
+  } else if (isArrayType(type)) {
+    return getAlignmentOfType(type.elementType); // Array alignment is element alignment
+  } else if (isTupleType(type)) {
+    // Tuple alignment is the maximum alignment of its elements
+    let maxAlign = 1;
+    for (const element of type.elements) {
+      const elementAlign = getAlignmentOfType(element.type);
+      if (elementAlign === null) {
+        return null;
+      }
+      maxAlign = Math.max(maxAlign, elementAlign);
+    }
+    return maxAlign;
+  } else if (isStructType(type)) {
+    // Struct alignment is the maximum alignment of its elements
+    let maxAlign = 1;
+    for (const element of type.elements) {
+      const elementAlign = getAlignmentOfType(element.type);
+      if (elementAlign === null) {
+        return null;
+      }
+      maxAlign = Math.max(maxAlign, elementAlign);
+    }
+    return maxAlign;
+  } else if (isEnumType(type)) {
+    // Enum alignment is the maximum alignment of its variants
+    let maxAlign = 1;
+    for (const variant of type.variants) {
+      if (variant.elements) {
+        for (const param of variant.elements) {
+          const paramAlign = getAlignmentOfType(param.type);
+          if (paramAlign === null) {
+            return null;
+          }
+          maxAlign = Math.max(maxAlign, paramAlign);
+        }
+      }
+    }
+    return maxAlign;
+  } else if (isUnionType(type)) {
+    // Union alignment is the maximum alignment of its elements
+    let maxAlign = 1;
+    for (const element of type.elements) {
+      const elementAlign = getAlignmentOfType(element.type);
+      if (elementAlign === null) {
+        return null;
+      }
+      maxAlign = Math.max(maxAlign, elementAlign);
+    }
+    return maxAlign;
+  } else if (isFunctionType(type)) {
+    return getTargetPointerSizeBytes(); // Functions are treated as pointers, so pointer-aligned
+  } else if (
+    isMutPtrType(type) ||
+    isPtrType(type) ||
+    isMutRefType(type) ||
+    isRefType(type)
+  ) {
+    return getTargetPointerSizeBytes(); // Pointer and reference types are pointer-aligned
+  }
+
+  return null;
+}
+
+/**
  *
  *  Get the size of a type in bits.
  *  null = unknown/indeterminate size.
@@ -956,7 +1083,7 @@ export function getSizeOfType(type: Type): number | null {
   } else if (isBooleanType(type)) {
     return 8; // Assuming boolean is represented as 1 byte (8 bits)
   } else if (isUsizeType(type) || isIsizeType(type)) {
-    return getPtrSize(); // Pointer size (usually 64 bits)
+    return getTargetPointerSizeBits(); // Pointer size (usually 64 bits)
   } else if (isU8Type(type) || isI8Type(type)) {
     return 8; // 1 byte (8 bits)
   } else if (isU16Type(type) || isI16Type(type)) {
@@ -980,14 +1107,14 @@ export function getSizeOfType(type: Type): number | null {
   } else if (isUnionType(type)) {
     return getUnionType(type);
   } else if (isFunctionType(type)) {
-    return getPtrSize(); // Functions are treated as pointers, so return pointer size
+    return getTargetPointerSizeBits(); // Functions are treated as pointers, so return pointer size
   } else if (
     isMutPtrType(type) ||
     isPtrType(type) ||
     isMutRefType(type) ||
     isRefType(type)
   ) {
-    return getPtrSize(); // Pointer and reference types have pointer size
+    return getTargetPointerSizeBits(); // Pointer and reference types have pointer size
   }
 
   return null;

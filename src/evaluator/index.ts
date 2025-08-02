@@ -17,6 +17,7 @@ import { Token, TokenType } from "../token";
 import { ModuleValue } from "../value";
 
 // Import extracted evaluator functions
+import { evaluateAlignOf } from "./builtins/alignof";
 import { evaluateAndOr } from "./builtins/and_or";
 import { evaluateComptAssert } from "./builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "./builtins/compt_boolean_fns";
@@ -464,6 +465,9 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.sizeof)) {
         // sizeof
         return evaluateSizeOf({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.alignof)) {
+        // alignof
+        return evaluateAlignOf({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.the)) {
         // the
         return evaluateThe({ expr, env, context: { ...context } });
