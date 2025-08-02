@@ -29,10 +29,10 @@ Layout :: struct(
  * Get the memory layout for a type T
  */
 layout_of :: 
-  (fn(compt(T): Type) -> Layout)
+  (fn(compt(T): Type) -> compt(Layout))
     Layout(
-      size: sizeof(T).as(usize),
-      alignment: 1  // For now, assume alignment of 1 (would need alignof intrinsic)
+      size: sizeof(T),
+      alignment: alignof(T)
     )
 ;
 
@@ -43,7 +43,7 @@ size_would_overflow ::
   (fn(compt(T): Type, count: usize) -> boolean) {
     type_size := sizeof(T).as(usize);
     cond 
-      (type_size == 0.as(usize)) => false,
+      (type_size == (0).as(usize)) => false,
       true => (count > (SIZE_MAX / type_size))
   };
 
@@ -115,9 +115,15 @@ GlobalAllocator :: Allocator(
     
     // Check if alignment is valid (power of 2)
     if (
-        (alignment == 0.as(usize)) ||
-        ((alignment & (alignment - 1.as(usize))) != 0.as(usize))
+        (alignment == (0).as(usize)) ||
+        ((alignment & (alignment - (1).as(usize))) != (0).as(usize))
     ), {
+      return .Error(.InvalidAlignment);
+    };
+    
+    // Check if alignment is at least as large as the type's natural alignment
+    natural_alignment := alignof(T);
+    if (alignment < natural_alignment), {
       return .Error(.InvalidAlignment);
     };
     
@@ -153,7 +159,7 @@ GlobalAllocator :: Allocator(
       },
       .Some => {
         // Handle zero size case
-        if (new_count == 0.as(usize)), {
+        if (new_count == (0).as(usize)), {
           free(old_ptr);
           return .Ok(.None);
         };
@@ -177,4 +183,4 @@ GlobalAllocator :: Allocator(
   })
 );
 
-export Allocator, GlobalAllocator;
+export Allocator, GlobalAllocator, Layout, layout_of, AllocError;
