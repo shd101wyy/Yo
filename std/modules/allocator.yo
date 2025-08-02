@@ -1,0 +1,64 @@
+open import "../data/primitives/ptr.yo";
+open import "../data/primitives/usize.yo";
+{ malloc, calloc } :: import "../libc/stdlib.yo";
+
+Allocator :: module(
+  /**
+   * Allocate memory for count times of type T.
+   */
+  alloc : (fn(compt(T): Type, count: usize) -> ?*!(T)),
+
+  /**
+   * Allocate zeroed memory for count items of type T
+   */
+  alloc_zeroed : (fn(compt(T): Type, count: usize) -> ?*!(T)),
+
+  /**
+   * Reallocate memory to new_count items
+   */
+  realloc : (fn(forall(T : Type), old_ptr : *!(T), new_count : usize) -> ?*!(T)),
+
+  /**
+   * Deallocate memory pointed to by ptr.
+   */
+  dealloc : (fn(forall(T : Type), ptr : *!(T)) -> unit)
+);
+
+GlobalAllocator :: Allocator(
+  alloc : ((T, count) -> {
+    size := (count * sizeof(T).as(usize));
+    ptr := malloc(size);
+    match ptr,
+      .Some => {
+        // Cast the void pointer to the correct type
+        typed_ptr := ptr.value.cast(*!(T));
+        .Some(typed_ptr)
+      },
+      .None => .None
+  }),
+
+  alloc_zeroed : ((T, count) -> {
+    ptr := calloc(count, sizeof(T).as(usize));
+    match ptr,
+      .Some => {
+        typed_ptr := ptr.value.cast(*!(T));
+        .Some(typed_ptr)
+      },
+      .None => .None
+  }),
+
+  realloc : ((forall(T), old_ptr, new_count)-> {
+    raw_old := old_ptr.cast(*!(void));
+    new_size := (new_count * sizeof(T));
+    new_ptr := realloc(raw_old, new_size);
+    match new_ptr,
+      .Some => {
+        typed_ptr := new_ptr.value.cast(*!(T));
+        .Some(typed_ptr)
+      },
+      .None => .None
+  })
+
+);
+
+export Allocator;

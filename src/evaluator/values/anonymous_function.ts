@@ -1,10 +1,16 @@
 import { transformFunctionBodyToCps } from "../../cps-transform";
-import { Environment, popEnvFrame } from "../../env";
+import {
+  addVariableToEnv,
+  Environment,
+  popEnvFrame,
+  pushEnvFrame,
+} from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
   Expr,
+  exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
@@ -14,6 +20,7 @@ import {
   FunctionCapturedVariableInfo,
   FunctionValue,
 } from "../../function-value";
+import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
   ClosureType,
@@ -27,12 +34,11 @@ import {
   typeToString,
 } from "../../types";
 import { randomId } from "../../utils";
-import { createClosureValue, Value } from "../../value";
+import { createClosureValue, createUnknownValue, Value } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { createFunctionBodyEvaluationContext } from "../calls/function_type";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
-import { evaluateFunctionParameters } from "../types/function";
 import {
   buildPathCollectionFromCapturedVariables,
   consumeCapturedVariables,
@@ -133,59 +139,267 @@ export function evaluateAnonymousFunctionImplementation({
     parameterExprs = [functionDeclarationExpr];
   }
 
-  // NOTE: We disallow to define function signature for anonymous function anymore.
-  // Evaluate the parameter list
-  // env = pushEnvFrame(env); // < this is done in evaluateFunctionParameters function.
-  const {
-    env: nextEnv,
-    forallParameters,
-    parameters,
-    implicitParameters,
-  } = evaluateFunctionParameters({
-    parameterExprs: parameterExprs,
-    expectedFunctionType: functionType,
-    env,
-    context: {
-      ...context,
-    },
-  });
-  env = nextEnv;
-  const originalEnv = env; // backup the env for later CPS transformation use.
+  // Parse parameter expressions to separate forall, using, and regular parameters
+  let forallParamExprs: Expr[] = [];
+  let implicitParamExprs: Expr[] = [];
+  const regularParamExprs: Expr[] = [];
 
-  // For anonymous functions, we need to use the original function type
-  // but with the parameter names from the anonymous function implementation.
-  // However, we need to be careful about the parameter expressions structure.
+  for (let i = 0; i < parameterExprs.length; i++) {
+    const paramExpr = parameterExprs[i]!;
+
+    if (
+      exprIsFunctionCall(paramExpr) &&
+      exprIsFunctionCallOf(paramExpr, BuiltinKeywords.forall)
+    ) {
+      if (i !== 0) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `forall(...) must be the first parameter expression`,
+        });
+      }
+      forallParamExprs = paramExpr.args;
+    } else if (
+      exprIsFunctionCall(paramExpr) &&
+      exprIsFunctionCallOf(paramExpr, BuiltinKeywords.using)
+    ) {
+      if (i !== parameterExprs.length - 1) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `using(...) must be the last parameter expression`,
+        });
+      }
+      implicitParamExprs = paramExpr.args;
+    } else {
+      regularParamExprs.push(paramExpr);
+    }
+  }
+
+  // Validate parameter counts match expected function type
+  /*
+  if (forallParamExprs.length !== functionType.forallParameters.length) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expected ${functionType.forallParameters.length} forall parameters, got ${forallParamExprs.length}`,
+    });
+  }
+  */
+
+  /*
+  if (implicitParamExprs.length !== functionType.implicitParameters.length) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expected ${functionType.implicitParameters.length} implicit parameters, got ${implicitParamExprs.length}`,
+    });
+  }
+  */
+
+  if (regularParamExprs.length !== functionType.parameters.length) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expected ${functionType.parameters.length} regular parameters, got ${regularParamExprs.length}`,
+    });
+  }
+
+  // Add parameters to environment
+  env = pushEnvFrame(env);
+
+  // Validate parameter names for compt parameters (forall, implicit, and compt regular parameters)
+  // Check forall parameters (always compt)
+  for (let i = 0; i < forallParamExprs.length; i++) {
+    const paramExpr = forallParamExprs[i]!;
+    const expectedParam = functionType.forallParameters[i]!;
+
+    if (!exprIsAtom(paramExpr)) {
+      throw formatErrorMessage({
+        token: paramExpr.token,
+        errorMessage: `Expected parameter name for forall parameter, got ${exprToString(paramExpr)}`,
+      });
+    }
+
+    const paramName = paramExpr.token.value;
+    if (paramName !== expectedParam.label) {
+      throw formatErrorMessage({
+        token: paramExpr.token,
+        errorMessage: `Forall parameter name must match expected name.
+Expected: "${expectedParam.label}"
+Got:      "${paramName}"`,
+      });
+    }
+  }
+  for (let i = 0; i < functionType.forallParameters.length; i++) {
+    const paramExpr = forallParamExprs[i];
+    const expectedParam = functionType.forallParameters[i]!;
+    // Add forall parameter to environment
+    const { env: nextEnv } = addVariableToEnv({
+      env,
+      variable: {
+        name: expectedParam.label,
+        type: expectedParam.type,
+        isMutable: expectedParam.isMutable,
+        isCompileTimeOnly: expectedParam.isCompileTimeOnly,
+        isImplicit: false,
+        value: createUnknownValue(expectedParam.type, expectedParam.label),
+        token: paramExpr?.token ?? PlaceholderToken,
+        initializedAtToken: paramExpr?.token ?? PlaceholderToken,
+        consumedAtToken: undefined,
+      },
+      skipCheckingFunctionOverloading: true,
+    });
+    env = nextEnv;
+
+    if (paramExpr) {
+      paramExpr.$ = {
+        env: env,
+        type: expectedParam.type,
+        value: createUnknownValue(expectedParam.type, expectedParam.label),
+        isMutable: expectedParam.isMutable,
+        pathCollection: [],
+      };
+    }
+  }
+
+  // Check regular parameters (only compt ones need exact matching)
+  for (let i = 0; i < regularParamExprs.length; i++) {
+    const paramExpr = regularParamExprs[i]!;
+    const expectedParam = functionType.parameters[i]!;
+
+    if (expectedParam.isCompileTimeOnly) {
+      // For compt parameters, require exact name matching
+      if (!exprIsAtom(paramExpr)) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `Expected parameter name for compile-time parameter, got ${exprToString(paramExpr)}`,
+        });
+      }
+
+      const paramName = paramExpr.token.value;
+      if (paramName !== expectedParam.label) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `Compile-time parameter name must match expected name.
+Expected: "${expectedParam.label}"
+Got:      "${paramName}"`,
+        });
+      }
+    }
+
+    // Add regular parameter to environment
+    const { env: nextEnv } = addVariableToEnv({
+      env,
+      variable: {
+        name: paramExpr.token.value,
+        type: expectedParam.type,
+        isMutable: expectedParam.isMutable,
+        isCompileTimeOnly: expectedParam.isCompileTimeOnly,
+        isImplicit: false,
+        value: expectedParam.isCompileTimeOnly
+          ? createUnknownValue(expectedParam.type, expectedParam.label)
+          : undefined,
+        token: paramExpr.token,
+        initializedAtToken: paramExpr.token,
+        consumedAtToken: undefined,
+      },
+      skipCheckingFunctionOverloading: true,
+    });
+    env = nextEnv;
+
+    paramExpr.$ = {
+      env: env,
+      type: expectedParam.type,
+      value: expectedParam.isCompileTimeOnly
+        ? createUnknownValue(expectedParam.type, expectedParam.label)
+        : undefined,
+      isMutable: expectedParam.isMutable,
+      pathCollection: [],
+    };
+  }
+
+  // Check implicit parameters (always compt)
+  for (let i = 0; i < implicitParamExprs.length; i++) {
+    const paramExpr = implicitParamExprs[i]!;
+    const expectedParam = functionType.implicitParameters[i]!;
+
+    if (!exprIsAtom(paramExpr)) {
+      throw formatErrorMessage({
+        token: paramExpr.token,
+        errorMessage: `Expected parameter name for implicit parameter, got ${exprToString(paramExpr)}`,
+      });
+    }
+
+    const paramName = paramExpr.token.value;
+    if (paramName !== expectedParam.label) {
+      throw formatErrorMessage({
+        token: paramExpr.token,
+        errorMessage: `Implicit parameter name must match expected name.
+Expected: "${expectedParam.label}"
+Got:      "${paramName}"`,
+      });
+    }
+  }
+  for (let i = 0; i < functionType.implicitParameters.length; i++) {
+    const paramExpr = implicitParamExprs[i];
+    const expectedParam = functionType.implicitParameters[i]!;
+    // Add implicit parameter to environment
+    const { env: nextEnv } = addVariableToEnv({
+      env,
+      variable: {
+        name: expectedParam.label,
+        type: expectedParam.type,
+        isMutable: expectedParam.isMutable,
+        isCompileTimeOnly: expectedParam.isCompileTimeOnly,
+        isImplicit: true,
+        value: createUnknownValue(expectedParam.type, expectedParam.label),
+        token: paramExpr?.token ?? PlaceholderToken,
+        initializedAtToken: paramExpr?.token ?? PlaceholderToken,
+        consumedAtToken: undefined,
+      },
+      skipCheckingFunctionOverloading: true,
+    });
+    env = nextEnv;
+
+    if (paramExpr) {
+      paramExpr.$ = {
+        env: env,
+        type: expectedParam.type,
+        value: createUnknownValue(expectedParam.type, expectedParam.label),
+        isMutable: expectedParam.isMutable,
+        pathCollection: [],
+      };
+    }
+  }
+
+  // Create new function type using expected forall/implicit parameters and mixing anonymous + expected regular parameters
   const newFunctionType: FunctionType = {
     ...functionType,
-    forallParameters: forallParameters.map((param, index) => ({
-      ...param,
-      // For anonymous functions, the type should come from the original function type
-      // and the typeExpr should be undefined because we're not defining the type explicitly
-      type: functionType.forallParameters[index]?.type ?? param.type,
-      exprs: {
-        ...param.exprs,
-        typeExpr: undefined, // Clear the typeExpr for anonymous functions
-      },
-    })),
-    parameters: parameters.map((param, index) => ({
-      ...param,
-      // For anonymous functions, the type should come from the original function type
-      // and the typeExpr should be undefined because we're not defining the type explicitly
-      type: functionType.parameters[index]?.type ?? param.type,
-      exprs: {
-        ...param.exprs,
-        typeExpr: undefined, // Clear the typeExpr for anonymous functions
-      },
-    })),
-    implicitParameters: implicitParameters.map((param, index) => ({
-      ...param,
-      type: functionType.implicitParameters[index]?.type ?? param.type,
-      exprs: {
-        ...param.exprs,
-        typeExpr: undefined, // Clear the typeExpr for anonymous functions
-      },
-    })),
+    // forall and implicit parameters must use expected names/types entirely (they're always compt)
+    forallParameters: functionType.forallParameters,
+    implicitParameters: functionType.implicitParameters,
+    // For regular parameters: use expected types but allow anonymous names for non-compt parameters
+    parameters: functionType.parameters.map((expectedParam, index) => {
+      if (expectedParam.isCompileTimeOnly) {
+        // Compt parameters must use expected name and type
+        return expectedParam;
+      } else {
+        // Non-compt parameters can use anonymous function's name with expected type
+        const paramExpr = regularParamExprs[index]!;
+        return {
+          ...expectedParam,
+          label: exprIsAtom(paramExpr)
+            ? paramExpr.token.value
+            : expectedParam.label,
+          exprs: {
+            ...expectedParam.exprs,
+            expr: paramExpr,
+            labelExpr: paramExpr,
+            typeExpr: undefined, // Clear typeExpr for anonymous functions
+            defaultValueExpr: undefined, // Anonymous functions can't have default values
+          },
+        };
+      }
+    }),
   };
+
+  const originalEnv = env; // backup the env for later CPS transformation use.
 
   // Create the function value BEFORE evaluating the function body (fixing FIXME)
   const functionValue: FunctionValue = {

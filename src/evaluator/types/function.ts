@@ -23,7 +23,6 @@ import {
   createExprListType,
   createFunctionType,
   FunctionParameter,
-  FunctionType,
   getFunctionParameterExprs,
   getFunctionParameterToken,
   isClosureType,
@@ -54,13 +53,11 @@ import { isValidVariableName } from "../utils";
  */
 export function evaluateFunctionParameter({
   expr,
-  expectedParameter,
   env,
   context,
   isParameterComptByDefault,
 }: {
   expr: Expr;
-  expectedParameter?: FunctionParameter;
   env: Environment;
   context: EvaluatorContext;
   isParameterComptByDefault: boolean;
@@ -93,13 +90,6 @@ export function evaluateFunctionParameter({
   //   (x = 12)
   //   ((x: i32) ?= 13)
   if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, "?=", 2)) {
-    if (expectedParameter) {
-      throw formatErrorMessage({
-        token: expr_.token,
-        errorMessage: `Not allowed to define default parameter value for anonymous function implementation.`,
-      });
-    }
-
     rhsExpr = expr_.args[1]!;
     lhsExpr = expr_.args[0]!;
     defaultValueExpr = rhsExpr;
@@ -110,13 +100,6 @@ export function evaluateFunctionParameter({
   // eg:
   //   (x: i32)
   if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":", 2)) {
-    if (expectedParameter) {
-      throw formatErrorMessage({
-        token: expr_.token,
-        errorMessage: `Not allowed to define parameter type for anonymous function implementation.`,
-      });
-    }
-
     rhsExpr = expr_.args[1]!;
     lhsExpr = expr_.args[0]!;
     typeExpr = rhsExpr;
@@ -205,26 +188,7 @@ export function evaluateFunctionParameter({
     labelExpr = lhsExpr;
   }
 
-  if (!lhsExpr && expectedParameter) {
-    // ^ This is for anonymous function implementation
-    // where the parameter type is given
-    // such as:
-    // fn(a, b) -> a + b;
-    parameterType = expectedParameter.type;
-
-    lhsExpr = expr; // Use the original expr
-
-    if (!exprIsAtom(lhsExpr) && !isValidVariableName(lhsExpr)) {
-      throw formatErrorMessage({
-        token: lhsExpr.token,
-        errorMessage: `Expected identifier for parameter label, got ${exprToString(
-          lhsExpr
-        )}`,
-      });
-    }
-    label = lhsExpr.token.value;
-    labelExpr = lhsExpr;
-  } else {
+  {
     // Evaluate the typeExpr if exists
     if (typeExpr) {
       // Parse the rhs expr which should be a type
@@ -446,12 +410,10 @@ FnMut closures can mutate their captured variables, so the closure parameter its
  */
 export function evaluateFunctionParameters({
   parameterExprs,
-  expectedFunctionType,
   env,
   context,
 }: {
   parameterExprs: Expr[];
-  expectedFunctionType?: FunctionType;
   env: Environment;
   context: EvaluatorContext;
 }): {
@@ -464,12 +426,10 @@ export function evaluateFunctionParameters({
   env = pushEnvFrame(env);
 
   const parameters: FunctionParameter[] = [];
-  let forallParameters: FunctionParameter[] = [];
-  let implicitParameters: FunctionParameter[] = [];
+  const forallParameters: FunctionParameter[] = [];
+  const implicitParameters: FunctionParameter[] = [];
   let variadicParameter: FunctionParameter | undefined = undefined;
 
-  let findTypeParameters = false;
-  let findImplicitParameters = false;
   let findVariadicParameter = false;
 
   for (let i = 0; i < parameterExprs.length; i++) {
@@ -480,8 +440,6 @@ export function evaluateFunctionParameters({
       exprIsFunctionCall(parameterExpr) &&
       exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.forall)
     ) {
-      findTypeParameters = true;
-
       if (i !== 0) {
         throw formatErrorMessage({
           token: parameterExpr.token,
@@ -490,25 +448,11 @@ export function evaluateFunctionParameters({
       }
       const typeParameterExprs = parameterExpr.args;
 
-      // Check if enough type parameters are provided
-      // given the expected function type
-      if (
-        expectedFunctionType &&
-        expectedFunctionType.forallParameters.length !==
-          typeParameterExprs.length
-      ) {
-        throw formatErrorMessage({
-          token: parameterExpr.token,
-          errorMessage: `Expected ${expectedFunctionType.forallParameters.length} type parameters, got ${typeParameterExprs.length}`,
-        });
-      }
-
       for (let j = 0; j < typeParameterExprs.length; j++) {
         const typeParameterExpr = typeParameterExprs[j]!;
         const { parameter, env: nextEnv } = evaluateFunctionParameter({
           expr: typeParameterExpr,
           env,
-          expectedParameter: expectedFunctionType?.forallParameters?.[j],
           context: {
             ...context,
           },
@@ -535,8 +479,6 @@ export function evaluateFunctionParameters({
       exprIsFunctionCall(parameterExpr) &&
       exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.using)
     ) {
-      findImplicitParameters = true;
-
       if (i !== parameterExprs.length - 1) {
         throw formatErrorMessage({
           token: parameterExpr.token,
@@ -546,25 +488,11 @@ export function evaluateFunctionParameters({
 
       const implicitParameterExprs = parameterExpr.args;
 
-      // Check if enough implicit parameters are provided
-      // given the expected function type
-      if (
-        expectedFunctionType &&
-        expectedFunctionType.implicitParameters.length !==
-          implicitParameterExprs.length
-      ) {
-        throw formatErrorMessage({
-          token: parameterExpr.token,
-          errorMessage: `Expected ${expectedFunctionType.implicitParameters.length} implicit parameters, got ${implicitParameterExprs.length}`,
-        });
-      }
-
       for (let j = 0; j < implicitParameterExprs.length; j++) {
         const implicitParameterExpr = implicitParameterExprs[j]!;
         const { parameter, env: nextEnv } = evaluateFunctionParameter({
           expr: implicitParameterExpr,
           env,
-          expectedParameter: expectedFunctionType?.implicitParameters?.[j],
           context: {
             ...context,
           },
@@ -756,7 +684,6 @@ export function evaluateFunctionParameters({
 
       const { parameter, env: nextEnv } = evaluateFunctionParameter({
         expr: parameterExpr,
-        expectedParameter: expectedFunctionType?.parameters?.[i],
         env,
         context: {
           ...context,
@@ -810,13 +737,6 @@ export function evaluateFunctionParameters({
       }
     }
   });
-
-  if (!findTypeParameters && expectedFunctionType?.forallParameters) {
-    forallParameters = [...expectedFunctionType.forallParameters];
-  }
-  if (!findImplicitParameters && expectedFunctionType?.implicitParameters) {
-    implicitParameters = [...expectedFunctionType.implicitParameters];
-  }
 
   return {
     parameters,

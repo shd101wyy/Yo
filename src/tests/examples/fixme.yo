@@ -1,10 +1,29 @@
-ReturnSelf :: (fn() -> compt(Type)) {
-  return struct(
-    test :: ((fn() -> Self) {
-      s := Self();
-      return s;
-    })
-  );
+extern "Yo",
+  __yo_mut_ptr_cast :
+    fn(forall(Source: Type), source : *!(Source), compt(Target) : Type) -> Target
+;
+
+/**
+ * Mutable pointer operations module
+ */
+MutPtrMethods :: module {
+  // Cast mutable pointer to another type
+  cast :: (fn(forall(Source: Type), source: *!(Source), compt(Target): Type) -> Target)
+    __yo_mut_ptr_cast(source, Target)
+  ;
+  
+  export cast;
 };
 
-ReturnSelf();
+Allocator :: module(
+  realloc : (fn(forall(T : Type), old_ptr : *!(T), new_count : usize) -> *!(T))
+);
+
+GlobalAllocator :: Allocator(
+  realloc : ((forall(T), old_ptr, new_count)-> {
+    raw_old := old_ptr.cast(*!(T));
+    raw_old
+  })
+);
+
+export Allocator;
