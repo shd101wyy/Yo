@@ -481,6 +481,10 @@ export function areTypesCompatible(
   // here T should already be added to env by the if condition above ^^^
   if (isSomeType(expected.type)) {
     if (isSomeType(given.type)) {
+      if (expected.type === given.type) {
+        return true;
+      }
+
       const expectedType_ = getValueOfSomeTypeFromEnv(
         expected.env,
         expected.type

@@ -3,17 +3,6 @@ extern "Yo",
     fn(forall(Source: Type), source : *!(Source), compt(Target) : Type) -> Target
 ;
 
-/**
- * Mutable pointer operations module
- */
-MutPtrMethods :: module {
-  // Cast mutable pointer to another type
-  cast :: (fn(forall(Source: Type), source: *!(Source), compt(Target): Type) -> Target)
-    __yo_mut_ptr_cast(source, Target)
-  ;
-  
-  export cast;
-};
 
 Allocator :: module(
   realloc : (fn(forall(T : Type), old_ptr : *!(T), new_count : usize) -> *!(T))
@@ -21,7 +10,7 @@ Allocator :: module(
 
 GlobalAllocator :: Allocator(
   realloc : ((forall(T), old_ptr, new_count)-> {
-    raw_old := old_ptr.cast(*!(T));
+    raw_old := __yo_mut_ptr_cast(old_ptr, *!(T));
     raw_old
   })
 );
