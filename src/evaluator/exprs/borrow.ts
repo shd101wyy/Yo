@@ -22,9 +22,9 @@ import {
   isClosureType,
   isFunctionType,
   isMutRefType,
-  isRefType,
   MutRefType,
   RefType,
+  typeContainsReference,
   typeToString,
 } from "../../types";
 import { EvaluatorContext } from "../context";
@@ -123,10 +123,13 @@ export function evaluateBorrow({
 
     // Check if it's a reference type
     if (
+      !typeContainsReference(evaluatedBorrowedValueExpr.$.type)
+      /*
       !isRefType(evaluatedBorrowedValueExpr.$.type) &&
       !isMutRefType(evaluatedBorrowedValueExpr.$.type) &&
       // Note: Closure types are treated as references, because closures can capture variables by reference
       !isClosureType(evaluatedBorrowedValueExpr.$.type)
+      */
     ) {
       throw formatErrorMessage({
         token: borrowedValueExpr.token,
