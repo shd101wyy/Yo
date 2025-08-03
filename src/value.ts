@@ -1,5 +1,5 @@
 import { Environment, getVariablesFromEnv } from "./env";
-import { compareExprs, Expr, exprToString } from "./expr";
+import { Expr, exprsAreEqual, exprToString } from "./expr";
 import { FunctionValue } from "./function-value";
 import { stringIsOperator } from "./token";
 import { TypeValue } from "./type-value";
@@ -654,7 +654,7 @@ export function areValuesEqual(
     return true;
   } else if (isExprValue(value1) && isExprValue(value2)) {
     return (
-      value1.value === value2.value || compareExprs(value1.value, value2.value)
+      value1.value === value2.value || exprsAreEqual(value1.value, value2.value)
     );
   }
   // Handle UnknownValue by attempting to resolve them and comparing resolved values

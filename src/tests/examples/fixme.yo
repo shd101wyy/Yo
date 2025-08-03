@@ -1,39 +1,3 @@
-Data :: struct(val : &(i32));
-
-test1 :: (fn(d : Data) -> Data) {
-   return d;
-};
-
-compt_expect_error(
-  test2 :: (fn(d : Data) -> Data) {
-    { val } := d; 
-    return Data(val);
-  }
-);
-
-compt_expect_error(
-  test3 :: (fn() -> Data) {
-    x := 12;
-    return Data(val : &(x));
-  }
-);
-
-test4 :: (fn() -> unit) {
-  x := 12;
-  borrow Data(val : &(x)), d => {
-    compt_expect_error(
-      y := x,
-      "cannot use `x` after it has been borrowed"
-    );
-
-    compt_expect_error({ val } := d);
-    
-    d.val
-  };
-};
-
-
-/*
 open import "std";
 { printf } :: import "std/libc/stdio";
 
@@ -63,6 +27,28 @@ extern "Yo",
   yieldColor : (fn( color : Color, resume : K(Color)) -> unit)
 ;
 
+test1 :: (fn( resume : K(i32)) -> unit) {
+  result :=
+    cond(
+      some_cond() => do(yield(0)),
+      (do(yield(-4)) < 0) => do(yield(-2)),
+      true => do(yield(2))
+    );
+  printf("Result: %d\n", result);
+  resume(result);
+};
+
+test2 :: (fn(resume: K(i32)) -> unit) {
+  arr := [(do yield(1)), (do yield(2)), (do yield(3))];
+  mut(result) := 0;
+  mut(i) := 0.as(usize);
+  while (i < arr.length), {
+    result = (result + arr(i));
+    // result = (result + (do yield(i)));
+  };
+  result = (arr(0) + arr(1));
+};
+
 test3 :: (fn(color: Color, resume : K(i32)) -> unit) {
   printf("Before yieldColor\n");
   yielded_color := do yieldColor(color);
@@ -77,4 +63,17 @@ test3 :: (fn(color: Color, resume : K(i32)) -> unit) {
   printf("Result: %d\n", result);
   resume(result);
 };
-*/
+
+test4 :: (fn( resume : K(i32)) -> unit) {
+  (compt(given(yield)) : Yield) =
+    (i, resume) ->
+      cond
+        (i < 0) => resume(0),
+        true => resume(i)
+  ;
+  yield(0, (yielded) => {
+    result :=
+      1 + yielded;
+    resume(result);
+  });
+};

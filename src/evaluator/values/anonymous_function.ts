@@ -1,4 +1,4 @@
-import { transformFunctionBodyToCps } from "../../cps-transform";
+import { transformFunctionBodyToCps } from "../../cps-transformer";
 import {
   addVariableToEnv,
   Environment,
@@ -453,6 +453,7 @@ Got:      "${paramName}"`,
     // Apply CPS transformation to the function body
     const transformedBody = transformFunctionBodyToCps(
       functionBodyExpr,
+      evaluationContext.isEvaluatingFunctionBody.usedDo,
       functionValue.funcId
     );
 

@@ -1,4 +1,4 @@
-import { transformFunctionBodyToCps } from "../../cps-transform";
+import { transformFunctionBodyToCps } from "../../cps-transformer";
 import {
   Environment,
   keepTopLevelFrameAndComptimeVariablesFromEnv,
@@ -187,26 +187,29 @@ export function tryToImplementFunctionByFunctionType({
     // Apply CPS transformation to the function body
     const transformedBody = transformFunctionBodyToCps(
       functionBodyExpr,
-      functionValue.funcId
+      evaluationContext.isEvaluatingFunctionBody.usedDo,
+      "resume"
     );
 
     // Store the transformed body separately
     functionValue.cpsTransformedBody = transformedBody;
 
-    const { evaluationContext, capturedVariables: freshCapturedVariables } =
-      createFunctionBodyEvaluationContext(
-        context,
-        functionType,
-        functionValue,
-        originalEnv
-      );
+    const {
+      evaluationContext: freshEvaluationContext,
+      capturedVariables: freshCapturedVariables,
+    } = createFunctionBodyEvaluationContext(
+      context,
+      functionType,
+      functionValue,
+      originalEnv
+    );
     capturedVariables = freshCapturedVariables;
 
     // Re-evaluate the transformed body to ensure it's valid
     const evaluatedTransformedBody = evaluateBeginExpression({
       expr: transformedBody,
       env: originalEnv,
-      context: evaluationContext,
+      context: freshEvaluationContext,
       variablesToAdd: [],
     });
 

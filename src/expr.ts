@@ -342,7 +342,7 @@ export function expectExprToHaveBeenEvaluated(
 }
 
 // Helper function to compare expressions structurally
-export function compareExprs(expr1: Expr, expr2: Expr): boolean {
+export function exprsAreEqual(expr1: Expr, expr2: Expr): boolean {
   // Different expression types are never equal
   if (expr1.tag !== expr2.tag) {
     return false;
@@ -355,7 +355,7 @@ export function compareExprs(expr1: Expr, expr2: Expr): boolean {
 
   if (expr1.tag === ExprTag.FuncCall && expr2.tag === ExprTag.FuncCall) {
     // For function calls, compare the function and all arguments
-    if (!compareExprs(expr1.func, expr2.func)) {
+    if (!exprsAreEqual(expr1.func, expr2.func)) {
       return false;
     }
 
@@ -364,7 +364,7 @@ export function compareExprs(expr1: Expr, expr2: Expr): boolean {
     }
 
     for (let i = 0; i < expr1.args.length; i++) {
-      if (!compareExprs(expr1.args[i]!, expr2.args[i]!)) {
+      if (!exprsAreEqual(expr1.args[i]!, expr2.args[i]!)) {
         return false;
       }
     }

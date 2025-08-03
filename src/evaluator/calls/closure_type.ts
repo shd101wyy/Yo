@@ -1,4 +1,4 @@
-import { transformFunctionBodyToCps } from "../../cps-transform";
+import { transformFunctionBodyToCps } from "../../cps-transformer";
 import { Environment, popEnvFrame, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { Expr, FuncCallExpr } from "../../expr";
@@ -105,6 +105,7 @@ export function tryToImplementClosureByClosureType({
     // Apply CPS transformation to the closure body
     const transformedBody = transformFunctionBodyToCps(
       closureBodyExpr,
+      evaluationContext.isEvaluatingFunctionBody.usedDo,
       functionValue.funcId
     );
 
