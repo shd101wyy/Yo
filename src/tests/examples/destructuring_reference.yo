@@ -4,12 +4,15 @@ test1 :: (fn(d : Data) -> Data) {
    return d;
 };
 
-compt_expect_error(
-  test2 :: (fn(d : Data) -> Data) {
-    { val } := d; 
-    return Data(val);
-  }
-);
+test2 :: (fn(d : Data) -> Data) {
+  { val } := d;
+  compt_expect_error(
+    test1(d),
+    "`d` cannot be used after destructuring, even though `d` is Free type."
+  );
+  return Data(val);
+};
+
 
 compt_expect_error(
   test3 :: (fn() -> Data) {
@@ -26,8 +29,11 @@ test4 :: (fn() -> unit) {
       "cannot use `x` after it has been borrowed"
     );
 
-    compt_expect_error({ val } := d);
-    
-    d.val
+    { val } := d;
+    compt_expect_error(
+      test1(d),
+      "`d` cannot be used after destructuring, even though `d` is Free type."
+    );
+    val
   };
 };

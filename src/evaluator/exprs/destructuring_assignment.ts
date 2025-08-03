@@ -44,6 +44,7 @@ export function handleMemberDestructuring({
   env,
   // context,
   isCompileTimeOnly,
+  isDestructuringAtomVariable,
 }: {
   lhsFunc: Expr;
   lhsElements: Expr[];
@@ -58,6 +59,7 @@ export function handleMemberDestructuring({
   env: Environment;
   context: EvaluatorContext;
   isCompileTimeOnly: boolean;
+  isDestructuringAtomVariable: boolean;
 }): { env: Environment; runtimeDestructurings: RuntimeDestructuring[] } {
   const requireUnderscore = !isTupleType(rhsType);
   const lhsFuncName = lhsFunc.token.value;
@@ -159,12 +161,15 @@ export function handleMemberDestructuring({
           });
         }
 
-        if (typeContainsReference(element.type)) {
+        if (
+          typeContainsReference(element.type) &&
+          !isDestructuringAtomVariable
+        ) {
           throw formatErrorMessage({
             token: lhsElement.token,
             errorMessage: `Cannot destructure element "${element.label}" of type ${typeToString(
               element.type
-            )} with references.`,
+            )} with references from non-atom rhs variable.`,
           });
         }
 
@@ -182,6 +187,7 @@ export function handleMemberDestructuring({
             token: lhsElement.token,
             initializedAtToken: lhsElement.token,
             consumedAtToken: undefined,
+            isCreatedFromDestructuringAtomVariable: isDestructuringAtomVariable,
           },
         });
         env = nextEnv;
@@ -256,12 +262,15 @@ export function handleMemberDestructuring({
           });
         }
 
-        if (typeContainsReference(element.type)) {
+        if (
+          typeContainsReference(element.type) &&
+          !isDestructuringAtomVariable
+        ) {
           throw formatErrorMessage({
             token: lhsElement.token,
             errorMessage: `Cannot destructure element "${element.label}" of type ${typeToString(
               element.type
-            )} with references.`,
+            )} with references from non-atom rhs variable.`,
           });
         }
 
@@ -279,6 +288,7 @@ export function handleMemberDestructuring({
             token: lhsElement.token,
             initializedAtToken: lhsElement.token,
             consumedAtToken: undefined,
+            isCreatedFromDestructuringAtomVariable: isDestructuringAtomVariable,
           },
         });
         env = nextEnv;
@@ -450,12 +460,15 @@ export function handleMemberDestructuring({
         });
       }
 
-      if (typeContainsReference(rhsElement.type)) {
+      if (
+        typeContainsReference(rhsElement.type) &&
+        !isDestructuringAtomVariable
+      ) {
         throw formatErrorMessage({
           token: lhsElement.token,
           errorMessage: `Cannot destructure element "${rhsElement.label}" of type ${typeToString(
             rhsElement.type
-          )} with references.`,
+          )} with references from non-atom rhs variable.`,
         });
       }
 
@@ -471,6 +484,7 @@ export function handleMemberDestructuring({
           token: variableToken,
           initializedAtToken: variableToken,
           consumedAtToken: undefined, // Not consumed yet
+          isCreatedFromDestructuringAtomVariable: isDestructuringAtomVariable,
         },
       });
 
@@ -577,6 +591,7 @@ export function evaluateDestructuringAssignment({
       env,
       context: { ...context },
       isCompileTimeOnly,
+      isDestructuringAtomVariable: exprIsAtom(rhs),
     });
   }
   // Handle tuple destructuring
@@ -595,6 +610,7 @@ export function evaluateDestructuringAssignment({
       env,
       context: { ...context },
       isCompileTimeOnly,
+      isDestructuringAtomVariable: exprIsAtom(rhs),
     });
   }
   // Handle enum variant destructuring
@@ -633,6 +649,7 @@ export function evaluateDestructuringAssignment({
       env,
       context: { ...context },
       isCompileTimeOnly,
+      isDestructuringAtomVariable: exprIsAtom(rhs),
     });
   }
 

@@ -1,26 +1,34 @@
 // Struct destructuring
 main :: (fn() -> unit) {
   Named :: struct(x: i32, y: boolean);
+  {
   p := Named(1, false);
 
   // Destructuring by position
   _(m, n) := p;
+  };
 
   // Destructuring by label
   // Named(.x, .y) := p;
 
-  // Renaming
-  _(x: a, y: b) := p;
-  i := a;
+  {
+    p := Named(1, false);
+    // Renaming
+    _(x: a, y: b) := p;
+    i := a;
+  };
 
   // Inferred struct
   {
+    p := Named(1, false);
     _(x, y) := p;
   };
   {
+    p := Named(1, false);
     { x, y } := p;
   };
   {
+    p := Named(1, false);
     _(x: a, y: b) := p;
   };
 };
@@ -31,8 +39,8 @@ Container :: struct
 ;
 
 test :: (fn(c : Container) -> unit) {
-  compt_expect_error(
-    { x, y } := c
-  );
+  { x, y } := c; // allowed
+  // using `c` is not allowed, since destructuring it consumes it
+  compt_expect_error(test(c));
   ()
 };

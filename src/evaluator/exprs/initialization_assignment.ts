@@ -346,6 +346,15 @@ ${exprToString(rhs)}`,
       });
     env = nextEnv;
 
+    // Check if the runtimeDestructurings contain reference
+    for (const destructuring of runtimeDestructurings) {
+      if (typeContainsReference(destructuring.type)) {
+        // NOTE: destructuring assignment will consume the rhs because we extract reference type from it.
+        env = setExprAsConsumed(rhs, env, context, true);
+        break;
+      }
+    }
+
     // NOTE: rhs is already set as consumed above
 
     expr.$ = {

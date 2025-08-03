@@ -110,6 +110,19 @@ export interface Variable {
    * At which token the variable is declared.
    */
   token: Token;
+
+  /**
+   * This is used to mark variables that are created from destructuring atom variable.
+   * eg:
+   *
+   * Data :: struct(val : &(i32));
+   *
+   * test :: (fn(d : Data) -> unit) {
+   *   { val } := d;
+   *   // `val` here is created from destructuring atom variable.
+   * };
+   */
+  isCreatedFromDestructuringAtomVariable?: boolean;
 }
 
 export type Frame = {

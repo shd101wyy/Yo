@@ -1155,7 +1155,8 @@ ${exprToString(expr)}`);
 export function setExprAsConsumed(
   expr: Expr,
   env: Environment,
-  context: EvaluatorContext
+  context: EvaluatorContext,
+  consumeFreeAsWell: boolean = false
 ): Environment {
   // Check if it's dereferencing a pointer/reference to linear type value.
   if (
@@ -1203,7 +1204,10 @@ export function setExprAsConsumed(
   }
 
   const variableToConsume = variables[variables.length - 1]!;
-  if (isLinearOrType0Type(typeOfType(variableToConsume.type))) {
+  if (
+    consumeFreeAsWell ||
+    isLinearOrType0Type(typeOfType(variableToConsume.type))
+  ) {
     // Check if the variable is already consumed
     if (variableToConsume.consumedAtToken) {
       throw formatErrorMessages([
@@ -1297,7 +1301,7 @@ export function requireExprNotConsumed(expr: Expr, env: Environment): void {
   // if (isLinearOrType0Type(typeOfType(variableToConsume.type))) {
   // Check if the variable is already consumed
   if (
-    isLinearOrType0Type(typeOfType(variableToConsume.type)) &&
+    // isLinearOrType0Type(typeOfType(variableToConsume.type)) &&
     variableToConsume.consumedAtToken
   ) {
     const errorMessage = `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`;

@@ -339,8 +339,8 @@ export function evaluateBeginExpression({
         const variable = variables[variables.length - 1]!;
         if (
           // Check if the variable name is a local variable
-          variable.frameLevel ===
-          env.frames.length - 1
+          variable.frameLevel === env.frames.length - 1 &&
+          !variable.isCreatedFromDestructuringAtomVariable
         ) {
           // If the variable is a local variable, we cannot return a reference to it
           throw formatErrorMessage({
