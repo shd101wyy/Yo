@@ -516,7 +516,7 @@ export class CpsTransformer {
       } else if (exprIsFunctionCallOf(expr, ":=") && expr.args.length === 2) {
         // Handle assignment: `variable := expression_containing_do`
         const variable = expr.args[0]!;
-        const value = expr.args[1]!;
+        const value = expr.args[1]!
 
         if (exprIsFunctionCall(value) && exprIsFunctionCallOf(value, "do")) {
           // Simple case: `variable := do(f(args))` -> `f(args, result => continuation)`
@@ -833,6 +833,169 @@ export class CpsTransformer {
           );
         } else if (this.containsDoCall(value)) {
           // Complex case: `variable := expression_containing_do`
+          // Check if this is a simple direct do call that we should NOT extract
+          if (exprIsFunctionCall(value) && exprIsFunctionCallOf(value, "do")) {
+            // This is actually a direct do call, handle it as such
+            const doExpr = value;
+            const resultVar = `cps_result_${randomId()}`;
+
+            // Create the assignment with the result
+            const assignment: FuncCallExpr = {
+              tag: ExprTag.FuncCall,
+              func: expr.func, // Use the same `:=` function
+              args: [
+                variable,
+                {
+                  tag: ExprTag.Atom,
+                  token: {
+                    type: TokenType.Identifier,
+                    value: resultVar,
+                    position: contextToken.position,
+                    modulePath: contextToken.modulePath,
+                    inputString: contextToken.inputString,
+                  },
+                },
+              ],
+              token: expr.token,
+              isInfix: expr.isInfix,
+            };
+
+            // Create the continuation body that includes the assignment and remaining expressions
+            let continuationBody: Expr;
+            const allRemainingExprs = [assignment, ...remainingExprs];
+
+            if (allRemainingExprs.length === 1) {
+              const expr = allRemainingExprs[0]!;
+              if (this.containsDoCall(expr)) {
+                continuationBody = this.transformExpressionWithDoToCps(
+                  expr,
+                  [],
+                  continuationVar,
+                  contextToken
+                );
+              } else {
+                continuationBody = this.transformExpressionToCps(
+                  expr,
+                  continuationVar
+                );
+              }
+            } else {
+              // Multiple expressions, create a begin block and transform it properly
+              const beginExpr: FuncCallExpr = {
+                tag: ExprTag.FuncCall,
+                func: {
+                  tag: ExprTag.Atom,
+                  token: {
+                    type: TokenType.Identifier,
+                    value: BuiltinKeywords.begin[0]!,
+                    position: contextToken.position,
+                    modulePath: contextToken.modulePath,
+                    inputString: contextToken.inputString,
+                  },
+                },
+                args: allRemainingExprs,
+                token: contextToken,
+              };
+
+              // Transform the begin block, which will handle expressions with do calls properly
+              continuationBody = this.transformExpressionToCps(
+                beginExpr,
+                continuationVar
+              );
+            }
+
+            // Create the continuation closure
+            const continuation: Expr = {
+              tag: ExprTag.FuncCall,
+              func: {
+                tag: ExprTag.Atom,
+                token: {
+                  type: TokenType.Operator,
+                  value: "=>",
+                  position: contextToken.position,
+                  modulePath: contextToken.modulePath,
+                  inputString: contextToken.inputString,
+                },
+              },
+              args: [
+                {
+                  tag: ExprTag.Atom,
+                  token: {
+                    type: TokenType.Identifier,
+                    value: resultVar,
+                    position: contextToken.position,
+                    modulePath: contextToken.modulePath,
+                    inputString: contextToken.inputString,
+                  },
+                },
+                continuationBody,
+              ],
+              token: contextToken,
+              isInfix: true,
+            };
+
+            // Transform the inner expression of the `do` call
+            const innerExpr = doExpr.args[0]!;
+            if (!exprIsFunctionCall(innerExpr)) {
+              throw new Error(
+                `do() argument must be a function call, got: ${innerExpr.tag}`
+              );
+            }
+
+            // Return the transformed call with the continuation
+            return {
+              ...innerExpr,
+              args: [...innerExpr.args, continuation],
+            };
+          }
+          
+          // This is a complex expression containing do calls
+          // Do NOT extract the do call if it might reference variables that aren't available yet
+          // Instead, check if the value is a begin block and handle it specially
+          if (exprIsFunctionCall(value) && exprIsFunctionCallOf(value, BuiltinKeywords.begin)) {
+            // This is `variable := begin(...)` where the begin block contains do calls
+            // Transform the begin block in the context of the assignment
+            const beginExpr = value;
+            const beginExprs = beginExpr.args;
+            
+            // Create a modified begin block that assigns the final result to the variable
+            const lastExprIndex = beginExprs.length - 1;
+            const lastExpr = beginExprs[lastExprIndex]!;
+            const otherExprs = beginExprs.slice(0, lastExprIndex);
+            
+            // Create an assignment for the last expression
+            const finalAssignment: FuncCallExpr = {
+              tag: ExprTag.FuncCall,
+              func: expr.func, // Use the same `:=` function
+              args: [variable, lastExpr],
+              token: expr.token,
+              isInfix: expr.isInfix,
+            };
+            
+            // Create a new begin block with the other expressions plus the assignment plus remaining expressions
+            const newBeginArgs = [...otherExprs, finalAssignment, ...remainingExprs];
+            
+            const newBeginExpr: FuncCallExpr = {
+              tag: ExprTag.FuncCall,
+              func: {
+                tag: ExprTag.Atom,
+                token: {
+                  type: TokenType.Identifier,
+                  value: BuiltinKeywords.begin[0]!,
+                  position: contextToken.position,
+                  modulePath: contextToken.modulePath,
+                  inputString: contextToken.inputString,
+                },
+              },
+              args: newBeginArgs,
+              token: contextToken,
+            };
+            
+            // Transform the new begin block
+            return this.transformExpressionToCps(newBeginExpr, continuationVar);
+          }
+          
+          // For other complex expressions, fall back to the original extraction logic
           // We need to extract the `do` call and create a continuation
           const doCallInfo = this.extractDoCall(value);
           if (!doCallInfo) {
@@ -1048,7 +1211,7 @@ export class CpsTransformer {
 
   /**
    * Transform a `cond` expression containing `do` calls to CPS
-   * Handle conditions with `do` calls by lifting them out and creating nested cond structures
+   * Handle conditions with `do` calls by processing them sequentially to preserve lazy evaluation
    */
   private transformCondToCps(
     condExpr: FuncCallExpr,
@@ -1056,138 +1219,74 @@ export class CpsTransformer {
   ): Expr {
     const branches = condExpr.args;
 
-    // Separate branches based on whether their condition contains `do` calls
-    const cleanBranches: Expr[] = [];
-    const doConditionBranches: Expr[] = [];
+    // Process branches sequentially to respect cond semantics
+    const transformBranchesSequentially = (branchIndex: number): Expr => {
+      if (branchIndex >= branches.length) {
+        // No more branches - this shouldn't happen in a well-formed cond
+        // Return a call to the continuation with unit
+        return {
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.Identifier,
+              value: continuationVar,
+              position: condExpr.token.position,
+              modulePath: condExpr.token.modulePath,
+              inputString: condExpr.token.inputString,
+            },
+          },
+          args: [
+            {
+              tag: ExprTag.Atom,
+              token: {
+                type: TokenType.Identifier,
+                value: "unit",
+                position: condExpr.token.position,
+                modulePath: condExpr.token.modulePath,
+                inputString: condExpr.token.inputString,
+              },
+            },
+          ],
+          token: condExpr.token,
+        };
+      }
 
-    for (const branch of branches) {
+      const currentBranch = branches[branchIndex]!;
+      
       if (
-        exprIsFunctionCall(branch) &&
-        branch.isInfix &&
-        exprIsFunctionCallOf(branch, "=>")
+        exprIsFunctionCall(currentBranch) &&
+        currentBranch.isInfix &&
+        exprIsFunctionCallOf(currentBranch, "=>")
       ) {
-        const condition = branch.args[0]!;
+        const condition = currentBranch.args[0]!;
+        const body = currentBranch.args[1]!;
 
         if (this.containsDoCall(condition)) {
-          doConditionBranches.push(branch);
-        } else {
-          cleanBranches.push(branch);
-        }
-      } else {
-        // Not a condition => body pair, assume it's clean
-        cleanBranches.push(branch);
-      }
-    }
+          // This condition contains do calls - extract them and create a continuation
+          const doCallInfo = this.extractDoCall(condition);
+          if (!doCallInfo) {
+            throw new Error("Expected to find a do call in the condition");
+          }
 
-    // If no conditions contain `do` calls, transform normally
-    if (doConditionBranches.length === 0) {
-      const transformedArgs = branches.map((arg) => {
-        if (
-          exprIsFunctionCall(arg) &&
-          arg.isInfix &&
-          exprIsFunctionCallOf(arg, "=>")
-        ) {
-          const condition = arg.args[0]!;
-          const body = arg.args[1]!;
-          const transformedBody = this.transformExpressionToCps(
-            body,
-            continuationVar
+          const { doExpr, expressionWithHole } = doCallInfo;
+          const resultVar = `cps_result_${randomId()}`;
+
+          // Replace the hole with the result variable
+          const conditionWithResult = this.replaceHoleWithVariable(
+            expressionWithHole,
+            resultVar,
+            condExpr.token
           );
-          return {
-            ...arg,
-            args: [condition, transformedBody],
-          };
-        } else {
-          return this.transformExpressionToCps(arg, continuationVar);
-        }
-      });
 
-      return {
-        ...condExpr,
-        args: transformedArgs,
-      };
-    }
-
-    // Handle the complex case: some conditions contain `do` calls
-    // First, transform clean branches normally
-    const transformedCleanBranches = cleanBranches.map((arg) => {
-      if (
-        exprIsFunctionCall(arg) &&
-        arg.isInfix &&
-        exprIsFunctionCallOf(arg, "=>")
-      ) {
-        const condition = arg.args[0]!;
-        const body = arg.args[1]!;
-        const transformedBody = this.transformExpressionToCps(
-          body,
-          continuationVar
-        );
-        return {
-          ...arg,
-          args: [condition, transformedBody],
-        };
-      } else {
-        return this.transformExpressionToCps(arg, continuationVar);
-      }
-    });
-
-    // Create a nested structure for branches with `do` in conditions
-    const createNestedCondForDoBranches = (doBranches: Expr[]): Expr => {
-      if (doBranches.length === 0) {
-        // This shouldn't happen, but just in case
-        throw new Error("No do branches to process");
-      }
-
-      const firstBranch = doBranches[0]!;
-      const remainingBranches = doBranches.slice(1);
-
-      if (
-        exprIsFunctionCall(firstBranch) &&
-        firstBranch.isInfix &&
-        exprIsFunctionCallOf(firstBranch, "=>")
-      ) {
-        const condition = firstBranch.args[0]!;
-        const body = firstBranch.args[1]!;
-
-        // Extract the `do` call from the condition
-        const doCallInfo = this.extractDoCall(condition);
-        if (!doCallInfo) {
-          throw new Error("Expected to find a do call in the condition");
-        }
-
-        const { doExpr, expressionWithHole } = doCallInfo;
-        const resultVar = `cps_result_${randomId()}`;
-
-        // Replace the hole with the result variable
-        const conditionWithResult = this.replaceHoleWithVariable(
-          expressionWithHole,
-          resultVar,
-          condExpr.token
-        );
-
-        // Create the branch with the transformed condition
-        const transformedBranch: Expr = {
-          ...firstBranch,
-          args: [
-            conditionWithResult,
-            this.transformExpressionToCps(body, continuationVar),
-          ],
-        };
-
-        // Create the nested cond for remaining branches
-        let nestedCond: Expr;
-        if (remainingBranches.length > 0) {
-          nestedCond = createNestedCondForDoBranches(remainingBranches);
-        } else {
-          // No more branches, this shouldn't happen in a well-formed cond
-          // but we'll create a simple continuation call
-          nestedCond = {
+          // Create a continuation that evaluates the condition and proceeds accordingly
+          const conditionContinuation: Expr = {
             tag: ExprTag.FuncCall,
             func: {
               tag: ExprTag.Atom,
               token: {
-                type: TokenType.Identifier,
-                value: continuationVar,
+                type: TokenType.Operator,
+                value: "=>",
                 position: condExpr.token.position,
                 modulePath: condExpr.token.modulePath,
                 inputString: condExpr.token.inputString,
@@ -1198,155 +1297,158 @@ export class CpsTransformer {
                 tag: ExprTag.Atom,
                 token: {
                   type: TokenType.Identifier,
-                  value: "unit",
+                  value: resultVar,
                   position: condExpr.token.position,
                   modulePath: condExpr.token.modulePath,
                   inputString: condExpr.token.inputString,
                 },
               },
-            ],
-            token: condExpr.token,
-          };
-        }
-
-        // Create the inner cond with the transformed branch and nested handling
-        const innerCond: FuncCallExpr = {
-          tag: ExprTag.FuncCall,
-          func: {
-            tag: ExprTag.Atom,
-            token: {
-              type: TokenType.Identifier,
-              value: BuiltinKeywords.cond[0]!,
-              position: condExpr.token.position,
-              modulePath: condExpr.token.modulePath,
-              inputString: condExpr.token.inputString,
-            },
-          },
-          args: [
-            transformedBranch,
-            {
-              tag: ExprTag.FuncCall,
-              func: {
-                tag: ExprTag.Atom,
-                token: {
-                  type: TokenType.Operator,
-                  value: "=>",
-                  position: condExpr.token.position,
-                  modulePath: condExpr.token.modulePath,
-                  inputString: condExpr.token.inputString,
-                },
-              },
-              args: [
-                {
+              // Create a cond that evaluates the condition with the result and continues
+              {
+                tag: ExprTag.FuncCall,
+                func: {
                   tag: ExprTag.Atom,
                   token: {
-                    type: TokenType.Boolean,
-                    value: "true",
+                    type: TokenType.Identifier,
+                    value: BuiltinKeywords.cond[0]!,
                     position: condExpr.token.position,
                     modulePath: condExpr.token.modulePath,
                     inputString: condExpr.token.inputString,
                   },
                 },
-                nestedCond,
-              ],
-              token: condExpr.token,
-              isInfix: true,
-            },
-          ],
-          token: condExpr.token,
-        };
+                args: [
+                  // If the condition is true, execute the body
+                  {
+                    tag: ExprTag.FuncCall,
+                    func: {
+                      tag: ExprTag.Atom,
+                      token: {
+                        type: TokenType.Operator,
+                        value: "=>",
+                        position: condExpr.token.position,
+                        modulePath: condExpr.token.modulePath,
+                        inputString: condExpr.token.inputString,
+                      },
+                    },
+                    args: [
+                      conditionWithResult,
+                      this.transformExpressionToCps(body, continuationVar),
+                    ],
+                    token: condExpr.token,
+                    isInfix: true,
+                  },
+                  // If the condition is false, continue with remaining branches
+                  {
+                    tag: ExprTag.FuncCall,
+                    func: {
+                      tag: ExprTag.Atom,
+                      token: {
+                        type: TokenType.Operator,
+                        value: "=>",
+                        position: condExpr.token.position,
+                        modulePath: condExpr.token.modulePath,
+                        inputString: condExpr.token.inputString,
+                      },
+                    },
+                    args: [
+                      {
+                        tag: ExprTag.Atom,
+                        token: {
+                          type: TokenType.Boolean,
+                          value: "true",
+                          position: condExpr.token.position,
+                          modulePath: condExpr.token.modulePath,
+                          inputString: condExpr.token.inputString,
+                        },
+                      },
+                      transformBranchesSequentially(branchIndex + 1),
+                    ],
+                    token: condExpr.token,
+                    isInfix: true,
+                  },
+                ],
+                token: condExpr.token,
+              } as FuncCallExpr,
+            ],
+            token: condExpr.token,
+            isInfix: true,
+          };
 
-        // Create the continuation for the extracted `do` call
-        const continuation: Expr = {
-          tag: ExprTag.FuncCall,
-          func: {
-            tag: ExprTag.Atom,
-            token: {
-              type: TokenType.Operator,
-              value: "=>",
-              position: condExpr.token.position,
-              modulePath: condExpr.token.modulePath,
-              inputString: condExpr.token.inputString,
-            },
-          },
-          args: [
-            {
+          // Extract and transform the do call
+          const innerExpr = doExpr.args[0]!;
+          if (!exprIsFunctionCall(innerExpr)) {
+            throw new Error(
+              `do() argument must be a function call, got: ${innerExpr.tag}`
+            );
+          }
+
+          return {
+            ...innerExpr,
+            args: [...innerExpr.args, conditionContinuation],
+          };
+        } else {
+          // This condition doesn't contain do calls - evaluate it directly
+          return {
+            tag: ExprTag.FuncCall,
+            func: {
               tag: ExprTag.Atom,
               token: {
                 type: TokenType.Identifier,
-                value: resultVar,
+                value: BuiltinKeywords.cond[0]!,
                 position: condExpr.token.position,
                 modulePath: condExpr.token.modulePath,
                 inputString: condExpr.token.inputString,
               },
             },
-            innerCond,
-          ],
-          token: condExpr.token,
-          isInfix: true,
-        };
-
-        // Extract the inner expression from the `do` call and add the continuation
-        const innerExpr = doExpr.args[0]!;
-        if (!exprIsFunctionCall(innerExpr)) {
-          throw new Error(
-            `do() argument must be a function call, got: ${innerExpr.tag}`
-          );
+            args: [
+              // Current branch with transformed body
+              {
+                ...currentBranch,
+                args: [
+                  condition,
+                  this.transformExpressionToCps(body, continuationVar),
+                ],
+              },
+              // Default case: continue with remaining branches
+              {
+                tag: ExprTag.FuncCall,
+                func: {
+                  tag: ExprTag.Atom,
+                  token: {
+                    type: TokenType.Operator,
+                    value: "=>",
+                    position: condExpr.token.position,
+                    modulePath: condExpr.token.modulePath,
+                    inputString: condExpr.token.inputString,
+                  },
+                },
+                args: [
+                  {
+                    tag: ExprTag.Atom,
+                    token: {
+                      type: TokenType.Boolean,
+                      value: "true",
+                      position: condExpr.token.position,
+                      modulePath: condExpr.token.modulePath,
+                      inputString: condExpr.token.inputString,
+                    },
+                  },
+                  transformBranchesSequentially(branchIndex + 1),
+                ],
+                token: condExpr.token,
+                isInfix: true,
+              },
+            ],
+            token: condExpr.token,
+          } as FuncCallExpr;
         }
-
-        return {
-          ...innerExpr,
-          args: [...innerExpr.args, continuation],
-        };
       } else {
-        throw new Error("Expected condition => body pair in cond");
+        // Not a condition => body pair, shouldn't happen in a cond
+        throw new Error("Expected condition => body pairs in cond expression");
       }
     };
 
-    // Create the nested structure for do branches
-    const nestedDoStructure =
-      createNestedCondForDoBranches(doConditionBranches);
-
-    // Combine clean branches with the nested do structure
-    if (transformedCleanBranches.length > 0) {
-      // Add a `true =>` branch that handles the do conditions
-      const trueBranch: Expr = {
-        tag: ExprTag.FuncCall,
-        func: {
-          tag: ExprTag.Atom,
-          token: {
-            type: TokenType.Operator,
-            value: "=>",
-            position: condExpr.token.position,
-            modulePath: condExpr.token.modulePath,
-            inputString: condExpr.token.inputString,
-          },
-        },
-        args: [
-          {
-            tag: ExprTag.Atom,
-            token: {
-              type: TokenType.Boolean,
-              value: "true",
-              position: condExpr.token.position,
-              modulePath: condExpr.token.modulePath,
-              inputString: condExpr.token.inputString,
-            },
-          },
-          nestedDoStructure,
-        ],
-        token: condExpr.token,
-        isInfix: true,
-      };
-
-      return {
-        ...condExpr,
-        args: [...transformedCleanBranches, trueBranch],
-      };
-    } else {
-      // Only do branches, return the nested structure directly
-      return nestedDoStructure;
-    }
+    return transformBranchesSequentially(0);
   }
 
   private transformMatchToCps(

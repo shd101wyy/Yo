@@ -1,3 +1,4 @@
+// FIXME: This file is actually not correct.
 open import "std";
 { printf } :: import "std/libc/stdio";
 
@@ -27,7 +28,6 @@ extern "Yo",
   yieldColor : (fn( color : Color, resume : K(Color)) -> unit)
 ;
 
-/*
 test1 :: (fn( resume : K(i32)) -> unit) {
   result :=
     cond(
@@ -145,10 +145,10 @@ test8 :: (fn(resume : K(i32)) -> unit) {
   printf("Sequential assignments result: %d\n", result);
   resume(result);
 };
-*/
 
-/*
+
 // Test complex nested begin blocks with do calls
+/*
 test9 :: (fn(resume : K(i32)) -> unit) {
   result := {
     step1 := do(yield(1));
@@ -168,26 +168,29 @@ test9 :: (fn(resume : K(i32)) -> unit) {
 test10 :: (fn(resume : K(i32)) -> unit) {
   arr := [10, 20, 30, 40, 50];
   index := do(yield(2));
-  value := arr(index);
+  value := arr(index.as(usize));
   second_index := do(yield(1));
   result := 
     value + arr(second_index);
   printf("Array access result: %d\n", result);
   resume(result);
 };
+*/
 
 // Test error handling patterns with do calls
 test11 :: (fn(resume : K(i32)) -> unit) {
-  safe_divide :: (fn(a : i32, b : i32) -> i32) {
-    cond(b == 0) => -1, true => (a / b)
-  };
+  safe_divide :: (fn(a : i32, b : i32) -> i32)
+    cond(
+      (b == 0) => -(1),
+      true => (a / b)
+    );
   
   numerator := do(yield(100));
   denominator := do(yield(5));
   result := safe_divide(numerator, denominator);
   
   final_result := cond(
-    result == -1 => do(yield(0)),
+    (result == -(1)) => do(yield(0)),
     true => do(yield(result * 2))
   );
   
@@ -207,4 +210,3 @@ test12 :: (fn(resume : K(i32)) -> unit) {
   printf("Boolean operations result: %d\n", result);
   resume(result);
 };
-*/

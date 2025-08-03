@@ -6,6 +6,8 @@ Usually don't modify the `fixme.yo` unless I tell you to do so.
 
 Do not create new `.yo` files unless I tell you to do so.
 
+Do not use `npm` command, only use `bun` command.
+
 Never hard code anything.
 
 You can run the command `bun run src/yo-cli.ts src/tests/examples/fixme.yo --emit-c --skip-c-compiler` on any `.yo` file to test its C code generation.
