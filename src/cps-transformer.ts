@@ -351,15 +351,8 @@ export class CpsTransformer {
         args: [...innerExpr.args, continuation],
       };
     } else {
-      // No do calls in the assignment, transform normally
-      const transformedValue = this.transformExpressionToCps(
-        value,
-        continuationVar
-      );
-      return {
-        ...expr,
-        args: [variable, transformedValue],
-      };
+      // No do calls in the assignment, return as-is without transformation
+      return expr;
     }
   }
 
@@ -669,7 +662,7 @@ export class CpsTransformer {
             const assignment: FuncCallExpr = {
               tag: ExprTag.FuncCall,
               func: expr.func, // Use the same `:=` function
-              args: [variable, resultValue],
+              args: [variable, this.unwrapSingleBegin(resultValue)],
               token: expr.token,
               isInfix: expr.isInfix,
             };
@@ -785,7 +778,7 @@ export class CpsTransformer {
                       func: {
                         tag: ExprTag.Atom,
                         token: {
-                          type: TokenType.Identifier,
+                          type: TokenType.Operator,
                           value: ":=",
                           position: contextToken.position,
                           modulePath: contextToken.modulePath,
@@ -860,7 +853,7 @@ export class CpsTransformer {
           const assignment: FuncCallExpr = {
             tag: ExprTag.FuncCall,
             func: expr.func, // Use the same `:=` function
-            args: [variable, valueWithResult],
+            args: [variable, this.unwrapSingleBegin(valueWithResult)],
             token: expr.token,
             isInfix: expr.isInfix,
           };

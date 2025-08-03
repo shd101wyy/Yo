@@ -20,4 +20,6 @@ Ignore the DESIGN.md and other markdown files because they are out of date.
 
 No need to read fixme.test.ts
 
+If you haven't modified the code, don't ask to run command repeatedly.
+
 Read `LEARN_YO_IN_10_MINUTES.yo` to understand the syntax.
