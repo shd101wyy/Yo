@@ -21,6 +21,7 @@ import {
   FunctionType,
   isClosureType,
   isFunctionType,
+  isLinearOrType0Type,
   isMutRefType,
   MutRefType,
   RefType,
@@ -134,6 +135,16 @@ export function evaluateBorrow({
       throw formatErrorMessage({
         token: borrowedValueExpr.token,
         errorMessage: `Expected reference type for borrowed value, got:\n${typeToString(
+          evaluatedBorrowedValueExpr.$.type
+        )}`,
+      });
+    }
+
+    // Check if it's a Linear/Type0 type
+    if (isLinearOrType0Type(evaluatedBorrowedValueExpr.$.type)) {
+      throw formatErrorMessage({
+        token: borrowedValueExpr.token,
+        errorMessage: `Cannot borrow Linear or Type(0) type, got:\n${typeToString(
           evaluatedBorrowedValueExpr.$.type
         )}`,
       });

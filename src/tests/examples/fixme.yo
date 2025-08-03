@@ -4,10 +4,12 @@ test1 :: (fn(d : Data) -> Data) {
    return d;
 };
 
-test2 :: (fn(d : Data) -> Data) {
-  { val } := d; 
-  return Data(val);
-};
+compt_expect_error(
+  test2 :: (fn(d : Data) -> Data) {
+    { val } := d; 
+    return Data(val);
+  }
+);
 
 compt_expect_error(
   test3 :: (fn() -> Data) {
@@ -24,10 +26,10 @@ test4 :: (fn() -> unit) {
       "cannot use `x` after it has been borrowed"
     );
 
-    { val } := d;
-    val
+    compt_expect_error({ val } := d);
+    
+    d.val
   };
-
 };
 
 
