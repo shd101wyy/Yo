@@ -86,6 +86,14 @@ export interface EvaluatorContext {
    */
   isEvaluatingClosureCallType?: boolean;
 
+  /**
+   * Whether we are currently evaluating a function type definition.
+   * When true, implicit parameters dependencies are deferred and assumed to be satisfied.
+   * This allows clean type declarations like `M3 :: (fn(using(M2Instance : M2())) -> Module)`
+   * without requiring all transitive dependencies to be resolved at type definition time.
+   */
+  isEvaluatingFunctionType?: boolean;
+
   evaluateExpression: EvaluateExpression;
 
   loadModule: (modulePath: string) => {

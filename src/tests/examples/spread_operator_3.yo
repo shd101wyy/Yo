@@ -14,16 +14,35 @@
     )
   ;
 
-  given(M1Instance) :: M1()
+  M3 :: (fn(using(M2Instance : M2())) -> compt(Module))
+    module(
+      ...(M2Instance),
+
+      (m3 : (fn() -> i32)) ?=
+        ()-> m2()
+    )
+  ;
+
+
+  given(M1Instance) :: M1()(
     m1 :
       ()-> 1
-  ;
+  );
+  given(M2Instance) :: M2(using(M1Instance))();
+  given(M3Instance) :: M3(using(M2Instance))();
 
-  given(M2Instance) :: M2()
-    m2 :
-      () -> 2
-  ;
+  {
+    x := M1Instance.m1();
+  };
 
-  x := M2Instance.m1();
-  y := M2Instance.m2();
+  {
+    x := M2Instance.m1();
+    y := M2Instance.m2();
+  };
+
+  {
+    x := M3Instance.m1();
+    y := M3Instance.m2();
+    z := M3Instance.m3();
+  };
 };

@@ -75,7 +75,7 @@ export function evaluateFunctionParameterType({
 }: {
   parameter: FunctionParameter;
   calleeEnv: Environment;
-  context: EvaluatorContext;
+  context: EvaluatorContext & { isEvaluatingFunctionType: true };
   functionValue: FunctionValue | undefined;
 }): { parameterType: Type; calleeEnv: Environment } {
   const typeExpr = parameter.exprs.typeExpr;
@@ -231,6 +231,7 @@ export function checkIfFunctionParameterMatchesArgument({
         calleeEnv,
         context: {
           ...context,
+          isEvaluatingFunctionType: true,
         },
         functionValue,
       });
@@ -414,6 +415,7 @@ export function checkIfFunctionParameterMatchesArgument({
       calleeEnv,
       context: {
         ...context,
+        isEvaluatingFunctionType: true,
       },
       functionValue,
     });
@@ -942,6 +944,42 @@ Got:   ${argExprs.length} arguments`,
   for (let i = 0; i < functionType.implicitParameters.length; i++) {
     const implicitParameter = functionType.implicitParameters[i]!;
 
+    // When evaluating function types, assume implicit parameters will be satisfied
+    if (context.isEvaluatingFunctionType) {
+      // Create an unknown value for the implicit parameter
+      const unknownValue = createUnknownValue(
+        implicitParameter.type,
+        implicitParameter.label
+      );
+
+      // Add the parameter to the calleeEnv
+      if (implicitParameter.label) {
+        const { env: nextEnv } = addVariableToEnv({
+          env: calleeEnv,
+          variable: {
+            name: implicitParameter.label,
+            type: implicitParameter.type,
+            isMutable: implicitParameter.isMutable,
+            isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
+            isImplicit: false,
+            value: unknownValue,
+            token: PlaceholderToken,
+            initializedAtToken: PlaceholderToken,
+            consumedAtToken: undefined,
+          },
+        });
+        calleeEnv = nextEnv;
+      }
+
+      implicitArgValues.push({
+        value: unknownValue,
+        parameterType: implicitParameter.type,
+        argType: implicitParameter.type,
+      });
+
+      continue; // Skip the actual dependency resolution
+    }
+
     // Evaluate its type again
     const {
       parameterType: newImplicitParameterType,
@@ -951,6 +989,7 @@ Got:   ${argExprs.length} arguments`,
       calleeEnv,
       context: {
         ...context,
+        isEvaluatingFunctionType: true,
       },
       functionValue,
     });
@@ -1005,11 +1044,6 @@ Got:   ${argExprs.length} arguments`,
           expectedType: { type: implicitParameterType, env: calleeEnv },
         },
       });
-      console.log("evaluatedImplicitArg:", exprToString(evaluatedImplicitArg));
-      console.log(
-        "        - $.value: ",
-        valueToString(evaluatedImplicitArg.$?.value)
-      );
       if (evaluatedImplicitArg.$?.env) {
         callerEnv = evaluatedImplicitArg.$.env;
       }
@@ -1059,6 +1093,7 @@ Got:   ${argExprs.length} arguments`,
         calleeEnv,
         context: {
           ...context,
+          isEvaluatingFunctionType: true,
         },
         functionValue,
       });

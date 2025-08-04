@@ -833,6 +833,7 @@ export function evaluateFunctionType({
     env,
     context: {
       ...context,
+      isEvaluatingFunctionType: true,
     },
   });
   env = nextEnv;
