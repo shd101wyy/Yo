@@ -2,7 +2,7 @@ Functor :: (fn(
   compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type))
   ) -> compt(Module))
   module(
-    map : 
+    map :
       fn(
         forall(A : Type, B : Type),
         a : Wrapper(A),
@@ -13,9 +13,11 @@ Functor :: (fn(
 
 Apply :: (fn(
   compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
-  using(FunctorWrapper : Functor(Wrapper))
+  using(FunctorInstance : Functor(Wrapper))
   ) -> compt(Module))
   module(
+    ...(FunctorInstance),
+
     (apply) : 
       fn(
         forall(A : Type, B : Type),
@@ -29,10 +31,12 @@ Apply :: (fn(
 
 Applicative :: (fn(
   compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
-  using(ApplyWrapper : Apply(Wrapper))
+  using(ApplyInstance : Apply(Wrapper))
   ) -> compt(Module))
   module(
-    pure : 
+    ...(ApplyInstance),
+
+    pure :
       fn(
         forall(A : Type),
         a : A
@@ -42,9 +46,11 @@ Applicative :: (fn(
 
 Bind :: (fn(
   compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
-  using(ApplyWrapper : Apply(Wrapper))
+  using(ApplyInstance : Apply(Wrapper))
   ) -> compt(Module))
   module(
+    ...(ApplyInstance),
+
     (bind) : 
       fn(
         forall(A : Type, B : Type),
@@ -59,35 +65,36 @@ Bind :: (fn(
 Monad :: (fn(
   compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
   using(
-    ApplicativeWrapper : Applicative(Wrapper),
-    BindWrapper : Bind(Wrapper))
+    ApplicativeInstance : Applicative(Wrapper),
+    BindInstance : Bind(Wrapper))
   ) -> compt(Module))
-  module()
+  module(
+    ...(ApplicativeInstance),
+    ...(BindInstance)
+  )
 ;
 
 Semigroup :: (fn(
-  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type))
+  compt(M) : Type
   ) -> compt(Module))
   module(
     (append) : 
       fn(
-        forall(A : Type),
-        a : Wrapper(A),
-        b : Wrapper(A)
-      ) -> Wrapper(A)
+        a : M,
+        b : M
+      ) -> M
   )
 ;
 
 Monoid :: (fn(
-  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
-  using(SemigroupWrapper : Semigroup(Wrapper))
+  compt(M) : Type,
+  using(SemigroupInstance : Semigroup(M))
   ) -> compt(Module))
   module(
+    ...(SemigroupInstance),
+
     (empty) : 
-      fn(
-        forall(A : Type),
-        a : Wrapper(A)
-      ) -> Wrapper(A)
+      fn() -> M
   )
 ;
 
@@ -108,7 +115,7 @@ Foldable :: (fn(
         a : Wrapper(A),
         f : (fn(b : B, a : A) => B),
         b0 : B
-      ) -> B
+      ) -> B,
     fold_map :
       fn(
         forall(A : Type, M : Type),

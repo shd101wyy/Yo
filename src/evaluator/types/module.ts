@@ -26,6 +26,7 @@ import {
 import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
 import {
+  areValuesEqual,
   createTypeValue,
   createUnknownValue,
   isModuleValue,
@@ -491,6 +492,24 @@ export function evaluateModuleType({
             (e) => e.label === extendedModuleElement.label
           );
           if (duplicateLabelIndex >= 0) {
+            // Check if they have the same value.
+            if (
+              (elements[duplicateLabelIndex]!.assignedValue &&
+                extendedModuleElement.assignedValue &&
+                areValuesEqual(
+                  { value: elements[duplicateLabelIndex]!.assignedValue, env },
+                  { value: extendedModuleElement.assignedValue, env }
+                )) ||
+              (!elements[duplicateLabelIndex]!.assignedValue &&
+                !extendedModuleElement.assignedValue &&
+                areTypesCompatible(
+                  { type: elements[duplicateLabelIndex]!.type, env },
+                  { type: extendedModuleElement.type, env }
+                ))
+            ) {
+              continue;
+            }
+
             throw formatErrorMessage({
               token: extendedModuleExpr.token,
               errorMessage: `Duplicate label "${extendedModuleElement.label}" in module`,
@@ -537,6 +556,24 @@ export function evaluateModuleType({
             (e) => e.label === extendedModuleElement.label
           );
           if (duplicateLabelIndex >= 0) {
+            // Check if they have the same value.
+            if (
+              (elements[duplicateLabelIndex]!.assignedValue &&
+                extendedModuleElement.assignedValue &&
+                areValuesEqual(
+                  { value: elements[duplicateLabelIndex]!.assignedValue, env },
+                  { value: extendedModuleElement.assignedValue, env }
+                )) ||
+              (!elements[duplicateLabelIndex]!.assignedValue &&
+                !extendedModuleElement.assignedValue &&
+                areTypesCompatible(
+                  { type: elements[duplicateLabelIndex]!.type, env },
+                  { type: extendedModuleElement.type, env }
+                ))
+            ) {
+              continue;
+            }
+
             throw formatErrorMessage({
               token: extendedModuleExpr.token,
               errorMessage: `Duplicate label "${extendedModuleElement.label}" in module`,
