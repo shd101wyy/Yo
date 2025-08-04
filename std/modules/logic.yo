@@ -1,3 +1,9 @@
+open import("../builtins.yo");
+
+/*
+// && and || are short-circuiting logical operations.
+// The logical operations are defined in terms of the boolean type.
+// They shouldn't be modules
 LogicalAnd :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs)-> compt(Module))
   module
     Self := Lhs,
@@ -9,6 +15,7 @@ LogicalOr :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs)-> compt(Module))
     Self := Lhs,
     (||) : (fn(lhs: Lhs, rhs: Rhs)-> boolean)
 ;
+*/
 
 LogicalNot :: (fn(compt(Self): Type) -> compt(Module))
   module
@@ -43,12 +50,65 @@ BitXor :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= boolean) -> 
     (^)    : (fn(lhs: Lhs, rhs: Rhs)-> Output)
 ;
 
+ComptLogicalNot :: (fn(compt(Self): Type) -> compt(Module))
+  module
+    Self := Self,
+    (!)  : (fn(compt(self): Self) -> compt(boolean))
+  ;
+
+(!) :: module {
+  (not) :: (fn( forall(Self : Type),
+            self : Self,
+            using(LogicalNotMethod : LogicalNot(Self))
+          ) -> boolean)
+    LogicalNotMethod.(!)(self)
+  ;
+
+  (compt_not) :: (fn(forall(Self : Type), 
+          compt(self) : Self,
+          using(LogicalNotMethod : ComptLogicalNot(Self))
+        ) -> compt(boolean))
+    LogicalNotMethod.(!)(self)
+  ;
+
+  Self :: (not, compt_not);
+
+  export
+    Self,
+    not,
+    compt_not
+  ;
+};
+(not) :: (!);
+
+/**
+ * logic for boolean
+ */
+given(BooleanLogicalNot) :: LogicalNot(boolean)
+  (!): ((a) ->
+    __yo_op_not(a)
+  )
+;
+
+given(ComptBooleanLogicalNot) :: ComptLogicalNot(boolean)
+  (!): ((self) ->
+    cond
+      self => false,
+      true => true
+  )
+;
+
 export
-  LogicalAnd,
-  LogicalOr,
   LogicalNot,
+  ComptLogicalNot,
   BitNot,
   BitAnd,
   BitOr,
-  BitXor
+  BitXor,
+
+  (!),
+  not,
+
+  BooleanLogicalNot,
+  ComptBooleanLogicalNot
 ;

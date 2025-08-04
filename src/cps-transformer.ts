@@ -516,7 +516,7 @@ export class CpsTransformer {
       } else if (exprIsFunctionCallOf(expr, ":=") && expr.args.length === 2) {
         // Handle assignment: `variable := expression_containing_do`
         const variable = expr.args[0]!;
-        const value = expr.args[1]!
+        const value = expr.args[1]!;
 
         if (exprIsFunctionCall(value) && exprIsFunctionCallOf(value, "do")) {
           // Simple case: `variable := do(f(args))` -> `f(args, result => continuation)`
@@ -948,21 +948,24 @@ export class CpsTransformer {
               args: [...innerExpr.args, continuation],
             };
           }
-          
+
           // This is a complex expression containing do calls
           // Do NOT extract the do call if it might reference variables that aren't available yet
           // Instead, check if the value is a begin block and handle it specially
-          if (exprIsFunctionCall(value) && exprIsFunctionCallOf(value, BuiltinKeywords.begin)) {
+          if (
+            exprIsFunctionCall(value) &&
+            exprIsFunctionCallOf(value, BuiltinKeywords.begin)
+          ) {
             // This is `variable := begin(...)` where the begin block contains do calls
             // Transform the begin block in the context of the assignment
             const beginExpr = value;
             const beginExprs = beginExpr.args;
-            
+
             // Create a modified begin block that assigns the final result to the variable
             const lastExprIndex = beginExprs.length - 1;
             const lastExpr = beginExprs[lastExprIndex]!;
             const otherExprs = beginExprs.slice(0, lastExprIndex);
-            
+
             // Create an assignment for the last expression
             const finalAssignment: FuncCallExpr = {
               tag: ExprTag.FuncCall,
@@ -971,10 +974,14 @@ export class CpsTransformer {
               token: expr.token,
               isInfix: expr.isInfix,
             };
-            
+
             // Create a new begin block with the other expressions plus the assignment plus remaining expressions
-            const newBeginArgs = [...otherExprs, finalAssignment, ...remainingExprs];
-            
+            const newBeginArgs = [
+              ...otherExprs,
+              finalAssignment,
+              ...remainingExprs,
+            ];
+
             const newBeginExpr: FuncCallExpr = {
               tag: ExprTag.FuncCall,
               func: {
@@ -990,11 +997,11 @@ export class CpsTransformer {
               args: newBeginArgs,
               token: contextToken,
             };
-            
+
             // Transform the new begin block
             return this.transformExpressionToCps(newBeginExpr, continuationVar);
           }
-          
+
           // For other complex expressions, fall back to the original extraction logic
           // We need to extract the `do` call and create a continuation
           const doCallInfo = this.extractDoCall(value);
@@ -1253,7 +1260,7 @@ export class CpsTransformer {
       }
 
       const currentBranch = branches[branchIndex]!;
-      
+
       if (
         exprIsFunctionCall(currentBranch) &&
         currentBranch.isInfix &&

@@ -1,6 +1,11 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { exprToString, FuncCallExpr } from "../../expr";
+import {
+  BuiltinKeywords,
+  exprIsFunctionCallOf,
+  exprToString,
+  FuncCallExpr,
+} from "../../expr";
 import { createBooleanType, isBooleanType } from "../../types";
 import {
   BooleanValue,
@@ -21,7 +26,9 @@ export function evaluateAndOr({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  const kind = expr.func.token.value === "and" ? "and" : "or";
+  const kind: "and" | "or" = exprIsFunctionCallOf(expr, BuiltinKeywords.and)
+    ? "and"
+    : "or";
   const args = expr.args;
 
   // Evaluate all args

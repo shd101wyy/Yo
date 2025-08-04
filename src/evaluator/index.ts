@@ -43,7 +43,6 @@ import {
 } from "./builtins/expr_list_fns";
 import { evaluateGensym } from "./builtins/gensym";
 import { evaluateMacroExpand } from "./builtins/macro_expand";
-import { evaluateNot } from "./builtins/not";
 import { evaluateYoNumericFunctions } from "./builtins/numeric_fns";
 import { evaluateQuote } from "./builtins/quote";
 import { evaluateSizeOf } from "./builtins/sizeof";
@@ -570,9 +569,6 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
           env,
           context: { ...context },
         });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.not, 1)) {
-        // not
-        return evaluateNot({ expr, env, context: { ...context } });
       } else if (
         exprIsFunctionCallOf(expr, BuiltinKeywords.and) ||
         exprIsFunctionCallOf(expr, BuiltinKeywords.or)

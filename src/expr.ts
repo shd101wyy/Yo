@@ -418,8 +418,8 @@ export const BuiltinKeywords = {
   while: ["while"],
   for: ["for"],
   if: ["if"],
-  and: ["and"],
-  or: ["or"],
+  and: ["and", "&&"],
+  or: ["or", "||"],
   not: ["not"],
   gensym: ["gensym"],
 
