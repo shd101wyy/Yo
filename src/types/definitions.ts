@@ -287,7 +287,7 @@ export interface StructType extends Type {
 export interface ModuleElement {
   type: Type;
   label: string;
-  isCompileTimeOnly: boolean;
+  isCompileTimeOnly: true;
   isImplicit: boolean;
 
   // The default value and assigned value are compile-time known.

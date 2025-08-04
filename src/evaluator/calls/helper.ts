@@ -1005,6 +1005,11 @@ Got:   ${argExprs.length} arguments`,
           expectedType: { type: implicitParameterType, env: calleeEnv },
         },
       });
+      console.log("evaluatedImplicitArg:", exprToString(evaluatedImplicitArg));
+      console.log(
+        "        - $.value: ",
+        valueToString(evaluatedImplicitArg.$?.value)
+      );
       if (evaluatedImplicitArg.$?.env) {
         callerEnv = evaluatedImplicitArg.$.env;
       }

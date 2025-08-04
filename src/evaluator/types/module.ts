@@ -19,6 +19,7 @@ import {
   createModuleType,
   isModuleType,
   ModuleElement,
+  ModuleType,
   Type,
   typeToString,
 } from "../../types";
@@ -27,7 +28,9 @@ import { randomId } from "../../utils";
 import {
   createTypeValue,
   createUnknownValue,
+  isModuleValue,
   isTypeValue,
+  isUnknownValue,
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -448,10 +451,10 @@ export function evaluateModuleType({
     // NOTE: Type methods are not allowed in module types.
     // spread operator for extending another module
     if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
-      const extendedStructExpr = arg.args[0]!;
+      const extendedModuleExpr = arg.args[0]!;
       // Evaluate the extended struct expression
       const evaluatedExtendedModuleExpr = context.evaluateExpression({
-        expr: extendedStructExpr,
+        expr: extendedModuleExpr,
         env,
         context: {
           ...context,
@@ -461,68 +464,118 @@ export function evaluateModuleType({
       });
       if (!evaluatedExtendedModuleExpr.$) {
         throw formatErrorMessage({
-          token: extendedStructExpr.token,
-          errorMessage: `Failed to evaluate the extended struct expression: ${exprToString(extendedStructExpr)}`,
+          token: extendedModuleExpr.token,
+          errorMessage: `Failed to evaluate the extended struct expression: ${exprToString(extendedModuleExpr)}`,
         });
       }
 
       // Check if it's a module type
-      const extendedModuleTypeValue = evaluatedExtendedModuleExpr.$.value;
+      const value = evaluatedExtendedModuleExpr.$.value;
+      // Extending a module type
       if (
-        !isTypeValue(extendedModuleTypeValue) ||
-        !isModuleType(extendedModuleTypeValue.value)
+        (isTypeValue(value) && isModuleType(value.value)) ||
+        (isUnknownValue(value) && isModuleType(value.type))
       ) {
-        throw formatErrorMessage({
-          token: extendedStructExpr.token,
-          errorMessage: `Expected a struct type for extending, got ${exprToString(
-            extendedStructExpr
-          )}`,
-        });
-      }
-      const extendedModuleType = extendedModuleTypeValue.value;
-
-      // Iterate over the elements of the extended struct
-      for (const extendedModuleElement of extendedModuleType.elements) {
-        // Check if there is duplicate labels
-        // If yes, then override the element
-        const duplicateLabelIndex = elements.findIndex(
-          (e) => e.label === extendedModuleElement.label
-        );
-        if (duplicateLabelIndex >= 0) {
-          throw formatErrorMessage({
-            token: extendedStructExpr.token,
-            errorMessage: `Duplicate label "${extendedModuleElement.label}" in module`,
-          });
+        let extendedModuleType: ModuleType;
+        if (isTypeValue(value) && isModuleType(value.value)) {
+          extendedModuleType = value.value;
         } else {
-          // Add the element to the struct
-          elements.push(extendedModuleElement);
+          extendedModuleType = value.type as ModuleType;
+        }
 
-          // Add the element to the environment
-          const { env: nextEnv } = addVariableToEnv({
-            env,
-            variable: {
-              name: extendedModuleElement.label,
-              type: extendedModuleElement.type,
-              value: extendedModuleElement.isCompileTimeOnly
-                ? (extendedModuleElement.assignedValue ??
+        // Iterate over the elements of the extended struct
+        for (const extendedModuleElement of extendedModuleType.elements) {
+          // Check if there is duplicate labels
+          // If yes, then override the element
+          const duplicateLabelIndex = elements.findIndex(
+            (e) => e.label === extendedModuleElement.label
+          );
+          if (duplicateLabelIndex >= 0) {
+            throw formatErrorMessage({
+              token: extendedModuleExpr.token,
+              errorMessage: `Duplicate label "${extendedModuleElement.label}" in module`,
+            });
+          } else {
+            // Add the element to the module
+            elements.push(extendedModuleElement);
+
+            // Add the element to the environment
+            const { env: nextEnv } = addVariableToEnv({
+              env,
+              variable: {
+                name: extendedModuleElement.label,
+                type: extendedModuleElement.type,
+                value:
+                  extendedModuleElement.assignedValue ??
                   createUnknownValue(
                     extendedModuleElement.type,
                     extendedModuleElement.label
-                  ))
-                : undefined,
-              isCompileTimeOnly: extendedModuleElement.isCompileTimeOnly,
-              isImplicit: extendedModuleElement.isImplicit,
-              isMutable: false,
-              token: extendedModuleElement.exprs.expr.token,
-              initializedAtToken: extendedModuleElement.exprs.expr.token,
-              consumedAtToken: undefined,
-            },
-          });
-          env = nextEnv;
+                  ),
+                isCompileTimeOnly: extendedModuleElement.isCompileTimeOnly,
+                isImplicit: extendedModuleElement.isImplicit,
+                isMutable: false,
+                token: extendedModuleElement.exprs.expr.token,
+                initializedAtToken: extendedModuleElement.exprs.expr.token,
+                consumedAtToken: undefined,
+              },
+            });
+            env = nextEnv;
+          }
         }
       }
+      // Check if it's a module value
+      else if (isModuleValue(value)) {
+        const moduleValue = value;
+
+        // Iterate over the elements of the module value
+        for (let i = 0; i < moduleValue.elements.length; i++) {
+          const elementValue = moduleValue.elements[i]!;
+          const extendedModuleElement = moduleValue.type.elements[i]!;
+
+          // Check if there is a duplicate label
+          const duplicateLabelIndex = elements.findIndex(
+            (e) => e.label === extendedModuleElement.label
+          );
+          if (duplicateLabelIndex >= 0) {
+            throw formatErrorMessage({
+              token: extendedModuleExpr.token,
+              errorMessage: `Duplicate label "${extendedModuleElement.label}" in module`,
+            });
+          } else {
+            // Add the element to the module
+            elements.push({
+              ...moduleValue.type.elements[i]!,
+              assignedValue: elementValue,
+            });
+
+            // Add the element to the environment
+            const { env: nextEnv } = addVariableToEnv({
+              env,
+              variable: {
+                name: extendedModuleElement.label,
+                type: extendedModuleElement.type,
+                value: elementValue,
+                isCompileTimeOnly: extendedModuleElement.isCompileTimeOnly,
+                isImplicit: extendedModuleElement.isImplicit,
+                isMutable: false,
+                token: extendedModuleElement.exprs.expr.token,
+                initializedAtToken: extendedModuleElement.exprs.expr.token,
+                consumedAtToken: undefined,
+              },
+            });
+            env = nextEnv;
+          }
+        }
+      } else {
+        throw formatErrorMessage({
+          token: extendedModuleExpr.token,
+          errorMessage: `Expected a Module type or value for extending, got ${exprToString(
+            extendedModuleExpr
+          )}`,
+        });
+      }
     }
-    // tuple element
+    // module element
     else {
       const { type: element, env: nextEnv } = evaluateModuleElementType({
         expr: arg,

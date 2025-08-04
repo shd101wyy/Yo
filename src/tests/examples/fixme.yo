@@ -1,130 +1,44 @@
-Functor :: (fn(
-  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type))
-  ) -> compt(Module))
+/*
+
+M1 :: (fn() -> compt(Type))
+  i32
+;
+
+M2 :: (fn(using(_: M1())) -> compt(Type))
+  boolean
+;
+
+M3 :: (fn(
+  using(_ : M2(using(0)))
+  ) -> compt(Type))
+  f64
+;
+*/
+
+M1 :: (fn() -> compt(Module))
   module(
-    map : 
-      fn(
-        forall(A : Type, B : Type),
-        a : Wrapper(A),
-        f : (fn(a : A) => B)
-      ) -> Wrapper(B)
+    m1 : (fn()-> i32)
   )
 ;
 
-Apply :: (fn(
-  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
-  using(FunctorWrapper : Functor(Wrapper))
-  ) -> compt(Module))
+M2 :: (fn(using(M1Instance : M1())) -> compt(Module))
   module(
-    (apply) : 
-      fn(
-        forall(A : Type, B : Type),
-        f : Wrapper(fn(a : A) => B),
-        a : Wrapper(A)
-      ) -> Wrapper(B),
+    ...(M1Instance),
 
-    (<*>) ?= apply
+    (m2 : (fn() -> i32)) ?=
+      ()-> M1Instance.m1()
   )
 ;
 
-Applicative :: (fn(
-  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
-  using(ApplyWrapper : Apply(Wrapper))
-  ) -> compt(Module))
-  module(
-    pure : 
-      fn(
-        forall(A : Type),
-        a : A
-      ) -> Wrapper(A)
-  )
+given(M1Instance) :: M1()
+  m1 :
+    ()-> 1
 ;
 
-Bind :: (fn(
-  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
-  using(ApplyWrapper : Apply(Wrapper))
-  ) -> compt(Module))
-  module(
-    (bind) : 
-      fn(
-        forall(A : Type, B : Type),
-        a : Wrapper(A),
-        f : (fn(a : A) => Wrapper(B))
-      ) -> Wrapper(B),
-
-    (>>=) ?= bind
-  )
+given(M2Instance) :: M2()
+  m2 :
+    () -> 2
 ;
 
-Monad :: (fn(
-  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
-  using(
-    ApplicativeWrapper : Applicative(Wrapper),
-    BindWrapper : Bind(Wrapper))
-  ) -> compt(Module))
-  module()
-;
-
-Semigroup :: (fn(
-  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type))
-  ) -> compt(Module))
-  module(
-    (append) : 
-      fn(
-        forall(A : Type),
-        a : Wrapper(A),
-        b : Wrapper(A)
-      ) -> Wrapper(A)
-  )
-;
-
-Monoid :: (fn(
-  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
-  using(SemigroupWrapper : Semigroup(Wrapper))
-  ) -> compt(Module))
-  module(
-    (empty) : 
-      fn(
-        forall(A : Type),
-        a : Wrapper(A)
-      ) -> Wrapper(A)
-  )
-;
-
-Foldable :: (fn(
-  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type))
-  ) -> compt(Module))
-  module(
-    foldr : 
-      fn(
-        forall(A : Type, B : Type),
-        a : Wrapper(A),
-        f : (fn(a : A, b : B) => B),
-        b0 : B
-      ) -> B,
-    foldl : 
-      fn(
-        forall(A : Type, B : Type),
-        a : Wrapper(A),
-        f : (fn(b : B, a : A) => B),
-        b0 : B
-      ) -> B
-    fold_map :
-      fn(
-        forall(A : Type, M : Type),
-        a : Wrapper(A),
-        f : (fn(a : A) => M),
-        using(MonoidWrapper : Monoid(M))
-      ) -> M
-  )
-;
-
-export
-  Functor,
-  Apply,
-  Applicative,
-  Bind,
-  Monad,
-  Monoid,
-  Foldable
-;
+x := M2Instance.m1();
+y := M2Instance.m2();

@@ -1,0 +1,29 @@
+{
+  M1 :: (fn() -> compt(Module))
+    module(
+      m1 : (fn()-> i32)
+    )
+  ;
+
+  M2 :: (fn(using(M1Instance : M1())) -> compt(Module))
+    module(
+      ...(M1Instance),
+
+      (m2 : (fn() -> i32)) ?=
+        ()-> M1Instance.m1()
+    )
+  ;
+
+  given(M1Instance) :: M1()
+    m1 :
+      ()-> 1
+  ;
+
+  given(M2Instance) :: M2()
+    m2 :
+      () -> 2
+  ;
+
+  x := M2Instance.m1();
+  y := M2Instance.m2();
+};
