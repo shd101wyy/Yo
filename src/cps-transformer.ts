@@ -32,6 +32,14 @@ export class CpsTransformer {
       }
     }
     if (exprIsFunctionCall(expr)) {
+      // Special handling for boolean operators - they handle their own do calls
+      if (
+        (exprIsFunctionCallOf(expr, "&&") ||
+          exprIsFunctionCallOf(expr, "||")) &&
+        expr.isInfix
+      ) {
+        return false; // Let boolean operators handle their own transformation
+      }
       // Check all arguments recursively
       return expr.args.some((arg) => this.containsDoCall(arg));
     }
@@ -76,6 +84,12 @@ export class CpsTransformer {
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
       // This is a `match` expression
       return this.transformMatchToCps(expr, continuationVar);
+    } else if (exprIsFunctionCallOf(expr, "&&") && expr.isInfix) {
+      // Transform logical AND to use cond for proper short-circuit evaluation
+      return this.transformLogicalAndToCondToCps(expr, continuationVar);
+    } else if (exprIsFunctionCallOf(expr, "||") && expr.isInfix) {
+      // Transform logical OR to use cond for proper short-circuit evaluation
+      return this.transformLogicalOrToCondToCps(expr, continuationVar);
     } else if (exprIsFunctionCallOf(expr, ":=") && expr.isInfix) {
       // This is an assignment - check if it contains do calls
       if (this.containsDoCall(expr)) {
@@ -834,7 +848,7 @@ export class CpsTransformer {
         } else if (this.containsDoCall(value)) {
           // Complex case: `variable := expression_containing_do`
           // First check if this is a direct do call (simple case)
-          
+
           if (exprIsFunctionCall(value) && exprIsFunctionCallOf(value, "do")) {
             // This is actually a direct do call, handle it as such
             const doExpr = value;
@@ -951,11 +965,14 @@ export class CpsTransformer {
           }
 
           // For complex expressions with do calls, check if this is a nested begin block case
-          if (exprIsFunctionCall(value) && exprIsFunctionCallOf(value, BuiltinKeywords.begin)) {
+          if (
+            exprIsFunctionCall(value) &&
+            exprIsFunctionCallOf(value, BuiltinKeywords.begin)
+          ) {
             // This is a begin block assignment: variable := begin(...)
             // We need to handle this specially to preserve variable dependencies
             const beginExpr = value;
-            
+
             // Transform the begin block in the context of this assignment
             return this.transformBeginAssignmentToCps(
               beginExpr,
@@ -974,7 +991,7 @@ export class CpsTransformer {
           }
 
           const { doExpr, expressionWithHole } = doCallInfo;
-          
+
           // Check if the do call references undefined variables
           if (this.referencesUndefinedVariables(doExpr, availableVars)) {
             // Can't extract this do call safely, fall back to sequential processing
@@ -1126,6 +1143,14 @@ export class CpsTransformer {
           },
         };
         return { doExpr: expr, expressionWithHole: hole };
+      } else if (
+        (exprIsFunctionCallOf(expr, "&&") ||
+          exprIsFunctionCallOf(expr, "||")) &&
+        expr.isInfix
+      ) {
+        // Don't extract do calls from boolean operators - they will handle their own transformation
+        // This preserves short-circuit semantics
+        return null;
       } else {
         // Look for `do` calls in arguments
         for (let i = 0; i < expr.args.length; i++) {
@@ -1380,11 +1405,11 @@ export class CpsTransformer {
               },
             },
             args: [
-              // Current branch with transformed body
+              // Current branch with transformed condition and body
               {
                 ...currentBranch,
                 args: [
-                  condition,
+                  this.transformExpressionToCps(condition, continuationVar),
                   this.transformExpressionToCps(body, continuationVar),
                 ],
               },
@@ -1943,7 +1968,7 @@ export class CpsTransformer {
     contextToken: FuncCallExpr["token"]
   ): Expr {
     const expressions = beginExpr.args;
-    
+
     if (expressions.length === 0) {
       // Empty begin block, assign unit
       const assignment: FuncCallExpr = {
@@ -1977,9 +2002,12 @@ export class CpsTransformer {
 
       const allRemainingExprs = [assignment, ...remainingExprs];
       if (allRemainingExprs.length === 1) {
-        return this.transformExpressionToCps(allRemainingExprs[0]!, continuationVar);
+        return this.transformExpressionToCps(
+          allRemainingExprs[0]!,
+          continuationVar
+        );
       } else {
-        const transformedRemainingExprs = allRemainingExprs.map(expr =>
+        const transformedRemainingExprs = allRemainingExprs.map((expr) =>
           this.transformExpressionToCps(expr, continuationVar)
         );
         return {
@@ -2055,9 +2083,12 @@ export class CpsTransformer {
 
           const allRemainingExprs = [assignment, ...remainingExprs];
           if (allRemainingExprs.length === 1) {
-            return this.transformExpressionToCps(allRemainingExprs[0]!, continuationVar);
+            return this.transformExpressionToCps(
+              allRemainingExprs[0]!,
+              continuationVar
+            );
           } else {
-            const transformedRemainingExprs = allRemainingExprs.map(expr =>
+            const transformedRemainingExprs = allRemainingExprs.map((expr) =>
               this.transformExpressionToCps(expr, continuationVar)
             );
             return {
@@ -2086,17 +2117,20 @@ export class CpsTransformer {
         // Current expression contains do calls - transform it with rest as continuation
         return this.transformExpressionWithDoToCps(
           currentExpr,
-          restExprs.length > 0 ? 
-            [processExpressionsSequentially(restExprs)] :
-            [processExpressionsSequentially([])],
+          restExprs.length > 0
+            ? [processExpressionsSequentially(restExprs)]
+            : [processExpressionsSequentially([])],
           continuationVar,
           contextToken
         );
       } else {
         // Current expression doesn't contain do calls - process it normally
-        const transformedExpr = this.transformExpressionToCps(currentExpr, continuationVar);
+        const transformedExpr = this.transformExpressionToCps(
+          currentExpr,
+          continuationVar
+        );
         const nextExpr = processExpressionsSequentially(restExprs);
-        
+
         return {
           tag: ExprTag.FuncCall,
           func: {
@@ -2123,36 +2157,48 @@ export class CpsTransformer {
    * This analyzes assignment expressions to build a set of variables
    * that will be defined before the current expression
    */
-  private getAvailableVariables(_remainingExprs: Expr[], currentAssignmentVar?: string): Set<string> {
+  private getAvailableVariables(
+    _remainingExprs: Expr[],
+    currentAssignmentVar?: string
+  ): Set<string> {
     const availableVars = new Set<string>();
-    
+
     // Add the current assignment variable if provided (it will be available in the continuation)
     if (currentAssignmentVar) {
       availableVars.add(currentAssignmentVar);
     }
-    
+
     // For now, we assume variables from previous expressions in the same begin block are available
     // This is a simplified approach - in a real implementation we'd need proper scope analysis
-    
+
     return availableVars;
   }
 
   /**
    * Check if a do call expression references variables that are not yet defined
    */
-  private referencesUndefinedVariables(doExpr: FuncCallExpr, availableVars: Set<string>): boolean {
+  private referencesUndefinedVariables(
+    doExpr: FuncCallExpr,
+    availableVars: Set<string>
+  ): boolean {
     if (doExpr.args.length !== 1) {
       return false;
     }
 
     const innerExpr = doExpr.args[0]!;
-    return this.expressionReferencesUndefinedVariables(innerExpr, availableVars);
+    return this.expressionReferencesUndefinedVariables(
+      innerExpr,
+      availableVars
+    );
   }
 
   /**
    * Check if any expression references variables that are not in the available set
    */
-  private expressionReferencesUndefinedVariables(expr: Expr, availableVars: Set<string>): boolean {
+  private expressionReferencesUndefinedVariables(
+    expr: Expr,
+    availableVars: Set<string>
+  ): boolean {
     if (expr.tag === ExprTag.Atom && "token" in expr) {
       if (expr.token.type === TokenType.Identifier) {
         const varName = expr.token.value;
@@ -2165,7 +2211,9 @@ export class CpsTransformer {
     }
 
     if (exprIsFunctionCall(expr)) {
-      return expr.args.some(arg => this.expressionReferencesUndefinedVariables(arg, availableVars));
+      return expr.args.some((arg) =>
+        this.expressionReferencesUndefinedVariables(arg, availableVars)
+      );
     }
 
     return false;
@@ -2177,12 +2225,219 @@ export class CpsTransformer {
   private isBuiltinOrFunction(name: string): boolean {
     // List of built-in functions and keywords that don't need to be defined
     const builtins = new Set([
-      "yield", "printf", "begin", "cond", "match", "do", "unit",
-      "true", "false", "+", "-", "*", "/", "=", "!=", "<", ">", "<=", ">=",
-      "and", "or", "not", "resume"
+      "yield",
+      "printf",
+      "begin",
+      "cond",
+      "match",
+      "do",
+      "unit",
+      "true",
+      "false",
+      "+",
+      "-",
+      "*",
+      "/",
+      "=",
+      "!=",
+      "<",
+      ">",
+      "<=",
+      ">=",
+      "and",
+      "or",
+      "not",
+      "resume",
     ]);
-    
+
     return builtins.has(name);
+  }
+
+  /**
+   * Transform logical AND to use cond for proper short-circuit evaluation
+   * (a && b) becomes cond(a => b, true => false)
+   */
+  private transformLogicalAndToCondToCps(
+    andExpr: FuncCallExpr,
+    continuationVar: string
+  ): Expr {
+    if (andExpr.args.length !== 2) {
+      throw new Error("Logical AND expression must have exactly 2 operands");
+    }
+
+    const leftExpr = andExpr.args[0]!;
+    const rightExpr = andExpr.args[1]!;
+
+    // Transform a && b to cond(a => b, true => false)
+    const condExpr: FuncCallExpr = {
+      tag: ExprTag.FuncCall,
+      func: {
+        tag: ExprTag.Atom,
+        token: {
+          type: TokenType.Identifier,
+          value: BuiltinKeywords.cond[0]!,
+          position: andExpr.token.position,
+          modulePath: andExpr.token.modulePath,
+          inputString: andExpr.token.inputString,
+        },
+      },
+      args: [
+        // If left is true, return right
+        {
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.Operator,
+              value: "=>",
+              position: andExpr.token.position,
+              modulePath: andExpr.token.modulePath,
+              inputString: andExpr.token.inputString,
+            },
+          },
+          args: [leftExpr, rightExpr],
+          token: andExpr.token,
+          isInfix: true,
+        },
+        // If left is false (or anything else), return false
+        {
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.Operator,
+              value: "=>",
+              position: andExpr.token.position,
+              modulePath: andExpr.token.modulePath,
+              inputString: andExpr.token.inputString,
+            },
+          },
+          args: [
+            {
+              tag: ExprTag.Atom,
+              token: {
+                type: TokenType.Boolean,
+                value: "true",
+                position: andExpr.token.position,
+                modulePath: andExpr.token.modulePath,
+                inputString: andExpr.token.inputString,
+              },
+            },
+            {
+              tag: ExprTag.Atom,
+              token: {
+                type: TokenType.Boolean,
+                value: "false",
+                position: andExpr.token.position,
+                modulePath: andExpr.token.modulePath,
+                inputString: andExpr.token.inputString,
+              },
+            },
+          ],
+          token: andExpr.token,
+          isInfix: true,
+        },
+      ],
+      token: andExpr.token,
+    };
+
+    // Transform the generated cond expression
+    return this.transformCondToCps(condExpr, continuationVar);
+  }
+
+  /**
+   * Transform logical OR to use cond for proper short-circuit evaluation
+   * (a || b) becomes cond(a => true, true => b)
+   */
+  private transformLogicalOrToCondToCps(
+    orExpr: FuncCallExpr,
+    continuationVar: string
+  ): Expr {
+    if (orExpr.args.length !== 2) {
+      throw new Error("Logical OR expression must have exactly 2 operands");
+    }
+
+    const leftExpr = orExpr.args[0]!;
+    const rightExpr = orExpr.args[1]!;
+
+    // Transform a || b to cond(a => true, true => b)
+    const condExpr: FuncCallExpr = {
+      tag: ExprTag.FuncCall,
+      func: {
+        tag: ExprTag.Atom,
+        token: {
+          type: TokenType.Identifier,
+          value: BuiltinKeywords.cond[0]!,
+          position: orExpr.token.position,
+          modulePath: orExpr.token.modulePath,
+          inputString: orExpr.token.inputString,
+        },
+      },
+      args: [
+        // If left is true, return true
+        {
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.Operator,
+              value: "=>",
+              position: orExpr.token.position,
+              modulePath: orExpr.token.modulePath,
+              inputString: orExpr.token.inputString,
+            },
+          },
+          args: [
+            leftExpr,
+            {
+              tag: ExprTag.Atom,
+              token: {
+                type: TokenType.Boolean,
+                value: "true",
+                position: orExpr.token.position,
+                modulePath: orExpr.token.modulePath,
+                inputString: orExpr.token.inputString,
+              },
+            },
+          ],
+          token: orExpr.token,
+          isInfix: true,
+        },
+        // If left is false (or anything else), return right
+        {
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.Operator,
+              value: "=>",
+              position: orExpr.token.position,
+              modulePath: orExpr.token.modulePath,
+              inputString: orExpr.token.inputString,
+            },
+          },
+          args: [
+            {
+              tag: ExprTag.Atom,
+              token: {
+                type: TokenType.Boolean,
+                value: "true",
+                position: orExpr.token.position,
+                modulePath: orExpr.token.modulePath,
+                inputString: orExpr.token.inputString,
+              },
+            },
+            rightExpr,
+          ],
+          token: orExpr.token,
+          isInfix: true,
+        },
+      ],
+      token: orExpr.token,
+    };
+
+    // Transform the generated cond expression
+    return this.transformCondToCps(condExpr, continuationVar);
   }
 }
 
