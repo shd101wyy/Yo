@@ -22,12 +22,14 @@ import {
   convertComptTypeToRuntimeType,
   createExprListType,
   createFunctionType,
+  createSomeType,
   FunctionParameter,
   getFunctionParameterExprs,
   getFunctionParameterToken,
   isClosureType,
   isExprListType,
   isExprType,
+  isTypeHierarchyType,
   prohibitDynamicSizedType,
   Type,
   typeOfType,
@@ -36,11 +38,14 @@ import {
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
+import { randomId } from "../../utils";
 import {
   createTypeValue,
   createUnknownValue,
   isTypeValue,
+  isUnknownValue,
   Value,
+  valueToString,
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
@@ -188,6 +193,15 @@ export function evaluateFunctionParameter({
     labelExpr = lhsExpr;
   }
 
+  // We require to have label for function parameters
+  if (!label) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expected a label for function parameter, got ${exprToString(expr)}`,
+    });
+    // label = generateNewTempVariableName(this.modulePath);
+  }
+
   {
     // Evaluate the typeExpr if exists
     if (typeExpr) {
@@ -207,15 +221,19 @@ export function evaluateFunctionParameter({
 
       // Expected the evaluatedRhs to be a type
       const typeValue = evaluatedRhs.$.value;
-      if (!isTypeValue(typeValue)) {
+      if (isTypeValue(typeValue)) {
+        parameterType = typeValue.value;
+      } else if (
+        isUnknownValue(typeValue) &&
+        isTypeHierarchyType(typeValue.type)
+      ) {
+        parameterType = createSomeType(typeValue.type, label);
+      } else {
         throw formatErrorMessage({
           token: typeExpr.token,
-          errorMessage: `Expected type for function parameter, got ${exprToString(
-            typeExpr
-          )}`,
+          errorMessage: `Expected type for function parameter, got ${valueToString(typeValue)}`,
         });
       }
-      parameterType = typeValue.value;
     }
 
     // Evaluate the defaultValueExpr if exists
@@ -312,15 +330,6 @@ ${typeToString(parameterType)}`,
     });
   }
     */
-
-  // We require to have label for function parameters
-  if (!label) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Expected a label for function parameter, got ${exprToString(expr)}`,
-    });
-    // label = generateNewTempVariableName(this.modulePath);
-  }
 
   const value = isCompileTimeOnly
     ? createUnknownValue(parameterType, label)
@@ -955,7 +964,19 @@ export function evaluateFunctionType({
   });
 
   // Check that the return type is indeed a type
-  if (!isTypeValue(evaluatedReturnType.$?.value)) {
+  let returnType: Type;
+  const returnTypeValue = evaluatedReturnType.$?.value;
+  if (isTypeValue(returnTypeValue)) {
+    returnType = returnTypeValue.value;
+  } else if (
+    isUnknownValue(returnTypeValue) &&
+    isTypeHierarchyType(returnTypeValue.type)
+  ) {
+    returnType = createSomeType(
+      returnTypeValue.type,
+      returnLabel ?? randomId() // QUESTION: Is it right to use randomId() here?
+    );
+  } else {
     throw formatErrorMessage({
       token: returnTypeExpr.token,
       errorMessage: `Expected a type for function return type, got:\n${exprToString(
@@ -964,7 +985,6 @@ export function evaluateFunctionType({
     });
   }
 
-  let returnType = evaluatedReturnType.$?.value.value;
   if (typeRequiresComptModifier(returnType) && !isReturnTypeCompileTimeOnly) {
     // Try converting to runtime type first
     returnType = convertComptTypeToRuntimeType(returnType);
