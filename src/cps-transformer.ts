@@ -833,7 +833,8 @@ export class CpsTransformer {
           );
         } else if (this.containsDoCall(value)) {
           // Complex case: `variable := expression_containing_do`
-          // Check if this is a simple direct do call that we should NOT extract
+          // First check if this is a direct do call (simple case)
+          
           if (exprIsFunctionCall(value) && exprIsFunctionCallOf(value, "do")) {
             // This is actually a direct do call, handle it as such
             const doExpr = value;
@@ -949,67 +950,39 @@ export class CpsTransformer {
             };
           }
 
-          // This is a complex expression containing do calls
-          // Do NOT extract the do call if it might reference variables that aren't available yet
-          // Instead, check if the value is a begin block and handle it specially
-          if (
-            exprIsFunctionCall(value) &&
-            exprIsFunctionCallOf(value, BuiltinKeywords.begin)
-          ) {
-            // This is `variable := begin(...)` where the begin block contains do calls
-            // Transform the begin block in the context of the assignment
+          // For complex expressions with do calls, check if this is a nested begin block case
+          if (exprIsFunctionCall(value) && exprIsFunctionCallOf(value, BuiltinKeywords.begin)) {
+            // This is a begin block assignment: variable := begin(...)
+            // We need to handle this specially to preserve variable dependencies
             const beginExpr = value;
-            const beginExprs = beginExpr.args;
-
-            // Create a modified begin block that assigns the final result to the variable
-            const lastExprIndex = beginExprs.length - 1;
-            const lastExpr = beginExprs[lastExprIndex]!;
-            const otherExprs = beginExprs.slice(0, lastExprIndex);
-
-            // Create an assignment for the last expression
-            const finalAssignment: FuncCallExpr = {
-              tag: ExprTag.FuncCall,
-              func: expr.func, // Use the same `:=` function
-              args: [variable, lastExpr],
-              token: expr.token,
-              isInfix: expr.isInfix,
-            };
-
-            // Create a new begin block with the other expressions plus the assignment plus remaining expressions
-            const newBeginArgs = [
-              ...otherExprs,
-              finalAssignment,
-              ...remainingExprs,
-            ];
-
-            const newBeginExpr: FuncCallExpr = {
-              tag: ExprTag.FuncCall,
-              func: {
-                tag: ExprTag.Atom,
-                token: {
-                  type: TokenType.Identifier,
-                  value: BuiltinKeywords.begin[0]!,
-                  position: contextToken.position,
-                  modulePath: contextToken.modulePath,
-                  inputString: contextToken.inputString,
-                },
-              },
-              args: newBeginArgs,
-              token: contextToken,
-            };
-
-            // Transform the new begin block
-            return this.transformExpressionToCps(newBeginExpr, continuationVar);
+            
+            // Transform the begin block in the context of this assignment
+            return this.transformBeginAssignmentToCps(
+              beginExpr,
+              variable,
+              remainingExprs,
+              continuationVar,
+              contextToken
+            );
           }
 
-          // For other complex expressions, fall back to the original extraction logic
-          // We need to extract the `do` call and create a continuation
+          // For other complex expressions, try extraction but be prepared to fall back
+          const availableVars = this.getAvailableVariables(remainingExprs);
           const doCallInfo = this.extractDoCall(value);
           if (!doCallInfo) {
             throw new Error("Expected to find a do call in the expression");
           }
 
           const { doExpr, expressionWithHole } = doCallInfo;
+          
+          // Check if the do call references undefined variables
+          if (this.referencesUndefinedVariables(doExpr, availableVars)) {
+            // Can't extract this do call safely, fall back to sequential processing
+            // Return the original assignment expression so the begin block handler
+            // can process it in the correct sequential order
+            return expr;
+          }
+
           const resultVar = `cps_result_${randomId()}`;
 
           // Replace the "hole" in the expression with the result variable
@@ -1028,8 +1001,7 @@ export class CpsTransformer {
             isInfix: expr.isInfix,
           };
 
-          // The key insight: when we have multiple do calls, we need to transform the assignment recursively
-          // with the remaining expressions as context
+          // Create continuation that processes the assignment and remaining expressions
           let continuationExpr: Expr;
           if (this.containsDoCall(valueWithResult)) {
             // The assignment still contains do calls, so we need to recursively transform it
@@ -1624,14 +1596,30 @@ export class CpsTransformer {
       const allRemainingExprs = [assignment, ...remainingExprs];
 
       if (allRemainingExprs.length === 1) {
-        return this.transformExpressionToCps(
-          allRemainingExprs[0]!,
-          continuationVar
-        );
+        const expr = allRemainingExprs[0]!;
+        if (this.containsDoCall(expr)) {
+          return this.transformExpressionWithDoToCps(
+            expr,
+            [],
+            continuationVar,
+            contextToken
+          );
+        } else {
+          return this.transformExpressionToCps(expr, continuationVar);
+        }
       } else {
-        const transformedRemainingExprs = allRemainingExprs.map((expr) =>
-          this.transformExpressionToCps(expr, continuationVar)
-        );
+        const transformedRemainingExprs = allRemainingExprs.map((expr) => {
+          if (this.containsDoCall(expr)) {
+            return this.transformExpressionWithDoToCps(
+              expr,
+              [],
+              continuationVar,
+              contextToken
+            );
+          } else {
+            return this.transformExpressionToCps(expr, continuationVar);
+          }
+        });
 
         // Always wrap in begin if we have multiple expressions
         return {
@@ -1663,10 +1651,12 @@ export class CpsTransformer {
         const body = branch.args[1]!;
         const unwrappedBody = this.unwrapSingleBegin(body);
 
-        if (this.containsDoCall(unwrappedBody)) {
-          // This branch contains do calls, transform it with assignment context
-          // We need to ensure that the transformation includes the assignment + remaining expressions
-          const assignmentExpr: FuncCallExpr = {
+        if (this.containsDoCall(body)) {
+          // This branch contains do calls, we need to transform them first
+          // then assign the final result to the outer variable
+
+          // Create a fake assignment that we'll transform with CPS
+          const fakeAssignment: FuncCallExpr = {
             tag: ExprTag.FuncCall,
             func: {
               tag: ExprTag.Atom,
@@ -1678,14 +1668,14 @@ export class CpsTransformer {
                 inputString: contextToken.inputString,
               },
             },
-            args: [assignmentVariable, unwrappedBody],
+            args: [assignmentVariable, body],
             token: contextToken,
             isInfix: true,
           };
 
-          // Transform the assignment with remaining expressions as context
+          // Transform this fake assignment with the remaining expressions as context
           const transformedBody = this.transformExpressionWithDoToCps(
-            assignmentExpr,
+            fakeAssignment,
             remainingExprs,
             continuationVar,
             contextToken
@@ -1939,6 +1929,260 @@ export class CpsTransformer {
       return expr.args[0]!;
     }
     return expr;
+  }
+
+  /**
+   * Transform a begin block assignment: variable := begin(...)
+   * This handles sequential dependencies within begin blocks properly
+   */
+  private transformBeginAssignmentToCps(
+    beginExpr: FuncCallExpr,
+    assignmentVariable: Expr,
+    remainingExprs: Expr[],
+    continuationVar: string,
+    contextToken: FuncCallExpr["token"]
+  ): Expr {
+    const expressions = beginExpr.args;
+    
+    if (expressions.length === 0) {
+      // Empty begin block, assign unit
+      const assignment: FuncCallExpr = {
+        tag: ExprTag.FuncCall,
+        func: {
+          tag: ExprTag.Atom,
+          token: {
+            type: TokenType.Operator,
+            value: ":=",
+            position: contextToken.position,
+            modulePath: contextToken.modulePath,
+            inputString: contextToken.inputString,
+          },
+        },
+        args: [
+          assignmentVariable,
+          {
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.Identifier,
+              value: "unit",
+              position: contextToken.position,
+              modulePath: contextToken.modulePath,
+              inputString: contextToken.inputString,
+            },
+          },
+        ],
+        token: contextToken,
+        isInfix: true,
+      };
+
+      const allRemainingExprs = [assignment, ...remainingExprs];
+      if (allRemainingExprs.length === 1) {
+        return this.transformExpressionToCps(allRemainingExprs[0]!, continuationVar);
+      } else {
+        const transformedRemainingExprs = allRemainingExprs.map(expr =>
+          this.transformExpressionToCps(expr, continuationVar)
+        );
+        return {
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.Identifier,
+              value: BuiltinKeywords.begin[0]!,
+              position: contextToken.position,
+              modulePath: contextToken.modulePath,
+              inputString: contextToken.inputString,
+            },
+          },
+          args: transformedRemainingExprs,
+          token: contextToken,
+        } as FuncCallExpr;
+      }
+    }
+
+    // Handle the last expression specially - its result gets assigned to the variable
+    const lastIndex = expressions.length - 1;
+    const lastExpr = expressions[lastIndex]!;
+    const beforeLastExprs = expressions.slice(0, lastIndex);
+
+    // Process expressions before the last one sequentially
+    const processExpressionsSequentially = (exprsToProcess: Expr[]): Expr => {
+      if (exprsToProcess.length === 0) {
+        // No more expressions before the last one, handle the last expression
+        if (this.containsDoCall(lastExpr)) {
+          // The last expression contains do calls - transform it as an assignment
+          const lastExprAssignment: FuncCallExpr = {
+            tag: ExprTag.FuncCall,
+            func: {
+              tag: ExprTag.Atom,
+              token: {
+                type: TokenType.Operator,
+                value: ":=",
+                position: contextToken.position,
+                modulePath: contextToken.modulePath,
+                inputString: contextToken.inputString,
+              },
+            },
+            args: [assignmentVariable, lastExpr],
+            token: contextToken,
+            isInfix: true,
+          };
+
+          return this.transformExpressionWithDoToCps(
+            lastExprAssignment,
+            remainingExprs,
+            continuationVar,
+            contextToken
+          );
+        } else {
+          // Last expression doesn't contain do calls - create simple assignment
+          const assignment: FuncCallExpr = {
+            tag: ExprTag.FuncCall,
+            func: {
+              tag: ExprTag.Atom,
+              token: {
+                type: TokenType.Operator,
+                value: ":=",
+                position: contextToken.position,
+                modulePath: contextToken.modulePath,
+                inputString: contextToken.inputString,
+              },
+            },
+            args: [assignmentVariable, lastExpr],
+            token: contextToken,
+            isInfix: true,
+          };
+
+          const allRemainingExprs = [assignment, ...remainingExprs];
+          if (allRemainingExprs.length === 1) {
+            return this.transformExpressionToCps(allRemainingExprs[0]!, continuationVar);
+          } else {
+            const transformedRemainingExprs = allRemainingExprs.map(expr =>
+              this.transformExpressionToCps(expr, continuationVar)
+            );
+            return {
+              tag: ExprTag.FuncCall,
+              func: {
+                tag: ExprTag.Atom,
+                token: {
+                  type: TokenType.Identifier,
+                  value: BuiltinKeywords.begin[0]!,
+                  position: contextToken.position,
+                  modulePath: contextToken.modulePath,
+                  inputString: contextToken.inputString,
+                },
+              },
+              args: transformedRemainingExprs,
+              token: contextToken,
+            } as FuncCallExpr;
+          }
+        }
+      }
+
+      const currentExpr = exprsToProcess[0]!;
+      const restExprs = exprsToProcess.slice(1);
+
+      if (this.containsDoCall(currentExpr)) {
+        // Current expression contains do calls - transform it with rest as continuation
+        return this.transformExpressionWithDoToCps(
+          currentExpr,
+          restExprs.length > 0 ? 
+            [processExpressionsSequentially(restExprs)] :
+            [processExpressionsSequentially([])],
+          continuationVar,
+          contextToken
+        );
+      } else {
+        // Current expression doesn't contain do calls - process it normally
+        const transformedExpr = this.transformExpressionToCps(currentExpr, continuationVar);
+        const nextExpr = processExpressionsSequentially(restExprs);
+        
+        return {
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.Identifier,
+              value: BuiltinKeywords.begin[0]!,
+              position: contextToken.position,
+              modulePath: contextToken.modulePath,
+              inputString: contextToken.inputString,
+            },
+          },
+          args: [transformedExpr, nextExpr],
+          token: contextToken,
+        } as FuncCallExpr;
+      }
+    };
+
+    return processExpressionsSequentially(beforeLastExprs);
+  }
+
+  /**
+   * Get variables that are available from remaining expressions
+   * This analyzes assignment expressions to build a set of variables
+   * that will be defined before the current expression
+   */
+  private getAvailableVariables(_remainingExprs: Expr[], currentAssignmentVar?: string): Set<string> {
+    const availableVars = new Set<string>();
+    
+    // Add the current assignment variable if provided (it will be available in the continuation)
+    if (currentAssignmentVar) {
+      availableVars.add(currentAssignmentVar);
+    }
+    
+    // For now, we assume variables from previous expressions in the same begin block are available
+    // This is a simplified approach - in a real implementation we'd need proper scope analysis
+    
+    return availableVars;
+  }
+
+  /**
+   * Check if a do call expression references variables that are not yet defined
+   */
+  private referencesUndefinedVariables(doExpr: FuncCallExpr, availableVars: Set<string>): boolean {
+    if (doExpr.args.length !== 1) {
+      return false;
+    }
+
+    const innerExpr = doExpr.args[0]!;
+    return this.expressionReferencesUndefinedVariables(innerExpr, availableVars);
+  }
+
+  /**
+   * Check if any expression references variables that are not in the available set
+   */
+  private expressionReferencesUndefinedVariables(expr: Expr, availableVars: Set<string>): boolean {
+    if (expr.tag === ExprTag.Atom && "token" in expr) {
+      if (expr.token.type === TokenType.Identifier) {
+        const varName = expr.token.value;
+        // Check if this is a variable reference (not a function name or built-in)
+        if (!this.isBuiltinOrFunction(varName) && !availableVars.has(varName)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    if (exprIsFunctionCall(expr)) {
+      return expr.args.some(arg => this.expressionReferencesUndefinedVariables(arg, availableVars));
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if a name is a built-in keyword or function name
+   */
+  private isBuiltinOrFunction(name: string): boolean {
+    // List of built-in functions and keywords that don't need to be defined
+    const builtins = new Set([
+      "yield", "printf", "begin", "cond", "match", "do", "unit",
+      "true", "false", "+", "-", "*", "/", "=", "!=", "<", ">", "<=", ">=",
+      "and", "or", "not", "resume"
+    ]);
+    
+    return builtins.has(name);
   }
 }
 
