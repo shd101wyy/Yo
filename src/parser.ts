@@ -814,10 +814,11 @@ Or use newline after "${token.value}" to confirm the right-associativity.
 
         // Check if operator is alone on its own line
         const tokensAfterOperator = tokens.slice(index + 1, startIndex);
-        const isOperatorAloneOnLine = isOperatorAtLineStart && 
-          tokensAfterOperator.length > 0 && 
-          tokensAfterOperator[0]?.type === TokenType.Whitespace && 
-          tokensAfterOperator[0]?.value.includes('\n');
+        const isOperatorAloneOnLine =
+          isOperatorAtLineStart &&
+          tokensAfterOperator.length > 0 &&
+          tokensAfterOperator[0]?.type === TokenType.Whitespace &&
+          tokensAfterOperator[0]?.value.includes("\n");
 
         if (hasNewLineAfterOperator && !isOperatorAtLineStart) {
           // Right associativity: operator at end of line

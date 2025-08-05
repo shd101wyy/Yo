@@ -78,27 +78,128 @@ z := 16; // This will give error, as compt_int type cannot be assigned to runtim
 // or
 (+ 3, 4, 5); // Like in Lisp! But with commas separating the arguments
 
-// But there is a trick
-3 + // Newline after the operator is the magic here!
-    // Newline will enforce the right associativity!!
+// But there is a trick with newlines and operator positioning
+// to control associativity without parentheses!
+
+// RIGHT ASSOCIATIVITY: Put operator at the end of line
+3 + // Newline after the operator enforces right associativity!
   4 + 5
 ;
-// This is equavalent to
+// This is equivalent to
 3 + (4 + 5);
+
+// LEFT ASSOCIATIVITY: Put operator at the start of line  
+  1
++ 2
++ 3
+;
+// This is equivalent to
+(1 + 2) + 3;
+
+// SPECIAL CASE: Operator alone on its own line uses right associativity
+// This is especially useful for assignment and function definitions
+(compt(result) : (fn(x: i32, y: i32) -> i32))
+=
+  (x, y) -> (x + y)
+;
+// This is parsed as: result = ((x, y) -> (x + y))
+// NOT as: (result = (x, y)) -> (x + y)
+
+// More examples of operator positioning:
+
+// Left associativity with chained operations
+result_left :=
+    100
+  - 20
+  - 30
+  - 10
+;
+// Parsed as: (((100 - 20) - 30) - 10) = 40
+
+// Right associativity for building data structures
+list :=
+  cons(1) ++  // operator at end of line
+    cons(2) ++
+      cons(3) ++
+        nil
+;
+// Parsed as: cons(1) ++ (cons(2) ++ (cons(3) ++ nil))
+
+// Mixed associativity in complex expressions
+result_mixed :=
+    a
+  * b
+  + (c *     // parentheses to clarify right associativity
+      d +
+        e)
+;
+// Parsed as: ((a * b) + (c * (d + e)))
+
+// Function composition examples
+// Left associativity (function application order)
+transformed_value :=
+    x
+  |> transform1
+  |> transform2
+  |> transform3
+;
+// Parsed as: (((x |> transform1) |> transform2) |> transform3)
+
+// Right associativity (function composition)
+pipeline :=
+  transform1 ∘  // operator at end of line
+    transform2 ∘
+      transform3
+;
+// Parsed as: transform1 ∘ (transform2 ∘ transform3)
 
 // Why no precedence?
 // Because it makes the language easier to parse and understand
 // and it's consistent with the rest of the language
 // It's explicit!
+
+// ASSOCIATIVITY RULES IN YO:
+// ===========================
+// 1. RIGHT ASSOCIATIVITY: Operator at END of line
+//    Example: a +
+//               b + c
+//    Result: a + (b + c)
+//
+// 2. LEFT ASSOCIATIVITY: Operator at START of line (but not alone)
+//    Example:   a
+//             + b
+//             + c  
+//    Result: (a + b) + c
+//
+// 3. OPERATOR ALONE: Operator alone on its own line uses RIGHT associativity
+//    Example: a
+//             =
+//               b -> c
+//    Result: a = (b -> c)
+//
+// 4. NO NEWLINES: Ambiguous - requires explicit parentheses
+//    Example: a + b + c  // ERROR - must add parentheses
+//
+// This system gives you precise control over parsing through formatting!
+
 // Let's consider the following example:
-//
 //   2 ** 3 ** 4;
-//
 // Should it be evaluated as
 (2 ** 3) ** 4;
 // or as
-2 ** (3 ** 4);
-// It's hard to tell! So let's make it explicit
+// Left exponentiation: (2 ** 3) ** 4 = 64
+left_exp :=
+    2
+  ** 3
+  ** 4
+;
+
+// Right exponentiation: 2 ** (3 ** 4) = 2417851639229258349412352
+right_exp :=
+  2 **  // operator at end of line
+    3 **
+      4
+;
 
 // NOTE: All operators are method in Yo
 3 + 4;
