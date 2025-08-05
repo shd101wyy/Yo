@@ -549,6 +549,100 @@ export default class Parser {
     return returnValue;
   }
 
+  private isOperatorAtLineStart(
+    tokensBeforeOperator: Token[],
+    _operatorIndex: number
+  ): boolean {
+    // Look backwards from the operator to find the last newline
+    for (let i = tokensBeforeOperator.length - 1; i >= 0; i--) {
+      const token = tokensBeforeOperator[i]!;
+      if (token.type === TokenType.Whitespace && token.value.includes("\n")) {
+        // Found a newline, check if there are only whitespace tokens between newline and operator
+        const tokensBetween = tokensBeforeOperator.slice(i + 1);
+        const onlyWhitespace = tokensBetween.every(
+          (t) => t.type === TokenType.Whitespace
+        );
+        return onlyWhitespace;
+      }
+      // If we hit a non-whitespace token before finding a newline, operator is not at line start
+      if (token.type !== TokenType.Whitespace) {
+        return false;
+      }
+    }
+    // If we reach here, we're at the beginning of the file with only whitespace before operator
+    return tokensBeforeOperator.every((t) => t.type === TokenType.Whitespace);
+  }
+
+  private parseLeftAssociativeOperator({
+    primaryExpr,
+    operatorToken,
+    rhs,
+    tokens,
+    index,
+  }: {
+    primaryExpr: Expr;
+    operatorToken: Token;
+    rhs: Expr;
+    tokens: Token[];
+    index: number;
+  }): ParserReturn {
+    // For left associativity, we need to restructure chained operators
+    // Input: 1 + 2 + 3 (where + are at line start)
+    // Desired: (1 + 2) + 3
+
+    if (
+      rhs.tag === "FuncCall" &&
+      rhs.isInfix &&
+      rhs.func.tag === "Atom" &&
+      rhs.func.token.type !== TokenType.Dot
+    ) {
+      // RHS is also an infix operator, restructure for left associativity
+      // rhs = (a op b), we want: ((primaryExpr currentOp a) op b)
+      const leftOperand = rhs.args[0]!;
+      const rightOperand = rhs.args[1]!;
+      const rhsOperator = rhs.func;
+
+      const leftSide: Expr = {
+        tag: ExprTag.FuncCall,
+        func: {
+          tag: ExprTag.Atom,
+          token: operatorToken,
+        },
+        args: [primaryExpr, leftOperand],
+        isInfix: true,
+        token: operatorToken,
+      };
+
+      return this.parsePrimaryEnd({
+        primaryExpr: {
+          tag: ExprTag.FuncCall,
+          func: rhsOperator,
+          args: [leftSide, rightOperand],
+          isInfix: true,
+          token: rhsOperator.token,
+        },
+        tokens,
+        index,
+      });
+    } else {
+      // Simple case: no chaining
+      return this.parsePrimaryEnd({
+        primaryExpr: {
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token: operatorToken,
+          },
+          args: [primaryExpr, rhs],
+          isInfix: true,
+          token: operatorToken,
+        },
+        tokens,
+        index,
+      });
+    }
+  }
+
   /**
    * Get the minimum column number of the expression
    * @param expr The expression to get the minimum column number
@@ -694,20 +788,57 @@ Or use newline after "${token.value}" to confirm the right-associativity.
 `;
         // We allow to use newline indentation to implicitly
         // skip the parenthese check.
-        // for example:
+        //
+        // Right associativity (operator at end of line):
         // 1 +
         //   2 + 3
-        // will be parsed as
-        // 1 + (2 + 3)
+        // will be parsed as: 1 + (2 + 3)
+        //
+        // Left associativity (operator at start of line):
+        //   1
+        // + 2
+        // + 3
+        // will be parsed as: (1 + 2) + 3
         const tokensInBetween = tokens.slice(index + 1, startIndex);
-        const hasNewLine = tokensInBetween.some(
+        const hasNewLineAfterOperator = tokensInBetween.some(
           (token) =>
             token.type === TokenType.Whitespace && token.value.includes("\n")
         );
-        if (hasNewLine) {
-          // QUESTION: Do we need to check below?
-          // Check if the "rhs" most-left-side token is on the right side of the
-          // "primaryExpr" most-left-side token
+
+        // Check if current operator is at the start of a line (left associativity)
+        const tokensBeforeOperator = tokens.slice(0, index);
+        const isOperatorAtLineStart = this.isOperatorAtLineStart(
+          tokensBeforeOperator,
+          index
+        );
+
+        // Check if operator is alone on its own line
+        const tokensAfterOperator = tokens.slice(index + 1, startIndex);
+        const isOperatorAloneOnLine = isOperatorAtLineStart && 
+          tokensAfterOperator.length > 0 && 
+          tokensAfterOperator[0]?.type === TokenType.Whitespace && 
+          tokensAfterOperator[0]?.value.includes('\n');
+
+        if (hasNewLineAfterOperator && !isOperatorAtLineStart) {
+          // Right associativity: operator at end of line
+          // Allow: 1 + (2 + 3)
+        } else if (isOperatorAloneOnLine) {
+          // Special case: operator alone on its own line - prefer right associativity
+          // This handles cases like:
+          // a
+          // =
+          //   b -> c
+          // Should parse as: a = (b -> c), not (a = b) -> c
+        } else if (isOperatorAtLineStart) {
+          // Left associativity: operator at start of line (but not alone)
+          // Force left grouping by restructuring the expression
+          return this.parseLeftAssociativeOperator({
+            primaryExpr,
+            operatorToken: token,
+            rhs,
+            tokens,
+            index: nextIndex,
+          });
         } else {
           throw formatErrorMessage({
             token: token,
