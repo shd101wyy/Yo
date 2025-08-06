@@ -137,3 +137,37 @@ export
   Monoid,
   Foldable
 ;
+
+/*
+// Built-in Effect monad
+Eff :: (fn(compt(A) : Type) -> compt(Type)) builtin;
+
+// Effect monad instance
+EffMonad :: Monad(Eff) = module(
+  map = (fn(forall(A : Type, B : Type), eff : Eff(A), f : (fn(a : A) => B)) -> Eff(B))
+    builtin_eff_map(eff, f),
+  
+  pure = (fn(forall(A : Type), a : A) -> Eff(A))
+    builtin_eff_pure(a),
+    
+  apply = (fn(forall(A : Type, B : Type), f : Eff(fn(a : A) => B), a : Eff(A)) -> Eff(B))
+    builtin_eff_apply(f, a),
+    
+  bind = (fn(forall(A : Type, B : Type), eff : Eff(A), f : (fn(a : A) => Eff(B))) -> Eff(B))
+    builtin_eff_bind(eff, f)
+);
+
+// Basic effect operations
+extern "Yo",
+  runEff : (fn(forall(A : Type), eff : Eff(A)) -> A),
+  unsafePerformEff : (fn(forall(A : Type), eff : Eff(A)) -> A),
+  
+  // Basic IO effects
+  putStr : (fn(s : string) -> Eff(unit)),
+  getLine : (fn() -> Eff(string)),
+  
+  // Error effects
+  throwError : (fn(forall(A : Type), msg : string) -> Eff(A)),
+  catchError : (fn(forall(A : Type), eff : Eff(A), handler : (fn(msg : string) => Eff(A))) -> Eff(A))
+;
+*/

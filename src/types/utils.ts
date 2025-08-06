@@ -15,6 +15,7 @@ import {
 import {
   ArrayType,
   ClosureType,
+  EffType,
   EnumType,
   FunctionParameter,
   FunctionType,
@@ -41,6 +42,7 @@ import {
   isComptIntType,
   isComptStringType,
   isEffectFunctionType,
+  isEffType,
   isEnumType,
   isExprListType,
   isExprType,
@@ -820,6 +822,11 @@ export function typeToString(type: Type): string {
       return "Expr";
     }
 
+    case TypeTag.Eff: {
+      const effType = type as EffType;
+      return `Eff(${typeToString(effType.resultType)})`;
+    }
+
     default: {
       return `${type.tag}`;
     }
@@ -1040,6 +1047,8 @@ export function getAlignmentOfType(type: Type): number | null {
     return maxAlign;
   } else if (isFunctionType(type)) {
     return getTargetPointerSizeBytes(); // Functions are treated as pointers, so pointer-aligned
+  } else if (isEffType(type)) {
+    return getTargetPointerSizeBytes(); // Effects are treated as pointers to continuations, so pointer-aligned
   } else if (
     isMutPtrType(type) ||
     isPtrType(type) ||
@@ -1108,6 +1117,8 @@ export function getSizeOfType(type: Type): number | null {
     return getUnionType(type);
   } else if (isFunctionType(type)) {
     return getTargetPointerSizeBits(); // Functions are treated as pointers, so return pointer size
+  } else if (isEffType(type)) {
+    return getTargetPointerSizeBits(); // Effects are treated as pointers to continuations, so return pointer size
   } else if (
     isMutPtrType(type) ||
     isPtrType(type) ||

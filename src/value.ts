@@ -26,6 +26,7 @@ import {
   createU64Type,
   createU8Type,
   createUsizeType,
+  EffType,
   EnumType,
   ExprType,
   isTypeHierarchyType,
@@ -120,6 +121,21 @@ export type ClosureValue = {
   functionValue: FunctionValue;
 };
 
+export type EffValue = {
+  tag: ValueTag.Eff;
+  type: EffType;
+  /**
+   * The context value containing captured variables and effect state.
+   * This is the actual runtime data for the effect computation.
+   */
+  contextValue: StructValue;
+  /**
+   * The continuation function that represents the suspended computation.
+   * This function will be called with the context to execute the effect.
+   */
+  continuationFunction: FunctionValue;
+};
+
 export type ExprValue = {
   tag: ValueTag.Expr;
   type: ExprType;
@@ -151,6 +167,7 @@ export type Value =
   | BooleanValue
   | ArrayValue
   | ClosureValue
+  | EffValue
   | TupleValue
   | StructValue
   | EnumValue
@@ -240,6 +257,9 @@ export function valueToString(value?: Value): string {
     }
     case ValueTag.Closure: {
       return `<closure>`;
+    }
+    case ValueTag.Eff: {
+      return `<eff>`;
     }
     case ValueTag.Module: {
       return `${value.type.typeName ?? "_"}(${value.elements
@@ -722,9 +742,29 @@ export function createClosureValue(
   };
 }
 
+export function createEffValue(
+  type: EffType,
+  contextValue: StructValue,
+  continuationFunction: FunctionValue
+): EffValue {
+  return {
+    tag: ValueTag.Eff,
+    type,
+    contextValue,
+    continuationFunction,
+  };
+}
+
 /**
  * Check if a value is a closure value
  */
 export function isClosureValue(value: Value): value is ClosureValue {
   return value.tag === ValueTag.Closure;
+}
+
+/**
+ * Check if a value is an effect value
+ */
+export function isEffValue(value: Value): value is EffValue {
+  return value.tag === ValueTag.Eff;
 }

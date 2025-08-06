@@ -20,6 +20,7 @@ export enum ValueTag {
   Array = "Array",
   Function = "Function",
   Closure = "Closure",
+  Eff = "Eff",
   Tuple = "Tuple",
   Struct = "Struct",
   Enum = "Enum",

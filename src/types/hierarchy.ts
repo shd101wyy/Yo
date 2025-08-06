@@ -21,6 +21,7 @@ import {
   isComptFloatType,
   isComptIntType,
   isComptStringType,
+  isEffType,
   isEnumType,
   isExprListType,
   isExprType,
@@ -157,6 +158,9 @@ export function typeOfType(
       // If no capture type, it's a free type (no captures)
       return createFreeType(type);
     }
+  } else if (isEffType(type)) {
+    // Effects are linear types (they can only be executed once)
+    return createLinearType(type);
   } else if (isArrayType(type)) {
     // For arrays, check the element type
     return typeOfType(type.elementType);

@@ -60,6 +60,7 @@ export enum TypeTag {
   Union = "Union",
   Function = "Function",
   Closure = "Closure",
+  Eff = "Eff",
 
   // Some Type
   SomeType = "SomeType",

@@ -80,6 +80,7 @@ import { evaluateTypeOf } from "./exprs/typeof";
 import { evaluateWhile } from "./exprs/while";
 import { evaluateArrayType } from "./types/array";
 import { evaluateClosureType } from "./types/closure";
+import { evaluateEffType } from "./types/eff";
 import { evaluateEnumType } from "./types/enum";
 import { evaluateFunctionType } from "./types/function";
 import { evaluateSliceType } from "./types/slice";
@@ -535,6 +536,13 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Slice)) {
         // Slice type
         return evaluateSliceType({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Eff)) {
+        // Eff type
+        return evaluateEffType({
           expr,
           env,
           context: { ...context },

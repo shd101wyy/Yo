@@ -577,3 +577,61 @@ export interface ClosureType extends Type {
    */
   env: Environment;
 }
+
+/**
+ * EffType represents an effectful computation that produces a value of type A.
+ *
+ * Conceptually similar to IO monad in Haskell or Effect in PureScript.
+ * An Eff(A) represents a suspended computation that, when executed,
+ * will produce a value of type A (possibly with side effects).
+ *
+ * Examples:
+ * - Eff(i32): An effectful computation that produces an i32
+ * - Eff(string): An effectful computation that produces a string
+ * - Eff(unit): An effectful computation that produces unit (side effects only)
+ *
+ * Implementation details:
+ * - Built-in type with special runtime support
+ * - Similar to a closure but with effect system integration
+ * - Can capture context and suspend/resume execution
+ * - Supports monadic composition via bind/flatMap
+ */
+export interface EffType extends Type {
+  tag: TypeTag.Eff;
+
+  /**
+   * The type of value this effect computation will produce when executed.
+   */
+  resultType: Type;
+
+  /**
+   * The continuation function type that represents the suspended computation.
+   * This is conceptually similar to: (context: Context) -> A
+   *
+   * The continuation captures:
+   * 1. The computation to be performed
+   * 2. Any captured variables from the surrounding scope
+   * 3. The runtime context needed for effect execution
+   */
+  /*
+    // NOTE: Let's not record it for now.
+    continuationType: FunctionType;
+  */
+
+  /**
+   * The type that contains captured variables and context.
+   * This is similar to closure capture but for effects.
+   *
+   * Contains:
+   * - Captured variables from lexical scope
+   * - Effect context (e.g., IO state, error handlers, etc.)
+   * - Continuation chain for composed effects
+   */
+  contextType: StructType;
+
+  /**
+   * The environment when this effect type was created.
+   * Used for proper scoping and capture analysis.
+   */
+  env: Environment;
+}

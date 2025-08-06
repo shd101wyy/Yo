@@ -1,6 +1,7 @@
 import {
   ArrayType,
   ClosureType,
+  EffType,
   EnumType,
   FunctionType,
   ModuleType,
@@ -174,6 +175,10 @@ export function isEffectFunctionType(
 
 export function isClosureType(type?: Type): type is ClosureType {
   return type?.tag === TypeTag.Closure;
+}
+
+export function isEffType(type?: Type): type is EffType {
+  return type?.tag === TypeTag.Eff;
 }
 
 export function isRegularFunctionType(type?: Type): type is FunctionType {

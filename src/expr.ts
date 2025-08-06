@@ -445,6 +445,7 @@ export const BuiltinKeywords = {
   Tuple: ["Tuple"],
   Array: ["Array"],
   Slice: ["Slice"],
+  Eff: ["Eff"],
   Free: ["Free"],
   Linear: ["Linear"],
   Type: ["Type"],

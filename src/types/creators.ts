@@ -7,6 +7,7 @@ import {
   ArrayType,
   ClosureKind,
   ClosureType,
+  EffType,
   EnumType,
   ExprType,
   FunctionParameter,
@@ -696,4 +697,18 @@ export function createEffectHandlerType(
   handlerType.isHandlerForEffectFunction = effectFunctionType;
 
   return handlerType;
+}
+
+export function createEffType(
+  resultType: Type,
+  contextType: StructType,
+  env: Environment
+): EffType {
+  return {
+    id: `eff_${resultType.id}_${contextType.id}`,
+    tag: TypeTag.Eff,
+    resultType,
+    contextType,
+    env,
+  };
 }
