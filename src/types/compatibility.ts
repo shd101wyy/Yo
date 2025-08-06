@@ -17,6 +17,7 @@ import {
   isComptIntType,
   isComptStringType,
   isEffectFunctionType,
+  isEffType,
   isEnumType,
   isExprListType,
   isExprType,
@@ -37,7 +38,11 @@ import {
 } from "./guards";
 import { getFunctionParameterToken } from "./hierarchy";
 import { TypeTag } from "./tags";
-import { getValueOfSomeTypeFromEnv, typeContainsSomeType } from "./utils";
+import {
+  getValueOfSomeTypeFromEnv,
+  typeContainsSomeType,
+  typeToString,
+} from "./utils";
 
 /**
  * Check if two types are compatible.
@@ -474,6 +479,34 @@ export function areTypesCompatible(
     // && given.type.tag === TypeTag.Void
   ) {
     return true;
+  }
+
+  if (isEffType(expected.type) && isEffType(given.type)) {
+    console.log(
+      "both eff type",
+      typeToString(expected.type.resultType),
+      typeToString(given.type.resultType),
+      areTypesCompatible(
+        {
+          type: expected.type.resultType,
+          env: expected.env,
+        },
+        {
+          type: given.type.resultType,
+          env: given.env,
+        }
+      )
+    );
+    return areTypesCompatible(
+      {
+        type: expected.type.resultType,
+        env: expected.env,
+      },
+      {
+        type: given.type.resultType,
+        env: given.env,
+      }
+    );
   }
 
   // Meet SomeType,

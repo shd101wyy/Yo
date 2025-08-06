@@ -101,7 +101,10 @@ export function evaluateComptFunctionCall({
   const tempCache: CalledComptFunctionCache = {
     funcId,
     argValues,
-    value: createUnknownValue(functionType.return.type),
+    value: createUnknownValue(
+      functionType.return.type,
+      functionType.return.label
+    ),
     env: calleeEnv,
     body: cloneExpr(functionBodyExpr), // NOTE: Clone here is necessary
   };
