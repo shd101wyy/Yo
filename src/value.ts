@@ -151,6 +151,9 @@ export type ExprListValue = {
 
 export type UnknownValue = {
   tag: ValueTag.Unknown;
+  /**
+   * Type of the unknown value.
+   */
   type: Type;
   /**
    * The name of the variable holding this unknown value.
@@ -451,11 +454,21 @@ export function createBooleanValue(value: boolean): BooleanValue {
 
 export function createUnknownValue(
   type: Type,
-  variableName?: string
+  variableName?: string,
+  someTypeId?: string
 ): UnknownValue | TypeValue {
-  if (isTypeHierarchyType(type) && type.level === 0 && variableName) {
+  if (isTypeHierarchyType(type) && type.level === 0) {
+    if (!variableName) {
+      console.trace();
+      throw new Error(
+        `createUnknownValue expects a variable name for type ${typeToString(
+          type
+        )}`
+      );
+    }
+
     // SomeType
-    const someType = createSomeType(type, variableName);
+    const someType = createSomeType(type, variableName, someTypeId);
     return createTypeValue(someType);
   }
 
@@ -716,11 +729,12 @@ export function areValuesEqual(
       return false;
     }
 
+    return false;
     // If neither resolved, fall back to type compatibility
-    return areTypesCompatible(
-      { type: value1.type, env: expected.env },
-      { type: value2.type, env: given.env }
-    );
+    // return areTypesCompatible(
+    //   { type: value1.type, env: expected.env },
+    //   { type: value2.type, env: given.env }
+    // );
   } else {
     return false;
   }

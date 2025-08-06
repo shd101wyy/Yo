@@ -1,3 +1,18 @@
-test :: (fn(v : i32) -> Eff(i32)) {
-  return 12;
-};
+open import "../../../std/modules/monad";
+
+extern "Yo",
+  Eff : (fn(compt(W) : Type) -> compt(Type)),
+
+  __yo_eff_map : 
+    fn(
+      forall(A : Type, B : Type),
+      eff : Eff(A),
+      f : (fn(a : A) => B)
+    ) -> Eff(B)
+;
+
+EffFunctor :: Functor(Eff)
+  map : 
+    ((a, f) ->
+      __yo_eff_map(a, f))
+;

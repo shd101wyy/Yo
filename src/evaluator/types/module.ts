@@ -510,9 +510,24 @@ export function evaluateModuleType({
               continue;
             }
 
+            console.log(
+              !!elements[duplicateLabelIndex]!.assignedValue,
+              !!extendedModuleElement.assignedValue
+            );
+            console.log(
+              typeToString(elements[duplicateLabelIndex]!.type),
+              "\n",
+              typeToString(extendedModuleElement.type),
+              "\n",
+              areTypesCompatible(
+                { type: elements[duplicateLabelIndex]!.type, env },
+                { type: extendedModuleElement.type, env }
+              )
+            );
+
             throw formatErrorMessage({
               token: extendedModuleExpr.token,
-              errorMessage: `Duplicate label "${extendedModuleElement.label}" in module`,
+              errorMessage: `Duplicate label 1 "${extendedModuleElement.label}" in module`,
             });
           } else {
             // Add the element to the module
@@ -576,7 +591,7 @@ export function evaluateModuleType({
 
             throw formatErrorMessage({
               token: extendedModuleExpr.token,
-              errorMessage: `Duplicate label "${extendedModuleElement.label}" in module`,
+              errorMessage: `Duplicate label 2 "${extendedModuleElement.label}" in module`,
             });
           } else {
             // Add the element to the module
@@ -634,7 +649,7 @@ export function evaluateModuleType({
           token: exprIsFunctionCall(arg)
             ? (arg.args[0]?.token ?? arg.token)
             : arg.token,
-          errorMessage: `Duplicate label "${element.label}" in module`,
+          errorMessage: `Duplicate label 3 "${element.label}" in module`,
         });
       }
 

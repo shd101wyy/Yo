@@ -417,7 +417,7 @@ export interface FunctionReturn {
   expr: Expr;
   isCompileTimeOnly: boolean;
   isUnquote: boolean;
-  label?: string;
+  label: string;
 }
 
 export interface FunctionType extends Type {

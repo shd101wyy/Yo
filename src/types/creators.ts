@@ -491,16 +491,18 @@ export function createRefType(type: Type): RefType {
 
 export function createSomeType(
   type: TypeHierarchyType,
-  variableName: string
+  variableName: string,
+  id?: string
 ): SomeType {
   if (type.level !== 0) {
+    console.trace();
     throw new Error(
       `createSomeType expects a type with level 0, got level ${type.level}`
     );
   }
 
   return {
-    id: `sometype_${randomId()}`,
+    id: id ?? `sometype_${randomId()}`,
     tag: TypeTag.SomeType,
     name: variableName,
     parentType: type,

@@ -22,14 +22,12 @@ import {
   convertComptTypeToRuntimeType,
   createExprListType,
   createFunctionType,
-  createSomeType,
   FunctionParameter,
   getFunctionParameterExprs,
   getFunctionParameterToken,
   isClosureType,
   isExprListType,
   isExprType,
-  isTypeHierarchyType,
   prohibitDynamicSizedType,
   Type,
   typeOfType,
@@ -43,7 +41,6 @@ import {
   createTypeValue,
   createUnknownValue,
   isTypeValue,
-  isUnknownValue,
   Value,
   valueToString,
 } from "../../value";
@@ -64,7 +61,7 @@ export function evaluateFunctionParameter({
 }: {
   expr: Expr;
   env: Environment;
-  context: EvaluatorContext;
+  context: EvaluatorContext & { isEvaluatingFunctionType: true };
   isParameterComptByDefault: boolean;
 }): { parameter: FunctionParameter; env: Environment } {
   let label: string | undefined = undefined;
@@ -223,12 +220,14 @@ export function evaluateFunctionParameter({
       const typeValue = evaluatedRhs.$.value;
       if (isTypeValue(typeValue)) {
         parameterType = typeValue.value;
-      } else if (
-        isUnknownValue(typeValue) &&
-        isTypeHierarchyType(typeValue.type)
-      ) {
-        parameterType = createSomeType(typeValue.type, label);
-      } else {
+      }
+      // else if (
+      //   isUnknownValue(typeValue) &&
+      //   isTypeHierarchyType(typeValue.type)
+      // ) {
+      //   parameterType = createSomeType(typeValue.type, label);
+      // }
+      else {
         throw formatErrorMessage({
           token: typeExpr.token,
           errorMessage: `Expected type for function parameter, got ${valueToString(typeValue)}`,
@@ -424,7 +423,7 @@ export function evaluateFunctionParameters({
 }: {
   parameterExprs: Expr[];
   env: Environment;
-  context: EvaluatorContext;
+  context: EvaluatorContext & { isEvaluatingFunctionType: true };
 }): {
   parameters: FunctionParameter[];
   forallParameters: FunctionParameter[];
@@ -969,15 +968,17 @@ export function evaluateFunctionType({
   const returnTypeValue = evaluatedReturnType.$?.value;
   if (isTypeValue(returnTypeValue)) {
     returnType = returnTypeValue.value;
-  } else if (
-    isUnknownValue(returnTypeValue) &&
-    isTypeHierarchyType(returnTypeValue.type)
-  ) {
-    returnType = createSomeType(
-      returnTypeValue.type,
-      returnLabel ?? randomId() // QUESTION: Is it right to use randomId() here?
-    );
-  } else {
+  }
+  // else if (
+  //   isUnknownValue(returnTypeValue) &&
+  //   isTypeHierarchyType(returnTypeValue.type)
+  // ) {
+  //   returnType = createSomeType(
+  //     returnTypeValue.type,
+  //     returnLabel ?? `sometype_${randomId()}` // QUESTION: Is it right to use randomId() here?
+  //   );
+  // }
+  else {
     throw formatErrorMessage({
       token: returnTypeExpr.token,
       errorMessage: `Expected a type for function return type, got:\n${exprToString(
@@ -1060,7 +1061,7 @@ ${typeToString(returnType)}`,
       expr: returnTypeExpr,
       isCompileTimeOnly: isReturnTypeCompileTimeOnly,
       isUnquote: isReturnTypeUnquote,
-      label: returnLabel,
+      label: returnLabel ?? `fn_return_${randomId()}`,
     },
     env: popEnvFrame(env, true),
     parametersFrame: env.frames[env.frames.length - 1]!,

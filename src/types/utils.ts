@@ -493,7 +493,7 @@ export function tupleElementToString(element: TupleElement): string {
     label = `(${label})`;
   }
   if (element.isImplicit) {
-    label = `implicit(${label})`;
+    label = `given(${label})`;
   }
   if (element.isCompileTimeOnly) {
     label = `compt(${label})`;
@@ -527,7 +527,7 @@ function moduleElementToString(element: ModuleElement): string {
     label = `(${label})`;
   }
   if (element.isImplicit) {
-    label = `implicit(${label})`;
+    label = `given(${label})`;
   }
 
   const defaultValueStr = element.defaultValue
@@ -560,7 +560,7 @@ function functionTypeToString(func: FunctionType): string {
       : "";
   const implicitParams =
     func.implicitParameters.length > 0
-      ? `implicit(${func.implicitParameters
+      ? `using(${func.implicitParameters
           .map(functionParameterToString)
           .join(", ")})`
       : "";
@@ -765,6 +765,9 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Module: {
       const moduleType = type as ModuleType;
+      if (moduleType.typeName) {
+        return moduleType.typeName;
+      }
       return `${
         moduleType.typeName ? `(${moduleType.typeName}) ` : ""
       }module(${moduleType.elements.map(moduleElementToString).join(", ")})`;

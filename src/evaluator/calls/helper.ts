@@ -40,6 +40,7 @@ import {
   isFunctionType,
   isMutRefType,
   isRefType,
+  isTypeHierarchyType,
   isUnitType,
   Type,
   typeRequiresComptModifier,
@@ -944,42 +945,6 @@ Got:   ${argExprs.length} arguments`,
   for (let i = 0; i < functionType.implicitParameters.length; i++) {
     const implicitParameter = functionType.implicitParameters[i]!;
 
-    // When evaluating function types, assume implicit parameters will be satisfied
-    if (context.isEvaluatingFunctionType) {
-      // Create an unknown value for the implicit parameter
-      const unknownValue = createUnknownValue(
-        implicitParameter.type,
-        implicitParameter.label
-      );
-
-      // Add the parameter to the calleeEnv
-      if (implicitParameter.label) {
-        const { env: nextEnv } = addVariableToEnv({
-          env: calleeEnv,
-          variable: {
-            name: implicitParameter.label,
-            type: implicitParameter.type,
-            isMutable: implicitParameter.isMutable,
-            isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
-            isImplicit: false,
-            value: unknownValue,
-            token: PlaceholderToken,
-            initializedAtToken: PlaceholderToken,
-            consumedAtToken: undefined,
-          },
-        });
-        calleeEnv = nextEnv;
-      }
-
-      implicitArgValues.push({
-        value: unknownValue,
-        parameterType: implicitParameter.type,
-        argType: implicitParameter.type,
-      });
-
-      continue; // Skip the actual dependency resolution
-    }
-
     // Evaluate its type again
     const {
       parameterType: newImplicitParameterType,
@@ -995,6 +960,40 @@ Got:   ${argExprs.length} arguments`,
     });
     calleeEnv = nextCalleeEnv;
     let implicitParameterType = newImplicitParameterType;
+
+    // When evaluating function types, assume implicit parameters will be satisfied
+    if (context.isEvaluatingFunctionType) {
+      // Create an unknown value for the implicit parameter
+      const unknownValue = createUnknownValue(
+        implicitParameterType,
+        implicitParameter.label
+      );
+
+      // Add the parameter to the calleeEnv
+      const { env: nextEnv } = addVariableToEnv({
+        env: calleeEnv,
+        variable: {
+          name: implicitParameter.label,
+          type: implicitParameterType,
+          isMutable: implicitParameter.isMutable,
+          isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
+          isImplicit: false,
+          value: unknownValue,
+          token: PlaceholderToken,
+          initializedAtToken: PlaceholderToken,
+          consumedAtToken: undefined,
+        },
+      });
+      calleeEnv = nextEnv;
+
+      implicitArgValues.push({
+        value: unknownValue,
+        parameterType: implicitParameterType,
+        argType: implicitParameter.type,
+      });
+
+      continue; // Skip the actual dependency resolution
+    }
 
     // Check if it's provided in implicitArgsExpr
     let implicitArgExpr: Expr | undefined = implicitArgExprs[i];
@@ -1449,14 +1448,35 @@ ${implicitVariables
     context: { ...context },
   });
 
+  let returnType: Type;
   const functionReturnTypeValue = evaluatedFunctionReturnExpr.$?.value;
-  if (!isTypeValue(functionReturnTypeValue)) {
+  // console.log(
+  //   "here: ",
+  //   exprToString(functionType.return.expr),
+  //   valueToString(functionReturnTypeValue),
+  //   functionReturnTypeValue?.type
+  //     ? typeToString(functionReturnTypeValue?.type)
+  //     : undefined
+  // );
+  if (isTypeValue(functionReturnTypeValue)) {
+    returnType = functionReturnTypeValue.value;
+  }
+  // else if (
+  //   isUnknownValue(functionReturnTypeValue) &&
+  //   isTypeHierarchyType(functionReturnTypeValue.type)
+  // ) {
+  //   console.log("Enter here");
+  //   returnType = createSomeType(
+  //     functionReturnTypeValue.type,
+  //     functionType.return.label ?? `sometype_${randomId()}` // QUESTION: Is it right?
+  //   );
+  // }
+  else {
     throw formatErrorMessage({
       token: functionCalleeExpr?.token ?? PlaceholderToken,
       errorMessage: `Function body is not evaluated correctly. Expected to return a type.`,
     });
   }
-  const returnType = functionReturnTypeValue.value;
 
   const pathCollection: PathCollection = [];
   if (context.borrowings.length !== initialBorrowings.length) {
@@ -1497,7 +1517,13 @@ ${implicitVariables
       returnValue = nextReturnValue;
       callerEnv = nextEnv;
     } else {
-      returnValue = createUnknownValue(returnType);
+      returnValue = createUnknownValue(
+        returnType,
+        functionType.return.label,
+        isTypeHierarchyType(returnType) && returnType.level === 0
+          ? `${functionType.id}_return_sometype`
+          : undefined // for SomeType. Here we generate a unique SomeType id related to the functionType
+      );
     }
   }
 
