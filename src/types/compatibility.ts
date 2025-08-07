@@ -38,7 +38,11 @@ import {
 } from "./guards";
 import { getFunctionParameterToken } from "./hierarchy";
 import { TypeTag } from "./tags";
-import { getValueOfSomeTypeFromEnv, typeContainsSomeType } from "./utils";
+import {
+  getValueOfSomeTypeFromEnv,
+  typeContainsSomeType,
+  typeToString,
+} from "./utils";
 
 /**
  * Check if two types are compatible.
@@ -317,6 +321,10 @@ export function areTypesCompatible(
 
   // NOTE: Module type is a structural type.
   if (isModuleType(expected.type)) {
+    console.log(`[DEBUG] Checking module type compatibility:`);
+    console.log(`[DEBUG] Expected module: ${typeToString(expected.type)}`);
+    console.log(`[DEBUG] Given module: ${typeToString(given.type)}`);
+
     let givenElements: ModuleElement[] | undefined = undefined;
     if (isModuleType(given.type)) {
       givenElements = given.type.elements;
@@ -365,7 +373,6 @@ export function areTypesCompatible(
               }
             )
           ) {
-            console.log(`[DEBUG] Element ${expectedElement.label} assigned values are not equal`);
             return false;
           }
         }

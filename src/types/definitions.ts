@@ -306,9 +306,9 @@ export interface ModuleType extends Type {
   /**
    * The function that returns the module.
    * eg:
-   *   def Container:
-   *     (compt(T): Type)-> compt(Type),
-   *     module(x: T, y: T)
+   *   Container :
+   *     fn(compt(T): Type)-> compt(Type)
+   *       module(x: T, y: T)
    * ;
    * "Container" is the function that returns the module.
    */

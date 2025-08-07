@@ -76,7 +76,7 @@ export function evaluateFunctionParameterType({
 }: {
   parameter: FunctionParameter;
   calleeEnv: Environment;
-  context: EvaluatorContext & { isEvaluatingFunctionType: boolean };
+  context: EvaluatorContext & { isEvaluatingFunctionType: true };
   functionValue: FunctionValue | undefined;
 }): { parameterType: Type; calleeEnv: Environment } {
   const typeExpr = parameter.exprs.typeExpr;
@@ -832,9 +832,24 @@ export function tryToCallFunctionWithArguments({
         };
       }
 
+      // Evaluate the forall parameter type first (like we do for regular and implicit parameters)
+      const {
+        parameterType: evaluatedForallParameterType,
+        calleeEnv: updatedCalleeEnv,
+      } = evaluateFunctionParameterType({
+        parameter: forallParameter,
+        calleeEnv,
+        context: {
+          ...context,
+          isEvaluatingFunctionType: true,
+        },
+        functionValue,
+      });
+      calleeEnv = updatedCalleeEnv;
+
       // Synthesize the types
       const { expectedEnv, givenEnv } = synthesizeTypes(
-        { type: forallParameter.type, env: calleeEnv },
+        { type: evaluatedForallParameterType, env: calleeEnv },
         { type: typeValue.type, env: callerEnv }
       );
       calleeEnv = expectedEnv;
@@ -843,7 +858,7 @@ export function tryToCallFunctionWithArguments({
       // Compare the types
       if (
         !areTypesCompatible(
-          { type: forallParameter.type, env: calleeEnv },
+          { type: evaluatedForallParameterType, env: calleeEnv },
           { type: typeValue.type, env: callerEnv }
         )
       ) {
@@ -853,7 +868,7 @@ export function tryToCallFunctionWithArguments({
             functionCalleeExpr?.token ??
             PlaceholderToken,
           errorMessage: `Type mismatch for type parameter "${forallParameter.label}":
-Expected: ${typeToString(forallParameter.type)}
+Expected: ${typeToString(evaluatedForallParameterType)}
 Got:   ${typeToString(typeValue.type)}`,
         });
       }
@@ -893,7 +908,7 @@ Got:   ${typeToString(typeValue.type)}`,
       forallArgValues.push({
         value: typeValue,
         argType: typeValue.type,
-        parameterType: forallParameter.type,
+        parameterType: evaluatedForallParameterType,
       });
     }
   }
@@ -971,12 +986,38 @@ Got:   ${argExprs.length} arguments`,
   // Otherwise it might cause the variable shadowing problem.
   // See example in compt_runtime.yo.
   if (context.expectedType) {
-    const { expectedEnv } = synthesizeTypes(
+    const { expectedEnv, givenEnv } = synthesizeTypes(
       { type: functionType.return.type, env: calleeEnv },
       { type: context.expectedType.type, env: context.expectedType.env }
     );
+
     calleeEnv = expectedEnv;
-    // env = givenEnv; // NOTE: No need to update `env` here
+
+    // IMPORTANT: During synthesis, variables might end up in givenEnv that are needed in calleeEnv
+    // We need to copy any variables from givenEnv that don't exist in expectedEnv
+    // This commonly happens when the context.expectedType.env contains variables that the
+    // function body needs but aren't naturally in the calleeEnv
+    const givenVarNames = new Set<string>();
+    for (const frame of givenEnv.frames) {
+      for (const variable of frame.variables) {
+        givenVarNames.add(variable.name);
+      }
+    }
+
+    for (const varName of givenVarNames) {
+      const existingInCallee = getVariablesFromEnv(calleeEnv, varName);
+      const inGiven = getVariablesFromEnv(givenEnv, varName);
+
+      // If variable exists in givenEnv but not in calleeEnv, copy it over
+      if (inGiven.length > 0 && existingInCallee.length === 0) {
+        const varToCopy = inGiven[inGiven.length - 1]!; // Get the most recent one
+        const { env: nextEnv } = addVariableToEnv({
+          env: calleeEnv,
+          variable: varToCopy,
+        });
+        calleeEnv = nextEnv;
+      }
+    }
   }
 
   // Check if the implicit parameters are provided
@@ -1160,11 +1201,14 @@ Got:   ${typeToString(argType)}`,
         }
 
         // First synthesize types to allow unification of SomeTypes with concrete types
-        const { expectedEnv: synthesizedCalleeEnv, givenEnv: synthesizedCallerEnv } = synthesizeTypes(
+        const {
+          expectedEnv: synthesizedCalleeEnv,
+          givenEnv: synthesizedCallerEnv,
+        } = synthesizeTypes(
           { type: implicitParameterType, env: calleeEnv },
           { type: variable.type, env: callerEnv }
         );
-        
+
         // Check if type matches
         const isCompatible = areTypesCompatible(
           { type: implicitParameterType, env: synthesizedCalleeEnv },
@@ -1524,6 +1568,19 @@ ${implicitVariables
     implicitArgs: implicitArgValues,
     variadicArgs,
   };
+
+  // Debug logging for function calls with implicit arguments
+  if (implicitArgValues.length > 0) {
+    console.log(
+      `[DEBUG] Function call with implicit args: ${functionCalleeExpr ? exprToString(functionCalleeExpr) : "unknown"}`
+    );
+    console.log(`[DEBUG] Implicit args count: ${implicitArgValues.length}`);
+    implicitArgValues.forEach((arg, i) => {
+      console.log(
+        `[DEBUG] Implicit arg ${i}: value=${arg.value ? valueToString(arg.value) : "undefined"}, type=${typeToString(arg.argType)}`
+      );
+    });
+  }
 
   // Check if we need to evaluate the compt function call
   // such as the type function, macro function, or function that returns compt value.

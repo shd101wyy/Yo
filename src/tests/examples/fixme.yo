@@ -1,44 +1,7 @@
-
-Functor :: (fn(
+Applicative :: (fn(
   compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type))
   ) -> compt(Module))
   module(
-    map :
-      fn(
-        forall(A : Type, B : Type),
-        a : Wrapper(A),
-        f : (fn(a : A) => B)
-      ) -> Wrapper(B),
-    
-    (<$>) ?= map
-  )
-;
-
-Apply :: (fn(
-  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
-  using(FunctorInstance : Functor(Wrapper))
-  ) -> compt(Module))
-  module(
-    ...(FunctorInstance),
-
-    (apply) : 
-      fn(
-        forall(A : Type, B : Type),
-        f : Wrapper(fn(a : A) => B),
-        a : Wrapper(A)
-      ) -> Wrapper(B),
-
-    (<*>) ?= apply
-  )
-;
-
-Applicative :: (fn(
-  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
-  using(ApplyInstance : Apply(Wrapper))
-  ) -> compt(Module))
-  module(
-    ...(ApplyInstance),
-
     pure :
       fn(
         forall(A : Type),
@@ -47,106 +10,35 @@ Applicative :: (fn(
   )
 ;
 
-Bind :: (fn(
-  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
-  using(ApplyInstance : Apply(Wrapper))
-  ) -> compt(Module))
-  module(
-    ...(ApplyInstance),
-
-    (bind) : 
-      fn(
-        forall(A : Type, B : Type),
-        a : Wrapper(A),
-        f : (fn(a : A) => Wrapper(B))
-      ) -> Wrapper(B),
-
-    (>>=) ?= bind
-  )
+/*
+pure :: (fn(
+  forall(
+    A: Type,
+    Wrapper : (fn(compt(W) : Type) -> compt(Type))
+  ), 
+  a : A,
+  using(ApplicativeInstance : Applicative(Wrapper))
+) -> Wrapper(A))
+  ApplicativeInstance.pure(a)
 ;
+*/
 
-Monad :: (fn(
-  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
-  using(
-    ApplicativeInstance : Applicative(Wrapper),
-    BindInstance : Bind(Wrapper))
-  ) -> compt(Module))
-  module(
-    ...(ApplicativeInstance),
-    ...(BindInstance)
-  )
-;
-
-Semigroup :: (fn(
-  compt(M) : Type
-  ) -> compt(Module))
-  module(
-    (append) : 
-      fn(
-        a : M,
-        b : M
-      ) -> M
-  )
-;
-
-Monoid :: (fn(
-  compt(M) : Type,
-  using(SemigroupInstance : Semigroup(M))
-  ) -> compt(Module))
-  module(
-    ...(SemigroupInstance),
-
-    (empty) : 
-      fn() -> M
-  )
-;
-
-Eff :: 
+Data :: 
   (fn(compt(W) : Type) -> compt(Type))
-  __YoEff(W)
+  struct(value: W)
 ;
 
-extern "Yo",
-  __yo_eff_map :
-    fn(
-      forall(A : Type, B : Type),
-      eff : Eff(A),
-      f : (fn(a : A) => B)
-    ) -> Eff(B),
-  __yo_eff_apply :
-    fn(
-      forall(A : Type, B : Type),
-      f : Eff(fn(a : A) => B),
-      a : Eff(A)
-    ) -> Eff(B),
-  __yo_eff_pure :
-    fn(
-      forall(A : Type),
-      a : A
-    ) -> Eff(A),
-  __yo_eff_bind :
-    fn(
-      forall(A : Type, B : Type),
-      a : Eff(A),
-      f : (fn(a : A) => Eff(B))
-    ) -> Eff(B)
-;
-
-given(EffFunctor) :: Functor(Eff)
-  map : 
-    ((eff, f) ->
-      __yo_eff_map(eff, f))
-;
-
-given(EffApply) :: Apply(Eff)
-  apply : 
-    ((f, a) ->
-      __yo_eff_apply(f, a))
-;
-
-given(EffApplicative) :: Applicative(Eff)
+given(DataApplicative) :: Applicative(Data)
   pure : 
-    ((a) ->
-      __yo_eff_pure(a)
-    )
+    ((a) -> {
+      A :: typeof(a);
+      Data(A)(a)
+    })
 ;
+
+main :: (fn() -> unit) {
+  a := Data(i32)(42);
+  (x : Data(unit)) = DataApplicative.pure(());
+  // pure((), using(DataApplicative))
+  return ();
+};
