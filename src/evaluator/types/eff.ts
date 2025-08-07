@@ -19,7 +19,7 @@ export function evaluateEffType({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  expectExprToBeFunctionCallOf(expr, BuiltinKeywords.Eff, 1);
+  expectExprToBeFunctionCallOf(expr, BuiltinKeywords.__YoEff, 1);
 
   const resultTypeExpr = expr.args[0]!;
 

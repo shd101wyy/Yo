@@ -101,6 +101,20 @@ export function evaluateFunctionParameterType({
       calleeEnv = evaluatedTypeExpr.$?.env;
     }
     const parameterType = evaluatedTypeExpr.$?.value.value;
+
+    // Update parameter in callee env
+    const existingVariables = getVariablesFromEnv(calleeEnv, parameter.label);
+    if (existingVariables.length) {
+      const existingVariable = existingVariables[existingVariables.length - 1]!;
+      calleeEnv = updateExistingVariable(calleeEnv, existingVariable, {
+        ...existingVariable,
+        type: parameterType,
+        value: parameter.isCompileTimeOnly
+          ? createUnknownValue(parameterType, parameter.label)
+          : undefined,
+      });
+    }
+
     return {
       parameterType,
       calleeEnv,
@@ -137,6 +151,20 @@ export function evaluateFunctionParameterType({
     // NOTE: Using value.type is wrong here.
     // value might be i32,
     // but expr type is Type, not Free.
+
+    // Update parameter in callee env
+    const existingVariables = getVariablesFromEnv(calleeEnv, parameter.label);
+    if (existingVariables.length) {
+      const existingVariable = existingVariables[existingVariables.length - 1]!;
+      calleeEnv = updateExistingVariable(calleeEnv, existingVariable, {
+        ...existingVariable,
+        type: parameterType,
+        value: parameter.isCompileTimeOnly
+          ? createUnknownValue(parameterType, parameter.label)
+          : undefined,
+      });
+    }
+
     return {
       parameterType,
       calleeEnv,
@@ -215,30 +243,30 @@ export function checkIfFunctionParameterMatchesArgument({
   }
 
   let parameterType = parameter.type;
-  if (isFunctionType(parameterType)) {
-    // Evaluate the parameter type again.
-    // This is for anonymous function type that contains type parameter
-    // for example:
-    //    (forall(T: Type), x: T, callback: ((v: T)-> T))-> T
-    // and we call it:
-    //    generic_fn(1, fn(x)-> add(x, 1));
-    // We can infer `T` is `i32`,
-    // But when we evaluate `callback`, we need to evaluate its type again
-    // before we evluate the arg
 
-    const { parameterType: newParameterType, calleeEnv: nextCalleeEnv } =
-      evaluateFunctionParameterType({
-        parameter,
-        calleeEnv,
-        context: {
-          ...context,
-          isEvaluatingFunctionType: true,
-        },
-        functionValue,
-      });
-    parameterType = newParameterType;
-    calleeEnv = nextCalleeEnv;
-  }
+  //if (isFunctionType(parameterType) || isClosureType(parameterType)) {
+  // Evaluate the parameter type again.
+  // This is for anonymous function type that contains type parameter
+  // for example:
+  //    (forall(T: Type), x: T, callback: ((v: T)-> T))-> T
+  // and we call it:
+  //    generic_fn(1, fn(x)-> add(x, 1));
+  // We can infer `T` is `i32`,
+  // But when we evaluate `callback`, we need to evaluate its type again
+  // before we evluate the arg
+  const { parameterType: newParameterType, calleeEnv: nextCalleeEnv } =
+    evaluateFunctionParameterType({
+      parameter,
+      calleeEnv,
+      context: {
+        ...context,
+        isEvaluatingFunctionType: true,
+      },
+      functionValue,
+    });
+  parameterType = newParameterType;
+  calleeEnv = nextCalleeEnv;
+  //}
 
   // Evaluate the argExpr
   let evaluatedArgExpr: Expr | undefined = undefined;
@@ -401,27 +429,32 @@ export function checkIfFunctionParameterMatchesArgument({
     callerEnv = setExprAsConsumed(evaluatedArgExpr, callerEnv, context);
   }
 
+  // Evaluate the parameter type again
+  // const { parameterType: newParameterType, calleeEnv: nextCalleeEnv } =
+  //   evaluateFunctionParameterType({
+  //     parameter,
+  //     calleeEnv,
+  //     context: {
+  //       ...context,
+  //       isEvaluatingFunctionType: true,
+  //     },
+  //     functionValue,
+  //   });
+  // parameterType = newParameterType;
+  // calleeEnv = nextCalleeEnv;
+
   // Synthesize the types
+  console.log(
+    "before synthesizeTypes: ",
+    typeToString(parameterType),
+    typeToString(argType)
+  );
   const { expectedEnv, givenEnv } = synthesizeTypes(
     { type: parameterType, env: calleeEnv },
     { type: argType, env: callerEnv }
   );
   calleeEnv = expectedEnv;
   callerEnv = givenEnv;
-
-  // Evaluate the parameter type again
-  const { parameterType: newParameterType, calleeEnv: nextCalleeEnv } =
-    evaluateFunctionParameterType({
-      parameter,
-      calleeEnv,
-      context: {
-        ...context,
-        isEvaluatingFunctionType: true,
-      },
-      functionValue,
-    });
-  parameterType = newParameterType;
-  calleeEnv = nextCalleeEnv;
 
   // Compare the types
   if (
@@ -445,7 +478,7 @@ export function checkIfFunctionParameterMatchesArgument({
     context: { ...context, borrowings },
     argValue,
     argType,
-    parameterType: newParameterType,
+    parameterType: parameterType,
   };
 }
 
@@ -802,6 +835,14 @@ export function tryToCallFunctionWithArguments({
         };
       }
 
+      // Synthesize the types
+      const { expectedEnv, givenEnv } = synthesizeTypes(
+        { type: forallParameter.type, env: calleeEnv },
+        { type: typeValue.type, env: callerEnv }
+      );
+      calleeEnv = expectedEnv;
+      callerEnv = givenEnv;
+
       // Compare the types
       if (
         !areTypesCompatible(
@@ -1075,14 +1116,6 @@ Got:   ${argExprs.length} arguments`,
         calleeEnv = nextEnv;
       }
 
-      // Synthesize the types
-      const { expectedEnv, givenEnv } = synthesizeTypes(
-        { type: implicitParameterType, env: calleeEnv },
-        { type: argType, env: callerEnv }
-      );
-      calleeEnv = expectedEnv;
-      callerEnv = givenEnv;
-
       // Evaluate the parameter type again
       const {
         parameterType: newImplicitParameterType,
@@ -1098,6 +1131,14 @@ Got:   ${argExprs.length} arguments`,
       });
       implicitParameterType = newImplicitParameterType;
       calleeEnv = nextCalleeEnv;
+
+      // Synthesize the types
+      const { expectedEnv, givenEnv } = synthesizeTypes(
+        { type: implicitParameterType, env: calleeEnv },
+        { type: argType, env: callerEnv }
+      );
+      calleeEnv = expectedEnv;
+      callerEnv = givenEnv;
 
       // Compare the types
       if (

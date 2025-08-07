@@ -18,6 +18,7 @@ import {
   SomeType,
   StructType,
 } from "../../types";
+import { randomId } from "../../utils";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 
@@ -60,7 +61,7 @@ Got:\n${exprToString(expr)}`,
   // Handle capture type
   if (isCaptureUnderscore) {
     // Create a SomeType for inference with a unique name
-    const captureTypePlaceholderName = `_capture_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const captureTypePlaceholderName = `_capture_${randomId()}`;
     captureType = createSomeType(createTypeType(), captureTypePlaceholderName);
   } else {
     // Evaluate the capture type expression

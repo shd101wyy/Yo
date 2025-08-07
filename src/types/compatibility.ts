@@ -381,6 +381,22 @@ export function areTypesCompatible(
     const expectedClosure = expected.type as ClosureType;
     const givenClosure = given.type as ClosureType;
 
+    console.trace(
+      "check closure: ",
+      typeToString(expectedClosure),
+      typeToString(givenClosure),
+      areFunctionTypesCompatible(
+        { type: expectedClosure.callType, env: expected.env },
+        { type: givenClosure.callType, env: given.env },
+        exactNumericTypeMatch
+      ),
+      areTypesCompatible(
+        { type: expectedClosure.captureType, env: expected.env },
+        { type: givenClosure.captureType, env: given.env },
+        exactNumericTypeMatch
+      )
+    );
+
     // Check if the function signatures are compatible
     if (
       !areFunctionTypesCompatible(
@@ -482,21 +498,6 @@ export function areTypesCompatible(
   }
 
   if (isEffType(expected.type) && isEffType(given.type)) {
-    console.log(
-      "both eff type",
-      typeToString(expected.type.resultType),
-      typeToString(given.type.resultType),
-      areTypesCompatible(
-        {
-          type: expected.type.resultType,
-          env: expected.env,
-        },
-        {
-          type: given.type.resultType,
-          env: given.env,
-        }
-      )
-    );
     return areTypesCompatible(
       {
         type: expected.type.resultType,

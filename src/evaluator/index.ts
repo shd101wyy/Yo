@@ -540,7 +540,7 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
           env,
           context: { ...context },
         });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Eff)) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.__YoEff)) {
         // Eff type
         return evaluateEffType({
           expr,

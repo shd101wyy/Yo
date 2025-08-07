@@ -18,7 +18,9 @@ import {
   getValueOfSomeTypeFromEnv,
   isArrayType,
   isClosureType,
+  isEffType,
   isEnumType,
+  isFunctionType,
   isModuleType,
   isMutPtrType,
   isMutRefType,
@@ -293,11 +295,21 @@ export function synthesizeTypes(
   if (isSomeType(expected.type)) {
     // Check if the env has
     const type = getValueOfSomeTypeFromEnv(expected.env, expected.type);
+    console.log(
+      isSomeType(type),
+      isSomeType(type) && type.name === expected.type.name
+    );
     if (
       //type === expected.type
       isSomeType(type) &&
       type.name === expected.type.name
     ) {
+      console.log(
+        "synthesize SomeType: ",
+        type.name,
+        typeToString(expected.type),
+        typeToString(given.type)
+      );
       // Update the env to set givenType to expectedType.name
       const value = createTypeValue(given.type);
       // console.log("(1) addVariableToEnv");
@@ -540,6 +552,11 @@ export function synthesizeTypes(
     expected.env = expectedEnv;
     given.env = givenEnv;
   } else if (isClosureType(expected.type) && isClosureType(given.type)) {
+    console.log(
+      "synthesize closure types: ",
+      typeToString(expected.type),
+      typeToString(given.type)
+    );
     // Synthesize closure types - match capture types and function types
     const expectedClosure = expected.type;
     const givenClosure = given.type;
@@ -558,22 +575,109 @@ export function synthesizeTypes(
     expected.env = expectedEnv;
     given.env = givenEnv;
 
-    // Synthesize the capture types if both exist
-    if (expectedClosure.captureType && givenClosure.captureType) {
-      const { expectedEnv: captureExpectedEnv, givenEnv: captureGivenEnv } =
-        synthesizeTypes(
-          {
-            type: expectedClosure.captureType,
-            env: expected.env,
-          },
-          {
-            type: givenClosure.captureType,
-            env: given.env,
-          }
-        );
-      expected.env = captureExpectedEnv;
-      given.env = captureGivenEnv;
+    // Synthesize the capture types
+    const { expectedEnv: captureExpectedEnv, givenEnv: captureGivenEnv } =
+      synthesizeTypes(
+        {
+          type: expectedClosure.captureType,
+          env: expected.env,
+        },
+        {
+          type: givenClosure.captureType,
+          env: given.env,
+        }
+      );
+    expected.env = captureExpectedEnv;
+    given.env = captureGivenEnv;
+  } else if (
+    isFunctionType(expected.type) &&
+    isFunctionType(given.type) &&
+    expected.type.forallParameters.length ===
+      given.type.forallParameters.length &&
+    expected.type.parameters.length === given.type.parameters.length &&
+    expected.type.implicitParameters.length ===
+      given.type.implicitParameters.length
+  ) {
+    // Synthesize function types - match parameter types and return types
+    const expectedFunction = expected.type;
+    const givenFunction = given.type;
+
+    // Synthesize the forall parameter types
+    for (let i = 0; i < expectedFunction.forallParameters.length; i++) {
+      const expectedForallParam = expectedFunction.forallParameters[i]!;
+      const givenForallParam = givenFunction.forallParameters[i]!;
+      const { expectedEnv, givenEnv } = synthesizeTypes(
+        {
+          type: expectedForallParam.type,
+          env: expected.env,
+        },
+        {
+          type: givenForallParam.type,
+          env: given.env,
+        }
+      );
+      expected.env = expectedEnv;
+      given.env = givenEnv;
     }
+
+    // Synthesize the parameter types
+    for (let i = 0; i < expectedFunction.parameters.length; i++) {
+      const { expectedEnv, givenEnv } = synthesizeTypes(
+        {
+          type: expectedFunction.parameters[i]!.type,
+          env: expected.env,
+        },
+        {
+          type: givenFunction.parameters[i]!.type,
+          env: given.env,
+        }
+      );
+      expected.env = expectedEnv;
+      given.env = givenEnv;
+    }
+
+    // Synthesize the implicit parameter types
+    for (let i = 0; i < expectedFunction.implicitParameters.length; i++) {
+      const { expectedEnv, givenEnv } = synthesizeTypes(
+        {
+          type: expectedFunction.implicitParameters[i]!.type,
+          env: expected.env,
+        },
+        {
+          type: givenFunction.implicitParameters[i]!.type,
+          env: given.env,
+        }
+      );
+      expected.env = expectedEnv;
+      given.env = givenEnv;
+    }
+
+    // Synthesize the return types
+    const { expectedEnv, givenEnv } = synthesizeTypes(
+      {
+        type: expectedFunction.return.type,
+        env: expected.env,
+      },
+      {
+        type: givenFunction.return.type,
+        env: given.env,
+      }
+    );
+    expected.env = expectedEnv;
+    given.env = givenEnv;
+  } else if (isEffType(expected.type) && isEffType(given.type)) {
+    const { expectedEnv, givenEnv } = synthesizeTypes(
+      {
+        type: expected.type.resultType,
+        env: expected.env,
+      },
+      {
+        type: given.type.resultType,
+        env: given.env,
+      }
+    );
+    expected.env = expectedEnv;
+    given.env = givenEnv;
   }
   return { expectedEnv: expected.env, givenEnv: given.env };
 }

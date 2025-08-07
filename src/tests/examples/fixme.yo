@@ -1,20 +1,47 @@
+/**
 open import "../../../std/modules/monad";
 
 Eff :: 
   (fn(compt(W) : Type) -> compt(Type))
-  Eff(W);
+  __YoEff(W)
+;
 
 extern "Yo",
-  __yo_eff_map : 
+  __yo_eff_map :
     fn(
-      forall(A : Type, B : Type),
-      eff : Eff(A),
-      f : (fn(a : A) => B)
-    ) -> Eff(B)
+      forall(A1 : Type, B2 : Type),
+      eff : Eff(A1),
+      f : (fn(a : A1) => B2)
+    ) -> Eff(B2)
 ;
 
 EffFunctor :: Functor(Eff)
   map : 
     ((eff, f) ->
       __yo_eff_map(eff, f))
+;
+*/
+
+Functor :: (fn() -> compt(Module))
+  module(
+    map :
+      fn(
+        forall(A : Type),
+        f : (fn(a : A) => A)
+      ) -> A
+   )
+;
+
+extern "Yo",
+  __yo_eff_map :
+    fn(
+      forall(A1 : Type),
+      f : (fn(a : A1) => A1)
+    ) -> A1
+;
+
+SomeFunctor :: Functor()
+  map :
+    ((f) ->
+      __yo_eff_map(f))
 ;
