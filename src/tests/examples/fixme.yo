@@ -1,4 +1,4 @@
-/**
+
 open import "../../../std/modules/monad";
 
 Eff :: 
@@ -9,39 +9,44 @@ Eff ::
 extern "Yo",
   __yo_eff_map :
     fn(
-      forall(A1 : Type, B2 : Type),
-      eff : Eff(A1),
-      f : (fn(a : A1) => B2)
-    ) -> Eff(B2)
+      forall(A : Type, B : Type),
+      eff : Eff(A),
+      f : (fn(a : A) => B)
+    ) -> Eff(B),
+  __yo_eff_apply :
+    fn(
+      forall(A : Type, B : Type),
+      f : Eff(fn(a : A) => B),
+      a : Eff(A)
+    ) -> Eff(B),
+  __yo_eff_pure :
+    fn(
+      forall(A : Type),
+      a : A
+    ) -> Eff(A),
+  __yo_eff_bind :
+    fn(
+      forall(A : Type, B : Type),
+      a : Eff(A),
+      f : (fn(a : A) => Eff(B))
+    ) -> Eff(B)
 ;
 
-EffFunctor :: Functor(Eff)
+given(EffFunctor) :: Functor(Eff)
   map : 
     ((eff, f) ->
       __yo_eff_map(eff, f))
 ;
-*/
 
-Functor :: (fn() -> compt(Module))
-  module(
-    map :
-      fn(
-        forall(A : Type),
-        f : (fn(a : A) => A)
-      ) -> A
-   )
+given(EffApply) :: Apply(Eff)
+  apply : 
+    ((f, a) ->
+      __yo_eff_apply(f, a))
 ;
 
-extern "Yo",
-  __yo_eff_map :
-    fn(
-      forall(A1 : Type),
-      f : (fn(a : A1) => A1)
-    ) -> A1
-;
-
-SomeFunctor :: Functor()
-  map :
-    ((f) ->
-      __yo_eff_map(f))
+given(EffApplicative) :: Applicative(Eff)
+  pure : 
+    ((a) ->
+      __yo_eff_pure(a)
+    )
 ;

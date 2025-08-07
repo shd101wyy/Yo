@@ -241,6 +241,7 @@ export function addVariableToFrame({
     !allowDuplicate &&
     frame.variables.some((value) => value.name === variable.name)
   ) {
+    console.trace();
     throw formatErrorMessages([
       {
         token: variable.token,
@@ -272,6 +273,7 @@ export function addVariableToFrame({
       (value) => value.name === variable.name
     );
     if (existingVariable) {
+      console.trace();
       throw formatErrorMessages([
         {
           token: variable.token,

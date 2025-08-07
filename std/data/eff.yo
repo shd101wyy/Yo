@@ -1,3 +1,69 @@
 open import "../modules/monad.yo";
 
-EffFunctor :: Functor(Eff);
+Eff :: 
+  (fn(compt(W) : Type) -> compt(Type))
+  __YoEff(W)
+;
+
+extern "Yo",
+  __yo_eff_map :
+    fn(
+      forall(A : Type, B : Type),
+      eff : Eff(A),
+      f : (fn(a : A) => B)
+    ) -> Eff(B),
+  __yo_eff_apply :
+    fn(
+      forall(A : Type, B : Type),
+      f : Eff(fn(a : A) => B),
+      a : Eff(A)
+    ) -> Eff(B),
+  __yo_eff_pure :
+    fn(
+      forall(A : Type),
+      a : A
+    ) -> Eff(A),
+  __yo_eff_bind :
+    fn(
+      forall(A : Type, B : Type),
+      a : Eff(A),
+      f : (fn(a : A) => Eff(B))
+    ) -> Eff(B)
+;
+
+given(EffFunctor) :: Functor(Eff)
+  map : 
+    ((eff, f) ->
+      __yo_eff_map(eff, f))
+;
+
+given(EffApply) :: Apply(Eff, using(EffFunctor))
+  apply : 
+    ((f, a) ->
+      __yo_eff_apply(f, a))
+;
+
+given(EffApplicative) :: Applicative(Eff, using(EffApply))
+  pure : 
+    ((a) ->
+      __yo_eff_pure(a)
+    )
+;
+
+given(EffBind) :: Bind(Eff, using(EffApply))
+  bind : 
+    ((a, f) ->
+      __yo_eff_bind(a, f))
+;
+
+given(EffMonad) :: Monad(Eff, using(EffApplicative, EffBind))(
+);
+
+export
+  Eff,
+  EffFunctor,
+  EffApply,
+  EffApplicative,
+  EffBind,
+  EffMonad
+;

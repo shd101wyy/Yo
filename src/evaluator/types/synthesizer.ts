@@ -292,24 +292,109 @@ export function synthesizeTypes(
     env: Environment;
   }
 ): { expectedEnv: Environment; givenEnv: Environment } {
-  if (isSomeType(expected.type)) {
+  if (isSomeType(expected.type) && isSomeType(given.type)) {
+    // Handle case where both are SomeTypes - unify them
+    // Check if either SomeType is already bound
+    const expectedBoundType = getValueOfSomeTypeFromEnv(
+      expected.env,
+      expected.type
+    );
+    const givenBoundType = getValueOfSomeTypeFromEnv(given.env, given.type);
+
+    if (expectedBoundType && !isSomeType(expectedBoundType)) {
+      // Expected is bound, use it to bind given
+      const value = createTypeValue(expectedBoundType);
+      const existingVariables = getVariablesFromEnv(given.env, given.type.name);
+      const variable = existingVariables[existingVariables.length - 1];
+      if (!variable) {
+        const { env: nextEnv } = addVariableToEnv({
+          env: given.env,
+          variable: {
+            name: given.type.name,
+            value: value,
+            type: value.type,
+            isMutable: false,
+            isCompileTimeOnly: true,
+            isImplicit: false,
+            token: PlaceholderToken,
+            initializedAtToken: PlaceholderToken,
+            consumedAtToken: undefined,
+          },
+        });
+        given.env = nextEnv;
+      } else {
+        given.env = updateExistingVariable(given.env, variable, {
+          ...variable,
+          value,
+        });
+      }
+    } else if (givenBoundType && !isSomeType(givenBoundType)) {
+      // Given is bound, use it to bind expected
+      const value = createTypeValue(givenBoundType);
+      const existingVariables = getVariablesFromEnv(
+        expected.env,
+        expected.type.name
+      );
+      const variable = existingVariables[existingVariables.length - 1];
+      if (!variable) {
+        const { env: nextEnv } = addVariableToEnv({
+          env: expected.env,
+          variable: {
+            name: expected.type.name,
+            value: value,
+            type: value.type,
+            isMutable: false,
+            isCompileTimeOnly: true,
+            isImplicit: false,
+            token: PlaceholderToken,
+            initializedAtToken: PlaceholderToken,
+            consumedAtToken: undefined,
+          },
+        });
+        expected.env = nextEnv;
+      } else {
+        expected.env = updateExistingVariable(expected.env, variable, {
+          ...variable,
+          value,
+        });
+      }
+    } else {
+      // Neither is bound yet - bind given to expected's name
+      // This creates a constraint that they should be the same type
+      const value = createTypeValue(expected.type);
+      const existingVariables = getVariablesFromEnv(given.env, given.type.name);
+      const variable = existingVariables[existingVariables.length - 1];
+      if (!variable) {
+        const { env: nextEnv } = addVariableToEnv({
+          env: given.env,
+          variable: {
+            name: given.type.name,
+            value: value,
+            type: value.type,
+            isMutable: false,
+            isCompileTimeOnly: true,
+            isImplicit: false,
+            token: PlaceholderToken,
+            initializedAtToken: PlaceholderToken,
+            consumedAtToken: undefined,
+          },
+        });
+        given.env = nextEnv;
+      } else {
+        given.env = updateExistingVariable(given.env, variable, {
+          ...variable,
+          value,
+        });
+      }
+    }
+  } else if (isSomeType(expected.type)) {
     // Check if the env has
     const type = getValueOfSomeTypeFromEnv(expected.env, expected.type);
-    console.log(
-      isSomeType(type),
-      isSomeType(type) && type.name === expected.type.name
-    );
     if (
       //type === expected.type
       isSomeType(type) &&
       type.name === expected.type.name
     ) {
-      console.log(
-        "synthesize SomeType: ",
-        type.name,
-        typeToString(expected.type),
-        typeToString(given.type)
-      );
       // Update the env to set givenType to expectedType.name
       const value = createTypeValue(given.type);
       // console.log("(1) addVariableToEnv");
@@ -339,6 +424,51 @@ export function synthesizeTypes(
       } else if (variable) {
         // Update existing
         expected.env = updateExistingVariable(expected.env, variable, {
+          ...variable,
+          value,
+        });
+      }
+    }
+  } else if (isSomeType(given.type)) {
+    // Handle case where given is SomeType but expected is not
+    // This can happen in closure synthesis where we need to unify SomeTypes
+
+    // Check if the given SomeType is already bound in its environment
+    const existingType = getValueOfSomeTypeFromEnv(given.env, given.type);
+    if (existingType && !isSomeType(existingType)) {
+      // The given SomeType is already bound to a concrete type
+      // Recursively synthesize with the bound type
+      const { expectedEnv, givenEnv } = synthesizeTypes(
+        { type: expected.type, env: expected.env },
+        { type: existingType, env: given.env }
+      );
+      expected.env = expectedEnv;
+      given.env = givenEnv;
+    } else {
+      // Bind the given SomeType to the expected type
+      const value = createTypeValue(expected.type);
+
+      const existingVariables = getVariablesFromEnv(given.env, given.type.name);
+      const variable = existingVariables[existingVariables.length - 1];
+      if (!variable) {
+        const { env: nextEnv } = addVariableToEnv({
+          env: given.env,
+          variable: {
+            name: given.type.name,
+            value: value,
+            type: value.type,
+            isMutable: false,
+            isCompileTimeOnly: true,
+            isImplicit: false,
+            token: PlaceholderToken,
+            initializedAtToken: PlaceholderToken,
+            consumedAtToken: undefined,
+          },
+        });
+        given.env = nextEnv;
+      } else if (variable) {
+        // Update existing
+        given.env = updateExistingVariable(given.env, variable, {
           ...variable,
           value,
         });
@@ -552,11 +682,6 @@ export function synthesizeTypes(
     expected.env = expectedEnv;
     given.env = givenEnv;
   } else if (isClosureType(expected.type) && isClosureType(given.type)) {
-    console.log(
-      "synthesize closure types: ",
-      typeToString(expected.type),
-      typeToString(given.type)
-    );
     // Synthesize closure types - match capture types and function types
     const expectedClosure = expected.type;
     const givenClosure = given.type;

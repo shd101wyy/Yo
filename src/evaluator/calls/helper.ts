@@ -103,17 +103,40 @@ export function evaluateFunctionParameterType({
     const parameterType = evaluatedTypeExpr.$?.value.value;
 
     // Update parameter in callee env
-    const existingVariables = getVariablesFromEnv(calleeEnv, parameter.label);
-    if (existingVariables.length) {
-      const existingVariable = existingVariables[existingVariables.length - 1]!;
-      calleeEnv = updateExistingVariable(calleeEnv, existingVariable, {
-        ...existingVariable,
-        type: parameterType,
-        value: parameter.isCompileTimeOnly
-          ? createUnknownValue(parameterType, parameter.label)
-          : undefined,
-      });
-    }
+    // const existingVariables = getVariablesFromEnv(calleeEnv, parameter.label);
+    // if (existingVariables.length) {
+    //   const existingVariable = existingVariables[existingVariables.length - 1]!;
+    //   calleeEnv = updateExistingVariable(calleeEnv, existingVariable, {
+    //     ...existingVariable,
+    //     type: parameterType,
+    //     value: parameter.isCompileTimeOnly
+    //       ? createUnknownValue(parameterType, parameter.label)
+    //       : undefined,
+    //   });
+    // } else {
+    //   const { env: nextEnv } = addVariableToEnv({
+    //     env: calleeEnv,
+    //     variable: {
+    //       name: parameter.label,
+    //       type: parameterType,
+    //       isMutable: parameter.isMutable,
+    //       isCompileTimeOnly: parameter.isCompileTimeOnly,
+    //       isImplicit: false,
+    //       value: parameter.isCompileTimeOnly
+    //         ? createUnknownValue(parameterType, parameter.label)
+    //         : undefined,
+    //       token: typeExpr.token,
+    //       initializedAtToken: typeExpr.token,
+    //       consumedAtToken: undefined,
+    //     },
+    //   });
+    //   calleeEnv = nextEnv;
+    //
+    //   // throw formatErrorMessage({
+    //   //   token: typeExpr.token,
+    //   //   errorMessage: `Expected parameter "${parameter.label}" to be defined in the environment.`,
+    //   // });
+    // }
 
     return {
       parameterType,
@@ -153,18 +176,23 @@ export function evaluateFunctionParameterType({
     // but expr type is Type, not Free.
 
     // Update parameter in callee env
-    const existingVariables = getVariablesFromEnv(calleeEnv, parameter.label);
-    if (existingVariables.length) {
-      const existingVariable = existingVariables[existingVariables.length - 1]!;
-      calleeEnv = updateExistingVariable(calleeEnv, existingVariable, {
-        ...existingVariable,
-        type: parameterType,
-        value: parameter.isCompileTimeOnly
-          ? createUnknownValue(parameterType, parameter.label)
-          : undefined,
-      });
-    }
-
+    // const existingVariables = getVariablesFromEnv(calleeEnv, parameter.label);
+    // if (existingVariables.length) {
+    //   const existingVariable = existingVariables[existingVariables.length - 1]!;
+    //   calleeEnv = updateExistingVariable(calleeEnv, existingVariable, {
+    //     ...existingVariable,
+    //     type: parameterType,
+    //     value: parameter.isCompileTimeOnly
+    //       ? createUnknownValue(parameterType, parameter.label)
+    //       : undefined,
+    //   });
+    // } else {
+    //   throw formatErrorMessage({
+    //     token: defaultValueExpr.token,
+    //     errorMessage: `Expected parameter "${parameter.label}" to be defined in the environment.`,
+    //   });
+    // }
+    //
     return {
       parameterType,
       calleeEnv,
@@ -242,19 +270,9 @@ export function checkIfFunctionParameterMatchesArgument({
     }
   }
 
-  let parameterType = parameter.type;
-
-  //if (isFunctionType(parameterType) || isClosureType(parameterType)) {
-  // Evaluate the parameter type again.
-  // This is for anonymous function type that contains type parameter
-  // for example:
-  //    (forall(T: Type), x: T, callback: ((v: T)-> T))-> T
-  // and we call it:
-  //    generic_fn(1, fn(x)-> add(x, 1));
-  // We can infer `T` is `i32`,
-  // But when we evaluate `callback`, we need to evaluate its type again
-  // before we evluate the arg
-  const { parameterType: newParameterType, calleeEnv: nextCalleeEnv } =
+  // Evaluate the parameter type FIRST - before any argument evaluation
+  // This ensures we have the correct parameterType for expectedType in argument evaluation
+  const { parameterType, calleeEnv: updatedCalleeEnv } =
     evaluateFunctionParameterType({
       parameter,
       calleeEnv,
@@ -264,9 +282,7 @@ export function checkIfFunctionParameterMatchesArgument({
       },
       functionValue,
     });
-  parameterType = newParameterType;
-  calleeEnv = nextCalleeEnv;
-  //}
+  calleeEnv = updatedCalleeEnv;
 
   // Evaluate the argExpr
   let evaluatedArgExpr: Expr | undefined = undefined;
@@ -429,26 +445,7 @@ export function checkIfFunctionParameterMatchesArgument({
     callerEnv = setExprAsConsumed(evaluatedArgExpr, callerEnv, context);
   }
 
-  // Evaluate the parameter type again
-  // const { parameterType: newParameterType, calleeEnv: nextCalleeEnv } =
-  //   evaluateFunctionParameterType({
-  //     parameter,
-  //     calleeEnv,
-  //     context: {
-  //       ...context,
-  //       isEvaluatingFunctionType: true,
-  //     },
-  //     functionValue,
-  //   });
-  // parameterType = newParameterType;
-  // calleeEnv = nextCalleeEnv;
-
   // Synthesize the types
-  console.log(
-    "before synthesizeTypes: ",
-    typeToString(parameterType),
-    typeToString(argType)
-  );
   const { expectedEnv, givenEnv } = synthesizeTypes(
     { type: parameterType, env: calleeEnv },
     { type: argType, env: callerEnv }
@@ -1000,7 +997,7 @@ Got:   ${argExprs.length} arguments`,
       functionValue,
     });
     calleeEnv = nextCalleeEnv;
-    let implicitParameterType = newImplicitParameterType;
+    const implicitParameterType = newImplicitParameterType;
 
     // When evaluating function types, assume implicit parameters will be satisfied
     if (context.isEvaluatingFunctionType) {
@@ -1115,22 +1112,6 @@ Got:   ${argExprs.length} arguments`,
         });
         calleeEnv = nextEnv;
       }
-
-      // Evaluate the parameter type again
-      const {
-        parameterType: newImplicitParameterType,
-        calleeEnv: nextCalleeEnv,
-      } = evaluateFunctionParameterType({
-        parameter: implicitParameter,
-        calleeEnv,
-        context: {
-          ...context,
-          isEvaluatingFunctionType: true,
-        },
-        functionValue,
-      });
-      implicitParameterType = newImplicitParameterType;
-      calleeEnv = nextCalleeEnv;
 
       // Synthesize the types
       const { expectedEnv, givenEnv } = synthesizeTypes(
