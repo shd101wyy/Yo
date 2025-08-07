@@ -365,6 +365,7 @@ export function areTypesCompatible(
               }
             )
           ) {
+            console.log(`[DEBUG] Element ${expectedElement.label} assigned values are not equal`);
             return false;
           }
         }

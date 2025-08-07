@@ -76,7 +76,7 @@ export function evaluateFunctionParameterType({
 }: {
   parameter: FunctionParameter;
   calleeEnv: Environment;
-  context: EvaluatorContext & { isEvaluatingFunctionType: true };
+  context: EvaluatorContext & { isEvaluatingFunctionType: boolean };
   functionValue: FunctionValue | undefined;
 }): { parameterType: Type; calleeEnv: Environment } {
   const typeExpr = parameter.exprs.typeExpr;
@@ -1148,6 +1148,7 @@ Got:   ${typeToString(argType)}`,
       callerEnv: Environment;
       variable: Variable;
     }[] = [];
+
     let implicitVariables = getVariablesFromEnvByFilter(
       callerEnv,
       (variable) => {
@@ -1158,13 +1159,19 @@ Got:   ${typeToString(argType)}`,
           return false;
         }
 
+        // First synthesize types to allow unification of SomeTypes with concrete types
+        const { expectedEnv: synthesizedCalleeEnv, givenEnv: synthesizedCallerEnv } = synthesizeTypes(
+          { type: implicitParameterType, env: calleeEnv },
+          { type: variable.type, env: callerEnv }
+        );
+        
         // Check if type matches
-        if (
-          areTypesCompatible(
-            { type: implicitParameterType, env: calleeEnv },
-            { type: variable.type, env: callerEnv }
-          )
-        ) {
+        const isCompatible = areTypesCompatible(
+          { type: implicitParameterType, env: synthesizedCalleeEnv },
+          { type: variable.type, env: synthesizedCallerEnv }
+        );
+
+        if (isCompatible) {
           return true;
         }
 
@@ -1245,7 +1252,7 @@ Got:   ${typeToString(argType)}`,
       throw formatErrorMessage({
         token: functionCalleeExpr?.token ?? PlaceholderToken,
         errorMessage: `Implicit parameter is not provided. Expected:
-${implicitParameter.label ? `given(${implicitParameter.label}) :\n  ${typeToString(implicitParameterType)}` : `implicit ${typeToString(implicitParameterType)}`}`,
+given(${implicitParameter.label}) :\n  ${typeToString(implicitParameterType)}`,
       });
     }
 

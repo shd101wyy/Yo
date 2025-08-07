@@ -1,5 +1,105 @@
 
-open import "../../../std/modules/monad";
+Functor :: (fn(
+  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type))
+  ) -> compt(Module))
+  module(
+    map :
+      fn(
+        forall(A : Type, B : Type),
+        a : Wrapper(A),
+        f : (fn(a : A) => B)
+      ) -> Wrapper(B),
+    
+    (<$>) ?= map
+  )
+;
+
+Apply :: (fn(
+  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
+  using(FunctorInstance : Functor(Wrapper))
+  ) -> compt(Module))
+  module(
+    ...(FunctorInstance),
+
+    (apply) : 
+      fn(
+        forall(A : Type, B : Type),
+        f : Wrapper(fn(a : A) => B),
+        a : Wrapper(A)
+      ) -> Wrapper(B),
+
+    (<*>) ?= apply
+  )
+;
+
+Applicative :: (fn(
+  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
+  using(ApplyInstance : Apply(Wrapper))
+  ) -> compt(Module))
+  module(
+    ...(ApplyInstance),
+
+    pure :
+      fn(
+        forall(A : Type),
+        a : A
+      ) -> Wrapper(A)
+  )
+;
+
+Bind :: (fn(
+  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
+  using(ApplyInstance : Apply(Wrapper))
+  ) -> compt(Module))
+  module(
+    ...(ApplyInstance),
+
+    (bind) : 
+      fn(
+        forall(A : Type, B : Type),
+        a : Wrapper(A),
+        f : (fn(a : A) => Wrapper(B))
+      ) -> Wrapper(B),
+
+    (>>=) ?= bind
+  )
+;
+
+Monad :: (fn(
+  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type)),
+  using(
+    ApplicativeInstance : Applicative(Wrapper),
+    BindInstance : Bind(Wrapper))
+  ) -> compt(Module))
+  module(
+    ...(ApplicativeInstance),
+    ...(BindInstance)
+  )
+;
+
+Semigroup :: (fn(
+  compt(M) : Type
+  ) -> compt(Module))
+  module(
+    (append) : 
+      fn(
+        a : M,
+        b : M
+      ) -> M
+  )
+;
+
+Monoid :: (fn(
+  compt(M) : Type,
+  using(SemigroupInstance : Semigroup(M))
+  ) -> compt(Module))
+  module(
+    ...(SemigroupInstance),
+
+    (empty) : 
+      fn() -> M
+  )
+;
 
 Eff :: 
   (fn(compt(W) : Type) -> compt(Type))
