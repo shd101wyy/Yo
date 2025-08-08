@@ -68,146 +68,12 @@ import {
   EvaluatorContext,
   FunctionCallResult,
 } from "../context";
+import {
+  evaluateFunctionParameterTypeAgain,
+  evaluateFunctionReturnTypeAgain,
+} from "../types/function";
 import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateComptFunctionCall } from "./compt_function";
-
-export function evaluateFunctionParameterType({
-  parameter,
-  calleeEnv,
-  context,
-  functionValue,
-}: {
-  parameter: FunctionParameter;
-  calleeEnv: Environment;
-  context: EvaluatorContext & { isEvaluatingFunctionType: true };
-  functionValue: FunctionValue | undefined;
-}): { parameterType: Type; calleeEnv: Environment } {
-  const typeExpr = parameter.exprs.typeExpr;
-  const defaultValueExpr = parameter.exprs.defaultValueExpr;
-  if (typeExpr) {
-    const evaluatedTypeExpr = context.evaluateExpression({
-      expr: cloneExpr(typeExpr),
-      env: calleeEnv,
-      context: {
-        ...context,
-        expectedType: undefined,
-        SelfType: functionValue?.SelfType,
-      },
-    });
-    if (!isTypeValue(evaluatedTypeExpr.$?.value)) {
-      throw formatErrorMessage({
-        token: typeExpr.token,
-        errorMessage: `Expected type for parameter, got:\n${exprToString(evaluatedTypeExpr)}`,
-      });
-    }
-    if (evaluatedTypeExpr.$?.env) {
-      calleeEnv = evaluatedTypeExpr.$?.env;
-    }
-    const parameterType = evaluatedTypeExpr.$?.value.value;
-
-    // Update parameter in callee env
-    // const existingVariables = getVariablesFromEnv(calleeEnv, parameter.label);
-    // if (existingVariables.length) {
-    //   const existingVariable = existingVariables[existingVariables.length - 1]!;
-    //   calleeEnv = updateExistingVariable(calleeEnv, existingVariable, {
-    //     ...existingVariable,
-    //     type: parameterType,
-    //     value: parameter.isCompileTimeOnly
-    //       ? createUnknownValue(parameterType, parameter.label)
-    //       : undefined,
-    //   });
-    // } else {
-    //   const { env: nextEnv } = addVariableToEnv({
-    //     env: calleeEnv,
-    //     variable: {
-    //       name: parameter.label,
-    //       type: parameterType,
-    //       isMutable: parameter.isMutable,
-    //       isCompileTimeOnly: parameter.isCompileTimeOnly,
-    //       isImplicit: false,
-    //       value: parameter.isCompileTimeOnly
-    //         ? createUnknownValue(parameterType, parameter.label)
-    //         : undefined,
-    //       token: typeExpr.token,
-    //       initializedAtToken: typeExpr.token,
-    //       consumedAtToken: undefined,
-    //     },
-    //   });
-    //   calleeEnv = nextEnv;
-    //
-    //   // throw formatErrorMessage({
-    //   //   token: typeExpr.token,
-    //   //   errorMessage: `Expected parameter "${parameter.label}" to be defined in the environment.`,
-    //   // });
-    // }
-
-    return {
-      parameterType,
-      calleeEnv,
-    };
-  } else if (defaultValueExpr) {
-    const evaluatedDefaultValueExpr = context.evaluateExpression({
-      expr: cloneExpr(defaultValueExpr),
-      env: calleeEnv,
-      context: {
-        ...context,
-        expectedType: undefined,
-        SelfType: functionValue?.SelfType,
-      },
-    });
-    if (!evaluatedDefaultValueExpr.$) {
-      throw formatErrorMessage({
-        token: defaultValueExpr.token,
-        errorMessage: `Failed to evaluate default value expression:\n${exprToString(defaultValueExpr)}`,
-      });
-    }
-    calleeEnv = evaluatedDefaultValueExpr.$?.env;
-
-    /*
-    const value = evaluatedDefaultValueExpr.$?.value;
-    if (!value) {
-      throw formatErrorMessage({
-        token: defaultValueExpr.token,
-        errorMessage: `Expected value for parameter, got:\n${exprToString(defaultValueExpr)}`,
-      });
-    }
-    */
-
-    const parameterType = evaluatedDefaultValueExpr.$.type; // value.type;
-    // NOTE: Using value.type is wrong here.
-    // value might be i32,
-    // but expr type is Type, not Free.
-
-    // Update parameter in callee env
-    // const existingVariables = getVariablesFromEnv(calleeEnv, parameter.label);
-    // if (existingVariables.length) {
-    //   const existingVariable = existingVariables[existingVariables.length - 1]!;
-    //   calleeEnv = updateExistingVariable(calleeEnv, existingVariable, {
-    //     ...existingVariable,
-    //     type: parameterType,
-    //     value: parameter.isCompileTimeOnly
-    //       ? createUnknownValue(parameterType, parameter.label)
-    //       : undefined,
-    //   });
-    // } else {
-    //   throw formatErrorMessage({
-    //     token: defaultValueExpr.token,
-    //     errorMessage: `Expected parameter "${parameter.label}" to be defined in the environment.`,
-    //   });
-    // }
-    //
-    return {
-      parameterType,
-      calleeEnv,
-    };
-  } else {
-    // For anonymous functions, the parameter type is already known and doesn't need evaluation
-    return {
-      parameterType: parameter.type,
-      calleeEnv,
-    };
-  }
-}
 
 export function checkIfFunctionParameterMatchesArgument({
   functionValue,
@@ -276,7 +142,7 @@ export function checkIfFunctionParameterMatchesArgument({
   // Evaluate the parameter type FIRST - before any argument evaluation
   // This ensures we have the correct parameterType for expectedType in argument evaluation
   const { parameterType, calleeEnv: updatedCalleeEnv } =
-    evaluateFunctionParameterType({
+    evaluateFunctionParameterTypeAgain({
       parameter,
       calleeEnv,
       context: {
@@ -845,7 +711,7 @@ export function tryToCallFunctionWithArguments({
       const {
         parameterType: evaluatedForallParameterType,
         calleeEnv: updatedCalleeEnv,
-      } = evaluateFunctionParameterType({
+      } = evaluateFunctionParameterTypeAgain({
         parameter: forallParameter,
         calleeEnv,
         context: {
@@ -1037,7 +903,7 @@ Got:   ${argExprs.length} arguments`,
     const {
       parameterType: newImplicitParameterType,
       calleeEnv: nextCalleeEnv,
-    } = evaluateFunctionParameterType({
+    } = evaluateFunctionParameterTypeAgain({
       parameter: implicitParameter,
       calleeEnv,
       context: {
@@ -1523,23 +1389,28 @@ ${implicitVariables
     }
   }
 
-  // Evaluate the function return type again
-  const evaluatedFunctionReturnExpr = context.evaluateExpression({
-    expr: cloneExpr(functionType.return.expr),
-    env: calleeEnv,
-    context: { ...context, isEvaluatingFunctionType: true },
-  });
+  // if (exprToString(functionType.return.expr) === "Wrapper2(A)") {
+  //   console.log("before Wrapper2(A): ");
+  //   printEnvVarNames(calleeEnv);
+  // }
 
-  let returnType: Type;
-  const functionReturnTypeValue = evaluatedFunctionReturnExpr.$?.value;
-  if (isTypeValue(functionReturnTypeValue)) {
-    returnType = functionReturnTypeValue.value;
-  } else {
-    throw formatErrorMessage({
-      token: functionCalleeExpr?.token ?? PlaceholderToken,
-      errorMessage: `Function body is not evaluated correctly. Expected to return a type.`,
+  // Evaluate the function return type again
+  const { returnType, calleeEnv: nextCalleeEnv } =
+    evaluateFunctionReturnTypeAgain({
+      functionReturn: functionType.return,
+      calleeEnv,
+      context: {
+        ...context,
+        isEvaluatingFunctionType: true,
+      },
+      functionValue,
+      functionCalleeExpr,
     });
-  }
+  calleeEnv = nextCalleeEnv;
+
+  // if (exprToString(functionType.return.expr) === "Data(A)") {
+  //   console.log("after Data(A): ", typeToString(returnType));
+  // }
 
   const pathCollection: PathCollection = [];
   if (context.borrowings.length !== initialBorrowings.length) {

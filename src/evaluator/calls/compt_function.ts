@@ -149,18 +149,17 @@ export function evaluateComptFunctionCall({
   }
   if (isTypeValue(returnValue)) {
     const returnType = returnValue.value;
+    if (!returnType.typeName && functionValue.funcName) {
+      returnType.typeName =
+        functionValue.funcName +
+        `(${argValues.map((v) => valueToString(v)).join(", ")})`;
+    }
     if (
       isStructType(returnType) ||
       isEnumType(returnType) ||
       isUnionType(returnType) ||
       isModuleType(returnType)
     ) {
-      if (!returnType.typeName && functionValue.funcName) {
-        returnType.typeName =
-          functionValue.funcName +
-          `(${argValues.map((v) => valueToString(v)).join(", ")})`;
-      }
-
       if (!returnType.functionValue) {
         returnType.functionValue = functionValue;
       }

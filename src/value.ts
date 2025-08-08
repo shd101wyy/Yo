@@ -256,7 +256,13 @@ export function valueToString(value?: Value): string {
     }
     */
     case ValueTag.Function: {
-      return `<function>`;
+      if (value.funcName) {
+        return `<fn ${value.funcName}>`;
+      }
+      if (value.type.typeName) {
+        return `<fn ${value.type.typeName}>`;
+      }
+      return `<fn>`;
     }
     case ValueTag.Closure: {
       return `<closure>`;

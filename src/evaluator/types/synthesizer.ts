@@ -2,6 +2,7 @@ import {
   addVariableToEnv,
   Environment,
   getVariablesFromEnv,
+  printEnvVarNames,
   updateExistingVariable,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
@@ -402,6 +403,29 @@ export function synthesizeTypes(
       type.name === expected.type.name
     ) {
       // Update the env to set givenType to expectedType.name
+      // console.log(
+      //   `synthesizer line 415: creating TypeValue for given.type = ${typeToString(given.type)}`
+      // );
+      // console.log(`expected.type.name = ${expected.type.name}`);
+      // console.log("expected.env variables:");
+      // console.log(
+      //   expected.env.frames.map((frame) =>
+      //     frame.variables.map((v) => ({
+      //       name: v.name,
+      //       value: valueToString(v.value),
+      //     }))
+      //   )
+      // );
+      // console.log("given.env variables:");
+      // console.log(
+      //   given.env.frames.map((frame) =>
+      //     frame.variables.map((v) => ({
+      //       name: v.name,
+      //       value: valueToString(v.value),
+      //     }))
+      //   )
+      // );
+
       const value = createTypeValue(given.type);
       // console.log("(1) addVariableToEnv");
 
@@ -781,6 +805,14 @@ export function synthesizeTypes(
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
+    }
+
+    if (typeToString(givenFunction.return.type) === "Data(A)") {
+      console.log("synthesize function return types:");
+      console.log("expectedFunction:", typeToString(expectedFunction));
+      console.log("givenFunction", typeToString(givenFunction));
+      printEnvVarNames(given.env);
+      console.trace();
     }
 
     // Synthesize the return types

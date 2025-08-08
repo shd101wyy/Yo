@@ -105,7 +105,7 @@ ${valueToString(moduleElement.assignedValue)}`,
         }
 
         // evaluate the module member type again.
-        // Check evaluateFunctionParameterType function
+        // Check evaluateFunctionParameterTypeAgain function
         // They should be similar
         let moduleElementType: Type;
         const typeExpr = moduleElement.exprs.typeExpr;

@@ -768,6 +768,7 @@ export function typeToString(type: Type): string {
       if (moduleType.typeName) {
         return moduleType.typeName;
       }
+
       return `${
         moduleType.typeName ? `(${moduleType.typeName}) ` : ""
       }module(${moduleType.elements.map(moduleElementToString).join(", ")})`;
@@ -775,6 +776,9 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Function: {
       const func = type as FunctionType;
+      if (func.typeName) {
+        return func.typeName;
+      }
       return functionTypeToString(func);
     }
     case TypeTag.Closure: {

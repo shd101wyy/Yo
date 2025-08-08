@@ -7,6 +7,7 @@ import {
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
+  cloneExpr,
   Expr,
   exprIsAtom,
   exprIsAtomOf,
@@ -15,6 +16,8 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
+import { FunctionValue } from "../../function-value";
+import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
   ClosureKind,
@@ -23,6 +26,7 @@ import {
   createExprListType,
   createFunctionType,
   FunctionParameter,
+  FunctionReturn,
   getFunctionParameterExprs,
   getFunctionParameterToken,
   isClosureType,
@@ -1083,4 +1087,178 @@ ${typeToString(returnType)}`,
     pathCollection: [],
   };
   return expr;
+}
+
+export function evaluateFunctionParameterTypeAgain({
+  parameter,
+  calleeEnv,
+  context,
+  functionValue,
+}: {
+  parameter: FunctionParameter;
+  calleeEnv: Environment;
+  context: EvaluatorContext & { isEvaluatingFunctionType: true };
+  functionValue: FunctionValue | undefined;
+}): { parameterType: Type; calleeEnv: Environment } {
+  const typeExpr = parameter.exprs.typeExpr;
+  const defaultValueExpr = parameter.exprs.defaultValueExpr;
+  if (typeExpr) {
+    const evaluatedTypeExpr = context.evaluateExpression({
+      expr: cloneExpr(typeExpr),
+      env: calleeEnv,
+      context: {
+        ...context,
+        expectedType: undefined,
+        SelfType: functionValue?.SelfType,
+      },
+    });
+    if (!isTypeValue(evaluatedTypeExpr.$?.value)) {
+      throw formatErrorMessage({
+        token: typeExpr.token,
+        errorMessage: `Expected type for parameter, got:\n${exprToString(evaluatedTypeExpr)}`,
+      });
+    }
+    if (evaluatedTypeExpr.$?.env) {
+      calleeEnv = evaluatedTypeExpr.$?.env;
+    }
+    const parameterType = evaluatedTypeExpr.$?.value.value;
+
+    // Update parameter in callee env
+    // const existingVariables = getVariablesFromEnv(calleeEnv, parameter.label);
+    // if (existingVariables.length) {
+    //   const existingVariable = existingVariables[existingVariables.length - 1]!;
+    //   calleeEnv = updateExistingVariable(calleeEnv, existingVariable, {
+    //     ...existingVariable,
+    //     type: parameterType,
+    //     value: parameter.isCompileTimeOnly
+    //       ? createUnknownValue(parameterType, parameter.label)
+    //       : undefined,
+    //   });
+    // } else {
+    //   const { env: nextEnv } = addVariableToEnv({
+    //     env: calleeEnv,
+    //     variable: {
+    //       name: parameter.label,
+    //       type: parameterType,
+    //       isMutable: parameter.isMutable,
+    //       isCompileTimeOnly: parameter.isCompileTimeOnly,
+    //       isImplicit: false,
+    //       value: parameter.isCompileTimeOnly
+    //         ? createUnknownValue(parameterType, parameter.label)
+    //         : undefined,
+    //       token: typeExpr.token,
+    //       initializedAtToken: typeExpr.token,
+    //       consumedAtToken: undefined,
+    //     },
+    //   });
+    //   calleeEnv = nextEnv;
+    //
+    //   // throw formatErrorMessage({
+    //   //   token: typeExpr.token,
+    //   //   errorMessage: `Expected parameter "${parameter.label}" to be defined in the environment.`,
+    //   // });
+    // }
+
+    return {
+      parameterType,
+      calleeEnv,
+    };
+  } else if (defaultValueExpr) {
+    const evaluatedDefaultValueExpr = context.evaluateExpression({
+      expr: cloneExpr(defaultValueExpr),
+      env: calleeEnv,
+      context: {
+        ...context,
+        expectedType: undefined,
+        SelfType: functionValue?.SelfType,
+      },
+    });
+    if (!evaluatedDefaultValueExpr.$) {
+      throw formatErrorMessage({
+        token: defaultValueExpr.token,
+        errorMessage: `Failed to evaluate default value expression:\n${exprToString(defaultValueExpr)}`,
+      });
+    }
+    calleeEnv = evaluatedDefaultValueExpr.$?.env;
+
+    /*
+    const value = evaluatedDefaultValueExpr.$?.value;
+    if (!value) {
+      throw formatErrorMessage({
+        token: defaultValueExpr.token,
+        errorMessage: `Expected value for parameter, got:\n${exprToString(defaultValueExpr)}`,
+      });
+    }
+    */
+
+    const parameterType = evaluatedDefaultValueExpr.$.type; // value.type;
+    // NOTE: Using value.type is wrong here.
+    // value might be i32,
+    // but expr type is Type, not Free.
+
+    // Update parameter in callee env
+    // const existingVariables = getVariablesFromEnv(calleeEnv, parameter.label);
+    // if (existingVariables.length) {
+    //   const existingVariable = existingVariables[existingVariables.length - 1]!;
+    //   calleeEnv = updateExistingVariable(calleeEnv, existingVariable, {
+    //     ...existingVariable,
+    //     type: parameterType,
+    //     value: parameter.isCompileTimeOnly
+    //       ? createUnknownValue(parameterType, parameter.label)
+    //       : undefined,
+    //   });
+    // } else {
+    //   throw formatErrorMessage({
+    //     token: defaultValueExpr.token,
+    //     errorMessage: `Expected parameter "${parameter.label}" to be defined in the environment.`,
+    //   });
+    // }
+    //
+    return {
+      parameterType,
+      calleeEnv,
+    };
+  } else {
+    // For anonymous functions, the parameter type is already known and doesn't need evaluation
+    return {
+      parameterType: parameter.type,
+      calleeEnv,
+    };
+  }
+}
+
+export function evaluateFunctionReturnTypeAgain({
+  functionReturn,
+  calleeEnv,
+  context,
+  functionValue,
+  functionCalleeExpr,
+}: {
+  functionReturn: FunctionReturn;
+  calleeEnv: Environment;
+  context: EvaluatorContext & { isEvaluatingFunctionType: true };
+  functionValue: FunctionValue | undefined;
+  functionCalleeExpr?: Expr;
+}): { returnType: Type; calleeEnv: Environment } {
+  const evaluatedFunctionReturnExpr = context.evaluateExpression({
+    expr: cloneExpr(functionReturn.expr),
+    env: calleeEnv,
+    context: { ...context, SelfType: functionValue?.SelfType },
+  });
+
+  let returnType: Type;
+  const functionReturnTypeValue = evaluatedFunctionReturnExpr.$?.value;
+  if (isTypeValue(functionReturnTypeValue)) {
+    returnType = functionReturnTypeValue.value;
+  } else {
+    throw formatErrorMessage({
+      token: functionCalleeExpr?.token ?? PlaceholderToken,
+      errorMessage: `Function body is not evaluated correctly. Expected to return a type.`,
+    });
+  }
+
+  return {
+    returnType,
+    calleeEnv: evaluatedFunctionReturnExpr.$?.env ?? calleeEnv,
+  };
 }

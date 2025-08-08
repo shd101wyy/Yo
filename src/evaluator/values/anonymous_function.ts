@@ -9,6 +9,7 @@ import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
+  cloneExpr,
   Expr,
   exprIsAtom,
   exprIsFunctionCall,
@@ -408,7 +409,7 @@ Got:      "${paramName}"`,
     }),
     return: {
       ...functionType.return,
-      expr: returnValueExpr,
+      expr: cloneExpr(returnValueExpr),
     },
     parametersFrame: parametersFrame,
     env: envWithoutParametersFrame, // functionType.env, // Here we need to use the functionType.env, not the current env for later CPS transformation use.
