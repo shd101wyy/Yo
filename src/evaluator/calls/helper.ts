@@ -31,8 +31,10 @@ import {
   convertComptTypeToRuntimeType,
   createExprType,
   createFunctionType,
+  createSomeType,
   FunctionParameter,
   FunctionType,
+  getValueOfSomeTypeFromEnv,
   isClosureType,
   isExprListType,
   isExprType,
@@ -43,6 +45,7 @@ import {
   isTypeHierarchyType,
   isUnitType,
   Type,
+  TypeHierarchyType,
   typeRequiresComptModifier,
   typeToString,
 } from "../../types";
@@ -1524,33 +1527,14 @@ ${implicitVariables
   const evaluatedFunctionReturnExpr = context.evaluateExpression({
     expr: cloneExpr(functionType.return.expr),
     env: calleeEnv,
-    context: { ...context },
+    context: { ...context, isEvaluatingFunctionType: true },
   });
 
   let returnType: Type;
   const functionReturnTypeValue = evaluatedFunctionReturnExpr.$?.value;
-  // console.log(
-  //   "here: ",
-  //   exprToString(functionType.return.expr),
-  //   valueToString(functionReturnTypeValue),
-  //   functionReturnTypeValue?.type
-  //     ? typeToString(functionReturnTypeValue?.type)
-  //     : undefined
-  // );
   if (isTypeValue(functionReturnTypeValue)) {
     returnType = functionReturnTypeValue.value;
-  }
-  // else if (
-  //   isUnknownValue(functionReturnTypeValue) &&
-  //   isTypeHierarchyType(functionReturnTypeValue.type)
-  // ) {
-  //   console.log("Enter here");
-  //   returnType = createSomeType(
-  //     functionReturnTypeValue.type,
-  //     functionType.return.label ?? `sometype_${randomId()}` // QUESTION: Is it right?
-  //   );
-  // }
-  else {
+  } else {
     throw formatErrorMessage({
       token: functionCalleeExpr?.token ?? PlaceholderToken,
       errorMessage: `Function body is not evaluated correctly. Expected to return a type.`,
@@ -1596,13 +1580,24 @@ ${implicitVariables
       returnValue = nextReturnValue;
       callerEnv = nextEnv;
     } else {
-      returnValue = createUnknownValue(
-        returnType,
-        functionType.return.label,
-        isTypeHierarchyType(returnType) && returnType.level === 0
-          ? `${functionType.id}_return_sometype`
-          : undefined // for SomeType. Here we generate a unique SomeType id related to the functionType
-      );
+      // NOTE: The returnType might be a SomeType that we already synthesized
+      //     in this case, we need to try to get its synthesized value from the callerEnv.
+      const isSomeType =
+        isTypeHierarchyType(returnType) && returnType.level === 0;
+      const someTypeId = `${functionType.id}_return_sometype`;
+
+      if (isSomeType) {
+        const someType = createSomeType(
+          returnType as TypeHierarchyType,
+          functionType.return.label,
+          someTypeId
+        );
+        // Check if the returnType variable exists in the callerEnv.
+        const newReturnType = getValueOfSomeTypeFromEnv(callerEnv, someType);
+        returnValue = createTypeValue(newReturnType);
+      } else {
+        returnValue = createUnknownValue(returnType, functionType.return.label);
+      }
     }
   }
 

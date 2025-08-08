@@ -6,11 +6,12 @@ Applicative :: (fn(
       fn(
         forall(A : Type),
         a : A
-      ) -> Wrapper1(A)
+      ) -> Wrapper1(A) // - Wrapper2(A) -> SomeType
+                       // - Data(A)     -> StructType
+                       // Needs to unify Wrapper2 and Data
   )
 ;
 
-/*
 pure :: (fn(
   forall(
     A: Type,
@@ -21,7 +22,6 @@ pure :: (fn(
 ) -> Wrapper2(A))
   ApplicativeInstance.pure(a)
 ;
-*/
 
 Data ::
   (fn(compt(W) : Type) -> compt(Type))
@@ -36,7 +36,24 @@ given(DataApplicative) :: Applicative(Data)
     })
 ;
 
-main :: (fn() -> Data(i32)) 
-  DataApplicative.pure(13)
-  // return pure(13, using(DataApplicative))
-;
+/*
+test1 :: (fn() -> Data(boolean)) {
+  return pure(true, using(DataApplicative));
+};
+
+test2 :: (fn() -> Data(boolean)) {
+  return DataApplicative.pure(true);
+};
+
+test3 :: (fn() -> Data(boolean)) {
+  (x : Data(boolean)) = pure(true, using(DataApplicative));
+  return x;
+};
+*/
+
+test4 :: (fn() -> Data(boolean)) {
+  x := pure(true, using(DataApplicative));
+  return x;
+};
+
+

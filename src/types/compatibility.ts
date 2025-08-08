@@ -1,4 +1,4 @@
-import { addVariableToEnv, Environment } from "../env";
+import { addVariableToEnv, Environment, getVariablesFromEnv } from "../env";
 import { randomId } from "../utils";
 import { areValuesEqual, createUnknownValue, Value } from "../value";
 import {
@@ -38,11 +38,7 @@ import {
 } from "./guards";
 import { getFunctionParameterToken } from "./hierarchy";
 import { TypeTag } from "./tags";
-import {
-  getValueOfSomeTypeFromEnv,
-  typeContainsSomeType,
-  typeToString,
-} from "./utils";
+import { getValueOfSomeTypeFromEnv, typeContainsSomeType } from "./utils";
 
 /**
  * Check if two types are compatible.
@@ -321,10 +317,6 @@ export function areTypesCompatible(
 
   // NOTE: Module type is a structural type.
   if (isModuleType(expected.type)) {
-    console.log(`[DEBUG] Checking module type compatibility:`);
-    console.log(`[DEBUG] Expected module: ${typeToString(expected.type)}`);
-    console.log(`[DEBUG] Given module: ${typeToString(given.type)}`);
-
     let givenElements: ModuleElement[] | undefined = undefined;
     if (isModuleType(given.type)) {
       givenElements = given.type.elements;
@@ -553,23 +545,29 @@ function addTypeValueToEnvForFunctionParameter(
   typeValue: Value,
   env: Environment
 ): Environment {
-  const { env: nextEnv } = addVariableToEnv({
-    env: env,
-    variable: {
-      name: parameter.label,
-      value: typeValue,
-      type: typeValue.type,
-      isCompileTimeOnly: true,
-      isImplicit: false,
-      isMutable: false,
-      token: getFunctionParameterToken(parameter),
-      initializedAtToken: getFunctionParameterToken(parameter),
-      consumedAtToken: undefined,
-    },
-    // QUESTION: Should we update existing variable?
-    allowDuplicate: true, // Allow duplicates during type compatibility checking
-  });
-  return nextEnv;
+  // We should skip if the variable of the same name already exists
+  const variables = getVariablesFromEnv(env, parameter.label);
+  if (variables.length > 0) {
+    return env;
+  } else {
+    const { env: nextEnv } = addVariableToEnv({
+      env: env,
+      variable: {
+        name: parameter.label,
+        value: typeValue,
+        type: typeValue.type,
+        isCompileTimeOnly: true,
+        isImplicit: false,
+        isMutable: false,
+        token: getFunctionParameterToken(parameter),
+        initializedAtToken: getFunctionParameterToken(parameter),
+        consumedAtToken: undefined,
+      },
+      // QUESTION: Should we update existing variable? Or skip it?
+      allowDuplicate: true, // Allow duplicates during type compatibility checking
+    });
+    return nextEnv;
+  }
 }
 
 /**
@@ -864,9 +862,10 @@ export function areFunctionTypesCompatible(
     }
   }
 
-  return areTypesCompatible(
+  const returnTypesMatch = areTypesCompatible(
     { type: expected.type.return.type, env: expected.env },
     { type: given.type.return.type, env: given.env },
     exactNumericTypeMatch
   );
+  return returnTypesMatch;
 }
