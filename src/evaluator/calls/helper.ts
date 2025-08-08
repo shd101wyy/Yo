@@ -579,6 +579,12 @@ export function tryToCallFunctionWithArguments({
   isMethodCall: boolean;
   isEvaluatingDo?: boolean;
 }): FunctionCallResult {
+  if (functionValue) {
+    functionType = functionValue.type; // Use the type from the function value
+    // Because it might be an anonymous function
+    // the parameter names are different from the function type that it's implementing
+  }
+
   const initialBorrowings = [...context.borrowings];
 
   // If this is a `do` expression, validate the function signature
@@ -1568,19 +1574,6 @@ ${implicitVariables
     implicitArgs: implicitArgValues,
     variadicArgs,
   };
-
-  // Debug logging for function calls with implicit arguments
-  if (implicitArgValues.length > 0) {
-    console.log(
-      `[DEBUG] Function call with implicit args: ${functionCalleeExpr ? exprToString(functionCalleeExpr) : "unknown"}`
-    );
-    console.log(`[DEBUG] Implicit args count: ${implicitArgValues.length}`);
-    implicitArgValues.forEach((arg, i) => {
-      console.log(
-        `[DEBUG] Implicit arg ${i}: value=${arg.value ? valueToString(arg.value) : "undefined"}, type=${typeToString(arg.argType)}`
-      );
-    });
-  }
 
   // Check if we need to evaluate the compt function call
   // such as the type function, macro function, or function that returns compt value.

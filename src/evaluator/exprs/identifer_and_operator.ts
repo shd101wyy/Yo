@@ -492,6 +492,7 @@ export function evaluateIdentifierAndOperator({
   else {
     const variables = getVariablesFromEnv(env, identifier);
     if (!variables.length) {
+      console.trace();
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Variable "${identifier}" not found.`,

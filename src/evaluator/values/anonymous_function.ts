@@ -397,6 +397,8 @@ Got:      "${paramName}"`,
         };
       }
     }),
+    parametersFrame: env.frames[env.frames.length - 1]!,
+    env: functionType.env, // Here we need to use the functionType.env, not the current env for later CPS transformation use.
   };
 
   const originalEnv = env; // backup the env for later CPS transformation use.
