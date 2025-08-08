@@ -1,12 +1,12 @@
 Applicative :: (fn(
-  compt(Wrapper) : (fn(compt(W) : Type) -> compt(Type))
+  compt(Wrapper1) : (fn(compt(W) : Type) -> compt(Type))
   ) -> compt(Module))
   module(
     pure :
       fn(
         forall(A : Type),
         a : A
-      ) -> Wrapper(A)
+      ) -> Wrapper1(A)
   )
 ;
 
@@ -14,31 +14,29 @@ Applicative :: (fn(
 pure :: (fn(
   forall(
     A: Type,
-    Wrapper : (fn(compt(W) : Type) -> compt(Type))
-  ), 
+    Wrapper2 : (fn(compt(W) : Type) -> compt(Type))
+  ),
   a : A,
-  using(ApplicativeInstance : Applicative(Wrapper))
-) -> Wrapper(A))
+  using(ApplicativeInstance : Applicative(Wrapper2))
+) -> Wrapper2(A))
   ApplicativeInstance.pure(a)
 ;
 */
 
-Data :: 
+Data ::
   (fn(compt(W) : Type) -> compt(Type))
   struct(value: W)
 ;
 
 given(DataApplicative) :: Applicative(Data)
-  pure : 
+  pure :
     ((a) -> {
       A :: typeof(a);
       Data(A)(a)
     })
 ;
 
-main :: (fn() -> unit) {
-  a := Data(i32)(42);
-  (x : Data(unit)) = DataApplicative.pure(());
-  // pure((), using(DataApplicative))
-  return ();
-};
+main :: (fn() -> Data(i32)) 
+  DataApplicative.pure(13)
+  // return pure(13, using(DataApplicative))
+;

@@ -1616,7 +1616,6 @@ ${implicitVariables
   ) {
     specializedFunctionValue = createSpecializedFunctionInline({
       originalFunction: functionValue,
-      functionType,
       argValues: argValues_,
       calleeEnv: calleeEnv,
       callerEnv: callerEnv,
@@ -1641,19 +1640,19 @@ ${implicitVariables
  */
 function createSpecializedFunctionInline({
   originalFunction,
-  functionType,
   argValues,
   calleeEnv,
   callerEnv,
   context,
 }: {
   originalFunction: FunctionValue;
-  functionType: FunctionType;
   argValues: ArgValues;
   calleeEnv: Environment;
   callerEnv: Environment;
   context: EvaluatorContext;
 }): FunctionValue {
+  const functionType = originalFunction.type;
+
   // Extract compile-time argument values for caching
   const compileTimeArgValues: Value[] = [];
   const runtimeParameters: FunctionParameter[] = [];

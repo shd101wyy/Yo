@@ -20,6 +20,7 @@ import {
   FunctionCapturedVariableInfo,
   FunctionValue,
 } from "../../function-value";
+import { generateExprFromCode } from "../../parser";
 import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
@@ -200,6 +201,7 @@ export function evaluateAnonymousFunctionImplementation({
     });
   }
 
+  const envWithoutParametersFrame = env;
   // Add parameters to environment
   env = pushEnvFrame(env);
 
@@ -368,6 +370,13 @@ Got:      "${paramName}"`,
     }
   }
 
+  const parametersFrame = env.frames[env.frames.length - 1]!;
+
+  // Construct the function return expr from the function type
+  const returnValueExpr = generateExprFromCode(
+    typeToString(functionType.return.type)
+  );
+
   // Create new function type using expected forall/implicit parameters and mixing anonymous + expected regular parameters
   const newFunctionType: FunctionType = {
     ...functionType,
@@ -397,8 +406,12 @@ Got:      "${paramName}"`,
         };
       }
     }),
-    parametersFrame: env.frames[env.frames.length - 1]!,
-    env: functionType.env, // Here we need to use the functionType.env, not the current env for later CPS transformation use.
+    return: {
+      ...functionType.return,
+      expr: returnValueExpr,
+    },
+    parametersFrame: parametersFrame,
+    env: envWithoutParametersFrame, // functionType.env, // Here we need to use the functionType.env, not the current env for later CPS transformation use.
   };
 
   const originalEnv = env; // backup the env for later CPS transformation use.

@@ -292,6 +292,12 @@ export function synthesizeTypes(
     env: Environment;
   }
 ): { expectedEnv: Environment; givenEnv: Environment } {
+  // console.log(
+  //   "synthesizeTypes:",
+  //   typeToString(expected.type),
+  //   typeToString(given.type)
+  // );
+
   if (isSomeType(expected.type) && isSomeType(given.type)) {
     // Handle case where both are SomeTypes - unify them
     // Check if either SomeType is already bound
