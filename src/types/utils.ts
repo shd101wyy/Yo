@@ -802,6 +802,9 @@ export function typeToString(type: Type): string {
 
     case TypeTag.SomeType: {
       const someType = type as SomeType;
+      if (someType.functionApplication) {
+        return exprToString(someType.functionApplication);
+      }
       // const parentType = someType.parentType;
       // TODO: Display the interfaces implemented
       return someType.name;

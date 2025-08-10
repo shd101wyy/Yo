@@ -140,6 +140,12 @@ export interface SomeType extends Type {
    * size is unknown for SomeType
    */
   size: undefined;
+
+  /**
+   * The function application expression that created this SomeType.
+   * This is useful for error reporting and debugging.
+   */
+  functionApplication?: Expr;
 }
 
 // Extended Type interface for compound types

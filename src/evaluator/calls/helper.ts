@@ -42,12 +42,8 @@ import {
   isFunctionType,
   isMutRefType,
   isRefType,
-  isSomeType,
-  isStructType,
   isTypeHierarchyType,
   isUnitType,
-  SomeType,
-  StructType,
   Type,
   TypeHierarchyType,
   typeRequiresComptModifier,
@@ -434,6 +430,7 @@ function validateDoFunctionSignature(
  * but will not pop frame.
  */
 export function tryToCallFunctionWithArguments({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   expr,
   functionValue,
   functionType,
@@ -1002,12 +999,6 @@ Got:   ${argExprs.length} arguments`,
       calleeEnv = expectedEnv;
       callerEnv = givenEnv;
 
-      console.log(
-        "after synthesizeTypes for implicit parameter",
-        typeToString(implicitParameterType),
-        typeToString(argType)
-      );
-
       // Compare the types
       if (
         !areTypesCompatible(
@@ -1369,7 +1360,7 @@ ${implicitVariables
   // eslint-disable-next-line prefer-const
   let { returnType, calleeEnv: nextCalleeEnv } =
     evaluateFunctionReturnTypeAgain({
-      functionReturn: functionType.return,
+      functionType: functionType,
       calleeEnv,
       context: {
         ...context,
@@ -1391,95 +1382,11 @@ ${implicitVariables
   // Otherwise it might cause the variable shadowing problem.
   // See example in compt_runtime.yo.
   if (context.expectedType) {
-    console.log(
-      `[DEBUG] synthesize for returnType of ${expr ? exprToString(expr) : "undefined"}:`,
-      typeToString(returnType),
-      typeToString(context.expectedType.type)
-    );
-
     const { expectedEnv } = synthesizeTypes(
       { type: returnType, env: calleeEnv },
       { type: context.expectedType.type, env: context.expectedType.env }
     );
-
-    const calleeEnvChanged = expectedEnv !== calleeEnv;
     calleeEnv = expectedEnv;
-
-    // console.log("- givenEnv");
-    // printEnvVarNames(givenEnv);
-
-    // IMPORTANT: During synthesis, variables might end up in givenEnv that are needed in calleeEnv
-    // We need to copy any variables from givenEnv that don't exist in expectedEnv
-    // This commonly happens when the context.expectedType.env contains variables that the
-    // function body needs but aren't naturally in the calleeEnv
-    // let calleeEnvChanged = false;
-    // const givenVarNames = new Set<string>();
-    // for (const frame of givenEnv.frames) {
-    //   for (const variable of frame.variables) {
-    //     givenVarNames.add(variable.name);
-    //   }
-    // }
-    //
-    // for (const varName of givenVarNames) {
-    //   const existingInCallee = getVariablesFromEnv(calleeEnv, varName);
-    //   const inGiven = getVariablesFromEnv(givenEnv, varName);
-    //
-    //   // If variable exists in givenEnv but not in calleeEnv, copy it over
-    //   if (inGiven.length > 0 && existingInCallee.length === 0) {
-    //     const varToCopy = inGiven[inGiven.length - 1]!; // Get the most recent one
-    //     const { env: nextEnv } = addVariableToEnv({
-    //       env: calleeEnv,
-    //       variable: varToCopy,
-    //     });
-    //     calleeEnv = nextEnv;
-    //     calleeEnvChanged = true;
-    //   }
-    // }
-
-    if (typeToString(context.expectedType.type) === "Data(boolean)") {
-      // printEnvVarNames(calleeEnv);
-      console.log("calleeEnvChanged: ", calleeEnvChanged);
-      console.log(typeToString(returnType), isSomeType(returnType));
-
-      if (isSomeType(returnType)) {
-        const type = getValueOfSomeTypeFromEnv(
-          calleeEnv,
-          returnType as SomeType
-        );
-        console.log(typeToString(type), isStructType(type));
-        if (isStructType(type)) {
-          const structType = type as StructType;
-          const field = structType.elements[0]!;
-          console.log(typeToString(field.type), isSomeType(field.type));
-        }
-      }
-    }
-
-    if (calleeEnvChanged) {
-      console.log(
-        `[DEBUG] calleeEnvChanged! Re-evaluate ${exprToString(functionType.return.expr)}`
-      );
-      // printEnvVarNames(calleeEnv);
-      // Re-evaluate the returnType again
-      const { returnType: newReturnType, calleeEnv: updatedCalleeEnv } =
-        evaluateFunctionReturnTypeAgain({
-          functionReturn: functionType.return,
-          calleeEnv,
-          context: {
-            ...context,
-            isEvaluatingFunctionType: true,
-          },
-          functionValue,
-          functionCalleeExpr,
-        });
-      calleeEnv = updatedCalleeEnv;
-      returnType = newReturnType;
-      console.log(
-        `[DEBUG] Re-evaluated returnType after synthesis for ${exprToString(functionType.return.expr)}: ${typeToString(
-          returnType
-        )}`
-      );
-    }
   }
 
   const pathCollection: PathCollection = [];
@@ -1533,39 +1440,22 @@ ${implicitVariables
       const someTypeId = `${functionType.id}_return_sometype`;
 
       if (isSomeType) {
-        const someType = createSomeType(
-          returnType as TypeHierarchyType,
-          functionType.return.label,
-          someTypeId
-        );
-        const newReturnType = getValueOfSomeTypeFromEnv(calleeEnv, someType);
-        returnValue = createTypeValue(newReturnType);
+        if (context.expectedType?.type) {
+          returnValue = createTypeValue(context.expectedType.type);
+        } else {
+          const someType = createSomeType(
+            returnType as TypeHierarchyType,
+            functionType.return.label,
+            someTypeId
+          );
+          someType.functionApplication = expr;
+          const newReturnType = getValueOfSomeTypeFromEnv(calleeEnv, someType);
+          returnValue = createTypeValue(newReturnType);
+        }
       } else {
         returnValue = createUnknownValue(returnType, functionType.return.label);
       }
     }
-  }
-  /// Runtime
-  else if (isSomeType(returnType)) {
-    const newReturnType = getValueOfSomeTypeFromEnv(calleeEnv, returnType);
-    returnType = newReturnType;
-    // printEnvVarNames(calleeEnv);
-    console.log("Runtime isSomeType(returnType): ", typeToString(returnType));
-  }
-
-  if (expr && exprToString(expr) === "pure(true, using(DataApplicative))") {
-    console.log(
-      "[DEBUG] pure(true, using(DataApplicative)), returnType: ",
-      typeToString(returnType),
-      typeToString(functionType)
-    );
-
-    const A1 = getVariablesFromEnv(calleeEnv, "A1");
-    A1.forEach((v) => {
-      console.log(
-        `  - A1 variable: name=${v.name}, value=${v.value ? valueToString(v.value) : "undefined"}, type=${typeToString(v.type)}`
-      );
-    });
   }
 
   // Check if function has compile-time parameters and create specialized version if needed

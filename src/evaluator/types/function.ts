@@ -26,12 +26,14 @@ import {
   createExprListType,
   createFunctionType,
   FunctionParameter,
-  FunctionReturn,
+  FunctionType,
   getFunctionParameterExprs,
   getFunctionParameterToken,
+  getValueOfSomeTypeFromEnv,
   isClosureType,
   isExprListType,
   isExprType,
+  isSomeType,
   prohibitDynamicSizedType,
   Type,
   typeOfType,
@@ -1228,18 +1230,19 @@ export function evaluateFunctionParameterTypeAgain({
 }
 
 export function evaluateFunctionReturnTypeAgain({
-  functionReturn,
+  functionType,
   calleeEnv,
   context,
   functionValue,
   functionCalleeExpr,
 }: {
-  functionReturn: FunctionReturn;
+  functionType: FunctionType;
   calleeEnv: Environment;
   context: EvaluatorContext & { isEvaluatingFunctionType: true };
   functionValue: FunctionValue | undefined;
   functionCalleeExpr?: Expr;
 }): { returnType: Type; calleeEnv: Environment } {
+  const functionReturn = functionType.return;
   const evaluatedFunctionReturnExpr = context.evaluateExpression({
     expr: cloneExpr(functionReturn.expr),
     env: calleeEnv,
@@ -1255,6 +1258,11 @@ export function evaluateFunctionReturnTypeAgain({
       token: functionCalleeExpr?.token ?? PlaceholderToken,
       errorMessage: `Function body is not evaluated correctly. Expected to return a type.`,
     });
+  }
+
+  if (isSomeType(returnType)) {
+    const newReturnType = getValueOfSomeTypeFromEnv(calleeEnv, returnType);
+    returnType = newReturnType;
   }
 
   return {
