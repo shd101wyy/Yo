@@ -2,7 +2,6 @@ import {
   addVariableToEnv,
   Environment,
   getVariablesFromEnv,
-  printEnvVarNames,
   updateExistingVariable,
 } from "../../env";
 import { PlaceholderToken } from "../../token";
@@ -274,7 +273,18 @@ export function synthesizeTypes(
         expected.type.functionValue === given.type.functionValue))
     // NOTE: The typeId might not match
     // They might be different structs that both are returned from the same function.
+    // We removed the typeName condition since it fails for Data(boolean) vs Data(A1)
   ) {
+    console.log(
+      `[DEBUG-SYNTH] Synthesizing struct types: expected=${typeToString(expected.type)}, given=${typeToString(given.type)}`
+    );
+    console.log(
+      `[DEBUG-SYNTH] id match: ${expected.type.id === given.type.id}`
+    );
+    console.log(
+      `[DEBUG-SYNTH] functionValue match: ${expected.type.functionValue === given.type.functionValue}`
+    );
+
     for (let i = 0; i < expected.type.elements.length; i++) {
       const expectedElement = expected.type.elements[i]!;
       const givenElement = given.type.elements[i]!;
@@ -553,14 +563,6 @@ export function synthesizeTypes(
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
-    }
-
-    if (typeToString(givenFunction.return.type) === "Data(A)") {
-      console.log("synthesize function return types:");
-      console.log("expectedFunction:", typeToString(expectedFunction));
-      console.log("givenFunction", typeToString(givenFunction));
-      printEnvVarNames(given.env);
-      console.trace();
     }
 
     // Synthesize the return types

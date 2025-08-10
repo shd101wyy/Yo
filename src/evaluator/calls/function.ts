@@ -404,6 +404,7 @@ export function evaluateFunctionCall({
         const result = tryToCallFunctionWithArguments({
           functionValue: extractFunctionValue(functionToCall.value),
           functionType: functionToCall.type,
+          expr,
           functionCalleeExpr: func,
           argExprs: args,
           callerEnv: env,
@@ -434,6 +435,7 @@ export function evaluateFunctionCall({
         const result = tryToCallFunctionWithArguments({
           functionValue: extractFunctionValue(functionToCall.value),
           functionType: closureType.callType,
+          expr,
           functionCalleeExpr: func,
           argExprs: args,
           callerEnv: env,

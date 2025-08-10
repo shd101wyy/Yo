@@ -41,7 +41,7 @@ export function evaluateComptFunctionCall({
   callerEnv: Environment;
   calleeEnv: Environment;
   context: EvaluatorContext;
-}): { value: Value; callerEnv: Environment } {
+}): { value: Value; callerEnv: Environment; calleeEnv: Environment } {
   const unfilteredArgValues: (Value | undefined)[] = [
     ...argValues_.forallArgs.map((v) => v.value),
     ...argValues_.args.map((v) => v.value),
@@ -73,8 +73,10 @@ export function evaluateComptFunctionCall({
         // given T = i32 in env, areValuesEqual returns true.
         // We don't want to use the cache there.
         if (isTypeValue(argValue) && isTypeValue(givenArgValue)) {
-          if (isSomeType(argValue.value) && !isSomeType(givenArgValue.value)) {
-            return false;
+          if (isSomeType(argValue.value)) {
+            if (!isSomeType(givenArgValue.value)) {
+              return false;
+            }
           }
         }
 
@@ -86,9 +88,9 @@ export function evaluateComptFunctionCall({
     ); // Check if the values are equal
   });
   if (calledComptFunction) {
-    // Find the cache
     return {
-      callerEnv: callerEnv,
+      callerEnv,
+      calleeEnv,
       value: calledComptFunction.value,
     };
   }
@@ -147,6 +149,8 @@ export function evaluateComptFunctionCall({
       errorMessage: `Function body is not evaluated correctly. Expected to return a compile-time known value.`,
     });
   }
+  calleeEnv = evaluatedFunctionBody.$.env;
+
   if (isTypeValue(returnValue)) {
     const returnType = returnValue.value;
     if (!returnType.typeName && functionValue.funcName) {
@@ -177,6 +181,7 @@ export function evaluateComptFunctionCall({
 
   return {
     value: returnValue,
-    callerEnv: callerEnv,
+    callerEnv,
+    calleeEnv,
   };
 }
